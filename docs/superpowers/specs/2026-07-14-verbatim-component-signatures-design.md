@@ -1,6 +1,6 @@
 # Verbatim component signatures — the parameter list *is* the contract
 
-**Status:** design settled — ready for implementation planning.
+**Status:** design settled — implementation in progress.
 Early syntax phase; **atomic throwaway rewrite** accepted (no dual-mode layer).
 **Date:** 2026-07-14
 
@@ -67,6 +67,11 @@ Go callers, structpages, or Go API tools. Local temporaries remain ordinary
 generated implementation details. (A private generic call adapter for zero-fill
 was considered and rejected — see §Zero-fill lowering.)
 
+This prohibition applies to declarations in emitted `.x.go`. Transient,
+in-memory type-check probes may synthesize private declarations as analysis
+scaffolding, but they never appear in generated source and never surface as user
+API through LSP or Go tooling.
+
 `children` and `attrs` — the two inputs that come from the markup parent, not a
 Go caller — must therefore be **declared by the author** if used; a synthesized
 param would re-diverge the contract. This is consistent with the 2026-06-30
@@ -83,7 +88,7 @@ the **component contract**:
 |---|---|---|
 | Rename a parameter | no Go type change | **breaking** (the attribute name changed) |
 | Reorder same-typed params | may **silently swap** arguments | no effect (fill is by name) |
-| Add a parameter | arity break | zero-filled (source-compatible) |
+| Add a parameter | arity break | zero-filled when an inline zero is lowerable; otherwise the call gains a required-attribute diagnostic |
 | Remove a parameter | arity break | unmatched-attribute error, or falls through |
 | Change a parameter type | type error | type error |
 
@@ -125,59 +130,94 @@ Only `children` and `attrs` are special. Other attrs-bag-shaped params
    fills that parameter. `children` is populated only by the body. The reserved
    name `attrs` is not an ordinary parameter fill: `attrs={expr}` and
    `attrs={{...}}` contribute bags to the fallthrough stream as defined below.
+   An ordinary parameter may be explicitly filled at most once; a second
+   exact-name attribute is a positioned `duplicate-prop` error. Repetition is
+   allowed only for the reserved `attrs` contributor stream.
 2. Only identifier-shaped attribute names can bind a param. `class`-style names
    that are not Go identifiers — `data-*`, `aria-*`, `hx-*`, any kebab name —
    **can never match a param** and always fall through.
 3. Every unmatched attribute, `{bag...}` spread, conditional-attribute bag, and
    explicit `attrs` bag contributes to the `attrs` parameter in authored order.
+   A conditional-attribute group is bag syntax: names inside its branches never
+   conditionally fill ordinary parameters; they contribute to `attrs` or get the
+   strict missing-attrs diagnostic.
 4. **Strict:** an unmatched attribute with **no `attrs` param declared** is a
    **compile error** (`Card has no attrs param; unexpected attribute "class"`).
-5. An **omitted** known prop **zero-fills** (optional; see §Zero-fill lowering).
-   There is no `required` concept; presence checks are ordinary Go in the body.
+5. An **omitted** known prop **zero-fills** when its zero is lowerable (see
+   §Zero-fill lowering). There is no author-declared `required` modifier; only an
+   unlowerable semantic zero makes a prop required at a particular call site.
+   Presence checks are ordinary Go in the body.
 6. **Parameter order is irrelevant to markup** (fill is by name/role). Order only
    matters to Go positional callers, who see the signature.
 
-`class` / `style` are the author's choice: declare `class string` to take them as
-plain props, or omit them and let them land in `attrs`, where a `{attrs...}`
-spread on the root performs the existing class/style merge. **Caveat:** `class`
-and `style` are *not yet* ordinary props for every syntax form — the parser
-special-cases braced/composed/ordered forms today. Making them plain params needs
-**target-aware** handling across the static, braced (`class={…}`), composed
-(class parts), and ordered-attrs forms; this is called out as an implementation
-task, not hand-waved as "just a prop."
+`class` / `style` are the author's choice: declare an exact ordinary parameter to
+take them as props, or omit it and let them land in `attrs`, where a
+`{attrs...}` spread on the root performs the existing class/style merge. Target
+classification happens **before** the parser-specific attribute kind is lowered:
+when the exact parameter exists, static/braced/embedded/ordered/markup-valued
+forms bind it using their ordinary value type, while composed `class={…}` lowers
+to `gsx.ClassJoin(...)` and composed `style={…}` lowers to
+`gsx.StyleString(...)`. The resulting value is checked against the declared
+parameter type. Without the exact parameter, those forms retain their existing
+fallthrough-bag behavior. Unsupported target/form combinations get a positioned
+diagnostic; they are never silently re-routed.
 
 ### Zero-fill lowering — inline only, no generated helpers
 
-An omitted prop needs its zero value at the call site, spelled **inline** — no
-generated adapter or helper function. The zero is written directly: `""`, `0`,
-`false`, `nil`, `T{}`, or the uniform `*new(T)` / a local `var _gsxz T` for the
-general nameable case. Omitted trailing variadics pass nothing (`f(a)` for
-`f(a, xs...)`). This keeps the principle intact: **gsx synthesizes no type and no
-function**; call-site lowering uses only inline expressions and local temporaries.
+An omitted prop needs a zero value at the call site, spelled **inline** — no
+emitted adapter or helper function. Lowering chooses the first semantically valid
+shape:
 
-**Not-nameable case → required attribute (fail closed).** Spelling a zero inline
-requires naming the type. A direct call *cannot* name an **imported unexported
-type**, so an omitted attribute whose param type is not nameable at the call site
-is a **positioned diagnostic** ("attribute `x` is required here: its type is not
-nameable in this package"), not a synthesized work-around. This is rare and
-already-odd (a component exposing an unexported-typed param to cross-package
-markup); the caller may still *provide* it via an expression of that type, but may
-not omit it. A private generic call adapter (`_gsxcall…[A,B any](f, a)`) was
-considered and **rejected**: replacing generated structs with generated call
-helpers undercuts the whole motivation (honest ABI, no generated machinery,
-simple output) and grows combinatorially with arity/omission shape.
+1. a type-independent zero (`""`, `0`, `false`, or `nil`) when Go says the
+   untyped value is assignable to the instantiated parameter type;
+2. `*new(T)` when the exact type `T` is nameable in the caller;
+3. `*new(U)` when an accessible unnamed type expression `U` is assignable to the
+   parameter (for example, the spellable underlying struct/array shape of an
+   otherwise unexported named type).
 
-**Inference-failure case.** When a type parameter appears *only* in omitted
-arguments, Go cannot infer it (`<Box/>` with `item` omitted, `Box[T](item T)`).
-Require explicit type arguments (`<Box[string]/>`); absent them, a **positioned
-diagnostic**.
+The analyzer validates candidate types and assignability with `go/types`; it does
+not infer lowerability from exported spelling or an underlying-kind heuristic.
+Omitted trailing variadics pass nothing (`f(a)` for `f(a, xs...)`).
+
+**No lowerable zero → required attribute (fail closed).** A type is nameable when
+the generator can emit a caller-package type expression which type-checks as
+identical to the instantiated parameter type. Alias-preserving source expressions
+count. Instantiated types with opaque arguments and anonymous structs/interfaces
+containing foreign unexported members may remain unnameable. If neither a
+type-independent zero nor an assignable nameable type expression exists, omission
+gets a **positioned diagnostic** ("attribute `x` is required here: its zero value
+cannot be expressed in this package"), not a synthesized work-around. The caller
+may still provide an expression of that opaque type.
+
+A private generic call adapter (`_gsxcall…[A,B any](f, a)`) was considered and
+**rejected**: replacing generated structs with generated call helpers undercuts
+the motivation (honest ABI, no emitted machinery, simple output) and grows
+combinatorially with arity/omission shape.
+
+**Inference-failure case.** Before synthesizing zeros, perform Go type inference
+using only explicit type arguments and authored operands that survive into the
+actual call lowering. Omitted zeros are never inference evidence. Discovery may
+recover the origin generic object/signature even though using an uninstantiated
+generic function as a value produces an expected probe diagnostic. Once authored
+bindings are known, a transient in-memory generic inference carrier copies the
+target's type parameters and constraints but accepts only the supplied parameter
+types. Its instance supplies the inferred type arguments for the original
+signature. Only then does lowering instantiate that signature, synthesize zeros,
+and validate the complete call. The carrier is analysis scaffolding, never an
+emitted declaration.
+
+If authored-operands-only inference does not produce a complete valid
+instantiation, require explicit type arguments (`<Box[string]/>`) with a
+positioned diagnostic. Do not decide inference by syntactic type-parameter
+occurrence: `Infer[T](*T)` cannot infer `T` from `nil`, while constraints may
+infer a parameter not textually present in a supplied parameter type.
 
 A legitimate but uncommon non-nameable case is an **opaque package value**:
 
 ```go
 // package ui
-type theme struct{ /* ... */ }
-func DefaultTheme() theme { return theme{} }
+type theme struct{ id uint64 } // foreign unexported field makes the type opaque
+func DefaultTheme() theme { return theme{id: 1} }
 func Widget(title string, theme theme) gsx.Node { return nil }
 ```
 
@@ -186,9 +226,11 @@ and pass `ui.theme` without naming the type — but cannot spell the omitted zer
 Markup therefore accepts `<ui.Widget title="title" theme={ui.DefaultTheme()}/>`
 and rejects `<ui.Widget title="title"/>` with the required-attribute diagnostic.
 This is the concrete cross-package use case to retain in the implementation
-probes. If implementation finds another signature that cannot obey the
-inline-only rule, it must stop with a minimal corpus reproducer and bring the
-case back to the design; no helper, reflection, or guessed zero-value fallback.
+probes. (An opaque defined numeric or nilable type may still accept untyped `0`
+or `nil`; opacity alone is not rejection.) If implementation finds another
+signature that cannot obey the inline-only rule, it must stop with a minimal
+corpus reproducer and bring the case back to the design; no helper, reflection,
+or guessed zero-value fallback.
 
 ### Evaluation order
 
@@ -206,10 +248,16 @@ This reuses the existing value-plan machinery of the component-value effect-orde
 design (`docs/superpowers/specs/2026-07-13-component-value-effect-order-design.md`):
 build one source-ordered plan, but materialize **only** values whose movement
 crosses Go-defined ordered work or which require statement-producing lowering.
-Untyped constants and other context-dependent values stay inline so the final
-parameter supplies their type context. The plan must also preserve **`(T, error)`
-auto-unwrapping** — a naïve direct call could otherwise bind a returned `error`
-into an adjacent component parameter.
+Classify each expression with `go/types` before ordering analysis. A constant-
+valued or nil expression must not be materialized with `:=`; it stays inline so
+the final parameter supplies its context, or uses a target-typed local when that
+type is nameable. Syntactic `CallExpr` classification never overrides contextual
+typing (`min(1, 2)` may still be an untyped constant). The plan must also preserve
+**`(T, error)` auto-unwrapping** — a naïve direct call could otherwise bind a
+returned `error` into an adjacent component parameter. Auto-unwrapping applies
+independently to ordinary props, `attrs={expr}`, bag spreads, and each ordered-
+literal value; a tuple is consumed before positional assembly and can never
+expand into adjacent component parameters.
 
 **Implementation checkpoint.** The first positional-call corpus slice must prove
 authored-order inversion, untyped constants bound to non-default types, and tuple
@@ -233,12 +281,16 @@ Leading underscore needs no new rule — it follows from name-matching:
 - **`_foo`** (leading underscore, real name) — an ordinary named prop. Identifier-
   shaped, so markup fills it by name (`<Foo _foo={x}/>`) and the body references
   it. No special meaning (matching Go).
-- **`_`** (blank), and any fixed parameter markup cannot name/fill — the component
-  is **tag-ineligible**: using it as a markup tag is a **compile error** (fail
-  closed). It remains perfectly valid for direct Go and structpages calls
-  (`fillMethodArgs` fills `_ *Store` by type). Rationale: silently zero-filling
-  `nil` for an injected `_ *Store` on a markup call is a footgun; reject the
-  markup invocation instead. gsx emits the param verbatim and binds no local.
+- A **blank or unnamed fixed parameter** (`func(_ string) gsx.Node` or
+  `func(string) gsx.Node`) —
+  markup cannot name/fill it, so the callable is **tag-ineligible**: using it as a
+  tag is a compile error (fail closed). It remains valid for direct Go and
+  structpages calls (`fillMethodArgs` can fill `_ *Store` by type). Names come
+  only from the callee's static signature; gsx never tries to recover a name from
+  a function originally assigned to an unnamed func type. Rationale: silently
+  zero-filling an injected fixed parameter is a footgun. A blank or unnamed
+  ordinary variadic is Go-only and may be omitted, matching the general
+  variadic rule.
 
 **Deliberately not adopted:** a "private/markup-hidden param" meaning for named
 leading-underscore params (`_foo`). No strong use case in gsx (structpages injects
@@ -269,9 +321,10 @@ compile error.
 `children` remains body-only. `attrs` is different: it names the component's
 ordered fallthrough **input role**, not a single ordinary prop slot. All syntax
 that contributes an attribute bag therefore enters one source-ordered stream.
-`attrs={expr}` contributes an expression assignable to `gsx.Attrs`, exactly like
-`{expr...}`; `attrs={{ "k": value }}` constructs and contributes a `gsx.Attrs`
-literal. Separately, `name={{ "k": value }}` remains general attribute-value
+`attrs={expr}` accepts the full non-variadic attrs-bag slice family and normalizes
+it to canonical `gsx.Attrs` at this authored position; `attrs={{ "k": value }}`
+constructs and contributes a `gsx.Attrs` literal. Separately,
+`name={{ "k": value }}` remains general attribute-value
 syntax which produces a `gsx.Attrs` value for an **ordinary** named prop, so a
 composite component can route that bag to one or several chosen descendants.
 
@@ -281,7 +334,7 @@ composite component can route that bag to one or several chosen descendants.
 | `<C children={n}/>` | **error** — `children` is body-populated; write `<C>{n}</C>` |
 | `<C class="x"/>` (unmatched) + `attrs` param | `class` flows into `attrs` |
 | `<C {bag...}/>` | contributes `bag` to `attrs` (fallthrough forwarding) |
-| `<C attrs={a}/>` | contributes `a` to `attrs` at this authored position; `a` must be assignable to `gsx.Attrs` |
+| `<C attrs={a}/>` | contributes `a` to `attrs` at this authored position; `a` may be `gsx.Attrs`, `[]gsx.Attr`, or a defined/aliased slice with exact underlying `[]gsx.Attr` |
 | `<C attrs={{ "role": "x" }}/>` | contributes the ordered literal to `attrs` at this authored position |
 | `<C inputAttrs={{ "aria-describedby": id }}/>` | fills the ordinary `inputAttrs` prop with a `gsx.Attrs` value; the component may spread it on one or more chosen inner elements |
 | `<C inputAttrs={computedBag}/>` | fills that same ordinary prop from a reusable/computed `gsx.Attrs` expression |
@@ -330,8 +383,12 @@ Aliases of these forms are accepted. The element type remains exact after alias
 resolution: `[]MyAttr` where `type MyAttr gsx.Attr` is not a bag shape. This is
 one type-driven rule, not four calling-convention branches. Call-site lowering
 builds the canonical `gsx.Attrs` bag, passes it directly where assignable,
-converts it for a defined slice, or expands it for the variadic form. The
-component body sees the exact type the author declared.
+passes `[]gsx.Attr(canonicalBag)` for a defined-slice target (Go assignability
+then covers exported, unexported, aliased, and instantiated named slices without
+naming the target), or expands it for the variadic form. An `attrs={expr}`
+contributor from any non-variadic member of the same family normalizes as
+`gsx.Attrs([]gsx.Attr(expr))`. The component body sees the exact type the author
+declared.
 
 Because Go requires a variadic parameter to be final, `attrs ...gsx.Attr` cannot
 be followed by other parameters or coexist with variadic `children`; use the
@@ -404,14 +461,26 @@ tag eligibility is defined by **resolvability to a concrete `go/types.Signature`
 
 - **Eligible:** declared gsx components (funcs, plus methods through a bound
   receiver), same-package and imported package-level Go funcs / func vars
-  returning `gsx.Node`, bound method values (`x.Page` where `x` is a value), and
-  named func types / aliases.
+  with exactly one result assignable to `gsx.Node`, bound method values (`x.Page`
+  where `x` is a value), and named func types / aliases. Result assignability,
+  not exact named-type identity, admits concrete node implementations while
+  still rejecting zero-result and multi-result callables.
 - **Ineligible (fail closed):** any callee whose signature does not statically
   resolve — including several field/local/interface-method/param shapes the
   current generator already rejects. **An unresolved signature is an error, not a
   guess.** The existing imported-props "warn-and-guess" fallback is unsound for
   positional calls (a guessed field set cannot produce a correct positional call)
   and must be replaced by fail-closed resolution here.
+
+A signature alone is not enough; the discovery pass records provenance. Allowed
+origins are a package-scope `types.Func`, a package-scope function-valued
+`types.Var` (bare or through a package selector), or a concrete
+`types.MethodVal`. Reject `types.MethodExpr`, struct fields, locals/parameters,
+interface dispatch, and any other dynamic origin even when its current type is a
+concrete signature. Named func types and aliases inherit the eligibility of the
+object that supplies the value. Parameter names come only from that static
+signature. A fixed parameter whose `types.Var.Name()` is empty or `_` triggers
+the tag-ineligible rule above; missing export-data names are never guessed.
 
 A true method expression (`T.Page`) is also tag-ineligible: its function value has
 an explicit receiver argument, and markup has no receiver-fill mechanism. The
@@ -496,9 +565,47 @@ files**, and **71 hand-written `RenderComponent` calls** outside generated files
   generated signature is exact, an explicit **rollback unit**, LSP/cache tests,
   and **generation benchmarks**.
 
+**Stale-wrapper boundary.** Detection is generation-time, not a promise made by
+plain `go build` (the Go tool does not read `.gsx`). Signature discovery ignores a
+paired disk `.x.go` when authoritative `.gsx` declaration facts exist; a normal
+generation overwrites that paired output. `gsx generate` removes and reports an
+orphan file with gsx's exact generated header and `.x.go` naming convention when
+its source `.gsx` no longer exists, including directories with no remaining
+`.gsx`; this preserves the existing ownership-gated orphan behavior.
+
+The existing `gsx -> Go-only project package -> gsx` importer path is also part
+of the cutover. It currently obtains the transitive gsx package from the external
+importer's on-disk `.x.go`, so ignoring only directly paired output is
+insufficient. Project-local Go-only packages reachable during analysis must be
+source-type-checked through the same module importer, so any gsx package they
+import resolves from the authoritative in-memory skeleton. Cache and reverse-
+dependency edges include those intermediaries. Do not solve this by generation
+ordering, writing dependencies early, reloading `packages.Load`, or emitting an
+ABI sentinel: a single analysis run must not observe a mixture of old disk ABI
+and new skeleton ABI. No emitted compatibility wrapper is introduced.
+
 ## Open implementation risks (design is settled; these are execution concerns)
 
-1. **Cross-package invocation resolution.** `<pkg.Foo …/>` needs Foo's ordered
+1. **Stable call-site preprocessing and two-phase callable analysis.** Positional probe construction needs the
+   callable signature, but today's single skeleton pass learns an arbitrary
+   callable signature only after `_gsxcompsig` harvest. Before either phase,
+   materialize every element embedded in an interpolation or Go block and stamp
+   component classification exactly once. Assign call-site IDs to that shared,
+   mutated AST and reuse the same tree for target discovery, positional
+   validation, LSP facts, and final emission; neither phase may re-split or clone
+   embedded markup.
+
+   Then use two in-memory `go/types` phases: a target-discovery skeleton records
+   each site's origin generic signature/object provenance and
+   `types.Selection.Kind`, tolerating only the registered expected diagnostic for
+   an uninstantiated generic target. After authored operands are bound, the
+   inference carrier described above records the completed instance; a positional
+   skeleton validates the zero-filled call. Facts are keyed by call-site ID/AST
+   identity, never tag text, so shadowed selectors, repeated tags, bound method
+   values, and true method expressions cannot alias. Both phases reuse the
+   existing importer; neither may call `packages.Load`. Benchmark the added pass
+   and cache declaration facts at the existing package invalidation boundary.
+2. **Cross-package invocation resolution.** `<pkg.Foo …/>` needs Foo's ordered
    signature — param names, types, and reserved-role classification — resolved at
    the call site. Today's cross-package facts are field-name sets; this is a
    different shape and leans on type resolution. `packages.Load` cost must be
@@ -506,29 +613,42 @@ files**, and **71 hand-written `RenderComponent` calls** outside generated files
    skeleton/probe-based enumeration over new heavyweight loads. (Cutting
    struct-splat removed the need to also resolve a splat *source's* field set,
    which was the heavier half of this.)
-2. **Codegen rewrite scope.** `emit.go` (`genComponent`), `analyze.go`
+3. **Codegen rewrite scope.** `emit.go` (`genComponent`), `analyze.go`
    (`componentPropFieldsFor`, skeleton/probe, `emitComponentSkeleton`), call-site
    lowering (`genChildComponent`), and the imported-props / attrs-only subsystems
    all key on the synthesized props type today and must re-home onto the
    verbatim-signature model. `ast.OrderedAttrsAttr` also has stale documentation
    saying it lowers to `gsx.OrderedAttrs`; the implementation already emits
    `gsx.Attrs`, and that comment must be corrected while this path moves.
-3. **attrs subsystem re-home.** class/style merge, URL sinks, renderers, and
+4. **attrs subsystem re-home.** class/style merge, URL sinks, renderers, and
    spread hardening currently read the props struct's `Attrs` field; they move to
    the declared `attrs` parameter. Mechanically equivalent (still a `gsx.Attrs`
    value) but broad. The current `attrsLitIdx`/forced-last branch for reserved
    `attrs={{...}}` is replaced by the same authored-position contributor path as
    unmatched attrs, spreads, conditionals, and `attrs={expr}`; `name={{...}}`
    remains an ordinary `gsx.Attrs`-valued prop form when `name` is not reserved.
-4. **LSP / fmt.** Nav, hover, unused-analysis, add-import must follow the
+5. **LSP / fmt.** Nav, hover, unused-analysis, add-import must follow the
    signature change. `definition_attr.go` uses first-letter case-insensitive
    matching and must adopt codegen's **exact-name** rule. **Parameter-rename**
    support becomes much more valuable (gopls does not understand markup
    attributes, so a Go rename silently breaks every `<Tag attr=…>` call site).
-5. **Build-tag variant collision.** `variantcollide.go:componentSignature`
+   Rename follows semantic object identity, normalizing instantiated generic
+   parameters through `types.Var.Origin()`, and updates exact call-site attrs.
+   Renaming reserved `children` or `attrs` is rejected because it would change
+   the parameter's language role rather than merely rename the markup contract;
+   an ordinary parameter likewise cannot be renamed to `children`, `attrs`,
+   `ctx`, or `_gsx...`. For a build-tag variant set, rename updates the same
+   parameter ordinal in every already-equivalent declaration and all of their
+   call sites atomically; if equivalence cannot be proven, rename is rejected.
+6. **Build-tag variant collision.** `variantcollide.go:componentSignature`
    currently sorts props and treats reordered declarations as equivalent. It must
    compare **ordered** parameter names, types, variadic position, and reserved
-   roles — reorder/rename are now contract changes.
+   roles — reorder/rename are now contract changes. Grouped and ungrouped forms
+   with the same logical ordered parameters are equivalent. Each receiver,
+   constraint, and parameter type compares its normalized Go source spelling,
+   not alias-resolved semantic identity, so `Alias` and its expansion differ.
+   This is deliberately strict and avoids loading mutually exclusive variants
+   merely to suppress a redeclaration diagnostic.
 
 ## Testing
 
@@ -541,27 +661,53 @@ files**, and **71 hand-written `RenderComponent` calls** outside generated files
   method value, rejected true method expression, and free-function component.
   Pin `generated.x.go.golden` + `render.golden`.
 - **Adversarial corpus** (the sharp edges the review surfaced):
-  - omitting an **imported-unexported-typed** attribute → required-attribute
-    diagnostic (no adapter); and **generic-inference failure** when a type param
-    appears only in omitted args (→ explicit-type-arg diagnostic);
+  - zero-fill for opaque defined numeric/nilable types, an accessible unnamed
+    underlying shape, and an **imported opaque struct with an unexported field**
+    (the last → required-attribute diagnostic, no adapter);
+  - Go-driven generic inference from authored operands only, including
+    `Infer[T](*T)` with `nil`, constraint inference, and omission requiring an
+    explicit-type-arg diagnostic;
   - **authored order ≠ parameter order** (side effects, short-circuit) — proves
     once-only lexical evaluation;
-  - **`(T, error)`** propagation through positional assembly;
+  - untyped call-valued constants such as `min(1, 2)` retain target context, and
+    **`(T, error)`** propagation through every contributor kind completes before
+    positional assembly;
+  - duplicate ordinary fills get `duplicate-prop`, while repeated `attrs`
+    contributors remain legal; blank/unnamed fixed params are tag-ineligible and
+    grouped parameter declarations preserve logical order;
   - **reserved-role collisions**, including authored-order composition of
     `attrs={}`, `attrs={{ }}`, ordinary fallthrough, and multiple explicit attrs
     contributors; rejection without a declared attrs role; rejection of
     non-bag attrs forms; and success of an ordinary `someAttrs={{ }}` prop;
+  - exact `class`/`style` params across static, braced, composed, embedded,
+    ordered, and markup-valued forms; conditional-attribute branches stay bag-
+    only;
   - **exact-case mismatch** and **parameter rename** (contract break);
   - **every supported callable kind** and each **rejected dynamic kind**
-    (fail-closed);
+    (fail-closed), including concrete result types assignable to `gsx.Node`,
+    per-element provenance, bound concrete methods, interface methods, and true
+    method expressions;
   - the merged **attrs-bag signature family**, including defined-slice conversion,
+    an imported unexported defined-slice target, defined-slice contributors,
     variadic expansion, alias handling, exact element identity, and the
     name-required diagnostic;
   - **signature-only** dependency/cache invalidation (a rename must bust caches);
-  - a **direct-Go compile fixture** asserting the generated signature is exact.
+  - `gsx -> Go-only project package -> gsx` resolution uses the current skeleton
+    ABI on the first run even when the disk `.x.go` contains the old Props ABI;
+    warm invalidation follows the Go-only intermediary without another
+    `packages.Load`;
+  - embedded component tags in interpolation and Go-block positions retain one
+    call-site identity across discovery, validation, and emission;
+  - build-tag parameter rename updates all equivalent variants by ordinal and
+    rejects reserved-name or unprovable-variant moves;
+  - a **direct-Go compile fixture** asserting the generated signature is exact
+    and emitted `.x.go` contains no analysis helper/type declaration.
 - **structpages interop**: a differential test mounting a route tree and driving
   each page, asserting `Props() T → Page(x T)` wires (the regression that started
   this).
 - **fmt corpus**: layout implications of declaring `children`/`attrs` params.
 - **Sibling repos** (tree-sitter-gsx, vscode-gsx, gsxhq.github.io): reserved-name
   and any grammar implications.
+- **Performance:** benchmark cold/warm generation before and after the two-phase
+  analysis; no new `packages.Load`, and warm cached generation must retain the
+  existing dev-loop profile.
