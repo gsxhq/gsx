@@ -168,15 +168,22 @@ An omitted prop needs a zero value at the call site, spelled **inline** — no
 emitted adapter or helper function. Lowering chooses the first semantically valid
 shape:
 
-1. a type-independent zero (`""`, `0`, `false`, or `nil`) when Go says the
-   untyped value is assignable to the instantiated parameter type;
+1. the type-independent literal that is the **actual semantic zero** of the
+   instantiated parameter type (`""`, `0`, `false`, or `nil`), when one exists;
 2. `*new(T)` when the exact type `T` is nameable in the caller;
 3. `*new(U)` when an accessible unnamed type expression `U` is assignable to the
    parameter (for example, the spellable underlying struct/array shape of an
    otherwise unexported named type).
 
-The analyzer validates candidate types and assignability with `go/types`; it does
-not infer lowerability from exported spelling or an underlying-kind heuristic.
+The analyzer does not try arbitrary literals and stop at the first assignable
+one: assignability alone is insufficient (`""` is assignable to `any`, but the
+zero of `any` is `nil`). It computes the real zero-literal category from the
+semantic type and, for a remaining type parameter, its complete type set; it
+then validates that single literal with `go/types`. `any` and non-empty
+interfaces therefore lower to `nil`. If a type set has no one literal that is
+the zero of every member, literal lowering is unavailable and analysis proceeds
+to `*new(T)`. The analyzer does not infer lowerability from exported spelling or
+an underlying-kind heuristic.
 Omitted trailing variadics pass nothing (`f(a)` for `f(a, xs...)`).
 
 **No lowerable zero → required attribute (fail closed).** A type is nameable when
@@ -199,9 +206,13 @@ using only explicit type arguments and authored operands that survive into the
 actual call lowering. Omitted zeros are never inference evidence. Discovery may
 recover the origin generic object/signature even though using an uninstantiated
 generic function as a value produces an expected probe diagnostic. Once authored
-bindings are known, analysis installs a transient semantic `types.Func` in the
-checker scope. Its `types.Signature` reuses the target's semantic type parameters,
-constraints, and supplied parameter types, but omits every unsupplied parameter.
+type arguments may be a prefix (`<Pair[int] ...>` for `Pair[A, B]`); discovery
+retains that prefix even when the target alone cannot produce a complete
+`types.Instance`. Once authored bindings are known, analysis installs a transient
+semantic `types.Func` in the checker scope and calls it with that exact prefix plus
+the authored operands. Its `types.Signature` reuses the target's semantic type
+parameters, constraints, and supplied parameter types, but omits every unsupplied
+value parameter.
 Because this carrier is assembled from `go/types` objects rather than copied Go
 source, imported unexported constraints remain usable without being named. Its
 instance supplies the inferred type arguments for the original signature. Only
@@ -209,13 +220,14 @@ then does lowering instantiate that signature, synthesize zeros, and validate th
 complete call. The carrier is analysis scaffolding, never an emitted declaration.
 
 Inference diagnostics follow Go's failure class, in this order: authored operand
-parse/type errors retain their native positioned diagnostics; an incomplete
-inference alone gets the explicit-type-argument hint (`<Box[string]/>`); an
-inferred or explicit argument that violates a constraint gets the native
-constraint diagnostic without claiming explicit arguments will fix it. Do not
-decide inference by syntactic type-parameter occurrence: `Infer[T](*T)` cannot
-infer `T` from `nil`, while constraints may infer a parameter not textually
-present in a supplied parameter type.
+parse/type errors retain their native positioned diagnostics (target-only
+type-argument/constraint errors are retained until this precedence can be
+applied); an incomplete inference alone gets the explicit-type-argument hint
+(`<Box[string]/>`); an inferred or explicit argument that violates a constraint
+gets the native constraint diagnostic without claiming explicit arguments will
+fix it. Do not decide inference by syntactic type-parameter occurrence:
+`Infer[T](*T)` cannot infer `T` from `nil`, while constraints may infer a
+parameter not textually present in a supplied parameter type.
 
 A legitimate but uncommon non-nameable case is an **opaque package value**:
 
