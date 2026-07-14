@@ -84,7 +84,7 @@ import (
 	"corpustest/cases/goexpr-js-literal_renderer_hole/pg"
 
 	_gsxctx "context"
-	_gsxf5 "corpustest/cases/goexpr-js-literal_renderer_hole/rend"
+	_gsxf0 "corpustest/cases/goexpr-js-literal_renderer_hole/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -94,11 +94,11 @@ func mkJSVal(s string, valid bool) pg.JSVal   { return pg.JSVal{String: s, Valid
 func mkCSSVal(s string, valid bool) pg.CSSVal { return pg.CSSVal{String: s, Valid: valid} }
 
 func mkClick(val pg.JSVal) gsx.RawJS {
-	return _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(_gsxf5.PgJS((val)))) + "')")
+	return _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(_gsxf0.PgJS((val)))) + "')")
 }
 
 func mkColor(val pg.CSSVal) gsx.RawCSS {
-	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(_gsxf5.PgColor((val)))))
+	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor((val)))))
 }
 
 type TagProps struct {

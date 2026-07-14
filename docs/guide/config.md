@@ -174,6 +174,9 @@ The key is the exact named type, written as `"<package-path>.<Type>"`. Prefix
 it with `*` to register the pointer type; value and pointer registrations are
 separate.
 
+For a renderer implemented in `.gsx` and returning semantic markup, see the
+[Package renderers pattern](./patterns/package-renderers.md).
+
 A renderer must be an exported top-level function with one of these shapes:
 
 ```go

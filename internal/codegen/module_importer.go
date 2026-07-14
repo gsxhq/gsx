@@ -21,6 +21,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
+	"github.com/gsxhq/gsx/internal/modpath"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -41,15 +42,7 @@ func importPathForDir(moduleRoot, modulePath, dir string) (string, bool) {
 // dirForImportPath is the inverse of importPathForDir. ok is false when
 // importPath is not under modulePath (e.g. stdlib or third-party).
 func dirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) {
-	if importPath == modulePath {
-		return moduleRoot, true
-	}
-	prefix := modulePath + "/"
-	if !strings.HasPrefix(importPath, prefix) {
-		return "", false
-	}
-	rel := strings.TrimPrefix(importPath, prefix)
-	return filepath.Join(moduleRoot, filepath.FromSlash(rel)), true
+	return modpath.DirForImportPath(moduleRoot, modulePath, importPath)
 }
 
 // checkSkeletonPackage type-checks already-parsed package files against imp and
@@ -188,8 +181,32 @@ func (m *Module) reverseClosure(seeds []string) map[string]bool {
 	return out
 }
 
-// invalidateLocked drops the reverse-closure of dirs from pkgTypes and pkgResults. Assumes m.mu.
+// invalidateRendererStateLocked drops every cache whose classification may
+// depend on the module-wide renderer registry. Renderer declarations and the
+// completed table are rebuilt lazily from current source; localized func tables
+// and all retained package analyses must follow because a renderer result-type
+// change can alter emitted lowering in any analyzed package. The external
+// importer and filter-only table deliberately stay warm. Assumes m.mu.
+func (m *Module) invalidateRendererStateLocked() {
+	m.rendererPkgs, m.rendererLocal = nil, nil
+	m.rendererPkgsErr, m.rendererPkgsDone = nil, false
+	m.rendererTbl, m.rendererTblErr, m.rendererTblDone = nil, nil, false
+	m.dirFuncTbls = map[string]funcTables{}
+	m.pkgTypes = map[string]*types.Package{}
+	m.pkgResults = map[string]*PackageResult{}
+	m.depFacts = map[string]*depPropFacts{}
+}
+
+// invalidateLocked drops the reverse-closure of ordinary dirs from pkgTypes and
+// pkgResults. A configured module-local renderer seed instead clears the
+// module-wide renderer-dependent state. Assumes m.mu.
 func (m *Module) invalidateLocked(dirs []string) {
+	for _, d := range dirs {
+		if m.rendererDirs[filepath.Clean(d)] {
+			m.invalidateRendererStateLocked()
+			return
+		}
+	}
 	for d := range m.reverseClosure(dirs) {
 		delete(m.pkgTypes, d)
 		delete(m.pkgResults, d)
@@ -200,7 +217,9 @@ func (m *Module) invalidateLocked(dirs []string) {
 // Invalidate drops the reverse-reflexive-transitive closure of dirs (the dirs
 // plus every project gsx package that transitively imports them) from pkgTypes
 // and pkgResults, so each is re-type-checked from current skeletons on next use. Graph edges are
-// retained (refreshed on re-analyze). Everything outside the closure stays warm.
+// retained (refreshed on re-analyze). Everything outside the closure stays warm,
+// except that a configured module-local renderer seed invalidates every retained
+// package classification while preserving the external importer/filter state.
 // This supersedes the coarse whole-cache reset.
 //
 // Threading: Invalidate takes m.mu but is NOT serialized by analysisMu, so callers
@@ -234,8 +253,9 @@ func (m *Module) Dependents(dir string) []string {
 }
 
 // applyDirty consumes the pending-dirty set (populated by SetOverride): it drops
-// the reverse-closure of the dirty dirs from pkgTypes + pkgResults and clears the set. Called
-// at the start of each Package/Generate run (under analysisMu).
+// the ordinary reverse-closure, or all renderer-dependent analysis state when a
+// seed is a configured module-local renderer dir, then clears the set. Called at
+// the start of each Package/Generate run (under analysisMu).
 func (m *Module) applyDirty() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -294,6 +314,24 @@ func (m *Module) recordImports(dir string, paths []string) {
 	deps := map[string]bool{}
 	for _, p := range paths {
 		if dd, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, p); ok && m.isGsxPackage(dd) {
+			deps[dd] = true
+		}
+	}
+	// A resolved module-local GSX renderer is a module-wide code-generation
+	// dependency even when the consuming package never imports it in source.
+	// rendererLocal is populated only after declaration resolution has decided
+	// GSX-vs-Go-only ownership; rendererDirs alone intentionally does not make
+	// that source-model decision. Exclude the renderer package's self edge.
+	m.mu.Lock()
+	localRendererPaths := make([]string, 0, len(m.rendererLocal))
+	for path, local := range m.rendererLocal {
+		if local {
+			localRendererPaths = append(localRendererPaths, path)
+		}
+	}
+	m.mu.Unlock()
+	for _, path := range localRendererPaths {
+		if dd, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, path); ok && dd != dir {
 			deps[dd] = true
 		}
 	}
@@ -883,7 +921,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames)
+		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames, skeletonFull)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a

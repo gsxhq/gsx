@@ -593,7 +593,14 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 // unused_imports_syntactic.go's buildPackageSkeletons already do. A nil
 // declNames is safe (every lookup misses) for callers with no embedded-tag
 // interpolations to resolve.
-func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, names *inferNameAllocator, declNames map[string]bool) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
+type skeletonMode uint8
+
+const (
+	skeletonFull skeletonMode = iota
+	skeletonDeclarations
+)
+
+func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, names *inferNameAllocator, declNames map[string]bool, mode skeletonMode) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -680,7 +687,9 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 	// using the same classifier the file was parsed with — so the analysis pass
 	// (emitProbes, below) and the emit pass (genInterp) share the SAME parsed
 	// element nodes and resolved types key on one set of pointers.
-	splitInterpEmbedded(file, cls, fset, declNames, bag)
+	if mode == skeletonFull {
+		splitInterpEmbedded(file, cls, fset, declNames, bag)
+	}
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
 	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
@@ -689,7 +698,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 	// failure and must abort the whole skeleton build.
 	var validComps []*gsxast.Component
 	for _, c := range comps {
-		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, usedFilters, fset, ctrlOff, registry, &gwMarkups, bag); err != nil {
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, mode); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
@@ -804,6 +813,10 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				}
 				compBuf.WriteString(src)
 			case *gsxast.Element:
+				if mode == skeletonDeclarations {
+					compBuf.WriteString("func() _gsxrt.Node { return nil }()")
+					continue
+				}
 				markup := []gsxast.Markup{p}
 				// Reserve this element's index BEFORE probing its body: emitProbes
 				// may itself append (a <tag> literal embedded in one of this
@@ -820,6 +833,10 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				}
 				compBuf.WriteString("return nil\n}()")
 			case *gsxast.Fragment:
+				if mode == skeletonDeclarations {
+					compBuf.WriteString("func() _gsxrt.Node { return nil }()")
+					continue
+				}
 				// A fragment probes its children list as one IIFE (empty <></> →
 				// no probes, still a valid _gsxrt.Node-returning IIFE — the nop).
 				idx := len(gwMarkups)
@@ -833,6 +850,17 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				}
 				compBuf.WriteString("return nil\n}()")
 			case *gsxast.EmbeddedInterp:
+				if mode == skeletonDeclarations {
+					switch p.Lang {
+					case gsxast.EmbeddedJS:
+						compBuf.WriteString("_gsxrt.RawJS(\"\")")
+					case gsxast.EmbeddedCSS:
+						compBuf.WriteString("_gsxrt.RawCSS(\"\")")
+					default:
+						compBuf.WriteString("\"\"")
+					}
+					continue
+				}
 				// A prefixed backtick literal (f`/js`/css`) in Go-expression
 				// position → a Go VALUE. Probe it like an embedded element:
 				// register its segments at index N, splice an IIFE marked
@@ -1119,7 +1147,7 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode) error {
 	// Parse the type-param list ONCE here and thread the result into every
 	// emitComponentStub call site below (instead of each stub re-parsing the
 	// same string and swallowing its own error) — see typeParamNames/tpErr use
@@ -1249,6 +1277,10 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// Reset the //line so the probe body's own positions are not shifted by the
 		// param binding's mapping.
 		emitSkeletonLine(sb, fset, c.Pos())
+		if mode == skeletonDeclarations {
+			sb.WriteString("\treturn nil\n}\n")
+			return nil
+		}
 		cfTemp := 0
 		// BYO components never synthesize an `attrs` local (mirrors genComponent's
 		// identical byo-branch call to emitNodeFuncBody) — enclosingAttrsBound is
@@ -1333,6 +1365,10 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 	// identically to emitted code.
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n")
+	}
+	if mode == skeletonDeclarations {
+		sb.WriteString("\treturn nil\n}\n")
+		return nil
 	}
 	cfTemp := 0
 	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, &cfTemp, manual); err != nil {

@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"bytes"
 	"go/token"
 	"go/types"
 	"os"
@@ -318,6 +319,60 @@ func TestHarvestRenderers(t *testing.T) {
 			t.Errorf("table = %+v, want empty", table)
 		}
 	})
+}
+
+func TestHarvestRendererEntriesDefersWholeTableValidation(t *testing.T) {
+	text := namedType("example.com/pg", "Text", types.NewStruct(nil, nil))
+	wrapped := namedType("example.com/pg", "Wrapped", types.NewStruct(nil, nil))
+	pkgA := rendererFixturePkg("example.com/renda", map[string]*types.Signature{
+		"Text": rendererSig([]*types.Var{rparam(text)}, []*types.Var{rresult(wrapped)}, false),
+	})
+	pkgB := rendererFixturePkg("example.com/rendb", map[string]*types.Signature{
+		"Wrapped": rendererSig([]*types.Var{rparam(wrapped)}, []*types.Var{rresult(types.Typ[types.String])}, false),
+	})
+	aliases := map[string]string{"example.com/renda": "_gsxf0", "example.com/rendb": "_gsxf1"}
+	entries, err := harvestRendererEntries(map[string]*types.Package{
+		"example.com/renda": pkgA,
+		"example.com/rendb": pkgB,
+	}, []RendererAlias{
+		{TypeKey: "example.com/pg.Text", PkgPath: "example.com/renda", FuncName: "Text"},
+		{TypeKey: "example.com/pg.Wrapped", PkgPath: "example.com/rendb", FuncName: "Wrapped"},
+	}, aliases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRendererTable(entries); err == nil || !strings.Contains(err.Error(), "never chain") {
+		t.Fatalf("validateRendererTable error = %v", err)
+	}
+}
+
+func TestRendererTableForPackageMarksOnlyOwnerLocal(t *testing.T) {
+	table := rendererTable{
+		"p.A": {funcName: "A", alias: "_gsxf0", pkgPath: "app/renderers"},
+		"p.B": {funcName: "B", alias: "_gsxf1", pkgPath: "external/renderers"},
+	}.forPackage("app/renderers")
+	if !table["p.A"].local || table["p.B"].local {
+		t.Fatalf("localized table = %#v", table)
+	}
+}
+
+func TestApplyRendererLocalCall(t *testing.T) {
+	value := namedType("example.com/pg", "Text", types.NewStruct(nil, nil))
+	table := funcTables{renderers: rendererTable{
+		"example.com/pg.Text": {
+			funcName: "Text", pkgPath: "example.com/app/renderers",
+			local: true, result: types.Typ[types.String],
+		},
+	}}
+	imports := map[string]bool{}
+	var b bytes.Buffer
+	got, _ := applyRenderer(&b, "v", value, table, imports, new(int), "return _gsxerr")
+	if got != "Text((v))" {
+		t.Fatalf("call = %q", got)
+	}
+	if len(imports) != 0 {
+		t.Fatalf("imports = %v", imports)
+	}
 }
 
 // TestHarvestRenderersCtx pins the #87 harvest of the two ctx-taking renderer

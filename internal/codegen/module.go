@@ -112,7 +112,10 @@ type Options struct {
 // each run: it drops the reverse-reflexive-transitive closure of dirty dirs from
 // pkgTypes (the changed dir plus every project gsx package that transitively
 // imports it), then clears dirty. This means only the affected subgraph is
-// re-type-checked; unchanged packages and the warm ext importer stay cached.
+// re-type-checked; unchanged packages and the warm ext importer stay cached. A
+// configured module-local renderer dir is the intentional exception: its result
+// classification is module-wide, so its declaration/table caches and every
+// retained package analysis are dropped while the ext importer stays warm.
 // Invalidate is the public entry point for callers that need to drop a dir without
 // calling Package/Generate.
 //
@@ -146,11 +149,19 @@ type Module struct {
 	extPkgs           map[string]*types.Package   // the types behind ext, kept for subprocess-free filter-table harvests
 	extErrs           map[string][]packages.Error // per-package load/type errors from the ext load (filter packages must not be silently partial)
 	extLoads          int                         // count of external packages.Load calls (observability; test hook)
-	funcTbl           funcTables                  // lazily built filter+renderer tables (see cachedFuncTables)
+	funcTbl           funcTables                  // lazily built filter-only fmt table (see cachedFuncTables)
 	funcTblErr        error                       // error from the func-tables load (cached alongside funcTbl)
 	funcTblDone       bool                        // true once the func tables have been loaded (success or error)
+	rendererPkgs      map[string]*types.Package   // final renderer packages, with module-local GSX packages replaced by declaration skeleton types
+	rendererLocal     map[string]bool             // renderer package path -> module-local GSX ownership
+	rendererPkgsErr   error                       // cached renderer package resolution error
+	rendererPkgsDone  bool                        // true once renderer packages have been resolved (success or error)
+	rendererTbl       rendererTable               // unlocalized, alias-free completed renderer table
+	rendererTblErr    error                       // cached renderer harvest/global-validation error
+	rendererTblDone   bool                        // true once the completed renderer table has been built (success or error)
+	rendererDirs      map[string]bool             // configured module-owned renderer dirs; source kind is resolved lazily
 	filterLoads       int                         // count of filter-table loads performed (observability; test hook)
-	dirFuncTbls       map[string]funcTables       // per-dir func-tables memo, keyed by canonical FilterPkgs key
+	dirFuncTbls       map[string]funcTables       // per-dir func-tables memo, keyed by consuming package + canonical FilterPkgs key
 	perDirMergersErr  error                       // cached result of validatePerDirMergers
 	perDirMergersDone bool                        // true once the PerDir mergers have been validated
 	fset              *token.FileSet              // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
@@ -214,11 +225,18 @@ func Open(opts Options) (*Module, error) {
 	if opts.Bundle != nil && (len(opts.PerDir) > 0 || len(opts.LoadPkgs) > 0) {
 		return nil, fmt.Errorf("codegen: Options.Bundle is incompatible with PerDir/LoadPkgs (a Bundle carries one prebuilt set of func tables — filters and renderers)")
 	}
+	rendererDirs := map[string]bool{}
+	for _, r := range finalRendererAliases(opts.Renderers) {
+		if dir, ok := dirForImportPath(opts.ModuleRoot, opts.ModulePath, r.PkgPath); ok {
+			rendererDirs[dir] = true
+		}
+	}
 	return &Module{
 		opts:             opts,
 		overrides:        map[string][]byte{},
 		fset:             token.NewFileSet(),
 		dirFuncTbls:      map[string]funcTables{},
+		rendererDirs:     rendererDirs,
 		pkgResults:       map[string]*PackageResult{},
 		depFacts:         map[string]*depPropFacts{},
 		imports:          map[string][]string{},
@@ -334,9 +352,9 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	}
 	// [renderers]/WithRenderer registrations name packages the same way an
 	// explicit alias does: they must be in this ONE load set so
-	// rendererTableFromExt can classify their target func's signature without
+	// rendererPackagesFromExt can classify their target func's signature without
 	// a second packages.Load.
-	for _, r := range m.opts.Renderers {
+	for _, r := range finalRendererAliases(m.opts.Renderers) {
 		loadPaths = append(loadPaths, r.PkgPath)
 	}
 	loadPaths = append(loadPaths, "./...")
@@ -378,17 +396,19 @@ func (m *Module) externalLoads() int {
 	return m.extLoads
 }
 
-// cachedFuncTables memoizes the filter+renderer tables for the Module's
-// lifetime. The tables are the harvest of a packages.Load over the filter and
-// renderer packages — an external go-list + type-check that costs ~150ms —
-// and it depends ONLY on inputs that are immutable for a Module:
-// opts.ModuleRoot, opts.FilterPkgs, opts.Aliases, opts.Renderers. So it is
+// cachedFuncTables memoizes the filter table for buildPackageSkeletons' fmt
+// fast path. It deliberately excludes renderers: declaration resolution needs
+// the full external importer and local GSX package graph, while this path exists
+// specifically to avoid that load. The table is the harvest of a packages.Load
+// over only the filter packages — an external go-list + type-check that costs
+// ~150ms — and it depends ONLY on inputs that are immutable for a Module:
+// opts.ModuleRoot, opts.FilterPkgs, and opts.Aliases. So it is
 // loaded once and reused across every analyze() call, instead of reloading on each
 // warm regen (the pre-cache behaviour, which made every --watch cycle pay the full
 // packages.Load and turned ~10ms warm regens into ~150ms ones).
 //
 // Lifetime/invalidation: cleared by rebuildFset (alongside ext), and a filter
-// or renderer package is Go source — any .go/go.mod change drives the watch loop
+// package is Go source — any .go/go.mod change drives the watch loop
 // through reopen(), which builds fresh Modules, so an edit is naturally picked
 // up. Called only from analyze, which runs under analysisMu; the m.mu
 // double-check mirrors externalImporter.
@@ -402,8 +422,8 @@ func (m *Module) cachedFuncTables() (funcTables, error) {
 		return m.funcTbl, m.funcTblErr
 	}
 	m.mu.Unlock()
-	filters, renderers, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases, m.opts.Renderers)
-	tbl := funcTables{filters: filters, renderers: renderers}
+	filters, _, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases, nil)
+	tbl := funcTables{filters: filters, renderers: rendererTable{}}
 	m.mu.Lock()
 	m.funcTbl, m.funcTblErr, m.funcTblDone = tbl, err, true
 	m.filterLoads++
@@ -509,12 +529,14 @@ func (m *Module) classifierFor(dir string) *attrclass.Classifier {
 // fast lane, which deliberately never loads the importer (it is what took
 // `gsx fmt -l` from ~16s to 0.58s); harvesting from types there would ADD the
 // full "./..." load it exists to avoid. It keeps the standalone
-// loadFilterTableMulti, which loads only the filter (and renderer) packages.
+// loadFilterTableMulti, which loads only the filter packages. Renderer
+// resolution is intentionally absent from this path.
 //
 // A PerDir override always harvests from types, forcing the importer if needed:
 // N dirs with N different filter sets then cost ONE load between them. Renderers
 // have no PerDir override (Options.Renderers is module-wide), so the per-dir
-// memo key below is keyed on the filter package set alone.
+// memo key below combines the consuming package import path (renderer locality)
+// with its canonical filter package set (reserved alias allocation).
 //
 // A dir naming a filter package the importer never loaded is an error. It must
 // never degrade to an empty table — a corpus case that asserts "this filter is
@@ -532,7 +554,11 @@ func (m *Module) filterTableFor(dir string, withExt bool) (funcTables, error) {
 		return m.cachedFuncTables()
 	}
 	pkgs = dedupFilterPkgs(pkgs)
-	key := strings.Join(pkgs, "\x00")
+	pkgPath, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir)
+	if !ok {
+		return funcTables{}, fmt.Errorf("codegen: package dir %s is outside module root %s", dir, m.opts.ModuleRoot)
+	}
+	key := pkgPath + "\x00" + strings.Join(pkgs, "\x00")
 
 	m.mu.Lock()
 	if tbl, hit := m.dirFuncTbls[key]; hit {
@@ -546,7 +572,7 @@ func (m *Module) filterTableFor(dir string, withExt bool) (funcTables, error) {
 	if _, err := m.externalImporter(); err != nil {
 		return funcTables{}, err
 	}
-	tbl, err := m.funcTablesFromExt(pkgs)
+	tbl, err := m.funcTablesFromExt(dir, pkgs)
 	if err != nil {
 		return funcTables{}, fmt.Errorf("codegen: filter table for %s: %w", dir, err)
 	}
@@ -595,48 +621,161 @@ func (m *Module) filterTableFromExt(pkgs []string) (filterTable, error) {
 // module-wide renderer table from the external importer's already-loaded
 // types, giving filterTableFor's withExt path the same funcTables shape
 // cachedFuncTables' go-list path returns.
-func (m *Module) funcTablesFromExt(pkgs []string) (funcTables, error) {
+func (m *Module) funcTablesFromExt(dir string, pkgs []string) (funcTables, error) {
 	filters, err := m.filterTableFromExt(pkgs)
 	if err != nil {
 		return funcTables{}, err
 	}
-	renderers, err := m.rendererTableFromExt(pkgs)
+	renderers, err := m.rendererTableFor(dir, pkgs)
 	if err != nil {
 		return funcTables{}, err
 	}
 	return funcTables{filters: filters, renderers: renderers}, nil
 }
 
-// rendererTableFromExt harvests the module-wide renderer table (Options.Renderers)
-// from the external importer's already-loaded types, mirroring
-// filterTableFromExt's error semantics for renderer packages. pkgs is the
-// filter package set in play for THIS dir (a PerDir override, or
-// Options.FilterPkgs) — it is folded into the same alias assignment
-// harvestFilters would use so a renderer package sharing a path with a filter
-// package agrees on the SAME reserved alias, and its own _gsxf<i> index (when
-// renderer-only) matches what a one-shot go-list harvest over the same inputs
-// would assign.
-func (m *Module) rendererTableFromExt(pkgs []string) (rendererTable, error) {
-	if len(m.opts.Renderers) == 0 {
-		return rendererTable{}, nil
+// finalRendererAliases returns only the last registration for each TypeKey,
+// preserving the relative order of those winning registrations. Package
+// resolution and alias assignment operate on this completed registry: a
+// shadowed registration cannot require or invalidate an otherwise unused
+// package.
+func finalRendererAliases(renderers []RendererAlias) []RendererAlias {
+	seen := make(map[string]bool, len(renderers))
+	winners := make([]RendererAlias, 0, len(renderers))
+	for i := len(renderers) - 1; i >= 0; i-- {
+		r := renderers[i]
+		if seen[r.TypeKey] {
+			continue
+		}
+		seen[r.TypeKey] = true
+		winners = append(winners, r)
+	}
+	for i, j := 0, len(winners)-1; i < j; i, j = i+1, j-1 {
+		winners[i], winners[j] = winners[j], winners[i]
+	}
+	return winners
+}
+
+// rendererPackagesFromExt partitions the completed last-wins registry into
+// module-local GSX packages and packages whose Go declarations are already in
+// the external load. Local GSX packages are replaced with declaration-only
+// skeleton packages from one shared resolver, so no generated .x.go is needed.
+// The result shares m.fset and is cached until rebuildFset clears both together.
+func (m *Module) rendererPackagesFromExt() (map[string]*types.Package, map[string]bool, error) {
+	m.mu.Lock()
+	if m.rendererPkgsDone {
+		defer m.mu.Unlock()
+		return m.rendererPkgs, m.rendererLocal, m.rendererPkgsErr
+	}
+	m.mu.Unlock()
+
+	external, err := m.externalImporter()
+	if err != nil {
+		return nil, nil, err
 	}
 	m.mu.Lock()
 	extPkgs, extErrs := m.extPkgs, m.extErrs
 	m.mu.Unlock()
-	for _, r := range m.opts.Renderers {
+
+	winners := finalRendererAliases(m.opts.Renderers)
+	byPath := make(map[string]*types.Package, len(winners))
+	local := make(map[string]bool, len(winners))
+	localDirs := make(map[string]string, len(winners))
+	firstByPath := make(map[string]RendererAlias, len(winners))
+	for _, r := range winners {
+		if _, ok := firstByPath[r.PkgPath]; !ok {
+			firstByPath[r.PkgPath] = r
+		}
+		if dir, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, r.PkgPath); ok && m.isGsxPackage(dir) {
+			local[r.PkgPath] = true
+			localDirs[r.PkgPath] = dir
+			continue
+		}
 		if errs := extErrs[r.PkgPath]; len(errs) > 0 {
-			return nil, fmt.Errorf("codegen: renderer for %q: package %q type resolution failed: %s", r.TypeKey, r.PkgPath, errs[0])
+			err = fmt.Errorf("codegen: renderer for %q: package %q type resolution failed: %s", r.TypeKey, r.PkgPath, errs[0])
+			break
+		}
+		byPath[r.PkgPath] = extPkgs[r.PkgPath]
+	}
+	if err == nil && len(localDirs) > 0 {
+		resolver := newRendererDeclResolver(m, external)
+		for _, r := range winners {
+			dir, ok := localDirs[r.PkgPath]
+			if !ok {
+				continue
+			}
+			if _, done := byPath[r.PkgPath]; done {
+				continue
+			}
+			pkg, resolveErr := resolver.packageForDir(dir)
+			if resolveErr != nil {
+				owner := firstByPath[r.PkgPath]
+				err = fmt.Errorf("codegen: renderer for %q: package %q type resolution failed: %w", owner.TypeKey, owner.PkgPath, resolveErr)
+				break
+			}
+			byPath[r.PkgPath] = pkg
 		}
 	}
-	aliasPaths := append([]string{}, pkgs...)
+
+	m.mu.Lock()
+	m.rendererPkgs, m.rendererLocal = byPath, local
+	m.rendererPkgsErr, m.rendererPkgsDone = err, true
+	m.mu.Unlock()
+	return byPath, local, err
+}
+
+// rendererBaseTable resolves, harvests, and globally validates the completed
+// registry exactly once. It intentionally stores neither consuming-package
+// locality nor reserved aliases; both are presentation details applied to a
+// cloned table by rendererTableFor.
+func (m *Module) rendererBaseTable() (rendererTable, error) {
+	m.mu.Lock()
+	if m.rendererTblDone {
+		defer m.mu.Unlock()
+		return m.rendererTbl, m.rendererTblErr
+	}
+	m.mu.Unlock()
+
+	byPath, _, err := m.rendererPackagesFromExt()
+	var table rendererTable
+	if err == nil {
+		table, err = harvestRendererEntries(byPath, finalRendererAliases(m.opts.Renderers), nil)
+		if err == nil {
+			err = validateRendererTable(table)
+		}
+	}
+	m.mu.Lock()
+	m.rendererTbl = table
+	m.rendererTblErr, m.rendererTblDone = err, true
+	m.mu.Unlock()
+	return table, err
+}
+
+// rendererTableFor clones the module-wide base registry for one consuming
+// package, assigning the reserved aliases implied by that package's filter set
+// and marking only exact package ownership as a local direct call.
+func (m *Module) rendererTableFor(dir string, filterPkgs []string) (rendererTable, error) {
+	base, err := m.rendererBaseTable()
+	if err != nil {
+		return nil, err
+	}
+	pkgPath, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir)
+	if !ok {
+		return nil, fmt.Errorf("codegen: package dir %s is outside module root %s", dir, m.opts.ModuleRoot)
+	}
+	aliasPaths := append([]string{}, filterPkgs...)
 	for _, a := range m.opts.Aliases {
 		aliasPaths = append(aliasPaths, a.PkgPath)
 	}
-	for _, r := range m.opts.Renderers {
+	for _, r := range finalRendererAliases(m.opts.Renderers) {
 		aliasPaths = append(aliasPaths, r.PkgPath)
 	}
 	aliases := filterAliases(aliasPaths)
-	return harvestRenderers(extPkgs, m.opts.Renderers, aliases)
+	aliased := make(rendererTable, len(base))
+	for key, entry := range base {
+		entry.alias = aliases[entry.pkgPath]
+		aliased[key] = entry
+	}
+	return aliased.forPackage(pkgPath), nil
 }
 
 // maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes/pkgResults) when project re-parse
@@ -665,6 +804,9 @@ func (m *Module) rebuildFset() {
 	m.extPkgs = nil
 	m.extErrs = nil
 	m.funcTbl, m.funcTblErr, m.funcTblDone = funcTables{}, nil, false
+	m.rendererPkgs, m.rendererLocal = nil, nil
+	m.rendererPkgsErr, m.rendererPkgsDone = nil, false
+	m.rendererTbl, m.rendererTblErr, m.rendererTblDone = nil, nil, false
 	m.dirFuncTbls = map[string]funcTables{}
 	m.perDirMergersErr, m.perDirMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
