@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"go/types"
 	"strconv"
 	"strings"
 
@@ -194,4 +195,160 @@ func (d componentDeclaration) canonical() string {
 		b.WriteByte(byte(p.role))
 	}
 	return b.String()
+}
+
+// runtimeContract carries the exact runtime type identities needed to classify
+// a callable. attrs is explicit because the canonical gsx.Attrs type is passed
+// directly, while another defined slice with the same underlying []gsx.Attr
+// requires conversion at the eventual call site.
+type runtimeContract struct {
+	node  types.Type
+	attr  types.Type
+	attrs types.Type
+}
+
+type paramRole uint8
+
+const (
+	roleProp paramRole = iota
+	roleChildren
+	roleAttrs
+	roleGoOnlyVariadic
+)
+
+type attrsParamMode uint8
+
+const (
+	attrsDirect attrsParamMode = iota
+	attrsDefinedSlice
+	attrsVariadic
+)
+
+type componentParam struct {
+	variable  *types.Var
+	origin    *types.Var
+	name      string
+	typ       types.Type
+	index     int
+	role      paramRole
+	attrsMode attrsParamMode
+}
+
+type componentSignatureModel struct {
+	goSig  *types.Signature
+	params []componentParam
+	result types.Type
+}
+
+func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (componentSignatureModel, error) {
+	if sig == nil {
+		return componentSignatureModel{}, fmt.Errorf("component-signature: nil callable signature")
+	}
+	if invalidSemanticType(runtime.node) || invalidSemanticType(runtime.attr) || invalidSemanticType(runtime.attrs) {
+		return componentSignatureModel{}, fmt.Errorf("component-signature-runtime: incomplete runtime type contract")
+	}
+	if !attrsSliceHasExactElement(runtime.attrs, runtime.attr) {
+		return componentSignatureModel{}, fmt.Errorf("component-signature-runtime: canonical attrs type %s does not have underlying []%s", runtime.attrs, runtime.attr)
+	}
+
+	results := sig.Results()
+	if results.Len() != 1 {
+		return componentSignatureModel{}, fmt.Errorf("component-result-count: callable has %d results; want exactly one", results.Len())
+	}
+	result := results.At(0).Type()
+	if invalidSemanticType(result) || !types.AssignableTo(result, runtime.node) {
+		return componentSignatureModel{}, fmt.Errorf("component-result-type: result %s is not assignable to %s", result, runtime.node)
+	}
+
+	model := componentSignatureModel{
+		goSig:  sig,
+		params: make([]componentParam, sig.Params().Len()),
+		result: result,
+	}
+	for i := range sig.Params().Len() {
+		variable := sig.Params().At(i)
+		param := componentParam{
+			variable: variable,
+			origin:   variable.Origin(),
+			name:     variable.Name(),
+			typ:      variable.Type(),
+			index:    i,
+		}
+		variadic := sig.Variadic() && i == sig.Params().Len()-1
+
+		switch {
+		case param.name == "ctx" || strings.HasPrefix(param.name, "_gsx"):
+			return componentSignatureModel{}, fmt.Errorf("component-reserved-param: parameter %d %q is reserved", i, param.name)
+		case param.name == "children":
+			if !validChildrenParam(param.typ, variadic, runtime.node) {
+				return componentSignatureModel{}, fmt.Errorf("component-children-type: parameter %d children has type %s; want %s or ...%s", i, param.typ, runtime.node, runtime.node)
+			}
+			param.role = roleChildren
+		case param.name == "attrs":
+			mode, ok := classifyAttrsParam(param.typ, variadic, runtime)
+			if !ok {
+				return componentSignatureModel{}, fmt.Errorf("component-attrs-type: parameter %d attrs has type %s; want the exact attrs-bag family", i, param.typ)
+			}
+			param.role = roleAttrs
+			param.attrsMode = mode
+		case variadic:
+			param.role = roleGoOnlyVariadic
+		case param.name == "" || param.name == "_":
+			return componentSignatureModel{}, fmt.Errorf("component-unnamed-fixed-param: parameter %d has no markup-bindable name", i)
+		default:
+			param.role = roleProp
+		}
+		model.params[i] = param
+	}
+	return model, nil
+}
+
+func invalidSemanticType(t types.Type) bool {
+	if t == nil {
+		return true
+	}
+	basic, ok := types.Unalias(t).(*types.Basic)
+	return ok && basic.Kind() == types.Invalid
+}
+
+func validChildrenParam(t types.Type, variadic bool, node types.Type) bool {
+	if !variadic {
+		return types.Identical(t, node)
+	}
+	slice, ok := types.Unalias(t).(*types.Slice)
+	return ok && types.Identical(slice.Elem(), node)
+}
+
+func classifyAttrsParam(t types.Type, variadic bool, runtime runtimeContract) (attrsParamMode, bool) {
+	if variadic {
+		slice, ok := types.Unalias(t).(*types.Slice)
+		if !ok || !types.Identical(slice.Elem(), runtime.attr) {
+			return 0, false
+		}
+		return attrsVariadic, true
+	}
+
+	if types.Identical(t, runtime.attrs) {
+		return attrsDirect, true
+	}
+	unaliased := types.Unalias(t)
+	if slice, ok := unaliased.(*types.Slice); ok {
+		if types.Identical(slice.Elem(), runtime.attr) {
+			return attrsDirect, true
+		}
+		return 0, false
+	}
+	if named, ok := unaliased.(*types.Named); ok && attrsSliceHasExactElement(named, runtime.attr) {
+		return attrsDefinedSlice, true
+	}
+	return 0, false
+}
+
+func attrsSliceHasExactElement(t, attr types.Type) bool {
+	unaliased := types.Unalias(t)
+	if named, ok := unaliased.(*types.Named); ok {
+		unaliased = named.Underlying()
+	}
+	slice, ok := unaliased.(*types.Slice)
+	return ok && types.Identical(slice.Elem(), attr)
 }
