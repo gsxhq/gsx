@@ -1,0 +1,26 @@
+A multi-line JS template literal inside a <script> body keeps its interior
+VERBATIM — the outer re-indent must not inject tabs into the template's value
+(that would corrupt the string and break idempotence).
+
+-- input.gsx --
+package p
+
+component C() {
+	<script>
+const t = `<div>
+  hi
+</div>`;
+document.body.innerHTML = t;
+</script>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<script>
+		const t = `<div>
+  hi
+</div>`;
+		document.body.innerHTML = t;
+	</script>
+}

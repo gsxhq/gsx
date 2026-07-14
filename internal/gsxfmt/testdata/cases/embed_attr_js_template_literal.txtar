@@ -1,0 +1,31 @@
+A multi-line JS template literal inside a js"…" attribute value keeps its
+interior verbatim while the surrounding object is re-indented under the attribute.
+
+-- input.gsx --
+package p
+
+component C() {
+	<form x-data=js"{
+render() {
+return `<div>
+  hi
+</div>`;
+},
+k: 1,
+}"/>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<form
+		x-data=js"{
+			render() {
+				return `<div>
+  hi
+</div>`;
+			},
+			k: 1,
+		}"
+	/>
+}
