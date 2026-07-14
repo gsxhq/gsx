@@ -531,17 +531,24 @@ node-valued or attrs-bag-valued parameters remain ordinary exact-name props.
 - **The separate attrs-only classifier/emitter path** — merged into ordinary
   signature role analysis; its sound bag shapes remain, but not its
   arbitrary-name structural convention.
-- **Reserved-identifier body scanning + shadow handling** (`reserved_scan.go`,
-  `usesChildren`/`usesAttrs` free-use token scans, branch-env shadow reasoning) —
-  gone. Whether a component uses children/attrs is now read off the *signature*
-  (it declared the param or it didn't), and a local named `attrs`/`children` is
-  ordinary Go scoping, not a shadow of a magic identifier. (`ctx` is still ambient
-  and needs no scan.)
+- **Implicit-role free-use scanning + shadow handling** (`freeuse.go`,
+  `usesChildren`/`usesAttrs`, and the `children`/`attrs` arms of
+  `reserved_bindings.go`) — gone. Whether a component uses children/attrs is now
+  read off the *signature* (it declared the param or it didn't), and a local named
+  `attrs`/`children` is ordinary Go scoping, not a shadow of a magic identifier.
+  Keep `reserved_scan.go`: its real Go-lexer pass enforces the still-required
+  `_gsx...` namespace. Keep the `ctx` body-binding check because `ctx` remains the
+  ambient render-closure parameter. Before deleting `freeuse.go`, move the small
+  Go-AST statement-binding parser it shares with `reserved_bindings.go` into that
+  file (or a dedicated `ctx` binding file), reduce it to `ctx`, and retain its
+  focused scope tests; only the implicit-role branch/environment machinery is
+  obsolete.
 - **`WithFieldMatcher`** (`gen/options.go:355`) and fuzzy attr→field matching —
-  obsolete under **exact-name** matching. Remove/deprecate deliberately across
-  config, cache keys, manifest/info JSON, watch/LSP wiring, tests, docs, and the
-  roadmap. (Attr names and lowercase params now match exactly; the first-letter
-  case-fold that mapped `class`→`Class` fields is no longer needed.)
+  obsolete under **exact-name** matching. Remove it outright across config,
+  cache keys, manifest/info JSON, watch/LSP wiring, tests, docs, and the roadmap;
+  this early development phase does not carry a deprecated compatibility API.
+  (Attr names and lowercase params now match exactly; the first-letter case-fold
+  that mapped `class`→`Class` fields is no longer needed.)
 
 ## Migration — atomic cutover
 
