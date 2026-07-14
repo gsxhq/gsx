@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"go/types"
-	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -414,30 +413,7 @@ func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias, rend
 	if err != nil {
 		return nil, nil, err
 	}
-	infos := make([]FilterInfo, 0, len(harvested))
-	for name, entries := range harvested {
-		winner := entries[len(entries)-1]
-		var shadows []string
-		for _, e := range entries[:len(entries)-1] {
-			shadows = append(shadows, e.pkgPath)
-		}
-		infos = append(infos, FilterInfo{
-			Name:    name,
-			Pkg:     winner.pkgPath,
-			Func:    winner.funcName,
-			Ctx:     winner.wantsCtx,
-			Shadows: shadows,
-		})
-	}
-	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
-
-	rinfos := make([]RendererInfo, 0, len(rt))
-	for key, e := range rt {
-		rinfos = append(rinfos, RendererInfo{TypeKey: key, Pkg: e.pkgPath, Func: e.funcName, HasErr: e.hasErr})
-	}
-	sort.Slice(rinfos, func(i, j int) bool { return rinfos[i].TypeKey < rinfos[j].TypeKey })
-
-	return infos, rinfos, nil
+	return resolvedFunctionInfos(harvested, rt)
 }
 
 // classifyFilter inspects a func signature against the seed-first filter

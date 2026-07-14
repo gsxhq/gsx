@@ -32,20 +32,25 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 	if err := ifs.Parse(cmdArgs); err != nil {
 		return 2
 	}
+	root, modPath, moduleErr := moduleRoot(dir)
 
 	if asJSON {
+		if moduleErr != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", moduleErr)
+			return 1
+		}
 		// renderers are not yet part of the JSON manifest schema (manifestSchemaVersion
 		// would need a bump) — pass nil here so --json's resolution is unaffected;
 		// only the human-readable path below reports them.
-		infos, _, err := codegen.ResolveFilters(dir, filterPkgs, aliases, nil)
+		infos, _, err := codegen.ResolveFunctions(codegen.Options{
+			ModuleRoot: root,
+			ModulePath: modPath,
+			FilterPkgs: filterPkgs,
+			Aliases:    aliases,
+		})
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 1
-		}
-		// Resolve module path for the manifest Module field; "" if unknown.
-		var modPath string
-		if _, mp, err := moduleRoot(dir); err == nil {
-			modPath = mp
 		}
 		mf := make([]manifestFilter, 0, len(infos))
 		for _, fi := range infos {
@@ -68,13 +73,23 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 	} else {
 		fmt.Fprintf(stdout, "config: none\n")
 	}
+	if moduleErr != nil {
+		fmt.Fprintf(stderr, "gsx: %v\n", moduleErr)
+		return 1
+	}
 
 	// Resolve filters AFTER the config line is printed: on error the config line
 	// is already on stdout (the debugging info the user needs), and the resolution
 	// error is surfaced to stderr with a nonzero exit. renderers ride the SAME
-	// packages.Load as the filter packages (see ResolveFilters), so the
-	// Renderers section below never triggers a second load.
-	infos, rinfos, err := codegen.ResolveFilters(dir, filterPkgs, aliases, renderers)
+	// external importer as the filter packages (see ResolveFunctions), so the
+	// Renderers section below never triggers a second packages.Load.
+	infos, rinfos, err := codegen.ResolveFunctions(codegen.Options{
+		ModuleRoot: root,
+		ModulePath: modPath,
+		FilterPkgs: filterPkgs,
+		Aliases:    aliases,
+		Renderers:  renderers,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx: %v\n", err)
 		return 1

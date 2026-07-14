@@ -177,6 +177,47 @@ func gsxDepDirs(dir string, graph map[string]pkgInfo, moduleRoot, modPath string
 	return out
 }
 
+// rendererDepDirs returns the existing module-owned package directories named
+// by the completed renderer registry. Registrations resolve last-wins per
+// TypeKey before package ownership is considered, so a shadowed local renderer
+// contributes no source dependency. Import paths outside modPath contribute
+// nothing: ownership is exact module-path identity, never a sibling-directory
+// or package-name guess.
+func rendererDepDirs(renderers []codegen.RendererAlias, moduleRoot, modPath string) []string {
+	if modPath == "" {
+		return nil
+	}
+	final := make(map[string]codegen.RendererAlias, len(renderers))
+	for _, r := range renderers {
+		final[r.TypeKey] = r
+	}
+	root := filepath.Clean(moduleRoot)
+	dirs := make(map[string]bool, len(final))
+	for _, r := range final {
+		var dir string
+		switch {
+		case r.PkgPath == modPath:
+			dir = root
+		case strings.HasPrefix(r.PkgPath, modPath+"/"):
+			rel := strings.TrimPrefix(r.PkgPath, modPath+"/")
+			dir = filepath.Join(root, filepath.FromSlash(rel))
+		default:
+			continue
+		}
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		dirs[filepath.Clean(dir)] = true
+	}
+	out := make([]string, 0, len(dirs))
+	for dir := range dirs {
+		out = append(out, dir)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // computeKey is the per-package cache key. dir is the absolute package dir;
 // graph maps import paths to info; modPath is the module path; goModHash/
 // goSumHash/buildCtx/filterPkgs are the version pins. buildCtx is the output
@@ -198,8 +239,23 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	// key honest when a dep's .x.go is not on disk (fresh checkout, cleaned
 	// outputs): the dep's component prop fields drive this package's attr
 	// splitting, so its .gsx content must be an input to the key.
-	var depHashes []string
+	depDirs := make(map[string]bool)
 	for _, depDir := range gsxDepDirs(dir, graph, moduleRoot, modPath) {
+		depDirs[filepath.Clean(depDir)] = true
+	}
+	for _, depDir := range rendererDepDirs(renderers, moduleRoot, modPath) {
+		depDir = filepath.Clean(depDir)
+		if depDir != dir {
+			depDirs[depDir] = true
+		}
+	}
+	sortedDepDirs := make([]string, 0, len(depDirs))
+	for depDir := range depDirs {
+		sortedDepDirs = append(sortedDepDirs, depDir)
+	}
+	sort.Strings(sortedDepDirs)
+	var depHashes []string
+	for _, depDir := range sortedDepDirs {
 		dh, err := dirSourceHash(depDir)
 		if err != nil {
 			return "", err
@@ -210,8 +266,6 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 		}
 		depHashes = append(depHashes, filepath.ToSlash(rel)+":"+dh)
 	}
-	sort.Strings(depHashes)
-
 	pins := dedupSorted(filterPkgs)
 	fmStr := "0"
 	if hasFieldMatcher {

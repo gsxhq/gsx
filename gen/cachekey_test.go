@@ -205,6 +205,125 @@ func TestComputeKeyRenderers(t *testing.T) {
 	if orderAB != orderBA {
 		t.Fatal("swapping registration order of two distinct TypeKeys must NOT change the cache key (order-independent pin)")
 	}
+
+	t.Run("module-local source", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(rel, src string) {
+			t.Helper()
+			path := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write("views/views.go", "package views\n")
+		write("renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		renderers := []codegen.RendererAlias{{
+			TypeKey:  "example.com/p.A",
+			PkgPath:  "ex/rnddeps/renderers",
+			FuncName: "RenderA",
+		}}
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		write("renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		after := key()
+		if before == after {
+			t.Fatal("editing an unimported module-local renderer package must change the consumer cache key")
+		}
+	})
+
+	t.Run("external path adds no local hash", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(rel, src string) {
+			t.Helper()
+			path := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write("views/views.go", "package views\n")
+		// This physical directory is deliberately named after the external import
+		// path. Path identity must not mistake it for module-owned source: its real
+		// module import path is ex/rnddeps/external.example/renderers.
+		write("external.example/renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		renderers := []codegen.RendererAlias{{
+			TypeKey:  "example.com/p.A",
+			PkgPath:  "external.example/renderers",
+			FuncName: "RenderA",
+		}}
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		write("external.example/renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		after := key()
+		if before != after {
+			t.Fatal("editing a coincidental local directory for an external renderer path must not change the cache key")
+		}
+	})
+
+	t.Run("shadowed module-local source", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(rel, src string) {
+			t.Helper()
+			path := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write("views/views.go", "package views\n")
+		write("renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		renderers := []codegen.RendererAlias{
+			{TypeKey: "example.com/p.A", PkgPath: "ex/rnddeps/renderers", FuncName: "RenderA"},
+			{TypeKey: "example.com/p.A", PkgPath: "external.example/renderers", FuncName: "RenderA"},
+		}
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		write("renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		after := key()
+		if before != after {
+			t.Fatal("editing a module-local renderer shadowed by the final external registration must not change the cache key")
+		}
+	})
 }
 
 func loadGraphMust(t *testing.T, root string) map[string]pkgInfo {

@@ -128,6 +128,72 @@ func TestRunInfoRenderers(t *testing.T) {
 	}
 }
 
+// TestInfoCleanLocalRenderer proves info resolves a module-local renderer
+// declaration directly from .gsx source on a clean checkout. The package.go
+// companion makes the package visible to Go while deliberately omitting the
+// renderer function, so the external-only resolver reports "function not
+// found" unless info routes through Module's declaration resolver.
+func TestInfoCleanLocalRenderer(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-load renderer test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pgDir := filepath.Join(tmp, "pg")
+	if err := os.MkdirAll(pgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pgDir, "pg.go"), []byte("package pg\n\ntype Text struct { Value string }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rendererDir := filepath.Join(tmp, "renderers")
+	if err := os.MkdirAll(rendererDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rendererDir, "package.go"), []byte("package renderers\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rendererDir, "renderers.gsx"), []byte(`package renderers
+
+import "example.com/app/pg"
+
+func RenderText(v pg.Text) (string, error) {
+	return v.Value, nil
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(rendererDir, "renderers.x.go")); !os.IsNotExist(err) {
+		t.Fatalf("renderer generated file unexpectedly exists before info: %v", err)
+	}
+
+	renderers := []codegen.RendererAlias{{TypeKey: "example.com/app/pg.Text", PkgPath: "example.com/app/renderers", FuncName: "RenderText"}}
+	var out, errBuf bytes.Buffer
+	code := runInfo(&out, &errBuf, tmp, "", []string{stdImportPath}, nil, renderers, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	if code != 0 {
+		t.Fatalf("runInfo exit = %d, want 0; stderr:\n%s", code, errBuf.String())
+	}
+	got := out.String()
+	for _, want := range []string{"Renderers (1)", "example.com/app/pg.Text", "renderers.RenderText", "(R, error)"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runInfo output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(errBuf.String(), "function not found") {
+		t.Fatalf("runInfo used external-only renderer resolution: %s", errBuf.String())
+	}
+	if _, err := os.Stat(filepath.Join(rendererDir, "renderers.x.go")); !os.IsNotExist(err) {
+		t.Fatalf("info wrote a generated renderer file: %v", err)
+	}
+}
+
 // TestRunInfoNoRenderersOmitsSection proves the Renderers section is omitted
 // entirely (not printed empty) when no [renderers] are configured — the same
 // convention as the Attribute rules section.
