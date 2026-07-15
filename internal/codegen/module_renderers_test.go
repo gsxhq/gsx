@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"errors"
+	"go/build"
 	"go/types"
 	"os"
 	"path/filepath"
@@ -128,6 +129,251 @@ func TestGenerateCrossPackageRendererWithoutXGo(t *testing.T) {
 		if !equalGenerated(forward[dir].Files, reverse[dir].Files) {
 			t.Fatalf("generated output for %s depends on directory order", dir)
 		}
+	}
+}
+
+func TestRendererDeclarationsUseFinalizedSemanticVariantPlan(t *testing.T) {
+	root, rendererDir, viewsDir := localRendererModule(t)
+	writeFile(t, rendererDir, "receiver.go", "package renderers\ntype Receiver struct{}\ntype Alias = Receiver\n")
+	writeFile(t, rendererDir, "card_a.gsx", "//go:build variantA\n\npackage renderers\ncomponent (r Receiver) Card(value string) { <span>a</span> }\n")
+	writeFile(t, rendererDir, "card_b.gsx", "//go:build variantB\n\npackage renderers\ncomponent (r Alias) Card(value string) { <span>b</span> }\n")
+
+	result, err := GenerateDirs(root, []string{viewsDir}, localRendererOptions(), nil)
+	if err != nil {
+		t.Fatalf("GenerateDirs: %v", err)
+	}
+	if hasDiagErrors(result[viewsDir].Diags) {
+		t.Fatalf("views diagnostics = %v, want renderer package variants grouped by semantic receiver", result[viewsDir].Diags)
+	}
+	if src := generatedFor(t, result[viewsDir], "views.gsx"); !strings.Contains(src, "_gsxf0.Timestamptz((sample))") {
+		t.Fatalf("renderer call missing after semantic variant resolution:\n%s", src)
+	}
+}
+
+func TestRendererDeclarationsUseAuthoritativeTaggedCompanion(t *testing.T) {
+	t.Setenv("GOFLAGS", "-tags=feature")
+	root, rendererDir, viewsDir := localRendererModule(t)
+	writeFile(t, rendererDir, "renderers.gsx", `package renderers
+
+import "example.com/app/pg"
+
+component Preview(sample pg.Timestamptz) { <div>{sample}</div> }
+`)
+	writeFile(t, rendererDir, "renderer_feature.go", `//go:build feature
+
+package renderers
+
+import (
+	"example.com/app/pg"
+	"github.com/gsxhq/gsx"
+)
+
+func Timestamptz(v pg.Timestamptz) gsx.Node { return nil }
+`)
+
+	result, err := GenerateDirs(root, []string{viewsDir}, localRendererOptions(), nil)
+	if err != nil {
+		t.Fatalf("GenerateDirs: %v", err)
+	}
+	if hasDiagErrors(result[viewsDir].Diags) {
+		t.Fatalf("views diagnostics = %v, want GOFLAGS-selected renderer companion", result[viewsDir].Diags)
+	}
+}
+
+func TestRendererDeclarationsUseAuthoritativeCgoSyntax(t *testing.T) {
+	if !build.Default.CgoEnabled {
+		t.Skip("cgo is disabled for the active build context")
+	}
+	root, rendererDir, viewsDir := localRendererModule(t)
+	writeFile(t, rendererDir, "renderers.gsx", `package renderers
+
+import "example.com/app/pg"
+
+component Preview(sample pg.Timestamptz) { <div>{sample}</div> }
+`)
+	writeFile(t, rendererDir, "renderer_cgo.go", `package renderers
+
+/* typedef int renderer_marker; */
+import "C"
+
+import (
+	"example.com/app/pg"
+	"github.com/gsxhq/gsx"
+)
+
+var _ C.renderer_marker
+
+func Timestamptz(v pg.Timestamptz) gsx.Node { return nil }
+`)
+
+	result, err := GenerateDirs(root, []string{viewsDir}, localRendererOptions(), nil)
+	if err != nil {
+		t.Fatalf("GenerateDirs: %v", err)
+	}
+	if hasDiagErrors(result[viewsDir].Diags) {
+		t.Fatalf("views diagnostics = %v, want retained cgo-transformed renderer syntax", result[viewsDir].Diags)
+	}
+}
+
+func TestRendererPackagesRecheckGoOnlyRootAgainstGsxDeclarationUniverse(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	leafDir := filepath.Join(root, "leaf")
+	rendererDir := filepath.Join(root, "gorender")
+	writeFile(t, leafDir, "card.gsx", "package leaf\ncomponent Card(title string) { <span>{title}</span> }\n")
+	writeFile(t, leafDir, "card.x.go", `package leaf
+
+import "github.com/gsxhq/gsx"
+
+type CardProps struct { Poison int }
+func Card(CardProps) gsx.Node { return nil }
+`)
+	writeFile(t, rendererDir, "renderer.go", `package gorender
+
+import (
+	"example.com/app/leaf"
+	"github.com/gsxhq/gsx"
+)
+
+func Card(p leaf.CardProps) gsx.Node { return leaf.Card(p) }
+`)
+	rendererPath := "example.com/app/gorender"
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		Renderers: []RendererAlias{{
+			TypeKey:  "example.com/app/leaf.CardProps",
+			PkgPath:  rendererPath,
+			FuncName: "Card",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages, local, err := m.rendererPackagesFromExt()
+	if err != nil {
+		t.Fatalf("rendererPackagesFromExt: %v", err)
+	}
+	if local[rendererPath] {
+		t.Fatal("Go-only renderer root was marked local for direct-call lowering")
+	}
+	first := packages[rendererPath]
+	fn := first.Scope().Lookup("Card").(*types.Func)
+	structure := types.Unalias(fn.Type().(*types.Signature).Params().At(0).Type()).Underlying().(*types.Struct)
+	if structure.NumFields() != 1 || structure.Field(0).Name() != "Title" {
+		t.Fatalf("cold Card parameter = %v, want current GSX CardProps Title", fn.Type())
+	}
+
+	m.SetOverride(filepath.Join(leafDir, "card.gsx"), []byte("package leaf\ncomponent Card(count int) { <span>{count}</span> }\n"))
+	m.applyDirty()
+	packages, local, err = m.rendererPackagesFromExt()
+	if err != nil {
+		t.Fatalf("warm rendererPackagesFromExt: %v", err)
+	}
+	if packages[rendererPath] == first || local[rendererPath] {
+		t.Fatalf("warm renderer package=%p first=%p local=%t, want rebuilt non-local Go-only root", packages[rendererPath], first, local[rendererPath])
+	}
+	fn = packages[rendererPath].Scope().Lookup("Card").(*types.Func)
+	structure = types.Unalias(fn.Type().(*types.Signature).Params().At(0).Type()).Underlying().(*types.Struct)
+	if structure.NumFields() != 1 || structure.Field(0).Name() != "Count" {
+		t.Fatalf("warm Card parameter = %v, want current GSX CardProps Count", fn.Type())
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("external loads after warm leaf edit = %d, want one", got)
+	}
+}
+
+func TestRendererPackagesDoNotPublishPartialMapOnResolutionFailure(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, root, "good/good.gsx", `package good
+import "github.com/gsxhq/gsx"
+func Good(value string) gsx.Node { return <span>{value}</span> }
+`)
+	writeFile(t, root, "bad/bad.gsx", `package bad
+import "github.com/gsxhq/gsx"
+func Bad(value Missing) gsx.Node { return <span/> }
+`)
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		Renderers: []RendererAlias{
+			{TypeKey: "string", PkgPath: "example.com/app/good", FuncName: "Good"},
+			{TypeKey: "example.com/app/Missing", PkgPath: "example.com/app/bad", FuncName: "Bad"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages, local, err := m.rendererPackagesFromExt()
+	if err == nil {
+		t.Fatal("renderer package resolution succeeded; want bad registration failure")
+	}
+	if len(packages) != 0 || len(local) != 0 || len(m.rendererPkgs) != 0 || len(m.rendererLocal) != 0 {
+		t.Fatalf("partial renderer state escaped: returned packages=%v local=%v cached packages=%v local=%v", packages, local, m.rendererPkgs, m.rendererLocal)
+	}
+	if !m.rendererPkgsDone || m.rendererPkgsErr == nil {
+		t.Fatalf("failure cache done=%t err=%v, want atomic cached failure", m.rendererPkgsDone, m.rendererPkgsErr)
+	}
+}
+
+func TestFailedLocalRendererDependencyResolutionInvalidatesWarm(t *testing.T) {
+	root, rendererDir, viewsDir := localRendererModule(t)
+	brokenDir := filepath.Join(root, "broken")
+	brokenPath := filepath.Join(brokenDir, "broken.gsx")
+	writeFile(t, brokenDir, "broken.gsx", `package broken
+
+func Label() string { return Missing }
+`)
+	writeFile(t, rendererDir, "renderers.gsx", `package renderers
+
+import (
+	"example.com/app/broken"
+	"example.com/app/pg"
+)
+
+func Timestamptz(v pg.Timestamptz) string {
+	return broken.Label() + v.Label
+}
+`)
+	opts := localRendererOptions()
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		FilterPkgs: opts.FilterPkgs,
+		Renderers:  opts.Renderers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Generate(viewsDir); err == nil || !strings.Contains(err.Error(), "undefined: Missing") {
+		t.Fatalf("cold Generate error = %v, want broken dependency body", err)
+	}
+
+	m.SetOverride(brokenPath, []byte(`package broken
+
+func Label() string { return "fixed" }
+`))
+	output, diagnostics, err := m.Generate(viewsDir)
+	if err != nil {
+		t.Fatalf("warm Generate retained memoized failure: %v", err)
+	}
+	if hasDiagErrors(diagnostics) {
+		t.Fatalf("warm Generate diagnostics = %v", diagnostics)
+	}
+	if generated := string(output[filepath.Join(viewsDir, "views.gsx")]); !strings.Contains(generated, "Timestamptz((sample))") {
+		t.Fatalf("warm output did not use the repaired renderer:\n%s", generated)
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("external loads after repaired dependency = %d, want one", got)
 	}
 }
 

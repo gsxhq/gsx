@@ -5,20 +5,11 @@ import (
 	"testing"
 )
 
-// TestResolveImportCandidatesConcurrent guards against two data races an
-// adversarial review found under `go test -race`, both invisible to every
-// other (non-concurrent) test in this package:
-//
-//  1. packageExports called the cached go/importer's .Import() outside any
-//     lock. go/importer's gc importer (go/internal/gcimporter) mutates its own
-//     internal package cache during Import, so two concurrent resolves
-//     corrupted it (see importExportData in add_imports.go, now serialized by
-//     Module.gcImporterMu).
-//  2. externalImporter's double-checked lock on m.ext read the field back
-//     AFTER releasing m.mu — a non-atomic double-checked lock. It was masked
-//     because every prior caller held analysisMu, serializing writes and
-//     reads; ResolveImportCandidates deliberately does not, exposing it (see
-//     the "return ext, nil" fix in module.go's externalImporter).
+// TestResolveImportCandidatesConcurrent guards the authoritative snapshot and
+// importer caches under `go test -race`. ResolveImportCandidates now shares
+// analysisMu with Package/Generate for its complete enumeration and optional
+// source recheck, so neither the Module FileSet nor package identities can be
+// rebuilt between candidate naming and symbol filtering.
 //
 // Each of {"rand", "Read"}, {"template", "HTML"}, {"json", "Marshal"},
 // {"scanner", "Scanner"} is genuinely ambiguous (see stdlibindex_gen.go), so
@@ -47,6 +38,38 @@ func TestResolveImportCandidatesConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			m.ResolveImportCandidates(dir, q.name, q.symbol)
+		}()
+	}
+	wg.Wait()
+}
+
+func TestResolveImportCandidatesConcurrentWithPackageAnalysis(t *testing.T) {
+	m, dir := newMissingModuleFiles(t, "views", "package views\n\nvar xx = <p>hi</p>\n", map[string]string{
+		"a/card.gsx": `package db
+
+func Current() string { return "current" }
+
+component Card() { <p/> }
+`,
+		"b/db.go": "package db\n\nfunc Other() string { return \"other\" }\n",
+	})
+
+	const n = 24
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func() {
+			defer wg.Done()
+			if i%2 == 0 {
+				got := m.ResolveImportCandidates(dir, "db", "Current")
+				if len(got) != 1 || got[0] != "example.com/u/a" {
+					t.Errorf("resolve(db, Current) = %v, want authoritative local package", got)
+				}
+				return
+			}
+			if _, err := m.Package(dir); err != nil {
+				t.Errorf("Package: %v", err)
+			}
 		}()
 	}
 	wg.Wait()

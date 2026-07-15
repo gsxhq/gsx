@@ -4,17 +4,14 @@ import (
 	"errors"
 	"fmt"
 	goast "go/ast"
-	"go/build"
 	goparser "go/parser"
 	"go/scanner"
 	"go/token"
 	"go/types"
 	"maps"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -48,7 +45,7 @@ func dirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) 
 // returns the resulting *types.Package + *types.Info. Type errors are collected
 // (not fatal): go/types fills Info best-effort even when some files don't check,
 // matching the existing CachedResolver.check behaviour.
-func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.FileSet, imp types.Importer) (*types.Package, *types.Info, []types.Error) {
+func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.FileSet, imp types.Importer, typeEnvironment typeCheckEnvironment) (*types.Package, *types.Info, []types.Error) {
 	info := &types.Info{
 		Types: map[goast.Expr]types.TypeAndValue{},
 		Defs:  map[*goast.Ident]types.Object{},
@@ -56,7 +53,9 @@ func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.
 	}
 	var errs []types.Error
 	conf := types.Config{
-		Importer: imp,
+		Importer:  imp,
+		Sizes:     typeEnvironment.sizes,
+		GoVersion: typeEnvironment.goVersion,
 		Error: func(e error) {
 			if te, ok := e.(types.Error); ok {
 				errs = append(errs, te)
@@ -69,23 +68,26 @@ func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.
 	return pkg, info, errs
 }
 
-// moduleImporter resolves a project gsx package from the warm graph (skeletons)
-// and everything else from external. seen breaks recursion on import cycles;
+// moduleImporter owns one coherent shipping declaration universe for every
+// authoritative module-local package. GSX directories are rebuilt from shipping
+// skeletons; Go-only directories are rebuilt from the retained compiled syntax
+// selected by the cold source inventory. Only packages outside that source
+// inventory are delegated to external. seen breaks recursion on import cycles;
 // cycleErr records the first cycle detected so typesPackageWith can propagate it.
-//
-// Transitive .x.go boundary (Phase 0, known gap): Import routes only direct
-// project gsx packages through the skeleton graph. A Go-only package in the
-// project that transitively imports a sibling gsx package is routed to external,
-// which loaded it from disk .x.go via packages.Load("./..."). A gsx package
-// that imports such a Go-only intermediary therefore transitively resolves those
-// sibling gsx symbols from disk .x.go, not from skeletons. This narrow
-// (gsx → Go-only → gsx) path is unexercised by the corpus; closing it is
-// deferred to Phase 1/2.
 type moduleImporter struct {
-	m        *Module
-	external types.Importer
-	seen     map[string]bool
-	cycleErr error
+	m         *Module
+	external  types.Importer
+	seen      map[string]bool
+	cycleErr  error
+	sourceErr error
+}
+
+func newModuleImporter(m *Module, external types.Importer) *moduleImporter {
+	return &moduleImporter{
+		m:        m,
+		external: external,
+		seen:     map[string]bool{},
+	}
 }
 
 type sourceDiagnosticsError struct {
@@ -168,21 +170,28 @@ func skeletonParseError(err error) error {
 }
 
 func (mi *moduleImporter) Import(path string) (*types.Package, error) {
-	if dir, ok := dirForImportPath(mi.m.opts.ModuleRoot, mi.m.opts.ModulePath, path); ok {
-		if mi.m.isGsxPackage(dir) {
-			if mi.seen[dir] {
-				// cycle guard: return cached package if ready, else signal cycle error.
-				if p, ok := mi.m.pkgTypes[dir]; ok {
-					return p, nil
-				}
-				err := fmt.Errorf("import cycle through %s", dir)
-				mi.cycleErr = err
-				return nil, err
+	if dir, ok := mi.m.sourcePackageDir(path); ok {
+		if mi.seen[dir] {
+			// cycle guard: return cached package if ready, else signal cycle error.
+			mi.m.mu.Lock()
+			pkg := mi.m.pkgTypes[dir]
+			mi.m.mu.Unlock()
+			if pkg != nil {
+				return pkg, nil
 			}
-			return mi.m.typesPackageWith(dir, mi)
+			err := fmt.Errorf("import cycle through %s", dir)
+			mi.cycleErr = err
+			return nil, err
 		}
+		pkg, err := mi.m.typesPackageWith(dir, mi)
+		if err != nil && mi.sourceErr == nil {
+			if _, ok := diagnosticsFromSourceError(err); ok {
+				mi.sourceErr = err
+			}
+		}
+		return pkg, err
 	}
-	return mi.external.Import(path)
+	return mi.m.importWithBundleProjectBoundary(path, mi.external)
 }
 
 // reverseClosure returns the reverse-reflexive-transitive closure of seeds over
@@ -210,52 +219,164 @@ func (m *Module) reverseClosure(seeds []string) map[string]bool {
 				stack = append(stack, importer)
 			}
 		}
+		for importer := range m.sourceDeclImportedBy[d] {
+			if !out[importer] {
+				stack = append(stack, importer)
+			}
+		}
 	}
 	return out
 }
 
-// invalidateRendererStateLocked drops every cache whose classification may
-// depend on the module-wide renderer registry. Renderer declarations and the
-// completed table are rebuilt lazily from current source; localized func tables
-// and all retained package analyses must follow because a renderer result-type
-// change can alter emitted lowering in any analyzed package. The external
-// importer and filter-only table deliberately stay warm. Assumes m.mu.
-func (m *Module) invalidateRendererStateLocked() {
+type invalidationScope struct {
+	dirs  map[string]bool
+	whole bool
+}
+
+func (scope invalidationScope) sorted() []string {
+	if len(scope.dirs) == 0 {
+		return nil
+	}
+	dirs := make([]string, 0, len(scope.dirs))
+	for dir := range scope.dirs {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+// affectedLocked is the one authoritative transition/invalidation primitive.
+// Ordinary seeds use the reverse closure across every analysis graph. If that
+// closure reaches configured source, its declarations can change lowering in
+// every GSX package, including a cold or in-flight package with no retained
+// result yet, so the scope expands to the complete authoritative GSX inventory
+// and every currently retained local graph/cache directory. Assumes m.mu.
+func (m *Module) affectedLocked(seeds []string) invalidationScope {
+	cleanSeeds := make([]string, 0, len(seeds))
+	seenSeeds := make(map[string]bool, len(seeds))
+	for _, dir := range seeds {
+		dir = filepath.Clean(dir)
+		if !seenSeeds[dir] {
+			seenSeeds[dir] = true
+			cleanSeeds = append(cleanSeeds, dir)
+		}
+	}
+	scope := invalidationScope{dirs: m.reverseClosure(cleanSeeds)}
+	for dir := range scope.dirs {
+		if m.rendererDirs[dir] || m.configuredSourceDirs[dir] {
+			scope.whole = true
+			break
+		}
+	}
+	if !scope.whole {
+		return scope
+	}
+	for dir := range m.sourceGsxDirs {
+		scope.dirs[dir] = true
+	}
+	for path, fact := range m.sourceInventoryFacts {
+		if fact.Present() {
+			scope.dirs[filepath.Dir(path)] = true
+		}
+	}
+	for path := range m.overrides {
+		if strings.HasSuffix(path, ".gsx") {
+			scope.dirs[filepath.Dir(path)] = true
+		}
+	}
+	for dir := range m.pkgTypes {
+		scope.dirs[dir] = true
+	}
+	for dir := range m.targetDeclTypes {
+		scope.dirs[dir] = true
+	}
+	for dir := range m.configuredDeclTypes {
+		scope.dirs[dir] = true
+	}
+	for dir := range m.pkgResults {
+		scope.dirs[dir] = true
+	}
+	for dir := range m.depFacts {
+		scope.dirs[dir] = true
+	}
+	for dir := range m.syntacticDepFacts {
+		scope.dirs[dir] = true
+	}
+	addForwardGraphDirs(scope.dirs, m.imports)
+	addForwardGraphDirs(scope.dirs, m.targetImports)
+	addForwardGraphDirs(scope.dirs, m.sourceDeclImports)
+	addReverseGraphDirs(scope.dirs, m.importedBy)
+	addReverseGraphDirs(scope.dirs, m.targetImportedBy)
+	addReverseGraphDirs(scope.dirs, m.sourceDeclImportedBy)
+	return scope
+}
+
+func addForwardGraphDirs(dirs map[string]bool, graph map[string][]string) {
+	for dir, dependencies := range graph {
+		dirs[dir] = true
+		for _, dependency := range dependencies {
+			dirs[dependency] = true
+		}
+	}
+}
+
+func addReverseGraphDirs(dirs map[string]bool, graph map[string]map[string]bool) {
+	for dir, importers := range graph {
+		dirs[dir] = true
+		for importer := range importers {
+			dirs[importer] = true
+		}
+	}
+}
+
+// invalidateConfiguredSourceStateLocked drops every cache whose classification
+// may depend on a local configured filter, alias, renderer, or class merger.
+// Their declarations and completed tables are rebuilt lazily from current
+// authoritative source; all retained package analyses follow because any of
+// these signatures can alter emitted lowering. The external importer stays
+// warm. Assumes m.mu.
+func (m *Module) invalidateConfiguredSourceStateLocked() {
+	m.funcTbl, m.funcTblErr, m.funcTblDone = funcTables{}, nil, false
 	m.rendererPkgs, m.rendererLocal = nil, nil
 	m.rendererPkgsErr, m.rendererPkgsDone = nil, false
 	m.rendererTbl, m.rendererTblErr, m.rendererTblDone = nil, nil, false
 	m.dirFuncTbls = map[string]funcTables{}
+	m.classMergersErr, m.classMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.targetDeclTypes = map[string]*types.Package{}
+	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 	m.depFacts = map[string]*depPropFacts{}
+	m.syntacticDepFacts = map[string]*depPropFacts{}
 }
 
 // invalidateLocked drops the reverse-closure of ordinary dirs from pkgTypes and
 // pkgResults. A configured module-local renderer seed instead clears the
 // module-wide renderer-dependent state. Assumes m.mu.
-func (m *Module) invalidateLocked(dirs []string) {
-	for _, d := range dirs {
-		if m.rendererDirs[filepath.Clean(d)] {
-			m.invalidateRendererStateLocked()
-			return
-		}
+func (m *Module) invalidateLocked(dirs []string) []string {
+	scope := m.affectedLocked(dirs)
+	if scope.whole {
+		m.invalidateConfiguredSourceStateLocked()
+		return scope.sorted()
 	}
-	for d := range m.reverseClosure(dirs) {
+	for d := range scope.dirs {
 		delete(m.pkgTypes, d)
 		delete(m.targetDeclTypes, d)
+		delete(m.configuredDeclTypes, d)
 		delete(m.pkgResults, d)
 		delete(m.depFacts, d)
+		delete(m.syntacticDepFacts, d)
 	}
+	return scope.sorted()
 }
 
 // Invalidate drops the reverse-reflexive-transitive closure of dirs (the dirs
-// plus every project gsx package that transitively imports them) from pkgTypes
-// and pkgResults, so each is re-type-checked from current skeletons on next use. Graph edges are
-// retained (refreshed on re-analyze). Everything outside the closure stays warm,
-// except that a configured module-local renderer seed invalidates every retained
-// package classification while preserving the external importer/filter state.
-// This supersedes the coarse whole-cache reset.
+// plus every module-local package that transitively imports them) from pkgTypes
+// and pkgResults, so each is re-type-checked from current retained source on the
+// next use. Graph edges are retained (refreshed on re-analysis). Everything
+// outside the closure stays warm, except that a configured module-local renderer
+// seed invalidates every retained package classification while preserving the
+// external importer/filter state. This supersedes the coarse whole-cache reset.
 //
 // Threading: Invalidate takes m.mu but is NOT serialized by analysisMu, so callers
 // must not invoke it concurrently with an in-flight Package/Generate on the same
@@ -267,10 +388,13 @@ func (m *Module) Invalidate(dirs ...string) {
 	m.invalidateLocked(dirs)
 }
 
-// Dependents returns the reverse-reflexive-transitive closure of dir over the import
-// graph: dir plus every project gsx package that transitively imports it. Watch uses it
-// to regenerate every package affected by a change to dir. Returns just dir when nothing
-// imports it (or dir is unknown to the graph).
+// Dependents returns the GSX-owned projection of the reverse-reflexive-
+// transitive closure of dir over the import graph. Internal invalidation keeps
+// every Go-only intermediary in the graph, but watch must regenerate only
+// authoritative GSX source dirs. The seed is always retained so a changed or
+// newly created GSX dir is safe before the next inventory reload. Before a cold
+// inventory exists (Bundle and graph-only tests), the complete closure is
+// returned because there is no authoritative source classification to apply.
 //
 // Threading: like Invalidate, Dependents takes m.mu but is NOT serialized by analysisMu,
 // so callers must not invoke it concurrently with an in-flight Package/Generate on the
@@ -279,11 +403,16 @@ func (m *Module) Invalidate(dirs ...string) {
 func (m *Module) Dependents(dir string) []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	dir = filepath.Clean(dir)
 	cl := m.reverseClosure([]string{dir})
 	out := make([]string, 0, len(cl))
 	for d := range cl {
+		if m.sourceInventoryReady && d != dir && !m.sourceGsxDirs[d] {
+			continue
+		}
 		out = append(out, d)
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -329,45 +458,53 @@ func (m *Module) cachedResultDirs() []string {
 	return out
 }
 
-// recordImports updates the project-internal import graph for dir, REPLACING
-// dir's previous forward edges. Only project gsx packages (the things that can
-// live in pkgTypes) become edges; external/stdlib/Go-only imports are ignored.
+// recordImports updates the project-internal shipping import graph for dir,
+// REPLACING dir's previous forward edges. Every authoritative module-local
+// package becomes an edge, including Go-only intermediaries; external and
+// standard-library imports are ignored.
 // Replacement keeps the graph precise across import add/remove: because the
 // edited package always re-analyzes in the same turn, its outgoing edges are
 // refreshed before any later edit could consult them.
 //
 // paths must include every import that participates in dir's type-check — both
-// the .gsx-hoisted import specs AND the imports of the package's hand-written .go
-// files. A gsx package that imports a sibling gsx package SOLELY through a
-// hand-written .go (e.g. a model.go) is still type-checked against that sibling's
-// skeleton, so its reverse edge must be recorded or editing the sibling would not
-// invalidate it.
-//
-// Resolves dep dirs (isGsxPackage locks m.mu) BEFORE taking m.mu, then mutates
-// the graph under the lock.
+// the .gsx-hoisted import specs and imports from retained compiled Go syntax.
+// Resolving the whole local path preserves alternating GSX -> Go-only -> GSX
+// invalidation instead of allowing a bridge to sever the reverse closure.
 func (m *Module) recordImports(dir string, paths []string) {
 	deps := map[string]bool{}
 	for _, p := range paths {
-		if dd, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, p); ok && m.isGsxPackage(dd) {
+		if dd, ok := m.sourcePackageDir(p); ok {
 			deps[dd] = true
 		}
 	}
-	// A resolved module-local GSX renderer is a module-wide code-generation
-	// dependency even when the consuming package never imports it in source.
-	// rendererLocal is populated only after declaration resolution has decided
-	// GSX-vs-Go-only ownership; rendererDirs alone intentionally does not make
-	// that source-model decision. Exclude the renderer package's self edge.
 	m.mu.Lock()
-	localRendererPaths := make([]string, 0, len(m.rendererLocal))
-	for path, local := range m.rendererLocal {
-		if local {
-			localRendererPaths = append(localRendererPaths, path)
-		}
-	}
+	inventoryReady := m.sourceInventoryReady
+	gsxConsumer := m.sourceGsxDirs[filepath.Clean(dir)]
 	m.mu.Unlock()
-	for _, path := range localRendererPaths {
-		if dd, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, path); ok && dd != dir {
-			deps[dd] = true
+	if !inventoryReady || gsxConsumer {
+		// Configured functions are implicit code-generation dependencies only
+		// for GSX consumers. Go-only packages participate in the shipping graph,
+		// but their type-check does not consult filters, aliases, renderers, or a
+		// class merger; adding those edges would invent dependencies absent from
+		// both their authored source and their compilation.
+		filterPaths := m.opts.FilterPkgs
+		if options, ok := m.dirOptionsFor(dir); ok && options.FilterPkgs != nil {
+			filterPaths = options.FilterPkgs
+		}
+		configuredPaths := append([]string(nil), filterPaths...)
+		for _, alias := range m.opts.Aliases {
+			configuredPaths = append(configuredPaths, alias.PkgPath)
+		}
+		for _, renderer := range finalRendererAliases(m.opts.Renderers) {
+			configuredPaths = append(configuredPaths, renderer.PkgPath)
+		}
+		if merger := m.classMergerFor(dir); merger != nil {
+			configuredPaths = append(configuredPaths, merger.PkgPath)
+		}
+		for _, path := range configuredPaths {
+			if dd, ok := m.sourcePackageDir(path); ok && dd != dir {
+				deps[dd] = true
+			}
 		}
 	}
 	m.mu.Lock()
@@ -385,6 +522,7 @@ func (m *Module) recordImports(dir string, paths []string) {
 		}
 		m.importedBy[dd][dir] = true
 	}
+	sort.Strings(newDeps)
 	m.imports[dir] = newDeps
 }
 
@@ -396,7 +534,7 @@ func (m *Module) recordImports(dir string, paths []string) {
 func (m *Module) recordTargetImports(dir string, paths []string) {
 	deps := map[string]bool{}
 	for _, path := range paths {
-		if depDir, ok := m.exactTargetPackageDir(path); ok {
+		if depDir, ok := m.sourcePackageDir(path); ok {
 			deps[depDir] = true
 		}
 	}
@@ -420,6 +558,39 @@ func (m *Module) recordTargetImports(dir string, paths []string) {
 		m.targetImportedBy[depDir][dir] = true
 	}
 	m.targetImports[dir] = newDeps
+}
+
+// recordSourceDeclImports replaces one package's edges in the configured
+// declaration-source graph. This graph is independent of exact-target edges:
+// both phases may resolve the same directory at different times, and neither
+// is allowed to erase invalidation provenance owned by the other.
+func (m *Module) recordSourceDeclImports(dir string, paths []string) {
+	deps := map[string]bool{}
+	for _, path := range paths {
+		if depDir, ok := m.sourcePackageDir(path); ok {
+			deps[depDir] = true
+		}
+	}
+	newDeps := make([]string, 0, len(deps))
+	for depDir := range deps {
+		newDeps = append(newDeps, depDir)
+	}
+	sort.Strings(newDeps)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, old := range m.sourceDeclImports[dir] {
+		if importers := m.sourceDeclImportedBy[old]; importers != nil {
+			delete(importers, dir)
+		}
+	}
+	for _, depDir := range newDeps {
+		if m.sourceDeclImportedBy[depDir] == nil {
+			m.sourceDeclImportedBy[depDir] = map[string]bool{}
+		}
+		m.sourceDeclImportedBy[depDir][dir] = true
+	}
+	m.sourceDeclImports[dir] = newDeps
 }
 
 // depPropFacts is the cached per-dep-dir prop-fact bundle consumed by the
@@ -453,8 +624,12 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 		return nil, err
 	}
 	files, pkgName := parsed.files, parsed.name
+	companions, _, err := m.parseTargetCompanionGoFiles(depDir, files)
+	if err != nil {
+		return nil, err
+	}
 	bag := diag.NewBag(m.fset)
-	declNames := packageDeclNames(depDir, files)
+	declNames := packageDeclNamesFromFiles(companions, files)
 	preprocessed, err := parsed.preprocessComponentCallSites(declNames, m.fset, m.classifierFor(depDir), bag)
 	if err != nil {
 		return nil, err
@@ -462,7 +637,7 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	if err := componentPreprocessFailure(depDir, preprocessed, bag); err != nil {
 		return nil, err
 	}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(depDir, files)
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsForActive(companions, files)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +657,7 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 			if sig.imports[i].name != "" {
 				continue
 			}
-			if name, ok := m.resolveImportPackageName(depDir, sig.imports[i].path); ok {
+			if name, ok := m.resolveImportPackageName(sig.imports[i].path); ok {
 				sig.imports[i].name = name
 			}
 		}
@@ -497,55 +672,120 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	return f, nil
 }
 
-// resolveImportPackageName returns the REAL declared package name for path,
-// preferring authoritative sources over infer.go's last-path-segment
-// heuristic: a project-internal path resolves via its own directory's
-// package clause (quickPackageName — exact, not a guess); an external path
-// is resolved best-effort via go/build, which reliably handles GOROOT/
-// stdlib paths but does not understand go.mod module-cache resolution for
-// third-party paths — a failure there is expected and simply leaves the
-// import spec's name blank, falling back to the (still safe, fails-closed-
-// on-ambiguity) heuristic already documented on lookupDepImportPath. srcDir
-// anchors go/build's relative resolution.
-func (m *Module) resolveImportPackageName(srcDir, path string) (string, bool) {
-	if depDir, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, path); ok {
-		return quickPackageName(depDir)
+// importedPropFactsSyntactic is the dependency-fact universe for the
+// importer-free formatter/unused-import lane. It intentionally uses the
+// standalone disk wrappers for declaration and companion facts and has a
+// separate cache from importedPropFacts: a syntactic result must never become
+// semantic evidence for Generate/Package, while the fmt fast path must never
+// force the normal module packages.Load merely to obtain active syntax.
+func (m *Module) importedPropFactsSyntactic(depDir string) (*depPropFacts, error) {
+	m.mu.Lock()
+	if f, ok := m.syntacticDepFacts[depDir]; ok {
+		m.mu.Unlock()
+		return f, nil
 	}
-	pkg, err := build.Import(path, srcDir, build.IgnoreVendor)
-	if err != nil || pkg.Name == "" {
-		return "", false
+	m.mu.Unlock()
+	parsed, err := m.parsePackageWithFset(depDir, m.fset)
+	if err != nil {
+		return nil, err
 	}
-	return pkg.Name, true
+	files, pkgName := parsed.files, parsed.name
+	bag := diag.NewBag(m.fset)
+	declNames := packageDeclNames(depDir, files)
+	preprocessed, err := parsed.preprocessComponentCallSites(declNames, m.fset, m.classifierFor(depDir), bag)
+	if err != nil {
+		return nil, err
+	}
+	if err := componentPreprocessFailure(depDir, preprocessed, bag); err != nil {
+		return nil, err
+	}
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(depDir, files)
+	if err != nil {
+		return nil, err
+	}
+	f := &depPropFacts{
+		pkgName:     pkgName,
+		propFields:  propFields,
+		nodeProps:   nodeProps,
+		attrsProps:  attrsProps,
+		genericSigs: genericSigsFor(files, byo),
+		byo:         byo,
+	}
+	m.mu.Lock()
+	if m.syntacticDepFacts == nil {
+		m.syntacticDepFacts = map[string]*depPropFacts{}
+	}
+	m.syntacticDepFacts[depDir] = f
+	m.mu.Unlock()
+	return f, nil
 }
 
-// quickPackageName reads the package name declared in dir by parsing ONLY
-// the package clause (parser.PackageClauseOnly) of its first Go or gsx
-// source file. This is cheap and safe even for a .gsx file: gsx source
-// always opens with a plain `package NAME` line using Go's own package-
-// clause grammar, and PackageClauseOnly stops scanning immediately after
-// that clause, so it never has to tokenize gsx-only syntax (component/JSX)
-// appearing later in the file.
-func quickPackageName(dir string) (string, bool) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+// resolveImportPackageName returns the declared package name from the same
+// semantic universe used by type checking. Normal modules resolve local names
+// from the authoritative source inventory and external names from retained
+// *types.Package values. Bundle mode has no cold source inventory, so after its
+// exact importer it may use the deliberately bounded GSX-source fallback below.
+func (m *Module) resolveImportPackageName(path string) (string, bool) {
+	if name, ok := m.loadedPackageName(path); ok {
+		return name, true
+	}
+	external, err := m.externalImporter()
+	if err == nil {
+		if pkg, importErr := external.Import(path); importErr == nil && pkg != nil && pkg.Name() != "" {
+			return pkg.Name(), true
+		}
+	}
+	if m.opts.Bundle == nil {
 		return "", false
 	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		if !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".gsx") {
-			continue
-		}
-		f, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.PackageClauseOnly)
-		if err != nil || f.Name == nil {
-			continue
-		}
-		return f.Name.Name, true
+	depDir, ok := m.sourcePackageDir(path)
+	if !ok {
+		return "", false
 	}
-	return "", false
+	return m.bundleSourcePackageName(depDir)
+}
+
+// bundleSourcePackageName is Bundle mode's bounded replacement for the normal
+// Go-command source inventory. It examines only GSX source in one directory
+// already accepted by sourcePackageDir, honors overrides (and SourceOnly), and
+// rejects inconsistent clauses instead of choosing an arbitrary first file.
+func (m *Module) bundleSourcePackageName(dir string) (string, bool) {
+	paths := map[string]bool{}
+	if !m.opts.SourceOnly {
+		matches, _ := filepath.Glob(filepath.Join(dir, "*.gsx"))
+		for _, path := range matches {
+			paths[path] = true
+		}
+	}
+	m.mu.Lock()
+	for path := range m.overrides {
+		if filepath.Dir(path) == dir && strings.HasSuffix(path, ".gsx") {
+			paths[path] = true
+		}
+	}
+	m.mu.Unlock()
+	ordered := make([]string, 0, len(paths))
+	for path := range paths {
+		ordered = append(ordered, path)
+	}
+	sort.Strings(ordered)
+	name := ""
+	fset := token.NewFileSet()
+	for _, path := range ordered {
+		source, found := m.source(path)
+		if !found {
+			continue
+		}
+		file, err := goparser.ParseFile(fset, path, source, goparser.PackageClauseOnly)
+		if err != nil || file.Name == nil {
+			return "", false
+		}
+		if name != "" && file.Name.Name != name {
+			return "", false
+		}
+		name = file.Name.Name
+	}
+	return name, name != ""
 }
 
 // fileFacts is the per-.gsx-file view of prop facts: the package's own facts
@@ -625,6 +865,22 @@ func fileImportSpecs(f *gsxast.File, fset *token.FileSet) []importSpec {
 // failures are anchored at the importing spec. The caller never guesses a
 // positional component contract from an incomplete dependency analysis.
 func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, bag *diag.Bag, fset *token.FileSet) *fileFacts {
+	return m.fileScopedFactsWith(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset, m.importedPropFacts)
+}
+
+func (m *Module) fileScopedFactsSyntactic(dir string, f *gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, bag *diag.Bag, fset *token.FileSet) *fileFacts {
+	return m.fileScopedFactsWith(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset, m.importedPropFactsSyntactic)
+}
+
+func (m *Module) fileScopedFactsWith(
+	dir string,
+	f *gsxast.File,
+	propFields, nodeProps, attrsProps map[string]map[string]bool,
+	byo *byoData,
+	bag *diag.Bag,
+	fset *token.FileSet,
+	loadDepFacts func(string) (*depPropFacts, error),
+) *fileFacts {
 	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericSigs: nil, byo: byo}
 	cloned := false
 	seen := map[string]bool{} // alias+"\x00"+depDir: dedupe repeated specs
@@ -632,11 +888,21 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 		if spec.name == "." || spec.name == "_" {
 			continue // dot/blank imports carry no qualified tags
 		}
-		depDir, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, spec.path)
-		if !ok || depDir == dir || !m.isGsxPackage(depDir) {
+		depDir, ok := m.sourcePackageDir(spec.path)
+		if !ok || depDir == dir {
 			continue
 		}
-		facts, err := m.importedPropFacts(depDir)
+		m.mu.Lock()
+		inventoryReady := m.sourceInventoryReady
+		gsxOwned := m.sourceGsxDirs[depDir]
+		m.mu.Unlock()
+		if inventoryReady && !gsxOwned {
+			continue
+		}
+		if !inventoryReady && !m.isGsxPackage(depDir) {
+			continue
+		}
+		facts, err := loadDepFacts(depDir)
 		if err != nil {
 			out.failed = true
 			if diags, ok := diagnosticsFromSourceError(err); ok {
@@ -710,18 +976,30 @@ func (m *Module) importGraphSnapshot() (fwd map[string][]string, rev map[string]
 // isGsxPackage reports whether dir contains at least one .gsx file (disk or
 // override).
 func (m *Module) isGsxPackage(dir string) bool {
-	matches, _ := filepath.Glob(filepath.Join(dir, "*.gsx"))
-	if len(matches) > 0 {
-		return true
-	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for p := range m.overrides {
-		if filepath.Dir(p) == dir && strings.HasSuffix(p, ".gsx") {
+	ready := m.sourceInventoryReady
+	if ready {
+		for path := range m.sourceInventoryFacts {
+			if filepath.Dir(path) == dir {
+				m.mu.Unlock()
+				return true
+			}
+		}
+		m.mu.Unlock()
+		return false
+	}
+	for path := range m.overrides {
+		if filepath.Dir(path) == dir && strings.HasSuffix(path, ".gsx") {
+			m.mu.Unlock()
 			return true
 		}
 	}
-	return false
+	m.mu.Unlock()
+	if m.opts.SourceOnly {
+		return false
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.gsx"))
+	return len(matches) > 0
 }
 
 // typesPackage type-checks dir's skeletons (building a fresh importer rooted at
@@ -733,24 +1011,100 @@ func (m *Module) typesPackage(dir string) (*types.Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	return m.typesPackageWith(dir, &moduleImporter{m: m, external: ext, seen: map[string]bool{}})
+	return m.typesPackageWith(dir, newModuleImporter(m, ext))
 }
 
-// typesPackageWith does the work, threading the recursive importer. It calls
-// analyze and returns only the *types.Package (the importer path needs nothing
-// else), caching the result for the cycle guard + repeat lookups.
+// typesPackageWith does the work, threading the recursive importer through one
+// shipping source graph. GSX directories use analyze's shipping skeletons;
+// Go-only directories use their retained compiled syntax. Both are cached in
+// pkgTypes for package identity, cycle handling, and warm invalidation.
 func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Package, error) {
+	dir = filepath.Clean(dir)
 	m.mu.Lock()
 	if p, ok := m.pkgTypes[dir]; ok {
 		m.mu.Unlock()
 		return p, nil
 	}
+	ready := m.sourceInventoryReady
+	_, sourceFound := m.sourcePackages[dir]
+	gsxSource := m.sourceGsxDirs[dir]
 	m.mu.Unlock()
+	if ready {
+		if !sourceFound {
+			return nil, fmt.Errorf("codegen: shipping source inventory has no package for %s", dir)
+		}
+		if !gsxSource {
+			return m.shippingGoPackageWith(dir, mi)
+		}
+	}
 	a, err := m.analyze(dir, mi)
 	if err != nil {
 		return nil, err
 	}
 	return a.pkg, nil
+}
+
+// shippingGoPackageWith reconstructs one authoritative Go-only package inside
+// the shipping declaration universe. The retained ASTs are the Go command's
+// active CompiledGoFiles selection from the Module's frozen environment; no
+// generated output, disk reparse, or export-data package participates here.
+func (m *Module) shippingGoPackageWith(dir string, mi *moduleImporter) (*types.Package, error) {
+	mi.seen[dir] = true
+	defer delete(mi.seen, dir)
+	sourcePackage, found, ready := m.targetSourcePackage(dir)
+	if !ready || !found {
+		return nil, fmt.Errorf("codegen: shipping source inventory has no Go-only package for %s", dir)
+	}
+	files, importPaths, err := m.parseTargetCompanionGoFiles(dir, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("codegen: shipping Go-only package %s has no retained compiled source", dir)
+	}
+	if err := m.rejectExternalBackedgeImports(files); err != nil {
+		return nil, err
+	}
+	typeEnvironment, err := m.typeCheckEnvironmentForDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Publish the complete syntactic path before recursive checking. This keeps
+	// invalidation correct even when an imported package currently has an error;
+	// semantic package publication remains gated on the successful check below.
+	m.recordImports(dir, importPaths)
+	var typeErrs []types.Error
+	config := types.Config{
+		Importer:  mi,
+		Sizes:     typeEnvironment.sizes,
+		GoVersion: typeEnvironment.goVersion,
+		Error: func(err error) {
+			if typeErr, ok := err.(types.Error); ok {
+				typeErrs = append(typeErrs, typeErr)
+			}
+		},
+	}
+	pkg := types.NewPackage(sourcePackage.pkgPath, sourcePackage.name)
+	checker := types.NewChecker(&config, m.fset, pkg, nil)
+	_ = checker.Files(files)
+	if mi.sourceErr != nil {
+		return nil, mi.sourceErr
+	}
+	if mi.cycleErr != nil {
+		return nil, mi.cycleErr
+	}
+	if err := typeErrorsAsSourceError(typeErrs); err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	if m.pkgTypes == nil {
+		m.pkgTypes = map[string]*types.Package{}
+	}
+	m.pkgTypes[dir] = pkg
+	m.mu.Unlock()
+	return pkg, nil
 }
 
 // analyzed is the full retained result of analyzing one gsx package: the parsed
@@ -775,25 +1129,25 @@ type analyzed struct {
 	// removed any file before skeleton construction. Target discovery therefore
 	// consumes either the complete package registry or no registry, never a
 	// partially active set with missing skeleton markers.
-	callSites          *callSiteRegistry
-	targetFacts        map[callSiteID]componentTargetFact
-	targetErrs         []types.Error         // target-phase-fatal type errors retained privately until exact call planning becomes authoritative
-	targetDiagnostics  []diag.Diagnostic     // target-phase-fatal source diagnostics retained on the same private boundary
-	factsByFile        map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
-	resolved           map[gsxast.Node]types.Type
-	exprMap            map[gsxast.Node]goast.Expr
-	ctrlMap            map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
-	sigTypes           map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
-	pkg                *types.Package
-	info               *types.Info
-	compByKey          map[string][]*gsxast.Component // componentKey -> component(s); >1 = build-tag variants (for Name + NamePos)
-	objKey             map[types.Object]string        // component func object -> componentKey
-	bag                *diag.Bag                      // diagnostics from parse + script resolution; used by Generate
-	importSpecs        []importSpec                   // hoisted .gsx import specs (for unused-import detection)
-	typeErrs           []types.Error                  // raw type errors from checkSkeletonPackage
-	signatureConflicts []signatureConflict            // same-name different-signature component collisions (block emission)
-	unusedImports      map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
-	missingImports     map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
+	callSites         *callSiteRegistry
+	targetFacts       map[callSiteID]componentTargetFact
+	targetErrs        []types.Error         // target-phase-fatal type errors retained privately until exact call planning becomes authoritative
+	targetDiagnostics []diag.Diagnostic     // target-phase-fatal source diagnostics retained on the same private boundary
+	factsByFile       map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
+	resolved          map[gsxast.Node]types.Type
+	exprMap           map[gsxast.Node]goast.Expr
+	ctrlMap           map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
+	sigTypes          map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
+	pkg               *types.Package
+	info              *types.Info
+	compByKey         map[string][]*gsxast.Component // componentKey -> component(s); >1 = build-tag variants (for Name + NamePos)
+	objKey            map[types.Object]string        // component func object -> componentKey
+	componentPlan     componentTargetPlan            // finalized declarations used by every retained LSP index
+	bag               *diag.Bag                      // diagnostics from parse + script resolution; used by Generate
+	importSpecs       []importSpec                   // hoisted .gsx import specs (for unused-import detection)
+	typeErrs          []types.Error                  // raw type errors from checkSkeletonPackage
+	unusedImports     map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
+	missingImports    map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
 
 	// sunkImports maps a .gsx file path to the import SPECS (line+path keys)
 	// the type-checker PROVED were used only by a requalification-failed
@@ -865,6 +1219,7 @@ func isUnusedImportMsg(msg string) bool {
 // during type-check is propagated (without caching) via mi.cycleErr.
 func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	mi.seen[dir] = true
+	defer delete(mi.seen, dir)
 
 	// Use the Module-wide shared fset for parse + skeleton so //line directives
 	// from buildSkeleton reference valid positions, AND so this package's objects
@@ -882,11 +1237,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		return nil, err
 	}
 	gsxFiles, pkgName := parsed.files, parsed.name
+	companionFiles, goImportPaths, err := m.parseTargetCompanionGoFiles(dir, gsxFiles)
+	if err != nil {
+		return nil, err
+	}
 	// Materialize embedded markup, resolve every component-vs-leaf decision,
 	// classify the now-complete JavaScript tree, and assign stable call-site IDs
 	// BEFORE any skeleton/probe/emit walk. This is the package AST's only
 	// preprocessing mutation; later phases retain the same element pointers.
-	declNames := packageDeclNames(dir, gsxFiles)
+	declNames := packageDeclNamesFromFiles(companionFiles, gsxFiles)
 	preprocessed, err := parsed.preprocessComponentCallSites(declNames, fset, m.classifierFor(dir), bag)
 	if err != nil {
 		return nil, err
@@ -909,7 +1268,27 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 		callSites = nil
 	}
-	componentPlan := newComponentTargetPlan(gsxFiles, parsed.sources, bag)
+	if err := m.validateBundleProjectImports(gsxFiles, fset); err != nil {
+		return nil, err
+	}
+	pkgPath := dir
+	if path, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
+		pkgPath = path
+	}
+	targetImporter := newComponentTargetImporter(m, mi.external)
+	// The root package is a transient preflight/discovery package, not a target
+	// declaration cache entry. Mark it active across both phases so an imported
+	// dependency cannot recursively construct a second root universe.
+	targetImporter.loading[dir] = true
+	defer delete(targetImporter.loading, dir)
+	typeEnvironment, err := m.typeCheckEnvironmentForDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	componentPlan, err := m.finalizedComponentTargetPlan(dir, pkgPath, pkgName, gsxFiles, parsed.sources, fset, bag, targetImporter, typeEnvironment)
+	if err != nil {
+		return nil, err
+	}
 	if componentPlan.invalidMembership {
 		gsxFiles = nil
 		callSites = nil
@@ -925,7 +1304,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsForActive(companionFiles, gsxFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -1086,33 +1465,22 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
 		callSites = nil
 	}
-	pkgPath := dir
-	if path, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
-		pkgPath = path
-	}
 	var targetFacts map[callSiteID]componentTargetFact
 	var targetErrs []types.Error
 	var targetDiagnostics []diag.Diagnostic
-	if callSites.hasPlanned() || len(componentPlan.families) != 0 {
-		targetImporter := newComponentTargetImporter(m, mi.external)
-		// The root discovery package is not a declaration-cache entry, but it is
-		// part of this importer's active recursion stack. A dependency importing
-		// it is a real cycle and must not recurse into a second root skeleton.
-		targetImporter.loading[dir] = true
+	if callSites != nil && (callSites.hasPlanned() || len(componentPlan.families) != 0) {
 		targetBag := diag.NewBag(fset)
 		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
 			m,
 			dir, pkgPath,
 			pkgName, gsxFiles, componentPlan, callSites, table, factsByFile, m.opts.FieldMatcher,
-			fset, targetBag, targetImporter,
+			fset, targetBag, targetImporter, typeEnvironment,
 		)
-		delete(targetImporter.loading, dir)
 		if targetErr != nil {
 			return nil, targetErr
 		}
 		if len(targetResult.diagnostics) == 0 && len(unrelatedTargetErrs) == 0 {
 			targetFacts = targetResult.facts
-			m.recordTargetImports(dir, targetResult.imports)
 		} else {
 			// The target phase itself fails closed: partial facts and graph edges
 			// cannot escape. During the ABI-neutral foundation tasks, shipping
@@ -1164,53 +1532,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	helper, _ := goparser.ParseFile(fset, helperXgoPath, analysisPreludeSource(pkgName), goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
-	// Include the package's hand-written .go files (model.go, helper.go, etc.)
-	// so that companion types and functions are visible during skeleton
-	// type-checking alongside the synthetic .x.go overlays.
-	//
-	// Use build.ImportDir (build-constraint- and test-file-aware) instead of a
-	// raw glob so that *_test.go and build-excluded files are correctly omitted —
-	// matching the behaviour of resolver.go.
-	// On error (e.g. no buildable Go in the dir yet) we simply add nothing.
-	//
-	// Excluded from the result: live-skeleton overlay paths (compsByXGo keys —
-	// the in-memory skeletons already cover them) and the synthetic helper shim
-	// (helperXgoPath). Hand-written .x.go files (e.g. gsxshared.x.go) and
-	// orphaned .x.go files (from a deleted .gsx) are intentionally included —
-	// they are visible to the type-checker as on-disk .go files.
-	//
-	// The skeleton test is KEY PRESENCE, not a non-nil value. compsByXGo's value
-	// is the file's component slice, and a .gsx that declares no `component` at
-	// all — say an element-valued `var` beside a plain func — stores a nil slice
-	// under a present key. Testing the value let that file's real .x.go be parsed
-	// alongside its own skeleton, so every declaration in it existed twice and
-	// the second `gsx generate` failed with "redeclared in this block".
-	//
-	// goImportPaths collects the imports of the hand-written .go files so the import
-	// graph (recordImports) also tracks sibling gsx packages reached only through a
-	// companion .go (e.g. a model.go), not just through .gsx-hoisted imports.
-	var goImportPaths []string
-	if bp, berr := build.ImportDir(dir, 0); berr == nil {
-		for _, name := range bp.GoFiles {
-			absPath := filepath.Join(dir, name)
-			if _, hasSkeleton := compsByXGo[absPath]; hasSkeleton || absPath == helperXgoPath {
-				continue // already represented as a synthetic overlay
-			}
-			src, readErr := os.ReadFile(absPath)
-			if readErr != nil {
-				continue // file disappeared; not fatal
-			}
-			realGF, parseErr := goparser.ParseFile(fset, absPath, src, goparser.SkipObjectResolution)
-			if parseErr != nil {
-				continue // parse error surfaced by type-checker via Error func
-			}
-			goFiles = append(goFiles, realGF)
-			for _, imp := range realGF.Imports {
-				if p, uerr := strconv.Unquote(imp.Path.Value); uerr == nil {
-					goImportPaths = append(goImportPaths, p)
-				}
-			}
-		}
+	// Include the exact companion Go syntax retained from the Module's one cold
+	// packages.Load. That inventory is the Go command's authoritative active
+	// CompiledGoFiles set for the Module's frozen build environment, including
+	// custom GOFLAGS tags and cgo-transformed files. A second build.ImportDir or
+	// disk parse would select a different universe and would also discard cgo's
+	// generated syntax.
+	goFiles = append(goFiles, companionFiles...)
+	if err := m.rejectExternalBackedgeImports(goFiles); err != nil {
+		return nil, err
 	}
 
 	// Use the module-qualified import path (not the absolute filesystem dir) as
@@ -1219,15 +1549,17 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// "corpustest/cases/pkg.Widget", while types.NewPackage(absDir, ...) would
 	// produce the raw filesystem path. normalizeDiagPaths would then strip only
 	// the temp-dir prefix, leaving "cases/pkg.Widget" instead of "corpustest/cases/pkg.Widget".
-	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
+	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi, typeEnvironment)
+	if mi.sourceErr != nil {
+		return nil, mi.sourceErr
+	}
 	// Filter SPURIOUS unused-import errors caused by a requalification-failed
 	// generic tag's skeleton sink (see the sunkImports doc above): the import
 	// IS used in the .gsx source — the failed tag is its use — but the sink
 	// dropped its only skeleton reference, so go/types reports
 	// `"path" imported and not used` at the user's import line. Left in
 	// typeErrs, that single spurious error would (a) hard-fail generation for
-	// the WHOLE package (the len(typeErrs)==0 && len(signatureConflicts)==0
-	// gate below and in module.go) and (b) bury the actionable
+	// the WHOLE package (the type-error gate below and in module.go) and (b) bury the actionable
 	// inference-unavailable warning. Filtering is
 	// exact, not heuristic: only errors whose //line-adjusted position lands
 	// in a file with a sunk set AND whose quoted path is in that set are
@@ -1350,8 +1682,8 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// inputs (compByKey / objKey).
 	resolved := map[gsxast.Node]types.Type{}
 	exprMap := map[gsxast.Node]goast.Expr{}
-	compByKey := map[string][]*gsxast.Component{} // componentKey -> component(s); >1 = build-tag variants
-	compObjByKey := map[string]types.Object{}     // componentKey -> component func object
+	compByKey := map[string][]*gsxast.Component{} // logical component key -> component(s); >1 = build-tag variants
+	objKey := map[types.Object]string{}           // every public/private skeleton component object -> logical component key
 	for _, gf := range goFiles {
 		fname := fset.Position(gf.Pos()).Filename
 		comps, ok := compsByXGo[fname]
@@ -1382,26 +1714,32 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 				resolved[el] = types.Typ[types.Invalid]
 			}
 		}
+		declLogicalKeys := map[string]string{}
 		for _, c := range comps {
-			key := componentKey(c)
-			compByKey[key] = append(compByKey[key], c)
+			logicalKey := componentPlan.logicalKey(c)
+			compByKey[logicalKey] = append(compByKey[logicalKey], c)
+			if emission, ok := componentPlan.emission(c); ok {
+				if emission.public {
+					declLogicalKeys[componentKey(c)] = logicalKey
+				}
+				if emission.splitBody && emission.bodyName != "" {
+					declLogicalKeys[componentKeyWithName(c, emission.bodyName)] = logicalKey
+				}
+			}
 		}
 		for _, decl := range gf.Decls {
 			fd, ok := decl.(*goast.FuncDecl)
 			if !ok {
 				continue
 			}
-			if _, ok := compByKey[funcDeclKey(fd)]; !ok {
+			logicalKey, ok := declLogicalKeys[funcDeclKey(fd)]
+			if !ok {
 				continue
 			}
 			if obj := info.Defs[fd.Name]; obj != nil {
-				compObjByKey[funcDeclKey(fd)] = obj
+				objKey[obj] = logicalKey
 			}
 		}
-	}
-	objKey := map[types.Object]string{} // reverse: object -> componentKey
-	for key, obj := range compObjByKey {
-		objKey[obj] = key
 	}
 
 	// Build CtrlMap: skeleton clause position + containing node per control-flow node.
@@ -1432,7 +1770,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue
 		}
 		for _, c := range comps {
-			if refs := buildSigTypeRefs(gf, c, byo); refs != nil {
+			if refs := buildSigTypeRefs(gf, c, byo, &componentPlan); refs != nil {
 				sigTypes[c] = refs
 			}
 		}
@@ -1454,39 +1792,39 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	missingImports := missingFromSkeletons(skelByGsx, fset, info, spansByFile)
 
 	return &analyzed{
-		pkgName:            pkgName,
-		gsxFiles:           gsxFiles,
-		gsxFset:            fset,
-		skelFset:           fset,
-		goFiles:            goFiles,
-		compsByXGo:         compsByXGo,
-		table:              table,
-		merger:             m.classMergerFor(dir),
-		classifier:         m.classifierFor(dir),
-		propFields:         propFields,
-		nodeProps:          nodeProps,
-		attrsProps:         attrsProps,
-		byo:                byo,
-		callSites:          callSites,
-		targetFacts:        targetFacts,
-		targetErrs:         targetErrs,
-		targetDiagnostics:  targetDiagnostics,
-		factsByFile:        factsByFile,
-		resolved:           resolved,
-		exprMap:            exprMap,
-		ctrlMap:            ctrlMap,
-		sigTypes:           sigTypes,
-		pkg:                pkg,
-		info:               info,
-		compByKey:          compByKey,
-		objKey:             objKey,
-		bag:                bag,
-		importSpecs:        allImportSpecs,
-		typeErrs:           typeErrs,
-		sunkImports:        confirmedSunk,
-		signatureConflicts: nil,
-		unusedImports:      unusedImports,
-		missingImports:     missingImports,
+		pkgName:           pkgName,
+		gsxFiles:          gsxFiles,
+		gsxFset:           fset,
+		skelFset:          fset,
+		goFiles:           goFiles,
+		compsByXGo:        compsByXGo,
+		table:             table,
+		merger:            m.classMergerFor(dir),
+		classifier:        m.classifierFor(dir),
+		propFields:        propFields,
+		nodeProps:         nodeProps,
+		attrsProps:        attrsProps,
+		byo:               byo,
+		callSites:         callSites,
+		targetFacts:       targetFacts,
+		targetErrs:        targetErrs,
+		targetDiagnostics: targetDiagnostics,
+		factsByFile:       factsByFile,
+		resolved:          resolved,
+		exprMap:           exprMap,
+		ctrlMap:           ctrlMap,
+		sigTypes:          sigTypes,
+		pkg:               pkg,
+		info:              info,
+		compByKey:         compByKey,
+		objKey:            objKey,
+		componentPlan:     componentPlan,
+		bag:               bag,
+		importSpecs:       allImportSpecs,
+		typeErrs:          typeErrs,
+		sunkImports:       confirmedSunk,
+		unusedImports:     unusedImports,
+		missingImports:    missingImports,
 	}, nil
 }
 
@@ -1684,22 +2022,39 @@ var probeNameRefRE = regexp.MustCompile(`_gsxinfer[0-9]+|_gsxcompsig`)
 // shared FileSet remains required for valid skeleton //line directives.
 func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedGSXPackage, error) {
 	paths := map[string]struct{}{}
-	matches, _ := filepath.Glob(filepath.Join(dir, "*.gsx"))
-	for _, p := range matches {
-		paths[p] = struct{}{}
-	}
 	m.mu.Lock()
-	for p := range m.overrides {
-		if filepath.Dir(p) == dir && strings.HasSuffix(p, ".gsx") {
-			paths[p] = struct{}{}
+	inventoryReady := m.sourceInventoryReady
+	if inventoryReady {
+		for path := range m.sourceInventoryFacts {
+			if filepath.Dir(path) == dir {
+				paths[path] = struct{}{}
+			}
+		}
+	} else {
+		for path := range m.overrides {
+			if filepath.Dir(path) == dir && strings.HasSuffix(path, ".gsx") {
+				paths[path] = struct{}{}
+			}
 		}
 	}
 	m.mu.Unlock()
+	if !inventoryReady && !m.opts.SourceOnly {
+		matches, _ := filepath.Glob(filepath.Join(dir, "*.gsx"))
+		for _, p := range matches {
+			paths[p] = struct{}{}
+		}
+	}
+	orderedPaths := make([]string, 0, len(paths))
+	for path := range paths {
+		orderedPaths = append(orderedPaths, path)
+	}
+	sort.Strings(orderedPaths)
 	files := map[string]*gsxast.File{}
 	sources := map[string][]byte{}
 	pkgName := ""
+	pkgPath := ""
 	classifier := m.classifierFor(dir)
-	for p := range paths {
+	for _, p := range orderedPaths {
 		src, ok := m.source(p)
 		if !ok {
 			continue
@@ -1725,9 +2080,18 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 			return nil, sourceDiagnosticsError{diags: diags}
 		}
 		wsnorm.Normalize(f)
+		if pkgName != "" && f.Package != pkgName {
+			return nil, fmt.Errorf(
+				"codegen: GSX package %s contains different package clauses: %s declares %q; %s declares %q",
+				dir, pkgPath, pkgName, p, f.Package,
+			)
+		}
 		files[p] = f
 		sources[p] = append([]byte(nil), src...)
-		pkgName = f.Package
+		if pkgName == "" {
+			pkgName = f.Package
+			pkgPath = p
+		}
 	}
 	return newParsedGSXPackageWithSources(pkgName, files, sources), nil
 }

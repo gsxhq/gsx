@@ -188,17 +188,17 @@ func TestSetOverrideDirtinessDetection(t *testing.T) {
 		t.Skip()
 	}
 
-	// Sub-case: new file not on disk, empty content (src==nil, no base) → not dirty.
-	// This is the degenerate path: helper.gsx does not exist on disk so
-	// os.ReadFile returns nil, and SetOverride sees (haveBase=false, len(src)==0).
-	t.Run("new_file_nil_content_not_dirty", func(t *testing.T) {
+	// Sub-case: new file not on disk, empty content (src==nil, no base) is still
+	// present editor source. Membership changed from absent to present, so it is
+	// dirty even though its byte length is zero.
+	t.Run("new_empty_file_changes_membership", func(t *testing.T) {
 		m, root := setupChainModule(t)
 		utilDir := filepath.Join(root, "util")
 		helper := filepath.Join(utilDir, "helper.gsx")
 		disk, _ := os.ReadFile(helper) // helper.gsx does not exist → disk == nil
 		m.SetOverride(helper, disk)
-		if got := m.dirtyDirs(); len(got) != 0 {
-			t.Errorf("new-file nil-content override must not mark dirty; got %v", got)
+		if got := m.dirtyDirs(); !slices.Equal(got, []string{utilDir}) {
+			t.Errorf("new-file nil-content override dirty dirs = %v, want [%s]", got, utilDir)
 		}
 	})
 
@@ -505,8 +505,8 @@ func Timestamptz(v pg.Timestamptz) gsx.Node {
 		t.Fatal(err)
 	}
 	fwd, _ := m.importGraphSnapshot()
-	if got := fwd[viewsDir]; len(got) != 1 || got[0] != rendererDir {
-		t.Fatalf("consumer implicit dependencies = %v, want only local GSX renderer %s", got, rendererDir)
+	if got, want := fwd[viewsDir], []string{filepath.Join(root, "pg"), rendererDir}; !slices.Equal(got, want) {
+		t.Fatalf("consumer dependencies = %v, want authored model plus local renderer %v", got, want)
 	}
 	if got := fwd[rendererDir]; slices.Contains(got, rendererDir) {
 		t.Fatalf("renderer package has a self dependency: %v", got)
@@ -587,7 +587,7 @@ component Show(sample pg.Timestamptz) {
 	}
 }
 
-func TestRendererImplicitDependenciesUseOnlyFinalLocalGsxOwners(t *testing.T) {
+func TestRendererImplicitDependenciesUseAuthoredAndFinalLocalOwners(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -613,9 +613,6 @@ func Timestamptz(v pg.Timestamptz) string { return v.Label }
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !m.rendererDirs[goRendererDir] {
-			t.Fatalf("module-local Go-only renderer dir missing from rendererDirs: %v", m.rendererDirs)
-		}
 		result, err := m.Package(viewsDir)
 		if err != nil {
 			t.Fatal(err)
@@ -623,9 +620,12 @@ func Timestamptz(v pg.Timestamptz) string { return v.Label }
 		if len(result.Diags) != 0 {
 			t.Fatalf("module-local Go-only renderer fixture produced diagnostics: %v", result.Diags)
 		}
+		if !m.rendererDirs[goRendererDir] {
+			t.Fatalf("resolved module-local Go-only renderer dir missing from rendererDirs: %v", m.rendererDirs)
+		}
 		fwd, _ := m.importGraphSnapshot()
-		if got := fwd[viewsDir]; len(got) != 0 {
-			t.Fatalf("module-local Go-only renderer created implicit dependencies: %v", got)
+		if got, want := fwd[viewsDir], []string{goRendererDir, filepath.Join(root, "pg")}; !slices.Equal(got, want) {
+			t.Fatalf("consumer dependencies = %v, want authored model plus Go-only renderer %v", got, want)
 		}
 		m.mu.Lock()
 		local := m.rendererLocal["example.com/app/gorender"]
@@ -672,9 +672,6 @@ component Show(sample model.Moment) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(m.rendererDirs) != 0 {
-			t.Fatalf("external renderer populated rendererDirs: %v", m.rendererDirs)
-		}
 		result, err := m.Package(viewsDir)
 		if err != nil {
 			t.Fatal(err)
@@ -682,9 +679,62 @@ component Show(sample model.Moment) {
 		if len(result.Diags) != 0 {
 			t.Fatalf("external renderer fixture produced diagnostics: %v", result.Diags)
 		}
+		if len(m.rendererDirs) != 0 {
+			t.Fatalf("external renderer populated rendererDirs after resolution: %v", m.rendererDirs)
+		}
 		fwd, _ := m.importGraphSnapshot()
 		if got := fwd[viewsDir]; len(got) != 0 {
 			t.Fatalf("external renderer created implicit dependencies: %v", got)
+		}
+	})
+
+	t.Run("main-prefix nested module owner", func(t *testing.T) {
+		repoRoot, err := filepath.Abs("../..")
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := t.TempDir()
+		extRoot := filepath.Join(root, "nested-renderext")
+		writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire (\n\tgithub.com/gsxhq/gsx v0.0.0\n\texample.com/app/renderext v0.0.0\n)\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\nreplace example.com/app/renderext => ./nested-renderext\n")
+		writeFile(t, extRoot, "go.mod", "module example.com/app/renderext\n\ngo 1.26.1\n")
+		writeFile(t, extRoot, "model/model.go", "package model\n\ntype Moment struct { Label string }\n")
+		writeFile(t, extRoot, "renderers/renderers.go", `package renderers
+
+import "example.com/app/renderext/model"
+
+func Moment(v model.Moment) string { return v.Label }
+`)
+		viewsDir := filepath.Join(root, "views")
+		writeFile(t, viewsDir, "views.gsx", `package views
+
+import "example.com/app/renderext/model"
+
+component Show(sample model.Moment) { <div>{sample}</div> }
+`)
+		m, err := Open(Options{
+			ModuleRoot: root,
+			ModulePath: "example.com/app",
+			Renderers: []RendererAlias{{
+				TypeKey:  "example.com/app/renderext/model.Moment",
+				PkgPath:  "example.com/app/renderext/renderers",
+				FuncName: "Moment",
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(m.rendererDirs) != 0 {
+			t.Fatalf("Open made a lexical renderer ownership claim: %v", m.rendererDirs)
+		}
+		result, err := m.Package(viewsDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Diags) != 0 {
+			t.Fatalf("nested-module renderer fixture produced diagnostics: %v", result.Diags)
+		}
+		if len(m.rendererDirs) != 0 {
+			t.Fatalf("main-prefix nested module renderer classified as module-owned: %v", m.rendererDirs)
 		}
 	})
 
@@ -713,9 +763,6 @@ func Timestamptz(v pg.Timestamptz) string { return v.Label }
 		if err != nil {
 			t.Fatal(err)
 		}
-		if m.rendererDirs[shadowedDir] || !m.rendererDirs[winnerDir] || len(m.rendererDirs) != 1 {
-			t.Fatalf("rendererDirs = %v, want only winning owner %s", m.rendererDirs, winnerDir)
-		}
 		result, err := m.Package(viewsDir)
 		if err != nil {
 			t.Fatal(err)
@@ -723,9 +770,12 @@ func Timestamptz(v pg.Timestamptz) string { return v.Label }
 		if len(result.Diags) != 0 {
 			t.Fatalf("shadowed/winning renderer fixture produced diagnostics: %v", result.Diags)
 		}
+		if m.rendererDirs[shadowedDir] || !m.rendererDirs[winnerDir] || len(m.rendererDirs) != 1 {
+			t.Fatalf("rendererDirs after resolution = %v, want only winning owner %s", m.rendererDirs, winnerDir)
+		}
 		fwd, _ := m.importGraphSnapshot()
-		if got := fwd[viewsDir]; len(got) != 1 || got[0] != winnerDir {
-			t.Fatalf("consumer implicit dependencies = %v, want only winning renderer %s", got, winnerDir)
+		if got, want := fwd[viewsDir], []string{filepath.Join(root, "pg"), winnerDir}; !slices.Equal(got, want) {
+			t.Fatalf("consumer dependencies = %v, want authored model plus only winning renderer %v", got, want)
 		}
 		m.mu.Lock()
 		_, shadowedResolved := m.rendererLocal["example.com/app/shadowed"]

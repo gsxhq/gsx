@@ -27,13 +27,15 @@ type componentTargetSkeleton struct {
 // bodies type-checked without asking go/types to construct a package from
 // redeclared public objects.
 type componentTargetEmission struct {
-	public    bool
-	splitBody bool
-	bodyName  string
+	public            bool
+	splitBody         bool
+	bodyName          string
+	analysisPropsName string
 }
 
 type componentTargetPlan struct {
 	emissions         map[*gsxast.Component]componentTargetEmission
+	logicalKeys       map[*gsxast.Component]string
 	families          []componentVariantFamily
 	invalidMembership bool
 }
@@ -41,6 +43,16 @@ type componentTargetPlan struct {
 func (p componentTargetPlan) emission(component *gsxast.Component) (componentTargetEmission, bool) {
 	emission, ok := p.emissions[component]
 	return emission, ok
+}
+
+// logicalKey returns the public component identity shared by every member of a
+// semantically validated build-variant family. Analysis-only private declaration
+// names and alternate receiver spellings never become separate LSP identities.
+func (p componentTargetPlan) logicalKey(component *gsxast.Component) string {
+	if key := p.logicalKeys[component]; key != "" {
+		return key
+	}
+	return componentKey(component)
 }
 
 // analysisPreludeSource is the one package-level probe-helper surface shared

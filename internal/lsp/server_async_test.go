@@ -22,6 +22,69 @@ type blockingAnalyzer struct {
 	calls chan chan struct{}
 }
 
+type overrideLifetimeAnalyzer struct {
+	mu       sync.Mutex
+	sources  map[string][]byte
+	analyses int
+	calls    chan chan struct{}
+}
+
+func (a *overrideLifetimeAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sources[path] = append([]byte(nil), source...)
+	return nil, nil
+}
+
+func (a *overrideLifetimeAnalyzer) ClearOverride(path string) ([]string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.sources, path)
+	return nil, nil
+}
+
+func (a *overrideLifetimeAnalyzer) Analyze(string, map[string][]byte) (*Package, error) {
+	a.mu.Lock()
+	a.analyses++
+	call := a.analyses
+	a.mu.Unlock()
+	if call == 1 {
+		return &Package{}, nil
+	}
+	release := make(chan struct{})
+	a.calls <- release
+	<-release
+	return &Package{}, nil
+}
+
+func (a *overrideLifetimeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+	return nil, nil
+}
+
+func (a *overrideLifetimeAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
+	return nil, nil
+}
+
+func (a *overrideLifetimeAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
+
+func (a *overrideLifetimeAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
+	return gsxfmt.ImportsGoimports
+}
+
+func (a *overrideLifetimeAnalyzer) ResolveImport(string, string, string) []string { return nil }
+
+func (a *overrideLifetimeAnalyzer) source(path string) ([]byte, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	source, ok := a.sources[path]
+	return append([]byte(nil), source...), ok
+}
+
+func (a *blockingAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
+func (a *blockingAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+
 func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
@@ -134,6 +197,86 @@ func TestAnalysisIsAsyncAndSupersededResultsDiscarded(t *testing.T) {
 	// the gen-1 result never appears (it would have carried version 1).
 	if p := readPublish(t, rc, uri); p.Version == nil || *p.Version != 2 {
 		t.Fatalf("first publish = %+v, want the gen-2 result at version 2 (gen-1 must be discarded)", p)
+	}
+
+	write(framed(t, map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+	_ = inW.Close()
+	if err := <-runErr; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestDidCloseWinsOverSupersededWorkerSnapshot(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "page.gsx")
+	uri := pathToURI(file)
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	an := &overrideLifetimeAnalyzer{sources: map[string][]byte{}, calls: make(chan chan struct{})}
+	srv := NewServer(inR, outW, an)
+
+	var timerMu sync.Mutex
+	var pending func()
+	srv.schedule = func(_ time.Duration, f func()) func() {
+		timerMu.Lock()
+		pending = f
+		timerMu.Unlock()
+		return func() {}
+	}
+
+	runErr := make(chan error, 1)
+	go func() { runErr <- srv.Run() }()
+	rc := newConn(outR, io.Discard)
+	write := func(message string) {
+		t.Helper()
+		if _, err := io.WriteString(inW, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	syncPoint := func(id int) {
+		write(framed(t, map[string]any{"jsonrpc": "2.0", "id": id, "method": "shutdown"}))
+		readReply(t, rc, id)
+	}
+
+	write(framed(t, map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{
+			"uri": uri, "version": 1, "text": "package page\ncomponent Page() { <div>one</div> }\n",
+		}},
+	}))
+	_ = readPublish(t, rc, uri)
+
+	write(framed(t, map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didChange",
+		"params": map[string]any{
+			"textDocument":   map[string]any{"uri": uri, "version": 2},
+			"contentChanges": []map[string]any{{"text": "package page\ncomponent Page() { <div>two</div> }\n"}},
+		},
+	}))
+	syncPoint(1)
+	timerMu.Lock()
+	fire := pending
+	timerMu.Unlock()
+	if fire == nil {
+		t.Fatal("didChange did not schedule analysis")
+	}
+	fire()
+	releaseStale := <-an.calls
+
+	write(framed(t, map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didClose",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri}},
+	}))
+	// The empty diagnostic publish proves didClose, including ClearOverride,
+	// completed while the superseded worker is still parked in Analyze.
+	_ = readPublish(t, rc, uri)
+	if source, ok := an.source(file); ok {
+		t.Fatalf("closed source remains authoritative before stale worker returns: %q", source)
+	}
+
+	close(releaseStale)
+	syncPoint(2)
+	if source, ok := an.source(file); ok {
+		t.Fatalf("superseded worker resurrected closed source: %q", source)
 	}
 
 	write(framed(t, map[string]any{"jsonrpc": "2.0", "method": "exit"}))

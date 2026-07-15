@@ -192,7 +192,6 @@ type componentTargetMarker struct {
 type componentTargetMarkerRegistry struct {
 	callSites *callSiteRegistry
 	bySite    map[callSiteID]*componentTargetMarker
-	byName    map[string]*componentTargetMarker
 	ordered   []*componentTargetMarker
 }
 
@@ -203,7 +202,6 @@ func newComponentTargetMarkerRegistry(callSites *callSiteRegistry) (*componentTa
 	return &componentTargetMarkerRegistry{
 		callSites: callSites,
 		bySite:    make(map[callSiteID]*componentTargetMarker),
-		byName:    make(map[string]*componentTargetMarker),
 	}, nil
 }
 
@@ -239,7 +237,6 @@ func (r *componentTargetMarkerRegistry) emitBinding(sb *strings.Builder, element
 		syntaxDiagnostic: parsed.diagnostic,
 	}
 	r.bySite[site] = marker
-	r.byName[marker.identifier] = marker
 	r.ordered = append(r.ordered, marker)
 
 	if parsed.diagnostic != nil {
@@ -712,6 +709,7 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 type componentTargetCheckConfig struct {
 	ignoreFuncBodies         bool
 	disableUnusedImportCheck bool
+	typeEnvironment          typeCheckEnvironment
 }
 
 func checkComponentTargetPackage(pkgPath, pkgName string, files []*goast.File, fset *token.FileSet, importer types.Importer, checkConfig componentTargetCheckConfig) (*types.Package, *types.Info, []types.Error) {
@@ -728,6 +726,8 @@ func checkComponentTargetPackage(pkgPath, pkgName string, files []*goast.File, f
 		Importer:                 importer,
 		IgnoreFuncBodies:         checkConfig.ignoreFuncBodies,
 		DisableUnusedImportCheck: checkConfig.disableUnusedImportCheck,
+		Sizes:                    checkConfig.typeEnvironment.sizes,
+		GoVersion:                checkConfig.typeEnvironment.goVersion,
 		Error: func(err error) {
 			if typeErr, ok := err.(types.Error); ok {
 				typeErrs = append(typeErrs, typeErr)

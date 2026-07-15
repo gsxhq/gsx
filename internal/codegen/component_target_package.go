@@ -21,7 +21,6 @@ type componentTargetPackageResult struct {
 	info        *types.Info
 	files       []*goast.File
 	facts       map[callSiteID]componentTargetFact
-	imports     []string
 	diagnostics []diag.Diagnostic
 }
 
@@ -39,11 +38,31 @@ func pairedTargetOutputs(gsxFiles map[string]*gsxast.File) map[string]bool {
 // file. Other .x.go files remain ordinary source; broad extension filtering
 // would hide legitimate hand-written or orphan declarations.
 func (m *Module) parseTargetCompanionGoFiles(dir string, gsxFiles map[string]*gsxast.File) ([]*goast.File, []string, error) {
+	if m.opts.SourceOnly {
+		return nil, nil, nil
+	}
 	paired := pairedTargetOutputs(gsxFiles)
 	packageInfo, found, ready := m.targetSourcePackage(dir)
+	if !ready && m.opts.Bundle == nil {
+		// Normal mode has one authoritative Go-command source inventory. Ensure it
+		// exists before answering instead of falling back to a build-oblivious disk
+		// scan when a semantic caller reaches companion facts before another cold
+		// load happened to run.
+		if _, err := m.externalImporter(); err != nil {
+			return nil, nil, err
+		}
+		packageInfo, found, ready = m.targetSourcePackage(dir)
+	}
 	if !ready {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
+			// Bundle callers may supply the entire package as in-memory GSX into a
+			// virtual directory. A directory that does not exist cannot contain a
+			// handwritten Go companion; the parsed override set is therefore the
+			// complete source surface for this package.
+			if os.IsNotExist(err) && len(gsxFiles) != 0 {
+				return nil, nil, nil
+			}
 			return nil, nil, err
 		}
 		for _, entry := range entries {
@@ -102,6 +121,7 @@ func discoverComponentTargets(
 	fset *token.FileSet,
 	bag *diag.Bag,
 	importer types.Importer,
+	typeEnvironment typeCheckEnvironment,
 ) (componentTargetPackageResult, []types.Error, error) {
 	if bag.HasErrors() {
 		return componentTargetPackageResult{diagnostics: bag.Sorted()}, nil, nil
@@ -163,14 +183,21 @@ func discoverComponentTargets(
 	}
 	goFiles = append(goFiles, companions...)
 	importPaths = append(importPaths, companionImports...)
+	if err := module.rejectExternalBackedgeImports(goFiles); err != nil {
+		return componentTargetPackageResult{}, nil, err
+	}
+	// Publish the complete direct path surface before recursive type-checking.
+	// These path-only edges are invalidation provenance, not semantic package
+	// facts: they must survive an imported declaration failure while packages,
+	// target facts, and type objects remain unpublished.
+	module.recordTargetImports(dir, importPaths)
 
-	pkg, info, typeErrs := checkComponentTargetPackage(pkgPath, pkgName, goFiles, fset, importer, componentTargetCheckConfig{})
-	validateComponentVariantSignatures(goFiles, info, plan, bag)
+	pkg, info, typeErrs := checkComponentTargetPackage(pkgPath, pkgName, goFiles, fset, importer, componentTargetCheckConfig{typeEnvironment: typeEnvironment})
 	facts, unrelated, err := harvestComponentTargetFacts(goFiles, fset, info, typeErrs, markers)
 	if err != nil {
 		return componentTargetPackageResult{}, nil, err
 	}
-	return componentTargetPackageResult{pkg: pkg, info: info, files: goFiles, facts: facts, imports: importPaths, diagnostics: bag.Sorted()}, unrelated, nil
+	return componentTargetPackageResult{pkg: pkg, info: info, files: goFiles, facts: facts, diagnostics: bag.Sorted()}, unrelated, nil
 }
 
 type targetPackageInvariantError struct {

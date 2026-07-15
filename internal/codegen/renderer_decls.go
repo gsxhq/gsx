@@ -4,25 +4,31 @@ import (
 	"errors"
 	"fmt"
 	goast "go/ast"
-	"go/build"
 	goparser "go/parser"
 	"go/types"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
-type rendererDeclResolver struct {
-	m        *Module
-	external types.Importer
-	pkgs     map[string]*types.Package
-	loading  map[string]bool
+// sourceDeclResolver reconstructs declaration-only shipping packages from the
+// authoritative local source inventory. It is shared by every configured
+// function provider (filters, aliases, renderers, and class mergers), so none
+// of those consumers can observe module-local export data from the cold load.
+// Declaration mode intentionally omits component bodies, breaking the otherwise
+// circular dependency in which resolving a GSX filter package would itself need
+// the completed filter table.
+type sourceDeclResolver struct {
+	m         *Module
+	external  types.Importer
+	pkgs      map[string]*types.Package
+	loading   map[string]bool
+	sourceErr error
 }
 
-func newRendererDeclResolver(m *Module, external types.Importer) *rendererDeclResolver {
-	return &rendererDeclResolver{
+func newSourceDeclResolver(m *Module, external types.Importer) *sourceDeclResolver {
+	return &sourceDeclResolver{
 		m:        m,
 		external: external,
 		pkgs:     map[string]*types.Package{},
@@ -30,7 +36,22 @@ func newRendererDeclResolver(m *Module, external types.Importer) *rendererDeclRe
 	}
 }
 
-func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error) {
+func newConfiguredSourceDeclResolver(m *Module, external types.Importer) *sourceDeclResolver {
+	m.mu.Lock()
+	if m.configuredDeclTypes == nil {
+		m.configuredDeclTypes = map[string]*types.Package{}
+	}
+	packages := m.configuredDeclTypes
+	m.mu.Unlock()
+	return &sourceDeclResolver{
+		m:        m,
+		external: external,
+		pkgs:     packages,
+		loading:  map[string]bool{},
+	}
+}
+
+func (r *sourceDeclResolver) packageForDir(dir string) (*types.Package, error) {
 	if pkg, ok := r.pkgs[dir]; ok {
 		return pkg, nil
 	}
@@ -46,33 +67,73 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 		return nil, err
 	}
 	gsxFiles, pkgName := parsed.files, parsed.name
+	sourcePackage, sourceFound, inventoryReady := r.m.targetSourcePackage(dir)
+	if pkgName == "" && sourceFound {
+		pkgName = sourcePackage.name
+	}
+	if len(gsxFiles) == 0 && (!inventoryReady || !sourceFound) {
+		return nil, fmt.Errorf("renderer declaration package %s has neither GSX source nor retained compiled Go source", dir)
+	}
+	if pkgName == "" {
+		return nil, fmt.Errorf("renderer declaration package %s has no package name", dir)
+	}
+	companions, companionImports, err := r.m.parseTargetCompanionGoFiles(dir, gsxFiles)
+	if err != nil {
+		return nil, err
+	}
 	bag := diag.NewBag(fset)
-	declNames := packageDeclNames(dir, gsxFiles)
-	preprocessed, err := parsed.preprocessComponentCallSites(declNames, fset, r.m.classifierFor(dir), bag)
+	var preprocessed callSitePreprocessResult
+	if len(gsxFiles) != 0 {
+		declNames := packageDeclNamesFromFiles(companions, gsxFiles)
+		preprocessed, err = parsed.preprocessComponentCallSites(declNames, fset, r.m.classifierFor(dir), bag)
+		if err != nil {
+			return nil, err
+		}
+		if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.m.validateBundleProjectImports(gsxFiles, fset); err != nil {
+		return nil, err
+	}
+	pkgPath := ""
+	if sourceFound {
+		pkgPath = sourcePackage.pkgPath
+	}
+	if pkgPath == "" {
+		var ok bool
+		pkgPath, ok = importPathForDir(r.m.opts.ModuleRoot, r.m.opts.ModulePath, dir)
+		if !ok {
+			return nil, fmt.Errorf("renderer declaration package %s is outside module root %s", dir, r.m.opts.ModuleRoot)
+		}
+	}
+	typeEnvironment, err := r.m.typeCheckEnvironmentForDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
-		return nil, err
-	}
-	componentPlan := newComponentTargetPlan(gsxFiles, parsed.sources, bag)
-	if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
-		return nil, err
-	}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
+	componentPlan, err := r.m.finalizedComponentTargetPlan(dir, pkgPath, pkgName, gsxFiles, parsed.sources, fset, bag, r, typeEnvironment)
 	if err != nil {
 		return nil, err
 	}
-	table, err := r.tablesForDir(dir)
+	if len(gsxFiles) != 0 {
+		if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
+			return nil, err
+		}
+	}
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsForActive(companions, gsxFiles)
 	if err != nil {
 		return nil, err
 	}
+	// Declaration skeletons stub component and embedded-markup bodies. They do
+	// not consult configured filters or renderers, which is what makes this
+	// resolver a non-circular source of those functions' own signatures.
+	table := funcTables{}
 	genericSigs := genericSigsFor(gsxFiles, byo)
 	inferNames := newInferNameAllocator()
 	goFiles := make([]*goast.File, 0, len(gsxFiles))
-	skeletonPaths := make(map[string]bool, len(gsxFiles))
+	var importPaths []string
 	for path, file := range gsxFiles {
-		skeleton, _, _, _, _, _, buildErr := buildSkeleton(
+		skeleton, _, imports, _, _, _, buildErr := buildSkeleton(
 			file,
 			table,
 			propFields,
@@ -91,6 +152,9 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		for _, spec := range imports {
+			importPaths = append(importPaths, spec.path)
+		}
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		xgoPath := filepath.Join(dir, base+".x.go")
 		file, parseErr := goparser.ParseFile(fset, xgoPath, skeleton, goparser.SkipObjectResolution)
@@ -98,41 +162,22 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 			return nil, skeletonParseError(parseErr)
 		}
 		goFiles = append(goFiles, file)
-		skeletonPaths[xgoPath] = true
 	}
 
-	bp, buildErr := build.ImportDir(dir, 0)
-	if buildErr != nil {
-		var noGoErr *build.NoGoError
-		if !errors.As(buildErr, &noGoErr) {
-			return nil, buildErr
-		}
-	} else {
-		for _, name := range bp.GoFiles {
-			path := filepath.Join(dir, name)
-			if skeletonPaths[path] {
-				continue
-			}
-			src, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return nil, fmt.Errorf("read active Go companion %s: %w", path, readErr)
-			}
-			file, parseErr := goparser.ParseFile(fset, path, src, goparser.SkipObjectResolution)
-			if parseErr != nil {
-				return nil, fmt.Errorf("parse active Go companion %s: %w", path, parseErr)
-			}
-			goFiles = append(goFiles, file)
-		}
+	goFiles = append(goFiles, companions...)
+	importPaths = append(importPaths, companionImports...)
+	if err := r.m.rejectExternalBackedgeImports(goFiles); err != nil {
+		return nil, err
 	}
-
-	pkgPath, ok := importPathForDir(r.m.opts.ModuleRoot, r.m.opts.ModulePath, dir)
-	if !ok {
-		return nil, fmt.Errorf("renderer declaration package %s is outside module root %s", dir, r.m.opts.ModuleRoot)
-	}
+	// Publish the renderer root's exact-source edges before recursive checking.
+	// Go-only intermediaries remain internal graph nodes so a leaf edit reaches
+	// the configured renderer root and invalidates the module-wide renderer table.
+	r.m.recordSourceDeclImports(dir, importPaths)
 	var typeErrs []error
 	conf := types.Config{
-		Importer:         r,
-		IgnoreFuncBodies: true,
+		Importer:  r,
+		Sizes:     typeEnvironment.sizes,
+		GoVersion: typeEnvironment.goVersion,
 		Error: func(err error) {
 			if typeErr, ok := err.(types.Error); ok && isUnusedImportMsg(typeErr.Msg) {
 				return
@@ -143,6 +188,9 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 	pkg := types.NewPackage(pkgPath, pkgName)
 	checker := types.NewChecker(&conf, fset, pkg, nil)
 	_ = checker.Files(goFiles)
+	if r.sourceErr != nil {
+		return nil, r.sourceErr
+	}
 	if err := errors.Join(typeErrs...); err != nil {
 		return nil, err
 	}
@@ -150,26 +198,20 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 	return pkg, nil
 }
 
-func (r *rendererDeclResolver) tablesForDir(dir string) (funcTables, error) {
-	if r.m.opts.Bundle != nil {
-		table := r.m.opts.Bundle.tables()
-		table.renderers = nil
-		return table, nil
+func (r *sourceDeclResolver) Import(path string) (*types.Package, error) {
+	if dir, ok := r.m.sourcePackageDir(path); ok {
+		// One renderer declaration universe owns every authoritative local
+		// package: GSX dirs contribute shipping/renderer skeletons, while Go-only
+		// dirs contribute their retained compiled syntax. Recursing through r
+		// preserves package identity and prevents a bridge from observing exact
+		// verbatim declarations while a direct dependency observes Props ABI.
+		pkg, err := r.packageForDir(dir)
+		if err != nil && r.sourceErr == nil {
+			if _, ok := diagnosticsFromSourceError(err); ok {
+				r.sourceErr = err
+			}
+		}
+		return pkg, err
 	}
-	pkgs := r.m.opts.FilterPkgs
-	if opts, ok := r.m.dirOptionsFor(dir); ok && opts.FilterPkgs != nil {
-		pkgs = opts.FilterPkgs
-	}
-	filters, err := r.m.filterTableFromExt(dedupFilterPkgs(pkgs))
-	if err != nil {
-		return funcTables{}, err
-	}
-	return funcTables{filters: filters}, nil
-}
-
-func (r *rendererDeclResolver) Import(path string) (*types.Package, error) {
-	if dir, ok := dirForImportPath(r.m.opts.ModuleRoot, r.m.opts.ModulePath, path); ok && r.m.isGsxPackage(dir) {
-		return r.packageForDir(dir)
-	}
-	return r.external.Import(path)
+	return r.m.importWithBundleProjectBoundary(path, r.external)
 }

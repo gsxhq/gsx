@@ -91,14 +91,14 @@ func TestWatchEquiv(t *testing.T) {
 
 	// Cold-start watchSession on dir2 with matching minify settings.
 	// Startup regenDir writes all .x.go files and populates the import graph.
-	sess, startup, sessErr := newWatchSession(watchConfig{
+	sess, startup, sessErr := startWatchSessionForTest(watchConfig{
 		paths:     []string{dir2},
 		cls:       attrclass.Builtin(),
 		cssMinify: true,
 		jsMinify:  true,
 	})
 	if sessErr != nil {
-		t.Fatalf("newWatchSession: %v", sessErr)
+		t.Fatalf("startWatchSessionForTest: %v", sessErr)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -205,14 +205,14 @@ func TestWatchEquiv_MinifyNone(t *testing.T) {
 	}
 
 	// Watch with cssMinify=false (zero value — MinifyNone).
-	_, startup, sessErr := newWatchSession(watchConfig{
+	_, startup, sessErr := startWatchSessionForTest(watchConfig{
 		paths:     []string{dir2},
 		cls:       attrclass.Builtin(),
 		cssMinify: false,
 		jsMinify:  false,
 	})
 	if sessErr != nil {
-		t.Fatalf("newWatchSession (minify-none): %v", sessErr)
+		t.Fatalf("startWatchSessionForTest (minify-none): %v", sessErr)
 	}
 	for _, r := range startup {
 		if !r.OK {

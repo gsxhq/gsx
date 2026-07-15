@@ -331,7 +331,9 @@ Exactly these **two** forms — `gsx.Node` and `...gsx.Node`. `[]gsx.Node` is **
 accepted (the variadic already gives `[]gsx.Node` inside, with better Go-call
 ergonomics — the non-variadic slice form buys nothing). `children int` is an
 error. A component with no `children` param rejects a body: `<C>…</C>` is a
-compile error.
+compile error. Source comments are not body values: comment nodes are removed
+from the static top-level child list, a comment-only body is empty, and comments
+interspersed with real children do not consume variadic child positions.
 
 ### Reserved-input population and collisions
 
@@ -359,13 +361,34 @@ composite component can route that bag to one or several chosen descendants.
 | `<C {b...}{c...}/>` | multiple spreads merge in source order (existing multi-spread merge) |
 | `<C attrs={a} id="x" attrs={{ "id": "y" }}/>` | contributes `a`, then `id="x"`, then the literal; duplicates are retained and leaf semantics decide last-wins/aggregation |
 | `<C attrs="x"/>` / `<C attrs/>` / `<C attrs={<i/>}/>` | **error** — the reserved attrs role accepts only bag expression/literal syntax |
-| `<C Attrs={{…}}/>` / `<C Children={…}/>` | when no exact ordinary capitalized param exists, emit a **migration diagnostic** pointing to lowercase `attrs`, bag spread, or body syntax; never silently make the legacy spelling an HTML fallthrough attribute |
+| `<C Attrs={{…}}/>` / `<C Children={…}/>` | `Attrs` and `Children` have no reserved meaning: they fill exact ordinary capitalized params when declared; otherwise they follow the same unmatched/fallthrough and missing-`attrs` rules as any other ordinary name |
 
 **Settled: accept `attrs={expr}` and `attrs={{...}}`; reject only explicit
 `children={...}`.** Rejecting the two attrs forms would add work and a surprising
 exception even though `attrs` is an input role rather than an ordinary parameter.
 Their capability overlaps `{expr...}` and individual attributes, but uniform
 syntax is the stronger rule here.
+
+A conditional attribute group remains one top-level attrs-stream contributor at
+its authored position, but its branches are not opaque. The planner retains a
+recursive ordered tree of pair, spread, explicit-`attrs` contributor, and nested
+conditional records. Each branch leaf is validated under the same reserved-role
+rules: lowercase `children` is always rejected, valid `attrs={expr}` and
+`attrs={{...}}` leaves contribute bags, invalid explicit `attrs` forms get
+`reserved-input-form`, and every other branch name is a fallthrough pair rather
+than a conditional ordinary-prop fill. Alternatives are never flattened into a
+fictional global evaluation order. When no `attrs` role exists, each authored
+leaf gets its own positioned `component-missing-attrs` diagnostic; diagnostics
+are not coalesced at the outer conditional. A genuinely empty/comment-only
+conditional is itself the diagnostic leaf because its condition is still an
+authored operation; nested parents do not duplicate that error. A conditional
+whose only leaves are malformed reserved forms keeps their precise
+`reserved-input-form` diagnostics without a cascading missing-attrs error.
+
+There is no legacy-capitalization branch. Only lowercase `attrs` and `children`
+are reserved roles; exact ordinary parameters named `Attrs` or `Children` bind
+normally, and an undeclared capitalized spelling receives only the ordinary
+unmatched-input behavior.
 
 The one-learning audit found five real `containerAttrs={{...}}` call sites and
 computed bag spreads, but no reserved `attrs={{...}}` or `attrs={expr}` call site.
@@ -527,10 +550,14 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 }
 ```
 
-Arbitrary-name structural classification is retired with a migration diagnostic;
-`func(extra ...gsx.Attr) gsx.Node` does not silently acquire the reserved role.
-Useful icon/factory values remain supported by naming the bag `attrs`, and other
-node-valued or attrs-bag-valued parameters remain ordinary exact-name props.
+Arbitrary-name structural classification is retired without a legacy diagnostic
+branch. `func(extra ...gsx.Attr) gsx.Node` does not acquire the reserved role:
+`extra` is an ordinary non-reserved variadic, so markup cannot bind it and may
+only omit it under the universal ordinary-variadic rule. The migration ledger may
+identify such factories for a source rewrite, but production classification and
+diagnostics do not know that they were once attrs-only. Useful icon/factory values
+remain supported by naming the bag `attrs`; non-variadic attrs-bag-valued
+parameters remain ordinary exact-name props.
 
 ## What is removed / subsumed
 
@@ -605,6 +632,23 @@ files**, and **71 hand-written `RenderComponent` calls** outside generated files
   generated signature is exact, an explicit **rollback unit**, LSP/cache tests,
   and **generation benchmarks**.
 
+Atomicity has two scopes. Within this repository, declaration emission, call
+emission, owned sources, generated outputs, scaffolds, and playground consumers
+switch in one rollback unit. Across repositories Git cannot provide one atomic
+commit, so the core branch is explicitly **non-mergeable and non-releasable**
+until the structpages and one-learning branches have both been migrated and
+verified against the exact core feature commit. The release transaction is:
+
+1. prepare the core, structpages, and one-learning branches and verify the two
+   consumer branches through an ignored workspace pinned to the core commit;
+2. freeze and record those commit IDs plus all mandatory gate output;
+3. merge the already-consumer-verified core commit and publish its version;
+4. replace the temporary workspace wiring with that released version, rerun the
+   same consumer gates, then merge the prepared consumer branches.
+
+Any failure stops the transaction before another repository advances. This is a
+release gate, not a compatibility window or an optional post-release migration.
+
 **Stale-wrapper boundary.** Detection is generation-time, not a promise made by
 plain `go build` (the Go tool does not read `.gsx`). Signature discovery ignores a
 paired disk `.x.go` when authoritative `.gsx` declaration facts exist; a normal
@@ -649,18 +693,98 @@ in-memory skeleton. Cache and reverse-dependency edges include every such
 intermediary; a warm gsx-signature edit rechecks the retained syntax without
 another load.
 
+The external-import boundary is one-way. An external dependency imported by the
+main module may not import any package owned by that main module, directly or
+transitively. Such an `owned GSX/Go package → external package → owned package`
+backedge is rejected at the authored importing source position with a stable
+semantic-boundary diagnostic. Gsx does not re-type-check external source against
+one of its internal declaration universes, suppress external bodies, or retain a
+phase-specific external reconstruction cache. Supporting this topology later
+would require a separate design for a coherent whole-graph source universe.
+
 A `Module` freezes the process build environment used by its cold load. A caller
-that changes build environment creates a new Module. If an unsaved, newly-created
-`.gsx` source claims a paired `.x.go` after the inventory already exists, the next
-analysis atomically rebuilds the FileSet, external importer, source inventory, and
-all position-bearing package caches before proceeding; it never continues with
-the stale file selection. Package-path membership, package-clause changes, and
-the sorted GSX import surface are versioned independently from body content.
-Package/path changes rebuild the manifest. Import additions rebuild only when
+that changes build environment creates a new Module. Unsaved overrides and saved
+disk sources feed the same authoritative source manifest. Once supplied or
+published, that manifest is an immutable membership-and-byte snapshot consumed
+by package parsing, analysis, and cache identity; those consumers never glob or
+reread live disk independently. An explicit disk refresh atomically replaces the
+snapshot while preserving current overrides. Before watch performs
+warm invalidation for a saved `.gsx` create, delete, rename, or write, it refreshes
+the affected disk-source facts and publishes that refresh atomically; `Invalidate`
+alone is not a disk refresh. If a newly-created source claims a paired `.x.go`
+after the inventory already exists, the next analysis atomically rebuilds the
+FileSet, external importer, source inventory, and all position-bearing package
+caches before proceeding; it never continues with stale file selection.
+
+`gsx watch` and `gsx dev` remain alive when the requested roots currently contain
+no GSX files. They watch the requested roots and their owning module trees rather
+than only directories discovered from the initial GSX set, so new sibling
+packages and module/source changes are observable. Directory-create events are
+registered and their already-present contents scanned before filename filtering.
+An `.x.go` event is classified as generated output only while an exact same-base
+`.gsx` source exists; an unpaired authored `.x.go` remains a real Go-source event.
+
+Observation scope and generation scope are distinct. A watch session observes
+the owning module tree plus the exact reachable workspace/local-replacement roots
+and provenance files published by the same frozen Go-command/source manifest; it
+does not guess additional roots from path prefixes. It generates only the
+requested source roots and their exact current GSX dependency closure, never
+unrelated sibling packages merely because their events must be observable. A
+manifest change atomically updates both that closure and the watched physical
+roots.
+
+Startup closes the edit gap in this order: resolve roots, arm every current watch,
+snapshot the authoritative sources, generate from that snapshot, then consume
+the queued events. A source transition observed during initial generation is
+therefore regenerated rather than acknowledged as part of the earlier snapshot.
+After any generation failure, `watch` and `dev` retain the dirty package/closure
+state; the next relevant event retries the complete pending state. They publish a
+clean state only after a successful generation and never drop a failed event to
+make the session appear current. This transaction distinguishes authored
+diagnostics from operational failure: a completed cycle that emits poison plus
+positioned diagnostics commits its observed source snapshot, while either a
+top-level regeneration error or any per-directory operational `Err` retains the
+whole dirty set. A later event unions into that retained set before retry.
+
+The LSP uses the same source-view boundary for unsaved `.go` and `.gsx` buffers.
+Go buffers enter the one authoritative `go/packages` overlay before package
+selection and syntax loading; a second parse or GSX-only approximation is not an
+acceptable editor model. Every override transition returns the exact affected
+directory closure computed by the same reverse-dependency/renderer/configured-
+source invalidation primitive. The server evicts those cached LSP packages,
+supersedes their workers, intersects the closure with currently open documents,
+and schedules only that set, including reverse dependents in other directories.
+
+Closing a buffer always ends buffer authority, even when the saved path is
+unreadable. Saved source has three explicit states (present, absent, unreadable):
+an unreadable state fails subsequent analysis closed and can never retain the
+closed bytes. Moving an open path between module roots retires its prior owner
+before resolving or attaching the new owner; failure returns the old affected
+closure and removes stale navigation facts. Debounce events carry an epoch
+assigned at the document mutation, not at worker launch. Set, cancel, close, and
+root transfer advance that epoch; queued stale events and events for directories
+with no open documents are ignored. Thus a pre-close callback cannot republish a
+closed URI, and `didChange` supersedes an in-flight worker immediately rather
+than after the debounce delay.
+
+Package-path membership, package-clause changes, and the sorted GSX import
+surface are versioned independently from body content. New/deleted packages and
+package membership changes rebuild the manifest. Import additions rebuild when
 the published cold importer cannot already supply the new path; removals and
 already-published additions safely retain that exact known-path superset. A
-body-only edit preserves the one-load warm path. An epoch check around the cold
-load prevents a concurrent override from publishing a stale manifest.
+body-only edit preserves the one-load warm path. An epoch check around refresh
+and cold load prevents a concurrent override or disk event from publishing stale
+facts.
+
+Normal analysis and persistent generation-cache metadata consume this one
+manifest implementation; there is no second plain-`go list` approximation of the
+source graph. Its cache view includes owned GSX-only packages and their authored
+imports, active companion Go selection, local replacement-module provenance and
+`go.mod` inputs, and the paired-output exclusion map. A still-paired generated
+`.x.go` never supplies dependency edges or source identity, even if its bytes are
+poisoned; transitions between paired and orphan ownership remain tracked for
+generation cleanup. Cache lookup and warm generation therefore cannot disagree
+about which source universe a key represents.
 
 The normal resolver owns one virtual source view for both Go package discovery
 and syntax loading. It therefore rejects an effective `GOFLAGS=-overlay=...`
@@ -684,15 +808,80 @@ re-evaluating a later live `PATH`; this does not hide configured driver state.
 Bundle mode is unaffected by either boundary because it performs no
 `packages.Load`.
 
+Every manual `go/types` universe also receives the frozen target's
+`TypesSizes` and module language version. Normal mode retains both from the
+authoritative package load; a module with no `go` directive uses cmd/go's
+specified `go1.16` language default. A browser type archive is self-describing:
+its versioned envelope records compiler, GOOS, GOARCH, cgo, toolchain version,
+snippet language version, and the observed build/tool/release tag sets from the
+same immutable Go command environment and build flags used by `packages.Load`.
+Archives are `gc`-only. The reader reconstructs sizes only from recorded
+`gc`/GOARCH, rejects a producer toolchain newer than the repository's pinned
+reader toolchain, and rejects legacy, incomplete, or unknown envelopes.
+Toolchain and language versions are separate because the pinned server
+toolchain may intentionally compile an older module language contract.
+External package drivers cannot produce this exact provenance and are rejected
+by the archive producer. The package export payload is opaque and owned by
+`golang.org/x/tools/go/gcexportdata`; gsx's envelope owns its exact byte length,
+SHA-256 digest, and canonical target metadata, but does not parse or rewrite the
+private indexed-export format. Producer upgrades regenerate the archive and
+must pass the pinned upstream decoder/universe checks before the reader ceiling
+is advanced. The bundle is a trusted embedded build artifact: the digest detects
+accidental byte/metadata drift but is not an authenticity mechanism for
+hostile, re-signed input.
+
+The playground server validates that exact archive target manifest at startup.
+Its codegen resolver is built from the same embedded archive as the browser and
+accepts a complete in-memory GSX source set; it is not constructed from the
+first disposable server workspace and never reuses one workspace's module
+universe for another.
+Every child compile starts from the pinned target after removing inherited
+`GOEXPERIMENT`, `GOAMD64`, and `GOTOOLCHAIN`; deployment ambience cannot alter the
+engine contract. The independently deployed browser and server exchange exact
+`engineID` and `targetManifestID` values on `/run`, and both values participate in
+the server result/cache key. A mismatch returns HTTP 409 with a structured reload
+handshake containing the server's current IDs, so the client reloads instead of
+executing or caching a response from a different engine universe.
+
 Bundle mode deliberately carries prebuilt types but no authoritative project
 source/build inventory. It continues to support its existing single-gsx-package
 plus external-dependencies contract. If analysis finds a project-local
 `gsx -> Go-only -> gsx` path in Bundle mode, it fails closed with a diagnostic
 directing the caller to the normal resolver; it never accepts the bundled stale
-transitive ABI. Do not solve either mode by generation ordering, writing
+transitive ABI. Project ownership follows actual nested `go.mod`/vendor
+boundaries, not a lexical module-path prefix. An external prebuilt graph reached
+directly or through a project Go-only bridge is walked far enough to reject any
+external-to-main-module backedge with the same semantic-boundary diagnostic as
+normal mode, positioned on the authored import Bundle can observe.
+`SourceOnly` is exactly one authored in-memory package plus prebuilt externals;
+it delegates imports without consulting host ownership or source files. Do not
+solve either mode by generation ordering, writing
 dependencies early, reloading `packages.Load`, or emitting an ABI sentinel: a
 single analysis run must not observe a mixture of old disk ABI and new skeleton
 ABI. No emitted compatibility wrapper is introduced.
+
+The archive-backed rootless API is a separate `*gen.BundledResolver`, returned
+by `gen.NewBundledResolver`. It exposes only `GenerateSource` and
+`GenerateSources`; it has no disk `Generate` method. Conversely,
+`*gen.CachedResolver` exposes only its root-bound `Generate` method and cannot
+be used as a source-only resolver. The two public types share private generation
+internals without a runtime mode flag.
+
+The public module-backed `gen.NewCachedResolver` is bound at construction to
+the owning module's physical root identity and declared module path. Each
+disk-based `Generate` resolves the target directory's nearest `go.mod` and
+rejects a different root, a nested module, a replaced root inode, or a changed
+module directive before cached types are used. Both the logical directory and
+its resolved physical path must remain within that root; an in-root symlink may
+not escape to outside source. Module discovery fully parses the nearest
+`go.mod`, fails closed on an unreadable/malformed file or one without a module
+directive, and never skips that boundary to fall through to an enclosing module.
+
+Analysis-only variant declarations use package-unique, always-unexported
+function and props-type names. The private props name is explicit plan data and
+never derived from receiver spelling; public emission alone uses the authored
+shipping declaration name. This keeps dot imports and receiver aliases from
+creating exported analysis artifacts or changing allocation.
 
 ## Open implementation risks (design is settled; these are execution concerns)
 
@@ -849,10 +1038,12 @@ ABI. No emitted compatibility wrapper is introduced.
   fallthrough (matched + leftover + strict-error), whole-value forwarding
   (`param={value}`), `children` single, `children` variadic (static list),
   node-valued attribute (`header={<h1/>}`), ordinary named-bag literal
-  (`inputAttrs={{...}}`), element attr-spread, attrs-forwarding into a component,
-  every accepted `attrs` signature shape, generic component inference, bound
-  method value, rejected true method expression, and free-function component.
-  Pin `generated.x.go.golden` + `render.golden`.
+  (`inputAttrs={{...}}`) and computed bag (`inputAttrs={computedBag}`), with each
+  value spread onto two chosen inner elements, element attr-spread,
+  attrs-forwarding into a component, every accepted `attrs` signature shape,
+  generic component inference, bound method value, rejected true method
+  expression, and free-function component. Pin `generated.x.go.golden` +
+  `render.golden`.
 - **Adversarial corpus** (the sharp edges the review surfaced):
   - zero-fill for opaque defined numeric/nilable types, an accessible unnamed
     underlying shape, and an **imported opaque struct with an unexported field**
@@ -862,6 +1053,11 @@ ABI. No emitted compatibility wrapper is introduced.
     explicit-type-arg diagnostic;
   - **authored order ≠ parameter order** (side effects, short-circuit) — proves
     once-only lexical evaluation;
+  - a final emitted **cross-package positional call** whose same-typed ordinary
+    parameters appear out of call order and whose callee also declares `attrs`;
+    generated and rendered goldens prove imported name/order/role facts survive
+    resolution. Include a package variable declared through a named func-type
+    alias, not only a direct named func type;
   - untyped call-valued constants such as `min(1, 2)` retain target context, and
     **`(T, error)`** propagation through every contributor kind completes before
     positional assembly;
@@ -882,9 +1078,17 @@ ABI. No emitted compatibility wrapper is introduced.
     method expressions;
   - the merged **attrs-bag signature family**, including defined-slice conversion,
     an imported unexported defined-slice target, defined-slice contributors,
-    variadic expansion, alias handling, exact element identity, and the
-    name-required diagnostic;
+    variadic expansion, alias handling, exact element identity, and universal
+    ordinary-variadic omission/fill rejection for a non-reserved
+    `...gsx.Attr` parameter;
   - **signature-only** dependency/cache invalidation (a rename must bust caches);
+  - saved-disk refresh before warm invalidation: create the first `.gsx` in a new
+    package, add a previously unseen import, and change a package clause/file
+    membership; each next generation sees one coherent refreshed manifest;
+  - persistent-cache graph/key parity for a GSX-only dependency, a local
+    replacement `go.mod` change, and poisoned/changed paired `.x.go` output; the
+    cache and normal analyzer must select the same authoritative inputs and the
+    paired output must never contribute a dependency edge;
   - `gsx -> Go-only project package -> gsx` resolution uses the current skeleton
     ABI on the first run even when the disk `.x.go` contains the old Props ABI;
     warm invalidation follows the Go-only intermediary without another

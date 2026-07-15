@@ -141,6 +141,50 @@ func TestImportedPropFactsRunsCanonicalPreprocessor(t *testing.T) {
 	}
 }
 
+func TestImportedPropFactsUseOnlyActiveCompanionSyntax(t *testing.T) {
+	t.Setenv("GOFLAGS", "-tags=feature")
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	uiDir := filepath.Join(root, "ui")
+	pagesDir := filepath.Join(root, "pages")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, uiDir, "active.go", "//go:build feature\n\npackage ui\n\ntype CardData struct { Title string }\n")
+	writeFile(t, uiDir, "zz_inactive.go", "//go:build !feature\n\npackage ui\n\ntype CardData struct { Count int }\n")
+	writeFile(t, uiDir, "card.gsx", "package ui\n\ncomponent Card(data CardData) { <article>{data.Title}</article> }\n")
+	writeFile(t, pagesDir, "page.gsx", `package pages
+
+import "example.com/app/ui"
+
+component Page() { <ui.Card Title="hello"/> }
+`)
+
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.buildPackageSkeletons(pagesDir); err != nil {
+		t.Fatalf("prewarm syntactic dependency facts: %v", err)
+	}
+	if got := m.externalLoads(); got != 0 {
+		t.Fatalf("syntactic dependency facts triggered %d external loads", got)
+	}
+	_, diagnostics, err := m.Generate(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "byo-missing-attrs" {
+			t.Fatalf("imported facts used excluded CardData.Count: %+v", diagnostic)
+		}
+	}
+	if hasDiagErrors(diagnostics) {
+		t.Fatalf("Generate diagnostics = %v", diagnostics)
+	}
+}
+
 func TestComponentPreprocessFailurePreservesOnlyErrors(t *testing.T) {
 	bag := diag.NewBag(token.NewFileSet())
 	bag.Add(diag.Diagnostic{

@@ -160,7 +160,7 @@ func skipGSXEmbeddedLiteral(src string, i int) (int, bool) {
 }
 
 func hasIdentBoundary(src string, i int) bool {
-	return i == 0 || !isIdentByte(src[i-1])
+	return !goIdentifierContinueBefore(src, i)
 }
 
 // embeddedLiteralEndHoleAware returns the offset just past the closing delim

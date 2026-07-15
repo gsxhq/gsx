@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"go/build"
+	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
@@ -66,6 +67,58 @@ func TestTargetDeclarationImporterUsesAuthoritativeCompiledFilesWithGOFLAGS(t *t
 				t.Fatalf("active GOFLAGS build context selected %v, want Active with int underlying type", named.Underlying())
 			}
 		})
+	}
+}
+
+func TestGenerateUsesAuthoritativeCompiledFilesWithGOFLAGS(t *testing.T) {
+	t.Setenv("GOFLAGS", "-tags=feature")
+	root, uiDir := writeTargetDeclarationTestModule(t)
+	writeFile(t, uiDir, "card.gsx", "package ui\ncomponent Card(value Active) { <div>{ value }</div> }\n")
+	writeFile(t, uiDir, "feature.go", "//go:build feature\n\npackage ui\ntype Active int\n")
+
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, diagnostics, err := module.Generate(uiDir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if hasError(diagnostics) {
+		t.Fatalf("Generate diagnostics = %v, want authoritative feature-tag companion", diagnostics)
+	}
+	if len(output) != 1 || len(output[filepath.Join(uiDir, "card.gsx")]) == 0 {
+		t.Fatalf("Generate output = %v, want card.gsx", keysOfGenerated(output))
+	}
+}
+
+func TestGenerateUsesAuthoritativeCgoSyntax(t *testing.T) {
+	if !build.Default.CgoEnabled {
+		t.Skip("cgo is disabled for the active build context")
+	}
+	root, uiDir := writeTargetDeclarationTestModule(t)
+	writeFile(t, uiDir, "card.gsx", "package ui\ncomponent Card(value Native) { <div/> }\n")
+	writeFile(t, uiDir, "native.go", `package ui
+
+/* typedef int native_int; */
+import "C"
+
+type Native C.native_int
+`)
+
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, diagnostics, err := module.Generate(uiDir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if hasError(diagnostics) {
+		t.Fatalf("Generate diagnostics = %v, want retained cgo-transformed syntax", diagnostics)
+	}
+	if len(output) != 1 || len(output[filepath.Join(uiDir, "card.gsx")]) == 0 {
+		t.Fatalf("Generate output = %v, want card.gsx", keysOfGenerated(output))
 	}
 }
 
@@ -622,7 +675,7 @@ func TestTargetSourceInventoryRejectsBundleCompanions(t *testing.T) {
 	module, err := Open(Options{
 		ModuleRoot: root,
 		ModulePath: "example.com/app",
-		Bundle:     &Bundle{imp: targetTestImporter(), table: funcTables{}},
+		Bundle:     testBundle(targetTestImporter(), funcTables{}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -633,15 +686,22 @@ func TestTargetSourceInventoryRejectsBundleCompanions(t *testing.T) {
 }
 
 func TestTargetSourceInventoryExcludesNestedModule(t *testing.T) {
-	root, _ := writeTargetDeclarationTestModule(t)
+	root, rootUI := writeTargetDeclarationTestModule(t)
 	nested := filepath.Join(root, "nested")
 	uiDir := filepath.Join(nested, "ui")
 	if err := os.MkdirAll(uiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, nested, "go.mod", "module example.com/nested\n\ngo 1.26.1\n")
-	writeFile(t, uiDir, "view.gsx", "package ui\ncomponent View() { <div/> }\n")
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire (\n github.com/gsxhq/gsx v0.0.0\n example.com/app/nested v0.0.0\n)\nreplace github.com/gsxhq/gsx => "+repoRoot+"\nreplace example.com/app/nested => ./nested\n")
+	writeFile(t, nested, "go.mod", "module example.com/app/nested\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, uiDir, "view.gsx", "package ui\ncomponent View(value Model) { <div/> }\n")
 	writeFile(t, uiDir, "model.go", "package ui\ntype Model struct{}\n")
+	writeFile(t, uiDir, "view.x.go", "package ui\nimport \"github.com/gsxhq/gsx\"\ntype ViewProps struct { Value Model }; func View(ViewProps) gsx.Node { return nil }\n")
+	writeFile(t, rootUI, "card.gsx", "package ui\nimport nested \"example.com/app/nested/ui\"\ncomponent Card(value nested.Model) { <div/> }\n")
 	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
@@ -762,10 +822,152 @@ component Page() { <bridge.Card title="hello"/> }
 	if module.targetDeclTypes[bridgeDir] == nil || module.targetDeclTypes[viewsDir] == nil {
 		t.Fatal("completed exact intermediary graph was not cached")
 	}
+	dependents := module.Dependents(viewsDir)
+	if len(dependents) != 2 || dependents[0] != pagesDir || dependents[1] != viewsDir {
+		t.Fatalf("Dependents(views) = %v, want only authoritative GSX-owned pages and views dirs", dependents)
+	}
 	module.SetOverride(filepath.Join(viewsDir, "card.gsx"), []byte("package views\ncomponent Card(title string, count int) { <div/> }\n"))
 	module.applyDirty()
 	if module.targetDeclTypes[bridgeDir] != nil || module.targetDeclTypes[viewsDir] != nil {
 		t.Fatal("editing the GSX dependency did not invalidate the Go-only intermediary exact cache")
+	}
+}
+
+func TestFailedExactImportChainRetainsPathProvenanceForRepair(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	viewsDir := filepath.Join(root, "views")
+	bridgeDir := filepath.Join(root, "bridge")
+	pagesDir := filepath.Join(root, "pages")
+	for _, dir := range []string{viewsDir, bridgeDir, pagesDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	viewsPath := filepath.Join(viewsDir, "card.gsx")
+	writeFile(t, viewsDir, "card.gsx", "package views\ncomponent Card(title Missing) { <div/> }\n")
+	writeFile(t, bridgeDir, "bridge.go", `package bridge
+
+import "example.com/app/views"
+
+var Card = views.Card
+`)
+	writeFile(t, pagesDir, "page.gsx", `package pages
+
+import _ "example.com/app/bridge"
+
+component Local() { <span/> }
+component Page() { <Local/> }
+`)
+
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := module.Package(pagesDir)
+	if err != nil {
+		t.Fatalf("first Package: %v", err)
+	}
+	if hasError(first.Diags) {
+		t.Fatalf("first shipping diagnostics = %v, want exact-target failure retained privately during the foundation phase", first.Diags)
+	}
+	if got := module.targetImports[pagesDir]; len(got) != 1 || got[0] != bridgeDir {
+		t.Fatalf("failed exact graph pages->bridge = %v, want path provenance", got)
+	}
+	if got := module.targetImports[bridgeDir]; len(got) != 1 || got[0] != viewsDir {
+		t.Fatalf("failed exact graph bridge->views = %v, want path provenance", got)
+	}
+	if module.targetDeclTypes[bridgeDir] != nil || module.targetDeclTypes[viewsDir] != nil {
+		t.Fatal("failed exact chain published semantic packages")
+	}
+	if _, err := newComponentTargetImporter(module, module.ext).Import("example.com/app/views"); err == nil || !strings.Contains(err.Error(), "undefined: Missing") {
+		t.Fatalf("invalid leaf exact import error = %v, want undefined Missing", err)
+	}
+
+	module.SetOverride(viewsPath, []byte("package views\ncomponent Card(title string) { <div/> }\n"))
+	second, err := module.Package(pagesDir)
+	if err != nil {
+		t.Fatalf("repaired Package: %v", err)
+	}
+	if second == first {
+		t.Fatal("leaf repair reused the cached failed consumer PackageResult")
+	}
+	if hasError(second.Diags) {
+		t.Fatalf("repaired diagnostics = %v, want successful recomputation", second.Diags)
+	}
+	output, diagnostics, err := module.Generate(pagesDir)
+	if err != nil {
+		t.Fatalf("repaired Generate: %v", err)
+	}
+	if hasError(diagnostics) || len(output[filepath.Join(pagesDir, "page.gsx")]) == 0 {
+		t.Fatalf("repaired Generate output=%v diagnostics=%v", keysOfGenerated(output), diagnostics)
+	}
+}
+
+func TestFailedExactCheckReplacesStaleDirectPathProvenance(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	oldDir := filepath.Join(root, "old")
+	brokenDir := filepath.Join(root, "broken")
+	pagesDir := filepath.Join(root, "pages")
+	for _, dir := range []string{oldDir, brokenDir, pagesDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, oldDir, "old.gsx", "package old\ncomponent Old() { <span/> }\n")
+	writeFile(t, brokenDir, "broken.gsx", "package broken\ncomponent Broken(value Missing) { <span/> }\n")
+	pagePath := filepath.Join(pagesDir, "page.gsx")
+	writeFile(t, pagesDir, "page.gsx", `package pages
+
+import _ "example.com/app/old"
+
+component Local() { <span/> }
+component Page() { <Local/> }
+`)
+
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := module.Package(pagesDir); err != nil {
+		t.Fatalf("initial Package: %v", err)
+	}
+	if got := module.targetImports[pagesDir]; len(got) != 1 || got[0] != oldDir || !module.targetImportedBy[oldDir][pagesDir] {
+		t.Fatalf("initial exact edge = %v reverse=%v, want pages->old", got, module.targetImportedBy[oldDir])
+	}
+
+	module.SetOverride(pagePath, []byte(`package pages
+
+import _ "example.com/app/broken"
+
+component Local() { <span/> }
+component Page() { <Local/> }
+`))
+	if _, err := module.Package(pagesDir); err != nil {
+		t.Fatalf("failed-check Package infrastructure error: %v", err)
+	}
+	if got := module.targetImports[pagesDir]; len(got) != 1 || got[0] != brokenDir {
+		t.Fatalf("failed-check exact edges = %v, want only current pages->broken", got)
+	}
+	if module.targetImportedBy[oldDir][pagesDir] {
+		t.Fatalf("stale reverse edge pages->old survived failed exact check: %v", module.targetImportedBy[oldDir])
+	}
+	if !module.targetImportedBy[brokenDir][pagesDir] {
+		t.Fatalf("current reverse edge pages->broken missing after failed exact check: %v", module.targetImportedBy[brokenDir])
+	}
+	if module.targetDeclTypes[brokenDir] != nil {
+		t.Fatal("failed exact dependency published a semantic package")
 	}
 }
 
@@ -784,9 +986,9 @@ func exactTargetSignature(t *testing.T, pkg *types.Package, name string) *types.
 
 func TestTargetDeclarationImporterUsesVerbatimSignatureAndHidesPairedOutputBeforeBuildSelection(t *testing.T) {
 	root, uiDir := writeTargetDeclarationTestModule(t)
-	// A paired generated output must be invisible before go/build classifies the
+	// A paired generated output must be invisible before the Go command classifies the
 	// directory. The deliberately wrong package clause makes the test
-	// non-vacuous: filtering only after ImportDir would fail with mixed packages.
+	// non-vacuous: filtering only after package loading would fail with mixed packages.
 	writeFile(t, uiDir, "card.x.go", "package stale\nvar StaleTargetMarker = 1\n")
 
 	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
@@ -874,7 +1076,7 @@ type CardProps struct { Title string; Count int }
 func Card(CardProps) gsx.Node { return nil }
 `)
 
-	bundle := &Bundle{imp: targetTestImporter(), table: funcTables{}}
+	bundle := testBundle(targetTestImporter(), funcTables{})
 	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", Bundle: bundle})
 	if err != nil {
 		t.Fatal(err)
@@ -1041,5 +1243,122 @@ func TestTargetDeclarationCacheClearsWithFileSetAndKeepsPathGraph(t *testing.T) 
 	object := after.Scope().Lookup("Card")
 	if object == nil || module.fset.File(object.Pos()) == nil {
 		t.Fatalf("rebuilt Card position is not owned by the new FileSet: %v", object)
+	}
+}
+
+func TestBundleRejectsGoOnlyPackageTransitivelyImportingProjectGsxAcrossSemanticImporters(t *testing.T) {
+	root := t.TempDir()
+	uiDir := filepath.Join(root, "ui")
+	bridgeDir := filepath.Join(root, "bridge")
+	pagesDir := filepath.Join(root, "pages")
+	fastDir := filepath.Join(root, "fast")
+	determinismDir := filepath.Join(root, "determinism")
+	targetDir := filepath.Join(root, "target")
+	rendererDir := filepath.Join(root, "renderer")
+	for _, dir := range []string{uiDir, bridgeDir, pagesDir, fastDir, determinismDir, targetDir, rendererDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, uiDir, "card.gsx", "package ui\ncomponent Card(title string) { <span>{title}</span> }\n")
+	writeFile(t, bridgeDir, "bridge.go", "package bridge\nimport \"example.com/app/ui\"\nvar Card = ui.Card\n")
+	writeFile(t, pagesDir, "page.gsx", "package pages\nimport \"example.com/app/bridge\"\ncomponent Page() { <bridge.Card title=\"fresh\"/> }\n")
+	writeFile(t, fastDir, "fast.gsx", "package fast\nimport _ \"example.com/app/bridge\"\ncomponent Fast() { <main/> }\n")
+	writeFile(t, determinismDir, "z.gsx", "package determinism\nimport _ \"example.com/app/bridge\"\ncomponent Z() { <main/> }\n")
+	writeFile(t, determinismDir, "a.gsx", "package determinism\nimport _ \"example.com/app/bridge\"\ncomponent A() { <main/> }\n")
+	writeFile(t, targetDir, "target.gsx", "package target\nimport _ \"example.com/app/bridge\"\ncomponent Target() { <main/> }\n")
+	writeFile(t, rendererDir, "renderer.gsx", "package renderer\nimport _ \"example.com/app/bridge\"\ncomponent Renderer() { <main/> }\n")
+
+	imports := targetTestImporter().(mapImporter)
+	ui := types.NewPackage("example.com/app/ui", "ui")
+	propsObject := types.NewTypeName(token.NoPos, ui, "CardProps", nil)
+	propsType := types.NewNamed(propsObject, types.NewStruct(
+		[]*types.Var{types.NewField(token.NoPos, ui, "Poison", types.Typ[types.Int], false)},
+		[]string{""},
+	), nil)
+	ui.Scope().Insert(propsObject)
+	nodeType := imports["github.com/gsxhq/gsx"].Scope().Lookup("Node").Type()
+	staleSignature := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(types.NewParam(token.NoPos, ui, "props", propsType)),
+		types.NewTuple(types.NewParam(token.NoPos, ui, "", nodeType)),
+		false,
+	)
+	ui.Scope().Insert(types.NewFunc(token.NoPos, ui, "Card", staleSignature))
+	ui.MarkComplete()
+	bridge := types.NewPackage("example.com/app/bridge", "bridge")
+	bridge.Scope().Insert(types.NewVar(token.NoPos, bridge, "Card", staleSignature))
+	bridge.SetImports([]*types.Package{ui})
+	bridge.MarkComplete()
+	imports[ui.Path()] = ui
+	imports[bridge.Path()] = bridge
+	module, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		Bundle:     testBundle(imports, funcTables{}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, importPackage := range map[string]func() (*types.Package, error){
+		"shipping": func() (*types.Package, error) {
+			return (&moduleImporter{m: module, external: imports, seen: map[string]bool{}}).Import(bridge.Path())
+		},
+		"exact target": func() (*types.Package, error) {
+			return newComponentTargetImporter(module, imports).Import(bridge.Path())
+		},
+		"renderer": func() (*types.Package, error) {
+			return newSourceDeclResolver(module, imports).Import(bridge.Path())
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := importPackage(); err == nil || !strings.Contains(err.Error(), "normal module resolver") {
+				t.Fatalf("Import bridge error = %v, want transitive project-GSX fail-closed guidance", err)
+			}
+		})
+	}
+	for name, analyzePackage := range map[string]func() error{
+		"exact target package": func() error {
+			_, err := newComponentTargetImporter(module, imports).Import("example.com/app/target")
+			return err
+		},
+		"renderer package": func() error {
+			_, err := newSourceDeclResolver(module, imports).packageForDir(rendererDir)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := analyzePackage()
+			diagnostics, ok := diagnosticsFromSourceError(err)
+			if !ok || len(diagnostics) != 1 || diagnostics[0].Code != "bundle-project-gsx-transitive" {
+				t.Fatalf("analysis error = %T %v diagnostics=%+v, want one structured Bundle transitive diagnostic", err, err, diagnostics)
+			}
+		})
+	}
+
+	output, diagnostics, err := module.Generate(pagesDir)
+	if err != nil {
+		t.Fatalf("Generate infrastructure error = %v, want positioned Bundle diagnostic", err)
+	}
+	if len(output) != 0 {
+		t.Fatalf("Bundle transitive import emitted files %v", keysOfGenerated(output))
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != "bundle-project-gsx-transitive" || !strings.HasSuffix(diagnostics[0].Start.Filename, "page.gsx") {
+		t.Fatalf("diagnostics = %+v, want one positioned bundle-project-gsx-transitive error", diagnostics)
+	}
+	fastOutput, fastDiagnostics, err := module.Generate(fastDir)
+	if err != nil || len(fastOutput) != 0 || len(fastDiagnostics) != 1 || fastDiagnostics[0].Code != "bundle-project-gsx-transitive" {
+		t.Fatalf("all-unique/no-call-site fast path output=%v diagnostics=%+v error=%v", keysOfGenerated(fastOutput), fastDiagnostics, err)
+	}
+	_, orderedDiagnostics, err := module.Generate(determinismDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orderedDiagnostics) != 2 || !strings.HasSuffix(orderedDiagnostics[0].Start.Filename, "a.gsx") || !strings.HasSuffix(orderedDiagnostics[1].Start.Filename, "z.gsx") {
+		t.Fatalf("Bundle diagnostics order = %+v, want authored order within sorted a.gsx then z.gsx", orderedDiagnostics)
+	}
+	if got := module.externalLoads(); got != 0 {
+		t.Fatalf("Bundle external loads = %d, want zero", got)
 	}
 }

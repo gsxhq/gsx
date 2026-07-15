@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"go/token"
+	"go/types"
 	"strings"
 	"testing"
 
@@ -64,33 +65,124 @@ func TestComponentFileHasEffectiveConstraint(t *testing.T) {
 	}
 }
 
-func TestComponentTargetPlanUsesOnlyConstrainedCrossFileFamilies(t *testing.T) {
+func TestSyntacticComponentTargetPlanHasNoVariantAuthority(t *testing.T) {
 	fset := token.NewFileSet()
 	files := parseVariantFiles(t, fset, map[string]string{
 		"icon_linux.gsx":   "package p\ncomponent Icon() { <span/> }\n",
 		"icon_windows.gsx": "package p\ncomponent Icon() { <span/> }\n",
 	})
-	bag := diag.NewBag(fset)
-	plan := newComponentTargetPlan(files, map[string][]byte{
-		"icon_linux.gsx":   []byte("package p\ncomponent Icon() { <span/> }\n"),
-		"icon_windows.gsx": []byte("package p\ncomponent Icon() { <span/> }\n"),
-	}, bag)
-	if bag.HasErrors() {
-		t.Fatalf("plan diagnostics: %v", bag.Sorted())
-	}
-	if len(plan.families) != 1 || len(plan.families[0].members) != 2 {
-		t.Fatalf("families = %+v, want one two-member family", plan.families)
+	plan := syntacticComponentTargetPlan(files)
+	if len(plan.families) != 0 || plan.invalidMembership {
+		t.Fatalf("syntactic plan families = %+v invalid=%t, want no acceptance decisions", plan.families, plan.invalidMembership)
 	}
 	public := 0
 	for component, emission := range plan.emissions {
-		if component.Name != "Icon" || !emission.splitBody || emission.bodyName == "" {
-			t.Fatalf("emission for %s = %+v", component.Name, emission)
+		if component.Name != "Icon" || emission.splitBody || emission.bodyName != "" {
+			t.Fatalf("emission for %s = %+v, want importer-free all-public skeleton", component.Name, emission)
 		}
 		if emission.public {
 			public++
 		}
 	}
-	if public != 1 {
-		t.Fatalf("public emissions = %d, want one", public)
+	if public != 2 {
+		t.Fatalf("public emissions = %d, want every per-file declaration", public)
+	}
+}
+
+func TestComponentKeyInvalidReceiverCannotEnterFunctionNamespace(t *testing.T) {
+	first := &gsxast.Component{Name: "Card", Recv: "(r !)"}
+	second := &gsxast.Component{Name: "Card", Recv: "(r ?)"}
+	if got := componentKey(first); got == ".Card" {
+		t.Fatalf("invalid receiver key = %q, collided with package function namespace", got)
+	}
+	if componentKey(first) == componentKey(second) {
+		t.Fatalf("distinct invalid receivers share key %q", componentKey(first))
+	}
+}
+
+func TestSemanticVariantPlanDoesNotFoldUnresolvedMethodIntoFunction(t *testing.T) {
+	fset := token.NewFileSet()
+	sourceText := map[string]string{
+		"card_a.gsx": "//go:build variantA\n\npackage p\ncomponent (r Missing) Card() { <span/> }\n",
+		"card_b.gsx": "//go:build variantB\n\npackage p\ncomponent Card() { <span/> }\n",
+	}
+	files := parseVariantFiles(t, fset, sourceText)
+	sources := make(map[string][]byte, len(sourceText))
+	for path, source := range sourceText {
+		sources[path] = []byte(source)
+	}
+	privatePlan := privateComponentTargetPlan(files, nil)
+	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, nil, nil, diag.NewBag(fset))
+
+	if len(plan.families) != 0 || plan.invalidMembership {
+		t.Fatalf("semantic families = %+v invalid=%t, want unresolved method isolated from package function", plan.families, plan.invalidMembership)
+	}
+	if len(plan.emissions) != 2 {
+		t.Fatalf("emissions = %d, want both declarations", len(plan.emissions))
+	}
+	for component, emission := range plan.emissions {
+		if !emission.public || emission.splitBody {
+			t.Fatalf("%s emission = %+v, want independent public declaration", component.Name, emission)
+		}
+	}
+}
+
+func TestSemanticVariantPlanDoesNotFoldDifferentInvalidReceivers(t *testing.T) {
+	fset := token.NewFileSet()
+	sourceText := map[string]string{
+		"card_a.gsx": "//go:build variantA\n\npackage p\ncomponent (r MissingA) Card() { <span/> }\n",
+		"card_b.gsx": "//go:build variantB\n\npackage p\ncomponent (r MissingB) Card() { <span/> }\n",
+	}
+	files := parseVariantFiles(t, fset, sourceText)
+	sources := make(map[string][]byte, len(sourceText))
+	for path, source := range sourceText {
+		sources[path] = []byte(source)
+	}
+	privatePlan := privateComponentTargetPlan(files, nil)
+	objects := map[*gsxast.Component]*types.Func{}
+	for component := range privatePlan.emissions {
+		receiver := types.NewVar(token.NoPos, nil, "r", types.Typ[types.Invalid])
+		signature := types.NewSignatureType(receiver, nil, nil, types.NewTuple(), types.NewTuple(), false)
+		objects[component] = types.NewFunc(token.NoPos, nil, privatePlan.emissions[component].bodyName, signature)
+	}
+	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, objects, nil, diag.NewBag(fset))
+
+	if len(plan.families) != 0 || plan.invalidMembership {
+		t.Fatalf("semantic families = %+v invalid=%t, want different invalid receivers isolated", plan.families, plan.invalidMembership)
+	}
+	if len(plan.emissions) != 2 {
+		t.Fatalf("emissions = %d, want both unresolved methods", len(plan.emissions))
+	}
+}
+
+func TestSemanticVariantPlanGivesSameSpellingUnresolvedReceiversDistinctLogicalKeys(t *testing.T) {
+	fset := token.NewFileSet()
+	sourceText := map[string]string{
+		"card_a.gsx": "//go:build variantA\n\npackage p\ncomponent (r Missing) Card(value string) { <span/> }\n",
+		"card_b.gsx": "//go:build variantB\n\npackage p\ncomponent (r Missing) Card(value string) { <span/> }\n",
+	}
+	files := parseVariantFiles(t, fset, sourceText)
+	sources := make(map[string][]byte, len(sourceText))
+	for path, source := range sourceText {
+		sources[path] = []byte(source)
+	}
+	privatePlan := privateComponentTargetPlan(files, nil)
+	objects := map[*gsxast.Component]*types.Func{}
+	for component := range privatePlan.emissions {
+		receiver := types.NewVar(token.NoPos, nil, "r", types.Typ[types.Invalid])
+		signature := types.NewSignatureType(receiver, nil, nil, types.NewTuple(), types.NewTuple(), false)
+		objects[component] = types.NewFunc(token.NoPos, nil, privatePlan.emissions[component].bodyName, signature)
+	}
+	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, objects, nil, diag.NewBag(fset))
+	keys := map[string]bool{}
+	for component := range plan.emissions {
+		key := plan.logicalKey(component)
+		if !strings.HasPrefix(key, "!unresolved-receiver:") {
+			t.Fatalf("logical key = %q, want opaque unresolved receiver identity", key)
+		}
+		keys[key] = true
+	}
+	if len(keys) != 2 {
+		t.Fatalf("unresolved logical keys = %v, want one per declaration", keys)
 	}
 }

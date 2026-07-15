@@ -347,6 +347,25 @@ func TestResolveOwnInternalPackageOfferedFromNestedPackage(t *testing.T) {
 	}
 }
 
+func TestResolveImportCandidateSymbolFilteringUsesAuthoritativeLocalSource(t *testing.T) {
+	m, dir := newMissingModuleFiles(t, "views", "package views\n\nvar xx = <p>hi</p>\n", map[string]string{
+		"a/card.gsx": `package db
+
+func Fresh() string { return "fresh" }
+
+component Card() { <p/> }
+`,
+		// This paired output is deliberately stale. Its Stale declaration must
+		// never enter candidate export filtering.
+		"a/card.x.go": "package db\n\nfunc Stale() string { return \"stale\" }\n",
+		"b/db.go":     "package db\n\nfunc Stale() string { return \"current\" }\n",
+	})
+	got := m.ResolveImportCandidates(dir, "db", "Stale")
+	if len(got) != 1 || got[0] != "example.com/u/b" {
+		t.Fatalf("resolve(db, Stale) = %v, want only authoritative example.com/u/b", got)
+	}
+}
+
 // TestResolveInternalPackageNotOfferedOutsideSubtree: db lives at
 // example.com/u/x/internal/db, whose visibility parent is example.com/u/x. The
 // asking .gsx package is example.com/u/y — a SIBLING of x, not under it — so

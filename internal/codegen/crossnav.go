@@ -18,6 +18,7 @@ import (
 func buildCrossNav(
 	compByKey map[string][]*gsxast.Component,
 	objKey map[types.Object]string,
+	componentPlan componentTargetPlan,
 	gsxFset, skelFset *token.FileSet,
 	info *types.Info,
 	pkgTypes *types.Package,
@@ -55,21 +56,23 @@ func buildCrossNav(
 	fieldObjToPos := map[*types.Var]token.Position{}
 	for _, comps := range compByKey {
 		for _, c := range comps {
-			// Derive propsName the same way emitComponentSkeleton does.
-			propsName := c.Name + "Props"
-			if c.Recv != "" {
-				_, _, recvTypeName, rerr := parseRecv(c.Recv)
-				if rerr == nil {
-					propsName = recvTypeName + c.Name + "Props"
-				}
+			emission, planned := componentPlan.emission(c)
+			if !planned {
+				emission = componentTargetEmission{public: true}
 			}
+			if !emission.public {
+				continue
+			}
+			propsName := componentShippingPropsName(c, c.Name)
 			structObj := pkgTypes.Scope().Lookup(propsName)
 			if structObj == nil {
 				continue
 			}
 			structObjToComp[structObj] = c
 
-			// Map each field var → the .gsx position of its corresponding param.
+			// Only the public Props declaration is a user-facing symbol. Private
+			// split-body structs are transient checker artifacts and must never
+			// become navigation targets.
 			params, err := parseParams(c.Params)
 			if err != nil {
 				continue

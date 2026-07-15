@@ -5,6 +5,8 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -135,7 +137,7 @@ func TestCachedResolverMatchesPackagesLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := []*goast.File{gf}
-	_, info, errs := checkSkeletonPackage(dir, "views", files, fset, bundle.importer())
+	_, info, errs := checkSkeletonPackage(dir, "views", files, fset, bundle.importer(), testTypeCheckEnvironment())
 	if len(errs) != 0 {
 		t.Fatalf("unexpected type errors: %v", errs)
 	}
@@ -152,5 +154,55 @@ func TestCachedResolverMatchesPackagesLoad(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Logf("full harvest: %v", got)
+	}
+}
+
+func TestCachedResolverAcceptsModuleRootWithoutPackage(t *testing.T) {
+	root := t.TempDir()
+	repo := repoRoot(t)
+	writeFile(t, root, "go.mod", "module example.com/empty\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repo+"\n")
+
+	bundle, err := newCachedResolver(root, []string{stdImportPath}, nil, []string{"context"})
+	if err != nil {
+		t.Fatalf("newCachedResolver on package-less module root: %v", err)
+	}
+	if bundle.goVersion != "go1.26.1" {
+		t.Fatalf("Bundle language version = %q, want go1.26.1", bundle.goVersion)
+	}
+}
+
+func TestModuleLanguageVersionDefaultsNoDirectiveToGo116(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/no-go-line\n")
+	version, err := moduleLanguageVersion(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "go1.16" {
+		t.Fatalf("moduleLanguageVersion = %q, want cmd/go default go1.16", version)
+	}
+
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, filepath.Join(root, "generic.go"), "package p\ntype Box[T any] struct{}\n", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, typeErrs := checkSkeletonPackage("example.com/no-go-line", "p", []*goast.File{file}, fset, nil, typeCheckEnvironment{
+		sizes: types.SizesFor("gc", "amd64"), goVersion: version,
+	})
+	if len(typeErrs) == 0 || !strings.Contains(typeErrs[0].Msg, "go1.18") {
+		t.Fatalf("generic declaration errors = %v, want post-go1.16 language rejection", typeErrs)
+	}
+}
+
+func TestCachedResolverRejectsPartialBrokenFilterTypes(t *testing.T) {
+	root := t.TempDir()
+	repo := repoRoot(t)
+	writeFile(t, root, "go.mod", "module example.com/broken\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repo+"\n")
+	writeFile(t, filepath.Join(root, "broken"), "filter.go", "package broken\nfunc Upper(value string) string { return missing(value) }\n")
+
+	_, err := newCachedResolver(root, []string{"example.com/broken/broken"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), `filter package "example.com/broken/broken" type resolution failed`) {
+		t.Fatalf("newCachedResolver broken filter error = %v, want framed load failure", err)
 	}
 }

@@ -24,6 +24,9 @@ func docSymFrame(id int, uri string) string {
 // s.pkgs[dir] carries Files + GSXFset for documentSymbol.
 type symbolFileAnalyzer struct{}
 
+func (symbolFileAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+func (symbolFileAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
+
 func (symbolFileAnalyzer) Analyze(_ string, override map[string][]byte) (*Package, error) {
 	fset := token.NewFileSet()
 	files := map[string]*gsxast.File{}

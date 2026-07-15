@@ -150,7 +150,7 @@ func validateGoExpr(expr string) error {
 func leadingKeyword(seg string) string {
 	s := strings.TrimLeft(seg, " \t\r\n")
 	for _, kw := range [...]string{"if", "switch"} {
-		if strings.HasPrefix(s, kw) && (len(s) == len(kw) || !isIdentByte(s[len(kw)])) {
+		if strings.HasPrefix(s, kw) && !goIdentifierContinueAt(s, len(kw)) {
 			return kw
 		}
 	}
@@ -245,9 +245,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	}
 	attrStart := p.i
 	attrStartPos := p.posAt(attrStart)
-	for !p.eof() && isAttrNameByte(p.src[p.i]) {
-		p.i++
-	}
+	p.i = scanAttrName(p.src, p.i)
 	if p.i == attrStart {
 		return nil, p.errorf(p.pos(), "expected attribute name, got %q", string(p.peek()))
 	}

@@ -140,7 +140,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 		}
 		return out, nil
 	}
-	componentPlan := newComponentTargetPlan(gsxFiles, parsed.sources, bag)
+	componentPlan := syntacticComponentTargetPlan(gsxFiles)
 	// Some diagnosed regions, notably direct element literals inside {{ }}, are
 	// deliberately preserved in the registry while the rest of the package can
 	// still be inspected. Their skeletons omit the whole invalid region, so using
@@ -182,7 +182,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 		if blockPackage || blockedFiles[filepath.Clean(path)] {
 			continue
 		}
-		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
+		ff := m.fileScopedFactsSyntactic(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		if ff.failed {
 			// The dependency contract is intentionally unavailable. Building with
 			// whatever sibling facts happened to succeed would create a partial

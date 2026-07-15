@@ -24,6 +24,9 @@ type countingAnalyzer struct {
 	n    int
 }
 
+func (a *countingAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
+func (a *countingAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+
 func (a *countingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }

@@ -1,6 +1,8 @@
 package gen
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -8,9 +10,25 @@ import (
 // minify booleans; everything else is held constant.
 func keyWith(t *testing.T, cssMinify, jsMinify bool) string {
 	t.Helper()
-	dir := t.TempDir()
-	graph := map[string]pkgInfo{}
-	k, err := computeKey(dir, graph, "example.com/x", "gomod", "gosum", "bctx", "codegenid", nil, nil, nil, "clsfp", false, cssMinify, jsMinify, nil, dir)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/x\n\ngo 1.26.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.go"), []byte("package view\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graph := loadGraphMust(t, root)
+	k, err := computeTestKey(t, dir, root, graph, cacheKeyConfig{
+		buildContext:          "bctx",
+		codegenIdentity:       "codegenid",
+		classifierFingerprint: "clsfp",
+		cssMinify:             cssMinify,
+		jsMinify:              jsMinify,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

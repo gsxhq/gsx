@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"go/token"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -32,13 +33,14 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 
 	// name
 	nameStart := p.i
-	for !p.eof() && isTagNameByte(p.src[p.i]) && p.src[p.i] != '.' && p.src[p.i] != '-' {
-		p.i++
-	}
+	p.i = scanGoIdentifier(p.src, p.i)
 	c.Name = p.src[nameStart:p.i]
 	c.NamePos = p.posAt(nameStart)
 	if c.Name == "" {
 		return nil, p.errorf(p.pos(), "expected component name")
+	}
+	if !token.IsIdentifier(c.Name) {
+		return nil, p.errorfRange(c.NamePos, p.posAt(p.i), "component name %q is not a valid Go identifier", c.Name)
 	}
 
 	p.skipSpace()

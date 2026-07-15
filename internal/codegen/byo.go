@@ -201,25 +201,12 @@ func hasAttrsBag(propFields map[string]map[string]bool, propsType string, byoStr
 // it surfaces as a clean `does not implement gsx.Node` build error, which beats
 // the `undefined: FProps` the convention path would give.)
 func packageNullaryFuncs(dir string) map[string]bool {
+	return packageNullaryFuncsFromFiles(parseHandwrittenGoFiles(dir))
+}
+
+func packageNullaryFuncsFromFiles(files []*goast.File) map[string]bool {
 	out := map[string]bool{}
-	if dir == "" {
-		return out
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
-			continue
-		}
-		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-		if perr != nil {
-			continue
-		}
+	for _, f := range files {
 		for _, decl := range f.Decls {
 			fd, ok := decl.(*goast.FuncDecl)
 			if !ok || fd.Recv != nil {
@@ -245,25 +232,12 @@ func packageNullaryFuncs(dir string) map[string]bool {
 // XxxProps convention probe (and its generate-time attr diagnostics); only a
 // tag with NO such type is gated onto the _gsxcompsig probe.
 func packageTypeNames(dir string) map[string]bool {
+	return packageTypeNamesFromFiles(parseHandwrittenGoFiles(dir))
+}
+
+func packageTypeNamesFromFiles(files []*goast.File) map[string]bool {
 	out := map[string]bool{}
-	if dir == "" {
-		return out
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
-			continue
-		}
-		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-		if perr != nil {
-			continue
-		}
+	for _, f := range files {
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*goast.GenDecl)
 			if !ok || gd.Tok != token.TYPE {
@@ -277,6 +251,34 @@ func packageTypeNames(dir string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// parseHandwrittenGoFiles preserves the legacy standalone syntactic surface:
+// every parseable non-test, non-generated Go file in dir, independent of build
+// constraints. Module semantic resolvers must instead use the retained active
+// syntax selected by the source inventory and call the FromFiles helpers.
+func parseHandwrittenGoFiles(dir string) []*goast.File {
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	fset := token.NewFileSet()
+	files := make([]*goast.File, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
+			continue
+		}
+		file, parseErr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if parseErr == nil && file != nil {
+			files = append(files, file)
+		}
+	}
+	return files
 }
 
 // parseGsxTypeDecls scans every GoChunk (and GoWithElements GoText part) in
@@ -486,27 +488,17 @@ func typeString(e goast.Expr) string {
 // could shadow the real one; props structs are not platform-conditional in
 // practice.
 func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeFields map[string]map[string]bool, structs map[string]byoStruct) {
+	return loadExternalStructFieldsFromFiles(parseHandwrittenGoFiles(dir), wanted)
+}
+
+func loadExternalStructFieldsFromFiles(files []*goast.File, wanted map[string]bool) (fields, nodeFields map[string]map[string]bool, structs map[string]byoStruct) {
 	fields = map[string]map[string]bool{}
 	nodeFields = map[string]map[string]bool{}
 	structs = map[string]byoStruct{}
-	if dir == "" || len(wanted) == 0 {
+	if len(wanted) == 0 {
 		return fields, nodeFields, structs
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return fields, nodeFields, structs
-	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
-			continue
-		}
-		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-		if perr != nil {
-			continue
-		}
+	for _, f := range files {
 		fileQuals := gsxQualifiersFromGoFile(f)
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*goast.GenDecl)

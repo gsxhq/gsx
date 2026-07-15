@@ -36,13 +36,13 @@ func TestWatchRevClosure(t *testing.T) {
 	widgetsDir := filepath.Join(root, "widgets")
 	homeDir := filepath.Join(root, "home")
 
-	sess, startup, err := newWatchSession(watchConfig{
+	sess, startup, err := startWatchSessionForTest(watchConfig{
 		paths:  []string{root},
 		stdout: io.Discard,
 		stderr: io.Discard,
 	})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if r.Err != nil {

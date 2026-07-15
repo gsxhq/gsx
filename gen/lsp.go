@@ -16,17 +16,12 @@ import (
 
 // lspAnalyzer is the concrete code analysis behind the language server: it
 // resolves the module root for a directory, retrieves (or lazily creates) a warm
-// per-root *codegen.Module, applies override buffers (which mark changed packages
-// dirty), and returns the retained Package — the diagnostics plus read-only type
+// per-root *codegen.Module, receives serialized buffer-lifetime transitions,
+// and returns the retained Package — the diagnostics plus read-only type
 // info (Fset, TypesInfo, expr-map, gsx AST) the read-intelligence features need.
 // The Module self-invalidates: Package drops the changed package and its
 // reverse-dependency closure from the type cache, keeping the rest warm. It never
 // writes .x.go to disk.
-//
-// Slice-1 limitation: codegen discovers .gsx files by on-disk glob, so a buffer
-// opened in the editor but never saved to disk is not analyzed (its override is
-// never consulted). Editing existing .gsx files works; unsaved-new files are a
-// slice-2 follow-up.
 type lspAnalyzer struct {
 	optCfg config                // programmatic opts (empty for the stock binary); layered OVER gsx.toml (opts win on conflict)
 	warnw  io.Writer             // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
@@ -38,8 +33,9 @@ type lspAnalyzer struct {
 // calls so the expensive external packages.Load stays warm. Callers may invoke
 // Analyze concurrently for different roots; module() serializes access per root.
 type moduleSet struct {
-	mu     sync.Mutex
-	byRoot map[string]*codegen.Module
+	mu            sync.Mutex
+	byRoot        map[string]*codegen.Module
+	overrideRoots map[string]string // clean absolute buffer path -> exact warm-module owner
 }
 
 // newLSPAnalyzer constructs an lspAnalyzer with an empty warm-module cache.
@@ -47,9 +43,54 @@ func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
 	return lspAnalyzer{
 		optCfg: cfg,
 		warnw:  warnw,
-		mods:   &moduleSet{byRoot: map[string]*codegen.Module{}},
-		ec:     newEditorConfigResolver(),
+		mods: &moduleSet{
+			byRoot:        map[string]*codegen.Module{},
+			overrideRoots: map[string]string{},
+		},
+		ec: newEditorConfigResolver(),
 	}
+}
+
+func (mods *moduleSet) setOverride(root string, module *codegen.Module, path string, source []byte) ([]string, error) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	path = filepath.Clean(path)
+	var affected []string
+	if previousRoot, ok := mods.overrideRoots[path]; ok && previousRoot != root {
+		if previous := mods.byRoot[previousRoot]; previous != nil {
+			// A root move clears the prior override; its affected closure must
+			// still reach the caller for eviction alongside the new scope.
+			cleared, err := previous.ClearOverride(path)
+			if err != nil {
+				return cleared, err
+			}
+			affected = append(affected, cleared...)
+		}
+	}
+	affected = append(affected, module.SetOverride(path, source)...)
+	mods.overrideRoots[path] = root
+	return affected, nil
+}
+
+func (mods *moduleSet) clearOverride(path string) ([]string, error) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	path = filepath.Clean(path)
+	root, ok := mods.overrideRoots[path]
+	if !ok {
+		return nil, nil
+	}
+	module := mods.byRoot[root]
+	if module == nil {
+		delete(mods.overrideRoots, path)
+		return nil, nil
+	}
+	// module.ClearOverride always ends buffer authority and returns the
+	// pre-clear affected closure even alongside an operational error; drop the
+	// root mapping unconditionally and surface the affected scope for eviction.
+	affected, err := module.ClearOverride(path)
+	delete(mods.overrideRoots, path)
+	return affected, err
 }
 
 // module returns the warm *codegen.Module for root (lazy-initialised). merged is
@@ -138,7 +179,13 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	}
 }
 
-func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package, error) {
+func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	absPath = filepath.Clean(absPath)
+	dir := filepath.Dir(absPath)
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
@@ -148,8 +195,26 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 	if err != nil {
 		return nil, err
 	}
-	for p, src := range override {
-		m.SetOverride(p, src)
+	return a.mods.setOverride(root, m, absPath, source)
+}
+
+func (a lspAnalyzer) ClearOverride(path string) ([]string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	return a.mods.clearOverride(absPath)
+}
+
+func (a lspAnalyzer) Analyze(dir string, _ map[string][]byte) (*lsp.Package, error) {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, err
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -173,10 +238,9 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 // an explicit second pass over all packages' type-info, mirroring the batch
 // path's compObjOwner pass. Matching is by import-path string rather than
 // types.Object pointer equality, so it is stable across concurrent or
-// differently-ordered type-checker runs. override supplies unsaved buffers
-// (abs path -> bytes); all overrides are applied before the Package calls so
-// find-references sees current editor content.
-func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]lsp.CrossRef, error) {
+// differently-ordered type-checker runs. Serialized SetOverride/ClearOverride
+// transitions update the warm Module before this read-only analysis begins.
+func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.CrossRef, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
@@ -190,12 +254,6 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 	if err != nil {
 		return nil, err
 	}
-	// Apply all overrides before any Package call so applyDirty sees the full
-	// dirty set on the first Package call and subsequent calls run from clean state.
-	for p, src := range override {
-		m.SetOverride(p, src)
-	}
-
 	// Phase 1: analyze every package in the module and collect results.
 	type pkgEntry struct {
 		dir string
@@ -295,8 +353,8 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 // module containing dir, for workspace/symbol. It reuses the warm per-root
 // Module (same instance Analyze/AnalyzeModule use) and calls lsp.FileSymbols on
 // each package's parsed files. Un-analyzable dirs are skipped (partial results
-// tolerated). override supplies unsaved buffers (abs path -> bytes).
-func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]lsp.Symbol, error) {
+// tolerated). Serialized buffer transitions already updated the warm Module.
+func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbol, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
@@ -309,9 +367,6 @@ func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]ls
 	m, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
-	}
-	for p, src := range override {
-		m.SetOverride(p, src)
 	}
 	var syms []lsp.Symbol
 	for _, d := range dirs {

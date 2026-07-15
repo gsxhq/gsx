@@ -31,23 +31,18 @@ func GenerateDirs(moduleRoot string, dirs []string, opts Options, override map[s
 		}
 		opts.ModulePath = modPath
 	}
-	if opts.ClassMerger != nil {
-		if err := ValidateClassMerger(moduleRoot, opts.ClassMerger); err != nil {
-			return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
-		}
-	}
 	m, err := Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: GenerateDirs: open module: %w", err)
 	}
-	// Per-dir mergers are validated against the types the external importer
-	// loads anyway, so N of them cost zero extra packages.Load — the whole
-	// reason ValidateClassMerger's own load is not called per dir here.
-	if err := m.validatePerDirMergers(); err != nil {
-		return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
-	}
 	for path, src := range override {
 		m.SetOverride(path, src)
+	}
+	// Validate the complete global + per-directory merger set only after every
+	// in-memory source override is installed, using the Module's one authoritative
+	// configured-declaration graph.
+	if err := m.validateConfiguredMergers(); err != nil {
+		return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
 	}
 	result := make(map[string]DirResult, len(dirs))
 	for _, dir := range dirs {

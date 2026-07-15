@@ -12,6 +12,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, error) {
@@ -120,19 +121,27 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 	}
 
 	clsFingerprint := cls.Fingerprint()
+	goContext := codegen.CaptureGoCommandContext(root)
+	sourceManifest, manifestErr := sourceview.Build(sourceview.BuildOptions{ModuleRoot: root, ModulePath: modPath})
+	if manifestErr != nil {
+		res.Errs = append(res.Errs, fmt.Errorf("gen: build source manifest: %w", manifestErr))
+		return
+	}
 
 	genOpts := codegen.Options{
-		ModulePath:   modPath,
-		FilterPkgs:   filterPkgs,
-		Aliases:      aliases,
-		Renderers:    renderers,
-		Classifier:   cls,
-		FieldMatcher: fm,
-		CSSMin:       cssMin,
-		JSMin:        jsMin,
-		CSSMinify:    cssMinify,
-		JSMinify:     jsMinify,
-		ClassMerger:  classMerger,
+		ModulePath:       modPath,
+		GoCommandContext: goContext,
+		SourceManifest:   sourceManifest,
+		FilterPkgs:       filterPkgs,
+		Aliases:          aliases,
+		Renderers:        renderers,
+		Classifier:       cls,
+		FieldMatcher:     fm,
+		CSSMin:           cssMin,
+		JSMin:            jsMin,
+		CSSMinify:        cssMinify,
+		JSMinify:         jsMinify,
+		ClassMerger:      classMerger,
 	}
 
 	// No cache: one batched generate (Tier 0 path).
@@ -141,11 +150,36 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		return
 	}
 
-	graph, gerr := loadGraph(root)
-	bctx := buildContext(root)
+	bctx, contextErr := goContext.CacheFingerprint()
+	if contextErr != nil {
+		// A valid but unrepresentable context (workspace/vendor), or a failed
+		// capture, must never share a persistent key. Generation receives the same
+		// context and will either proceed without cache or surface its semantic
+		// boundary error.
+		writeAll(dirs, mustGen(root, dirs, genOpts, &res), &res)
+		return
+	}
+	graphRoots := []string{"github.com/gsxhq/gsx"}
+	graphRoots = append(graphRoots, configuredPackagePaths(filterPkgs, aliases, renderers, classMerger)...)
+	graph, gerr := loadGraphWithContext(goContext, sourceManifest, dedupSorted(graphRoots))
+	var projection *sourceview.CacheProjection
+	if gerr == nil {
+		projection, gerr = sourceview.NewCacheProjection(sourceManifest, graph)
+	}
 	codegenID := codegenIdentity()
-	goModH := fileHashOrEmpty(filepath.Join(root, "go.mod"))
-	goSumH := fileHashOrEmpty(filepath.Join(root, "go.sum"))
+	keyConfig := cacheKeyConfig{
+		buildContext:          bctx,
+		codegenIdentity:       codegenID,
+		additionalSourceRoots: []string{"github.com/gsxhq/gsx"},
+		filterPackages:        filterPkgs,
+		aliases:               aliases,
+		renderers:             renderers,
+		classifierFingerprint: clsFingerprint,
+		hasFieldMatcher:       fm != nil,
+		cssMinify:             cssMinify,
+		jsMinify:              jsMinify,
+		classMerger:           classMerger,
+	}
 
 	keys := map[string]string{} // dir -> key (only when computable)
 	var miss []string
@@ -154,7 +188,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
-		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, codegenID, filterPkgs, aliases, renderers, clsFingerprint, fm != nil, cssMinify, jsMinify, classMerger, root)
+		k, err := computeKey(dir, projection, keyConfig)
 		if err != nil {
 			miss = append(miss, dir) // uncertain → MISS
 			continue

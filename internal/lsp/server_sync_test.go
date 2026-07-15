@@ -18,6 +18,9 @@ type fakeAnalyzer struct {
 	file string // abs .gsx path to attach the diagnostic to
 }
 
+func (a fakeAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
+func (a fakeAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+
 func (a fakeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) { return nil, nil }
 
 func (a fakeAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }

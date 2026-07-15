@@ -3,28 +3,42 @@ package gen
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/sourceview"
 	"github.com/gsxhq/gsx/internal/typebundle"
 )
 
-// NewBundledResolver builds a CachedResolver from an embedded type bundle (see
+// BundledResolver transforms complete in-memory source sets against an embedded
+// external type universe. It has no project root and exposes no disk-backed
+// generation surface.
+type BundledResolver struct {
+	engine resolverEngine
+}
+
+// NewBundledResolver builds a BundledResolver from an embedded type bundle (see
 // internal/typebundle) instead of packages.Load — no `go list`, no subprocess.
 // This is the resolver a WASM build uses: the bundle, produced at build time,
 // MUST contain the gsx runtime, every filterPkg, and every import a snippet may
 // reference. Empty filterPkgs defaults to the built-in std filter package.
-func NewBundledResolver(bundle []byte, filterPkgs []string) (*CachedResolver, error) {
-	pkgs, err := typebundle.Read(bundle)
+func NewBundledResolver(bundle []byte, filterPkgs []string) (*BundledResolver, error) {
+	typeUniverse, err := typebundle.Read(bundle)
 	if err != nil {
 		return nil, fmt.Errorf("gen: read type bundle: %w", err)
 	}
-	inner, err := codegen.NewCachedResolverFromTypes(pkgs, filterPkgs, nil)
+	inner, err := codegen.NewCachedResolverFromTypes(typeUniverse.Packages, typeUniverse.Sizes, typeUniverse.Target.LanguageVersion, filterPkgs, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &CachedResolver{inner: inner}, nil
+	return &BundledResolver{engine: resolverEngine{bundle: inner}}, nil
+}
+
+type resolverEngine struct {
+	bundle *codegen.Bundle
 }
 
 // DefaultPlaygroundImports is the fixed allowlist the playground caches types
@@ -40,7 +54,10 @@ var DefaultPlaygroundImports = []string{
 // (via NewCachedResolver); each Generate call runs entirely in-process with no
 // per-render go list or subprocess.
 type CachedResolver struct {
-	inner *codegen.Bundle
+	engine         resolverEngine
+	moduleRoot     string
+	modulePath     string
+	moduleRootInfo os.FileInfo
 }
 
 // NewCachedResolver constructs a CachedResolver for a module rooted at
@@ -48,11 +65,31 @@ type CachedResolver struct {
 // DefaultPlaygroundImports). The one-time load runs packages.Load; subsequent
 // Generate calls are fully in-process.
 func NewCachedResolver(moduleDir string, allowImports []string) (*CachedResolver, error) {
-	r, err := codegen.NewCachedResolver(moduleDir, []string{codegen.StdImportPath}, nil, allowImports)
+	root, modulePath, err := moduleRoot(moduleDir)
 	if err != nil {
 		return nil, err
 	}
-	return &CachedResolver{inner: r}, nil
+	absModuleDir, err := filepath.Abs(moduleDir)
+	if err != nil {
+		return nil, err
+	}
+	if root != filepath.Clean(absModuleDir) {
+		return nil, fmt.Errorf("gen: cached resolver moduleDir %s is not a module root", moduleDir)
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Errorf("gen: stat cached resolver module root %s: %w", root, err)
+	}
+	r, err := codegen.NewCachedResolver(root, []string{codegen.StdImportPath}, nil, allowImports)
+	if err != nil {
+		return nil, err
+	}
+	return &CachedResolver{
+		engine:         resolverEngine{bundle: r},
+		moduleRoot:     root,
+		modulePath:     modulePath,
+		moduleRootInfo: rootInfo,
+	}, nil
 }
 
 // Generate runs codegen in-process for the package under dir, using the
@@ -69,13 +106,44 @@ func NewCachedResolver(moduleDir string, allowImports []string) (*CachedResolver
 // any error-severity diagnostic was produced or when an operational (I/O)
 // failure occurred.
 func (c *CachedResolver) Generate(dir string, srcOverride map[string][]byte) (Result, error) {
-	return generateInProcess(c.inner, dir, srcOverride)
+	moduleRoot, modulePath, err := c.moduleForDir(dir)
+	if err != nil {
+		return Result{}, err
+	}
+	return c.engine.generateBound(dir, srcOverride, moduleRoot, modulePath)
+}
+
+func (c *CachedResolver) moduleForDir(dir string) (string, string, error) {
+	if c.moduleRoot == "" || c.moduleRootInfo == nil {
+		return "", "", fmt.Errorf("gen: cached resolver has no bound module root")
+	}
+	root, modulePath, err := moduleRoot(dir)
+	if err != nil {
+		return "", "", err
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return "", "", fmt.Errorf("gen: stat target module root %s: %w", root, err)
+	}
+	if !os.SameFile(c.moduleRootInfo, rootInfo) {
+		return "", "", fmt.Errorf("gen: cached resolver is bound to module root %s; target directory %s belongs to %s", c.moduleRoot, dir, root)
+	}
+	owned, err := sourceview.OwnsDir(root, dir)
+	if err != nil {
+		return "", "", fmt.Errorf("gen: validate cached resolver target directory %s: %w", dir, err)
+	}
+	if !owned {
+		return "", "", fmt.Errorf("gen: cached resolver target directory %s resolves outside its physical module root %s", dir, root)
+	}
+	if modulePath != c.modulePath {
+		return "", "", fmt.Errorf("gen: cached resolver module path changed from %q to %q at %s", c.modulePath, modulePath, root)
+	}
+	return root, modulePath, nil
 }
 
 // memDir is the virtual package directory GenerateSource uses. It is absolute
-// (so filepath.Abs never consults a working directory) and need not exist: the
-// resolver path adds the in-memory source by its srcOverride key and ignores the
-// failed disk glob.
+// so filepath.Abs never consults a working directory. SourceOnly makes its
+// existence and contents irrelevant: only the supplied overrides participate.
 const memDir = "/__gsxmem__"
 
 // GenerateSource transforms a single in-memory .gsx source into its generated
@@ -83,7 +151,7 @@ const memDir = "/__gsxmem__"
 // name is a virtual filename (default "source.gsx") used only for diagnostic
 // positions. The returned Result.Files holds the generated bytes (empty when
 // there were error-severity diagnostics); Result.Diags holds parse/type errors.
-func (c *CachedResolver) GenerateSource(name string, src []byte) (Result, error) {
+func (b *BundledResolver) GenerateSource(name string, src []byte) (Result, error) {
 	if name == "" {
 		name = "source.gsx"
 	}
@@ -91,7 +159,7 @@ func (c *CachedResolver) GenerateSource(name string, src []byte) (Result, error)
 		name += ".gsx"
 	}
 	path := filepath.Join(memDir, filepath.Base(name))
-	return generateInProcess(c.inner, memDir, map[string][]byte{path: src})
+	return b.engine.generateSourceOnly(memDir, map[string][]byte{path: src})
 }
 
 // GenerateSources transforms several in-memory .gsx files of ONE package into
@@ -99,26 +167,75 @@ func (c *CachedResolver) GenerateSource(name string, src []byte) (Result, error)
 // form GenerateSource wraps. files maps a virtual filename to its source; every
 // file must declare the same package. Result.Files holds one entry per input
 // file (keyed by virtual .x.go path); Result.Diags holds parse/type errors.
-func (c *CachedResolver) GenerateSources(files map[string][]byte) (Result, error) {
+func (b *BundledResolver) GenerateSources(files map[string][]byte) (Result, error) {
 	override := make(map[string][]byte, len(files))
-	for name, src := range files {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	originalByPath := make(map[string]string, len(files))
+	for _, original := range names {
+		name := original
 		if !strings.HasSuffix(name, ".gsx") {
 			name += ".gsx"
 		}
-		override[filepath.Join(memDir, filepath.Base(name))] = src
+		base := filepath.Base(name)
+		path := filepath.Join(memDir, base)
+		if previous, exists := originalByPath[path]; exists {
+			return Result{}, fmt.Errorf(
+				"gen: GenerateSources virtual filenames %q and %q both resolve to %q",
+				previous,
+				original,
+				base,
+			)
+		}
+		originalByPath[path] = original
+		override[path] = files[original]
 	}
-	return generateInProcess(c.inner, memDir, override)
+	return b.engine.generateSourceOnly(memDir, override)
 }
 
-// generateInProcess drives a fresh per-call Module with the prebuilt bundle (no
-// packages.Load / subprocess) and maps its output to the public gen.Result. A
-// fresh Module per call keeps the in-process path stateless; the expensive load
-// already happened once when the bundle was built.
-func generateInProcess(bundle *codegen.Bundle, dir string, srcOverride map[string][]byte) (Result, error) {
+func (e resolverEngine) generateBound(dir string, srcOverride map[string][]byte, moduleRoot, modulePath string) (Result, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return Result{}, err
 	}
+	m, err := codegen.Open(codegen.Options{
+		ModuleRoot: moduleRoot,
+		ModulePath: modulePath,
+		FilterPkgs: []string{codegen.StdImportPath},
+		Bundle:     e.bundle,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return generateWithModule(m, absDir, srcOverride)
+}
+
+func (e resolverEngine) generateSourceOnly(dir string, srcOverride map[string][]byte) (Result, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return Result{}, err
+	}
+	m, err := codegen.Open(codegen.Options{
+		ModuleRoot: absDir,
+		ModulePath: absDir,
+		SourceOnly: true,
+		FilterPkgs: []string{codegen.StdImportPath},
+		Bundle:     e.bundle,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return generateWithModule(m, absDir, srcOverride)
+}
+
+// generateWithModule drives a fresh per-call Module with a prebuilt bundle and
+// maps its output to the public gen.Result. The caller has already selected
+// either a root-bound project module or a source-only module; this shared path
+// has no resolver mode of its own.
+func generateWithModule(m *codegen.Module, absDir string, srcOverride map[string][]byte) (Result, error) {
 
 	// Resolve srcOverride keys to absolute paths (unchanged): relative keys like
 	// "views/comp.gsx" resolve against the directory CONTAINING dir; absolute keys
@@ -132,19 +249,6 @@ func generateInProcess(bundle *codegen.Bundle, dir string, srcOverride map[strin
 		}
 	}
 
-	// ModulePath == absDir reproduces the old types.NewPackage(dir, …) package
-	// path exactly, so diagnostic type qualification is byte-identical to the
-	// former CachedResolver path. The single playground package has no project
-	// siblings, so nothing recurses through the skeleton importer.
-	m, err := codegen.Open(codegen.Options{
-		ModuleRoot: absDir,
-		ModulePath: absDir,
-		FilterPkgs: []string{codegen.StdImportPath},
-		Bundle:     bundle,
-	})
-	if err != nil {
-		return Result{}, err
-	}
 	for p, srcBytes := range absOverride {
 		m.SetOverride(p, srcBytes)
 	}

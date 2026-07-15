@@ -66,15 +66,17 @@ func TestDefinitionSurvivesFsetRebuild(t *testing.T) {
 	mk("home/home.gsx", homeSrc)
 
 	a := newLSPAnalyzer(config{}, nil)
-	overrides := map[string][]byte{
-		homeFile:    []byte(homeSrc),
-		widgetsFile: []byte(widgetsSrc),
+	if _, err := a.SetOverride(homeFile, []byte(homeSrc)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.SetOverride(widgetsFile, []byte(widgetsSrc)); err != nil {
+		t.Fatal(err)
 	}
 
 	// Phase 1: warm both packages. The Module is lazily created here (module() →
 	// Open reads GSX_FSET_REBUILD_BYTES=1). The first Analyze has no prior fset
 	// growth to measure against fsetBaseline, so no rebuild fires yet.
-	pkg1, err := a.Analyze(homeDir, overrides)
+	pkg1, err := a.Analyze(homeDir, nil)
 	if err != nil {
 		t.Fatalf("phase-1 Analyze: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestDefinitionSurvivesFsetRebuild(t *testing.T) {
 	// Each cycle must still resolve Badge to the same file and line — if rebuildFset
 	// orphaned positions the resolution would return line 0 or the wrong file.
 	for cycle := 2; cycle <= 5; cycle++ {
-		pkg, err := a.Analyze(homeDir, overrides)
+		pkg, err := a.Analyze(homeDir, nil)
 		if err != nil {
 			t.Fatalf("cycle %d Analyze: %v", cycle, err)
 		}
