@@ -1,0 +1,41 @@
+js`/css` literals in Go-expression position (gsx.Attrs values in a {{ }} block)
+are minified by the same walkers as element-attribute literals. A holeless body
+is minified at the safe level; a holey body (the @change here) is left unchanged
+at the safe level (the sentinel round-trip is a full-minify-only step), matching
+the attribute policy.
+
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Widget(x string) {
+	{{
+		a := gsx.Attrs{
+			{Key: "x-data", Value: js`{
+				open: false,
+				active: -1,
+			}`},
+			{Key: "style", Value: css`
+				color: red;
+				margin: 0;
+			`},
+			{Key: "@change", Value: js`
+				const v = 1;
+				@{gsx.RawJS(x)} = v;
+			`},
+		}
+	}}
+	<div {a...}>y</div>
+}
+-- invoke --
+Widget(WidgetProps{X: "a"})
+-- diagnostics.golden --
+-- render.golden --
+<div style="color: red;margin: 0;" x-data="{
+open: false,
+active: -1,
+}" @change="
+				const v = 1;
+				a = v;
+			">y</div>
