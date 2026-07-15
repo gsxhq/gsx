@@ -1,0 +1,35 @@
+A flush object literal indents its members one brace level under the js` line; the closing } returns to the js` column.
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`{
+open: false,
+id: @{x},
+}`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`{
+					open: false,
+					id: @{x},
+				}`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}

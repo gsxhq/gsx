@@ -52,8 +52,8 @@ func TokenSignature(src []byte) string {
 // interface symmetry with the rawfmt.Formatter wiring but is unused (a
 // re-indenter does not wrap on width). Returns an error only on a tokenizer
 // error (unterminated string/comment) so the caller falls back to verbatim.
-func Format(src []byte, width int) ([]byte, error) {
-	out, ok := reindent.Reindent(src, cssAdapter{})
+func Format(src []byte, width, tabWidth int) ([]byte, error) {
+	out, ok := reindent.Reindent(src, cssAdapter{}, tabWidth)
 	if !ok {
 		return nil, errUnterminated
 	}
@@ -64,8 +64,8 @@ func Format(src []byte, width int) ([]byte, error) {
 // token (template literal, block comment) stays within ONE line, so the caller
 // can place each logical line at its depth without re-indenting the token's
 // interior. ok=false on a lex error → caller renders verbatim.
-func FormatLines(src []byte, width int) ([]string, bool) {
-	return reindent.ReindentLines(src, cssAdapter{})
+func FormatLines(src []byte, width, tabWidth int) ([]string, bool) {
+	return reindent.ReindentLines(src, cssAdapter{}, tabWidth)
 }
 
 var errUnterminated = stringError("cssfmt: unterminated string or comment")
@@ -87,8 +87,12 @@ func (cssAdapter) Tokenize(src []byte) ([]reindent.Token, bool) {
 		switch t.kind {
 		case tWS:
 			out = append(out, splitWS(t.text)...)
-		case tComment, tString:
-			// /* */ may span lines; CSS strings do not — both opaque.
+		case tComment:
+			// /* */ may span lines; its interior re-bases with the code (comment
+			// whitespace is insignificant, unlike a string's).
+			out = append(out, reindent.SplitComment(t.text)...)
+		case tString:
+			// CSS strings are single-line and opaque (verbatim).
 			out = append(out, reindent.Token{Class: reindent.Opaque, Text: t.text})
 		case tLBrace:
 			out = append(out, reindent.Token{Class: reindent.Open, Text: t.text})

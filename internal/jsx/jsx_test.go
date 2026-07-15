@@ -58,6 +58,13 @@ func TestResolveScriptsContexts(t *testing.T) {
 		{"call arg value", `f(@{ a })`, []ast.JSCtx{ast.JSCtxValue}},
 		{"array elements", `let a = [@{ x }, @{ y }]`, []ast.JSCtx{ast.JSCtxValue, ast.JSCtxValue}},
 		{"binary operand", `let z = 1 + @{ a }`, []ast.JSCtx{ast.JSCtxValue}},
+		// Binding/lvalue positions defer to JSCtxBinding (legality decided by
+		// type at emit; only gsx.RawJS may splice there).
+		{"assignment target", `@{ x } = 1`, []ast.JSCtx{ast.JSCtxBinding}},
+		{"declaration name", `let @{ x } = 1`, []ast.JSCtx{ast.JSCtxBinding}},
+		{"member name", `obj.@{ p }`, []ast.JSCtx{ast.JSCtxBinding}},
+		{"optional chain member name", `obj?.@{ p }`, []ast.JSCtx{ast.JSCtxBinding}},
+		{"statement position", `var x = 1; @{ y }`, []ast.JSCtx{ast.JSCtxBinding}},
 		{"return value", `function g(){ return @{ a } }`, []ast.JSCtx{ast.JSCtxValue}},
 		{"string", `let s = "hi @{ n }!"`, []ast.JSCtx{ast.JSCtxString}},
 		{"template text", "let s = `t ${js} @{ g }`", []ast.JSCtx{ast.JSCtxTemplate}},
@@ -140,10 +147,11 @@ func TestResolveScriptsErrors(t *testing.T) {
 		name string
 		body string
 	}{
-		{"binding position", `let @{ x } = 1`},
-		{"member name", `obj.@{ p }`},
-		{"optional chain member name", `obj?.@{ p }`},
-		{"statement position", `var x = 1; @{ y }`},
+		// Binding/lvalue positions (decl/member name, statement start) are no
+		// longer classify-time errors — they defer to JSCtxBinding and are
+		// adjudicated by type at emit (see TestResolveScriptsBindingDeferred and
+		// the corpus binding cases). What remains here are genuine classify
+		// failures unrelated to position.
 		{"placeholder collision", `let _GSXJSHOLE_0 = @{ x }`},
 		{"comment hole script-breakout", "const u = @{ id }; // x @{ \"</script>\" }\n"},
 	}
@@ -240,13 +248,19 @@ func TestResolveDataIsland(t *testing.T) {
 			t.Fatal("expected error for literal text, got nil")
 		}
 	})
-	t.Run("module type stays JS path fails closed", func(t *testing.T) {
-		// type="module" is executable JS: a bare @{ data } is a start-of-input
-		// (non-value) position and must fail closed on the JS path, unchanged.
+	t.Run("module type stays JS path", func(t *testing.T) {
+		// type="module" is executable JS, NOT a data island: a bare @{ data } is
+		// a start-of-input (binding) position on the JS path → JSCtxBinding. A
+		// data island would instead force the single hole to JSCtxValue, so the
+		// JSCtxBinding result proves it stayed on the JS path.
 		f, el := parseScript(t, `@{ data }`)
 		setType(el, "module")
-		if err := ResolveScriptsErr(f); err == nil {
-			t.Fatal("expected fail-closed error for bare hole in type=module script, got nil")
+		if err := ResolveScriptsErr(f); err != nil {
+			t.Fatalf("expected clean classification, got: %v", err)
+		}
+		ins := interps(el)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxBinding {
+			t.Fatalf("got %d interps, ctx %v; want 1 JSCtxBinding", len(ins), ins[0].JSCtx)
 		}
 	})
 }
@@ -325,15 +339,20 @@ func TestResolveMarkupEmbeddedJSAttrLiteral(t *testing.T) {
 	}
 }
 
-func TestResolveJSAttrBindingRejected(t *testing.T) {
-	// x-on:click="@{ stmt } = 1" — binding/identifier position
+func TestResolveJSAttrBindingDeferred(t *testing.T) {
+	// x-on:click="@{ stmt } = 1" — binding/lvalue position. The classifier no
+	// longer rejects it; legality (only gsx.RawJS may splice here) is decided at
+	// emit, where the Go type is known. Here it classifies clean as JSCtxBinding.
 	segs := jsAttrSegs([]string{"", " = 1"}, []string{" stmt "})
-	err := ResolveJSAttr("x-on:click", segs)
-	if err == nil {
-		t.Fatal("expected fail-closed error for binding position, got nil")
+	if err := ResolveJSAttr("x-on:click", segs); err != nil {
+		t.Fatalf("expected clean classification (deferred), got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "identifier/binding") {
-		t.Fatalf("error = %q; want identifier/binding rejection", err)
+	ins := interpSegs(segs)
+	if len(ins) != 1 {
+		t.Fatalf("got %d interps, want 1", len(ins))
+	}
+	if ins[0].JSCtx != ast.JSCtxBinding {
+		t.Fatalf("interp[0] JSCtx = %v, want JSCtxBinding", ins[0].JSCtx)
 	}
 }
 
@@ -420,20 +439,18 @@ func TestResolveEmbedded(t *testing.T) {
 		}
 	})
 
-	t.Run("identifier position fails closed", func(t *testing.T) {
-		// @{x}(1) — the hole is its own identifier token at start-of-input,
-		// not an allow-listed value position; matches jsx-identifier-position.
+	t.Run("identifier position defers to binding", func(t *testing.T) {
+		// @{x}(1) — the hole is its own identifier token at start-of-input, a
+		// binding/lvalue position. No longer a classify error: it defers to
+		// JSCtxBinding (adjudicated by Go type at emit).
 		segs := jsAttrSegs([]string{"", "(1)"}, []string{"x"})
 		bag := diag.NewBag(nil)
-		if ResolveEmbedded(segs, bag) {
-			t.Fatal("expected fail-closed diagnostic for identifier position, got clean")
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("expected clean classification (deferred), got: %v", bag.Sorted())
 		}
-		diags := bag.Sorted()
-		if len(diags) == 0 {
-			t.Fatal("expected at least one diagnostic")
-		}
-		if diags[0].Code != "jsx-identifier-position" {
-			t.Fatalf("diag code = %q; want jsx-identifier-position", diags[0].Code)
+		ins := interpSegs(segs)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxBinding {
+			t.Fatalf("got %d interps, ctx %v; want 1 JSCtxBinding", len(ins), ins[0].JSCtx)
 		}
 	})
 

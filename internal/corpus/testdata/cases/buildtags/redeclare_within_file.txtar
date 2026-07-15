@@ -10,5 +10,5 @@ component Icon(name string) {
 }
 -- invoke --
 -- diagnostics.golden --
-3:11: 	other declaration of Icon
-7:11: Icon redeclared in this block
+3:11: component Icon cannot form a build variant family across input.gsx, input.gsx: input.gsx has no effective Go build constraint
+7:11: component Icon cannot form a build variant family across input.gsx, input.gsx: input.gsx has no effective Go build constraint

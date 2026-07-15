@@ -2,9 +2,12 @@ package jsmin
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/jsfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // MinifyFile minifies the static JS of every <script> element in f, in place.
@@ -16,8 +19,15 @@ import (
 // ASI semantics. Correctness over minification for holey scripts in this slice.
 func MinifyFile(f *ast.File, ext func(string) (string, error)) error {
 	for _, d := range f.Decls {
-		if comp, ok := d.(*ast.Component); ok {
-			if err := minifyMarkup(comp.Body, ext); err != nil {
+		switch v := d.(type) {
+		case *ast.Component:
+			if err := minifyMarkup(v.Body, ext); err != nil {
+				return err
+			}
+		case *ast.GoWithElements:
+			// A top-level var initializer such as `var h = js`…`` carries its
+			// literal in the GoWithElements Parts split.
+			if err := minifyGoParts(v.Parts, ext); err != nil {
 				return err
 			}
 		}
@@ -29,23 +39,22 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Element:
-			if strings.EqualFold(v.Tag, "script") {
-				// A data-block <script> (e.g. type="application/json") is not
-				// JavaScript; running the JS minifier on its body is wrong. Leave
-				// it unchanged. (Holey data islands are also covered by the
-				// holey-skip in minifyScriptChildren, but a HOLELESS static JSON
-				// block would otherwise be JS-minified — this skip prevents that.)
-				if isDataIslandScript(v) {
-					continue
-				}
+			// A data-block <script> (e.g. type="application/json") is not
+			// JavaScript; running the JS minifier on its body is wrong. Leave the
+			// body unchanged (a HOLELESS static JSON block would otherwise be
+			// JS-minified). Its attributes are still walked below.
+			if strings.EqualFold(v.Tag, "script") && !isDataIslandScript(v) {
 				mc, err := minifyScriptChildren(v.Children, ext)
 				if err != nil {
 					return err
 				}
 				v.Children = mc
-				continue
+			} else if err := minifyMarkup(v.Children, ext); err != nil {
+				return err
 			}
-			if err := minifyMarkup(v.Children, ext); err != nil {
+			// Minify js`…` attribute values (x-data, @click, hx-on::…) and recurse
+			// into markup-slot / conditional attributes.
+			if err := minifyJSAttrs(v.Attrs, ext); err != nil {
 				return err
 			}
 		case *ast.Fragment:
@@ -68,6 +77,44 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 				if err := minifyMarkup(v.Cases[i].Body, ext); err != nil {
 					return err
 				}
+			}
+		case *ast.EmbeddedInterp:
+			// A body-position { js`…` } literal.
+			if v.Lang == ast.EmbeddedJS {
+				v.Segments = minifyJSSegments(v.Segments, ext)
+			}
+		case *ast.GoBlock:
+			// js` literals in a {{ }} block, carried in the analyze-populated split.
+			if err := minifyGoParts(v.Embedded, ext); err != nil {
+				return err
+			}
+		case *ast.Interp:
+			// js` literals embedded in a { expr } hole.
+			if err := minifyGoParts(v.Embedded, ext); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// minifyGoParts minifies the js` literals in a GoBlock's or Interp's Embedded
+// split (populated by analyze). GoText parts hold no body; element/fragment parts
+// recurse through minifyMarkup.
+func minifyGoParts(parts []ast.GoPart, ext func(string) (string, error)) error {
+	for _, p := range parts {
+		switch v := p.(type) {
+		case *ast.EmbeddedInterp:
+			if v.Lang == ast.EmbeddedJS {
+				v.Segments = minifyJSSegments(v.Segments, ext)
+			}
+		case *ast.Element:
+			if err := minifyMarkup([]ast.Markup{v}, ext); err != nil {
+				return err
+			}
+		case *ast.Fragment:
+			if err := minifyMarkup([]ast.Markup{v}, ext); err != nil {
+				return err
 			}
 		}
 	}
@@ -124,4 +171,193 @@ func minifyScriptChildren(children []ast.Markup, ext func(string) (string, error
 		return nil, nil
 	}
 	return []ast.Markup{&ast.Text{Value: min}}, nil
+}
+
+// minifyJSAttrs minifies js`…` attribute VALUES on an element and recurses into
+// attributes that carry nested markup. Unlike a <script> body (a program), a
+// js`…` attribute value is a FRAGMENT — an object literal (x-data), a handler
+// statement, or a call expression — so it goes through cascadeJS (see below).
+func minifyJSAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
+	for _, a := range attrs {
+		switch v := a.(type) {
+		case *ast.EmbeddedAttr:
+			if v.Lang == ast.EmbeddedJS {
+				v.Segments = minifyJSSegments(v.Segments, ext)
+			}
+		case *ast.MarkupAttr:
+			if err := minifyMarkup(v.Value, ext); err != nil {
+				return err
+			}
+		case *ast.CondAttr:
+			if err := minifyJSAttrs(v.Then, ext); err != nil {
+				return err
+			}
+			if err := minifyJSAttrs(v.Else, ext); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// minifyJSSegments minifies one js`…` literal body (an attribute value or a
+// Go-expression EmbeddedInterp — both are just Segments), returning the minified
+// segments. A HOLELESS body is cascade-minified. A holey body uses a sentinel
+// round-trip: cascade-minified under the full minifier, REINDENTED under the safe
+// level (see minifyJSSegmentsHoley).
+func minifyJSSegments(segments []ast.Markup, ext func(string) (string, error)) []ast.Markup {
+	for _, s := range segments {
+		if _, ok := s.(*ast.Interp); ok {
+			return minifyJSSegmentsHoley(segments, ext)
+		}
+	}
+	var sb strings.Builder
+	for _, s := range segments {
+		if t, ok := s.(*ast.Text); ok {
+			sb.WriteString(t.Value)
+		}
+	}
+	min := cascadeJS(sb.String(), ext)
+	if min == "" {
+		return segments
+	}
+	return []ast.Markup{&ast.Text{Value: min}}
+}
+
+// cascadeJS minifies a JS FRAGMENT. tdewolff (ext) parses its input as a program,
+// so an object literal must be minified as an EXPRESSION via a `(…)` wrap (kept in
+// output — a parenthesized expression is an equivalent value).
+//
+// Order matters. A value that starts with `{` is an object literal (x-data,
+// Alpine `:class`/`:style` object bindings) OR a `{ … }` statement block. Parsing
+// it raw is WRONG for a single-property object: `{ open: false }` is a valid
+// program (a labeled block — `open:` label + `false`), so ext(raw) would strip
+// the braces to `open:!1` and break it. So for `{`-leading values we wrap FIRST
+// (object expression) and fall back to raw (a real statement block, where the
+// wrap fails). Non-`{` values (handler statements, call expressions) parse raw
+// first. Either way, the safe never-erroring built-in is the final fallback (and
+// the whole safe level, where ext is nil).
+func cascadeJS(text string, ext func(string) (string, error)) string {
+	if ext != nil {
+		first, second := text, "("+text+")"
+		if strings.HasPrefix(strings.TrimLeft(text, " \t\r\n"), "{") {
+			first, second = second, first
+		}
+		if o, err := ext(first); err == nil {
+			return o
+		}
+		if o, err := ext(second); err == nil {
+			return o
+		}
+	}
+	return minifyJS(text)
+}
+
+// minifyJSSegmentsHoley transforms a holey js`…` value via a sentinel round-trip:
+// each @{ } hole becomes a collision-free FREE IDENTIFIER (which the JS lexer never
+// mangles), the whole is transformed as one syntactically-complete string, then the
+// sentinels are split back into the original *ast.Interp holes. The transform
+// depends on the level:
+//
+//   - FULL (ext != nil): cascade-minify the sentinel string. Safe because attribute
+//     holes sit in expression value positions (object property values, call args,
+//     spreads), so the hole-as-identifier keeps a valid parse.
+//   - SAFE (ext == nil): do NOT minify (minifying around holes is the deferred gap;
+//     see the package doc). Instead REINDENT, via the same jsfmt.Format the emit-side
+//     rebase (MinifyNone) uses — this is artifact removal, not minification. The
+//     source carries markup-level tabs from gsx formatting; because the surrounding
+//     HTML is whitespace-minified, leaving those tabs in would make the js appear
+//     absurdly deep and unreadable. Reindent re-bases the body to its own brace depth
+//     (keeping a readable structure) and touches leading whitespace only — never
+//     collapsing intra-line or hole-boundary whitespace — so it is safe on a hole.
+func minifyJSSegmentsHoley(segments []ast.Markup, ext func(string) (string, error)) []ast.Markup {
+	// A collision-free identifier prefix absent from every Text segment. The
+	// sentinel is `<prefix><index>z` — prefix and digits are identifier chars and
+	// the `z` terminates the digit run so `<prefix>1z` and `<prefix>12z` never
+	// alias.
+	var scan strings.Builder
+	for _, s := range segments {
+		if t, ok := s.(*ast.Text); ok {
+			scan.WriteString(t.Value)
+		}
+	}
+	prefix := "gsxHole"
+	for strings.Contains(scan.String(), prefix) {
+		prefix += "q"
+	}
+
+	var sb strings.Builder
+	var interps []*ast.Interp
+	for _, s := range segments {
+		switch t := s.(type) {
+		case *ast.Text:
+			sb.WriteString(t.Value)
+		case *ast.Interp:
+			sb.WriteString(prefix)
+			sb.WriteString(strconv.Itoa(len(interps)))
+			sb.WriteByte('z')
+			interps = append(interps, t)
+		}
+	}
+
+	var transformed string
+	if ext == nil {
+		out, err := jsfmt.Format([]byte(sb.String()), 0, pretty.DefaultTabWidth)
+		if err != nil {
+			return segments // lex error → leave unchanged (safe)
+		}
+		transformed = string(out)
+	} else {
+		transformed = cascadeJS(sb.String(), ext)
+	}
+	if out, ok := splitJSSentinels(transformed, prefix, interps); ok {
+		return out
+	}
+	// On any sentinel mismatch, leave the segments unchanged (safe).
+	return segments
+}
+
+// splitJSSentinels reassembles a minified sentinel string into Text + Interp
+// nodes. Each `<prefix><digits>z` run is replaced by interps[<digits>]; the spans
+// between become Text nodes. ok=false if any sentinel index is out of range,
+// duplicated, or missing (every hole must survive exactly once).
+func splitJSSentinels(s, prefix string, interps []*ast.Interp) ([]ast.Markup, bool) {
+	var out []ast.Markup
+	var text strings.Builder
+	seen := make([]bool, len(interps))
+	flush := func() {
+		if text.Len() > 0 {
+			out = append(out, &ast.Text{Value: text.String()})
+			text.Reset()
+		}
+	}
+	for i := 0; i < len(s); {
+		if strings.HasPrefix(s[i:], prefix) {
+			j := i + len(prefix)
+			k := j
+			for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+				k++
+			}
+			if k > j && k < len(s) && s[k] == 'z' {
+				idx, _ := strconv.Atoi(s[j:k])
+				if idx < 0 || idx >= len(interps) || seen[idx] {
+					return nil, false
+				}
+				seen[idx] = true
+				flush()
+				out = append(out, interps[idx])
+				i = k + 1
+				continue
+			}
+		}
+		text.WriteByte(s[i])
+		i++
+	}
+	flush()
+	for _, ok := range seen {
+		if !ok {
+			return nil, false
+		}
+	}
+	return out, true
 }

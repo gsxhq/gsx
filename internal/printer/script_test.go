@@ -7,14 +7,15 @@ import (
 )
 
 func TestScriptBodyReindented(t *testing.T) {
-	src := "package p\n\ncomponent C() {\n\t<script>\nfunction f() {\nreturn 1\n}\n\t</script>\n}\n"
+	// Well-indented body: its relative structure is preserved and re-based under
+	// the tag depth (component=1, body=2, inside fn=3).
+	src := "package p\n\ncomponent C() {\n\t<script>\nfunction f() {\n\treturn 1\n}\n\t</script>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Re-indented to tabs under the tag depth (component=1, body=2, inside fn=3).
 	if !strings.Contains(out, "\t\tfunction f() {") || !strings.Contains(out, "\t\t\treturn 1") {
-		t.Fatalf("script body not re-indented:\n%s", out)
+		t.Fatalf("script body not re-based:\n%s", out)
 	}
 }
 
@@ -22,7 +23,7 @@ func TestScriptBodyReindented(t *testing.T) {
 // rawfmt path, the callback pattern that escaped to a user's file: the callback
 // body must be exactly ONE level under its `call(args, () => {` line, not two.
 func TestScriptCallbackSingleIndentEndToEnd(t *testing.T) {
-	src := "package p\n\ncomponent C() {\n\t<script>\ndocument.body.addEventListener('x', (e) => {\nconsole.log(e);\n});\n\t</script>\n}\n"
+	src := "package p\n\ncomponent C() {\n\t<script>\ndocument.body.addEventListener('x', (e) => {\n\tconsole.log(e);\n});\n\t</script>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)

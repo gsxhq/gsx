@@ -16,6 +16,20 @@ contains backticks. See [Attributes](./attributes.md#contextual-escaping)
 for literal syntax and [Escaping](./escaping.md#javascript-and-css-contexts) for
 the trust boundary.
 
+A hole in a JavaScript **binding position** — an assignment target, or a
+declaration or member name — must have type `gsx.RawJS`; it is spliced verbatim.
+Any other type there is a compile error, since a value would be JSON-quoted and
+break the code. Wrap the trusted expression in `gsx.RawJS(...)` to assign to a
+dynamic path:
+
+::: v-pre
+```gsx
+component Bind(path string) {
+	<input @change=js`@{gsx.RawJS(path)} = $event.target.value;`/>
+}
+```
+:::
+
 Keep a `js` or `css` literal with `@{}` holes on the native element that
 consumes it. A wrapper should accept ordinary props and build the contextual
 literal at that destination:

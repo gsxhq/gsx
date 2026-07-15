@@ -1,0 +1,41 @@
+A realistic Alpine x-data object with a method: object members one level under, method body one level deeper.
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`{
+open: false,
+sel: @{x},
+toggle() {
+this.open = !this.open;
+},
+}`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`{
+					open: false,
+					sel: @{x},
+					toggle() {
+						this.open = !this.open;
+					},
+				}`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}

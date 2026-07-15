@@ -1,0 +1,41 @@
+A flush || / method-chain continuation stays flat (no brace to hang on) — the author handles those.
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`
+const v = a
+|| b;
+opts
+.filter(f)
+.map(m);
+`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`
+					const v = a
+					|| b;
+					opts
+					.filter(f)
+					.map(m);
+				`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}

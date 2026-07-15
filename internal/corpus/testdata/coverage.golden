@@ -195,7 +195,7 @@ components/nullary_func_in_slot	diag render
 components/nullary_func_mixed_kordering	diag render
 components/nullary_no_props	diag gen render
 components/ordered_attrs_target_attrs	diag gen render
-components/unicode_identifiers	diag
+components/unicode_identifiers	diag render
 condmerge/all_forms	diag render
 condmerge/cond_class_else	diag gen render
 condmerge/cond_class_plus_forced_attr	diag gen render
@@ -364,6 +364,7 @@ goexpr-interp-tag/scope-local	diag gen render
 goexpr-interp-tag/sibling-mixed-type	diag gen render
 goexpr-interp-tag/stages	diag gen render
 goexpr-js-literal/attrs_map_spread	diag gen render
+goexpr-js-literal/binding_non_rawjs_rejected	diag(error)
 goexpr-js-literal/call_arg	diag gen render
 goexpr-js-literal/ctx_filter_in_closure	diag gen render
 goexpr-js-literal/ctx_filter_in_goblock	diag gen render
@@ -392,6 +393,8 @@ goexpr-js-literal/indirect_rawjs_text	diag gen render
 goexpr-js-literal/nested_f_hole_toplevel	diag gen render
 goexpr-js-literal/nested_hole_pipe	diag render
 goexpr-js-literal/pure_filter_toplevel	diag gen render
+goexpr-js-literal/rawjs_binding_position	diag gen render
+goexpr-js-literal/rawjs_binding_uniform_positions	diag gen render
 goexpr-js-literal/rawjs_escaped_in_string	diag gen render
 goexpr-js-literal/rawjs_passthrough_value	diag gen render
 goexpr-js-literal/rawjs_slice	diag gen render
@@ -486,6 +489,8 @@ methods/render_method_pointer_receiver	diag render
 methods/render_method_same_name_different_receivers_a	diag render
 methods/render_method_same_name_different_receivers_b	diag render
 methods/render_method_with_param	diag render
+minify/embedded_attr	diag render
+minify/goblock_literal	diag render
 multispread/O1_lone_cond_spread_root_class	diag gen render
 multispread/cond_class_part_renderer	diag gen render
 multispread/cond_interposed_static	diag gen render
@@ -690,6 +695,7 @@ renderers/fallthrough_ordered_attr	diag gen render
 renderers/fliteral_attr	diag gen render
 renderers/fliteral_attr_pipe	diag gen render
 renderers/fliteral_text	diag gen render
+renderers/js_attr_binding	diag gen render
 renderers/js_attr_hole	diag gen render
 renderers/numeric_result	diag gen render
 renderers/package_cross	diag gen render
@@ -734,6 +740,7 @@ script/interp_identifier_rejected	diag(error)
 script/interp_string	diag gen render
 script/interp_value	diag gen render
 script/minify	diag gen render
+script/rawjs_binding_position	diag gen render
 script/rawjs_passthrough	diag gen render
 script/regexp_hostile	diag gen render
 script/string_hostile	diag gen render
@@ -879,4 +886,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 881 cases (render: 750, error: 98, gen-pinned: 505)
+TOTAL: 888 cases (render: 757, error: 99, gen-pinned: 509)

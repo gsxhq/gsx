@@ -7,9 +7,8 @@ import (
 )
 
 func TestStyleBodyReindented(t *testing.T) {
-	// Messy indentation inside <style> gets normalized to tabs; content otherwise
-	// unchanged (no reflow).
-	src := "package p\n\ncomponent C() {\n\t<style>\n        .a {\n   color: red;\n        }\n\t</style>\n}\n"
+	// A well-indented <style> body is preserved and re-based under the tag depth.
+	src := "package p\n\ncomponent C() {\n\t<style>\n.a {\n\tcolor: red;\n}\n\t</style>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)

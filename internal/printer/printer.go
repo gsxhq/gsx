@@ -36,12 +36,15 @@ import (
 // exceed width columns. width <= 0 uses pretty.DefaultPrintWidth; tabWidth <= 0
 // uses pretty.DefaultTabWidth.
 func Fprint(w io.Writer, f *ast.File, width, tabWidth int) error {
+	if tabWidth <= 0 {
+		tabWidth = pretty.DefaultTabWidth
+	}
 	// The built-in path uses LINE formatters (jsfmt/cssfmt FormatLines), which
 	// carry logical-line structure so a multi-line Opaque token (template literal
 	// / block comment) interior survives re-indentation verbatim.
 	return fprint(w, f, width, tabWidth, printer{
-		cssLineFmt: defaultCSSLineFormatter(width),
-		jsLineFmt:  defaultJSLineFormatter(width),
+		cssLineFmt: defaultCSSLineFormatter(width, tabWidth),
+		jsLineFmt:  defaultJSLineFormatter(width, tabWidth),
 	})
 }
 
@@ -72,12 +75,12 @@ func fprint(w io.Writer, f *ast.File, width, tabWidth int, p printer) error {
 
 // defaultCSSLineFormatter / defaultJSLineFormatter bind the built-in
 // line-returning re-indenters to the print width.
-func defaultCSSLineFormatter(width int) rawfmt.LineFormatter {
-	return func(src []byte) ([]string, bool) { return cssfmt.FormatLines(src, width) }
+func defaultCSSLineFormatter(width, tabWidth int) rawfmt.LineFormatter {
+	return func(src []byte) ([]string, bool) { return cssfmt.FormatLines(src, width, tabWidth) }
 }
 
-func defaultJSLineFormatter(width int) rawfmt.LineFormatter {
-	return func(src []byte) ([]string, bool) { return jsfmt.FormatLines(src, width) }
+func defaultJSLineFormatter(width, tabWidth int) rawfmt.LineFormatter {
+	return func(src []byte) ([]string, bool) { return jsfmt.FormatLines(src, width, tabWidth) }
 }
 
 // printer accumulates the first I/O-independent error encountered while
@@ -770,25 +773,181 @@ func pipeStageStr(s ast.PipeStage) string {
 }
 
 func (p *printer) goBlock(b *ast.GoBlock) pretty.Doc {
-	body := p.goBlockBody(b.Code)
-	return pretty.Concat(pretty.Text("{{ "), body, pretty.Text(" }}"))
+	s, lits := p.goBlockCode(b.Code)
+	// A single-statement block with no multi-line js`/css` literal stays inline:
+	// `{{ stmt }}`. A block carrying such a literal always breaks (its body is
+	// multi-line even when the surrounding statement is not).
+	if !strings.Contains(s, "\n") && len(lits) == 0 {
+		return pretty.Concat(pretty.Text("{{ "), pretty.Text(s), pretty.Text(" }}"))
+	}
+	// A multi-statement block breaks like a Go block body: `{{` alone on its line,
+	// the statements indented one level deeper, `}}` alone on its own line at the
+	// block's column. Raw-string interior newlines stay embedded in their segment,
+	// except a js`/css` literal (carried as a marker in s) whose body is re-indented
+	// under the statement it opens on.
+	segs := splitOutsideRawStrings(s)
+	inner := make([]pretty.Doc, 0, len(segs)*2)
+	for _, seg := range segs {
+		if strings.TrimSpace(seg) == "" {
+			// A blank line between statements: a bare newline, no managed indent
+			// (so it never carries trailing tabs — idempotence).
+			inner = append(inner, pretty.Text("\n"))
+			continue
+		}
+		if docs, ok := p.goBlockLiteralSeg(seg, lits); ok {
+			inner = append(inner, docs...)
+			continue
+		}
+		inner = append(inner, pretty.HardLine, pretty.Text(strings.TrimRight(seg, " \t")))
+	}
+	return pretty.Concat(
+		pretty.Text("{{"),
+		pretty.Indent(pretty.Concat(inner...)),
+		pretty.BreakParent,
+		pretty.HardLine, pretty.Text("}}"),
+	)
 }
 
-// goBlockBody lays out the statements of a `{{ }}` block. A block carrying an
-// embedded f`/js`/css` literal is not, on its own, parseable Go — fmtStmts'
-// go/format call rejects it and relays the raw text verbatim, so the block's
-// indentation is never normalized. goBlockBody restores parseability with the
-// same placeholder round-trip fmtGoExprParts uses (formatGoParts), so gofmt lays
-// the statements out and the literals splice back in, hole expressions
+// goBlockLitMarker is the sentinel a multi-line js`/css` literal is replaced by
+// in the gofmt-normalized block text, so gofmt positions the statement and the
+// printer can re-indent the literal's body under it. prefix is a collision-free
+// identifier prefix (grown by fmtGoBlockCode until absent from the verbatim Go
+// text — never assumed unique, mirroring the rebase/minify sentinels); the `z`
+// terminates the index so the marker stays a single Go identifier, harmless to
+// the raw-string scanner in splitOutsideRawStrings.
+func goBlockLitMarker(prefix string, n int) string { return fmt.Sprintf("%s%dz", prefix, n) }
+
+// goBlockLiteralSeg renders a statement segment that carries a multi-line
+// js`/css` literal marker: the text up to the marker (e.g. "\t\tValue: ") on the
+// opening line, the literal's re-indented body one level under that line's
+// Go-structural indent, and the closing delimiter plus any trailing text. Returns
+// ok=false when the segment holds no known marker.
+func (p *printer) goBlockLiteralSeg(seg string, lits map[string]*ast.EmbeddedInterp) ([]pretty.Doc, bool) {
+	for marker, lit := range lits {
+		pre, rest, found := strings.Cut(seg, marker)
+		if !found {
+			continue
+		}
+		post := strings.TrimRight(rest, " \t")
+		lines, ok := p.embeddedInterpLines(lit)
+		if !ok {
+			return nil, false
+		}
+		// litTabs is the Go-structural indent of the line the literal opens on
+		// (the leading tabs of pre); the body sits one level deeper. HardLine adds
+		// the block's managed base to every line, so absolute = base + litTabs(+1).
+		litTabs := 0
+		for litTabs < len(pre) && pre[litTabs] == '\t' {
+			litTabs++
+		}
+		delim := embeddedDelim(lit.DoubleQuoted)
+		opener := embeddedLangName(lit.Lang) + string(delim)
+		var cb strings.Builder
+		cb.WriteByte(delim)
+		for _, st := range lit.Stages {
+			cb.WriteString(" |> ")
+			cb.WriteString(pipeStageStr(st))
+		}
+		return goBlockLiteralDocs(pre+opener, lines, cb.String()+post, litTabs), true
+	}
+	return nil, false
+}
+
+// goBlockLiteralDocs lays out a multi-line js`/css` literal body inside a {{ }}
+// block. opener is the pre-text plus the opening delimiter (attached to the
+// literal's line); lines are the re-indented body logical lines; closer is the
+// closing delimiter plus trailing Go text. litTabs is the literal line's
+// Go-structural indent; the body baked at litTabs+1 tabs and the closer at
+// litTabs, both riding on the block's managed base (supplied by HardLine).
+//
+// Layout mirrors embeddedAttrValueDoc: a leading blank logical line means the
+// body opened on its own line → block layout (delimiters alone, body one level
+// under); otherwise inline (opener hugs the first body line, closer the last).
+func goBlockLiteralDocs(opener string, lines []string, closer string, litTabs int) []pretty.Doc {
+	block := len(lines) > 0 && lines[0] == ""
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	bodyTab := strings.Repeat("\t", litTabs+1)
+	closeTab := strings.Repeat("\t", litTabs)
+	if len(lines) == 0 {
+		return []pretty.Doc{pretty.HardLine, pretty.Text(opener + closer)}
+	}
+	// bodyLine emits one continuation line at tab (its Go-structural indent); the
+	// block's managed base is supplied by the HardLine. A blank line emits a bare
+	// newline (no trailing tabs → idempotence).
+	bodyLine := func(tab, ln string) (pretty.Doc, pretty.Doc, bool) {
+		if ln = strings.TrimRight(ln, " \t"); ln == "" {
+			return pretty.Text("\n"), pretty.Doc{}, false
+		}
+		return pretty.HardLine, pretty.Text(tab + ln), true
+	}
+	if block {
+		// Block: delimiters alone, body one level under (bodyTab), closer at litTabs.
+		docs := []pretty.Doc{pretty.HardLine, pretty.Text(opener)}
+		for _, ln := range lines {
+			a, b, two := bodyLine(bodyTab, ln)
+			docs = append(docs, a)
+			if two {
+				docs = append(docs, b)
+			}
+		}
+		return append(docs, pretty.HardLine, pretty.Text(closeTab+closer))
+	}
+	// Inline: the opener hugs the first body line (an object's `{`); each further
+	// line is re-based at the literal's own column (closeTab) PLUS its own brace
+	// depth, which the re-indenter baked into the line's leading whitespace. So an
+	// object's `{` hugs the js` line, its members sit one brace-level under, and
+	// the closing `}` (brace depth 0) returns to the js` column.
+	docs := []pretty.Doc{pretty.HardLine, pretty.Text(opener + strings.TrimRight(lines[0], " \t"))}
+	for _, ln := range lines[1:] {
+		a, b, two := bodyLine(closeTab, ln)
+		docs = append(docs, a)
+		if two {
+			docs = append(docs, b)
+		}
+	}
+	return append(docs, pretty.Text(closer))
+}
+
+// embeddedInterpLines re-indents a Go-expression js`/css` literal's body into
+// logical lines with the configured JS/CSS formatter, mirroring embeddedAttrDoc's
+// body build. ok=false for a non-JS/CSS literal or any formatter failure.
+func (p *printer) embeddedInterpLines(v *ast.EmbeddedInterp) ([]string, bool) {
+	if v.Lang != ast.EmbeddedJS && v.Lang != ast.EmbeddedCSS {
+		return nil, false
+	}
+	segments, holes := embeddedAttrBody(v.Segments)
+	delim := embeddedDelim(v.DoubleQuoted)
+	escape := func(s string) string {
+		var b strings.Builder
+		writeEmbeddedLiteralText(&b, s, delim)
+		return b.String()
+	}
+	return p.embeddedAttrLines(v.Lang, segments, holes, escape)
+}
+
+// goBlockCode returns the canonical statement text of a `{{ }}` block. A block
+// carrying an embedded f`/js`/css` literal is not, on its own, parseable Go —
+// fmtStmts' go/format call rejects it and relays the raw text verbatim, so the
+// block's indentation is never normalized. goBlockCode restores parseability with
+// the same placeholder round-trip fmtGoExprParts uses (formatGoParts), so gofmt
+// lays the statements out and the literals splice back in, hole expressions
 // reformatted. A block with no embedded literal (fmtGoBlockCode finds no value
 // part, or the literal split fails) falls back to the plain fmtStmts path. Both
-// paths yield a canonical body string fed through multiline, which lays its
-// newlines out at the block's current indent.
-func (p *printer) goBlockBody(code string) pretty.Doc {
-	if s, ok := p.fmtGoBlockCode(code); ok {
-		return multiline(s)
+// paths yield a canonical body string that goBlock lays out at the block's
+// indent (inline for a single statement, one level deeper for several). It also
+// returns the multi-line js`/css` literals carried in the string as markers,
+// keyed by marker, so goBlock can re-indent each literal's body under the
+// statement it opens on; nil on the plain path.
+func (p *printer) goBlockCode(code string) (string, map[string]*ast.EmbeddedInterp) {
+	if s, lits, ok := p.fmtGoBlockCode(code); ok {
+		return s, lits
 	}
-	return multiline(fmtStmts(code))
+	return fmtStmts(code), nil
 }
 
 // goBlockWrapperPrefix/Suffix wrap a GoBlock's statements in a synthetic
@@ -813,33 +972,63 @@ const (
 // canonGo). ok is false — leaving the caller on the plain fmtStmts path — when
 // the block holds no embedded literal, when the split fails, or when go/format
 // rejects the substituted source.
-func (p *printer) fmtGoBlockCode(code string) (string, bool) {
+func (p *printer) fmtGoBlockCode(code string) (string, map[string]*ast.EmbeddedInterp, bool) {
 	parts, ok := splitGoBlockParts(code)
 	if !ok || len(parts) == 0 {
-		return "", false
+		return "", nil, false
 	}
 	strip := func(out []byte) (string, bool) { return extractFuncBody(string(out)) }
 	formatted, _, ok := p.formatGoParts(parts, goBlockWrapperPrefix, goBlockWrapperSuffix, strip)
 	if !ok {
-		return "", false
+		return "", nil, false
 	}
+	// A collision-free marker prefix, grown until absent from all verbatim Go
+	// text (the only non-marker content in the assembled string) — so a Go string
+	// literal that happens to hold the marker text can never be mistaken for a
+	// literal opener by goBlockLiteralSeg's Cut. Mirrors the rebase/minify
+	// sentinels; never an assumed-unique sentinel.
+	litPrefix := "gsxǁblockǁlit"
+	var scan strings.Builder
+	for _, part := range formatted {
+		if gt, ok := part.(ast.GoText); ok {
+			scan.WriteString(gt.Src)
+		}
+	}
+	for strings.Contains(scan.String(), litPrefix) {
+		litPrefix += "q"
+	}
+
 	var b strings.Builder
+	var lits map[string]*ast.EmbeddedInterp
 	for _, part := range formatted {
 		if gt, ok := part.(ast.GoText); ok {
 			b.WriteString(gt.Src)
 			continue
 		}
-		// A literal value: render it exactly as goExprValue does (the same doc
-		// formatGoParts measured for its placeholder width). It is a leaf Text, so
-		// printing it flat reproduces the literal verbatim; any newlines it carries
-		// are literal content that multiline reproduces without re-indenting.
+		// A multi-line js`/css` literal is carried as a marker so goBlock can
+		// re-indent its body under the statement it opens on; gofmt already
+		// positioned the marker's placeholder. Every other literal (element,
+		// single-line js`/css`, f`) renders flat verbatim exactly as goExprValue
+		// does — the same doc formatGoParts measured for its placeholder width; a
+		// leaf Text whose interior newlines multiline reproduces without indent.
+		if ei, ok := part.(*ast.EmbeddedInterp); ok &&
+			(ei.Lang == ast.EmbeddedJS || ei.Lang == ast.EmbeddedCSS) &&
+			embeddedSegmentsMultiline(ei.Segments) {
+			if lits == nil {
+				lits = map[string]*ast.EmbeddedInterp{}
+			}
+			marker := goBlockLitMarker(litPrefix, len(lits))
+			lits[marker] = ei
+			b.WriteString(marker)
+			continue
+		}
 		doc, ok := p.goExprValue(part)
 		if !ok {
-			return "", false
+			return "", nil, false
 		}
 		b.WriteString(pretty.Print(doc, 1<<30, p.tabWidth))
 	}
-	return b.String(), true
+	return b.String(), lits, true
 }
 
 // splitGoBlockParts splits a GoBlock's Code into interleaved GoText and embedded
