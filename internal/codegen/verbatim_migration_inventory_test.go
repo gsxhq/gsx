@@ -31,10 +31,15 @@ package codegen
 //     generator, never hand-edits them.
 //   - Every other (authored) section is scanned for the exact syntactic surface
 //     the cutover removes -- the reserved `children`/`attrs` identifiers, the cut
-//     component struct-splat, `<Name>Props` struct literals/params,
-//     RenderComponent call sites, WithFieldMatcher, and unnamed attrs-only factory
-//     return types. A section with any such marker is `manual-edit` carrying a
-//     review note built from the matched audit labels; a section with no marker is
+//     component struct-splat, `<Name>Props` struct literals, RenderComponent call
+//     sites, WithFieldMatcher, unnamed attrs-only factory return types, and BYO
+//     struct-shaped sole params. The BYO marker is STRUCTURAL, not name-based: a
+//     component's sole non-receiver parameter whose type is a bare (unqualified,
+//     non-pointer/slice/map/variadic) named type that is not a builtin scalar and
+//     not the component's own generic type parameter -- mirroring the exact
+//     exclusion shape of soleParamTypeName in byo.go, the real BYO trigger. A
+//     section with any such marker is `manual-edit` carrying a review note built
+//     from the matched audit labels; a section with no marker is
 //     `reviewed-no-change`.
 //
 // The marker scan is a conservative over-approximation for the known removed
@@ -423,10 +428,8 @@ var (
 	// `attrs={...}`. Excludes gsx.Attrs, .Attrs, containerAttrs, etc. via the
 	// leading non-word/non-dot boundary and trailing non-word boundary.
 	reAttrs = regexp.MustCompile(`(^|[^A-Za-z0-9_.])attrs([^A-Za-z0-9_]|$)`)
-	// A <Name>Props struct literal, type, or single-struct component param.
+	// A <Name>Props struct literal (generated-ABI construction).
 	rePropsLit    = regexp.MustCompile(`\b[A-Za-z0-9_]*Props\{`)
-	rePropsType   = regexp.MustCompile(`\btype\s+[A-Za-z0-9_]*Props\b`)
-	rePropsParam  = regexp.MustCompile(`\bcomponent\s+[A-Za-z0-9_]+\s*\([A-Za-z0-9_]+\s+[A-Za-z0-9_.]*Props\b`)
 	reRenderComp  = regexp.MustCompile(`\bRenderComponent\b`)
 	reFieldMatch  = regexp.MustCompile(`\b(WithFieldMatcher|FieldMatcher)\b`)
 	reFieldMethod = regexp.MustCompile(`\bfieldMatcher\b`)
@@ -443,7 +446,27 @@ var (
 	// A non-reserved named variadic attr param (`func(extra ...gsx.Attr)`), where
 	// the name is not the reserved `attrs`.
 	reNamedAttrsFactory = regexp.MustCompile(`func\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+\.\.\.\s*gsx\.Attr\s*\)`)
+	// A component declaration header, function or method-receiver form, capturing
+	// its optional generic type-param list and its raw (single-line) parameter
+	// list. Matched greedily enough to see a sole non-receiver param's type text;
+	// multi-param lists are rejected downstream (no top-level comma allowed), and
+	// a parenthesized (func-typed) param type simply fails to match here -- that
+	// shape is never byo anyway (see soleParamTypeName in byo.go).
+	reComponentHeader = regexp.MustCompile(
+		`\bcomponent\s+(?:\(\s*[A-Za-z_][A-Za-z0-9_]*\s+\*?[A-Za-z_][A-Za-z0-9_]*\s*\)\s+)?` +
+			`[A-Za-z_][A-Za-z0-9_]*(?:\[([^\]]*)\])?\s*\(([^()]*)\)`)
 )
+
+// scalarSoleParamTypes mirrors, EXACTLY, the builtin-scalar exclusion switch in
+// soleParamTypeName (internal/codegen/byo.go) -- the ledger's structural BYO
+// marker must reject the same bare-identifier types the real BYO trigger
+// rejects, or it drifts from the thing it is standing in for.
+var scalarSoleParamTypes = map[string]bool{
+	"string": true, "bool": true, "byte": true, "rune": true, "error": true, "any": true,
+	"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "uintptr": true,
+	"float32": true, "float64": true, "complex64": true, "complex128": true,
+}
 
 // classifyUnit sets Action/Kinds/ReviewNote on u from its path, section name, and
 // content. See the file header for the methodology.
@@ -495,10 +518,17 @@ func classifyUnit(rel, section string, data []byte, u *migrationUnit) {
 			"constructs a <Name>Props struct literal (generated ABI removed); pass values directly to the verbatim signature")
 	}
 
-	// 4. BYO struct component (struct-typed sole param or Props type decl).
-	if rePropsType.MatchString(text) || rePropsParam.MatchString(text) {
+	// 4. BYO struct-shaped sole param: STRUCTURAL, not name-based. A component's
+	// sole non-receiver param whose type is a bare named type -- unqualified,
+	// non-pointer, non-slice, non-map, non-variadic, not a builtin scalar, not
+	// the component's own generic type parameter -- is a candidate BYO trigger,
+	// mirroring soleParamTypeName's exact exclusion shape (byo.go). This is a
+	// conservative over-approximation (Task 8's signature analyzer re-decides
+	// each candidate); missing a real BYO candidate here is the unsafe direction,
+	// flagging a false one is not.
+	if types := soleNamedParamTypes(text); len(types) > 0 {
 		addKind(kindBYOFieldAddress,
-			"BYO struct-param component: call sites addressing struct fields (<C Field=...>) become individual ordinary params; a whole-value fill (<C p={val}/>) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)")
+			"BYO struct-shaped sole param ("+strings.Join(types, ", ")+"): call sites addressing struct fields (<C Field=...>) become individual ordinary params; a whole-value fill (<C p={val}/>) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)")
 	}
 
 	// 5. Component struct-splat -> CUT; must be replaced. Distinguished from
@@ -544,6 +574,59 @@ func classifyUnit(rel, section string, data []byte, u *migrationUnit) {
 	u.Action = migrationManualEdit
 	u.Kinds = dedupeKinds(kinds)
 	u.ReviewNote = strings.Join(dedupeNotes(notes), " | ")
+}
+
+// soleNamedParamTypes returns the distinct bare type names of every component
+// declaration's sole non-receiver parameter that is BYO-shaped: a single param
+// (no top-level comma -- a multi-param component always keeps the generated
+// <Name>Props wrapper) whose type is a plain identifier (rejecting pointer,
+// slice, map, qualified `pkg.Name`, and variadic `...Type` shapes, all of which
+// are the GENERATED path per soleParamTypeName in byo.go), that is not one of
+// soleParamTypeName's builtin-scalar exclusions, and that is not the
+// component's own generic type parameter (`component Generic[T any](v T)` is
+// generic dispatch, not a struct).
+func soleNamedParamTypes(text string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range reComponentHeader.FindAllStringSubmatch(text, -1) {
+		generics, params := m[1], strings.TrimSpace(m[2])
+		if params == "" || strings.Contains(params, ",") {
+			continue // nullary or multi-param: never byo
+		}
+		fields := strings.Fields(params)
+		if len(fields) != 2 {
+			continue // not a bare `name Type` shape
+		}
+		typ := fields[1]
+		if !reBareIdent.MatchString(typ) {
+			continue // pointer/slice/map/qualified/variadic: not the byo shape
+		}
+		if scalarSoleParamTypes[typ] || isGenericTypeParam(typ, generics) {
+			continue
+		}
+		if !seen[typ] {
+			seen[typ] = true
+			out = append(out, typ)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// isGenericTypeParam reports whether typ names one of the component's own
+// declared generic type parameters (the `[T any, ...]` list), in which case a
+// sole param of that type is generic dispatch, not a byo struct.
+func isGenericTypeParam(typ, generics string) bool {
+	if generics == "" {
+		return false
+	}
+	for part := range strings.SplitSeq(generics, ",") {
+		name, _, _ := strings.Cut(strings.TrimSpace(part), " ")
+		if name == typ {
+			return true
+		}
+	}
+	return false
 }
 
 // structSplatSubjects returns the distinct component struct-splat subjects in a
