@@ -24,6 +24,10 @@
 - Discovery first harvests the origin generic object/signature; authored-operands-only inference then uses a transient carrier; only after inference may omitted arguments be zero-filled.
 - New analysis phases reuse the existing importer. They must not call `packages.Load`, write dependency `.x.go` files early, or depend on generation order.
 - In normal mode, retain `NeedCompiledGoFiles|NeedSyntax` from the existing single cold load and source-check project-local Go-only packages through the module importer. In Bundle mode, reject a project-local `gsx -> Go-only -> gsx` chain because the bundle has no authoritative source inventory.
+- Normal mode uses cmd/go's last-flag-wins `GOFLAGS` semantics, rejects an effective non-empty `-overlay`, and rejects any explicit or frozen-PATH-discovered `GOPACKAGESDRIVER` before the cold load. After proving no driver was effective, pin `GOPACKAGESDRIVER=off` only to prevent x/tools from re-evaluating a later live PATH. Never hide configured state or support only the deletion-free overlay subset; interoperability requires a separate shared virtual-filesystem loader.
+- Logical build variants apply only to duplicate component declarations whose generated files are all effectively constrained. Unconstrained or mixed duplicate components are errors; raw Go declarations receive no cross-file suppression and platform-specific implementations live in constrained `.go` files behind one stable API.
+- Variant equality is semantic: exact ordered value-parameter names/roles plus `types.Identical` signatures and receiver types. Source spelling and import aliases are not acceptance criteria; type-parameter names are alpha-equivalent.
+- Analyze every GSX variant body/import in the Module's one frozen Go universe. A platform-only import used directly by an inactive GSX file is an error; do not approximate a multi-context analysis.
 - Root runtime remains standard-library only. Tooling may continue using `golang.org/x/tools`.
 - Every syntax/codegen behavior is pinned in `internal/corpus/testdata/cases/**/*.txtar`; never hand-edit generated or golden sections.
 - Use `go test ./internal/corpus -run TestCorpus -update` and `go test ./internal/gsxfmt -run TestFmtCorpus -update` to regenerate, then rerun without `-update`.
@@ -58,7 +62,7 @@
 
 **Interfaces:**
 - Consumes: `*gsxast.Component`, `parseRecv`, `parseTypeParamFieldList`, Go parser/printer normalization.
-- Produces: one shared `parseParamFieldList` AST parse; final `componentParamDecl` entries preserving every logical parameter including unnamed, `_`, and variadic; unchanged existing `parseParams` behavior for the old Props path; `componentDeclarationFor(*gsxast.Component) (componentDeclaration, error)`; collision-safe `componentDeclaration.canonical()` for variant checks and later skeletons. Task 8 deletes the old `param`/`parseParams` path outright.
+- Produces: one shared `parseParamFieldList` AST parse; final `componentParamDecl` entries preserving every logical parameter including unnamed, `_`, and variadic; unchanged existing `parseParams` behavior for the old Props path; `componentDeclarationFor(*gsxast.Component) (componentDeclaration, error)`; collision-safe `componentDeclaration.canonical()` as a deterministic syntax key for later skeletons. Task 3 replaces syntax spelling as the variant-acceptance authority with exact semantic comparison; Task 8 deletes the old `param`/`parseParams` path outright.
 
 - [x] **Step 1: Add declaration-parser tests with valid named and unnamed families**
 
@@ -177,7 +181,7 @@ func normalizedTypeParams(src string) (string, error)
 
 - [x] **Step 6: Replace sorted Props identity with ordered declaration identity**
 
-Make `componentSignature` in `variantcollide.go` return `componentDeclarationFor(c).canonical()`. On parse failure, length-prefix the trimmed raw receiver/type-param/param source so malformed alternatives still compare deterministically without collisions. Remove the body-derived `usesChildren`, `usesAttrs`, field capitalization, and prop sorting.
+Make `componentSignature` in `variantcollide.go` return `componentDeclarationFor(c).canonical()`. On parse failure, length-prefix the trimmed raw receiver/type-param/param source so malformed alternatives still compare deterministically without collisions. Remove the body-derived `usesChildren`, `usesAttrs`, field capitalization, and prop sorting. This is the pre-semantic foundation key only; it must not remain the final variant-equivalence test after Task 3.
 
 Update `TestComponentSignature` to assert:
 
@@ -371,7 +375,8 @@ type componentTargetFact struct {
 	origin types.Object // nil on failure; otherwise (*types.Func).Origin or (*types.Var).Origin
 
 	// Pre-explicit-arguments call shape. For a bound method this is
-	// Selection.Type(): receiver removed and receiver arguments substituted.
+	// Selection.Type(): receiver omitted from callable Params and receiver
+	// arguments substituted; Signature.Recv metadata remains present.
 	raw *types.Signature // nil when no static callable signature was established
 
 	// The exact authored prefix, including partial F[A] for F[A, B].
@@ -424,9 +429,44 @@ Emit each syntax-valid registered target expression inside its real lexical scop
 
 Add `Instances`, `Selections`, and `Implicits` to the discovery `types.Info`. Give every emitted marker expression an exact raw skeleton byte span and partition `types.Error` positions through the shared FileSet with `PositionFor(pos, false)`; only an error inside that registered span may become that site's deferred target diagnostic. Assert each planned syntax-valid site has exactly one marker, marker spans do not overlap, and harvested raw AST offsets equal the recorded bytes. Never recognize an expected target failure from message text. Default import `PkgName` objects come from `Implicits`, explicit aliases from `Defs`, and package-selector provenance requires the target qualifier's actual `Uses` object to equal that `PkgName`. A same-text local is not package provenance; continue with its actual semantic shape, accepting a concrete `MethodVal` and rejecting a `FieldVal`, local callable, or interface dispatch under the ordinary rules.
 
-Classify provenance exactly: a package func is a `*types.Func` whose parent is `obj.Pkg().Scope()`; a package var is callable only when its `*types.Var` has that same package-scope parent; a bound method requires `Selection.Kind()==types.MethodVal` and a declared receiver that is not interface-based. For promotion through a concrete struct embedding an interface, inspect the selected method object's declared signature receiver—not only `Selection.Recv()`, which is concrete—and reject it as interface dispatch. Reject `MethodExpr`, `FieldVal`, local/parameter callables, and interface methods even when their current type is callable. The raw bound-method call shape is `Selection.Type().(*types.Signature)`; it has already removed/substituted the receiver.
+Classify provenance exactly: a package func is a `*types.Func` whose parent is `obj.Pkg().Scope()`; a package var is callable only when its `*types.Var` has that same package-scope parent; a bound method requires `Selection.Kind()==types.MethodVal` and a declared receiver that is not interface-based. For promotion through a concrete struct embedding an interface, inspect the selected method object's declared signature receiver—not only `Selection.Recv()`, which is concrete—and reject it as interface dispatch. Reject `MethodExpr`, `FieldVal`, local/parameter callables, and interface methods even when their current type is callable. This rejection is independent of `explicitInstance`: go/types can give a generic `MethodExpr` an instance whose parameters omit the explicit receiver, but that does not make it a bound method value. The raw bound-method call shape is `Selection.Type().(*types.Signature)`; its callable `Params()` omit the receiver and substitute receiver arguments, while `Signature.Recv()` metadata remains present.
 
-Discovery uses a phase-specific exact-declaration importer/cache. The current `pkgTypes` graph exposes the shipping pre-cutover Props ABI and is therefore invalid for this phase. Recursively build imported project GSX packages from `skeletonTargetDeclarations`, ignore paired disk `.x.go`, reuse the existing external importer, keep an independent cycle guard/cache cleared by the normal invalidation and FileSet rebuild paths, and never call `packages.Load`. Same-package and cross-package target discovery must therefore observe the same current authored signature without changing the shipping ABI before Task 8.
+The only target-check error omitted from `targetDiags` is structurally proven incomplete generic instantiation: the supplier resolves to the raw generic function/method, the authored prefix is shorter than its target type-parameter arity, and the sole site-local error lands at the exact raw target expression start. This rule uses no diagnostic message text. Bare and partial generic method values report at the whole target start rather than the selector identifier; type-argument arity, constraint, and lookup failures land elsewhere and remain deferred diagnostics. A full instance is still installed only when the site has zero target-check errors.
+
+Discovery uses a phase-specific exact-declaration importer/cache. The current `pkgTypes` graph exposes the shipping pre-cutover Props ABI and is therefore invalid for this phase. Recursively source-check every module-local package in the exact graph: project GSX packages contribute `skeletonTargetDeclarations`, while Go-only intermediaries contribute the retained active compiled-file ASTs described below. Ignore paired disk `.x.go`, reuse the existing external importer only beyond that module-local source graph, keep an independent cycle guard/cache cleared by the normal invalidation and FileSet rebuild paths, and never call another `packages.Load`. Record edges through both GSX and Go-only packages so a `gsx → Go-only → gsx` chain invalidates transitively. Same-package and cross-package target discovery must therefore observe the same current authored signature without changing the shipping ABI before Task 8.
+
+Extend the existing cold load with `NeedCompiledGoFiles|NeedSyntax`. Before that
+same load, scan authoritative `.gsx` paths (including pre-load overrides) and
+overlay each existing paired `.x.go` with a contradictory build constraint so
+the Go command excludes it before package classification. Retain module-local
+source packages by exact clean-directory plus `importPathForDir` identity, not a
+module-path prefix. Exact target checking reuses the retained AST for each active
+compiled file, including cgo-transformed files; it does not reparse disk source.
+Freeze the Module's build environment at Open. A new override that first claims
+an already-compiled paired output marks the source inventory dirty and forces an
+atomic FileSet/importer/cache rebuild before the next analysis. Bundle mode has
+no source inventory and fails closed when companion source would need selection.
+
+Before constructing `packages.Config`, resolve the Go command's effective
+`GOFLAGS` (including `go env -w` and last-flag-wins repetition) and reject an
+effective non-empty `-overlay`. Also reject an explicit or frozen-PATH-discovered
+external `GOPACKAGESDRIVER`. After that proof, pin `GOPACKAGESDRIVER=off` in the
+load environment so x/tools cannot re-evaluate a later live PATH; this does not
+hide configured driver state. Do not materialize only replacement overlays or
+let `Config.Overlay` replace user configuration. These are explicit normal-mode
+boundaries; Bundle mode never reaches them.
+
+Validate component variant membership before folding declarations: every member
+must have an effective Go constraint on its generated filename/source. Preserve
+same-file duplicates for native errors and reject unconstrained or mixed
+families. Emit every valid variant signature under a unique analysis-only name,
+then require the exact ordered parameter name/role vector, a
+`types.Identical` signature, and a separately identical receiver type before
+choosing one public representative. Alias spelling and type-parameter names are
+not identity. Remove generic cross-file redeclaration suppression: only component
+declarations have a logical variant plan, while raw Go alternatives are errors
+and belong in constrained `.go` files. All GSX bodies/imports remain subject to
+the one frozen analysis universe; unavailable inactive-platform imports fail.
 
 - [ ] **Step 4: Verify and commit**
 
@@ -941,11 +981,11 @@ Task 8 already migrated existing definition/hover behavior to exact signature fa
 
 - [ ] **Step 2: Add rename protocol tests**
 
-Pin rename from a GSX declaration and invocation, cross-package calls, instantiated generic calls normalized by `Var.Origin()`, and equivalent GSX build-tag variants updated by the same ordinal. Pin rejection for renaming `children`/`attrs`, renaming any ordinary param to `_`, `children`, `attrs`, `ctx`, or `_gsxName`, invalid/colliding identifiers, and variant sets whose Task 1 canonical identity is not equivalent. Pin that `prepareRename` is not offered for a plain-Go callable parameter even though definition/hover still resolve it.
+Pin rename from a GSX declaration and invocation, cross-package calls, instantiated generic calls normalized by `Var.Origin()`, and semantically equivalent GSX build variants updated by the same ordinal. Pin rejection for renaming `children`/`attrs`, renaming any ordinary param to `_`, `children`, `attrs`, `ctx`, or `_gsxName`, invalid/colliding identifiers, and variant sets whose Task 3 semantic contract is not equivalent. Pin that `prepareRename` is not offered for a plain-Go callable parameter even though definition/hover still resolve it.
 
 - [ ] **Step 3: Implement semantic rename**
 
-Expose GSX parameter declaration/ref facts from codegen analysis. Advertise `RenameProvider`, dispatch both methods, and return one atomic `WorkspaceEdit`. Resolve a generic instantiated param through `Var.Origin`; resolve GSX variants by canonical contract plus ordinal, never by text-only search. Do not partially rename plain-Go callable parameters: inactive Go variants are outside GSX's all-source variant model, so `prepareRename` rejects that target.
+Expose GSX parameter declaration/ref facts from codegen analysis. Advertise `RenameProvider`, dispatch both methods, and return one atomic `WorkspaceEdit`. Resolve a generic instantiated param through `Var.Origin`; resolve GSX variants by the validated semantic contract plus ordinal, never by text-only search. Do not partially rename plain-Go callable parameters: inactive Go variants are outside GSX's all-source variant model, so `prepareRename` rejects that target.
 
 - [ ] **Step 4: Verify and commit**
 

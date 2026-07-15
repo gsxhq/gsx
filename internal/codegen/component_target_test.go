@@ -1,8 +1,12 @@
 package codegen
 
 import (
+	goast "go/ast"
+	goparser "go/parser"
 	"go/token"
+	"go/types"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -10,6 +14,991 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
+
+func TestComponentTargetFactEffectiveSignature(t *testing.T) {
+	raw := types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(types.NewParam(token.NoPos, nil, "value", types.Typ[types.String])),
+		types.NewTuple(types.NewParam(token.NoPos, nil, "", types.Typ[types.Int])),
+		false,
+	)
+	instantiated := types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(types.NewParam(token.NoPos, nil, "value", types.Typ[types.Int])),
+		types.NewTuple(types.NewParam(token.NoPos, nil, "", types.Typ[types.Int])),
+		false,
+	)
+
+	fact := componentTargetFact{raw: raw}
+	if got := fact.effectiveSignature(); got != raw {
+		t.Fatalf("effectiveSignature without instance = %p, want raw %p", got, raw)
+	}
+	fact.explicitInstance = &types.Instance{Type: instantiated}
+	if got := fact.effectiveSignature(); got != instantiated {
+		t.Fatalf("effectiveSignature with instance = %p, want instantiated %p", got, instantiated)
+	}
+
+	// A target fact is immutable best-effort semantic data. If go/types leaves a
+	// non-signature instance after a failed target check, discovery must fall back
+	// to the origin signature instead of panicking while later diagnostics win.
+	fact.explicitInstance = &types.Instance{Type: types.Typ[types.Int]}
+	if got := fact.effectiveSignature(); got != raw {
+		t.Fatalf("effectiveSignature with non-signature instance = %p, want raw %p", got, raw)
+	}
+}
+
+func TestParseComponentTargetExpressionMapsSyntaxErrorToAuthoredCloseBracket(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "target.gsx", `package p
+component Page() { <F[!]/> }
+`)
+	elements := targetTestElements(file, "F")
+	if len(elements) != 1 {
+		t.Fatalf("F elements = %d, want 1", len(elements))
+	}
+
+	parsed, err := parseComponentTargetExpression(elements[0], fset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.expr != nil {
+		t.Fatalf("invalid target expr = %#v, want nil", parsed.expr)
+	}
+	if parsed.diagnostic == nil {
+		t.Fatal("invalid target has no deferred diagnostic")
+	}
+	if parsed.diagnostic.Code != "parse-error" || parsed.diagnostic.Source != "parser" {
+		t.Fatalf("diagnostic = %+v, want parser parse-error", *parsed.diagnostic)
+	}
+	wantOffset := strings.Index(`package p
+component Page() { <F[!]/> }
+`, "]")
+	if parsed.diagnostic.Start.Offset != wantOffset {
+		t.Fatalf("diagnostic = %+v, want authored ] offset %d", *parsed.diagnostic, wantOffset)
+	}
+}
+
+func TestBindComponentTargetMarkersUsesExactRawExpressionSpan(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "target.gsx", `package p
+component Page() { <pkg.F[ map[string]int ]/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"target.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elements := targetTestElements(file, "pkg.F")
+	if len(elements) != 1 {
+		t.Fatalf("pkg.F elements = %d, want 1", len(elements))
+	}
+
+	var source strings.Builder
+	source.WriteString("package p\nfunc Package() {}\nfunc _probe() {\n")
+	if err := markers.emitBinding(&source, elements[0], fset); err != nil {
+		t.Fatal(err)
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "target.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	marker := markers.bySite[1]
+	if marker.file != parsed || marker.valueSpec == nil || marker.expr == nil {
+		t.Fatalf("marker not bound to parsed AST: %+v", marker)
+	}
+	raw := fset.PositionFor(marker.expr.Pos(), false).Offset
+	if raw != marker.rawSpan.start {
+		t.Fatalf("expr raw start = %d, recorded %d", raw, marker.rawSpan.start)
+	}
+	if got := fset.PositionFor(marker.expr.End(), false).Offset; got != marker.rawSpan.end {
+		t.Fatalf("expr raw end = %d, recorded %d", got, marker.rawSpan.end)
+	}
+}
+
+func TestBindComponentTargetMarkersIgnoresCompanionIdentifierSpelling(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "target.gsx", `package p
+component Page() { <Package/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"target.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var source strings.Builder
+	source.WriteString("package p\nfunc Package() {}\nfunc _probe() {\n")
+	if err := markers.emitBinding(&source, preprocessed.registry.records[0].element, fset); err != nil {
+		t.Fatal(err)
+	}
+	source.WriteString("}\n")
+	discovery, err := goparser.ParseFile(fset, "target.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	companion, err := goparser.ParseFile(fset, "companion.go", "package p\nvar _gsxtarget1 = 1\n", goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := bindComponentTargetMarkers(discovery, 0, fset, markers); err != nil {
+		t.Fatalf("companion identifier spelling captured as generated marker: %v", err)
+	}
+	if marker := markers.bySite[1]; marker.file != discovery {
+		t.Fatalf("marker file = %p, want exact discovery file %p", marker.file, discovery)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{discovery, companion}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{discovery, companion}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated errors = %+v", unrelated)
+	}
+	if got := facts[1]; got.provenance != targetPackageFunc || len(got.targetDiags) != 0 {
+		t.Fatalf("target fact = %+v, want package function unaffected by companion marker spelling", got)
+	}
+}
+
+func TestHarvestComponentTargetsPartitionsByTokenFileIdentity(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "target.gsx", `package p
+component Page() { <Package/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"target.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var source strings.Builder
+	source.WriteString("package p\nfunc Package() {}\nfunc _probe() {\n")
+	if err := markers.emitBinding(&source, preprocessed.registry.records[0].element, fset); err != nil {
+		t.Fatal(err)
+	}
+	source.WriteString("}\n")
+	const sharedFilename = "same.target.x.go"
+	discovery, err := goparser.ParseFile(fset, sharedFilename, source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(discovery, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+
+	missingPrefix := "package p\nvar _ = "
+	padding := markers.bySite[1].rawSpan.start - len(missingPrefix)
+	if padding < 0 {
+		t.Fatalf("marker offset %d is too short for companion probe", markers.bySite[1].rawSpan.start)
+	}
+	companionSource := "package p\n" + strings.Repeat(" ", padding) + "var _ = Missing\n"
+	companion, err := goparser.ParseFile(fset, sharedFilename, companionSource, goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{discovery, companion}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{discovery, companion}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := facts[1]; got.provenance != targetPackageFunc || len(got.targetDiags) != 0 {
+		t.Fatalf("target fact captured companion error: %+v", got)
+	}
+	if len(unrelated) != 1 || unrelated[0].Msg != "undefined: Missing" {
+		t.Fatalf("unrelated errors = %+v, want companion undefined error", unrelated)
+	}
+}
+
+func TestHarvestComponentTargetsClassifiesExactProvenance(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "targets.gsx", `package p
+component Page() {
+	<Package/><Plain/><Receiver.M/><Concrete.M/><Field.Fn/><Local/><Iface.M/>
+}
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"targets.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var source strings.Builder
+	source.WriteString(`package p
+type Concrete struct{}
+func (Concrete) M() int { return 0 }
+type Contract interface{ M() int }
+type Holder struct{ Fn func() int }
+func Package() int { return 0 }
+var Plain = Package
+func _probe(Local func() int, Receiver Concrete, Iface Contract, Field Holder) {
+`)
+	for _, record := range preprocessed.registry.records {
+		if err := markers.emitBinding(&source, record.element, fset); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "targets.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
+	}
+
+	want := map[string]componentTargetProvenance{
+		"Package":    targetPackageFunc,
+		"Plain":      targetPackageVar,
+		"Receiver.M": targetConcreteMethodValue,
+	}
+	for _, record := range preprocessed.registry.records {
+		fact, ok := facts[record.id]
+		if !ok {
+			t.Errorf("site %d <%s> has no fact", record.id, record.element.Tag)
+			continue
+		}
+		if provenance, accepted := want[record.element.Tag]; accepted {
+			if fact.provenance != provenance || fact.raw == nil || fact.origin == nil || len(fact.targetDiags) != 0 {
+				t.Errorf("accepted <%s> fact = %+v, want provenance %d with callable origin and no diagnostics", record.element.Tag, fact, provenance)
+			}
+			continue
+		}
+		if fact.object != nil || fact.origin != nil || fact.provenance != 0 || fact.raw != nil || len(fact.targetDiags) != 1 || fact.targetDiags[0].Code != "invalid-component-target" {
+			t.Errorf("rejected <%s> fact = %+v, want one provenance diagnostic", record.element.Tag, fact)
+		}
+	}
+}
+
+func TestHarvestComponentTargetsAcceptsNamedAndAliasFunctionVariables(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "function-vars.gsx", `package p
+component Page() { <NamedVar/><AliasVar/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"function-vars.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var source strings.Builder
+	source.WriteString(`package p
+type Named func(value int) string
+type Alias = func(flag bool) string
+var NamedVar Named
+var AliasVar Alias
+func _probe() {
+`)
+	for _, record := range preprocessed.registry.records {
+		if err := markers.emitBinding(&source, record.element, fset); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "function-vars.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
+	}
+
+	wantParam := map[string]string{"NamedVar": "value", "AliasVar": "flag"}
+	for _, record := range preprocessed.registry.records {
+		fact := facts[record.id]
+		if fact.provenance != targetPackageVar || fact.raw == nil || fact.origin == nil || len(fact.targetDiags) != 0 {
+			t.Errorf("<%s> fact = %+v, want accepted package function variable", record.element.Tag, fact)
+			continue
+		}
+		if fact.raw.Params().Len() != 1 || fact.raw.Params().At(0).Name() != wantParam[record.element.Tag] {
+			t.Errorf("<%s> raw params = %s, want authored name %q", record.element.Tag, fact.raw.Params(), wantParam[record.element.Tag])
+		}
+	}
+}
+
+func TestHarvestComponentTargetsUsesExactImportAndShadowIdentities(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "identities.gsx", `package p
+component Page() { <dep.F/><target.F/><target.F/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"identities.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultElement := targetTestElements(file, "dep.F")
+	targetElements := targetTestElements(file, "target.F")
+	if len(defaultElement) != 1 || len(targetElements) != 2 {
+		t.Fatalf("target elements: dep.F=%d target.F=%d, want 1 and 2", len(defaultElement), len(targetElements))
+	}
+
+	var defaultSource strings.Builder
+	defaultSource.WriteString("package p\nimport \"example.com/dep\"\nfunc _probeDefault() {\n")
+	if err := markers.emitBinding(&defaultSource, defaultElement[0], fset); err != nil {
+		t.Fatal(err)
+	}
+	defaultSource.WriteString("}\n")
+	defaultFile, err := goparser.ParseFile(fset, "default.target.x.go", defaultSource.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(defaultFile, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+
+	firstExplicit := len(markers.ordered)
+	var explicitSource strings.Builder
+	explicitSource.WriteString(`package p
+import target "example.com/dep"
+type Concrete struct{}
+func (Concrete) F() int { return 0 }
+func _probeImported() {
+`)
+	if err := markers.emitBinding(&explicitSource, targetElements[0], fset); err != nil {
+		t.Fatal(err)
+	}
+	explicitSource.WriteString("}\nfunc _probeShadow(target Concrete) {\n")
+	if err := markers.emitBinding(&explicitSource, targetElements[1], fset); err != nil {
+		t.Fatal(err)
+	}
+	explicitSource.WriteString("}\n")
+	explicitFile, err := goparser.ParseFile(fset, "explicit.target.x.go", explicitSource.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(explicitFile, firstExplicit, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+
+	dep := types.NewPackage("example.com/dep", "dep")
+	depSignature := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewParam(token.NoPos, dep, "", types.Typ[types.Int])), false)
+	dep.Scope().Insert(types.NewFunc(token.NoPos, dep, "F", depSignature))
+	dep.MarkComplete()
+	packageFiles := []*goast.File{defaultFile, explicitFile}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", packageFiles, fset, mapImporter{dep.Path(): dep}, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts(packageFiles, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
+	}
+
+	defaultImport, ok := info.Implicits[defaultFile.Imports[0]].(*types.PkgName)
+	if !ok {
+		t.Fatalf("default import object = %T, want *types.PkgName", info.Implicits[defaultFile.Imports[0]])
+	}
+	explicitImport, ok := info.Defs[explicitFile.Imports[0].Name].(*types.PkgName)
+	if !ok {
+		t.Fatalf("explicit import object = %T, want *types.PkgName", info.Defs[explicitFile.Imports[0].Name])
+	}
+	if defaultImport == explicitImport {
+		t.Fatal("default and explicit imports unexpectedly share one PkgName object")
+	}
+
+	defaultFact := facts[preprocessed.registry.byElement[defaultElement[0]]]
+	importedFact := facts[preprocessed.registry.byElement[targetElements[0]]]
+	shadowFact := facts[preprocessed.registry.byElement[targetElements[1]]]
+	for label, fact := range map[string]componentTargetFact{"default": defaultFact, "explicit": importedFact} {
+		if fact.provenance != targetPackageFunc || fact.raw == nil || len(fact.targetDiags) != 0 {
+			t.Errorf("%s import fact = %+v, want package function", label, fact)
+		}
+	}
+	defaultSelector := defaultFact.expr.(*goast.SelectorExpr)
+	importedSelector := importedFact.expr.(*goast.SelectorExpr)
+	shadowSelector := shadowFact.expr.(*goast.SelectorExpr)
+	if got := info.Uses[defaultSelector.X.(*goast.Ident)]; got != defaultImport {
+		t.Errorf("default qualifier object = %v, want exact implicit PkgName %v", got, defaultImport)
+	}
+	if got := info.Uses[importedSelector.X.(*goast.Ident)]; got != explicitImport {
+		t.Errorf("explicit qualifier object = %v, want exact defined PkgName %v", got, explicitImport)
+	}
+	shadowQualifier, ok := info.Uses[shadowSelector.X.(*goast.Ident)].(*types.Var)
+	if !ok {
+		t.Fatalf("shadow qualifier object = %T, want *types.Var", info.Uses[shadowSelector.X.(*goast.Ident)])
+	}
+	selection := info.Selections[shadowSelector]
+	if selection == nil || selection.Kind() != types.MethodVal {
+		t.Fatalf("shadow selector selection = %v, want MethodVal", selection)
+	}
+	if shadowFact.provenance != targetConcreteMethodValue || shadowFact.raw == nil || len(shadowFact.targetDiags) != 0 {
+		t.Fatalf("shadow fact = %+v, want accepted concrete MethodVal for %v", shadowFact, shadowQualifier)
+	}
+}
+
+func TestHarvestComponentTargetsRejectsPromotedInterfaceMethod(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "promoted-interface.gsx", `package p
+component Page() { <receiver.M/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"promoted-interface.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var source strings.Builder
+	source.WriteString(`package p
+type Contract interface{ M() int }
+type Promoted struct{ Contract }
+func _probe(receiver Promoted) {
+`)
+	if err := markers.emitBinding(&source, preprocessed.registry.records[0].element, fset); err != nil {
+		t.Fatal(err)
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "promoted-interface.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
+	}
+	fact := facts[preprocessed.registry.records[0].id]
+	if !fact.hasSelection || fact.selectionKind != types.MethodVal {
+		t.Fatalf("promoted interface fact selection = %+v, want MethodVal metadata", fact)
+	}
+	if fact.object != nil || fact.origin != nil || fact.raw != nil || fact.provenance != 0 || len(fact.targetDiags) != 1 || fact.targetDiags[0].Code != "invalid-component-target" || !strings.Contains(fact.targetDiags[0].Message, "interface") {
+		t.Fatalf("promoted interface fact = %+v, want one interface-dispatch rejection", fact)
+	}
+}
+
+func TestHarvestComponentTargetsKeepsValidSiblingWhenTargetSyntaxIsInvalid(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "syntax-sibling.gsx", `package p
+component Page() { <F[!]/><Package/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"syntax-sibling.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var source strings.Builder
+	source.WriteString("package p\nfunc Package() int { return 0 }\nfunc _probe() {\n")
+	for _, record := range preprocessed.registry.records {
+		if err := markers.emitBinding(&source, record.element, fset); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "syntax-sibling.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
+	}
+	if len(facts) != len(preprocessed.registry.records) {
+		t.Fatalf("facts = %d, want total %d", len(facts), len(preprocessed.registry.records))
+	}
+	for _, record := range preprocessed.registry.records {
+		fact := facts[record.id]
+		switch record.element.Tag {
+		case "F":
+			if fact.expr != nil || len(fact.targetDiags) != 1 || fact.targetDiags[0].Code != "parse-error" || fact.targetDiags[0].Source != "parser" {
+				t.Errorf("syntax-invalid F fact = %+v, want one parser diagnostic", fact)
+			}
+		case "Package":
+			if fact.provenance != targetPackageFunc || fact.raw == nil || len(fact.targetDiags) != 0 {
+				t.Errorf("valid Package sibling fact = %+v, want accepted package function", fact)
+			}
+		}
+	}
+}
+
+func TestHarvestComponentTargetsPartitionsMultipleMarkersAndUnrelatedError(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "partition.gsx", `package p
+component Page() { <MissingOne/><MissingTwo/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"partition.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var source strings.Builder
+	source.WriteString("package p\nvar _ = MissingOutside\nfunc _probe() {\n")
+	for _, record := range preprocessed.registry.records {
+		if err := markers.emitBinding(&source, record.element, fset); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "partition.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != len(preprocessed.registry.records) {
+		t.Fatalf("facts = %d, want total %d", len(facts), len(preprocessed.registry.records))
+	}
+	for _, record := range preprocessed.registry.records {
+		fact := facts[record.id]
+		want := "undefined: " + record.element.Tag
+		if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "types" || fact.targetDiags[0].Message != want {
+			t.Errorf("<%s> diagnostics = %+v, want only %q", record.element.Tag, fact.targetDiags, want)
+		}
+	}
+	if len(unrelated) != 1 || unrelated[0].Msg != "undefined: MissingOutside" {
+		t.Fatalf("unrelated errors = %+v, want only MissingOutside", unrelated)
+	}
+}
+
+func TestHarvestComponentTargetsRetainsPartialGenericPrefixAndRequiresCleanInstance(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "generic.gsx", `package p
+component Page() {
+	<Pair/><Pair[int]/><Pair[int,string]/><IntOnly[string]/>
+}
+`)
+	runGenericTargetHarvestTest(t, fset, file)
+}
+
+func TestHarvestComponentTargetsDoesNotDuplicateLookupFailure(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "missing.gsx", `package p
+component Page() { <Missing/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"missing.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	source.WriteString("package p\nfunc _probe() {\n")
+	if err := markers.emitBinding(&source, preprocessed.registry.records[0].element, fset); err != nil {
+		t.Fatal(err)
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "missing.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
+	}
+	fact := facts[1]
+	if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "types" || fact.targetDiags[0].Message != "undefined: Missing" {
+		t.Fatalf("lookup diagnostics = %+v, want one native checker error", fact.targetDiags)
+	}
+}
+
+func targetTestImporter() types.Importer {
+	namedInterface := func(pkg *types.Package, name string) *types.Named {
+		object := types.NewTypeName(token.NoPos, pkg, name, nil)
+		named := types.NewNamed(object, types.NewInterfaceType(nil, nil).Complete(), nil)
+		pkg.Scope().Insert(object)
+		return named
+	}
+	runtimePkg := types.NewPackage("github.com/gsxhq/gsx", "gsx")
+	namedInterface(runtimePkg, "Node")
+	runtimePkg.MarkComplete()
+	contextPkg := types.NewPackage("context", "context")
+	namedInterface(contextPkg, "Context")
+	contextPkg.MarkComplete()
+	return mapImporter{
+		runtimePkg.Path(): runtimePkg,
+		contextPkg.Path(): contextPkg,
+	}
+}
+
+func TestTargetDiscoverySkeletonUsesVerbatimSignatureAndPreservesNestedScopes(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "discovery.gsx", `package p
+import "github.com/gsxhq/gsx"
+type Concrete struct{}
+func (Concrete) M() int { return 0 }
+func Package() int { return 0 }
+var Top = func(Inner Concrete) gsx.Node { return <Inner.M/> }(Concrete{})
+
+component Page(Receiver Concrete, Local func() int) {
+	<Package/><Receiver.M/><Local/>
+	{ func(Inner Concrete) gsx.Node { return <Inner.M/> }(Receiver) }
+}
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"discovery.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, nil, nil, nil, nil, nil, fset, bag, markers, newComponentTargetPlan(map[string]*gsxast.File{"discovery.gsx": file}, nil, bag), skeletonTargetDiscovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(skeleton.source, "func Page(Receiver Concrete, Local func() int) _gsxrt.Node") {
+		t.Fatalf("target skeleton does not preserve authored signature:\n%s", skeleton.source)
+	}
+	if strings.Contains(skeleton.source, "PageProps") || strings.Contains(skeleton.source, "_gsxp") {
+		t.Fatalf("target skeleton leaked shipping Props ABI:\n%s", skeleton.source)
+	}
+	if err := markers.validateComplete(); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := goparser.ParseFile(fset, "discovery.target.x.go", skeleton.source, goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	prelude, err := goparser.ParseFile(fset, "_gsxtarget_shared.x.go", analysisPreludeSource("p"), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageFiles := []*goast.File{parsed, prelude}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", packageFiles, fset, targetTestImporter(), componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts(packageFiles, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		for _, typeErr := range unrelated {
+			t.Logf("unrelated: %s", typeErr)
+		}
+		t.Fatalf("target discovery produced %d unrelated type errors", len(unrelated))
+	}
+	if len(facts) != 5 {
+		t.Fatalf("facts = %d, want Top Inner.M + Package + Receiver.M + Local + nested Inner.M", len(facts))
+	}
+	for _, record := range preprocessed.registry.records {
+		fact := facts[record.id]
+		switch record.element.Tag {
+		case "Package":
+			if fact.provenance != targetPackageFunc {
+				t.Errorf("Package provenance = %d, want package func", fact.provenance)
+			}
+		case "Receiver.M", "Inner.M":
+			if fact.provenance != targetConcreteMethodValue {
+				t.Errorf("%s provenance = %d, want concrete method value; diagnostics=%+v", record.element.Tag, fact.provenance, fact.targetDiags)
+			}
+		case "Local":
+			if fact.object != nil || fact.origin != nil || fact.raw != nil || fact.provenance != 0 || len(fact.targetDiags) != 1 || fact.targetDiags[0].Code != "invalid-component-target" {
+				t.Errorf("Local fact = %+v, want one rejected-parameter diagnostic", fact)
+			}
+		}
+	}
+}
+
+func TestHarvestComponentTargetsRetainsNativeErrorForRejectedProvenance(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "field.gsx", `package p
+component Page() { <Field.Fn[int]/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"field.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	source.WriteString("package p\ntype Holder struct{ Fn func() int }\nfunc _probe(Field Holder) {\n")
+	if err := markers.emitBinding(&source, preprocessed.registry.records[0].element, fset); err != nil {
+		t.Fatal(err)
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "field.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated errors = %+v", unrelated)
+	}
+	diagnostics := facts[preprocessed.registry.records[0].id].targetDiags
+	if len(diagnostics) != 2 {
+		t.Fatalf("target diagnostics = %+v, want provenance guidance and the native index error", diagnostics)
+	}
+	if diagnostics[0].Code != "invalid-component-target" || diagnostics[1].Source != "types" || !strings.Contains(diagnostics[1].Message, "cannot index") {
+		t.Fatalf("target diagnostics = %+v, want GSX provenance then native cannot-index error", diagnostics)
+	}
+}
+
+func TestTargetDiscoverySkeletonKeepsHelpersInOnePackagePrelude(t *testing.T) {
+	fset := token.NewFileSet()
+	files := map[string]*gsxast.File{
+		"a.gsx": parseTargetTestFile(t, fset, "a.gsx", "package p\ncomponent A() { <div/> }\n"),
+		"b.gsx": parseTargetTestFile(t, fset, "b.gsx", "package p\ncomponent B() { <span/> }\n"),
+	}
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(files, map[string]bool{"A": true, "B": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var parsed []*goast.File
+	plan := newComponentTargetPlan(files, nil, bag)
+	for _, path := range []string{"a.gsx", "b.gsx"} {
+		first := len(markers.ordered)
+		skeleton, err := buildComponentTargetSkeleton(files[path], funcTables{}, nil, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(skeleton.source, "func _gsxuse") {
+			t.Fatalf("%s contains package helper declarations; want one shared prelude:\n%s", path, skeleton.source)
+		}
+		file, err := goparser.ParseFile(fset, strings.TrimSuffix(path, ".gsx")+".target.x.go", skeleton.source, goparser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := bindComponentTargetMarkers(file, first, fset, markers); err != nil {
+			t.Fatal(err)
+		}
+		parsed = append(parsed, file)
+	}
+	prelude, err := goparser.ParseFile(fset, "_gsxtarget_shared.x.go", analysisPreludeSource("p"), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed = append(parsed, prelude)
+	_, _, typeErrs := checkComponentTargetPackage("example.com/p", "p", parsed, fset, targetTestImporter(), componentTargetCheckConfig{})
+	if len(typeErrs) != 0 {
+		t.Fatalf("two-file target package errors = %+v", typeErrs)
+	}
+}
+
+func TestTargetComponentPlanEmitsOnePublicDeclarationAndEveryVariantBody(t *testing.T) {
+	fset := token.NewFileSet()
+	files := map[string]*gsxast.File{
+		"a.gsx": parseTargetTestFile(t, fset, "a.gsx", `//go:build variantA
+
+package p
+component First() { <span/> }
+component Card[T any](value T) { <First/> }
+`),
+		"b.gsx": parseTargetTestFile(t, fset, "b.gsx", `//go:build variantB
+
+package p
+component Second() { <span/> }
+component Card[T any](value T) { <Second/> }
+`),
+	}
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(files, map[string]bool{"First": true, "Second": true, "Card": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preprocessed.analysisReady() {
+		t.Fatalf("preprocessing failed: %+v", bag.Sorted())
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := newComponentTargetPlan(files, nil, bag)
+	var sources strings.Builder
+	var parsed []*goast.File
+	for _, path := range []string{"a.gsx", "b.gsx"} {
+		first := len(markers.ordered)
+		skeleton, err := buildComponentTargetSkeleton(files[path], funcTables{}, nil, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sources.WriteString(skeleton.source)
+		file, err := goparser.ParseFile(fset, strings.TrimSuffix(path, ".gsx")+".target.x.go", skeleton.source, goparser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := bindComponentTargetMarkers(file, first, fset, markers); err != nil {
+			t.Fatal(err)
+		}
+		parsed = append(parsed, file)
+	}
+	if got := strings.Count(sources.String(), "func Card["); got != 1 {
+		t.Fatalf("public Card declarations = %d, want one\n%s", got, sources.String())
+	}
+	if got := strings.Count(sources.String(), "func _gsxtargetbody"); got != 2 {
+		t.Fatalf("variant body declarations = %d, want two\n%s", got, sources.String())
+	}
+	prelude, err := goparser.ParseFile(fset, "_gsxtarget_shared.x.go", analysisPreludeSource("p"), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed = append(parsed, prelude)
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", parsed, fset, targetTestImporter(), componentTargetCheckConfig{})
+	if len(typeErrs) != 0 {
+		t.Fatalf("variant target package errors = %+v", typeErrs)
+	}
+	facts, unrelated, err := harvestComponentTargetFacts(parsed, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 || len(facts) != 2 {
+		t.Fatalf("variant facts=%d unrelated=%+v, want both body targets", len(facts), unrelated)
+	}
+	for _, fact := range facts {
+		if fact.provenance != targetPackageFunc || len(fact.targetDiags) != 0 {
+			t.Fatalf("variant body fact = %+v, want accepted package function", fact)
+		}
+	}
+}
+
+func runGenericTargetHarvestTest(t *testing.T, fset *token.FileSet, file *gsxast.File) {
+	t.Helper()
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"generic.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	source.WriteString(`package p
+func Pair[A, B any](a A, b B) int { return 0 }
+func IntOnly[T ~int](value T) int { return 0 }
+func _probe() {
+`)
+	for _, record := range preprocessed.registry.records {
+		if err := markers.emitBinding(&source, record.element, fset); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source.WriteString("}\n")
+	parsed, err := goparser.ParseFile(fset, "generic.target.x.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
+		t.Fatal(err)
+	}
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelated) != 0 {
+		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
+	}
+
+	byArgs := map[string]componentTargetFact{}
+	for _, record := range preprocessed.registry.records {
+		byArgs[record.element.Tag+"["+record.element.TypeArgs+"]"] = facts[record.id]
+	}
+	for key, wantArgs := range map[string]int{"Pair[]": 0, "Pair[int]": 1} {
+		fact := byArgs[key]
+		if fact.raw == nil || fact.provenance != targetPackageFunc || len(fact.authoredTypeArgs) != wantArgs || fact.explicitInstance != nil || len(fact.targetDiags) != 0 {
+			t.Errorf("partial %s fact = %+v, want raw generic callable, %d authored args, no completed instance/diagnostic", key, fact, wantArgs)
+		}
+	}
+	full := byArgs["Pair[int,string]"]
+	if full.raw == nil || full.explicitInstance == nil || full.effectiveSignature() == full.raw || len(full.targetDiags) != 0 {
+		t.Errorf("full Pair instance fact = %+v, want clean completed instance", full)
+	}
+	invalid := byArgs["IntOnly[string]"]
+	if invalid.raw == nil || invalid.explicitInstance != nil || len(invalid.targetDiags) == 0 {
+		t.Errorf("constraint-invalid fact = %+v, want raw callable, deferred error, and no completed instance", invalid)
+	}
+}
 
 func parseTargetTestFile(t *testing.T, fset *token.FileSet, path, src string) *gsxast.File {
 	t.Helper()
@@ -192,7 +1181,7 @@ component Page() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, _, _, err := buildSkeleton(file, funcTables{}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, bag, nil, skeletonFull); err != nil {
+	if _, _, _, _, _, _, err := buildSkeleton(file, funcTables{}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, bag, nil, nil, skeletonFull); err != nil {
 		t.Fatal(err)
 	}
 	var embeddedAgain []*gsxast.Element
@@ -986,11 +1975,44 @@ component Page() { { wrap(<Nested/>) } }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, _, _, err := buildSkeleton(file, funcTables{}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, diag.NewBag(fset), nil, skeletonFull); err != nil {
+	if _, _, _, _, _, _, err := buildSkeleton(file, funcTables{}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, diag.NewBag(fset), nil, nil, skeletonFull); err != nil {
 		t.Fatal(err)
 	}
 	if interp.Embedded != nil {
 		t.Fatal("buildSkeleton mutated Interp.Embedded; preprocessing must be the only materializer")
+	}
+}
+
+func TestTargetDiscoveryDeclarationFailureIsDiagnosticNotMarkerInvariant(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "views.gsx", `package views
+component (broken) Page() { <Widget/> }
+`)
+	files := map[string]*gsxast.File{"views.gsx": file}
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(files, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preprocessed.analysisReady() {
+		t.Fatalf("preprocessing failed: %v", bag.Sorted())
+	}
+	targets, err := newComponentTargetMarkerRegistry(preprocessed.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetBag := diag.NewBag(fset)
+	if _, err := buildComponentTargetSkeleton(
+		file, funcTables{}, nil, nil, nil, nil, nil, fset, targetBag, targets, newComponentTargetPlan(files, nil, targetBag), skeletonTargetDiscovery,
+	); err != nil {
+		t.Fatalf("target skeleton returned an infrastructure error: %v", err)
+	}
+	diagnostics := targetBag.Sorted()
+	if len(diagnostics) != 1 || diagnostics[0].Code != "invalid-recv" {
+		t.Fatalf("target diagnostics = %+v, want one invalid-recv error", diagnostics)
+	}
+	if err := targets.validateComplete(); err == nil {
+		t.Fatal("skipped invalid declaration unexpectedly produced its nested target marker")
 	}
 }
 

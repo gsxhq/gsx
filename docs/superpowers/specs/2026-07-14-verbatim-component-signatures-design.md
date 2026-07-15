@@ -619,11 +619,70 @@ importer's on-disk `.x.go`, so ignoring only directly paired output is
 insufficient. In normal module mode, the existing single cold `packages.Load`
 adds `NeedCompiledGoFiles` and `NeedSyntax` and retains each project-local Go-only
 package's `CompiledGoFiles`/`Syntax` inventory in that load's exact build context.
-When such a package is reachable during analysis, those compiled files are
-source-type-checked through the same module importer, so any gsx package they
-import resolves from the authoritative in-memory skeleton. Cache and reverse-
-dependency edges include those intermediaries; a warm gsx-signature edit
-rechecks the retained syntax without another load.
+Before that same load classifies packages, every on-disk `.x.go` paired with an
+authoritative `.gsx` source is overlaid with a contradictory Go build constraint
+and therefore excluded for every possible tag assignment. Stale wrong-package
+clauses and syntax errors therefore cannot poison package selection, while the
+Go command remains the authority for the active compiled-file set.
+The same pre-load manifest adds one declaration-free synthetic Go sentinel per
+valid GSX package, then filters that sentinel out of the retained companion
+inventory. A GSX-only package is therefore represented as an explicit empty
+compiled-file set rather than an error-text exception. Each owned GSX package is
+also an exact load root, including packages below `testdata` or underscore-
+prefixed directories that `./...` omits, and every import authored in GSX is an
+explicit load root so deleting generated output cannot erase dependency
+discovery. Nested modules and `vendor` trees are excluded before any overlay or
+load root is created.
+Retained package identity is accepted only when both the clean absolute directory
+and `importPathForDir` match the loaded package, so a nested module cannot enter
+the parent module's source inventory. That cold validation also publishes the
+authoritative import-path-to-directory index used by every warm exact import and
+dependency-edge update; warm analysis never repeats filesystem package
+discovery. The retained syntax—not a later disk reparse—is source-checked by the
+exact importer; cgo-transformed compiled files therefore follow the same
+authoritative path.
+When any retained module-local package is reachable during analysis, its
+compiled files are source-type-checked through the exact importer rather than
+reusing the cold load's best-effort `Types`. This includes Go-only intermediaries,
+so a `gsx → Go-only → gsx` path resolves the final package from the authoritative
+in-memory skeleton. Cache and reverse-dependency edges include every such
+intermediary; a warm gsx-signature edit rechecks the retained syntax without
+another load.
+
+A `Module` freezes the process build environment used by its cold load. A caller
+that changes build environment creates a new Module. If an unsaved, newly-created
+`.gsx` source claims a paired `.x.go` after the inventory already exists, the next
+analysis atomically rebuilds the FileSet, external importer, source inventory, and
+all position-bearing package caches before proceeding; it never continues with
+the stale file selection. Package-path membership, package-clause changes, and
+the sorted GSX import surface are versioned independently from body content.
+Package/path changes rebuild the manifest. Import additions rebuild only when
+the published cold importer cannot already supply the new path; removals and
+already-published additions safely retain that exact known-path superset. A
+body-only edit preserves the one-load warm path. An epoch check around the cold
+load prevents a concurrent override from publishing a stale manifest.
+
+The normal resolver owns one virtual source view for both Go package discovery
+and syntax loading. It therefore rejects an effective `GOFLAGS=-overlay=...`
+before the cold load. Go overlays can represent deletion while
+`packages.Config.Overlay` can represent only replacement bytes; composing just
+the non-deletion subset would make `go list` and `go/packages` parse different
+files. The check uses the Go command's effective `GOFLAGS`, including a value
+persisted by `go env -w` and cmd/go's last-flag-wins behavior, and does not
+silently ignore, replace, or partially materialize a user overlay. First-class
+interoperability requires a separate deletion-aware loader shared by package
+discovery and parsing.
+
+For the same reason, normal mode rejects an effective external
+`GOPACKAGESDRIVER`, whether configured explicitly or discovered on the frozen
+Open-time `PATH`.
+External drivers have implementation-defined overlay support and cannot satisfy
+this resolver's authoritative Go-command inventory contract implicitly. Only
+after proving no configured or frozen-PATH driver was effective does gsx pin
+`GOPACKAGESDRIVER=off` in the load environment, preventing x/tools from
+re-evaluating a later live `PATH`; this does not hide configured driver state.
+Bundle mode is unaffected by either boundary because it performs no
+`packages.Load`.
 
 Bundle mode deliberately carries prebuilt types but no authoritative project
 source/build inventory. It continues to support its existing single-gsx-package
@@ -692,8 +751,15 @@ ABI. No emitted compatibility wrapper is introduced.
    positioned diagnostic, rather than making the package skeleton unparseable.
    The target-discovery skeleton records
    each site's origin generic signature/object provenance and
-   `types.Selection.Kind`, tolerating only the registered expected diagnostic for
-   an uninstantiated generic target. After authored operands are bound, the
+   `types.Selection.Kind`. For a `MethodVal`, `Selection.Type()` is the raw call
+   contract: its callable parameters omit/substitute the receiver even though
+   `Signature.Recv()` metadata remains present. `MethodExpr` rejection remains
+   unconditional even when go/types records a receiver-free explicit instance.
+   Tolerate an incomplete generic target only when structure proves it: the
+   supplier resolves to the raw generic function/method, the authored prefix is
+   shorter than the target type-parameter arity, and the sole site-local error
+   is at the exact raw target-expression start. Do not inspect diagnostic text;
+   all other target errors remain deferred. After authored operands are bound, the
    inference carrier described above records the completed instance; a positional
    skeleton validates the zero-filled call. Facts are keyed by call-site ID/AST
    identity, never tag text, so shadowed selectors, repeated tags, bound method
@@ -749,15 +815,33 @@ ABI. No emitted compatibility wrapper is introduced.
    but gsx does not offer rename for them: inactive Go build variants are owned by
    the Go tool/gopls and cannot be safely fan-out edited from gsx's all-source
    variant model.
-6. **Build-tag variant collision.** `variantcollide.go:componentSignature`
-   currently sorts props and treats reordered declarations as equivalent. It must
-   compare **ordered** parameter names, types, variadic position, and reserved
-   roles — reorder/rename are now contract changes. Grouped and ungrouped forms
-   with the same logical ordered parameters are equivalent. Each receiver,
-   constraint, and parameter type compares its normalized Go source spelling,
-   not alias-resolved semantic identity, so `Alias` and its expansion differ.
-   This is deliberately strict and avoids loading mutually exclusive variants
-   merely to suppress a redeclaration diagnostic.
+6. **Component-only build variants.** A duplicate component forms a logical
+   variant family only when every declaration's generated `.x.go` has an
+   effective Go constraint: a valid `//go:build`, legacy `// +build`, or a
+   recognized GOOS/GOARCH filename constraint. Same-file duplicates,
+   unconstrained duplicates, and mixed constrained/unconstrained duplicates are
+   hard errors. gsx does not try to prove constraints disjoint; the Go command
+   remains responsible for rejecting a concrete build configuration that
+   selects zero or multiple alternatives.
+
+   Variant signatures are checked under unique in-memory names before one public
+   representative is chosen. The contract requires an exact ordered value-
+   parameter name/role vector, `types.Identical` function signatures, and
+   separately `types.Identical` receiver types because Go signature identity
+   ignores receivers and parameter names. Type-parameter names may be alpha-
+   renamed. Import aliases and type spelling are not identity: two spellings of
+   the same semantic type match, while the same spelling bound to different
+   packages does not. Syntax-normalized declaration text remains only a
+   deterministic parse/cache key, never an acceptance shortcut.
+
+   Only component declarations receive logical variant treatment. Raw Go
+   functions, methods, types, variables, and constants are never covered by a
+   cross-file redeclaration suppressor; alternative implementations belong in
+   ordinary constrained `.go` files behind one stable package API. Every GSX
+   source, including inactive variants, is analyzed in one frozen Go universe,
+   so a platform-only import used directly by an inactive `.gsx` file is an
+   error. Supporting divergent platform import universes would require a
+   separate multi-context analyzer, not skipped imports or textual inference.
 
 ## Testing
 

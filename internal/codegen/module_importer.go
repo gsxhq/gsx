@@ -186,7 +186,10 @@ func (mi *moduleImporter) Import(path string) (*types.Package, error) {
 }
 
 // reverseClosure returns the reverse-reflexive-transitive closure of seeds over
-// importedBy: each seed plus every dir that transitively imports it. Assumes m.mu.
+// both independent analysis graphs. Walking both edge sets at every visited
+// node is required for alternating paths (target edge followed by shipping
+// edge); a union of two separately computed closures would miss those paths.
+// Assumes m.mu.
 func (m *Module) reverseClosure(seeds []string) map[string]bool {
 	out := map[string]bool{}
 	stack := append([]string(nil), seeds...)
@@ -198,6 +201,11 @@ func (m *Module) reverseClosure(seeds []string) map[string]bool {
 		}
 		out[d] = true
 		for importer := range m.importedBy[d] {
+			if !out[importer] {
+				stack = append(stack, importer)
+			}
+		}
+		for importer := range m.targetImportedBy[d] {
 			if !out[importer] {
 				stack = append(stack, importer)
 			}
@@ -218,6 +226,7 @@ func (m *Module) invalidateRendererStateLocked() {
 	m.rendererTbl, m.rendererTblErr, m.rendererTblDone = nil, nil, false
 	m.dirFuncTbls = map[string]funcTables{}
 	m.pkgTypes = map[string]*types.Package{}
+	m.targetDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 	m.depFacts = map[string]*depPropFacts{}
 }
@@ -234,6 +243,7 @@ func (m *Module) invalidateLocked(dirs []string) {
 	}
 	for d := range m.reverseClosure(dirs) {
 		delete(m.pkgTypes, d)
+		delete(m.targetDeclTypes, d)
 		delete(m.pkgResults, d)
 		delete(m.depFacts, d)
 	}
@@ -376,6 +386,40 @@ func (m *Module) recordImports(dir string, paths []string) {
 		m.importedBy[dd][dir] = true
 	}
 	m.imports[dir] = newDeps
+}
+
+// recordTargetImports replaces one package's edges in the exact-target
+// declaration graph. It is deliberately separate from recordImports: shipping
+// and target analysis publish at different successful boundaries, so either
+// phase replacing a shared edge set could discard dependencies owned by the
+// other phase.
+func (m *Module) recordTargetImports(dir string, paths []string) {
+	deps := map[string]bool{}
+	for _, path := range paths {
+		if depDir, ok := m.exactTargetPackageDir(path); ok {
+			deps[depDir] = true
+		}
+	}
+	newDeps := make([]string, 0, len(deps))
+	for depDir := range deps {
+		newDeps = append(newDeps, depDir)
+	}
+	sort.Strings(newDeps)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, old := range m.targetImports[dir] {
+		if importers := m.targetImportedBy[old]; importers != nil {
+			delete(importers, dir)
+		}
+	}
+	for _, depDir := range newDeps {
+		if m.targetImportedBy[depDir] == nil {
+			m.targetImportedBy[depDir] = map[string]bool{}
+		}
+		m.targetImportedBy[depDir][dir] = true
+	}
+	m.targetImports[dir] = newDeps
 }
 
 // depPropFacts is the cached per-dep-dir prop-fact bundle consumed by the
@@ -732,6 +776,9 @@ type analyzed struct {
 	// consumes either the complete package registry or no registry, never a
 	// partially active set with missing skeleton markers.
 	callSites          *callSiteRegistry
+	targetFacts        map[callSiteID]componentTargetFact
+	targetErrs         []types.Error         // target-phase-fatal type errors retained privately until exact call planning becomes authoritative
+	targetDiagnostics  []diag.Diagnostic     // target-phase-fatal source diagnostics retained on the same private boundary
 	factsByFile        map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
 	resolved           map[gsxast.Node]types.Type
 	exprMap            map[gsxast.Node]goast.Expr
@@ -862,6 +909,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 		callSites = nil
 	}
+	componentPlan := newComponentTargetPlan(gsxFiles, parsed.sources, bag)
+	if componentPlan.invalidMembership {
+		gsxFiles = nil
+		callSites = nil
+	}
 	// Mutual wrapper cycles (A unconditionally renders <B>, B unconditionally
 	// renders <A>) compile clean — self-exclusion only breaks a DIRECT
 	// self-loop — but recurse forever at render. Must run after every
@@ -978,7 +1030,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			skelErr = true
 			break
 		}
-		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, skeletonFull)
+		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, &componentPlan, skeletonFull)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -1034,6 +1086,47 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
 		callSites = nil
 	}
+	pkgPath := dir
+	if path, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
+		pkgPath = path
+	}
+	var targetFacts map[callSiteID]componentTargetFact
+	var targetErrs []types.Error
+	var targetDiagnostics []diag.Diagnostic
+	if callSites.hasPlanned() || len(componentPlan.families) != 0 {
+		targetImporter := newComponentTargetImporter(m, mi.external)
+		// The root discovery package is not a declaration-cache entry, but it is
+		// part of this importer's active recursion stack. A dependency importing
+		// it is a real cycle and must not recurse into a second root skeleton.
+		targetImporter.loading[dir] = true
+		targetBag := diag.NewBag(fset)
+		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
+			m,
+			dir, pkgPath,
+			pkgName, gsxFiles, componentPlan, callSites, table, factsByFile, m.opts.FieldMatcher,
+			fset, targetBag, targetImporter,
+		)
+		delete(targetImporter.loading, dir)
+		if targetErr != nil {
+			return nil, targetErr
+		}
+		if len(targetResult.diagnostics) == 0 && len(unrelatedTargetErrs) == 0 {
+			targetFacts = targetResult.facts
+			m.recordTargetImports(dir, targetResult.imports)
+		} else {
+			// The target phase itself fails closed: partial facts and graph edges
+			// cannot escape. During the ABI-neutral foundation tasks, shipping
+			// analysis remains the sole diagnostic authority; Task 5 consumes this
+			// retained error set when exact call planning becomes authoritative.
+			targetErrs = append(targetErrs, unrelatedTargetErrs...)
+			targetDiagnostics = append(targetDiagnostics, targetResult.diagnostics...)
+			for _, diagnostic := range targetResult.diagnostics {
+				if diagnostic.Code == "duplicate-component" {
+					bag.Add(diagnostic)
+				}
+			}
+		}
+	}
 	// Shared _gsxuse/_gsxcompsig helpers, added to every package's overlay.
 	//
 	// _gsxunwrap's trailing parameter is `...any` (not `...error`): it must NOT
@@ -1068,8 +1161,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// hole expression that itself returns a (T, error) tuple, exactly like
 	// _gsxunwrap's shape.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
-	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxusen(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxstr(any, ...any) string { return \"\" }\nfunc _gsxelem(int) {}\n", goparser.SkipObjectResolution)
+	helper, _ := goparser.ParseFile(fset, helperXgoPath, analysisPreludeSource(pkgName), goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)
@@ -1127,10 +1219,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// "corpustest/cases/pkg.Widget", while types.NewPackage(absDir, ...) would
 	// produce the raw filesystem path. normalizeDiagPaths would then strip only
 	// the temp-dir prefix, leaving "cases/pkg.Widget" instead of "corpustest/cases/pkg.Widget".
-	pkgPath := dir
-	if ip, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
-		pkgPath = ip
-	}
 	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
 	// Filter SPURIOUS unused-import errors caused by a requalification-failed
 	// generic tag's skeleton sink (see the sunkImports doc above): the import
@@ -1171,17 +1259,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		typeErrs = kept
 	}
-	// Tolerate cross-file duplicate top-level decls (same-name build-tag
-	// variants — components or helpers). gsx does not parse build tags; go
-	// build filters by tag and is the arbiter of a real same-config duplicate.
-	// Runs before the diagnostics loop below so a tolerated redeclaration never
-	// becomes a bag diagnostic AND never lands in the stored a.typeErrs (which
-	// gates emission). Within-file redeclarations are untouched — the
-	// within-file fact comes from the skeleton ASTs (collectRedeclFacts), not
-	// the go/types error positions, since the checker anchors every
-	// redeclaration to the globally-first decl and gsx's file order is
-	// nondeterministic.
-	typeErrs = suppressCrossFileRedeclarations(typeErrs, collectRedeclFacts(goFiles, fset))
 	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
 	// element-spread harvest probe. Each expression is also checked in a native
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
@@ -1281,7 +1358,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		if !ok {
 			continue
 		}
-		harvest(gf, comps, info, resolved, exprMap, inferByXGo[fname])
+		harvest(gf, comps, info, resolved, exprMap, inferByXGo[fname], &componentPlan)
 		// Second pass for this file's GoWithElements-embedded values (see
 		// buildSkeleton's gwMarkups doc): resolve each inline `_gsxelem(N)`-
 		// marked IIFE's probe calls back onto the embedded value's own markup
@@ -1361,24 +1438,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 	}
 
-	// A same-name component declared with DIFFERENT signatures across files is a
-	// genuine ambiguity (its cross-file redeclaration was suppressed above, so
-	// nothing else will flag it). Report a clean duplicate-component error at
-	// each site and record the conflict so emission is blocked (module.go gates
-	// on len(signatureConflicts)==0 as well as len(typeErrs)==0).
-	sigConflicts := detectSignatureConflicts(gsxFiles)
-	for _, sc := range sigConflicts {
-		var files []string
-		for _, cc := range sc.comps {
-			files = append(files, filepath.Base(cc.path))
-		}
-		for _, cc := range sc.comps {
-			bag.Errorf(cc.comp.NamePos, cc.comp.NamePos+token.Pos(len(cc.comp.Name)), "duplicate-component",
-				"component %s is declared with different signatures across build-tagged files (%s); build-tag variants must share the same signature — rename the variants or align their parameters",
-				cc.comp.Name, strings.Join(files, ", "))
-		}
-	}
-
 	// Unused imports for the LSP surface (Package's PackageResult.UnusedImports),
 	// computed from the skeletons this loop already built and the package
 	// already type-checked above — no extra parse, no lock, no packages.Load.
@@ -1409,6 +1468,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		attrsProps:         attrsProps,
 		byo:                byo,
 		callSites:          callSites,
+		targetFacts:        targetFacts,
+		targetErrs:         targetErrs,
+		targetDiagnostics:  targetDiagnostics,
 		factsByFile:        factsByFile,
 		resolved:           resolved,
 		exprMap:            exprMap,
@@ -1422,7 +1484,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		importSpecs:        allImportSpecs,
 		typeErrs:           typeErrs,
 		sunkImports:        confirmedSunk,
-		signatureConflicts: sigConflicts,
+		signatureConflicts: nil,
 		unusedImports:      unusedImports,
 		missingImports:     missingImports,
 	}, nil
@@ -1634,6 +1696,7 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 	}
 	m.mu.Unlock()
 	files := map[string]*gsxast.File{}
+	sources := map[string][]byte{}
 	pkgName := ""
 	classifier := m.classifierFor(dir)
 	for p := range paths {
@@ -1663,9 +1726,10 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 		}
 		wsnorm.Normalize(f)
 		files[p] = f
+		sources[p] = append([]byte(nil), src...)
 		pkgName = f.Package
 	}
-	return newParsedGSXPackage(pkgName, files), nil
+	return newParsedGSXPackageWithSources(pkgName, files, sources), nil
 }
 
 // stripGsxunwrap removes all occurrences of _gsxunwrap(...) in s, replacing each
