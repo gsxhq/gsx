@@ -840,6 +840,31 @@ vocabulary remains a design aspiration, not the current API.
   slot to hoist into. A hoist-channel enhancement for GoBlocks (splitting
   statement boundaries so a hoist can land immediately before the consuming
   statement) would lift this; out of scope for this slice.
+- [ ] **Holey-body minify policy is not unified across the three sinks** - after
+  PR #120 (2026-07-15) each holey (`@{ }`-bearing) literal sink handles the safe
+  and full minify levels differently, an accreted asymmetry rather than a design:
+  - **js`` attr / Go-expression** (`minifyJSSegmentsHoley`): safe level REINDENTS
+    via `jsfmt.Format` (artifact removal, not minification — strips the gsx
+    formatting tabs so the value isn't absurdly deep in the whitespace-minified
+    HTML, matching MinifyNone rebase); full level cascade-minifies via the sentinel
+    round-trip. This is the fixed, intended shape.
+  - **css`` attr / `<style>`** (`minifyStyleChildren`): ALWAYS runs the built-in
+    `minifyCSS` on the sentinel string, at BOTH levels — so a holey CSS body is
+    fully minified even at the safe level (CSS has no ASI, so it's safe) AND the
+    external `ext` minifier is never reached for a holey body (the full level still
+    uses the built-in). Diverges from the js reindent-only safe policy and from
+    MinifyNone rebase (which dedents, keeping structure).
+  - **holey `<script>`** (`minifyScriptChildren`): left byte-for-byte unchanged at
+    EVERY level (returns early on any `*ast.Interp` before the `ext` check) — never
+    reindented, never minified. So it keeps the source's markup-level tabs even at
+    the safe level (inconsistent with de-indented holeless scripts) and is not
+    minified at the full level (unlike holey js attrs, which are).
+
+  Unifying would mean: the `<script>` and css`` holey paths adopt the same
+  safe=reindent / full=minify split the js`` attr path now has (the sentinel
+  round-trip already exists and is proven), and the css`` full level routes through
+  `ext`. Deferred deliberately in PR #120 (scope was the js safe-level artifact
+  removal only); no correctness bug today, just three policies where one would do.
 - [ ] **Corpus harness `-update` only fills pre-existing golden facets** -
   `checkOrUpdateFacet` (`internal/corpus/corpus_test.go`) only (re)writes a
   golden section on `-update` if that section header already exists in the
