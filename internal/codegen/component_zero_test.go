@@ -130,6 +130,39 @@ func TestInferAuthoredInstance(t *testing.T) {
 		}
 	})
 
+	t.Run("constraint violation with a complete instance is the native diagnostic", func(t *testing.T) {
+		// F[T int | float64](x T): supplying a string operand infers T=string,
+		// which go/types records as a complete instance UNDER a constraint error.
+		// That is a constraint failure, not incompleteness: the native
+		// component-constraint diagnostic is surfaced and no instance is returned
+		// (so lowering never zero-fills).
+		pkg := inferTestPkg()
+		number := types.NewInterfaceType(nil, []types.Type{
+			types.NewUnion([]*types.Term{
+				types.NewTerm(false, types.Typ[types.Int]),
+				types.NewTerm(false, types.Typ[types.Float64]),
+			}),
+		}).Complete()
+		tp := newTypeParam(pkg, "T", number)
+		raw := types.NewSignatureType(nil, nil, []*types.TypeParam{tp},
+			types.NewTuple(types.NewVar(token.NoPos, pkg, "x", tp)),
+			types.NewTuple(types.NewVar(token.NoPos, pkg, "", types.Typ[types.Bool])), false)
+		fact := componentTargetFact{raw: raw}
+		ops := []suppliedOperand{{paramIndex: 0, tv: types.TypeAndValue{Type: types.Typ[types.String]}}}
+		inst, diags := inferAuthoredInstance(inferenceContext{pkg: pkg}, fact, ops)
+		if inst.Type != nil {
+			t.Fatalf("a constraint violation must not zero-fill; got instance %v", inst.Type)
+		}
+		if len(diags) == 0 {
+			t.Fatal("want a native constraint diagnostic, got none")
+		}
+		for _, d := range diags {
+			if d.Code != "component-constraint" {
+				t.Fatalf("want component-constraint diagnostics, got %+v", diags)
+			}
+		}
+	})
+
 	t.Run("non-generic target returns raw", func(t *testing.T) {
 		pkg := inferTestPkg()
 		raw := types.NewSignatureType(nil, nil, nil,
@@ -379,6 +412,31 @@ func TestPlanComponentMaterialization(t *testing.T) {
 		got := planComponentMaterialization(plan, facts)
 		if len(got.values) != 1 || !got.values[0].unwrapTuple || got.values[0].temp == "" {
 			t.Fatalf("tuple value must unwrap to a temp, got %+v", got.values)
+		}
+	})
+
+	t.Run("pure value reordered across a side effect is materialized", func(t *testing.T) {
+		// Authored order: x (a pure, non-constant read) then sink() (a call).
+		// x ends up at paramIndex 1, sink() at paramIndex 0, so a naive inline
+		// call `Comp(sink(), x)` would read x AFTER sink() runs. x must be
+		// hoisted to a source-order temp so it observes the authored-order value.
+		x := &gsxast.ExprAttr{Name: "a", Expr: "x"}
+		sink := &gsxast.ExprAttr{Name: "b", Expr: "sink()"}
+		plan := componentCallPlan{values: []componentInputValue{
+			{kind: componentInputProp, paramIndex: 1, contributorIndex: -1, node: x},
+			{kind: componentInputProp, paramIndex: 0, contributorIndex: -1, node: sink},
+		}}
+		facts := map[gsxast.Node]expressionFact{
+			x:    {tv: types.TypeAndValue{Type: types.Typ[types.String]}},
+			sink: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
+		}
+		got := planComponentMaterialization(plan, facts)
+		// out.values are in authored order: x first, sink second.
+		if got.values[0].inline || got.values[0].temp == "" {
+			t.Fatalf("x crosses a side effect and must be materialized, got %+v", got.values[0])
+		}
+		if !got.values[1].inline || got.values[1].temp != "" {
+			t.Fatalf("sink() crosses no other ordered value and stays inline, got %+v", got.values[1])
 		}
 	})
 

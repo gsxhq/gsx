@@ -70,9 +70,8 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 		fresh[i] = types.NewTypeParam(types.NewTypeName(token.NoPos, ic.pkg, op.Obj().Name(), nil), nil)
 		subst[op] = fresh[i]
 	}
-	memo := map[types.Type]types.Type{}
 	for i := range fresh {
-		constraint := substituteTypeParams(tparams.At(i).Constraint(), subst, memo)
+		constraint := substituteTypeParams(tparams.At(i).Constraint(), subst)
 		iface, ok := constraint.(*types.Interface)
 		if !ok {
 			return types.Instance{}, []diag.Diagnostic{targetPositioned(ic, target, "component-inference", "component target constraint is not an interface after substitution")}
@@ -87,7 +86,7 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 		if op.paramIndex < 0 || op.paramIndex >= origin.Params().Len() {
 			return types.Instance{}, []diag.Diagnostic{targetPositioned(ic, target, "component-inference", fmt.Sprintf("operand %d refers to parameter %d outside the signature", i, op.paramIndex))}
 		}
-		paramType := substituteTypeParams(origin.Params().At(op.paramIndex).Type(), subst, memo)
+		paramType := substituteTypeParams(origin.Params().At(op.paramIndex).Type(), subst)
 		carrierVars = append(carrierVars, types.NewVar(token.NoPos, ic.pkg, fmt.Sprintf("_gsxp%d", i), paramType))
 	}
 	carrierSig := types.NewSignatureType(nil, nil, fresh, types.NewTuple(carrierVars...), types.NewTuple(), false)
@@ -233,13 +232,13 @@ func nativeInferenceDiagnostic(ic inferenceContext, target componentTargetFact, 
 
 // substituteTypeParams reconstructs t with every origin type parameter in subst
 // replaced by its fresh counterpart. It is a faithful structural rewrite (not a
-// text or printed-type transform), memoized to terminate on recursive types.
-func substituteTypeParams(t types.Type, subst map[*types.TypeParam]*types.TypeParam, memo map[types.Type]types.Type) types.Type {
+// text or printed-type transform). It terminates because a *types.Named is
+// treated as opaque: the walk descends only into a named type's type ARGUMENTS,
+// never into its (potentially self-referential) definition, so a recursive type
+// such as `type List struct { next *List }` cannot cause unbounded recursion.
+func substituteTypeParams(t types.Type, subst map[*types.TypeParam]*types.TypeParam) types.Type {
 	if t == nil {
 		return nil
-	}
-	if done, ok := memo[t]; ok {
-		return done
 	}
 	switch t := t.(type) {
 	case *types.TypeParam:
@@ -250,14 +249,14 @@ func substituteTypeParams(t types.Type, subst map[*types.TypeParam]*types.TypePa
 	case *types.Basic:
 		return t
 	case *types.Alias:
-		return substituteTypeParams(types.Unalias(t), subst, memo)
+		return substituteTypeParams(types.Unalias(t), subst)
 	case *types.Named:
 		if t.TypeArgs() == nil || t.TypeArgs().Len() == 0 {
 			return t
 		}
 		args := make([]types.Type, t.TypeArgs().Len())
 		for i := range args {
-			args[i] = substituteTypeParams(t.TypeArgs().At(i), subst, memo)
+			args[i] = substituteTypeParams(t.TypeArgs().At(i), subst)
 		}
 		inst, err := types.Instantiate(nil, t.Origin(), args, false)
 		if err != nil {
@@ -265,32 +264,32 @@ func substituteTypeParams(t types.Type, subst map[*types.TypeParam]*types.TypePa
 		}
 		return inst
 	case *types.Pointer:
-		return types.NewPointer(substituteTypeParams(t.Elem(), subst, memo))
+		return types.NewPointer(substituteTypeParams(t.Elem(), subst))
 	case *types.Slice:
-		return types.NewSlice(substituteTypeParams(t.Elem(), subst, memo))
+		return types.NewSlice(substituteTypeParams(t.Elem(), subst))
 	case *types.Array:
-		return types.NewArray(substituteTypeParams(t.Elem(), subst, memo), t.Len())
+		return types.NewArray(substituteTypeParams(t.Elem(), subst), t.Len())
 	case *types.Map:
-		return types.NewMap(substituteTypeParams(t.Key(), subst, memo), substituteTypeParams(t.Elem(), subst, memo))
+		return types.NewMap(substituteTypeParams(t.Key(), subst), substituteTypeParams(t.Elem(), subst))
 	case *types.Chan:
-		return types.NewChan(t.Dir(), substituteTypeParams(t.Elem(), subst, memo))
+		return types.NewChan(t.Dir(), substituteTypeParams(t.Elem(), subst))
 	case *types.Tuple:
 		vars := make([]*types.Var, t.Len())
 		for i := range vars {
 			v := t.At(i)
-			vars[i] = types.NewVar(v.Pos(), v.Pkg(), v.Name(), substituteTypeParams(v.Type(), subst, memo))
+			vars[i] = types.NewVar(v.Pos(), v.Pkg(), v.Name(), substituteTypeParams(v.Type(), subst))
 		}
 		return types.NewTuple(vars...)
 	case *types.Signature:
-		params, _ := substituteTypeParams(t.Params(), subst, memo).(*types.Tuple)
-		results, _ := substituteTypeParams(t.Results(), subst, memo).(*types.Tuple)
+		params, _ := substituteTypeParams(t.Params(), subst).(*types.Tuple)
+		results, _ := substituteTypeParams(t.Results(), subst).(*types.Tuple)
 		return types.NewSignatureType(nil, nil, nil, params, results, t.Variadic())
 	case *types.Struct:
 		fields := make([]*types.Var, t.NumFields())
 		tags := make([]string, t.NumFields())
 		for i := range fields {
 			f := t.Field(i)
-			fields[i] = types.NewField(f.Pos(), f.Pkg(), f.Name(), substituteTypeParams(f.Type(), subst, memo), f.Embedded())
+			fields[i] = types.NewField(f.Pos(), f.Pkg(), f.Name(), substituteTypeParams(f.Type(), subst), f.Embedded())
 			tags[i] = t.Tag(i)
 		}
 		return types.NewStruct(fields, tags)
@@ -298,19 +297,19 @@ func substituteTypeParams(t types.Type, subst map[*types.TypeParam]*types.TypePa
 		terms := make([]*types.Term, t.Len())
 		for i := range terms {
 			term := t.Term(i)
-			terms[i] = types.NewTerm(term.Tilde(), substituteTypeParams(term.Type(), subst, memo))
+			terms[i] = types.NewTerm(term.Tilde(), substituteTypeParams(term.Type(), subst))
 		}
 		return types.NewUnion(terms)
 	case *types.Interface:
 		methods := make([]*types.Func, t.NumExplicitMethods())
 		for i := range methods {
 			m := t.ExplicitMethod(i)
-			sig, _ := substituteTypeParams(m.Type(), subst, memo).(*types.Signature)
+			sig, _ := substituteTypeParams(m.Type(), subst).(*types.Signature)
 			methods[i] = types.NewFunc(m.Pos(), m.Pkg(), m.Name(), sig)
 		}
 		embeddeds := make([]types.Type, t.NumEmbeddeds())
 		for i := range embeddeds {
-			embeddeds[i] = substituteTypeParams(t.EmbeddedType(i), subst, memo)
+			embeddeds[i] = substituteTypeParams(t.EmbeddedType(i), subst)
 		}
 		return types.NewInterfaceType(methods, embeddeds).Complete()
 	}
@@ -599,12 +598,19 @@ type materializationPlan struct {
 }
 
 // planComponentMaterialization decides, for each authored operand, whether it
-// stays contextual/inline or must be materialized to a temporary. It preserves
-// Go's lexical evaluation order for operations Go orders (calls, receives,
-// logical short-circuits) and consumes every (T, error) tuple before positional
-// assembly. A value is hoisted only when its movement into signature order
-// crosses another ordered operation or when it needs statement lowering (tuple
-// unwrap); constant and untyped-nil values are never materialized.
+// stays contextual/inline or must be materialized to a temporary. Authored
+// expressions evaluate exactly once in source (authored) order; only their
+// already-evaluated values are rearranged into signature/param order for the
+// call. The rule is relational, not intrinsic: a value must be hoisted to a
+// source-order temp whenever its movement into call order CROSSES a Go-ordered
+// operation (a call, receive, or logical short-circuit) or a (T, error) tuple —
+// i.e. its relative order versus such an ordered value differs between source
+// order and call order. Otherwise the value observably reorders across a side
+// effect. Constant and untyped-nil values carry no side effect and are never
+// materialized; every (T, error) tuple additionally needs statement lowering
+// (unwrap + error check) and is always a temp. Two side-effect-free reads that
+// merely swap relative to each other cross no ordered work and stay inline —
+// reordering them is unobservable.
 func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]expressionFact) materializationPlan {
 	type entry struct {
 		valueIndex int
@@ -627,34 +633,49 @@ func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]
 		})
 	}
 
-	// Determine whether the ordered-operation subsequence is reordered between
-	// source order and call order. Only then must ordered-operation values be
-	// hoisted to keep their relative execution order.
-	sourceOrdered := make([]int, 0, len(entries))
-	for _, e := range entries {
-		if e.hasFact && (e.fact.hasOrderedOperation || e.fact.tuple != nil) {
-			sourceOrdered = append(sourceOrdered, e.valueIndex)
-		}
+	// entries are in authored (source) order. Rank each entry in call order so a
+	// relative-order change (a "crossing") between the two orders is detectable.
+	order := make([]int, len(entries))
+	for i := range order {
+		order[i] = i
 	}
-	callSorted := append([]entry(nil), entries...)
-	sort.SliceStable(callSorted, func(i, j int) bool {
-		a, b := callSorted[i].callOrder, callSorted[j].callOrder
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := entries[order[i]].callOrder, entries[order[j]].callOrder
 		if a[0] != b[0] {
 			return a[0] < b[0]
 		}
 		return a[1] < b[1]
 	})
-	callOrdered := make([]int, 0, len(sourceOrdered))
-	for _, e := range callSorted {
-		if e.hasFact && (e.fact.hasOrderedOperation || e.fact.tuple != nil) {
-			callOrdered = append(callOrdered, e.valueIndex)
-		}
+	callRank := make([]int, len(entries))
+	for rank, idx := range order {
+		callRank[idx] = rank
 	}
-	orderedReordered := !equalIntSlice(sourceOrdered, callOrdered)
+
+	isOrderedWork := func(e entry) bool {
+		return e.hasFact && (e.fact.hasOrderedOperation || e.fact.tuple != nil)
+	}
+	// crosses reports whether entries i and j change relative order between source
+	// order (their entries index) and call order (callRank).
+	crosses := func(i, j int) bool {
+		return (i < j) != (callRank[i] < callRank[j])
+	}
+	// crossesOrderedWork reports whether value i moves across any OTHER Go-ordered
+	// operation or tuple between source and call order.
+	crossesOrderedWork := func(i int) bool {
+		for j, other := range entries {
+			if j == i || !isOrderedWork(other) {
+				continue
+			}
+			if crosses(i, j) {
+				return true
+			}
+		}
+		return false
+	}
 
 	out := materializationPlan{}
 	tempN := 0
-	for _, e := range entries {
+	for i, e := range entries {
 		mv := materializedValue{valueIndex: e.valueIndex, node: e.value.node}
 		switch {
 		case e.hasFact && e.fact.tuple != nil:
@@ -664,8 +685,11 @@ func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]
 			mv.unwrapTuple = true
 			tempN++
 		case e.hasFact && e.fact.contextual():
+			// Constant / untyped-nil: no side effect, no context loss; stays inline.
 			mv.inline = true
-		case e.hasFact && e.fact.hasOrderedOperation && orderedReordered:
+		case crossesOrderedWork(i):
+			// A non-constant value whose movement crosses ordered work must be
+			// pinned to a source-order temp to preserve authored evaluation order.
 			mv.temp = fmt.Sprintf("_gsxv%d", tempN)
 			tempN++
 		default:
@@ -674,16 +698,4 @@ func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]
 		out.values = append(out.values, mv)
 	}
 	return out
-}
-
-func equalIntSlice(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

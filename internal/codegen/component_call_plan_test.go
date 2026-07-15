@@ -670,6 +670,42 @@ func TestValidateComponentOperands(t *testing.T) {
 		}
 	})
 
+	t.Run("(int, error) attrs contributor is rejected as a non-bag", func(t *testing.T) {
+		contributor := &gsxast.ExprAttr{Name: "attrs", Expr: "load()"}
+		tuple := types.NewTuple(
+			types.NewVar(token.NoPos, nil, "", types.Typ[types.Int]),
+			types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type()),
+		)
+		plan := newPlan(componentInputValue{
+			kind:      componentInputAttrsContributor,
+			node:      contributor,
+			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamContributor},
+		})
+		facts := map[gsxast.Node]expressionFact{contributor: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 1 || diags[0].Code != "component-attrs-spread-type" {
+			t.Fatalf("(int, error) attrs contributor must be rejected as a non-bag, got %+v", diags)
+		}
+	})
+
+	t.Run("(gsx.Attrs, error) attrs contributor is accepted", func(t *testing.T) {
+		contributor := &gsxast.ExprAttr{Name: "attrs", Expr: "load()"}
+		tuple := types.NewTuple(
+			types.NewVar(token.NoPos, nil, "", fx.runtime.attrs),
+			types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type()),
+		)
+		plan := newPlan(componentInputValue{
+			kind:      componentInputAttrsContributor,
+			node:      contributor,
+			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamContributor},
+		})
+		facts := map[gsxast.Node]expressionFact{contributor: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 0 {
+			t.Fatalf("(gsx.Attrs, error) attrs contributor must validate, got %+v", diags)
+		}
+	})
+
 	t.Run("(T, error) prop is consumed as one value", func(t *testing.T) {
 		prop := &gsxast.ExprAttr{Name: "title", Expr: "load()"}
 		tuple := types.NewTuple(

@@ -258,7 +258,7 @@ func (a *inferNameAllocator) next() string {
 
 // requalifyTypeExpr rewrites a single type expression for an IMPORTED
 // generic component's probe (Task 4), sharing this registry's ONE per-file
-// aliasAllocator so repeated calls (one per supplied param, across every
+// generatedImportAllocator so repeated calls (one per supplied param, across every
 // probe in the file) coalesce onto one alias per distinct dependency path —
 // see the alloc field doc. Delegates the actual parse/walk/print to
 // requalifyTypeExprWithMinter; depImports is the SPECIFIC dep component's
@@ -273,7 +273,7 @@ func (r *inferRegistry) requalifyTypeExpr(src, depAlias string, depImports []imp
 // requalifyTypeParams rewrites a whole bracketed type-param declaration list
 // for an IMPORTED generic component's probe (Task 4) — the type-param
 // counterpart of requalifyTypeExpr above, sharing the same per-file
-// aliasAllocator.
+// generatedImportAllocator.
 func (r *inferRegistry) requalifyTypeParams(decl, depAlias string, depImports []importSpec) (string, error) {
 	mint := newAliasMinterShared(depImports, r.alloc)
 	return requalifyTypeParamsWithMinter(decl, depAlias, mint)
@@ -637,7 +637,7 @@ func requalifyTypeExpr(src, depAlias string, depImports []importSpec, declared m
 // public requalifyTypeExpr always passes a private, per-call minter (see
 // newAliasMinter) so its documented per-call alias-counter behavior is
 // unchanged; inferRegistry.requalifyTypeExpr (Task 4) instead passes a
-// minter sharing the registry's ONE per-file aliasAllocator, so several
+// minter sharing the registry's ONE per-file generatedImportAllocator, so several
 // calls coalesce their aliases — see inferRegistry.alloc's doc.
 func requalifyTypeExprWithMinter(src, depAlias string, declared map[string]bool, mint *aliasMinter) (string, error) {
 	src = strings.TrimSpace(src)
@@ -1052,7 +1052,7 @@ func (t *generatedImportTxn) commit() {
 // dep file's own import table (qualifier -> path resolution is always
 // per-call/per-dep-file); alloc is the path -> alias allocator, which may be
 // either private to this call (newAliasMinter) or shared across many calls
-// (newAliasMinterShared) — see aliasAllocator's doc.
+// (newAliasMinterShared) — see generatedImportAllocator's doc.
 type aliasMinter struct {
 	depImports []importSpec
 	alloc      *generatedImportAllocator
