@@ -692,12 +692,12 @@
     },
     {
       "path": "docs/guide/syntax/_generated/javascript/050-complete-alpine-search.md",
-      "before_sha256": "ff2bf8ef4f54f9ac7fdd468347a86f31eee6ed8f7fa05bf678fe1d1e763d9ad7",
+      "before_sha256": "b1b036ae243dd34b3cbb811263797ac6d8720c0146215b4507a9b86713fee676",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "ff2bf8ef4f54f9ac7fdd468347a86f31eee6ed8f7fa05bf678fe1d1e763d9ad7",
+          "before_sha256": "b1b036ae243dd34b3cbb811263797ac6d8720c0146215b4507a9b86713fee676",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -2896,7 +2896,7 @@
     },
     {
       "path": "examples/273-alpine-search.txtar",
-      "before_sha256": "3747c7a9334f93e04112f283030a6d931cca1b76faf958eaece65d80d11105b3",
+      "before_sha256": "31be8302ff2650923e0242af394fbba72f047e550c550759957514fb4c8a1214",
       "after_sha256": "",
       "units": [
         {
@@ -2937,7 +2937,7 @@
           "kind": "txtar-section",
           "section_index": 3,
           "section_name": "render.golden",
-          "before_sha256": "97b55ca7322f87e2fabd781021fb4f579ae0e9898820849fd1f717f086f7957b",
+          "before_sha256": "fdf81e1861fff57e7d94461384894def67198aa8ad334e2b3c3cb014ab9901d5",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -5372,12 +5372,12 @@
     },
     {
       "path": "internal/codegen/depfacts_test.go",
-      "before_sha256": "c4043452891848499d58c82afd4a0aef8bf35a81f3d579cbdc99a751f4e8ee87",
+      "before_sha256": "30dde5763618856738a72b5f3153930104a704e398319ee808fdb3c377760290",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "c4043452891848499d58c82afd4a0aef8bf35a81f3d579cbdc99a751f4e8ee87",
+          "before_sha256": "30dde5763618856738a72b5f3153930104a704e398319ee808fdb3c377760290",
           "after_sha256": "",
           "action": "reviewed-no-change"
         }
@@ -6032,13 +6032,26 @@
       ]
     },
     {
-      "path": "internal/codegen/renderer_decls_test.go",
-      "before_sha256": "bf0e17673ed4fb2940fe469f6d52238c88a99deba8bdd6d1e550900dbc48396d",
+      "path": "internal/codegen/rebase_test.go",
+      "before_sha256": "dbe9ddfacd399614bdc4670dc788c015a8bcde0e6fabaa8b600c413825e96412",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "bf0e17673ed4fb2940fe469f6d52238c88a99deba8bdd6d1e550900dbc48396d",
+          "before_sha256": "dbe9ddfacd399614bdc4670dc788c015a8bcde0e6fabaa8b600c413825e96412",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        }
+      ]
+    },
+    {
+      "path": "internal/codegen/renderer_decls_test.go",
+      "before_sha256": "ee3cc0861201096a51570dcaf0b5e25614db57d6cca4b28110b484eda3490155",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "raw-file",
+          "before_sha256": "ee3cc0861201096a51570dcaf0b5e25614db57d6cca4b28110b484eda3490155",
           "after_sha256": "",
           "action": "reviewed-no-change"
         }
@@ -9968,7 +9981,7 @@
     },
     {
       "path": "internal/corpus/testdata/cases/buildtags/helper_variant.txtar",
-      "before_sha256": "9a8817ad7af28cccb42e6f9f05dcf55c65a9502f006911cfc3927c72145aa9ba",
+      "before_sha256": "2feb215ad66321f008b1ef73c338bd5a56c20ab4302f5f756718e3cee19dd998",
       "after_sha256": "",
       "units": [
         {
@@ -10005,7 +10018,7 @@
           "kind": "txtar-section",
           "section_index": 3,
           "section_name": "diagnostics.golden",
-          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "before_sha256": "1b17c4b1adb50370e701c87d1541e074ceb5def2d4b34230de5d9a14f89b5228",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -10016,7 +10029,7 @@
           "kind": "txtar-section",
           "section_index": 4,
           "section_name": "render.golden",
-          "before_sha256": "e78f63f3b2fa16abaad2c0b0f7a70cf8a5c95e779c6f1f6d9179dcac63744fb3",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -10090,7 +10103,7 @@
     },
     {
       "path": "internal/corpus/testdata/cases/buildtags/redeclare_within_file.txtar",
-      "before_sha256": "6244ae9e324ecec6d1d5f9020f8a99d8e49e709326cb2112840b8e59866b2d6e",
+      "before_sha256": "fb204a93989f6964468b3f12efbe4493dacb6d3f3914cc36508b692808a4427e",
       "after_sha256": "",
       "units": [
         {
@@ -10119,7 +10132,7 @@
           "kind": "txtar-section",
           "section_index": 2,
           "section_name": "diagnostics.golden",
-          "before_sha256": "c1f148811cdf7923caccca2dc2e0c72086a1cbeef252061c61f3c814c6bcc1a7",
+          "before_sha256": "f72f15bd35e8df4139202e692fddf72f58617048ea24954d0ad1f308a68fa511",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -10130,7 +10143,7 @@
     },
     {
       "path": "internal/corpus/testdata/cases/buildtags/variant_diff_sig.txtar",
-      "before_sha256": "581e4c86b3df814d81eb4a422a106cebf4df9b1597bef46f99e8b2218beab1ae",
+      "before_sha256": "96c604e885b2a9262a457b290f7f2386b3c14a5be94bc1644691e137cdf5550d",
       "after_sha256": "",
       "units": [
         {
@@ -10167,7 +10180,7 @@
           "kind": "txtar-section",
           "section_index": 3,
           "section_name": "diagnostics.golden",
-          "before_sha256": "62dab16009f320accf4b498e1ea55c8e4973afb78b5c2754a2cb9b74790fd56a",
+          "before_sha256": "10786075706e86cb7b8b059a5615dd8367bc9a0ac35b1f2a759881f3f11fb5c2",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -21256,7 +21269,7 @@
     },
     {
       "path": "internal/corpus/testdata/cases/dquote-literals/css_attr_backtick_content.txtar",
-      "before_sha256": "243cf7a0277a6197e6bd07412a5b6b0029342d39c748102ae604aef9e177e778",
+      "before_sha256": "7b66a3b6401235b12cfb0087f2ae602d3ede6de46e35b99631358f0f6648cfef",
       "after_sha256": "",
       "units": [
         {
@@ -21300,7 +21313,7 @@
           "kind": "txtar-section",
           "section_index": 3,
           "section_name": "render.golden",
-          "before_sha256": "77ad6a530c8a225b791de3448f54b72330261202aaddb63ddcbd00864ccf131f",
+          "before_sha256": "7ecb0839f7f255bfbc211f706a32f40d514bc2000ea4deb6000484f693014180",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -21311,7 +21324,7 @@
           "kind": "txtar-section",
           "section_index": 4,
           "section_name": "generated.x.go.golden",
-          "before_sha256": "5458d0a8fb26a9534ae102b29147e41ef51dbbfe8202e9148d666ab77b6d7be7",
+          "before_sha256": "3c424e6b0dedbffe3fb576377c30d1c18ff8bcb9f018a27dab7ffa618676b96d",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -28261,6 +28274,38 @@
       ]
     },
     {
+      "path": "internal/corpus/testdata/cases/goexpr-js-literal/binding_non_rawjs_rejected.txtar",
+      "before_sha256": "7eff4a035ecde7b8a42c3c66bef616de5b59255b273d743dbc0e3018d8a199ee",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "txtar-comment",
+          "before_sha256": "3c61e355f21d3daf86e2e0422ef6bc469b49acfe7b1d232d1c61f988af7c8c4b",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 0,
+          "section_name": "input.gsx",
+          "before_sha256": "94050b0aed07f926ee6d51cae14de98e001a9ba6c519192e1248fb1d6ceae479",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 1,
+          "section_name": "diagnostics.golden",
+          "before_sha256": "b17451c917697cbf25d2d9c530f2cc8f904d4a5a07563a6b4f94408d51f75113",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        }
+      ]
+    },
+    {
       "path": "internal/corpus/testdata/cases/goexpr-js-literal/call_arg.txtar",
       "before_sha256": "54022a44a78a9ca071c76adab2b15381f1c9aa1e2d3640aa0917e68f3e8837cd",
       "after_sha256": "",
@@ -30171,6 +30216,138 @@
           "section_index": 6,
           "section_name": "render.golden",
           "before_sha256": "8d042725bf24a87944ffe1ec6bbcf2e15421b84e8b2376cc85af9efc235c0857",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/corpus/testdata/cases/goexpr-js-literal/rawjs_binding_position.txtar",
+      "before_sha256": "e33407be96bc6b761400a75fcaa2e2c3580e9a9ca7c4fba837b9cb5a9335ecab",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "txtar-comment",
+          "before_sha256": "0a99148bf110d4f051a37e71d89a031cfd0743fac8ae6ff30b0eee30fe5a53cb",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 0,
+          "section_name": "input.gsx",
+          "before_sha256": "ee5769bcb89f7346dff0354343f596ac1fd7fa3d132990dfb73907b8ef958597",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 1,
+          "section_name": "invoke",
+          "before_sha256": "1868da7c4b4726a698771f239b364a0562627f9f86de34898ebd9b05caa31469",
+          "after_sha256": "",
+          "action": "manual-edit",
+          "kinds": [
+            "direct-props-invoke"
+          ],
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 2,
+          "section_name": "diagnostics.golden",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 3,
+          "section_name": "render.golden",
+          "before_sha256": "cedbc5c8f3cc8db7812f0ff77fca1ff5c6b370bec0d2351efbcc4c22f4e7be00",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 4,
+          "section_name": "generated.x.go.golden",
+          "before_sha256": "c8c78c43e48797826c16f54edd5448cabd8de53b01a216848f7bac051a91822c",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/corpus/testdata/cases/goexpr-js-literal/rawjs_binding_uniform_positions.txtar",
+      "before_sha256": "06a3faaf6be7fd8352ff246dec6d761effe8493c7ab61ad164394a842cb4cb24",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "txtar-comment",
+          "before_sha256": "d551ff191ec14ebd9bc24ac07e8f20f209f7707114a4da02c01339e20c06135b",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 0,
+          "section_name": "input.gsx",
+          "before_sha256": "916cbae21258bfe5a50ee8362a69cdc426f41b95c1d83998f13938eb07cea9d6",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 1,
+          "section_name": "invoke",
+          "before_sha256": "79d12e8813d8f0271fd550d6a9aa89d5428dad1636c384ad0d0123e51392048d",
+          "after_sha256": "",
+          "action": "manual-edit",
+          "kinds": [
+            "direct-props-invoke"
+          ],
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 2,
+          "section_name": "diagnostics.golden",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 3,
+          "section_name": "render.golden",
+          "before_sha256": "b6af6198e6f00f9f4342eaa42bdb3cec8c12173e04f197e8cf12f7c8df2bfb02",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 4,
+          "section_name": "generated.x.go.golden",
+          "before_sha256": "9dac9b0bae5d325acc8203845fd248348558e8f1ce91488601b1fb7e0a1ed0c6",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -35366,6 +35543,112 @@
       ]
     },
     {
+      "path": "internal/corpus/testdata/cases/minify/embedded_attr.txtar",
+      "before_sha256": "bda7a2039a85a8f8dd702a92b04ee505f39fdd0553e258642d3f231d4d296af2",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "txtar-comment",
+          "before_sha256": "4b4ad267b03c6c4d5a5e5be80a43626f81bdca4015bc48fd98bd6bfbca47930f",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 0,
+          "section_name": "input.gsx",
+          "before_sha256": "9930d182afa6088a990afa80166b5c07cf1c235e07e2ce17303a7e22a15aa7ef",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 1,
+          "section_name": "invoke",
+          "before_sha256": "8166366695ede91ebcf45338e1bb3724d7e6ef2d1f91fae1e2ab0483cff6b1a1",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 2,
+          "section_name": "diagnostics.golden",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 3,
+          "section_name": "render.golden",
+          "before_sha256": "c137c6215d247571b1683c69fc15583bc77d218bce1a53d265ace86f2a62b00a",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/corpus/testdata/cases/minify/goblock_literal.txtar",
+      "before_sha256": "758e23e1601e73efb72061590dfc57e599eba87ae486256197ce804e35ed4896",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "txtar-comment",
+          "before_sha256": "59f9f931bc3f381188d5b8b18e52a5fa335fbb1b8156ad107ea617d8d8657551",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 0,
+          "section_name": "input.gsx",
+          "before_sha256": "d5da80d3ea9bd0a90ce7bc8e2f2223bed3a282d5b50864c54381edc670317a8a",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 1,
+          "section_name": "invoke",
+          "before_sha256": "62a35fbb05bf186709a1bd813d19586329928ab68aa4c66e3594502f9a0bb77d",
+          "after_sha256": "",
+          "action": "manual-edit",
+          "kinds": [
+            "direct-props-invoke"
+          ],
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 2,
+          "section_name": "diagnostics.golden",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 3,
+          "section_name": "render.golden",
+          "before_sha256": "7d89f343085a54badf8c05ff08a94850c1797d5a7ca7f09fa8b1cd9712849282",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        }
+      ]
+    },
+    {
       "path": "internal/corpus/testdata/cases/multispread/O1_lone_cond_spread_root_class.txtar",
       "before_sha256": "f6fc207ae7c8a6c53eb28767d812c3669e6f284282a6134461f93eac8c7a2ac7",
       "after_sha256": "",
@@ -38639,7 +38922,7 @@
     },
     {
       "path": "internal/corpus/testdata/cases/nestedforward/stage_arg.txtar",
-      "before_sha256": "93fabd5c6601c9792ce4ba898e6fb02ef28d4684e52db41e70c7f801ae951518",
+      "before_sha256": "139deaed3214a672959709cc267ac9e4a262f7d7b45b5c41206d728d706eca70",
       "after_sha256": "",
       "units": [
         {
@@ -38672,7 +38955,7 @@
           "kind": "txtar-section",
           "section_index": 2,
           "section_name": "diagnostics.golden",
-          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "before_sha256": "b15d576d834ee82fcae6c7f8e5285a8d6728973ce51c2c8c57bb692e36aa7d0f",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -38683,7 +38966,7 @@
           "kind": "txtar-section",
           "section_index": 3,
           "section_name": "render.golden",
-          "before_sha256": "fe80fed9e3a6380c839a30d4fbf0c6027597573aa85c480be4a6dd2a832e20ba",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -38694,7 +38977,7 @@
           "kind": "txtar-section",
           "section_index": 4,
           "section_name": "generated.x.go.golden",
-          "before_sha256": "a2d10d62078266f09badb4aa091ec1020c39e7dad71d0d925e4048b12aba4887",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -44761,7 +45044,7 @@
     },
     {
       "path": "internal/corpus/testdata/cases/pipelines/default_generic.txtar",
-      "before_sha256": "27126bb16e6602756285ca0fbe034898d4b1f0fb3f8555e7f0f63a7a4a765fdb",
+      "before_sha256": "1ddac08826c1f8bea88bc51b5777aee97c1ee2d902478804953080b1b3724791",
       "after_sha256": "",
       "units": [
         {
@@ -44794,7 +45077,7 @@
           "kind": "txtar-section",
           "section_index": 2,
           "section_name": "diagnostics.golden",
-          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "before_sha256": "55e3909d6607999ec69b754aad637f3f4b8525d77c0629f3d871b1b10b3704ab",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -44805,7 +45088,7 @@
           "kind": "txtar-section",
           "section_index": 3,
           "section_name": "generated.x.go.golden",
-          "before_sha256": "7455bb13c7d03d742a35e863ed37750408a7b5a1fdb4a279f19bda934c4333ba",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -44816,7 +45099,7 @@
           "kind": "txtar-section",
           "section_index": 4,
           "section_name": "render.golden",
-          "before_sha256": "b587ab81cca84096d11676a77c4c7ff26b2eaa169e98ce544fc0881a4aaa6094",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -48727,6 +49010,72 @@
       ]
     },
     {
+      "path": "internal/corpus/testdata/cases/renderers/js_attr_binding.txtar",
+      "before_sha256": "fd8f21fce86deb1c6bab64b0656414f8427b36bec2884b28ada0d4311eb97288",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "txtar-comment",
+          "before_sha256": "4519e6af3b4c0c82b6dabbb9f8c3e465f9348b1b4a18b4315dd09e59201fe085",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 0,
+          "section_name": "input.gsx",
+          "before_sha256": "99b6e05fd5f210f2731c17cd2b516730fcee340ec9fa8d9f2f7d7795a076b102",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 1,
+          "section_name": "invoke",
+          "before_sha256": "ac5eaf1d6870d9d93b6b7f42314baae2fb27afa165d2682d157d4b8c6960daff",
+          "after_sha256": "",
+          "action": "manual-edit",
+          "kinds": [
+            "direct-props-invoke"
+          ],
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 2,
+          "section_name": "diagnostics.golden",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 3,
+          "section_name": "render.golden",
+          "before_sha256": "a85b9ee7afe89000e8fced863b918223155a02c79d3156761edf1e99a634b825",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 4,
+          "section_name": "generated.x.go.golden",
+          "before_sha256": "bae8f5bc96125525d32260091bd7c3884d1aa44fa54a633371e2fec744a991ae",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        }
+      ]
+    },
+    {
       "path": "internal/corpus/testdata/cases/renderers/js_attr_hole.txtar",
       "before_sha256": "af46dc7482192075dc683f4056d3aec33faac81aa9cb2e0bc5247903eadf15d1",
       "after_sha256": "",
@@ -51574,12 +51923,12 @@
     },
     {
       "path": "internal/corpus/testdata/cases/script/interp_identifier_rejected.txtar",
-      "before_sha256": "45de4b7144d25a312e84bf427dcc677281ca1fba7b3eab5f8164d85eb6c00816",
+      "before_sha256": "43852d7ca93f24bbfff81ff9cec461efac08b92b2f80ba48017834b0141a2f87",
       "after_sha256": "",
       "units": [
         {
           "kind": "txtar-comment",
-          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "before_sha256": "f728da4e5c3edb3fc6b320518e2d8bdffaaadd9809330df4ad1c6a939e78611c",
           "after_sha256": "",
           "action": "reviewed-no-change"
         },
@@ -51587,7 +51936,7 @@
           "kind": "txtar-section",
           "section_index": 0,
           "section_name": "input.gsx",
-          "before_sha256": "4496c2eb76ddea3373fb89195af62222da61be9d7ba2f16a402d674830ef60a2",
+          "before_sha256": "c0f2e8c125d3fd5600a7e550737cd5e3b9f26115d5064378affa41c512d25257",
           "after_sha256": "",
           "action": "reviewed-no-change"
         },
@@ -51595,7 +51944,7 @@
           "kind": "txtar-section",
           "section_index": 1,
           "section_name": "diagnostics.golden",
-          "before_sha256": "dd12f152bb78df282214711293e36fd9b1397c6130b9a3167a77e3dadb98d920",
+          "before_sha256": "7484a2e84425099f93173525f5a82f77dc3cf6daf4a8fc711033a7c5214082f5",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -51790,6 +52139,72 @@
           "section_index": 4,
           "section_name": "render.golden",
           "before_sha256": "d01862d48ac0c5e210470b4b63ff3062f002189844705b20ab83e722780805c8",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/corpus/testdata/cases/script/rawjs_binding_position.txtar",
+      "before_sha256": "31d4492b324f63cd6f62e103c8ef58a02b6c15cc7b445bf6d0d7d7edb796f70a",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "txtar-comment",
+          "before_sha256": "310b8f56da1628ca80b12049898e54c852c098a72dd84c289cc180331fcb03e9",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 0,
+          "section_name": "input.gsx",
+          "before_sha256": "8abca7d7e4ad08bec0c72e5bd85d495c8926f51e6607190e5ad7b49d330ce06e",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 1,
+          "section_name": "invoke",
+          "before_sha256": "dee24cac0980638529b74201cf89062b3f0cad3606d411d532bfd4dfc4f5b790",
+          "after_sha256": "",
+          "action": "manual-edit",
+          "kinds": [
+            "direct-props-invoke"
+          ],
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature"
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 2,
+          "section_name": "diagnostics.golden",
+          "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 3,
+          "section_name": "render.golden",
+          "before_sha256": "b6a4f293d29909f17fde7cd011c02b245880c420c9d344237fbcc4ac69936338",
+          "after_sha256": "",
+          "action": "regenerate",
+          "kinds": [
+            "generated-output"
+          ]
+        },
+        {
+          "kind": "txtar-section",
+          "section_index": 4,
+          "section_name": "generated.x.go.golden",
+          "before_sha256": "dd4aa844b1de94466dea8a217f1227c67daba13ea76dea0c5d555d2eb4b1fba5",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -60906,12 +61321,12 @@
     },
     {
       "path": "internal/corpus/testdata/coverage.golden",
-      "before_sha256": "b29523aac5e0f36f72ab86c966557a077776f19cf91576459a26cba16ed9e00a",
+      "before_sha256": "0bb109d74d5bad315a7c16535f819ee3d51edfba8731c6267be0f153d0f72867",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "b29523aac5e0f36f72ab86c966557a077776f19cf91576459a26cba16ed9e00a",
+          "before_sha256": "0bb109d74d5bad315a7c16535f819ee3d51edfba8731c6267be0f153d0f72867",
           "after_sha256": "",
           "action": "regenerate",
           "kinds": [
@@ -61408,12 +61823,12 @@
     },
     {
       "path": "internal/lsp/server_async_test.go",
-      "before_sha256": "732174472584056678a73b0d19efc33ff704dc3d325b758166ce58e01af4cf99",
+      "before_sha256": "aa5632d9d8e6e9cd51f8c6be5c67da1b87aabe25eb10c33b8100a37d03b5e9a1",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "732174472584056678a73b0d19efc33ff704dc3d325b758166ce58e01af4cf99",
+          "before_sha256": "aa5632d9d8e6e9cd51f8c6be5c67da1b87aabe25eb10c33b8100a37d03b5e9a1",
           "after_sha256": "",
           "action": "reviewed-no-change"
         }
@@ -61421,12 +61836,12 @@
     },
     {
       "path": "internal/lsp/server_close_test.go",
-      "before_sha256": "5f6bafe08355f9c0e0212dba1680a53b371102fa7d7d251033a3a583f6645dfa",
+      "before_sha256": "77429aba37f23941391be1830731a2a7abd1fdcf0f7a7b21a9ab27e51891b8b7",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "5f6bafe08355f9c0e0212dba1680a53b371102fa7d7d251033a3a583f6645dfa",
+          "before_sha256": "77429aba37f23941391be1830731a2a7abd1fdcf0f7a7b21a9ab27e51891b8b7",
           "after_sha256": "",
           "action": "reviewed-no-change"
         }
@@ -61447,12 +61862,12 @@
     },
     {
       "path": "internal/lsp/server_debounce_test.go",
-      "before_sha256": "f02a103c75af723f77c32eb31a23cf0678c216683c085ff12f014097a585348c",
+      "before_sha256": "7f489377bd8631f0592c1e33a962e6ce2df175c82067a375ed78fc9ff28d96da",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "f02a103c75af723f77c32eb31a23cf0678c216683c085ff12f014097a585348c",
+          "before_sha256": "7f489377bd8631f0592c1e33a962e6ce2df175c82067a375ed78fc9ff28d96da",
           "after_sha256": "",
           "action": "reviewed-no-change"
         }
