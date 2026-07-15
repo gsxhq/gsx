@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
@@ -378,6 +379,102 @@ func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSi
 	}
 
 	return plan, diagnostics
+}
+
+// validateComponentOperands is the semantic operand pass Task 4's syntax router
+// defers to. It consumes the syntax-only componentCallPlan plus each authored
+// value's go/types fact and proves the operand-level contract the router could
+// not: every attrs spread and explicit attrs contributor must carry an
+// attrs-bag type (a struct or other non-bag spread is rejected as
+// component-attrs-spread-type, since component struct-splat was cut), and every
+// tuple-returning value must be (T, error) so it can be consumed as one value
+// before positional assembly. The plan is returned unchanged on success; the
+// diagnostics are positioned at the offending authored node.
+func validateComponentOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) (componentCallPlan, []diag.Diagnostic) {
+	var diagnostics []diag.Diagnostic
+	report := func(node gsxast.Node, code, message string) {
+		d := diag.Diagnostic{Severity: diag.Error, Code: code, Message: message, Source: "codegen"}
+		if node != nil {
+			if pos, ok := plan.nodePosition(node); ok {
+				d.Start = pos.start
+				d.End = pos.end
+			}
+		}
+		diagnostics = append(diagnostics, d)
+	}
+
+	for _, value := range plan.values {
+		fact, ok := facts[value.node]
+		if !ok {
+			continue
+		}
+		switch value.kind {
+		case componentInputAttrsSegment, componentInputAttrsContributor:
+			// A spread or explicit attrs={expr} contributor must be an attrs bag.
+			// Conditional segments carry no single value type; their leaves are
+			// validated individually by the caller.
+			if value.attrsNode != nil && value.attrsNode.kind == componentAttrsStreamConditional {
+				continue
+			}
+			if fact.tuple != nil {
+				validateTupleFact(value.node, fact, report)
+				continue
+			}
+			if fact.tv.Type != nil && !isAttrsBagValue(fact.tv.Type, runtime) {
+				report(value.node, "component-attrs-spread-type",
+					fmt.Sprintf("attrs contributor has type %s; a gsx.Attrs bag ([]gsx.Attr family) is required", fact.tv.Type))
+			}
+		default:
+			validateTupleFact(value.node, fact, report)
+		}
+	}
+	return plan, diagnostics
+}
+
+func validateTupleFact(node gsxast.Node, fact expressionFact, report func(gsxast.Node, string, string)) {
+	if fact.tuple == nil {
+		return
+	}
+	if _, ok := tupleUnwrapType(fact.tuple); !ok {
+		report(node, "invalid-tuple",
+			fmt.Sprintf("value returns %s; only (T, error) is consumed as one value", fact.tuple))
+	}
+}
+
+// isAttrsBagValue reports whether a value of type t may be normalized to the
+// canonical gsx.Attrs bag: the exact attrs type, a bare []gsx.Attr slice, or a
+// defined/aliased slice whose element type is exactly gsx.Attr after alias
+// resolution.
+func isAttrsBagValue(t types.Type, runtime runtimeContract) bool {
+	if t == nil {
+		return false
+	}
+	if types.Identical(t, runtime.attrs) {
+		return true
+	}
+	unaliased := types.Unalias(t)
+	if slice, ok := unaliased.(*types.Slice); ok {
+		return types.Identical(slice.Elem(), runtime.attr)
+	}
+	if named, ok := unaliased.(*types.Named); ok {
+		return attrsSliceHasExactElement(named, runtime.attr)
+	}
+	return false
+}
+
+// nodePosition resolves an authored value node to its call-relative source
+// range for diagnostics, falling back to the call element's own range.
+func (p componentCallPlan) nodePosition(node gsxast.Node) (struct{ start, end token.Position }, bool) {
+	var out struct{ start, end token.Position }
+	if node == nil {
+		return out, false
+	}
+	if !node.Pos().IsValid() {
+		return out, false
+	}
+	out.start = p.callStart
+	out.end = p.callEnd
+	return out, true
 }
 
 func componentBodyPresent(children []gsxast.Markup) bool {
