@@ -819,12 +819,11 @@ func goBlockLitMarker(n int) string { return fmt.Sprintf("gsxǁblockǁlit%dǁmar
 // ok=false when the segment holds no known marker.
 func (p *printer) goBlockLiteralSeg(seg string, lits map[string]*ast.EmbeddedInterp) ([]pretty.Doc, bool) {
 	for marker, lit := range lits {
-		idx := strings.Index(seg, marker)
-		if idx < 0 {
+		pre, rest, found := strings.Cut(seg, marker)
+		if !found {
 			continue
 		}
-		pre := seg[:idx]
-		post := strings.TrimRight(seg[idx+len(marker):], " \t")
+		post := strings.TrimRight(rest, " \t")
 		lines, ok := p.embeddedInterpLines(lit)
 		if !ok {
 			return nil, false
@@ -838,11 +837,13 @@ func (p *printer) goBlockLiteralSeg(seg string, lits map[string]*ast.EmbeddedInt
 		}
 		delim := embeddedDelim(lit.DoubleQuoted)
 		opener := embeddedLangName(lit.Lang) + string(delim)
-		closer := string(delim)
+		var cb strings.Builder
+		cb.WriteByte(delim)
 		for _, st := range lit.Stages {
-			closer += " |> " + pipeStageStr(st)
+			cb.WriteString(" |> ")
+			cb.WriteString(pipeStageStr(st))
 		}
-		return goBlockLiteralDocs(pre+opener, lines, closer+post, litTabs), true
+		return goBlockLiteralDocs(pre+opener, lines, cb.String()+post, litTabs), true
 	}
 	return nil, false
 }
