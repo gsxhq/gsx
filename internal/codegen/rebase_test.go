@@ -68,6 +68,53 @@ func TestRebaseHoleyPreservesHoles(t *testing.T) {
 	}
 }
 
+func embInterpText(lit *ast.EmbeddedInterp) string {
+	var sb strings.Builder
+	for _, s := range lit.Segments {
+		if t, ok := s.(*ast.Text); ok {
+			sb.WriteString(t.Value)
+		} else if i, ok := s.(*ast.Interp); ok {
+			sb.WriteString("@{" + i.Expr + "}")
+		}
+	}
+	return sb.String()
+}
+
+// A js` literal value in a {{ }} block (carried in GoBlock.Embedded by analyze)
+// is re-based like an attribute value: its markup-depth base (2 tabs) is stripped
+// while the relative structure survives.
+func TestRebaseGoBlockLiteral(t *testing.T) {
+	lit := &ast.EmbeddedInterp{Lang: ast.EmbeddedJS, Segments: []ast.Markup{
+		&ast.Text{Value: "\n\t\tconst v = 1;\n\t\tif (v) {\n\t\t\tfoo();\n\t\t}\n\t"},
+	}}
+	gb := &ast.GoBlock{Embedded: []ast.GoPart{ast.GoText{Src: "a := "}, lit, ast.GoText{Src: ""}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{gb}}}}
+	rebaseEmbedded(f, true, true)
+	want := "\nconst v = 1;\nif (v) {\n\tfoo();\n}\n"
+	if got := embInterpText(lit); got != want {
+		t.Fatalf("go-block literal not re-based:\ngot  %q\nwant %q", got, want)
+	}
+}
+
+// A js` literal embedded in a { expr } hole (Interp.Embedded) re-bases too.
+func TestRebaseInterpEmbeddedLiteral(t *testing.T) {
+	lit := &ast.EmbeddedInterp{Lang: ast.EmbeddedJS, Segments: []ast.Markup{
+		&ast.Text{Value: "\n\t\tid: "},
+		&ast.Interp{Expr: "id"},
+		&ast.Text{Value: ",\n\t\tk: 1,\n\t"},
+	}}
+	in := &ast.Interp{Expr: "wrap(...)", Embedded: []ast.GoPart{ast.GoText{Src: "wrap("}, lit, ast.GoText{Src: ")"}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{in}}}}
+	rebaseEmbedded(f, true, true)
+	got := embInterpText(lit)
+	if strings.Contains(got, "\t\tid:") {
+		t.Fatalf("interp-embedded literal not re-based (markup base remains): %q", got)
+	}
+	if !strings.Contains(got, "@{id}") {
+		t.Fatalf("hole lost: %q", got)
+	}
+}
+
 // Under a minified language (doJS=false), rebase is a no-op — the minifier owns
 // whitespace.
 func TestRebaseSkipsMinifiedLanguage(t *testing.T) {

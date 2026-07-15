@@ -1,0 +1,44 @@
+js`/css` literals in Go-expression position (gsx.Attrs values in a {{ }} block)
+are minified by the same walkers as element-attribute literals. A holeless body
+is minified at the safe level. A holey body (the @change here) is NOT minified —
+minifying around holes is deferred — but it is REINDENTED via the sentinel
+round-trip: the source's markup-level tabs are a gsx formatting artifact, and
+since the output HTML is whitespace-minified, leaving them in would make the js
+appear absurdly deep. Reindent re-bases it to its own brace depth (here: flat),
+which is what the emit-side rebase already does under the default MinifyNone.
+
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Widget(x string) {
+	{{
+		a := gsx.Attrs{
+			{Key: "x-data", Value: js`{
+				open: false,
+				active: -1,
+			}`},
+			{Key: "style", Value: css`
+				color: red;
+				margin: 0;
+			`},
+			{Key: "@change", Value: js`
+				const v = 1;
+				@{gsx.RawJS(x)} = v;
+			`},
+		}
+	}}
+	<div {a...}>y</div>
+}
+-- invoke --
+Widget(WidgetProps{X: "a"})
+-- diagnostics.golden --
+-- render.golden --
+<div style="color: red;margin: 0;" x-data="{
+open: false,
+active: -1,
+}" @change="
+const v = 1;
+a = v;
+">y</div>

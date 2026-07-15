@@ -52,8 +52,8 @@ func TokenSignature(src []byte) string {
 // interface symmetry with the rawfmt.Formatter wiring but is unused (a
 // re-indenter does not wrap on width). Returns an error only on a tokenizer
 // error (unterminated string/comment) so the caller falls back to verbatim.
-func Format(src []byte, width int) ([]byte, error) {
-	out, ok := reindent.Reindent(src, cssAdapter{})
+func Format(src []byte, width, tabWidth int) ([]byte, error) {
+	out, ok := reindent.Reindent(src, cssAdapter{}, tabWidth)
 	if !ok {
 		return nil, errUnterminated
 	}
@@ -64,8 +64,8 @@ func Format(src []byte, width int) ([]byte, error) {
 // token (template literal, block comment) stays within ONE line, so the caller
 // can place each logical line at its depth without re-indenting the token's
 // interior. ok=false on a lex error → caller renders verbatim.
-func FormatLines(src []byte, width int) ([]string, bool) {
-	return reindent.ReindentLines(src, cssAdapter{})
+func FormatLines(src []byte, width, tabWidth int) ([]string, bool) {
+	return reindent.ReindentLines(src, cssAdapter{}, tabWidth)
 }
 
 var errUnterminated = stringError("cssfmt: unterminated string or comment")

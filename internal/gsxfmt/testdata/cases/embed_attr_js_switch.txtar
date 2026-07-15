@@ -20,9 +20,9 @@ component C() {
 	<div
 		x-on:pick=js`(type) => {
 			switch (type) {
-			case 'a':
-				this.sel = 1;
-				break;
+				case 'a':
+					this.sel = 1;
+					break;
 			}
 		}`
 	/>

@@ -1,0 +1,45 @@
+A switch: cases sit inside the switch braces; each case body keeps its author indent one level under the case label.
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`
+switch (x) {
+case 1:
+	a();
+	break;
+default:
+	b();
+}
+`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`
+					switch (x) {
+						case 1:
+							a();
+							break;
+						default:
+							b();
+					}
+				`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}

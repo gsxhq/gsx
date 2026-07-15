@@ -15,12 +15,17 @@ import (
 // cannot reason across holes. A nil ext uses the built-in for every block.
 func MinifyFile(f *ast.File, ext func(string) (string, error)) error {
 	for _, d := range f.Decls {
-		comp, ok := d.(*ast.Component)
-		if !ok {
-			continue
-		}
-		if err := minifyMarkup(comp.Body, ext); err != nil {
-			return err
+		switch v := d.(type) {
+		case *ast.Component:
+			if err := minifyMarkup(v.Body, ext); err != nil {
+				return err
+			}
+		case *ast.GoWithElements:
+			// A top-level var initializer such as `var s = css`…`` carries its
+			// literal in the GoWithElements Parts split.
+			if err := minifyGoParts(v.Parts, ext); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -68,6 +73,57 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 				if err := minifyMarkup(v.Cases[i].Body, ext); err != nil {
 					return err
 				}
+			}
+		case *ast.EmbeddedInterp:
+			if err := minifyCSSInterp(v, ext); err != nil {
+				return err
+			}
+		case *ast.GoBlock:
+			if err := minifyGoParts(v.Embedded, ext); err != nil {
+				return err
+			}
+		case *ast.Interp:
+			if err := minifyGoParts(v.Embedded, ext); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// minifyCSSInterp minifies a Go-expression css` literal's declaration body in
+// place, with the same holeless/holey machinery as a css` attribute value.
+func minifyCSSInterp(v *ast.EmbeddedInterp, ext func(string) (string, error)) error {
+	if v.Lang != ast.EmbeddedCSS {
+		return nil
+	}
+	mc, err := minifyStyleChildren(v.Segments, ext)
+	if err != nil {
+		return err
+	}
+	if mc != nil {
+		v.Segments = mc
+	}
+	return nil
+}
+
+// minifyGoParts minifies the css` literals in a GoBlock's or Interp's Embedded
+// split (populated by analyze). GoText parts hold no body; element/fragment parts
+// recurse through minifyMarkup.
+func minifyGoParts(parts []ast.GoPart, ext func(string) (string, error)) error {
+	for _, p := range parts {
+		switch v := p.(type) {
+		case *ast.EmbeddedInterp:
+			if err := minifyCSSInterp(v, ext); err != nil {
+				return err
+			}
+		case *ast.Element:
+			if err := minifyMarkup([]ast.Markup{v}, ext); err != nil {
+				return err
+			}
+		case *ast.Fragment:
+			if err := minifyMarkup([]ast.Markup{v}, ext); err != nil {
+				return err
 			}
 		}
 	}
