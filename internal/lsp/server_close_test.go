@@ -18,7 +18,11 @@ type closeTransitionAnalyzer struct {
 
 func (a *closeTransitionAnalyzer) SetOverride(path string, _ []byte) ([]string, error) {
 	a.events = append(a.events, "set:"+path)
-	return nil, nil
+	// A content-bearing open/change invalidates the edited directory's package
+	// view; the Analyzer contract requires returning it (a nil affected set means
+	// an identical-byte no-op, which would let the server republish instead of
+	// reanalyze). Model the real analyzer so didOpen actually analyzes.
+	return []string{filepath.Dir(path)}, nil
 }
 
 func (a *closeTransitionAnalyzer) Analyze(_ string, override map[string][]byte) (*Package, error) {

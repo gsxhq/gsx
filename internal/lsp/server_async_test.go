@@ -33,7 +33,11 @@ func (a *overrideLifetimeAnalyzer) SetOverride(path string, source []byte) ([]st
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sources[path] = append([]byte(nil), source...)
-	return nil, nil
+	// The edited directory's package view is invalidated by the transition; the
+	// Analyzer contract requires returning it so the server reanalyzes/schedules
+	// rather than republishing a retained package (a nil set models an identical-
+	// byte no-op).
+	return []string{filepath.Dir(path)}, nil
 }
 
 func (a *overrideLifetimeAnalyzer) ClearOverride(path string) ([]string, error) {
