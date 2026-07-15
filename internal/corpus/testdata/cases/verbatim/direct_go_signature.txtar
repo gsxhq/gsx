@@ -1,0 +1,25 @@
+# Verbatim ABI: a component compiles to a func whose parameter list is exactly
+# what the author wrote — no synthesized PageProps type, no analysis helper.
+# The `var _ func(History) gsx.Node = Page` assertion type-checks ONLY when the
+# emitted signature is exactly func(History) gsx.Node. The manual Go caller in
+# `-- invoke --` passes the value directly. The generated golden must contain
+# neither `PageProps` nor any helper declaration.
+#
+# Expected render: <p>ok</p>
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type History struct{ Label string }
+
+component Page(h History) {
+	<p>{h.Label}</p>
+}
+
+var _ func(History) gsx.Node = Page
+-- invoke --
+Page(History{Label: "ok"})
+-- diagnostics.golden --
+-- render.golden --
+-- generated.x.go.golden --

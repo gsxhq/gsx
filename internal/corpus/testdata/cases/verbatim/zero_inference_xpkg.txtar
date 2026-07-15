@@ -1,0 +1,47 @@
+# Cross-package zero-fill / inference (design §Zero-fill lowering, the opaque
+# package-value case). ui.theme has an imported UNEXPORTED field, so its zero
+# value cannot be spelled inline in the calling package and there is NO generated
+# adapter: omitting `theme` must fail closed with the positioned required-
+# attribute diagnostic. The caller may still SUPPLY it via ui.DefaultTheme().
+# The omitted defined-numeric `count` zero-fills to untyped 0, and <ui.Box>
+# infers its type argument from the authored operand only.
+#
+# Expected (diagnostics): the omitted opaque `theme` on the second <ui.Widget>
+# yields "attribute theme is required here: its zero value cannot be expressed in
+# this package" (exact text pinned on -update). The first Widget and the Box tag
+# resolve cleanly.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- ui/widget.gsx --
+package ui
+
+type theme struct{ id uint64 }
+
+func DefaultTheme() theme { return theme{id: 1} }
+
+type Count int
+
+component Widget(title string, count Count, theme theme) {
+	<div data-count={count}>{title}</div>
+}
+
+component Box[T ~string](value T) {
+	<span>{string(value)}</span>
+}
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/ui"
+
+component Home() {
+	<ui.Widget title="ok" theme={ui.DefaultTheme()} />
+	<ui.Widget title="bad" />
+	<ui.Box value={"x"} />
+}
+-- invoke --
+pages.Home()
+-- diagnostics.golden --
+-- render.golden --
+-- generated.x.go.golden --

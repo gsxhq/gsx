@@ -1,0 +1,36 @@
+# Verbatim ABI positional-call implementation checkpoint (design §Evaluation
+# order): authored attribute order differs from signature/param order, an untyped
+# `min(1, 2)` constant is bound to a DEFINED numeric parameter (contextual typing,
+# never materialized to a temp), and a `(string, error)` prop is auto-unwrapped
+# before positional assembly. Once-only lexical evaluation is proven by the
+# side-effecting tick(): the authored-first `second={tick()}` runs first (seq→1),
+# the authored-third `first={tick()}` runs next (seq→2), and the call is assembled
+# as Row(Level(1), "2", "1").
+#
+# Expected render: <div data-level="1"><i>2</i><b>1</b></div>
+-- input.gsx --
+package views
+
+import "strconv"
+
+type Level int
+
+var seq int
+
+func tick() (string, error) {
+	seq++
+	return strconv.Itoa(seq), nil
+}
+
+component Row(level Level, first string, second string) {
+	<div data-level={level}><i>{first}</i><b>{second}</b></div>
+}
+
+component Page() {
+	<Row second={tick()} level={min(1, 2)} first={tick()} />
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+-- generated.x.go.golden --

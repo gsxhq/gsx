@@ -1,0 +1,41 @@
+# Reserved children/attrs become author-declared parameters (design §children,
+# §attrs). Panel declares `children gsx.Node` (scalar: nil-safe empty body →
+# renders nothing; non-empty body → one node). Tabs declares
+# `children ...gsx.Node` (variadic: each static top-level body node becomes one
+# list element, iterated internally). Card declares a node-valued markup prop
+# `header gsx.Node` (filled by header={<h1/>}) plus a reserved `attrs gsx.Attrs`
+# fallthrough bag (unmatched class="c" flows into attrs, spread on the root).
+#
+# Expected render:
+#   <section></section>
+#   <section><b>hi</b></section>
+#   <ul><li><span>a</span></li><li><span>b</span></li></ul>
+#   <div class="c"><h1>T</h1></div>
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(children gsx.Node) {
+	<section>{children}</section>
+}
+
+component Tabs(children ...gsx.Node) {
+	<ul>{ for _, c := range children { <li>{c}</li> } }</ul>
+}
+
+component Card(header gsx.Node, attrs gsx.Attrs) {
+	<div {attrs...}>{header}</div>
+}
+
+component Page() {
+	<Panel></Panel>
+	<Panel><b>hi</b></Panel>
+	<Tabs><span>a</span><span>b</span></Tabs>
+	<Card header={<h1>T</h1>} class="c"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+-- generated.x.go.golden --
