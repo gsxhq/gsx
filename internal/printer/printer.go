@@ -36,12 +36,15 @@ import (
 // exceed width columns. width <= 0 uses pretty.DefaultPrintWidth; tabWidth <= 0
 // uses pretty.DefaultTabWidth.
 func Fprint(w io.Writer, f *ast.File, width, tabWidth int) error {
+	if tabWidth <= 0 {
+		tabWidth = pretty.DefaultTabWidth
+	}
 	// The built-in path uses LINE formatters (jsfmt/cssfmt FormatLines), which
 	// carry logical-line structure so a multi-line Opaque token (template literal
 	// / block comment) interior survives re-indentation verbatim.
 	return fprint(w, f, width, tabWidth, printer{
-		cssLineFmt: defaultCSSLineFormatter(width),
-		jsLineFmt:  defaultJSLineFormatter(width),
+		cssLineFmt: defaultCSSLineFormatter(width, tabWidth),
+		jsLineFmt:  defaultJSLineFormatter(width, tabWidth),
 	})
 }
 
@@ -72,12 +75,12 @@ func fprint(w io.Writer, f *ast.File, width, tabWidth int, p printer) error {
 
 // defaultCSSLineFormatter / defaultJSLineFormatter bind the built-in
 // line-returning re-indenters to the print width.
-func defaultCSSLineFormatter(width int) rawfmt.LineFormatter {
-	return func(src []byte) ([]string, bool) { return cssfmt.FormatLines(src, width) }
+func defaultCSSLineFormatter(width, tabWidth int) rawfmt.LineFormatter {
+	return func(src []byte) ([]string, bool) { return cssfmt.FormatLines(src, width, tabWidth) }
 }
 
-func defaultJSLineFormatter(width int) rawfmt.LineFormatter {
-	return func(src []byte) ([]string, bool) { return jsfmt.FormatLines(src, width) }
+func defaultJSLineFormatter(width, tabWidth int) rawfmt.LineFormatter {
+	return func(src []byte) ([]string, bool) { return jsfmt.FormatLines(src, width, tabWidth) }
 }
 
 // printer accumulates the first I/O-independent error encountered while
@@ -894,9 +897,11 @@ func goBlockLiteralDocs(opener string, lines []string, closer string, litTabs in
 		}
 		return append(docs, pretty.HardLine, pretty.Text(closeTab+closer))
 	}
-	// Inline: opener hugs the first body line and the closer the last; the body
-	// sits at the literal's own column (closeTab), matching the attribute path
-	// (embeddedAttrValueDoc's inline layout indents by the managed base only).
+	// Inline: the opener hugs the first body line (an object's `{`); each further
+	// line is re-based at the literal's own column (closeTab) PLUS its own brace
+	// depth, which the re-indenter baked into the line's leading whitespace. So an
+	// object's `{` hugs the js` line, its members sit one brace-level under, and
+	// the closing `}` (brace depth 0) returns to the js` column.
 	docs := []pretty.Doc{pretty.HardLine, pretty.Text(opener + strings.TrimRight(lines[0], " \t"))}
 	for _, ln := range lines[1:] {
 		a, b, two := bodyLine(closeTab, ln)

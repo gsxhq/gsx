@@ -8,7 +8,7 @@ import (
 
 func fmtJS(t *testing.T, in string) string {
 	t.Helper()
-	out, err := Format([]byte(in), 80)
+	out, err := Format([]byte(in), 80, 2)
 	if err != nil {
 		t.Fatalf("Format(%q) error: %v", in, err)
 	}
@@ -139,11 +139,16 @@ func TestRegexNotMislexedAsDivision(t *testing.T) {
 	}
 }
 
-func TestCommentInteriorUntouched(t *testing.T) {
-	in := "function f() {\n\t/* a\n  b */\n\tx();\n}"
+func TestCommentReindentsWithCode(t *testing.T) {
+	// A block comment inside a `{ }` body re-bases with the code (its continuation
+	// lines carry a relative offset the re-indenter preserves). The surrounding
+	// code must NOT be double-indented, and the comment's relative alignment (the
+	// `*` under the `/`) survives.
+	in := "function f() {\n\t/* a\n\t * b */\n\tx();\n}"
 	got := fmtJS(t, in)
-	if !strings.Contains(got, "/* a\n  b */") {
-		t.Fatalf("block comment interior re-indented:\n%s", got)
+	want := "function f() {\n\t/* a\n\t * b */\n\tx();\n}"
+	if got != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
 	}
 }
 
@@ -191,7 +196,7 @@ func TestFormatLinesTemplateLiteralOneLine(t *testing.T) {
 	// A multi-line template literal must be a SINGLE logical line (its internal
 	// newlines are content), while ordinary statements are separate lines.
 	src := "var f = () => {\nreturn `<div>\nhi\n</div>`;\n}"
-	lines, ok := FormatLines([]byte(src), 80)
+	lines, ok := FormatLines([]byte(src), 80, 2)
 	if !ok {
 		t.Fatal("ok=false")
 	}

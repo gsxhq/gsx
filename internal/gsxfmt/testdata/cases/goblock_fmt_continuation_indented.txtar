@@ -1,0 +1,35 @@
+An author-indented continuation keeps its hanging indent (max preserves what you wrote beyond the brace level).
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`
+const v = a
+  || b;
+`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`
+					const v = a
+					  || b;
+				`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}
