@@ -1,0 +1,31 @@
+# Exact class/style targeting (design §Markup fill semantics, the class/style
+# paragraph). Badge declares exact ordinary `class` and `style` params, so those
+# attribute forms bind those params by their ordinary value type and are checked
+# against the declared type. Plain declares NO class param, so class falls
+# through into the reserved `attrs` bag and merges on the root via {attrs...}.
+#
+# Expected render:
+#   <span class="a b" style="color: red">x</span>
+#   <span class="c">y</span>
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Badge(class string, style string) {
+	<span class={class} style={style}>x</span>
+}
+
+component Plain(attrs gsx.Attrs) {
+	<span {attrs...}>y</span>
+}
+
+component Page() {
+	<Badge class="a b" style="color: red"/>
+	<Plain class="c"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+-- generated.x.go.golden --

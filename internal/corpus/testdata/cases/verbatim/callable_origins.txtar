@@ -1,0 +1,44 @@
+# The callable universe (design §The callable universe): tag eligibility is
+# resolvability to a concrete go/types.Signature with an allowed provenance.
+# This case exercises the SUPPORTED origins as TAGS, each resolving its ordered
+# verbatim signature/param names at the call site:
+#   - <Free/>      a package-scope free func,
+#   - <freeVar/>   a package-scope func VARIABLE,
+#   - <aliasVar/>  a package var declared through a named FUNC-TYPE ALIAS,
+#   - <store.Row/> a concrete BOUND METHOD VALUE.
+# A true method expression (Store.Row) and interface/field/local dispatch remain
+# tag-ineligible (rejection matrix; not emitted here).
+#
+# Expected render: <i>free</i><i>var</i><i>alias</i><i>bound</i>
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Line(label string) {
+	<i>{label}</i>
+}
+
+func Free(label string) gsx.Node { return Line(label) }
+
+type rowFunc = func(label string) gsx.Node
+
+var freeVar = func(label string) gsx.Node { return Line(label) }
+
+var aliasVar rowFunc = func(label string) gsx.Node { return Line(label) }
+
+type Store struct{ prefix string }
+
+func (s Store) Row(label string) gsx.Node { return Line(label) }
+
+component Page(store Store) {
+	<Free label="free"/>
+	<freeVar label="var"/>
+	<aliasVar label="alias"/>
+	<store.Row label="bound"/>
+}
+-- invoke --
+Page(Store{prefix: "p"})
+-- diagnostics.golden --
+-- render.golden --
+-- generated.x.go.golden --

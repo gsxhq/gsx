@@ -1,0 +1,33 @@
+# A NON-reserved ordinary bag-valued prop (`inputAttrs gsx.Attrs`) is filled by
+# exact name and may be spread onto SEVERAL chosen inner elements (design
+# §Reserved-input population, the inputAttrs rows). It is distinct from the
+# reserved `attrs` fallthrough role. Field is invoked twice: once with a literal
+# inputAttrs={{ ... }} (an ordinary gsx.Attrs-valued attribute), once with a
+# computed inputAttrs={computedBag()} expression. Both descendants receive the
+# bag.
+#
+# Expected render:
+#   <label><input id="x"/><span id="x"></span></label>
+#   <label><input data-k="v"/><span data-k="v"></span></label>
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Field(inputAttrs gsx.Attrs) {
+	<label><input {inputAttrs...}/><span {inputAttrs...}></span></label>
+}
+
+func computedBag() gsx.Attrs {
+	return gsx.Attrs{{Key: "data-k", Value: "v"}}
+}
+
+component Page() {
+	<Field inputAttrs={{ "id": "x" }}/>
+	<Field inputAttrs={computedBag()}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+-- generated.x.go.golden --
