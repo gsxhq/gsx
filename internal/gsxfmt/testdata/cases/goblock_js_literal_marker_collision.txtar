@@ -1,0 +1,37 @@
+A Go string in the same {{ }} block that happens to hold the literal-marker text
+must survive fmt byte-for-byte: the marker prefix is grown until absent from the
+block's Go text, so the string is never mistaken for a js` literal opener.
+
+-- input.gsx --
+package p
+
+component C() {
+	{{
+		a := gsx.Attrs{
+			{Key: "note", Value: "gsxǁblockǁlit0z"},
+			{Key: "@b", Value: js`
+foo();
+bar();
+`},
+		}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	{{
+		a := gsx.Attrs{
+			{Key: "note", Value: "gsxǁblockǁlit0z"},
+			{
+				Key:   "@b",
+				Value: js`
+					foo();
+					bar();
+				`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}

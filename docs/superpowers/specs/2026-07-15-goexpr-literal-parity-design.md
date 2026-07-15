@@ -40,6 +40,15 @@ shape as `*ast.EmbeddedAttr` minus name/braces. They appear:
 - As a markup child directly: body-position `{ js\`…\` }` is an
   `*ast.EmbeddedInterp` in the markup tree.
 
+**Scope of each facet (as implemented):** minify (B) reaches ALL of the above.
+The fmt re-indent (C) is implemented for the **`{{ }}` block** path only
+(`goBlock`); `{ expr }`-hole and top-level-var literals are emitted verbatim by
+`goExprValue` and are not re-indented. This is deliberate — the `{{ }}` block is
+the case authors hit (a `gsx.Attrs` value) — and it is render-safe either way:
+because C adds no indent in those positions, there is nothing there for the
+emit-side rebase to strip (and `rebaseEmbedded` correspondingly does not walk
+top-level `GoWithElements`).
+
 `Embedded` is populated by codegen's **analyze** pass
 (`splitInterpEmbedded`, analyze.go:691) — present at emit/minify time, **nil**
 during fmt. The formatter therefore re-derives the split **syntactically** with

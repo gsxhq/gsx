@@ -807,10 +807,12 @@ func (p *printer) goBlock(b *ast.GoBlock) pretty.Doc {
 
 // goBlockLitMarker is the sentinel a multi-line js`/css` literal is replaced by
 // in the gofmt-normalized block text, so gofmt positions the statement and the
-// printer can re-indent the literal's body under it. It is a valid Go identifier
-// (harmless to the raw-string scanner in splitOutsideRawStrings) that never
-// appears in real source.
-func goBlockLitMarker(n int) string { return fmt.Sprintf("gsxǁblockǁlit%dǁmarker", n) }
+// printer can re-indent the literal's body under it. prefix is a collision-free
+// identifier prefix (grown by fmtGoBlockCode until absent from the verbatim Go
+// text — never assumed unique, mirroring the rebase/minify sentinels); the `z`
+// terminates the index so the marker stays a single Go identifier, harmless to
+// the raw-string scanner in splitOutsideRawStrings.
+func goBlockLitMarker(prefix string, n int) string { return fmt.Sprintf("%s%dz", prefix, n) }
 
 // goBlockLiteralSeg renders a statement segment that carries a multi-line
 // js`/css` literal marker: the text up to the marker (e.g. "\t\tValue: ") on the
@@ -975,6 +977,22 @@ func (p *printer) fmtGoBlockCode(code string) (string, map[string]*ast.EmbeddedI
 	if !ok {
 		return "", nil, false
 	}
+	// A collision-free marker prefix, grown until absent from all verbatim Go
+	// text (the only non-marker content in the assembled string) — so a Go string
+	// literal that happens to hold the marker text can never be mistaken for a
+	// literal opener by goBlockLiteralSeg's Cut. Mirrors the rebase/minify
+	// sentinels; never an assumed-unique sentinel.
+	litPrefix := "gsxǁblockǁlit"
+	var scan strings.Builder
+	for _, part := range formatted {
+		if gt, ok := part.(ast.GoText); ok {
+			scan.WriteString(gt.Src)
+		}
+	}
+	for strings.Contains(scan.String(), litPrefix) {
+		litPrefix += "q"
+	}
+
 	var b strings.Builder
 	var lits map[string]*ast.EmbeddedInterp
 	for _, part := range formatted {
@@ -994,7 +1012,7 @@ func (p *printer) fmtGoBlockCode(code string) (string, map[string]*ast.EmbeddedI
 			if lits == nil {
 				lits = map[string]*ast.EmbeddedInterp{}
 			}
-			marker := goBlockLitMarker(len(lits))
+			marker := goBlockLitMarker(litPrefix, len(lits))
 			lits[marker] = ei
 			b.WriteString(marker)
 			continue
