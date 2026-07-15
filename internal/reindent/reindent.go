@@ -46,8 +46,8 @@ type Adapter interface {
 // Reindent re-bases src using a. Returns (formatted, true), or ("", false) on an
 // adapter failure. The block's common leading indentation is removed; the
 // author's relative indentation is preserved.
-func Reindent(src []byte, a Adapter) (string, bool) {
-	lines, ok := ReindentLines(src, a)
+func Reindent(src []byte, a Adapter, tabWidth int) (string, bool) {
+	lines, ok := ReindentLines(src, a, tabWidth)
 	if !ok {
 		return "", false
 	}
@@ -75,7 +75,7 @@ func Reindent(src []byte, a Adapter) (string, bool) {
 // The split into logical lines also lets the outer Doc layer (rawfmt) place each
 // line at the target depth WITHOUT re-indenting the interior of a multi-line
 // Opaque token (a template literal or block comment).
-func ReindentLines(src []byte, a Adapter) ([]string, bool) {
+func ReindentLines(src []byte, a Adapter, tabWidth int) ([]string, bool) {
 	toks, ok := a.Tokenize(src)
 	if !ok {
 		return nil, false
@@ -131,6 +131,13 @@ func ReindentLines(src []byte, a Adapter) ([]string, bool) {
 	// (e.g. an event handler `x = a \n || b` with no other statement) loses its
 	// hanging indent. That is rare — embedded bodies are objects, functions, or
 	// multi-statement blocks whose base level recurs on a later line.
+	// Exclude the first content line from the base ONLY for an inline body (its
+	// first logical line carries content, e.g. `{` attached to the delimiter at
+	// column 0 — an artifact, not the block's base). A block body opens on its own
+	// line (first logical line empty), so its first content line is a real base
+	// line and MUST be counted — otherwise a 2-line body like `x = a \n || b`
+	// treats the indented continuation as the base and strips its hanging indent.
+	inline := len(ps) > 0 && ps[0].content != ""
 	base := ""
 	seen := false
 	firstLeading, haveFirst := "", false
@@ -138,7 +145,7 @@ func ReindentLines(src []byte, a Adapter) ([]string, bool) {
 		if p.content == "" {
 			continue
 		}
-		if !haveFirst {
+		if inline && !haveFirst {
 			firstLeading, haveFirst = p.leading, true
 			continue
 		}
@@ -152,15 +159,78 @@ func ReindentLines(src []byte, a Adapter) ([]string, bool) {
 		base = firstLeading
 	}
 
+	// Brace depth per logical line (only `{ }` count — see the adapter's classify;
+	// parens/brackets are intentionally excluded so `foo(x, () => {` indents its
+	// body one level, not two). A line's own indent is the depth at its start,
+	// dedented by one if the line opens with `}` (it closes the enclosing block).
+	depths := make([]int, len(lines))
+	depth := 0
+	for i, line := range lines {
+		lineDepth := depth
+		if startsWithClose(line) {
+			lineDepth--
+		}
+		if lineDepth < 0 {
+			lineDepth = 0
+		}
+		depths[i] = lineDepth
+		for _, t := range line {
+			switch t.Class {
+			case Open:
+				depth++
+			case Close:
+				depth--
+			}
+		}
+	}
+
+	// Impose brace depth per LEVEL while preserving the author's relative structure
+	// WITHIN a level. For each brace-depth level, the common leading prefix of its
+	// (base-stripped) lines is the level's own baseline; a line's own extra beyond
+	// that baseline is what the author added on top of the brace structure — a
+	// `case:` body, a `||` continuation, a method chain. The final indent is the
+	// brace depth (as tabs) PLUS that extra. So flush and 2-space bodies both
+	// collapse to the brace depth (their extra is empty), a nested object goes one
+	// level deeper per brace, an indented continuation keeps its hanging indent,
+	// and a `case:` body stays one level under its label.
+	levelBase := map[int]string{}
+	levelSeen := map[int]bool{}
+	for i, p := range ps {
+		if p.content == "" {
+			continue
+		}
+		rel := strings.TrimPrefix(p.leading, base)
+		d := depths[i]
+		if !levelSeen[d] {
+			levelBase[d], levelSeen[d] = rel, true
+			continue
+		}
+		levelBase[d] = commonPrefix(levelBase[d], rel)
+	}
+
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		if p.content == "" {
 			out[i] = ""
 			continue
 		}
-		out[i] = strings.TrimPrefix(p.leading, base) + p.content
+		rel := strings.TrimPrefix(p.leading, base)
+		extra := strings.TrimPrefix(rel, levelBase[depths[i]])
+		out[i] = strings.Repeat("\t", depths[i]) + extra + p.content
 	}
 	return out, true
+}
+
+// startsWithClose reports whether a logical line's first non-space token is a
+// closing brace, so its own indentation dedents one level.
+func startsWithClose(line []Token) bool {
+	for _, t := range line {
+		if t.Class == Space {
+			continue
+		}
+		return t.Class == Close
+	}
+	return false
 }
 
 // SplitComment tokenizes a (possibly multi-line) comment so its interior lines

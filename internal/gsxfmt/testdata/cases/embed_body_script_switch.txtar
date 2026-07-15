@@ -18,9 +18,9 @@ package p
 component C() {
 	<script>
 		switch (t) {
-		case 'a':
-			f();
-			break;
+			case 'a':
+				f();
+				break;
 		}
 	</script>
 }

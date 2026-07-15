@@ -51,7 +51,7 @@ func (fake) Tokenize(src []byte) ([]Token, bool) {
 
 func reindent(t *testing.T, in string) string {
 	t.Helper()
-	out, ok := Reindent([]byte(in), fake{})
+	out, ok := Reindent([]byte(in), fake{}, 2)
 	if !ok {
 		t.Fatalf("Reindent reported failure on %q", in)
 	}
@@ -80,17 +80,20 @@ func TestReindentPreservesAuthorRelativeIndent(t *testing.T) {
 	}
 }
 
-func TestReindentDoesNotNormalizeFlatInput(t *testing.T) {
-	// Flat (unindented) input stays flat — re-basing never ADDS structure.
+func TestReindentBraceDepthNormalizesFlatInput(t *testing.T) {
+	// Flat (unindented) input is normalized to its brace depth: `b`/`c` inside the
+	// `{ }` indent one level. (The max(brace-depth, author) rule — the author
+	// wrote 0, brace depth is 1, so brace wins.)
 	in := "a {\nb\nc\n}"
-	if got := reindent(t, in); got != in {
-		t.Fatalf("got %q want %q (flat input must stay flat)", got, in)
+	want := "a {\n\tb\n\tc\n}"
+	if got := reindent(t, in); got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestReindentPreservesBlankLines(t *testing.T) {
 	in := "\ta {\n\tb\n\n\tc\n\t}"
-	want := "a {\nb\n\nc\n}"
+	want := "a {\n\tb\n\n\tc\n}"
 	got := reindent(t, in)
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -131,7 +134,7 @@ func TestReindentOneLinerStaysOneLine(t *testing.T) {
 }
 
 func TestReindentLexFailureReportsFalse(t *testing.T) {
-	if _, ok := Reindent([]byte("ERR whatever"), fake{}); ok {
+	if _, ok := Reindent([]byte("ERR whatever"), fake{}, 2); ok {
 		t.Fatal("expected ok=false on adapter lex failure")
 	}
 }
@@ -187,14 +190,15 @@ func (opaqueFake) Tokenize(src []byte) ([]Token, bool) {
 func TestReindentLinesOpaqueInteriorStaysOneLine(t *testing.T) {
 	// A backtick literal spanning 3 physical lines inside a braced block.
 	in := "{\nx `a\nb\nc`\n}\n"
-	lines, ok := ReindentLines([]byte(in), opaqueFake{})
+	lines, ok := ReindentLines([]byte(in), opaqueFake{}, 2)
 	if !ok {
 		t.Fatal("ok=false")
 	}
-	// Logical lines: "{", "x `a\nb\nc`", "}", "" — the opaque token keeps its
-	// internal newlines within ONE logical line. Indentation is preserved as
-	// written (the author put these at column 0), not recomputed from braces.
-	want := []string{"{", "x `a\nb\nc`", "}", ""}
+	// Logical lines: "{", "\tx `a\nb\nc`", "}", "" — the `x `…`` line is inside the
+	// braces so it indents one level (brace depth), but the opaque token keeps its
+	// internal newlines within ONE logical line: its interior (a\nb\nc) is verbatim
+	// content, never re-indented and never split into separate lines.
+	want := []string{"{", "\tx `a\nb\nc`", "}", ""}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines %q, want %d %q", len(lines), lines, len(want), want)
 	}
@@ -207,11 +211,11 @@ func TestReindentLinesOpaqueInteriorStaysOneLine(t *testing.T) {
 
 func TestReindentLinesJoinEqualsReindent(t *testing.T) {
 	for _, in := range []string{"{\nx `a\nb`\n}\n", "a\n{\nb\n}\n", "{\n}\n"} {
-		lines, ok := ReindentLines([]byte(in), opaqueFake{})
+		lines, ok := ReindentLines([]byte(in), opaqueFake{}, 2)
 		if !ok {
 			t.Fatalf("%q: ok=false", in)
 		}
-		flat, _ := Reindent([]byte(in), opaqueFake{})
+		flat, _ := Reindent([]byte(in), opaqueFake{}, 2)
 		if strings.Join(lines, "\n") != flat {
 			t.Fatalf("%q: join(lines)=%q != Reindent=%q", in, strings.Join(lines, "\n"), flat)
 		}

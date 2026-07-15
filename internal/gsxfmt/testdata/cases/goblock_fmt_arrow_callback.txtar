@@ -1,0 +1,37 @@
+A call with an arrow callback indents the body ONE level (brace-only: the ( does not add a level).
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`
+opts.forEach((o) => {
+handle(o);
+});
+`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`
+					opts.forEach((o) => {
+						handle(o);
+					});
+				`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}

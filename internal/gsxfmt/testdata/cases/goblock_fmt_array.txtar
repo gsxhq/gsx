@@ -1,0 +1,37 @@
+An array literal is a { }-only structure — [ ] does NOT drive indentation (brace-only rule), so array items stay at the js` body level unless the author indents them.
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`[
+1,
+2,
+3,
+]`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`[
+					1,
+					2,
+					3,
+				]`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}

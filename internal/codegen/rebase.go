@@ -7,6 +7,7 @@ import (
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
 	"github.com/gsxhq/gsx/internal/jsfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // rebaseEmbedded strips the block's common (markup-depth) leading indentation
@@ -169,9 +170,9 @@ func dedent(text string, lang ast.EmbeddedLang) (string, bool) {
 	var out []byte
 	var err error
 	if lang == ast.EmbeddedJS {
-		out, err = jsfmt.Format([]byte(text), 0)
+		out, err = jsfmt.Format([]byte(text), 0, pretty.DefaultTabWidth)
 	} else {
-		out, err = cssfmt.Format([]byte(text), 0)
+		out, err = cssfmt.Format([]byte(text), 0, pretty.DefaultTabWidth)
 	}
 	if err != nil {
 		return "", false

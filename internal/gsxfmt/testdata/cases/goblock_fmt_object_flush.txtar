@@ -1,13 +1,13 @@
-A content-adjacent (no leading newline) js` object literal in a {{ }} block uses
-inline layout: the opening `{` hugs the delimiter and the body sits at the
-literal's own column, matching the attribute path.
+A flush object literal indents its members one brace level under the js` line; the closing } returns to the js` column.
 
 -- input.gsx --
 package p
 
+import "github.com/gsxhq/gsx"
+
 component C(x string) {
 	{{
-		a := gsx.Attrs{{Key: "x-data", Value: js`{
+		a := gsx.Attrs{{Key: "@x", Value: js`{
 open: false,
 id: @{x},
 }`}}
@@ -17,11 +17,13 @@ id: @{x},
 -- fmt.golden --
 package p
 
+import "github.com/gsxhq/gsx"
+
 component C(x string) {
 	{{
 		a := gsx.Attrs{
 			{
-				Key:   "x-data",
+				Key:   "@x",
 				Value: js`{
 					open: false,
 					id: @{x},
