@@ -5251,12 +5251,12 @@
     },
     {
       "path": "internal/codegen/component_call_plan_test.go",
-      "before_sha256": "88f6ec3c3c2ed803a36c2243644a3170be56c263d3faadbf0299221d657c8d52",
+      "before_sha256": "cce838bb9faa9ac2c3baea5b145aefcc8d437f228f40810244dd57be470b8f5f",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "88f6ec3c3c2ed803a36c2243644a3170be56c263d3faadbf0299221d657c8d52",
+          "before_sha256": "cce838bb9faa9ac2c3baea5b145aefcc8d437f228f40810244dd57be470b8f5f",
           "after_sha256": "",
           "action": "reviewed-no-change"
         }
@@ -5313,6 +5313,19 @@
         {
           "kind": "raw-file",
           "before_sha256": "0b64ab46bfb0f24b76549b7dfcd7f120f316d55d5629a19265bad48753322986",
+          "after_sha256": "",
+          "action": "reviewed-no-change"
+        }
+      ]
+    },
+    {
+      "path": "internal/codegen/component_zero_test.go",
+      "before_sha256": "5133e38e9b5cbc2401fccd8c761dfcfc17e20ed2e16a5135786482e4c8122542",
+      "after_sha256": "",
+      "units": [
+        {
+          "kind": "raw-file",
+          "before_sha256": "5133e38e9b5cbc2401fccd8c761dfcfc17e20ed2e16a5135786482e4c8122542",
           "after_sha256": "",
           "action": "reviewed-no-change"
         }
@@ -5731,12 +5744,12 @@
     },
     {
       "path": "internal/codegen/infer_test.go",
-      "before_sha256": "890c71c7eec7820153821123a48b7d68dfdf02ea2905271636a8084db3b8f746",
+      "before_sha256": "d7662ff1c2a1fb75cc1f27143367fe03a69c51d845ae32f9a836c9c715fcbc7b",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "890c71c7eec7820153821123a48b7d68dfdf02ea2905271636a8084db3b8f746",
+          "before_sha256": "d7662ff1c2a1fb75cc1f27143367fe03a69c51d845ae32f9a836c9c715fcbc7b",
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [

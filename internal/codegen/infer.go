@@ -8,6 +8,7 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"maps"
 	"regexp"
 	"strings"
 
@@ -154,7 +155,7 @@ type inferRegistry struct {
 	// requalification call in this file through registry.requalifyTypeExpr/
 	// requalifyTypeParams (which share this ONE allocator) avoids that by
 	// construction.
-	alloc *aliasAllocator
+	alloc *generatedImportAllocator
 }
 
 // inferSite is one recorded inference probe: the tag it was emitted for, the
@@ -223,7 +224,7 @@ type inferSpan struct{ start, end int }
 // scoped to this one file, since harvest/diagnostic lookups are keyed by the
 // file's own absXpath.
 func newInferRegistry(names *inferNameAllocator) *inferRegistry {
-	return &inferRegistry{sites: map[string]*inferSite{}, alloc: newAliasAllocator(), names: names}
+	return &inferRegistry{sites: map[string]*inferSite{}, alloc: newGeneratedImportAllocator("_gsxti"), names: names}
 }
 
 // inferNameAllocator hands out globally-unique "_gsxinferN" probe helper
@@ -282,7 +283,7 @@ func (r *inferRegistry) requalifyTypeParams(decl, depAlias string, depImports []
 // requalified probe emitted into this file (in first-seen order), for
 // buildSkeleton's import-block assembly.
 func (r *inferRegistry) importAssembly() []importSpec {
-	return r.alloc.order
+	return r.alloc.specs()
 }
 
 // recordFailed marks el as a tag whose cross-package generic probe was
@@ -949,37 +950,100 @@ func printTypeExpr(e goast.Expr) (string, error) {
 	return buf.String(), nil
 }
 
-// aliasAllocator mints fresh "_gsxtiN" import aliases, deduplicated by
-// resolved import PATH: the same path always gets the same alias from one
+// generatedImportAllocator mints fresh "<prefix>N" import aliases, deduplicated
+// by resolved import PATH: the same path always gets the same alias from one
 // allocator, regardless of how many times or through how many different
-// qualifiers it is resolved. requalifyTypeExpr/requalifyTypeParams each
-// build a PRIVATE, single-call allocator by default (see the ALIAS COUNTER
-// SCOPE note above — every standalone call restarts at "_gsxti1");
-// inferRegistry (Task 4) instead holds ONE allocator for a whole file's
-// worth of probes, so repeated calls coalesce onto it — see
-// inferRegistry.alloc's doc for why that coordination matters.
-type aliasAllocator struct {
-	n      int
+// qualifiers it is resolved. It is the ONE alias implementation shared by two
+// callers with different reserved prefixes:
+//
+//   - skeleton requalification (Task 4) constructs it with prefix "_gsxti" so
+//     current probe naming remains stable; requalifyTypeExpr/requalifyTypeParams
+//     each build a PRIVATE, single-call allocator by default (see the ALIAS
+//     COUNTER SCOPE note above — every standalone call restarts at "_gsxti1"),
+//     while inferRegistry holds ONE allocator for a whole file's worth of probes
+//     so repeated calls coalesce onto it — see inferRegistry.alloc's doc.
+//   - final zero-fill type spelling (Task 5) constructs it with prefix "_gsxty"
+//     and drives it transactionally through begin()/commit() so a rejected
+//     candidate spelling leaks no import. The reserved "_gsx" namespace makes
+//     both prefixes collision-safe.
+type generatedImportAllocator struct {
+	prefix string
+	next   int
 	byPath map[string]string
 	order  []importSpec // first-seen order, for deterministic import assembly
 }
 
-func newAliasAllocator() *aliasAllocator {
-	return &aliasAllocator{byPath: map[string]string{}}
+func newGeneratedImportAllocator(prefix string) *generatedImportAllocator {
+	return &generatedImportAllocator{prefix: prefix, byPath: map[string]string{}}
 }
 
 // alloc returns the alias bound to path, minting (and recording in order) a
-// fresh "_gsxtiN" the first time path is seen by this allocator, and
+// fresh "<prefix>N" the first time path is seen by this allocator, and
 // returning the SAME alias on every later call for that path.
-func (a *aliasAllocator) alloc(path string) string {
+func (a *generatedImportAllocator) alloc(path string) string {
 	if alias, ok := a.byPath[path]; ok {
 		return alias
 	}
-	a.n++
-	alias := fmt.Sprintf("_gsxti%d", a.n)
+	a.next++
+	alias := fmt.Sprintf("%s%d", a.prefix, a.next)
 	a.byPath[path] = alias
 	a.order = append(a.order, importSpec{name: alias, path: path})
 	return alias
+}
+
+// specs returns the coalesced import specs registered by this allocator, in
+// first-seen order, for import-block assembly.
+func (a *generatedImportAllocator) specs() []importSpec {
+	return a.order
+}
+
+// generatedImportTxn is a candidate-scoped view of a generatedImportAllocator.
+// A candidate type spelling begins a transaction, allocates aliases through its
+// qualifier while types.TypeString renders the spelling, and commits only after
+// the positional go/types validation accepts that spelling. A rejected
+// candidate is simply never committed, so its speculative aliases never reach
+// the owner and cannot leak an unused import.
+type generatedImportTxn struct {
+	owner   *generatedImportAllocator
+	baseLen int
+	work    *generatedImportAllocator
+}
+
+// begin snapshots the allocator into a working copy. Every allocation made
+// through the returned transaction lands only on the copy until commit.
+func (a *generatedImportAllocator) begin() *generatedImportTxn {
+	work := &generatedImportAllocator{
+		prefix: a.prefix,
+		next:   a.next,
+		byPath: maps.Clone(a.byPath),
+		order:  append([]importSpec(nil), a.order...),
+	}
+	return &generatedImportTxn{owner: a, baseLen: len(a.order), work: work}
+}
+
+// qualifier returns a types.Qualifier that spells every foreign package under
+// its reserved generated alias, even when the caller's source already imports
+// that package, so local shadowing cannot break generated code. Types in the
+// current package are left unqualified.
+func (t *generatedImportTxn) qualifier(current *types.Package) types.Qualifier {
+	return func(p *types.Package) string {
+		if p == nil || p == current {
+			return ""
+		}
+		return t.work.alloc(p.Path())
+	}
+}
+
+// commit publishes the transaction's allocations onto the owning allocator. It
+// asserts the owner was not concurrently mutated while the transaction was open
+// (an internal invariant, never a guessed reconciliation).
+func (t *generatedImportTxn) commit() {
+	if len(t.owner.order) != t.baseLen {
+		panic("codegen: generated import allocator mutated during an open transaction")
+	}
+	t.owner.next = t.work.next
+	t.owner.byPath = t.work.byPath
+	t.owner.order = t.work.order
 }
 
 // aliasMinter resolves a dep-file qualifier (e.g. "fmt" or an explicit
@@ -991,7 +1055,7 @@ func (a *aliasAllocator) alloc(path string) string {
 // (newAliasMinterShared) — see aliasAllocator's doc.
 type aliasMinter struct {
 	depImports []importSpec
-	alloc      *aliasAllocator
+	alloc      *generatedImportAllocator
 	addImport  func(path, alias string) // nil for the shared (Task 4) path; see newAliasMinterShared
 }
 
@@ -1000,7 +1064,7 @@ type aliasMinter struct {
 // unchanged by Task 4: addImport fires exactly once per NEW path seen by
 // THIS call.
 func newAliasMinter(depImports []importSpec, addImport func(path, alias string)) *aliasMinter {
-	return &aliasMinter{depImports: depImports, alloc: newAliasAllocator(), addImport: addImport}
+	return &aliasMinter{depImports: depImports, alloc: newGeneratedImportAllocator("_gsxti"), addImport: addImport}
 }
 
 // newAliasMinterShared builds a minter over a caller-owned allocator
@@ -1010,7 +1074,7 @@ func newAliasMinter(depImports []importSpec, addImport func(path, alias string))
 // addImport callback: the caller reads the coalesced set directly off
 // alloc.order (inferRegistry.importAssembly) once every probe for the file
 // has been emitted, rather than being notified per-registration.
-func newAliasMinterShared(depImports []importSpec, alloc *aliasAllocator) *aliasMinter {
+func newAliasMinterShared(depImports []importSpec, alloc *generatedImportAllocator) *aliasMinter {
 	return &aliasMinter{depImports: depImports, alloc: alloc}
 }
 

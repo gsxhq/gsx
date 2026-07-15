@@ -604,3 +604,97 @@ func diagnosticCodes(diagnostics []diag.Diagnostic) []string {
 	}
 	return codes
 }
+
+func TestValidateComponentOperands(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+
+	newPlan := func(values ...componentInputValue) componentCallPlan {
+		return componentCallPlan{values: values}
+	}
+
+	t.Run("gsx.Attrs spread is a valid contributor", func(t *testing.T) {
+		spread := &gsxast.SpreadAttr{Expr: "bag"}
+		plan := newPlan(componentInputValue{
+			kind:      componentInputAttrsSegment,
+			node:      spread,
+			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamSpread},
+		})
+		facts := map[gsxast.Node]expressionFact{spread: {tv: types.TypeAndValue{Type: fx.runtime.attrs}}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 0 {
+			t.Fatalf("gsx.Attrs spread must validate, got %+v", diags)
+		}
+	})
+
+	t.Run("[]gsx.Attr spread is a valid contributor", func(t *testing.T) {
+		spread := &gsxast.SpreadAttr{Expr: "bag"}
+		plan := newPlan(componentInputValue{
+			kind:      componentInputAttrsSegment,
+			node:      spread,
+			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamSpread},
+		})
+		facts := map[gsxast.Node]expressionFact{spread: {tv: types.TypeAndValue{Type: types.NewSlice(fx.runtime.attr)}}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 0 {
+			t.Fatalf("[]gsx.Attr spread must validate, got %+v", diags)
+		}
+	})
+
+	t.Run("struct spread is rejected as a non-bag type", func(t *testing.T) {
+		user := types.NewPackage("example.test/user", "user")
+		props := types.NewNamed(types.NewTypeName(token.NoPos, user, "Props", nil), types.NewStruct(nil, nil), nil)
+		spread := &gsxast.SpreadAttr{Expr: "props"}
+		plan := newPlan(componentInputValue{
+			kind:      componentInputAttrsSegment,
+			node:      spread,
+			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamSpread},
+		})
+		facts := map[gsxast.Node]expressionFact{spread: {tv: types.TypeAndValue{Type: props}}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 1 || diags[0].Code != "component-attrs-spread-type" {
+			t.Fatalf("struct splat must be rejected, got %+v", diags)
+		}
+	})
+
+	t.Run("attrs={expr} contributor must be a bag", func(t *testing.T) {
+		contributor := &gsxast.ExprAttr{Name: "attrs", Expr: "notABag"}
+		plan := newPlan(componentInputValue{
+			kind:      componentInputAttrsContributor,
+			node:      contributor,
+			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamContributor},
+		})
+		facts := map[gsxast.Node]expressionFact{contributor: {tv: types.TypeAndValue{Type: types.Typ[types.String]}}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 1 || diags[0].Code != "component-attrs-spread-type" {
+			t.Fatalf("non-bag attrs contributor must be rejected, got %+v", diags)
+		}
+	})
+
+	t.Run("(T, error) prop is consumed as one value", func(t *testing.T) {
+		prop := &gsxast.ExprAttr{Name: "title", Expr: "load()"}
+		tuple := types.NewTuple(
+			types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),
+			types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type()),
+		)
+		plan := newPlan(componentInputValue{kind: componentInputProp, node: prop})
+		facts := map[gsxast.Node]expressionFact{prop: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 0 {
+			t.Fatalf("(T, error) prop must validate, got %+v", diags)
+		}
+	})
+
+	t.Run("non (T, error) tuple prop is rejected", func(t *testing.T) {
+		prop := &gsxast.ExprAttr{Name: "title", Expr: "pair()"}
+		tuple := types.NewTuple(
+			types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),
+			types.NewVar(token.NoPos, nil, "", types.Typ[types.Int]),
+		)
+		plan := newPlan(componentInputValue{kind: componentInputProp, node: prop})
+		facts := map[gsxast.Node]expressionFact{prop: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
+		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		if len(diags) != 1 || diags[0].Code != "invalid-tuple" {
+			t.Fatalf("non-(T,error) tuple must be rejected, got %+v", diags)
+		}
+	})
+}

@@ -4,6 +4,7 @@ import (
 	goast "go/ast"
 	goparser "go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1479,4 +1480,64 @@ func TestInferredFilterPackageTypeArgUsesFilterAlias(t *testing.T) {
 	if bout, berr := build.CombinedOutput(); berr != nil {
 		t.Fatalf("go build of generated output (inferred filter-package type arg): %v\n%s", berr, bout)
 	}
+}
+
+func TestGeneratedImportAllocatorTransactions(t *testing.T) {
+	caller := types.NewPackage("example.com/caller", "caller")
+	depA := types.NewPackage("example.com/a/util", "util")
+	depB := types.NewPackage("example.com/b/util", "util")
+
+	t.Run("prefix drives alias naming", func(t *testing.T) {
+		a := newGeneratedImportAllocator("_gsxty")
+		if got := a.alloc("example.com/dep"); got != "_gsxty1" {
+			t.Fatalf("alias = %q, want _gsxty1", got)
+		}
+		if got := a.alloc("example.com/dep"); got != "_gsxty1" {
+			t.Fatalf("repeated path must reuse alias, got %q", got)
+		}
+		// The stable skeleton-requalification prefix is unchanged.
+		ti := newGeneratedImportAllocator("_gsxti")
+		if got := ti.alloc("example.com/x"); got != "_gsxti1" {
+			t.Fatalf("requalification alias = %q, want _gsxti1", got)
+		}
+	})
+
+	t.Run("rejected candidate leaks no import", func(t *testing.T) {
+		a := newGeneratedImportAllocator("_gsxty")
+		txn := a.begin()
+		q := txn.qualifier(caller)
+		_ = q(depA) // speculative allocation on the working copy
+		if len(a.specs()) != 0 {
+			t.Fatalf("uncommitted transaction leaked imports: %+v", a.specs())
+		}
+	})
+
+	t.Run("qualifier leaves the current package unqualified and aliases foreign", func(t *testing.T) {
+		a := newGeneratedImportAllocator("_gsxty")
+		txn := a.begin()
+		q := txn.qualifier(caller)
+		if got := q(caller); got != "" {
+			t.Fatalf("current package must be unqualified, got %q", got)
+		}
+		aliasA := q(depA)
+		aliasB := q(depB)
+		if aliasA == "" || aliasB == "" || aliasA == aliasB {
+			t.Fatalf("two same-named packages must get distinct reserved aliases, got %q/%q", aliasA, aliasB)
+		}
+		txn.commit()
+		if len(a.specs()) != 2 {
+			t.Fatalf("commit must publish both imports, got %+v", a.specs())
+		}
+	})
+
+	t.Run("commit publishes the winner", func(t *testing.T) {
+		a := newGeneratedImportAllocator("_gsxty")
+		txn := a.begin()
+		txn.qualifier(caller)(depA)
+		txn.commit()
+		specs := a.specs()
+		if len(specs) != 1 || specs[0].name != "_gsxty1" || specs[0].path != "example.com/a/util" {
+			t.Fatalf("committed specs = %+v", specs)
+		}
+	})
 }
