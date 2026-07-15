@@ -28,13 +28,140 @@ func keysOfGenerated(m map[string][]byte) []string {
 	return out
 }
 
+func requireDuplicateComponentError(t *testing.T, out map[string][]byte, diags []diag.Diagnostic) {
+	t.Helper()
+	for _, diagnostic := range diags {
+		if diagnostic.Code == "duplicate-component" && diagnostic.Severity == diag.Error {
+			if len(out) != 0 {
+				t.Fatalf("duplicate component emitted files %v", keysOfGenerated(out))
+			}
+			return
+		}
+	}
+	t.Fatalf("diagnostics = %v, want duplicate-component error", diags)
+}
+
+func TestComponentVariantsRequireConstraintsOnEveryMember(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		files map[string]string
+	}{
+		{
+			name: "unconstrained",
+			files: map[string]string{
+				"a.gsx": "package views\ncomponent Icon(value int) { <span/> }\n",
+				"b.gsx": "package views\ncomponent Icon(value int) { <span/> }\n",
+			},
+		},
+		{
+			name: "mixed",
+			files: map[string]string{
+				"icon_linux.gsx": "package views\ncomponent Icon(value int) { <span/> }\n",
+				"icon.gsx":       "package views\ncomponent Icon(value int) { <span/> }\n",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, module := openTestModule(t, test.files)
+			out, diags, err := module.Generate(dir)
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			requireDuplicateComponentError(t, out, diags)
+		})
+	}
+}
+
+func TestComponentVariantsAcceptFilenameConstraints(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"icon_linux.gsx":   "package views\ncomponent Icon(value int) { <span>linux</span> }\n",
+		"icon_windows.gsx": "package views\ncomponent Icon(value int) { <span>windows</span> }\n",
+	})
+	out, diags, err := module.Generate(dir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if hasError(diags) {
+		t.Fatalf("diagnostics = %v, want filename-constrained variant family", diags)
+	}
+	if len(out) != 2 {
+		t.Fatalf("generated files = %v, want both variants", keysOfGenerated(out))
+	}
+}
+
+func TestComponentVariantSignatureIdentityIsSemantic(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		files   map[string]string
+		wantErr bool
+	}{
+		{
+			name: "same type through different aliases",
+			files: map[string]string{
+				"icon_a.gsx": "//go:build variantA\n\npackage views\nimport h \"net/http\"\ncomponent Icon(value h.Header) { <span/> }\n",
+				"icon_b.gsx": "//go:build variantB\n\npackage views\nimport header \"net/http\"\ncomponent Icon(value header.Header) { <span/> }\n",
+			},
+		},
+		{
+			name: "alpha renamed type parameter",
+			files: map[string]string{
+				"icon_a.gsx": "//go:build variantA\n\npackage views\ncomponent Icon[T any](value T) { <span/> }\n",
+				"icon_b.gsx": "//go:build variantB\n\npackage views\ncomponent Icon[U any](value U) { <span/> }\n",
+			},
+		},
+		{
+			name: "same spelling bound to different packages",
+			files: map[string]string{
+				"icon_a.gsx": "//go:build variantA\n\npackage views\nimport x \"bufio\"\ncomponent Icon(value x.Reader) { <span/> }\n",
+				"icon_b.gsx": "//go:build variantB\n\npackage views\nimport x \"strings\"\ncomponent Icon(value x.Reader) { <span/> }\n",
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, module := openTestModule(t, test.files)
+			out, diags, err := module.Generate(dir)
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			if test.wantErr {
+				requireDuplicateComponentError(t, out, diags)
+				return
+			}
+			if hasError(diags) {
+				t.Fatalf("diagnostics = %v, want semantically identical variants", diags)
+			}
+			if len(out) != 2 {
+				t.Fatalf("generated files = %v, want both variants", keysOfGenerated(out))
+			}
+		})
+	}
+}
+
+func TestRawGoCrossFileRedeclarationIsNeverAComponentVariant(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"a.gsx": "//go:build variantA\n\npackage views\nfunc helper() {}\ncomponent A() { <span/> }\n",
+		"b.gsx": "//go:build variantB\n\npackage views\nfunc helper() {}\ncomponent B() { <span/> }\n",
+	})
+	out, diags, err := module.Generate(dir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !hasError(diags) {
+		t.Fatalf("diagnostics = %v output = %v, want raw Go redeclaration error", diags, keysOfGenerated(out))
+	}
+	if len(out) != 0 {
+		t.Fatalf("raw Go redeclaration emitted files %v", keysOfGenerated(out))
+	}
+}
+
 // TestSameSigVariantGeneratesAllFiles is the regression for the bug this
 // subsystem fixes: two .gsx files under disjoint //go:build tags declaring a
 // same-name/same-signature component (a legitimate build-tag variant) used to
 // produce a cross-file "redeclared in this block" go/types error, which
 // blocked emission for the WHOLE package — not just the redeclared component.
-// suppressCrossFileRedeclarations must tolerate this so all three files in
-// the package still generate.
+// The component-only target plan must fold the logical public declaration while
+// keeping every variant body in the package-wide analysis universe.
 func TestSameSigVariantGeneratesAllFiles(t *testing.T) {
 	dir, m := openTestModule(t, map[string]string{
 		"icon_linux.gsx":   "//go:build linux\n\npackage views\n\ncomponent Icon(name string) { <span>linux:{ name }</span> }\n",

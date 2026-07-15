@@ -87,15 +87,10 @@ default imports whose base *is* referenced, are still classified syntactically.
 
 **Per-import gating is required, and it is `Complete()`, not "the import list is incomplete."**
 `pkg.Imports()` lists every direct import whether or not `pkg` overall type-checked cleanly, but
-an individual entry can itself be a placeholder: when an import path is outside analyze's own
-importer graph (`moduleImporter`/`externalImporter` — e.g. reachable only from this one `.gsx`
-file, not from the gsx runtime, the std filter package, or any other Go file in the module),
-`go/types` cannot load it but still needs *some* `*types.Package` to keep type-checking the rest
-of the file. It fabricates one, **named after the import path's last segment** (verified:
-`"math/rand/v2"` → placeholder name `"v2"`, real declared name `"rand"`), and leaves it
-`Complete() == false`. Earlier text in this section claimed this case yields an *empty* name map
-and a conservative keep — that was wrong: `importNamesFromTypes` used to add every entry from
-`pkg.Imports()` unconditionally, so the map got populated with the **fabricated, wrong** name.
+an individual entry can itself be a placeholder after an importer failure or when a bounded
+importer cannot supply it. `go/types` still needs *some* `*types.Package` to continue checking;
+it can fabricate one named after the import path's last segment (`"math/rand/v2"` → `"v2"`,
+while the real name is `"rand"`) and leave it `Complete() == false`.
 
 That is the false positive an adversarial review caught (Critical): with `math/rand/v2` used as
 `rand.IntN(3)`, `classifyUnusedImports` makes it a removal candidate because its path base `"v2"`
@@ -107,22 +102,12 @@ The fix: `importNamesFromTypes` skips any `imp` with `imp.Complete() == false` b
 the map, so an unresolvable import's real name is never guessed — it is simply absent, and
 `unusedImportsCore`'s `if !ok { continue }` conservatively keeps it, exactly like a nil `pkg`.
 
-**Accepted trade-off (documented, not a bug) — Divergence A:** any unused *default* import outside
-analyze's importer graph is now **kept** by `Package()`, even though `Module.UnusedImports` (which
-resolves names via a real, targeted `go list`, not a guess) still correctly removes it. This is
-broader than "name differs from path base" — the trigger is `Complete() == false`, which fires for
-**any** import outside the importer graph, including one whose name equals its base (verified:
-`container/ring`, `hash/crc64`, `text/tabwriter`, `net/rpc`, `container/heap`). The two surfaces
-legitimately diverge on this whole class of imports — under-removal in the LSP is the safe
-direction; deleting a used import is not. See `TestModuleAndPackageDivergeOnUnresolvableNameNeBase`
-(name != base) and `TestPackageKeepsUnusedImportOutsideImporterGraph` (name == base) in
-`internal/codegen/unused_imports_lsp_test.go`.
-
-An out-of-graph import also surfaces a spurious `could not import <path>` **error** diagnostic
-today (e.g. `could not import text/tabwriter (cached importer: "text/tabwriter" not loaded)`) —
-this is a pre-existing `externalImporter` limitation (its one-shot preload never reaches a package
-referenced only from a `.gsx` import line), not introduced by this design, and out of scope here;
-see `docs/ROADMAP.md`.
+**2026-07-15 source-inventory update:** normal mode now makes every valid GSX-authored import an
+explicit root of the authoritative cold load. Packages such as `math/rand/v2` and
+`container/ring` are therefore complete, exact inputs even when referenced only from `.gsx`;
+`Package()` safely reports a genuinely unused import and agrees with `Module.UnusedImports`.
+The `Complete()` gate remains required for actual importer failures and bounded importers, and is
+pinned directly rather than by deliberately withholding valid GSX imports from the cold graph.
 
 **Divergence B (the opposite direction, and it is safe):** `Package()` can also **remove** an
 import `Module.UnusedImports` **keeps** — the reverse of Divergence A. An unused sibling gsx
@@ -168,14 +153,11 @@ per invocation and has no type information. Unchanged.
 - **Deadlock guard:** the same `Package()` test hangs if the lock bug returns; the package
   `-timeout` catches it.
 - **Parity:** `Package(dir).UnusedImports` equals `Module.UnusedImports(dir)` across fixtures
-  (default import, aliased import, blank `_`, dot `.`, sunk import). A default import whose real
-  name differs from its path base AND is outside the importer graph (`math/rand/v2`) is
-  deliberately **excluded** from this parity set — see the next bullet.
-- **Documented divergence A (out of importer graph, unresolvable):**
-  `TestModuleAndPackageDivergeOnUnresolvableNameNeBase` (name != base, `math/rand/v2`) and
-  `TestPackageKeepsUnusedImportOutsideImporterGraph` (name == base, `container/ring`) assert
-  `Package()` conservatively *keeps* an unused, out-of-graph import while `Module.UnusedImports`
-  correctly *removes* it via `go list` — see the Divergence A trade-off above.
+  (default import, aliased import, blank `_`, dot `.`, sunk import), including authoritative
+  GSX-only roots whose declared name differs from the path base (`math/rand/v2`).
+- **Authoritative GSX-only imports:** `TestModuleAndPackageResolveGsxOnlyImportName` and
+  `TestPackageRemovesUnusedGsxOnlyImportNameEqualsBase` assert exact types-only removal for both
+  name-different and name-equal paths.
 - **Documented divergence B (sibling gsx-only import, the opposite direction):**
   `TestPackageRemovesUnusedSiblingGsxImportModuleKeeps` asserts `Package()` *removes* an unused
   `.gsx`-only sibling import that `Module.UnusedImports` *keeps* (go list cannot name a package with
@@ -185,17 +167,14 @@ per invocation and has no type information. Unchanged.
   incremented in `resolvePackageNames`; assert it stays **0** across `Package()`, and is
   non-zero for the CLI `Module.UnusedImports` path (proving the test can actually observe it).
 - **Critical false-positive regression:** `TestPackageUnusedImportsDoesNotDeleteUsedRandV2` — a
-  `.gsx` file that USES `math/rand/v2` as `rand.IntN(3)`, where that import is unresolvable via
-  analyze's importer graph, must not have it reported unused by `Package()`. Fails before the
-  `Complete()` gate, passes after.
+  `.gsx` file that uses `math/rand/v2` as `rand.IntN(3)` must not have it reported unused by
+  `Package()`, whether the importer supplies an authoritative package or an incomplete placeholder.
 - **Headline case still removed:** `context` and `io`, both fully resolvable
   (`Complete() == true`, since the gsx runtime itself imports them), unused, are still reported
   unused by `Package()` via types alone (`TestPackageUnusedImportsHeadlineCaseStillRemoved`) — the
   `Complete()` gate must not over-correct into never removing anything.
-- **Unresolvable candidate is kept, not misclassified as "correctly unused by luck":**
-  `TestPackageUnusedImportsKeepsUnresolvableCandidate` (renamed from
-  `TestPackageUnusedImportsNameNeBaseViaTypes`, which pinned the old, coincidentally-right-for-the-
-  wrong-reason behavior).
+- **Incomplete candidates are never guessed:**
+  `TestImportNamesFromTypesSkipsIncompletePackage` directly pins the `Complete()` boundary.
 - `make ci` and `make lint` green.
 
 ## Non-goals

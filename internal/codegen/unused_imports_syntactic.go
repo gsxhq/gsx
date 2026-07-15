@@ -140,6 +140,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 		}
 		return out, nil
 	}
+	componentPlan := newComponentTargetPlan(gsxFiles, parsed.sources, bag)
 	// Some diagnosed regions, notably direct element literals inside {{ }}, are
 	// deliberately preserved in the registry while the rest of the package can
 	// still be inspected. Their skeletons omit the whole invalid region, so using
@@ -190,7 +191,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 			continue
 		}
 		skel, _, imps, _, infReg, _, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps,
-			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, skeletonFull)
+			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, &componentPlan, skeletonFull)
 		if berr != nil {
 			continue // unbuildable → keep all imports (no entry)
 		}
@@ -263,18 +264,12 @@ func (m *Module) resolvePackageNames(paths []string) map[string]string {
 // kept by the caller — mirroring resolvePackageNames' own "absent path ⇒ keep"
 // contract.
 //
-// Completeness gates every entry (imp.Complete()). An import path outside the
-// type-checker's own importer graph (moduleImporter/externalImporter — e.g. it
-// is reachable only via the .gsx source, not via the gsx runtime, the std
-// filter package, FilterPkgs/LoadPkgs, or "./..." — see externalImporter's
-// doc) cannot be loaded by go/types, but it still needs a placeholder
-// *types.Package to keep type-checking the rest of the file. It fabricates
-// one named after the import PATH'S LAST SEGMENT (verified: "math/rand/v2" →
-// placeholder name "v2", real declared name "rand") and leaves it incomplete.
-// This is NOT limited to the name != path-base shape: ANY unused default
-// import outside the importer graph gets this treatment, including one whose
-// name equals its base (verified: container/ring). Trusting the guessed name
-// is exactly the banned "simple heuristic": it would make
+// Completeness gates every entry (imp.Complete()). Normal-mode cold inventory
+// makes every authored GSX import a load root, so valid imports ordinarily have
+// authoritative complete packages even when no generated output reaches them.
+// An importer failure or another bounded importer can still leave go/types an
+// incomplete placeholder named after the path's last segment ("v2" for
+// "math/rand/v2"). Trusting that guessed name would make
 // classifyUnusedImports' candidate check compare the file's used-name set
 // against the fabricated name instead of the real one, so a live reference
 // (e.g. `rand.IntN(3)`) is invisible and the import is reported unused — the
@@ -282,11 +277,7 @@ func (m *Module) resolvePackageNames(paths []string) map[string]string {
 // incomplete imports here means the caller (unusedImportsCore's
 // `!ok → continue`) conservatively KEEPS every such import — the same
 // "absent path ⇒ keep" contract resolvePackageNames already provides for the
-// CLI path. One consequence: `Module.UnusedImports`/`gsx fmt` (which resolves
-// names via a real `go list`, not a guess) may remove an import that Package()
-// keeps. See docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md
-// for the full divergence matrix, including the (safe) opposite direction —
-// Package() removing an unused sibling gsx-only import `go list` cannot name.
+// CLI path. See docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md.
 func importNamesFromTypes(pkg *types.Package) map[string]string {
 	out := map[string]string{}
 	if pkg == nil {

@@ -177,7 +177,7 @@ component Page() {
 	if _, err := preprocessComponentCallSites(files, declNames, fset, nil, bag); err != nil {
 		t.Fatalf("preprocess: %v", err)
 	}
-	skel, _, _, _, registry, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, bag, nil, skeletonFull)
+	skel, _, _, _, registry, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, bag, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

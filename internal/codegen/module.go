@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"go/types"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -91,7 +92,8 @@ type Options struct {
 // Concurrency contract (Phase 1): analysisMu serializes the three top-level
 // analysis entry points — Package, Generate, and typesPackage — so that only
 // one analysis runs on a given Module at a time. mu guards the overrides, ext,
-// and pkgTypes map fields and is acquired independently of analysisMu (it is
+// pkgTypes, and targetDeclTypes map fields and is acquired independently of
+// analysisMu (it is
 // also acquired inside externalImporter and typesPackageWith, which are called
 // from within a held analysisMu). gcImporterMu is a third, narrower lock: it
 // serializes Import calls into the cached gc export-data importer used by
@@ -110,8 +112,9 @@ type Options struct {
 // source (override-or-disk) and marks filepath.Dir(absPath) dirty when the
 // content actually changed. Package and Generate call applyDirty at the start of
 // each run: it drops the reverse-reflexive-transitive closure of dirty dirs from
-// pkgTypes (the changed dir plus every project gsx package that transitively
-// imports it), then clears dirty. This means only the affected subgraph is
+// both type-package caches (the changed dir plus every project gsx package that
+// transitively imports it through either analysis graph), then clears dirty.
+// This means only the affected subgraph is
 // re-type-checked; unchanged packages and the warm ext importer stay cached. A
 // configured module-local renderer dir is the intentional exception: its result
 // classification is module-wide, so its declaration/table caches and every
@@ -138,45 +141,56 @@ type Options struct {
 // accumulates fset entries (token.FileSet is append-only). maybeRebuildFset (called
 // at the start of Package/Generate) bounds this: when project re-parse growth
 // (fset.Base() - fsetBaseline) exceeds fsetRebuildBytes, rebuildFset replaces the
-// fset AND drops ext+pkgTypes+pkgResults TOGETHER, so nothing live holds positions
+// fset AND drops ext+pkgTypes+targetDeclTypes+pkgResults TOGETHER, so nothing live holds positions
 // into the discarded fset. The import graph, dirty set, and overrides survive
 // (path/content-based). Do NOT rebuild the fset per edit, and never reset the fset
-// while keeping ext, pkgTypes, or pkgResults: that would orphan their positions.
+// while keeping ext, pkgTypes, targetDeclTypes, or pkgResults: that would orphan their positions.
 type Module struct {
-	opts              Options
-	overrides         map[string][]byte           // abs .gsx path -> in-memory source
-	ext               types.Importer              // lazily built external importer (stdlib + third-party)
-	extPkgs           map[string]*types.Package   // the types behind ext, kept for subprocess-free filter-table harvests
-	extErrs           map[string][]packages.Error // per-package load/type errors from the ext load (filter packages must not be silently partial)
-	extLoads          int                         // count of external packages.Load calls (observability; test hook)
-	funcTbl           funcTables                  // lazily built filter-only fmt table (see cachedFuncTables)
-	funcTblErr        error                       // error from the func-tables load (cached alongside funcTbl)
-	funcTblDone       bool                        // true once the func tables have been loaded (success or error)
-	rendererPkgs      map[string]*types.Package   // final renderer packages, with module-local GSX packages replaced by declaration skeleton types
-	rendererLocal     map[string]bool             // renderer package path -> module-local GSX ownership
-	rendererPkgsErr   error                       // cached renderer package resolution error
-	rendererPkgsDone  bool                        // true once renderer packages have been resolved (success or error)
-	rendererTbl       rendererTable               // unlocalized, alias-free completed renderer table
-	rendererTblErr    error                       // cached renderer harvest/global-validation error
-	rendererTblDone   bool                        // true once the completed renderer table has been built (success or error)
-	rendererDirs      map[string]bool             // configured module-owned renderer dirs; source kind is resolved lazily
-	filterLoads       int                         // count of filter-table loads performed (observability; test hook)
-	dirFuncTbls       map[string]funcTables       // per-dir func-tables memo, keyed by consuming package + canonical FilterPkgs key
-	perDirMergersErr  error                       // cached result of validatePerDirMergers
-	perDirMergersDone bool                        // true once the PerDir mergers have been validated
-	fset              *token.FileSet              // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
-	pkgTypes          map[string]*types.Package   // abs dir -> checked *types.Package cache
-	pkgResults        map[string]*PackageResult   // abs dir -> cached full analysis result (Package path only)
-	depFacts          map[string]*depPropFacts    // abs dep dir -> cached imported prop facts (see importedPropFacts)
-	imports           map[string][]string         // dir -> its project-gsx dependency dirs (forward edges)
-	importedBy        map[string]map[string]bool  // dep dir -> set of importer dirs (reverse edges)
-	dirty             map[string]bool             // dirs with a pending content change (consumed by applyDirty)
-	fsetBaseline      int                         // m.fset.Base() captured after the last packages.Load (growth measured since here)
-	fsetRebuildBytes  int                         // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
-	rebuildCount      int                         // count of fset rebuilds performed (observability; exposed via rebuilds())
-	gcImporter        types.Importer              // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
-	mu                sync.Mutex                  // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty, gcImporter (the field itself, not calls into it)
-	analysisMu        sync.Mutex                  // serializes Package/Generate/typesPackage (see concurrency contract)
+	opts                 Options
+	buildEnv             []string                        // immutable process environment used by the Module's authoritative Go build selection
+	packagesDriverPath   string                          // gopackagesdriver resolved from PATH at Open; empty when the frozen PATH had none
+	overrides            map[string][]byte               // abs .gsx path -> in-memory source
+	ext                  types.Importer                  // lazily built external importer (stdlib + third-party)
+	extPkgs              map[string]*types.Package       // the types behind ext, kept for subprocess-free filter-table harvests
+	externalImportPaths  map[string]bool                 // exact path set published by ext; safe retained superset for later GSX import edits
+	extErrs              map[string][]packages.Error     // per-package load/type errors from the ext load (filter packages must not be silently partial)
+	sourcePackages       map[string]projectSourcePackage // abs dir -> authoritative active compiled Go files from the ext load
+	sourcePackageDirs    map[string]string               // exact module-local import path -> clean abs dir, built once with sourcePackages
+	sourceManifestEpoch  uint64                          // increments when an override changes package/import/path membership used by the cold manifest
+	sourceInventoryReady bool                            // distinguishes an authoritative empty selection from Bundle/uninitialized mode
+	sourceInventoryDirty bool                            // authoritative GSX path membership changed; rebuild before the next analysis
+	extLoads             int                             // count of external packages.Load calls (observability; test hook)
+	funcTbl              funcTables                      // lazily built filter-only fmt table (see cachedFuncTables)
+	funcTblErr           error                           // error from the func-tables load (cached alongside funcTbl)
+	funcTblDone          bool                            // true once the func tables have been loaded (success or error)
+	rendererPkgs         map[string]*types.Package       // final renderer packages, with module-local GSX packages replaced by declaration skeleton types
+	rendererLocal        map[string]bool                 // renderer package path -> module-local GSX ownership
+	rendererPkgsErr      error                           // cached renderer package resolution error
+	rendererPkgsDone     bool                            // true once renderer packages have been resolved (success or error)
+	rendererTbl          rendererTable                   // unlocalized, alias-free completed renderer table
+	rendererTblErr       error                           // cached renderer harvest/global-validation error
+	rendererTblDone      bool                            // true once the completed renderer table has been built (success or error)
+	rendererDirs         map[string]bool                 // configured module-owned renderer dirs; source kind is resolved lazily
+	filterLoads          int                             // count of filter-table loads performed (observability; test hook)
+	dirFuncTbls          map[string]funcTables           // per-dir func-tables memo, keyed by consuming package + canonical FilterPkgs key
+	perDirMergersErr     error                           // cached result of validatePerDirMergers
+	perDirMergersDone    bool                            // true once the PerDir mergers have been validated
+	fset                 *token.FileSet                  // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
+	pkgTypes             map[string]*types.Package       // abs dir -> checked *types.Package cache
+	targetDeclTypes      map[string]*types.Package       // abs dir -> exact-signature declarations; never aliases the shipping Props cache
+	pkgResults           map[string]*PackageResult       // abs dir -> cached full analysis result (Package path only)
+	depFacts             map[string]*depPropFacts        // abs dep dir -> cached imported prop facts (see importedPropFacts)
+	imports              map[string][]string             // dir -> its project-gsx dependency dirs (forward edges)
+	importedBy           map[string]map[string]bool      // dep dir -> set of importer dirs (reverse edges)
+	targetImports        map[string][]string             // exact-target declaration graph forward edges
+	targetImportedBy     map[string]map[string]bool      // exact-target declaration graph reverse edges
+	dirty                map[string]bool                 // dirs with a pending content change (consumed by applyDirty)
+	fsetBaseline         int                             // m.fset.Base() captured after the last packages.Load (growth measured since here)
+	fsetRebuildBytes     int                             // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
+	rebuildCount         int                             // count of fset rebuilds performed (observability; exposed via rebuilds())
+	gcImporter           types.Importer                  // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
+	mu                   sync.Mutex                      // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, gcImporter (the field itself, not calls into it)
+	analysisMu           sync.Mutex                      // serializes Package/Generate/typesPackage (see concurrency contract)
 	// gcImporterMu serializes calls INTO the cached gc export-data importer
 	// (m.gcImporter.Import), as opposed to mu which only guards the m.gcImporter
 	// field's lazy assignment. go/importer's gc importer (go/internal/gcimporter)
@@ -231,18 +245,27 @@ func Open(opts Options) (*Module, error) {
 			rendererDirs[dir] = true
 		}
 	}
+	packagesDriverPath, _ := exec.LookPath("gopackagesdriver")
 	return &Module{
-		opts:             opts,
-		overrides:        map[string][]byte{},
-		fset:             token.NewFileSet(),
-		dirFuncTbls:      map[string]funcTables{},
-		rendererDirs:     rendererDirs,
-		pkgResults:       map[string]*PackageResult{},
-		depFacts:         map[string]*depPropFacts{},
-		imports:          map[string][]string{},
-		importedBy:       map[string]map[string]bool{},
-		dirty:            map[string]bool{},
-		fsetRebuildBytes: fsetRebuildBytesFromEnv(),
+		opts:                opts,
+		buildEnv:            append([]string(nil), os.Environ()...),
+		packagesDriverPath:  packagesDriverPath,
+		overrides:           map[string][]byte{},
+		fset:                token.NewFileSet(),
+		dirFuncTbls:         map[string]funcTables{},
+		rendererDirs:        rendererDirs,
+		targetDeclTypes:     map[string]*types.Package{},
+		sourcePackages:      map[string]projectSourcePackage{},
+		sourcePackageDirs:   map[string]string{},
+		externalImportPaths: map[string]bool{},
+		pkgResults:          map[string]*PackageResult{},
+		depFacts:            map[string]*depPropFacts{},
+		imports:             map[string][]string{},
+		importedBy:          map[string]map[string]bool{},
+		targetImports:       map[string][]string{},
+		targetImportedBy:    map[string]map[string]bool{},
+		dirty:               map[string]bool{},
+		fsetRebuildBytes:    fsetRebuildBytesFromEnv(),
 	}, nil
 }
 
@@ -252,16 +275,51 @@ func Open(opts Options) (*Module, error) {
 // bytes mark nothing dirty. Invalidation is applied lazily by applyDirty at the
 // next Package/Generate call.
 func (m *Module) SetOverride(absPath string, src []byte) {
+	absPath = filepath.Clean(absPath)
 	base, haveBase := m.currentSource(absPath)
 	// A real change: if a base exists, it must differ from src. If no base exists
 	// (file not on disk, no prior override), only non-empty src counts as new content.
 	changed := haveBase && !bytes.Equal(base, src) || !haveBase && len(src) > 0
+	manifestChanged := false
+	manifestStructureChanged := false
+	var oldImports, newImports []string
+	if strings.HasSuffix(absPath, ".gsx") && pathWithin(m.opts.ModuleRoot, absPath) {
+		oldFact, inspectedOldImports := inspectGsxSourceInventory(absPath, base, haveBase)
+		newFact, inspectedNewImports := inspectGsxSourceInventory(absPath, src, true)
+		manifestChanged = oldFact != newFact
+		manifestStructureChanged = oldFact.present != newFact.present || oldFact.packageName != newFact.packageName
+		oldImports, newImports = inspectedOldImports, inspectedNewImports
+	}
 	m.mu.Lock()
 	if changed {
 		if m.dirty == nil {
 			m.dirty = map[string]bool{}
 		}
 		m.dirty[filepath.Dir(absPath)] = true
+	}
+	// Package/path/import membership drives the cold source manifest separately
+	// from ordinary content invalidation. Package/path changes rebuild the source
+	// selection. A newly imported path rebuilds only when the published external
+	// importer cannot already supply it; removals and already-loaded additions
+	// safely retain the cold importer's exact known-path superset.
+	if manifestChanged {
+		m.sourceManifestEpoch++
+		inventoryNeedsReload := manifestStructureChanged
+		if !inventoryNeedsReload && m.sourceInventoryReady {
+			oldImportSet := make(map[string]bool, len(oldImports))
+			for _, importPath := range oldImports {
+				oldImportSet[importPath] = true
+			}
+			for _, importPath := range newImports {
+				if !oldImportSet[importPath] && !m.externalImportPaths[importPath] {
+					inventoryNeedsReload = true
+					break
+				}
+			}
+		}
+		if m.sourceInventoryReady && inventoryNeedsReload {
+			m.sourceInventoryDirty = true
+		}
 	}
 	m.overrides[absPath] = src
 	m.mu.Unlock()
@@ -322,69 +380,127 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	}
 	m.mu.Lock()
 	if m.ext != nil {
-		defer m.mu.Unlock()
-		return m.ext, nil
+		ext := m.ext
+		m.mu.Unlock()
+		return ext, nil
 	}
 	m.mu.Unlock()
-	// Use the Module-wide shared FileSet for packages.Load so that every imported
-	// dependency's type-object positions live in the SAME fset as the project
-	// packages analyze() type-checks. One fset for the whole Module means an
-	// object from any package — project A, sibling B, or external dep — resolves
-	// unambiguously via m.fset.Position(obj.Pos()).
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
-		Fset: m.fset,
-		Dir:  m.opts.ModuleRoot,
-	}
-	// Always load the gsx runtime ("github.com/gsxhq/gsx") so that skeleton
-	// type-checking can resolve gsx.Node / gsx.Attrs / etc. The skeleton file
-	// every buildSkeleton emits always begins with
-	//   import _gsxrt "github.com/gsxhq/gsx"
-	// so the importer must carry that package. This mirrors newCachedResolver
-	// (resolver.go) which lists "github.com/gsxhq/gsx" first for the same reason.
-	loadPaths := append([]string{"github.com/gsxhq/gsx", stdImportPath}, m.opts.FilterPkgs...)
-	loadPaths = append(loadPaths, m.opts.LoadPkgs...)
-	// Explicit WithFilter aliases name packages that need not appear anywhere
-	// else. They must be in the load set for filterTableFromExt to classify their
-	// target func's signature without a second packages.Load.
-	for _, a := range m.opts.Aliases {
-		loadPaths = append(loadPaths, a.PkgPath)
-	}
-	// [renderers]/WithRenderer registrations name packages the same way an
-	// explicit alias does: they must be in this ONE load set so
-	// rendererPackagesFromExt can classify their target func's signature without
-	// a second packages.Load.
-	for _, r := range finalRendererAliases(m.opts.Renderers) {
-		loadPaths = append(loadPaths, r.PkgPath)
-	}
-	loadPaths = append(loadPaths, "./...")
-	pkgs, err := packages.Load(cfg, loadPaths...)
+	buildEnv, err := freezeGoCommandEnvironment(m.buildEnv, m.opts.ModuleRoot, m.packagesDriverPath)
 	if err != nil {
 		return nil, err
 	}
-	mp := map[string]*types.Package{}
-	errs := map[string][]packages.Error{}
-	packages.Visit(pkgs, nil, func(p *packages.Package) {
-		if p.Types != nil {
-			mp[p.PkgPath] = p.Types
+	for {
+		m.mu.Lock()
+		if m.ext != nil {
+			ext := m.ext
+			m.mu.Unlock()
+			return ext, nil
 		}
-		if len(p.Errors) > 0 {
-			errs[p.PkgPath] = p.Errors
+		epoch := m.sourceManifestEpoch
+		fset := m.fset
+		m.mu.Unlock()
+		manifest, err := m.buildSourceInventoryManifest()
+		if err != nil {
+			return nil, err
 		}
-	})
-	ext := mapImporter(mp)
-	m.mu.Lock()
-	m.ext = ext
-	m.extPkgs = mp
-	m.extErrs = errs
-	m.extLoads++
-	m.fsetBaseline = m.fset.Base()
-	m.mu.Unlock()
-	// Return the local, not m.ext: a concurrent rebuildFset (which nils m.ext
-	// under m.mu) could otherwise be interleaved between the Unlock above and
-	// an unguarded re-read of the field, racing with that write. ext is a
-	// value we hold outside the map, so reading it needs no lock.
-	return ext, nil
+		// Use the Module-wide shared FileSet for packages.Load so that every imported
+		// dependency's type-object positions live in the SAME fset as the project
+		// packages analyze() type-checks. One fset for the whole Module means an
+		// object from any package — project A, sibling B, or external dep — resolves
+		// unambiguously via m.fset.Position(obj.Pos()).
+		cfg := &packages.Config{
+			Mode:    packages.NeedName | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
+			Fset:    fset,
+			Dir:     m.opts.ModuleRoot,
+			Env:     buildEnv,
+			Overlay: manifest.overlay,
+		}
+		// Always load the gsx runtime ("github.com/gsxhq/gsx") so that skeleton
+		// type-checking can resolve gsx.Node / gsx.Attrs / etc. The skeleton file
+		// every buildSkeleton emits always begins with
+		//   import _gsxrt "github.com/gsxhq/gsx"
+		// so the importer must carry that package. This mirrors newCachedResolver
+		// (resolver.go) which lists "github.com/gsxhq/gsx" first for the same reason.
+		loadPaths := append([]string{"github.com/gsxhq/gsx", stdImportPath}, m.opts.FilterPkgs...)
+		loadPaths = append(loadPaths, m.opts.LoadPkgs...)
+		// Explicit WithFilter aliases name packages that need not appear anywhere
+		// else. They must be in the load set for filterTableFromExt to classify their
+		// target func's signature without a second packages.Load.
+		for _, a := range m.opts.Aliases {
+			loadPaths = append(loadPaths, a.PkgPath)
+		}
+		// [renderers]/WithRenderer registrations name packages the same way an
+		// explicit alias does: they must be in this ONE load set so
+		// rendererPackagesFromExt can classify their target func's signature without
+		// a second packages.Load.
+		for _, r := range finalRendererAliases(m.opts.Renderers) {
+			loadPaths = append(loadPaths, r.PkgPath)
+		}
+		loadPaths = append(loadPaths, manifest.loadPaths...)
+		loadPaths = append(loadPaths, "./...")
+		seenLoadPath := make(map[string]bool, len(loadPaths))
+		uniqueLoadPaths := loadPaths[:0]
+		for _, path := range loadPaths {
+			if path != "" && !seenLoadPath[path] {
+				seenLoadPath[path] = true
+				uniqueLoadPaths = append(uniqueLoadPaths, path)
+			}
+		}
+		loadPaths = uniqueLoadPaths
+		pkgs, loadErr := packages.Load(cfg, loadPaths...)
+		m.mu.Lock()
+		m.extLoads++
+		staleManifest := m.sourceManifestEpoch != epoch || m.fset != fset
+		m.mu.Unlock()
+		if staleManifest {
+			m.rebuildFset()
+			continue
+		}
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		mp := map[string]*types.Package{}
+		errs := map[string][]packages.Error{}
+		packages.Visit(pkgs, nil, func(p *packages.Package) {
+			if p.Types != nil {
+				mp[p.PkgPath] = p.Types
+			}
+			if len(p.Errors) > 0 {
+				errs[p.PkgPath] = p.Errors
+			}
+		})
+		ext := mapImporter(mp)
+		externalImportPaths := make(map[string]bool, len(mp))
+		for importPath := range mp {
+			externalImportPaths[importPath] = true
+		}
+		sourcePackages := projectSourcePackages(pkgs, m.opts.ModuleRoot, m.opts.ModulePath, manifest.sentinelFiles)
+		sourcePackageDirs := make(map[string]string, len(sourcePackages))
+		for dir, sourcePackage := range sourcePackages {
+			sourcePackageDirs[sourcePackage.pkgPath] = dir
+		}
+		m.mu.Lock()
+		if m.sourceManifestEpoch != epoch || m.fset != fset {
+			m.mu.Unlock()
+			m.rebuildFset()
+			continue
+		}
+		m.ext = ext
+		m.extPkgs = mp
+		m.externalImportPaths = externalImportPaths
+		m.extErrs = errs
+		m.sourcePackages = sourcePackages
+		m.sourcePackageDirs = sourcePackageDirs
+		m.sourceInventoryReady = true
+		m.sourceInventoryDirty = false
+		m.fsetBaseline = fset.Base()
+		m.mu.Unlock()
+		// Return the local, not m.ext: a concurrent rebuildFset (which nils m.ext
+		// under m.mu) could otherwise be interleaved between the Unlock above and
+		// an unguarded re-read of the field, racing with that write. ext is a
+		// value we hold outside the map, so reading it needs no lock.
+		return ext, nil
+	}
 }
 
 // externalLoads returns the number of external packages.Load calls performed
@@ -783,7 +899,7 @@ func (m *Module) rendererTableFor(dir string, filterPkgs []string) (rendererTabl
 // Called at the start of Package/Generate (under analysisMu), before applyDirty.
 func (m *Module) maybeRebuildFset() {
 	m.mu.Lock()
-	over := m.fsetRebuildBytes > 0 && m.fset.Base()-m.fsetBaseline > m.fsetRebuildBytes
+	over := m.sourceInventoryDirty || m.fsetRebuildBytes > 0 && m.fset.Base()-m.fsetBaseline > m.fsetRebuildBytes
 	m.mu.Unlock()
 	if over {
 		m.rebuildFset()
@@ -791,7 +907,7 @@ func (m *Module) maybeRebuildFset() {
 }
 
 // rebuildFset discards the grown FileSet and the caches that hold positions into it
-// — ext, pkgTypes, and pkgResults — together, so nothing live references the old fset (no orphaned
+// — ext, pkgTypes, targetDeclTypes, and pkgResults — together, so nothing live references the old fset (no orphaned
 // positions). The next externalImporter reloads ext into the fresh fset and recaptures
 // fsetBaseline; analyze re-parses into it. The import graph, dirty set, and overrides
 // survive (path/content-based), so reverse-dependency invalidation keeps working.
@@ -802,7 +918,12 @@ func (m *Module) rebuildFset() {
 	m.fset = token.NewFileSet()
 	m.ext = nil
 	m.extPkgs = nil
+	m.externalImportPaths = map[string]bool{}
 	m.extErrs = nil
+	m.sourcePackages = map[string]projectSourcePackage{}
+	m.sourcePackageDirs = map[string]string{}
+	m.sourceInventoryReady = false
+	m.sourceInventoryDirty = false
 	m.funcTbl, m.funcTblErr, m.funcTblDone = funcTables{}, nil, false
 	m.rendererPkgs, m.rendererLocal = nil, nil
 	m.rendererPkgsErr, m.rendererPkgsDone = nil, false
@@ -810,6 +931,7 @@ func (m *Module) rebuildFset() {
 	m.dirFuncTbls = map[string]funcTables{}
 	m.perDirMergersErr, m.perDirMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
+	m.targetDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 	m.depFacts = map[string]*depPropFacts{}
 	m.fsetBaseline = 0

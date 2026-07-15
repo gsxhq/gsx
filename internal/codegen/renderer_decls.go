@@ -55,6 +55,10 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 	if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
 		return nil, err
 	}
+	componentPlan := newComponentTargetPlan(gsxFiles, parsed.sources, bag)
+	if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
+		return nil, err
+	}
 	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
 	if err != nil {
 		return nil, err
@@ -81,6 +85,7 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 			fset,
 			bag,
 			inferNames,
+			&componentPlan,
 			skeletonDeclarations,
 		)
 		if buildErr != nil {

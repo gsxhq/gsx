@@ -20,7 +20,6 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
-	"github.com/gsxhq/gsx/internal/goexprshape"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -520,9 +519,43 @@ type skeletonMode uint8
 const (
 	skeletonFull skeletonMode = iota
 	skeletonDeclarations
+	skeletonTargetDiscovery
+	skeletonTargetDeclarations
 )
 
-func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator, mode skeletonMode) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
+// splitFileGoSource is the single hoisting boundary shared by shipping and
+// target-only skeletons. It preserves every non-import GoChunk byte and records
+// exact authored import/body positions; target discovery must not grow an
+// independent interpretation of pass-through Go.
+func splitFileGoSource(file *gsxast.File, fset *token.FileSet) ([]importSpec, []goBody, error) {
+	var imports []importSpec
+	var bodies []goBody
+	for _, d := range file.Decls {
+		gc, ok := d.(*gsxast.GoChunk)
+		if !ok {
+			continue
+		}
+		imps, body, bodyOff, err := splitChunk(gc.Src)
+		if err != nil {
+			return nil, nil, err
+		}
+		if fset != nil && gc.Pos().IsValid() {
+			if tf := fset.File(gc.Pos()); tf != nil {
+				base := fset.Position(gc.Pos()).Offset
+				for i := range imps {
+					imps[i].pos = tf.Pos(base + imps[i].srcOff)
+				}
+			}
+		}
+		imports = append(imports, imps...)
+		if body != "" {
+			bodies = append(bodies, goBody{src: body, pos: gc.Pos() + token.Pos(bodyOff)})
+		}
+	}
+	return imports, bodies, nil
+}
+
+func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator, plan *componentTargetPlan, mode skeletonMode) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -538,32 +571,9 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 	// first byte so it can be emitted under a //line directive — go-to-definition
 	// on a user-declared top-level Go symbol (a helper func/type/var in the .gsx)
 	// then resolves back to the .gsx instead of the synthetic overlay.
-	var imports []importSpec
-	var bodies []goBody
-	for _, d := range file.Decls {
-		if gc, ok := d.(*gsxast.GoChunk); ok {
-			imps, body, bodyOff, err := splitChunk(gc.Src)
-			if err != nil {
-				return "", nil, nil, nil, nil, nil, err
-			}
-			// Resolve each import's .gsx position so the skeleton can emit a //line
-			// directive ahead of it — gc.Src starts exactly at gc.Pos(), so the
-			// chunk's byte offset plus the import's intra-chunk offset is the
-			// absolute .gsx offset. Without this, go/types import errors (e.g.
-			// "imported and not used") resolve to the overlay .x.go path/line.
-			if fset != nil && gc.Pos().IsValid() {
-				if tf := fset.File(gc.Pos()); tf != nil {
-					base := fset.Position(gc.Pos()).Offset
-					for i := range imps {
-						imps[i].pos = tf.Pos(base + imps[i].srcOff)
-					}
-				}
-			}
-			imports = append(imports, imps...)
-			if body != "" {
-				bodies = append(bodies, goBody{src: body, pos: gc.Pos() + token.Pos(bodyOff)})
-			}
-		}
+	imports, bodies, err := splitFileGoSource(file, fset)
+	if err != nil {
+		return "", nil, nil, nil, nil, nil, err
 	}
 
 	// Emit each component's probe body into a temp buffer, accumulating the
@@ -612,7 +622,15 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 	// failure and must abort the whole skeleton build.
 	var validComps []*gsxast.Component
 	for _, c := range comps {
-		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, mode); err != nil {
+		emission := componentTargetEmission{public: true}
+		if plan != nil {
+			var ok bool
+			emission, ok = plan.emission(c)
+			if !ok {
+				return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: component %s is absent from the package component plan", c.Name)
+			}
+		}
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, mode, emission); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
@@ -718,14 +736,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				// (`Wrap(<Foo/>)`) keeps its trailing `)` attached to the IIFE's
 				// `}()` — a `//line` newline there would trip ASI.
 				emitSkeletonBlockLine(&compBuf, fset, p.Pos())
-				src := p.Src
-				if i > 0 && parenWrappable(we.Parts[i-1], shapes, i-1) {
-					src = goexprshape.StripLeadingParen(src)
-				}
-				if i < len(we.Parts)-1 && parenWrappable(we.Parts[i+1], shapes, i+1) {
-					src = goexprshape.StripTrailingParen(src)
-				}
-				compBuf.WriteString(src)
+				compBuf.WriteString(targetGoWithElementsText(we, shapes, i, p))
 			case *gsxast.Element:
 				if mode == skeletonDeclarations {
 					compBuf.WriteString("func() _gsxrt.Node { return nil }()")
@@ -742,7 +753,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", idx)
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				elemCFTemp := 0
-				if err := emitProbes(&compBuf, markup, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &elemCFTemp, false); err != nil {
+				if err := emitProbes(&compBuf, markup, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, nil, &gwMarkups, bag, &elemCFTemp, false); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
@@ -759,7 +770,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", idx)
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				fragCFTemp := 0
-				if err := emitProbes(&compBuf, p.Children, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &fragCFTemp, false); err != nil {
+				if err := emitProbes(&compBuf, p.Children, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, nil, &gwMarkups, bag, &fragCFTemp, false); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
@@ -790,7 +801,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 					return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 				}
 				segCFTemp := 0
-				if err := probeEmbeddedInterpIIFE(&compBuf, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &segCFTemp); err != nil {
+				if err := probeEmbeddedInterpIIFE(&compBuf, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, nil, &gwMarkups, bag, &segCFTemp); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
 			default:
@@ -1061,7 +1072,25 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode, emission componentTargetEmission) error {
+	if !emission.splitBody {
+		if !emission.public {
+			return fmt.Errorf("codegen: unsplit component %s has no public skeleton declaration", c.Name)
+		}
+		return emitNamedComponentSkeleton(sb, c, c.Name, true, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, usedFilters, fset, ctrlOff, registry, gw, bag, mode)
+	}
+	if emission.bodyName == "" {
+		return fmt.Errorf("codegen: split component %s has no analysis body name", c.Name)
+	}
+	if emission.public {
+		if err := emitNamedComponentSkeleton(sb, c, c.Name, false, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, usedFilters, fset, ctrlOff, registry, gw, bag, mode); err != nil {
+			return err
+		}
+	}
+	return emitNamedComponentSkeleton(sb, c, emission.bodyName, true, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, usedFilters, fset, ctrlOff, registry, gw, bag, mode)
+}
+
+func emitNamedComponentSkeleton(sb *strings.Builder, c *gsxast.Component, declarationName string, probeBody bool, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode) error {
 	// Parse the type-param list ONCE here and thread the result into every
 	// emitComponentStub call site below (instead of each stub re-parsing the
 	// same string and swallowing its own error) — see typeParamNames/tpErr use
@@ -1093,7 +1122,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
 		// any user GoChunk imports used. The parse error will be re-surfaced (with
 		// position) by genComponent at emit time.
-		emitComponentStub(sb, c, nil, stubRecv, recvTypeName, typeParamNames, typeParamsDecl, false)
+		emitComponentStub(sb, c, declarationName, nil, stubRecv, recvTypeName, typeParamNames, typeParamsDecl, false)
 		return errSkipComponent
 	}
 	if tpErr != nil {
@@ -1109,7 +1138,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// the reserved-param stub keeps params — whose types may reference the
 		// now-undeclared T — reintroducing the silent collapse. A broken
 		// type-param list makes every param type suspect, so it takes priority.
-		emitComponentStub(sb, c, nil, stubRecv, recvTypeName, nil, "", false)
+		emitComponentStub(sb, c, declarationName, nil, stubRecv, recvTypeName, nil, "", false)
 		return errSkipComponent
 	}
 	if err := checkReservedParams(params); err != nil {
@@ -1117,7 +1146,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
 		// trigger "imported and not used". The reserved-param error will be
 		// re-surfaced (with position) by genComponent at emit time.
-		emitComponentStub(sb, c, params, stubRecv, recvTypeName, typeParamNames, typeParamsDecl, false)
+		emitComponentStub(sb, c, declarationName, params, stubRecv, recvTypeName, typeParamNames, typeParamsDecl, false)
 		return errSkipComponent
 	}
 	typeParamsUse := typeParamUse(typeParamNames)
@@ -1127,20 +1156,20 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 	// NULLARY method (no params, no children) gets NO props struct + no _gsxp
 	// param. The receiver clause + props-struct name + nullary-no-props must be
 	// byte-identical in shape to emission, else resolution disagrees.
-	propsName := c.Name + "Props"
+	propsName := declarationName + "Props"
 	if c.Recv != "" {
 		if recvErr != nil {
 			// Recv parse failed (hoisted parse above) — the receiver clause may be
 			// invalid Go; use a bare function stub (no receiver) to keep the
 			// skeleton valid.
-			emitComponentStub(sb, c, params, false, "", typeParamNames, typeParamsDecl, false)
+			emitComponentStub(sb, c, declarationName, params, false, "", typeParamNames, typeParamsDecl, false)
 			return errSkipComponent
 		}
 		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
-			emitComponentStub(sb, c, params, true, recvTypeName, typeParamNames, typeParamsDecl, false)
+			emitComponentStub(sb, c, declarationName, params, true, recvTypeName, typeParamNames, typeParamsDecl, false)
 			return errSkipComponent
 		}
-		propsName = recvTypeName + c.Name + "Props"
+		propsName = recvTypeName + declarationName + "Props"
 	}
 	if c.Recv != "" && len(typeParamNames) > 0 && !toolchainHasGenericMethods() {
 		// A generic METHOD skeleton would fail this toolchain's go/parser and
@@ -1154,7 +1183,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// reserved receiver var already returned) so this only fires once every
 		// other defect has been ruled out — MIRRORS genComponent's guard
 		// (emit.go), which sits in the same relative position.
-		emitComponentStub(sb, c, params, true, recvTypeName, typeParamNames, typeParamsDecl, true /*omitFunc*/)
+		emitComponentStub(sb, c, declarationName, params, true, recvTypeName, typeParamNames, typeParamsDecl, true /*omitFunc*/)
 		return errSkipComponent
 	}
 	// BYO (author-owns-Props): the sole non-receiver param is an author-declared
@@ -1179,9 +1208,13 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// Mirrors genComponent's emit-side anchor for the line; adds column precision.
 		emitSkeletonComponentNameLine(sb, fset, c)
 		if c.Recv != "" {
-			fmt.Fprintf(sb, "func %s %s%s(_gsxp %s) _gsxrt.Node {\n", c.Recv, c.Name, typeParamsDecl, structName)
+			fmt.Fprintf(sb, "func %s %s%s(_gsxp %s) _gsxrt.Node {\n", c.Recv, declarationName, typeParamsDecl, structName)
 		} else {
-			fmt.Fprintf(sb, "func %s%s(_gsxp %s) _gsxrt.Node {\n", c.Name, typeParamsDecl, structName)
+			fmt.Fprintf(sb, "func %s%s(_gsxp %s) _gsxrt.Node {\n", declarationName, typeParamsDecl, structName)
+		}
+		if !probeBody || mode == skeletonDeclarations {
+			sb.WriteString("\treturn nil\n}\n")
+			return nil
 		}
 		sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
 		if c.ParamsPos.IsValid() {
@@ -1191,15 +1224,11 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// Reset the //line so the probe body's own positions are not shifted by the
 		// param binding's mapping.
 		emitSkeletonLine(sb, fset, c.Pos())
-		if mode == skeletonDeclarations {
-			sb.WriteString("\treturn nil\n}\n")
-			return nil
-		}
 		cfTemp := 0
 		// BYO components never synthesize an `attrs` local (mirrors genComponent's
 		// identical byo-branch call to emitNodeFuncBody) — enclosingAttrsBound is
 		// false regardless of what the byo author's own struct declares.
-		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, &cfTemp, false); err != nil {
+		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, nil, gw, bag, &cfTemp, false); err != nil {
 			return err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -1239,14 +1268,18 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 	// the BYO branch above) so same-package go-to-definition reports the name column.
 	emitSkeletonComponentNameLine(sb, fset, c)
 	if c.Recv != "" {
-		fmt.Fprintf(sb, "func %s %s%s(", c.Recv, c.Name, typeParamsDecl)
+		fmt.Fprintf(sb, "func %s %s%s(", c.Recv, declarationName, typeParamsDecl)
 	} else {
-		fmt.Fprintf(sb, "func %s%s(", c.Name, typeParamsDecl)
+		fmt.Fprintf(sb, "func %s%s(", declarationName, typeParamsDecl)
 	}
 	if hasProps {
 		fmt.Fprintf(sb, "_gsxp %s%s", propsName, typeParamsUse)
 	}
 	sb.WriteString(") _gsxrt.Node {\n")
+	if !probeBody || mode == skeletonDeclarations {
+		sb.WriteString("\treturn nil\n}\n")
+		return nil
+	}
 	// Bind the ambient `ctx` (matching the emitted closure's
 	// `func(ctx context.Context, _gsxw io.Writer)` param) so probe exprs that
 	// reference it — `{ fromCtx(ctx) }`, `id={ g(ctx) }` — type-check. The
@@ -1280,12 +1313,8 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n")
 	}
-	if mode == skeletonDeclarations {
-		sb.WriteString("\treturn nil\n}\n")
-		return nil
-	}
 	cfTemp := 0
-	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, &cfTemp, manual); err != nil {
+	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, nil, gw, bag, &cfTemp, manual); err != nil {
 		return err
 	}
 	sb.WriteString("\treturn nil\n}\n")
@@ -1311,7 +1340,10 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 // unique and never collide across sibling component tags in the same block
 // (fix #69). A fresh counter is started at each entry point that begins a new
 // skeleton function/buffer; recursive calls thread the received counter through.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int, enclosingAttrsBound bool) error {
+// targetRegistry is nil for the shipping skeleton. A non-nil registry emits
+// target identity bindings in these same lexical scopes while retaining the
+// ordinary operand, liveness, and slot probes below each component target.
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, targetRegistry *componentTargetMarkerRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int, enclosingAttrsBound bool) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -1328,6 +1360,10 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				// capture. Indices are reserved BEFORE probing each element so
 				// nested embedded tags take later indices — harvestEmbeddedElements
 				// resolves them off the shared gw slice for free.
+				targetMarkerStart := 0
+				if targetRegistry != nil {
+					targetMarkerStart = len(targetRegistry.ordered)
+				}
 				var eb strings.Builder
 				for _, part := range t.Embedded {
 					switch p := part.(type) {
@@ -1341,7 +1377,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						eb.WriteString("func() _gsxrt.Node {\n")
 						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
 						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(&eb, markup, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+						if err := emitProbes(&eb, markup, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 							return err
 						}
 						eb.WriteString("return nil\n}()")
@@ -1351,7 +1387,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						eb.WriteString("func() _gsxrt.Node {\n")
 						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
 						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(&eb, p.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+						if err := emitProbes(&eb, p.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 							return err
 						}
 						eb.WriteString("return nil\n}()")
@@ -1369,7 +1405,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						if len(p.Stages) > 0 {
 							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 						}
-						if err := probeEmbeddedInterpIIFE(&eb, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+						if err := probeEmbeddedInterpIIFE(&eb, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp); err != nil {
 							return err
 						}
 					default:
@@ -1381,12 +1417,31 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				// POST-pipe type — matching genInterp, which lowers the pipeline over
 				// the spliced seed too (emit ≡ probe). A Stages-less embedded interp
 				// yields the seed unchanged, preserving prior behavior.
-				probe, err := probeExpr(eb.String(), t.Stages, table, usedFilters, t, bag)
+				seed := eb.String()
+				var boundary componentTargetSeedBoundary
+				hasTargetMarkers := targetRegistry != nil && len(targetRegistry.ordered) > targetMarkerStart
+				if hasTargetMarkers {
+					seed, boundary = markComponentTargetSeed(targetRegistry.ordered[targetMarkerStart].site, seed)
+				}
+				probe, err := probeExpr(seed, t.Stages, table, usedFilters, t, bag)
 				if err != nil {
 					return err
 				}
+				seedOffset := 0
+				if hasTargetMarkers {
+					probe, seedOffset, err = unmarkComponentTargetSeed(probe, boundary)
+					if err != nil {
+						return err
+					}
+				}
 				emitSkeletonLine(sb, fset, t.Pos())
-				fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+				sb.WriteString("_gsxuse(")
+				probeStart := sb.Len()
+				sb.WriteString(probe)
+				sb.WriteString(")\n")
+				if hasTargetMarkers {
+					targetRegistry.adjustFrom(targetMarkerStart, probeStart+seedOffset)
+				}
 				continue
 			}
 			probe, err := probeExpr(t.Expr, t.Stages, table, usedFilters, t, bag)
@@ -1427,7 +1482,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 			// call codegen's emitEmbeddedInterp will build (via
 			// embeddedTextValueExpr + lowerPipe), so resolved[t] ends up the
 			// exact type codegen emits (emit ≡ probe).
-			if err := emitProbes(sb, t.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			if len(t.Stages) > 0 {
@@ -1441,292 +1496,298 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 			}
 		case *gsxast.Element:
 			if t.IsComponent {
-				// Emit the SAME call as genChildComponent (via childInvocation) so the
-				// assignment type-checks each prop expr against the child's/method's real
-				// field type. The shared childPropsLiteral builder guarantees the attr +
-				// slot fields never drift. A nullary invocation (method OR no-props
-				// function; no attrs, no children) has no props struct → `_ = X()`.
-				// Otherwise build the
-				// props literal; named-slot/Children fields use a typed-nil so the
-				// literal type-checks WITHOUT building the real slot closure here —
-				// the slot content (markup-attr values then t.Children) is probed
-				// SEPARATELY below (its interps become _gsxuse in the SAME order
-				// collectExprs collected them; the props-literal exprs are NOT _gsxuse,
-				// so they don't perturb the k-th alignment).
-				callTarget, propsType, isMethod := childInvocation(t, byo, recvVar, recvTypeName)
-				_, isByoChild := byo.isByoStruct(propsType)
-				if isBareCallCandidate(t, propFields, byo, recvVar, recvTypeName) {
-					// A bare-call candidate (a hand-written same-package func, or a .gsx
-					// no-props component): resolve it by its REAL signature rather than the
-					// XxxProps convention, because a nullary `func F() gsx.Node` has no
-					// props struct and the `F(FProps{})` probe would not compile.
-					// _gsxcompsig(F) type-checks at any arity; harvest reads the signature
-					// back into `resolved[el]` so genChildComponent picks the call shape.
-					//
-					// A bare-call candidate can itself be a GENERIC component with
-					// nothing to supply (e.g. `component Marker[T any]()`, never
-					// eligible for emitInferProbe's call-form probe since it has no
-					// params to infer from — genericSigsFor still records its arity,
-					// see its doc). Passing an uninstantiated generic function VALUE
-					// (Marker, with no explicit type args) as this bare `any` argument
-					// is itself an implicit-instantiation attempt, so it can fail with
-					// its own "cannot infer" here — record the span (Task 8) so that
-					// diagnostic is keyed to THIS tag, not blamed on an unrelated one.
-					start := emitSkeletonLineCompsig(sb, fset, t.Pos(), callTarget+typeArgUse(t.TypeArgs))
-					if t.TypeArgs == "" {
-						if sig := genericSigs[propsType]; sig != nil {
-							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
-						}
-					}
-				} else if isAttrsOnlyCandidate(t, propFields, byo, recvVar, recvTypeName) {
-					// Attrs-only component value candidate (no <Name>Props type exists —
-					// the convention literal probe would be a guaranteed `undefined:`
-					// error). _gsxcompsig(F) carries F's real type to the harvest (mapped
-					// by tag name, not k-order). The bag expression rides _gsxusen — the
-					// QUIET, ALIGNMENT-NEUTRAL keep-alive — NOT _gsxuse/_gsxuseq: those
-					// ARE counted by harvest's k-ordering, and the bag has no single
-					// interp node to harvest onto (each attr expression inside it already
-					// gets its own counted probe via the shared per-component ExprAttr /
-					// class-part / spread probes below, aligned with collectExprs). A
-					// counted bag probe would shift every later interp's harvested type
-					// by one slot per attrs-only tag — the FAIL 5 / 4b desync.
-					emitSkeletonLineCompsig(sb, fset, t.Pos(), t.Tag)
-					// The bag builds the SAME expression the emit pass will (probeWrap so
-					// (T, error) tuples are _gsxunwrap-wrapped, not hoisted). cfHoistBuf
-					// captures any value-form-CF class hoists so the _gsxusen(expr)
-					// reference stays valid; usedPkgs feeds usedFilters exactly as the
-					// props-literal branch does, so a bag pipeline's filter is imported.
-					var cfHoistBuf bytes.Buffer
-					if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, enclosingAttrsBound); berr == nil && expr != "" {
-						maps.Copy(usedFilters, usedPkgs)
-						emitSkeletonLine(sb, fset, t.Pos())
-						sb.WriteString(cfHoistBuf.String())
-						fmt.Fprintf(sb, "_gsxusen(%s)\n", expr)
-					}
-					// a bag-build error here is NOT reported from the probe pass: the emit
-					// pass builds the same expression and owns the positioned diagnostic.
-				} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
-					// Same Task 8 concern as the bare-call-candidate branch above: a
-					// generic no-props method/function reaching this nullary `_ = F()`
-					// probe (rather than emitInferProbe) can still fail its own
-					// implicit instantiation attempt.
-					emitSkeletonLine(sb, fset, t.Pos())
-					start := sb.Len()
-					fmt.Fprintf(sb, "_ = %s%s()\n", callTarget, typeArgUse(t.TypeArgs))
-					if t.TypeArgs == "" {
-						if sig := genericSigs[propsType]; sig != nil {
-							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
-						}
-					}
-				} else {
-					// Build the SAME props literal as the emitter via childPropsLiteral,
-					// but with a typed-nil slotValue: each named-slot and Children field
-					// is `_gsxrt.Node(nil)` so the literal type-checks WITHOUT the real
-					// closure. The slot content (markup-attr values + children) is probed
-					// SEPARATELY below, so its interps become the _gsxuse sequence in the
-					// SAME order collectExprs collected them; the props-literal exprs are
-					// NOT _gsxuse, so they don't perturb the k-th alignment.
-					// When splatExpr is non-empty (byo whole-struct splat), emit
-					// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
-					// probeWrap=true: ExprAttr values are wrapped with _gsxunwrap(...) in
-					// the skeleton so (T, error) tuples type-check while field-type
-					// checking is preserved.
-					// cfHoistBuf collects any var+if/switch statements hoisted by
-					// classEntryExpr for value-form CF parts in a class attr. They
-					// are emitted to the skeleton BEFORE the probe call so the skeleton
-					// remains syntactically valid Go. cfTemp is the per-skeleton-function
-					// counter (threaded through emitProbes), so the `_gsxvN` temp names
-					// stay unique across every sibling component tag in this block — not
-					// just within one tag (fix #69).
-					var cfHoistBuf bytes.Buffer
-					// A generic tag with omitted type args (genericSigs[propsType] != nil,
-					// mirroring the SAME predicate the emitInferProbe branch below tests)
-					// has NOT yet decided whether fieldEntries becomes a real props
-					// literal (inference succeeds → emitInferProbe's call-form probe) or
-					// a discarded reference-sink (inference fails → the `case failed:`
-					// throwaway struct below, which — like genSkippedTagSink's discard —
-					// never builds the real Attrs field). The missing-attrs-bag hazard
-					// only exists in the first outcome, which is unknowable until AFTER
-					// this call returns, so it is deferred entirely to emit time (once a
-					// concrete type arg is resolved, genChildComponent's own
-					// childPropsLiteral call re-checks it for real): disable it here for
-					// any pending generic-inference candidate to avoid a false positive
-					// on the (perfectly legal, silently-discarded) inference-failure path.
-					checkBag := t.TypeArgs != "" || genericSigs[propsType] == nil
-					fieldEntries, _, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
-						return "_gsxrt.Node(nil)", nil
-					}, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, "", enclosingAttrsBound, checkBag)
-					if err != nil {
-						// childPropsLiteral returns an *attrError with the offending attr's
-						// position embedded. Propagate it as-is so the caller can emit
-						// a positioned diagnostic (not positionless).
+				if targetRegistry != nil {
+					if err := targetRegistry.emitBinding(sb, t, fset); err != nil {
 						return err
 					}
-					// Record filter packages referenced by a lowered prop/fallthrough
-					// pipeline so the skeleton imports them under their reserved aliases
-					// — the SAME set the emitter records into its imports map. Without
-					// this the skeleton would not import _gsxstdN and a prop pipeline
-					// would fail to resolve.
-					maps.Copy(usedFilters, usedPkgs)
-					// One //line for the WHOLE props literal (the element position).
-					// A child-prop FIELD-TYPE error (e.g. `cannot use … as string`)
-					// therefore reports at this single position, so the COLUMN of a
-					// trailing field can be inaccurate — earlier wrapped fields
-					// (_gsxunwrap(…), gsx.Val(…)) shift the offset, and the column can
-					// even land past end-of-line for a CALL-valued prop whose wrapped
-					// earlier fields shift the offset. This is a known limitation; a future reader
-					// should not trust the column of a child-prop field-type error.
-					emitSkeletonLine(sb, fset, t.Pos())
-					// Emit any CF-hoisted statements before the probe call.
-					sb.WriteString(cfHoistBuf.String())
-					if splatExpr != "" {
-						// Whole-struct splat: mirrors genChildComponent exactly.
-						fmt.Fprintf(sb, "_ = %s%s(%s)\n", callTarget, typeArgUse(t.TypeArgs), splatExpr)
-					} else if sig := genericSigs[propsType]; t.TypeArgs == "" && sig != nil {
-						// Omitted type args on a generic tag: emit a caller-side inference
-						// probe (a fresh, uniquely-named generic helper whose params are
-						// exactly the props SUPPLIED here) so go/types infers the type args
-						// from THIS subset — mirroring how a plain Go generic function call
-						// infers from whatever arguments it's given, unlike the old exported
-						// declaring-side inference helper which required every declared prop
-						// to be supplied. ONE emitter path serves both a SAME-PACKAGE and an
-						// IMPORTED component (genericSigs, unified — see genericSig's doc):
-						// for an imported (dotted, non-method) tag, the type-param decl and
-						// each SUPPLIED param's type are first requalified into the calling
-						// file's context (Task 3's engine, via registry's per-file-coalesced
-						// aliasMinter). Requalification failure (an unexported dep-local
-						// type, a dot-imported dep-local name, or an unresolvable/ambiguous
-						// dep qualifier) fails safe: the probe is SKIPPED entirely (neither
-						// this inference probe nor the plain composite-literal fallback is
-						// emitted, so no confusing raw go/types error accompanies it) and a
-						// single positioned "inference-unavailable" diagnostic is recorded.
-						emitted := false
-						failed := false
-						if targetTPNames, tperr := parseTypeParamNames(sig.typeParams); tperr == nil {
-							supplied := map[string]string{}
-							for _, fe := range fieldEntries {
-								if fe.inferField != "" {
-									supplied[fe.inferField] = fe.inferArg
-								}
-							}
-							typeParamsSrc := sig.typeParams
-							targetParams := sig.params
-							if depAlias, imported := importedTagAlias(t.Tag, isMethod); imported {
-								declared := make(map[string]bool, len(targetTPNames))
-								for _, n := range targetTPNames {
-									declared[n] = true
-								}
-								reqDecl, rerr := registry.requalifyTypeParams(sig.typeParams, depAlias, sig.imports)
-								if rerr != nil {
-									recordInferenceUnavailable(bag, registry, t, rerr)
-									failed = true
-								} else {
-									typeParamsSrc = reqDecl
-									ordered := suppliedInDeclOrder(sig.params, supplied)
-									reqOrdered := make([]param, 0, len(ordered))
-									for _, p := range ordered {
-										rq, perr := registry.requalifyTypeExpr(p.typeSrc, depAlias, sig.imports, declared)
-										if perr != nil {
-											recordInferenceUnavailable(bag, registry, t, perr)
-											failed = true
-											break
-										}
-										p.typeSrc = rq
-										reqOrdered = append(reqOrdered, p)
-									}
-									if !failed {
-										targetParams = reqOrdered
-									}
-								}
-							}
-							if !failed {
-								emitted = registry.emitInferProbe(sb, t, propsType,
-									typeParamDecl(typeParamsSrc), typeParamUse(targetTPNames),
-									targetParams, supplied, sig.arity)
+				} else {
+					// Emit the SAME call as genChildComponent (via childInvocation) so the
+					// assignment type-checks each prop expr against the child's/method's real
+					// field type. The shared childPropsLiteral builder guarantees the attr +
+					// slot fields never drift. A nullary invocation (method OR no-props
+					// function; no attrs, no children) has no props struct → `_ = X()`.
+					// Otherwise build the
+					// props literal; named-slot/Children fields use a typed-nil so the
+					// literal type-checks WITHOUT building the real slot closure here —
+					// the slot content (markup-attr values then t.Children) is probed
+					// SEPARATELY below (its interps become _gsxuse in the SAME order
+					// collectExprs collected them; the props-literal exprs are NOT _gsxuse,
+					// so they don't perturb the k-th alignment).
+					callTarget, propsType, isMethod := childInvocation(t, byo, recvVar, recvTypeName)
+					_, isByoChild := byo.isByoStruct(propsType)
+					if isBareCallCandidate(t, propFields, byo, recvVar, recvTypeName) {
+						// A bare-call candidate (a hand-written same-package func, or a .gsx
+						// no-props component): resolve it by its REAL signature rather than the
+						// XxxProps convention, because a nullary `func F() gsx.Node` has no
+						// props struct and the `F(FProps{})` probe would not compile.
+						// _gsxcompsig(F) type-checks at any arity; harvest reads the signature
+						// back into `resolved[el]` so genChildComponent picks the call shape.
+						//
+						// A bare-call candidate can itself be a GENERIC component with
+						// nothing to supply (e.g. `component Marker[T any]()`, never
+						// eligible for emitInferProbe's call-form probe since it has no
+						// params to infer from — genericSigsFor still records its arity,
+						// see its doc). Passing an uninstantiated generic function VALUE
+						// (Marker, with no explicit type args) as this bare `any` argument
+						// is itself an implicit-instantiation attempt, so it can fail with
+						// its own "cannot infer" here — record the span (Task 8) so that
+						// diagnostic is keyed to THIS tag, not blamed on an unrelated one.
+						start := emitSkeletonLineCompsig(sb, fset, t.Pos(), callTarget+typeArgUse(t.TypeArgs))
+						if t.TypeArgs == "" {
+							if sig := genericSigs[propsType]; sig != nil {
+								registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
 							}
 						}
-						switch {
-						case emitted:
-							// emitInferProbe's call consumes ONLY the inferField
-							// args (the props go/types infers the type params
-							// from). Any NON-inferField entry — most importantly a
-							// synthesized `Attrs: ConcatAttrs(...)` fallthrough bag
-							// forwarding the enclosing component's implicit `attrs`
-							// (spread, conditional, or matched-node-field value) —
-							// is absent from that call, so an `attrs` reference that
-							// lives ONLY there would be "declared and not used" in
-							// the skeleton (a loud false rejection of a legal
-							// program). Sink those value halves into a throwaway
-							// any-typed struct, exactly as the `failed:` path sinks
-							// all entries: a plain statement, NOT a _gsxuse/_gsxuseq,
-							// so the k-th-probe↔k-th-collected alignment is untouched.
-							// inferField entries are excluded — re-sinking them would
-							// double-report a bad prop value's own type error.
-							var sinkTypes, sinkLits []string
-							for _, fe := range fieldEntries {
-								if fe.inferField != "" {
-									continue
-								}
-								val := fe.str
-								if idx := strings.Index(fe.str, ":"); idx >= 0 {
-									val = strings.TrimSpace(fe.str[idx+1:])
-								}
-								name := fmt.Sprintf("F%d", len(sinkTypes))
-								sinkTypes = append(sinkTypes, name+" any")
-								sinkLits = append(sinkLits, name+": "+val)
+					} else if isAttrsOnlyCandidate(t, propFields, byo, recvVar, recvTypeName) {
+						// Attrs-only component value candidate (no <Name>Props type exists —
+						// the convention literal probe would be a guaranteed `undefined:`
+						// error). _gsxcompsig(F) carries F's real type to the harvest (mapped
+						// by tag name, not k-order). The bag expression rides _gsxusen — the
+						// QUIET, ALIGNMENT-NEUTRAL keep-alive — NOT _gsxuse/_gsxuseq: those
+						// ARE counted by harvest's k-ordering, and the bag has no single
+						// interp node to harvest onto (each attr expression inside it already
+						// gets its own counted probe via the shared per-component ExprAttr /
+						// class-part / spread probes below, aligned with collectExprs). A
+						// counted bag probe would shift every later interp's harvested type
+						// by one slot per attrs-only tag — the FAIL 5 / 4b desync.
+						emitSkeletonLineCompsig(sb, fset, t.Pos(), t.Tag)
+						// The bag builds the SAME expression the emit pass will (probeWrap so
+						// (T, error) tuples are _gsxunwrap-wrapped, not hoisted). cfHoistBuf
+						// captures any value-form-CF class hoists so the _gsxusen(expr)
+						// reference stays valid; usedPkgs feeds usedFilters exactly as the
+						// props-literal branch does, so a bag pipeline's filter is imported.
+						var cfHoistBuf bytes.Buffer
+						if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, enclosingAttrsBound); berr == nil && expr != "" {
+							maps.Copy(usedFilters, usedPkgs)
+							emitSkeletonLine(sb, fset, t.Pos())
+							sb.WriteString(cfHoistBuf.String())
+							fmt.Fprintf(sb, "_gsxusen(%s)\n", expr)
+						}
+						// a bag-build error here is NOT reported from the probe pass: the emit
+						// pass builds the same expression and owns the positioned diagnostic.
+					} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
+						// Same Task 8 concern as the bare-call-candidate branch above: a
+						// generic no-props method/function reaching this nullary `_ = F()`
+						// probe (rather than emitInferProbe) can still fail its own
+						// implicit instantiation attempt.
+						emitSkeletonLine(sb, fset, t.Pos())
+						start := sb.Len()
+						fmt.Fprintf(sb, "_ = %s%s()\n", callTarget, typeArgUse(t.TypeArgs))
+						if t.TypeArgs == "" {
+							if sig := genericSigs[propsType]; sig != nil {
+								registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
 							}
-							if len(sinkTypes) > 0 {
-								fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(sinkTypes, "; "), strings.Join(sinkLits, ", "))
+						}
+					} else {
+						// Build the SAME props literal as the emitter via childPropsLiteral,
+						// but with a typed-nil slotValue: each named-slot and Children field
+						// is `_gsxrt.Node(nil)` so the literal type-checks WITHOUT the real
+						// closure. The slot content (markup-attr values + children) is probed
+						// SEPARATELY below, so its interps become the _gsxuse sequence in the
+						// SAME order collectExprs collected them; the props-literal exprs are
+						// NOT _gsxuse, so they don't perturb the k-th alignment.
+						// When splatExpr is non-empty (byo whole-struct splat), emit
+						// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
+						// probeWrap=true: ExprAttr values are wrapped with _gsxunwrap(...) in
+						// the skeleton so (T, error) tuples type-check while field-type
+						// checking is preserved.
+						// cfHoistBuf collects any var+if/switch statements hoisted by
+						// classEntryExpr for value-form CF parts in a class attr. They
+						// are emitted to the skeleton BEFORE the probe call so the skeleton
+						// remains syntactically valid Go. cfTemp is the per-skeleton-function
+						// counter (threaded through emitProbes), so the `_gsxvN` temp names
+						// stay unique across every sibling component tag in this block — not
+						// just within one tag (fix #69).
+						var cfHoistBuf bytes.Buffer
+						// A generic tag with omitted type args (genericSigs[propsType] != nil,
+						// mirroring the SAME predicate the emitInferProbe branch below tests)
+						// has NOT yet decided whether fieldEntries becomes a real props
+						// literal (inference succeeds → emitInferProbe's call-form probe) or
+						// a discarded reference-sink (inference fails → the `case failed:`
+						// throwaway struct below, which — like genSkippedTagSink's discard —
+						// never builds the real Attrs field). The missing-attrs-bag hazard
+						// only exists in the first outcome, which is unknowable until AFTER
+						// this call returns, so it is deferred entirely to emit time (once a
+						// concrete type arg is resolved, genChildComponent's own
+						// childPropsLiteral call re-checks it for real): disable it here for
+						// any pending generic-inference candidate to avoid a false positive
+						// on the (perfectly legal, silently-discarded) inference-failure path.
+						checkBag := t.TypeArgs != "" || genericSigs[propsType] == nil
+						fieldEntries, _, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
+							return "_gsxrt.Node(nil)", nil
+						}, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, "", enclosingAttrsBound, checkBag)
+						if err != nil {
+							// childPropsLiteral returns an *attrError with the offending attr's
+							// position embedded. Propagate it as-is so the caller can emit
+							// a positioned diagnostic (not positionless).
+							return err
+						}
+						// Record filter packages referenced by a lowered prop/fallthrough
+						// pipeline so the skeleton imports them under their reserved aliases
+						// — the SAME set the emitter records into its imports map. Without
+						// this the skeleton would not import _gsxstdN and a prop pipeline
+						// would fail to resolve.
+						maps.Copy(usedFilters, usedPkgs)
+						// One //line for the WHOLE props literal (the element position).
+						// A child-prop FIELD-TYPE error (e.g. `cannot use … as string`)
+						// therefore reports at this single position, so the COLUMN of a
+						// trailing field can be inaccurate — earlier wrapped fields
+						// (_gsxunwrap(…), gsx.Val(…)) shift the offset, and the column can
+						// even land past end-of-line for a CALL-valued prop whose wrapped
+						// earlier fields shift the offset. This is a known limitation; a future reader
+						// should not trust the column of a child-prop field-type error.
+						emitSkeletonLine(sb, fset, t.Pos())
+						// Emit any CF-hoisted statements before the probe call.
+						sb.WriteString(cfHoistBuf.String())
+						if splatExpr != "" {
+							// Whole-struct splat: mirrors genChildComponent exactly.
+							fmt.Fprintf(sb, "_ = %s%s(%s)\n", callTarget, typeArgUse(t.TypeArgs), splatExpr)
+						} else if sig := genericSigs[propsType]; t.TypeArgs == "" && sig != nil {
+							// Omitted type args on a generic tag: emit a caller-side inference
+							// probe (a fresh, uniquely-named generic helper whose params are
+							// exactly the props SUPPLIED here) so go/types infers the type args
+							// from THIS subset — mirroring how a plain Go generic function call
+							// infers from whatever arguments it's given, unlike the old exported
+							// declaring-side inference helper which required every declared prop
+							// to be supplied. ONE emitter path serves both a SAME-PACKAGE and an
+							// IMPORTED component (genericSigs, unified — see genericSig's doc):
+							// for an imported (dotted, non-method) tag, the type-param decl and
+							// each SUPPLIED param's type are first requalified into the calling
+							// file's context (Task 3's engine, via registry's per-file-coalesced
+							// aliasMinter). Requalification failure (an unexported dep-local
+							// type, a dot-imported dep-local name, or an unresolvable/ambiguous
+							// dep qualifier) fails safe: the probe is SKIPPED entirely (neither
+							// this inference probe nor the plain composite-literal fallback is
+							// emitted, so no confusing raw go/types error accompanies it) and a
+							// single positioned "inference-unavailable" diagnostic is recorded.
+							emitted := false
+							failed := false
+							if targetTPNames, tperr := parseTypeParamNames(sig.typeParams); tperr == nil {
+								supplied := map[string]string{}
+								for _, fe := range fieldEntries {
+									if fe.inferField != "" {
+										supplied[fe.inferField] = fe.inferArg
+									}
+								}
+								typeParamsSrc := sig.typeParams
+								targetParams := sig.params
+								if depAlias, imported := importedTagAlias(t.Tag, isMethod); imported {
+									declared := make(map[string]bool, len(targetTPNames))
+									for _, n := range targetTPNames {
+										declared[n] = true
+									}
+									reqDecl, rerr := registry.requalifyTypeParams(sig.typeParams, depAlias, sig.imports)
+									if rerr != nil {
+										recordInferenceUnavailable(bag, registry, t, rerr)
+										failed = true
+									} else {
+										typeParamsSrc = reqDecl
+										ordered := suppliedInDeclOrder(sig.params, supplied)
+										reqOrdered := make([]param, 0, len(ordered))
+										for _, p := range ordered {
+											rq, perr := registry.requalifyTypeExpr(p.typeSrc, depAlias, sig.imports, declared)
+											if perr != nil {
+												recordInferenceUnavailable(bag, registry, t, perr)
+												failed = true
+												break
+											}
+											p.typeSrc = rq
+											reqOrdered = append(reqOrdered, p)
+										}
+										if !failed {
+											targetParams = reqOrdered
+										}
+									}
+								}
+								if !failed {
+									emitted = registry.emitInferProbe(sb, t, propsType,
+										typeParamDecl(typeParamsSrc), typeParamUse(targetTPNames),
+										targetParams, supplied, sig.arity)
+								}
 							}
-						case failed:
-							// Sink every supplied prop's value expression (and any
-							// CF-hoisted var it references — see cfHoistBuf above) into a
-							// throwaway anonymous-struct literal, so the skeleton stays
-							// valid Go without attempting the (necessarily invalid)
-							// generic instantiation that would otherwise surface a
-							// second, confusing diagnostic alongside the clean one
-							// recordInferenceUnavailable already added. Each entry's
-							// VALUE half (fe.str is always "GoFieldName: value-expr",
-							// the shape childPropsLiteral produces for splicing into a
-							// real props literal) is re-keyed under a synthetic,
-							// guaranteed-unique field name typed `any` — sinking the
-							// value alone, not the props type, so this never depends on
-							// whichever generic instantiation failed to resolve.
-							if len(fieldEntries) > 0 {
-								typeParts := make([]string, len(fieldEntries))
-								litParts := make([]string, len(fieldEntries))
-								for i, fe := range fieldEntries {
+							switch {
+							case emitted:
+								// emitInferProbe's call consumes ONLY the inferField
+								// args (the props go/types infers the type params
+								// from). Any NON-inferField entry — most importantly a
+								// synthesized `Attrs: ConcatAttrs(...)` fallthrough bag
+								// forwarding the enclosing component's implicit `attrs`
+								// (spread, conditional, or matched-node-field value) —
+								// is absent from that call, so an `attrs` reference that
+								// lives ONLY there would be "declared and not used" in
+								// the skeleton (a loud false rejection of a legal
+								// program). Sink those value halves into a throwaway
+								// any-typed struct, exactly as the `failed:` path sinks
+								// all entries: a plain statement, NOT a _gsxuse/_gsxuseq,
+								// so the k-th-probe↔k-th-collected alignment is untouched.
+								// inferField entries are excluded — re-sinking them would
+								// double-report a bad prop value's own type error.
+								var sinkTypes, sinkLits []string
+								for _, fe := range fieldEntries {
+									if fe.inferField != "" {
+										continue
+									}
 									val := fe.str
 									if idx := strings.Index(fe.str, ":"); idx >= 0 {
 										val = strings.TrimSpace(fe.str[idx+1:])
 									}
-									name := fmt.Sprintf("F%d", i)
-									typeParts[i] = name + " any"
-									litParts[i] = name + ": " + val
+									name := fmt.Sprintf("F%d", len(sinkTypes))
+									sinkTypes = append(sinkTypes, name+" any")
+									sinkLits = append(sinkLits, name+": "+val)
 								}
-								fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(typeParts, "; "), strings.Join(litParts, ", "))
+								if len(sinkTypes) > 0 {
+									fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(sinkTypes, "; "), strings.Join(sinkLits, ", "))
+								}
+							case failed:
+								// Sink every supplied prop's value expression (and any
+								// CF-hoisted var it references — see cfHoistBuf above) into a
+								// throwaway anonymous-struct literal, so the skeleton stays
+								// valid Go without attempting the (necessarily invalid)
+								// generic instantiation that would otherwise surface a
+								// second, confusing diagnostic alongside the clean one
+								// recordInferenceUnavailable already added. Each entry's
+								// VALUE half (fe.str is always "GoFieldName: value-expr",
+								// the shape childPropsLiteral produces for splicing into a
+								// real props literal) is re-keyed under a synthetic,
+								// guaranteed-unique field name typed `any` — sinking the
+								// value alone, not the props type, so this never depends on
+								// whichever generic instantiation failed to resolve.
+								if len(fieldEntries) > 0 {
+									typeParts := make([]string, len(fieldEntries))
+									litParts := make([]string, len(fieldEntries))
+									for i, fe := range fieldEntries {
+										val := fe.str
+										if idx := strings.Index(fe.str, ":"); idx >= 0 {
+											val = strings.TrimSpace(fe.str[idx+1:])
+										}
+										name := fmt.Sprintf("F%d", i)
+										typeParts[i] = name + " any"
+										litParts[i] = name + ": " + val
+									}
+									fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(typeParts, "; "), strings.Join(litParts, ", "))
+								}
+							default:
+								// No supplied prop matched any declared field (emitInferProbe
+								// itself declined for lack of anything to infer FROM), so the
+								// tag falls through to a plain, uninstantiated composite-
+								// literal probe — go/types' own "cannot infer" against THIS
+								// call is exactly as real as emitInferProbe's call-form one;
+								// record its span (Task 8) so it resolves back to this tag too.
+								strs := make([]string, len(fieldEntries))
+								for i, fe := range fieldEntries {
+									strs[i] = fe.str
+								}
+								start := sb.Len()
+								fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, strings.Join(strs, ", "))
+								registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
 							}
-						default:
-							// No supplied prop matched any declared field (emitInferProbe
-							// itself declined for lack of anything to infer FROM), so the
-							// tag falls through to a plain, uninstantiated composite-
-							// literal probe — go/types' own "cannot infer" against THIS
-							// call is exactly as real as emitInferProbe's call-form one;
-							// record its span (Task 8) so it resolves back to this tag too.
+						} else {
 							strs := make([]string, len(fieldEntries))
 							for i, fe := range fieldEntries {
 								strs[i] = fe.str
 							}
-							start := sb.Len()
-							fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, strings.Join(strs, ", "))
-							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
+							fmt.Fprintf(sb, "_ = %s%s(%s%s{%s})\n", callTarget, typeArgUse(t.TypeArgs), propsType, typeArgUse(t.TypeArgs), strings.Join(strs, ", "))
 						}
-					} else {
-						strs := make([]string, len(fieldEntries))
-						for i, fe := range fieldEntries {
-							strs[i] = fe.str
-						}
-						fmt.Fprintf(sb, "_ = %s%s(%s%s{%s})\n", callTarget, typeArgUse(t.TypeArgs), propsType, typeArgUse(t.TypeArgs), strings.Join(strs, ", "))
 					}
 				}
 				// Probe simple ExprAttr values (child-prop values) with _gsxuse so harvest
@@ -1852,7 +1913,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						return
 					}
 					sb.WriteString("{\n")
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
 					sb.WriteString("}\n")
 				})
 				if probeErr != nil {
@@ -1881,7 +1942,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				// as a named slot value above — wrap in a Go block so a reserved-name
 				// shadow does not collide with the enclosing `attrs := _gsxp.Attrs`.
 				sb.WriteString("{\n")
-				childErr := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound)
+				childErr := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
 				sb.WriteString("}\n")
 				if childErr != nil {
 					return childErr
@@ -2003,7 +2064,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
 				})
 				if probeErr != nil {
 					return probeErr
@@ -2027,19 +2088,19 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			emitSkeletonClauseLine(sb, fset, t.ClausePos, len("for ")) // 4
 			ctrlOff[t] = sb.Len() + len("for ")
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
@@ -2047,13 +2108,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 			emitSkeletonClauseLine(sb, fset, t.CondPos, len("if ")) // 3
 			ctrlOff[t] = sb.Len() + len("if ")
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -2073,7 +2134,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					ctrlOff[cc] = sb.Len() + len("case ")
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 			}
@@ -2107,7 +2168,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						if len(p.Stages) > 0 {
 							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 						}
-						if err := probeEmbeddedInterpIIFE(sb, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+						if err := probeEmbeddedInterpIIFE(sb, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp); err != nil {
 							return err
 						}
 					}
@@ -2436,7 +2497,7 @@ func embeddedProbeType(lang gsxast.EmbeddedLang) (retType, wrapOpen, wrapClose s
 // (recvVar/recvTypeName). Its parameter list mirrors emitProbes so any of the
 // three sites can call it with its own scope. The whole-literal-pipeline guard
 // (p.Stages) stays at each call site, which words that diagnostic per-context.
-func probeEmbeddedInterpIIFE(sb *strings.Builder, segs []gsxast.Markup, lang gsxast.EmbeddedLang, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
+func probeEmbeddedInterpIIFE(sb *strings.Builder, segs []gsxast.Markup, lang gsxast.EmbeddedLang, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, targetRegistry *componentTargetMarkerRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
 	idx := len(*gw)
 	*gw = append(*gw, segs)
 	retType, wrapOpen, wrapClose := embeddedProbeType(lang)
@@ -2446,7 +2507,7 @@ func probeEmbeddedInterpIIFE(sb *strings.Builder, segs []gsxast.Markup, lang gsx
 	// Expression-position literal segments carry only text + Go-expr holes, never
 	// component-call markup, so no `{ attrs... }` fallthrough can appear here:
 	// enclosingAttrsBound is irrelevant, pass false (the pre-#104 behavior).
-	if err := emitProbes(sb, segs, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, false); err != nil {
+	if err := emitProbes(sb, segs, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, targetRegistry, gw, bag, cfTemp, false); err != nil {
 		return err
 	}
 	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs, table, usedFilters, bag), wrapClose)
@@ -2470,7 +2531,7 @@ func firstDirectGoBlockMarkup(parts []gsxast.GoPart) gsxast.GoPart {
 // harvest reads each interpolation's resolved type from a type-checked skeleton
 // file. An interpolation probe is now an ExprStmt whose call target is the
 // identifier `_gsxuse`; harvest the single argument's type.
-func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, registry *inferRegistry) {
+func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, registry *inferRegistry, plan *componentTargetPlan) {
 	// Key by receiver-type + method name, not name alone: two method components
 	// with the same method name on different receivers (e.g. (UsersPage) Row and
 	// (OrdersPage) Row) are distinct, and their skeleton funcs are distinct
@@ -2479,6 +2540,11 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 	byKey := map[string]*gsxast.Component{}
 	for _, c := range comps {
 		byKey[componentKey(c)] = c
+		if plan != nil {
+			if emission, ok := plan.emission(c); ok && emission.splitBody {
+				byKey[componentKeyWithName(c, emission.bodyName)] = c
+			}
+		}
 	}
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*goast.FuncDecl)
@@ -2722,16 +2788,20 @@ func forEachComponentTagElement(nodes []gsxast.Markup, fn func(*gsxast.Element))
 // keys on its name alone (with a leading "." marker so it can never collide with
 // a method named the same on a receiver type called "").
 func componentKey(c *gsxast.Component) string {
+	return componentKeyWithName(c, c.Name)
+}
+
+func componentKeyWithName(c *gsxast.Component, name string) string {
 	if c.Recv == "" {
-		return "." + c.Name
+		return "." + name
 	}
 	_, _, recvTypeName, err := parseRecv(c.Recv)
 	if err != nil {
 		// Should not happen: buildSkeleton already parsed this receiver before
 		// harvest runs. Fall back to name-only rather than panic.
-		return "." + c.Name
+		return "." + name
 	}
-	return recvTypeName + "." + c.Name
+	return recvTypeName + "." + name
 }
 
 // funcDeclKey mirrors componentKey for a type-checked skeleton FuncDecl: a method
@@ -4227,7 +4297,7 @@ func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err
 // skips the func/method declaration entirely — for a generic METHOD component
 // on a toolchain whose go/parser rejects methods with type parameters, even
 // this stub's `func (recv) Name[T ...](...)` signature would fail to parse.
-func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool, recvTypeName string, typeParamNames []string, typeParamsDecl string, omitFunc bool) {
+func emitComponentStub(sb *strings.Builder, c *gsxast.Component, declarationName string, params []param, withRecv bool, recvTypeName string, typeParamNames []string, typeParamsDecl string, omitFunc bool) {
 	// MIRROR emitComponentSkeleton's own propsName computation (and
 	// genComponent's, at emit time): a method component's props struct is
 	// named <RecvTypeName><Name>Props, not just <Name>Props. Every early-exit
@@ -4239,9 +4309,9 @@ func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param,
 	// confusing "undefined: PageRowProps"-shaped hard type error that MASKS
 	// the real, positioned diagnostic (e.g. unsupported-toolchain) instead of
 	// coexisting with it — see TestGenericMethodGuardedCallSiteNoUndefinedSelector.
-	propsName := c.Name + "Props"
+	propsName := declarationName + "Props"
 	if withRecv && recvTypeName != "" {
-		propsName = recvTypeName + c.Name + "Props"
+		propsName = recvTypeName + declarationName + "Props"
 	}
 	typeParamsUse := typeParamUse(typeParamNames)
 	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
@@ -4279,15 +4349,15 @@ func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param,
 	}
 	if hasProps {
 		if withRecv && c.Recv != "" {
-			fmt.Fprintf(sb, "func %s %s%s(_gsxp %s%s) _gsxrt.Node { return nil }\n", c.Recv, c.Name, typeParamsDecl, propsName, typeParamsUse)
+			fmt.Fprintf(sb, "func %s %s%s(_gsxp %s%s) _gsxrt.Node { return nil }\n", c.Recv, declarationName, typeParamsDecl, propsName, typeParamsUse)
 		} else {
-			fmt.Fprintf(sb, "func %s%s(_gsxp %s%s) _gsxrt.Node { return nil }\n", c.Name, typeParamsDecl, propsName, typeParamsUse)
+			fmt.Fprintf(sb, "func %s%s(_gsxp %s%s) _gsxrt.Node { return nil }\n", declarationName, typeParamsDecl, propsName, typeParamsUse)
 		}
 	} else {
 		if withRecv && c.Recv != "" {
-			fmt.Fprintf(sb, "func %s %s%s() _gsxrt.Node { return nil }\n", c.Recv, c.Name, typeParamsDecl)
+			fmt.Fprintf(sb, "func %s %s%s() _gsxrt.Node { return nil }\n", c.Recv, declarationName, typeParamsDecl)
 		} else {
-			fmt.Fprintf(sb, "func %s%s() _gsxrt.Node { return nil }\n", c.Name, typeParamsDecl)
+			fmt.Fprintf(sb, "func %s%s() _gsxrt.Node { return nil }\n", declarationName, typeParamsDecl)
 		}
 	}
 }

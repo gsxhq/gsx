@@ -1,35 +1,22 @@
 package codegen
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	goast "go/ast"
+	"go/build"
+	"go/build/constraint"
 	"go/token"
 	"go/types"
+	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 )
-
-// componentSignature returns the ordered declaration contract of a component.
-// Two components with the same componentKey that share this signature are
-// drop-in build-tag variants (same declaration, different body); one with a
-// different signature is a genuine conflict. Receiver variable names and bodies
-// are not part of the contract.
-func componentSignature(c *gsxast.Component) string {
-	d, err := componentDeclarationFor(c)
-	if err == nil {
-		return d.canonical()
-	}
-
-	// A malformed variant still needs deterministic, collision-safe identity so
-	// conflict reporting does not accidentally merge two different declarations.
-	var b strings.Builder
-	b.WriteString("raw-component-declaration-v1")
-	appendCanonicalField(&b, strings.TrimSpace(c.Recv))
-	appendCanonicalField(&b, strings.TrimSpace(c.TypeParams))
-	appendCanonicalField(&b, strings.TrimSpace(c.Params))
-	return b.String()
-}
 
 type conflictComp struct {
 	path string
@@ -41,211 +28,376 @@ type signatureConflict struct {
 	comps []conflictComp
 }
 
-// detectSignatureConflicts finds components that share a componentKey across
-// DIFFERENT files but do not share a signature — a genuine ambiguity gsx
-// cannot paper over. A key whose cross-file decls all share one signature is a
-// tolerated build-tag variant (no conflict); a key declared twice in a single
-// file is a within-file redeclaration left to the raw go/types error.
-func detectSignatureConflicts(files map[string]*gsxast.File) []signatureConflict {
-	type decl struct {
-		path string
-		comp *gsxast.Component
-		sig  string
-	}
-	byKey := map[string][]decl{}
-	// Iterate files in sorted path order for determinism.
+type componentVariantMember struct {
+	path      string
+	component *gsxast.Component
+}
+
+type componentVariantFamily struct {
+	key     string
+	members []componentVariantMember
+}
+
+// newComponentTargetPlan recognizes only real component variant families.
+// Every member must come from a distinct file with an effective Go constraint;
+// raw Go declarations never enter this plan.
+func newComponentTargetPlan(files map[string]*gsxast.File, sources map[string][]byte, bag *diag.Bag) componentTargetPlan {
+	byKey := map[string][]componentVariantMember{}
 	paths := make([]string, 0, len(files))
-	for p := range files {
-		paths = append(paths, p)
+	for path := range files {
+		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	for _, p := range paths {
-		for _, d := range files[p].Decls {
-			c, ok := d.(*gsxast.Component)
+	for _, path := range paths {
+		for _, declaration := range files[path].Decls {
+			component, ok := declaration.(*gsxast.Component)
 			if !ok {
 				continue
 			}
-			key := componentKey(c)
-			byKey[key] = append(byKey[key], decl{p, c, componentSignature(c)})
+			key := componentKey(component)
+			byKey[key] = append(byKey[key], componentVariantMember{path: path, component: component})
 		}
 	}
 
-	var out []signatureConflict
+	plan := componentTargetPlan{emissions: map[*gsxast.Component]componentTargetEmission{}}
+	bodyIndex := 0
 	keys := make([]string, 0, len(byKey))
-	for k := range byKey {
-		keys = append(keys, k)
+	for key := range byKey {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		decls := byKey[key]
-		// Distinct files that declare this key.
-		fileSet := map[string]bool{}
-		sigSet := map[string]bool{}
-		for _, d := range decls {
-			fileSet[d.path] = true
-			sigSet[d.sig] = true
+		members := byKey[key]
+		if len(members) == 1 {
+			plan.emissions[members[0].component] = componentTargetEmission{public: true}
+			continue
 		}
-		if len(fileSet) < 2 || len(sigSet) < 2 {
-			continue // single-file (within-file) or all one signature (tolerated)
-		}
-		comps := make([]conflictComp, 0, len(decls))
-		for _, d := range decls {
-			comps = append(comps, conflictComp{d.path, d.comp})
-		}
-		out = append(out, signatureConflict{key: key, comps: comps})
-	}
-	return out
-}
 
-// redeclName extracts the declared name from a go/types redeclaration-class
-// error message, or ("", false) if the error is not redeclaration-class. The
-// returned name is the KEY under which redeclFacts groups the same declaration
-// — a bare identifier for a func/var/const/type, and a receiver-qualified
-// "<BaseType>.<Method>" for a method.
-//
-// go/types (observed on Go 1.26.1) emits redeclarations in two message
-// families, exercised by a throwaway type-checker probe:
-//
-//   - Funcs, vars, consts, types → a PAIR of records:
-//     "<name> redeclared in this block"   (at the 2nd+ decl)
-//     "\tother declaration of <name>"     (a note, at the globally-first decl;
-//     note the leading tab that TrimSpace strips)
-//
-//   - Methods → a SINGLE self-contained record:
-//     "method <BaseType>.<Method> already declared at <file>:<line>:<col>"
-//     (at the 2nd+ decl; the first-decl location is embedded in the text).
-//     <BaseType> is the base receiver type with NO pointer '*' and NO generic
-//     '[T]' — e.g. both `(f *Form)` and `(f Form[T])` report "Form.Field".
-func redeclName(msg string) (string, bool) {
-	msg = strings.TrimSpace(msg)
-	if i := strings.Index(msg, " redeclared"); i > 0 {
-		return msg[:i], true
-	}
-	const other = "other declaration of "
-	if strings.HasPrefix(msg, other) {
-		return strings.TrimSpace(msg[len(other):]), true
-	}
-	const method = "method "
-	if strings.HasPrefix(msg, method) {
-		if j := strings.Index(msg, " already declared"); j > len(method) {
-			return msg[len(method):j], true // "<BaseType>.<Method>"
+		valid := true
+		counts := map[string]int{}
+		for _, member := range members {
+			counts[member.path]++
 		}
-	}
-	return "", false
-}
-
-// redeclFacts records, per declaration key (see redeclName), whether that name
-// is declared across ≥2 skeleton files (a candidate build-tag variant) and/or
-// ≥2 times within a single file (a genuine within-file redeclaration). These
-// facts are derived from the parsed skeleton ASTs, NOT from the go/types error
-// positions, on purpose: go/types anchors EVERY redeclaration against the
-// single globally-first decl of a name, and gsx feeds skeleton files to the
-// checker in nondeterministic (map) order — so a within-file duplicate that
-// happens to live in a non-anchor file is reported as if it were cross-file,
-// making per-error F1==F2 detection unreliable. The skeleton AST sees every
-// declaration regardless of order, so the within-file fact is exact.
-type redeclFacts struct {
-	crossFile map[string]bool // name declared in ≥2 distinct files
-	withinDup map[string]bool // name declared ≥2 times within one file
-}
-
-// collectRedeclFacts walks the top-level declarations of every skeleton file
-// and tallies, per redeclName key, the set of files it appears in and whether
-// any single file declares it more than once.
-func collectRedeclFacts(goFiles []*goast.File, fset *token.FileSet) redeclFacts {
-	byName := map[string]map[string]int{} // name -> filename -> count in that file
-	add := func(name string, pos token.Pos) {
-		if name == "" {
-			return
-		}
-		file := fset.Position(pos).Filename
-		if byName[name] == nil {
-			byName[name] = map[string]int{}
-		}
-		byName[name][file]++
-	}
-	for _, gf := range goFiles {
-		for _, d := range gf.Decls {
-			switch decl := d.(type) {
-			case *goast.FuncDecl:
-				if decl.Recv != nil && len(decl.Recv.List) > 0 {
-					if base := recvBaseName(decl.Recv.List[0].Type); base != "" {
-						add(base+"."+decl.Name.Name, decl.Pos())
-					}
-				} else {
-					add(decl.Name.Name, decl.Pos())
-				}
-			case *goast.GenDecl:
-				for _, spec := range decl.Specs {
-					switch s := spec.(type) {
-					case *goast.ValueSpec: // var / const
-						for _, n := range s.Names {
-							if n.Name != "_" {
-								add(n.Name, n.Pos())
-							}
-						}
-					case *goast.TypeSpec:
-						if s.Name.Name != "_" {
-							add(s.Name.Name, s.Name.Pos())
-						}
-					}
-				}
-			}
-		}
-	}
-	facts := redeclFacts{crossFile: map[string]bool{}, withinDup: map[string]bool{}}
-	for name, files := range byName {
-		if len(files) >= 2 {
-			facts.crossFile[name] = true
-		}
-		for _, c := range files {
-			if c >= 2 {
-				facts.withinDup[name] = true
+		for _, count := range counts {
+			if count > 1 {
+				valid = false
 				break
 			}
 		}
-	}
-	return facts
-}
-
-// recvBaseName returns the base type identifier of a method receiver, stripping
-// a leading pointer and any generic type-argument list so it matches the
-// "<BaseType>" go/types prints in a method-redeclaration message (see
-// redeclName): `*Form` → "Form", `Form[T]` → "Form".
-func recvBaseName(expr goast.Expr) string {
-	switch t := expr.(type) {
-	case *goast.StarExpr:
-		return recvBaseName(t.X)
-	case *goast.IndexExpr: // Form[T]
-		return recvBaseName(t.X)
-	case *goast.IndexListExpr: // Form[T, U]
-		return recvBaseName(t.X)
-	case *goast.Ident:
-		return t.Name
-	}
-	return ""
-}
-
-// suppressCrossFileRedeclarations drops redeclaration-class errors for a name
-// that is a tolerated cross-tag variant — declared across ≥2 files but never
-// twice within a single file. gsx does not parse build tags; go build remains
-// the arbiter of whether a cross-file same-name pair is an actual
-// same-configuration duplicate.
-//
-// A name that IS duplicated within some file keeps ALL its redeclaration errors
-// (blocking emission), even when a cross-file variant of the same name also
-// exists. That within-file duplicate is a real mistake go/types must report;
-// disentangling the specific cross-file record from the within-file one per
-// error is not possible reliably (go/types' global-first anchoring, above), so
-// gsx keeps the whole group — go build would reject the within-file duplicate
-// under any tag too. Non-redeclaration errors are always kept.
-func suppressCrossFileRedeclarations(errs []types.Error, facts redeclFacts) []types.Error {
-	kept := errs[:0]
-	for _, e := range errs {
-		if name, ok := redeclName(e.Msg); ok && facts.crossFile[name] && !facts.withinDup[name] {
-			continue // cross-file build-tag variant: tolerate
+		if valid {
+			for _, member := range members {
+				constrained, err := componentFileHasEffectiveConstraint(member.path, files[member.path], sources[member.path])
+				if err != nil || !constrained {
+					valid = false
+					break
+				}
+			}
 		}
-		kept = append(kept, e)
+		if !valid {
+			plan.invalidMembership = true
+			reportInvalidComponentVariantFamily(key, members, files, sources, bag)
+			for _, member := range members {
+				plan.emissions[member.component] = componentTargetEmission{public: true}
+			}
+			continue
+		}
+
+		family := componentVariantFamily{key: key, members: members}
+		plan.families = append(plan.families, family)
+		for index, member := range members {
+			bodyIndex++
+			plan.emissions[member.component] = componentTargetEmission{
+				public:    index == 0,
+				splitBody: true,
+				bodyName:  fmt.Sprintf("_gsxtargetbody%d", bodyIndex),
+			}
+		}
 	}
-	return kept
+	return plan
+}
+
+func reportInvalidComponentVariantFamily(key string, members []componentVariantMember, files map[string]*gsxast.File, sources map[string][]byte, bag *diag.Bag) {
+	if bag == nil {
+		return
+	}
+	filenames := make([]string, 0, len(members))
+	for _, member := range members {
+		filenames = append(filenames, filepath.Base(member.path))
+	}
+	name := strings.TrimPrefix(key, ".")
+	for _, member := range members {
+		constrained, err := componentFileHasEffectiveConstraint(member.path, files[member.path], sources[member.path])
+		detail := "every member must be in a distinct file with a valid Go build constraint"
+		if err != nil {
+			detail = err.Error()
+		} else if !constrained {
+			detail = filepath.Base(member.path) + " has no effective Go build constraint"
+		}
+		bag.Errorf(member.component.NamePos, member.component.NamePos+token.Pos(len(member.component.Name)), "duplicate-component",
+			"component %s cannot form a build variant family across %s: %s", name, strings.Join(filenames, ", "), detail)
+	}
+}
+
+func componentFileHasEffectiveConstraint(path string, file *gsxast.File, source []byte) (bool, error) {
+	if file == nil {
+		return false, fmt.Errorf("missing parsed source for %s", path)
+	}
+	if len(source) == 0 {
+		source = []byte(file.Doc + "\n\npackage " + file.Package + "\n")
+	}
+	sourceConstrained, err := sourceHasEffectiveBuildConstraint(source)
+	if err != nil {
+		return false, fmt.Errorf("invalid build constraint in %s: %w", filepath.Base(path), err)
+	}
+	if sourceConstrained {
+		return true, nil
+	}
+	return generatedFilenameHasBuildConstraint(path)
+}
+
+var errMultipleGoBuildConstraints = errors.New("multiple //go:build comments")
+
+// sourceHasEffectiveBuildConstraint follows go/build's leading-header rules.
+// The parser's File.Doc is the exact byte prefix before package, so appending a
+// package clause reconstructs the boundary on which the Go command operates.
+func sourceHasEffectiveBuildConstraint(source []byte) (bool, error) {
+	trimmed, goBuild, err := parseBuildConstraintHeader(source)
+	if err != nil {
+		return false, err
+	}
+	if goBuild != nil {
+		_, err := constraint.Parse(string(goBuild))
+		return err == nil, err
+	}
+	for len(trimmed) > 0 {
+		line := trimmed
+		if index := bytes.IndexByte(line, '\n'); index >= 0 {
+			line, trimmed = line[:index], trimmed[index+1:]
+		} else {
+			trimmed = nil
+		}
+		text := string(bytes.TrimSpace(line))
+		if !constraint.IsPlusBuild(text) {
+			continue
+		}
+		if _, err := constraint.Parse(text); err == nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// parseBuildConstraintHeader is a focused port of go/build.parseFileHeader.
+// It deliberately retains the standard library's blank-line and comment-block
+// rules instead of approximating directive placement.
+func parseBuildConstraintHeader(content []byte) (trimmed, goBuild []byte, err error) {
+	end := 0
+	pending := content
+	ended := false
+	inSlashStar := false
+
+lines:
+	for len(pending) > 0 {
+		line := pending
+		if index := bytes.IndexByte(line, '\n'); index >= 0 {
+			line, pending = line[:index], pending[index+1:]
+		} else {
+			pending = nil
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 && !ended {
+			end = len(content) - len(pending)
+			continue lines
+		}
+		if !bytes.HasPrefix(line, []byte("//")) {
+			ended = true
+		}
+		if !inSlashStar && constraint.IsGoBuild(string(line)) {
+			if goBuild != nil {
+				return nil, nil, errMultipleGoBuildConstraints
+			}
+			goBuild = append([]byte(nil), line...)
+		}
+
+	comments:
+		for len(line) > 0 {
+			if inSlashStar {
+				if index := bytes.Index(line, []byte("*/")); index >= 0 {
+					inSlashStar = false
+					line = bytes.TrimSpace(line[index+2:])
+					continue comments
+				}
+				continue lines
+			}
+			if bytes.HasPrefix(line, []byte("//")) {
+				continue lines
+			}
+			if bytes.HasPrefix(line, []byte("/*")) {
+				inSlashStar = true
+				line = bytes.TrimSpace(line[2:])
+				continue comments
+			}
+			break lines
+		}
+	}
+	return content[:end], goBuild, nil
+}
+
+func generatedFilenameHasBuildConstraint(path string) (bool, error) {
+	name := strings.TrimSuffix(filepath.Base(path), ".gsx") + ".x.go"
+	stem, _, _ := strings.Cut(name, ".")
+	_, suffix, found := strings.Cut(stem, "_")
+	if !found {
+		return false, nil
+	}
+	parts := strings.Split(suffix, "_")
+	if len(parts) > 0 && parts[len(parts)-1] == "test" {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) == 0 {
+		return false, nil
+	}
+	const invalid = "gsx_invalid_platform"
+	neutral, err := generatedFilenameMatches(name, invalid, invalid)
+	if err != nil || neutral {
+		return false, err
+	}
+	last := parts[len(parts)-1]
+	if matches, err := generatedFilenameMatches(name, last, invalid); err != nil || matches {
+		return matches, err
+	}
+	if matches, err := generatedFilenameMatches(name, invalid, last); err != nil || matches {
+		return matches, err
+	}
+	if len(parts) >= 2 {
+		return generatedFilenameMatches(name, parts[len(parts)-2], last)
+	}
+	return false, nil
+}
+
+func generatedFilenameMatches(name, goos, goarch string) (bool, error) {
+	context := build.Default
+	context.GOOS = goos
+	context.GOARCH = goarch
+	context.OpenFile = func(string) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader("package p\n")), nil
+	}
+	return context.MatchFile(".", name)
+}
+
+type variantParamIdentity struct {
+	name string
+	role declarationParamRole
+}
+
+func componentVariantParamIdentity(component *gsxast.Component) ([]variantParamIdentity, error) {
+	declaration, err := componentDeclarationFor(component)
+	if err != nil {
+		return nil, err
+	}
+	identity := make([]variantParamIdentity, 0, len(declaration.params))
+	for _, parameter := range declaration.params {
+		identity = append(identity, variantParamIdentity{name: parameter.name, role: parameter.role})
+	}
+	return identity, nil
+}
+
+func variantFuncObjects(files []*goast.File, info *types.Info, plan componentTargetPlan) map[*gsxast.Component]*types.Func {
+	byName := make(map[string]*gsxast.Component)
+	for component, emission := range plan.emissions {
+		if emission.splitBody && emission.bodyName != "" {
+			byName[emission.bodyName] = component
+		}
+	}
+	objects := make(map[*gsxast.Component]*types.Func, len(byName))
+	for _, file := range files {
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*goast.FuncDecl)
+			if !ok {
+				continue
+			}
+			component := byName[function.Name.Name]
+			if component == nil {
+				continue
+			}
+			if object, ok := info.Defs[function.Name].(*types.Func); ok {
+				objects[component] = object
+			}
+		}
+	}
+	return objects
+}
+
+func validateComponentVariantSignatures(files []*goast.File, info *types.Info, plan componentTargetPlan, bag *diag.Bag) []signatureConflict {
+	objects := variantFuncObjects(files, info, plan)
+	var conflicts []signatureConflict
+	for _, family := range plan.families {
+		if len(family.members) < 2 {
+			continue
+		}
+		firstObject := objects[family.members[0].component]
+		if firstObject == nil {
+			continue
+		}
+		firstSignature, ok := firstObject.Type().(*types.Signature)
+		if !ok {
+			continue
+		}
+		firstParams, err := componentVariantParamIdentity(family.members[0].component)
+		if err != nil {
+			continue
+		}
+		identical := true
+		for _, member := range family.members[1:] {
+			object := objects[member.component]
+			if object == nil {
+				identical = false
+				break
+			}
+			signature, ok := object.Type().(*types.Signature)
+			params, paramErr := componentVariantParamIdentity(member.component)
+			if !ok || paramErr != nil || !equalVariantParamIdentity(firstParams, params) || !types.Identical(firstSignature, signature) || !identicalReceiver(firstSignature, signature) {
+				identical = false
+				break
+			}
+		}
+		if identical {
+			continue
+		}
+		components := make([]conflictComp, 0, len(family.members))
+		filenames := make([]string, 0, len(family.members))
+		for _, member := range family.members {
+			components = append(components, conflictComp{path: member.path, comp: member.component})
+			filenames = append(filenames, filepath.Base(member.path))
+		}
+		conflicts = append(conflicts, signatureConflict{key: family.key, comps: components})
+		if bag != nil {
+			for _, member := range family.members {
+				bag.Errorf(member.component.NamePos, member.component.NamePos+token.Pos(len(member.component.Name)), "duplicate-component",
+					"component %s has different semantic signatures across build variants (%s); parameter names and roles, function types, and receiver types must match",
+					member.component.Name, strings.Join(filenames, ", "))
+			}
+		}
+	}
+	return conflicts
+}
+
+func equalVariantParamIdentity(left, right []variantParamIdentity) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func identicalReceiver(left, right *types.Signature) bool {
+	leftReceiver, rightReceiver := left.Recv(), right.Recv()
+	if leftReceiver == nil || rightReceiver == nil {
+		return leftReceiver == nil && rightReceiver == nil
+	}
+	return types.Identical(leftReceiver.Type(), rightReceiver.Type())
 }
