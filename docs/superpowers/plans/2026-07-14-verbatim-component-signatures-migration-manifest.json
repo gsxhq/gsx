@@ -1524,7 +1524,11 @@
           "section_name": "input.gsx",
           "before_sha256": "5d476897d341126ae4145be513386dc942684301b51d0738a112231cef1d95e4",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Config): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -2085,7 +2089,11 @@
           "section_name": "input.gsx",
           "before_sha256": "a47082880d6f0ff0e57ef1e6f3d9c9bc7d72eeacb1df91b45827812cb6a30b44",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (User): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -2553,7 +2561,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -2605,7 +2613,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -2655,9 +2663,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {cardData{Title: d.Heading}...}, {pd...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (cardData, pageData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {cardData{Title: d.Heading}...}, {pd...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -2762,7 +2771,11 @@
           "section_name": "input.gsx",
           "before_sha256": "8fb5f1d3c4102c2a6b78965eef9c2b221be53e11fab3fd5b919aaffbd2e62950",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (AppState): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -4119,7 +4132,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -4145,7 +4158,11 @@
           "kind": "raw-file",
           "before_sha256": "a5a70781302b97b0782cd2fc7e7070613d96a6f59693bbdb2826af9be7026caa",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (User): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -4306,7 +4323,7 @@
             "field-matcher-expectation",
             "byo-field-address"
           ],
-          "review_note": "references WithFieldMatcher/field-matcher expectation; that config and fuzzy attr-\u003efield matching are removed under exact-name matching (edit or delete the expectation) | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "references WithFieldMatcher/field-matcher expectation; that config and fuzzy attr-\u003efield matching are removed under exact-name matching (edit or delete the expectation) | BYO struct-shaped sole param (CardProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -4410,7 +4427,11 @@
           "kind": "raw-file",
           "before_sha256": "86d06676109fbff926261cf788ae22112b27e7d23f1143a7ce394d0884075059",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (User): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -4709,7 +4730,7 @@
             "direct-props-invoke",
             "byo-field-address"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -4774,11 +4795,7 @@
           "kind": "raw-file",
           "before_sha256": "9ce5c5df4b7255ba7ff5ba85a3b6b7b19299f391b8715cd307ccca59de545095",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         }
       ]
     },
@@ -4994,7 +5011,11 @@
           "kind": "raw-file",
           "before_sha256": "ef4092cb80b105a82ac1d6d50d9c1e5c3aa1e92af0be63cd916c1e1b08e2c381",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (T): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -5142,7 +5163,7 @@
             "direct-props-invoke",
             "byo-field-address"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -5159,7 +5180,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Widget, props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -5267,7 +5288,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (A, B): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -5566,7 +5587,7 @@
             "field-matcher-expectation",
             "byo-field-address"
           ],
-          "review_note": "references WithFieldMatcher/field-matcher expectation; that config and fuzzy attr-\u003efield matching are removed under exact-name matching (edit or delete the expectation) | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "references WithFieldMatcher/field-matcher expectation; that config and fuzzy attr-\u003efield matching are removed under exact-name matching (edit or delete the expectation) | BYO struct-shaped sole param (CardProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -5596,11 +5617,7 @@
           "kind": "raw-file",
           "before_sha256": "88814cbee204131ae06e7edcadbd596846a90519831639d04a77a206664b6728",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         }
       ]
     },
@@ -5723,10 +5740,9 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
-            "direct-props-invoke",
-            "byo-field-address"
+            "direct-props-invoke"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature"
         }
       ]
     },
@@ -5804,11 +5820,7 @@
           "kind": "raw-file",
           "before_sha256": "819a1d9886765a9dd9842872b45b1a6c9aeebef803e1c982783205721da8f22e",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         }
       ]
     },
@@ -5873,11 +5885,7 @@
           "kind": "raw-file",
           "before_sha256": "3a96d8622c6d0afbd397705301828d417a73a8d216a4b25217327dadfadf9e74",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         }
       ]
     },
@@ -5894,7 +5902,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (CardData, Model): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -6015,7 +6023,11 @@
           "kind": "raw-file",
           "before_sha256": "2563132abecdb77010af9a4bcede5e459f5b85b31da6c1f5c811328429fd0104",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Trusted): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -6028,11 +6040,7 @@
           "kind": "raw-file",
           "before_sha256": "bf0e17673ed4fb2940fe469f6d52238c88a99deba8bdd6d1e550900dbc48396d",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         }
       ]
     },
@@ -6058,7 +6066,11 @@
           "kind": "raw-file",
           "before_sha256": "0883f669700a6d9213bc911e4abc0a8db5ff360e015e9becca66f384d0c0c5ed",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (box): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -6110,11 +6122,7 @@
           "kind": "raw-file",
           "before_sha256": "d47ed776e5f2b5dff657eb46509e6c644e5329d9c0fecd9c96755d608ff89804",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         }
       ]
     },
@@ -6364,11 +6372,7 @@
           "kind": "raw-file",
           "before_sha256": "86ac090ee3708469221f36d14a80fb86a26317954f000472fba56dfe1c45b24b",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         }
       ]
     },
@@ -6387,12 +6391,12 @@
     },
     {
       "path": "internal/codegen/verbatim_migration_inventory_test.go",
-      "before_sha256": "5bb8d8a632e72ff8f3904e01f86fd952aaaf6508d5fd3cbadea2671caaca4495",
+      "before_sha256": "6d94711ff96616a5f11868ba164d348a09e8c10b45513886403d8da3b7a053a5",
       "after_sha256": "",
       "units": [
         {
           "kind": "raw-file",
-          "before_sha256": "5bb8d8a632e72ff8f3904e01f86fd952aaaf6508d5fd3cbadea2671caaca4495",
+          "before_sha256": "6d94711ff96616a5f11868ba164d348a09e8c10b45513886403d8da3b7a053a5",
           "after_sha256": "",
           "action": "delete",
           "kinds": [
@@ -7651,9 +7655,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {item...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {item...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -7849,7 +7854,7 @@
             "declare-attrs",
             "attrs-only-param-rename"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr) | attrs-only factory publishes an unnamed `func(...gsx.Attr) gsx.Node` return type; rename to publish the reserved `attrs` name (func(attrs ...gsx.Attr) gsx.Node)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (thingProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr) | attrs-only factory publishes an unnamed `func(...gsx.Attr) gsx.Node` return type; rename to publish the reserved `attrs` name (func(attrs ...gsx.Attr) gsx.Node)"
         },
         {
           "kind": "txtar-section",
@@ -8189,7 +8194,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8246,7 +8251,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (chipProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8315,7 +8320,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (chipProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8381,7 +8386,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -8450,7 +8455,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (pillProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8518,7 +8523,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (chipProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8576,7 +8581,7 @@
             "declare-attrs",
             "attrs-only-param-rename"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr) | attrs-only factory publishes an unnamed `func(...gsx.Attr) gsx.Node` return type; rename to publish the reserved `attrs` name (func(attrs ...gsx.Attr) gsx.Node)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr) | attrs-only factory publishes an unnamed `func(...gsx.Attr) gsx.Node` return type; rename to publish the reserved `attrs` name (func(attrs ...gsx.Attr) gsx.Node)"
         },
         {
           "kind": "txtar-section",
@@ -8641,7 +8646,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8714,7 +8719,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8760,7 +8765,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8817,7 +8822,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (boxProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -8888,7 +8893,7 @@
             "direct-props-invoke",
             "byo-field-address"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (badgeProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -8956,7 +8961,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (chipProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -9028,7 +9033,11 @@
           "section_name": "input.gsx",
           "before_sha256": "07bbfe7c9a7558109e1f1b97c7ff6e3ac509646d5e4ba4efad156b96ebcc391e",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (holder): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -9108,7 +9117,11 @@
           "section_name": "pages/home.gsx",
           "before_sha256": "1fafad53e50240ac3087a16b8850eb7bd957113b614654daeeec1a46c34c07b0",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (holder): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -9176,7 +9189,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -9260,7 +9273,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (badgeProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -10247,11 +10260,7 @@
           "section_name": "card.go",
           "before_sha256": "b384f176a80dded958692cd33a08040f608d53e1f2c4b061279661a8ba4e4d8b",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -10263,7 +10272,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (CardProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -17556,11 +17565,7 @@
           "section_name": "badge.go",
           "before_sha256": "bb125ef4ea351ed6520de8f8119dfed9f9f7fd44296c3f6f92314e3b891df60c",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -20382,7 +20387,11 @@
           "section_name": "input.gsx",
           "before_sha256": "89f8b373d3fdbc866afb5354179fe704c392876bed2df95d38224c069352a433",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Cfg): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -20476,7 +20485,11 @@
           "section_name": "input.gsx",
           "before_sha256": "fe691a38ab1d684dd0e81015507db71550531563ef3c030b6f41d3d5c8bdd999",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Cfg): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -20625,11 +20638,7 @@
           "section_name": "badge.go",
           "before_sha256": "52ba6a79fffdb8bbad4025f483a2f1e5a3c4cc39e373463620b0300432819988",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -21171,7 +21180,11 @@
           "section_name": "input.gsx",
           "before_sha256": "7f7893d5698a5216333de0d567c2970516fc5aaa99b5df2adf64f645a7d93b79",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Widget): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -22875,7 +22888,11 @@
           "section_name": "input.gsx",
           "before_sha256": "9fd8b2d21ecc1d58d46311af5ee8da15153de7ff0b2fafaa50c40ddadd30a0d9",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -22937,7 +22954,11 @@
           "section_name": "input.gsx",
           "before_sha256": "fe996b9acd1b8057a4a22cfc1bc7017d8d349212f8a9a1deb1c30f68ba350ba6",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -22999,7 +23020,11 @@
           "section_name": "input.gsx",
           "before_sha256": "9f0565c80d33ad02767b32ac5e301cb5454ff9bbd3fbf81274d1ee4330d327c5",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -23061,7 +23086,11 @@
           "section_name": "input.gsx",
           "before_sha256": "b4a6a5f7c690a05c93aab81e56e206711c5daf256d223e2a6965a2c7c840117f",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -23123,7 +23152,11 @@
           "section_name": "input.gsx",
           "before_sha256": "db42dbb1c96f4391418ce5bb1f770065a0035535b1a9679da9eaf5902f03e853",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -31912,7 +31945,11 @@
           "section_name": "input.gsx",
           "before_sha256": "305306a030ecc48d55ebe87749260f7f8d2f781abe7849f3447a5ced77aa0832",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (User): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -32026,7 +32063,11 @@
           "section_name": "input.gsx",
           "before_sha256": "b0f9cc05acd6514ba11683a693b4e11f957ce3a685a450074183d551d7601c3b",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Money): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -33748,7 +33789,11 @@
           "section_name": "input.gsx",
           "before_sha256": "968199c4aaa0cc9ce5497c3db698efd4cfd62f11728144b9bc7af2347da9eaad",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (State): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -34866,7 +34911,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (RowProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -37282,7 +37327,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (dotProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -37408,7 +37453,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "BYO struct-shaped sole param (CardProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -37475,7 +37520,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "BYO struct-shaped sole param (CardProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -37531,7 +37576,7 @@
             "byo-field-address",
             "declare-attrs"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
+          "review_note": "BYO struct-shaped sole param (CardProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | uses the magic `attrs` bag ({attrs...}/attrs.*); the component must declare an `attrs` reserved param (gsx.Attrs/[]gsx.Attr/defined-slice/...gsx.Attr)"
         },
         {
           "kind": "txtar-section",
@@ -39692,7 +39737,11 @@
           "section_name": "input.gsx",
           "before_sha256": "89f8b373d3fdbc866afb5354179fe704c392876bed2df95d38224c069352a433",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Cfg): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -41157,7 +41206,11 @@
           "section_name": "input.gsx",
           "before_sha256": "dfe99cf9a72111cf66049a6b72945ad3e5bd77504472963edd16a7f5b7e3402d",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Page): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45337,7 +45390,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45373,7 +45426,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45405,11 +45458,7 @@
           "section_name": "props.go",
           "before_sha256": "71b42fe91c7ad01fc1d15b76d72238756bba22823f6887a1204f262ed409d136",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -45421,7 +45470,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (cardProps, widget): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45491,7 +45540,11 @@
           "section_name": "input.gsx",
           "before_sha256": "3c6b13ea76bb97a956dcae28b36304c4f01144a284dc64baac1de24334848236",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (cardData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45557,7 +45610,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45611,7 +45664,11 @@
           "kind": "txtar-comment",
           "before_sha256": "ad39bdf8eced9d555146b2e20c9292308b616d283e749bdeb40e1633550214e5",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (pageData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45621,9 +45678,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {d...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (pageData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {d...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -45677,7 +45735,11 @@
           "kind": "txtar-comment",
           "before_sha256": "32af56f8bb80f499a08164dddd9a5fbe420509e5e9c6a7737c4296c3a5f582a3",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (pageData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45687,9 +45749,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {d...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (pageData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {d...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -45755,7 +45818,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -45819,9 +45882,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {cardData{Title: d.Heading}...}, {pd...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (cardData, pageData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {cardData{Title: d.Heading}...}, {pd...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -45885,9 +45949,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {data...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (cardData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {data...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -45921,9 +45986,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {\u003cempty\u003e...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (cardData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {\u003cempty\u003e...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -45957,9 +46023,10 @@
           "after_sha256": "",
           "action": "manual-edit",
           "kinds": [
+            "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "component struct-splat {data...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (cardData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {data...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -45995,7 +46062,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (Props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -46061,11 +46128,7 @@
           "section_name": "picker.go",
           "before_sha256": "5eaa33f3b54ae333719db646556c489c256d0356cd5721326fcfa146e23ae80f",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -46134,7 +46197,7 @@
             "byo-field-address",
             "component-struct-splat"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {props.GroupPanelProps...}, {props.UserPanelProps...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
+          "review_note": "BYO struct-shaped sole param (PanelProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous) | component struct-splat {props.GroupPanelProps...}, {props.UserPanelProps...} is CUT; replace each with a named-prop fill (\u003cC prop={x}/\u003e) or individual params -- retention is not an option. (attrs-bag forwarding \u003cC {attrs...}/\u003e is excluded and retained)"
         },
         {
           "kind": "txtar-section",
@@ -51460,7 +51523,11 @@
           "section_name": "input.gsx",
           "before_sha256": "bde1c852db9b434c224851c76ba20a67c83123f6aa066c84304b94e60904d1dc",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Config): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -51620,7 +51687,11 @@
           "section_name": "input.gsx",
           "before_sha256": "938fdf677f049baf1dfaf719e98d596fbca168657dded390cdb67a4751e95195",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Config): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -53269,7 +53340,11 @@
           "section_name": "input.gsx",
           "before_sha256": "e9b1fefb093a1feb57a60fb34b8f3f09fc606ee068cdcbe1df785501b76ca6dc",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (tag): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -53756,7 +53831,11 @@
           "section_name": "input.gsx",
           "before_sha256": "8a7b5f1c4aafb629223a4f98c98bec6526e9b788aa82c47b038258341a8b14c3",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -54610,7 +54689,11 @@
           "section_name": "input.gsx",
           "before_sha256": "13a25cba7d12a18ad1a39d42d97b16773d3552fb8510dd0c84edcbb996705edb",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (Color): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -56699,11 +56782,7 @@
           "section_name": "badge.go",
           "before_sha256": "af260e5185fba94711ef9cc1797bde2cf07ce1995dfbe6ef1743ca3f41b0ccf3",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -58686,7 +58765,11 @@
           "section_name": "input.gsx",
           "before_sha256": "87aa147bbd93f356fd932139e98365d6bf7a78d99f981189996610b284206518",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (props): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -58826,7 +58909,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (widgetProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -58892,7 +58975,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (linkProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -58966,7 +59049,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (ctrlProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -59040,7 +59123,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (navProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -59114,7 +59197,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (navProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -59180,7 +59263,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (linkProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -59246,7 +59329,7 @@
           "kinds": [
             "byo-field-address"
           ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "BYO struct-shaped sole param (anchorProps, imgProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -59662,7 +59745,11 @@
           "section_name": "input.gsx",
           "before_sha256": "d2d8092e6314aa925f327c7c9331354e1144034030a03a57ecbc92433bd00466",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (User): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -60176,11 +60263,7 @@
           "section_name": "uigo/widget.go",
           "before_sha256": "024dc08a383de24e41c6c12fcd8e6ad6cfe800a47267bb2b67a53e62d239b7a3",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -60262,11 +60345,7 @@
           "section_name": "uigo/widget.go",
           "before_sha256": "7664804c43b16a7bc0fd070e48d59d9eb887379e7164e356671f9b46023c6000",
           "after_sha256": "",
-          "action": "manual-edit",
-          "kinds": [
-            "byo-field-address"
-          ],
-          "review_note": "BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "action": "reviewed-no-change"
         },
         {
           "kind": "txtar-section",
@@ -60615,7 +60694,11 @@
           "section_name": "ui/card.gsx",
           "before_sha256": "8a9cf3f0007a9c9ed96a724b802748e456777d4411402efa66032fc4dd801917",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (CardData): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         },
         {
           "kind": "txtar-section",
@@ -61141,7 +61224,7 @@
             "direct-props-invoke",
             "byo-field-address"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -61237,7 +61320,7 @@
             "direct-props-invoke",
             "byo-field-address"
           ],
-          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-param component: call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
+          "review_note": "constructs a \u003cName\u003eProps struct literal (generated ABI removed); pass values directly to the verbatim signature | BYO struct-shaped sole param (User, iconProps): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
@@ -61250,7 +61333,11 @@
           "kind": "raw-file",
           "before_sha256": "dbf5e0f2f9af007c083d7e4227df9e2ac43f1d7c44269adb42fbb2a210a564ce",
           "after_sha256": "",
-          "action": "reviewed-no-change"
+          "action": "manual-edit",
+          "kinds": [
+            "byo-field-address"
+          ],
+          "review_note": "BYO struct-shaped sole param (path): call sites addressing struct fields (\u003cC Field=...\u003e) become individual ordinary params; a whole-value fill (\u003cC p={val}/\u003e) stays whole-value. Resolve per call site (see ESCALATE if ambiguous)"
         }
       ]
     },
