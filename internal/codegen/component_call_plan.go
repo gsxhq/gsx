@@ -417,7 +417,18 @@ func validateComponentOperands(plan componentCallPlan, facts map[gsxast.Node]exp
 				continue
 			}
 			if fact.tuple != nil {
-				validateTupleFact(value.node, fact, report)
+				// (T, error) auto-unwrap: the unwrapped T must itself be an attrs
+				// bag, so `attrs={f()}` where f returns (nonBag, error) is rejected.
+				unwrapped, ok := tupleUnwrapType(fact.tuple)
+				if !ok {
+					report(value.node, "invalid-tuple",
+						fmt.Sprintf("value returns %s; only (T, error) is consumed as one value", fact.tuple))
+					continue
+				}
+				if !isAttrsBagValue(unwrapped, runtime) {
+					report(value.node, "component-attrs-spread-type",
+						fmt.Sprintf("attrs contributor has type %s; a gsx.Attrs bag ([]gsx.Attr family) is required", unwrapped))
+				}
 				continue
 			}
 			if fact.tv.Type != nil && !isAttrsBagValue(fact.tv.Type, runtime) {
