@@ -17,8 +17,15 @@ import (
 // ASI semantics. Correctness over minification for holey scripts in this slice.
 func MinifyFile(f *ast.File, ext func(string) (string, error)) error {
 	for _, d := range f.Decls {
-		if comp, ok := d.(*ast.Component); ok {
-			if err := minifyMarkup(comp.Body, ext); err != nil {
+		switch v := d.(type) {
+		case *ast.Component:
+			if err := minifyMarkup(v.Body, ext); err != nil {
+				return err
+			}
+		case *ast.GoWithElements:
+			// A top-level var initializer such as `var h = js`…`` carries its
+			// literal in the GoWithElements Parts split.
+			if err := minifyGoParts(v.Parts, ext); err != nil {
 				return err
 			}
 		}
@@ -68,6 +75,44 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 				if err := minifyMarkup(v.Cases[i].Body, ext); err != nil {
 					return err
 				}
+			}
+		case *ast.EmbeddedInterp:
+			// A body-position { js`…` } literal.
+			if v.Lang == ast.EmbeddedJS {
+				v.Segments = minifyJSSegments(v.Segments, ext)
+			}
+		case *ast.GoBlock:
+			// js` literals in a {{ }} block, carried in the analyze-populated split.
+			if err := minifyGoParts(v.Embedded, ext); err != nil {
+				return err
+			}
+		case *ast.Interp:
+			// js` literals embedded in a { expr } hole.
+			if err := minifyGoParts(v.Embedded, ext); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// minifyGoParts minifies the js` literals in a GoBlock's or Interp's Embedded
+// split (populated by analyze). GoText parts hold no body; element/fragment parts
+// recurse through minifyMarkup.
+func minifyGoParts(parts []ast.GoPart, ext func(string) (string, error)) error {
+	for _, p := range parts {
+		switch v := p.(type) {
+		case *ast.EmbeddedInterp:
+			if v.Lang == ast.EmbeddedJS {
+				v.Segments = minifyJSSegments(v.Segments, ext)
+			}
+		case *ast.Element:
+			if err := minifyMarkup([]ast.Markup{v}, ext); err != nil {
+				return err
+			}
+		case *ast.Fragment:
+			if err := minifyMarkup([]ast.Markup{v}, ext); err != nil {
+				return err
 			}
 		}
 	}
@@ -135,7 +180,7 @@ func minifyJSAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
 		switch v := a.(type) {
 		case *ast.EmbeddedAttr:
 			if v.Lang == ast.EmbeddedJS {
-				minifyJSEmbedded(v, ext)
+				v.Segments = minifyJSSegments(v.Segments, ext)
 			}
 		case *ast.MarkupAttr:
 			if err := minifyMarkup(v.Value, ext); err != nil {
@@ -153,27 +198,27 @@ func minifyJSAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
 	return nil
 }
 
-// minifyJSEmbedded minifies one js`…` attribute value in place. A HOLELESS body
-// is cascade-minified. A holey body (Task 2) uses a sentinel round-trip under the
-// full minifier and is left unchanged under the safe level.
-func minifyJSEmbedded(v *ast.EmbeddedAttr, ext func(string) (string, error)) {
-	for _, s := range v.Segments {
+// minifyJSSegments minifies one js`…` literal body (an attribute value or a
+// Go-expression EmbeddedInterp — both are just Segments), returning the minified
+// segments. A HOLELESS body is cascade-minified. A holey body uses a sentinel
+// round-trip under the full minifier and is left unchanged under the safe level.
+func minifyJSSegments(segments []ast.Markup, ext func(string) (string, error)) []ast.Markup {
+	for _, s := range segments {
 		if _, ok := s.(*ast.Interp); ok {
-			minifyJSEmbeddedHoley(v, ext)
-			return
+			return minifyJSSegmentsHoley(segments, ext)
 		}
 	}
 	var sb strings.Builder
-	for _, s := range v.Segments {
+	for _, s := range segments {
 		if t, ok := s.(*ast.Text); ok {
 			sb.WriteString(t.Value)
 		}
 	}
 	min := cascadeJS(sb.String(), ext)
 	if min == "" {
-		return
+		return segments
 	}
-	v.Segments = []ast.Markup{&ast.Text{Value: min}}
+	return []ast.Markup{&ast.Text{Value: min}}
 }
 
 // cascadeJS minifies a JS FRAGMENT. tdewolff (ext) parses its input as a program,
@@ -212,16 +257,16 @@ func cascadeJS(text string, ext func(string) (string, error)) string {
 // because attribute holes sit in expression value positions (object property
 // values, call args, spreads). Under the safe level (ext == nil) a holey value is
 // left unchanged, matching the holey <script> policy.
-func minifyJSEmbeddedHoley(v *ast.EmbeddedAttr, ext func(string) (string, error)) {
+func minifyJSSegmentsHoley(segments []ast.Markup, ext func(string) (string, error)) []ast.Markup {
 	if ext == nil {
-		return
+		return segments
 	}
 	// A collision-free identifier prefix absent from every Text segment. The
 	// sentinel is `<prefix><index>z` — prefix and digits are identifier chars and
 	// the `z` terminates the digit run so `<prefix>1z` and `<prefix>12z` never
 	// alias.
 	var scan strings.Builder
-	for _, s := range v.Segments {
+	for _, s := range segments {
 		if t, ok := s.(*ast.Text); ok {
 			scan.WriteString(t.Value)
 		}
@@ -233,7 +278,7 @@ func minifyJSEmbeddedHoley(v *ast.EmbeddedAttr, ext func(string) (string, error)
 
 	var sb strings.Builder
 	var interps []*ast.Interp
-	for _, s := range v.Segments {
+	for _, s := range segments {
 		switch t := s.(type) {
 		case *ast.Text:
 			sb.WriteString(t.Value)
@@ -246,9 +291,10 @@ func minifyJSEmbeddedHoley(v *ast.EmbeddedAttr, ext func(string) (string, error)
 	}
 	min := cascadeJS(sb.String(), ext)
 	if out, ok := splitJSSentinels(min, prefix, interps); ok {
-		v.Segments = out
+		return out
 	}
-	// On any sentinel mismatch, leave v.Segments unchanged (safe).
+	// On any sentinel mismatch, leave the segments unchanged (safe).
+	return segments
 }
 
 // splitJSSentinels reassembles a minified sentinel string into Text + Interp
