@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/jsfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // MinifyFile minifies the static JS of every <script> element in f, in place.
@@ -201,7 +203,8 @@ func minifyJSAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
 // minifyJSSegments minifies one js`…` literal body (an attribute value or a
 // Go-expression EmbeddedInterp — both are just Segments), returning the minified
 // segments. A HOLELESS body is cascade-minified. A holey body uses a sentinel
-// round-trip under the full minifier and is left unchanged under the safe level.
+// round-trip: cascade-minified under the full minifier, REINDENTED under the safe
+// level (see minifyJSSegmentsHoley).
 func minifyJSSegments(segments []ast.Markup, ext func(string) (string, error)) []ast.Markup {
 	for _, s := range segments {
 		if _, ok := s.(*ast.Interp); ok {
@@ -250,17 +253,24 @@ func cascadeJS(text string, ext func(string) (string, error)) string {
 	return minifyJS(text)
 }
 
-// minifyJSEmbeddedHoley minifies a holey js`…` attribute value under the FULL
-// minifier via a sentinel round-trip: each @{ } hole becomes a collision-free
-// FREE IDENTIFIER (which tdewolff never mangles), the whole is cascade-minified,
-// then the sentinels are split back into the original *ast.Interp holes. Safe
-// because attribute holes sit in expression value positions (object property
-// values, call args, spreads). Under the safe level (ext == nil) a holey value is
-// left unchanged, matching the holey <script> policy.
+// minifyJSSegmentsHoley transforms a holey js`…` value via a sentinel round-trip:
+// each @{ } hole becomes a collision-free FREE IDENTIFIER (which the JS lexer never
+// mangles), the whole is transformed as one syntactically-complete string, then the
+// sentinels are split back into the original *ast.Interp holes. The transform
+// depends on the level:
+//
+//   - FULL (ext != nil): cascade-minify the sentinel string. Safe because attribute
+//     holes sit in expression value positions (object property values, call args,
+//     spreads), so the hole-as-identifier keeps a valid parse.
+//   - SAFE (ext == nil): do NOT minify (minifying around holes is the deferred gap;
+//     see the package doc). Instead REINDENT, via the same jsfmt.Format the emit-side
+//     rebase (MinifyNone) uses — this is artifact removal, not minification. The
+//     source carries markup-level tabs from gsx formatting; because the surrounding
+//     HTML is whitespace-minified, leaving those tabs in would make the js appear
+//     absurdly deep and unreadable. Reindent re-bases the body to its own brace depth
+//     (keeping a readable structure) and touches leading whitespace only — never
+//     collapsing intra-line or hole-boundary whitespace — so it is safe on a hole.
 func minifyJSSegmentsHoley(segments []ast.Markup, ext func(string) (string, error)) []ast.Markup {
-	if ext == nil {
-		return segments
-	}
 	// A collision-free identifier prefix absent from every Text segment. The
 	// sentinel is `<prefix><index>z` — prefix and digits are identifier chars and
 	// the `z` terminates the digit run so `<prefix>1z` and `<prefix>12z` never
@@ -289,8 +299,18 @@ func minifyJSSegmentsHoley(segments []ast.Markup, ext func(string) (string, erro
 			interps = append(interps, t)
 		}
 	}
-	min := cascadeJS(sb.String(), ext)
-	if out, ok := splitJSSentinels(min, prefix, interps); ok {
+
+	var transformed string
+	if ext == nil {
+		out, err := jsfmt.Format([]byte(sb.String()), 0, pretty.DefaultTabWidth)
+		if err != nil {
+			return segments // lex error → leave unchanged (safe)
+		}
+		transformed = string(out)
+	} else {
+		transformed = cascadeJS(sb.String(), ext)
+	}
+	if out, ok := splitJSSentinels(transformed, prefix, interps); ok {
 		return out
 	}
 	// On any sentinel mismatch, leave the segments unchanged (safe).
