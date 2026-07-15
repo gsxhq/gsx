@@ -1213,6 +1213,24 @@ func isUnusedImportMsg(msg string) bool {
 	return strings.Contains(msg, "imported as ") && strings.Contains(msg, " and not used")
 }
 
+// sortedGsxFilePaths returns gsxFiles' keys in sorted order, so callers that
+// derive order-significant output (goFiles' file-processing order, and any
+// diagnostics emitted while walking files) from a range over gsxFiles get a
+// deterministic result instead of Go's randomized map iteration order. See
+// analyze's goFiles-building loop for why order matters: go/types.Checker
+// processes files in slice order, and which file it visits first decides
+// which of two same-position diagnostics (e.g. a package-scope redeclaration
+// across build-tag variants) is the "redeclared" one vs. the "other
+// declaration" one.
+func sortedGsxFilePaths(gsxFiles map[string]*gsxast.File) []string {
+	paths := make([]string, 0, len(gsxFiles))
+	for path := range gsxFiles {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
 // gsx package dir, threading the recursive importer mi, and returns the rich
 // analyzed result. It preserves Task 4's cycle behaviour: a cycle detected
@@ -1256,7 +1274,8 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// GoBlocks, but before a not-ready package is discarded, so an independent
 	// later `_gsx` violation is not hidden by an earlier reconstruction error.
 	reservedFiles := make(map[string]bool)
-	for path, f := range gsxFiles {
+	for _, path := range sortedGsxFilePaths(gsxFiles) {
+		f := gsxFiles[path]
 		if rds := checkReservedDecls(f); len(rds) > 0 {
 			reservedFiles[path] = true
 			for _, rd := range rds {
@@ -1358,7 +1377,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// skeleton is type-checked together as one package, that collides:
 	// `_gsxinfer1 redeclared in this block`, failing the whole package.
 	inferNames := newInferNameAllocator()
-	for path, f := range gsxFiles {
+	// Iterate gsxFiles in deterministic (sorted-path) order, not map order:
+	// this loop appends to goFiles, and goFiles' order is the order
+	// checkSkeletonPackage's go/types.Checker processes files in. When two
+	// build-tag variant files declare the same package-scope name (e.g. a raw-Go
+	// helper redeclared per-variant), go/types blames the SECOND file it sees
+	// with "redeclared in this block" and the FIRST with "other declaration of"
+	// — both at the same //line-mapped position. Random map order would flip
+	// which file is "first" from run to run, flipping which message attaches to
+	// that shared position and making diagnostics.golden flaky (see the
+	// buildtags/helper_variant corpus case).
+	for _, path := range sortedGsxFilePaths(gsxFiles) {
+		f := gsxFiles[path]
 		// Reserved `_gsx` identifiers are rejected BEFORE the file's skeleton is
 		// built, not after it is type-checked. A name that happens to collide with
 		// an alias the generator emits today (`var _gsxrt = 1`) would ALSO draw
