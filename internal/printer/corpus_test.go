@@ -276,7 +276,19 @@ func canonGo(n ast.Node) {
 		// literal-aware fmtGoBlockCode. The normalizer MUST apply the SAME pass, or
 		// it reads the printer's gofmt reflow as an AST change — the identical
 		// reason the GoWithElements case above mirrors fmtGoExprParts.
-		if s, ok := (&printer{width: 80, tabWidth: pretty.DefaultTabWidth}).fmtGoBlockCode(v.Code); ok {
+		if s, lits, ok := (&printer{width: 80, tabWidth: pretty.DefaultTabWidth}).fmtGoBlockCode(v.Code); ok {
+			// A multi-line js`/css` literal is carried in s as a marker; the printer
+			// re-indents its body, which the emit-side rebase strips back. Replace
+			// each marker with the body's whitespace-agnostic token signature so the
+			// comparison checks token-equivalence (the re-indenter's contract), not
+			// the byte-identity it deliberately breaks — mirroring canonEmbeddedBodies.
+			for marker, lit := range lits {
+				sig := jsfmt.TokenSignature
+				if lit.Lang == ast.EmbeddedCSS {
+					sig = cssfmt.TokenSignature
+				}
+				s = strings.Replace(s, marker, embeddedSignature(lit.Segments, sig), 1)
+			}
 			v.Code = s
 		} else {
 			v.Code = fmtStmts(v.Code)

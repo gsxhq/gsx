@@ -1,0 +1,37 @@
+A multi-line js` literal in a Go-expression position (a gsx.Attrs value in a
+{{ }} block) has its JS body re-indented one level under the statement it opens
+on — the same re-indentation a js` element attribute gets. Holes (incl. a
+binding-position @{gsx.RawJS(x)} = …) are preserved; emit re-bases the added
+indent so the rendered asset is unchanged.
+
+-- input.gsx --
+package p
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{Key: "@change", Value: js`
+const val = $event.target.value;
+@{gsx.RawJS(x)} = val;
+`},
+		}
+	}}
+	<input {a...}/>
+}
+-- fmt.golden --
+package p
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@change",
+				Value: js`
+					const val = $event.target.value;
+					@{gsx.RawJS(x)} = val;
+				`,
+			},
+		}
+	}}
+	<input { a... }/>
+}
