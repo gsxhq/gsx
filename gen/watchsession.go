@@ -419,6 +419,21 @@ func (s *watchSession) regenDir(dir string) cycleResult {
 	if err != nil {
 		return cycleResult{Dir: dir, Err: err, DurMs: time.Since(start).Milliseconds()}
 	}
+	// Refresh authoritative saved disk facts for dir before warm invalidation,
+	// then evict dir's stale cached analysis. The warm Module reads source from a
+	// frozen cold-load manifest, not live disk, so without this a .gsx edit is
+	// invisible to Generate. RefreshDiskSources is the disk counterpart to
+	// SetOverride (it re-enumerates dir's package/import/membership facts and
+	// updates the saved layer beneath any override); Invalidate then drops dir's
+	// reverse closure so it re-type-checks from the refreshed source. This is the
+	// same refresh-before-invalidation sequence regenPending applies to the
+	// changed dir, and it restores the "regenDir regenerates dir from current
+	// disk" contract every direct caller (initial generate, reopen, warm
+	// dependents) relies on.
+	if err := m.RefreshDiskSources(dir); err != nil {
+		return cycleResult{Dir: dir, Err: err, DurMs: time.Since(start).Milliseconds()}
+	}
+	m.Invalidate(dir)
 	// Dir-scoped orphan sweep: a .gsx sibling deletion in dir is independent
 	// of what this cycle regenerates for the .gsx files still present, so it
 	// runs unconditionally (mirrors writeDirOutcome in gen/cache.go).

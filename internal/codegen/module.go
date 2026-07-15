@@ -468,8 +468,15 @@ func (m *Module) ClearOverride(absPath string) ([]string, error) {
 			affected = m.affectedLocked([]string{filepath.Dir(absPath)}).sorted()
 		}
 		delete(m.overrides, absPath)
+		// Ending buffer authority is itself a snapshot-authority transition: the
+		// saved layer becomes authoritative again, so a cold load that began under
+		// the frozen-override view can no longer be published coherently. Advance
+		// the snapshot epoch on every clear that removed an override, mirroring
+		// SetOverride's first-authority bump, even when the effective bytes are
+		// unchanged. Invalidation (the dirty mark and the returned affected scope)
+		// stays gated on an effective byte change.
+		m.sourceSnapshotEpoch++
 		if changed {
-			m.sourceSnapshotEpoch++
 			if m.dirty == nil {
 				m.dirty = map[string]bool{}
 			}
