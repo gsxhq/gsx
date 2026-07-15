@@ -1,0 +1,34 @@
+A multi-line css` literal value in a {{ }} block re-indents its declarations one
+level under the statement, block layout (delimiters alone).
+
+-- input.gsx --
+package p
+
+component C(w string) {
+	{{
+		a := gsx.Attrs{
+			{Key: "style", Value: css`
+color: red;
+width: @{w}px;
+`},
+		}
+	}}
+	<div {a...}>x</div>
+}
+-- fmt.golden --
+package p
+
+component C(w string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "style",
+				Value: css`
+					color: red;
+					width: @{w}px;
+				`,
+			},
+		}
+	}}
+	<div { a... }>x</div>
+}

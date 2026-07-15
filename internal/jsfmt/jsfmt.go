@@ -21,8 +21,8 @@ import (
 // Format re-indents a self-contained JS source string. width is accepted for
 // interface symmetry with the rawfmt.Formatter wiring but is unused. Returns an
 // error only on a lexer error so the caller falls back to verbatim.
-func Format(src []byte, width int) ([]byte, error) {
-	out, ok := reindent.Reindent(src, jsAdapter{})
+func Format(src []byte, width, tabWidth int) ([]byte, error) {
+	out, ok := reindent.Reindent(src, jsAdapter{}, tabWidth)
 	if !ok {
 		return nil, stringError("jsfmt: lex error")
 	}
@@ -33,8 +33,8 @@ func Format(src []byte, width int) ([]byte, error) {
 // token (template literal, block comment) stays within ONE line, so the caller
 // can place each logical line at its depth without re-indenting the token's
 // interior. ok=false on a lex error → caller renders verbatim.
-func FormatLines(src []byte, width int) ([]string, bool) {
-	return reindent.ReindentLines(src, jsAdapter{})
+func FormatLines(src []byte, width, tabWidth int) ([]string, bool) {
+	return reindent.ReindentLines(src, jsAdapter{}, tabWidth)
 }
 
 type stringError string
@@ -139,17 +139,17 @@ func classify(tt js.TokenType, data []byte) reindent.Token {
 	case js.StringToken, js.TemplateToken, js.TemplateStartToken,
 		js.TemplateMiddleToken, js.TemplateEndToken, js.RegExpToken:
 		return reindent.Token{Class: reindent.Opaque, Text: string(data)}
-	case js.OpenBraceToken:
+	case js.OpenBraceToken, js.OpenBracketToken:
 		return reindent.Token{Class: reindent.Open, Text: string(data)}
-	case js.CloseBraceToken:
+	case js.CloseBraceToken, js.CloseBracketToken:
 		return reindent.Token{Class: reindent.Close, Text: string(data)}
-	// Only braces `{}` drive indentation — NOT parens/brackets. A line like
-	// `foo('x', (e) => {` has an unclosed `(` AND an opening `{`; counting both
-	// would indent the body two levels (the bug). Real-world JS indents block
-	// scope only, so brace-only reproduces hand/prettier-formatted code (the
-	// callback pattern `call(args, () => {…})` is ubiquitous in Alpine/htmx).
-	// Bare multi-line paren/bracket continuations stay flat — acceptable and
-	// vanishingly rare in practice (0 occurrences across the sampled real code).
+	// Braces `{}` and brackets `[]` drive indentation — but NOT parens `()`. A
+	// line like `foo('x', (e) => {` has an unclosed `(` AND an opening `{`;
+	// counting the `(` too would indent the body two levels (the bug). Block scope
+	// and array/object literals nest; the ubiquitous callback pattern
+	// `call(args, () => {…})` indents its body ONE level because only the `{`
+	// counts. A bare multi-line paren continuation `foo(\n arg\n)` stays flat —
+	// acceptable and vanishingly rare in practice.
 	default:
 		return reindent.Token{Class: reindent.Other, Text: string(data)}
 	}

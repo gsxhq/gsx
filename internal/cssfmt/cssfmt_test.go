@@ -7,7 +7,7 @@ import (
 
 func fmtCSS(t *testing.T, in string) string {
 	t.Helper()
-	out, err := Format([]byte(in), 80)
+	out, err := Format([]byte(in), 80, 2)
 	if err != nil {
 		t.Fatalf("Format(%q) error: %v", in, err)
 	}
@@ -55,11 +55,15 @@ func TestNestedAtRulePreserved(t *testing.T) {
 	}
 }
 
-func TestMultiLineCommentInteriorUntouched(t *testing.T) {
-	in := ".a {\n\t/* keep\n   me */\n\tcolor: red;\n}"
+func TestMultiLineCommentReindentsWithCode(t *testing.T) {
+	// A multi-line comment inside a `{ }` rule re-bases with the code (its
+	// continuation carries a relative offset that survives); the surrounding
+	// declarations must NOT be double-indented.
+	in := ".a {\n\t/* keep\n\t * me */\n\tcolor: red;\n}"
 	got := fmtCSS(t, in)
-	if !strings.Contains(got, "/* keep\n   me */") {
-		t.Fatalf("multi-line comment interior was re-indented:\n%s", got)
+	want := ".a {\n\t/* keep\n\t * me */\n\tcolor: red;\n}"
+	if got != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
 	}
 }
 
@@ -73,7 +77,7 @@ func TestSentinelPreserved(t *testing.T) {
 
 func TestUnterminatedStringErrors(t *testing.T) {
 	// A tokenizer error (unterminated string) → error → caller falls back verbatim.
-	if _, err := Format([]byte(".a{content:\"oops}"), 80); err == nil {
+	if _, err := Format([]byte(".a{content:\"oops}"), 80, 2); err == nil {
 		t.Fatal("expected error on unterminated string")
 	}
 }
@@ -129,7 +133,7 @@ func TestBlockCommentReBasesAndAligns(t *testing.T) {
 	// stripped) and its interior aligns under the opener — comment whitespace is
 	// insignificant, unlike a string literal's.
 	src := "\t.a {\n\t\t/* multi\n\t\t   line\n\t\t   comment */\n\t\tcolor: red;\n\t}"
-	out, err := Format([]byte(src), 80)
+	out, err := Format([]byte(src), 80, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

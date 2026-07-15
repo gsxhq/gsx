@@ -7,6 +7,7 @@ import (
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
 	"github.com/gsxhq/gsx/internal/jsfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // rebaseEmbedded strips the block's common (markup-depth) leading indentation
@@ -55,6 +56,31 @@ func rebaseMarkup(nodes []ast.Markup, doJS, doCSS bool) {
 			for i := range v.Cases {
 				rebaseMarkup(v.Cases[i].Body, doJS, doCSS)
 			}
+		case *ast.GoBlock:
+			// A js`/css` literal in a {{ }} block (or a { expr } hole below) is a
+			// Go-expression value carried in the analyze-populated Embedded split;
+			// its body ships indented to the source markup depth unless rebased here.
+			rebaseGoParts(v.Embedded, doJS, doCSS)
+		case *ast.Interp:
+			rebaseGoParts(v.Embedded, doJS, doCSS)
+		}
+	}
+}
+
+// rebaseGoParts re-bases the JS/CSS bodies of every embedded literal in a
+// GoBlock's or Interp's Embedded split (populated by analyze). GoText parts hold
+// no body; element/fragment parts recurse through rebaseMarkup.
+func rebaseGoParts(parts []ast.GoPart, doJS, doCSS bool) {
+	for _, p := range parts {
+		switch v := p.(type) {
+		case *ast.EmbeddedInterp:
+			if (v.Lang == ast.EmbeddedJS && doJS) || (v.Lang == ast.EmbeddedCSS && doCSS) {
+				v.Segments = rebaseBody(v.Segments, v.Lang)
+			}
+		case *ast.Element:
+			rebaseMarkup([]ast.Markup{v}, doJS, doCSS)
+		case *ast.Fragment:
+			rebaseMarkup([]ast.Markup{v}, doJS, doCSS)
 		}
 	}
 }
@@ -144,9 +170,9 @@ func dedent(text string, lang ast.EmbeddedLang) (string, bool) {
 	var out []byte
 	var err error
 	if lang == ast.EmbeddedJS {
-		out, err = jsfmt.Format([]byte(text), 0)
+		out, err = jsfmt.Format([]byte(text), 0, pretty.DefaultTabWidth)
 	} else {
-		out, err = cssfmt.Format([]byte(text), 0)
+		out, err = cssfmt.Format([]byte(text), 0, pretty.DefaultTabWidth)
 	}
 	if err != nil {
 		return "", false

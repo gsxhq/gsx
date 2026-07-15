@@ -235,3 +235,20 @@ func TestMinifyCSSAttrHoleyPreservesHole(t *testing.T) {
 		t.Fatalf("css hole lost: %#v", embSegs(f))
 	}
 }
+
+// A css` literal in a {{ }} block (carried in GoBlock.Embedded) is minified by
+// the same walk as a css` attribute value.
+func TestMinifyFileGoBlockLiteral(t *testing.T) {
+	lit := &ast.EmbeddedInterp{Lang: ast.EmbeddedCSS, Segments: []ast.Markup{
+		&ast.Text{Value: "\tcolor:   red;\n\tmargin:  0;\n"},
+	}}
+	gb := &ast.GoBlock{Embedded: []ast.GoPart{ast.GoText{Src: "a := "}, lit, ast.GoText{Src: ""}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{gb}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := lit.Segments[0].(*ast.Text).Value
+	if strings.Contains(got, "  ") || strings.Contains(got, "\n\t") {
+		t.Fatalf("go-block css literal not minified: %q", got)
+	}
+}

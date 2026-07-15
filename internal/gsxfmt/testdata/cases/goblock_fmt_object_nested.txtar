@@ -1,0 +1,43 @@
+A nested object goes one level deeper per brace: inner members sit under their own {.
+
+-- input.gsx --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{{Key: "@x", Value: js`{
+open: false,
+opts: {
+a: 1,
+b: 2,
+},
+id: @{x},
+}`}}
+	}}
+	<div {a...}>y</div>
+}
+-- fmt.golden --
+package p
+
+import "github.com/gsxhq/gsx"
+
+component C(x string) {
+	{{
+		a := gsx.Attrs{
+			{
+				Key:   "@x",
+				Value: js`{
+					open: false,
+					opts: {
+						a: 1,
+						b: 2,
+					},
+					id: @{x},
+				}`,
+			},
+		}
+	}}
+	<div { a... }>y</div>
+}
