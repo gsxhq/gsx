@@ -123,17 +123,8 @@ func isStageName(s string) bool {
 		return false
 	}
 	for part := range strings.SplitSeq(s, ".") {
-		if part == "" {
+		if !token.IsIdentifier(part) {
 			return false
-		}
-		for i := 0; i < len(part); i++ {
-			b := part[i]
-			if i == 0 && b >= '0' && b <= '9' {
-				return false
-			}
-			if !isIdentByte(b) {
-				return false
-			}
 		}
 	}
 	return true

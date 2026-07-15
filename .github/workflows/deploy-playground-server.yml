@@ -60,6 +60,7 @@ jobs:
           IMAGE: ${{ vars.CLOUD_RUN_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
         run: |
           docker build \
+            --platform linux/amd64 \
             -f playground/server/Dockerfile \
             -t "$IMAGE" \
             .

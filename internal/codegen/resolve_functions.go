@@ -27,12 +27,20 @@ func (m *Module) resolveFunctions() ([]FilterInfo, []RendererInfo, error) {
 	// Reuse the Module's external-types validation path so info reports the same
 	// missing/broken filter diagnostics as generation. This performs no load: the
 	// external importer above already populated extPkgs and extErrs.
-	if _, err := m.filterTableFromExt(filterPkgs); err != nil {
+	if _, err := m.filterTableFromSource(filterPkgs); err != nil {
 		return nil, nil, err
 	}
-	m.mu.Lock()
-	extPkgs := m.extPkgs
-	m.mu.Unlock()
+	requests := make([]configuredPackageRequest, 0, len(filterPkgs)+len(m.opts.Aliases))
+	for _, path := range filterPkgs {
+		requests = append(requests, configuredPackageRequest{path: path, where: "filter package " + path})
+	}
+	for _, alias := range m.opts.Aliases {
+		requests = append(requests, configuredPackageRequest{path: alias.PkgPath, where: "filter alias " + alias.Name})
+	}
+	functionPkgs, _, err := m.configuredSourcePackages(requests)
+	if err != nil {
+		return nil, nil, err
+	}
 	aliasPaths := append([]string{}, filterPkgs...)
 	for _, a := range m.opts.Aliases {
 		aliasPaths = append(aliasPaths, a.PkgPath)
@@ -40,7 +48,7 @@ func (m *Module) resolveFunctions() ([]FilterInfo, []RendererInfo, error) {
 	for _, r := range finalRendererAliases(m.opts.Renderers) {
 		aliasPaths = append(aliasPaths, r.PkgPath)
 	}
-	harvested, err := harvestFromTypes(extPkgs, filterPkgs, m.opts.Aliases, filterAliases(aliasPaths))
+	harvested, err := harvestFromTypes(functionPkgs, filterPkgs, m.opts.Aliases, filterAliases(aliasPaths))
 	if err != nil {
 		return nil, nil, err
 	}

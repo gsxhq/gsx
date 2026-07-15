@@ -14,6 +14,10 @@
 - The emitted component parameter list is exactly the authored list. Emit no Props type, wrapper, adapter, ABI sentinel, or helper declaration.
 - Local temporaries are allowed only to preserve Go evaluation semantics or lower an inline zero; every authored expression evaluates exactly once.
 - This is one atomic source/generated/manual-caller migration. Do not ship a dual-mode compatibility path.
+- The core branch is non-mergeable and non-releasable until Task 11's mandatory
+  structpages and one-learning consumer branches pass against the exact core
+  commit; use the cross-repository release transaction there, never a
+  compatibility interval.
 - Delete obsolete APIs and subsystems outright. Do not add deprecation aliases, compatibility adapters, temporary production helpers, or behavior flags.
 - Keep implementation types, fields, and methods unexported unless a concrete serialization or cross-package API requires export.
 - Do not implement component struct splat. `{bag...}` remains only an attrs-bag contributor.
@@ -24,6 +28,11 @@
 - Discovery first harvests the origin generic object/signature; authored-operands-only inference then uses a transient carrier; only after inference may omitted arguments be zero-filled.
 - New analysis phases reuse the existing importer. They must not call `packages.Load`, write dependency `.x.go` files early, or depend on generation order.
 - In normal mode, retain `NeedCompiledGoFiles|NeedSyntax` from the existing single cold load and source-check project-local Go-only packages through the module importer. In Bundle mode, reject a project-local `gsx -> Go-only -> gsx` chain because the bundle has no authoritative source inventory.
+- Saved `.gsx` events refresh authoritative disk facts before warm invalidation.
+  Normal analysis and persistent cache metadata share one source-manifest
+  implementation covering GSX-only packages, authored GSX imports, local
+  replacements, and paired-output exclusions; do not maintain a second
+  approximate `go list` graph.
 - Normal mode uses cmd/go's last-flag-wins `GOFLAGS` semantics, rejects an effective non-empty `-overlay`, and rejects any explicit or frozen-PATH-discovered `GOPACKAGESDRIVER` before the cold load. After proving no driver was effective, pin `GOPACKAGESDRIVER=off` only to prevent x/tools from re-evaluating a later live PATH. Never hide configured state or support only the deletion-free overlay subset; interoperability requires a separate shared virtual-filesystem loader.
 - Logical build variants apply only to duplicate component declarations whose generated files are all effectively constrained. Unconstrained or mixed duplicate components are errors; raw Go declarations receive no cross-file suppression and platform-specific implementations live in constrained `.go` files behind one stable API.
 - Variant equality is semantic: exact ordered value-parameter names/roles plus `types.Identical` signatures and receiver types. Source spelling and import aliases are not acceptance criteria; type-parameter names are alpha-equivalent.
@@ -433,7 +442,7 @@ Classify provenance exactly: a package func is a `*types.Func` whose parent is `
 
 The only target-check error omitted from `targetDiags` is structurally proven incomplete generic instantiation: the supplier resolves to the raw generic function/method, the authored prefix is shorter than its target type-parameter arity, and the sole site-local error lands at the exact raw target expression start. This rule uses no diagnostic message text. Bare and partial generic method values report at the whole target start rather than the selector identifier; type-argument arity, constraint, and lookup failures land elsewhere and remain deferred diagnostics. A full instance is still installed only when the site has zero target-check errors.
 
-Discovery uses a phase-specific exact-declaration importer/cache. The current `pkgTypes` graph exposes the shipping pre-cutover Props ABI and is therefore invalid for this phase. Recursively source-check every module-local package in the exact graph: project GSX packages contribute `skeletonTargetDeclarations`, while Go-only intermediaries contribute the retained active compiled-file ASTs described below. Ignore paired disk `.x.go`, reuse the existing external importer only beyond that module-local source graph, keep an independent cycle guard/cache cleared by the normal invalidation and FileSet rebuild paths, and never call another `packages.Load`. Record edges through both GSX and Go-only packages so a `gsx → Go-only → gsx` chain invalidates transitively. Same-package and cross-package target discovery must therefore observe the same current authored signature without changing the shipping ABI before Task 8.
+Discovery uses a phase-specific exact-declaration importer/cache. The current `pkgTypes` graph exposes the shipping pre-cutover Props ABI and is therefore invalid for this phase. Recursively source-check every module-local package in the exact graph: project GSX packages contribute `skeletonTargetDeclarations`, while Go-only intermediaries contribute the retained active compiled-file ASTs described below. Ignore paired disk `.x.go`, reuse the existing external importer only beyond that module-local source graph, keep an independent cycle guard/cache cleared by the normal invalidation and FileSet rebuild paths, and never call another `packages.Load`. Record edges through both GSX and Go-only packages so a `gsx → Go-only → gsx` chain invalidates transitively. Same-package and cross-package target discovery must therefore observe the same current authored signature without changing the shipping ABI before Task 8. Reject any external dependency whose transitive imports re-enter the main module, with a positioned semantic-boundary diagnostic on the authored import. Do not source-recheck such an external package, ignore its bodies, or retain phase-specific reconstructed external packages; that unsupported topology requires a separate whole-graph design.
 
 Extend the existing cold load with `NeedCompiledGoFiles|NeedSyntax`. Before that
 same load, scan authoritative `.gsx` paths (including pre-load overrides) and
@@ -446,6 +455,25 @@ Freeze the Module's build environment at Open. A new override that first claims
 an already-compiled paired output marks the source inventory dirty and forces an
 atomic FileSet/importer/cache rebuild before the next analysis. Bundle mode has
 no source inventory and fails closed when companion source would need selection.
+
+Retain `NeedTypesSizes` and authoritative module language provenance in the
+cold inventory, and pass both to shipping, exact-target/preflight, and renderer
+manual checkers. Normalize an existing module with no `go` directive to cmd/go's
+`go1.16` default; do not accept missing module provenance. The typebundle format
+is a versioned target envelope carrying compiler, GOOS, GOARCH, cgo,
+ToolchainVersion, LanguageVersion, and observed build/tool/release tags. Its
+producer seals one Go-launcher identity plus immutable Env/Dir/BuildFlags for the
+context query and `packages.Load`: direct queries execute the sealed absolute
+launcher, while x/tools resolves `go` through the frozen PATH and is guarded by
+exact launcher validation immediately before and after the load. It disables
+ambient GO configuration and external drivers and requires non-nil loaded
+`TypesSizes` without trying to infer target identity from layout comparisons.
+The format accepts only `gc`, rejects a producer ToolchainVersion newer than the
+pinned Go 1.26.1 reader, and treats `gcexportdata` bytes as an opaque upstream
+payload. The outer envelope validates exact payload length, SHA-256, and
+canonical metadata; do not port, parse, canonicalize, or otherwise couple gsx
+to x/tools' private indexed-export framing. Treat the archive as a trusted
+embedded build artifact: SHA-256 pins integrity, not hostile-input authenticity.
 
 Before constructing `packages.Config`, resolve the Go command's effective
 `GOFLAGS` (including `go env -w` and last-flag-wins repetition) and reject an
@@ -494,34 +522,73 @@ type componentInputValue struct {
 	kind componentInputKind
 	sourceIndex, paramIndex, contributorIndex int
 	node gsxast.Node
+	attrsNode *componentAttrsStreamNode
+	children []gsxast.Markup // source-comment-free static body children
+}
+type componentAttrsStreamKind uint8 // pair, spread, explicit contributor, conditional
+type componentAttrsStreamNode struct {
+	kind componentAttrsStreamKind
+	sourceIndex int // local to the immediately containing attribute list
+	attr gsxast.Attr
+	then, otherwise []componentAttrsStreamNode
+	hasSyntaxError bool // invalid descendants omitted from the value tree
 }
 type componentArgSlot struct { param componentParam; valueIndexes []int; omitted bool }
 type componentCallPlan struct {
 	site callSiteID
+	call *gsxast.Element
+	callStart, callEnd token.Position
 	target componentSignatureModel
 	args []componentArgSlot       // signature order
 	values []componentInputValue  // authored order
 }
-func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSignatureModel) (componentCallPlan, []diag.Diagnostic)
+func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSignatureModel, fset *token.FileSet) (componentCallPlan, []diag.Diagnostic)
 ```
 
-- The plan distinguishes ordinary prop bindings, one body binding, attrs bag pairs/segments/explicit contributors, omitted fixed params, and omitted Go-only variadics.
+- The plan distinguishes ordinary prop bindings, one body binding, attrs bag
+  pairs/segments/explicit contributors, omitted fixed params, and omitted
+  Go-only variadics. It retains both the authored call node and its already-
+  resolved range so Task 5 can diagnose an omitted required prop without a
+  second registry or `FileSet`.
 
-- [ ] **Step 1: Write planner tests**
+- [x] **Step 1: Write planner tests**
 
-Cover exact-case matching, duplicate ordinary props, `_foo`, legacy capitalized `Attrs`/`Children` migration diagnostics only when no exact capitalized parameter exists, positive exact ordinary `Attrs` and `Children` parameters coexisting with lowercase reserved roles, non-identifier fallthrough, strict missing attrs, body without children, explicit `children=` rejection, `attrs={expr}`, repeated `attrs={{...}}`, `{bag...}`, conditional bags, ordinary `someAttrs={{...}}`, ordinary `someAttrs={computedBag}`, node-valued markup props, class/style exact targets, and omitted named/unnamed ordinary variadics.
+Cover exact-case matching, duplicate ordinary props, `_foo`, exact ordinary
+`Attrs` and `Children` parameters coexisting with lowercase reserved roles,
+undeclared capitalized names following ordinary unmatched/fallthrough and
+missing-`attrs` behavior, non-identifier fallthrough, strict missing attrs, body
+without children, comment-only and interspersed-comment bodies, explicit
+`children=` rejection, `attrs={expr}`, repeated `attrs={{...}}`, `{bag...}`,
+conditional bags including nested/leafless/comment-only and invalid-only
+branches, ordinary `someAttrs={{...}}`, ordinary
+`someAttrs={computedBag}`, node-valued markup props, class/style exact targets,
+resolved call provenance, and omitted named/unnamed ordinary variadics.
 
 At this syntax-only phase every `{expr...}` is routed as an attrs-stream contributor. A struct expression and a `gsx.Attrs` expression share the same `SpreadAttr` syntax; Task 5 rejects non-bag semantic types after `go/types` facts exist. Do not classify a struct splat from expression text.
 
-- [ ] **Step 2: Run the failing test**
+- [x] **Step 2: Run the failing test**
 
 Run: `go test ./internal/codegen -run TestPlanComponentInputs -count=1`
 
 Expected: FAIL to compile with `undefined: planComponentInputs`.
 
-- [ ] **Step 3: Implement routing before value lowering**
+- [x] **Step 3: Implement routing before value lowering**
 
-Match an identifier-shaped name only against an ordinary parameter's exact `Name`. Treat `attrs` as a repeatable contributor stream, not a prop slot. Keep every attrs contributor's authored index; never create `attrsLitIdx` or a forced-last marker. Conditional branch names never fill props. Route spreads without inspecting their expression text or type. Emit positioned planner errors with stable codes (`duplicate-prop`, `component-missing-attrs`, `component-missing-children`, `reserved-input-form`, `ordinary-variadic-prop`).
+Match an identifier-shaped name only against an ordinary parameter's exact
+`Name`. Treat `attrs` as a repeatable contributor stream, not a prop slot. Keep
+every attrs contributor's authored index; never create `attrsLitIdx` or a
+forced-last marker. Normalize a conditional into one top-level contributor with
+a recursive, branch-local ordered tree; branch names never fill props. Validate
+lowercase reserved forms at every leaf. Normalize syntax independently from the
+presence of an `attrs` destination: each valid leaf gets its own positioned
+missing-attrs diagnostic, a genuinely leafless conditional gets one at its own
+range, nested parents do not duplicate it, and invalid-only branches retain only
+their precise syntax diagnostics. Route spreads without inspecting expression
+text or type. Filter source comments once into the body value's retained child
+slice. Use the supplied package `token.FileSet` to resolve both call provenance
+and stable planner errors (`duplicate-prop`, `component-missing-attrs`,
+`component-missing-children`, `reserved-input-form`,
+`ordinary-variadic-prop`).
 
 - [ ] **Step 4: Verify and commit**
 
@@ -635,10 +702,16 @@ git commit -m "feat(codegen): plan inferred positional component calls"
 ### Task 6: Authoritative Project-Local Import Graph, Cache, Stale Output, and Performance
 
 **Files:**
-- Modify: `internal/codegen/module_importer.go`, `module.go`, `resolver.go`, `module_stale_xgo_test.go`, `depfacts_test.go`, `invalidation_test.go`, `snapshot_cache_test.go`, `module_perf_test.go`, `bundle_module_test.go`
-- Modify: `gen/orphan_e2e_test.go`, `gen/poison_e2e_test.go`
+- Create: `internal/sourceview/**` (one authoritative owned-source manifest used
+  by codegen and cache metadata)
+- Modify: `internal/codegen/source_inventory.go`, `module_importer.go`, `module.go`,
+  `resolver.go`, `module_stale_xgo_test.go`, `depfacts_test.go`,
+  `invalidation_test.go`, `snapshot_cache_test.go`, `module_perf_test.go`,
+  `bundle_module_test.go`
+- Modify: `gen/cachekey.go`, `cachekey_test.go`, `watch.go`, `watchsession.go`,
+  their tests, `orphan_e2e_test.go`, `poison_e2e_test.go`
 
-**Interfaces:** This is ABI-neutral infrastructure and lands green before cutover. It always rechecks project-local Go-only packages against the **current in-memory GSX declaration skeleton**, whether that skeleton is the pre-cutover Props ABI or Task 8's verbatim ABI. Declaration facts drive invalidation. The one normal-mode cold load retains exact project source metadata:
+**Interfaces:** This is ABI-neutral infrastructure and lands green before cutover. One authoritative project-package resolver always rechecks project-local Go-only packages against the **current in-memory GSX declaration skeleton**, whether that skeleton is the pre-cutover Props ABI or Task 8's verbatim ABI. Every local type consumer routes through it: ordinary shipping imports, exact-target/preflight, renderer declarations, filter packages/aliases, and class-merger validation. External packages alone come from the cold importer's prebuilt types. Declaration facts drive invalidation. The one normal-mode cold load retains exact project source metadata:
 
 ```go
 type projectPackageSource struct {
@@ -655,25 +728,112 @@ projectSources map[string]projectPackageSource
 projectTypes   map[string]*types.Package
 ```
 
+`internal/sourceview.Manifest` is the single source of package membership,
+authored GSX import edges/load roots, paired-output exclusions, and local module
+replacement provenance. The codegen cold load enriches that manifest with the
+active compiled-Go syntax above; persistent cache metadata consumes an immutable
+cache projection of the same manifest. Neither consumer independently walks GSX
+imports or runs a plain un-overlaid `go list` approximation.
+
 - [ ] **Step 1: Add failing `gsx -> Go-only -> gsx` and signature-invalidation tests**
 
 Create a temp graph where `page.gsx` imports project `bridge` Go source, `bridge` imports `ui`, and `ui/card.gsx` has a poisoned stale `card.x.go`. Give `bridge` mutually exclusive build-tag variants and put the stale-ABI reference only in the inactive variant. Before Task 8, assert bridge checking uses the current in-memory Props declaration rather than poisoned disk; the Task 7 ledger marks this fixture for conversion to the verbatim signature during cutover. Rename only a `ui.Card` parameter and assert importer/page facts invalidate through `bridge`, with `externalLoads()==1`.
 
+Add watch/module tests proving saved disk changes are refreshed before warm
+invalidation: create the first GSX source in a new package, add an import that was
+absent from the cold importer, and change a file's package clause/membership.
+Each next cycle must observe one coherent new manifest and never reuse the prior
+FileSet/importer package selection. `Invalidate` without the refresh operation is
+not a valid implementation of these cases.
+
+Add persistent-cache parity tests for a GSX-only dependency/import edge, a
+versionless local replacement whose `go.mod` changes, and a poisoned/changed
+paired `.x.go`. The GSX-only and replacement changes must update dependency
+identity; the still-paired output must remain excluded from both dependency
+edges and cache source identity while orphan ownership transitions remain
+visible to cleanup.
+
 - [ ] **Step 2: Retain the cold load's authoritative compiled-file inventory**
 
-Add `packages.NeedCompiledGoFiles | packages.NeedSyntax` to the existing `packages.Config.Mode`. With the shared `m.fset`, retain aligned `CompiledGoFiles`/`Syntax` only for module-local Go-only packages. Do not glob, call `build.ImportDir`, or parse source again: that would diverge on build tags, cgo-generated files, tests, and the load's environment.
+Build `internal/sourceview.Manifest` once from owned disk sources plus overrides,
+excluding nested modules/vendor, and use its exact overlays, sentinels, and roots
+for the existing cold query. Its saved membership and bytes are the immutable
+initial snapshot consumed by normal package parsing/analysis and persistent
+cache identity; do not glob or reread live GSX files after publication. The
+explicit refresh transition replaces that snapshot atomically while retaining
+current overrides. Add `packages.NeedCompiledGoFiles |
+packages.NeedSyntax` to the existing `packages.Config.Mode`. With the shared
+`m.fset`, retain aligned `CompiledGoFiles`/`Syntax` only for module-local Go-only
+packages. Do not glob, call `build.ImportDir`, or parse source again: that would
+diverge on build tags, cgo-generated files, tests, and the load's environment.
 
 `projectSources.syntax` and every `projectTypes` object carry positions tied to `m.fset`. Extend `rebuildFset`'s atomic reset to clear **both** maps alongside the existing position-bearing caches. The next single external load repopulates `projectSources` with ASTs parsed into the new FileSet; never reuse retained ASTs from the discarded FileSet.
 
 Extend the existing FileSet-rebuild regression to use the Go-only bridge: assert both maps are empty immediately after rebuild, the next generation performs exactly one new external load, repopulates/rechecks the bridge, and every retained AST/object/diagnostic position resolves through the new `m.fset` rather than the discarded one.
 
-- [ ] **Step 3: Re-type-check retained syntax through `moduleImporter`**
+Add the minimum cross-package refresh operation on `Module` for watch to publish
+saved disk facts before calling `Invalidate`. It re-enumerates the complete
+affected package directories (thereby observing new, changed, renamed, and absent
+`.gsx` paths), compares package/import/membership facts with the published
+manifest epoch, and chooses body-only invalidation or an atomic
+FileSet/importer/manifest rebuild. Watch must route create, write, rename, and
+remove events through this same refresh; it may not infer dependency-surface
+changes from filename or event kind alone.
 
-When a project-local Go-only import is reached, type-check its retained ASTs with the same recursive `moduleImporter`; route GSX children to the current declaration skeletons, cache the result in `projectTypes`, and record forward/reverse edges for both Go-only and GSX directories. A GSX declaration edit invalidates the reverse closure and rechecks retained syntax without another load. Do not add another `packages.Load` or a source parser.
+Pin the shared `watch`/`dev` structural rules with real fsnotify tests: do not
+exit when a requested module has zero current GSX files; watch the requested
+roots plus their owning module trees so newly-created sibling packages are seen;
+register directory creates and scan contents before applying filename filters;
+and ignore an `.x.go` event as generated output only when its exact same-base
+`.gsx` source currently exists. An unpaired authored `.x.go` must invalidate.
+
+Separate observation from output. Derive additional watched workspace/local-
+replacement roots and their `go.mod`/`go.work` provenance from the shared frozen
+source manifest. Generate only the requested roots plus their exact current GSX
+dependency closure; an unrelated observed sibling must not gain an output merely
+because the owning module tree is watched. Pin dynamic closure/root updates after
+an authored import or module-provenance change.
+
+Close the startup event gap with an integration test that edits a source after
+watch registration but before initial generation completes: resolve roots, arm
+watches, snapshot, generate, then drain queued events, and assert the edit gets a
+second generation. On a generation error, retain the complete dirty set and
+retry it on the next relevant event; `dev` must not discard the pending state or
+publish it as clean. Treat both top-level regeneration errors and per-directory
+operational `cycleResult.Err` values as uncommitted; a completed authored-
+diagnostic/poison cycle has no operational error and commits normally.
+
+Add real LSP lifecycle tests around the same source-view graph. Unsaved `.go`
+buffers must participate in the cold `packages.Config.Overlay` used for both
+selection and syntax. Refactor one exact affected-directory primitive from the
+existing reverse closure plus renderer/configured-source whole-cache rule; use
+it both for invalidation and the result of Set/Clear transitions. The server
+evicts and supersedes the returned open-directory intersection, including
+cross-directory reverse dependents. Model disk source as
+present/absent/unreadable so Clear always removes buffer authority and an
+unreadable saved path fails closed. A failed root transfer retires the previous
+owner and stale package facts before returning the old affected set. Version
+every debounce event at document mutation; advance the epoch on
+set/cancel/close/transfer, reject queued stale or no-open-document events, and
+supersede in-flight analysis at `didChange` receipt rather than timer fire.
+
+- [ ] **Step 3: Re-type-check retained syntax through the shared project resolver**
+
+When a project-local Go-only import is reached, type-check its retained ASTs with the same recursive project resolver; route GSX children to the current declaration skeletons, cache the result in `projectTypes`, and record forward/reverse edges for both Go-only and GSX directories. Shipping, target, renderer, filter/alias harvest, and merger validation select the appropriate GSX declaration mode while sharing retained Go-only syntax and graph ownership. A GSX declaration edit invalidates the reverse closure and rechecks retained syntax without another load. Do not add another `packages.Load` or a source parser. Pin local filter and merger packages whose Go-only source reaches a poisoned-stale GSX package; neither may harvest the cold load's partial/stale `Types`.
 
 - [ ] **Step 4: Add and implement Bundle fail-closed behavior before cutover**
 
-Build a Bundle test for the same `page -> bridge -> ui.gsx` graph with a stale bundled `ui` type. Assert generation returns `bundle-project-gsx-transitive` and directs the caller to the normal resolver. In Bundle mode, inspect project-local import edges from prebuilt `types.Package.Imports`; if a Go-only package reaches a local GSX source directory, reject before its stale type can enter a target fact. Do not add source metadata or a compatibility ABI to Bundle without a real consumer.
+Build a Bundle test for the same `page -> bridge -> ui.gsx` graph with a stale bundled `ui` type. Assert generation returns `bundle-project-gsx-transitive` and directs the caller to the normal resolver. In Bundle mode, inspect project-local import edges from prebuilt `types.Package.Imports`; if a Go-only package reaches a local GSX source directory, reject before its stale type can enter a target fact. Respect actual nested `go.mod` ownership rather than lexical main-module prefixes. Walk an external package's complete prebuilt graph whether it is the authored import or is reached through a project Go-only bridge, and reject any external-to-main-module re-entry with the same semantic-boundary diagnostic as normal mode, positioned on the authored import available to Bundle. `SourceOnly` remains exactly one authored in-memory package plus prebuilt externals and performs no ownership/filesystem inspection. Do not add source metadata or a compatibility ABI to Bundle without a real consumer.
+
+Root-bind the public module-backed `gen.NewCachedResolver`: capture the physical
+module-root identity and declared module path at construction, and before every
+disk `Generate` resolve the target directory's nearest `go.mod`. Reject a
+different root with the same module path, a nested module, a replaced root, or a
+changed module directive. Make module-root discovery fail closed on an
+unreadable or malformed nearest `go.mod` and on a missing module directive rather
+than walking through either boundary. Require the requested directory's resolved
+physical path to remain inside the bound root so an in-root symlink cannot admit
+outside GSX source.
 
 - [ ] **Step 5: Preserve and strengthen stale/orphan behavior**
 
@@ -689,9 +849,11 @@ Record results beside the Task 1 baseline in `.superpowers/sdd/progress.md` and 
 
 - [ ] **Step 7: Verify and commit the ABI-neutral importer foundation**
 
-Run: `go test ./internal/codegen ./gen -run 'Test.*(Stale|Orphan|Poison|Invalidat|GoOnly|WarmRegen|Bundle|BuildTag)' -count=1`
+Run: `go test ./internal/codegen ./gen -run 'Test.*(Stale|Orphan|Poison|Invalidat|Refresh|Manifest|Cache|GoOnly|WarmRegen|Bundle|BuildTag)' -count=1`
 
-Expected: PASS, including Bundle rejection, active-build-file selection, and current-skeleton checking through the Go-only bridge.
+Expected: PASS, including saved-source refresh, cache/source-view parity, Bundle
+rejection, active-build-file selection, and current-skeleton checking through the
+Go-only bridge.
 
 ```bash
 git add internal/codegen gen
@@ -769,7 +931,11 @@ For each txtar, parse with the repository's txtar parser, record the archive com
 
 For a Go fixture host, the complete raw `.go` file is the unit. Never unquote literals or map decoded GSX offsets back into host source. Dynamic concatenations, `fmt.Sprintf` inputs, fuzz builders, and variable-parameterized fixtures are reviewed and later edited at their actual raw Go construction sites; the review note names those tests/helpers.
 
-Audit labels are `declare-children`, `declare-attrs`, `direct-props-invoke`, `byo-whole-value`, `byo-field-address`, `component-struct-splat`, `legacy-role-spelling`, `attrs-only-param-rename`, `field-matcher-expectation`, `generated-output`, and `manual-semantic-choice`.
+Audit labels are `declare-children`, `declare-attrs`, `direct-props-invoke`, `byo-whole-value`, `byo-field-address`, `component-struct-splat`, `attrs-only-param-rename`, `field-matcher-expectation`, `generated-output`, and `manual-semantic-choice`.
+`attrs-only-param-rename` is ledger metadata for locating source to edit; it must
+not create a production classifier or diagnostic. A surviving
+`func(extra ...gsx.Attr)` follows only the universal ordinary-variadic omission
+and markup-fill rejection rules.
 
 - [ ] **Step 1: Add the red ledger test**
 
@@ -833,6 +999,22 @@ git commit -m "test(codegen): inventory verbatim signature cutover"
 
 **Interfaces:** Consumes the complete Task 1-6 facts/planners/importer and produces exactly one shipping ABI and call convention. Treat this as one coordinated rollback unit with one final task review and one commit; scoped subagents may own tests, source migration, or a named subsystem, but no subagent creates an intermediate ABI commit. Do not checkpoint a partial declaration-only or core-only cutover: the existing corpus already exercises children, attrs, and generics, and `TestCorpus` also runs shipped examples. The working tree may be temporarily red during this task; no commit may exist between ABIs. Task 6 already guarantees that normal resolution uses current in-memory declarations and Bundle rejects unsupported transitive project-local chains, so no stale-ABI window opens at this commit.
 
+The playground migration is part of this same atomic unit. Pin the archive and
+server to `gc/linux/amd64`, `CGO_ENABLED=0`, and the repo toolchain/language
+contract. Build both browser and server codegen from the same embedded rootless
+bundle resolver and pass complete in-memory GSX source sets; never construct the
+server resolver from the first disposable workspace and reuse that module
+universe for later workspaces. Update the prepared server workspace `go.mod`, pin the Docker build
+platform, and validate the archive's exact compiler/GOOS/GOARCH/cgo,
+toolchain/language, and tag manifest at server startup. Clear inherited
+`GOEXPERIMENT`, `GOAMD64`, and `GOTOOLCHAIN` from every child compile environment
+before applying the pinned target; ambient deployment settings may not mutate the
+declared engine. Because the website WASM and Cloud Run server deploy
+independently, `/run` carries exact `engineID` and `targetManifestID` fields, the
+server result/cache key includes both IDs, and any mismatch returns HTTP 409 with
+a structured reload handshake echoing the server IDs. A regenerated archive must
+never ship against the old server language/target contract.
+
 - [ ] **Step 1: Establish the last green pre-cutover baseline**
 
 Run:
@@ -860,7 +1042,19 @@ Its `-- invoke --` is `Page(History{Label: "ok"})`, and its generated golden con
 
 - [ ] **Step 3: Add the five complete semantic matrices before implementation**
 
-Pin scalar children with an empty body producing `nil`, scalar/variadic non-empty children, static-node counts, body rejection, node-valued markup props, all attrs target/contributor shapes and exact element identity (including instantiated defined-slice targets), repeated explicit attrs in authored order, ordinary named bags, legacy capitalized `Attrs`/`Children` migration diagnostics, exact class/style forms, named/blank/unnamed ordinary variadic omission and fill rejection, generic inference failures, opaque cross-package zeros, free funcs/func vars/named func types/bound methods, and every rejected dynamic origin. Include declared `children`, `attrs`, and ordinary params used beneath materialized interpolation elements, markup-valued attributes, and nested `f`/`js`/`css` literals in both interpolations and Go blocks. Shadow each name around a materialized element with a function parameter and prove ordinary Go lexical identity wins. Include a declared `attrs` parameter used as the bare key in `map[any]int{attrs: 1}` inside a non-invoked closure: it must resolve directly to that authored parameter, proving the cutover no longer depends on the obsolete syntactic free-use guess that cannot distinguish a named struct field from a named map key. Include a concrete result assignable to `gsx.Node`.
+Pin scalar children with an empty body producing `nil`, scalar/variadic non-empty children, static-node counts, body rejection, node-valued markup props, all attrs target/contributor shapes and exact element identity (including instantiated defined-slice targets), repeated explicit attrs in authored order, ordinary named bags, ordinary exact capitalized `Attrs`/`Children` parameters plus undeclared capitalized names following normal unmatched behavior, exact class/style forms, named/blank/unnamed ordinary variadic omission and fill rejection, generic inference failures, opaque cross-package zeros, free funcs/func vars/named func types/bound methods, and every rejected dynamic origin.
+
+In `attrs_shapes.txtar`, define an ordinary `inputAttrs gsx.Attrs` parameter and
+spread that same value onto two different inner elements. Invoke it once with
+`inputAttrs={{...}}` and once with `inputAttrs={computedBag}`; pin both generated
+calls and rendered attributes on both descendants. In the cross-package matrix,
+emit and render a call whose multiple same-typed ordinary parameters appear out
+of call order and whose imported callee also declares `attrs`, proving exact
+names, positional ordering, and role classification survive final resolution.
+The callable-origin matrix also includes a package variable declared through a
+named func-type alias, not merely a direct named func type.
+
+Include declared `children`, `attrs`, and ordinary params used beneath materialized interpolation elements, markup-valued attributes, and nested `f`/`js`/`css` literals in both interpolations and Go blocks. Shadow each name around a materialized element with a function parameter and prove ordinary Go lexical identity wins. Include a declared `attrs` parameter used as the bare key in `map[any]int{attrs: 1}` inside a non-invoked closure: it must resolve directly to that authored parameter, proving the cutover no longer depends on the obsolete syntactic free-use guess that cannot distinguish a named struct field from a named map key. Include a concrete result assignable to `gsx.Node`.
 
 Run:
 
@@ -878,7 +1072,7 @@ In this same change, delete the old `param`/`parseParams`, Props struct/stub emi
 
 - [ ] **Step 5: Complete every matrix through the universal facts and planners**
 
-Implement scalar/variadic children, every accepted attrs signature and authored-order contributor form, exact class/style targeting, callable provenance, authored-operands-only generic inference, semantic inline zeros, contextual untyped values, tuple unwrap, and selective source-order materialization. Do not revive `attrsOnlySig`, BYO classification, struct splat, or name guessing. Error on unnamed fixed params, non-reserved ordinary variadic attrs, true method expressions, interface dispatch, unresolved signatures, and unspellable omitted zeros.
+Implement scalar/variadic children, every accepted attrs signature and authored-order contributor form, exact class/style targeting, callable provenance, authored-operands-only generic inference, semantic inline zeros, contextual untyped values, tuple unwrap, and selective source-order materialization. Do not revive `attrsOnlySig`, BYO classification, struct splat, or name guessing. Error on unnamed fixed params, markup fill of non-reserved ordinary variadics (including `extra ...gsx.Attr`) through the universal variadic rule with no migration-specific branch, true method expressions, interface dispatch, unresolved signatures, and unspellable omitted zeros.
 
 Reuse the existing sanitizing `gsx.Attrs`, `ConcatAttrs`, renderer, URL, class, and style lowering. Store explicit `attrs={}` and `attrs={{}}` as ordinary source-indexed segments/pairs; delete forced-last composition. Convert the canonical bag to defined slices via `[]gsx.Attr(bag)` and expand only `attrs ...gsx.Attr`.
 
@@ -897,7 +1091,7 @@ Expected: PASS. Inspect generated goldens for authored expression order, context
 
 - [ ] **Step 7: Apply the reviewed ledger manually inside the same rollback unit**
 
-Work row by row through the Task 7 ledger at the real source container. Edit named txtar sections, normal `.gsx` files, Go call sites, and exact construction sites of literal or dynamic test fixtures—including Task 6's Go-only bridge fixture. Declare reserved roles, convert manual Props calls to positional/direct options values, and replace each struct splat according to its reviewed semantic choice. Replace `250-byo-props`, `251-props-heuristic`, and `252-splat` with verbatim/direct-options concepts here. Do not edit generated `.x.go`, golden sections, coverage manifests, or JSON by hand.
+Work row by row through the Task 7 ledger at the real source container. Edit named txtar sections, normal `.gsx` files, Go call sites, and exact construction sites of literal or dynamic test fixtures—including Task 6's Go-only bridge fixture. Declare reserved roles and convert manual Props calls to positional/direct options values. Replace **every** component struct splat; its reviewed choice selects only the replacement form (a whole-value named prop, individual ordinary params, or another explicit non-splat source shape), never retention. Replace `250-byo-props`, `251-props-heuristic`, and `252-splat` with verbatim/direct-options concepts here. Do not edit generated `.x.go`, golden sections, coverage manifests, or JSON by hand.
 
 - [ ] **Step 8: Regenerate every owned output**
 
@@ -1070,13 +1264,17 @@ git add README.md skills/gsx/SKILL.md ast internal/gsxfmt internal/examplegen in
 git commit -m "docs: migrate shipped surfaces to verbatim component signatures"
 ```
 
-### Task 11: Separately Gated Ecosystem and Real-World Migration Follow-Up
+### Task 11: Mandatory Ecosystem and Real-World Migration Release Gate
 
 **Files:**
 - Sibling repos: `/Users/jackieli/personal/gsxhq/tree-sitter-gsx`, `/Users/jackieli/personal/gsxhq/vscode-gsx`, `/Users/jackieli/personal/gsxhq/gsxhq.github.io`
 - Consumer repos: `/Users/jackieli/personal/structpages`, `/Users/jackieli/work/one-learning-gsx`
 
-**Interfaces:** Starts only after Tasks 1-10 pass `make check`; each repository gets its own plan/commit/verification and can be rolled back independently.
+**Interfaces:** Starts only after Tasks 1-10 pass `make check`. This is not an
+optional follow-up: the core branch remains non-mergeable and non-releasable
+until the structpages and one-learning branches below pass against the exact core
+commit. Each repository gets its own plan/commit/verification and rollback unit;
+the frozen commit set becomes the input to Task 12 and the release transaction.
 
 - [ ] **Step 1: Audit grammar/highlighting impact before editing siblings**
 
@@ -1117,7 +1315,13 @@ Inventory the current 841 declarations/71 manual calls again, migrate shared lea
 
 - [ ] **Step 4: Commit and report each gate independently**
 
-Run the native test/build commands in each repository and record commit IDs and remaining migration slices in the execution ledger.
+Run the native test/build commands in each repository and record exact core,
+sibling, structpages, and one-learning commit IDs plus complete gate output in the
+execution ledger. Commit the prepared branches independently, but do not merge or
+release any repository yet. Any remaining one-learning migration slice is a
+failed gate, not accepted follow-up work. Task 12 reviews this frozen commit set;
+if an adversarial fix changes core, rerun both mandatory consumer gates and freeze
+the replacement set.
 
 ### Task 12: Independent Adversarial Review and Authoritative Verification
 
@@ -1129,7 +1333,14 @@ Run the native test/build commands in each repository and record commit IDs and 
 
 - [ ] **Step 1: Dispatch an independent adversarial reviewer**
 
-Require probes for: reflection/direct-Go ABI, opaque cross-package omission, generic authored-only inference, repeated attrs source order, contextual untyped values plus tuple unwrap, every rejected provenance, embedded stable IDs, `gsx -> Go-only -> gsx` with stale disk output, build-tag rename, and no generated helper/type declarations.
+Require probes for: reflection/direct-Go ABI, opaque cross-package omission, the
+final same-typed/out-of-order cross-package call with attrs, generic authored-only
+inference, repeated attrs source order, ordinary literal/computed `inputAttrs`
+routed to two descendants, contextual untyped values plus tuple unwrap, every
+rejected provenance, embedded stable IDs, saved-source refresh, cache/source-view
+parity, `gsx -> Go-only -> gsx` with stale disk output, Bundle external backedges
+and nested-module ownership, build-tag rename, playground 409/ID/cache/child-env
+target integrity, and no generated helper/type declarations.
 
 - [ ] **Step 2: Run static and focused verification**
 
@@ -1167,9 +1378,33 @@ Expected: no obsolete live implementation symbols, no whitespace errors, and onl
 
 Use one focused fix commit per independently reviewable defect. Do not fold an out-of-ordinary semantic discovery into cleanup; raise it to the user with the probe before changing the design.
 
+If a review fix changes the frozen core commit, rerun Task 11's structpages and
+one-learning gates against that exact replacement commit and update the execution
+ledger. The branch remains non-mergeable until those reruns pass.
+
+- [ ] **Step 6: Execute the cross-repository release transaction**
+
+Confirm the ledger names the exact reviewed core and consumer commits and that no
+working tree has drifted. Then:
+
+1. merge the consumer-verified core commit and publish its version;
+2. replace each ignored integration workspace reference with that released
+   version and rerun the identical structpages and one-learning generation,
+   compile, HTTP/DOM, and browser-behavior gates;
+3. merge the already-prepared consumer branches only after those released-version
+   reruns pass, then merge/publish the verified sibling updates in their recorded
+   dependency order.
+
+Stop the transaction immediately on any mismatch. Do not add a compatibility
+mode, release an unverified replacement core commit, or leave either mandatory
+consumer on the old ABI.
+
 ## Self-Review
 
-- **Spec coverage:** Task 1 covers ordered declaration/build-tag identity; Task 2 roles and attrs family; Task 3 stable AST IDs/provenance; Tasks 4-5 cover exact routing, semantic spread validation, partial explicit inference, actual zeros, import spelling, and order; Task 6 lands the authoritative Go-only import graph, Bundle guard, cache, stale/orphan handling, and performance before cutover; Task 7 pins the section-aware metadata ledger; Task 8 performs the complete semantic cutover, removes obsolete systems, and migrates every executable consumer in one green rollback commit; Task 9 covers LSP exact navigation and rename; Task 10 covers formatting and prose documentation; Task 11 gates siblings, structpages, and one-learning; Task 12 provides adversarial and authoritative verification.
-- **Placeholder scan:** The plan contains no deferred implementation marker; later ecosystem work is an explicit post-core gate with named repositories, evidence, and commands determined by each repository's checked-in workflow.
+- **Spec coverage:** Task 1 covers ordered declaration/build-tag identity; Task 2 roles and attrs family; Task 3 stable AST IDs/provenance; Tasks 4-5 cover exact routing, semantic spread validation, partial explicit inference, actual zeros, import spelling, and order; Task 6 lands the authoritative Go-only import graph, saved-source refresh, shared cache manifest, Bundle guard, stale/orphan handling, and performance before cutover; Task 7 pins the section-aware metadata ledger; Task 8 performs the complete core semantic cutover, removes obsolete systems, and migrates every executable in-repository consumer in one green rollback commit; Task 9 covers LSP exact navigation and rename; Task 10 covers formatting and prose documentation; Task 11 prepares and verifies the mandatory sibling, structpages, and one-learning commit set; Task 12 provides adversarial/authoritative verification and executes the gated release transaction.
+- **Placeholder scan:** The plan contains no deferred implementation marker;
+  ecosystem and real-world work is a mandatory pre-merge/pre-release gate with
+  named repositories, evidence, frozen commits, and a controlled release
+  transaction.
 - **Type consistency:** `componentDeclaration`, `componentSignatureModel`, `componentTargetFact`, `callSiteID`, `componentCallPlan`, `componentParam`, and `Var.Origin()` are introduced once and consumed in dependency order.
-- **Known execution checkpoint:** The atomic cutover is intentionally one large commit because declaration/call ABIs, existing corpus semantics, and executable consumers cannot be green independently. Tasks 1-5 are pure/tested foundations, Task 6 makes normal/Bundle resolution authoritative without changing ABI, Task 7 proves every source container has a reviewed metadata action, and Task 8 is the single revertible switch; no intermediate commit exists between ABIs.
+- **Known execution checkpoint:** The core atomic cutover is intentionally one large commit because declaration/call ABIs, existing corpus semantics, and executable in-repository consumers cannot be green independently. Tasks 1-5 are pure/tested foundations, Task 6 makes normal/Bundle resolution authoritative without changing ABI, Task 7 proves every source container has a reviewed metadata action, and Task 8 is the single revertible core switch; no intermediate commit exists between core ABIs. That commit is not independently mergeable or releasable: Tasks 11-12 must verify and advance the cross-repository transaction.

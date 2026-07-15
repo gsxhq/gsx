@@ -36,7 +36,7 @@ func rendererDeclPackage(t *testing.T, m *Module, dir string) *types.Package {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := newRendererDeclResolver(m, ext).packageForDir(dir)
+	pkg, err := newSourceDeclResolver(m, ext).packageForDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestRendererDeclResolverRunsCanonicalPreprocessor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = newRendererDeclResolver(m, ext).packageForDir(dir)
+			_, err = newSourceDeclResolver(m, ext).packageForDir(dir)
 			if err == nil {
 				t.Fatal("packageForDir succeeded; want canonical preprocessing failure")
 			}
@@ -197,13 +197,13 @@ func Broken( {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = newRendererDeclResolver(m, ext).packageForDir(dir)
+	_, err = newSourceDeclResolver(m, ext).packageForDir(dir)
 	if err == nil || !strings.Contains(err.Error(), "renderers.go") {
 		t.Fatalf("packageForDir error = %v, want malformed active companion error", err)
 	}
 }
 
-func TestRendererDeclResolverRejectsImportDirErrors(t *testing.T) {
+func TestRendererDeclResolverRejectsAuthoritativePackageMetadataErrors(t *testing.T) {
 	root := rendererDeclTestModule(t)
 	dir := filepath.Join(root, "renderers")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -225,9 +225,9 @@ component Badge(label string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = newRendererDeclResolver(m, ext).packageForDir(dir)
+	_, err = newSourceDeclResolver(m, ext).packageForDir(dir)
 	if err == nil || !strings.Contains(err.Error(), "found packages") {
-		t.Fatalf("packageForDir error = %v, want ImportDir package mismatch", err)
+		t.Fatalf("packageForDir error = %v, want retained package metadata mismatch", err)
 	}
 }
 
@@ -271,6 +271,100 @@ func Moment(v model.Moment) gsx.Node {
 	}
 }
 
+func TestRendererDeclResolverRechecksGoOnlyIntermediaryInOneDeclarationUniverse(t *testing.T) {
+	root := rendererDeclTestModule(t)
+	leafDir := filepath.Join(root, "leaf")
+	bridgeDir := filepath.Join(root, "bridge")
+	rendererDir := filepath.Join(root, "renderers")
+	for _, dir := range []string{leafDir, bridgeDir, rendererDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMultiFile(t, leafDir, "leaf.gsx", `package leaf
+
+component Card(title string) { <span>{title}</span> }
+`)
+	// The cold inventory must hide this paired output. The renderer resolver
+	// still has to re-check bridge.go against the exact GSX declaration rather
+	// than consume the partial/stale bridge package from the external load.
+	writeMultiFile(t, leafDir, "leaf.x.go", `package leaf
+
+import "github.com/gsxhq/gsx"
+
+type CardProps struct { Poison int }
+func Card(CardProps) gsx.Node { return nil }
+`)
+	writeMultiFile(t, bridgeDir, "bridge.go", `package bridge
+
+import (
+	"example.com/app/leaf"
+	"github.com/gsxhq/gsx"
+)
+
+type Props = leaf.CardProps
+func Card(p Props) gsx.Node { return leaf.Card(p) }
+`)
+	writeMultiFile(t, rendererDir, "renderers.gsx", `package renderers
+
+import (
+	"example.com/app/bridge"
+	"github.com/gsxhq/gsx"
+)
+
+func Moment(v bridge.Props) gsx.Node { return <time>{v.Title}</time> }
+`)
+
+	rendererPath := "example.com/app/renderers"
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		Renderers: []RendererAlias{{
+			TypeKey:  "example.com/app/bridge.Props",
+			PkgPath:  rendererPath,
+			FuncName: "Moment",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages, _, err := m.rendererPackagesFromExt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := packages[rendererPath]
+	fn, ok := pkg.Scope().Lookup("Moment").(*types.Func)
+	if !ok {
+		t.Fatalf("Moment = %T", pkg.Scope().Lookup("Moment"))
+	}
+	signature := fn.Type().(*types.Signature)
+	structure, ok := types.Unalias(signature.Params().At(0).Type()).Underlying().(*types.Struct)
+	if !ok || structure.NumFields() != 1 || structure.Field(0).Name() != "Title" {
+		t.Fatalf("Moment parameter = %v, want current shipping CardProps through retained bridge source", signature.Params().At(0).Type())
+	}
+
+	firstPackage := pkg
+	m.SetOverride(filepath.Join(leafDir, "leaf.gsx"), []byte("package leaf\n\ncomponent Card(count int) { <span>{count}</span> }\n"))
+	m.applyDirty()
+	packages, _, err = m.rendererPackagesFromExt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg = packages[rendererPath]
+	if pkg == firstPackage {
+		t.Fatal("leaf edit retained the renderer package cached through the exact intermediary graph")
+	}
+	fn = pkg.Scope().Lookup("Moment").(*types.Func)
+	signature = fn.Type().(*types.Signature)
+	structure, ok = types.Unalias(signature.Params().At(0).Type()).Underlying().(*types.Struct)
+	if !ok || structure.NumFields() != 1 || structure.Field(0).Name() != "Count" {
+		t.Fatalf("warm Moment parameter = %v, want current shipping CardProps Count field", signature.Params().At(0).Type())
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("external loads after warm leaf edit = %d, want one authoritative cold inventory", got)
+	}
+}
+
 func TestRendererDeclResolverReportsLocalGsxImportCycle(t *testing.T) {
 	root := rendererDeclTestModule(t)
 	aDir := filepath.Join(root, "a")
@@ -304,7 +398,7 @@ type B struct {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = newRendererDeclResolver(m, ext).packageForDir(aDir)
+	_, err = newSourceDeclResolver(m, ext).packageForDir(aDir)
 	if err == nil || !strings.Contains(err.Error(), "import cycle through "+aDir) {
 		t.Fatalf("packageForDir error = %v, want import cycle through %s", err, aDir)
 	}
@@ -326,6 +420,7 @@ import (
 
 func Label(v pg.Timestamptz) gsx.Node {
 	label := strings.ToUpper(v.Label)
+	missing(label)
 	return <time>{label}</time>
 }
 `)
@@ -336,5 +431,40 @@ func Label(v pg.Timestamptz) gsx.Node {
 	pkg := rendererDeclPackage(t, m, dir)
 	if _, ok := pkg.Scope().Lookup("Label").(*types.Func); !ok {
 		t.Fatalf("Label = %T", pkg.Scope().Lookup("Label"))
+	}
+}
+
+func TestRendererDeclResolverStubsGoWithElementsFunctionLiteralBodies(t *testing.T) {
+	root := rendererDeclTestModule(t)
+	dir := filepath.Join(root, "renderers")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMultiFile(t, dir, "renderers.gsx", `package renderers
+
+import (
+	"strings"
+	"github.com/gsxhq/gsx"
+	"example.com/app/pg"
+)
+
+var Label = func(v pg.Timestamptz) gsx.Node {
+	label := strings.ToUpper(v.Label)
+	missing(label)
+	return <time>{label}</time>
+}
+`)
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := rendererDeclPackage(t, m, dir)
+	variable, ok := pkg.Scope().Lookup("Label").(*types.Var)
+	if !ok {
+		t.Fatalf("Label = %T, want package variable", pkg.Scope().Lookup("Label"))
+	}
+	signature, ok := variable.Type().(*types.Signature)
+	if !ok || signature.Params().Len() != 1 {
+		t.Fatalf("Label type = %v, want func(pg.Timestamptz) gsx.Node", variable.Type())
 	}
 }

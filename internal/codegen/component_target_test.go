@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"fmt"
 	goast "go/ast"
 	goparser "go/parser"
 	"go/token"
@@ -157,7 +158,7 @@ component Page() { <Package/> }
 	if marker := markers.bySite[1]; marker.file != discovery {
 		t.Fatalf("marker file = %p, want exact discovery file %p", marker.file, discovery)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{discovery, companion}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{discovery, companion}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{discovery, companion}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +212,7 @@ component Page() { <Package/> }
 		t.Fatal(err)
 	}
 
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{discovery, companion}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{discovery, companion}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{discovery, companion}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -264,7 +265,7 @@ func _probe(Local func() int, Receiver Concrete, Iface Contract, Field Holder) {
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -332,7 +333,7 @@ func _probe() {
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -417,7 +418,7 @@ func _probeImported() {
 	dep.Scope().Insert(types.NewFunc(token.NoPos, dep, "F", depSignature))
 	dep.MarkComplete()
 	packageFiles := []*goast.File{defaultFile, explicitFile}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", packageFiles, fset, mapImporter{dep.Path(): dep}, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", packageFiles, fset, mapImporter{dep.Path(): dep}, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts(packageFiles, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -500,7 +501,7 @@ func _probe(receiver Promoted) {
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -547,7 +548,7 @@ component Page() { <F[!]/><Package/> }
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -603,7 +604,7 @@ component Page() { <MissingOne/><MissingTwo/> }
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -660,7 +661,7 @@ component Page() { <Missing/> }
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -716,7 +717,7 @@ component Page(Receiver Concrete, Local func() int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, nil, nil, nil, nil, nil, fset, bag, markers, newComponentTargetPlan(map[string]*gsxast.File{"discovery.gsx": file}, nil, bag), skeletonTargetDiscovery)
+	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, nil, nil, nil, nil, nil, fset, bag, markers, syntacticComponentTargetPlan(map[string]*gsxast.File{"discovery.gsx": file}), skeletonTargetDiscovery)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -741,7 +742,7 @@ component Page(Receiver Concrete, Local func() int) {
 		t.Fatal(err)
 	}
 	packageFiles := []*goast.File{parsed, prelude}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", packageFiles, fset, targetTestImporter(), componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", packageFiles, fset, targetTestImporter(), componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts(packageFiles, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -801,7 +802,7 @@ component Page() { <Field.Fn[int]/> }
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -835,7 +836,7 @@ func TestTargetDiscoverySkeletonKeepsHelpersInOnePackagePrelude(t *testing.T) {
 	}
 
 	var parsed []*goast.File
-	plan := newComponentTargetPlan(files, nil, bag)
+	plan := syntacticComponentTargetPlan(files)
 	for _, path := range []string{"a.gsx", "b.gsx"} {
 		first := len(markers.ordered)
 		skeleton, err := buildComponentTargetSkeleton(files[path], funcTables{}, nil, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
@@ -859,7 +860,7 @@ func TestTargetDiscoverySkeletonKeepsHelpersInOnePackagePrelude(t *testing.T) {
 		t.Fatal(err)
 	}
 	parsed = append(parsed, prelude)
-	_, _, typeErrs := checkComponentTargetPackage("example.com/p", "p", parsed, fset, targetTestImporter(), componentTargetCheckConfig{})
+	_, _, typeErrs := checkComponentTargetPackage("example.com/p", "p", parsed, fset, targetTestImporter(), componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	if len(typeErrs) != 0 {
 		t.Fatalf("two-file target package errors = %+v", typeErrs)
 	}
@@ -893,7 +894,25 @@ component Card[T any](value T) { <Second/> }
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := newComponentTargetPlan(files, nil, bag)
+	plan := syntacticComponentTargetPlan(files)
+	bodyIndex := 0
+	publicCard := true
+	for _, path := range []string{"a.gsx", "b.gsx"} {
+		for _, declaration := range files[path].Decls {
+			component, ok := declaration.(*gsxast.Component)
+			if !ok || component.Name != "Card" {
+				continue
+			}
+			bodyIndex++
+			plan.emissions[component] = componentTargetEmission{
+				public:            publicCard,
+				splitBody:         true,
+				bodyName:          fmt.Sprintf("_gsxtargetbody%d", bodyIndex),
+				analysisPropsName: fmt.Sprintf("_gsxtargetprops%d", bodyIndex),
+			}
+			publicCard = false
+		}
+	}
 	var sources strings.Builder
 	var parsed []*goast.File
 	for _, path := range []string{"a.gsx", "b.gsx"} {
@@ -923,7 +942,7 @@ component Card[T any](value T) { <Second/> }
 		t.Fatal(err)
 	}
 	parsed = append(parsed, prelude)
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", parsed, fset, targetTestImporter(), componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", parsed, fset, targetTestImporter(), componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	if len(typeErrs) != 0 {
 		t.Fatalf("variant target package errors = %+v", typeErrs)
 	}
@@ -971,7 +990,7 @@ func _probe() {
 	if err := bindComponentTargetMarkers(parsed, 0, fset, markers); err != nil {
 		t.Fatal(err)
 	}
-	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{})
+	_, info, typeErrs := checkComponentTargetPackage("example.com/p", "p", []*goast.File{parsed}, fset, nil, componentTargetCheckConfig{typeEnvironment: testTypeCheckEnvironment()})
 	facts, unrelated, err := harvestComponentTargetFacts([]*goast.File{parsed}, fset, info, typeErrs, markers)
 	if err != nil {
 		t.Fatal(err)
@@ -2003,7 +2022,7 @@ component (broken) Page() { <Widget/> }
 	}
 	targetBag := diag.NewBag(fset)
 	if _, err := buildComponentTargetSkeleton(
-		file, funcTables{}, nil, nil, nil, nil, nil, fset, targetBag, targets, newComponentTargetPlan(files, nil, targetBag), skeletonTargetDiscovery,
+		file, funcTables{}, nil, nil, nil, nil, nil, fset, targetBag, targets, syntacticComponentTargetPlan(files), skeletonTargetDiscovery,
 	); err != nil {
 		t.Fatalf("target skeleton returned an infrastructure error: %v", err)
 	}

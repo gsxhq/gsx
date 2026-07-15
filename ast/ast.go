@@ -818,7 +818,7 @@ func Inspect(node Node, f func(Node) bool) {
 }
 
 // IsComponentTag reports the SYNTACTIC component rule: dotted (ui.Button,
-// p.item) or ASCII-uppercase-first tags are always components. It is one
+// p.item) or Go-exported-name tags are always components. It is one
 // input to codegen's package preprocessor, which additionally resolves
 // lowercase tags against the package's declared names and stamps the result
 // on Element.IsComponent. Read the stamp, not this function, when deciding
@@ -830,5 +830,5 @@ func IsComponentTag(tag string) bool {
 	if strings.Contains(tag, ".") {
 		return true
 	}
-	return tag[0] >= 'A' && tag[0] <= 'Z'
+	return token.IsExported(tag)
 }

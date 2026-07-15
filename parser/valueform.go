@@ -64,7 +64,7 @@ func (p *parser) parseValueIf(at int) (*ast.ValueIf, token.Pos, error) {
 		elseAt := afterThen + (len(p.src[afterThen:]) - len(rest)) + len("else")
 		r2 := strings.TrimLeft(p.src[elseAt:], " \t\r\n")
 		switch {
-		case strings.HasPrefix(r2, "if") && (len(r2) == 2 || !isIdentByte(r2[2])):
+		case strings.HasPrefix(r2, "if") && !goIdentifierContinueAt(r2, len("if")):
 			ifAt := elseAt + (len(p.src[elseAt:]) - len(r2))
 			ei, e2, err := p.parseValueIf(ifAt)
 			if err != nil {
@@ -148,7 +148,7 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 	r := p.src[at:]
 	var valueAt int
 	switch {
-	case strings.HasPrefix(r, "case") && (len(r) == 4 || !isIdentByte(r[4])):
+	case strings.HasPrefix(r, "case") && !goIdentifierContinueAt(r, len("case")):
 		listStart := at + len("case")
 		colonOff, ok := scanToCaseColon(p.src, listStart)
 		if !ok {
@@ -160,7 +160,7 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 		}
 		rest := strings.TrimLeft(p.src[colonOff+1:], " \t\r\n")
 		valueAt = colonOff + 1 + (len(p.src[colonOff+1:]) - len(rest))
-	case strings.HasPrefix(r, "default") && (len(r) == 7 || !isIdentByte(r[7])):
+	case strings.HasPrefix(r, "default") && !goIdentifierContinueAt(r, len("default")):
 		cc.Default = true
 		colon := strings.IndexByte(p.src[at:], ':')
 		if colon < 0 {

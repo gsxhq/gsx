@@ -11,22 +11,11 @@ import (
 	"go/types"
 	"io"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
 )
-
-type conflictComp struct {
-	path string
-	comp *gsxast.Component
-}
-
-type signatureConflict struct {
-	key   string
-	comps []conflictComp
-}
 
 type componentVariantMember struct {
 	path      string
@@ -38,79 +27,24 @@ type componentVariantFamily struct {
 	members []componentVariantMember
 }
 
-// newComponentTargetPlan recognizes only real component variant families.
-// Every member must come from a distinct file with an effective Go constraint;
-// raw Go declarations never enter this plan.
-func newComponentTargetPlan(files map[string]*gsxast.File, sources map[string][]byte, bag *diag.Bag) componentTargetPlan {
-	byKey := map[string][]componentVariantMember{}
-	paths := make([]string, 0, len(files))
-	for path := range files {
-		paths = append(paths, path)
+// syntacticComponentTargetPlan is the importer-free lane's deliberately
+// non-semantic emission plan. It makes every parsed component public and never
+// recognizes, validates, or folds variant families. Its only consumer builds
+// per-file parse/probe skeletons for syntactic editor features; the finalized
+// semantic plan remains the sole authority for package acceptance and codegen.
+func syntacticComponentTargetPlan(files map[string]*gsxast.File) componentTargetPlan {
+	plan := componentTargetPlan{
+		emissions:   map[*gsxast.Component]componentTargetEmission{},
+		logicalKeys: map[*gsxast.Component]string{},
 	}
-	sort.Strings(paths)
-	for _, path := range paths {
-		for _, declaration := range files[path].Decls {
+	for _, file := range files {
+		for _, declaration := range file.Decls {
 			component, ok := declaration.(*gsxast.Component)
 			if !ok {
 				continue
 			}
-			key := componentKey(component)
-			byKey[key] = append(byKey[key], componentVariantMember{path: path, component: component})
-		}
-	}
-
-	plan := componentTargetPlan{emissions: map[*gsxast.Component]componentTargetEmission{}}
-	bodyIndex := 0
-	keys := make([]string, 0, len(byKey))
-	for key := range byKey {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		members := byKey[key]
-		if len(members) == 1 {
-			plan.emissions[members[0].component] = componentTargetEmission{public: true}
-			continue
-		}
-
-		valid := true
-		counts := map[string]int{}
-		for _, member := range members {
-			counts[member.path]++
-		}
-		for _, count := range counts {
-			if count > 1 {
-				valid = false
-				break
-			}
-		}
-		if valid {
-			for _, member := range members {
-				constrained, err := componentFileHasEffectiveConstraint(member.path, files[member.path], sources[member.path])
-				if err != nil || !constrained {
-					valid = false
-					break
-				}
-			}
-		}
-		if !valid {
-			plan.invalidMembership = true
-			reportInvalidComponentVariantFamily(key, members, files, sources, bag)
-			for _, member := range members {
-				plan.emissions[member.component] = componentTargetEmission{public: true}
-			}
-			continue
-		}
-
-		family := componentVariantFamily{key: key, members: members}
-		plan.families = append(plan.families, family)
-		for index, member := range members {
-			bodyIndex++
-			plan.emissions[member.component] = componentTargetEmission{
-				public:    index == 0,
-				splitBody: true,
-				bodyName:  fmt.Sprintf("_gsxtargetbody%d", bodyIndex),
-			}
+			plan.emissions[component] = componentTargetEmission{public: true}
+			plan.logicalKeys[component] = componentKey(component)
 		}
 	}
 	return plan
@@ -328,58 +262,54 @@ func variantFuncObjects(files []*goast.File, info *types.Info, plan componentTar
 	return objects
 }
 
-func validateComponentVariantSignatures(files []*goast.File, info *types.Info, plan componentTargetPlan, bag *diag.Bag) []signatureConflict {
-	objects := variantFuncObjects(files, info, plan)
-	var conflicts []signatureConflict
-	for _, family := range plan.families {
-		if len(family.members) < 2 {
-			continue
+func componentVariantFamilySignaturesMatch(
+	members []componentVariantMember,
+	objects map[*gsxast.Component]*types.Func,
+	signatureErrors map[*gsxast.Component]bool,
+) bool {
+	var firstSignature *types.Signature
+	var firstParams []variantParamIdentity
+	for index, member := range members {
+		if signatureErrors[member.component] {
+			return false
 		}
-		firstObject := objects[family.members[0].component]
-		if firstObject == nil {
-			continue
+		object := objects[member.component]
+		if object == nil {
+			return false
 		}
-		firstSignature, ok := firstObject.Type().(*types.Signature)
-		if !ok {
-			continue
+		signature, ok := object.Type().(*types.Signature)
+		if !ok || !componentVariantSignatureUsable(signature) {
+			return false
 		}
-		firstParams, err := componentVariantParamIdentity(family.members[0].component)
+		params, err := componentVariantParamIdentity(member.component)
 		if err != nil {
+			return false
+		}
+		if index == 0 {
+			firstSignature = signature
+			firstParams = params
 			continue
 		}
-		identical := true
-		for _, member := range family.members[1:] {
-			object := objects[member.component]
-			if object == nil {
-				identical = false
-				break
-			}
-			signature, ok := object.Type().(*types.Signature)
-			params, paramErr := componentVariantParamIdentity(member.component)
-			if !ok || paramErr != nil || !equalVariantParamIdentity(firstParams, params) || !types.Identical(firstSignature, signature) || !identicalReceiver(firstSignature, signature) {
-				identical = false
-				break
-			}
-		}
-		if identical {
-			continue
-		}
-		components := make([]conflictComp, 0, len(family.members))
-		filenames := make([]string, 0, len(family.members))
-		for _, member := range family.members {
-			components = append(components, conflictComp{path: member.path, comp: member.component})
-			filenames = append(filenames, filepath.Base(member.path))
-		}
-		conflicts = append(conflicts, signatureConflict{key: family.key, comps: components})
-		if bag != nil {
-			for _, member := range family.members {
-				bag.Errorf(member.component.NamePos, member.component.NamePos+token.Pos(len(member.component.Name)), "duplicate-component",
-					"component %s has different semantic signatures across build variants (%s); parameter names and roles, function types, and receiver types must match",
-					member.component.Name, strings.Join(filenames, ", "))
-			}
+		if !equalVariantParamIdentity(firstParams, params) || !identicalComponentVariantSignatures(firstSignature, signature) {
+			return false
 		}
 	}
-	return conflicts
+	return len(members) > 0
+}
+
+func reportComponentVariantSignatureMismatch(members []componentVariantMember, bag *diag.Bag) {
+	if bag == nil {
+		return
+	}
+	filenames := make([]string, 0, len(members))
+	for _, member := range members {
+		filenames = append(filenames, filepath.Base(member.path))
+	}
+	for _, member := range members {
+		bag.Errorf(member.component.NamePos, member.component.NamePos+token.Pos(len(member.component.Name)), "duplicate-component",
+			"component %s has different or unresolved semantic signatures across build variants (%s); parameter names and roles, function types, constraints, and receiver types must be valid and match",
+			member.component.Name, strings.Join(filenames, ", "))
+	}
 }
 
 func equalVariantParamIdentity(left, right []variantParamIdentity) bool {
@@ -392,12 +322,4 @@ func equalVariantParamIdentity(left, right []variantParamIdentity) bool {
 		}
 	}
 	return true
-}
-
-func identicalReceiver(left, right *types.Signature) bool {
-	leftReceiver, rightReceiver := left.Recv(), right.Recv()
-	if leftReceiver == nil || rightReceiver == nil {
-		return leftReceiver == nil && rightReceiver == nil
-	}
-	return types.Identical(leftReceiver.Type(), rightReceiver.Type())
 }

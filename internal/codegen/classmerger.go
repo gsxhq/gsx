@@ -3,8 +3,6 @@ package codegen
 import (
 	"fmt"
 	"go/types"
-
-	"golang.org/x/tools/go/packages"
 )
 
 // classMergerAlias is the reserved import alias for the configured class-merger
@@ -29,27 +27,17 @@ type ClassMergerRef struct {
 // Do NOT call this from codegen.Open: that path is shared by the LSP and fmt,
 // which must not pay a packages.Load per-Open or fail on merger config.
 func ValidateClassMerger(dir string, ref *ClassMergerRef) error {
-	cfg := &packages.Config{Mode: packages.NeedTypes, Dir: dir}
-	pkgs, err := packages.Load(cfg, ref.PkgPath)
+	modulePath, err := readModulePath(dir)
 	if err != nil {
-		return fmt.Errorf("class_merger: loading %q: %w", ref.PkgPath, err)
+		return fmt.Errorf("class_merger: read module: %w", err)
 	}
-	if len(pkgs) == 0 || pkgs[0].Types == nil {
-		return fmt.Errorf("class_merger: package %q not found", ref.PkgPath)
+	module, err := Open(Options{ModuleRoot: dir, ModulePath: modulePath, ClassMerger: ref})
+	if err != nil {
+		return fmt.Errorf("class_merger: open module: %w", err)
 	}
-	return validateClassMergerObj(pkgs[0].Types, ref)
-}
-
-// validateClassMergerFromTypes is ValidateClassMerger against packages the
-// caller already loaded — no packages.Load, no subprocess. Used for per-dir
-// mergers, where one packages.Load per dir is exactly the cost being removed.
-// A merger package the importer never loaded is an error, not a skipped check.
-func validateClassMergerFromTypes(byPath map[string]*types.Package, ref *ClassMergerRef) error {
-	pkg, ok := byPath[ref.PkgPath]
-	if !ok || pkg == nil {
-		return fmt.Errorf("class_merger: package %q was not loaded (add it to Options.LoadPkgs)", ref.PkgPath)
-	}
-	return validateClassMergerObj(pkg, ref)
+	module.analysisMu.Lock()
+	defer module.analysisMu.Unlock()
+	return module.validateConfiguredMergers()
 }
 
 // validateClassMergerObj holds the check shared by both validators: ref.FuncName
@@ -75,14 +63,14 @@ func isStringSliceToString(sig *types.Signature) bool {
 	if sig.Variadic() || sig.Params().Len() != 1 || sig.Results().Len() != 1 {
 		return false
 	}
-	p, ok := sig.Params().At(0).Type().(*types.Slice)
+	p, ok := types.Unalias(sig.Params().At(0).Type()).(*types.Slice)
 	if !ok {
 		return false
 	}
-	if b, ok := p.Elem().(*types.Basic); !ok || b.Kind() != types.String {
+	if b, ok := types.Unalias(p.Elem()).(*types.Basic); !ok || b.Kind() != types.String {
 		return false
 	}
-	r, ok := sig.Results().At(0).Type().(*types.Basic)
+	r, ok := types.Unalias(sig.Results().At(0).Type()).(*types.Basic)
 	return ok && r.Kind() == types.String
 }
 

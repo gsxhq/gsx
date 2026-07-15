@@ -524,9 +524,8 @@ func reportWholeLiteralPipes(p *parser, items []goSplitItem, base token.Pos) {
 	}
 }
 
-// byteBeginsTag reports whether the byte at i can start a tag name, a
-// fragment (`<>`), or a close (`</...`) — i.e. startsTag's letter/'>'/'/'
-// classes. It excludes '-' defensively (a channel receive), though go/scanner
+// byteBeginsTag reports whether the rune at i can start a tag name, a fragment
+// (`<>`), or a close (`</...`). It excludes '-' defensively (a channel receive), though go/scanner
 // already tokenizes `<-` as a single ARROW token distinct from LSS, so LSS
 // never has '-' as its immediately-following byte; the exclusion documents
 // that invariant rather than papering over a gap.
@@ -534,11 +533,10 @@ func byteBeginsTag(src string, i int) bool {
 	if i >= len(src) {
 		return false
 	}
-	c := src[i]
-	if c == '-' {
+	if src[i] == '-' {
 		return false
 	}
-	return startsTag(c)
+	return startsTagAt(src, i)
 }
 
 // tokenExpectsOperandAfter reports whether, after consuming tok (Go's

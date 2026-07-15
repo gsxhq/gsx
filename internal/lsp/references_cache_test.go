@@ -27,6 +27,9 @@ type moduleRefsAnalyzer struct {
 	pkg         *Package
 }
 
+func (a *moduleRefsAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
+func (a *moduleRefsAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+
 func (a *moduleRefsAnalyzer) Analyze(string, map[string][]byte) (*Package, error) {
 	if a.pkg != nil {
 		return a.pkg, nil

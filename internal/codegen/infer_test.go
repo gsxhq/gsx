@@ -206,7 +206,7 @@ component Page() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, typeErrs := checkSkeletonPackage(dir, "views", []*goast.File{gf, shim}, fset, bundle.importer())
+	_, _, typeErrs := checkSkeletonPackage(dir, "views", []*goast.File{gf, shim}, fset, bundle.importer(), testTypeCheckEnvironment())
 
 	var found bool
 	for _, e := range typeErrs {

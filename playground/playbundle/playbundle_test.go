@@ -1,11 +1,22 @@
 package playbundle
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/typebundle"
 )
+
+func TestEmbeddedBundleTargetsPlaygroundServer(t *testing.T) {
+	typeUniverse, err := typebundle.Read(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := typeUniverse.Target
+	if target.Compiler != "gc" || target.GOOS != "linux" || target.GOARCH != "amd64" || target.CGOEnabled || target.LanguageVersion != "go1.26.1" || target.ToolchainVersion != "go1.26.1" {
+		t.Fatalf("embedded target = %#v, want gc/linux/amd64 cgo=0 toolchain/language go1.26.1", target)
+	}
+}
 
 // TestEmbeddedBundleTransformsOffline is step 3 of the WASM playground: prove the
 // transform runs from the EMBEDDED bundle alone, with no packages.Load anywhere
@@ -17,31 +28,27 @@ func TestEmbeddedBundleTransformsOffline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping transform test in -short mode")
 	}
-	if len(Bundle()) == 0 {
+	if len(bundle) == 0 {
 		t.Fatal("embedded bundle is empty")
 	}
 
 	t.Setenv("PATH", "")
 	t.Setenv("GOPACKAGESDRIVER", "off")
 
-	dir := t.TempDir()
 	const src = `package main
 
 component Greeting(name string) {
 	<p>Hello { name |> upper }!</p>
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "g.gsx"), []byte(src), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	r, err := NewResolver()
 	if err != nil {
 		t.Fatalf("NewResolver from embedded bundle: %v", err)
 	}
-	res, err := r.Generate(dir, nil)
+	res, err := r.GenerateSource("g.gsx", []byte(src))
 	if err != nil {
-		t.Fatalf("Generate: %v (diags=%v)", err, res.Diags)
+		t.Fatalf("GenerateSource: %v (diags=%v)", err, res.Diags)
 	}
 	if len(res.Diags) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", res.Diags)

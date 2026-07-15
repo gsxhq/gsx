@@ -3,16 +3,15 @@ package gen
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 var (
@@ -52,209 +51,136 @@ func codegenIdentity() string {
 	return "v=" + codegen.Version() + "\x00bin=" + selfHash()
 }
 
-// buildContext returns a stable string capturing the Go build context that can
-// affect type resolution (and thus generated output). Folded into every cache
-// key so a different GOOS/GOARCH/tags/CGO/etc. never collides on the same key.
-func buildContext(moduleRoot string) string {
-	cmd := exec.Command("go", "env", "GOVERSION", "GOOS", "GOARCH", "CGO_ENABLED", "GOFLAGS", "GOEXPERIMENT")
-	cmd.Dir = moduleRoot
-	out, err := cmd.Output()
+type pkgModule = sourceview.ModuleMetadata
+type pkgInfo = sourceview.PackageMetadata
+
+// loadGraph runs the graph query under a freshly captured authoritative Go
+// command context. Production uses loadGraphWithContext so this metadata query
+// and the Module consume the exact same snapshot.
+func loadGraph(root string) (sourceview.Graph, error) {
+	moduleDir, modulePath, err := moduleRoot(root)
 	if err != nil {
-		// Uncertain context → return a unique-ish marker so we don't share a key
-		// with a real context (caller still caches, but conservatively).
-		return "buildctx-unknown"
+		return nil, err
 	}
-	return strings.TrimSpace(string(out))
+	manifest, err := sourceview.Build(sourceview.BuildOptions{ModuleRoot: moduleDir, ModulePath: modulePath})
+	if err != nil {
+		return nil, err
+	}
+	return loadGraphWithContext(codegen.CaptureGoCommandContext(moduleDir), manifest, nil)
 }
 
-type pkgInfo struct {
-	ImportPath string
-	Dir        string
-	Deps       []string
-}
-
-// loadGraph runs `go list -json ./...` (metadata only — NO -export, no compile)
-// from moduleRoot and returns importPath -> info (Dir + transitive Deps).
-func loadGraph(moduleRoot string) (map[string]pkgInfo, error) {
-	cmd := exec.Command("go", "list", "-json", "./...")
-	cmd.Dir = moduleRoot
-	out, err := cmd.Output()
+// loadGraphWithContext runs `go list -deps -json` (metadata only — NO -export)
+// from the captured module root. roots adds GSX-only and configured packages
+// that may not be reachable from the on-disk Go graph, so local replacements
+// behind those semantic inputs are visible to cache hashing.
+func loadGraphWithContext(context *codegen.GoCommandContext, manifest *sourceview.Manifest, roots []string) (sourceview.Graph, error) {
+	if manifest == nil {
+		return nil, fmt.Errorf("gen: cache metadata requires a source manifest")
+	}
+	patterns, err := graphQueryPatterns(manifest, roots)
+	if err != nil {
+		return nil, err
+	}
+	overlay, err := manifest.MaterializeGoOverlay()
+	if err != nil {
+		return nil, fmt.Errorf("gen: materialize source manifest: %w", err)
+	}
+	defer overlay.Close()
+	args := append([]string{"list", "-deps", "-json", "-compiled", "-overlay=" + overlay.Path()}, patterns...)
+	out, err := context.Run(args...)
 	if err != nil {
 		return nil, fmt.Errorf("gen: go list: %w", err)
 	}
-	graph := map[string]pkgInfo{}
-	dec := json.NewDecoder(strings.NewReader(string(out)))
-	for dec.More() {
-		var p pkgInfo
-		if err := dec.Decode(&p); err != nil {
-			return nil, fmt.Errorf("gen: decode go list: %w", err)
-		}
-		graph[p.ImportPath] = p
+	graph, err := sourceview.DecodeGraph(strings.NewReader(string(out)))
+	if err != nil {
+		return nil, fmt.Errorf("gen: decode go list: %w", err)
 	}
 	return graph, nil
 }
 
-// dirSourceHash hashes a package dir's .gsx + .go source (excluding generated
-// .x.go), name-sorted, content-addressed.
-func dirSourceHash(dir string) (string, error) {
-	entries, err := os.ReadDir(dir)
+// graphQueryPatterns converts only manifest-proven main-module GSX packages to
+// filesystem patterns. cmd/go resolves an import-path argument through module
+// requirements before an overlay-only sentinel can make that package visible;
+// the relative pattern enters the owned directory and lets -overlay provide the
+// selected Go file. External and otherwise unproven roots retain import-path
+// semantics.
+func graphQueryPatterns(manifest *sourceview.Manifest, roots []string) ([]string, error) {
+	patterns := []string{"./..."}
+	seen := map[string]bool{"./...": true, "C": true, "": true}
+	add := func(path string) error {
+		if dir, owned := manifest.PackageDir(path); owned {
+			rel, err := filepath.Rel(manifest.ModuleRoot(), dir)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("gen: manifest package %q directory %q is outside module root %q", path, dir, manifest.ModuleRoot())
+			}
+			path = "."
+			if rel != "." {
+				path = "./" + filepath.ToSlash(rel)
+			}
+		}
+		if !seen[path] {
+			seen[path] = true
+			patterns = append(patterns, path)
+		}
+		return nil
+	}
+	for _, path := range manifest.LoadRoots() {
+		if err := add(path); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range roots {
+		if err := add(path); err != nil {
+			return nil, err
+		}
+	}
+	return patterns, nil
+}
+
+func configuredPackagePaths(filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, classMerger *codegen.ClassMergerRef) []string {
+	paths := append([]string(nil), filterPkgs...)
+	for _, alias := range aliases {
+		paths = append(paths, alias.PkgPath)
+	}
+	finalRenderers := map[string]codegen.RendererAlias{}
+	for _, renderer := range renderers {
+		finalRenderers[renderer.TypeKey] = renderer
+	}
+	for _, renderer := range finalRenderers {
+		paths = append(paths, renderer.PkgPath)
+	}
+	if classMerger != nil {
+		paths = append(paths, classMerger.PkgPath)
+	}
+	return dedupSorted(paths)
+}
+
+type cacheKeyConfig struct {
+	buildContext          string
+	codegenIdentity       string
+	additionalSourceRoots []string
+	filterPackages        []string
+	aliases               []codegen.FilterAlias
+	renderers             []codegen.RendererAlias
+	classifierFingerprint string
+	hasFieldMatcher       bool
+	cssMinify             bool
+	jsMinify              bool
+	classMerger           *codegen.ClassMergerRef
+}
+
+// computeKey combines generator/configuration identity with the authoritative
+// source projection shared by cache metadata and normal codegen.
+func computeKey(dir string, projection *sourceview.CacheProjection, config cacheKeyConfig) (string, error) {
+	configuredPaths := configuredPackagePaths(config.filterPackages, config.aliases, config.renderers, config.classMerger)
+	semanticRoots := append(append([]string(nil), config.additionalSourceRoots...), configuredPaths...)
+	sourceIdentity, err := projection.Digest(dir, semanticRoots)
 	if err != nil {
 		return "", err
 	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		n := e.Name()
-		if strings.HasSuffix(n, ".x.go") {
-			continue // generated output is not an input
-		}
-		if strings.HasSuffix(n, ".gsx") || strings.HasSuffix(n, ".go") {
-			names = append(names, n)
-		}
-	}
-	sort.Strings(names)
-	h := sha256.New()
-	for _, n := range names {
-		data, err := os.ReadFile(filepath.Join(dir, n))
-		if err != nil {
-			return "", err
-		}
-		fmt.Fprintf(h, "%s\x00%d\x00", n, len(data))
-		h.Write(data)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// gsxDepDirs returns every in-module package dir reachable from dir through
-// the union of .gsx-hoisted import edges and go-list dep edges, excluding dir
-// itself. go list alone misses a dep whose only edge is a .gsx import with no
-// .x.go on disk, so the walk follows both edge kinds transitively.
-func gsxDepDirs(dir string, graph map[string]pkgInfo, moduleRoot, modPath string) []string {
-	byDir := map[string]pkgInfo{}
-	for _, p := range graph {
-		if p.Dir != "" {
-			byDir[filepath.Clean(p.Dir)] = p
-		}
-	}
-	dirFor := func(importPath string) (string, bool) {
-		if importPath == modPath {
-			return filepath.Clean(moduleRoot), true
-		}
-		if !strings.HasPrefix(importPath, modPath+"/") {
-			return "", false
-		}
-		rel := strings.TrimPrefix(importPath, modPath+"/")
-		return filepath.Join(moduleRoot, filepath.FromSlash(rel)), true
-	}
-	dir = filepath.Clean(dir)
-	seen := map[string]bool{dir: true}
-	queue := []string{dir}
-	var out []string
-	for len(queue) > 0 {
-		d := queue[0]
-		queue = queue[1:]
-		var neighborPaths []string
-		neighborPaths = append(neighborPaths, codegen.GsxHoistedImportPaths(d)...)
-		if p, ok := byDir[d]; ok {
-			neighborPaths = append(neighborPaths, p.Deps...)
-		}
-		for _, ip := range neighborPaths {
-			dd, ok := dirFor(ip)
-			if !ok || seen[dd] {
-				continue
-			}
-			if _, err := os.Stat(dd); err != nil {
-				continue // import of a not-yet-existing package: nothing to hash
-			}
-			seen[dd] = true
-			out = append(out, dd)
-			queue = append(queue, dd)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// rendererDepDirs returns the existing module-owned package directories named
-// by the completed renderer registry. Registrations resolve last-wins per
-// TypeKey before package ownership is considered, so a shadowed local renderer
-// contributes no source dependency. Import paths outside modPath contribute
-// nothing: ownership is exact module-path identity, never a sibling-directory
-// or package-name guess.
-func rendererDepDirs(renderers []codegen.RendererAlias, moduleRoot, modPath string) []string {
-	final := make(map[string]codegen.RendererAlias, len(renderers))
-	for _, r := range renderers {
-		final[r.TypeKey] = r
-	}
-	dirs := make(map[string]bool, len(final))
-	for _, r := range final {
-		dir, ok := moduleDirForImportPath(moduleRoot, modPath, r.PkgPath)
-		if !ok {
-			continue
-		}
-		dirs[dir] = true
-	}
-	out := make([]string, 0, len(dirs))
-	for dir := range dirs {
-		out = append(out, dir)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// computeKey is the per-package cache key. dir is the absolute package dir;
-// graph maps import paths to info; modPath is the module path; goModHash/
-// goSumHash/buildCtx/filterPkgs are the version pins. buildCtx is the output
-// of buildContext() and subsumes GOVERSION, GOOS, GOARCH, CGO_ENABLED, etc.
-// clsFingerprint is the attrclass.Classifier.Fingerprint() for the current run;
-// it ensures a changed attribute classification rule invalidates cached output.
-// codegenID is codegenIdentity() — "which generator produced this" — so any
-// change to the gsx binary (emit/lowering) invalidates cached output even when
-// the manual codegen.Version constant is not bumped. renderers is the merged
-// [renderers]/WithRenderer registration list (see the renderers= pin below).
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, clsFingerprint string, hasFieldMatcher bool, cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, moduleRoot string) (string, error) {
-	dir = filepath.Clean(dir)
-	own, err := dirSourceHash(dir)
-	if err != nil {
-		return "", err
-	}
-	// Dep hashes: every in-module package reachable through go-list edges OR
-	// .gsx-hoisted import edges. The .gsx walk (gsxDepDirs) is what keeps the
-	// key honest when a dep's .x.go is not on disk (fresh checkout, cleaned
-	// outputs): the dep's component prop fields drive this package's attr
-	// splitting, so its .gsx content must be an input to the key.
-	depDirs := make(map[string]bool)
-	for _, depDir := range gsxDepDirs(dir, graph, moduleRoot, modPath) {
-		depDirs[filepath.Clean(depDir)] = true
-	}
-	for _, depDir := range rendererDepDirs(renderers, moduleRoot, modPath) {
-		depDir = filepath.Clean(depDir)
-		if depDir != dir {
-			depDirs[depDir] = true
-		}
-	}
-	sortedDepDirs := make([]string, 0, len(depDirs))
-	for depDir := range depDirs {
-		sortedDepDirs = append(sortedDepDirs, depDir)
-	}
-	sort.Strings(sortedDepDirs)
-	var depHashes []string
-	for _, depDir := range sortedDepDirs {
-		dh, err := dirSourceHash(depDir)
-		if err != nil {
-			return "", err
-		}
-		rel, rerr := filepath.Rel(moduleRoot, depDir)
-		if rerr != nil {
-			rel = depDir
-		}
-		depHashes = append(depHashes, filepath.ToSlash(rel)+":"+dh)
-	}
-	pins := dedupSorted(filterPkgs)
+	pins := dedupSorted(config.filterPackages)
 	fmStr := "0"
-	if hasFieldMatcher {
+	if config.hasFieldMatcher {
 		fmStr = "1"
 	}
 	// Fold the explicit WithFilter aliases (name+pkgPath+funcName, in registration
@@ -262,7 +188,7 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	// significant (last-wins), so this is NOT sorted — mirror the registration
 	// order the resolver sees.
 	var aliasPins []string
-	for _, a := range aliases {
+	for _, a := range config.aliases {
 		aliasPins = append(aliasPins, a.Name+"="+a.PkgPath+"."+a.FuncName)
 	}
 	// renderers= pin: last-wins per TypeKey resolved FIRST, then sorted by
@@ -271,7 +197,7 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	// table (regardless of file/option split or registration order) must hash
 	// identically.
 	finalRenderers := map[string]codegen.RendererAlias{}
-	for _, r := range renderers {
+	for _, r := range config.renderers {
 		finalRenderers[r.TypeKey] = r
 	}
 	rendererTypeKeys := make([]string, 0, len(finalRenderers))
@@ -285,18 +211,15 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 		rendererPins = append(rendererPins, k+"="+r.PkgPath+"."+r.FuncName)
 	}
 	cm := "cm="
-	if classMerger != nil {
-		cm += classMerger.PkgPath + "." + classMerger.FuncName
+	if config.classMerger != nil {
+		cm += config.classMerger.PkgPath + "." + config.classMerger.FuncName
 	}
 	h := sha256.New()
 	// codegenID (codegenIdentity) folds in BOTH the manual codegen.Version and the
 	// gsx binary hash, so it supersedes a bare Version() pin: any emit/lowering
 	// change auto-invalidates even when the constant is not bumped.
-	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegenID, buildCtx, goModHash, goSumHash)
-	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00renderers=%s\x00cls=%s\x00fm=%s\x00minify=css:%d,js:%d\x00%s\x00own=%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), strings.Join(rendererPins, "\x00"), clsFingerprint, fmStr, b2i(cssMinify), b2i(jsMinify), cm, own)
-	for _, d := range depHashes {
-		fmt.Fprintf(h, "dep=%s\x00", d)
-	}
+	fmt.Fprintf(h, "gsxcache-v3\x00%s\x00%s\x00source=%s\x00", config.codegenIdentity, config.buildContext, sourceIdentity)
+	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00renderers=%s\x00cls=%s\x00fm=%s\x00minify=css:%d,js:%d\x00%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), strings.Join(rendererPins, "\x00"), config.classifierFingerprint, fmStr, b2i(config.cssMinify), b2i(config.jsMinify), cm)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
@@ -319,14 +242,4 @@ func b2i(b bool) int {
 		return 1
 	}
 	return 0
-}
-
-// fileHashOrEmpty hashes a file's bytes, returning "" if absent (go.sum may not exist).
-func fileHashOrEmpty(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }

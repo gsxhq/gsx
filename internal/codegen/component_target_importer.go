@@ -17,9 +17,10 @@ import (
 // already-warm external importer. loading is a per-analysis recursion stack;
 // completed packages live only in Module.targetDeclTypes.
 type componentTargetImporter struct {
-	module   *Module
-	external types.Importer
-	loading  map[string]bool
+	module    *Module
+	external  types.Importer
+	loading   map[string]bool
+	sourceErr error
 }
 
 func newComponentTargetImporter(module *Module, external types.Importer) *componentTargetImporter {
@@ -34,16 +35,22 @@ func (importer *componentTargetImporter) Import(path string) (*types.Package, er
 	if importer == nil || importer.module == nil {
 		return nil, fmt.Errorf("codegen: nil exact component target importer")
 	}
-	if dir, ok := importer.module.exactTargetPackageDir(path); ok {
-		return importer.module.targetDeclarationPackage(dir, importer)
+	if dir, ok := importer.module.sourcePackageDir(path); ok {
+		pkg, err := importer.module.targetDeclarationPackage(dir, importer)
+		if err != nil && importer.sourceErr == nil {
+			if _, ok := diagnosticsFromSourceError(err); ok {
+				importer.sourceErr = err
+			}
+		}
+		return pkg, err
 	}
 	if importer.external == nil {
 		return nil, fmt.Errorf("codegen: exact component target importer has no external importer for %q", path)
 	}
-	return importer.external.Import(path)
+	return importer.module.importWithBundleProjectBoundary(path, importer.external)
 }
 
-func targetTypeErrorsAsSourceError(typeErrs []types.Error) error {
+func typeErrorsAsSourceError(typeErrs []types.Error) error {
 	if len(typeErrs) == 0 {
 		return nil
 	}
@@ -90,10 +97,14 @@ func (m *Module) targetDeclarationPackage(dir string, importer *componentTargetI
 	if pkgName == "" {
 		return nil, fmt.Errorf("codegen: exact component target package %s has no package name", dir)
 	}
+	companions, companionImports, err := m.parseTargetCompanionGoFiles(dir, gsxFiles)
+	if err != nil {
+		return nil, err
+	}
 	bag := diag.NewBag(m.fset)
 	var preprocessed callSitePreprocessResult
 	if len(gsxFiles) != 0 {
-		preprocessed, err = parsed.preprocessComponentCallSites(packageDeclNames(dir, gsxFiles), m.fset, m.classifierFor(dir), bag)
+		preprocessed, err = parsed.preprocessComponentCallSites(packageDeclNamesFromFiles(companions, gsxFiles), m.fset, m.classifierFor(dir), bag)
 		if err != nil {
 			return nil, err
 		}
@@ -101,13 +112,29 @@ func (m *Module) targetDeclarationPackage(dir string, importer *componentTargetI
 			return nil, err
 		}
 	}
+	if err := m.validateBundleProjectImports(gsxFiles, m.fset); err != nil {
+		return nil, err
+	}
 
 	paths := make([]string, 0, len(gsxFiles))
 	for path := range gsxFiles {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	plan := newComponentTargetPlan(gsxFiles, parsed.sources, bag)
+	pkgPath := dir
+	if sourceFound && sourcePackage.pkgPath != "" {
+		pkgPath = sourcePackage.pkgPath
+	} else if path, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
+		pkgPath = path
+	}
+	typeEnvironment, err := m.typeCheckEnvironmentForDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := m.finalizedComponentTargetPlan(dir, pkgPath, pkgName, gsxFiles, parsed.sources, m.fset, bag, importer, typeEnvironment)
+	if err != nil {
+		return nil, err
+	}
 	if len(gsxFiles) != 0 {
 		if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
 			return nil, err
@@ -138,33 +165,33 @@ func (m *Module) targetDeclarationPackage(dir string, importer *componentTargetI
 			return nil, err
 		}
 	}
-	companions, companionImports, err := m.parseTargetCompanionGoFiles(dir, gsxFiles)
-	if err != nil {
-		return nil, err
-	}
 	files = append(files, companions...)
 	importPaths = append(importPaths, companionImports...)
 	if len(files) == 0 {
 		return nil, fmt.Errorf("codegen: exact component target package %s has no source files", dir)
 	}
-
-	pkgPath := dir
-	if sourceFound && sourcePackage.pkgPath != "" {
-		pkgPath = sourcePackage.pkgPath
-	} else if path, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
-		pkgPath = path
+	if err := m.rejectExternalBackedgeImports(files); err != nil {
+		return nil, err
 	}
-	pkg, info, typeErrs := checkComponentTargetPackage(pkgPath, pkgName, files, m.fset, importer, componentTargetCheckConfig{
+	// The direct syntactic/path surface is complete now. Replace its path-only
+	// invalidation edges before any recursive type-check can fail; semantic cache
+	// publication remains gated on the successful checker result below.
+	m.recordTargetImports(dir, importPaths)
+
+	pkg, _, typeErrs := checkComponentTargetPackage(pkgPath, pkgName, files, m.fset, importer, componentTargetCheckConfig{
 		ignoreFuncBodies:         true,
 		disableUnusedImportCheck: true,
+		typeEnvironment:          typeEnvironment,
 	})
-	validateComponentVariantSignatures(files, info, plan, bag)
+	if importer.sourceErr != nil {
+		return nil, importer.sourceErr
+	}
 	if len(gsxFiles) != 0 {
 		if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
 			return nil, err
 		}
 	}
-	if err := targetTypeErrorsAsSourceError(typeErrs); err != nil {
+	if err := typeErrorsAsSourceError(typeErrs); err != nil {
 		return nil, err
 	}
 
@@ -174,6 +201,5 @@ func (m *Module) targetDeclarationPackage(dir string, importer *componentTargetI
 	}
 	m.targetDeclTypes[dir] = pkg
 	m.mu.Unlock()
-	m.recordTargetImports(dir, importPaths)
 	return pkg, nil
 }

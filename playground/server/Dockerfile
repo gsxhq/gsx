@@ -1,5 +1,5 @@
 # playground/server/Dockerfile — build context is the gsx repo root.
-FROM golang:1.26-bookworm
+FROM golang:1.26.1-bookworm
 
 WORKDIR /gsx
 # Copy the whole module so the playground's replace => /gsx resolves.

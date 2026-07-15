@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"go/types"
+	goversion "go/version"
 )
 
 // This file is the subprocess-free counterpart to the packages.Load-based
@@ -12,8 +13,8 @@ import (
 //
 // harvestFromTypes is THE filter harvest. Every path that builds a filter table
 // funnels here: harvestFilters (go list) validates *packages.Package errors and
-// then delegates; Module.filterTableFromExt harvests the external importer's
-// already-loaded types; NewCachedResolverFromTypes serves the WASM Bundle.
+// then delegates; Module.filterTableFromSource harvests authoritative configured
+// declarations; NewCachedResolverFromTypes serves the WASM Bundle.
 //
 // One implementation is not a tidiness preference. Precedence (whole-package
 // paths in order, last-wins, then explicit aliases), signature classification,
@@ -136,11 +137,17 @@ func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []strin
 // pkgs maps import path -> *types.Package and MUST include the gsx runtime, every
 // filterPkg, and every import a generated snippet references. Empty filterPkgs
 // defaults to the built-in std filter package.
-func NewCachedResolverFromTypes(pkgs map[string]*types.Package, filterPkgs []string, aliases []FilterAlias) (*Bundle, error) {
+func NewCachedResolverFromTypes(pkgs map[string]*types.Package, sizes types.Sizes, goVersion string, filterPkgs []string, aliases []FilterAlias) (*Bundle, error) {
+	if sizes == nil {
+		return nil, fmt.Errorf("codegen: bundled resolver requires target type sizes")
+	}
+	if !goversion.IsValid(goVersion) {
+		return nil, fmt.Errorf("codegen: bundled resolver requires a valid Go language version, got %q", goVersion)
+	}
 	filterPkgs = dedupFilterPkgs(filterPkgs)
 	table, rt, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &Bundle{imp: mapImporter(pkgs), table: funcTables{filters: table, renderers: rt}}, nil
+	return &Bundle{imp: mapImporter(pkgs), table: funcTables{filters: table, renderers: rt}, sizes: sizes, goVersion: goVersion}, nil
 }

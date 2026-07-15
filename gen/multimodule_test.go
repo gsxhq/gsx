@@ -85,9 +85,9 @@ func TestWatchSessionMultiModule(t *testing.T) {
 	writeFile(t, viewsDir, "page.gsx", "package views\n\nimport \"betamod/comp\"\n\ncomponent Page() {\n\t<comp.Card title=\"hi\"/>\n}\n")
 
 	cfg := watchConfig{paths: []string{parent}, cls: attrclass.Builtin()}
-	sess, _, err := newWatchSession(cfg)
+	sess, _, err := startWatchSessionForTest(cfg)
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 
 	// Warm-regen the cross-package consumer in the SECOND module; its Module

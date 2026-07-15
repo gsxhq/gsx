@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/fsnotify/fsnotify"
 )
 
 // runDev owns the dev loop: it generates (warm Module), builds+runs the Go
@@ -70,17 +69,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// --- warm watch session: initial cold generate ---
-	//
-	// Guard against newWatchSession panicking when there are no .gsx files.
-	// Without any .gsx source the overlay has nothing to generate, and the watch
-	// session cannot open a Module. Fail clearly so the user adds .gsx source.
-	gsxDirs, _ := discoverDirs([]string{workDir})
-	if len(gsxDirs) == 0 {
-		fmt.Fprintf(stderr, "gsx dev: no .gsx files found under %s\n", workDir)
-		return 1
-	}
-
+	// --- warm watch session: arm observation before the initial snapshot ---
 	wcfg := watchConfig{
 		paths: []string{workDir}, stdout: stdout, stderr: stderr,
 		filterPkgs: merged.filterPkgs, aliases: merged.aliases, renderers: merged.renderers,
@@ -89,7 +78,16 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		cssMinify: merged.cssMinLevel.enabled(), jsMinify: merged.jsMinLevel.enabled(),
 		classMerger: merged.classMerger,
 	}
-	sess, startup, err := newWatchSession(wcfg)
+	armed, err := armWatchSession(wcfg)
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+		return 1
+	}
+	defer armed.Close()
+	sess := armed.session
+	w := armed.watcher
+	sources := armed.sources
+	startup, err := sess.initialGenerate()
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
@@ -133,20 +131,8 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// still needed for build-error and .env recovery paths.
 	overlayUp := !startOK
 
-	// --- fsnotify watcher (sources + .env) ---
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
-		srv.stop()
-		if vite != nil {
-			killProcGroup(vite, 5*time.Second)
-		}
-		return 1
-	}
-	defer w.Close()
-	addWatchTree(w, []string{workDir})
-	sources := newSourceTracker([]string{workDir})
-
+	// Observation has been armed since before initialGenerate, so source and
+	// .env events that arrived during startup are already queued on w.
 	if dc.web != nil {
 		fmt.Fprintf(stdout, "gsx dev: watching %s — open %s\n", workDir, viteURL)
 	} else {
@@ -154,8 +140,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 
 	var (
-		pending  = map[string]bool{}
-		depDirty bool
+		dirty    = newWatchDirtySet()
 		envDirty bool
 		timer    *time.Timer
 		fire     = make(chan struct{}, 1)
@@ -191,22 +176,14 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				schedule()
 				continue
 			}
-			if !watchable(ev.Name) {
+			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty)
+			if eventErr != nil {
+				fmt.Fprintf(stderr, "gsx dev: watch event: %v\n", eventErr)
 				continue
 			}
-			if !sources.changed(ev.Name) {
-				continue
+			if changed {
+				schedule()
 			}
-			if isDepFile(ev.Name) {
-				depDirty = true
-			}
-			pending[filepath.Dir(ev.Name)] = true
-			if ev.Op&fsnotify.Create != 0 {
-				if fi, statErr := os.Stat(ev.Name); statErr == nil && fi.IsDir() && !excludedDir(ev.Name) {
-					_ = w.Add(ev.Name)
-				}
-			}
-			schedule()
 
 		case <-fire:
 			// .env change → restart server with fresh env (no rebuild) + reload.
@@ -229,20 +206,17 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 					postReload(viteURL)
 					overlayUp = false
 				}
-				// fall through: an .env-only fire has empty pending.
+				// fall through: an .env-only fire has no source dirtiness.
 			}
-			if len(pending) == 0 && !depDirty {
+			if len(dirty.dirs) == 0 && !dirty.depDirty {
 				continue
 			}
-			results, rerr := sess.regenPending(pending, depDirty)
-			goChanged := depDirty
-			pending = map[string]bool{}
-			depDirty = false
+			results, goChanged, rerr := dirty.regenerate(sess.regenPending)
 			if rerr != nil {
 				fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
 				postEvent(viteURL, buildErrorEvent("regen failed: "+rerr.Error()))
 				overlayUp = true
-				continue // preserve nothing; next event retries
+				continue // retained dirty state is retried on the next relevant event
 			}
 			// Overlay state from this cycle.
 			postEvent(viteURL, aggregateEvent(results))

@@ -140,7 +140,7 @@ func TestCheckSkeletonPackageReturnsPkg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, info, errs := checkSkeletonPackage("/m/p", "p", []*goast.File{f}, fset, importer.Default())
+	pkg, info, errs := checkSkeletonPackage("/m/p", "p", []*goast.File{f}, fset, importer.Default(), testTypeCheckEnvironment())
 	if len(errs) != 0 {
 		t.Fatalf("unexpected type errors: %v", errs)
 	}

@@ -38,35 +38,67 @@ type watchConfig struct {
 
 func runWatch(cfg watchConfig) int { return runWatchWithStop(cfg, nil) }
 
+// armedWatchSession is the shared watch/dev startup boundary. prepare resolves
+// roots without reading GSX membership; armWatchSession then registers every
+// current directory and captures the source-event baseline. Only after this
+// value exists may initialGenerate snapshot and generate authored sources.
+type armedWatchSession struct {
+	session *watchSession
+	watcher *fsnotify.Watcher
+	sources *sourceTracker
+}
+
+func armWatchSession(cfg watchConfig) (*armedWatchSession, error) {
+	session, err := prepareWatchSession(cfg)
+	if err != nil {
+		return nil, err
+	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	if err := addWatchTree(watcher, session.watchRoots); err != nil {
+		_ = watcher.Close()
+		return nil, err
+	}
+	return &armedWatchSession{
+		session: session,
+		watcher: watcher,
+		sources: newSourceTracker(session.watchRoots),
+	}, nil
+}
+
+func (session *armedWatchSession) Close() error {
+	if session == nil || session.watcher == nil {
+		return nil
+	}
+	err := session.watcher.Close()
+	session.watcher = nil
+	return err
+}
+
 // runWatchWithStop runs the daemon until `stop` is closed (tests) or a SIGINT/
 // SIGTERM arrives (nil stop). Returns a process exit code.
 func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	em := &emitter{ndjson: cfg.format == "ndjson", stdout: cfg.stdout, stderr: cfg.stderr}
 
-	// Short-circuit when there are no watchable dirs (no .gsx files found).
-	dirs, err := discoverDirs(cfg.paths)
-	if err != nil || len(dirs) == 0 {
-		return 0
-	}
-
-	sess, startup, err := newWatchSession(cfg)
+	armed, err := armWatchSession(cfg)
 	if err != nil {
 		em.emitError(err)
 		return 1
 	}
-
-	w, err := fsnotify.NewWatcher()
+	defer armed.Close()
+	sess := armed.session
+	w := armed.watcher
+	sources := armed.sources
+	// Start means observation is armed. Initial generation follows while source
+	// events queue on w, so an edit in that window cannot disappear.
+	em.start(sess.root, sess.watchRoots)
+	startup, err := sess.initialGenerate()
 	if err != nil {
 		em.emitError(err)
 		return 1
 	}
-	defer w.Close()
-
-	addWatchTree(w, dirs)
-	sources := newSourceTracker(dirs)
-	// Emit start first so tests/consumers can distinguish the initial cold-
-	// generate cycles (below) from subsequent regen cycles.
-	em.start(sess.root, dirs)
 	for _, r := range startup {
 		em.cycle(r)
 	}
@@ -75,8 +107,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sig)
 
-	var pending = map[string]bool{} // dirty package dirs
-	var depDirty bool               // a .go/go.mod/go.sum changed → rebuild
+	dirty := newWatchDirtySet()
 	var timer *time.Timer
 	const debounce = 100 * time.Millisecond
 	fire := make(chan struct{}, 1)
@@ -100,28 +131,19 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 		case <-sig:
 			return 0
 		case ev := <-w.Events:
-			if !watchable(ev.Name) {
+			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty)
+			if eventErr != nil {
+				em.emitError(eventErr)
 				continue
 			}
-			if !sources.changed(ev.Name) {
-				continue
+			if changed {
+				schedule()
 			}
-			if isDepFile(ev.Name) {
-				depDirty = true
-			}
-			pending[filepath.Dir(ev.Name)] = true
-			// Newly created dirs join the watch set.
-			if ev.Op&fsnotify.Create != 0 {
-				if fi, statErr := os.Stat(ev.Name); statErr == nil && fi.IsDir() && !excludedDir(ev.Name) {
-					_ = w.Add(ev.Name)
-				}
-			}
-			schedule()
 		case <-fire:
-			results, rerr := sess.regenPending(pending, depDirty)
+			results, _, rerr := dirty.regenerate(sess.regenPending)
 			if rerr != nil {
 				// Regenerating against a stale module would emit output built on
-				// the old type graph. Leave depDirty+pending intact and retry on
+				// the old type graph. Leave the dirty transaction intact and retry on
 				// the next fire.
 				em.emitError(rerr)
 				continue
@@ -129,8 +151,6 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 			for _, r := range results {
 				em.cycle(r)
 			}
-			pending = map[string]bool{}
-			depDirty = false
 		case werr := <-w.Errors:
 			em.emitError(werr)
 		}
@@ -138,20 +158,82 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 }
 
 // addWatchTree adds every non-excluded subdir under each root to the watcher
-// (fsnotify is non-recursive).
-func addWatchTree(w *fsnotify.Watcher, roots []string) {
+// (fsnotify is non-recursive). The root itself is always honored because it was
+// explicitly selected; exclusion applies only to descendants.
+func addWatchTree(w *fsnotify.Watcher, roots []string) error {
 	for _, root := range roots {
-		filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-			if err != nil || !d.IsDir() {
+		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() {
 				return nil
 			}
-			if excludedDir(p) {
+			if p != root && excludedDir(p) {
 				return filepath.SkipDir
 			}
-			_ = w.Add(p)
-			return nil
+			return w.Add(p)
 		})
+		if err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// applyWatchEvent handles structural directory creation before filtering file
+// names. A newly created subtree can already contain source files by the time
+// fsnotify delivers its directory event, so it is first made recursively
+// watchable and then inventoried through the same exact source classifier used
+// for ordinary file events.
+func applyWatchEvent(w *fsnotify.Watcher, event fsnotify.Event, sources *sourceTracker, pending map[string]bool, depDirty *bool) (bool, error) {
+	if event.Op&fsnotify.Create != 0 {
+		info, err := os.Stat(event.Name)
+		if err == nil && info.IsDir() {
+			if excludedDir(event.Name) {
+				return false, nil
+			}
+			if err := addWatchTree(w, []string{event.Name}); err != nil {
+				return false, err
+			}
+			return queueWatchTree(event.Name, sources, pending, depDirty)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return queueWatchSource(event.Name, sources, pending, depDirty), nil
+}
+
+func queueWatchTree(root string, sources *sourceTracker, pending map[string]bool, depDirty *bool) (bool, error) {
+	changed := false
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if path != root && excludedDir(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if queueWatchSource(path, sources, pending, depDirty) {
+			changed = true
+		}
+		return nil
+	})
+	return changed, err
+}
+
+func queueWatchSource(path string, sources *sourceTracker, pending map[string]bool, depDirty *bool) bool {
+	if !watchable(path) || !sources.changed(path) {
+		return false
+	}
+	if isDepFile(path) {
+		*depDirty = true
+	}
+	pending[filepath.Dir(path)] = true
+	return true
 }
 
 type sourceTracker struct {
@@ -170,7 +252,7 @@ func newSourceTracker(roots []string) *sourceTracker {
 				return nil
 			}
 			if d.IsDir() {
-				if excludedDir(p) {
+				if p != root && excludedDir(p) {
 					return filepath.SkipDir
 				}
 				return nil
@@ -218,9 +300,6 @@ func readSourceSnapshot(path string) (sourceSnapshot, bool) {
 
 func watchable(path string) bool {
 	base := filepath.Base(path)
-	if strings.HasSuffix(base, ".x.go") {
-		return false // never react to our own output
-	}
 	return strings.HasSuffix(base, ".gsx") || isDepFile(path)
 }
 
@@ -229,7 +308,22 @@ func isDepFile(path string) bool {
 	if b == "go.mod" || b == "go.sum" {
 		return true
 	}
-	return strings.HasSuffix(b, ".go") && !strings.HasSuffix(b, ".x.go")
+	if !strings.HasSuffix(b, ".go") {
+		return false
+	}
+	return !pairedGeneratedOutput(path)
+}
+
+// pairedGeneratedOutput recognizes only the exact output path reserved by an
+// existing same-base GSX source. An unpaired *.x.go file is authored Go and is
+// therefore part of the watched dependency surface.
+func pairedGeneratedOutput(path string) bool {
+	if !strings.HasSuffix(filepath.Base(path), ".x.go") {
+		return false
+	}
+	gsxPath := strings.TrimSuffix(path, ".x.go") + ".gsx"
+	info, err := os.Stat(gsxPath)
+	return err == nil && !info.IsDir()
 }
 
 // excludedDir reports whether a directory should be skipped: a project-local

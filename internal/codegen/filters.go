@@ -483,6 +483,7 @@ func isErrorType(t types.Type) bool {
 // isContextContext reports whether t is exactly context.Context: a *types.Named
 // whose object lives in the standard "context" package and is named "Context".
 func isContextContext(t types.Type) bool {
+	t = types.Unalias(t)
 	named, ok := t.(*types.Named)
 	if !ok {
 		return false

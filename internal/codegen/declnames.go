@@ -4,9 +4,6 @@ import (
 	goast "go/ast"
 	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
-	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
@@ -21,6 +18,14 @@ import (
 // This set is the resolution input for lowercase tags in
 // preprocessComponentCallSites.
 func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool {
+	return packageDeclNamesFromFiles(parseHandwrittenGoFiles(dir), files)
+}
+
+// packageDeclNamesFromFiles derives package declarations from a caller-owned
+// companion syntax selection. Module semantic resolvers pass retained active
+// CompiledGoFiles ASTs; the dir wrapper above preserves the standalone,
+// build-oblivious syntactic behavior.
+func packageDeclNamesFromFiles(goFiles []*goast.File, files map[string]*gsxast.File) map[string]bool {
 	out := map[string]bool{}
 	collectGoDecls := func(f *goast.File) {
 		for _, decl := range f.Decls {
@@ -77,25 +82,8 @@ func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool
 			}
 		}
 	}
-	if dir == "" {
-		return out
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
-			continue
-		}
-		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-		if perr != nil || f == nil {
-			continue
-		}
-		collectGoDecls(f)
+	for _, file := range goFiles {
+		collectGoDecls(file)
 	}
 	return out
 }
