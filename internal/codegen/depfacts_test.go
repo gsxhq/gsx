@@ -96,9 +96,14 @@ func TestImportedPropFactsRunsCanonicalPreprocessor(t *testing.T) {
 			wantSource: "parser",
 		},
 		{
+			// Binding/lvalue positions defer to emit-time type adjudication
+			// (only a gsx.RawJS hole may splice there), so they are no longer a
+			// classify-time preprocessor failure. Exercise a genuine, type-
+			// independent JS classify failure instead: a @{ } inside a <script>
+			// comment whose reconstructed text contains "</script".
 			name:       "JavaScript failure after expansion",
-			body:       `{ wrap(<script>let @{ value } = 1</script>) }`,
-			wantCode:   "jsx-identifier-position",
+			body:       "{ wrap(<script>const u = @{ id }; // x @{ \"</script>\" }\n</script>) }",
+			wantCode:   "jsx-script-close",
 			wantSource: "jsx",
 		},
 		{
