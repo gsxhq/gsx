@@ -1,0 +1,29 @@
+A switch/case inside a js` attribute value keeps each case body one level under
+its `case:` label (preserved as written, not flattened to the label level).
+
+-- input.gsx --
+package p
+
+component C() {
+	<div x-on:pick=js`(type) => {
+		switch (type) {
+		case 'a':
+			this.sel = 1;
+			break;
+		}
+	}`/>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<div
+		x-on:pick=js`(type) => {
+			switch (type) {
+				case 'a':
+					this.sel = 1;
+					break;
+			}
+		}`
+	/>
+}

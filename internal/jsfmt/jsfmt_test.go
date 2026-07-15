@@ -8,7 +8,7 @@ import (
 
 func fmtJS(t *testing.T, in string) string {
 	t.Helper()
-	out, err := Format([]byte(in), 80)
+	out, err := Format([]byte(in), 80, 2)
 	if err != nil {
 		t.Fatalf("Format(%q) error: %v", in, err)
 	}
@@ -20,11 +20,12 @@ func fmtJS(t *testing.T, in string) string {
 // indent levels put the callback BODY two levels deep (and the `});` one level
 // too deep). Only the brace must count → exactly one level. This is the
 // dominant real-world pattern (htmx/Alpine event handlers).
-func TestCallbackPatternSingleIndent(t *testing.T) {
-	in := "document.body.addEventListener('htmx:beforeRequest', (evt) => {\nconsole.log('HTMX Request:', evt.detail);\n});"
-	want := "document.body.addEventListener('htmx:beforeRequest', (evt) => {\n\tconsole.log('HTMX Request:', evt.detail);\n});"
-	if got := fmtJS(t, in); got != want {
-		t.Fatalf("callback body over/under-indented:\ngot:  %q\nwant: %q", got, want)
+func TestCallbackPatternPreserved(t *testing.T) {
+	// The author's single-level callback-body indent is preserved as written
+	// (not doubled, not flattened) — re-basing keeps relative structure.
+	in := "document.body.addEventListener('htmx:beforeRequest', (evt) => {\n\tconsole.log('HTMX Request:', evt.detail);\n});"
+	if got := fmtJS(t, in); got != in {
+		t.Fatalf("callback body not preserved:\ngot:  %q\nwant: %q", got, in)
 	}
 }
 
@@ -96,8 +97,10 @@ func TestRealWorldJSReproducedExactly(t *testing.T) {
 	}
 }
 
-func TestReindentsToTabs(t *testing.T) {
-	in := "function f() {\n      const x = 1;\n   if (x) {\nreturn x;\n   }\n}"
+func TestRebasesPreservingRelative(t *testing.T) {
+	// A body indented at a base (2 tabs) dedents to zero, keeping the author's
+	// relative nesting exactly.
+	in := "\t\tfunction f() {\n\t\t\tconst x = 1;\n\t\t\tif (x) {\n\t\t\t\treturn x;\n\t\t\t}\n\t\t}"
 	want := "function f() {\n\tconst x = 1;\n\tif (x) {\n\t\treturn x;\n\t}\n}"
 	if got := fmtJS(t, in); got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -136,11 +139,16 @@ func TestRegexNotMislexedAsDivision(t *testing.T) {
 	}
 }
 
-func TestCommentInteriorUntouched(t *testing.T) {
-	in := "function f() {\n\t/* a\n  b */\n\tx();\n}"
+func TestCommentReindentsWithCode(t *testing.T) {
+	// A block comment inside a `{ }` body re-bases with the code (its continuation
+	// lines carry a relative offset the re-indenter preserves). The surrounding
+	// code must NOT be double-indented, and the comment's relative alignment (the
+	// `*` under the `/`) survives.
+	in := "function f() {\n\t/* a\n\t * b */\n\tx();\n}"
 	got := fmtJS(t, in)
-	if !strings.Contains(got, "/* a\n  b */") {
-		t.Fatalf("block comment interior re-indented:\n%s", got)
+	want := "function f() {\n\t/* a\n\t * b */\n\tx();\n}"
+	if got != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
 	}
 }
 
@@ -188,7 +196,7 @@ func TestFormatLinesTemplateLiteralOneLine(t *testing.T) {
 	// A multi-line template literal must be a SINGLE logical line (its internal
 	// newlines are content), while ordinary statements are separate lines.
 	src := "var f = () => {\nreturn `<div>\nhi\n</div>`;\n}"
-	lines, ok := FormatLines([]byte(src), 80)
+	lines, ok := FormatLines([]byte(src), 80, 2)
 	if !ok {
 		t.Fatal("ok=false")
 	}

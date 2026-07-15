@@ -37,11 +37,11 @@ func FuzzReindentJS(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		out, err := Format([]byte(s), 80)
+		out, err := Format([]byte(s), 80, 2)
 		if err != nil {
 			return // lex error → verbatim fallback; nothing to assert
 		}
-		out2, err2 := Format(out, 80)
+		out2, err2 := Format(out, 80, 2)
 		if err2 != nil || string(out2) != string(out) {
 			t.Fatalf("not idempotent:\n in=%q\n once=%q\n twice=%q err=%v", s, out, out2, err2)
 		}

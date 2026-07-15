@@ -7,15 +7,17 @@ import (
 
 func fmtCSS(t *testing.T, in string) string {
 	t.Helper()
-	out, err := Format([]byte(in), 80)
+	out, err := Format([]byte(in), 80, 2)
 	if err != nil {
 		t.Fatalf("Format(%q) error: %v", in, err)
 	}
 	return string(out)
 }
 
-func TestReindentFixesIndentation(t *testing.T) {
-	in := ".a {\n      color: red;\n  background: blue;\n}"
+func TestRebasesPreservingRelative(t *testing.T) {
+	// A rule indented at a base dedents to zero, keeping the author's relative
+	// structure exactly.
+	in := "\t.a {\n\t\tcolor: red;\n\t\tbackground: blue;\n\t}"
 	want := ".a {\n\tcolor: red;\n\tbackground: blue;\n}"
 	if got := fmtCSS(t, in); got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -45,19 +47,23 @@ func TestExistingBlankLinesPreserved(t *testing.T) {
 	}
 }
 
-func TestNestedAtRuleIndents(t *testing.T) {
-	in := "@media (min-width: 600px) {\n.a {\ncolor: red;\n}\n}"
-	want := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}"
-	if got := fmtCSS(t, in); got != want {
-		t.Fatalf("got %q want %q", got, want)
+func TestNestedAtRulePreserved(t *testing.T) {
+	// Well-nested @media (zero-based) is preserved as written.
+	in := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}"
+	if got := fmtCSS(t, in); got != in {
+		t.Fatalf("nested @media not preserved:\ngot  %q\nwant %q", got, in)
 	}
 }
 
-func TestMultiLineCommentInteriorUntouched(t *testing.T) {
-	in := ".a {\n\t/* keep\n   me */\n\tcolor: red;\n}"
+func TestMultiLineCommentReindentsWithCode(t *testing.T) {
+	// A multi-line comment inside a `{ }` rule re-bases with the code (its
+	// continuation carries a relative offset that survives); the surrounding
+	// declarations must NOT be double-indented.
+	in := ".a {\n\t/* keep\n\t * me */\n\tcolor: red;\n}"
 	got := fmtCSS(t, in)
-	if !strings.Contains(got, "/* keep\n   me */") {
-		t.Fatalf("multi-line comment interior was re-indented:\n%s", got)
+	want := ".a {\n\t/* keep\n\t * me */\n\tcolor: red;\n}"
+	if got != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
 	}
 }
 
@@ -71,7 +77,7 @@ func TestSentinelPreserved(t *testing.T) {
 
 func TestUnterminatedStringErrors(t *testing.T) {
 	// A tokenizer error (unterminated string) → error → caller falls back verbatim.
-	if _, err := Format([]byte(".a{content:\"oops}"), 80); err == nil {
+	if _, err := Format([]byte(".a{content:\"oops}"), 80, 2); err == nil {
 		t.Fatal("expected error on unterminated string")
 	}
 }
@@ -122,23 +128,17 @@ func TestCSSLoneCRIsLineBreakNotFusion(t *testing.T) {
 	}
 }
 
-func TestFormatLinesBlockCommentOneLine(t *testing.T) {
-	// A multi-line /* … */ comment must be a SINGLE logical line.
-	src := ".a {\n/* multi\nline\ncomment */\ncolor: red;\n}"
-	lines, ok := FormatLines([]byte(src), 80)
-	if !ok {
-		t.Fatal("ok=false")
+func TestBlockCommentReBasesAndAligns(t *testing.T) {
+	// A multi-line /* … */ comment re-bases with the code (the common indent is
+	// stripped) and its interior aligns under the opener — comment whitespace is
+	// insignificant, unlike a string literal's.
+	src := "\t.a {\n\t\t/* multi\n\t\t   line\n\t\t   comment */\n\t\tcolor: red;\n\t}"
+	out, err := Format([]byte(src), 80, 2)
+	if err != nil {
+		t.Fatal(err)
 	}
-	found := false
-	for _, ln := range lines {
-		if strings.Contains(ln, "/* multi") {
-			if !strings.Contains(ln, "line") || !strings.Contains(ln, "comment */") {
-				t.Fatalf("comment split across lines: %q", ln)
-			}
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("comment line not found in %q", lines)
+	want := ".a {\n\t/* multi\n\t   line\n\t   comment */\n\tcolor: red;\n}"
+	if string(out) != want {
+		t.Fatalf("got  %q\nwant %q", out, want)
 	}
 }

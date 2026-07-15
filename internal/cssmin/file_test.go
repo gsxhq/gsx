@@ -186,3 +186,69 @@ func TestMinifyFileStyleInCondAttr(t *testing.T) {
 		t.Fatalf("<style> in CondAttr.Then MarkupAttr not minified: %q", got)
 	}
 }
+
+func divCSSAttr(a ast.Attr) *ast.Element { return &ast.Element{Tag: "div", Attrs: []ast.Attr{a}} }
+func embSegs(f *ast.File) []ast.Markup {
+	return f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Attrs[0].(*ast.EmbeddedAttr).Segments
+}
+
+func TestMinifyCSSAttr(t *testing.T) {
+	f := fileWith(divCSSAttr(&ast.EmbeddedAttr{Name: "style", Lang: ast.EmbeddedCSS,
+		Segments: []ast.Markup{&ast.Text{Value: "color: red;\n  margin: 0;\n"}}}))
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := embSegs(f)[0].(*ast.Text).Value
+	if strings.Contains(got, "\n  ") {
+		t.Fatalf("css attr not minified: %q", got)
+	}
+	if !strings.Contains(got, "color") {
+		t.Fatalf("lost content: %q", got)
+	}
+}
+
+func TestMinifyCSSAttrIgnoresJSLang(t *testing.T) {
+	orig := "{ open: false }"
+	f := fileWith(divCSSAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS,
+		Segments: []ast.Markup{&ast.Text{Value: orig}}}))
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if embSegs(f)[0].(*ast.Text).Value != orig {
+		t.Fatalf("js attr touched by css pass")
+	}
+}
+
+func TestMinifyCSSAttrHoleyPreservesHole(t *testing.T) {
+	f := fileWith(divCSSAttr(&ast.EmbeddedAttr{Name: "style", Lang: ast.EmbeddedCSS,
+		Segments: []ast.Markup{&ast.Text{Value: "width: "}, &ast.Interp{Expr: "w"}, &ast.Text{Value: ";\n  color: red;\n"}}}))
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	hasInterp := false
+	for _, s := range embSegs(f) {
+		if _, ok := s.(*ast.Interp); ok {
+			hasInterp = true
+		}
+	}
+	if !hasInterp {
+		t.Fatalf("css hole lost: %#v", embSegs(f))
+	}
+}
+
+// A css` literal in a {{ }} block (carried in GoBlock.Embedded) is minified by
+// the same walk as a css` attribute value.
+func TestMinifyFileGoBlockLiteral(t *testing.T) {
+	lit := &ast.EmbeddedInterp{Lang: ast.EmbeddedCSS, Segments: []ast.Markup{
+		&ast.Text{Value: "\tcolor:   red;\n\tmargin:  0;\n"},
+	}}
+	gb := &ast.GoBlock{Embedded: []ast.GoPart{ast.GoText{Src: "a := "}, lit, ast.GoText{Src: ""}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{gb}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := lit.Segments[0].(*ast.Text).Value
+	if strings.Contains(got, "  ") || strings.Contains(got, "\n\t") {
+		t.Fatalf("go-block css literal not minified: %q", got)
+	}
+}

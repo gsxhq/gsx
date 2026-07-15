@@ -63,6 +63,10 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			return nil, false
 		}
 	}
+	// For a language that is NOT minified, re-base its embedded bodies so they do
+	// not ship indented to their source markup depth: strip the common leading
+	// indentation, keep the author's relative structure.
+	rebaseEmbedded(file, !jsMinify, !cssMinify)
 	// imports holds the USER's Go-chunk imports plus the filter / type-arg /
 	// class-merger packages. It starts empty: nothing is needed until something
 	// is emitted. The generator's own imports live in `rt` and are recorded at
@@ -2806,6 +2810,15 @@ func emitJSValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, n as
 		// No type constraint — numbers, structs, slices, maps all JSON-encode.
 		fmt.Fprintf(b, "\t\t_gsxgw.JSVal(%s)\n", expr)
 		return true
+	case ast.JSCtxBinding:
+		// Binding/lvalue position: only gsx.RawJS may splice here. JSVal emits a
+		// RawJS value verbatim at runtime, so the static type gate is the guard.
+		if !isRawJS(t) {
+			bindingPositionDiag(bag, n.Pos(), n.End())
+			return false
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.JSVal(%s)\n", expr)
+		return true
 	case ast.JSCtxString:
 		return emitJSString(b, "JSStr", expr, t, n, bag)
 	case ast.JSCtxTemplate:
@@ -3954,6 +3967,14 @@ func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.No
 			switch s.JSCtx {
 			case ast.JSCtxValue:
 				escaped = rt.rt() + ".EscapeJSVal(" + expr + ")"
+			case ast.JSCtxBinding:
+				// Binding/lvalue position: only gsx.RawJS may splice here.
+				// EscapeJSVal emits a RawJS value verbatim; the static gate guards.
+				if !isRawJS(typ) {
+					bindingPositionDiag(bag, s.Pos(), s.End())
+					return "", false
+				}
+				escaped = rt.rt() + ".EscapeJSVal(" + expr + ")"
 			case ast.JSCtxString, ast.JSCtxTemplate, ast.JSCtxRegexp:
 				str, ok := stringifyJSExpr(expr, typ, s, bag)
 				if !ok {
@@ -4057,6 +4078,14 @@ func emitJSAttrValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, 
 	switch ctx {
 	case ast.JSCtxValue:
 		// JSValAttr accepts any (JSON-encode); gsx.RawJS passthrough at runtime.
+		fmt.Fprintf(b, "\t\t_gsxgw.JSValAttr(%s)\n", expr)
+		return true
+	case ast.JSCtxBinding:
+		// Binding/lvalue position: only gsx.RawJS may splice here (verbatim).
+		if !isRawJS(t) {
+			bindingPositionDiag(bag, n.Pos(), n.End())
+			return false
+		}
 		fmt.Fprintf(b, "\t\t_gsxgw.JSValAttr(%s)\n", expr)
 		return true
 	case ast.JSCtxString:
@@ -4490,6 +4519,26 @@ func isRawURL(t types.Type) bool {
 	obj := n.Obj()
 	return obj != nil && obj.Name() == "RawURL" &&
 		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
+}
+
+// isRawJS reports whether t is gsx.RawJS. A JSCtxBinding hole (a JS
+// binding/lvalue position) is legal only for this type, which is spliced
+// verbatim.
+func isRawJS(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := n.Obj()
+	return obj != nil && obj.Name() == "RawJS" &&
+		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
+}
+
+// bindingPositionDiag records the diagnostic for a non-gsx.RawJS @{ } hole in a
+// JS binding/lvalue position. The three JS emit paths share it.
+func bindingPositionDiag(bag *diag.Bag, pos, end token.Pos) {
+	bag.Errorf(pos, end, "jsx-binding-position",
+		"@{ } here is a JavaScript binding/lvalue position (assignment target, declaration or member name); only a gsx.RawJS value may be spliced here — wrap it as gsx.RawJS(...) if the bytes are trusted, or use it where a value is expected")
 }
 
 // urlStringExpr renders a URL-context value as a string expression for gw.URL.

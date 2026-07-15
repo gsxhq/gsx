@@ -19,7 +19,7 @@ component C() {
 	<div
 		style=css`
 			/* multi
-   line */
+			   line */
 			color: red;
 			margin: 0;
 		`

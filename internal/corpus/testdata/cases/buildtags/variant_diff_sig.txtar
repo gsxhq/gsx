@@ -16,5 +16,5 @@ component Icon(name int) {
 }
 -- invoke --
 -- diagnostics.golden --
-5:11: component Icon is declared with different signatures across build-tagged files (icon.gsx, icon_never.gsx); build-tag variants must share the same signature — rename the variants or align their parameters
-5:11: component Icon is declared with different signatures across build-tagged files (icon.gsx, icon_never.gsx); build-tag variants must share the same signature — rename the variants or align their parameters
+5:11: component Icon has different or unresolved semantic signatures across build variants (icon.gsx, icon_never.gsx); parameter names and roles, function types, constraints, and receiver types must be valid and match
+5:11: component Icon has different or unresolved semantic signatures across build variants (icon.gsx, icon_never.gsx); parameter names and roles, function types, constraints, and receiver types must be valid and match

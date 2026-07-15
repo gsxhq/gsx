@@ -1,0 +1,18 @@
+# A bare string (non-gsx.RawJS) hole in a binding position is rejected at emit
+# with jsx-binding-position. The type gate is the guard: only an explicit
+# gsx.RawJS may splice into an lvalue/binding position.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+component Page(path string) {
+	{{
+		a := gsx.Attrs{
+			{Key: "@change", Value: js`@{path} = 1;`},
+		}
+	}}
+	<input {a...}/>
+}
+-- diagnostics.golden --
+8:32: @{ } here is a JavaScript binding/lvalue position (assignment target, declaration or member name); only a gsx.RawJS value may be spliced here — wrap it as gsx.RawJS(...) if the bytes are trusted, or use it where a value is expected

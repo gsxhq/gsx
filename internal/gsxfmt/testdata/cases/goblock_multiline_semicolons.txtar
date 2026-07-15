@@ -1,0 +1,22 @@
+A `{{ }}` block the author wrote as a single line with semicolon-separated
+statements still breaks to block style: gofmt splits the statements onto their
+own lines, so the block is multi-statement and lays out `{{` / body+1 / `}}`.
+
+-- input.gsx --
+package p
+
+component C() {
+	{{ x := 1; y := x + 2; _ = y }}
+	<div>{ x }</div>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	{{
+		x := 1
+		y := x + 2
+		_ = y
+	}}
+	<div>{ x }</div>
+}
