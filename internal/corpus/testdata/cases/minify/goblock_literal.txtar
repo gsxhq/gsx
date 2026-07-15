@@ -1,8 +1,11 @@
 js`/css` literals in Go-expression position (gsx.Attrs values in a {{ }} block)
 are minified by the same walkers as element-attribute literals. A holeless body
-is minified at the safe level; a holey body (the @change here) is left unchanged
-at the safe level (the sentinel round-trip is a full-minify-only step), matching
-the attribute policy.
+is minified at the safe level. A holey body (the @change here) is NOT minified —
+minifying around holes is deferred — but it is REINDENTED via the sentinel
+round-trip: the source's markup-level tabs are a gsx formatting artifact, and
+since the output HTML is whitespace-minified, leaving them in would make the js
+appear absurdly deep. Reindent re-bases it to its own brace depth (here: flat),
+which is what the emit-side rebase already does under the default MinifyNone.
 
 -- input.gsx --
 package views
@@ -36,6 +39,6 @@ Widget(WidgetProps{X: "a"})
 open: false,
 active: -1,
 }" @change="
-				const v = 1;
-				a = v;
-			">y</div>
+const v = 1;
+a = v;
+">y</div>

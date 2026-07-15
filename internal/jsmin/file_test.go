@@ -289,14 +289,58 @@ func TestMinifyJSAttrHoleyFull(t *testing.T) {
 	}
 }
 
-func TestMinifyJSAttrHoleySafeUnchanged(t *testing.T) {
+// A single-line holey value has nothing to reindent, so the safe level is a no-op.
+func TestMinifyJSAttrHoleySafeSingleLineNoop(t *testing.T) {
 	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS,
 		Segments: []ast.Markup{&ast.Text{Value: "{ id: "}, &ast.Interp{Expr: "id"}, &ast.Text{Value: " }"}}}))
 	if err := jsminFileMinify(f, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(attrSegs(f)) != 3 {
-		t.Fatalf("holey js under safe level must be unchanged, got %#v", attrSegs(f))
+	segs := attrSegs(f)
+	if len(segs) != 3 || segs[0].(*ast.Text).Value != "{ id: " || segs[2].(*ast.Text).Value != " }" {
+		t.Fatalf("single-line holey js under safe level must be unchanged, got %#v", segs)
+	}
+}
+
+// A MULTI-LINE indented holey value is NOT minified at the safe level (minifying
+// around holes is deferred) but IS reindented: leading indentation is stripped
+// while the hole, the newlines, and intra-line spacing survive verbatim. This is
+// what makes a holey attribute render consistently with its de-indented holeless
+// siblings instead of carrying the source's markup-level tabs.
+func TestMinifyJSAttrHoleySafeReindents(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "@change", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{
+			&ast.Text{Value: "\n\t\t\tconst v = 1;\n\t\t\t"},
+			&ast.Interp{Expr: "x"},
+			&ast.Text{Value: " = v;\n\t\t"},
+		}}))
+	if err := jsminFileMinify(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	segs := attrSegs(f)
+	text, hasHole := "", false
+	for _, s := range segs {
+		switch x := s.(type) {
+		case *ast.Text:
+			text += x.Value
+		case *ast.Interp:
+			hasHole = true
+			if x.Expr != "x" {
+				t.Fatalf("hole expr changed: %q", x.Expr)
+			}
+		}
+	}
+	if !hasHole {
+		t.Fatalf("hole lost in reindent round-trip: %#v", segs)
+	}
+	if has(text, "\t") {
+		t.Fatalf("leading tabs not stripped (not reindented): %q", text)
+	}
+	if !has(text, "const v = 1;") {
+		t.Fatalf("body was altered — safe level must not minify a holey value: %q", text)
+	}
+	if !containsNL(text) {
+		t.Fatalf("newlines dropped (ASI-unsafe): %q", text)
 	}
 }
 
