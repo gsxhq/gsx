@@ -2,12 +2,64 @@ package gen
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 )
+
+func writeCacheBoundaryGoCommand(t *testing.T, compiler string) string {
+	t.Helper()
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goRoot := t.TempDir()
+	bin := filepath.Join(goRoot, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(bin, "go")
+	script := `#!/bin/sh
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOWORK" ]; then
+	printf '{"GOWORK":"off","GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"go1.26.1","GOTOOLCHAIN":"go1.26.1+auto"}' "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_HOST_OS" "$GSX_FAKE_GOROOT"
+	exit 0
+fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
+	printf '{"GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"go1.26.1"}' "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_HOST_OS" "$GSX_FAKE_GOROOT"
+	exit 0
+fi
+if [ "$1" = "env" ]; then
+	exec "$REAL_GO" "$@"
+fi
+if [ -n "$GSX_CREATE_VENDOR_MARKER" ] && [ ! -e "$GSX_CREATE_VENDOR_MARKER" ]; then
+	/bin/mkdir -p "$GSX_CREATE_VENDOR_DIR"
+	: > "$GSX_CREATE_VENDOR_MARKER"
+fi
+if [ -n "$GSX_MUTATE_COMPILER_MARKER" ] && [ ! -e "$GSX_MUTATE_COMPILER_MARKER" ]; then
+	printf 'compiler version two' > "$GSX_FAKE_COMPILER"
+	: > "$GSX_MUTATE_COMPILER_MARKER"
+fi
+exec "$REAL_GO" "$@"
+`
+	if err := os.WriteFile(command, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("REAL_GO", realGo)
+	t.Setenv("GSX_FAKE_COMPILER", compiler)
+	t.Setenv("GSX_FAKE_TOOL_DIR", filepath.Dir(compiler))
+	t.Setenv("GSX_FAKE_HOST_OS", runtime.GOOS)
+	t.Setenv("GSX_FAKE_GOROOT", goRoot)
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+	return command
+}
 
 func TestCacheColdWarmEdit(t *testing.T) {
 	repoRoot, _ := filepath.Abs("..")
@@ -47,6 +99,155 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 	if len(res.Written) != 1 || filepath.Base(filepath.Dir(res.Written[0])) != "v" {
 		t.Fatalf("edit v: want only v written, got %v", res.Written)
+	}
+}
+
+func TestCacheHitRejectsCompilerMutationDuringGraphBeforeRestore(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/toolchain-boundary\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("populate cache: %v", err)
+	}
+	xgo := filepath.Join(dir, "view.x.go")
+	if err := os.Remove(xgo); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "mutated")
+	t.Setenv("GSX_MUTATE_COMPILER_MARKER", marker)
+
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "compiler") {
+		t.Fatalf("all-HIT generate error = %v, want compiler mutation rejection", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("graph command did not mutate compiler: %v", err)
+	}
+	if len(res.Written) != 0 {
+		t.Fatalf("stale cache HIT wrote files before validation: %v", res.Written)
+	}
+	if _, err := os.Stat(xgo); !os.IsNotExist(err) {
+		t.Fatalf("stale cache HIT restored %s before validation; stat error = %v", xgo, err)
+	}
+}
+
+func TestCacheHitRejectsVendorAppearanceDuringGraphBeforeRestore(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/vendor-boundary\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("populate cache: %v", err)
+	}
+	xgo := filepath.Join(dir, "view.x.go")
+	if err := os.Remove(xgo); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "created-vendor")
+	t.Setenv("GSX_CREATE_VENDOR_MARKER", marker)
+	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
+
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
+		t.Fatalf("all-HIT generate error = %v, want vendor appearance rejection", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("graph command did not create vendor directory: %v", err)
+	}
+	if len(res.Written) != 0 {
+		t.Fatalf("stale cache HIT wrote files before vendor validation: %v", res.Written)
+	}
+	if _, err := os.Stat(xgo); !os.IsNotExist(err) {
+		t.Fatalf("stale cache HIT restored %s before vendor validation; stat error = %v", xgo, err)
+	}
+}
+
+func TestCacheMissRejectsVendorAppearanceDuringGraphBeforeGenerate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/vendor-miss-boundary\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("GSXCACHE", t.TempDir())
+	marker := filepath.Join(t.TempDir(), "created-vendor")
+	t.Setenv("GSX_CREATE_VENDOR_MARKER", marker)
+	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
+
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
+		t.Fatalf("all-MISS generate error = %v, want vendor appearance rejection", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("graph command did not create vendor directory: %v", err)
+	}
+	if len(res.Written) != 0 {
+		t.Fatalf("stale cache MISS wrote files before vendor validation: %v", res.Written)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "view.x.go")); !os.IsNotExist(err) {
+		t.Fatalf("stale cache MISS generated output before vendor validation; stat error = %v", err)
 	}
 }
 

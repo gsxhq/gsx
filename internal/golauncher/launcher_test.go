@@ -25,6 +25,41 @@ func TestParseCompilerPathUsesOpaqueSingleLine(t *testing.T) {
 	}
 }
 
+func TestRequireLocalToolchainRejectsDifferentEffectiveCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("executable PATH probe is Unix-only")
+	}
+	pathRoot := t.TempDir()
+	pathBin := filepath.Join(pathRoot, "bin")
+	if err := os.MkdirAll(pathBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pathGo := filepath.Join(pathBin, "go")
+	if err := os.WriteFile(pathGo, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", pathBin)
+	snapshot, err := SnapshotLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshot.RequireLocalToolchain(pathRoot, runtime.GOOS); err != nil {
+		t.Fatalf("RequireLocalToolchain rejected identical PATH-local command: %v", err)
+	}
+
+	selectedRoot := t.TempDir()
+	selectedBin := filepath.Join(selectedRoot, "bin")
+	if err := os.MkdirAll(selectedBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(selectedBin, "go"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshot.RequireLocalToolchain(selectedRoot, runtime.GOOS); err == nil || !strings.Contains(err.Error(), "not the captured PATH-local command") {
+		t.Fatalf("RequireLocalToolchain error = %v, want different effective command rejection", err)
+	}
+}
+
 func TestRunRejectsInPlaceLauncherMutation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell launcher probe is Unix-only")

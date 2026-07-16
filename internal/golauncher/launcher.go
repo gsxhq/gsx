@@ -99,12 +99,9 @@ func (snapshot *Snapshot) SealToolchain(dir string, env []string, toolDir, hostO
 	if !filepath.IsAbs(toolDir) {
 		return nil, fmt.Errorf("Go tool directory is not absolute: %q", toolDir)
 	}
-	var suffix string
-	switch hostOS {
-	case "windows":
-		suffix = ".exe"
-	case "":
-		return nil, fmt.Errorf("Go host OS is empty")
+	suffix, err := toolExecutableSuffix(hostOS)
+	if err != nil {
+		return nil, err
 	}
 	compilerPath := filepath.Join(toolDir, "compile"+suffix)
 	if err := snapshot.validateLive(); err != nil {
@@ -118,6 +115,43 @@ func (snapshot *Snapshot) SealToolchain(dir string, env []string, toolDir, hostO
 		return nil, fmt.Errorf("Go launcher changed while selecting compiler: %w", err)
 	}
 	return snapshot.sealedLauncher(env, compilerPath, info, digest), nil
+}
+
+// RequireLocalToolchain proves that this PATH-selected Go command is the exact
+// executable installed at the effective GOROOT/bin/go path. Callers can then
+// freeze GOTOOLCHAIN=local without changing which command handles subsequent
+// semantic operations.
+func (snapshot *Snapshot) RequireLocalToolchain(goRoot, hostOS string) error {
+	if snapshot == nil {
+		return fmt.Errorf("nil Go launcher snapshot")
+	}
+	if !filepath.IsAbs(goRoot) {
+		return fmt.Errorf("Go root is not absolute: %q", goRoot)
+	}
+	suffix, err := toolExecutableSuffix(hostOS)
+	if err != nil {
+		return err
+	}
+	toolchainPath := filepath.Join(goRoot, "bin", "go"+suffix)
+	info, digest, err := inspect(toolchainPath)
+	if err != nil {
+		return fmt.Errorf("inspect effective Go toolchain command %q: %w", toolchainPath, err)
+	}
+	if snapshot.info == nil || !os.SameFile(snapshot.info, info) || snapshot.digest != digest {
+		return fmt.Errorf("effective Go toolchain command %q is not the captured PATH-local command %q", toolchainPath, snapshot.path)
+	}
+	return snapshot.validateLive()
+}
+
+func toolExecutableSuffix(hostOS string) (string, error) {
+	switch hostOS {
+	case "windows":
+		return ".exe", nil
+	case "":
+		return "", fmt.Errorf("Go host OS is empty")
+	default:
+		return "", nil
+	}
 }
 
 func (snapshot *Snapshot) sealedLauncher(env []string, compilerPath string, info os.FileInfo, digest [sha256.Size]byte) *Launcher {
