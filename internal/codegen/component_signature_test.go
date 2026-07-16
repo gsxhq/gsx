@@ -590,6 +590,25 @@ func TestAnalyzeComponentSignatureAttrsFamily(t *testing.T) {
 	}
 }
 
+func TestAnalyzeComponentSignatureDifferentlyNamedAttrsBagsAreOrdinary(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	user := types.NewPackage("example.test/ordinary-bags", "ordinarybags")
+	myAttrs := testNamedType(t, user, "myAttrs", types.NewSlice(fx.runtime.attr))
+	params := []*types.Var{
+		testParam(user, "a", myAttrs),
+		testParam(user, "someAttrs", fx.runtime.attrs),
+	}
+	model, err := analyzeComponentSignature(testSignature(user, nil, params, []types.Type{fx.runtime.node}, false), fx.runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, param := range model.params {
+		if param.role != roleProp || param.name != params[i].Name() {
+			t.Errorf("param %d = %+v, want ordinary exact-name prop %q", i, param, params[i].Name())
+		}
+	}
+}
+
 func TestAnalyzeComponentSignatureInstantiatedParamOrigin(t *testing.T) {
 	fx := newSignatureRuntimeFixture(t)
 	user := types.NewPackage("example.test/generic-bag", "genericbag")
@@ -706,8 +725,6 @@ func TestAnalyzeComponentSignatureOrdinaryVariadics(t *testing.T) {
 	}{
 		{name: "extra", elem: fx.runtime.attr},
 		{name: "nodes", elem: fx.runtime.node},
-		{name: "", elem: fx.runtime.attr},
-		{name: "_", elem: fx.runtime.attr},
 	}
 	for _, tc := range variadics {
 		t.Run("name="+tc.name, func(t *testing.T) {
@@ -730,6 +747,37 @@ func TestAnalyzeComponentSignatureOrdinaryVariadics(t *testing.T) {
 	}
 	if got.params[0].role != roleProp || got.params[1].role != roleGoOnlyVariadic {
 		t.Fatalf("roles = %d,%d; a slice is not variadic without the signature bit", got.params[0].role, got.params[1].role)
+	}
+}
+
+func TestAnalyzeComponentSignatureRequiresNamedParameters(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	user := types.NewPackage("example.test/named-params", "namedparams")
+
+	tests := []struct {
+		name      string
+		paramName string
+		variadic  bool
+		want      string
+	}{
+		{name: "unnamed fixed", want: "function parameters must be named to be used as a component; parameter 0 is unnamed"},
+		{name: "blank fixed", paramName: "_", want: "function parameters must be named to be used as a component; parameter 0 is blank"},
+		{name: "unnamed variadic", variadic: true, want: "function parameters must be named to be used as a component; parameter 0 is unnamed"},
+		{name: "blank variadic", paramName: "_", variadic: true, want: "function parameters must be named to be used as a component; parameter 0 is blank"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			paramType := types.Type(types.Typ[types.String])
+			if test.variadic {
+				paramType = types.NewSlice(paramType)
+			}
+			param := testParam(user, test.paramName, paramType)
+			sig := testSignature(user, nil, []*types.Var{param}, []types.Type{fx.runtime.node}, test.variadic)
+			_, err := analyzeComponentSignature(sig, fx.runtime)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 

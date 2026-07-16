@@ -122,11 +122,7 @@ func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSi
 		case roleProp:
 			ordinary[param.name] = i
 		case roleGoOnlyVariadic:
-			// Blank and unnamed variadics are Go-only but have no markup name.
-			// A literal `_` attribute therefore follows ordinary fallthrough.
-			if param.name != "" && param.name != "_" {
-				ordinary[param.name] = i
-			}
+			ordinary[param.name] = i
 		case roleAttrs:
 			attrsParam = i
 		case roleChildren:

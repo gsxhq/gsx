@@ -29,6 +29,96 @@ component Card(title string, count int) { <div/> }
 	return root, uiDir
 }
 
+func TestTargetDeclarationImporterPreservesFactoryReturnParameterNamesAndPositions(t *testing.T) {
+	root, uiDir := writeTargetDeclarationTestModule(t)
+	const source = `package ui
+
+import "github.com/gsxhq/gsx"
+
+type NamedFactory func(name, label string) gsx.Node
+type AliasFactory = func(name, label string) gsx.Node
+type UnnamedFactory func(string, string) gsx.Node
+type UnnamedAlias = func(string, string) gsx.Node
+
+func anonymousFactory() func(name, label string) gsx.Node {
+	return func(first, second string) gsx.Node { return nil }
+}
+func namedFactory() NamedFactory { return nil }
+func aliasFactory() AliasFactory { return nil }
+func anonymousUnnamedFactory() func(string, string) gsx.Node { return nil }
+func namedUnnamedFactory() UnnamedFactory { return nil }
+func aliasUnnamedFactory() UnnamedAlias { return nil }
+
+var Anonymous = anonymousFactory()
+var Named = namedFactory()
+var Alias = aliasFactory()
+var AnonymousUnnamed = anonymousUnnamedFactory()
+var NamedUnnamed = namedUnnamedFactory()
+var AliasUnnamed = aliasUnnamedFactory()
+`
+	writeFile(t, uiDir, "factory.go", source)
+
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	external, err := module.externalImporter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := newComponentTargetImporter(module, external).Import("example.com/app/ui")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantOffsets := map[string][]int{
+		"Anonymous": {
+			strings.Index(source, "func anonymousFactory() func(name") + len("func anonymousFactory() func("),
+			strings.Index(source, "func anonymousFactory() func(name, label") + len("func anonymousFactory() func(name, "),
+		},
+		"Named": {
+			strings.Index(source, "type NamedFactory func(name") + len("type NamedFactory func("),
+			strings.Index(source, "type NamedFactory func(name, label") + len("type NamedFactory func(name, "),
+		},
+		"Alias": {
+			strings.Index(source, "type AliasFactory = func(name") + len("type AliasFactory = func("),
+			strings.Index(source, "type AliasFactory = func(name, label") + len("type AliasFactory = func(name, "),
+		},
+	}
+	for objectName, offsets := range wantOffsets {
+		object := pkg.Scope().Lookup(objectName)
+		if object == nil {
+			t.Fatalf("factory target %s was not imported", objectName)
+		}
+		signature := targetCallableSignature(object.Type())
+		if signature == nil || signature.Params().Len() != 2 {
+			t.Fatalf("%s signature = %v, want two static parameters", objectName, signature)
+		}
+		for index, name := range []string{"name", "label"} {
+			param := signature.Params().At(index)
+			position := module.fset.Position(param.Pos())
+			if param.Name() != name || filepath.Base(position.Filename) != "factory.go" || position.Offset != offsets[index] {
+				t.Errorf("%s param %d = %q at %+v, want %q at factory.go offset %d", objectName, index, param.Name(), position, name, offsets[index])
+			}
+		}
+	}
+	for _, objectName := range []string{"AnonymousUnnamed", "NamedUnnamed", "AliasUnnamed"} {
+		object := pkg.Scope().Lookup(objectName)
+		if object == nil {
+			t.Fatalf("factory target %s was not imported", objectName)
+		}
+		signature := targetCallableSignature(object.Type())
+		if signature == nil || signature.Params().Len() != 2 {
+			t.Fatalf("%s signature = %v, want two static parameters", objectName, signature)
+		}
+		for index := range signature.Params().Len() {
+			if name := signature.Params().At(index).Name(); name != "" {
+				t.Errorf("%s param %d name = %q, want static unnamed signature", objectName, index, name)
+			}
+		}
+	}
+}
+
 func TestTargetDeclarationImporterUsesAuthoritativeCompiledFilesWithGOFLAGS(t *testing.T) {
 	t.Setenv("GOFLAGS", "-tags=feature")
 	for _, pairedSource := range []struct {

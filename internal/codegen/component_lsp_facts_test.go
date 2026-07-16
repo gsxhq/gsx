@@ -1,8 +1,13 @@
 package codegen
 
 import (
+	"go/token"
+	"go/types"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	gsxast "github.com/gsxhq/gsx/ast"
 )
 
 func TestPackagePublishesExactComponentCallFacts(t *testing.T) {
@@ -175,5 +180,208 @@ component Card(title string, items []string, limit int) {
 	}
 	if counts["title"] != 4 || counts["items"] != 1 || counts["limit"] != 1 {
 		t.Fatalf("semantic body refs = %v, want title=4, items=1, limit=1; loop-local title must be excluded", counts)
+	}
+}
+
+func TestFactoryComponentFactsUseStaticSignatureNamesAndPositions(t *testing.T) {
+	const factorySource = `package views
+
+import "github.com/gsxhq/gsx"
+
+type NamedFactory func(name, label string) gsx.Node
+type AliasFactory = func(name, label string) gsx.Node
+
+func anonymousFactory() func(name, label string) gsx.Node {
+	return func(first, second string) gsx.Node { return nil }
+}
+func namedFactory() NamedFactory {
+	return func(first, second string) gsx.Node { return nil }
+}
+func aliasFactory() AliasFactory {
+	return func(first, second string) gsx.Node { return nil }
+}
+
+var Anonymous = anonymousFactory()
+var Named = namedFactory()
+var Alias = aliasFactory()
+`
+	dir, module := openTestModule(t, map[string]string{
+		"factory.go": factorySource,
+		"page.gsx": `package views
+
+component Page() {
+	<Anonymous name="anonymous" label="value"/>
+	<Named name="named" label="value"/>
+	<Alias name="alias" label="value"/>
+}
+`,
+	})
+
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(result.Diags) {
+		t.Fatalf("unexpected diagnostics: %+v", result.Diags)
+	}
+	if len(result.ComponentCalls) != 3 {
+		t.Fatalf("component calls = %d, want three factory values", len(result.ComponentCalls))
+	}
+	if len(result.ComponentParamDecls) != 0 {
+		t.Fatalf("plain-Go factory parameters entered GSX rename declaration families: %+v", result.ComponentParamDecls)
+	}
+
+	staticOffsets := map[string]map[string]int{
+		"Anonymous": {
+			"name":  strings.Index(factorySource, "func anonymousFactory() func(name") + len("func anonymousFactory() func("),
+			"label": strings.Index(factorySource, "func anonymousFactory() func(name, label") + len("func anonymousFactory() func(name, "),
+		},
+		"Named": {
+			"name":  strings.Index(factorySource, "type NamedFactory func(name") + len("type NamedFactory func("),
+			"label": strings.Index(factorySource, "type NamedFactory func(name, label") + len("type NamedFactory func(name, "),
+		},
+		"Alias": {
+			"name":  strings.Index(factorySource, "type AliasFactory = func(name") + len("type AliasFactory = func("),
+			"label": strings.Index(factorySource, "type AliasFactory = func(name, label") + len("type AliasFactory = func(name, "),
+		},
+	}
+	for _, call := range result.ComponentCalls {
+		if call.Target == nil {
+			t.Fatal("factory call has no static target")
+		}
+		wantByName := staticOffsets[call.Target.Name()]
+		if wantByName == nil {
+			t.Fatalf("unexpected factory target %v", call.Target)
+		}
+		if len(call.Params) != 2 {
+			t.Fatalf("%s params = %+v, want name and label", call.Target.Name(), call.Params)
+		}
+		for attr, param := range call.Params {
+			name, ok := componentInputAttrName(attr)
+			if !ok {
+				t.Fatalf("%s has unnamed published attr %T", call.Target.Name(), attr)
+			}
+			if param.Name != name || param.Var == nil || param.Origin == nil {
+				t.Fatalf("%s %s fact = %+v", call.Target.Name(), name, param)
+			}
+			position := result.Fset.Position(param.Origin.Pos())
+			if filepath.Base(position.Filename) != "factory.go" || position.Offset != wantByName[name] {
+				t.Errorf("%s %s origin = %+v, want factory.go offset %d", call.Target.Name(), name, position, wantByName[name])
+			}
+		}
+	}
+}
+
+func TestFactoryComponentSignaturesRequireStaticParameterNames(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"factory.go": `package views
+
+import "github.com/gsxhq/gsx"
+
+type UnnamedFactory func(string, string) gsx.Node
+type UnnamedAlias = func(string, string) gsx.Node
+
+func anonymousUnnamedFactory() func(string, string) gsx.Node { return nil }
+func namedUnnamedFactory() UnnamedFactory { return nil }
+func aliasUnnamedFactory() UnnamedAlias { return nil }
+func unnamedVariadicFactory() func(...gsx.Attr) gsx.Node { return nil }
+func blankVariadicFactory() func(_ ...gsx.Attr) gsx.Node { return nil }
+
+var AnonymousUnnamed = anonymousUnnamedFactory()
+var NamedUnnamed = namedUnnamedFactory()
+var AliasUnnamed = aliasUnnamedFactory()
+var UnnamedVariadic = unnamedVariadicFactory()
+var BlankVariadic = blankVariadicFactory()
+`,
+		"page.gsx": `package views
+
+component Page() {
+	<AnonymousUnnamed/>
+	<NamedUnnamed/>
+	<AliasUnnamed/>
+	<UnnamedVariadic/>
+	<BlankVariadic/>
+}
+`,
+	})
+
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMessages := map[string]int{
+		"function parameters must be named to be used as a component; parameter 0 is unnamed": 4,
+		"function parameters must be named to be used as a component; parameter 0 is blank":   1,
+	}
+	var nameDiagnostics int
+	for _, diagnostic := range result.Diags {
+		if diagnostic.Code != "component-parameter-name" {
+			continue
+		}
+		nameDiagnostics++
+		matched := false
+		for message := range wantMessages {
+			if strings.Contains(diagnostic.Message, message) {
+				wantMessages[message]--
+				matched = true
+			}
+		}
+		if !matched {
+			t.Errorf("unexpected parameter-name diagnostic: %+v", diagnostic)
+		}
+	}
+	if nameDiagnostics != 5 {
+		t.Errorf("parameter-name diagnostics = %d, want 5; all diagnostics: %+v", nameDiagnostics, result.Diags)
+	}
+	for message, remaining := range wantMessages {
+		if remaining != 0 {
+			t.Errorf("diagnostic %q remaining count = %d; all diagnostics: %+v", message, remaining, result.Diags)
+		}
+	}
+
+	for _, tag := range []string{"AnonymousUnnamed", "NamedUnnamed", "AliasUnnamed", "UnnamedVariadic", "BlankVariadic"} {
+		var elements []*gsxast.Element
+		for _, file := range result.GSXFiles {
+			elements = append(elements, targetTestElements(file, tag)...)
+		}
+		if len(elements) != 1 {
+			t.Errorf("<%s> elements = %d, want one", tag, len(elements))
+			continue
+		}
+		if !elements[0].IsComponent {
+			t.Errorf("<%s> lost semantic component identity before positioned signature validation", tag)
+		}
+	}
+}
+
+func TestComponentCallFactsRetainNamedParameterWithoutSourcePosition(t *testing.T) {
+	param := types.NewVar(token.NoPos, nil, "name", types.Typ[types.String])
+	model := componentSignatureModel{
+		goSig: types.NewSignatureType(nil, nil, nil, types.NewTuple(param), types.NewTuple(), false),
+		params: []componentParam{{
+			variable: param,
+			origin:   param.Origin(),
+			name:     param.Name(),
+			typ:      param.Type(),
+			role:     roleProp,
+		}},
+	}
+	element, fset := plannerElement(t, `<C name="value"/>`)
+	call, diagnostics := planComponentInputs(1, element, model, fset)
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	plan := componentPositionalPackagePlan{
+		sites:     map[callSiteID]componentPositionalSitePlan{1: {call: call, signature: model}},
+		byElement: map[*gsxast.Element]callSiteID{element: 1},
+	}
+	fact := componentCallFacts(plan)[element]
+	if len(fact.Params) != 1 {
+		t.Fatalf("params = %+v, want retained export-only name", fact.Params)
+	}
+	for _, got := range fact.Params {
+		if got.Name != "name" || got.Var != param || got.Origin != param || got.Origin.Pos().IsValid() {
+			t.Fatalf("no-position param fact = %+v, want named identity without a source position", got)
+		}
 	}
 }
