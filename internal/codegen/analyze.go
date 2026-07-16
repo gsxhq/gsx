@@ -278,54 +278,6 @@ func elementHasSpread(attrs []gsxast.Attr) bool {
 	return found
 }
 
-// isNoPropsComponent reports whether propsType names a same-package function
-// component that has NO props struct (nullary: no params, no children, no
-// fallthrough Attrs). The sentinel is a propFields entry whose key is present
-// (same-package) but whose value is nil (no props struct). A cross-package
-// component has no entry at all (absent key → not no-props). A method component
-// is handled by isMethod in the call-site logic and is never recorded with a nil
-// value, so this function fires only for function components.
-func isNoPropsComponent(propFields map[string]map[string]bool, propsType string) bool {
-	fields, ok := propFields[propsType]
-	return ok && fields == nil
-}
-
-// isBareCallCandidate reports whether a component tag should be resolved by its
-// real Go signature rather than the XxxProps convention. It fires for a
-// same-package (non-dotted) tag whose backing func is nullary-by-construction:
-//   - a hand-written `func F() gsx.Node` (not a .gsx component), or
-//   - a .gsx no-props function component (`component F() { … }`, which codegen
-//     emits as a bare `func F() gsx.Node`).
-//
-// For either, a nullary call is a valid bare `<F/>` — like a self-contained void
-// element, no props struct — and passing attributes or children is a clean error
-// (a zero-arg func has nowhere to put them). byo components and methods keep
-// their existing paths. The probe (emitProbes) and emitter (genChildComponent)
-// both branch on this so emit ≡ probe: the probe emits _gsxcompsig(F)
-// (arity-agnostic) and the emitter reads the harvested *types.Signature from
-// `resolved[el]`.
-func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bool, byo *byoData, recvVar, recvTypeName string) bool {
-	if !el.IsComponent || strings.Contains(el.Tag, ".") {
-		return false
-	}
-	_, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
-	if isMethod {
-		return false
-	}
-	if _, isByo := byo.isByoStruct(propsType); isByo {
-		return false
-	}
-	if _, gsxDeclared := propFields[propsType]; gsxDeclared {
-		// A .gsx component: only a no-props function component is bare-callable;
-		// a with-props component keeps the XxxProps convention.
-		return isNoPropsComponent(propFields, propsType)
-	}
-	// A hand-written same-package func: bare-callable ONLY when it is nullary.
-	// An arity ≥ 1 func keeps the XxxProps convention so its attrs still type-check
-	// against the props struct at generate time.
-	return byo.isNullaryFunc(el.Tag)
-}
-
 // gsxParamQualifiers returns the local qualifiers that name the gsx runtime
 // package in a file: the default "gsx" plus any explicit alias the file bound to
 // the runtime import path (`import g "github.com/gsxhq/gsx"` → "g"). A param type
@@ -1916,46 +1868,6 @@ func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, p.Column)
 }
 
-// emitSkeletonLineCompsig emits a `_gsxcompsig(target)` probe call (the
-// bare-call and attrs-only-candidate probes above) with a //line directive
-// compensated for the `_gsxcompsig(` wrapper, so a diagnostic INSIDE target
-// (an "undefined: X" for an unresolved tag, or a "cannot infer" for an
-// unresolved generic instantiation) resolves to its TRUE source column. The
-// two diagnostics anchor to two DIFFERENT tokens of the emitted call, so one
-// //line directive cannot compensate for both: a "cannot infer" (the probe's
-// own generic-instantiation failure) reports at the CALLEE — the
-// "_gsxcompsig" identifier itself, i.e. elPos, the element's Pos() (the
-// opening `<`), matching prior (pre-fix) behavior, which must NOT shift — while
-// an "undefined: X" (or any other error inside target, e.g. X itself failing
-// its own implicit instantiation) reports at target's first token, which
-// should resolve to the tag NAME's column: one byte past elPos, since
-// parseElement never allows whitespace between `<` and the tag name.
-// A plain compensated //line (subtracting len("_gsxcompsig(") from the
-// column, as emitSkeletonLine's other callers do) can't express both
-// positions from a single directive — the byte distance between the two
-// tokens (12, len("_gsxcompsig(")) never matches the desired column distance
-// between them (1). Instead, two directives: a //line at elPos for the
-// callee (unchanged), then a mid-expression BLOCK directive
-// (emitSkeletonBlockLine) re-anchoring immediately before target to elPos+1,
-// exactly like the GoWithElements-embedded-IIFE splice uses it to re-sync
-// position without an ASI-unsafe line break.
-// Returns the byte offset in sb where the "_gsxcompsig(" text begins, for a
-// caller's recordProbeSpan span tracking (which keys on generated-buffer byte
-// offsets, unaffected by the //line column compensation above).
-func emitSkeletonLineCompsig(sb *strings.Builder, fset *token.FileSet, elPos token.Pos, target string) int {
-	if fset == nil || !elPos.IsValid() {
-		start := sb.Len()
-		fmt.Fprintf(sb, "_gsxcompsig(%s)\n", target)
-		return start
-	}
-	emitSkeletonLine(sb, fset, elPos)
-	start := sb.Len()
-	sb.WriteString("_gsxcompsig(")
-	emitSkeletonBlockLine(sb, fset, elPos+1) // tag name: one byte past the opening '<'
-	fmt.Fprintf(sb, "%s)\n", target)
-	return start
-}
-
 // emitSkeletonBlockLine emits a BLOCK-form `/*line file:line:col*/` directive
 // (no trailing newline), used to re-sync the position of verbatim GoText
 // spliced around a GoWithElements-embedded element's inline IIFE. Unlike the
@@ -2839,12 +2751,6 @@ func lookupMethod(t types.Type, name string) *types.Func {
 	return nil
 }
 
-func componentExprs(c *gsxast.Component) []gsxast.Node {
-	var out []gsxast.Node
-	collectExprs(c.Body, &out)
-	return out
-}
-
 // collectExprs gathers the type-needing expression nodes (*Interp and *ExprAttr)
 // in depth-first source order — per element, attribute expressions BEFORE
 // children — matching emitProbes/genNode traversal so the k-th probe aligns with
@@ -3245,90 +3151,6 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 	}
 }
 
-// collectAttrExprSrc visits markup in depth-first source order and feeds every
-// composable-class part source (each Expr and Cond) and element-spread expr to
-// add. These fragments are emitted verbatim into the render closure, so the
-// idents they reference must be in scope wherever the markup renders. Component
-// tags are skipped (their attrs are props, handled elsewhere — and IsComponent
-// routes them away from emitAttr).
-func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
-	for _, n := range nodes {
-		switch t := n.(type) {
-		case *gsxast.Element:
-			if t.IsComponent {
-				// A component's SIMPLE attrs are props (handled via childPropsLiteral),
-				// so they are skipped — but its named-slot (markup-attr) values AND its
-				// slot children render in THIS parent scope, so a composable-class/
-				// element-spread expr inside either references a parent local and must be
-				// bound. Recurse the markup-attr values and the children (not the simple
-				// attrs).
-				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-					collectAttrExprSrc(value, add)
-				})
-				collectAttrExprSrc(t.Children, add)
-				continue
-			}
-			collectAttrSrc(t.Attrs, add)
-			collectAttrExprSrc(t.Children, add)
-		case *gsxast.Fragment:
-			collectAttrExprSrc(t.Children, add)
-		case *gsxast.ForMarkup:
-			collectAttrExprSrc(t.Body, add)
-		case *gsxast.IfMarkup:
-			collectAttrExprSrc(t.Then, add)
-			collectAttrExprSrc(t.Else, add)
-		case *gsxast.SwitchMarkup:
-			for _, cc := range t.Cases {
-				collectAttrExprSrc(cc.Body, add)
-			}
-		}
-	}
-}
-
-// collectChildPropExprSrc visits markup in depth-first source order and feeds the
-// Expr of every child-component *ExprAttr to add. Unlike collectAttrExprSrc (which
-// SKIPS component tags), this walk descends INTO a component element to read its
-// prop exprs — they are emitted verbatim into the props literal, so a param used
-// only there must be bound. Pipelined prop exprs are rejected at emission, so only
-// the bare Expr (no Stages args) is collected here. Non-component element children
-// are still recursed so a child component nested inside a plain element is found.
-func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
-	for _, n := range nodes {
-		switch t := n.(type) {
-		case *gsxast.Element:
-			if t.IsComponent {
-				// Every verbatim-emitted attr fragment childPropsLiteral places into the
-				// props literal — prop/fallthrough *ExprAttr exprs (+ pipeline stage
-				// args), composable-class part Expr/Cond, spread Expr, conditional-attr
-				// Cond and its branch attrs — references parent locals and must be bound.
-				// collectAttrSrc walks exactly that set (and recurses CondAttr branches).
-				collectAttrSrc(t.Attrs, add)
-				// Recurse the named-slot (markup-attr) values AND the slot children: a
-				// child component nested inside this component's named slot OR its
-				// children renders in THIS parent scope, so its prop exprs reference
-				// parent locals and must be bound.
-				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-					collectChildPropExprSrc(value, add)
-				})
-				collectChildPropExprSrc(t.Children, add)
-				continue
-			}
-			collectChildPropExprSrc(t.Children, add)
-		case *gsxast.Fragment:
-			collectChildPropExprSrc(t.Children, add)
-		case *gsxast.ForMarkup:
-			collectChildPropExprSrc(t.Body, add)
-		case *gsxast.IfMarkup:
-			collectChildPropExprSrc(t.Then, add)
-			collectChildPropExprSrc(t.Else, add)
-		case *gsxast.SwitchMarkup:
-			for _, cc := range t.Cases {
-				collectChildPropExprSrc(cc.Body, add)
-			}
-		}
-	}
-}
-
 // collectAttrSrc feeds every verbatim-emitted Go fragment in an attr list to add:
 // composable-class part Expr+Cond (and value-form CF switch-tag/if-cond + arm
 // exprs), element-spread Expr, conditional-attr Cond, and — recursing into a
@@ -3337,61 +3159,6 @@ func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
 // CondAttr branch's expr-attr value is still bound because componentExprs/
 // collectExprs now also recurse CondAttr; the Cond and nested class/spread
 // fragments are bound here.)
-func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
-	for _, a := range attrs {
-		switch at := a.(type) {
-		case *gsxast.ClassAttr:
-			for _, p := range at.Parts {
-				if p.CSSSegments != nil {
-					if p.Cond != "" {
-						add(p.Cond)
-					}
-					continue
-				}
-				if p.CF != nil {
-					addValueCFSrc(p.CF, add)
-					continue
-				}
-				add(p.Expr)
-				for _, st := range p.Stages {
-					if st.Args != "" {
-						add(st.Args)
-					}
-				}
-				if p.Cond != "" {
-					add(p.Cond)
-				}
-			}
-		case *gsxast.SpreadAttr:
-			add(at.Expr)
-			for _, st := range at.Stages {
-				if st.Args != "" {
-					add(st.Args)
-				}
-			}
-		case *gsxast.ExprAttr:
-			add(at.Expr)
-			for _, st := range at.Stages {
-				if st.Args != "" {
-					add(st.Args)
-				}
-			}
-		case *gsxast.OrderedAttrsAttr:
-			for _, pr := range at.Pairs {
-				add(pr.Value)
-			}
-		case *gsxast.CondAttr:
-			add(at.Cond)
-			collectAttrSrc(at.Then, add)
-			collectAttrSrc(at.Else, add)
-		}
-	}
-}
-
-// addValueCFSrc feeds the verbatim-emitted Go fragments from a value-form CF
-// (if/switch inside a class/style list) to add. The switch tag, case lists,
-// if/else-if conditions, and arm expressions are all emitted verbatim, so any
-// identifiers they reference must be in scope as locals.
 func addValueCFSrc(cf *gsxast.ValueCF, add func(string)) {
 	if cf.If != nil {
 		addValueIfSrc(cf.If, add)
@@ -3713,26 +3480,11 @@ func typeParamUse(names []string) string {
 	return "[" + strings.Join(names, ", ") + "]"
 }
 
-func typeArgUse(src string) string {
-	src = strings.TrimSpace(src)
-	if src == "" {
-		return ""
-	}
-	return "[" + src + "]"
-}
-
 // goDeclWrapPrefix wraps a top-level Go region as a parseable file for
 // splitChunk, which peels the region's leading imports off to hoist them ahead
-// of all other declarations. Its byte length is subtracted when mapping a parsed
-// offset back onto the region, whose text is the .gsx source verbatim.
+// of all other declarations.
 const goDeclWrapPrefix = "package _gsxp\n"
 
-// checkReservedParams rejects param names that would collide with the ambient
-// closure context or the generator's reserved identifier namespace. Lowercase
-// `children` and `attrs` are accepted here because the universal signature
-// model classifies their reserved input roles semantically. The generated render
-// closure exposes `ctx` and keeps internal machinery under the `_gsx` prefix; a
-// user param sharing either would produce non-compiling Go.
 func checkReservedParams(params []param) error {
 	for _, p := range params {
 		if p.name == "ctx" {
