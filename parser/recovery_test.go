@@ -179,3 +179,48 @@ func TestParseFileStillReturnsSingleError(t *testing.T) {
 		t.Fatalf("ParseFile must still return one formatted error, got %v", err)
 	}
 }
+
+func TestEmptySpreadRequiresExpression(t *testing.T) {
+	cases := []struct {
+		name string
+		tag  string
+	}{
+		{name: "component compact", tag: "<C {...}/>"},
+		{name: "component spaced", tag: "<C { ... }/>"},
+		{name: "element compact", tag: "<div {...}></div>"},
+		{name: "element multiline", tag: "<div {\n\t...\n}></div>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package p\ncomponent Page() { " + tc.tag + " }\n"
+			fset := token.NewFileSet()
+			_, errs := ParseFileWithClassifier(fset, "empty_spread.gsx", []byte(src), 0, attrclass.Builtin())
+			if len(errs) == 0 {
+				t.Fatal("empty spread parsed without an error")
+			}
+			if got, want := errs[0].Msg, "spread attribute requires an expression before `...`"; got != want {
+				t.Fatalf("message = %q, want %q", got, want)
+			}
+			start := fset.Position(errs[0].Pos).Offset
+			end := fset.Position(errs[0].End).Offset
+			wantStart := strings.Index(src, "...")
+			if start != wantStart || end != wantStart+3 {
+				t.Fatalf("error range = %d..%d, want ellipsis %d..%d", start, end, wantStart, wantStart+3)
+			}
+		})
+	}
+}
+
+func TestSpreadExpressionAndPipelineRemainValid(t *testing.T) {
+	for _, tag := range []string{
+		"<C {attrs...}/>",
+		"<C { (attrs |> normalize)... }/>",
+		"<div { attrs... }></div>",
+		"<div { attrs |> normalize... }></div>",
+	} {
+		src := "package p\ncomponent Page() { " + tag + " }\n"
+		if _, err := ParseFile(token.NewFileSet(), "spread.gsx", []byte(src), 0); err != nil {
+			t.Errorf("%s: %v", tag, err)
+		}
+	}
+}
