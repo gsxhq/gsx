@@ -88,8 +88,7 @@ func buildComponentSignatureFiles(
 	var importPaths []string
 	for _, path := range paths {
 		skeleton, err := buildComponentTargetSkeleton(
-			files[path], funcTables{}, nil, nil, nil, nil,
-			fset, bag, nil, plan, skeletonTargetDeclarations,
+			files[path], funcTables{}, fset, bag, nil, plan, skeletonTargetDeclarations,
 		)
 		if err != nil {
 			return nil, nil, err

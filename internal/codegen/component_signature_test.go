@@ -130,13 +130,6 @@ func TestComponentDeclarationCanonicalIsCollisionSafe(t *testing.T) {
 }
 
 func TestReservedInputRolesApplyOnlyToParameters(t *testing.T) {
-	params := []param{
-		{name: "children"},
-		{name: "attrs"},
-	}
-	if err := checkReservedParams(params); err != nil {
-		t.Fatalf("declared children/attrs parameters must be accepted: %v", err)
-	}
 	for _, receiver := range []string{"children", "attrs"} {
 		if err := checkReservedRecvVar(receiver); err != nil {
 			t.Errorf("receiver %q is not a parameter and must remain an ordinary Go binding: %v", receiver, err)

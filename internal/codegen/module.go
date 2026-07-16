@@ -1271,10 +1271,8 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// on every call, so there is no previously-mutated tree that could be corrupted
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 && !a.bag.HasErrors() {
-		for path, f := range a.gsxFiles {
-			ff := a.factsByFile[path]
-			generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, a.classifier, a.bag, nil, nil, true, true, a.merger, a.sunkImports[path], a.positionalPlan)
+		for _, f := range a.gsxFiles {
+			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, true, true, a.merger, a.positionalPlan)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -1339,9 +1337,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// matching gate/comment in Package above.
 	if len(a.typeErrs) == 0 && !bag.HasErrors() {
 		for path, f := range a.gsxFiles {
-			ff := a.factsByFile[path]
-			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.sunkImports[path], a.positionalPlan)
+			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.positionalPlan)
 			if !ok {
 				continue
 			}

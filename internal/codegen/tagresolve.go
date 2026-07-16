@@ -201,7 +201,7 @@ func whitespaceTransformOffsets(input, sanitized string) ([]int, error) {
 // for the same GSX-extended Go expression, not an approximation used only by
 // target discovery.
 func reconstructGoWithElements(g *gsxast.GoWithElements) (goWithElementsReconstruction, error) {
-	const header = "package _gsxp\n"
+	const header = "package _gsxdecl\n"
 	var b strings.Builder
 	b.WriteString(header)
 	r := goWithElementsReconstruction{

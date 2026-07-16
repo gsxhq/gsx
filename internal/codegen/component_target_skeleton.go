@@ -19,7 +19,6 @@ import (
 type componentTargetSkeleton struct {
 	source          string
 	imports         []importSpec
-	inferRegistry   *inferRegistry
 	embeddedMarkups [][]gsxast.Markup
 }
 
@@ -97,11 +96,8 @@ func emitExactTargetComponent(
 	builder *strings.Builder,
 	component *gsxast.Component,
 	table funcTables,
-	propFields, nodeProps, attrsProps map[string]map[string]bool,
-	byo *byoData,
 	usedFilters map[string]string,
 	fset *token.FileSet,
-	registry *inferRegistry,
 	targets *componentTargetMarkerRegistry,
 	goWithElements *[][]gsxast.Markup,
 	bag *diag.Bag,
@@ -155,7 +151,7 @@ func emitExactTargetComponent(
 		builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 		controlOffsets := make(map[gsxast.Node]int)
 		controlTemp := 0
-		if err := emitProbes(builder, component.Body, table, propFields, nodeProps, attrsProps, nil, byo, "", "", usedFilters, fset, controlOffsets, registry, targets, goWithElements, bag, &controlTemp, hasAttrs); err != nil {
+		if err := emitProbes(builder, component.Body, table, "", "", usedFilters, fset, controlOffsets, targets, goWithElements, bag, &controlTemp, hasAttrs); err != nil {
 			return err
 		}
 		builder.WriteString("return nil\n}\n")
@@ -207,11 +203,8 @@ func emitTargetGoWithElements(
 	builder *strings.Builder,
 	decl *gsxast.GoWithElements,
 	table funcTables,
-	propFields, nodeProps, attrsProps map[string]map[string]bool,
-	byo *byoData,
 	usedFilters map[string]string,
 	fset *token.FileSet,
-	registry *inferRegistry,
 	targets *componentTargetMarkerRegistry,
 	goWithElements *[][]gsxast.Markup,
 	bag *diag.Bag,
@@ -232,7 +225,7 @@ func emitTargetGoWithElements(
 				fmt.Fprintf(builder, "_gsxelem(%d)\n", index)
 				builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				controlTemp := 0
-				if err := emitProbes(builder, markup, table, propFields, nodeProps, attrsProps, nil, byo, "", "", usedFilters, fset, map[gsxast.Node]int{}, registry, targets, goWithElements, bag, &controlTemp, false); err != nil {
+				if err := emitProbes(builder, markup, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets, goWithElements, bag, &controlTemp, false); err != nil {
 					return err
 				}
 			}
@@ -245,7 +238,7 @@ func emitTargetGoWithElements(
 				fmt.Fprintf(builder, "_gsxelem(%d)\n", index)
 				builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				controlTemp := 0
-				if err := emitProbes(builder, part.Children, table, propFields, nodeProps, attrsProps, nil, byo, "", "", usedFilters, fset, map[gsxast.Node]int{}, registry, targets, goWithElements, bag, &controlTemp, false); err != nil {
+				if err := emitProbes(builder, part.Children, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets, goWithElements, bag, &controlTemp, false); err != nil {
 					return err
 				}
 			}
@@ -266,7 +259,7 @@ func emitTargetGoWithElements(
 				return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 			}
 			controlTemp := 0
-			if err := probeEmbeddedInterpIIFE(builder, part.Segments, part.Lang, table, propFields, nodeProps, attrsProps, nil, byo, "", "", usedFilters, fset, map[gsxast.Node]int{}, registry, targets, goWithElements, bag, &controlTemp); err != nil {
+			if err := probeEmbeddedInterpIIFE(builder, part.Segments, part.Lang, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets, goWithElements, bag, &controlTemp); err != nil {
 				return err
 			}
 		default:
@@ -280,8 +273,6 @@ func emitTargetGoWithElements(
 func buildComponentTargetSkeleton(
 	file *gsxast.File,
 	table funcTables,
-	propFields, nodeProps, attrsProps map[string]map[string]bool,
-	byo *byoData,
 	fset *token.FileSet,
 	bag *diag.Bag,
 	targets *componentTargetMarkerRegistry,
@@ -303,7 +294,6 @@ func buildComponentTargetSkeleton(
 		return componentTargetSkeleton{}, err
 	}
 	usedFilters := make(map[string]string)
-	inferRegistry := newInferRegistry(newInferNameAllocator())
 	var embedded [][]gsxast.Markup
 	var body strings.Builder
 	markerStart := 0
@@ -319,7 +309,7 @@ func buildComponentTargetSkeleton(
 		if !ok {
 			return componentTargetSkeleton{}, fmt.Errorf("codegen: component %s is absent from the package target plan", component.Name)
 		}
-		if err := emitExactTargetComponent(&body, component, table, propFields, nodeProps, attrsProps, byo, usedFilters, fset, inferRegistry, targets, &embedded, bag, mode, emission); err != nil {
+		if err := emitExactTargetComponent(&body, component, table, usedFilters, fset, targets, &embedded, bag, mode, emission); err != nil {
 			if declarationErr, ok := err.(*componentTargetDeclarationError); ok {
 				bag.Errorf(declarationErr.component.Pos(), declarationErr.component.End(), declarationErr.code, "%s", declarationErr.message)
 				continue
@@ -332,7 +322,7 @@ func buildComponentTargetSkeleton(
 		if !ok {
 			continue
 		}
-		if err := emitTargetGoWithElements(&body, withElements, table, propFields, nodeProps, attrsProps, byo, usedFilters, fset, inferRegistry, targets, &embedded, bag, mode); err != nil {
+		if err := emitTargetGoWithElements(&body, withElements, table, usedFilters, fset, targets, &embedded, bag, mode); err != nil {
 			return componentTargetSkeleton{}, err
 		}
 	}
@@ -366,7 +356,6 @@ func buildComponentTargetSkeleton(
 	return componentTargetSkeleton{
 		source:          source.String(),
 		imports:         imports,
-		inferRegistry:   inferRegistry,
 		embeddedMarkups: embedded,
 	}, nil
 }

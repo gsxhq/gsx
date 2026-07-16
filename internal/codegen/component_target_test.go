@@ -723,7 +723,7 @@ component Page(Receiver Concrete, Local func() int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, nil, nil, nil, nil, fset, bag, markers, syntacticComponentTargetPlan(map[string]*gsxast.File{"discovery.gsx": file}), skeletonTargetDiscovery)
+	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, fset, bag, markers, syntacticComponentTargetPlan(map[string]*gsxast.File{"discovery.gsx": file}), skeletonTargetDiscovery)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -845,7 +845,7 @@ func TestTargetDiscoverySkeletonKeepsHelpersInOnePackagePrelude(t *testing.T) {
 	plan := syntacticComponentTargetPlan(files)
 	for _, path := range []string{"a.gsx", "b.gsx"} {
 		first := len(markers.ordered)
-		skeleton, err := buildComponentTargetSkeleton(files[path], funcTables{}, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
+		skeleton, err := buildComponentTargetSkeleton(files[path], funcTables{}, fset, bag, markers, plan, skeletonTargetDiscovery)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -923,7 +923,7 @@ component Card[T any](value T) { <Second/> }
 	var parsed []*goast.File
 	for _, path := range []string{"a.gsx", "b.gsx"} {
 		first := len(markers.ordered)
-		skeleton, err := buildComponentTargetSkeleton(files[path], funcTables{}, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
+		skeleton, err := buildComponentTargetSkeleton(files[path], funcTables{}, fset, bag, markers, plan, skeletonTargetDiscovery)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1202,11 +1202,7 @@ component Page() {
 		t.Fatalf("IDs TopCall=%d Nested=%d BodyCall=%d, want 1,2,3", topID, nestedID, bodyID)
 	}
 
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(t.TempDir(), files)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, _, _, _, err := buildSkeleton(file, funcTables{}, propFields, nodeProps, attrsProps, nil, nil, byo, fset, bag, nil, nil, skeletonFull); err != nil {
+	if _, _, _, _, _, err := buildSkeleton(file, funcTables{}, fset, bag, nil, skeletonFull); err != nil {
 		t.Fatal(err)
 	}
 	var embeddedAgain []*gsxast.Element
@@ -1995,12 +1991,7 @@ component Page() { { wrap(<Nested/>) } }
 	if interp == nil || interp.Embedded != nil {
 		t.Fatalf("unexpected precondition: %#v", interp)
 	}
-	files := map[string]*gsxast.File{"views.gsx": file}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(t.TempDir(), files)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, _, _, _, err := buildSkeleton(file, funcTables{}, propFields, nodeProps, attrsProps, nil, nil, byo, fset, diag.NewBag(fset), nil, nil, skeletonFull); err != nil {
+	if _, _, _, _, _, err := buildSkeleton(file, funcTables{}, fset, diag.NewBag(fset), nil, skeletonFull); err != nil {
 		t.Fatal(err)
 	}
 	if interp.Embedded != nil {
@@ -2028,7 +2019,7 @@ component (broken) Page() { <Widget/> }
 	}
 	targetBag := diag.NewBag(fset)
 	if _, err := buildComponentTargetSkeleton(
-		file, funcTables{}, nil, nil, nil, nil, fset, targetBag, targets, syntacticComponentTargetPlan(files), skeletonTargetDiscovery,
+		file, funcTables{}, fset, targetBag, targets, syntacticComponentTargetPlan(files), skeletonTargetDiscovery,
 	); err != nil {
 		t.Fatalf("target skeleton returned an infrastructure error: %v", err)
 	}

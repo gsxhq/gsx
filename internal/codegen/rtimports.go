@@ -27,8 +27,8 @@ const gsxRuntimePath = "github.com/gsxhq/gsx"
 // Reserved aliases. The `_gsx` prefix is reserved for the generator: it emits
 // EVERY import and internal binding under a `_gsx`-prefixed name (the four below,
 // plus `_gsxgw`/`_gsxw`/`_gsxnum` in render closures, the filter aliases
-// `_gsxf<i>`/`_gsxstd`, the type-arg aliases `_gsxti<N>`, the props param
-// `_gsxp`, the `_gsxinfer<N>` probes, …). That is what lets a .gsx file bind
+// `_gsxf<i>`/`_gsxstd`, the type-arg aliases `_gsxti<N>`, and transient probe
+// bindings). That is what lets a .gsx file bind
 // `gsx`, `context`, `io` or `strconv` to whatever it likes.
 //
 // checkReservedDecls (reserved_scan.go) enforces the prefix directly, by lexing

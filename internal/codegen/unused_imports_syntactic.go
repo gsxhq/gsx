@@ -46,22 +46,14 @@ func importBaseName(path string) string {
 // imports and removal candidates, given the set of referenced qualifier names.
 //
 //   - `_` / `.` imports are never removed (always "used").
-//   - An import whose only skeleton reference was dropped by a requalification-
-//     failed generic tag (sunk) is never removed — it IS used in the .gsx source.
 //   - An aliased import's explicit name is authoritative: unused iff its alias is
 //     not referenced.
 //   - A default import is kept when its path base is referenced; otherwise it is a
 //     CANDIDATE (its real package name may differ from the base and still be used).
-func classifyUnusedImports(used map[string]bool, imps []importSpec, sunk map[sunkImportKey]bool, gsxFset *token.FileSet) (unused []UnusedImport, candidates []importSpec) {
+func classifyUnusedImports(used map[string]bool, imps []importSpec) (unused []UnusedImport, candidates []importSpec) {
 	for _, imp := range imps {
 		if imp.name == "_" || imp.name == "." {
 			continue
-		}
-		if sunk != nil && imp.pos.IsValid() {
-			k := sunkImportKey{line: gsxFset.Position(imp.pos).Line, path: imp.path}
-			if sunk[k] {
-				continue
-			}
 		}
 		if imp.name != "" {
 			if !used[imp.name] {
@@ -79,13 +71,11 @@ func classifyUnusedImports(used map[string]bool, imps []importSpec, sunk map[sun
 
 // fileSkeleton is one .gsx file's lowered skeleton AST plus the import
 // metadata buildPackageSkeletons harvests alongside it: the file's hoisted
-// import specs (imps) and the set of specs sunk by a requalification-failed
-// generic tag (sunk) — see analyze's sunkImports doc for why a sunk import is
-// never a removal candidate even when the skeleton drops its only reference.
+// import specs and the exact target qualifiers referenced outside the operand
+// skeleton.
 type fileSkeleton struct {
 	skel             *goast.File
 	imps             []importSpec
-	sunk             map[sunkImportKey]bool
 	targetQualifiers map[string]bool
 }
 
@@ -95,7 +85,7 @@ type fileSkeleton struct {
 // resolve against.
 type packageSkeletons struct {
 	gsxFset *token.FileSet
-	byGsx   map[string]fileSkeleton // .gsx abs path -> skeleton + import specs + sunk set
+	byGsx   map[string]fileSkeleton // .gsx abs path -> skeleton + import metadata
 	// goParseDiags holds the Go parse errors the skeletons produced, positioned
 	// back at their .gsx origin by the skeletons' //line directives. gsx copies
 	// user Go through as an opaque blob, so Go that is invalid only in context (an
@@ -105,7 +95,7 @@ type packageSkeletons struct {
 
 // buildPackageSkeletons lowers every .gsx file in dir to its skeleton AST WITHOUT
 // type-checking (no importer, no dependency resolution) and returns, per file,
-// the parsed skeleton, its hoisted import specs, and its sunk-import set. It
+// the parsed skeleton and its hoisted import metadata. It
 // mirrors analyze's per-file loop (module_importer.go:769-819) using the same
 // buildSkeleton lowering, but keeps only what unused-import detection needs. A
 // file whose preprocessing or skeleton build fails is omitted, so the caller
@@ -172,27 +162,12 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	if err != nil {
 		return nil, err
 	}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
-	if err != nil {
-		return nil, err
-	}
-	genericSigs := genericSigsFor(gsxFiles, byo)
-	inferNames := newInferNameAllocator()
 	out := &packageSkeletons{gsxFset: fset, byGsx: map[string]fileSkeleton{}}
 	for path, f := range gsxFiles {
 		if blockPackage || blockedFiles[filepath.Clean(path)] {
 			continue
 		}
-		ff := m.fileScopedFactsSyntactic(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
-		if ff.failed {
-			// The dependency contract is intentionally unavailable. Building with
-			// whatever sibling facts happened to succeed would create a partial
-			// skeleton and could turn a dropped qualified component reference into
-			// a false unused-import removal for this file.
-			continue
-		}
-		skel, _, imps, _, infReg, _, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps,
-			genericSigs, ff.genericSigs, ff.byo, fset, bag, inferNames, &componentPlan, skeletonFull)
+		skel, _, imps, _, _, berr := buildSkeleton(f, table, fset, bag, &componentPlan, skeletonFull)
 		if berr != nil {
 			continue // unbuildable → keep all imports (no entry)
 		}
@@ -210,16 +185,8 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 			}
 			continue
 		}
-		sunk := map[sunkImportKey]bool{}
-		if len(infReg.failedAliases) > 0 && ff.depAliasSpecs != nil {
-			for alias := range infReg.failedAliases {
-				if spec, ok := ff.depAliasSpecs[alias]; ok && spec.pos.IsValid() {
-					sunk[sunkImportKey{line: fset.Position(spec.pos).Line, path: spec.path}] = true
-				}
-			}
-		}
 		out.byGsx[path] = fileSkeleton{
-			skel: gf, imps: imps, sunk: sunk,
+			skel: gf, imps: imps,
 			targetQualifiers: componentTargetQualifiers(preprocessed.registry, path),
 		}
 	}
@@ -321,7 +288,7 @@ func unusedImportsCore(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, re
 			used[qualifier] = true
 		}
 		usedByFile[gsxPath] = used
-		unused, cands := classifyUnusedImports(used, fs.imps, fs.sunk, gsxFset)
+		unused, cands := classifyUnusedImports(used, fs.imps)
 		if len(unused) > 0 {
 			out[gsxPath] = unused
 		}

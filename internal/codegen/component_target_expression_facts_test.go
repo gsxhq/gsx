@@ -52,7 +52,7 @@ func Embedded(ch <-chan int) _gsxrt.Node {
 		t.Fatal(err)
 	}
 	plan := syntacticComponentTargetPlan(files)
-	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
+	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, fset, bag, markers, plan, skeletonTargetDiscovery)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func Embedded(ch <-chan int) _gsxrt.Node {
 		t.Fatalf("target package errors = %+v\n%s", typeErrs, skeleton.source)
 	}
 
-	facts := harvestComponentTargetExpressionFacts(parsed, file, pkg, info, fset, skeleton.inferRegistry, skeleton.embeddedMarkups, plan)
+	facts := harvestComponentTargetExpressionFacts(parsed, file, pkg, info, fset, skeleton.embeddedMarkups, plan)
 	if got, want := len(facts), 8; got != want {
 		t.Fatalf("expression facts = %d, want %d", got, want)
 	}
