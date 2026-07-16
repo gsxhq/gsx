@@ -946,6 +946,51 @@ func isUnusedImportMsg(msg string) bool {
 	return strings.Contains(msg, "imported as ") && strings.Contains(msg, " and not used")
 }
 
+type typeErrorCorrespondenceKey struct {
+	filename     string
+	line, column int
+	soft         bool
+}
+
+func correspondenceKeyForTypeError(typeErr types.Error) (typeErrorCorrespondenceKey, bool) {
+	if typeErr.Fset == nil || !typeErr.Pos.IsValid() {
+		return typeErrorCorrespondenceKey{}, false
+	}
+	position := typeErr.Fset.Position(typeErr.Pos)
+	if position.Filename == "" || position.Line <= 0 || position.Column <= 0 {
+		return typeErrorCorrespondenceKey{}, false
+	}
+	return typeErrorCorrespondenceKey{
+		filename: position.Filename,
+		line:     position.Line,
+		column:   position.Column,
+		soft:     typeErr.Soft,
+	}, true
+}
+
+// unmatchedTargetTypeErrors performs one-to-one phase correspondence without
+// interpreting checker messages. A reportable full-skeleton error owns one
+// target-phase error at the same authored source point and softness class;
+// every unpaired target error remains independently fatal and visible.
+func unmatchedTargetTypeErrors(targetErrs, fullErrs []types.Error) []types.Error {
+	fullByKey := make(map[typeErrorCorrespondenceKey]int, len(fullErrs))
+	for _, fullErr := range fullErrs {
+		if key, ok := correspondenceKeyForTypeError(fullErr); ok {
+			fullByKey[key]++
+		}
+	}
+	unmatched := make([]types.Error, 0, len(targetErrs))
+	for _, targetErr := range targetErrs {
+		key, ok := correspondenceKeyForTypeError(targetErr)
+		if ok && fullByKey[key] > 0 {
+			fullByKey[key]--
+			continue
+		}
+		unmatched = append(unmatched, targetErr)
+	}
+	return unmatched
+}
+
 // sortedGsxFilePaths returns gsxFiles' keys in sorted order, so callers that
 // derive order-significant output (goFiles' file-processing order, and any
 // diagnostics emitted while walking files) from a range over gsxFiles get a
@@ -1317,7 +1362,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// every skeleton.
 	spansByFile := make(map[*goast.File][]posSpan, len(goFiles))
 	var quietSpans []posSpan
-	fullTypeDiagnosticOwned := false
+	var reportableFullTypeErrs []types.Error
 	for _, gf := range goFiles {
 		spans := harvestProbeSpans(gf)
 		spansByFile[gf] = spans
@@ -1343,12 +1388,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// retained skeleton error is therefore a native Go error and passes through
 		// verbatim after internal unwrap names are removed.
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
-		fullTypeDiagnosticOwned = true
+		reportableFullTypeErrs = append(reportableFullTypeErrs, e)
 	}
-	if !fullTypeDiagnosticOwned {
-		for _, targetErr := range targetErrs {
-			bag.Add(componentTargetTypeDiagnostic(targetErr))
-		}
+	for _, targetErr := range unmatchedTargetTypeErrors(targetErrs, reportableFullTypeErrs) {
+		bag.Add(componentTargetTypeDiagnostic(targetErr))
 	}
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate

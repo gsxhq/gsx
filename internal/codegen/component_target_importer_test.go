@@ -912,6 +912,59 @@ component Page() { <Local/> }
 	}
 }
 
+func TestIndependentFullAndExactTargetErrorsBothSurface(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	viewsDir := filepath.Join(root, "views")
+	bridgeDir := filepath.Join(root, "bridge")
+	pagesDir := filepath.Join(root, "pages")
+	for _, dir := range []string{viewsDir, bridgeDir, pagesDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, viewsDir, "card.gsx", "package views\ncomponent Card(title Missing) { <div/> }\n")
+	writeFile(t, bridgeDir, "bridge.go", `package bridge
+
+import "example.com/app/views"
+
+var Card = views.Card
+`)
+	writeFile(t, pagesDir, "page.gsx", `package pages
+
+import _ "example.com/app/bridge"
+
+component Local() { <span/> }
+component Page() { <Local/><div>{ fmt.Sprint(1) }</div> }
+`)
+
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := module.Package(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var missingQualifierCount, exactImportChainCount int
+	for _, diagnostic := range result.Diags {
+		if strings.Contains(diagnostic.Message, "undefined: fmt") {
+			missingQualifierCount++
+		}
+		if strings.Contains(diagnostic.Message, "example.com/app/bridge") && strings.Contains(diagnostic.Message, "undefined: Missing") {
+			exactImportChainCount++
+		}
+	}
+	if missingQualifierCount != 1 || exactImportChainCount != 1 {
+		t.Fatalf("diagnostics = %+v, want one undefined fmt and one exact bridge -> undefined Missing failure", result.Diags)
+	}
+}
+
 func TestFailedExactCheckReplacesStaleDirectPathProvenance(t *testing.T) {
 	root := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
