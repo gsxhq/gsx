@@ -1144,8 +1144,8 @@ func emitNamedComponentSkeleton(sb *strings.Builder, c *gsxast.Component, declar
 	// like the parseRecv-failure branch below.
 	//
 	// recvVar/recvTypeName stay "" for a function component; for a method
-	// component they are passed to emitProbes so a dotted child tag whose left ==
-	// recvVar is probed as a method call (mirroring the emitter's childInvocation).
+	// component they are passed to emitProbes so receiver references in nested
+	// markup are checked in the authored lexical scope.
 	var recvVar, recvTypeName string
 	var recvErr error
 	if c.Recv != "" {
@@ -1253,13 +1253,8 @@ func emitNamedComponentSkeleton(sb *strings.Builder, c *gsxast.Component, declar
 // emitProbes writes type-resolution probes for a component body. It MIRRORS the
 // control structure (real for/if/switch + {{ }} code) so interpolations that
 // reference loop vars / block-locals type-check in scope. Each interpolation is
-// `_gsxuse(expr)`; child components are `_ = Child(ChildProps{})` (or, for a
-// method invocation via the enclosing receiver, `_ = p.Method(...)`).
-//
-// recvVar/recvTypeName are the enclosing component's receiver var + type name
-// (empty for a function component); they drive the same method-vs-package
-// disambiguation as the emitter (childInvocation), so the probe type-checks the
-// call against the real method/function signature + props struct identically.
+// `_gsxuse(expr)`; component targets are checked separately by the authoritative
+// target skeleton and positional planner.
 //
 // usedFilters (alias→pkgPath) accumulates every filter package the probes
 // reference, so the skeleton imports exactly those packages under those aliases
@@ -2208,69 +2203,6 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 		}
 		return true
 	})
-
-	// Resolve hand-written same-package component tags by their REAL signature:
-	// each `_gsxcompsig(F)` probe carries F's type. Map it back (by tag name — a
-	// tag resolves to one func per package, so no k-ordering is needed) onto
-	// every <F/> element in the body, so genChildComponent branches on arity.
-	sigByName := map[string]types.Type{}
-	// A dotted tag (<ui.Icon>) is gated onto the attrs-only path by name
-	// (byo.isDepAlias sees the import alias). But Go scoping can make the
-	// skeleton's _gsxcompsig(ui.Icon) resolve its qualifier to a same-named
-	// LOCAL/PARAM that shadows the import — then the selector picks that value's
-	// field, not the package's component. shadowedByName records those tags so
-	// the emitter rejects them (attrsonly-shadowed-qualifier) rather than
-	// silently bag-calling the field (FAIL 7).
-	shadowedByName := map[string]bool{}
-	goast.Inspect(body, func(node goast.Node) bool {
-		call, ok := node.(*goast.CallExpr)
-		if !ok {
-			return true
-		}
-		id, ok := call.Fun.(*goast.Ident)
-		if !ok || id.Name != "_gsxcompsig" || len(call.Args) != 1 {
-			return true
-		}
-		// The probe target is emitted byte-verbatim from t.Tag: a same-package tag
-		// is a bare Ident (`_gsxcompsig(HomeIcon)`), a cross-package dotted tag is a
-		// SelectorExpr (`_gsxcompsig(ui.HomeIcon)`). Key sigByName by the full tag
-		// string so forEachComponentTagElement matches el.Tag for both.
-		var key string
-		switch a := call.Args[0].(type) {
-		case *goast.Ident:
-			key = a.Name
-		case *goast.SelectorExpr:
-			if x, ok := a.X.(*goast.Ident); ok {
-				key = x.Name + "." + a.Sel.Name
-				// Only a *types.PkgName qualifier is a genuine package selector.
-				// Any other resolution (a *types.Var param/local of the same name)
-				// means the import is shadowed in this body's scope.
-				if u := info.Uses[x]; u != nil {
-					if _, isPkg := u.(*types.PkgName); !isPkg {
-						shadowedByName[key] = true
-					}
-				}
-			}
-		}
-		if key == "" {
-			return true
-		}
-		if tv, ok := info.Types[call.Args[0]]; ok && tv.Type != nil {
-			sigByName[key] = tv.Type
-		}
-		return true
-	})
-	if len(sigByName) > 0 || len(shadowedByName) > 0 {
-		forEachComponentTagElement(bodyMarkup, func(el *gsxast.Element) {
-			if shadowedByName[el.Tag] {
-				out[el] = shadowedQualifierType
-				return
-			}
-			if t, ok := sigByName[el.Tag]; ok {
-				out[el] = t
-			}
-		})
-	}
 
 	// Resolve each caller-side inference probe (emitInferProbe) by its exact,
 	// registry-synthesized name — NOT by a user-spellable prefix like the old
