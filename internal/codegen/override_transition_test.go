@@ -81,8 +81,6 @@ func TestAffectedLockedOwnsWholeConfiguredSourceInvalidation(t *testing.T) {
 		targetDeclTypes:      map[string]*types.Package{},
 		configuredDeclTypes:  map[string]*types.Package{},
 		pkgResults:           map[string]*PackageResult{},
-		depFacts:             map[string]*depPropFacts{},
-		syntacticDepFacts:    map[string]*depPropFacts{},
 		dirFuncTbls:          map[string]funcTables{},
 	}
 

@@ -3,8 +3,6 @@ package codegen
 import (
 	"path/filepath"
 	"testing"
-
-	"github.com/gsxhq/gsx/internal/diag"
 )
 
 func TestResolveImportPackageNameUsesUnsavedAuthoritativePackageClause(t *testing.T) {
@@ -31,7 +29,7 @@ func TestResolveImportPackageNameUsesUnsavedAuthoritativePackageClause(t *testin
 	}
 }
 
-func TestFileScopedFactsDoNotCrossNestedModuleBoundary(t *testing.T) {
+func TestImportSpecsByQualifierUsesExternalPackageAcrossNestedModuleBoundary(t *testing.T) {
 	root := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -64,16 +62,11 @@ func TestFileScopedFactsDoNotCrossNestedModuleBoundary(t *testing.T) {
 	if file == nil {
 		t.Fatalf("parsed package omitted %s", pagePath)
 	}
-	facts := m.fileScopedFacts(
-		pagesDir,
-		file,
-		diag.NewBag(m.fset),
-		m.fset,
-	)
-	if len(facts.depAliasSpecs) != 0 {
-		t.Fatalf("nested-module GSX dependency leaked into parent package: %v", facts.depAliasSpecs)
+	byQualifier := m.importSpecsByQualifier(fileImportSpecs(file, m.fset))
+	if _, ok := byQualifier["externalui"]; !ok || len(byQualifier) != 1 {
+		t.Fatalf("qualifiers=%v, want only the nested module's compiled package name externalui", byQualifier)
 	}
-	if len(m.depFacts) != 0 {
-		t.Fatalf("nested-module directory was analyzed as a parent-owned GSX dependency: %v", m.depFacts)
+	if _, ok := byQualifier["poison"]; ok {
+		t.Fatalf("nested-module GSX source leaked into the parent package-name universe: %v", byQualifier)
 	}
 }

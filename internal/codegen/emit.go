@@ -514,6 +514,14 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, rt rtImports, aliase
 }
 
 func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, positionalPlan componentPositionalPackagePlan) bool {
+	if _, err := normalizedTypeParams(c.TypeParams); err != nil {
+		// Validate type parameters before ordinary/reserved parameters and the
+		// receiver. Their types may refer to these declarations, so a malformed
+		// type-parameter list is the primary signature error and must never be
+		// copied through to a later, unpositioned gofmt failure.
+		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return false
+	}
 	declarationParams, err := parseComponentParamDecls(c.Params)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))

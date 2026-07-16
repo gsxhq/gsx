@@ -34,8 +34,8 @@ const gsxRuntimePath = "github.com/gsxhq/gsx"
 // checkReservedDecls (reserved_scan.go) enforces the prefix directly, by lexing
 // every user Go fragment — top-level declarations, function-body locals, GoBlock
 // statements, and every embedded expression — and reporting any `_gsx`
-// identifier before the skeleton is type-checked. checkReservedParams and
-// checkReservedRecvVar cover component params and receiver vars. So a shadow of
+// identifier before the skeleton is type-checked. Exact component signature
+// validation covers parameters and receiver vars. So a shadow of
 // any alias below is a clean gsx diagnostic, not an incidental `go build` failure
 // on the emitted .x.go. (A hand-written sibling .go file is the one place gsx does
 // not look — its `_gsx` name is still caught by `go build`; see docs/ROADMAP.md.)

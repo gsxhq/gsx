@@ -26,9 +26,9 @@ type reservedDecl struct {
 
 // checkReservedDecls reports every identifier a .gsx file writes in Go position
 // whose name begins reservedPrefix — a name that could shadow, or collide with,
-// one the generator emits into the same scope. Component params and
-// method-component receiver vars are checked separately (checkReservedParams /
-// checkReservedRecvVar); this covers everything else: top-level declarations,
+// one the generator emits into the same scope. Exact component signature
+// validation checks parameters and method receiver vars separately; this covers
+// everything else: top-level declarations,
 // function-body locals, `{{ }}` GoBlock statements, and every Go fragment
 // embedded in the markup tree (interpolations, `{ if/for/switch }` clauses,
 // attribute and class/style expressions, pipe stages).

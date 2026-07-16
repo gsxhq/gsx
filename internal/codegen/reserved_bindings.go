@@ -111,9 +111,8 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 // reservedBodyMeaning is the human-readable meaning of a reserved component-body
 // identifier, for the `reserved-identifier` diagnostic. The wording is the
 // design's canonical body-scope phrasing (spec "The model" / "Reservation
-// check"); it differs deliberately from checkReservedParams/checkReservedRecvVar,
-// whose legacy param/receiver wording ("explicit attribute forwarding") is pinned
-// by existing goldens.
+// check"); parameter and receiver diagnostics are emitted by their own exact
+// signature validation paths.
 func reservedBodyMeaning(name string) string {
 	switch name {
 	case "ctx":
