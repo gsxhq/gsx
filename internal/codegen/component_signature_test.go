@@ -129,6 +129,26 @@ func TestComponentDeclarationCanonicalIsCollisionSafe(t *testing.T) {
 	}
 }
 
+func TestReservedInputRolesApplyOnlyToParameters(t *testing.T) {
+	params := []param{
+		{name: "children"},
+		{name: "attrs"},
+	}
+	if err := checkReservedParams(params); err != nil {
+		t.Fatalf("declared children/attrs parameters must be accepted: %v", err)
+	}
+	for _, receiver := range []string{"children", "attrs"} {
+		if err := checkReservedRecvVar(receiver); err != nil {
+			t.Errorf("receiver %q is not a parameter and must remain an ordinary Go binding: %v", receiver, err)
+		}
+	}
+	for _, reserved := range []string{"ctx", "_gsxvalue"} {
+		if err := checkReservedRecvVar(reserved); err == nil {
+			t.Errorf("receiver %q must remain reserved", reserved)
+		}
+	}
+}
+
 type signatureRuntimeFixture struct {
 	runtime runtimeContract
 	pkg     *types.Package

@@ -870,6 +870,13 @@ urlattrs/htmx_preset	diag gen render
 urlattrs/hx_default_plain	diag gen render
 urlattrs/nested_literal_url_hole	diag gen render
 urlattrs/static_plus_case_variant	diag gen render
+verbatim/attrs_shapes	diag gen render
+verbatim/callable_origins	diag gen render
+verbatim/children_attrs	diag gen render
+verbatim/class_style_targets	diag gen render
+verbatim/core_positional	diag gen render
+verbatim/direct_go_signature	diag gen render
+verbatim/zero_inference_xpkg	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inference_unavailable_warning	diag render
@@ -886,4 +893,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 888 cases (render: 757, error: 99, gen-pinned: 509)
+TOTAL: 895 cases (render: 764, error: 99, gen-pinned: 516)

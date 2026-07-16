@@ -1065,9 +1065,8 @@ import "example.com/app/ui"
 
 component Home() { <ui.Card title="hello" count={1}/> }
 `)
-	// Keep a valid but Props-shaped paired output on disk. Shipping analysis has
-	// its own in-memory skeleton, while exact target discovery must ignore this
-	// file and expose the two authored parameters.
+	// Keep a valid but stale Props-shaped paired output on disk. Both in-memory
+	// analysis phases must ignore it and expose the two authored parameters.
 	writeFile(t, uiDir, "card.x.go", `package ui
 
 import "github.com/gsxhq/gsx"
@@ -1100,8 +1099,9 @@ func Card(CardProps) gsx.Node { return nil }
 	if shipping == nil || exact == nil || shipping == exact {
 		t.Fatalf("shipping/exact package caches = %p/%p, want distinct populated packages", shipping, exact)
 	}
-	if got := exactTargetSignature(t, shipping, "Card").Params().Len(); got != 1 {
-		t.Fatalf("shipping Card arity = %d, want pre-cutover Props arity 1", got)
+	shippingCard := exactTargetSignature(t, shipping, "Card")
+	if got := shippingCard.Params().Len(); got != 2 || shippingCard.Params().At(0).Name() != "title" || shippingCard.Params().At(1).Name() != "count" {
+		t.Fatalf("shipping Card params = %s, want exact authored signature", shippingCard.Params())
 	}
 	if got := module.targetImports[pagesDir]; len(got) != 1 || got[0] != uiDir || !module.targetImportedBy[uiDir][pagesDir] {
 		t.Fatalf("exact target graph pages->ui = forward %v reverse %v", got, module.targetImportedBy[uiDir])
