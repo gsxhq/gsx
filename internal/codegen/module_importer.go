@@ -46,9 +46,10 @@ func dirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) 
 // matching the existing CachedResolver.check behaviour.
 func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.FileSet, imp types.Importer, typeEnvironment typeCheckEnvironment) (*types.Package, *types.Info, []types.Error) {
 	info := &types.Info{
-		Types: map[goast.Expr]types.TypeAndValue{},
-		Defs:  map[*goast.Ident]types.Object{},
-		Uses:  map[*goast.Ident]types.Object{},
+		Types:     map[goast.Expr]types.TypeAndValue{},
+		Defs:      map[*goast.Ident]types.Object{},
+		Uses:      map[*goast.Ident]types.Object{},
+		Implicits: map[goast.Node]types.Object{},
 	}
 	var errs []types.Error
 	conf := types.Config{
