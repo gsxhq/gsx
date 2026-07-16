@@ -1451,6 +1451,28 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					// removed Props-literal probe no longer provides a duplicate error.
 					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				}
+				// A component spread is an attrs contributor, but its expression still
+				// needs the same authoritative go/types fact as a leaf spread. Probe it
+				// immediately after top-level ExprAttrs; collectExprs uses this exact
+				// order, so harvest retains node identity without reparsing source.
+				var spreadProbeErr error
+				walkSpreadAttrs(t.Attrs, func(sa *gsxast.SpreadAttr) {
+					if spreadProbeErr != nil {
+						return
+					}
+					probe, err := probeExpr(sa.Expr, sa.Stages, table, usedFilters, sa, bag)
+					if err != nil {
+						spreadProbeErr = err
+						return
+					}
+					emitSkeletonLine(sb, fset, sa.Pos())
+					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+					emitSkeletonLine(sb, fset, sa.Pos())
+					fmt.Fprintf(sb, "var _ _gsxrt.Attrs = (%s)\n", probe)
+				})
+				if spreadProbeErr != nil {
+					return spreadProbeErr
+				}
 				// Probe ordered-attrs pair values AFTER ExprAttr probes, in attr source
 				// order then pair order — matching collectExprs's ordering exactly.
 				// _gsxuseq harvests the raw type (possibly a tuple) of each pair value;
@@ -2787,6 +2809,9 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 						*out = append(*out, ea)
 					}
 				}
+				walkSpreadAttrs(t.Attrs, func(sa *gsxast.SpreadAttr) {
+					*out = append(*out, sa)
+				})
 				// Collect pair nodes AFTER all ExprAttrs, in attr source order then
 				// pair order — matching the emitProbes ordering exactly.
 				for _, a := range t.Attrs {
@@ -3151,30 +3176,6 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 	}
 }
 
-// collectAttrSrc feeds every verbatim-emitted Go fragment in an attr list to add:
-// composable-class part Expr+Cond (and value-form CF switch-tag/if-cond + arm
-// exprs), element-spread Expr, conditional-attr Cond, and — recursing into a
-// *CondAttr's Then/Else — the same for nested attrs. (Nested *ExprAttr exprs are
-// bound via the componentExprs path in usedParams, but a param used ONLY inside a
-// CondAttr branch's expr-attr value is still bound because componentExprs/
-// collectExprs now also recurse CondAttr; the Cond and nested class/spread
-// fragments are bound here.)
-func addValueCFSrc(cf *gsxast.ValueCF, add func(string)) {
-	if cf.If != nil {
-		addValueIfSrc(cf.If, add)
-		return
-	}
-	if cf.Switch != nil {
-		add(cf.Switch.Tag)
-		for _, c := range cf.Switch.Cases {
-			if c.List != "" {
-				add(c.List)
-			}
-			addValueArmSrc(c.Value, add)
-		}
-	}
-}
-
 // emitCondLiveness writes the empty-bodied `if <cond> {\n}` statement that
 // keeps a guard condition's identifiers live in the skeleton, with a
 // compensated //line and a ctrlOff entry keyed by node — the CtrlMap bridge
@@ -3230,29 +3231,6 @@ func emitValueCFControl(sb *strings.Builder, fset *token.FileSet, cf *gsxast.Val
 			fmt.Fprintf(sb, "case %s:\n", c.List)
 		}
 		sb.WriteString("}\n")
-	}
-}
-
-func addValueIfSrc(vi *gsxast.ValueIf, add func(string)) {
-	add(vi.Cond)
-	addValueArmSrc(vi.Then, add)
-	if vi.ElseIf != nil {
-		addValueIfSrc(vi.ElseIf, add)
-	}
-	if vi.Else != nil {
-		addValueArmSrc(vi.Else, add)
-	}
-}
-
-func addValueArmSrc(arm *gsxast.ValueArm, add func(string)) {
-	if arm == nil {
-		return
-	}
-	add(arm.Expr)
-	for _, st := range arm.Stages {
-		if st.Args != "" {
-			add(st.Args)
-		}
 	}
 }
 
