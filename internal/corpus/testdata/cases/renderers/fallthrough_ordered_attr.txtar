@@ -58,6 +58,7 @@ import (
 	"corpustest/cases/renderers_fallthrough_ordered_attr/pg"
 
 	_gsxctx "context"
+	_gsxf0 "corpustest/cases/renderers_fallthrough_ordered_attr/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -84,9 +85,9 @@ func Page(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Panel(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: val}, {Key: "data-c", Value: "9"}})))
+		_gsxgw.Node(ctx, Panel(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxf0.PgText((val))}, {Key: "data-c", Value: "9"}})))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<section data-a="1" data-b="{hi true}" data-c="9">x</section>
+<section data-a="1" data-b="RENDERED:hi" data-c="9">x</section>

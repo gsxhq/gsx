@@ -516,8 +516,17 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 	for i := range attr.Pairs {
 		pair := &attr.Pairs[i]
 		expr := strings.TrimSpace(pair.Value)
-		if fact, ok := plan.expressionFacts[pair]; ok && fact.tuple != nil {
-			if _, valid := tupleUnwrapType(fact.tuple); !valid {
+		fact, hasFact := plan.expressionFacts[pair]
+		// The pair value's semantic type drives renderer application below. A
+		// (T, error) authored value is unwrapped first (matching every other
+		// emit site), leaving the renderer to act on the unwrapped T.
+		var valueType types.Type
+		if hasFact {
+			valueType = fact.tv.Type
+		}
+		if hasFact && fact.tuple != nil {
+			unwrapped, valid := tupleUnwrapType(fact.tuple)
+			if !valid {
 				ctx.bag.Errorf(pair.Pos(), pair.End(), "invalid-tuple", "ordered attrs value %q returns %s; only (T, error) is supported", pair.Value, fact.tuple)
 				return diagnosedPositionalValue()
 			}
@@ -526,6 +535,15 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 			fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
 			fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 			expr = name
+			valueType = unwrapped
+		}
+		// A registered [renderers] entry for the value's type rewrites the
+		// expression into the renderer call, exactly as applyRenderer does at
+		// every other render boundary — so a renderer-typed value in an
+		// attrs={{…}} bag renders identically to the same value inline. Without
+		// this the raw value reaches the Attrs pair and renders via Go %v.
+		if valueType != nil {
+			expr, _ = applyRenderer(b, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
 		}
 		entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(pair.Key), expr))
 	}
