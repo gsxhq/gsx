@@ -175,11 +175,13 @@ func componentParamBlockedNames(declaration *goast.FuncDecl, ordinal int, info *
 			}
 		}
 		if object := info.Uses[identifier]; object != nil && object != target && object.Name() != "" && object.Name() != "_" {
-			// A parameter shadows every unqualified object resolved outside its
-			// function scope. That includes ordinary package/file/universe objects
-			// and dot-imported objects, whose declaration scope belongs to the
-			// imported package rather than appearing in this scope's ancestor chain.
-			if !scopeAncestorOf(targetScope, object.Parent()) {
+			// LookupParent distinguishes a lexically unqualified identifier from a
+			// SelectorExpr.Sel object. Only the former can be shadowed by a renamed
+			// parameter. The returned lookup scope also distinguishes an outer
+			// package/file/universe/dot-import binding from a nearer local that will
+			// continue to shadow the parameter safely.
+			lookupScope, lexical := targetScope.LookupParent(object.Name(), identifier.Pos())
+			if lexical == object && (lookupScope == targetScope || !scopeAncestorOf(targetScope, lookupScope)) {
 				blocked[object.Name()] = true
 			}
 		}

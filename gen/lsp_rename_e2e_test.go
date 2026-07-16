@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -261,6 +262,64 @@ func TestLSPRenameComponentParameterRejectsSemanticNamespaceCollisions(t *testin
 			}
 			if !strings.Contains(string(response.Error), "conflicts with an existing declaration or call-site attribute") {
 				t.Fatalf("rename error = %s, want semantic collision rejection", response.Error)
+			}
+		})
+	}
+}
+
+func TestLSPRenameComponentParameterAllowsQualifiedSelectorNames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real module analysis")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		source  string
+		newName string
+	}{
+		{
+			name: "package selector member",
+			source: "package safe\n\nimport \"strings\"\n\n" +
+				"component Card(value string) { <b>{strings.ToUpper(value)}</b> }\n",
+			newName: "ToUpper",
+		},
+		{
+			name: "field selector member",
+			source: "package safe\n\ntype Item struct { Label string }\n\n" +
+				"component Card(value string, item Item) { <b>{item.Label}{value}</b> }\n",
+			newName: "Label",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeLSPRenameModule(t, root, repoRoot, map[string]string{"card.gsx": test.source})
+			path := filepath.Join(root, "card.gsx")
+			offset := strings.Index(test.source, "value string")
+			response := runLSPRename(t, path, test.source, offset+1, test.newName)
+			if len(response.Error) != 0 {
+				t.Fatalf("safe rename to %q rejected: %s", test.newName, response.Error)
+			}
+			var edit lsp.WorkspaceEdit
+			if err := json.Unmarshal(response.Result, &edit); err != nil {
+				t.Fatal(err)
+			}
+			updated := applyASCIITextEdits(t, test.source, edit.Changes[lspTestPathURI(path)])
+			if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			facts, err := newLSPAnalyzer(config{}, nil).AnalyzeModuleParams(root, nil)
+			if err != nil {
+				t.Fatalf("re-analyze safe rename: %v\n%s", err, updated)
+			}
+			if !slices.ContainsFunc(facts, func(fact lsp.ComponentParamRenameFact) bool {
+				return fact.Name == test.newName && fact.Key.ComponentKey == ".Card" && fact.Key.Ordinal == 0
+			}) {
+				t.Fatalf("renamed fact missing from %+v", facts)
 			}
 		})
 	}
