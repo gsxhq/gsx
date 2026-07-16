@@ -11,6 +11,6 @@ component Link(u string) {
 	<a href={ u |> trim }>x</a>
 }
 -- invoke --
-Link(LinkProps{U: "  javascript:alert(1)  "})
+Link("  javascript:alert(1)  ")
 -- render.golden --
 <a href="about:invalid#gsx">x</a>

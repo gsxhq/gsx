@@ -11,6 +11,6 @@ component Badge(featured bool) {
 	<span { if featured { class="featured" } }>content</span>
 }
 -- invoke --
-Badge(BadgeProps{Featured: true})
+Badge(true)
 -- render.golden --
 <span class="featured">content</span>

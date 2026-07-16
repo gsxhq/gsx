@@ -11,6 +11,6 @@ component Field(on bool) {
 	<input type="text" class="form-control" required disabled={on}/>
 }
 -- invoke --
-Field(FieldProps{On: true})
+Field(true)
 -- render.golden --
 <input type="text" class="form-control" required disabled/>

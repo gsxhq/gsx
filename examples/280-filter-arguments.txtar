@@ -12,6 +12,6 @@ component Stats(s string, count int) {
 	<p>{ count |> printf("%d comments") }</p>
 }
 -- invoke --
-Stats(StatsProps{S: "  hello world  ", Count: 42})
+Stats("  hello world  ", 42)
 -- render.golden --
 <p>hello</p><p>42 comments</p>

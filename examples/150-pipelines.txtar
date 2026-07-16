@@ -12,6 +12,6 @@ component Hi(name string) {
 	<p>{ name |> trim |> upper }</p>
 }
 -- invoke --
-Hi(HiProps{Name: "  ada  "})
+Hi("  ada  ")
 -- render.golden --
 <p>ADA</p>

@@ -11,6 +11,6 @@ component Item(id string) {
 	<li>{f`item-@{id}` |> upper}</li>
 }
 -- invoke --
-Item(ItemProps{Id: "a&b"})
+Item("a&b")
 -- render.golden --
 <li>ITEM-A&amp;B</li>

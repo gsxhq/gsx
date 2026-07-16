@@ -11,6 +11,6 @@ component FullName(first string, last string) {
 	<div>{{ full := first + " " + last }}<span>{full}</span></div>
 }
 -- invoke --
-FullName(FullNameProps{First: "Ada", Last: "Lovelace"})
+FullName("Ada", "Lovelace")
 -- render.golden --
 <div><span>Ada Lovelace</span></div>

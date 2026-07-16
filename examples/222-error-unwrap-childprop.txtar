@@ -13,6 +13,6 @@ component Row(label string) { <span>{label}</span> }
 
 component Page(k string) { <Row label={lookup(k)}/> }
 -- invoke --
-Page(PageProps{K: "item"})
+Page("item")
 -- render.golden --
 <span>val-item</span>

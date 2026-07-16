@@ -12,6 +12,6 @@ component Greeting(name string, count int) {
 	<p>Hello, {name}! You have {count} messages.</p>
 }
 -- invoke --
-Greeting(GreetingProps{Name: "World", Count: 3})
+Greeting("World", 3)
 -- render.golden --
 <p>Hello, World! You have 3 messages.</p>
