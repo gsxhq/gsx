@@ -870,6 +870,7 @@ urlattrs/htmx_preset	diag gen render
 urlattrs/hx_default_plain	diag gen render
 urlattrs/nested_literal_url_hole	diag gen render
 urlattrs/static_plus_case_variant	diag gen render
+verbatim/attrs_defined_forwarding	diag gen render
 verbatim/attrs_shapes	diag gen render
 verbatim/callable_origins	diag gen render
 verbatim/children_attrs	diag gen render
@@ -893,4 +894,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 895 cases (render: 764, error: 99, gen-pinned: 516)
+TOTAL: 896 cases (render: 765, error: 99, gen-pinned: 517)

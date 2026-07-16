@@ -1461,9 +1461,11 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						return
 					}
 					emitSkeletonLine(sb, fset, sa.Pos())
-					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
-					emitSkeletonLine(sb, fset, sa.Pos())
-					fmt.Fprintf(sb, "var _ _gsxrt.Attrs = (%s)\n", probe)
+					// Component spreads accept the complete []gsx.Attr family, so a
+					// canonical gsx.Attrs assignment would falsely reject a defined bag.
+					// The non-quiet variadic probe both harvests the exact type and owns
+					// expression diagnostics; semantic validation proves the bag family.
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				})
 				if spreadProbeErr != nil {
 					return spreadProbeErr

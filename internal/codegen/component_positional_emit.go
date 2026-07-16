@@ -75,19 +75,19 @@ func emitPositionalComponentCall(
 		}
 
 		decision := materialized[valueIndex]
+		lowered := expr
 		switch {
 		case decision.unwrapTuple:
 			temp := nextPositionalTemp(ctx.interpTemp)
 			fmt.Fprintf(b, "%s, _gsxerr := %s\n", temp, expr)
 			b.WriteString("if _gsxerr != nil { return _gsxerr }\n")
-			values[valueIndex] = temp
+			lowered = temp
 		case decision.temp != "":
 			temp := nextPositionalTemp(ctx.interpTemp)
 			fmt.Fprintf(b, "%s := %s\n", temp, expr)
-			values[valueIndex] = temp
-		default:
-			values[valueIndex] = expr
+			lowered = temp
 		}
+		values[valueIndex] = normalizePositionalAttrsContributor(lowered, value, plan, ctx)
 	}
 
 	zeros := make(map[int]string, len(plan.zeros))
@@ -145,6 +145,28 @@ func emitPositionalComponentCall(
 	}
 	fmt.Fprintf(b, "_gsxgw.Node(ctx, %s%s(%s))\n", el.Tag, typeArgs, strings.Join(args, ", "))
 	return true
+}
+
+func normalizePositionalAttrsContributor(expr string, value componentInputValue, plan componentPositionalSitePlan, ctx positionalEmitContext) string {
+	if value.attrsNode == nil || (value.attrsNode.kind != componentAttrsStreamSpread && value.attrsNode.kind != componentAttrsStreamContributor) {
+		return expr
+	}
+	fact, ok := plan.expressionFacts[value.node]
+	if !ok || fact.tv.Type == nil {
+		return expr // planning already owns the missing-fact diagnostic
+	}
+	typ := fact.tv.Type
+	if fact.tuple != nil {
+		var valid bool
+		typ, valid = tupleUnwrapType(fact.tuple)
+		if !valid {
+			return expr // operand validation already owns the tuple diagnostic
+		}
+	}
+	if plan.runtime.attrs == nil || types.AssignableTo(typ, plan.runtime.attrs) {
+		return expr
+	}
+	return ctx.rt.rt() + ".Attrs(" + expr + ")"
 }
 
 func nextPositionalTemp(counter *int) string {
