@@ -16,7 +16,9 @@ import (
 )
 
 type effectiveGoWorkspace struct {
-	GOWORK string
+	GOWORK    string
+	GOTOOLDIR string
+	GOHOSTOS  string
 }
 
 // ErrUncacheableGoContext marks a valid Go command context whose semantic
@@ -51,8 +53,9 @@ func CaptureGoCommandContext(moduleRoot string) *GoCommandContext {
 	packagesDriverPath, _ := exec.LookPath("gopackagesdriver")
 	snapshot, err := golauncher.SnapshotLive()
 	context.buildEnvErr = err
+	var toolDir, hostOS string
 	if context.buildEnvErr == nil {
-		context.buildEnv, context.buildEnvErr = freezeGoCommandEnvironment(
+		context.buildEnv, toolDir, hostOS, context.buildEnvErr = freezeGoCommandEnvironment(
 			context.buildEnv,
 			context.moduleRoot,
 			packagesDriverPath,
@@ -60,7 +63,7 @@ func CaptureGoCommandContext(moduleRoot string) *GoCommandContext {
 		)
 	}
 	if context.buildEnvErr == nil {
-		context.goLauncher, context.buildEnvErr = snapshot.Seal(context.moduleRoot, context.buildEnv)
+		context.goLauncher, context.buildEnvErr = snapshot.SealToolchain(context.moduleRoot, context.buildEnv, toolDir, hostOS)
 	}
 	return context
 }
@@ -81,13 +84,15 @@ func (context *GoCommandContext) Run(args ...string) ([]byte, error) {
 	return context.goLauncher.Run(context.moduleRoot, context.buildEnv, args...)
 }
 
-// CacheFingerprint returns a canonical digest of the complete effective `go
-// env -json` result, selected Go launcher bytes, and `go tool compile -V=full`
-// identity. Together these pin the compiler and derived tool/release-tag
-// universe without maintaining a second partial variable list. Active
-// workspaces are intentionally uncacheable: their
-// used-module source lies outside the module-root source manifest and therefore
-// cannot be represented by the current persistent key.
+// CacheFingerprint returns a canonical digest of the frozen effective Go
+// environment, selected Go launcher bytes, and exact selected compiler path and
+// bytes. The environment excludes only GOGCCFLAGS: cmd/go documents it as an
+// output-only variable that cannot be modified, and its derived value embeds a
+// fresh per-command temporary path. Its actual inputs (CC, CGO_*, GOOS, GOARCH,
+// and toolchain identity) remain in the fingerprint. Active workspaces are
+// intentionally uncacheable: their used-module source lies outside the
+// module-root source manifest and therefore cannot be represented by the
+// current persistent key.
 func (context *GoCommandContext) CacheFingerprint() (string, error) {
 	if context == nil {
 		return "", fmt.Errorf("codegen: nil Go command context")
@@ -107,12 +112,22 @@ func (context *GoCommandContext) CacheFingerprint() (string, error) {
 			context.cacheKeyErr = fmt.Errorf("codegen: fingerprint effective Go environment: %w", err)
 			return
 		}
-		var environment map[string]any
+		environment := map[string]string{}
 		if err := json.Unmarshal(environmentJSON, &environment); err != nil {
 			context.cacheKeyErr = fmt.Errorf("codegen: decode effective Go environment fingerprint: %w", err)
 			return
 		}
-		goFlags, _ := environment["GOFLAGS"].(string)
+		// cmd/go marks GOGCCFLAGS as non-modifiable output. Its derived value
+		// includes a fresh per-command temporary work path; every input that
+		// determines the flags remains represented by the other environment
+		// fields and the selected toolchain identities below.
+		delete(environment, "GOGCCFLAGS")
+		canonicalEnvironment, err := json.Marshal(environment)
+		if err != nil {
+			context.cacheKeyErr = fmt.Errorf("codegen: encode effective Go environment fingerprint: %w", err)
+			return
+		}
+		goFlags := environmentValue(context.buildEnv, "GOFLAGS")
 		flags, err := splitGoQuoted(goFlags)
 		if err != nil {
 			context.cacheKeyErr = fmt.Errorf("codegen: parse effective GOFLAGS for cache fingerprint: %w", err)
@@ -132,11 +147,6 @@ func (context *GoCommandContext) CacheFingerprint() (string, error) {
 			context.cacheKeyErr = fmt.Errorf("codegen: inspect module vendor source: %w", err)
 			return
 		}
-		canonicalEnvironment, err := json.Marshal(environment)
-		if err != nil {
-			context.cacheKeyErr = fmt.Errorf("codegen: encode effective Go environment fingerprint: %w", err)
-			return
-		}
 		if context.goLauncher == nil {
 			context.cacheKeyErr = fmt.Errorf("codegen: fingerprint Go command: launcher identity is unavailable")
 			return
@@ -148,7 +158,7 @@ func (context *GoCommandContext) CacheFingerprint() (string, error) {
 		launcherDigest := context.goLauncher.Digest()
 		compilerIdentity := context.goLauncher.CompilerIdentity()
 		hash := sha256.New()
-		fmt.Fprintf(hash, "gsx-go-context-v2\x00path=%s\x00env=%d\x00", context.goLauncher.Path(), len(canonicalEnvironment))
+		fmt.Fprintf(hash, "gsx-go-context-v3\x00path=%s\x00env=%d\x00", context.goLauncher.Path(), len(canonicalEnvironment))
 		hash.Write(canonicalEnvironment)
 		fmt.Fprintf(hash, "\x00launcher-sha256=%x", launcherDigest)
 		fmt.Fprintf(hash, "\x00compiler=%d\x00", len(compilerIdentity))
@@ -166,25 +176,25 @@ func (context *GoCommandContext) CacheFingerprint() (string, error) {
 // directory-dependent and must also be fixed at Open. In normal mode gsx owns
 // one source-inventory overlay and cannot combine it soundly with another
 // overlay or an external packages driver.
-func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPath string, snapshot *golauncher.Snapshot) ([]string, error) {
+func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPath string, snapshot *golauncher.Snapshot) ([]string, string, string, error) {
 	driver := environmentValue(buildEnv, "GOPACKAGESDRIVER")
 	switch {
 	case driver == "off":
 	case driver != "":
-		return nil, fmt.Errorf("codegen: GOPACKAGESDRIVER %q is not supported in normal mode", driver)
+		return nil, "", "", fmt.Errorf("codegen: GOPACKAGESDRIVER %q is not supported in normal mode", driver)
 	default:
 		if packagesDriverPath != "" {
-			return nil, fmt.Errorf("codegen: PATH-discovered gopackagesdriver %q is not supported in normal mode", packagesDriverPath)
+			return nil, "", "", fmt.Errorf("codegen: PATH-discovered gopackagesdriver %q is not supported in normal mode", packagesDriverPath)
 		}
 	}
 
 	changedOutput, err := snapshot.Run(moduleRoot, buildEnv, "env", "-changed", "-json")
 	if err != nil {
-		return nil, fmt.Errorf("codegen: resolve effective Go environment: %w", err)
+		return nil, "", "", fmt.Errorf("codegen: resolve effective Go environment: %w", err)
 	}
 	changed := map[string]string{}
 	if err := json.Unmarshal(changedOutput, &changed); err != nil {
-		return nil, fmt.Errorf("codegen: decode effective Go environment: %w", err)
+		return nil, "", "", fmt.Errorf("codegen: decode effective Go environment: %w", err)
 	}
 	keys := make([]string, 0, len(changed))
 	for key := range changed {
@@ -195,13 +205,13 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 		buildEnv = environmentWithValue(buildEnv, key, changed[key])
 	}
 
-	workspaceOutput, err := snapshot.Run(moduleRoot, buildEnv, "env", "-json", "GOWORK")
+	environmentOutput, err := snapshot.Run(moduleRoot, buildEnv, "env", "-json", "GOWORK", "GOTOOLDIR", "GOHOSTOS")
 	if err != nil {
-		return nil, fmt.Errorf("codegen: resolve effective Go workspace: %w", err)
+		return nil, "", "", fmt.Errorf("codegen: resolve effective Go workspace and toolchain: %w", err)
 	}
 	var workspace effectiveGoWorkspace
-	if err := json.Unmarshal(workspaceOutput, &workspace); err != nil {
-		return nil, fmt.Errorf("codegen: decode effective Go workspace: %w", err)
+	if err := json.Unmarshal(environmentOutput, &workspace); err != nil {
+		return nil, "", "", fmt.Errorf("codegen: decode effective Go workspace and toolchain: %w", err)
 	}
 	if workspace.GOWORK == "" {
 		workspace.GOWORK = "off"
@@ -210,7 +220,7 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 	effectiveGoFlags := environmentValue(buildEnv, "GOFLAGS")
 	flags, err := splitGoQuoted(effectiveGoFlags)
 	if err != nil {
-		return nil, fmt.Errorf("codegen: parse effective GOFLAGS: %w", err)
+		return nil, "", "", fmt.Errorf("codegen: parse effective GOFLAGS: %w", err)
 	}
 	var overlayValue string
 	var overlayHasValue, overlaySeen bool
@@ -223,7 +233,7 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 		}
 	}
 	if overlaySeen && (!overlayHasValue || overlayValue != "") {
-		return nil, fmt.Errorf("codegen: effective GOFLAGS -overlay is not supported in normal mode")
+		return nil, "", "", fmt.Errorf("codegen: effective GOFLAGS -overlay is not supported in normal mode")
 	}
 
 	buildEnv = environmentWithValue(buildEnv, "GOFLAGS", effectiveGoFlags)
@@ -232,7 +242,7 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 	// x/tools/go/packages consults the live process PATH when no driver is
 	// explicit in Config.Env. Pin the already-validated no-driver state so a
 	// later process-environment mutation cannot escape this frozen boundary.
-	return environmentWithValue(buildEnv, "GOPACKAGESDRIVER", "off"), nil
+	return environmentWithValue(buildEnv, "GOPACKAGESDRIVER", "off"), workspace.GOTOOLDIR, workspace.GOHOSTOS, nil
 }
 
 func (m *Module) validateGoCommandLauncher() error {
