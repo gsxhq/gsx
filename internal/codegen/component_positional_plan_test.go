@@ -388,6 +388,149 @@ func TestPlanComponentPositionalCallsDerivesSyntaxDefinedOrdinaryPropFacts(t *te
 	}
 }
 
+func TestPlanComponentPositionalCallsAdaptsExactNodeOperands(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	el, fset := plannerElement(t, "<C static=\"x\" formatted=f`hi` label={label} count={n} flag node={node} markup={<i/>} labelTuple={makeLabel()} nodeTuple={makeNode()}/>")
+	pkg := types.NewPackage("example.test/page", "page")
+	labelType := testNamedType(t, pkg, "Label", types.NewStruct(nil, nil))
+	labelType.AddMethod(types.NewFunc(token.NoPos, pkg, "String", types.NewSignatureType(
+		types.NewVar(token.NoPos, pkg, "", labelType), nil, nil, types.NewTuple(),
+		types.NewTuple(types.NewVar(token.NoPos, pkg, "", types.Typ[types.String])), false,
+	)))
+	labelTuple := types.NewTuple(
+		types.NewVar(token.NoPos, pkg, "", labelType),
+		types.NewVar(token.NoPos, pkg, "", types.Universe.Lookup("error").Type()),
+	)
+	nodeTuple := types.NewTuple(
+		types.NewVar(token.NoPos, pkg, "", fx.runtime.node),
+		types.NewVar(token.NoPos, pkg, "", types.Universe.Lookup("error").Type()),
+	)
+	params := make([]*types.Var, len(el.Attrs))
+	for i, attr := range el.Attrs {
+		name, ok := componentInputAttrName(attr)
+		if !ok {
+			t.Fatalf("attribute %d has no name", i)
+		}
+		params[i] = types.NewVar(token.NoPos, pkg, name, fx.runtime.node)
+	}
+	sig := types.NewSignatureType(nil, nil, nil, types.NewTuple(params...),
+		types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), false)
+	facts := map[gsxast.Node]expressionFact{
+		el.Attrs[2]: {tv: types.TypeAndValue{Type: labelType}},
+		el.Attrs[3]: {tv: types.TypeAndValue{Type: types.Typ[types.Int]}},
+		el.Attrs[5]: {tv: types.TypeAndValue{Type: fx.runtime.node}},
+		el.Attrs[7]: {tv: types.TypeAndValue{Type: labelTuple}, tuple: labelTuple},
+		el.Attrs[8]: {tv: types.TypeAndValue{Type: nodeTuple}, tuple: nodeTuple},
+	}
+
+	got, diagnostics := planComponentPositionalCalls(componentPositionalPlanningInput{
+		callSites:       positionalTestRegistry(el),
+		targets:         map[callSiteID]componentTargetFact{1: {site: 1, raw: sig, provenance: targetPackageFunc}},
+		expressionFacts: facts,
+		runtime:         fx.runtime,
+		analysisPackage: pkg,
+		fset:            fset,
+	})
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	site := got.sites[1]
+	wantAdapters := []componentOperandAdapter{
+		componentAdapterNodeText,
+		componentAdapterNodeText,
+		componentAdapterNodeVal,
+		componentAdapterNodeVal,
+		componentAdapterNodeVal,
+		componentAdapterIdentity,
+		componentAdapterIdentity,
+		componentAdapterNodeVal,
+		componentAdapterIdentity,
+	}
+	if len(site.operands) != len(wantAdapters) {
+		t.Fatalf("operands = %d, want %d", len(site.operands), len(wantAdapters))
+	}
+	for i, want := range wantAdapters {
+		op := site.operands[i]
+		if op.valueIndex != i || op.adapter != want {
+			t.Errorf("operand %d = %+v, want value index %d adapter %d", i, op, i, want)
+		}
+		if !types.Identical(op.tv.Type, fx.runtime.node) {
+			t.Errorf("operand %d adapted type = %v, want %v", i, op.tv.Type, fx.runtime.node)
+		}
+	}
+}
+
+func TestPlanComponentPositionalCallsAdaptsNodeAliasButNotConcreteImplementation(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	pkg := types.NewPackage("example.test/page", "page")
+	nodeAlias := testAliasType(t, pkg, "NodeAlias", fx.runtime.node)
+
+	t.Run("canonical alias", func(t *testing.T) {
+		el, fset := plannerElement(t, `<C value="x"/>`)
+		sig := types.NewSignatureType(nil, nil, nil,
+			types.NewTuple(types.NewVar(token.NoPos, pkg, "value", nodeAlias)),
+			types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), false)
+		got, diagnostics := planComponentPositionalCalls(componentPositionalPlanningInput{
+			callSites: positionalTestRegistry(el), targets: map[callSiteID]componentTargetFact{1: {site: 1, raw: sig, provenance: targetPackageFunc}},
+			runtime: fx.runtime, analysisPackage: pkg, fset: fset,
+		})
+		if len(diagnostics) != 0 {
+			t.Fatalf("diagnostics = %+v", diagnostics)
+		}
+		if op := got.sites[1].operands[0]; op.adapter != componentAdapterNodeText || !types.Identical(op.tv.Type, fx.runtime.node) {
+			t.Fatalf("alias operand = %+v, want NodeText with canonical Node fact", op)
+		}
+	})
+
+	t.Run("concrete implementation", func(t *testing.T) {
+		el, fset := plannerElement(t, `<C value="x"/>`)
+		concrete := testNamedType(t, pkg, "Concrete", types.NewStruct(nil, nil))
+		concrete.AddMethod(types.NewFunc(token.NoPos, pkg, "Render", types.NewSignatureType(
+			types.NewVar(token.NoPos, pkg, "", concrete), nil, nil, types.NewTuple(), types.NewTuple(), false,
+		)))
+		if !types.AssignableTo(concrete, fx.runtime.node) {
+			t.Fatal("test concrete type must implement Node")
+		}
+		sig := types.NewSignatureType(nil, nil, nil,
+			types.NewTuple(types.NewVar(token.NoPos, pkg, "value", concrete)),
+			types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), false)
+		_, diagnostics := planComponentPositionalCalls(componentPositionalPlanningInput{
+			callSites: positionalTestRegistry(el), targets: map[callSiteID]componentTargetFact{1: {site: 1, raw: sig, provenance: targetPackageFunc}},
+			runtime: fx.runtime, analysisPackage: pkg, fset: fset,
+		})
+		if len(diagnostics) != 1 || diagnostics[0].Code != "component-prop-type" {
+			t.Fatalf("diagnostics = %+v, want ordinary concrete assignment error", diagnostics)
+		}
+	})
+}
+
+func TestPlanComponentPositionalCallsUsesAdaptedNodeOperandDuringInference(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	el, fset := plannerElement(t, `<C item={n} label="x"/>`)
+	pkg := types.NewPackage("example.test/page", "page")
+	tp := types.NewTypeParam(types.NewTypeName(token.NoPos, pkg, "T", nil), types.NewInterfaceType(nil, nil).Complete())
+	sig := types.NewSignatureType(nil, nil, []*types.TypeParam{tp}, types.NewTuple(
+		types.NewVar(token.NoPos, pkg, "item", tp),
+		types.NewVar(token.NoPos, pkg, "label", fx.runtime.node),
+	), types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), false)
+
+	got, diagnostics := planComponentPositionalCalls(componentPositionalPlanningInput{
+		callSites: positionalTestRegistry(el), targets: map[callSiteID]componentTargetFact{1: {site: 1, raw: sig, provenance: targetPackageFunc}},
+		expressionFacts: map[gsxast.Node]expressionFact{el.Attrs[0]: {tv: types.TypeAndValue{Type: types.Typ[types.Int]}}},
+		runtime:         fx.runtime, analysisPackage: pkg, fset: fset,
+	})
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	site := got.sites[1]
+	if site.instance.TypeArgs == nil || site.instance.TypeArgs.Len() != 1 || !types.Identical(types.Unalias(site.instance.TypeArgs.At(0)), types.Typ[types.Int]) {
+		t.Fatalf("inferred instance = %+v, want T=int", site.instance)
+	}
+	if op := site.operands[1]; op.adapter != componentAdapterNodeText || !types.Identical(op.tv.Type, fx.runtime.node) {
+		t.Fatalf("label operand = %+v, want adapted NodeText fact", op)
+	}
+}
+
 func TestPlanComponentPositionalCallsPinsConditionalAttrsAtAuthoredOrder(t *testing.T) {
 	fx := newSignatureRuntimeFixture(t)
 	el, fset := plannerElement(t, `<C late={first()} { if ok { id="x" } }/>`)
