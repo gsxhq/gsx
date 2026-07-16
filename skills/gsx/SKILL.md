@@ -23,8 +23,14 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
   `{{ … }}`.
 - **Capitalization decides the tag's meaning:** lowercase/hyphenated → HTML element
   (`<div>`, `<el-dialog>`); Capitalized/dotted → component (`<Card>`, `<ui.Button>`).
-- Inline component params become a generated `XProps` struct — gsx owns the field
-  names: `<Card title="Hi" featured/>` → `Card(CardProps{Title: "Hi", Featured: true})`.
+- A component's authored parameter list is emitted unchanged. Markup binds ordinary
+  parameters by exact name; direct Go callers use the same positional signature.
+  For `component Card(title string, featured bool)`, `<Card title="Hi" featured/>`
+  binds `title` and `featured`, while Go calls `Card("Hi", true)`.
+- Lowercase `children` and `attrs` are reserved roles only when declared as
+  parameters. `children` receives the markup body. `attrs` receives unmatched
+  attributes and ordered bag contributors such as `attrs={bag}` and
+  `attrs={{ "id": id }}`. Capitalized `Children` and `Attrs` are ordinary inputs.
 
 ## Forms
 
@@ -36,16 +42,17 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
   auto-unwraps to `T`; the error propagates out of the enclosing `Render`. There is
   no `?` try-marker. To handle the error instead, use `{ if v, err := f(); err != nil { … } }`.
 - Attributes: static `name="lit"`, dynamic `name={ expr }`, boolean bare `name`,
-  type-driven `disabled={ cond }` (bool → bare/omitted), spread `{...expr}`,
+  type-driven `disabled={ cond }` (bool → bare/omitted), spread `{ expr... }`,
   conditional `{ if … }` / `{ for … }` inside the tag.
 - Composable `class`/`style`: `class={ a, "cls": cond, x }` (comma list;
   `"cls": cond` is conditional sugar).
 - Control flow contributing children: `{ if/for/switch … { <markup> } }`.
 - Go escape hatch (no output): `{{ stmt }}`. Fragments: `<>…</>`.
-- Children: `{children}` places passed children. Passing children to a component
-  that never places them is a compile error.
-- Attribute fallthrough: undeclared call-site attrs auto-apply to a single root
-  element (`class`/`style` merge); an ambiguous root is a compile error.
+- Children: declare `children gsx.Node` or `children ...gsx.Node`, then place it
+  with `{children}`. A component without that parameter rejects a non-empty body.
+- Attribute fallthrough: declare `attrs gsx.Attrs` (or another supported attrs-bag
+  shape), then spread `{ attrs... }` where the component chooses. A component
+  without `attrs` rejects unmatched attributes and attrs-bag contributors.
 
 ## The one subtlety: markup vs Go
 
