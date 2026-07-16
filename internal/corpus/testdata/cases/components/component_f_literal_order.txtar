@@ -110,17 +110,17 @@ func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv1 := mark("first", "A")
-		_gsxv2, _gsxerr := markInt("hole", 7, fail)
+		_gsxa0 := mark("first", "A")
+		_gsxv1, _gsxerr := markInt("hole", 7, fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv3 := _gsxsc.FormatInt(int64(_gsxv2), 10)
-		_gsxv4 := "value-" + _gsxv3
-		_gsxv5 := _gsxrt.Attrs{{Key: "data-pair", Value: mark("pair", "P")}}
-		_gsxv6 := _gsxrt.Attrs{{Key: "data-bag", Value: mark("bag", "B")}}
-		_gsxv7 := mark("last", "Z")
-		_gsxgw.Node(ctx, Target(_gsxv1, _gsxv4, _gsxv5, _gsxv7, _gsxv6))
+		_gsxv2 := _gsxsc.FormatInt(int64(_gsxv1), 10)
+		_gsxa1 := "value-" + _gsxv2
+		_gsxa2 := _gsxrt.Attrs{{Key: "data-pair", Value: mark("pair", "P")}}
+		_gsxa3 := _gsxrt.Attrs{{Key: "data-bag", Value: mark("bag", "B")}}
+		_gsxa4 := mark("last", "Z")
+		_gsxgw.Node(ctx, Target(_gsxa0, _gsxa1, _gsxa2, _gsxa4, _gsxa3))
 		return _gsxgw.Err()
 	})
 }
