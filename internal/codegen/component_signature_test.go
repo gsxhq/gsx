@@ -175,6 +175,235 @@ func newSignatureRuntimeFixture(t *testing.T) signatureRuntimeFixture {
 	}
 }
 
+func TestRuntimeContractFromAnalysisPackage(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	fx.pkg.MarkComplete()
+	analysis := types.NewPackage("example.test/analysis", "analysis")
+	analysis.SetImports([]*types.Package{fx.pkg})
+	analysis.MarkComplete()
+
+	got, err := runtimeContractFromAnalysisPackage(analysis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !types.Identical(got.node, fx.runtime.node) ||
+		!types.Identical(got.attr, fx.runtime.attr) ||
+		!types.Identical(got.attrs, fx.runtime.attrs) {
+		t.Fatalf("runtime contract = %#v, want exact imported Node/Attr/Attrs identities", got)
+	}
+}
+
+func TestRuntimeContractFromAnalysisPackageUsesDirectSemanticImport(t *testing.T) {
+	runtimePkg := types.NewPackage(gsxRuntimePath, "not_the_source_alias")
+	node := testNamedType(t, runtimePkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+	attr := testNamedType(t, runtimePkg, "Attr", types.NewStruct(nil, nil))
+	attrs := testNamedType(t, runtimePkg, "Attrs", types.NewSlice(attr))
+	runtimePkg.MarkComplete()
+
+	analysis := types.NewPackage("example.test/analysis", "analysis")
+	analysis.SetImports([]*types.Package{runtimePkg})
+	analysis.MarkComplete()
+	got, err := runtimeContractFromAnalysisPackage(analysis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.node != node || got.attr != attr || got.attrs != attrs {
+		t.Fatalf("runtime contract did not retain the direct semantic import identities: %#v", got)
+	}
+
+	transitive := types.NewPackage("example.test/transitive", "transitive")
+	transitive.SetImports([]*types.Package{runtimePkg})
+	transitive.MarkComplete()
+	withoutDirectRuntime := types.NewPackage("example.test/without-direct-runtime", "withoutdirect")
+	withoutDirectRuntime.SetImports([]*types.Package{transitive})
+	withoutDirectRuntime.MarkComplete()
+	if _, err := runtimeContractFromAnalysisPackage(withoutDirectRuntime); err == nil || !strings.Contains(err.Error(), "does not directly import") {
+		t.Fatalf("transitive-only runtime import error = %v, want direct-import failure", err)
+	}
+}
+
+func TestRuntimeContractFromAnalysisPackageRejectsInvalidRuntime(t *testing.T) {
+	analysisWith := func(runtimePkg *types.Package) *types.Package {
+		analysis := types.NewPackage("example.test/analysis", "analysis")
+		if runtimePkg != nil {
+			analysis.SetImports([]*types.Package{runtimePkg})
+		}
+		analysis.MarkComplete()
+		return analysis
+	}
+	newRuntime := func(t *testing.T, define func(*types.Package)) *types.Package {
+		t.Helper()
+		pkg := types.NewPackage(gsxRuntimePath, "gsx")
+		define(pkg)
+		pkg.MarkComplete()
+		return pkg
+	}
+	validTypes := func(t *testing.T, pkg *types.Package) (types.Type, types.Type, types.Type) {
+		t.Helper()
+		node := testNamedType(t, pkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+		attr := testNamedType(t, pkg, "Attr", types.NewStruct(nil, nil))
+		attrs := testNamedType(t, pkg, "Attrs", types.NewSlice(attr))
+		return node, attr, attrs
+	}
+
+	t.Run("nil analysis package", func(t *testing.T) {
+		if _, err := runtimeContractFromAnalysisPackage(nil); err == nil || !strings.Contains(err.Error(), "nil analysis package") {
+			t.Fatalf("error = %v, want nil-analysis failure", err)
+		}
+	})
+
+	t.Run("missing direct import", func(t *testing.T) {
+		if _, err := runtimeContractFromAnalysisPackage(analysisWith(nil)); err == nil || !strings.Contains(err.Error(), "does not directly import") {
+			t.Fatalf("error = %v, want missing-runtime failure", err)
+		}
+	})
+
+	t.Run("incomplete runtime package", func(t *testing.T) {
+		pkg := types.NewPackage(gsxRuntimePath, "gsx")
+		validTypes(t, pkg)
+		if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), "is incomplete") {
+			t.Fatalf("error = %v, want incomplete-runtime failure", err)
+		}
+	})
+
+	t.Run("multiple same-path semantic identities", func(t *testing.T) {
+		first := newRuntime(t, func(pkg *types.Package) { validTypes(t, pkg) })
+		second := newRuntime(t, func(pkg *types.Package) { validTypes(t, pkg) })
+		analysis := types.NewPackage("example.test/analysis", "analysis")
+		analysis.SetImports([]*types.Package{first, second})
+		analysis.MarkComplete()
+		if _, err := runtimeContractFromAnalysisPackage(analysis); err == nil || !strings.Contains(err.Error(), "multiple semantic package identities") {
+			t.Fatalf("error = %v, want ambiguous-semantic-identity failure", err)
+		}
+	})
+
+	t.Run("foreign type object identity", func(t *testing.T) {
+		pkg := types.NewPackage(gsxRuntimePath, "gsx")
+		foreign := types.NewPackage(gsxRuntimePath, "gsx")
+		foreignNode := testNamedType(t, foreign, "Node", types.NewInterfaceType(nil, nil).Complete())
+		if alt := pkg.Scope().Insert(foreignNode.Obj()); alt != nil {
+			t.Fatalf("insert foreign Node: conflict with %s", alt)
+		}
+		attr := testNamedType(t, pkg, "Attr", types.NewStruct(nil, nil))
+		testNamedType(t, pkg, "Attrs", types.NewSlice(attr))
+		pkg.MarkComplete()
+		if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), "foreign semantic package identity") {
+			t.Fatalf("error = %v, want foreign-object-identity failure", err)
+		}
+	})
+
+	t.Run("incomplete type identity", func(t *testing.T) {
+		pkg := newRuntime(t, func(pkg *types.Package) {
+			testNamedType(t, pkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+			obj := types.NewTypeName(token.NoPos, pkg, "Attr", nil)
+			types.NewAlias(obj, nil)
+			if alt := pkg.Scope().Insert(obj); alt != nil {
+				t.Fatalf("insert incomplete Attr: conflict with %s", alt)
+			}
+			testNamedType(t, pkg, "Attrs", types.NewSlice(types.NewStruct(nil, nil)))
+		})
+		if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), "Attr has an incomplete or invalid type") {
+			t.Fatalf("error = %v, want incomplete-type failure", err)
+		}
+	})
+
+	for _, name := range []string{"Node", "Attr", "Attrs"} {
+		t.Run("missing "+name, func(t *testing.T) {
+			pkg := newRuntime(t, func(pkg *types.Package) {
+				if name != "Node" {
+					testNamedType(t, pkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+				}
+				var attr types.Type
+				if name != "Attr" {
+					attr = testNamedType(t, pkg, "Attr", types.NewStruct(nil, nil))
+				}
+				if name != "Attrs" {
+					if attr == nil {
+						attr = types.NewStruct(nil, nil)
+					}
+					testNamedType(t, pkg, "Attrs", types.NewSlice(attr))
+				}
+			})
+			if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), "missing type "+name) {
+				t.Fatalf("error = %v, want missing-%s failure", err, name)
+			}
+		})
+
+		t.Run("non-type "+name, func(t *testing.T) {
+			pkg := newRuntime(t, func(pkg *types.Package) {
+				if name == "Node" {
+					pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Node", types.NewInterfaceType(nil, nil).Complete()))
+				} else {
+					testNamedType(t, pkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+				}
+				var attr types.Type = types.NewStruct(nil, nil)
+				if name == "Attr" {
+					pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Attr", attr))
+				} else {
+					attr = testNamedType(t, pkg, "Attr", attr)
+				}
+				attrsType := types.NewSlice(attr)
+				if name == "Attrs" {
+					pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Attrs", attrsType))
+				} else {
+					testNamedType(t, pkg, "Attrs", attrsType)
+				}
+			})
+			if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), name+" is not a type name") {
+				t.Fatalf("error = %v, want non-type-%s failure", err, name)
+			}
+		})
+
+		t.Run("invalid "+name, func(t *testing.T) {
+			pkg := newRuntime(t, func(pkg *types.Package) {
+				if name == "Node" {
+					pkg.Scope().Insert(types.NewTypeName(token.NoPos, pkg, "Node", types.Typ[types.Invalid]))
+				} else {
+					testNamedType(t, pkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+				}
+				var attr types.Type = types.NewStruct(nil, nil)
+				if name == "Attr" {
+					pkg.Scope().Insert(types.NewTypeName(token.NoPos, pkg, "Attr", types.Typ[types.Invalid]))
+				} else {
+					attr = testNamedType(t, pkg, "Attr", attr)
+				}
+				if name == "Attrs" {
+					pkg.Scope().Insert(types.NewTypeName(token.NoPos, pkg, "Attrs", types.Typ[types.Invalid]))
+				} else {
+					testNamedType(t, pkg, "Attrs", types.NewSlice(attr))
+				}
+			})
+			if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), name+" has an incomplete or invalid type") {
+				t.Fatalf("error = %v, want invalid-%s failure", err, name)
+			}
+		})
+	}
+
+	t.Run("Attrs has wrong element", func(t *testing.T) {
+		pkg := newRuntime(t, func(pkg *types.Package) {
+			testNamedType(t, pkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+			testNamedType(t, pkg, "Attr", types.NewStruct(nil, nil))
+			testNamedType(t, pkg, "Attrs", types.NewSlice(types.Typ[types.String]))
+		})
+		if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), "does not have underlying []") {
+			t.Fatalf("error = %v, want exact-Attrs-element failure", err)
+		}
+	})
+
+	t.Run("Attrs has same-path foreign Attr identity", func(t *testing.T) {
+		pkg := types.NewPackage(gsxRuntimePath, "gsx")
+		testNamedType(t, pkg, "Node", types.NewInterfaceType(nil, nil).Complete())
+		testNamedType(t, pkg, "Attr", types.NewStruct(nil, nil))
+		foreign := types.NewPackage(gsxRuntimePath, "gsx")
+		foreignAttr := testNamedType(t, foreign, "Attr", types.NewStruct(nil, nil))
+		testNamedType(t, pkg, "Attrs", types.NewSlice(foreignAttr))
+		pkg.MarkComplete()
+		if _, err := runtimeContractFromAnalysisPackage(analysisWith(pkg)); err == nil || !strings.Contains(err.Error(), "does not have underlying []") {
+			t.Fatalf("error = %v, want semantic-identity failure", err)
+		}
+	})
+}
+
 func testNamedType(t *testing.T, pkg *types.Package, name string, underlying types.Type) *types.Named {
 	t.Helper()
 	obj := types.NewTypeName(token.NoPos, pkg, name, nil)

@@ -207,6 +207,70 @@ type runtimeContract struct {
 	attrs types.Type
 }
 
+// runtimeContractFromAnalysisPackage derives the runtime identities from the
+// package that go/types checked for the analysis skeleton. The skeleton always
+// imports the runtime directly under a reserved alias; consulting Imports keeps
+// this independent of source aliases and reuses the exact type universe that
+// produced the component and operand facts.
+func runtimeContractFromAnalysisPackage(analysis *types.Package) (runtimeContract, error) {
+	if analysis == nil {
+		return runtimeContract{}, fmt.Errorf("component-signature-runtime: nil analysis package")
+	}
+
+	var runtimePkg *types.Package
+	for _, imported := range analysis.Imports() {
+		if imported == nil || imported.Path() != gsxRuntimePath {
+			continue
+		}
+		if runtimePkg != nil && runtimePkg != imported {
+			return runtimeContract{}, fmt.Errorf("component-signature-runtime: analysis package %q directly imports multiple semantic package identities for %q", analysis.Path(), gsxRuntimePath)
+		}
+		runtimePkg = imported
+	}
+	if runtimePkg == nil {
+		return runtimeContract{}, fmt.Errorf("component-signature-runtime: analysis package %q does not directly import %q", analysis.Path(), gsxRuntimePath)
+	}
+	if !runtimePkg.Complete() {
+		return runtimeContract{}, fmt.Errorf("component-signature-runtime: imported runtime package %q is incomplete", gsxRuntimePath)
+	}
+
+	lookup := func(name string) (types.Type, error) {
+		obj := runtimePkg.Scope().Lookup(name)
+		if obj == nil {
+			return nil, fmt.Errorf("component-signature-runtime: imported runtime package %q is missing type %s", gsxRuntimePath, name)
+		}
+		typeName, ok := obj.(*types.TypeName)
+		if !ok {
+			return nil, fmt.Errorf("component-signature-runtime: imported runtime object %s is not a type name", name)
+		}
+		if typeName.Pkg() != runtimePkg {
+			return nil, fmt.Errorf("component-signature-runtime: imported runtime type %s has a foreign semantic package identity", name)
+		}
+		typ := typeName.Type()
+		if invalidSemanticTypeSeen(typ, make(map[types.Type]bool)) {
+			return nil, fmt.Errorf("component-signature-runtime: imported runtime type %s has an incomplete or invalid type", name)
+		}
+		return typ, nil
+	}
+
+	node, err := lookup("Node")
+	if err != nil {
+		return runtimeContract{}, err
+	}
+	attr, err := lookup("Attr")
+	if err != nil {
+		return runtimeContract{}, err
+	}
+	attrs, err := lookup("Attrs")
+	if err != nil {
+		return runtimeContract{}, err
+	}
+	if !attrsSliceHasExactElement(attrs, attr) {
+		return runtimeContract{}, fmt.Errorf("component-signature-runtime: imported runtime type Attrs does not have underlying []Attr with the imported Attr identity")
+	}
+	return runtimeContract{node: node, attr: attr, attrs: attrs}, nil
+}
+
 type paramRole uint8
 
 const (
