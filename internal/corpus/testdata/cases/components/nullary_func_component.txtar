@@ -7,7 +7,7 @@ package views
 import "github.com/gsxhq/gsx"
 
 // Divider is a hand-written, no-argument component: a plain Go func returning
-// gsx.Node, invoked as <Divider/> with no props struct.
+// gsx.Node, invoked as <Divider/> with no wrapper value.
 func Divider() gsx.Node {
 	return gsx.Raw("<hr>")
 }
