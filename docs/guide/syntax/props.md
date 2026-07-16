@@ -1,82 +1,95 @@
-# Props
+# Component signatures
 
-Choose the props model from the component's declaration shape. No annotations
-or configuration are needed.
+A component's authored parameter list is its Go signature and its markup
+contract. gsx emits no props wrapper type.
 
-## Choose a props model
+## Choose a signature shape
 
-| Model | Declaration | Use it when |
+| Shape | Declaration | Use it when |
 |---|---|---|
-| Bring your own | `component Button(p Props)` | A bare, same-package named struct should define the full contract. |
-| Generated | `component Card(title string, count int)` | Inline params are the clearest API. |
+| Loose parameters | `component Card(title string, count int)` | The component has a small, direct API. |
+| Options value | `component Panel(opts PanelOptions)` | A long-lived or high-arity Go API benefits from an author-owned struct. |
 | Nullary | `component Divider()` | The component needs no call-site data. |
-| Attrs-only value | `func(gsx.Attrs) gsx.Node` or a related accepted shape | A factory-produced value, such as an icon, only needs an attribute bag. |
+| Callable value | `func(attrs gsx.Attrs) gsx.Node` | A package function or factory-produced value should be tag-callable. |
 
-Method receivers do not count as props. A nullary component can still opt into
-`{children}` or `attrs` by using them in its body.
+Method receivers are not component inputs. Parameters keep their authored order
+for direct Go callers; markup binds ordinary parameters by exact name.
 
-## Bring your own struct
+<!--@include: ./_generated/props/010-verbatim-component-signature.md-->
 
-When a component's sole non-receiver param is a bare name for a same-package
-struct, call-site attributes map directly to that struct's fields. Qualified
-types such as `ui.Props` and pointer types such as `*Props` use generated props.
+`Button` is emitted as `func Button(variant string, children gsx.Node, attrs
+gsx.Attrs) gsx.Node`. Go callers pass those values directly.
 
-<!--@include: ./_generated/props/010-bring-your-own-props.md-->
+## Exact-name inputs
 
-- `variant` maps to `Variant`; kebab names such as `full-width` map to
-  `FullWidth`.
-- `Children gsx.Node` receives nested content.
-- `Attrs gsx.Attrs` receives unmatched attributes, which the component places
-  explicitly with a [spread](./attributes.md#spread-x-—-ordered).
+An ordinary markup attribute fills a parameter only when its name exactly
+matches the authored identifier. Matching is case-sensitive and does not
+convert kebab names or struct fields.
 
-Both `Children` and `Attrs` are opt-in fields on a bring-your-own struct.
+<!--@include: ./_generated/props/020-signature-shapes.md-->
 
-## Generated props
+- `<Greeting name="Ann"/>` fills `name`.
+- `<Panel p={Props{Title: "P"}}/>` passes one ordinary composite value.
+- An ordinary parameter can be filled at most once on a call.
+- `title` does not address a field inside `p`; declare `title` as a separate
+  parameter if callers should fill it separately.
+- `data-*`, `aria-*`, `hx-*`, and other non-identifier names always contribute
+  to `attrs`.
 
-Inline params select generated props. A single scalar param and a list of
-params use the same model.
+Omitted ordinary parameters receive their Go zero value when gsx can express it
+at the call site. An opaque cross-package type whose zero cannot be named must be
+supplied explicitly; gsx reports a positioned required-input diagnostic.
 
-<!--@include: ./_generated/props/020-props-heuristic.md-->
+## Author-owned options structs
 
-`Greeting(name string)` and `Card(title string, n int)` expose those params as
-tag attributes. A component that uses `{children}` or `attrs` also accepts that
-content or fallthrough bag. See [Composition](./composition.md#children-children)
-for children and [explicit attribute forwarding](./composition.md#explicit-attribute-forwarding)
-for fallthrough attributes.
-
-## Whole-struct splat
-
-When a props value is already assembled, pass the whole struct with
-`{ value... }`.
-
-<!--@include: ./_generated/props/030-whole-struct-splat.md-->
-
-Whole-struct splat works for top-level and method components. It is
-all-or-nothing: do not mix it with field attributes or children on the same
-call. A `gsx.Attrs` expression uses the same surface syntax for an attribute
-[spread](./attributes.md#spread-x-—-ordered); its type makes the intent clear.
-
-## Advanced case: attrs-only component values {#attrs-only-component-values}
-
-A package-level function or value can be called as a component tag when it has
-one of these public shapes:
-
-```go
-func(gsx.Attrs) gsx.Node
-func([]gsx.Attr) gsx.Node
-func(...gsx.Attr) gsx.Node
-```
-
-Every call-site attribute enters that one bag. These values do not accept
-children; use a declared component with a `Children` slot when nested content
-is required.
-
-This is useful for JSX-style component factories:
+Use an ordinary struct parameter when keyed Go construction is valuable:
 
 ```gsx
-func namedIcon(name string) func(...gsx.Attr) gsx.Node {
+type CardOptions struct {
+	Title    string
+	Featured bool
+}
+
+component Card(opts CardOptions) {
+	<article class={ "featured": opts.Featured }>{opts.Title}</article>
+}
+
+component Page() {
+	<Card opts={CardOptions{Title: "News", Featured: true}}/>
+}
+```
+
+The struct is entirely application-owned. gsx does not inspect its fields or
+derive a second markup API from them.
+
+## Forward values explicitly
+
+Pass an assembled value through the target parameter's exact name.
+
+<!--@include: ./_generated/props/030-explicit-parameter-forwarding.md-->
+
+`<p.Content pd={pd}/>` is ordinary named input binding. `{bag...}` on a
+component always means an [attrs contributor](./attributes.md#spread-x-—-ordered),
+never struct destructuring.
+
+## Tag-callable Go values
+
+A package-level function or value is tag-callable when gsx can resolve a
+concrete function signature returning `gsx.Node`. Parameter names are part of
+the markup contract, including the reserved `attrs` role:
+
+```gsx
+package views
+
+import "github.com/gsxhq/gsx"
+
+component icon(name string, attrs gsx.Attrs) {
+	<span class="icon" data-name={name} {attrs...}>i</span>
+}
+
+func namedIcon(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
-		return <svg class="size-5" { attrs... }>{name}</svg>
+		return icon(name, gsx.Attrs(attrs))
 	}
 }
 
@@ -87,23 +100,23 @@ component Toolbar() {
 }
 ```
 
-The element spread follows the same ordering and escaping rules as every other
-bag. See [Attributes — Spread](./attributes.md#spread-x-—-ordered) and
-[Escaping](./escaping.md).
+The supported `attrs` types are `gsx.Attrs`, `[]gsx.Attr`, a defined slice with
+underlying type `[]gsx.Attr`, and `...gsx.Attr`. A differently named attrs-shaped
+parameter is an ordinary input; a non-reserved variadic is Go-callable but not
+markup-bindable. Since Go allows only one final variadic parameter, use
+non-variadic `attrs gsx.Attrs` when a signature also has variadic `children`.
 
-## Reserved component variables {#reserved-variables}
+## Reserved component inputs {#reserved-variables}
 
-gsx owns three names at the top level of a component body:
-
-| Name | Available in |
+| Name | Role |
 |---|---|
-| `ctx` | every component render |
-| `children` | generated and nullary components that place [`{children}`](./composition.md#children-children) |
-| `attrs` | generated and nullary components that freely use the [fallthrough bag](./composition.md#explicit-attribute-forwarding) |
+| `ctx` | Ambient render context; it is not declared as a component parameter. |
+| `children` | Body input; declare `children gsx.Node` or `children ...gsx.Node`. |
+| `attrs` | Ordered fallthrough input; declare one of the supported attrs-bag types. |
 
-A bring-your-own props component uses its explicit `p.Children` and `p.Attrs`
-fields instead.
+`children` and `attrs` are special only in lowercase. Parameters named `Children`
+or `Attrs` are ordinary exact-name inputs. A component without `children` rejects
+a non-empty body, and a component without `attrs` rejects every unmatched
+attribute or attrs contributor.
 
-Do not declare these names as component parameters or receivers, or with a
-top-level `:=`, `var`, or `const`. Nested scopes may shadow them like ordinary
-Go—for example, a range variable or function-literal parameter.
+Names beginning `_gsx` are reserved for generated implementation details.

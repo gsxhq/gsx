@@ -8,7 +8,9 @@ Go-checked call sites.
 Write the markup where you would expect to find it:
 
 ```gsx
-component Card(title string, featured bool) {
+import "github.com/gsxhq/gsx"
+
+component Card(title string, featured bool, children gsx.Node) {
   <section class={ "card", "card-featured": featured }>
     <h2>{ title }</h2>
     <div class="body">{ children }</div>
@@ -21,9 +23,10 @@ Elements look like HTML, components use tags, and expressions are Go. See the
 
 ## Checked by Go
 
-Inline component parameters generate a props struct. You can also pass one
-struct parameter and [bring your own props type](./syntax/props.md#bring-your-own-struct).
-In both forms, Go checks prop names, values, and component calls.
+The authored component parameters are the emitted Go signature. Markup binds
+them by exact name, while direct Go and framework callers pass the same values
+positionally. For a long-lived keyed API, declare one application-owned options
+struct parameter. See [Component signatures](./syntax/props.md).
 
 ## A build step with a fast dev loop
 

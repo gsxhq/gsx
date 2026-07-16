@@ -14,7 +14,7 @@ reference](./syntax.md) by task.
 
 ## Let Go check the program
 
-Components and props become Go declarations and calls, so `go build` checks
+Components and parameters become Go declarations and calls, so `go build` checks
 names and types. See [Composition](./syntax/composition.md).
 
 ## Escape by default

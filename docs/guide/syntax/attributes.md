@@ -59,7 +59,7 @@ use a typed literal on the final native element; see
 ## Ordered-attrs literal <code v-pre>{{ "k": v }}</code> {#ordered-attrs-literal}
 
 ::: v-pre
-Use `{{ "k": v }}` as the value of a component's `gsx.Attrs` prop when the
+Use `{{ "k": v }}` as the value of a component's attrs-bag parameter when the
 call site must declare the bag in source order.
 :::
 
@@ -73,17 +73,21 @@ call site must declare the bag in source order.
 - All `class` and `style` values compose.
 :::
 
-### Targeting the synthesized attrs bag
+### Contributing to the declared attrs input
 
 ::: v-pre
 ```gsx
-<Panel id="profile" { defaults... } attrs={{ "role": "region" }}/>
+<Panel id="profile" attrs={computed} { defaults... } attrs={{ "role": "region" }}/>
 ```
 
-- Ordinary attributes, conditional attributes, and spreads compose in source
-  order.
-- `attrs={{...}}` is applied last.
-- A call site may contain only one ordered literal.
+- Ordinary unmatched attributes, conditional attributes, spreads,
+  `attrs={expr}`, and `attrs={{...}}` compose in authored order.
+- Names inside a conditional-attribute group are bag contributors; they do not
+  conditionally fill ordinary component parameters.
+- `attrs={expr}` accepts a computed attrs-bag value.
+- Repeated explicit `attrs` contributors are allowed; they do not fill an
+  ordinary parameter slot.
+- The component must declare the reserved `attrs` parameter.
 :::
 
 ## Contextual escaping
@@ -121,8 +125,8 @@ Use `f` literals to combine static text with typed `@{expr}` holes.
 <PageHeader title="Tickets" subtitle=f`@{count} tickets`/>
 ```
 
-A matching `string` prop receives the assembled string. A matching `gsx.Node`
-prop receives an escaped text node. An unmatched name falls through to the
+A matching `string` parameter receives the assembled string. A matching `gsx.Node`
+parameter receives an escaped text node. An unmatched name falls through to the
 component's attrs bag.
 
 ### URL attributes sanitize the whole value

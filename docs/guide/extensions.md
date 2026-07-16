@@ -14,37 +14,22 @@ when configuration needs to call Go code directly.
 | Class merger | [`gsx.toml`](./config.md#class_merger-tailwind-aware-class-merge-strategy) |
 | CSS or JavaScript formatter function | Project binary with `gen.Main` |
 | CSS or JavaScript minifier function | Project binary with `gen.Main` |
-| Props field-matcher function | Project binary with `gen.Main` |
 
 `gen.Main` still loads `gsx.toml`. Programmatic options take precedence over an
 environment override and the config file when they set the same behavior.
 
 ## Create `cmd/gsx/main.go`
 
-This complete example gives a project explicit attribute-to-prop mappings:
+Start with a normal project-owned command, then add the formatter or minifier
+options described below:
 
 ```go
 package main
 
-import (
-	"slices"
-
-	"github.com/gsxhq/gsx/gen"
-)
-
-var propFields = map[string]string{
-	"variant":      "Variant",
-	"full-width":   "FullWidth",
-	"data-test-id": "TestID",
-}
+import "github.com/gsxhq/gsx/gen"
 
 func main() {
-	gen.Main(gen.WithFieldMatcher(matchField))
-}
-
-func matchField(attr string, fields []string) (string, bool) {
-	field, ok := propFields[attr]
-	return field, ok && slices.Contains(fields, field)
+	gen.Main()
 }
 ```
 
@@ -114,23 +99,6 @@ An executable `<script>` containing any `@{...}` hole remains wholly
 unminified. Neither the built-in nor a custom JavaScript minifier changes the
 text around its holes.
 
-## Custom field matching
-
-`gen.WithFieldMatcher` replaces the default attribute-to-field matcher for
-bring-your-own props:
-
-```go
-gen.WithFieldMatcher(func(attr string, fields []string) (field string, ok bool) {
-	// Return a name from fields, or false to place the attribute in Props.Attrs.
-	return matchProjectField(attr, fields)
-})
-```
-
-The callback receives the raw attribute name and the target struct's exported
-field names. A successful match must return one of those field names. Returning
-`false` sends the attribute to the attrs bag. The target props struct must
-declare an `Attrs gsx.Attrs` field to receive it; otherwise generation fails.
-
 ## Run the project binary
 
 Invoke the project command explicitly so its options are used:
@@ -144,5 +112,4 @@ Use the same prefix for other affected commands, for example
 
 To inspect resolved declarative settings, run `go run ./cmd/gsx info` for the
 readable view or add `--json` for the JSON view. Function hooks are not
-enumerated. A custom field matcher is reported only as present (`custom` in the
-readable view or `hasFieldMatcher` in JSON).
+enumerated.

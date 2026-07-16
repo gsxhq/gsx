@@ -1,5 +1,8 @@
 # Decision: Explicit component attribute forwarding
 
+> **Partly superseded:** Explicit placement remains, but implicit `attrs`
+> synthesis does not. See `2026-07-14-verbatim-component-signatures-design.md`.
+
 **Date:** 2026-06-30
 **Status:** DECIDED
 **Supersedes:** the automatic root-fallthrough behavior in

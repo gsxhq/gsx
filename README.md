@@ -17,10 +17,11 @@ Go compiler type-checks and builds:
 .gsx → parser → AST → codegen → .x.go → go build → HTML
 ```
 
-- **Checked by Go** — components become plain Go; props are generated
-  structs, so gsx owns the field names (no symbol-resolver guesswork).
+- **Checked by Go** — each component keeps its authored Go signature; markup
+  binds parameters by exact name and direct Go callers use the same function.
 - **Close to HTML and to Go** — JSX-style markup for templates; ordinary Go for
-  everything else. Capitalization decides component-vs-element (`<div>` vs `<Card>`).
+  everything else. Tags resolve against package symbols; an unresolved lowercase
+  tag remains an HTML element.
 - **templ-compatible** — `gsx.Node` has the identical method set to
   `templ.Component`, so gsx output drops into the templ ecosystem without importing
   templ. The runtime is **standard-library only**.
@@ -28,7 +29,9 @@ Go compiler type-checks and builds:
 ## A taste
 
 ```gsx
-component Card(title string, featured bool) {
+import "github.com/gsxhq/gsx"
+
+component Card(title string, featured bool, children gsx.Node) {
 	<section class={ "card", "card-featured": featured }>
 		<h2>{title}</h2>
 		{ if featured { <span class="badge">Featured</span> } }
