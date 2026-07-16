@@ -17,8 +17,10 @@ import (
 // marker registry. Declaration mode emits the same signatures with inert
 // bodies and never consults the shipping Props ABI.
 type componentTargetSkeleton struct {
-	source  string
-	imports []importSpec
+	source          string
+	imports         []importSpec
+	inferRegistry   *inferRegistry
+	embeddedMarkups [][]gsxast.Markup
 }
 
 // componentTargetEmission is the package-wide declaration plan for one GSX
@@ -226,9 +228,13 @@ func emitTargetGoWithElements(
 		case *gsxast.Element:
 			builder.WriteString("func() _gsxrt.Node {\n")
 			if mode == skeletonTargetDiscovery {
+				markup := []gsxast.Markup{part}
+				index := len(*goWithElements)
+				*goWithElements = append(*goWithElements, markup)
+				fmt.Fprintf(builder, "_gsxelem(%d)\n", index)
 				builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				controlTemp := 0
-				if err := emitProbes(builder, []gsxast.Markup{part}, table, propFields, nodeProps, attrsProps, nil, byo, fieldMatcher, "", "", usedFilters, fset, map[gsxast.Node]int{}, registry, targets, goWithElements, bag, &controlTemp, false); err != nil {
+				if err := emitProbes(builder, markup, table, propFields, nodeProps, attrsProps, nil, byo, fieldMatcher, "", "", usedFilters, fset, map[gsxast.Node]int{}, registry, targets, goWithElements, bag, &controlTemp, false); err != nil {
 					return err
 				}
 			}
@@ -236,6 +242,9 @@ func emitTargetGoWithElements(
 		case *gsxast.Fragment:
 			builder.WriteString("func() _gsxrt.Node {\n")
 			if mode == skeletonTargetDiscovery {
+				index := len(*goWithElements)
+				*goWithElements = append(*goWithElements, part.Children)
+				fmt.Fprintf(builder, "_gsxelem(%d)\n", index)
 				builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				controlTemp := 0
 				if err := emitProbes(builder, part.Children, table, propFields, nodeProps, attrsProps, nil, byo, fieldMatcher, "", "", usedFilters, fset, map[gsxast.Node]int{}, registry, targets, goWithElements, bag, &controlTemp, false); err != nil {
@@ -357,5 +366,10 @@ func buildComponentTargetSkeleton(
 		source.WriteString(goBody.src)
 		source.WriteByte('\n')
 	}
-	return componentTargetSkeleton{source: source.String(), imports: imports}, nil
+	return componentTargetSkeleton{
+		source:          source.String(),
+		imports:         imports,
+		inferRegistry:   inferRegistry,
+		embeddedMarkups: embedded,
+	}, nil
 }
