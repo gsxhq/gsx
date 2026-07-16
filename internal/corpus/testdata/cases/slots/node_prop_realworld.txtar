@@ -14,6 +14,5 @@ component Page(count int) {
 -- invoke --
 Page(42)
 -- diagnostics.golden --
-10:2: attribute "title" cannot be passed to github.com/gsxhq/gsx.Node: zero.go:2:18: cannot use "My Card" (constant of type string) as _gsxwant value in variable declaration: string does not implement gsx.Node (missing method Render)
-10:2: attribute "body" cannot be passed to github.com/gsxhq/gsx.Node: zero.go:2:18: cannot use _gsxvalue (variable of type int) as _gsxwant value in variable declaration: int does not implement gsx.Node (missing method Render)
 -- render.golden --
+<article><h2>My Card</h2><section>42</section></article><article><h2><strong>Bold Title</strong></h2><section><em>raw</em></section></article>

@@ -2,11 +2,13 @@
 -- input.gsx --
 package views
 
+import "github.com/gsxhq/gsx"
+
 type cardData struct {
 	Title string
 }
 
-component Card(d cardData) {
+component Card(d cardData, attrs gsx.Attrs) {
 	<div>{ d.Title }</div>
 }
 
@@ -14,4 +16,4 @@ component Page() {
 	<Card {...}/>
 }
 -- diagnostics.golden --
-12:8: Card has no attrs param; unexpected attrs-bag contributor
+14:9: spread attribute requires an expression before `...`

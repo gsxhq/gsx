@@ -14,7 +14,7 @@ type UsersPage struct {
 }
 
 component (p UsersPage) Page() {
-	<ul>{ for _, u := range p.Users { <p.Row user={u}/> } }</ul>
+	<ul>{ for _, u := range p.Users { <p.Row rp={RowProps{User: u}}/> } }</ul>
 }
 
 component (p UsersPage) Row(rp RowProps) {
@@ -23,5 +23,5 @@ component (p UsersPage) Row(rp RowProps) {
 -- invoke --
 (UsersPage{Users: []User{{Email: "x@y"}}}).Page()
 -- diagnostics.golden --
-16:43: p.Row has no attrs param; unexpected attribute "user"
 -- render.golden --
+<ul><li>x@y</li></ul>

@@ -1,5 +1,5 @@
-# An attrs-only component value has no Children slot: passing children to
-# Chip (the variadic func shape from func_variadic.txtar) is a clean error.
+# A component value whose signature declares only `attrs` has no `children`
+# role: passing children to Chip is a clean error.
 -- input.gsx --
 package views
 

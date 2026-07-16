@@ -1,9 +1,7 @@
-# attrs-only component value: package-level func with the unnamed-slice
-# signature func([]gsx.Attr) gsx.Node — accepted (spec: "The unnamed-slice
-# shape — initially excluded, then accepted", docs/superpowers/specs/2026-07-
-# 07-attrs-only-component-values-design.md). gsx.Attrs is assignable to
-# []gsx.Attr (identical underlying, one side unnamed), so this shape emits the
-# same F(bag) / F(nil) convention as the named-gsx.Attrs shape. Zero-attr call
+# Component value: package-level func with an unnamed variadic-attrs-compatible
+# slice parameter named `attrs`. gsx.Attrs is assignable to []gsx.Attr
+# (identical underlying, one side unnamed), so this shape emits the same
+# F(bag) / F(nil) convention as the named-gsx.Attrs shape. Zero-attr call
 # must emit Badge(nil) — pinned in generated.x.go.golden.
 -- input.gsx --
 package views

@@ -1,5 +1,5 @@
-# func(gsx.Attrs) (gsx.Node, error) — a two-result signature — is NOT
-# tag-callable: attrsOnlySig requires exactly one result. Same "not
+# func(attrs gsx.Attrs) (gsx.Node, error) — a two-result signature — is NOT
+# tag-callable: a component value requires exactly one result. Same "not
 # tag-callable" diagnostic family as reject_named_elem_type.txtar.
 -- bad.go --
 package views

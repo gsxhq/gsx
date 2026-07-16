@@ -1,5 +1,5 @@
 # A tag with no declaration anywhere in the package still hits the probe's own
-# positioned `undefined: NopeIcon` — the attrs-only gate must not make a
+# positioned `undefined: NopeIcon` — the callable probe must not make a
 # missing identifier worse (no new diagnostic code, no swallowed position).
 -- input.gsx --
 package views

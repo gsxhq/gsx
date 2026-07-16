@@ -1,4 +1,4 @@
-# An attrs-only component value uses one source-ordered plan across ordinary
+# A component value with the reserved `attrs` role uses one source-ordered plan across ordinary
 # fallthrough entries and an ordered-attrs tuple pair. Failure at the pair must
 # preserve the earlier call and prevent the later call.
 -- helpers.go --
