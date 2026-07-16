@@ -526,16 +526,16 @@ func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expre
 		if node == nil || node == root {
 			return true
 		}
-		switch node.(type) {
-		case *gsxast.Interp, *gsxast.OrderedPair, *gsxast.ClassPart, *gsxast.ValueArm:
+		if nestedComponentFactBearingNode(node) {
 			seenValue = true
 			fact, ok := facts[node]
-			if !ok {
+			if !ok || fact.tv.Type == nil {
 				complete = false
 				return true
 			}
 			ordered = ordered || fact.hasOrderedOperation || fact.tuple != nil
-		case *gsxast.ValueCF:
+		}
+		if _, ok := node.(*gsxast.ValueCF); ok {
 			ordered = true
 		}
 		return true
@@ -544,6 +544,24 @@ func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expre
 		complete = true
 	}
 	return ordered, complete
+}
+
+// nestedComponentFactBearingNode mirrors the authoritative expression probes
+// in analyze.go. A plain class/style expression is probed on its ClassPart;
+// value-form control flow is probed on each ValueArm instead; a composed CSS
+// literal has no ClassPart expression and delegates to its Interp holes.
+// Ordered attrs likewise publish one fact per OrderedPair. This function only
+// identifies facts that analysis actually publishes: callers must not invent a
+// type when any required fact is absent.
+func nestedComponentFactBearingNode(node gsxast.Node) bool {
+	switch node := node.(type) {
+	case *gsxast.Interp, *gsxast.OrderedPair, *gsxast.ValueArm:
+		return true
+	case *gsxast.ClassPart:
+		return node.CF == nil && node.CSSSegments == nil
+	default:
+		return false
+	}
 }
 
 func runtimePackageType(runtime runtimeContract, name string) types.Type {
