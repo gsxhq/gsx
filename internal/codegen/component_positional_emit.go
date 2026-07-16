@@ -76,12 +76,14 @@ func emitPositionalComponentCall(
 		decision := materialized[valueIndex]
 		switch {
 		case decision.unwrapTuple:
-			fmt.Fprintf(b, "%s, _gsxerr := %s\n", decision.temp, expr)
+			temp := nextPositionalTemp(ctx.interpTemp)
+			fmt.Fprintf(b, "%s, _gsxerr := %s\n", temp, expr)
 			b.WriteString("if _gsxerr != nil { return _gsxerr }\n")
-			values[valueIndex] = decision.temp
+			values[valueIndex] = temp
 		case decision.temp != "":
-			fmt.Fprintf(b, "%s := %s\n", decision.temp, expr)
-			values[valueIndex] = decision.temp
+			temp := nextPositionalTemp(ctx.interpTemp)
+			fmt.Fprintf(b, "%s := %s\n", temp, expr)
+			values[valueIndex] = temp
 		default:
 			values[valueIndex] = expr
 		}
@@ -142,6 +144,12 @@ func emitPositionalComponentCall(
 	}
 	fmt.Fprintf(b, "_gsxgw.Node(ctx, %s%s(%s))\n", el.Tag, typeArgs, strings.Join(args, ", "))
 	return true
+}
+
+func nextPositionalTemp(counter *int) string {
+	name := fmt.Sprintf("_gsxv%d", *counter)
+	*counter++
+	return name
 }
 
 func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
