@@ -183,6 +183,21 @@ func loadCase(path string) (*caseDoc, error) {
 
 func (c *caseDoc) renderable() bool { return c.invoke != nil }
 
+// setGoldenSection replaces or adds a golden section in both representations
+// owned by the case. Updater coverage reads goldens while archive is written to
+// disk, so they must change as one operation.
+func (c *caseDoc) setGoldenSection(name string, data []byte) {
+	for i, file := range c.archive.Files {
+		if file.Name == name {
+			c.archive.Files[i].Data = data
+			c.goldens[name] = data
+			return
+		}
+	}
+	c.archive.Files = append(c.archive.Files, txtar.File{Name: name, Data: data})
+	c.goldens[name] = data
+}
+
 func (c *caseDoc) facets() []string {
 	var out []string
 	diag := "diag"
