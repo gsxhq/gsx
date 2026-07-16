@@ -873,8 +873,11 @@ component Page() { <Local/> }
 	if err != nil {
 		t.Fatalf("first Package: %v", err)
 	}
-	if hasError(first.Diags) {
-		t.Fatalf("first shipping diagnostics = %v, want exact-target failure retained privately during the foundation phase", first.Diags)
+	if !hasError(first.Diags) {
+		t.Fatalf("first diagnostics = %v, want exact-target import failure surfaced", first.Diags)
+	}
+	if got := first.Diags[0]; !strings.Contains(got.Message, "example.com/app/bridge") || !strings.Contains(got.Message, "undefined: Missing") {
+		t.Fatalf("first diagnostic = %+v, want import chain and leaf failure", got)
 	}
 	if got := module.targetImports[pagesDir]; len(got) != 1 || got[0] != bridgeDir {
 		t.Fatalf("failed exact graph pages->bridge = %v, want path provenance", got)
