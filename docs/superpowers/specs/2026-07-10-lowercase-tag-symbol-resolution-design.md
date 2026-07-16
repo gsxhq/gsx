@@ -1,7 +1,15 @@
 # Lowercase tags resolve to package symbols
 
 **Date:** 2026-07-10
-**Status:** Approved design, pre-implementation
+**Status:** Implemented 2026-07-10; semantic-eligibility revision approved 2026-07-16, implementation pending
+
+**2026-07-16 revision:** structpages dogfooding exposed the executable-package
+collision `package main` + `func main()` + `<main>`. The original rule treated
+every same-named package declaration as component intent, so the mandatory Go
+entrypoint captured the ordinary HTML element and then failed signature
+validation. The revised rule below removes that category error generally: a
+lowercase tag resolves as a component only when the matching package symbol is
+actually callable as a GSX component. There is no `main` special case.
 
 ## Problem
 
@@ -15,9 +23,10 @@ exported — and the capital/lowercase split feels arbitrary from the Go side,
 where lowercase names are ordinary package symbols. We relax the rule:
 lowercase tags participate in symbol resolution.
 
-Verified by probe: lowercase `component card()` declarations already parse
-and generate (`func card(cardProps) gsx.Node`) — they are merely unreachable
-by tag syntax. This change is therefore **resolution-only**; component
+Verified by probe: lowercase `component card(label string)` declarations
+already parse and generate (`func card(label string) gsx.Node`) — they were
+merely unreachable by tag syntax. This change is therefore
+**resolution-only**; component
 declarations need no parser change.
 
 ## The rule
@@ -31,43 +40,53 @@ A tag resolves in exactly one of three ways:
    enclosing receiver generates `p.content()` today, unexported type and
    method included (verified by probe). Methods therefore need no symbol
    resolution at all — they ride the dotted rule.
-2. **Lowercase simple tag whose name matches a package-level declaration**
-   — component. Codegen lowers it as a component invocation of that name.
-3. **Lowercase simple tag with no matching declaration** — leaf element,
-   rendered as-is.
+2. **Lowercase simple tag whose name resolves to a component-capable
+   package-level symbol** — component. A component-capable symbol has a
+   callable signature with exactly one result assignable to the imported
+   runtime's canonical `gsx.Node`. This includes authored GSX component
+   declarations and package function variables with valid signatures.
+3. **Every other lowercase simple tag** — leaf element, rendered as-is. A
+   same-named zero-result function, wrong-result function, non-callable
+   variable, type, or constant does not capture the tag.
 
 There is **no reserved HTML element table in resolution**. `<div>` is a leaf
-only because nobody declared `div`. Tags that are not valid Go identifiers
-(e.g. custom elements with dashes, `<my-widget>`) can never match a
-declaration and are always leaves.
+unless `div` is a real component callable. Tags that are not valid Go
+identifiers (e.g. custom elements with dashes, `<my-widget>`) can never match a
+package symbol and are always leaves.
 
-### What counts as a package-level declaration
+### What counts as a component-capable package symbol
 
-The name set is gathered **syntactically** from all `.gsx` and `.go` files in
-the package directory — a standalone `go/parser`-based scan
-(`internal/codegen/declnames.go`, `packageDeclNames`), same guarantees as the
-existing skeleton machinery: no `packages.Load`, no type checking — and none
-is needed: a package scope's bare names are exactly its declared names, so
-the syntactic scan is *complete* for simple-tag resolution, not an
-approximation. go/types would only add method sets and locals; methods are
-covered by the dotted rule and locals are out of scope. (Type-aware
-interpolation's existing load happens downstream of this decision and stays
-untouched — resolution feeding the skeleton that the load consumes is
-exactly why resolution must not depend on the load.)
+The syntactic declaration-name scan remains the cheap candidate inventory, but
+existence alone no longer decides component-ness. GSX builds the package's
+existing declaration-only semantic surface from authored component signature
+stubs plus active hand-written Go companions, type-checks that surface with the
+normal module importer, and indexes only callable package objects whose exact
+signature satisfies the component contract.
 
-- **Counted:** every package-level `func`, `var`, `type`, and `const` name.
-- **Not counted:** import names (`import "time"` must not capture `<time>`),
+This is a reordering of the existing exact-target machinery, not a second
+semantic system: declaration skeleton mode already emits authored GSX
+signatures with inert bodies, and target discovery already needs the same
+runtime identity and importer. The implementation must reuse those facts. It
+must not add a `packages.Load`, Go subprocess, return-count text scan, HTML-name
+allowlist, or other heuristic classifier.
+
+- **Candidates:** package-level `func`, `var`, `type`, and `const` names.
+- **Eligible:** package functions and callable package variables with exactly
+  one result assignable to canonical `gsx.Node`; authored `component`
+  declarations qualify through their declaration stubs.
+- **Never eligible:** import names (`import "time"` must not capture `<time>`),
   names declared only in `_test.go` files, and function-local names (Go
   bodies stay opaque blobs per the Go-as-blob decision).
-- **Build-tag variants:** syntactic presence anywhere in the package counts,
-  regardless of build tags — consistent with the tag-variant stance (PR #43):
-  gsx never evaluates build tags; presence is textual.
+- **Build-tag variants:** GSX component declarations use the validated variant
+  family plan; hand-written Go eligibility uses the active companion inventory
+  selected by the authoritative Go build context. Inactive textual declarations
+  cannot capture a tag.
 
-If the matched declaration is not invocable as a component (`var data int`,
-`type data string`), codegen still lowers the tag as a component invocation
-and **`go build` is the arbiter** — a loud compile error directs the author
-to rename. Resolution never consults type information, so there is no silent
-fallback to leaf.
+If declaration analysis is unavailable or incomplete, resolution fails closed
+with the underlying positioned semantic diagnostic; it must not silently stamp
+an uncertain tag as either a component or a leaf. When analysis succeeds and a
+same-named symbol definitively does not satisfy the component contract, the tag
+is definitively a leaf.
 
 **Documented asymmetry:** capital tags resolve function-local names (via
 `go build`); lowercase tags resolve only package-level declarations. A local
@@ -79,17 +98,16 @@ Inside the body of the declaration that declares name `x`, the tag `<x>`
 is a **leaf**. This makes the wrapper pattern work with zero extra syntax:
 
 ```gsx
-component div() {
+component div(children gsx.Node, attrs gsx.Attrs) {
 	<div { attrs... }>{children}</div>   // inner <div> is the real element
 }
 ```
 
 - Exclusion covers exactly one name: the declaration being generated. All
   other lowercase tags in that body resolve normally — inside `div`'s body,
-  `<span>` is the package's span component if one is declared.
+  `<span>` is the package's span component if it is component-capable.
 - Exclusion applies to the whole declaration body, including expression-
-  position element literals and the initializer of a package-level `var`
-  component value (inside `var card = ...`, tag `<card>` is a leaf).
+  position element literals.
 - Recursion for a lowercase component uses the Go call form in a hole
   (`{item(...)}`) or a capital name. Mutual recursion via tags resolves to
   components and may loop — see the cycle diagnostic below.
@@ -124,22 +142,22 @@ already visited); no new pass over source.
 
 ## Parser / codegen split
 
-The parser is per-file and syntactic — it cannot know the package symbol
-set. Therefore:
+The parser is per-file and syntactic — it cannot know the package semantic
+surface. Therefore:
 
 - **Type-arg admission loosens to any tag.** `<list[int]>` parses whether or
   not `list` resolves. Codegen errors if a tag carrying type args resolves
   to a leaf ("type arguments on HTML element `<list>`").
 - `ast.IsComponentTag` stops being the single source of truth for
   component-ness. It remains the rule for capital/dotted tags; the lowercase
-  decision moves to codegen/analyze, where the package name set is in hand.
-  Every current caller (codegen emit/analyze/attrsonly, LSP definition/
-  hover) is audited to take the resolved answer, not the syntactic guess.
+  decision moves to codegen/analyze, where the component-capability index is
+  in hand. Every current caller (codegen emit/analyze/attrsonly, LSP
+  definition/hover) consumes the same resolved stamp, not a syntactic guess.
 
 ## Invalidation
 
-A package's generated `.x.go` now depends on the package's **declared-name
-set**, not just its own `.gsx` sources. Verified against the current code:
+A package's generated `.x.go` depends on the package's **component-capable
+symbol set**, not just its own `.gsx` sources. Verified against the current code:
 **this edge already exists and is already handled — no new machinery.**
 
 - Watch mode already treats every hand-written `.go` file as a dep file
@@ -150,9 +168,9 @@ set**, not just its own `.gsx` sources. Verified against the current code:
   types. Lowercase-tag resolution rides the same trigger.
 - The generate cache key already folds the package's `.gsx` + `.go` sources
   (and reachable dep dirs) into every key (`gen/cachekey.go`
-  `dirSourceHash`) — a decl added to a sibling `.go` busts the cache today.
+  `dirSourceHash`) — a callable added to a sibling `.go` busts the cache today.
 
-Decl-set fingerprinting (skipping regen on body-only `.go` edits) would be
+Eligibility-set fingerprinting (skipping regen on body-only `.go` edits) would be
 an *optimization over the status quo*, not a requirement of this change —
 explicitly out of scope so the feature is additive-only here.
 
@@ -162,22 +180,20 @@ This feature is worth having only if it stays cheap. Abort criteria agreed
 up front:
 
 - **Perf:** no measurable regression in `gsx generate` wall time or watch
-  cycle latency. The decl-name scan must reuse already-parsed `.gsx`
-  skeletons and at most add a syntax-only `go/parser` pass over package
-  `.go` files (no `packages.Load`, no type checking).
-- **Complexity:** the component decision moves from `ast.IsComponentTag` to
-  a resolver carrying (package name set, enclosing-decl name). If threading
-  that context through codegen/analyze/LSP call sites turns into deep
-  structural surgery rather than a mechanical audit, stop and reassess
-  rather than land it.
+  cycle latency, no additional `packages.Load`, and no additional Go-command
+  launch. Declaration eligibility must reuse the exact package semantic work
+  already required by target discovery.
+- **Complexity:** there is one component-capability index and one final tag
+  stamp. If implementation requires parallel semantic classifiers or a
+  provisional stamp that can leak into emission/LSP facts, stop and reassess.
 
 ## Compatibility
 
-No compatibility work: gsx is pre-release with no users — the new rule
-simply replaces the old one. In-repo collisions (corpus, examples,
-playground) get fixed as part of the change. The self-reference and cycle
-diagnostics above are the ongoing safety net for the two runtime-surprise
-shapes.
+No compatibility work: gsx is pre-release, so the semantic-eligibility rule
+replaces declaration-existence capture directly. Existing non-callable capture
+fixtures and documentation are updated rather than deprecated or supported in
+parallel. The self-reference and cycle diagnostics remain the ongoing safety
+net for valid lowercase wrapper components.
 
 **Tooling:** surface syntax is unchanged, so tree-sitter / vscode /
 CodeMirror grammars need no structural changes — but static highlighters
@@ -196,10 +212,14 @@ Corpus cases (semantic corpus, per context where applicable):
 
 - lowercase tag resolves to a package `func` component (same file and
   cross-file within the package)
-- lowercase tag resolves to a package `var` component value
-- non-invocable capture (`var data int` + `<data>`) — build error pinned
-- leaf fallback: undeclared lowercase tag renders as-is; dashed custom
-  element never resolves
+- lowercase tag resolves to callable package variables, including a named
+  function type whose result is `gsx.Node`
+- zero-result function, wrong-result function, and non-callable `var`/`type`/
+  `const` names do not capture and render as leaf elements
+- executable regression: `package main`, `func main() {}`, and `<main>` renders
+  the HTML element with no special case
+- leaf fallback: undeclared lowercase tag renders as-is; dashed custom element
+  never resolves
 - self-exclusion wrapper: `component div` rendering inner `<div>` leaf
 - wrapper composition: `div` wrapper using `<span>` resolves to the span
   component, which bottoms out at its own leaf
@@ -209,11 +229,14 @@ Corpus cases (semantic corpus, per context where applicable):
 - cycle diagnostic: unconditional two-wrapper cycle warns; conditional edge
   does not
 
-Unit tests: decl-name-set extraction (imports/test-file/build-tag cases).
-Cache-key honesty on sibling `.go` decl-set changes rides the pre-existing
+Unit tests: candidate-name extraction remains covered (imports/test-file/
+build-tag cases); add exact component-capability indexing for functions,
+callable variables, invalid result shapes, runtime identity, incomplete
+semantic packages, and the package-main entrypoint regression.
+Cache-key honesty on sibling `.go` eligibility changes rides the pre-existing
 `dirSourceHash` (gen/cachekey.go) — already covered, no new test — and was
-probe-verified end to end (leaf→call→leaf flips on sibling decl add/remove
-with the cache on). No fingerprint test: decl-set fingerprinting (skipping
+probe-verified end to end (leaf→call→leaf flips on sibling callable add/remove
+with the cache on). No fingerprint test: eligibility-set fingerprinting (skipping
 regen on body-only `.go` edits) is explicitly out of scope (see
 Invalidation), so there is no non-invalidation case to pin. Runtime behavior
 unchanged — no root-package changes expected. Fmt corpus untouched (layout is
@@ -227,9 +250,5 @@ orthogonal).
   if a real need emerges; self-exclusion covers the known use case.
 - Cross-package lowercase tags — unexported names are uncallable across
   packages, so the shadowing layer cannot leak by construction.
-- **Pre-existing gap found while probing (not introduced here):** a dotted
-  tag whose qualifier is an ordinary local/param rather than the enclosing
-  receiver (`component List(p page) { <p.Item/> }`) is mislowered as a
-  package-qualified component (`p.ItemProps{}` — "p.ItemProps is not a
-  type"). Method invocation currently only recognizes the enclosing
-  receiver's name. Tracked separately; candidate for ROADMAP.
+- Dotted tags and their callable-origin rules are handled by exact component
+  target resolution, not by this lowercase package-symbol eligibility index.
