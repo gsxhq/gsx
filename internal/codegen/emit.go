@@ -4783,54 +4783,9 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 	return false
 }
 
-// childInvocation resolves a child-component tag to its CALL shape, applying the
-// method-vs-package disambiguation. It is the SINGLE source of the call target +
-// props-type name shared by genChildComponent (emit) and emitProbes (probe), so
-// the two never drift on which call/props-struct a `<X.Y/>` invokes.
-//
-// Disambiguation (syntactic, deterministic): split el.Tag on the first `.` into
-// (left, method). If the enclosing component is a method component (recvVar != "")
-// AND left == recvVar → METHOD invocation: callTarget = `<recvVar>.<method>`,
-// propsType = `<recvTypeName><method>Props`. Otherwise → existing PACKAGE-function
-// path: callTarget = el.Tag, propsType = el.Tag + "Props" (e.g. `ui.AppShell` and
-// `ui.AppShellProps`, or a same-file uppercase `Card` / `CardProps`).
-//
-// A NULLARY method invocation — a method whose call has NO props struct — happens
-// only when isMethod AND the element has no attrs AND no children (a method that
-// places `{children}` has a Children field, so children imply a props literal).
-// The caller decides nullary via isNullaryCall below; this helper only reports
-// the disambiguation result.
-func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string) (callTarget, propsType string, isMethod bool) {
-	if recvVar != "" {
-		if i := strings.IndexByte(el.Tag, '.'); i >= 0 {
-			left, method := el.Tag[:i], el.Tag[i+1:]
-			if left == recvVar {
-				// BYO method: the method takes its author struct directly, so the
-				// props type is that struct's name (not <RecvType><Method>Props).
-				if st, ok := byo.structTypeName(recvTypeName + "." + method); ok {
-					return recvVar + "." + method, st, true
-				}
-				return recvVar + "." + method, recvTypeName + method + "Props", true
-			}
-		}
-	}
-	// BYO function component: the tag invokes a same-package component whose sole
-	// param is an author struct, so the props type is that struct's name.
-	if st, ok := byo.structTypeName("." + el.Tag); ok {
-		return el.Tag, st, false
-	}
-	return el.Tag, el.Tag + "Props", false
-}
-
-// genChildComponent lowers a child-component element to a gw.Node render call,
-// building the props struct literal from the element's attributes. When the
-// element has children, the slot markup is passed as a `Children gsx.Node`
-// field — a gsx.Func render closure mirroring genComponent's, so the slot renders
-// in THIS (parent) scope, where its interps' params/loop vars are bound.
-//
-// recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
-// (empty for a function component); they drive the method-vs-package
-// disambiguation via childInvocation.
+// genChildComponent emits the exact positional call proven for el. Slot markup
+// becomes a closure in the parent scope, so its interps retain the caller's
+// params and block locals.
 func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string, enclosingAttrsBound bool, positionalPlan componentPositionalPackagePlan) bool {
 	plan, ok := positionalPlan.siteForElement(el)
 	if !ok {
