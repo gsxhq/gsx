@@ -3,7 +3,6 @@ package gen
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -33,16 +32,15 @@ func TestAnalyzeModuleCrossPkg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var files []string
+	counts := map[string]int{}
 	for _, cr := range refs {
 		if cr.Name == "Input" {
 			for _, r := range cr.Refs {
-				files = append(files, filepath.Base(r.Filename))
+				counts[filepath.Base(r.Filename)]++
 			}
 		}
 	}
-	got := strings.Join(files, ",")
-	if !strings.Contains(got, "post.gsx") || !strings.Contains(got, "use.go") {
-		t.Errorf("AnalyzeModule Input refs missing cross-pkg sites; got %q", got)
+	if counts["post.gsx"] != 1 || counts["use.go"] != 1 {
+		t.Errorf("AnalyzeModule Input refs = %v, want one exact markup and one Go reference", counts)
 	}
 }

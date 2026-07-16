@@ -65,10 +65,12 @@ type ComponentParamFact struct {
 // PackageResult owns this map and its nested maps; LSP consumers treat them as
 // immutable snapshots, like the retained go/types objects alongside them.
 type ComponentCallFact struct {
-	Target       types.Object
-	TargetOrigin types.Object
-	Signature    *types.Signature
-	Params       map[gsxast.Attr]ComponentParamFact
+	Target        types.Object
+	TargetOrigin  types.Object
+	TargetPackage string
+	TargetKey     string
+	Signature     *types.Signature
+	Params        map[gsxast.Attr]ComponentParamFact
 }
 
 // PackageResult is the per-package outcome of code generation.

@@ -142,19 +142,21 @@ func TestDefinitionInvalidationCrossPkg(t *testing.T) {
 	}
 }
 
-// badgeDeclLine finds the 1-indexed line of the declaration of an exported
-// function named funcName from a package whose import path ends with pkgSuffix,
-// as recorded in the analyzed home package's Info.Uses map. It uses pkg.Fset
-// (the Module-wide shared FileSet) to resolve the declaration position.
+// badgeDeclLine finds the declaration line through the exact component target
+// facts retained for authored markup calls. Imported targets no longer need to
+// appear in a generated-skeleton Info.Uses entry.
 func badgeDeclLine(t *testing.T, pkg *lsp.Package, funcName, pkgSuffix string) int {
 	t.Helper()
 	seen := map[string]bool{}
-	for _, obj := range pkg.Info.Uses {
+	for _, call := range pkg.ComponentCalls {
+		obj := call.TargetOrigin
+		if obj == nil {
+			obj = call.Target
+		}
 		if obj == nil || obj.Name() != funcName {
 			continue
 		}
-		p := obj.Pkg()
-		if p == nil || !strings.HasSuffix(p.Path(), pkgSuffix) {
+		if !strings.HasSuffix(call.TargetPackage, pkgSuffix) {
 			continue
 		}
 		pos := pkg.Fset.Position(obj.Pos())
@@ -164,6 +166,6 @@ func badgeDeclLine(t *testing.T, pkg *lsp.Package, funcName, pkgSuffix string) i
 		seen[pos.Filename] = true
 		return pos.Line
 	}
-	t.Fatalf("no Info.Uses entry for function %q from package ending in %q", funcName, pkgSuffix)
+	t.Fatalf("no exact component target for function %q from package ending in %q", funcName, pkgSuffix)
 	return -1
 }

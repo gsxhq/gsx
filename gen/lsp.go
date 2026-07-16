@@ -235,10 +235,12 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 			}
 		}
 		calls[element] = lsp.ComponentCallFact{
-			Target:       call.Target,
-			TargetOrigin: call.TargetOrigin,
-			Signature:    call.Signature,
-			Params:       params,
+			Target:        call.Target,
+			TargetOrigin:  call.TargetOrigin,
+			TargetPackage: call.TargetPackage,
+			TargetKey:     call.TargetKey,
+			Signature:     call.Signature,
+			Params:        params,
 		}
 	}
 	return &lsp.Package{
@@ -404,12 +406,34 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 		}
 	}
 
-	// Phase 4: cross-package routing pass — mirrors GenerateDirs' compObjOwner loop.
-	// For each package's type-info, find *types.Func uses that are declared in
-	// OTHER project packages and route those refs into the declaring component's
-	// CrossRef. In-package refs are skipped (pkgPath == myPath); external packages
-	// (not in importPathToDir) are skipped. Synthetic .x.go positions (no //line
-	// mapping back to a real source file) are also skipped, mirroring the batch pass.
+	// Phase 4a: route authored markup calls by their exact codegen identity.
+	// Same-package calls were already added to CrossIndex by Package; only
+	// cross-package calls need ownership routing here.
+	for _, e := range entries {
+		if e.pr.Types == nil {
+			continue
+		}
+		myPath := e.pr.Types.Path()
+		for element, call := range e.pr.ComponentCalls {
+			if element == nil || call.TargetPackage == "" || call.TargetPackage == myPath || call.TargetKey == "" || !element.TagPos.IsValid() {
+				continue
+			}
+			declDir, ok := importPathToDir[call.TargetPackage]
+			if !ok {
+				continue
+			}
+			owner := ownerKey{declDir, call.TargetKey}
+			cr, exists := cross[owner]
+			if !exists {
+				continue
+			}
+			cr.Refs = append(cr.Refs, e.pr.GSXFset.Position(element.TagPos))
+			cross[owner] = cr
+		}
+	}
+
+	// Phase 4b: route real Go references. Markup references are deliberately
+	// excluded here; they are owned exclusively by ComponentCalls above.
 	for _, e := range entries {
 		if e.pr.Info == nil || e.pr.Types == nil {
 			continue
@@ -434,8 +458,8 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 				continue // not a tracked component (e.g. a plain Go func, not a gsx component)
 			}
 			p := e.pr.Fset.Position(id.Pos())
-			if strings.HasSuffix(p.Filename, ".x.go") {
-				continue // synthetic skeleton position; no //line directive
+			if !strings.HasSuffix(p.Filename, ".go") || strings.HasSuffix(p.Filename, ".x.go") {
+				continue
 			}
 			cr := cross[ok2]
 			cr.Refs = append(cr.Refs, p)

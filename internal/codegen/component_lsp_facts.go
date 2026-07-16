@@ -1,6 +1,10 @@
 package codegen
 
-import gsxast "github.com/gsxhq/gsx/ast"
+import (
+	"go/types"
+
+	gsxast "github.com/gsxhq/gsx/ast"
+)
 
 func componentCallFacts(plan componentPositionalPackagePlan) map[*gsxast.Element]ComponentCallFact {
 	if len(plan.byElement) == 0 {
@@ -18,6 +22,14 @@ func componentCallFacts(plan componentPositionalPackagePlan) map[*gsxast.Element
 			Signature:    site.signature.goSig,
 			Params:       make(map[gsxast.Attr]ComponentParamFact),
 		}
+		identity := call.TargetOrigin
+		if identity == nil {
+			identity = call.Target
+		}
+		if identity != nil && identity.Pkg() != nil {
+			call.TargetPackage = identity.Pkg().Path()
+		}
+		call.TargetKey = componentCallTargetKey(identity)
 		bind := func(attr gsxast.Attr, paramIndex int) {
 			if attr == nil || paramIndex < 0 || paramIndex >= len(site.call.args) {
 				return
@@ -64,6 +76,25 @@ func componentCallFacts(plan componentPositionalPackagePlan) map[*gsxast.Element
 		facts[element] = call
 	}
 	return facts
+}
+
+func componentCallTargetKey(object types.Object) string {
+	fn, ok := object.(*types.Func)
+	if !ok {
+		return ""
+	}
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() == nil {
+		return "." + fn.Name()
+	}
+	recv := types.Unalias(sig.Recv().Type())
+	if pointer, ok := recv.(*types.Pointer); ok {
+		recv = types.Unalias(pointer.Elem())
+	}
+	if named, ok := recv.(*types.Named); ok {
+		return named.Obj().Name() + "." + fn.Name()
+	}
+	return ""
 }
 
 func publishedComponentParamRole(role paramRole) ComponentParamRole {

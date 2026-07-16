@@ -18,13 +18,11 @@ import (
 func buildCrossNav(
 	compByKey map[string][]*gsxast.Component,
 	objKey map[types.Object]string,
-	componentPlan componentTargetPlan,
 	gsxFset, skelFset *token.FileSet,
 	info *types.Info,
-	pkgTypes *types.Package,
 ) (map[string]CrossRef, []NavRef) {
-	// Sort each variant slice in place so every consumer below (Decls, the
-	// info.Uses nav target in Case 1, and the props-struct map) agrees on the
+	// Sort each variant slice in place so every consumer below (Decls and the
+	// info.Uses nav target) agrees on the
 	// same deterministic "primary" variant, rather than following randomized
 	// map-population order. Safe to mutate in place: these slices belong to
 	// the freshly-built analyzed result, and the only other reader
@@ -47,51 +45,6 @@ func buildCrossNav(
 		// separate sortPositions(cr.Decls) call is needed (and would be redundant).
 		cr.Decl = cr.Decls[0] // primary — back-compat
 		index[key] = cr
-	}
-
-	// Build maps for NavIndex: props-struct objects and field var objects → .gsx targets.
-	// structObjToComp maps a props-struct types.Object → the component it belongs to.
-	// fieldObjToPos maps a field *types.Var → the .gsx position of the corresponding param.
-	structObjToComp := map[types.Object]*gsxast.Component{}
-	fieldObjToPos := map[*types.Var]token.Position{}
-	for _, comps := range compByKey {
-		for _, c := range comps {
-			emission, planned := componentPlan.emission(c)
-			if !planned {
-				emission = componentTargetEmission{public: true}
-			}
-			if !emission.public {
-				continue
-			}
-			propsName := componentShippingPropsName(c, c.Name)
-			structObj := pkgTypes.Scope().Lookup(propsName)
-			if structObj == nil {
-				continue
-			}
-			structObjToComp[structObj] = c
-
-			// Only the public Props declaration is a user-facing symbol. Private
-			// split-body structs are transient checker artifacts and must never
-			// become navigation targets.
-			params, err := parseParams(c.Params)
-			if err != nil {
-				continue
-			}
-			st, ok := structObj.Type().Underlying().(*types.Struct)
-			if !ok {
-				continue
-			}
-			for _, p := range params {
-				fname := fieldName(p.name)
-				paramPos := gsxFset.Position(c.ParamsPos + token.Pos(p.nameOff))
-				for fv := range st.Fields() {
-					if fv.Name() == fname {
-						fieldObjToPos[fv] = paramPos
-						break
-					}
-				}
-			}
-		}
 	}
 
 	var navIndex []NavRef
@@ -117,40 +70,32 @@ func buildCrossNav(
 			})
 			continue
 		}
-		// Case 2: props-struct type reference → start of the .gsx component
-		// argument list (the props ARE the params, so CardProps lands on the
-		// param list rather than the component name). Components with no params
-		// have no ParamsPos; fall back to the component name there.
-		if c, ok := structObjToComp[obj]; ok {
-			to := c.ParamsPos
-			if !to.IsValid() {
-				to = c.NamePos
-			}
-			navIndex = append(navIndex, NavRef{
-				From: p,
-				Name: id.Name,
-				To:   gsxFset.Position(to),
-			})
-			continue
-		}
-		// Case 3: props-struct field reference → .gsx param position.
-		if fv, ok := obj.(*types.Var); ok {
-			if paramPos, ok := fieldObjToPos[fv]; ok {
-				navIndex = append(navIndex, NavRef{
-					From: p,
-					Name: id.Name,
-					To:   paramPos,
-				})
-			}
-		}
 	}
 	return index, navIndex
 }
 
+// addLocalComponentCallRefs adds authored markup calls to their exact logical
+// component family. Go references remain sourced from types.Info in
+// buildCrossNav; markup references come only from ComponentCalls so no
+// generated ABI shape participates in navigation.
+func addLocalComponentCallRefs(index map[string]CrossRef, calls map[*gsxast.Element]ComponentCallFact, fset *token.FileSet, packagePath string) {
+	for element, call := range calls {
+		if element == nil || call.TargetPackage != packagePath || call.TargetKey == "" || !element.TagPos.IsValid() {
+			continue
+		}
+		ref, ok := index[call.TargetKey]
+		if !ok {
+			continue
+		}
+		ref.Refs = append(ref.Refs, fset.Position(element.TagPos))
+		index[call.TargetKey] = ref
+	}
+}
+
 // sortComponents sorts a compByKey[key] variant slice in place, deterministically,
 // by its NamePos resolved through gsxFset: filename then byte offset. All
-// consumers of compByKey (CrossRef.Decls/Decl, the info.Uses nav target in
-// Case 1, and the props-struct map) must agree on this order so the chosen
+// consumers of compByKey (CrossRef.Decls/Decl and the info.Uses nav target)
+// must agree on this order so the chosen
 // "primary" variant is stable across runs, independent of Go's randomized
 // map-population order.
 func sortComponents(comps []*gsxast.Component, gsxFset *token.FileSet) {
