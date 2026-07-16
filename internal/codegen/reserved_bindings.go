@@ -7,8 +7,8 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
-// reserved_bindings.go — the body-scope reservation check for the three
-// component-body identifiers (`ctx`, `children`, `attrs`). It is the "best-effort
+// reserved_bindings.go — the body-scope reservation check for the ambient
+// component-body identifier `ctx`. It is the "best-effort
 // wording" half of the reserved-identifiers design: it upgrades the raw Go
 // collision error a body-scope binding of a reserved name would otherwise draw
 // into a positioned, worded `reserved-identifier` diagnostic. It NEVER gates a
@@ -17,9 +17,9 @@ import (
 //
 // Scope is the whole game. A reserved name declared in the render closure's TOP
 // scope collides with what the generator binds there (`ctx` closure param,
-// `children := _gsxp.Children`, `attrs := _gsxp.Attrs`); a reserved name bound in
-// a NESTED scope (a `for`/`if`/`switch` body, a func literal, an inner block, a
-// component element's children) is an ordinary Go shadow and must NOT be flagged
+// `ctx` closure param); a `ctx` binding in a NESTED scope (a `for`/`if`/`switch`
+// body, a func literal, an inner block, a component element's children) is an
+// ordinary Go shadow and must NOT be flagged
 // — flagging it would reject correct code, the exact bug class this feature
 // eliminates.
 //
@@ -52,8 +52,8 @@ import (
 // expressions, never the top scope; they are not descended either (a false
 // negative there is a nested shadow we would not flag anyway — sound).
 
-// checkReservedBodyBindings reports every body-scope binding of a reserved
-// component-body identifier (`ctx`/`children`/`attrs`) in c, positioned at the
+// checkReservedBodyBindings reports every body-scope binding of the ambient
+// component-body identifier `ctx` in c, positioned at the
 // binding ident. It walks c.Body, tracking whether the current markup position
 // still emits into the render closure's top scope, and reads each top-scope
 // GoBlock's top-level bindings via fragmentBindings (which already excludes
@@ -74,7 +74,12 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 					continue
 				}
 				for _, b := range fragmentBindings(t.Code, fragStmts) {
-					out = append(out, reservedDecl{name: b.name, pos: t.CodePos + token.Pos(b.off)})
+					// fragmentBindings is still shared with the pre-cutover free-use
+					// analyzer, so it returns attrs/children as well. They are ordinary
+					// authored parameters or locals now; only ambient ctx remains reserved.
+					if b.name == "ctx" {
+						out = append(out, reservedDecl{name: b.name, pos: t.CodePos + token.Pos(b.off)})
+					}
 				}
 			case *ast.Fragment:
 				walk(t.Children, topScope)
@@ -114,10 +119,6 @@ func reservedBodyMeaning(name string) string {
 	switch name {
 	case "ctx":
 		return "the ambient context"
-	case "children":
-		return "the implicit children slot"
-	case "attrs":
-		return "the implicit fallthrough bag"
 	}
 	return "a reserved identifier"
 }

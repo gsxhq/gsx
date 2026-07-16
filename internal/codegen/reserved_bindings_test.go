@@ -68,22 +68,22 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 		body string
 		want []string
 	}{
-		// ---- body-scope bindings: FLAG ----
-		{"shortvar_attrs", `{{ attrs := 1 }}`, []string{"attrs"}},
-		{"shortvar_children", `{{ children := 1 }}`, []string{"children"}},
+		// ---- body-scope bindings: only ambient ctx remains reserved ----
+		{"shortvar_attrs", `{{ attrs := 1 }}`, nil},
+		{"shortvar_children", `{{ children := 1 }}`, nil},
 		{"shortvar_ctx", `{{ ctx := 1 }}`, []string{"ctx"}},
-		{"tuple_attrs", `{{ attrs, ok := f() }}`, []string{"attrs"}},
-		{"var_attrs", `{{ var attrs int }}`, []string{"attrs"}},
-		{"const_attrs", `{{ const attrs = "x" }}`, []string{"attrs"}},
-		{"var_multi_name", `{{ var attrs, other int }}`, []string{"attrs"}},
+		{"tuple_attrs", `{{ attrs, ok := f() }}`, nil},
+		{"var_attrs", `{{ var attrs int }}`, nil},
+		{"const_attrs", `{{ const attrs = "x" }}`, nil},
+		{"var_multi_name", `{{ var attrs, other int }}`, nil},
 		// An element opens no Go scope — a GoBlock child is still body-scope.
-		{"inside_element", `<div>{{ attrs := 1 }}</div>`, []string{"attrs"}},
+		{"inside_element", `<div>{{ attrs := 1 }}</div>`, nil},
 		// A fragment opens no Go scope either.
-		{"inside_fragment", `<>{{ attrs := 1 }}</>`, []string{"attrs"}},
-		// Two reserved names in one GoBlock, reported in source order.
-		{"two_in_one_block", `{{ ctx := 1; attrs := 2 }}`, []string{"ctx", "attrs"}},
+		{"inside_fragment", `<>{{ attrs := 1 }}</>`, nil},
+		// attrs is ordinary even beside the still-reserved ctx binding.
+		{"two_in_one_block", `{{ ctx := 1; attrs := 2 }}`, []string{"ctx"}},
 		// A GoBlock directly under the body, then one under an element: both flag.
-		{"sibling_blocks", "{{ ctx := 1 }}\n<div>{{ children := 2 }}</div>", []string{"ctx", "children"}},
+		{"sibling_blocks", "{{ ctx := 1 }}\n<div>{{ children := 2 }}</div>", []string{"ctx"}},
 
 		// ---- nested scope / non-binding: do NOT flag ----
 		// A `for` markup emits a real Go `for { }` block; a GoBlock inside is a
@@ -130,15 +130,15 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 // TestCheckReservedBodyBindingsPosition verifies the reported position lands on
 // the binding identifier itself (offset-precise), not the enclosing GoBlock.
 func TestCheckReservedBodyBindingsPosition(t *testing.T) {
-	src := "package p\n\ncomponent C() {\n\t{{ attrs := 1 }}\n}\n"
+	src := "package p\n\ncomponent C() {\n\t{{ ctx := 1 }}\n}\n"
 	c, fset := componentFromSrc(t, src)
 	decls := checkReservedBodyBindings(c)
 	if len(decls) != 1 {
 		t.Fatalf("want 1 binding, got %d (%v)", len(decls), flaggedNames(decls))
 	}
 	off := fset.Position(decls[0].pos).Offset
-	if got := src[off : off+len("attrs")]; got != "attrs" {
-		t.Errorf("position %d maps to %q, want %q", off, got, "attrs")
+	if got := src[off : off+len("ctx")]; got != "ctx" {
+		t.Errorf("position %d maps to %q, want %q", off, got, "ctx")
 	}
 }
 
