@@ -41,7 +41,7 @@ func Uses(_gsxp UsesProps) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<b>")
 //line input.gsx:6:5
-		_gsxgw.Text(_gsxsc.FormatBool(bool(b)))
+		_gsxgw.S(_gsxsc.FormatBool(bool(b)))
 //line input.gsx:6:10
 		_gsxgw.Text(string(strconv))
 		_gsxgw.S("</b>")
