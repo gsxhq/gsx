@@ -224,7 +224,7 @@ func TestRendererPackagesRecheckGoOnlyRootAgainstGsxDeclarationUniverse(t *testi
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	leafDir := filepath.Join(root, "leaf")
 	rendererDir := filepath.Join(root, "gorender")
-	writeFile(t, leafDir, "card.gsx", "package leaf\ncomponent Card(title string) { <span>{title}</span> }\n")
+	writeFile(t, leafDir, "card.gsx", "package leaf\ntype CardData struct { Title string }\ncomponent Card(data CardData) { <span>{data.Title}</span> }\n")
 	writeFile(t, leafDir, "card.x.go", `package leaf
 
 import "github.com/gsxhq/gsx"
@@ -239,14 +239,14 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
-func Card(p leaf.CardProps) gsx.Node { return leaf.Card(p) }
+func Card(p leaf.CardData) gsx.Node { return leaf.Card(p) }
 `)
 	rendererPath := "example.com/app/gorender"
 	m, err := Open(Options{
 		ModuleRoot: root,
 		ModulePath: "example.com/app",
 		Renderers: []RendererAlias{{
-			TypeKey:  "example.com/app/leaf.CardProps",
+			TypeKey:  "example.com/app/leaf.CardData",
 			PkgPath:  rendererPath,
 			FuncName: "Card",
 		}},
@@ -265,10 +265,10 @@ func Card(p leaf.CardProps) gsx.Node { return leaf.Card(p) }
 	fn := first.Scope().Lookup("Card").(*types.Func)
 	structure := types.Unalias(fn.Type().(*types.Signature).Params().At(0).Type()).Underlying().(*types.Struct)
 	if structure.NumFields() != 1 || structure.Field(0).Name() != "Title" {
-		t.Fatalf("cold Card parameter = %v, want current GSX CardProps Title", fn.Type())
+		t.Fatalf("cold Card parameter = %v, want current GSX CardData Title", fn.Type())
 	}
 
-	m.SetOverride(filepath.Join(leafDir, "card.gsx"), []byte("package leaf\ncomponent Card(count int) { <span>{count}</span> }\n"))
+	m.SetOverride(filepath.Join(leafDir, "card.gsx"), []byte("package leaf\ntype CardData struct { Count int }\ncomponent Card(data CardData) { <span>{data.Count}</span> }\n"))
 	m.applyDirty()
 	packages, local, err = m.rendererPackagesFromExt()
 	if err != nil {
@@ -280,7 +280,7 @@ func Card(p leaf.CardProps) gsx.Node { return leaf.Card(p) }
 	fn = packages[rendererPath].Scope().Lookup("Card").(*types.Func)
 	structure = types.Unalias(fn.Type().(*types.Signature).Params().At(0).Type()).Underlying().(*types.Struct)
 	if structure.NumFields() != 1 || structure.Field(0).Name() != "Count" {
-		t.Fatalf("warm Card parameter = %v, want current GSX CardProps Count", fn.Type())
+		t.Fatalf("warm Card parameter = %v, want current GSX CardData Count", fn.Type())
 	}
 	if got := m.externalLoads(); got != 1 {
 		t.Fatalf("external loads after warm leaf edit = %d, want one", got)

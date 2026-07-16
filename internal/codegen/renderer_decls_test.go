@@ -288,7 +288,8 @@ func TestRendererDeclResolverRechecksGoOnlyIntermediaryInOneDeclarationUniverse(
 	}
 	writeMultiFile(t, leafDir, "leaf.gsx", `package leaf
 
-component Card(title string) { <span>{title}</span> }
+type CardData struct { Title string }
+component Card(data CardData) { <span>{data.Title}</span> }
 `)
 	// The cold inventory must hide this paired output. The renderer resolver
 	// still has to re-check bridge.go against the exact GSX declaration rather
@@ -307,8 +308,8 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
-type Props = leaf.CardProps
-func Card(p Props) gsx.Node { return leaf.Card(p) }
+type Data = leaf.CardData
+func Card(p Data) gsx.Node { return leaf.Card(p) }
 `)
 	writeMultiFile(t, rendererDir, "renderers.gsx", `package renderers
 
@@ -317,7 +318,7 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
-func Moment(v bridge.Props) gsx.Node { return <time>{v.Title}</time> }
+func Moment(v bridge.Data) gsx.Node { return <time>{v.Title}</time> }
 `)
 
 	rendererPath := "example.com/app/renderers"
@@ -325,7 +326,7 @@ func Moment(v bridge.Props) gsx.Node { return <time>{v.Title}</time> }
 		ModuleRoot: root,
 		ModulePath: "example.com/app",
 		Renderers: []RendererAlias{{
-			TypeKey:  "example.com/app/bridge.Props",
+			TypeKey:  "example.com/app/bridge.Data",
 			PkgPath:  rendererPath,
 			FuncName: "Moment",
 		}},
@@ -345,11 +346,11 @@ func Moment(v bridge.Props) gsx.Node { return <time>{v.Title}</time> }
 	signature := fn.Type().(*types.Signature)
 	structure, ok := types.Unalias(signature.Params().At(0).Type()).Underlying().(*types.Struct)
 	if !ok || structure.NumFields() != 1 || structure.Field(0).Name() != "Title" {
-		t.Fatalf("Moment parameter = %v, want current shipping CardProps through retained bridge source", signature.Params().At(0).Type())
+		t.Fatalf("Moment parameter = %v, want current CardData through retained bridge source", signature.Params().At(0).Type())
 	}
 
 	firstPackage := pkg
-	m.SetOverride(filepath.Join(leafDir, "leaf.gsx"), []byte("package leaf\n\ncomponent Card(count int) { <span>{count}</span> }\n"))
+	m.SetOverride(filepath.Join(leafDir, "leaf.gsx"), []byte("package leaf\n\ntype CardData struct { Count int }\ncomponent Card(data CardData) { <span>{data.Count}</span> }\n"))
 	m.applyDirty()
 	packages, _, err = m.rendererPackagesFromExt()
 	if err != nil {
@@ -363,7 +364,7 @@ func Moment(v bridge.Props) gsx.Node { return <time>{v.Title}</time> }
 	signature = fn.Type().(*types.Signature)
 	structure, ok = types.Unalias(signature.Params().At(0).Type()).Underlying().(*types.Struct)
 	if !ok || structure.NumFields() != 1 || structure.Field(0).Name() != "Count" {
-		t.Fatalf("warm Moment parameter = %v, want current shipping CardProps Count field", signature.Params().At(0).Type())
+		t.Fatalf("warm Moment parameter = %v, want current CardData Count field", signature.Params().At(0).Type())
 	}
 	if got := m.externalLoads(); got != 1 {
 		t.Fatalf("external loads after warm leaf edit = %d, want one authoritative cold inventory", got)

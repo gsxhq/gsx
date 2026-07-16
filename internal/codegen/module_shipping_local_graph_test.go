@@ -107,7 +107,8 @@ func TestShippingResolverRechecksGoOnlyIntermediaryInOneSourceGraph(t *testing.T
 	leafPath := filepath.Join(leafDir, "leaf.gsx")
 	writeFile(t, leafDir, "leaf.gsx", `package leaf
 
-component Card(title string) { <span>{title}</span> }
+type CardData struct { Title string }
+component Card(data CardData) { <span>{data.Title}</span> }
 `)
 	// The cold inventory hides this paired output from authoritative source
 	// selection. It remains deliberately incompatible so any package imported
@@ -123,7 +124,7 @@ func Card(CardProps) gsx.Node { return nil }
 
 import "example.com/app/leaf"
 
-type Props = leaf.CardProps
+type Model = leaf.CardData
 `)
 	writeFile(t, filterDir, "filters.go", `package filters
 
@@ -133,7 +134,7 @@ func Identity(value string) string { return value }
 
 import "example.com/app/bridge"
 
-type Model = bridge.Props
+type Model = bridge.Model
 
 component Page(value Model) { <main/> }
 `)
@@ -169,7 +170,7 @@ component Page(value Model) { <main/> }
 		t.Fatalf("external loads after cold analysis = %d, want one", got)
 	}
 
-	m.SetOverride(leafPath, []byte("package leaf\n\ncomponent Card(count int) { <span>{count}</span> }\n"))
+	m.SetOverride(leafPath, []byte("package leaf\n\ntype CardData struct { Count int }\ncomponent Card(data CardData) { <span>{data.Count}</span> }\n"))
 	second, err := m.Package(pageDir)
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +196,7 @@ func assertShippingModelField(t *testing.T, pkg *types.Package, want string) {
 	}
 }
 
-func TestShippingByoFactsUseOnlyActiveCompanionSyntax(t *testing.T) {
+func TestShippingSignatureUsesOnlyActiveCompanionSyntax(t *testing.T) {
 	t.Setenv("GOFLAGS", "-tags=feature")
 	root := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
@@ -224,7 +225,7 @@ type CardData struct {
 
 component Card(data CardData) { <article>{data.Title}</article> }
 
-component Page() { <Card Title="hello"/> }
+component Page() { <Card data={CardData{Title: "hello"}}/> }
 `)
 
 	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
@@ -235,16 +236,11 @@ component Page() { <Card Title="hello"/> }
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "byo-missing-attrs" {
-			t.Fatalf("active CardData.Title was replaced by an excluded companion: %+v", diagnostic)
-		}
-	}
 	if hasDiagErrors(diagnostics) {
 		t.Fatalf("Generate diagnostics = %v", diagnostics)
 	}
 	if len(output[filepath.Join(uiDir, "card.gsx")]) == 0 {
-		t.Fatal("Generate produced no output for active BYO component")
+		t.Fatal("Generate produced no output for active component signature")
 	}
 }
 
