@@ -8,7 +8,7 @@ component Link(scheme string) {
 	<a href=f`@{scheme}://ex.com`>go</a>
 }
 -- invoke --
-Link(LinkProps{Scheme: "https"})
+Link("https")
 -- diagnostics.golden --
 -- render.golden --
 <a href="https://ex.com">go</a>
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	Scheme string
-}
-
 //line input.gsx:3:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(scheme string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		scheme := _gsxp.Scheme
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")

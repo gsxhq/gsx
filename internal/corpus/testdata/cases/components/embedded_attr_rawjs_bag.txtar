@@ -9,7 +9,9 @@
 -- input.gsx --
 package demo
 
-component Field(label string) { <button aria-label={label} { attrs... }>x</button> }
+
+import "github.com/gsxhq/gsx"
+component Field(label string, attrs gsx.Attrs) { <button aria-label={label} { attrs... }>x</button> }
 
 component Page() {
 	<Field
@@ -30,22 +32,16 @@ package demo
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type FieldProps struct {
-	Label string
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Field(_gsxp FieldProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Field(label string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:3:33
+//line input.gsx:5:50
 		_gsxgw.S("<button")
 		if !attrs.Has("aria-label") {
 			_gsxgw.S(" aria-label=\"")
@@ -60,12 +56,12 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 	})
 }
 
-//line input.gsx:5:1
+//line input.gsx:7:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Go", Attrs: _gsxrt.Attrs{{Key: "@click", Value: _gsxrt.RawJS("toggle()")}, {Key: "data-style", Value: _gsxrt.RawCSS("color:red")}}}))
+//line input.gsx:8:2
+		_gsxgw.Node(ctx, Field("Go", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "@click", Value: "toggle()"}}, _gsxrt.Attrs{{Key: "data-style", Value: "color:red"}})))
 		return _gsxgw.Err()
 	})
 }

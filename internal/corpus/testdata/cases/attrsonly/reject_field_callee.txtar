@@ -1,10 +1,6 @@
-# A dotted tag whose qualifier is NOT a package import — here a component
-# parameter (item holder) — is never the cross-package attrs-only path: the
-# dotted-tag gate requires the qualifier to be a known project-internal gsx
-# import (byo.isDepAlias). <item.Icon/> is left on the XxxProps convention
-# exactly as before, so this region still fails with the same undefined-props
-# class it did before dotted attrs-only support existed. The case exists to
-# prove a field/param callee did NOT silently become the attrs-only path.
+# A dotted tag whose qualifier is not a package import — here a component
+# parameter (item holder) — is not treated as a package-level component.
+# Function-valued fields remain unsupported component targets.
 -- input.gsx --
 package views
 
@@ -18,4 +14,4 @@ component Page(item holder) {
 	<item.Icon class="x"/>
 }
 -- diagnostics.golden --
-10:21: item.IconProps is not a type
+10:3: component target is a function-valued field; only package function variables and concrete bound methods are supported

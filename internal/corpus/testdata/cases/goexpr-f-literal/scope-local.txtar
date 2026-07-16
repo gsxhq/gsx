@@ -16,7 +16,7 @@ component Greeting(who string) {
 	<p>{ makeGreeting(who) }</p>
 }
 -- invoke --
-Greeting(GreetingProps{Who: "Ada"})
+Greeting("Ada")
 -- diagnostics.golden --
 -- render.golden --
 <p>hi Ada</p>
@@ -35,14 +35,9 @@ func makeGreeting(who string) string {
 	return "hi " + string(who)
 }
 
-type GreetingProps struct {
-	Who string
-}
-
 //line input.gsx:7:1
-func Greeting(_gsxp GreetingProps) _gsxrt.Node {
+func Greeting(who string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		who := _gsxp.Who
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<p>")

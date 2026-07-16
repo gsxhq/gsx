@@ -21,3 +21,4 @@ component Page() {
 }
 -- diagnostics.golden --
 9:8: undefined: undefinedSym
+9:8: undefined: undefinedSym

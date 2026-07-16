@@ -19,6 +19,6 @@ component Page() {
 	<Pair />
 }
 -- diagnostics.golden --
-16:2: type inference failed for <Marker>; please instantiate with <Marker[type] ...>
-17:6: type inference failed for <Holder>; please instantiate with <Holder[type] ...>
-18:2: type inference failed for <Pair>; please instantiate with <Pair[type, type] ...>
+16:3: type inference failed for <Marker>: cannot infer T (declared at -); please instantiate with <Marker[type] ...>
+17:3: type inference failed for <Holder>: cannot infer T (declared at -); please instantiate with <Holder[type] ...>
+18:3: type inference failed for <Pair>: cannot infer K (declared at -); please instantiate with <Pair[type, type] ...>

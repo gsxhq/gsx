@@ -15,4 +15,4 @@ component Page() {
 	<Divider class="x"/>
 }
 -- diagnostics.golden --
-4:2: no-argument component Divider accepts no attributes or children
+4:11: Divider has no attrs param; unexpected attribute "class"

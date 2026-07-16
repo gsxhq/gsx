@@ -38,5 +38,5 @@ component Home() {
 -- invoke --
 pages.Home()
 -- diagnostics.golden --
+6:2: component-unnamed-fixed-param: parameter 0 has no markup-bindable name
 -- render.golden --
-<svg class="h-3 w-3">house</svg>

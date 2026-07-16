@@ -5,7 +5,7 @@ component Box(active bool) {
 	<button { if active { id="real" } }>x</button>
 }
 -- invoke --
-Box(BoxProps{Active: true})
+Box(true)
 -- diagnostics.golden --
 -- render.golden --
 <button id="real">x</button>

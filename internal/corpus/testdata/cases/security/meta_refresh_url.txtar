@@ -6,7 +6,7 @@ component Refresh(to string) {
 }
 
 -- invoke --
-Refresh(RefreshProps{To: "javascript:alert(1)"})
+Refresh("javascript:alert(1)")
 
 -- render.golden --
 <meta http-equiv="refresh" content="0;url=about:invalid#gsx"/>
@@ -22,14 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type RefreshProps struct {
-	To string
-}
-
 //line input.gsx:3:1
-func Refresh(_gsxp RefreshProps) _gsxrt.Node {
+func Refresh(to string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		to := _gsxp.To
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<meta http-equiv=\"refresh\" content=\"")

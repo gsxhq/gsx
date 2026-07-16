@@ -15,11 +15,7 @@ component InterposedURL(p gsx.Attrs, qHit gsx.Attrs, qSafe gsx.Attrs) {
 	</div>
 }
 -- invoke --
-InterposedURL(InterposedURLProps{
-	P:     gsx.Attrs{{Key: "id", Value: "x"}},
-	QHit:  gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}},
-	QSafe: gsx.Attrs{{Key: "class", Value: "c"}},
-})
+InterposedURL(gsx.Attrs{{Key: "id", Value: "x"}}, gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}}, gsx.Attrs{{Key: "class", Value: "c"}})
 -- diagnostics.golden --
 -- render.golden --
 <div><a id="x" href="about:invalid#gsx">hit</a><a class="c" id="x" href="/mid">safe</a></div>
@@ -35,18 +31,9 @@ import (
 	_gsxio "io"
 )
 
-type InterposedURLProps struct {
-	P     gsx.Attrs
-	QHit  gsx.Attrs
-	QSafe gsx.Attrs
-}
-
 //line input.gsx:5:1
-func InterposedURL(_gsxp InterposedURLProps) _gsxrt.Node {
+func InterposedURL(p gsx.Attrs, qHit gsx.Attrs, qSafe gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		p := _gsxp.P
-		qHit := _gsxp.QHit
-		qSafe := _gsxp.QSafe
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div>")

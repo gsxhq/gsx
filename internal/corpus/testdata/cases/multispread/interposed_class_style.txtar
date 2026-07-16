@@ -14,10 +14,7 @@ component InterposedClassStyle(p gsx.Attrs, q gsx.Attrs) {
 	<div { p... } class="x" style="color:red" { q... }>y</div>
 }
 -- invoke --
-InterposedClassStyle(InterposedClassStyleProps{
-	P: gsx.Attrs{{Key: "class", Value: "p"}, {Key: "style", Value: "margin:0"}},
-	Q: gsx.Attrs{{Key: "class", Value: "q"}, {Key: "style", Value: "color:blue"}},
-})
+InterposedClassStyle(gsx.Attrs{{Key: "class", Value: "p"}, {Key: "style", Value: "margin:0"}}, gsx.Attrs{{Key: "class", Value: "q"}, {Key: "style", Value: "color:blue"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="p x q" style="margin:0; color:blue">y</div>
@@ -33,16 +30,9 @@ import (
 	_gsxio "io"
 )
 
-type InterposedClassStyleProps struct {
-	P gsx.Attrs
-	Q gsx.Attrs
-}
-
 //line input.gsx:5:1
-func InterposedClassStyle(_gsxp InterposedClassStyleProps) _gsxrt.Node {
+func InterposedClassStyle(p gsx.Attrs, q gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		p := _gsxp.P
-		q := _gsxp.Q
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := _gsxrt.ConcatAttrs(p, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("x")}, {Key: "style", Value: _gsxrt.RawURL("color:red")}}, q)

@@ -10,7 +10,7 @@ component Page(path string) {
 	<script>@{gsx.RawJS(path)} = 1;</script>
 }
 -- invoke --
-Page(PageProps{Path: "window.foo"})
+Page("window.foo")
 -- diagnostics.golden --
 -- render.golden --
 <script>window.foo = 1;</script>
@@ -26,14 +26,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Path string
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(path string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		path := _gsxp.Path
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<script")

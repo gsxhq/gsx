@@ -1,12 +1,5 @@
-# False rejection TODAY: the token scan sees the `attrs` token in the range
-# clause AND the spread and fires usesAttrs, synthesizing an unused Attrs
-# field (nothing ever reads the implicit bag local — every `attrs` in the
-# body is the range-scoped loop variable) — "declared and not used: attrs".
-# Stage 2 (freeUseAttrs) resolves both occurrences against the range
-# clause's own binding (env threaded from the ForMarkup clause over its
-# markup subtree) and finds no free use, so the two-stage trigger does NOT
-# fire. The generated ListProps struct below carries only the declared
-# `Label` field — NO Attrs field.
+# A range variable named attrs is scoped to the loop and remains an ordinary
+# local. Its element spread does not require an attrs component parameter.
 -- input.gsx --
 package views
 
@@ -24,7 +17,7 @@ component List(label string) {
 	{ for _, attrs := range bags() { <span { attrs... }>i</span> } }
 }
 -- invoke --
-List(ListProps{Label: "items"})
+List("items")
 -- diagnostics.golden --
 -- render.golden --
 <p>items</p><span class="a">i</span><span class="b">i</span>
@@ -47,14 +40,9 @@ func bags() []gsx.Attrs {
 	}
 }
 
-type ListProps struct {
-	Label string
-}
-
 //line input.gsx:12:1
-func List(_gsxp ListProps) _gsxrt.Node {
+func List(label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
 		_gsxgw.S("<p>")

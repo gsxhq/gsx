@@ -20,7 +20,7 @@ import "github.com/gsxhq/gsx"
 
 component Page(extra gsx.Attrs) { <script { extra... }>init()</script> }
 -- invoke --
-withTestNonce(Page(PageProps{Extra: gsx.Attrs{{Key: "id", Value: "s"}}}))
+withTestNonce(Page(gsx.Attrs{{Key: "id", Value: "s"}}))
 -- diagnostics.golden --
 -- render.golden --
 <script id="s" nonce="r4nd0m">init()</script>
@@ -36,14 +36,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Extra gsx.Attrs
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:35
 		_gsxv0 := extra

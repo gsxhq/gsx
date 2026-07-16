@@ -6,11 +6,11 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Link(extra gsx.Attrs) {
+component Link(extra gsx.Attrs, attrs gsx.Attrs) {
 	<a href="/base" { attrs... } { extra... }>x</a>
 }
 -- invoke --
-Link(LinkProps{Attrs: gsx.Attrs{{Key: "data-y", Value: "1"}}, Extra: gsx.Attrs{{Key: "data-y", Value: "2"}}})
+Link(gsx.Attrs{{Key: "data-y", Value: "2"}}, gsx.Attrs{{Key: "data-y", Value: "1"}})
 -- diagnostics.golden --
 -- render.golden --
 <a href="/base" data-y="2">x</a>
@@ -26,16 +26,9 @@ import (
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	Extra gsx.Attrs
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(extra gsx.Attrs, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		extra := _gsxp.Extra
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("/base")}}, attrs, extra)

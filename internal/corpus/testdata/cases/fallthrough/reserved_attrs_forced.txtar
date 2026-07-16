@@ -1,5 +1,5 @@
-# A byo component's declared bag forwards with position-aware precedence: a
-# static scalar AFTER { p.Attrs... } is FORCED — it wins over the caller's bag
+# A component's declared attrs role forwards with position-aware precedence: a
+# static scalar AFTER { attrs... } is FORCED — it wins over the caller's bag
 # value (the bag's copy is dropped from the residual spread), exactly like the
 # generated `attrs` bag. A pre-spread scalar with no post-spread twin stays
 # caller-overridable.
@@ -8,12 +8,8 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-type props struct {
-	Attrs gsx.Attrs
-}
-
-component Chip(p props) {
-	<span data-k="v" { p.Attrs... } a="forced">x</span>
+component Chip(attrs gsx.Attrs) {
+	<span data-k="v" { attrs... } a="forced">x</span>
 }
 
 component Page() {
@@ -34,34 +30,29 @@ import (
 	_gsxio "io"
 )
 
-type props struct {
-	Attrs gsx.Attrs
-}
-
-//line input.gsx:9:1
-func Chip(p props) _gsxrt.Node {
+//line input.gsx:5:1
+func Chip(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxv0 := p.Attrs
+//line input.gsx:6:2
 		_gsxgw.S("<span")
-		if !_gsxv0.Has("data-k") {
+		if !attrs.Has("data-k") {
 			_gsxgw.S(" data-k=\"v\"")
 		}
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style", "a"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style", "a"})
 		_gsxgw.S(" a=\"forced\">x</span>")
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:13:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
-		_gsxgw.Node(ctx, Chip(props{Attrs: _gsxrt.Attrs{{Key: "a", Value: "c"}, {Key: "data-k", Value: "caller"}, {Key: "title", Value: "t"}}}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Chip(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "c"}}, _gsxrt.Attrs{{Key: "data-k", Value: "caller"}}, _gsxrt.Attrs{{Key: "title", Value: "t"}})))
 		return _gsxgw.Err()
 	})
 }

@@ -3,7 +3,7 @@ package views
 
 component Hi(s string) { <p>{ s |> truncate(3) }</p> }
 -- invoke --
-Hi(HiProps{S: "abcdef"})
+Hi("abcdef")
 -- diagnostics.golden --
 -- render.golden --
 <p>abc</p>

@@ -6,7 +6,7 @@ component Row(id string, n int) {
 	<div data-key=f`row-@{id}-@{n}` title=f`Item @{ id |> upper }`>x</div>
 }
 -- invoke --
-Row(RowProps{Id: "a&b", N: 5})
+Row("a&b", 5)
 -- diagnostics.golden --
 -- render.golden --
 <div data-key="row-a&amp;b-5" title="Item A&amp;B">x</div>
@@ -22,16 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type RowProps struct {
-	Id string
-	N  int
-}
-
 //line input.gsx:3:1
-func Row(_gsxp RowProps) _gsxrt.Node {
+func Row(id string, n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
-		n := _gsxp.N
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

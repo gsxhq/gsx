@@ -43,7 +43,7 @@ import (
 
 func checkedErrorPage() gsx.Node {
 	return gsx.Func(func(ctx context.Context, w io.Writer) error {
-		err := Page(PageProps{Edit: true, Val: mkText("x", false)}).Render(ctx, w)
+		err := Page(true, mkText("x", false)).Render(ctx, w)
 		if err == nil || err.Error() != "invalid text" {
 			return fmt.Errorf("render error = %v, want invalid text", err)
 		}
@@ -53,17 +53,19 @@ func checkedErrorPage() gsx.Node {
 -- input.gsx --
 package views
 
+
+import "github.com/gsxhq/gsx"
 import "corpustest/cases/renderers_cond_branch_embedded_hole_renderer/pg"
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
-component Field(label string) { <input aria-label={label} { attrs... }/> }
+component Field(label string, attrs gsx.Attrs) { <input aria-label={label} { attrs... }/> }
 
 component Page(edit bool, val pg.Text) {
 	<Field label="c" { if edit { title=f"Hi @{val}" } } />
 }
 -- invoke --
-gsx.Fragment(Page(PageProps{Edit: true, Val: mkText("there", true)}), checkedErrorPage())
+gsx.Fragment(Page(true, mkText("there", true)), checkedErrorPage())
 -- diagnostics.golden --
 -- render.golden --
 <input aria-label="c" title="Hi there"/>

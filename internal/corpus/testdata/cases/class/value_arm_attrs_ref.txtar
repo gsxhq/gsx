@@ -5,7 +5,9 @@
 -- input.gsx --
 package views
 
-component Widget() {
+
+import "github.com/gsxhq/gsx"
+component Widget(attrs gsx.Attrs) {
 	<div class={ if attrs.Has("on") { "on" } }>x</div>
 }
 
@@ -24,20 +26,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type WidgetProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Widget(_gsxp WidgetProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Widget(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<div")
 		var _gsxv0 string
 		if attrs.Has("on") {
@@ -50,12 +48,12 @@ func Widget(_gsxp WidgetProps) _gsxrt.Node {
 	})
 }
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Widget(WidgetProps{Attrs: _gsxrt.Attrs{{Key: "on", Value: "1"}}}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Widget(_gsxrt.Attrs{{Key: "on", Value: "1"}}))
 		return _gsxgw.Err()
 	})
 }

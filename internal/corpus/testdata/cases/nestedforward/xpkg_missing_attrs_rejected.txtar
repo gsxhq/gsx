@@ -25,5 +25,5 @@ component Home() {
 -- invoke --
 pages.Home()
 -- diagnostics.golden --
-6:22: attribute on <ui.Plain> matches no declared prop of component ui.Plain, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <ui.Plain>'s body to accept forwarded attributes
+6:22: ui.Plain has no attrs param; unexpected attribute "data-x"
 -- render.golden --

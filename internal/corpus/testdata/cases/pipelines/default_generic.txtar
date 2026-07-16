@@ -7,7 +7,7 @@ component Summary(count int, enabled bool, title string) {
 	<p>{ count |> default(12) }|{ enabled |> default(true) }|{ title |> default("Untitled") }</p>
 }
 -- invoke --
-Summary(SummaryProps{Count: 0, Enabled: false, Title: ""})
+Summary(0, false, "")
 -- diagnostics.golden --
 4:5: invalid pipeline filter name "default"
 -- generated.x.go.golden --

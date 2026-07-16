@@ -24,7 +24,7 @@ component Page(v string) {
 	<div>{ mk(v) }</div>
 }
 -- invoke --
-Page(PageProps{V: "a"})
+Page("a")
 -- diagnostics.golden --
 3:41: @{ v |> up } uses a ctx-taking filter (|>); a js`/css`/f` literal in Go-expression position has no ambient render context — drop the ctx-taking filter/renderer, or move the literal to an attribute position
 -- render.golden --

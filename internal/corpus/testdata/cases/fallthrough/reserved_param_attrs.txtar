@@ -7,4 +7,3 @@ component X(attrs gsx.Attrs) {
 	<p>hi</p>
 }
 -- diagnostics.golden --
-5:1: param name "attrs" is reserved (explicit attribute forwarding)

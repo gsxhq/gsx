@@ -15,7 +15,7 @@ component C(name string) {
 	/>
 }
 -- invoke --
-C(CProps{Name: "agree"})
+C("agree")
 -- diagnostics.golden --
 -- render.golden --
 <input type="checkbox" id="agree" value="x"/>

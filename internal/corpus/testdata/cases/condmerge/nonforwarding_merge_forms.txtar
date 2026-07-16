@@ -18,8 +18,8 @@ component Forms(which int, gap string) {
 }
 -- invoke --
 gsx.Fragment(
-	Forms(FormsProps{Which: 2, Gap: "5px"}),
-	Forms(FormsProps{Which: 0, Gap: "9px"}),
+	Forms(2, "5px"),
+	Forms(0, "9px"),
 )
 -- diagnostics.golden --
 -- generated.x.go.golden --
@@ -38,16 +38,9 @@ import (
 
 func decl(s string) (string, error) { return s, nil }
 
-type FormsProps struct {
-	Which int
-	Gap   string
-}
-
 //line input.gsx:7:1
-func Forms(_gsxp FormsProps) _gsxrt.Node {
+func Forms(which int, gap string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		which := _gsxp.Which
-		gap := _gsxp.Gap
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}, {Key: "style", Value: _gsxrt.RawURL("margin:0")}, {Key: "style", Value: _gsxrt.RawURL("color:blue")}}

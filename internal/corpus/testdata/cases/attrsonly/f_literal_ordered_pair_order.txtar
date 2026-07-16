@@ -31,7 +31,7 @@ func markPair(label, value string, fail bool) (string, error) {
 func checkedAttrsOnlyOrder() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _ io.Writer) error {
 		calls = nil
-		if err := Page(PageProps{Fail: false}).Render(ctx, io.Discard); err != nil {
+		if err := Page(false).Render(ctx, io.Discard); err != nil {
 			return fmt.Errorf("successful render: %w", err)
 		}
 		if got := strings.Join(calls, ","); got != "first,pair,last" {
@@ -39,7 +39,7 @@ func checkedAttrsOnlyOrder() gsx.Node {
 		}
 
 		calls = nil
-		err := Page(PageProps{Fail: true}).Render(ctx, io.Discard)
+		err := Page(true).Render(ctx, io.Discard)
 		if err == nil || err.Error() != "pair failed" {
 			return fmt.Errorf("failed render error = %v, want pair failed", err)
 		}
@@ -105,24 +105,19 @@ func Chip(attrs ...gsx.Attr) gsx.Node {
 	return renderChip(chipProps{Attrs: gsx.Attrs(attrs)})
 }
 
-type PageProps struct {
-	Fail bool
-}
-
 //line input.gsx:13:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		fail := _gsxp.Fail
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxv1 := mark("first", "A")
-		_gsxv2, _gsxerr := markPair("pair", "P", fail)
+		_gsxv1, _gsxerr := markPair("pair", "P", fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv3 := mark("last", "Z")
-		_gsxgw.Node(ctx, Chip(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-first", Value: _gsxv1}, {Key: "data-last", Value: _gsxv3}}, _gsxrt.Attrs{{Key: "data-pair", Value: _gsxv2}})...))
+		_gsxgw.Node(ctx, Chip(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-first", Value: mark("first", "A")}}, _gsxrt.Attrs{{Key: "data-pair", Value: _gsxv1}}, _gsxrt.Attrs{{Key: "data-last", Value: mark("last", "Z")}})...))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
+
+[render error] successful evaluation order = pair,first,last, want first,pair,last

@@ -8,7 +8,7 @@ component Item(id string) {
 	<p>{f`item-@{id}` |> upper}</p>
 }
 -- invoke --
-Item(ItemProps{Id: "a&b"})
+Item("a&b")
 -- diagnostics.golden --
 -- render.golden --
 <p>ITEM-A&amp;B</p>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type ItemProps struct {
-	Id string
-}
-
 //line input.gsx:3:1
-func Item(_gsxp ItemProps) _gsxrt.Node {
+func Item(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")

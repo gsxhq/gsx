@@ -11,7 +11,7 @@ component Uses(b bool) {
 	<b>{ b }{ strconv }</b>
 }
 -- invoke --
-Uses(UsesProps{B: true})
+Uses(true)
 -- diagnostics.golden --
 -- render.golden --
 <b>trueshadowed</b>
@@ -29,14 +29,9 @@ import (
 
 var strconv = "shadowed"
 
-type UsesProps struct {
-	B bool
-}
-
 //line input.gsx:5:1
-func Uses(_gsxp UsesProps) _gsxrt.Node {
+func Uses(b bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<b>")

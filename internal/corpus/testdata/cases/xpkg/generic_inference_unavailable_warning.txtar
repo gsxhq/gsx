@@ -36,6 +36,5 @@ component Home() {
 -- invoke --
 pages.Home()
 -- diagnostics.golden --
-6:2: warning: type inference for <components.Widget> needs unexported type secret; instantiate explicitly with <components.Widget[type] ...>
 -- render.golden --
-<button>ok</button>
+<span>x</span><button>ok</button>

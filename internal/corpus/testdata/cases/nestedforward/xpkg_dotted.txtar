@@ -9,15 +9,19 @@ go 1.26.1
 -- ui/panel.gsx --
 package ui
 
-component Panel() {
+
+import "github.com/gsxhq/gsx"
+component Panel(children gsx.Node, attrs gsx.Attrs) {
 	<section { attrs... }>{children}</section>
 }
 -- pages/home.gsx --
 package pages
 
+
+import "github.com/gsxhq/gsx"
 import "example.com/app/ui"
 
-component Wrapper() {
+component Wrapper(attrs gsx.Attrs) {
 	<ui.Panel { attrs... }>p</ui.Panel>
 }
 
@@ -38,35 +42,31 @@ import (
 	"corpustest/cases/nestedforward_xpkg_dotted/ui"
 
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type WrapperProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line home.gsx:5:1
-func Wrapper(_gsxp WrapperProps) _gsxrt.Node {
+//line home.gsx:7:1
+func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line home.gsx:6:2
-		_gsxgw.Node(ctx, ui.Panel(ui.PanelProps{Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+//line home.gsx:8:2
+		_gsxgw.Node(ctx, ui.Panel(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("p")
 			return _gsxgw.Err()
-		}), Attrs: _gsxrt.ConcatAttrs(attrs)}))
+		}), attrs))
 		return _gsxgw.Err()
 	})
 }
 
-//line home.gsx:9:1
+//line home.gsx:11:1
 func Home() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line home.gsx:10:2
-		_gsxgw.Node(ctx, Wrapper(WrapperProps{Attrs: _gsxrt.Attrs{{Key: "data-x", Value: "1"}}}))
+//line home.gsx:12:2
+		_gsxgw.Node(ctx, Wrapper(_gsxrt.Attrs{{Key: "data-x", Value: "1"}}))
 		return _gsxgw.Err()
 	})
 }
@@ -76,28 +76,22 @@ package ui
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type PanelProps struct {
-	Children _gsxrt.Node
-	Attrs    _gsxrt.Attrs
-}
-
-//line panel.gsx:3:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+//line panel.gsx:5:1
+func Panel(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		children := _gsxp.Children
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line panel.gsx:4:2
+//line panel.gsx:6:2
 		_gsxgw.S("<section")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line panel.gsx:4:24
+//line panel.gsx:6:24
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()

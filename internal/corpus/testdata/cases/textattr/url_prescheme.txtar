@@ -7,7 +7,7 @@ component Link(base string) {
 	<a href=f`@{base}/edit`>go</a>
 }
 -- invoke --
-Link(LinkProps{Base: "https://ex.com/u"})
+Link("https://ex.com/u")
 -- diagnostics.golden --
 -- render.golden --
 <a href="https://ex.com/u/edit">go</a>
@@ -22,14 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	Base string
-}
-
 //line input.gsx:3:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(base string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		base := _gsxp.Base
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")

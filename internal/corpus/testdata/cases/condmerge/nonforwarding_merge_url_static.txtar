@@ -10,8 +10,8 @@ component Link(on bool) {
 }
 -- invoke --
 gsx.Fragment(
-	Link(LinkProps{On: true}),
-	Link(LinkProps{On: false}),
+	Link(true),
+	Link(false),
 )
 -- diagnostics.golden --
 -- render.golden --
@@ -27,14 +27,9 @@ import (
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	On bool
-}
-
 //line input.gsx:3:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		on := _gsxp.On
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:void(0)")}, {Key: "class", Value: _gsxrt.RawURL("base")}}

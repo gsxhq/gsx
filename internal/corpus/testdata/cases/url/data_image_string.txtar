@@ -10,7 +10,7 @@ component Avatar(b64 string) {
 	<img src=f`data:image/png;base64,@{b64}` alt="a" />
 }
 -- invoke --
-Avatar(AvatarProps{B64: "aGVsbG8="})
+Avatar("aGVsbG8=")
 -- diagnostics.golden --
 -- render.golden --
 <img src="data:image/png;base64,aGVsbG8=" alt="a"/>
@@ -25,14 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type AvatarProps struct {
-	B64 string
-}
-
 //line input.gsx:3:1
-func Avatar(_gsxp AvatarProps) _gsxrt.Node {
+func Avatar(b64 string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		b64 := _gsxp.B64
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img src=\"")

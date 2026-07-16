@@ -6,7 +6,7 @@ import "github.com/gsxhq/gsx"
 
 component C(extra gsx.Attrs) { <div { extra... }>x</div> }
 -- invoke --
-C(CProps{Extra: gsx.Attrs{{Key: "id", Value: "m"}}})
+C(gsx.Attrs{{Key: "id", Value: "m"}})
 -- diagnostics.golden --
 -- render.golden --
 <div id="m">x</div>

@@ -10,7 +10,7 @@ component C(count int, price float64, total int) {
 	<b>{ count |> printf("%d/%d", total) }</b>
 }
 -- invoke --
-C(CProps{Count: 5, Price: 9.5, Total: 12})
+C(5, 9.5, 12)
 -- diagnostics.golden --
 -- render.golden --
 <p>5 comments</p><span title="$9.50">$9.50</span><b>5/12</b>

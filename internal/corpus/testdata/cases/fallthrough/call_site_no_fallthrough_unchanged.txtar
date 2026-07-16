@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type CardProps struct {
-	Title string
-}
-
 //line input.gsx:3:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(title string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div>")
@@ -47,7 +42,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: "Hi"}))
+		_gsxgw.Node(ctx, Card("Hi"))
 		return _gsxgw.Err()
 	})
 }

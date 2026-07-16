@@ -8,7 +8,7 @@ component Row(id string) {
 	<p>{f`a-\@{lit}-@{id}`}</p>
 }
 -- invoke --
-Row(RowProps{Id: "a&b"})
+Row("a&b")
 -- diagnostics.golden --
 -- render.golden --
 <p>a-@{lit}-a&amp;b</p>
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type RowProps struct {
-	Id string
-}
-
 //line input.gsx:3:1
-func Row(_gsxp RowProps) _gsxrt.Node {
+func Row(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")

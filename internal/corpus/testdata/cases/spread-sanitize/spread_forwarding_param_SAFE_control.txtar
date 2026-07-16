@@ -10,7 +10,7 @@ component Link(bag gsx.Attrs) {
 	<a { bag... }>click</a>
 }
 -- invoke --
-Link(LinkProps{Bag: gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}}})
+Link(gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}})
 -- diagnostics.golden --
 -- render.golden --
 <a href="about:invalid#gsx">click</a>

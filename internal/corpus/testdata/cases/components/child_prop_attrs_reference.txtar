@@ -4,15 +4,17 @@
 -- input.gsx --
 package views
 
-component Child() {
+
+import "github.com/gsxhq/gsx"
+component Child(attrs gsx.Attrs) {
 	<div { attrs... }>child</div>
 }
 
-component Wrapper() {
+component Wrapper(attrs gsx.Attrs) {
 	<Child class={attrs.Class()}/>
 }
 -- invoke --
-Wrapper(WrapperProps{Attrs: gsx.Attrs{{Key: "class", Value: "forwarded"}}})
+Wrapper(gsx.Attrs{{Key: "class", Value: "forwarded"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="forwarded">child</div>
@@ -23,20 +25,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type ChildProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Child(_gsxp ChildProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Child(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
@@ -46,17 +44,12 @@ func Child(_gsxp ChildProps) _gsxrt.Node {
 	})
 }
 
-type WrapperProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:7:1
-func Wrapper(_gsxp WrapperProps) _gsxrt.Node {
+//line input.gsx:9:1
+func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Child(ChildProps{Attrs: _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(attrs.Class()))}}}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Child(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(attrs.Class()))}}))
 		return _gsxgw.Err()
 	})
 }

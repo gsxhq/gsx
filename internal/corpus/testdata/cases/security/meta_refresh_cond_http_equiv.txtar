@@ -6,7 +6,7 @@ component CondRefresh(legacy bool, to string) {
 }
 
 -- invoke --
-CondRefresh(CondRefreshProps{Legacy: true, To: "javascript:alert(1)"})
+CondRefresh(true, "javascript:alert(1)")
 
 -- render.golden --
 <meta http-equiv="refresh" content="0;url=about:invalid#gsx"/>

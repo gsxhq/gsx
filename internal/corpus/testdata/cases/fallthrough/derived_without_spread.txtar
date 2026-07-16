@@ -8,7 +8,9 @@
 -- input.gsx --
 package views
 
-component Panel(title string) {
+
+import "github.com/gsxhq/gsx"
+component Panel(title string, attrs gsx.Attrs) {
 	<section class="panel" data-role="box" { attrs.Without("data-skip")... }>{title}</section>
 }
 
@@ -25,22 +27,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type PanelProps struct {
-	Title string
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Panel(title string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxv0 := attrs.Without("data-skip")
 		_gsxgw.S("<section class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("panel"), _gsxrt.Class(_gsxv0.Class()))
@@ -51,19 +47,19 @@ func Panel(_gsxp PanelProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv0.Style())
 		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:4:75
+//line input.gsx:6:75
 		_gsxgw.Text(string(title))
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Title: "Hi", Attrs: _gsxrt.Attrs{{Key: "class", Value: "hl"}, {Key: "data-role", Value: "caller"}, {Key: "data-skip", Value: "x"}, {Key: "id", Value: "p1"}}}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Panel("Hi", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "hl"}}, _gsxrt.Attrs{{Key: "data-role", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-skip", Value: "x"}}, _gsxrt.Attrs{{Key: "id", Value: "p1"}})))
 		return _gsxgw.Err()
 	})
 }

@@ -9,10 +9,7 @@ component Field(sync gsx.Attrs, extra gsx.Attrs) {
 	<input type="hidden" name="n" class="base" { sync... } { extra... }/>
 }
 -- invoke --
-Field(FieldProps{
-	Sync:  gsx.Attrs{{Key: "data-a", Value: "1"}, {Key: "class", Value: "s"}},
-	Extra: gsx.Attrs{{Key: "data-a", Value: "2"}, {Key: "class", Value: "e"}},
-})
+Field(gsx.Attrs{{Key: "data-a", Value: "1"}, {Key: "class", Value: "s"}}, gsx.Attrs{{Key: "data-a", Value: "2"}, {Key: "class", Value: "e"}})
 -- diagnostics.golden --
 -- render.golden --
 <input class="base s e" type="hidden" name="n" data-a="2"/>
@@ -28,16 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type FieldProps struct {
-	Sync  gsx.Attrs
-	Extra gsx.Attrs
-}
-
 //line input.gsx:5:1
-func Field(_gsxp FieldProps) _gsxrt.Node {
+func Field(sync gsx.Attrs, extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		sync := _gsxp.Sync
-		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: _gsxrt.RawURL("hidden")}, {Key: "name", Value: _gsxrt.RawURL("n")}, {Key: "class", Value: _gsxrt.RawURL("base")}}, sync, extra)

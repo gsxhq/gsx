@@ -32,5 +32,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
+21:5: Y has no attrs param; unexpected attribute "class"
 -- render.golden --
-<svg class="c">y</svg>

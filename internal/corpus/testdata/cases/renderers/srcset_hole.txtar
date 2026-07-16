@@ -38,7 +38,7 @@ component Pic(val pg.Text) {
 	<img srcset={ val }/>
 }
 -- invoke --
-Pic(PicProps{Val: mkText("ok.jpg 1x, javascript:alert(1) 1.5x", true)})
+Pic(mkText("ok.jpg 1x, javascript:alert(1) 1.5x", true))
 -- diagnostics.golden --
 -- render.golden --
 <img srcset="ok.jpg 1x, about:invalid#gsx"/>
@@ -58,14 +58,9 @@ import (
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
-type PicProps struct {
-	Val pg.Text
-}
-
 //line input.gsx:7:1
-func Pic(_gsxp PicProps) _gsxrt.Node {
+func Pic(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		val := _gsxp.Val
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<img srcset=\"")

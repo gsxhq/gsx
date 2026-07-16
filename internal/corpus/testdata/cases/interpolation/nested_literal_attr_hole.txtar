@@ -9,7 +9,7 @@ component Page(who string) {
 	<p title=f`hi @{ f`name: @{who}` }!`>x</p>
 }
 -- invoke --
-Page(PageProps{Who: "Ada"})
+Page("Ada")
 -- diagnostics.golden --
 -- render.golden --
 <p title="hi name: Ada!">x</p>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Who string
-}
-
 //line input.gsx:3:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(who string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		who := _gsxp.Who
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p title=\"hi ")

@@ -21,4 +21,4 @@ component Page() {
 	<Chip>text</Chip>
 }
 -- diagnostics.golden --
-18:2: component values do not support children — declare a Children slot on a named-struct component instead
+18:2: Chip has no children param; component body cannot be passed

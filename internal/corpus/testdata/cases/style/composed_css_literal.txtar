@@ -5,7 +5,7 @@ component Box(hidden bool, color string) {
 	<div style={ "display:none": hidden, css`color:@{color};content:"\`"` }>x</div>
 }
 -- invoke --
-Box(BoxProps{Hidden: true, Color: "teal"})
+Box(true, "teal")
 -- render.golden --
 <div style="display:none; color:teal;content:&#34;`&#34;">x</div>
 -- diagnostics.golden --
@@ -20,16 +20,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	Hidden bool
-	Color  string
-}
-
 //line input.gsx:2:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(hidden bool, color string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		hidden := _gsxp.Hidden
-		color := _gsxp.Color
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:2
 		_gsxgw.S("<div style=\"")

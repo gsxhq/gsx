@@ -1,8 +1,5 @@
-# byo whole-struct splat { x... }: passes a prebuilt struct as the whole prop
-# value, bypassing field-build.
-#
-# Tag form:   <Card { d... }/>        → Card(d)
-# Method form: <p.Content { pd... }/> → p.Content(pd)
+# Prebuilt composite values pass through exact ordinary parameter names for both
+# top-level and method components.
 -- input.gsx --
 package views
 
@@ -21,7 +18,7 @@ component Card(d cardData) {
 }
 
 component Page(d pageData) {
-	<Card { cardData{Title: d.Heading}... }/>
+	<Card d={cardData{Title: d.Heading}}/>
 }
 
 component (p Home) Content(pd pageData) {
@@ -29,7 +26,7 @@ component (p Home) Content(pd pageData) {
 }
 
 component (p Home) Shell(pd pageData) {
-	<p.Content { pd... }/>
+	<p.Content pd={pd}/>
 }
 -- invoke --
 (Home{}).Shell(pageData{Heading: "Hi"})

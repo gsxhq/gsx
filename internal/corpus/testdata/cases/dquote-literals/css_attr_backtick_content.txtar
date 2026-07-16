@@ -9,7 +9,7 @@ component Box(c string) {
 	<div style=css"color: @{c}; content: `x`">hi</div>
 }
 -- invoke --
-Box(BoxProps{C: "red"})
+Box("red")
 -- diagnostics.golden --
 -- render.golden --
 <div style="color: red;content: `x`">hi</div>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	C string
-}
-
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(c string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		c := _gsxp.C
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div style=\"color: ")

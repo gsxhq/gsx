@@ -10,7 +10,7 @@ component Icon(svgB64 string) {
 	<img src=f`data:image/svg+xml;base64,@{svgB64}` alt="i" />
 }
 -- invoke --
-Icon(IconProps{SvgB64: "PHN2Zy8+"})
+Icon("PHN2Zy8+")
 -- diagnostics.golden --
 -- render.golden --
 <img src="data:image/svg+xml;base64,PHN2Zy8+" alt="i"/>

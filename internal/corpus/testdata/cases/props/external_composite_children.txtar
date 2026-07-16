@@ -1,29 +1,25 @@
-# COVERAGE: a BYO component whose sole param is a bare same-package struct
-# declared in a sibling .go file (CardProps), enumerated syntactically (no
-# type-load). CardProps has a `Children gsx.Node` field (routed from the tag's
-# children) and a plain Title field. Pins that the syntactic field enumeration
-# classifies Children as a gsx.Node field and Title as a plain attr.
+# A same-package composite parameter may be declared in a sibling Go file while
+# the component declares its body input separately.
 -- card.go --
 package views
 
-import "github.com/gsxhq/gsx"
-
 type CardProps struct {
-	Title    string
-	Children gsx.Node
+	Title string
 }
 -- input.gsx --
 package views
 
-component Card(p CardProps) {
+import "github.com/gsxhq/gsx"
+
+component Card(p CardProps, children gsx.Node) {
 	<section class="card">
 		<h2>{p.Title}</h2>
-		{p.Children}
+		{children}
 	</section>
 }
 
 component Page() {
-	<Card Title="Hello">
+	<Card p={CardProps{Title: "Hello"}}>
 		<p>body</p>
 	</Card>
 }
@@ -39,39 +35,40 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-//line input.gsx:3:1
-func Card(p CardProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Card(p CardProps, children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<section class=\"card\">")
-//line input.gsx:5:3
+//line input.gsx:7:3
 		_gsxgw.S("<h2>")
-//line input.gsx:5:7
+//line input.gsx:7:7
 		_gsxgw.Text(string(p.Title))
 		_gsxgw.S("</h2>")
-//line input.gsx:6:3
-		_gsxgw.Node(ctx, p.Children)
+//line input.gsx:8:3
+		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:10:1
+//line input.gsx:12:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: "Hello", Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+//line input.gsx:13:2
+		_gsxgw.Node(ctx, Card(CardProps{Title: "Hello"}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:3
+//line input.gsx:14:3
 			_gsxgw.S("<p>body</p>")
 			return _gsxgw.Err()
-		})}))
+		})))
 		return _gsxgw.Err()
 	})
 }

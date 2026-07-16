@@ -3,7 +3,7 @@ package views
 
 component Bad(u string) { <a href={u}>x</a> }
 -- invoke --
-Bad(BadProps{U: "javascript:alert(1)"})
+Bad("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
 <a href="about:invalid#gsx">x</a>

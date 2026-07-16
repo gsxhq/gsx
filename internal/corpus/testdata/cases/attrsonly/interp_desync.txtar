@@ -41,5 +41,6 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
+25:3: component-unnamed-fixed-param: parameter 0 has no markup-bindable name
+26:3: component-unnamed-fixed-param: parameter 0 has no markup-bindable name
 -- render.golden --
-<div><span>hi</span><svg class="hi">home</svg><svg class="hi">home</svg><b>7</b></div>

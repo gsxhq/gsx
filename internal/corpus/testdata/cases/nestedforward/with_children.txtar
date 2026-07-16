@@ -5,11 +5,13 @@
 -- input.gsx --
 package views
 
-component Panel() {
+
+import "github.com/gsxhq/gsx"
+component Panel(children gsx.Node, attrs gsx.Attrs) {
 	<section { attrs... }>{children}</section>
 }
 
-component Wrapper() {
+component Wrapper(attrs gsx.Attrs) {
 	<Panel { attrs... }>text child</Panel>
 }
 
@@ -28,59 +30,48 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type PanelProps struct {
-	Children _gsxrt.Node
-	Attrs    _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Panel(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		children := _gsxp.Children
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<section")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:4:24
+//line input.gsx:6:24
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})
 }
 
-type WrapperProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:7:1
-func Wrapper(_gsxp WrapperProps) _gsxrt.Node {
+//line input.gsx:9:1
+func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Panel(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("text child")
 			return _gsxgw.Err()
-		}), Attrs: _gsxrt.ConcatAttrs(attrs)}))
+		}), attrs))
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:11:1
+//line input.gsx:13:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.Node(ctx, Wrapper(WrapperProps{Attrs: _gsxrt.Attrs{{Key: "data-x", Value: "1"}}}))
+//line input.gsx:14:2
+		_gsxgw.Node(ctx, Wrapper(_gsxrt.Attrs{{Key: "data-x", Value: "1"}}))
 		return _gsxgw.Err()
 	})
 }

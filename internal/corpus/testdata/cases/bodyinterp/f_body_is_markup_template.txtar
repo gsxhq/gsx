@@ -9,7 +9,7 @@ component Host(x string) {
 	<div>{ f`<b>@{x}</b>` }</div>
 }
 -- invoke --
-Host(HostProps{X: "hi"})
+Host("hi")
 -- diagnostics.golden --
 -- render.golden --
 <div><b>hi</b></div>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type HostProps struct {
-	X string
-}
-
 //line input.gsx:2:1
-func Host(_gsxp HostProps) _gsxrt.Node {
+func Host(x string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		x := _gsxp.X
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:2
 		_gsxgw.S("<div>")

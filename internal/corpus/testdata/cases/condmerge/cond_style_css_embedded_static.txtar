@@ -7,12 +7,14 @@
 -- input.gsx --
 package views
 
-component Box(active bool) {
+
+import "github.com/gsxhq/gsx"
+component Box(active bool, attrs gsx.Attrs) {
 	<div style="color:red" { attrs... } { if active { style=css"margin:0" } }>x</div>
 }
 -- invoke --
 gsx.Fragment(
-	Box(BoxProps{Active: true, Attrs: gsx.Attrs{{Key: "style", Value: "padding:1px"}}}),
+	Box(true, gsx.Attrs{{Key: "style", Value: "padding:1px"}}),
 )
 -- diagnostics.golden --
 -- render.golden --

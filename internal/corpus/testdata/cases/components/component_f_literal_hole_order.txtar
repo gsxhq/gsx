@@ -32,7 +32,7 @@ func fallible(fail bool) (string, error) {
 func checkedComponentFLiteralOrder() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _ io.Writer) error {
 		calls = nil
-		if err := Page(PageProps{Fail: false}).Render(ctx, io.Discard); err != nil {
+		if err := Page(false).Render(ctx, io.Discard); err != nil {
 			return fmt.Errorf("successful render: %w", err)
 		}
 		if got := strings.Join(calls, ","); got != "first,second,third" {
@@ -40,7 +40,7 @@ func checkedComponentFLiteralOrder() gsx.Node {
 		}
 
 		calls = nil
-		err := Page(PageProps{Fail: true}).Render(ctx, io.Discard)
+		err := Page(true).Render(ctx, io.Discard)
 		if !errors.Is(err, sentinel) {
 			return fmt.Errorf("failed render error = %v, want component f-literal sentinel", err)
 		}
@@ -73,14 +73,9 @@ import (
 	_gsxio "io"
 )
 
-type LabelProps struct {
-	Text string
-}
-
 //line input.gsx:3:1
-func Label(_gsxp LabelProps) _gsxrt.Node {
+func Label(text string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		text := _gsxp.Text
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span>")
@@ -91,14 +86,9 @@ func Label(_gsxp LabelProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	Fail bool
-}
-
 //line input.gsx:7:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		fail := _gsxp.Fail
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxv1 := string(value("first"))
@@ -108,7 +98,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		}
 		_gsxv2 := string(_gsxv0)
 		_gsxv3 := string(value("third"))
-		_gsxgw.Node(ctx, Label(LabelProps{Text: _gsxv1 + " " + _gsxv2 + " " + _gsxv3}))
+		_gsxgw.Node(ctx, Label(_gsxv1+" "+_gsxv2+" "+_gsxv3))
 		return _gsxgw.Err()
 	})
 }

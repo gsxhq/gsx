@@ -33,7 +33,7 @@ component Page(v pg.Timestamptz) {
 	<article>{v}</article>
 }
 -- invoke --
-views.Page(views.PageProps{V: views.Sample("14 Jul 2026")})
+views.Page(views.Sample("14 Jul 2026"))
 -- diagnostics.golden --
 -- render.golden --
 <article><time>14 Jul 2026</time></article>
@@ -63,14 +63,9 @@ func Timestamptz(v pg.Timestamptz) gsx.Node {
 	})
 }
 
-type OwnerPreviewProps struct {
-	V pg.Timestamptz
-}
-
 //line renderers.gsx:12:1
-func OwnerPreview(_gsxp OwnerPreviewProps) _gsxrt.Node {
+func OwnerPreview(v pg.Timestamptz) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
 		_gsxgw := _gsxrt.W(_gsxw)
 //line renderers.gsx:13:2
 		_gsxgw.S("<div>")
@@ -95,14 +90,9 @@ import (
 
 func Sample(label string) pg.Timestamptz { return pg.Timestamptz{Label: label} }
 
-type PageProps struct {
-	V pg.Timestamptz
-}
-
 //line input.gsx:7:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(v pg.Timestamptz) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<article>")

@@ -10,4 +10,4 @@ component Page() {
 	<Multi data-x="1"/>
 }
 -- diagnostics.golden --
-9:2: no-argument component Multi accepts no attributes or children
+9:9: Multi has no attrs param; unexpected attribute "data-x"

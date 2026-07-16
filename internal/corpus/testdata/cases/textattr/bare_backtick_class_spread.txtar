@@ -7,11 +7,13 @@
 -- input.gsx --
 package views
 
-component Badge() {
+
+import "github.com/gsxhq/gsx"
+component Badge(attrs gsx.Attrs) {
 	<span class=`badge @{lit}` { attrs... }>Hi</span>
 }
 -- invoke --
-Badge(BadgeProps{Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}}})
+Badge(gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}})
 -- diagnostics.golden --
 -- render.golden --
 <span class="badge @{lit} hl" id="a">Hi</span>

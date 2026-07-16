@@ -16,7 +16,7 @@ component Box(color string) {
 	<div style={ mk(color) }>x</div>
 }
 -- invoke --
-Box(BoxProps{Color: "red;background:url(javascript:alert(1))"})
+Box("red;background:url(javascript:alert(1))")
 -- diagnostics.golden --
 -- render.golden --
 <div style="color:ZgotmplZ">x</div>
@@ -36,14 +36,9 @@ func mk(color string) gsx.RawCSS {
 	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(color)))
 }
 
-type BoxProps struct {
-	Color string
-}
-
 //line input.gsx:9:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(color string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		color := _gsxp.Color
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<div style=\"")

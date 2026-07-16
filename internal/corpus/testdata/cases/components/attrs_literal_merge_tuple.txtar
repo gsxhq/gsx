@@ -55,8 +55,7 @@ func Page() _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := _gsxrt.Attrs{{Key: "data-b", Value: _gsxv0}}
-		_gsxgw.Node(ctx, Panel(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxv1)))
+		_gsxgw.Node(ctx, Panel(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxv0}})))
 		return _gsxgw.Err()
 	})
 }

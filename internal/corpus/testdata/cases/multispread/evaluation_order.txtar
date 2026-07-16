@@ -15,14 +15,14 @@ import (
 func checkedPage() gsx.Node {
 	return gsx.Func(func(ctx context.Context, w io.Writer) error {
 		calls = nil
-		if err := Page(PageProps{On: true}).Render(ctx, w); err != nil {
+		if err := Page(true).Render(ctx, w); err != nil {
 			return err
 		}
 		if got := strings.Join(calls, ","); got != "a,b,c" {
 			return fmt.Errorf("taken evaluation order = %s, want a,b,c", got)
 		}
 		calls = nil
-		if err := Page(PageProps{On: false}).Render(ctx, io.Discard); err != nil {
+		if err := Page(false).Render(ctx, io.Discard); err != nil {
 			return err
 		}
 		if got := strings.Join(calls, ","); got != "a,c" {

@@ -45,7 +45,7 @@ func A() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line a.gsx:3:17
-		_gsxgw.Node(ctx, Box[int](BoxProps[int]{Value: 1}))
+		_gsxgw.Node(ctx, Box[int](1))
 		return _gsxgw.Err()
 	})
 }
@@ -64,7 +64,7 @@ func B() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line b.gsx:3:17
-		_gsxgw.Node(ctx, Box[string](BoxProps[string]{Value: "hi"}))
+		_gsxgw.Node(ctx, Box[string]("hi"))
 		return _gsxgw.Err()
 	})
 }
@@ -78,14 +78,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps[T string | int] struct {
-	Value T
-}
-
 //line box.gsx:3:1
-func Box[T string | int](_gsxp BoxProps[T]) _gsxrt.Node {
+func Box[T string | int](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		value := _gsxp.Value
 		_gsxgw := _gsxrt.W(_gsxw)
 //line box.gsx:3:42
 		_gsxgw.S("<span>")

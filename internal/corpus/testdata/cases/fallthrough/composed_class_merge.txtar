@@ -1,11 +1,13 @@
 -- input.gsx --
 package views
 
-component Box(variant string) {
+
+import "github.com/gsxhq/gsx"
+component Box(variant string, children gsx.Node, attrs gsx.Attrs) {
 	<div class={ "box", variant } { attrs... }>{children}</div>
 }
 -- invoke --
-Box(BoxProps{Variant: "big", Attrs: gsx.Attrs{{Key: "class", Value: "w-full"}, {Key: "data-test", Value: "x"}}})
+Box("big", nil, gsx.Attrs{{Key: "class", Value: "w-full"}, {Key: "data-test", Value: "x"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="box big w-full" data-test="x"></div>

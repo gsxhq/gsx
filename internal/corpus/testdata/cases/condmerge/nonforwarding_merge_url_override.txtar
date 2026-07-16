@@ -5,7 +5,9 @@
 -- input.gsx --
 package views
 
-component Link() { <a { attrs... }>component</a> }
+
+import "github.com/gsxhq/gsx"
+component Link(attrs gsx.Attrs) { <a { attrs... }>component</a> }
 
 component Cases(dangerous string, on bool) {
 	<a href="javascript:static-first()" href={ dangerous } class="base" { if on { class="on" } }>dynamic-wins</a>
@@ -23,8 +25,8 @@ component Cases(dangerous string, on bool) {
 prefix = "data-url-"
 -- invoke --
 gsx.Fragment(
-	Cases(CasesProps{Dangerous: "javascript:dynamic()", On: true}),
-	Cases(CasesProps{Dangerous: "javascript:dynamic()", On: false}),
+	Cases("javascript:dynamic()", true),
+	Cases("javascript:dynamic()", false),
 )
 -- diagnostics.golden --
 -- render.golden --
@@ -36,20 +38,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Link(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:3:20
+//line input.gsx:5:35
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
@@ -59,18 +57,11 @@ func Link(_gsxp LinkProps) _gsxrt.Node {
 	})
 }
 
-type CasesProps struct {
-	Dangerous string
-	On        bool
-}
-
-//line input.gsx:5:1
-func Cases(_gsxp CasesProps) _gsxrt.Node {
+//line input.gsx:7:1
+func Cases(dangerous string, on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		dangerous := _gsxp.Dangerous
-		on := _gsxp.On
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
+//line input.gsx:8:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:static-first()")}, {Key: "href", Value: dangerous}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -84,7 +75,7 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv2.Style())
 		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S(">dynamic-wins</a>")
-//line input.gsx:7:2
+//line input.gsx:9:2
 		_gsxv3 := _gsxrt.Attrs{{Key: "href", Value: dangerous}, {Key: "href", Value: _gsxrt.RawURL("javascript:static-last()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv4, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -98,7 +89,7 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv5.Style())
 		_gsxgw.Spread(ctx, _gsxv5, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S(">static-wins</a>")
-//line input.gsx:8:2
+//line input.gsx:10:2
 		_gsxv6 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:first()")}, {Key: "href", Value: _gsxrt.RawURL("javascript:second()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv7, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -112,7 +103,7 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv8.Style())
 		_gsxgw.Spread(ctx, _gsxv8, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S(">two-statics</a>")
-//line input.gsx:9:2
+//line input.gsx:11:2
 		_gsxv9 := _gsxrt.Attrs{{Key: "href", Value: dangerous}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv10, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:conditional()")}, {Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -126,7 +117,7 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv11.Style())
 		_gsxgw.Spread(ctx, _gsxv11, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S(">conditional</a>")
-//line input.gsx:10:2
+//line input.gsx:12:2
 		_gsxv12 := _gsxrt.Attrs{{Key: "src", Value: _gsxrt.RawURL("data:image/png;base64,AA")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv13, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -140,7 +131,7 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv14.Style())
 		_gsxgw.Spread(ctx, _gsxv14, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S("/>")
-//line input.gsx:11:2
+//line input.gsx:13:2
 		_gsxv15 := _gsxrt.Attrs{{Key: "srcset", Value: _gsxrt.RawURL("javascript:one 1x, javascript:two 2x")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv16, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -154,7 +145,7 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv17.Style())
 		_gsxgw.Spread(ctx, _gsxv17, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S("/>")
-//line input.gsx:12:2
+//line input.gsx:14:2
 		_gsxv18 := _gsxrt.Attrs{{Key: "data-url-go", Value: _gsxrt.RawURL("javascript:custom()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv19, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -168,7 +159,7 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv20.Style())
 		_gsxgw.Spread(ctx, _gsxv20, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S(">prefix</div>")
-//line input.gsx:13:2
+//line input.gsx:15:2
 		_gsxv21 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:void(0)?a=1&amp;b=&#34;x&#34;")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv22, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
@@ -182,14 +173,14 @@ func Cases(_gsxp CasesProps) _gsxrt.Node {
 		_gsxgw.StyleMerged("", _gsxv23.Style())
 		_gsxgw.Spread(ctx, _gsxv23, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
 		_gsxgw.S(">html</a>")
-//line input.gsx:14:2
+//line input.gsx:16:2
 		_gsxv24, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "href", Value: "javascript:component()"}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Link(LinkProps{Attrs: _gsxrt.ConcatAttrs(_gsxv24)}))
+		_gsxgw.Node(ctx, Link(_gsxv24))
 		return _gsxgw.Err()
 	})
 }

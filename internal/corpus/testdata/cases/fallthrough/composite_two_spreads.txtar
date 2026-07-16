@@ -1,5 +1,5 @@
-# Two byo declared-bag spreads on one element fold by source order exactly like
-# the generated `attrs` bag: { p.A... } then { p.B... }, so B wins a colliding
+# Two ordinary bag fields on a composite parameter spread by source order:
+# { p.A... } then { p.B... }, so B wins a colliding
 # key (data-n) while disjoint keys (id from A) survive.
 -- input.gsx --
 package views

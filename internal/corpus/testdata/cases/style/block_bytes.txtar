@@ -5,7 +5,7 @@ component C(raw []byte) {
 	<style>.a{color:@{ raw }}</style>
 }
 -- invoke --
-C(CProps{Raw: []byte("blue")})
+C([]byte("blue"))
 -- render.golden --
 <style>.a{color:blue}</style>
 -- diagnostics.golden --
@@ -20,14 +20,9 @@ import (
 	_gsxio "io"
 )
 
-type CProps struct {
-	Raw []byte
-}
-
 //line input.gsx:3:1
-func C(_gsxp CProps) _gsxrt.Node {
+func C(raw []byte) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		raw := _gsxp.Raw
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<style")

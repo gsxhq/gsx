@@ -6,7 +6,7 @@ component Card(userColor string) {
 	<style>.card{color:@{ userColor |> upper }}</style>
 }
 -- invoke --
-Card(CardProps{UserColor: "red"})
+Card("red")
 -- diagnostics.golden --
 -- render.golden --
 <style>.card{color:RED}</style>
@@ -22,14 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type CardProps struct {
-	UserColor string
-}
-
 //line input.gsx:3:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(userColor string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		userColor := _gsxp.UserColor
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<style")

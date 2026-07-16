@@ -10,4 +10,4 @@ component Card(title string) { <div>{title}</div> }
 
 component Page() { <Card title={numErr()}/> }
 -- diagnostics.golden --
-7:46: cannot use numErr() (value of type int) as string value in struct literal
+7:20: attribute "title" cannot be passed to string: zero.go:2:18: cannot use _gsxvalue (variable of type int) as _gsxwant value in variable declaration
