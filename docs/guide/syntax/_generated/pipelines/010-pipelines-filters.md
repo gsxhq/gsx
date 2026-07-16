@@ -14,4 +14,4 @@ Renders:
 <p>ADA</p>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSGkobmFtZSBzdHJpbmcpIHtcblx0XHUwMDNjcFx1MDAzZXsgbmFtZSB8XHUwMDNlIHRyaW0gfFx1MDAzZSB1cHBlciB9XHUwMDNjL3BcdTAwM2Vcbn1cbiIsImkiOiJIaShIaVByb3Bze05hbWU6IFwiICBhZGEgIFwifSkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSGkobmFtZSBzdHJpbmcpIHtcblx0XHUwMDNjcFx1MDAzZXsgbmFtZSB8XHUwMDNlIHRyaW0gfFx1MDAzZSB1cHBlciB9XHUwMDNjL3BcdTAwM2Vcbn1cbiIsImkiOiJIaShcIiAgYWRhICBcIikifQ==)
