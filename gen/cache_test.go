@@ -32,6 +32,10 @@ if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
 	printf '{"GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"go1.26.1"}' "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_HOST_OS" "$GSX_FAKE_GOROOT"
 	exit 0
 fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ] && [ -n "$GSX_CREATE_VENDOR_DURING_FINGERPRINT_MARKER" ]; then
+	/bin/mkdir -p "$GSX_CREATE_VENDOR_DIR"
+	: > "$GSX_CREATE_VENDOR_DURING_FINGERPRINT_MARKER"
+fi
 if [ "$1" = "env" ]; then
 	exec "$REAL_GO" "$@"
 fi
@@ -99,6 +103,51 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 	if len(res.Written) != 1 || filepath.Base(filepath.Dir(res.Written[0])) != "v" {
 		t.Fatalf("edit v: want only v written, got %v", res.Written)
+	}
+}
+
+func TestCacheFingerprintProvenanceFailureDoesNotFallBackToGeneration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/fingerprint-boundary\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("GSXCACHE", t.TempDir())
+	marker := filepath.Join(t.TempDir(), "created-vendor")
+	t.Setenv("GSX_CREATE_VENDOR_DURING_FINGERPRINT_MARKER", marker)
+	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
+
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
+		t.Fatalf("generate error = %v, want fingerprint provenance failure", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("fingerprint command did not create vendor directory: %v", err)
+	}
+	if len(res.Written) != 0 {
+		t.Fatalf("fingerprint provenance failure wrote files through fallback: %v", res.Written)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "view.x.go")); !os.IsNotExist(err) {
+		t.Fatalf("fingerprint provenance failure generated output through fallback; stat error = %v", err)
 	}
 }
 
