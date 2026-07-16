@@ -620,9 +620,12 @@ attrs-specific message. `func(extra ...gsx.Attr) gsx.Node` has a named parameter
 and is therefore a valid component signature, but `extra` does not acquire the
 reserved role: it is an ordinary non-reserved variadic, so markup cannot bind it
 and may only omit it under the universal ordinary-variadic rule. Likewise,
-`func(a myAttrs) gsx.Node` is valid and `a` is an ordinary exact-name prop, so
-`<Badge a={{ "role": "status" }}/>` binds it normally. `someAttrs={{...}}` has
-the same ordinary-prop meaning and can be forwarded to any chosen descendants.
+`func(a myAttrs) gsx.Node` is valid and `a` is an ordinary exact-name prop. It
+obeys normal Go assignment: if `myAttrs` is a distinct defined type, the caller
+passes a typed expression such as `a={myAttrs{...}}`; gsx does not retain the
+old attrs-only implicit conversion. `someAttrs={{...}}` binds normally when the
+ordinary parameter is `someAttrs gsx.Attrs`, because `{{...}}` produces exactly
+`gsx.Attrs`, and the component can forward that bag to any chosen descendants.
 
 The attrs-specific diagnostic is emitted only while binding an authored
 fallthrough input: an unmatched attribute, spread, conditional bag, or explicit
