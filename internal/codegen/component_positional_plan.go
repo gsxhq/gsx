@@ -34,6 +34,7 @@ type componentPositionalPackagePlan struct {
 }
 
 type componentPositionalSitePlan struct {
+	runtime         runtimeContract
 	call            componentCallPlan
 	target          componentTargetFact
 	instance        types.Instance
@@ -182,6 +183,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 		materialization := planComponentMaterialization(call, siteFacts)
 		materialization = forceStatementMaterialization(materialization, authoredValues)
 		result.sites[record.id] = componentPositionalSitePlan{
+			runtime:         input.runtime,
 			call:            call,
 			target:          fact,
 			instance:        instance,
