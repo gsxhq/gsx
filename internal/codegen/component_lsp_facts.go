@@ -175,12 +175,28 @@ func componentParamBlockedNames(declaration *goast.FuncDecl, ordinal int, info *
 			}
 		}
 		if object := info.Uses[identifier]; object != nil && object != target && object.Name() != "" && object.Name() != "_" {
-			if scopeAncestorOf(object.Parent(), targetScope) {
+			// A parameter shadows every unqualified object resolved outside its
+			// function scope. That includes ordinary package/file/universe objects
+			// and dot-imported objects, whose declaration scope belongs to the
+			// imported package rather than appearing in this scope's ancestor chain.
+			if !scopeAncestorOf(targetScope, object.Parent()) {
 				blocked[object.Name()] = true
 			}
 		}
 		return true
 	})
+	for node, object := range info.Implicits {
+		if node == nil || node.Pos() < declaration.Body.Pos() || node.End() > declaration.Body.End() ||
+			object == nil || object.Name() == "" || object.Name() == "_" {
+			continue
+		}
+		// go/types publishes type-switch case variables through Implicits, not
+		// Defs. A target reference in that case scope would silently rebind to the
+		// case variable after a same-name parameter rename.
+		if object.Parent() == targetScope || scopeContainsAny(object.Parent(), targetUses) {
+			blocked[object.Name()] = true
+		}
+	}
 	names := make([]string, 0, len(blocked))
 	for name := range blocked {
 		names = append(names, name)

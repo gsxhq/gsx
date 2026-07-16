@@ -197,6 +197,14 @@ func TestLSPRenameComponentParameterRejectsSemanticNamespaceCollisions(t *testin
 			requestRel: "card_a.gsx", needle: "value string", newName: "strings",
 		},
 		{
+			name: "dot imported object used by equivalent variant body",
+			files: map[string]string{
+				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ncomponent Card(value string) { <i>{value}</i> }\n",
+				"card_b.gsx": "//go:build never\n\npackage unsafe\n\nimport . \"strings\"\n\ncomponent Card(value string) { <b>{ToUpper(value)}</b> }\n",
+			},
+			requestRel: "card_a.gsx", needle: "value string", newName: "ToUpper",
+		},
+		{
 			name: "receiver in equivalent method variant",
 			files: map[string]string{
 				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ntype Panel struct{}\n\ncomponent (p Panel) Card(value string) { <i>{value}</i> }\n",
@@ -209,6 +217,14 @@ func TestLSPRenameComponentParameterRejectsSemanticNamespaceCollisions(t *testin
 			files: map[string]string{
 				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ncomponent Card(value string) { <i>{value}</i> }\n",
 				"card_b.gsx": "//go:build never\n\npackage unsafe\n\ncomponent Card(value string) { {{ label := \"local\" }}<b>{value}{label}</b> }\n",
+			},
+			requestRel: "card_a.gsx", needle: "value string", newName: "label",
+		},
+		{
+			name: "type switch implicit case variable in equivalent variant",
+			files: map[string]string{
+				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ncomponent Card(value string) { <i>{value}</i> }\n",
+				"card_b.gsx": "//go:build never\n\npackage unsafe\n\ncomponent Card(value string) { <b>{func() string { switch label := any(value).(type) { case string: _ = label; return value; default: return \"\" } }()}</b> }\n",
 			},
 			requestRel: "card_a.gsx", needle: "value string", newName: "label",
 		},
