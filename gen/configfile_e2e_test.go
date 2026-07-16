@@ -88,7 +88,7 @@ var _ = gsx.Raw
 
 func main() {
 	ctx := mf.WithGreeting(context.Background(), "hi")
-	_ = p.C(p.CProps{S: "v"}).Render(ctx, os.Stdout)
+	_ = p.C("v").Render(ctx, os.Stdout)
 }
 `)
 	cmd := exec.Command("go", "run", ".")
@@ -286,7 +286,7 @@ func TestGenClassMergerE2E(t *testing.T) {
 
 	// Component with an explicit attrs spread that triggers a class merge site.
 	mkfile(t, filepath.Join(tmp, "views", "card.gsx"),
-		"package views\n\ncomponent Card() {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
+		"package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(attrs gsx.Attrs, children gsx.Node) {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
 
 	// Run stock generation (reads gsx.toml automatically).
 	var out, errb bytes.Buffer
