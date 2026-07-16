@@ -4,7 +4,7 @@
 
 **Goal:** Emit every component with exactly its authored Go parameter list and lower markup calls positionally, with declared `children`/`attrs` roles, exact-name props, source-ordered attrs composition, and no generated Props ABI.
 
-**Architecture:** First establish ordered declaration facts, a type-driven signature model, stable per-element target facts, and pure call planners while the shipping path is unchanged. Then replace declaration and call emission together in one rollback-sized atomic cutover; the two in-memory `go/types` phases share one preprocessed AST and the existing importer, and generated source contains only the authored function/method plus local evaluation temporaries.
+**Architecture:** First establish ordered declaration facts, a type-driven signature model, stable per-element target facts, and pure call planners while the shipping path is unchanged. Then replace declaration and call emission through small, contained, reviewable commits on a deliberately non-mergeable feature branch. Intermediate commits may leave the branch red, but production code never gains a compatibility mode or a mixed runtime ABI; the completed branch has one verbatim declaration/call convention. The two in-memory `go/types` phases share one preprocessed AST and the existing importer, and generated source contains only the authored function/method plus local evaluation temporaries.
 
 **Tech Stack:** Go 1.26.1, `go/ast`, `go/parser`, `go/printer`, `go/token`, `go/types`, the existing warm module importer, GSX AST/parser/emitter, txtar semantic corpus, fmt corpus, gopls, VitePress.
 
@@ -13,7 +13,10 @@
 - Read `docs/superpowers/specs/2026-07-14-verbatim-component-signatures-design.md` before each task; it is the semantic source of truth.
 - The emitted component parameter list is exactly the authored list. Emit no Props type, wrapper, adapter, ABI sentinel, or helper declaration.
 - Local temporaries are allowed only to preserve Go evaluation semantics or lower an inline zero; every authored expression evaluates exactly once.
-- This is one atomic source/generated/manual-caller migration. Do not ship a dual-mode compatibility path.
+- The source/generated/manual-caller migration may use small intermediate commits
+  for reviewability. The branch remains non-mergeable until the whole repository
+  and real consumer migration are green. Do not add or ship a dual-mode
+  compatibility path.
 - The core branch is non-mergeable and non-releasable until Task 11's mandatory
   structpages and one-learning consumer branches pass against the exact core
   commit; use the cross-repository release transaction there, never a
@@ -49,7 +52,7 @@
 - Create `internal/codegen/component_target.go`: stable call-site IDs, target-discovery registry, provenance classification, and harvested per-element facts.
 - Create `internal/codegen/component_call_plan.go`: pure exact-name/input-role routing and signature-ordered argument planning.
 - Create `internal/codegen/component_zero.go`: semantically validated zero candidates, type spelling, authored-operands inference result, and instantiated-signature handling.
-- Create `internal/codegen/component_signature_test.go`, `component_target_test.go`, `component_call_plan_test.go`, and `component_zero_test.go`: focused unit tests before the atomic emitter cutover.
+- Create `internal/codegen/component_signature_test.go`, `component_target_test.go`, `component_call_plan_test.go`, and `component_zero_test.go`: focused unit tests before the emitter cutover.
 - Modify `internal/codegen/analyze.go`, `module_importer.go`, `module.go`, and `results.go`: shared AST preprocessing, two analysis phases, project-local source importer bridge, retained facts, caches, and diagnostics.
 - Modify `internal/codegen/emit.go`: verbatim declarations, positional calls, declared children/attrs bindings, and source-ordered value materialization.
 - Delete `internal/codegen/byo.go`, `attrsonly.go`, `freeuse.go`, and `fieldmatch.go` after their sound behavior is represented by the universal model. Keep `reserved_scan.go` for `_gsx...`; reduce `reserved_bindings.go` to the still-ambient `ctx` rule.
@@ -735,6 +738,28 @@ active compiled-Go syntax above; persistent cache metadata consumes an immutable
 cache projection of the same manifest. Neither consumer independently walks GSX
 imports or runs a plain un-overlaid `go list` approximation.
 
+**Reopened correctness gate (2026-07-16).** The first implementation passed its
+ordinary suites but failed adversarial lifecycle probes. Task 6 is not complete
+until permanent tests and production fixes prove all of these together:
+
+- persistent cache graph selection, keying, hit restore, and miss generation
+  consume one authoritative compiled-Go membership/byte universe, including
+  concurrent add/remove/rename/write and ABA; double hashing, mtimes, and a
+  deletion-incomplete overlay are not acceptable;
+- watch startup reconciles current disk with the exact immutable snapshot used
+  by initial generation, so `old -> intermediate -> old` cannot leave
+  intermediate output behind;
+- initial and steady-state operational failures retain both the complete dirty
+  closure and any already-observed written/removed effect provenance until a
+  successful transaction commits; `dev` never builds or starts from an
+  operationally failed startup;
+- fsnotify overflow performs a full authoritative reconciliation, a closed or
+  fatal watcher terminates, and explicitly requested roots remain observable
+  across deletion/recreation even when their basename is normally excluded;
+- failed LSP root resolution or module opening first retires the prior override
+  owner and returns its affected closure; a prior clear error does not preserve
+  stale ownership or prevent a valid new override from becoming authoritative.
+
 - [ ] **Step 1: Add failing `gsx -> Go-only -> gsx` and signature-invalidation tests**
 
 Create a temp graph where `page.gsx` imports project `bridge` Go source, `bridge` imports `ui`, and `ui/card.gsx` has a poisoned stale `card.x.go`. Give `bridge` mutually exclusive build-tag variants and put the stale-ABI reference only in the inactive variant. Before Task 8, assert bridge checking uses the current in-memory Props declaration rather than poisoned disk; the Task 7 ledger marks this fixture for conversion to the verbatim signature during cutover. Rename only a `ui.Card` parameter and assert importer/page facts invalidate through `bridge`, with `externalLoads()==1`.
@@ -980,7 +1005,7 @@ git add internal/codegen/verbatim_migration_inventory_test.go docs/superpowers/p
 git commit -m "test(codegen): inventory verbatim signature cutover"
 ```
 
-### Task 8: Atomic Verbatim ABI Cutover, Complete Semantics, and Executable-Consumer Migration
+### Task 8: Verbatim ABI Cutover, Complete Semantics, and Executable-Consumer Migration
 
 **Files:**
 - Modify: `internal/codegen/analyze.go`, `emit.go`, `module_importer.go`, `component_target.go`, `component_signature.go`, `component_call_plan.go`, `component_zero.go`
@@ -997,9 +1022,9 @@ git commit -m "test(codegen): inventory verbatim signature cutover"
 - Modify: `playground/server/**`
 - Regenerate: `docs/guide/examples.md`, `docs/examples.json`, `playground/server/examples.json`, `docs/guide/syntax/_generated/**`
 
-**Interfaces:** Consumes the complete Task 1-6 facts/planners/importer and produces exactly one shipping ABI and call convention. Treat this as one coordinated rollback unit with one final task review and one commit; scoped subagents may own tests, source migration, or a named subsystem, but no subagent creates an intermediate ABI commit. Do not checkpoint a partial declaration-only or core-only cutover: the existing corpus already exercises children, attrs, and generics, and `TestCorpus` also runs shipped examples. The working tree may be temporarily red during this task; no commit may exist between ABIs. Task 6 already guarantees that normal resolution uses current in-memory declarations and Bundle rejects unsupported transitive project-local chains, so no stale-ABI window opens at this commit.
+**Interfaces:** Consumes the complete Task 1-6 facts/planners/importer and produces exactly one shipping ABI and call convention. Use small, contained, reviewable commits while the feature branch remains explicitly non-mergeable. A commit may leave the branch red when its scope and expected failures are recorded, but it must not introduce a production compatibility mode, a second ABI, an adapter, or a dormant fallback. Declaration emission, target facts, positional lowering, obsolete-path deletion, and consumer migration may therefore be reviewed separately; the completed branch must expose only the verbatim ABI and pass every gate. Task 6 guarantees that normal resolution uses current in-memory declarations and Bundle rejects unsupported transitive project-local chains, so the final cutover has no stale-ABI window.
 
-The playground migration is part of this same atomic unit. Pin the archive and
+The playground migration is a required contained slice before the branch becomes mergeable. Pin the archive and
 server to `gc/linux/amd64`, `CGO_ENABLED=0`, and the repo toolchain/language
 contract. Build both browser and server codegen from the same embedded rootless
 bundle resolver and pass complete in-memory GSX source sets; never construct the
@@ -1015,7 +1040,7 @@ server result/cache key includes both IDs, and any mismatch returns HTTP 409 wit
 a structured reload handshake echoing the server IDs. A regenerated archive must
 never ship against the old server language/target contract.
 
-- [ ] **Step 1: Establish the last green pre-cutover baseline**
+- [x] **Step 1: Establish the last green pre-cutover baseline**
 
 Run:
 
@@ -1028,7 +1053,7 @@ make ci-tailwind-example
 
 Expected: PASS. Preserve the output in the task report.
 
-- [ ] **Step 2: Add the two core failing corpus cases**
+- [x] **Step 2: Add the two core failing corpus cases**
 
 `core_positional.txtar` combines reversed authored/signature order, an untyped `min(1, 2)` into a defined numeric parameter, and a `(string,error)` prop; its render output records authored evaluation order. `direct_go_signature.txtar` contains:
 
@@ -1040,7 +1065,7 @@ var _ func(History) gsx.Node = Page
 
 Its `-- invoke --` is `Page(History{Label: "ok"})`, and its generated golden contains neither `PageProps` nor an analysis helper declaration.
 
-- [ ] **Step 3: Add the five complete semantic matrices before implementation**
+- [x] **Step 3: Add the five complete semantic matrices before implementation**
 
 Pin scalar children with an empty body producing `nil`, scalar/variadic non-empty children, static-node counts, body rejection, node-valued markup props, all attrs target/contributor shapes and exact element identity (including instantiated defined-slice targets), repeated explicit attrs in authored order, ordinary named bags, ordinary exact capitalized `Attrs`/`Children` parameters plus undeclared capitalized names following normal unmatched behavior, exact class/style forms, named/blank/unnamed ordinary variadic omission and fill rejection, generic inference failures, opaque cross-package zeros, free funcs/func vars/named func types/bound methods, and every rejected dynamic origin.
 
@@ -1089,7 +1114,7 @@ go test ./internal/corpus -run 'TestCorpus/verbatim/(core_positional|direct_go_s
 
 Expected: PASS. Inspect generated goldens for authored expression order, contextual untyped values, tuple unwrap, exact direct function types, source-ordered attrs, and absence of Props/helper declarations. If any row requires emitted helper machinery, guessed zeros, or a second call convention, stop and discuss.
 
-- [ ] **Step 7: Apply the reviewed ledger manually inside the same rollback unit**
+- [ ] **Step 7: Apply the reviewed ledger manually**
 
 Work row by row through the Task 7 ledger at the real source container. Edit named txtar sections, normal `.gsx` files, Go call sites, and exact construction sites of literal or dynamic test fixtures—including Task 6's Go-only bridge fixture. Declare reserved roles and convert manual Props calls to positional/direct options values. Replace **every** component struct splat; its reviewed choice selects only the replacement form (a whole-value named prop, individual ordinary params, or another explicit non-splat source shape), never retention. Replace `250-byo-props`, `251-props-heuristic`, and `252-splat` with verbatim/direct-options concepts here. Do not edit generated `.x.go`, golden sections, coverage manifests, or JSON by hand.
 
@@ -1151,12 +1176,15 @@ git diff --check
 
 Run `gopls check -severity=hint` on every changed non-generated Go source file. Expected: every command is clean. All executable repository consumers use the new ABI, and the old ABI no longer exists. Documentation prose may still describe the old model until Task 10, but no compiled source, generated artifact, example, scaffold, or playground surface does.
 
-- [ ] **Step 12: Commit the single atomic rollback unit**
+- [ ] **Step 12: Commit contained slices and finish with one green cutover**
 
 ```bash
-git add -A internal gen cmd playground examples docs/examples.json docs/guide/examples.md docs/guide/syntax/_generated docs/superpowers/plans/2026-07-14-verbatim-component-signatures-migration-manifest.json docs/ROADMAP.md
-git commit -m "feat(codegen): cut over to verbatim component signatures"
+git status --short
+git log --oneline <pre-task-8>..HEAD
+make ci
 ```
+
+Expected: each commit has a coherent reviewed purpose and no compatibility machinery; the final state is green, all executable consumers use the new ABI, and the branch is now eligible for the remaining cross-repository gates.
 
 ### Task 9: LSP Exact Navigation, Hover, and Semantic Parameter Rename
 
@@ -1216,9 +1244,9 @@ git commit -m "feat(lsp): navigate and rename exact component parameters"
 
 Pin `component Card(title string, attrs gsx.Attrs, children gsx.Node)` and `component Tabs(children ...gsx.Node)` formatting.
 
-- [ ] **Step 2: Verify the atomic source migration and add docs-led examples only if needed**
+- [ ] **Step 2: Verify the completed source migration and add docs-led examples only if needed**
 
-Task 8 already migrated every compiled example, scaffold, playground consumer, and generated artifact in the atomic rollback unit, including replacement of `250-byo-props`, `251-props-heuristic`, and `252-splat`. Re-audit those surfaces against the Task 7 ledger before writing prose. Add or adjust an `examples/*.txtar` only when a guide concept lacks a complete runnable example; never use this task to repair a source consumer left broken by Task 8.
+Task 8 already migrated every compiled example, scaffold, playground consumer, and generated artifact before the branch became mergeable, including replacement of `250-byo-props`, `251-props-heuristic`, and `252-splat`. Re-audit those surfaces against the Task 7 ledger before writing prose. Add or adjust an `examples/*.txtar` only when a guide concept lacks a complete runnable example; never use this task to repair a source consumer left broken by Task 8.
 
 - [ ] **Step 3: Rewrite guide pages rule-first with runnable examples**
 
@@ -1401,10 +1429,10 @@ consumer on the old ABI.
 
 ## Self-Review
 
-- **Spec coverage:** Task 1 covers ordered declaration/build-tag identity; Task 2 roles and attrs family; Task 3 stable AST IDs/provenance; Tasks 4-5 cover exact routing, semantic spread validation, partial explicit inference, actual zeros, import spelling, and order; Task 6 lands the authoritative Go-only import graph, saved-source refresh, shared cache manifest, Bundle guard, stale/orphan handling, and performance before cutover; Task 7 pins the section-aware metadata ledger; Task 8 performs the complete core semantic cutover, removes obsolete systems, and migrates every executable in-repository consumer in one green rollback commit; Task 9 covers LSP exact navigation and rename; Task 10 covers formatting and prose documentation; Task 11 prepares and verifies the mandatory sibling, structpages, and one-learning commit set; Task 12 provides adversarial/authoritative verification and executes the gated release transaction.
+- **Spec coverage:** Task 1 covers ordered declaration/build-tag identity; Task 2 roles and attrs family; Task 3 stable AST IDs/provenance; Tasks 4-5 cover exact routing, semantic spread validation, partial explicit inference, actual zeros, import spelling, and order; Task 6 lands the authoritative Go-only import graph, saved-source refresh, shared cache manifest, Bundle guard, stale/orphan handling, and performance before cutover; Task 7 pins the section-aware metadata ledger; Task 8 performs the complete core semantic cutover, removes obsolete systems, and migrates every executable in-repository consumer through contained reviewable commits whose final state is green; Task 9 covers LSP exact navigation and rename; Task 10 covers formatting and prose documentation; Task 11 prepares and verifies the mandatory sibling, structpages, and one-learning commit set; Task 12 provides adversarial/authoritative verification and executes the gated release transaction.
 - **Placeholder scan:** The plan contains no deferred implementation marker;
   ecosystem and real-world work is a mandatory pre-merge/pre-release gate with
   named repositories, evidence, frozen commits, and a controlled release
   transaction.
 - **Type consistency:** `componentDeclaration`, `componentSignatureModel`, `componentTargetFact`, `callSiteID`, `componentCallPlan`, `componentParam`, and `Var.Origin()` are introduced once and consumed in dependency order.
-- **Known execution checkpoint:** The core atomic cutover is intentionally one large commit because declaration/call ABIs, existing corpus semantics, and executable in-repository consumers cannot be green independently. Tasks 1-5 are pure/tested foundations, Task 6 makes normal/Bundle resolution authoritative without changing ABI, Task 7 proves every source container has a reviewed metadata action, and Task 8 is the single revertible core switch; no intermediate commit exists between core ABIs. That commit is not independently mergeable or releasable: Tasks 11-12 must verify and advance the cross-repository transaction.
+- **Known execution checkpoint:** Small commits are intentional because they make each semantic subsystem reviewable and revertible. Intermediate red states are permitted only on this non-mergeable feature branch with their expected failures recorded. They never justify a compatibility path or mixed shipping ABI. The branch becomes eligible for integration only after Task 8 leaves one verbatim ABI, all in-repository consumers are migrated, and every repository gate is green; Tasks 11-12 must still verify and advance the cross-repository transaction.
