@@ -6,6 +6,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -322,9 +323,7 @@ component Page() {
 	}
 	stamps := map[string]bool{}
 	for _, parsed := range result.GSXFiles {
-		for tag, stamp := range collectStamps(parsed) {
-			stamps[tag] = stamp
-		}
+		maps.Copy(stamps, collectStamps(parsed))
 	}
 	if stamps["main"] || !stamps["concrete"] {
 		t.Fatalf("semantic stamps=%v, want main=false concrete=true", stamps)
@@ -333,11 +332,12 @@ component Page() {
 
 func TestSemanticComponentIdentity(t *testing.T) {
 	tests := []struct {
-		name  string
-		files map[string]string
-		code  string
+		name    string
+		files   map[string]string
+		code    string
+		message string
 	}{
-		{name: "missing explicit", files: map[string]string{"page.gsx": "package page\ncomponent Page() { <Missing/> }\n"}, code: "invalid-component-target"},
+		{name: "missing explicit", files: map[string]string{"page.gsx": "package page\ncomponent Page() { <Missing/> }\n"}, message: "undefined: Missing"},
 		{name: "zero result explicit", files: map[string]string{"page.gsx": "package page\nfunc Zero() {}\ncomponent Page() { <Zero/> }\n"}, code: "component-result-count"},
 		{name: "zero result imported", files: map[string]string{
 			"dep/dep.go": "package dep\nfunc Zero() {}\n",
@@ -357,7 +357,7 @@ func TestSemanticComponentIdentity(t *testing.T) {
 			}
 			var found bool
 			for _, diagnostic := range diagnostics {
-				if diagnostic.Code == tt.code {
+				if (tt.code != "" && diagnostic.Code == tt.code) || (tt.message != "" && diagnostic.Message == tt.message) {
 					found = true
 					if diagnostic.Start.Filename == "" || diagnostic.Start.Line == 0 {
 						t.Errorf("diagnostic is unpositioned: %+v", diagnostic)
@@ -365,9 +365,39 @@ func TestSemanticComponentIdentity(t *testing.T) {
 				}
 			}
 			if !found {
-				t.Fatalf("diagnostics=%+v, want code %q", diagnostics, tt.code)
+				t.Fatalf("diagnostics=%+v, want code %q or message %q", diagnostics, tt.code, tt.message)
 			}
 		})
+	}
+}
+
+func TestRejectedLocalSelectorDoesNotKeepShadowedImportUsed(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"ui/ui.go": "package ui\n",
+		"page.gsx": `package page
+
+import "testmod/ui"
+
+type holder struct { Icon func() string }
+
+component Page(ui holder) { <ui.Icon/> }
+`,
+	})
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rejectedTarget, unusedImport bool
+	for _, diagnostic := range result.Diags {
+		rejectedTarget = rejectedTarget || diagnostic.Code == "invalid-component-target"
+		unusedImport = unusedImport || strings.Contains(diagnostic.Message, `"testmod/ui" imported and not used`)
+	}
+	if !rejectedTarget || !unusedImport {
+		t.Fatalf("diagnostics=%+v, want rejected local selector and unused shadowed import", result.Diags)
+	}
+	unused := result.UnusedImports[filepath.Join(dir, "page.gsx")]
+	if len(unused) != 1 || unused[0].Path != "testmod/ui" {
+		t.Fatalf("unused imports=%+v, want shadowed testmod/ui", result.UnusedImports)
 	}
 }
 

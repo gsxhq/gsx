@@ -1258,7 +1258,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		compsByXGo[absXpath] = comps
 		gwMarkupsByXGo[absXpath] = gwMarkups
 		ctrlOffByXGo[absXpath] = ctrlOff
-		targetQualifiers := componentTargetQualifiers(callSites, path)
+		targetQualifiers := componentTargetQualifiers(callSites, targetFacts, path)
 		if len(targetQualifiers) != 0 {
 			byQualifier := m.importSpecsByQualifier(imps)
 			set := make(map[importSpecPosition]bool)

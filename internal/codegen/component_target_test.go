@@ -711,8 +711,8 @@ component Page() { <MissingOne/><MissingTwo/> }
 	}
 	for _, record := range preprocessed.registry.records {
 		fact := facts[record.id]
-		if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "codegen" || fact.targetDiags[0].Code != "invalid-component-target" {
-			t.Errorf("<%s> diagnostics = %+v, want one invalid-component-target", record.element.Tag, fact.targetDiags)
+		if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "types" || fact.targetDiags[0].Message != "undefined: "+record.element.Tag {
+			t.Errorf("<%s> diagnostics = %+v, want its native undefined error", record.element.Tag, fact.targetDiags)
 		}
 	}
 	if len(unrelated) != 1 || unrelated[0].Msg != "undefined: MissingOutside" {
@@ -730,7 +730,7 @@ component Page() {
 	runGenericTargetHarvestTest(t, fset, file)
 }
 
-func TestHarvestComponentTargetsDoesNotDuplicateLookupFailure(t *testing.T) {
+func TestHarvestComponentTargetsPreservesNativeLookupFailure(t *testing.T) {
 	fset := token.NewFileSet()
 	file := parseTargetTestFile(t, fset, "missing.gsx", `package p
 component Page() { <Missing/> }
@@ -766,8 +766,32 @@ component Page() { <Missing/> }
 		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
 	}
 	fact := facts[1]
-	if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "codegen" || fact.targetDiags[0].Code != "invalid-component-target" {
-		t.Fatalf("lookup diagnostics = %+v, want one invalid-component-target", fact.targetDiags)
+	if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "types" || fact.targetDiags[0].Code != "" || fact.targetDiags[0].Message != "undefined: Missing" {
+		t.Fatalf("lookup diagnostics = %+v, want the native undefined target error", fact.targetDiags)
+	}
+}
+
+func TestComponentTargetQualifiersRetainsRejectedExplicitClaim(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "page.gsx", `package p
+component Page() { <ui.Missing/> }
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"page.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preprocessed.registry.records) != 1 {
+		t.Fatalf("candidate records = %d, want one", len(preprocessed.registry.records))
+	}
+	preprocessed.registry.records[0].disposition = componentSiteRejected
+	facts := map[callSiteID]componentTargetFact{
+		preprocessed.registry.records[0].id: {usesImportedQualifier: true},
+	}
+
+	qualifiers := componentTargetQualifiers(preprocessed.registry, facts, "page.gsx")
+	if !qualifiers["ui"] || len(qualifiers) != 1 {
+		t.Fatalf("rejected target qualifiers = %v, want ui retained as an authored use", qualifiers)
 	}
 }
 

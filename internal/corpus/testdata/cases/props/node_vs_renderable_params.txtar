@@ -36,6 +36,5 @@ component Page(w widget) {
 Page(widget{label: "star"})
 -- diagnostics.golden --
 7:2: "github.com/gsxhq/gsx" imported and not used
-7:2: "github.com/gsxhq/gsx" imported and not used
 -- render.golden --
 -- generated.x.go.golden --

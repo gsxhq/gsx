@@ -19,4 +19,3 @@ component Page() {
 }
 -- diagnostics.golden --
 8:34: undefined: nosuch
-8:34: undefined: nosuch

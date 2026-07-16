@@ -12,4 +12,3 @@ component Page() {
 }
 -- diagnostics.golden --
 4:28: cannot use (m) (variable of type map[string]any) as gsx.Attrs value in variable declaration
-4:28: cannot use (m) (variable of type map[string]any) as gsx.Attrs value in variable declaration

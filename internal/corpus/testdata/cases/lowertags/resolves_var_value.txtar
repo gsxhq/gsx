@@ -1,5 +1,5 @@
-# A lowercase tag resolves to a package-level VAR holding a component value
-# (element-literal var), not just funcs — "any decl counts".
+# A lowercase package variable holding a Node value is not callable, so its tag
+# remains a leaf element rather than becoming a component invocation.
 -- input.gsx --
 package views
 
@@ -11,5 +11,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-6:3: component target package variable is not callable
 -- render.golden --
+<chip/>
