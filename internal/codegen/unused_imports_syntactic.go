@@ -83,9 +83,10 @@ func classifyUnusedImports(used map[string]bool, imps []importSpec, sunk map[sun
 // generic tag (sunk) — see analyze's sunkImports doc for why a sunk import is
 // never a removal candidate even when the skeleton drops its only reference.
 type fileSkeleton struct {
-	skel *goast.File
-	imps []importSpec
-	sunk map[sunkImportKey]bool
+	skel             *goast.File
+	imps             []importSpec
+	sunk             map[sunkImportKey]bool
+	targetQualifiers map[string]bool
 }
 
 // packageSkeletons is the per-package result of buildPackageSkeletons: every
@@ -217,7 +218,10 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 				}
 			}
 		}
-		out.byGsx[path] = fileSkeleton{skel: gf, imps: imps, sunk: sunk}
+		out.byGsx[path] = fileSkeleton{
+			skel: gf, imps: imps, sunk: sunk,
+			targetQualifiers: componentTargetQualifiers(preprocessed.registry, path),
+		}
 	}
 	return out, nil
 }
@@ -313,6 +317,9 @@ func unusedImportsCore(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, re
 	candPaths := map[string]bool{}
 	for gsxPath, fs := range byGsx {
 		used := skeletonUsedNames(fs.skel)
+		for qualifier := range fs.targetQualifiers {
+			used[qualifier] = true
+		}
 		usedByFile[gsxPath] = used
 		unused, cands := classifyUnusedImports(used, fs.imps, fs.sunk, gsxFset)
 		if len(unused) > 0 {

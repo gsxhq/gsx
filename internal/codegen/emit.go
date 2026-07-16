@@ -331,6 +331,11 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 		imports[merger.PkgPath] = true
 		filterAlias[merger.PkgPath] = classMergerAlias
 	}
+	if sourcePath := fset.Position(file.Pos()).Filename; sourcePath != "" {
+		if allocator := positionalPlan.imports[sourcePath]; allocator != nil {
+			aliased = append(aliased, allocator.specs()...)
+		}
+	}
 
 	// A filter package's reserved-alias import line (`_gsxf<i> "<path>"`) is
 	// emitted ONLY when the generated body actually references that alias —
@@ -4827,6 +4832,21 @@ func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
 func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string, enclosingAttrsBound bool, positionalPlan componentPositionalPackagePlan) bool {
+	if positionalPlan.byElement != nil {
+		plan, ok := positionalPlan.siteForElement(el)
+		if !ok {
+			bag.Errorf(el.Pos(), el.End(), "component-positional-plan", "component call has no completed positional plan")
+			return false
+		}
+		return emitPositionalComponentCall(b, el, plan, positionalEmitContext{
+			currentPkg: currentPkg, resolved: resolved, table: table, structFields: structFields,
+			nodeProps: nodeProps, attrsProps: attrsProps, byo: byo, imports: imports, rt: rt,
+			importAliases: importAliases, boundNames: boundNames, typeArgAliases: typeArgAliases,
+			interpTemp: interpTemp, fset: fset, recvVar: recvVar, recvTypeName: recvTypeName,
+			cls: cls, fm: fm, bag: bag, mergeExpr: mergeExpr, enclosingAttrsBound: enclosingAttrsBound,
+			positionalPlan: positionalPlan,
+		})
+	}
 	// Task 4: a cross-package generic tag whose requalification failed at
 	// analyze time has NO probe anywhere in the skeleton (nothing for
 	// harvest to have populated resolved[el] from) — module_importer.go's

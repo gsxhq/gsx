@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	goast "go/ast"
@@ -1478,295 +1477,6 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if err := targetRegistry.emitBinding(sb, t, fset); err != nil {
 						return err
 					}
-				} else {
-					// Emit the SAME call as genChildComponent (via childInvocation) so the
-					// assignment type-checks each prop expr against the child's/method's real
-					// field type. The shared childPropsLiteral builder guarantees the attr +
-					// slot fields never drift. A nullary invocation (method OR no-props
-					// function; no attrs, no children) has no props struct → `_ = X()`.
-					// Otherwise build the
-					// props literal; named-slot/Children fields use a typed-nil so the
-					// literal type-checks WITHOUT building the real slot closure here —
-					// the slot content (markup-attr values then t.Children) is probed
-					// SEPARATELY below (its interps become _gsxuse in the SAME order
-					// collectExprs collected them; the props-literal exprs are NOT _gsxuse,
-					// so they don't perturb the k-th alignment).
-					callTarget, propsType, isMethod := childInvocation(t, byo, recvVar, recvTypeName)
-					_, isByoChild := byo.isByoStruct(propsType)
-					if isBareCallCandidate(t, propFields, byo, recvVar, recvTypeName) {
-						// A bare-call candidate (a hand-written same-package func, or a .gsx
-						// no-props component): resolve it by its REAL signature rather than the
-						// XxxProps convention, because a nullary `func F() gsx.Node` has no
-						// props struct and the `F(FProps{})` probe would not compile.
-						// _gsxcompsig(F) type-checks at any arity; harvest reads the signature
-						// back into `resolved[el]` so genChildComponent picks the call shape.
-						//
-						// A bare-call candidate can itself be a GENERIC component with
-						// nothing to supply (e.g. `component Marker[T any]()`, never
-						// eligible for emitInferProbe's call-form probe since it has no
-						// params to infer from — genericSigsFor still records its arity,
-						// see its doc). Passing an uninstantiated generic function VALUE
-						// (Marker, with no explicit type args) as this bare `any` argument
-						// is itself an implicit-instantiation attempt, so it can fail with
-						// its own "cannot infer" here — record the span (Task 8) so that
-						// diagnostic is keyed to THIS tag, not blamed on an unrelated one.
-						start := emitSkeletonLineCompsig(sb, fset, t.Pos(), callTarget+typeArgUse(t.TypeArgs))
-						if t.TypeArgs == "" {
-							if sig := genericSigs[propsType]; sig != nil {
-								registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
-							}
-						}
-					} else if isAttrsOnlyCandidate(t, propFields, byo, recvVar, recvTypeName) {
-						// Attrs-only component value candidate (no <Name>Props type exists —
-						// the convention literal probe would be a guaranteed `undefined:`
-						// error). _gsxcompsig(F) carries F's real type to the harvest (mapped
-						// by tag name, not k-order). The bag expression rides _gsxusen — the
-						// QUIET, ALIGNMENT-NEUTRAL keep-alive — NOT _gsxuse/_gsxuseq: those
-						// ARE counted by harvest's k-ordering, and the bag has no single
-						// interp node to harvest onto (each attr expression inside it already
-						// gets its own counted probe via the shared per-component ExprAttr /
-						// class-part / spread probes below, aligned with collectExprs). A
-						// counted bag probe would shift every later interp's harvested type
-						// by one slot per attrs-only tag — the FAIL 5 / 4b desync.
-						emitSkeletonLineCompsig(sb, fset, t.Pos(), t.Tag)
-						// The bag builds the SAME expression the emit pass will (probeWrap so
-						// (T, error) tuples are _gsxunwrap-wrapped, not hoisted). cfHoistBuf
-						// captures any value-form-CF class hoists so the _gsxusen(expr)
-						// reference stays valid; usedPkgs feeds usedFilters exactly as the
-						// props-literal branch does, so a bag pipeline's filter is imported.
-						var cfHoistBuf bytes.Buffer
-						if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, enclosingAttrsBound); berr == nil && expr != "" {
-							maps.Copy(usedFilters, usedPkgs)
-							emitSkeletonLine(sb, fset, t.Pos())
-							sb.WriteString(cfHoistBuf.String())
-							fmt.Fprintf(sb, "_gsxusen(%s)\n", expr)
-						}
-						// a bag-build error here is NOT reported from the probe pass: the emit
-						// pass builds the same expression and owns the positioned diagnostic.
-					} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
-						// Same Task 8 concern as the bare-call-candidate branch above: a
-						// generic no-props method/function reaching this nullary `_ = F()`
-						// probe (rather than emitInferProbe) can still fail its own
-						// implicit instantiation attempt.
-						emitSkeletonLine(sb, fset, t.Pos())
-						start := sb.Len()
-						fmt.Fprintf(sb, "_ = %s%s()\n", callTarget, typeArgUse(t.TypeArgs))
-						if t.TypeArgs == "" {
-							if sig := genericSigs[propsType]; sig != nil {
-								registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
-							}
-						}
-					} else {
-						// Build the SAME props literal as the emitter via childPropsLiteral,
-						// but with a typed-nil slotValue: each named-slot and Children field
-						// is `_gsxrt.Node(nil)` so the literal type-checks WITHOUT the real
-						// closure. The slot content (markup-attr values + children) is probed
-						// SEPARATELY below, so its interps become the _gsxuse sequence in the
-						// SAME order collectExprs collected them; the props-literal exprs are
-						// NOT _gsxuse, so they don't perturb the k-th alignment.
-						// When splatExpr is non-empty (byo whole-struct splat), emit
-						// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
-						// probeWrap=true: ExprAttr values are wrapped with _gsxunwrap(...) in
-						// the skeleton so (T, error) tuples type-check while field-type
-						// checking is preserved.
-						// cfHoistBuf collects any var+if/switch statements hoisted by
-						// classEntryExpr for value-form CF parts in a class attr. They
-						// are emitted to the skeleton BEFORE the probe call so the skeleton
-						// remains syntactically valid Go. cfTemp is the per-skeleton-function
-						// counter (threaded through emitProbes), so the `_gsxvN` temp names
-						// stay unique across every sibling component tag in this block — not
-						// just within one tag (fix #69).
-						var cfHoistBuf bytes.Buffer
-						// A generic tag with omitted type args (genericSigs[propsType] != nil,
-						// mirroring the SAME predicate the emitInferProbe branch below tests)
-						// has NOT yet decided whether fieldEntries becomes a real props
-						// literal (inference succeeds → emitInferProbe's call-form probe) or
-						// a discarded reference-sink (inference fails → the `case failed:`
-						// throwaway struct below, which — like genSkippedTagSink's discard —
-						// never builds the real Attrs field). The missing-attrs-bag hazard
-						// only exists in the first outcome, which is unknowable until AFTER
-						// this call returns, so it is deferred entirely to emit time (once a
-						// concrete type arg is resolved, genChildComponent's own
-						// childPropsLiteral call re-checks it for real): disable it here for
-						// any pending generic-inference candidate to avoid a false positive
-						// on the (perfectly legal, silently-discarded) inference-failure path.
-						checkBag := t.TypeArgs != "" || genericSigs[propsType] == nil
-						fieldEntries, _, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
-							return "_gsxrt.Node(nil)", nil
-						}, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, "", enclosingAttrsBound, checkBag)
-						if err != nil {
-							// childPropsLiteral returns an *attrError with the offending attr's
-							// position embedded. Propagate it as-is so the caller can emit
-							// a positioned diagnostic (not positionless).
-							return err
-						}
-						// Record filter packages referenced by a lowered prop/fallthrough
-						// pipeline so the skeleton imports them under their reserved aliases
-						// — the SAME set the emitter records into its imports map. Without
-						// this the skeleton would not import _gsxstdN and a prop pipeline
-						// would fail to resolve.
-						maps.Copy(usedFilters, usedPkgs)
-						// One //line for the WHOLE props literal (the element position).
-						// A child-prop FIELD-TYPE error (e.g. `cannot use … as string`)
-						// therefore reports at this single position, so the COLUMN of a
-						// trailing field can be inaccurate — earlier wrapped fields
-						// (_gsxunwrap(…), gsx.Val(…)) shift the offset, and the column can
-						// even land past end-of-line for a CALL-valued prop whose wrapped
-						// earlier fields shift the offset. This is a known limitation; a future reader
-						// should not trust the column of a child-prop field-type error.
-						emitSkeletonLine(sb, fset, t.Pos())
-						// Emit any CF-hoisted statements before the probe call.
-						sb.WriteString(cfHoistBuf.String())
-						if splatExpr != "" {
-							// Whole-struct splat: mirrors genChildComponent exactly.
-							fmt.Fprintf(sb, "_ = %s%s(%s)\n", callTarget, typeArgUse(t.TypeArgs), splatExpr)
-						} else if sig := genericSigs[propsType]; t.TypeArgs == "" && sig != nil {
-							// Omitted type args on a generic tag: emit a caller-side inference
-							// probe (a fresh, uniquely-named generic helper whose params are
-							// exactly the props SUPPLIED here) so go/types infers the type args
-							// from THIS subset — mirroring how a plain Go generic function call
-							// infers from whatever arguments it's given, unlike the old exported
-							// declaring-side inference helper which required every declared prop
-							// to be supplied. ONE emitter path serves both a SAME-PACKAGE and an
-							// IMPORTED component (genericSigs, unified — see genericSig's doc):
-							// for an imported (dotted, non-method) tag, the type-param decl and
-							// each SUPPLIED param's type are first requalified into the calling
-							// file's context (Task 3's engine, via registry's per-file-coalesced
-							// aliasMinter). Requalification failure (an unexported dep-local
-							// type, a dot-imported dep-local name, or an unresolvable/ambiguous
-							// dep qualifier) fails safe: the probe is SKIPPED entirely (neither
-							// this inference probe nor the plain composite-literal fallback is
-							// emitted, so no confusing raw go/types error accompanies it) and a
-							// single positioned "inference-unavailable" diagnostic is recorded.
-							emitted := false
-							failed := false
-							if targetTPNames, tperr := parseTypeParamNames(sig.typeParams); tperr == nil {
-								supplied := map[string]string{}
-								for _, fe := range fieldEntries {
-									if fe.inferField != "" {
-										supplied[fe.inferField] = fe.inferArg
-									}
-								}
-								typeParamsSrc := sig.typeParams
-								targetParams := sig.params
-								if depAlias, imported := importedTagAlias(t.Tag, isMethod); imported {
-									declared := make(map[string]bool, len(targetTPNames))
-									for _, n := range targetTPNames {
-										declared[n] = true
-									}
-									reqDecl, rerr := registry.requalifyTypeParams(sig.typeParams, depAlias, sig.imports)
-									if rerr != nil {
-										recordInferenceUnavailable(bag, registry, t, rerr)
-										failed = true
-									} else {
-										typeParamsSrc = reqDecl
-										ordered := suppliedInDeclOrder(sig.params, supplied)
-										reqOrdered := make([]param, 0, len(ordered))
-										for _, p := range ordered {
-											rq, perr := registry.requalifyTypeExpr(p.typeSrc, depAlias, sig.imports, declared)
-											if perr != nil {
-												recordInferenceUnavailable(bag, registry, t, perr)
-												failed = true
-												break
-											}
-											p.typeSrc = rq
-											reqOrdered = append(reqOrdered, p)
-										}
-										if !failed {
-											targetParams = reqOrdered
-										}
-									}
-								}
-								if !failed {
-									emitted = registry.emitInferProbe(sb, t, propsType,
-										typeParamDecl(typeParamsSrc), typeParamUse(targetTPNames),
-										targetParams, supplied, sig.arity)
-								}
-							}
-							switch {
-							case emitted:
-								// emitInferProbe's call consumes ONLY the inferField
-								// args (the props go/types infers the type params
-								// from). Any NON-inferField entry — most importantly a
-								// synthesized `Attrs: ConcatAttrs(...)` fallthrough bag
-								// forwarding the enclosing component's implicit `attrs`
-								// (spread, conditional, or matched-node-field value) —
-								// is absent from that call, so an `attrs` reference that
-								// lives ONLY there would be "declared and not used" in
-								// the skeleton (a loud false rejection of a legal
-								// program). Sink those value halves into a throwaway
-								// any-typed struct, exactly as the `failed:` path sinks
-								// all entries: a plain statement, NOT a _gsxuse/_gsxuseq,
-								// so the k-th-probe↔k-th-collected alignment is untouched.
-								// inferField entries are excluded — re-sinking them would
-								// double-report a bad prop value's own type error.
-								var sinkTypes, sinkLits []string
-								for _, fe := range fieldEntries {
-									if fe.inferField != "" {
-										continue
-									}
-									val := fe.str
-									if idx := strings.Index(fe.str, ":"); idx >= 0 {
-										val = strings.TrimSpace(fe.str[idx+1:])
-									}
-									name := fmt.Sprintf("F%d", len(sinkTypes))
-									sinkTypes = append(sinkTypes, name+" any")
-									sinkLits = append(sinkLits, name+": "+val)
-								}
-								if len(sinkTypes) > 0 {
-									fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(sinkTypes, "; "), strings.Join(sinkLits, ", "))
-								}
-							case failed:
-								// Sink every supplied prop's value expression (and any
-								// CF-hoisted var it references — see cfHoistBuf above) into a
-								// throwaway anonymous-struct literal, so the skeleton stays
-								// valid Go without attempting the (necessarily invalid)
-								// generic instantiation that would otherwise surface a
-								// second, confusing diagnostic alongside the clean one
-								// recordInferenceUnavailable already added. Each entry's
-								// VALUE half (fe.str is always "GoFieldName: value-expr",
-								// the shape childPropsLiteral produces for splicing into a
-								// real props literal) is re-keyed under a synthetic,
-								// guaranteed-unique field name typed `any` — sinking the
-								// value alone, not the props type, so this never depends on
-								// whichever generic instantiation failed to resolve.
-								if len(fieldEntries) > 0 {
-									typeParts := make([]string, len(fieldEntries))
-									litParts := make([]string, len(fieldEntries))
-									for i, fe := range fieldEntries {
-										val := fe.str
-										if idx := strings.Index(fe.str, ":"); idx >= 0 {
-											val = strings.TrimSpace(fe.str[idx+1:])
-										}
-										name := fmt.Sprintf("F%d", i)
-										typeParts[i] = name + " any"
-										litParts[i] = name + ": " + val
-									}
-									fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(typeParts, "; "), strings.Join(litParts, ", "))
-								}
-							default:
-								// No supplied prop matched any declared field (emitInferProbe
-								// itself declined for lack of anything to infer FROM), so the
-								// tag falls through to a plain, uninstantiated composite-
-								// literal probe — go/types' own "cannot infer" against THIS
-								// call is exactly as real as emitInferProbe's call-form one;
-								// record its span (Task 8) so it resolves back to this tag too.
-								strs := make([]string, len(fieldEntries))
-								for i, fe := range fieldEntries {
-									strs[i] = fe.str
-								}
-								start := sb.Len()
-								fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, strings.Join(strs, ", "))
-								registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
-							}
-						} else {
-							strs := make([]string, len(fieldEntries))
-							for i, fe := range fieldEntries {
-								strs[i] = fe.str
-							}
-							fmt.Fprintf(sb, "_ = %s%s(%s%s{%s})\n", callTarget, typeArgUse(t.TypeArgs), propsType, typeArgUse(t.TypeArgs), strings.Join(strs, ", "))
-						}
-					}
 				}
 				// Probe simple ExprAttr values (child-prop values) with _gsxuse so harvest
 				// records their RAW types into resolved[ea]. This is emitted for ALL child
@@ -1783,13 +1493,11 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						return perr
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
-					// _gsxuseq (the QUIET harvest probe), not _gsxuse: an
-					// expression-internal error here (undefined ident, bad call, …)
-					// is reported by the props-literal _gsxunwrap(...) probe above, so
-					// the duplicate from this type-only probe is suppressed when its
-					// errors are surfaced (see the quietSpans handling in analyze's
-					// type-error loop). harvest reads _gsxuseq exactly like _gsxuse.
-					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+					// The positional planner owns assignment checking, but this native
+					// probe remains authoritative for errors inside the authored
+					// expression (including missing imports). It must not be quiet: the
+					// removed Props-literal probe no longer provides a duplicate error.
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				}
 				// Probe ordered-attrs pair values AFTER ExprAttr probes, in attr source
 				// order then pair order — matching collectExprs's ordering exactly.
@@ -1803,7 +1511,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					}
 					for i := range oa.Pairs {
 						emitSkeletonLine(sb, fset, oa.Pairs[i].Pos())
-						fmt.Fprintf(sb, "_gsxuseq(%s)\n", oa.Pairs[i].Value)
+						fmt.Fprintf(sb, "_gsxuse(%s)\n", oa.Pairs[i].Value)
 					}
 				}
 				// Probe CF arm exprs and EVERY plain ClassPart expr (conditional or
@@ -1867,7 +1575,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						return
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
-					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				})
 				if branchProbeErr != nil {
 					return branchProbeErr

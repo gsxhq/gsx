@@ -7,7 +7,10 @@
 # the authored-third `first={tick()}` runs next (seq→2), and the call is assembled
 # as Row(Level(1), "2", "1").
 #
-# Expected render: <div data-level="1"><i>2</i><b>1</b></div>
+# Braced embedded literals are ordinary exact-name operands too: js produces
+# gsx.RawJS and f produces string at the component boundary.
+#
+# Expected render: <div data-level="1"><i>2</i><b>1</b></div><script>alert(1)</script><p>go</p>
 -- input.gsx --
 package views
 
@@ -26,11 +29,18 @@ component Row(level Level, first string, second string) {
 	<div data-level={level}><i>{first}</i><b>{second}</b></div>
 }
 
+component Action(script gsx.RawJS, label string) {
+	<script>{script}</script><p>{label}</p>
+}
+
 component Page() {
 	<Row second={tick()} level={min(1, 2)} first={tick()} />
+	<Action script={js`alert(1)`} label={f`go`}/>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
+18:25: undefined: gsx
+18:25: undefined: gsx
 -- render.golden --
 -- generated.x.go.golden --
