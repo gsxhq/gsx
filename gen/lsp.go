@@ -11,6 +11,7 @@ import (
 	"go/types"
 	"io"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -591,11 +592,12 @@ func (a lspAnalyzer) AnalyzeModuleParams(dir string, _ map[string][]byte) ([]lsp
 				return nil, fmt.Errorf("codegen published duplicate component parameter family %+v", key)
 			}
 			byKey[key] = &lsp.ComponentParamRenameFact{
-				Key:    key,
-				Name:   declaration.Name,
-				Role:   lsp.ComponentParamRole(declaration.Role),
-				Origin: declaration.Origin.Origin(),
-				Decls:  append([]token.Position(nil), declaration.Decls...),
+				Key:          key,
+				Name:         declaration.Name,
+				Role:         lsp.ComponentParamRole(declaration.Role),
+				Origin:       declaration.Origin.Origin(),
+				Decls:        append([]token.Position(nil), declaration.Decls...),
+				BlockedNames: append([]string(nil), declaration.BlockedNames...),
 			}
 		}
 	}
@@ -615,6 +617,7 @@ func (a lspAnalyzer) AnalyzeModuleParams(dir string, _ map[string][]byte) ([]lsp
 				return nil, fmt.Errorf("codegen published a component parameter ref inconsistent with family %+v", key)
 			}
 			family.Refs = append(family.Refs, reference.Ref)
+			family.BlockedNames = append(family.BlockedNames, reference.BlockedNames...)
 		}
 	}
 
@@ -622,6 +625,8 @@ func (a lspAnalyzer) AnalyzeModuleParams(dir string, _ map[string][]byte) ([]lsp
 	for _, family := range byKey {
 		sortTokenPositions(family.Decls)
 		sortTokenPositions(family.Refs)
+		sort.Strings(family.BlockedNames)
+		family.BlockedNames = slices.Compact(family.BlockedNames)
 		facts = append(facts, *family)
 	}
 	sort.Slice(facts, func(i, j int) bool {

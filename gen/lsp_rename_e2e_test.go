@@ -3,6 +3,7 @@ package gen
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -170,6 +171,126 @@ func TestAnalyzeModuleParamsRejectsUnsafeCallableFamilies(t *testing.T) {
 			t.Fatalf("non-equivalent variant facts = %+v, want rename rejection", facts)
 		}
 	})
+}
+
+func TestLSPRenameComponentParameterRejectsSemanticNamespaceCollisions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real module analysis")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		files      map[string]string
+		requestRel string
+		needle     string
+		newName    string
+	}{
+		{
+			name: "import qualifier used by equivalent variant body",
+			files: map[string]string{
+				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ncomponent Card(value string) { <i>{value}</i> }\n",
+				"card_b.gsx": "//go:build never\n\npackage unsafe\n\nimport \"strings\"\n\ncomponent Card(value string) { <b>{strings.ToUpper(value)}</b> }\n",
+			},
+			requestRel: "card_a.gsx", needle: "value string", newName: "strings",
+		},
+		{
+			name: "receiver in equivalent method variant",
+			files: map[string]string{
+				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ntype Panel struct{}\n\ncomponent (p Panel) Card(value string) { <i>{value}</i> }\n",
+				"card_b.gsx": "//go:build never\n\npackage unsafe\n\ncomponent (q Panel) Card(value string) { <b>{value}</b> }\n",
+			},
+			requestRel: "card_a.gsx", needle: "value string", newName: "q",
+		},
+		{
+			name: "body local in equivalent variant",
+			files: map[string]string{
+				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ncomponent Card(value string) { <i>{value}</i> }\n",
+				"card_b.gsx": "//go:build never\n\npackage unsafe\n\ncomponent Card(value string) { {{ label := \"local\" }}<b>{value}{label}</b> }\n",
+			},
+			requestRel: "card_a.gsx", needle: "value string", newName: "label",
+		},
+		{
+			name: "type parameter in equivalent generic variant",
+			files: map[string]string{
+				"card_a.gsx": "//go:build !never\n\npackage unsafe\n\ncomponent Card[T ~string](value T) { <i>{value}</i> }\n",
+				"card_b.gsx": "//go:build never\n\npackage unsafe\n\ncomponent Card[U ~string](value U) { <b>{value}</b> }\n",
+			},
+			requestRel: "card_a.gsx", needle: "value T", newName: "U",
+		},
+		{
+			name: "fallthrough attribute at target call",
+			files: map[string]string{
+				"page.gsx": "package unsafe\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(value string, attrs gsx.Attrs) { <div {attrs...}>{value}</div> }\ncomponent Page() { <Card value=\"ok\" { if true { label=\"fallthrough\" } }/> }\n",
+			},
+			requestRel: "page.gsx", needle: "value=\"ok\"", newName: "label",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeLSPRenameModule(t, root, repoRoot, test.files)
+			path := filepath.Join(root, test.requestRel)
+			source := test.files[test.requestRel]
+			offset := strings.Index(source, test.needle)
+			if offset < 0 {
+				t.Fatalf("request needle %q not found", test.needle)
+			}
+			response := runLSPRename(t, path, source, offset+1, test.newName)
+			if len(response.Error) == 0 {
+				t.Fatalf("rename to %q returned WorkspaceEdit %s, want semantic collision rejection", test.newName, response.Result)
+			}
+			if !strings.Contains(string(response.Error), "conflicts with an existing declaration or call-site attribute") {
+				t.Fatalf("rename error = %s, want semantic collision rejection", response.Error)
+			}
+		})
+	}
+}
+
+func writeLSPRenameModule(t *testing.T, root, repoRoot string, files map[string]string) {
+	t.Helper()
+	all := make(map[string]string, len(files)+1)
+	maps.Copy(all, files)
+	all["go.mod"] = "module example.com/unsafe\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + repoRoot + "\n"
+	for relative, source := range all {
+		path := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func runLSPRename(t *testing.T, path, source string, offset int, newName string) lspTestWireResponse {
+	t.Helper()
+	uri := lspTestPathURI(path)
+	position := lsp.Position{Line: strings.Count(source[:offset], "\n")}
+	lineStart := strings.LastIndex(source[:offset], "\n") + 1
+	position.Character = offset - lineStart
+	in := frameMsg(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in += frameMsg(t, map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+	})
+	in += frameMsg(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/rename",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     position,
+			"newName":      newName,
+		},
+	})
+	in += frameMsg(t, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	var out, errOut bytes.Buffer
+	if code := runLSP(strings.NewReader(in), &out, &errOut, config{}, nil); code != 0 {
+		t.Fatalf("runLSP exit = %d, stderr = %s", code, errOut.String())
+	}
+	return lspTestResponse(t, out.String(), 2)
 }
 
 type lspTestWireResponse struct {

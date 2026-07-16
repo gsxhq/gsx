@@ -1274,7 +1274,9 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
 	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
 	if !a.bag.HasErrors() && len(a.typeErrs) == 0 {
-		res.ComponentParamDecls, err = componentParamDeclarationFacts(a.compByKey, a.objKey, a.gsxFset, a.pkg.Path())
+		res.ComponentParamDecls, err = componentParamDeclarationFacts(
+			a.compByKey, a.objKey, a.compsByXGo, a.goFiles, &a.componentPlan, a.info, a.gsxFset, a.pkg.Path(),
+		)
 		if err != nil {
 			return nil, err
 		}
