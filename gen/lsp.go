@@ -1,10 +1,12 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
 	"go/types"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -56,41 +58,60 @@ func (mods *moduleSet) setOverride(root string, module *codegen.Module, path str
 	defer mods.mu.Unlock()
 	path = filepath.Clean(path)
 	var affected []string
+	var clearErr error
 	if previousRoot, ok := mods.overrideRoots[path]; ok && previousRoot != root {
+		delete(mods.overrideRoots, path)
 		if previous := mods.byRoot[previousRoot]; previous != nil {
 			// A root move clears the prior override; its affected closure must
 			// still reach the caller for eviction alongside the new scope.
 			cleared, err := previous.ClearOverride(path)
-			if err != nil {
-				return cleared, err
-			}
 			affected = append(affected, cleared...)
+			clearErr = err
 		}
 	}
 	affected = append(affected, module.SetOverride(path, source)...)
 	mods.overrideRoots[path] = root
-	return affected, nil
+	return sortedUniqueDirs(affected), clearErr
 }
 
 func (mods *moduleSet) clearOverride(path string) ([]string, error) {
+	_, module, ok := mods.detachOverride(path)
+	if !ok || module == nil {
+		return nil, nil
+	}
+	return module.ClearOverride(filepath.Clean(path))
+}
+
+// detachOverride removes path's owner record before any fallible root discovery
+// or module construction begins. The returned Module still owns the buffer
+// bytes until the caller either proves this is a same-root update or clears it;
+// analysis transitions are serialized, so this preserves exact same-byte
+// SetOverride semantics without permitting a failed transition to retain stale
+// authority after it returns.
+func (mods *moduleSet) detachOverride(path string) (string, *codegen.Module, bool) {
 	mods.mu.Lock()
 	defer mods.mu.Unlock()
 	path = filepath.Clean(path)
 	root, ok := mods.overrideRoots[path]
 	if !ok {
-		return nil, nil
+		return "", nil, false
 	}
-	module := mods.byRoot[root]
-	if module == nil {
-		delete(mods.overrideRoots, path)
-		return nil, nil
-	}
-	// module.ClearOverride always ends buffer authority and returns the
-	// pre-clear affected closure even alongside an operational error; drop the
-	// root mapping unconditionally and surface the affected scope for eviction.
-	affected, err := module.ClearOverride(path)
 	delete(mods.overrideRoots, path)
-	return affected, err
+	return root, mods.byRoot[root], true
+}
+
+func sortedUniqueDirs(dirs []string) []string {
+	if len(dirs) == 0 {
+		return nil
+	}
+	sort.Strings(dirs)
+	out := dirs[:1]
+	for _, dir := range dirs[1:] {
+		if dir != out[len(out)-1] {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // module returns the warm *codegen.Module for root (lazy-initialised). merged is
@@ -185,17 +206,36 @@ func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
 		return nil, err
 	}
 	absPath = filepath.Clean(absPath)
+	// A buffer path can move to a different module when a nearer go.mod appears,
+	// disappears, or becomes invalid. Detach its owner record before resolving or
+	// opening the next owner: either operation may fail. The old Module retains
+	// the bytes only long enough to distinguish an exact same-root update; every
+	// failure clears it before returning.
+	previousRoot, previous, hadPrevious := a.mods.detachOverride(absPath)
+	clearPrevious := func() ([]string, error) {
+		if !hadPrevious || previous == nil {
+			return nil, nil
+		}
+		return previous.ClearOverride(absPath)
+	}
 	dir := filepath.Dir(absPath)
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
-		return nil, err
+		oldAffected, clearErr := clearPrevious()
+		return oldAffected, errors.Join(clearErr, err)
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
 	m, err := a.module(root, modPath, merged)
 	if err != nil {
-		return nil, err
+		oldAffected, clearErr := clearPrevious()
+		return oldAffected, errors.Join(clearErr, err)
 	}
-	return a.mods.setOverride(root, m, absPath, source)
+	if hadPrevious && previousRoot == root && previous == m {
+		return a.mods.setOverride(root, m, absPath, source)
+	}
+	oldAffected, clearErr := clearPrevious()
+	newAffected, setErr := a.mods.setOverride(root, m, absPath, source)
+	return sortedUniqueDirs(append(oldAffected, newAffected...)), errors.Join(clearErr, setErr)
 }
 
 func (a lspAnalyzer) ClearOverride(path string) ([]string, error) {
