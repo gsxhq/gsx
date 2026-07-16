@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -38,6 +39,17 @@ if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ] && [ -n "$GSX_CREATE_VE
 fi
 if [ "$1" = "env" ]; then
 	exec "$REAL_GO" "$@"
+fi
+if [ -n "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
+	count=0
+	if [ -f "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
+		read count < "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER"
+	fi
+	count=$((count + 1))
+	printf '%s' "$count" > "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER"
+	if [ "$count" -eq 2 ]; then
+		/bin/mkdir -p "$GSX_CREATE_VENDOR_DIR"
+	fi
 fi
 if [ -n "$GSX_CREATE_VENDOR_MARKER" ] && [ ! -e "$GSX_CREATE_VENDOR_MARKER" ]; then
 	/bin/mkdir -p "$GSX_CREATE_VENDOR_DIR"
@@ -148,6 +160,64 @@ func TestCacheFingerprintProvenanceFailureDoesNotFallBackToGeneration(t *testing
 	}
 	if _, err := os.Stat(filepath.Join(dir, "view.x.go")); !os.IsNotExist(err) {
 		t.Fatalf("fingerprint provenance failure generated output through fallback; stat error = %v", err)
+	}
+}
+
+func TestCacheMissRejectsVendorAppearanceDuringPackagesLoad(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/packages-load-boundary\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GOFLAGS", "-mod=mod")
+	cacheRoot := t.TempDir()
+	t.Setenv("GSXCACHE", cacheRoot)
+	counter := filepath.Join(t.TempDir(), "semantic-command-count")
+	t.Setenv("GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER", counter)
+	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
+
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
+		t.Fatalf("generate error = %v, want packages.Load vendor mutation rejection", err)
+	}
+	count, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatalf("semantic command counter: %v", err)
+	}
+	commandCount, err := strconv.Atoi(string(count))
+	if err != nil || commandCount < 2 {
+		t.Fatalf("semantic command count = %q, want graph followed by packages.Load", count)
+	}
+	if len(res.Written) != 0 {
+		t.Fatalf("packages.Load provenance failure wrote files: %v", res.Written)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "view.x.go")); !os.IsNotExist(err) {
+		t.Fatalf("packages.Load provenance failure generated output; stat error = %v", err)
+	}
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("packages.Load provenance failure stored cache entries: %v", entries)
 	}
 }
 
