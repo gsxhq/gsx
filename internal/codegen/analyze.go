@@ -547,7 +547,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, fset *token.FileSet, bag
 	// components (Go permits forward references between top-level decls, so a probe
 	// like `_gsxuse(helper())` still resolves) so each body's //line directive
 	// stays scoped to that body — it cannot bleed into a component skeleton's
-	// unmapped props-struct / signature lines and shift their overlay positions.
+	// unmapped signature lines and shift their overlay positions.
 	//
 	// Adjust ctrlOff from compBuf-relative to skeleton-file-relative: each recorded
 	// offset was relative to compBuf (the temp builder used by emitComponentSkeleton);
@@ -2701,8 +2701,9 @@ func valueIdents(exprSrc string) map[string]bool {
 
 // parseRecv parses a method-component receiver clause (INCLUDING parens, e.g.
 // "(p UsersPage)", "(f *Form)") into its variable name, full receiver type, and
-// the bare type name used to prefix the props struct. It reuses go/parser on a
-// synthesized method so it handles `*T`, named/unnamed, and spacing robustly.
+// the bare receiver type name used to resolve receiver-qualified component
+// calls. It reuses go/parser on a synthesized method so it handles `*T`,
+// named/unnamed, and spacing robustly.
 //
 // For "(p UsersPage)"  → recvVar "p", recvType "UsersPage",  recvTypeName "UsersPage".
 // For "(f *Form)"      → recvVar "f", recvType "*Form",       recvTypeName "Form".
@@ -2710,7 +2711,7 @@ func valueIdents(exprSrc string) map[string]bool {
 // An UNNAMED receiver ("(UsersPage)" / "(*Form)") is rejected: a method
 // component needs the receiver var as its page-data handle (referenced in the
 // body as `p.Field`). It is shared by genComponent (emit) and buildSkeleton
-// (skeleton) so both agree on the signature, props-struct name, and reserved
+// (skeleton) so both agree on the signature, receiver type, and reserved
 // receiver-var check.
 func parseRecv(recv string) (recvVar, recvType, recvTypeName string, err error) {
 	src := strings.TrimSpace(recv)

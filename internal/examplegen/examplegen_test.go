@@ -33,7 +33,7 @@ func TestLoadSortsAndJoins(t *testing.T) {
 
 func TestTryPayloadRoundTrip(t *testing.T) {
 	// Mirror the Vue decoder: base64 std → JSON → {s,i}.
-	src, inv := "package views\n", "Hello(HelloProps{})"
+	src, inv := "package views\n", "Hello()"
 	payload := tryPayload(src, inv)
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestRenderMarkdownProseEscape(t *testing.T) {
 			Category: "Y",
 			Files:    []SourceFile{{Name: "a.gsx", Body: "package views\n"}},
 			Source:   "package views\n",
-			Invoke:   "X(XProps{})",
+			Invoke:   "X()",
 		},
 	}
 	md := string(RenderMarkdown(exs))
@@ -104,7 +104,7 @@ component C(on bool) {
 	<a { if on { class="x" } }>y</a>
 }
 -- invoke --
-C(CProps{On: true})
+C(true)
 -- render.golden --
 <a class="x">y</a>
 `
@@ -142,7 +142,7 @@ component C(on bool) {
 	<a { if on { class="x" } }>y</a>
 }
 -- invoke --
-C(CProps{On: true})
+C(true)
 -- render.golden --
 <a class="x">y</a>
 `
