@@ -315,13 +315,9 @@ func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (c
 		return componentSignatureModel{}, fmt.Errorf("component-signature-runtime: canonical attrs type %s does not have underlying []%s", runtime.attrs, runtime.attr)
 	}
 
-	results := sig.Results()
-	if results.Len() != 1 {
-		return componentSignatureModel{}, fmt.Errorf("component-result-count: callable has %d results; want exactly one", results.Len())
-	}
-	result := results.At(0).Type()
-	if invalidSemanticTypeSeen(result, checkedTypes) || !types.AssignableTo(result, runtime.node) {
-		return componentSignatureModel{}, fmt.Errorf("component-result-type: result %s is not assignable to %s", result, runtime.node)
+	result, err := componentResultType(sig, runtime)
+	if err != nil {
+		return componentSignatureModel{}, err
 	}
 
 	model := componentSignatureModel{
