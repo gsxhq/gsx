@@ -23,7 +23,6 @@ type componentPositionalPlanningInput struct {
 	targets         map[callSiteID]componentTargetFact
 	expressionFacts map[gsxast.Node]expressionFact
 	runtime         runtimeContract
-	table           funcTables
 	analysisPackage *types.Package
 	fset            *token.FileSet
 }
@@ -45,12 +44,38 @@ type componentPositionalSitePlan struct {
 	operands        []suppliedOperand
 	expressionFacts map[gsxast.Node]expressionFact
 	zeros           []componentZeroArgument
-	materialization materializationPlan
+	assembly        componentPositionalAssembly
 }
 
 type componentZeroArgument struct {
 	paramIndex int
 	expr       string
+}
+
+type componentPositionalArgumentKind uint8
+
+const (
+	componentPositionalArgumentZero componentPositionalArgumentKind = iota
+	componentPositionalArgumentProp
+	componentPositionalArgumentChildren
+	componentPositionalArgumentAttrs
+)
+
+// componentPositionalArgument is one argument in the final emitted call.
+// Variadic children produce one entry per child; an attrs entry retains whether
+// the one composed bag is expanded. Both semantic validation and emission
+// consume this exact ordered artifact.
+type componentPositionalArgument struct {
+	kind       componentPositionalArgumentKind
+	paramIndex int
+	valueIndex int
+	childIndex int
+	operand    suppliedOperand
+	zero       componentZeroArgument
+}
+
+type componentPositionalAssembly struct {
+	arguments []componentPositionalArgument
 }
 
 func (p componentPositionalPackagePlan) siteForElement(element *gsxast.Element) (componentPositionalSitePlan, bool) {
@@ -175,7 +200,15 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			diagnostics = append(diagnostics, zeroDiags...)
 			continue
 		}
-		materialization := planComponentMaterialization(call, positionalMaterializationFacts(call, siteFacts, input.runtime, input.table))
+		assembly, err := assemblePositionalCall(call, operands, zeros)
+		if err != nil {
+			diagnostics = append(diagnostics, positionalDiagnostic(record.element, input.fset, "component-positional-call", fmt.Sprintf("cannot assemble completed component call: %v", err)))
+			continue
+		}
+		if err := validateAssembledPositionalCall(call, assembly, input.runtime); err != nil {
+			diagnostics = append(diagnostics, positionalDiagnostic(record.element, input.fset, "component-positional-call", fmt.Sprintf("completed component call is invalid: %v", err)))
+			continue
+		}
 		result.sites[record.id] = componentPositionalSitePlan{
 			runtime:         input.runtime,
 			call:            call,
@@ -187,11 +220,181 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			operands:        operands,
 			expressionFacts: siteFacts,
 			zeros:           zeros,
-			materialization: materialization,
+			assembly:        assembly,
 		}
 		result.byElement[record.element] = record.id
 	}
 	return result, diagnostics
+}
+
+func assemblePositionalCall(plan componentCallPlan, operands []suppliedOperand, zeros []componentZeroArgument) (componentPositionalAssembly, error) {
+	var assembly componentPositionalAssembly
+	byParam := make(map[int]suppliedOperand, len(operands))
+	for _, operand := range operands {
+		if _, exists := byParam[operand.paramIndex]; exists {
+			return assembly, fmt.Errorf("parameter %d has more than one authored operand", operand.paramIndex)
+		}
+		byParam[operand.paramIndex] = operand
+	}
+	zeroByParam := make(map[int]componentZeroArgument, len(zeros))
+	for _, zero := range zeros {
+		if _, exists := zeroByParam[zero.paramIndex]; exists {
+			return assembly, fmt.Errorf("parameter %d has more than one zero", zero.paramIndex)
+		}
+		zeroByParam[zero.paramIndex] = zero
+	}
+	consumedOperands := make(map[int]bool, len(operands))
+	consumedZeros := make(map[int]bool, len(zeros))
+	for paramIndex, slot := range plan.args {
+		if slot.omitted {
+			if plan.target.goSig.Variadic() && paramIndex == len(plan.args)-1 {
+				continue
+			}
+			zero, ok := zeroByParam[paramIndex]
+			if !ok {
+				return assembly, fmt.Errorf("parameter %d is omitted without a zero", paramIndex)
+			}
+			consumedZeros[paramIndex] = true
+			assembly.arguments = append(assembly.arguments, componentPositionalArgument{
+				kind: componentPositionalArgumentZero, paramIndex: paramIndex, zero: zero,
+			})
+			continue
+		}
+
+		switch slot.param.role {
+		case roleProp:
+			if len(slot.valueIndexes) != 1 {
+				return assembly, fmt.Errorf("ordinary parameter %d has %d planned values", paramIndex, len(slot.valueIndexes))
+			}
+			operand, ok := byParam[paramIndex]
+			if !ok {
+				return assembly, fmt.Errorf("ordinary parameter %d has no authored operand", paramIndex)
+			}
+			consumedOperands[paramIndex] = true
+			assembly.arguments = append(assembly.arguments, componentPositionalArgument{
+				kind: componentPositionalArgumentProp, paramIndex: paramIndex,
+				valueIndex: slot.valueIndexes[0], childIndex: -1, operand: operand,
+			})
+		case roleChildren:
+			if len(slot.valueIndexes) != 1 || slot.valueIndexes[0] < 0 || slot.valueIndexes[0] >= len(plan.values) {
+				return assembly, fmt.Errorf("children parameter %d has an invalid body slot", paramIndex)
+			}
+			valueIndex := slot.valueIndexes[0]
+			if plan.target.goSig.Variadic() && paramIndex == len(plan.args)-1 {
+				for childIndex := range plan.values[valueIndex].children {
+					assembly.arguments = append(assembly.arguments, componentPositionalArgument{
+						kind: componentPositionalArgumentChildren, paramIndex: paramIndex,
+						valueIndex: valueIndex, childIndex: childIndex,
+					})
+				}
+			} else {
+				assembly.arguments = append(assembly.arguments, componentPositionalArgument{
+					kind: componentPositionalArgumentChildren, paramIndex: paramIndex,
+					valueIndex: valueIndex, childIndex: -1,
+				})
+			}
+		case roleAttrs:
+			if len(slot.valueIndexes) == 0 {
+				return assembly, fmt.Errorf("attrs parameter %d is populated without contributors", paramIndex)
+			}
+			assembly.arguments = append(assembly.arguments, componentPositionalArgument{
+				kind: componentPositionalArgumentAttrs, paramIndex: paramIndex, childIndex: -1,
+			})
+		case roleGoOnlyVariadic:
+			return assembly, fmt.Errorf("Go-only variadic parameter %d was populated from markup", paramIndex)
+		default:
+			return assembly, fmt.Errorf("parameter %d has unknown role %d", paramIndex, slot.param.role)
+		}
+	}
+	if len(consumedOperands) != len(byParam) {
+		return assembly, fmt.Errorf("%d authored operands were not assembled", len(byParam)-len(consumedOperands))
+	}
+	if len(consumedZeros) != len(zeroByParam) {
+		return assembly, fmt.Errorf("%d planned zeros were not assembled", len(zeroByParam)-len(consumedZeros))
+	}
+	return assembly, nil
+}
+
+// validateAssembledPositionalCall asks go/types to check the one final call
+// artifact later consumed by emission. Individual operand and zero checks own
+// their positioned diagnostics; this check proves the completed artifact's
+// arity, order, reserved-role conversions, and variadic expansion.
+func validateAssembledPositionalCall(plan componentCallPlan, assembly componentPositionalAssembly, runtime runtimeContract) error {
+	if plan.target.goSig == nil {
+		return fmt.Errorf("missing instantiated signature")
+	}
+
+	probe := types.NewPackage("gsxcall", "gsxcall")
+	sig := plan.target.goSig
+	callSig := types.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+	probe.Scope().Insert(types.NewFunc(token.NoPos, probe, "_gsxcomponent", callSig))
+	var args []string
+	argN := 0
+	addVar := func(typ types.Type) string {
+		name := fmt.Sprintf("_gsxarg%d", argN)
+		argN++
+		probe.Scope().Insert(types.NewVar(token.NoPos, probe, name, typ))
+		return name
+	}
+	addAlias := func(typ types.Type) string {
+		name := fmt.Sprintf("_gsxtype%d", argN)
+		argN++
+		obj := types.NewTypeName(token.NoPos, probe, name, nil)
+		types.NewAlias(obj, typ)
+		probe.Scope().Insert(obj)
+		return name
+	}
+	for _, argument := range assembly.arguments {
+		if argument.paramIndex < 0 || argument.paramIndex >= len(plan.target.params) {
+			return fmt.Errorf("argument refers to parameter %d outside the signature", argument.paramIndex)
+		}
+		param := plan.target.params[argument.paramIndex]
+		switch argument.kind {
+		case componentPositionalArgumentZero:
+			if literal, ok := semanticZeroLiteral(param.typ); ok && argument.zero.expr == literal {
+				args = append(args, literal)
+			} else {
+				// The exact emitted zero spelling was already checked in its lexical
+				// package. Represent its proven value type here so this final check
+				// remains semantic when that spelling names an outer type parameter
+				// or a generated import alias unavailable in the throwaway package.
+				args = append(args, addVar(param.typ))
+			}
+		case componentPositionalArgumentProp:
+			args = append(args, operandArgSource(argument.operand, probe, argN))
+			argN++
+		case componentPositionalArgumentChildren:
+			args = append(args, addVar(runtime.node))
+		case componentPositionalArgumentAttrs:
+			attrs := addVar(runtime.attrs)
+			switch param.attrsMode {
+			case attrsDirect:
+				args = append(args, attrs)
+			case attrsDefinedSlice:
+				args = append(args, "[]"+addAlias(runtime.attr)+"("+attrs+")")
+			case attrsVariadic:
+				args = append(args, attrs+"...")
+			default:
+				return fmt.Errorf("attrs parameter %d has unknown mode %d", argument.paramIndex, param.attrsMode)
+			}
+		default:
+			return fmt.Errorf("argument for parameter %d has unknown kind %d", argument.paramIndex, argument.kind)
+		}
+	}
+
+	source := "package gsxcall\nfunc _gsxprobe() { _gsxcomponent(" + strings.Join(args, ", ") + ") }\n"
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "call.go", source, goparser.SkipObjectResolution)
+	if err != nil {
+		return fmt.Errorf("parse final call probe: %w", err)
+	}
+	var checkErrs []error
+	config := types.Config{Error: func(err error) { checkErrs = append(checkErrs, err) }}
+	types.NewChecker(&config, fset, probe, nil).Files([]*goast.File{file})
+	if len(checkErrs) != 0 {
+		return checkErrs[0]
+	}
+	return nil
 }
 
 func (f componentTargetFact) exprPos() token.Pos {
@@ -366,18 +569,13 @@ func runtimePackageType(runtime runtimeContract, name string) types.Type {
 // own nested (T, error) operations while assembling that final expression.
 // The outer positional materializer must still treat that work as ordered, but
 // must not try to unwrap the already-consumed tuple a second time.
-func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract, table funcTables) map[gsxast.Node]expressionFact {
+func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) map[gsxast.Node]expressionFact {
 	result := maps.Clone(facts)
 	for _, value := range plan.values {
-		fact, ok := result[value.node]
-		if ok {
-			fact.emitsStatements = positionalLoweringEmitsStatements(value, facts, table)
-			result[value.node] = fact
-		}
 		if !positionalLoweringOwnsTuple(value) {
 			continue
 		}
-		fact, ok = result[value.node]
+		fact, ok := result[value.node]
 		if !ok || fact.tuple == nil {
 			continue
 		}
@@ -393,45 +591,6 @@ func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Nod
 		result[value.node] = fact
 	}
 	return result
-}
-
-func positionalLoweringEmitsStatements(value componentInputValue, facts map[gsxast.Node]expressionFact, table funcTables) bool {
-	root := value.node
-	if value.attrsNode != nil {
-		root = value.attrsNode.attr
-	}
-	emits := false
-	gsxast.Inspect(root, func(node gsxast.Node) bool {
-		if node == nil || emits {
-			return !emits
-		}
-		if fact, ok := facts[node]; ok {
-			if fact.tuple != nil {
-				emits = true
-				return false
-			}
-			if renderer, ok := table.renderers[rendererKey(fact.tv.Type)]; ok && renderer.hasErr {
-				emits = true
-				return false
-			}
-		}
-		switch node := node.(type) {
-		case *gsxast.CondAttr, *gsxast.ValueCF:
-			emits = true
-			return false
-		case *gsxast.EmbeddedAttr:
-			if node.Lang == gsxast.EmbeddedJS || node.Lang == gsxast.EmbeddedCSS {
-				for _, segment := range node.Segments {
-					if _, ok := segment.(*gsxast.Interp); ok {
-						emits = true
-						return false
-					}
-				}
-			}
-		}
-		return true
-	})
-	return emits
 }
 
 func positionalLoweringOwnsTuple(value componentInputValue) bool {

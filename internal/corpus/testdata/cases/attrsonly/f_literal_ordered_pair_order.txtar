@@ -110,12 +110,12 @@ func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxv1 := _gsxrt.Attrs{{Key: "data-first", Value: mark("first", "A")}}
-		_gsxv2, _gsxerr := markPair("pair", "P", fail)
+		_gsxa0 := _gsxrt.Attrs{{Key: "data-first", Value: mark("first", "A")}}
+		_gsxv1, _gsxerr := markPair("pair", "P", fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Chip(_gsxrt.ConcatAttrs(_gsxv1, _gsxrt.Attrs{{Key: "data-pair", Value: _gsxv2}}, _gsxrt.Attrs{{Key: "data-last", Value: mark("last", "Z")}})...))
+		_gsxgw.Node(ctx, Chip(_gsxrt.ConcatAttrs(_gsxa0, _gsxrt.Attrs{{Key: "data-pair", Value: _gsxv1}}, _gsxrt.Attrs{{Key: "data-last", Value: mark("last", "Z")}})...))
 		return _gsxgw.Err()
 	})
 }

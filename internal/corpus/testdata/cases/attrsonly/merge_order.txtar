@@ -64,15 +64,15 @@ func Page(on bool, extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxv1 := _gsxrt.Attrs{{Key: "data-z", Value: "9"}}
-		_gsxv2 := extra
-		_gsxv3, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxa0 := _gsxrt.Attrs{{Key: "data-z", Value: "9"}}
+		_gsxa1 := extra
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-c", Value: "3"}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Box(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxv1, _gsxv2, _gsxv3, _gsxrt.Attrs{{Key: "data-b", Value: "2"}})))
+		_gsxgw.Node(ctx, Box(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxa0, _gsxa1, _gsxv1, _gsxrt.Attrs{{Key: "data-b", Value: "2"}})))
 		return _gsxgw.Err()
 	})
 }

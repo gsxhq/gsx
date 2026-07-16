@@ -18,10 +18,6 @@ type positionalEmitContext struct {
 	currentPkg          *types.Package
 	resolved            map[gsxast.Node]types.Type
 	table               funcTables
-	structFields        map[string]map[string]bool
-	nodeProps           map[string]map[string]bool
-	attrsProps          map[string]map[string]bool
-	byo                 *byoData
 	imports             map[string]bool
 	rt                  rtImports
 	importAliases       map[string]string
@@ -61,20 +57,22 @@ func emitPositionalComponentCall(
 	ctx positionalEmitContext,
 ) bool {
 	values := make(map[int]string, len(plan.call.values))
-	materialized := make(map[int]materializedValue, len(plan.materialization.values))
-	for _, value := range plan.materialization.values {
-		materialized[value.valueIndex] = value
+	type loweredValue struct {
+		expr       string
+		statements []byte
+		ready      bool
 	}
-
+	lowered := make([]loweredValue, len(plan.call.values))
 	for valueIndex, value := range plan.call.values {
 		// Children are deferred Node closures, not eagerly evaluated call-site
-		// operands. positionalChildrenArgs owns their scalar/variadic lowering at
-		// the final argument slot; lowering them here would build a duplicate,
+		// operands. The validated assembly owns their scalar/variadic lowering at
+		// the final argument slots; lowering them here would build a duplicate,
 		// unused closure and incorrectly subject it to eager materialization.
 		if value.kind == componentInputBody {
 			continue
 		}
-		expr, used, ok := positionalValueExpr(b, value, plan, ctx)
+		var statements bytes.Buffer
+		expr, used, ok := positionalValueExpr(&statements, value, plan, ctx)
 		if !ok {
 			ctx.bag.Errorf(value.node.Pos(), value.node.End(), "component-positional-emission",
 				"component input %T is not yet lowered by positional emission", value.node)
@@ -82,7 +80,7 @@ func emitPositionalComponentCall(
 		}
 		if exprAttr, ok := value.node.(*gsxast.ExprAttr); ok && value.attrsNode == nil && len(exprAttr.Stages) != 0 {
 			var err error
-			expr, used, err = lowerPipe(exprAttr.Expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(b))
+			expr, used, err = lowerPipe(exprAttr.Expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements))
 			if err != nil {
 				ctx.bag.Errorf(exprAttr.Pos(), exprAttr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return false
@@ -91,70 +89,98 @@ func emitPositionalComponentCall(
 		for _, path := range used {
 			ctx.imports[path] = true
 		}
-
-		decision := materialized[valueIndex]
-		lowered := expr
-		switch {
-		case decision.unwrapTuple:
-			temp := nextPositionalTemp(ctx.interpTemp)
-			fmt.Fprintf(b, "%s, _gsxerr := %s\n", temp, expr)
-			fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
-			lowered = temp
-		case decision.temp != "":
-			temp := nextPositionalTemp(ctx.interpTemp)
-			fmt.Fprintf(b, "%s := %s\n", temp, expr)
-			lowered = temp
-		}
-		values[valueIndex] = normalizePositionalAttrsContributor(lowered, value, plan, ctx)
+		lowered[valueIndex] = loweredValue{expr: expr, statements: bytes.Clone(statements.Bytes()), ready: true}
 	}
 
-	zeros := make(map[int]string, len(plan.zeros))
-	for _, zero := range plan.zeros {
-		zeros[zero.paramIndex] = zero.expr
-	}
-	args := make([]string, 0, len(plan.signature.params))
-	for paramIndex, slot := range plan.call.args {
-		if slot.omitted && plan.signature.goSig.Variadic() && paramIndex == len(plan.call.args)-1 {
+	// The lowering buffers are the source of truth for eager statement effects.
+	// This avoids a parallel syntax classifier that can drift whenever a lowerer
+	// gains a new hoist (for example, a fallible non-final pipeline stage).
+	materializationFacts := positionalMaterializationFacts(plan.call, plan.expressionFacts, plan.runtime)
+	for valueIndex, result := range lowered {
+		if !result.ready || len(result.statements) == 0 {
 			continue
 		}
-		if slot.omitted {
-			expr, ok := zeros[paramIndex]
+		value := plan.call.values[valueIndex]
+		fact := materializationFacts[value.node]
+		fact.emitsStatements = true
+		materializationFacts[value.node] = fact
+	}
+	materialization := planComponentMaterialization(plan.call, materializationFacts)
+	materialized := make(map[int]materializedValue, len(materialization.values))
+	for _, value := range materialization.values {
+		materialized[value.valueIndex] = value
+	}
+
+	argumentTemp := 0
+	for valueIndex, value := range plan.call.values {
+		if value.kind == componentInputBody {
+			continue
+		}
+		result := lowered[valueIndex]
+		if !result.ready {
+			ctx.bag.Errorf(value.node.Pos(), value.node.End(), "component-positional-emission", "validated component input was not lowered")
+			return false
+		}
+		b.Write(result.statements)
+		decision := materialized[valueIndex]
+		expr := result.expr
+		switch {
+		case decision.unwrapTuple:
+			temp := nextPositionalArgumentTemp(&argumentTemp)
+			fmt.Fprintf(b, "%s, _gsxerr := %s\n", temp, expr)
+			fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
+			expr = temp
+		case decision.temp != "":
+			temp := nextPositionalArgumentTemp(&argumentTemp)
+			fmt.Fprintf(b, "%s := %s\n", temp, expr)
+			expr = temp
+		}
+		values[valueIndex] = normalizePositionalAttrsContributor(expr, value, plan, ctx)
+	}
+
+	args := make([]string, 0, len(plan.assembly.arguments))
+	for _, argument := range plan.assembly.arguments {
+		if argument.paramIndex < 0 || argument.paramIndex >= len(plan.call.args) {
+			ctx.bag.Errorf(el.Pos(), el.End(), "component-positional-emission", "validated argument refers to an invalid parameter")
+			return false
+		}
+		slot := plan.call.args[argument.paramIndex]
+		switch argument.kind {
+		case componentPositionalArgumentZero:
+			args = append(args, argument.zero.expr)
+		case componentPositionalArgumentProp:
+			expr, ok := values[argument.valueIndex]
 			if !ok {
 				ctx.bag.Errorf(el.Pos(), el.End(), "component-positional-emission",
-					"component parameter %q has neither an authored value nor a validated zero", slot.param.name)
+					"component parameter %q has no lowered authored value", slot.param.name)
 				return false
 			}
 			args = append(args, expr)
-			continue
-		}
-		if slot.param.role == roleChildren {
-			childrenArgs, ok := positionalChildrenArgs(slot, plan, ctx)
+		case componentPositionalArgumentChildren:
+			value := plan.call.values[argument.valueIndex]
+			nodes := value.children
+			if argument.childIndex >= 0 {
+				if argument.childIndex >= len(nodes) {
+					ctx.bag.Errorf(el.Pos(), el.End(), "component-positional-emission", "validated children argument is outside the body")
+					return false
+				}
+				nodes = []gsxast.Markup{nodes[argument.childIndex]}
+			}
+			expr, ok := positionalSlotClosure(nodes, ctx)
 			if !ok {
 				return false
 			}
-			args = append(args, childrenArgs...)
-			continue
-		}
-		if slot.param.role == roleAttrs {
+			args = append(args, expr)
+		case componentPositionalArgumentAttrs:
 			attrsArg, ok := positionalAttrsArg(slot, values, ctx)
 			if !ok {
 				return false
 			}
 			args = append(args, attrsArg)
-			continue
-		}
-		if slot.param.role != roleProp || len(slot.valueIndexes) != 1 {
-			ctx.bag.Errorf(el.Pos(), el.End(), "component-positional-emission",
-				"component parameter %q requires reserved-role lowering", slot.param.name)
+		default:
+			ctx.bag.Errorf(el.Pos(), el.End(), "component-positional-emission", "validated argument has an unknown kind")
 			return false
 		}
-		expr, ok := values[slot.valueIndexes[0]]
-		if !ok {
-			ctx.bag.Errorf(el.Pos(), el.End(), "component-positional-emission",
-				"component parameter %q has no lowered authored value", slot.param.name)
-			return false
-		}
-		args = append(args, expr)
 	}
 
 	typeArgs := ""
@@ -187,8 +213,8 @@ func normalizePositionalAttrsContributor(expr string, value componentInputValue,
 	return ctx.rt.rt() + ".Attrs(" + expr + ")"
 }
 
-func nextPositionalTemp(counter *int) string {
-	name := fmt.Sprintf("_gsxv%d", *counter)
+func nextPositionalArgumentTemp(counter *int) string {
+	name := fmt.Sprintf("_gsxa%d", *counter)
 	*counter++
 	return name
 }
@@ -403,7 +429,7 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 }
 
 func positionalSlotClosure(nodes []gsxast.Markup, ctx positionalEmitContext) (string, bool) {
-	return emitSlotClosure(nodes, ctx.currentPkg, ctx.resolved, ctx.table, ctx.structFields, ctx.nodeProps, ctx.attrsProps, ctx.byo, ctx.imports, ctx.rt, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.interpTemp, ctx.fset, ctx.recvVar, ctx.recvTypeName, ctx.cls, ctx.bag, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan)
+	return emitSlotClosure(nodes, ctx.currentPkg, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.interpTemp, ctx.fset, ctx.recvVar, ctx.recvTypeName, ctx.cls, ctx.bag, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan)
 }
 
 func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, bool) {
@@ -425,27 +451,6 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(pair.Key), expr))
 	}
 	return fmt.Sprintf("%s.Attrs{%s}", ctx.rt.rt(), strings.Join(entries, ", ")), true
-}
-
-func positionalChildrenArgs(slot componentArgSlot, plan componentPositionalSitePlan, ctx positionalEmitContext) ([]string, bool) {
-	if len(slot.valueIndexes) != 1 {
-		ctx.bag.Errorf(plan.call.call.Pos(), plan.call.call.End(), "component-positional-emission", "children requires exactly one planned body value")
-		return nil, false
-	}
-	value := plan.call.values[slot.valueIndexes[0]]
-	if !plan.signature.goSig.Variadic() {
-		expr, ok := positionalSlotClosure(value.children, ctx)
-		return []string{expr}, ok
-	}
-	args := make([]string, 0, len(value.children))
-	for _, child := range value.children {
-		expr, ok := positionalSlotClosure([]gsxast.Markup{child}, ctx)
-		if !ok {
-			return nil, false
-		}
-		args = append(args, expr)
-	}
-	return args, true
 }
 
 func positionalAttrsArg(slot componentArgSlot, values map[int]string, ctx positionalEmitContext) (string, bool) {

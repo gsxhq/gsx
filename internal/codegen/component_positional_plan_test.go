@@ -43,11 +43,92 @@ func TestPlanComponentPositionalCallsAcceptsExplicitOperandsAndZerosOmissions(t 
 	if len(site.zeros) != 1 || site.zeros[0].paramIndex != 0 || site.zeros[0].expr != `""` {
 		t.Fatalf("zeros = %+v, want title=\"\"", site.zeros)
 	}
-	if len(site.materialization.values) != 1 || !site.materialization.values[0].inline {
-		t.Fatalf("materialization = %+v", site.materialization)
+	materialization := planComponentMaterialization(site.call, positionalMaterializationFacts(site.call, site.expressionFacts, site.runtime))
+	if len(materialization.values) != 1 || !materialization.values[0].inline {
+		t.Fatalf("materialization = %+v", materialization)
 	}
 	if lookedUp, ok := got.siteForElement(el); !ok || lookedUp.call.site != 1 {
 		t.Fatalf("element lookup = %+v, %v", lookedUp, ok)
+	}
+}
+
+func TestValidateAssembledPositionalCallChecksCompletedShape(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	pkg := types.NewPackage("example.test/page", "page")
+	definedAttrs := types.NewNamed(
+		types.NewTypeName(token.NoPos, pkg, "LocalAttrs", nil),
+		types.NewSlice(fx.runtime.attr),
+		nil,
+	)
+	sig := types.NewSignatureType(nil, nil, nil, types.NewTuple(
+		types.NewVar(token.NoPos, pkg, "label", types.Typ[types.String]),
+		types.NewVar(token.NoPos, pkg, "count", types.Typ[types.Int]),
+		types.NewVar(token.NoPos, pkg, "attrs", definedAttrs),
+	), types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), false)
+	model, err := analyzeComponentSignature(sig, fx.runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := componentCallPlan{
+		target: model,
+		args: []componentArgSlot{
+			{param: model.params[0], omitted: true},
+			{param: model.params[1], valueIndexes: []int{0}},
+			{param: model.params[2], valueIndexes: []int{1}},
+		},
+	}
+	operands := []suppliedOperand{{paramIndex: 1, tv: types.TypeAndValue{Type: types.Typ[types.Int]}}}
+	zeros := []componentZeroArgument{{paramIndex: 0, expr: `""`}}
+	assembly, err := assemblePositionalCall(plan, operands, zeros)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAssembledPositionalCall(plan, assembly, fx.runtime); err != nil {
+		t.Fatalf("valid completed call: %v", err)
+	}
+
+	if _, err := assemblePositionalCall(plan, operands, nil); err == nil || !strings.Contains(err.Error(), "omitted without a zero") {
+		t.Fatalf("missing zero error = %v", err)
+	}
+	badOperands := []suppliedOperand{{paramIndex: 1, tv: types.TypeAndValue{Type: types.Typ[types.String]}}}
+	badAssembly, err := assemblePositionalCall(plan, badOperands, zeros)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAssembledPositionalCall(plan, badAssembly, fx.runtime); err == nil {
+		t.Fatal("final call accepted a string in the int position")
+	}
+}
+
+func TestValidateAssembledPositionalCallChecksVariadicChildrenArity(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	pkg := types.NewPackage("example.test/page", "page")
+	sig := types.NewSignatureType(nil, nil, nil, types.NewTuple(
+		types.NewVar(token.NoPos, pkg, "label", types.Typ[types.String]),
+		types.NewVar(token.NoPos, pkg, "children", types.NewSlice(fx.runtime.node)),
+	), types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), true)
+	model, err := analyzeComponentSignature(sig, fx.runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := componentCallPlan{
+		target: model,
+		args: []componentArgSlot{
+			{param: model.params[0], valueIndexes: []int{0}},
+			{param: model.params[1], valueIndexes: []int{1}},
+		},
+		values: []componentInputValue{
+			{kind: componentInputProp, paramIndex: 0},
+			{kind: componentInputBody, paramIndex: 1, children: []gsxast.Markup{nil, nil}},
+		},
+	}
+	operands := []suppliedOperand{{paramIndex: 0, tv: types.TypeAndValue{Type: types.Typ[types.String]}}}
+	assembly, err := assemblePositionalCall(plan, operands, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAssembledPositionalCall(plan, assembly, fx.runtime); err != nil {
+		t.Fatalf("valid variadic children call: %v", err)
 	}
 }
 
@@ -295,8 +376,9 @@ func TestPlanComponentPositionalCallsPinsConditionalAttrsAtAuthoredOrder(t *test
 		t.Fatalf("diagnostics = %+v", diagnostics)
 	}
 	site := got.sites[1]
-	if len(site.materialization.values) != 2 || site.materialization.values[0].temp == "" || site.materialization.values[1].temp == "" {
-		t.Fatalf("crossing ordered values must both be pinned: %+v", site.materialization.values)
+	materialization := planComponentMaterialization(site.call, positionalMaterializationFacts(site.call, site.expressionFacts, site.runtime))
+	if len(materialization.values) != 2 || materialization.values[0].temp == "" || materialization.values[1].temp == "" {
+		t.Fatalf("crossing ordered values must both be pinned: %+v", materialization.values)
 	}
 	if !site.expressionFacts[el.Attrs[1]].hasOrderedOperation {
 		t.Fatalf("conditional attrs fact = %+v", site.expressionFacts[el.Attrs[1]])
@@ -326,7 +408,7 @@ func TestPositionalMaterializationFactsLeaveTupleOwnershipWithCompoundLowering(t
 		pair:     {tv: types.TypeAndValue{Type: tuple}, tuple: tuple},
 	}
 
-	materializationFacts := positionalMaterializationFacts(plan, facts, fx.runtime, funcTables{})
+	materializationFacts := positionalMaterializationFacts(plan, facts, fx.runtime)
 	if got := materializationFacts[embedded]; got.tuple != nil || !types.Identical(got.tv.Type, types.Typ[types.String]) || !got.hasOrderedOperation {
 		t.Fatalf("embedded lowering fact = %+v, want ordered string without outer tuple", got)
 	}
