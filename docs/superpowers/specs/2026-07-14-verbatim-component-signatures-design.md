@@ -512,6 +512,16 @@ tag eligibility is defined by **resolvability to a concrete `go/types.Signature`
   positional calls (a guessed field set cannot produce a correct positional call)
   and must be replaced by fail-closed resolution here.
 
+`ast.Element.IsComponent` records the final semantic answer, not syntactic
+component intent. Capital-first and dotted spellings nominate a target; they do
+not make an invalid target a component. The package preprocessor sets the field
+true only after proving allowed provenance and the one-result-assignable-to-
+`gsx.Node` contract. A failed capital-first/dotted claim is a positioned error,
+not an HTML fallback. A lowercase same-package name that definitively lacks the
+result contract remains an ordinary leaf. Parameter-role validation happens
+after this identity decision, so a callable with a valid result but malformed
+`attrs` or `children` stays a component and receives the signature diagnostic.
+
 A signature containing `types.Invalid` anywhere in a parameter or result type
 graph, or an incomplete alias that unaliases to no type, is unresolved for this
 purpose and therefore tag-ineligible. Validation walks semantic types with cycle
