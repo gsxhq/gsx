@@ -24,6 +24,9 @@ func writeTracingGoCommand(t *testing.T, trace, compiler string) string {
 printf '%s\n' "$*" >> "$GSX_GO_COMMAND_TRACE"
 if [ "$1" = "env" ] && [ "$2" = "-changed" ]; then
 	printf '{"GOFLAGS":"%s"}' "$GOFLAGS"
+	if [ -n "$GSX_MUTATE_GOENV_AFTER_CHANGED" ]; then
+		printf 'GOPROXY=%s\n' "$GSX_FAKE_LATE_GOPROXY" > "$GSX_MUTATE_GOENV_AFTER_CHANGED"
+	fi
 	exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOWORK" ]; then
@@ -38,7 +41,11 @@ if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
 	if [ -n "$GSX_MUTATE_COMPILER_DURING_ENV" ]; then
 		printf 'compiler changed during command %s' "$$" > "$GSX_FAKE_COMPILER"
 	fi
-	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux","GOROOT":"%s","GOVERSION":"%s","GOTOOLCHAIN":"go1.26.1+auto","GOENV":"/persisted/go/env","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_SELECTED_GOROOT" "$GSX_FAKE_SELECTED_VERSION"
+	proxy="$GSX_FAKE_DEFAULT_GOPROXY"
+	if [ "$GOENV" != "off" ]; then
+		proxy="$GSX_FAKE_LATE_GOPROXY"
+	fi
+	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux","GOROOT":"%s","GOVERSION":"%s","GOTOOLCHAIN":"go1.26.1+auto","GOENV":"/persisted/go/env","GOPROXY":"%s","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_SELECTED_GOROOT" "$GSX_FAKE_SELECTED_VERSION" "$proxy"
 	exit 0
 fi
 if [ "$1" = "tool" ] && [ "$2" = "-n" ] && [ "$3" = "compile" ]; then
@@ -58,6 +65,8 @@ exit 1
 	t.Setenv("GSX_FAKE_LOCAL_GOROOT", goRoot)
 	t.Setenv("GSX_FAKE_SELECTED_VERSION", "go1.26.1")
 	t.Setenv("GSX_FAKE_LOCAL_VERSION", "go1.26.1")
+	t.Setenv("GSX_FAKE_DEFAULT_GOPROXY", "https://default.example")
+	t.Setenv("GSX_FAKE_LATE_GOPROXY", "https://late.example")
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOFLAGS", "")
@@ -185,6 +194,58 @@ func TestGoCommandContextProcessEnvironmentPrecedesPersistedGoEnv(t *testing.T) 
 	}
 	if got := canonical["GOPROXY"]; got != "https://process.example" {
 		t.Fatalf("canonical GOPROXY = %q, want explicit process value", got)
+	}
+}
+
+func TestGoCommandContextDisablesGoEnvBeforeRetainedFullQuery(t *testing.T) {
+	root := t.TempDir()
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTracingGoCommand(t, filepath.Join(t.TempDir(), "trace"), compiler)
+	goEnv := filepath.Join(t.TempDir(), "go.env")
+	if err := os.WriteFile(goEnv, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOENV", goEnv)
+	t.Setenv("GSX_MUTATE_GOENV_AFTER_CHANGED", goEnv)
+
+	context := CaptureGoCommandContext(root)
+	if context.buildEnvErr != nil {
+		t.Fatal(context.buildEnvErr)
+	}
+	if got := environmentValue(context.buildEnv, "GOENV"); got != "off" {
+		t.Fatalf("frozen GOENV = %q, want off", got)
+	}
+	mutated, err := os.ReadFile(goEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(mutated), "GOPROXY=https://late.example\n"; got != want {
+		t.Fatalf("mutated go env = %q, want %q", got, want)
+	}
+	retained := map[string]string{}
+	if err := json.Unmarshal(context.cacheEnv, &retained); err != nil {
+		t.Fatal(err)
+	}
+	if got := retained["GOPROXY"]; got != "https://default.example" {
+		t.Fatalf("retained GOPROXY = %q, want pre-mutation default", got)
+	}
+	freshJSON, err := context.Run("env", "-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := map[string]string{}
+	if err := json.Unmarshal(freshJSON, &fresh); err != nil {
+		t.Fatal(err)
+	}
+	freshCanonical, err := canonicalGoEnvironment(fresh, context.buildEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(context.cacheEnv, freshCanonical) {
+		t.Fatalf("late go env mutation split retained and semantic environments:\nretained: %s\nfresh:    %s", context.cacheEnv, freshCanonical)
 	}
 }
 
