@@ -1,0 +1,955 @@
+package codegen
+
+import (
+	"bytes"
+	"fmt"
+	goast "go/ast"
+	"go/constant"
+	goparser "go/parser"
+	"go/printer"
+	"go/token"
+	"go/types"
+	"maps"
+	"sort"
+	"strconv"
+	"strings"
+
+	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
+)
+
+type componentPositionalPlanningInput struct {
+	callSites       *callSiteRegistry
+	targets         map[callSiteID]componentTargetFact
+	expressionFacts map[gsxast.Node]expressionFact
+	runtime         runtimeContract
+	analysisPackage *types.Package
+	fset            *token.FileSet
+}
+
+type componentPositionalPackagePlan struct {
+	sites     map[callSiteID]componentPositionalSitePlan
+	byElement map[*gsxast.Element]callSiteID
+	imports   map[string]*generatedImportAllocator
+}
+
+type componentPositionalSitePlan struct {
+	call            componentCallPlan
+	target          componentTargetFact
+	instance        types.Instance
+	signature       componentSignatureModel
+	typeArgs        []types.Type
+	typeArgExprs    []string
+	operands        []suppliedOperand
+	authoredValues  []componentPositionalAuthoredValue
+	expressionFacts map[gsxast.Node]expressionFact
+	zeros           []componentZeroArgument
+	materialization materializationPlan
+}
+
+type componentZeroArgument struct {
+	paramIndex int
+	expr       string
+}
+
+type componentPositionalAuthoredValue struct {
+	value             componentInputValue
+	fact              expressionFact
+	requiresStatement bool
+}
+
+func (p componentPositionalPackagePlan) siteForElement(element *gsxast.Element) (componentPositionalSitePlan, bool) {
+	site, ok := p.byElement[element]
+	if !ok {
+		return componentPositionalSitePlan{}, false
+	}
+	plan, ok := p.sites[site]
+	return plan, ok
+}
+
+func planComponentPositionalCalls(input componentPositionalPlanningInput) (componentPositionalPackagePlan, []diag.Diagnostic) {
+	result := componentPositionalPackagePlan{
+		sites:     make(map[callSiteID]componentPositionalSitePlan),
+		byElement: make(map[*gsxast.Element]callSiteID),
+		imports:   make(map[string]*generatedImportAllocator),
+	}
+	if input.callSites == nil || input.analysisPackage == nil || input.fset == nil {
+		return result, []diag.Diagnostic{{
+			Severity: diag.Error,
+			Code:     "component-positional-plan",
+			Message:  "component positional planning requires call sites, the analysis package, and its FileSet",
+			Source:   "codegen",
+		}}
+	}
+
+	var diagnostics []diag.Diagnostic
+	for _, record := range input.callSites.records {
+		if record.disposition != callSitePlanned {
+			continue
+		}
+		fact, ok := input.targets[record.id]
+		if !ok {
+			diagnostics = append(diagnostics, positionalDiagnostic(record.element, input.fset, "component-target-fact", "component target has no semantic discovery fact"))
+			continue
+		}
+		if fact.raw == nil {
+			if len(fact.targetDiags) != 0 {
+				diagnostics = append(diagnostics, fact.targetDiags...)
+			} else {
+				diagnostics = append(diagnostics, positionalDiagnostic(record.element, input.fset, "invalid-component-target", "component target has no callable signature"))
+			}
+			continue
+		}
+
+		originModel, err := analyzeComponentSignature(fact.raw, input.runtime)
+		if err != nil {
+			diagnostics = append(diagnostics, positionalSignatureDiagnostic(record.element, input.fset, err))
+			continue
+		}
+		call, callDiags := planComponentInputs(record.id, record.element, originModel, input.fset)
+		if len(callDiags) != 0 {
+			diagnostics = append(diagnostics, callDiags...)
+			continue
+		}
+		siteFacts, authoredValues, factDiags := completeComponentOperandFacts(call, input.expressionFacts, input.runtime, input.fset)
+		call, operandDiags := validateComponentOperands(call, siteFacts, input.runtime)
+		operandDiags = append(operandDiags, validateRecursiveAttrsOperands(call, siteFacts, input.runtime)...)
+		operandDiags = append(operandDiags, validateRequiredAttrsFacts(call, siteFacts, input.fset)...)
+		operands, suppliedDiags := positionalSuppliedOperands(call, siteFacts, input.fset)
+		factDiags = append(factDiags, suppliedDiags...)
+		operandDiags = append(operandDiags, factDiags...)
+		if len(operandDiags) != 0 {
+			diagnostics = append(diagnostics, operandDiags...)
+			continue
+		}
+		// Target/type-argument diagnostics are deliberately deferred until syntax
+		// and authored operands have been checked. This preserves the specified
+		// diagnostic precedence without allowing an invalid target to reach
+		// inference or zero-fill.
+		if fact.provenance == 0 || len(fact.targetDiags) != 0 {
+			if len(fact.targetDiags) != 0 {
+				diagnostics = append(diagnostics, fact.targetDiags...)
+			} else {
+				diagnostics = append(diagnostics, positionalDiagnostic(record.element, input.fset, "invalid-component-target", "component target provenance is not callable from markup"))
+			}
+			continue
+		}
+
+		instance, inferenceDiags := inferAuthoredInstance(inferenceContext{
+			pkg:   input.analysisPackage,
+			fset:  input.fset,
+			scope: input.analysisPackage.Scope().Innermost(fact.exprPos()),
+		}, fact, operands)
+		if len(inferenceDiags) != 0 {
+			diagnostics = append(diagnostics, inferenceDiags...)
+			continue
+		}
+		instantiated, ok := instance.Type.(*types.Signature)
+		if !ok {
+			diagnostics = append(diagnostics, positionalDiagnostic(record.element, input.fset, "component-inference", "component inference did not produce a callable signature"))
+			continue
+		}
+		model, err := analyzeComponentSignature(instantiated, input.runtime)
+		if err != nil {
+			diagnostics = append(diagnostics, positionalSignatureDiagnostic(record.element, input.fset, err))
+			continue
+		}
+		call.target = model
+		for i := range call.args {
+			call.args[i].param = model.params[i]
+		}
+		assignmentDiags := validatePositionalOperandAssignments(call, operands, input.analysisPackage, input.fset)
+		if len(assignmentDiags) != 0 {
+			diagnostics = append(diagnostics, assignmentDiags...)
+			continue
+		}
+
+		allocator := result.imports[record.path]
+		if allocator == nil {
+			allocator = newGeneratedImportAllocator("_gsxty")
+			result.imports[record.path] = allocator
+		}
+		typeArgs, typeArgExprs, typeArgDiags := planComponentTypeArguments(fact, instance, input.analysisPackage, allocator, input.fset)
+		if len(typeArgDiags) != 0 {
+			diagnostics = append(diagnostics, typeArgDiags...)
+			continue
+		}
+		zeros, zeroDiags := planComponentZeros(call, fact, input.analysisPackage, input.fset, allocator)
+		if len(zeroDiags) != 0 {
+			diagnostics = append(diagnostics, zeroDiags...)
+			continue
+		}
+		materialization := planComponentMaterialization(call, siteFacts)
+		materialization = forceStatementMaterialization(materialization, authoredValues)
+		result.sites[record.id] = componentPositionalSitePlan{
+			call:            call,
+			target:          fact,
+			instance:        instance,
+			signature:       model,
+			typeArgs:        typeArgs,
+			typeArgExprs:    typeArgExprs,
+			operands:        operands,
+			authoredValues:  authoredValues,
+			expressionFacts: siteFacts,
+			zeros:           zeros,
+			materialization: materialization,
+		}
+		result.byElement[record.element] = record.id
+	}
+	return result, diagnostics
+}
+
+func (f componentTargetFact) exprPos() token.Pos {
+	if f.expr == nil {
+		return token.NoPos
+	}
+	return f.expr.Pos()
+}
+
+func positionalDiagnostic(node gsxast.Node, fset *token.FileSet, code, message string) diag.Diagnostic {
+	d := diag.Diagnostic{Severity: diag.Error, Code: code, Message: message, Source: "codegen"}
+	if node != nil && fset != nil && node.Pos().IsValid() {
+		d.Start = fset.Position(node.Pos())
+		d.End = fset.Position(node.End())
+	}
+	return d
+}
+
+func positionalSignatureDiagnostic(node gsxast.Node, fset *token.FileSet, err error) diag.Diagnostic {
+	message := err.Error()
+	code := "component-signature"
+	if before, _, ok := strings.Cut(message, ":"); ok && strings.HasPrefix(before, "component-") {
+		code = before
+	}
+	return positionalDiagnostic(node, fset, code, message)
+}
+
+func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast.Node]expressionFact, runtime runtimeContract, fset *token.FileSet) (map[gsxast.Node]expressionFact, []componentPositionalAuthoredValue, []diag.Diagnostic) {
+	facts := maps.Clone(discovered)
+	if facts == nil {
+		facts = make(map[gsxast.Node]expressionFact)
+	}
+	requiresStatement := make(map[gsxast.Node]bool)
+	var diagnostics []diag.Diagnostic
+
+	var completeNode func(gsxast.Node) bool
+	completeNode = func(node gsxast.Node) bool {
+		if node == nil {
+			return false
+		}
+		if _, ok := facts[node]; ok {
+			return true
+		}
+		fact, statement, ok := syntaxDefinedComponentFact(node, facts, runtime)
+		if !ok {
+			return false
+		}
+		facts[node] = fact
+		requiresStatement[node] = statement
+		return true
+	}
+	var completeAttrsTree func(componentAttrsStreamNode)
+	completeAttrsTree = func(node componentAttrsStreamNode) {
+		if node.kind == componentAttrsStreamConditional {
+			for _, child := range node.then {
+				completeAttrsTree(child)
+			}
+			for _, child := range node.otherwise {
+				completeAttrsTree(child)
+			}
+			if _, exists := facts[node.attr]; !exists {
+				facts[node.attr] = expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true}
+			}
+			requiresStatement[node.attr] = true
+			return
+		}
+		completeNode(node.attr)
+	}
+
+	authored := make([]componentPositionalAuthoredValue, 0, len(plan.values))
+	for _, value := range plan.values {
+		if value.attrsNode != nil {
+			completeAttrsTree(*value.attrsNode)
+		}
+		if value.kind == componentInputBody {
+			facts[value.node] = expressionFact{tv: types.TypeAndValue{Type: runtime.node}}
+		}
+		if !completeNode(value.node) {
+			diagnostics = append(diagnostics, positionalDiagnostic(value.node, fset, "component-operand-fact", fmt.Sprintf("component input %T has no exact syntax-derived or go/types operand fact", value.node)))
+			continue
+		}
+		authored = append(authored, componentPositionalAuthoredValue{
+			value:             value,
+			fact:              facts[value.node],
+			requiresStatement: requiresStatement[value.node],
+		})
+	}
+	return facts, authored, diagnostics
+}
+
+func syntaxDefinedComponentFact(node gsxast.Node, nested map[gsxast.Node]expressionFact, runtime runtimeContract) (expressionFact, bool, bool) {
+	switch node := node.(type) {
+	case *gsxast.StaticAttr:
+		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.UntypedString], Value: constant.MakeString(node.Value)}}, false, true
+	case *gsxast.BoolAttr:
+		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.UntypedBool], Value: constant.MakeBool(true)}}, false, true
+	case *gsxast.MarkupAttr:
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.node}}, false, true
+	case *gsxast.OrderedAttrsAttr:
+		ordered, statement, complete := aggregateNestedComponentFacts(node, nested)
+		if !complete && len(node.Pairs) != 0 {
+			return expressionFact{}, false, false
+		}
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: ordered}, statement, true
+	case *gsxast.ClassAttr:
+		ordered, statement, complete := aggregateNestedComponentFacts(node, nested)
+		if !complete && len(node.Parts) != 0 {
+			return expressionFact{}, false, false
+		}
+		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: ordered}, statement, true
+	case *gsxast.EmbeddedAttr:
+		ordered, statement, _ := aggregateNestedComponentFacts(node, nested)
+		var typ types.Type
+		switch node.Lang {
+		case gsxast.EmbeddedText:
+			typ = types.Typ[types.String]
+		case gsxast.EmbeddedJS:
+			typ = runtimePackageType(runtime, "RawJS")
+		case gsxast.EmbeddedCSS:
+			typ = runtimePackageType(runtime, "RawCSS")
+		}
+		if typ == nil {
+			return expressionFact{}, false, false
+		}
+		return expressionFact{tv: types.TypeAndValue{Type: typ}, hasOrderedOperation: ordered}, statement, true
+	case *gsxast.CondAttr:
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true}, true, true
+	case *gsxast.Element:
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.node}}, false, true
+	}
+	return expressionFact{}, false, false
+}
+
+func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expressionFact) (ordered, statement, complete bool) {
+	complete = true
+	seenValue := false
+	gsxast.Inspect(root, func(node gsxast.Node) bool {
+		if node == nil || node == root {
+			return true
+		}
+		switch node.(type) {
+		case *gsxast.Interp, *gsxast.OrderedPair, *gsxast.ClassPart, *gsxast.ValueArm:
+			seenValue = true
+			fact, ok := facts[node]
+			if !ok {
+				complete = false
+				return true
+			}
+			ordered = ordered || fact.hasOrderedOperation || fact.tuple != nil
+			statement = statement || fact.tuple != nil
+		case *gsxast.ValueCF:
+			statement = true
+			ordered = true
+		}
+		return true
+	})
+	if !seenValue {
+		complete = true
+	}
+	return ordered, statement, complete
+}
+
+func runtimePackageType(runtime runtimeContract, name string) types.Type {
+	var pkg *types.Package
+	collectNamedTypes(runtime.node, func(named *types.Named) {
+		if pkg == nil && named.Obj() != nil {
+			pkg = named.Obj().Pkg()
+		}
+	})
+	if pkg == nil {
+		return nil
+	}
+	obj, ok := pkg.Scope().Lookup(name).(*types.TypeName)
+	if !ok {
+		return nil
+	}
+	return obj.Type()
+}
+
+func forceStatementMaterialization(plan materializationPlan, authored []componentPositionalAuthoredValue) materializationPlan {
+	statement := make(map[int]bool)
+	for _, value := range authored {
+		if value.requiresStatement {
+			for i, planned := range plan.values {
+				if planned.node == value.value.node {
+					statement[i] = true
+				}
+			}
+		}
+	}
+	next := 0
+	for _, value := range plan.values {
+		if value.temp != "" {
+			next++
+		}
+	}
+	for i := range plan.values {
+		if !statement[i] || plan.values[i].temp != "" {
+			continue
+		}
+		plan.values[i].inline = false
+		plan.values[i].temp = fmt.Sprintf("_gsxv%d", next)
+		next++
+	}
+	return plan
+}
+
+func validateRecursiveAttrsOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) []diag.Diagnostic {
+	var diagnostics []diag.Diagnostic
+	var visit func(componentAttrsStreamNode)
+	visit = func(node componentAttrsStreamNode) {
+		if node.kind == componentAttrsStreamConditional {
+			for _, child := range node.then {
+				visit(child)
+			}
+			for _, child := range node.otherwise {
+				visit(child)
+			}
+			return
+		}
+		leaf := componentCallPlan{callStart: plan.callStart, callEnd: plan.callEnd, values: []componentInputValue{{
+			kind:      componentInputAttrsPair,
+			node:      node.attr,
+			attrsNode: &node,
+		}}}
+		switch node.kind {
+		case componentAttrsStreamSpread:
+			leaf.values[0].kind = componentInputAttrsSegment
+		case componentAttrsStreamContributor:
+			leaf.values[0].kind = componentInputAttrsContributor
+		}
+		_, leafDiags := validateComponentOperands(leaf, facts, runtime)
+		diagnostics = append(diagnostics, leafDiags...)
+	}
+	for _, value := range plan.values {
+		if value.attrsNode != nil && value.attrsNode.kind == componentAttrsStreamConditional {
+			visit(*value.attrsNode)
+		}
+	}
+	return diagnostics
+}
+
+func validateRequiredAttrsFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, fset *token.FileSet) []diag.Diagnostic {
+	var diagnostics []diag.Diagnostic
+	var visit func(componentAttrsStreamNode)
+	visit = func(node componentAttrsStreamNode) {
+		if node.kind == componentAttrsStreamConditional {
+			for _, child := range node.then {
+				visit(child)
+			}
+			for _, child := range node.otherwise {
+				visit(child)
+			}
+			return
+		}
+		if node.kind != componentAttrsStreamSpread && node.kind != componentAttrsStreamContributor {
+			return
+		}
+		fact, ok := facts[node.attr]
+		if !ok || fact.tv.Type == nil {
+			diagnostics = append(diagnostics, positionalDiagnostic(node.attr, fset, "component-operand-fact", "attrs contributor has no authoritative go/types operand fact"))
+		}
+	}
+	for _, value := range plan.values {
+		if value.attrsNode != nil {
+			visit(*value.attrsNode)
+		}
+	}
+	return diagnostics
+}
+
+func positionalSuppliedOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, fset *token.FileSet) ([]suppliedOperand, []diag.Diagnostic) {
+	var operands []suppliedOperand
+	var diagnostics []diag.Diagnostic
+	for _, value := range plan.values {
+		if value.kind != componentInputProp {
+			continue
+		}
+		fact, ok := facts[value.node]
+		if !ok || fact.tv.Type == nil {
+			diagnostics = append(diagnostics, positionalDiagnostic(value.node, fset, "component-operand-fact", "component prop has no authoritative go/types operand fact"))
+			continue
+		}
+		tv := fact.tv
+		if fact.tuple != nil {
+			unwrapped, ok := tupleUnwrapType(fact.tuple)
+			if !ok {
+				continue // validateComponentOperands owns the positioned diagnostic.
+			}
+			tv = types.TypeAndValue{Type: unwrapped}
+		}
+		operands = append(operands, suppliedOperand{paramIndex: value.paramIndex, tv: tv})
+	}
+	return operands, diagnostics
+}
+
+func validatePositionalOperandAssignments(plan componentCallPlan, operands []suppliedOperand, pkg *types.Package, fset *token.FileSet) []diag.Diagnostic {
+	var diagnostics []diag.Diagnostic
+	for _, operand := range operands {
+		if operand.paramIndex < 0 || operand.paramIndex >= len(plan.target.params) {
+			diagnostics = append(diagnostics, positionalDiagnostic(plan.call, fset, "component-operand", "component operand refers to a parameter outside the instantiated signature"))
+			continue
+		}
+		want := plan.target.params[operand.paramIndex].typ
+		if err := validateTypeAndValueAssignment(operand.tv, want, pkg); err != nil {
+			name := plan.target.params[operand.paramIndex].name
+			diagnostics = append(diagnostics, positionalDiagnostic(plan.call, fset, "component-prop-type", fmt.Sprintf("attribute %q cannot be passed to %s: %v", name, want, err)))
+		}
+	}
+	return diagnostics
+}
+
+func planComponentTypeArguments(target componentTargetFact, instance types.Instance, pkg *types.Package, allocator *generatedImportAllocator, fset *token.FileSet) ([]types.Type, []string, []diag.Diagnostic) {
+	if instance.TypeArgs == nil || instance.TypeArgs.Len() == 0 {
+		return nil, nil, nil
+	}
+	typesOut := make([]types.Type, 0, instance.TypeArgs.Len())
+	exprs := make([]string, 0, instance.TypeArgs.Len())
+	ctx := typeSpellingContext{pkg: pkg, imports: allocator, typeParams: visibleTargetTypeParams(target, pkg)}
+	for i := 0; i < instance.TypeArgs.Len(); i++ {
+		typ := types.Unalias(instance.TypeArgs.At(i))
+		typesOut = append(typesOut, typ)
+		if i < len(target.authoredTypeArgs) && target.authoredTypeArgs[i].expr != nil {
+			var printed bytes.Buffer
+			if err := printer.Fprint(&printed, fset, target.authoredTypeArgs[i].expr); err != nil {
+				return nil, nil, []diag.Diagnostic{targetPositioned(inferenceContext{pkg: pkg, fset: fset}, target, "component-type-args", fmt.Sprintf("cannot preserve authored type argument %d: %v", i, err))}
+			}
+			exprs = append(exprs, printed.String())
+			continue
+		}
+		txn, spelling, ok := spellType(typ, ctx)
+		if !ok {
+			return nil, nil, []diag.Diagnostic{targetPositioned(inferenceContext{pkg: pkg, fset: fset}, target, "component-type-args", fmt.Sprintf("inferred type argument %s cannot be named at this component call", typ))}
+		}
+		if err := validateTypeArgumentSpelling(spelling, typ, target, pkg, fset, txn); err != nil {
+			return nil, nil, []diag.Diagnostic{targetPositioned(inferenceContext{pkg: pkg, fset: fset}, target, "component-type-args", fmt.Sprintf("inferred type argument %s cannot be emitted: %v", typ, err))}
+		}
+		txn.commit()
+		exprs = append(exprs, spelling)
+	}
+	return typesOut, exprs, nil
+}
+
+func validateTypeArgumentSpelling(expr string, want types.Type, target componentTargetFact, pkg *types.Package, fset *token.FileSet, txn *generatedImportTxn) error {
+	if len(txn.work.order) == txn.baseLen && target.expr != nil && target.expr.Pos().IsValid() {
+		parsed, err := goparser.ParseExpr(expr)
+		if err != nil {
+			return err
+		}
+		info := &types.Info{Types: make(map[goast.Expr]types.TypeAndValue)}
+		if err := types.CheckExpr(fset, pkg, target.expr.Pos(), parsed, info); err != nil {
+			return err
+		}
+		if got := info.Types[parsed].Type; !types.Identical(got, want) {
+			return fmt.Errorf("type expression denotes %v, want %v", got, want)
+		}
+		return nil
+	}
+	return validateSyntheticTypeExpression(expr, want, pkg, txn)
+}
+
+func validateSyntheticTypeExpression(expr string, want types.Type, pkg *types.Package, txn *generatedImportTxn) error {
+	parsedExpr, err := goparser.ParseExpr(expr)
+	if err != nil {
+		return err
+	}
+	usedAliases := make(map[string]bool)
+	goast.Inspect(parsedExpr, func(node goast.Node) bool {
+		if sel, ok := node.(*goast.SelectorExpr); ok {
+			if id, ok := sel.X.(*goast.Ident); ok {
+				usedAliases[id.Name] = true
+			}
+		}
+		return true
+	})
+	var specs []importSpec
+	for _, spec := range txn.work.order {
+		if usedAliases[spec.name] {
+			specs = append(specs, spec)
+		}
+	}
+	var source strings.Builder
+	source.WriteString("package gsxtypearg\n")
+	if len(specs) != 0 {
+		source.WriteString("import (\n")
+		for _, spec := range specs {
+			fmt.Fprintf(&source, "%s %s\n", spec.name, strconv.Quote(spec.path))
+		}
+		source.WriteString(")\n")
+	}
+	source.WriteString("type _gsxgot = ")
+	source.WriteString(expr)
+	source.WriteByte('\n')
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "typearg.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		return err
+	}
+	probe := types.NewPackage("gsxtypearg", "gsxtypearg")
+	installSyntheticLocalTypeAliases(probe, pkg, want)
+	packages := make(map[string]*types.Package)
+	collectTypePackages(want, packages)
+	var checkErrs []error
+	config := types.Config{Importer: exactPackageImporter(packages), Error: func(err error) { checkErrs = append(checkErrs, err) }}
+	info := &types.Info{Defs: make(map[*goast.Ident]types.Object)}
+	types.NewChecker(&config, fset, probe, info).Files([]*goast.File{file})
+	if len(checkErrs) != 0 {
+		return checkErrs[0]
+	}
+	obj := probe.Scope().Lookup("_gsxgot")
+	if obj == nil || !types.Identical(obj.Type(), want) {
+		return fmt.Errorf("type expression denotes %v, want %v", objectType(obj), want)
+	}
+	return nil
+}
+
+func objectType(obj types.Object) types.Type {
+	if obj == nil {
+		return nil
+	}
+	return obj.Type()
+}
+
+func planComponentZeros(plan componentCallPlan, target componentTargetFact, pkg *types.Package, fset *token.FileSet, allocator *generatedImportAllocator) ([]componentZeroArgument, []diag.Diagnostic) {
+	ctx := typeSpellingContext{pkg: pkg, imports: allocator, typeParams: visibleTargetTypeParams(target, pkg)}
+	var zeros []componentZeroArgument
+	var diagnostics []diag.Diagnostic
+	for i, slot := range plan.args {
+		if !slot.omitted {
+			continue
+		}
+		if plan.target.goSig.Variadic() && i == len(plan.args)-1 {
+			continue
+		}
+		var winner *zeroCandidate
+		for _, candidate := range zeroCandidates(slot.param.typ, ctx) {
+			if err := validateZeroCandidate(candidate, slot.param.typ, ctx, target, fset); err == nil {
+				accepted := candidate
+				winner = &accepted
+				break
+			}
+		}
+		if winner == nil {
+			message := fmt.Sprintf("attribute %q is required here: its zero value cannot be expressed inline", slot.param.name)
+			diagnostics = append(diagnostics, positionalDiagnostic(plan.call, fset, "component-required-attribute", message))
+			continue
+		}
+		if winner.imports != nil {
+			winner.imports.commit()
+		}
+		zeros = append(zeros, componentZeroArgument{paramIndex: i, expr: winner.expr})
+	}
+	return zeros, diagnostics
+}
+
+func visibleTargetTypeParams(target componentTargetFact, pkg *types.Package) map[*types.TypeParam]string {
+	visible := make(map[*types.TypeParam]string)
+	if target.raw == nil {
+		return visible
+	}
+	pos := target.exprPos()
+	scope := pkg.Scope().Innermost(pos)
+	collectTypeParams(target.raw, func(tp *types.TypeParam) {
+		obj := tp.Obj()
+		if obj == nil || obj.Name() == "" {
+			return
+		}
+		if scope == nil || !pos.IsValid() {
+			return
+		}
+		_, resolved := scope.LookupParent(obj.Name(), pos)
+		if resolved == obj {
+			visible[tp] = obj.Name()
+		}
+	})
+	return visible
+}
+
+func collectTypeParams(t types.Type, yield func(*types.TypeParam)) {
+	seen := make(map[types.Type]bool)
+	var visit func(types.Type)
+	visit = func(t types.Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		switch t := t.(type) {
+		case *types.TypeParam:
+			yield(t)
+		case *types.Alias:
+			visit(types.Unalias(t))
+		case *types.Named:
+			for arg := range t.TypeArgs().Types() {
+				visit(arg)
+			}
+		case *types.Pointer:
+			visit(t.Elem())
+		case *types.Slice:
+			visit(t.Elem())
+		case *types.Array:
+			visit(t.Elem())
+		case *types.Map:
+			visit(t.Key())
+			visit(t.Elem())
+		case *types.Chan:
+			visit(t.Elem())
+		case *types.Tuple:
+			for v := range t.Variables() {
+				visit(v.Type())
+			}
+		case *types.Signature:
+			for tp := range t.TypeParams().TypeParams() {
+				yield(tp)
+			}
+			visit(t.Params())
+			visit(t.Results())
+		case *types.Struct:
+			for f := range t.Fields() {
+				visit(f.Type())
+			}
+		case *types.Interface:
+			for m := range t.Methods() {
+				visit(m.Type())
+			}
+			for embedded := range t.EmbeddedTypes() {
+				visit(embedded)
+			}
+		case *types.Union:
+			for term := range t.Terms() {
+				visit(term.Type())
+			}
+		}
+	}
+	visit(t)
+}
+
+func validateZeroCandidate(candidate zeroCandidate, want types.Type, ctx typeSpellingContext, target componentTargetFact, fset *token.FileSet) error {
+	// Candidates without generated imports can be checked directly in the exact
+	// lexical package scope, which is essential when the type expression names a
+	// caller type parameter.
+	if candidate.imports == nil && target.expr != nil && target.expr.Pos().IsValid() {
+		expr, err := goparser.ParseExpr(candidate.expr)
+		if err != nil {
+			return err
+		}
+		info := &types.Info{Types: make(map[goast.Expr]types.TypeAndValue)}
+		if err := types.CheckExpr(fset, ctx.pkg, target.expr.Pos(), expr, info); err != nil {
+			return err
+		}
+		tv := info.Types[expr]
+		if !types.AssignableTo(tv.Type, want) {
+			return fmt.Errorf("%s is not assignable to %s", tv.Type, want)
+		}
+		return nil
+	}
+	return validateSyntheticExpressionAssignment(candidate.expr, want, ctx.pkg, candidate.imports)
+}
+
+func validateTypeAndValueAssignment(tv types.TypeAndValue, want types.Type, pkg *types.Package) error {
+	source := "_gsxvalue"
+	valueType := tv.Type
+	if tv.IsNil() {
+		source = "nil"
+		valueType = nil
+	} else if tv.Value != nil {
+		var ok bool
+		source, ok = constantSource(tv.Value)
+		if !ok {
+			return fmt.Errorf("unsupported constant %s", tv.Value)
+		}
+		valueType = nil
+	}
+	return validateSyntheticAssignment(source, want, pkg, nil, valueType)
+}
+
+func validateSyntheticExpressionAssignment(expr string, want types.Type, pkg *types.Package, txn *generatedImportTxn) error {
+	return validateSyntheticAssignment(expr, want, pkg, txn, nil)
+}
+
+func validateSyntheticAssignment(expr string, want types.Type, pkg *types.Package, txn *generatedImportTxn, valueType types.Type) error {
+	parsedExpr, err := goparser.ParseExpr(expr)
+	if err != nil {
+		return err
+	}
+	usedAliases := make(map[string]bool)
+	goast.Inspect(parsedExpr, func(node goast.Node) bool {
+		if sel, ok := node.(*goast.SelectorExpr); ok {
+			if id, ok := sel.X.(*goast.Ident); ok {
+				usedAliases[id.Name] = true
+			}
+		}
+		return true
+	})
+
+	var specs []importSpec
+	if txn != nil {
+		for _, spec := range txn.work.order {
+			if usedAliases[spec.name] {
+				specs = append(specs, spec)
+			}
+		}
+	}
+	var source strings.Builder
+	source.WriteString("package gsxzero\n")
+	if len(specs) != 0 {
+		source.WriteString("import (\n")
+		for _, spec := range specs {
+			fmt.Fprintf(&source, "%s %s\n", spec.name, strconv.Quote(spec.path))
+		}
+		source.WriteString(")\n")
+	}
+	source.WriteString("var _ _gsxwant = ")
+	source.WriteString(expr)
+	source.WriteByte('\n')
+
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "zero.go", source.String(), goparser.SkipObjectResolution)
+	if err != nil {
+		return err
+	}
+	probe := types.NewPackage("gsxzero", "gsxzero")
+	wantObj := types.NewTypeName(token.NoPos, probe, "_gsxwant", nil)
+	types.NewAlias(wantObj, want)
+	probe.Scope().Insert(wantObj)
+	if valueType != nil {
+		probe.Scope().Insert(types.NewVar(token.NoPos, probe, "_gsxvalue", valueType))
+	}
+	installSyntheticLocalTypeAliases(probe, pkg, want)
+	packages := make(map[string]*types.Package)
+	collectTypePackages(want, packages)
+	if valueType != nil {
+		collectTypePackages(valueType, packages)
+	}
+	var checkErrs []error
+	config := types.Config{Importer: exactPackageImporter(packages), Error: func(err error) { checkErrs = append(checkErrs, err) }}
+	types.NewChecker(&config, fset, probe, nil).Files([]*goast.File{file})
+	if len(checkErrs) != 0 {
+		return checkErrs[0]
+	}
+	return nil
+}
+
+type exactPackageImporter map[string]*types.Package
+
+func (i exactPackageImporter) Import(path string) (*types.Package, error) {
+	if pkg := i[path]; pkg != nil {
+		return pkg, nil
+	}
+	return nil, fmt.Errorf("semantic package %q is unavailable", path)
+}
+
+func installSyntheticLocalTypeAliases(probe, current *types.Package, t types.Type) {
+	named := make(map[string]types.Type)
+	collectNamedTypes(t, func(n *types.Named) {
+		if n.Obj() != nil && n.Obj().Pkg() == current {
+			named[n.Obj().Name()] = n
+		}
+	})
+	names := make([]string, 0, len(named))
+	for name := range named {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		obj := types.NewTypeName(token.NoPos, probe, name, nil)
+		types.NewAlias(obj, named[name])
+		probe.Scope().Insert(obj)
+	}
+}
+
+func collectNamedTypes(t types.Type, yield func(*types.Named)) {
+	seen := make(map[types.Type]bool)
+	var visit func(types.Type)
+	visit = func(t types.Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		switch t := t.(type) {
+		case *types.Alias:
+			visit(types.Unalias(t))
+		case *types.Named:
+			yield(t)
+			for arg := range t.TypeArgs().Types() {
+				visit(arg)
+			}
+		case *types.Pointer:
+			visit(t.Elem())
+		case *types.Slice:
+			visit(t.Elem())
+		case *types.Array:
+			visit(t.Elem())
+		case *types.Map:
+			visit(t.Key())
+			visit(t.Elem())
+		case *types.Chan:
+			visit(t.Elem())
+		case *types.Tuple:
+			for v := range t.Variables() {
+				visit(v.Type())
+			}
+		case *types.Signature:
+			visit(t.Params())
+			visit(t.Results())
+		case *types.Struct:
+			for f := range t.Fields() {
+				visit(f.Type())
+			}
+		case *types.Interface:
+			for m := range t.Methods() {
+				visit(m.Type())
+			}
+			for embedded := range t.EmbeddedTypes() {
+				visit(embedded)
+			}
+		case *types.Union:
+			for term := range t.Terms() {
+				visit(term.Type())
+			}
+		}
+	}
+	visit(t)
+}
+
+func collectTypePackages(t types.Type, out map[string]*types.Package) {
+	collectNamedTypes(t, func(n *types.Named) {
+		if obj := n.Obj(); obj != nil && obj.Pkg() != nil {
+			out[obj.Pkg().Path()] = obj.Pkg()
+		}
+	})
+}
+
+func constantSource(value constant.Value) (string, bool) {
+	switch value.Kind() {
+	case constant.Bool, constant.String, constant.Int:
+		return value.ExactString(), true
+	case constant.Float:
+		return exactFloatSource(value), true
+	case constant.Complex:
+		realPart := exactFloatSource(constant.Real(value))
+		imagPart := exactFloatSource(constant.Imag(value))
+		return "complex(" + realPart + "," + imagPart + ")", true
+	}
+	return "", false
+}
+
+func exactFloatSource(value constant.Value) string {
+	exact := value.ExactString()
+	if numerator, denominator, ok := strings.Cut(exact, "/"); ok {
+		return "(" + numerator + ".0/" + denominator + ".0)"
+	}
+	if !strings.ContainsAny(exact, ".eEpP") {
+		return exact + ".0"
+	}
+	return exact
+}
