@@ -143,6 +143,8 @@ Only `children` and `attrs` are special. Other attrs-bag-shaped params
    strict missing-attrs diagnostic.
 4. **Strict:** an unmatched attribute with **no `attrs` param declared** is a
    **compile error** (`Card has no attrs param; unexpected attribute "class"`).
+   This diagnostic is call-site-driven: signature validation never emits it from
+   the type or name of some other parameter.
 5. An **omitted** known prop **zero-fills** when its zero is lowerable (see
    §Zero-fill lowering). There is no author-declared `required` modifier; only an
    unlowerable semantic zero makes a prop required at a particular call site.
@@ -298,16 +300,17 @@ Leading underscore needs no new rule — it follows from name-matching:
 - **`_foo`** (leading underscore, real name) — an ordinary named prop. Identifier-
   shaped, so markup fills it by name (`<Foo _foo={x}/>`) and the body references
   it. No special meaning (matching Go).
-- A **blank or unnamed fixed parameter** (`func(_ string) gsx.Node` or
-  `func(string) gsx.Node`) —
-  markup cannot name/fill it, so the callable is **tag-ineligible**: using it as a
-  tag is a compile error (fail closed). It remains valid for direct Go and
-  structpages calls (`fillMethodArgs` can fill `_ *Store` by type). Names come
-  only from the callee's static signature; gsx never tries to recover a name from
-  a function originally assigned to an unnamed func type. Rationale: silently
-  zero-filling an injected fixed parameter is a footgun. A blank or unnamed
-  ordinary variadic is Go-only and may be omitted, matching the general
-  variadic rule.
+- **Every parameter must have a usable static name**, including variadics.
+  `func(_ string) gsx.Node`, `func(string) gsx.Node`, and
+  `func(...gsx.Attr) gsx.Node` cannot be used as components. A use as a tag gets
+  `function parameters must be named to be used as a component; parameter N is
+  unnamed` (or `parameter N is blank` for `_`). The functions remain valid for
+  direct Go and structpages calls (`fillMethodArgs` can fill `_ *Store` by type).
+  Names come only from the callee's static signature; gsx never tries to recover
+  a name from a returned closure or another value once the static func type has
+  erased it. This rule is independent of parameter type: it does not guess that
+  an unnamed `gsx.Attrs`, `[]gsx.Attr`, or `...gsx.Attr` parameter was intended
+  to be the component attrs bag.
 
 **Deliberately not adopted:** a "private/markup-hidden param" meaning for named
 leading-underscore params (`_foo`). No strong use case in gsx (structpages injects
@@ -510,7 +513,9 @@ tag eligibility is defined by **resolvability to a concrete `go/types.Signature`
   current generator already rejects. **An unresolved signature is an error, not a
   guess.** The existing imported-props "warn-and-guess" fallback is unsound for
   positional calls (a guessed field set cannot produce a correct positional call)
-  and must be replaced by fail-closed resolution here.
+  and must be replaced by fail-closed resolution here. A resolved signature must
+  also give every parameter a non-empty, non-blank name; otherwise using the
+  callable as a tag gets the general named-parameters diagnostic above.
 
 `ast.Element.IsComponent` records the final semantic answer, not syntactic
 component intent. Capital-first and dotted spellings nominate a target; they do
@@ -535,8 +540,27 @@ origins are a package-scope `types.Func`, a package-scope function-valued
 interface dispatch, and any other dynamic origin even when its current type is a
 concrete signature. Named func types and aliases inherit the eligibility of the
 object that supplies the value. Parameter names come only from that static
-signature. A fixed parameter whose `types.Var.Name()` is empty or `_` triggers
-the tag-ineligible rule above; missing export-data names are never guessed.
+signature. Any parameter whose `types.Var.Name()` is empty or `_` triggers the
+named-parameters rule above, including a variadic parameter; missing export-data
+names are never guessed.
+
+Factory-produced function values follow the same static rule. For
+`func factory() func(name, label string) gsx.Node`, the signature of
+`var X = factory()` retains `name` and `label`, so `<X name="foo" label="bar"/>`
+is valid. Named func types and aliases retain the names written on their type
+declaration. By contrast, `func factory() func(string, string) gsx.Node` is not
+usable as a component even if the returned closure happens to name its parameters:
+those closure-local names are not part of `X`'s static type.
+
+Definition/hover locations use the parameter objects from that same static
+signature. Source-loaded same-package and imported module packages therefore
+point at the return func type, named func type, or alias declaration that owns the
+name. Export data may preserve a name without a usable source position; that is
+still sufficient for correct binding, while navigation is best-effort and may
+have no target. The resolver does not inspect factory bodies or initializers to
+manufacture either names or locations. Plain-Go signature parameters participate
+in definition and hover, but remain outside GSX semantic rename because their
+declarations and Go references are owned by Go tooling.
 
 A true method expression (`T.Page`) is also tag-ineligible: its function value has
 an explicit receiver argument, and markup has no receiver-fill mechanism. The
@@ -561,13 +585,24 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 ```
 
 Arbitrary-name structural classification is retired without a legacy diagnostic
-branch. `func(extra ...gsx.Attr) gsx.Node` does not acquire the reserved role:
-`extra` is an ordinary non-reserved variadic, so markup cannot bind it and may
-only omit it under the universal ordinary-variadic rule. The migration ledger may
-identify such factories for a source rewrite, but production classification and
-diagnostics do not know that they were once attrs-only. Useful icon/factory values
-remain supported by naming the bag `attrs`; non-variadic attrs-bag-valued
-parameters remain ordinary exact-name props.
+branch. An unnamed `func(...gsx.Attr) gsx.Node` gets only the general
+named-parameters diagnostic when used as a tag; its type does not trigger an
+attrs-specific message. `func(extra ...gsx.Attr) gsx.Node` has a named parameter
+and is therefore a valid component signature, but `extra` does not acquire the
+reserved role: it is an ordinary non-reserved variadic, so markup cannot bind it
+and may only omit it under the universal ordinary-variadic rule. Likewise,
+`func(a myAttrs) gsx.Node` is valid and `a` is an ordinary exact-name prop, so
+`<Badge a={{ "role": "status" }}/>` binds it normally. `someAttrs={{...}}` has
+the same ordinary-prop meaning and can be forwarded to any chosen descendants.
+
+The attrs-specific diagnostic is emitted only while binding an authored
+fallthrough input: an unmatched attribute, spread, conditional bag, or explicit
+`attrs` contributor found on a component with no parameter literally named
+`attrs`. It is never emitted merely because a callable has an attrs-bag-shaped
+parameter with another name. The migration ledger may identify unnamed factory
+signatures or factories that intend fallthrough for source rewrites, but
+production classification and diagnostics do not know that they were once
+attrs-only.
 
 ## What is removed / subsumed
 
@@ -625,9 +660,11 @@ layer. Scope (fresh one-learning scan): **841 component declarations across 113
 files**, and **71 hand-written `RenderComponent` calls** outside generated files.
 
 - Every component using children/attrs **declares** the reserved param.
-- Plain-Go attrs-only factories retain their bag-shaped signatures but publish
-  the reserved name in the static function type, for example
-  `func named(string) func(attrs ...gsx.Attr) gsx.Node`.
+- Plain-Go factory-returned callable signatures name every parameter. Factories
+  that intend fallthrough publish the reserved `attrs` name in the static
+  function type, for example
+  `func named(name string) func(attrs ...gsx.Attr) gsx.Node`; a differently named
+  bag parameter remains an ordinary exact-name prop.
 - Existing reserved `attrs={{...}}` call sites remain valid, but move from the
   source-position-independent merge-last rule to ordinary authored-position
   composition. `attrs={expr}` is pinned as its computed-bag counterpart.
@@ -1072,12 +1109,15 @@ creating exported analysis artifacts or changing allocation.
     **`(T, error)`** propagation through every contributor kind completes before
     positional assembly;
   - duplicate ordinary fills get `duplicate-prop`, while repeated `attrs`
-    contributors remain legal; blank/unnamed fixed params are tag-ineligible and
-    grouped parameter declarations preserve logical order;
+    contributors remain legal; blank/unnamed parameters (fixed and variadic)
+    receive the general named-parameters diagnostic and grouped parameter
+    declarations preserve logical order;
   - **reserved-role collisions**, including authored-order composition of
     `attrs={}`, `attrs={{ }}`, ordinary fallthrough, and multiple explicit attrs
     contributors; rejection without a declared attrs role; rejection of
-    non-bag attrs forms; and success of an ordinary `someAttrs={{ }}` prop;
+    non-bag attrs forms; success of ordinary `a={{ }}` and
+    `someAttrs={{ }}` bag-valued props; and proof that attrs-specific diagnostics
+    appear only for authored fallthrough with no literal `attrs` parameter;
   - exact `class`/`style` params across static, braced, composed, embedded,
     ordered, and markup-valued forms; conditional-attribute branches stay bag-
     only;
@@ -1088,9 +1128,14 @@ creating exported analysis artifacts or changing allocation.
     method expressions;
   - the merged **attrs-bag signature family**, including defined-slice conversion,
     an imported unexported defined-slice target, defined-slice contributors,
-    variadic expansion, alias handling, exact element identity, and universal
-    ordinary-variadic omission/fill rejection for a non-reserved
+    variadic expansion, alias handling, exact element identity, the general
+    named-parameters rejection for an unnamed bag variadic, and universal
+    ordinary-variadic omission/fill rejection for a named non-reserved
     `...gsx.Attr` parameter;
+  - factory-returned callable signatures with named and unnamed anonymous func
+    types, named func types, and aliases; same-package and imported definition /
+    hover positions; export-only no-position behavior; and a negative semantic-
+    rename row for plain-Go parameters;
   - **signature-only** dependency/cache invalidation (a rename must bust caches);
   - saved-disk refresh before warm invalidation: create the first `.gsx` in a new
     package, add a previously unseen import, and change a package clause/file
