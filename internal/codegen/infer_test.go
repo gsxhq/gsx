@@ -38,12 +38,10 @@ func TestInferProbeNameExactMatch(t *testing.T) {
 }
 
 // TestInferPartialProps is the finding-5 headline case: a generic component
-// called with only SOME of its declared props must still infer its type
+// called with only SOME of its declared parameters must still infer its type
 // arguments, exactly like a plain Go generic function call would from the
-// arguments it's given. The old declaring-side GsxInfer helper required ALL
-// declared fields to be supplied (inferHelperArgs bailed on any miss),
-// silently falling through to a raw, uninstantiated composite-literal probe
-// that always failed to compile.
+// arguments it's given. Omitted parameters are filled with their exact
+// semantic zero after inference has fixed the type arguments.
 func TestInferPartialProps(t *testing.T) {
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
@@ -69,7 +67,7 @@ component Page() {
 	for _, b := range out[tmp].Files {
 		src = string(b)
 	}
-	if !strings.Contains(src, "Button[int](ButtonProps[int]{Label: 7})") {
+	if !strings.Contains(src, `Button[int](7, "")`) {
 		t.Fatalf("partial-props inference failed; generated:\n%s", src)
 	}
 }
@@ -107,7 +105,7 @@ component Page() {
 	for _, b := range out[tmp].Files {
 		src = string(b)
 	}
-	if !strings.Contains(src, "Button[int](ButtonProps[int]{Label: 7})") {
+	if !strings.Contains(src, "Button[int](7)") {
 		t.Fatalf("inference corrupted by user GsxInferStuff func; generated:\n%s", src)
 	}
 }
@@ -1014,7 +1012,7 @@ func NewGetter() interface{ Get() secret } { return getter{} }
 }
 
 // assertUnrenderableTypeArg asserts diags contains EXACTLY one
-// unrenderable-type-arg diagnostic, that it is Error-severity and positioned,
+// component-type-args diagnostic, that it is Error-severity and positioned,
 // and that its message names the offending qualified type (wantType, e.g.
 // "models.secret") — mirrors assertOnlyInferenceUnavailable's shape in
 // generic_crosspkg_test.go for the sibling (Task 4) fail-safe, adapted to
@@ -1023,7 +1021,7 @@ func assertUnrenderableTypeArg(t *testing.T, diags []diag.Diagnostic, wantType s
 	t.Helper()
 	var found int
 	for _, d := range diags {
-		if d.Code != "unrenderable-type-arg" {
+		if d.Code != "component-type-args" {
 			if d.Severity == diag.Error {
 				t.Errorf("unexpected error diagnostic alongside unrenderable-type-arg: %+v", d)
 			}
@@ -1054,12 +1052,9 @@ func assertUnrenderableTypeArg(t *testing.T, diags []diag.Diagnostic, wantType s
 // requalification-failed fail-safe (generic_crosspkg_test.go) — that one
 // fires when the DECLARED constraint can't be requalified into the caller's
 // context; this one fires when inference SUCCEEDS but the winning type
-// argument is unspeakable at the call site. post.gsx's sole component (Post)
-// fails outright (generateFile aborts the WHOLE FILE when any component
-// fails — see emit.go's file-level ok tracking), so post.gsx has no
-// generated output at all; the sibling other.gsx file in the same package
-// must be unaffected, and the components package (which has no bad tags
-// itself) must generate clean.
+// argument is unspeakable at the call site. The exact package plan fails
+// closed, so the caller package emits no partial output; the components
+// package (which has no bad tags itself) still generates cleanly.
 func TestInferredUnexportedTypeArgRejected(t *testing.T) {
 	tmp, compDir := writeUnexportedTypeArgModule(t, "utar", "m.NewSecret()")
 
@@ -1072,19 +1067,8 @@ func TestInferredUnexportedTypeArgRejected(t *testing.T) {
 	}
 	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secret")
 
-	for p := range res[tmp].Files {
-		if strings.HasSuffix(p, "post.gsx") {
-			t.Fatalf("post.gsx must not have generated output; files = %+v", res[tmp].Files)
-		}
-	}
-	var otherGen string
-	for p, src := range res[tmp].Files {
-		if strings.HasSuffix(p, "other.gsx") {
-			otherGen = string(src)
-		}
-	}
-	if !strings.Contains(otherGen, "func Other() _gsxrt.Node") {
-		t.Fatalf("sibling file's generation affected by the rejected tag; other.gsx generated:\n%s", otherGen)
+	if len(res[tmp].Files) != 0 {
+		t.Fatalf("caller package must not have partial generated output; files = %+v", res[tmp].Files)
 	}
 }
 
@@ -1112,16 +1096,9 @@ func TestInferredUnexportedTypeArgRejectedNested(t *testing.T) {
 	}
 }
 
-// TestInferredUnexportedTypeArgRejectedAlias is the ALIAS variant: the
-// constructor returns an unexported cross-package ALIAS (models.secretID =
-// string). Under this repo's Go version, gotypesalias=1 is unconditional, so
-// the inferred type argument is a materialized *types.Alias — and go/types'
-// typestring.go prints an alias by the ALIAS's OWN object name (`case
-// *Alias: w.typeName(t.obj)`), NOT its RHS. `models.secretID` is just as
-// unspeakable outside models as an unexported Named, so unspeakableTypeArg
-// needs a *types.Alias case mirroring the *types.Named one — a walker
-// without it lets the alias fall through to the default (not unspeakable),
-// prints `models.secretID`, and ships non-compiling .x.go with err == nil.
+// TestInferredUnexportedTypeArgRejectedAlias is the ALIAS variant. Unlike an
+// unexported defined type, an unexported alias to string contributes its RHS
+// to inference, so the exact call can legally instantiate Box[string].
 func TestInferredUnexportedTypeArgRejectedAlias(t *testing.T) {
 	tmp, compDir := writeUnexportedTypeArgModule(t, "utara", "m.NewSecretID()")
 
@@ -1132,11 +1109,12 @@ func TestInferredUnexportedTypeArgRejectedAlias(t *testing.T) {
 	if diags := res[compDir].Diags; len(diags) != 0 {
 		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
 	}
-	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secretID")
-
-	for p := range res[tmp].Files {
-		if strings.HasSuffix(p, "post.gsx") {
-			t.Fatalf("post.gsx must not have generated output; files = %+v", res[tmp].Files)
+	if diags := res[tmp].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", diags)
+	}
+	for p, src := range res[tmp].Files {
+		if strings.HasSuffix(p, "post.gsx") && !strings.Contains(string(src), "components.Box[string](m.NewSecretID())") {
+			t.Fatalf("post.gsx missing inferred alias RHS call:\n%s", src)
 		}
 	}
 }
@@ -1165,43 +1143,6 @@ func TestInferredUnexportedTypeArgRejectedInterfaceMethod(t *testing.T) {
 		if strings.HasSuffix(p, "post.gsx") {
 			t.Fatalf("post.gsx must not have generated output; files = %+v", res[tmp].Files)
 		}
-	}
-}
-
-// TestInferredUnexportedTypeArgRejectedOutputBuilds is the build-proof half:
-// generation SUCCEEDS for every file except the rejected post.gsx (err ==
-// nil, only the positioned diagnostic — never a hard error), and the WRITTEN
-// output for everything that did generate must actually `go build` — the
-// strongest possible property, mirroring
-// TestGenericCrossPackageInferenceFailureOutputBuilds's shape. Unlike that
-// Task 4 fail-safe (which sinks the failed tag's OWN file so it still
-// builds), this Task 6 rejection drops the offending .gsx's output entirely;
-// this test proves that omission alone is enough — the rest of the module
-// builds fine without it.
-func TestInferredUnexportedTypeArgRejectedOutputBuilds(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns the go toolchain")
-	}
-	tmp, compDir := writeUnexportedTypeArgModule(t, "utarb", "m.NewSecret()")
-
-	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secret")
-
-	for _, r := range res {
-		for gsxPath, src := range r.Files {
-			base := strings.TrimSuffix(gsxPath, ".gsx")
-			if werr := os.WriteFile(base+".x.go", src, 0o644); werr != nil {
-				t.Fatal(werr)
-			}
-		}
-	}
-	build := exec.Command("go", "build", "./...")
-	build.Dir = tmp
-	if bout, berr := build.CombinedOutput(); berr != nil {
-		t.Fatalf("go build of generated output: %v\n%s", berr, bout)
 	}
 }
 
@@ -1262,7 +1203,7 @@ func TestInferredTypeArgImportCollision(t *testing.T) {
 	if root == "" {
 		t.Fatalf("post.gsx did not generate; files = %+v", res[tmp].Files)
 	}
-	if !strings.Contains(root, "_gsxti") {
+	if !strings.Contains(root, "_gsxty1.ID") {
 		t.Fatalf("generated source does not alias the colliding inferred type-arg import; generated:\n%s", root)
 	}
 
@@ -1281,12 +1222,10 @@ func TestInferredTypeArgImportCollision(t *testing.T) {
 	}
 }
 
-// TestInferredTypeArgImportNoCollision is the control for
-// TestInferredTypeArgImportCollision: with only ONE package anywhere in scope
-// named "ids", the inferred type argument's import must keep today's plain
-// behavior — a plain `"example.com/tinc/ids"` import and a bare `ids.ID`
-// qualifier — and must NEVER emit a `_gsxti` alias, proving the collision
-// fix leaves the non-colliding path byte-identical.
+// TestInferredTypeArgImportNoCollision pins the generated-import invariant:
+// even without a user-import collision, a type argument discovered during
+// planning uses the reserved _gsxty namespace rather than introducing a
+// caller-visible package binding.
 func TestInferredTypeArgImportNoCollision(t *testing.T) {
 	repoRootAbs, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
@@ -1314,14 +1253,11 @@ func TestInferredTypeArgImportNoCollision(t *testing.T) {
 	for _, src := range res[tmp].Files {
 		root = string(src)
 	}
-	if !strings.Contains(root, `"example.com/tinc/ids"`) {
-		t.Fatalf("generated source missing plain inferred type-arg import:\n%s", root)
+	if !strings.Contains(root, `_gsxty1 "example.com/tinc/ids"`) {
+		t.Fatalf("generated source missing reserved inferred type-arg import:\n%s", root)
 	}
-	if !strings.Contains(root, "ids.ID") {
-		t.Fatalf("generated source missing plain ids.ID qualifier:\n%s", root)
-	}
-	if strings.Contains(root, "_gsxti") {
-		t.Fatalf("no-collision case must not emit a _gsxti alias; generated:\n%s", root)
+	if !strings.Contains(root, "components.Button[_gsxty1.ID]") {
+		t.Fatalf("generated source missing reserved _gsxty type qualifier:\n%s", root)
 	}
 }
 
@@ -1374,19 +1310,10 @@ func TestPackageWideInferHelperNamesAcrossFiles(t *testing.T) {
 	}
 }
 
-// TestInferredFilterPackageTypeArgUsesFilterAlias reproduces the final
-// whole-branch review's Critical-2 finding: an inferred generic type argument
-// whose named type belongs to a FILTER package used only through the
-// reserved-alias pipe-filter mechanism (never plain-imported by the user) —
-// childTypeArgUse's qf used to see the path already present in `imports`
-// (registered by the filter-call lowering) and print the bare `pkg.Name()`
-// qualifier, assuming that meant a plain import line would be emitted. But
-// writeImports only emits a package's PLAIN import line when the user's own
-// GoChunk plain-imported it (userPlainImports); a filter package present in
-// `imports` otherwise emits ONLY its reserved-alias line (`_gsxf0 "path"`),
-// so the bare qualifier named an unbound identifier — `go build` failure with
-// gsx exiting 0. The fix makes qf consult the filter-alias table first and
-// qualify with the reserved alias instead.
+// TestInferredFilterPackageTypeArgUsesFilterAlias pins independent reserved
+// namespaces when one package is both a filter source and the owner of an
+// inferred type argument. Filter calls use _gsxfN; exact type rendering uses
+// _gsxtyN. Both imports must remain bound and the result must build.
 func TestInferredFilterPackageTypeArgUsesFilterAlias(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spawns the go toolchain")
@@ -1433,8 +1360,8 @@ func TestInferredFilterPackageTypeArgUsesFilterAlias(t *testing.T) {
 	if page == "" {
 		t.Fatalf("page.gsx did not generate; files = %+v", res[viewsDir].Files)
 	}
-	if !strings.Contains(page, "Box[_gsxf0.Kind]") && !strings.Contains(page, "Box[_gsxf1.Kind]") {
-		t.Fatalf("generated source does not qualify the inferred filter-package type arg with the reserved filter alias; generated:\n%s", page)
+	if !strings.Contains(page, "Box[_gsxty1.Kind]") {
+		t.Fatalf("generated source does not qualify the inferred filter-package type arg with the reserved type alias; generated:\n%s", page)
 	}
 
 	build := exec.Command("go", "build", "./...")
