@@ -68,6 +68,78 @@ func TestLSPSetOverrideSameRootPreservesExactNoOpTransition(t *testing.T) {
 	}
 }
 
+func TestLSPSetOverrideModuleDirectiveChangeRebindsEveryOpenBuffer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in short mode")
+	}
+	root := t.TempDir()
+	writeLSPTransferGoMod(t, root, "example.com/old")
+	dir := filepath.Join(root, "page")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pagePath := filepath.Join(dir, "page.gsx")
+	widgetPath := filepath.Join(dir, "widget.gsx")
+	if err := os.WriteFile(pagePath, []byte("package page\n\ncomponent Page() { <Disk/> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(widgetPath, []byte("package page\n\ncomponent Disk() { <span>disk</span> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pageBuffer := []byte("package page\n\ncomponent Page() { <Buffered/> }\n")
+	widgetBuffer := []byte("package page\n\ncomponent Buffered() { <strong>buffer</strong> }\n")
+
+	a := newLSPAnalyzer(config{}, nil)
+	if _, err := a.SetOverride(pagePath, pageBuffer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.SetOverride(widgetPath, widgetBuffer); err != nil {
+		t.Fatal(err)
+	}
+	oldModule := lspModuleForRoot(a, root)
+	if oldModule == nil {
+		t.Fatal("initial module was not cached")
+	}
+
+	writeLSPTransferGoMod(t, root, "example.com/new")
+	got, err := a.SetOverride(pagePath, pageBuffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{dir}) {
+		t.Fatalf("module-directive SetOverride affected = %v, want [%s]", got, dir)
+	}
+	newModule := lspModuleForRoot(a, root)
+	if newModule == oldModule {
+		t.Fatal("module-directive change reused the Module bound to the old module path")
+	}
+	if owner := lspOverrideModule(a, widgetPath); owner != newModule {
+		t.Fatal("module-directive change did not transfer the other open buffer to the new Module")
+	}
+	if affected, clearErr := oldModule.ClearOverride(pagePath); affected != nil || clearErr != nil {
+		t.Fatalf("old Module retained page authority: ClearOverride = %v, %v", affected, clearErr)
+	}
+	if affected, clearErr := oldModule.ClearOverride(widgetPath); affected != nil || clearErr != nil {
+		t.Fatalf("old Module retained widget authority: ClearOverride = %v, %v", affected, clearErr)
+	}
+
+	pkg, err := a.Analyze(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Types == nil || pkg.Types.Path() != "example.com/new/page" {
+		if pkg.Types == nil {
+			t.Fatal("Analyze returned no types package")
+		}
+		t.Fatalf("Analyze package path = %q, want %q", pkg.Types.Path(), "example.com/new/page")
+	}
+	for _, d := range pkg.Diags {
+		if strings.Contains(d.Message, "undefined: Buffered") {
+			t.Fatalf("transferred widget buffer was absent from new Module analysis: %v", pkg.Diags)
+		}
+	}
+}
+
 func TestLSPSetOverrideFailedRootDiscoveryClearsPreviousAuthority(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in short mode")
@@ -187,7 +259,15 @@ func writeLSPTransferGoMod(t *testing.T, dir, modulePath string) {
 func lspOverrideOwner(a lspAnalyzer, path string) string {
 	a.mods.mu.Lock()
 	defer a.mods.mu.Unlock()
-	return a.mods.overrideRoots[filepath.Clean(path)]
+	return a.mods.overrideRoots[filepath.Clean(path)].root
+}
+
+func lspOverrideModule(a lspAnalyzer, path string) interface {
+	ClearOverride(string) ([]string, error)
+} {
+	a.mods.mu.Lock()
+	defer a.mods.mu.Unlock()
+	return a.mods.overrideRoots[filepath.Clean(path)].module
 }
 
 func lspModuleForRoot(a lspAnalyzer, root string) interface {
