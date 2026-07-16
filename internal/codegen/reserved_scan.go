@@ -11,7 +11,7 @@ import (
 // reservedPrefix is the generator's reserved identifier namespace. Generated
 // code reaches every import and every internal binding through a `_gsx`-prefixed
 // name (`_gsxrt`, `_gsxctx`, `_gsxio`, `_gsxsc`, `_gsxgw`, `_gsxf<i>`, the
-// per-call-site `_gsxinfer<N>` probes, …). That is precisely what lets a .gsx
+// transient component-call probes, …). That is precisely what lets a .gsx
 // file bind `gsx`, `context`, `io` or `strconv` to whatever it likes. In exchange
 // the prefix is off-limits to user Go wherever gsx can see it — see
 // checkReservedDecls.
@@ -60,8 +60,7 @@ type reservedDecl struct {
 // or as a build error); a false positive is not, which is why only lexed
 // identifiers, never raw text, are reported.
 //
-// Hand-written sibling .go files in the same package are NOT scanned here: gsx
-// never reads their bodies (only their struct field names, via BYO). A `_gsx`
+// Hand-written sibling .go files in the same package are NOT scanned here. A `_gsx`
 // name declared there is still caught, loudly, by `go build`. See
 // docs/ROADMAP.md.
 func checkReservedDecls(file *gsxast.File) []reservedDecl {

@@ -4,6 +4,9 @@ import (
 	goast "go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
@@ -19,6 +22,30 @@ import (
 // preprocessComponentCallSites.
 func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool {
 	return packageDeclNamesFromFiles(parseHandwrittenGoFiles(dir), files)
+}
+
+func parseHandwrittenGoFiles(dir string) []*goast.File {
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	fset := token.NewFileSet()
+	files := make([]*goast.File, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
+			continue
+		}
+		file, parseErr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if parseErr == nil && file != nil {
+			files = append(files, file)
+		}
+	}
+	return files
 }
 
 // packageDeclNamesFromFiles derives package declarations from a caller-owned
@@ -50,7 +77,7 @@ func packageDeclNamesFromFiles(goFiles []*goast.File, files map[string]*gsxast.F
 	}
 	scanChunk := func(src string) {
 		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
+		f, err := parser.ParseFile(fset, "", "package _gsxdecl\n"+src, 0)
 		if err != nil || f == nil {
 			return
 		}

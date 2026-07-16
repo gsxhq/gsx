@@ -29,9 +29,8 @@ import (
 //   - PLAIN Element (`<div>…`) → writes the open tag, then emits its children
 //     inline (emit.go:1911-1917), no block — a plain element does NOT open a Go
 //     scope.
-//   - COMPONENT Element (`<Wrap>…`) → its children become the Children slot
-//     VALUE, a nested gsx.Func render closure (emitSlotClosure, emit.go:5147;
-//     wired via childPropsLiteral, emit.go:4587-4602) — a NEW Go scope. A
+//   - COMPONENT Element (`<Wrap>…`) → its children become the declared children
+//     argument, a nested gsx.Func render closure (emitSlotClosure) — a NEW Go scope. A
 //     reserved-name binding there is a legal shadow of the captured parent local
 //     (`attrs`/`children`); `ctx` re-binds as the slot closure's own param, so a
 //     `ctx :=` there is broken code the Go backstop reports, never gsx.

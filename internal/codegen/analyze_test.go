@@ -66,167 +66,6 @@ func TestResolveAttrExprType(t *testing.T) {
 // carry their declared param fields plus the synthesized Children (when {children}
 // is used) and Attrs (when attrs is referenced) fields — EXACTLY what the skeleton/emitter
 // synthesize, so emit ≡ probe.
-func TestComponentPropFieldsFor(t *testing.T) {
-	t.Parallel()
-	// Card: function component using {children} and attrs → CardProps has
-	//   {Title, Featured, Children, Attrs}.
-	// (p Pg) Grid: method component using attrs (no children) → PgGridProps has
-	//   {Sort, Attrs}.
-	src := "package views\n\n" +
-		"type Pg struct{}\n\n" +
-		"component Card(title string, featured bool) {\n\t<div { attrs... }>{title}{children}</div>\n}\n\n" +
-		"component (p Pg) Grid(sort string) {\n\t<i { attrs... }>{sort}</i>\n}\n"
-
-	file, err := gsxparser.ParseFile(token.NewFileSet(), "views.gsx", []byte(src), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	propFields, _, _, _, err := componentPropFieldsFor("", map[string]*gsxast.File{"views.gsx": file})
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
-
-	card, ok := propFields["CardProps"]
-	if !ok {
-		t.Fatalf("propFields has no CardProps key (keys: %v)", keysOf(propFields))
-	}
-	for _, want := range []string{"Title", "Featured", "Children", "Attrs"} {
-		if !card[want] {
-			t.Errorf("CardProps missing field %q (have %v)", want, card)
-		}
-	}
-	if card["Bogus"] {
-		t.Errorf("CardProps unexpectedly has field Bogus")
-	}
-
-	grid, ok := propFields["PgGridProps"]
-	if !ok {
-		t.Fatalf("propFields has no PgGridProps key (keys: %v)", keysOf(propFields))
-	}
-	if !grid["Sort"] || !grid["Attrs"] {
-		t.Errorf("PgGridProps want {Sort, Attrs} (have %v)", grid)
-	}
-	if grid["Children"] {
-		t.Errorf("PgGridProps unexpectedly has Children (Grid does not use {children})")
-	}
-}
-
-func keysOf(m map[string]map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}
-
-// TestIsGsxQualifiedType checks that isGsxQualifiedType recognises the runtime
-// selector under the default "gsx" qualifier AND any aliased qualifier, and
-// nothing else. This is the sole bag/node type predicate (param + byo struct
-// field classification); an aliased `g.Attrs` MUST match so a forwarding spread
-// stays sanitized.
-func TestIsGsxQualifiedType(t *testing.T) {
-	t.Parallel()
-	quals := map[string]bool{"gsx": true, "g": true}
-	cases := []struct {
-		typ  string
-		sel  string
-		want bool
-	}{
-		{"gsx.Node", "Node", true},
-		{" gsx.Node ", "Node", true},
-		{"g.Node", "Node", true}, // aliased runtime import
-		{"gsx.Attrs", "Attrs", true},
-		{"g.Attrs", "Attrs", true}, // aliased runtime import
-		{"string", "Node", false},
-		{"int", "Node", false},
-		{"[]gsx.Node", "Node", false}, // slice form has no bare selector
-		{"gsx.Node2", "Node", false},
-		{"other.Attrs", "Attrs", false}, // unrelated qualifier
-		{"", "Node", false},
-	}
-	for _, tc := range cases {
-		got := isGsxQualifiedType(tc.typ, quals, tc.sel)
-		if got != tc.want {
-			t.Errorf("isGsxQualifiedType(%q, quals, %q) = %v, want %v", tc.typ, tc.sel, got, tc.want)
-		}
-	}
-}
-
-// TestNodePropsSignal checks that componentPropFieldsFor derives the nodeProps
-// signal: for component Card(title gsx.Node, n int), nodeProps["CardProps"] has
-// Title:true and does NOT contain N.
-// It also verifies that synthetic Children and Attrs fields (added to propFields
-// when a component uses {children} and explicitly references attrs) are NOT promoted into
-// nodeProps — only declared gsx.Node params should appear there.
-func TestNodePropsSignal(t *testing.T) {
-	t.Parallel()
-	src := "package views\n\n" +
-		"component Card(title gsx.Node, n int) {\n\t<div>{title}</div>\n}\n"
-
-	file, err := gsxparser.ParseFile(token.NewFileSet(), "views.gsx", []byte(src), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, nodeProps, _, _, err := componentPropFieldsFor("", map[string]*gsxast.File{"views.gsx": file})
-	if err != nil {
-		t.Fatalf("componentPropFieldsFor: %v", err)
-	}
-
-	card, ok := nodeProps["CardProps"]
-	if !ok {
-		t.Fatalf("nodeProps has no CardProps key (keys: %v)", keysOf(nodeProps))
-	}
-	if !card["Title"] {
-		t.Errorf("nodeProps[CardProps] missing Title (have %v)", card)
-	}
-	if card["N"] {
-		t.Errorf("nodeProps[CardProps] unexpectedly has N (int param should not be a node prop)")
-	}
-
-	// Box: {children} + explicit attrs placement → both fields are synthesized;
-	// synthesized; nodeProps must NOT include either synthetic field.
-	src2 := "package views\n\n" +
-		"component Box(label gsx.Node) {\n\t<div { attrs... }>{children}</div>\n}\n"
-
-	file2, err := gsxparser.ParseFile(token.NewFileSet(), "views2.gsx", []byte(src2), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	propFields2, nodeProps2, _, _, err := componentPropFieldsFor("", map[string]*gsxast.File{"views2.gsx": file2})
-	if err != nil {
-		t.Fatalf("componentPropFieldsFor (Box): %v", err)
-	}
-
-	// Confirm the fixture actually triggered both syntheses (precondition).
-	box := propFields2["BoxProps"]
-	if !box["Children"] {
-		t.Fatalf("precondition: BoxProps should have synthetic Children field (have %v)", box)
-	}
-	if !box["Attrs"] {
-		t.Fatalf("precondition: BoxProps should have synthetic Attrs field (have %v)", box)
-	}
-
-	boxNode, ok := nodeProps2["BoxProps"]
-	if !ok {
-		t.Fatalf("nodeProps has no BoxProps key (keys: %v)", keysOf(nodeProps2))
-	}
-	if !boxNode["Label"] {
-		t.Errorf("nodeProps[BoxProps] missing Label (declared gsx.Node param) (have %v)", boxNode)
-	}
-	if boxNode["Children"] {
-		t.Errorf("nodeProps[BoxProps] unexpectedly contains synthetic Children field")
-	}
-	if boxNode["Attrs"] {
-		t.Errorf("nodeProps[BoxProps] unexpectedly contains synthetic Attrs field")
-	}
-}
-
-// TestChildPropPipelineSkeletonImportsStd verifies the emit≡probe import
-// plumbing for a child-component prop pipeline: childPropsLiteral surfaces the
-// filter packages a lowered prop pipeline references, so buildSkeleton imports
-// the std filter package under its reserved _gsxstd alias and the lowered
-// _gsxstd.Upper(...) call resolves. Without the threading the skeleton would
-// not import std and type resolution would fail.
 func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
@@ -244,16 +83,11 @@ func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
 	table, err := loadFilterTable(pkgDir)
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, fset, nil, nil, nil, skeletonFull)
+	skel, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -309,16 +143,11 @@ func Parse(s string) ([]string, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
 	table, _, err := loadFilterTableMulti(pkgDir, []string{stdImportPath, "gsxskel/filters"}, nil, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableMulti: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, fset, nil, nil, nil, skeletonFull)
+	skel, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

@@ -20,11 +20,7 @@ func TestBuildSkeletonRecordsCtrlOffsets(t *testing.T) {
 	}
 	// minimal props/byo for buildSkeleton; an empty table/maps is fine for a no-import component.
 	table, _ := loadFilterTable(t.TempDir())
-	pf, np, ap, byo, err := componentPropFieldsFor(t.TempDir(), map[string]*gsxast.File{"p.gsx": file})
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
-	skel, _, _, ctrlOff, _, _, err := buildSkeleton(file, funcTables{filters: table}, pf, np, ap, nil, nil, byo, fset, nil, nil, nil, skeletonFull)
+	skel, _, _, ctrlOff, _, err := buildSkeleton(file, funcTables{filters: table}, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -103,11 +99,7 @@ func TestBuildSkeletonRecordsNavSpanOffsets(t *testing.T) {
 		t.Fatalf("parse: %v", errs)
 	}
 	table, _ := loadFilterTable(t.TempDir())
-	pf, np, ap, byo, err := componentPropFieldsFor(t.TempDir(), map[string]*gsxast.File{"p.gsx": file})
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
-	skel, _, _, ctrlOff, _, _, err := buildSkeleton(file, funcTables{filters: table}, pf, np, ap, nil, nil, byo, fset, nil, nil, nil, skeletonFull)
+	skel, _, _, ctrlOff, _, err := buildSkeleton(file, funcTables{filters: table}, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

@@ -29,7 +29,6 @@ type componentTargetPackageResult struct {
 type componentTargetExpressionHarvest struct {
 	parsed          *goast.File
 	source          *gsxast.File
-	inferRegistry   *inferRegistry
 	embeddedMarkups [][]gsxast.Markup
 }
 
@@ -125,7 +124,6 @@ func discoverComponentTargets(
 	plan componentTargetPlan,
 	callSites *callSiteRegistry,
 	table funcTables,
-	factsByFile map[string]*fileFacts,
 	fset *token.FileSet,
 	bag *diag.Bag,
 	importer types.Importer,
@@ -148,14 +146,8 @@ func discoverComponentTargets(
 	var expressionHarvests []componentTargetExpressionHarvest
 	for _, path := range paths {
 		markerStart := len(markers.ordered)
-		fileFacts := factsByFile[path]
-		if fileFacts == nil {
-			return componentTargetPackageResult{}, nil, &targetPackageInvariantError{message: "missing file-scoped facts for " + path}
-		}
 		skeleton, err := buildComponentTargetSkeleton(
-			gsxFiles[path], table,
-			fileFacts.propFields, fileFacts.nodeProps, fileFacts.attrsProps,
-			fileFacts.byo, fset, bag, markers, plan, skeletonTargetDiscovery,
+			gsxFiles[path], table, fset, bag, markers, plan, skeletonTargetDiscovery,
 		)
 		if err != nil {
 			return componentTargetPackageResult{}, nil, err
@@ -176,7 +168,6 @@ func discoverComponentTargets(
 		expressionHarvests = append(expressionHarvests, componentTargetExpressionHarvest{
 			parsed:          parsed,
 			source:          gsxFiles[path],
-			inferRegistry:   skeleton.inferRegistry,
 			embeddedMarkups: skeleton.embeddedMarkups,
 		})
 	}
@@ -216,7 +207,7 @@ func discoverComponentTargets(
 	for _, harvest := range expressionHarvests {
 		maps.Copy(expressionFacts, harvestComponentTargetExpressionFacts(
 			harvest.parsed, harvest.source, pkg, info, fset,
-			harvest.inferRegistry, harvest.embeddedMarkups, plan,
+			harvest.embeddedMarkups, plan,
 		))
 	}
 	return componentTargetPackageResult{
@@ -240,7 +231,6 @@ func harvestComponentTargetExpressionFacts(
 	pkg *types.Package,
 	info *types.Info,
 	fset *token.FileSet,
-	inferRegistry *inferRegistry,
 	embeddedMarkups [][]gsxast.Markup,
 	plan componentTargetPlan,
 ) map[gsxast.Node]expressionFact {
@@ -252,8 +242,8 @@ func harvestComponentTargetExpressionFacts(
 			components = append(components, component)
 		}
 	}
-	harvest(parsed, components, info, resolved, expressions, inferRegistry, &plan)
-	harvestEmbeddedElements(parsed, embeddedMarkups, info, resolved, expressions, inferRegistry)
+	harvest(parsed, components, info, resolved, expressions, &plan)
+	harvestEmbeddedElements(parsed, embeddedMarkups, info, resolved, expressions)
 
 	facts := make(map[gsxast.Node]expressionFact, len(expressions))
 	for node, expr := range expressions {

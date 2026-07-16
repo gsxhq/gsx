@@ -88,7 +88,7 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 			return types.Instance{}, []diag.Diagnostic{targetPositioned(ic, target, "component-inference", fmt.Sprintf("operand %d refers to parameter %d outside the signature", i, op.paramIndex))}
 		}
 		paramType := substituteTypeParams(origin.Params().At(op.paramIndex).Type(), subst)
-		carrierVars = append(carrierVars, types.NewVar(token.NoPos, ic.pkg, fmt.Sprintf("_gsxp%d", i), paramType))
+		carrierVars = append(carrierVars, types.NewVar(token.NoPos, ic.pkg, fmt.Sprintf("_gsxarg%d", i), paramType))
 	}
 	carrierSig := types.NewSignatureType(nil, nil, fresh, types.NewTuple(carrierVars...), types.NewTuple(), false)
 
@@ -96,7 +96,7 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 	// the synthetic type-argument aliases so no foreign type is ever spelled as
 	// source. Every referenced type is a resolved go/types object, so the check
 	// needs no importer.
-	probe := types.NewPackage("gsxinfer", "gsxinfer")
+	probe := types.NewPackage("gsxzero", "gsxzero")
 	carrier := types.NewFunc(token.NoPos, probe, "_gsxcarrier", carrierSig)
 	probe.Scope().Insert(carrier)
 
@@ -126,8 +126,8 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 	call.WriteByte(')')
 
 	fset := token.NewFileSet()
-	src := "package gsxinfer\nfunc _gsxprobe() { " + call.String() + " }\n"
-	file, err := goparser.ParseFile(fset, "infer.go", src, goparser.SkipObjectResolution)
+	src := "package gsxzero\nfunc _gsxvalidate() { " + call.String() + " }\n"
+	file, err := goparser.ParseFile(fset, "zero.go", src, goparser.SkipObjectResolution)
 	if err != nil {
 		return types.Instance{}, []diag.Diagnostic{targetPositioned(ic, target, "component-inference", fmt.Sprintf("internal inference probe failed to parse: %v", err))}
 	}

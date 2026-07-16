@@ -67,15 +67,11 @@ func TestFileScopedFactsDoNotCrossNestedModuleBoundary(t *testing.T) {
 	facts := m.fileScopedFacts(
 		pagesDir,
 		file,
-		map[string]map[string]bool{},
-		map[string]map[string]bool{},
-		map[string]map[string]bool{},
-		newByoData(),
 		diag.NewBag(m.fset),
 		m.fset,
 	)
-	if len(facts.propFields) != 0 || len(facts.nodeProps) != 0 || len(facts.attrsProps) != 0 {
-		t.Fatalf("nested-module GSX facts leaked into parent package: props=%v nodes=%v attrs=%v", facts.propFields, facts.nodeProps, facts.attrsProps)
+	if len(facts.depAliasSpecs) != 0 {
+		t.Fatalf("nested-module GSX dependency leaked into parent package: %v", facts.depAliasSpecs)
 	}
 	if len(m.depFacts) != 0 {
 		t.Fatalf("nested-module directory was analyzed as a parent-owned GSX dependency: %v", m.depFacts)

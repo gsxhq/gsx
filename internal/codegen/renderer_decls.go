@@ -120,31 +120,18 @@ func (r *sourceDeclResolver) packageForDir(dir string) (*types.Package, error) {
 			return nil, err
 		}
 	}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsForActive(companions, gsxFiles)
-	if err != nil {
-		return nil, err
-	}
 	// Declaration skeletons stub component and embedded-markup bodies. They do
 	// not consult configured filters or renderers, which is what makes this
 	// resolver a non-circular source of those functions' own signatures.
 	table := funcTables{}
-	genericSigs := genericSigsFor(gsxFiles, byo)
-	inferNames := newInferNameAllocator()
 	goFiles := make([]*goast.File, 0, len(gsxFiles))
 	var importPaths []string
 	for path, file := range gsxFiles {
-		skeleton, _, imports, _, _, _, buildErr := buildSkeleton(
+		skeleton, _, imports, _, _, buildErr := buildSkeleton(
 			file,
 			table,
-			propFields,
-			nodeProps,
-			attrsProps,
-			genericSigs,
-			nil,
-			byo,
 			fset,
 			bag,
-			inferNames,
 			&componentPlan,
 			skeletonDeclarations,
 		)

@@ -9,7 +9,6 @@ import (
 
 	"go/token"
 
-	gsxast "github.com/gsxhq/gsx/ast"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -182,16 +181,11 @@ func TestComponentFuncNameColumnAnchorSkeleton(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
 	table, err := loadFilterTable(pkgDir)
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, fset, nil, nil, nil, skeletonFull)
+	skel, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -221,16 +215,11 @@ func TestComponentFuncLineAnchorSkeleton(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
 	table, err := loadFilterTable(pkgDir)
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, fset, nil, nil, nil, skeletonFull)
+	skel, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

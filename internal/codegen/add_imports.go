@@ -29,25 +29,12 @@ import (
 // directives, so gsxFset maps a skeleton position back to its .gsx origin, the
 // same way diagnostics already do.
 //
-// analyze deliberately emits a SECOND copy of a component child-prop
-// expression, under its own //line stamp, as an inference-harvest probe (see
-// infer.go's inferRegistry doc) — so one source-level qualifier can appear
-// TWICE in the skeleton: once at its real site (the props literal / gsx.Attrs
-// assignment), once inside a _gsxuseq(...) probe call. The type-error loop
-// (module_importer.go) suppresses type errors landing inside a probe span
-// because "the props literal reports it" — so the ONE diagnostic the user
-// actually sees anchors at the props-literal copy, never the probe copy.
-// MissingImport.Pos is documented to mirror that diagnostic, so this function
-// must skip the same probe spans, computed by the same harvestProbeSpans
-// helper the type-error loop's quietSpans is built from
-// (module_importer.go). This is NOT the same thing as probeSiteForError:
-// that reports membership in an inferRegistry TYPE-INFERENCE span, which for
-// a GENERIC tag covers the props-literal occurrence (it is the one
-// participating in inference) — the occurrence we must KEEP — so filtering
-// on it used to drop the wrong copy for generics while accidentally working
-// for plain tags (where it never matched anything, and the (Name, Symbol)
-// dedupe below did all the work by keeping whichever copy ast.Inspect visited
-// first).
+// analyze deliberately emits a SECOND copy of some component operand
+// expressions, under their own //line stamps, as quiet type-harvest probes. A
+// source qualifier can therefore appear once in its native validation context
+// and once inside _gsxuseq(...). The type-error loop suppresses errors in the
+// quiet copy, so MissingImport.Pos must skip the same harvestProbeSpans and
+// retain the native occurrence.
 //
 // A second layer of dedupe collapses by (Name, Symbol) per file: two
 // GENUINE uses of the same qualifier+symbol (e.g. fmt.Sprint on two
@@ -56,15 +43,14 @@ import (
 // way — see add_imports_test.go's TestMissingImportsRepeatedGenuineUsesCollapse.
 // With the probe copies now filtered out up front, the surviving Pos for a
 // deduped (Name, Symbol) is always the FIRST non-probe occurrence in
-// ast.Inspect order — for the child-prop case, that is the props-literal
-// occurrence, matching the diagnostic.
+// ast.Inspect order, matching the diagnostic.
 //
 // Pure: walks ASTs analyze already parsed. No IO, no lock, no packages.Load, no
 // importer call. spansByFile is computed once per file by analyze (shared with
 // the type-error loop's quietSpans) and passed in, so this function itself does
 // no AST walk of its own beyond the SelectorExpr inspection below; per ident,
 // inHarvestProbe scans that file's span slice, so the cost is O(idents × spans)
-// — spans are few (one per child-prop/spread probe), so this stays cheap. Safe
+// — spans are few (one per operand/spread probe), so this stays cheap. Safe
 // on the Package() hot path.
 func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, info *types.Info, spansByFile map[*goast.File][]posSpan) map[string][]MissingImport {
 	if info == nil {
@@ -90,7 +76,7 @@ func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet,
 			// A selector root (se.X) is always a reference occurrence, never a
 			// declaration site, so only info.Uses (checked above) can resolve it.
 			if inHarvestProbe(probeSpans, id.Pos()) {
-				return true // _gsxuseq harvest-probe copy of a child-prop expr; the props-literal occurrence is reported instead
+				return true // _gsxuseq harvest-probe copy; the native operand occurrence is reported instead
 			}
 			key := id.Name + "." + se.Sel.Name
 			if seen[key] {
