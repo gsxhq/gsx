@@ -37,6 +37,18 @@ type positionalEmitContext struct {
 	mergeExpr           string
 	enclosingAttrsBound bool
 	positionalPlan      componentPositionalPackagePlan
+	errReturn           string
+}
+
+func (ctx positionalEmitContext) errorReturn() string {
+	if ctx.errReturn != "" {
+		return ctx.errReturn
+	}
+	return "return _gsxerr"
+}
+
+func (ctx positionalEmitContext) pipeWrap(b *bytes.Buffer) func(string) string {
+	return pipeWrapReturning(b, ctx.interpTemp, ctx.errorReturn())
 }
 
 // emitPositionalComponentCall lowers one semantically completed call plan. It
@@ -56,15 +68,22 @@ func emitPositionalComponentCall(
 	}
 
 	for valueIndex, value := range plan.call.values {
+		// Children are deferred Node closures, not eagerly evaluated call-site
+		// operands. positionalChildrenArgs owns their scalar/variadic lowering at
+		// the final argument slot; lowering them here would build a duplicate,
+		// unused closure and incorrectly subject it to eager materialization.
+		if value.kind == componentInputBody {
+			continue
+		}
 		expr, used, ok := positionalValueExpr(b, value, plan, ctx)
 		if !ok {
 			ctx.bag.Errorf(value.node.Pos(), value.node.End(), "component-positional-emission",
 				"component input %T is not yet lowered by positional emission", value.node)
 			return false
 		}
-		if exprAttr, ok := value.node.(*gsxast.ExprAttr); ok && len(exprAttr.Stages) != 0 {
+		if exprAttr, ok := value.node.(*gsxast.ExprAttr); ok && value.attrsNode == nil && len(exprAttr.Stages) != 0 {
 			var err error
-			expr, used, err = lowerPipe(exprAttr.Expr, exprAttr.Stages, ctx.table, emitPipeWrap(b, ctx.interpTemp))
+			expr, used, err = lowerPipe(exprAttr.Expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(b))
 			if err != nil {
 				ctx.bag.Errorf(exprAttr.Pos(), exprAttr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return false
@@ -80,7 +99,7 @@ func emitPositionalComponentCall(
 		case decision.unwrapTuple:
 			temp := nextPositionalTemp(ctx.interpTemp)
 			fmt.Fprintf(b, "%s, _gsxerr := %s\n", temp, expr)
-			b.WriteString("if _gsxerr != nil { return _gsxerr }\n")
+			fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 			lowered = temp
 		case decision.temp != "":
 			temp := nextPositionalTemp(ctx.interpTemp)
@@ -197,7 +216,7 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 			expr, _, ok := rootStyleString(b, node, nil, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.resolved)
 			return expr, nil, ok
 		}
-		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, emitPipeWrap(b, ctx.interpTemp), "return _gsxerr")
+		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.pipeWrap(b), ctx.errorReturn())
 		if err != nil {
 			positionalAttrsError(node, err, ctx)
 			return "", nil, false
@@ -220,7 +239,7 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
 	switch node.kind {
 	case componentAttrsStreamPair, componentAttrsStreamSpread:
-		expr, used, err := composeBag(b, ctx.interpTemp, emitPipeWrap(b, ctx.interpTemp), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, "return _gsxerr", bagComponentCond)
+		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond)
 		if err != nil {
 			positionalAttrsError(node.attr, err, ctx)
 			return "", nil, false
@@ -233,7 +252,7 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 			used := map[string]string(nil)
 			if len(attr.Stages) != 0 {
 				var err error
-				expr, used, err = lowerPipe(attr.Expr, attr.Stages, ctx.table, emitPipeWrap(b, ctx.interpTemp))
+				expr, used, err = lowerPipe(attr.Expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
 				if err != nil {
 					ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return "", nil, false
@@ -270,13 +289,21 @@ func positionalAttrsError(node gsxast.Node, err error, ctx positionalEmitContext
 func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx positionalEmitContext) (string, bool) {
 	switch attr.Lang {
 	case gsxast.EmbeddedText:
-		return componentEmbeddedTextValueExpr(b, attr, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, "return _gsxerr")
+		return componentEmbeddedTextValueExpr(b, attr, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn())
 	case gsxast.EmbeddedJS:
-		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, "return _gsxerr", false, false)
-		return positionalEmbeddedPipeline(b, attr, expr, ok, ctx)
+		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
+		expr, ok = positionalEmbeddedPipeline(b, attr, expr, ok, ctx)
+		if !ok {
+			return "", false
+		}
+		return ctx.rt.rt() + ".RawJS(" + expr + ")", true
 	case gsxast.EmbeddedCSS:
-		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, "return _gsxerr", false, false)
-		return positionalEmbeddedPipeline(b, attr, expr, ok, ctx)
+		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
+		expr, ok = positionalEmbeddedPipeline(b, attr, expr, ok, ctx)
+		if !ok {
+			return "", false
+		}
+		return ctx.rt.rt() + ".RawCSS(" + expr + ")", true
 	default:
 		ctx.bag.Errorf(attr.Pos(), attr.End(), "component-positional-emission", "unknown embedded literal language %d", attr.Lang)
 		return "", false
@@ -287,7 +314,7 @@ func positionalEmbeddedPipeline(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, expr
 	if !ok || len(attr.Stages) == 0 {
 		return expr, ok
 	}
-	lowered, used, err := lowerPipe(expr, attr.Stages, ctx.table, emitPipeWrap(b, ctx.interpTemp))
+	lowered, used, err := lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
 	if err != nil {
 		ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return "", false
@@ -301,7 +328,7 @@ func positionalEmbeddedPipeline(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, expr
 				ctx.bag.Errorf(attr.Pos(), attr.End(), "invalid-tuple", "component attribute %q pipeline returns %s; only (T, error) is supported", attr.Name, tuple)
 				return "", false
 			}
-			lowered = hoistTupleReturning(b, lowered, ctx.interpTemp, "return _gsxerr")
+			lowered = hoistTupleReturning(b, lowered, ctx.interpTemp, ctx.errorReturn())
 		}
 	}
 	return lowered, true
@@ -333,12 +360,13 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
 	fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
-	b.WriteString("if _gsxerr != nil { return _gsxerr }\n")
+	fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 	return name, used, true
 }
 
 func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
 	var body bytes.Buffer
+	ctx.errReturn = "return nil, _gsxerr"
 	parts := make([]string, 0, len(nodes))
 	used := make(map[string]string)
 	for _, node := range nodes {
@@ -385,7 +413,7 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 			name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 			*ctx.interpTemp++
 			fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
-			b.WriteString("if _gsxerr != nil { return _gsxerr }\n")
+			fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 			expr = name
 		}
 		entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(pair.Key), expr))

@@ -724,6 +724,12 @@ func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]
 	}
 	entries := make([]entry, 0, len(plan.values))
 	for i, v := range plan.values {
+		// Component children lower to deferred Node closures at their final
+		// scalar/variadic argument slot. Creating the closure performs none of the
+		// body work, so it is not an eager operand in call-site evaluation order.
+		if v.kind == componentInputBody {
+			continue
+		}
 		fact, ok := facts[v.node]
 		entries = append(entries, entry{
 			valueIndex: i,

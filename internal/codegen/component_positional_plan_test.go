@@ -261,12 +261,12 @@ func TestPlanComponentPositionalCallsDerivesSyntaxDefinedOrdinaryPropFacts(t *te
 		t.Fatalf("diagnostics = %+v", diagnostics)
 	}
 	site := got.sites[1]
-	if len(site.authoredValues) != 5 || len(site.operands) != 5 {
-		t.Fatalf("authored values=%d operands=%d", len(site.authoredValues), len(site.operands))
+	if len(site.call.values) != 5 || len(site.operands) != 5 {
+		t.Fatalf("authored values=%d operands=%d", len(site.call.values), len(site.operands))
 	}
 	wantTypes := []types.Type{types.Typ[types.UntypedString], types.Typ[types.UntypedBool], fx.runtime.node, fx.runtime.attrs, types.Typ[types.String]}
 	for i, want := range wantTypes {
-		if gotType := site.authoredValues[i].fact.tv.Type; !types.Identical(gotType, want) {
+		if gotType := site.expressionFacts[site.call.values[i].node].tv.Type; !types.Identical(gotType, want) {
 			t.Errorf("value %d fact type = %v, want %v", i, gotType, want)
 		}
 	}
@@ -298,8 +298,43 @@ func TestPlanComponentPositionalCallsPinsConditionalAttrsAtAuthoredOrder(t *test
 	if len(site.materialization.values) != 2 || site.materialization.values[0].temp == "" || site.materialization.values[1].temp == "" {
 		t.Fatalf("crossing ordered values must both be pinned: %+v", site.materialization.values)
 	}
-	if !site.authoredValues[1].requiresStatement || !site.expressionFacts[el.Attrs[1]].hasOrderedOperation {
-		t.Fatalf("conditional attrs fact/statement = %+v, %+v", site.authoredValues[1], site.expressionFacts[el.Attrs[1]])
+	if !site.expressionFacts[el.Attrs[1]].hasOrderedOperation {
+		t.Fatalf("conditional attrs fact = %+v", site.expressionFacts[el.Attrs[1]])
+	}
+}
+
+func TestPositionalMaterializationFactsLeaveTupleOwnershipWithCompoundLowering(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	errType := types.Universe.Lookup("error").Type()
+	tuple := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),
+		types.NewVar(token.NoPos, nil, "", errType),
+	)
+
+	embedded := &gsxast.EmbeddedAttr{Name: "label", Lang: gsxast.EmbeddedText}
+	plain := &gsxast.ExprAttr{Name: "title", Expr: "load()"}
+	pair := &gsxast.ExprAttr{Name: "href", Expr: "url()"}
+	pairNode := componentAttrsStreamNode{kind: componentAttrsStreamPair, attr: pair}
+	plan := componentCallPlan{values: []componentInputValue{
+		{kind: componentInputProp, paramIndex: 0, contributorIndex: -1, node: embedded},
+		{kind: componentInputProp, paramIndex: 1, contributorIndex: -1, node: plain},
+		{kind: componentInputAttrsPair, paramIndex: 2, contributorIndex: 0, node: pair, attrsNode: &pairNode},
+	}}
+	facts := map[gsxast.Node]expressionFact{
+		embedded: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple},
+		plain:    {tv: types.TypeAndValue{Type: tuple}, tuple: tuple},
+		pair:     {tv: types.TypeAndValue{Type: tuple}, tuple: tuple},
+	}
+
+	materializationFacts := positionalMaterializationFacts(plan, facts, fx.runtime)
+	if got := materializationFacts[embedded]; got.tuple != nil || !types.Identical(got.tv.Type, types.Typ[types.String]) || !got.hasOrderedOperation {
+		t.Fatalf("embedded lowering fact = %+v, want ordered string without outer tuple", got)
+	}
+	if got := materializationFacts[pair]; got.tuple != nil || !types.Identical(got.tv.Type, fx.runtime.attrs) || !got.hasOrderedOperation {
+		t.Fatalf("attrs-pair lowering fact = %+v, want ordered attrs without outer tuple", got)
+	}
+	if got := materializationFacts[plain]; got.tuple == nil {
+		t.Fatalf("plain expression tuple ownership moved away from outer materializer: %+v", got)
 	}
 }
 

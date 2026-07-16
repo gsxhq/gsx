@@ -42,7 +42,6 @@ type componentPositionalSitePlan struct {
 	typeArgs        []types.Type
 	typeArgExprs    []string
 	operands        []suppliedOperand
-	authoredValues  []componentPositionalAuthoredValue
 	expressionFacts map[gsxast.Node]expressionFact
 	zeros           []componentZeroArgument
 	materialization materializationPlan
@@ -51,12 +50,6 @@ type componentPositionalSitePlan struct {
 type componentZeroArgument struct {
 	paramIndex int
 	expr       string
-}
-
-type componentPositionalAuthoredValue struct {
-	value             componentInputValue
-	fact              expressionFact
-	requiresStatement bool
 }
 
 func (p componentPositionalPackagePlan) siteForElement(element *gsxast.Element) (componentPositionalSitePlan, bool) {
@@ -112,7 +105,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			diagnostics = append(diagnostics, callDiags...)
 			continue
 		}
-		siteFacts, authoredValues, factDiags := completeComponentOperandFacts(call, input.expressionFacts, input.runtime, input.fset)
+		siteFacts, factDiags := completeComponentOperandFacts(call, input.expressionFacts, input.runtime, input.fset)
 		call, operandDiags := validateComponentOperands(call, siteFacts, input.runtime)
 		operandDiags = append(operandDiags, validateRecursiveAttrsOperands(call, siteFacts, input.runtime)...)
 		operandDiags = append(operandDiags, validateRequiredAttrsFacts(call, siteFacts, input.fset)...)
@@ -181,8 +174,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			diagnostics = append(diagnostics, zeroDiags...)
 			continue
 		}
-		materialization := planComponentMaterialization(call, siteFacts)
-		materialization = forceStatementMaterialization(materialization, authoredValues)
+		materialization := planComponentMaterialization(call, positionalMaterializationFacts(call, siteFacts, input.runtime))
 		result.sites[record.id] = componentPositionalSitePlan{
 			runtime:         input.runtime,
 			call:            call,
@@ -192,7 +184,6 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			typeArgs:        typeArgs,
 			typeArgExprs:    typeArgExprs,
 			operands:        operands,
-			authoredValues:  authoredValues,
 			expressionFacts: siteFacts,
 			zeros:           zeros,
 			materialization: materialization,
@@ -227,12 +218,11 @@ func positionalSignatureDiagnostic(node gsxast.Node, fset *token.FileSet, err er
 	return positionalDiagnostic(node, fset, code, message)
 }
 
-func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast.Node]expressionFact, runtime runtimeContract, fset *token.FileSet) (map[gsxast.Node]expressionFact, []componentPositionalAuthoredValue, []diag.Diagnostic) {
+func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast.Node]expressionFact, runtime runtimeContract, fset *token.FileSet) (map[gsxast.Node]expressionFact, []diag.Diagnostic) {
 	facts := maps.Clone(discovered)
 	if facts == nil {
 		facts = make(map[gsxast.Node]expressionFact)
 	}
-	requiresStatement := make(map[gsxast.Node]bool)
 	var diagnostics []diag.Diagnostic
 
 	var completeNode func(gsxast.Node) bool
@@ -243,12 +233,11 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 		if _, ok := facts[node]; ok {
 			return true
 		}
-		fact, statement, ok := syntaxDefinedComponentFact(node, facts, runtime)
+		fact, ok := syntaxDefinedComponentFact(node, facts, runtime)
 		if !ok {
 			return false
 		}
 		facts[node] = fact
-		requiresStatement[node] = statement
 		return true
 	}
 	var completeAttrsTree func(componentAttrsStreamNode)
@@ -263,13 +252,11 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 			if _, exists := facts[node.attr]; !exists {
 				facts[node.attr] = expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true}
 			}
-			requiresStatement[node.attr] = true
 			return
 		}
 		completeNode(node.attr)
 	}
 
-	authored := make([]componentPositionalAuthoredValue, 0, len(plan.values))
 	for _, value := range plan.values {
 		if value.attrsNode != nil {
 			completeAttrsTree(*value.attrsNode)
@@ -281,37 +268,32 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 			diagnostics = append(diagnostics, positionalDiagnostic(value.node, fset, "component-operand-fact", fmt.Sprintf("component input %T has no exact syntax-derived or go/types operand fact", value.node)))
 			continue
 		}
-		authored = append(authored, componentPositionalAuthoredValue{
-			value:             value,
-			fact:              facts[value.node],
-			requiresStatement: requiresStatement[value.node],
-		})
 	}
-	return facts, authored, diagnostics
+	return facts, diagnostics
 }
 
-func syntaxDefinedComponentFact(node gsxast.Node, nested map[gsxast.Node]expressionFact, runtime runtimeContract) (expressionFact, bool, bool) {
+func syntaxDefinedComponentFact(node gsxast.Node, nested map[gsxast.Node]expressionFact, runtime runtimeContract) (expressionFact, bool) {
 	switch node := node.(type) {
 	case *gsxast.StaticAttr:
-		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.UntypedString], Value: constant.MakeString(node.Value)}}, false, true
+		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.UntypedString], Value: constant.MakeString(node.Value)}}, true
 	case *gsxast.BoolAttr:
-		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.UntypedBool], Value: constant.MakeBool(true)}}, false, true
+		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.UntypedBool], Value: constant.MakeBool(true)}}, true
 	case *gsxast.MarkupAttr:
-		return expressionFact{tv: types.TypeAndValue{Type: runtime.node}}, false, true
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.node}}, true
 	case *gsxast.OrderedAttrsAttr:
-		ordered, statement, complete := aggregateNestedComponentFacts(node, nested)
+		ordered, complete := aggregateNestedComponentFacts(node, nested)
 		if !complete && len(node.Pairs) != 0 {
-			return expressionFact{}, false, false
+			return expressionFact{}, false
 		}
-		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: ordered}, statement, true
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: ordered}, true
 	case *gsxast.ClassAttr:
-		ordered, statement, complete := aggregateNestedComponentFacts(node, nested)
+		ordered, complete := aggregateNestedComponentFacts(node, nested)
 		if !complete && len(node.Parts) != 0 {
-			return expressionFact{}, false, false
+			return expressionFact{}, false
 		}
-		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: ordered}, statement, true
+		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: ordered}, true
 	case *gsxast.EmbeddedAttr:
-		ordered, statement, _ := aggregateNestedComponentFacts(node, nested)
+		ordered, _ := aggregateNestedComponentFacts(node, nested)
 		var typ types.Type
 		switch node.Lang {
 		case gsxast.EmbeddedText:
@@ -322,18 +304,18 @@ func syntaxDefinedComponentFact(node gsxast.Node, nested map[gsxast.Node]express
 			typ = runtimePackageType(runtime, "RawCSS")
 		}
 		if typ == nil {
-			return expressionFact{}, false, false
+			return expressionFact{}, false
 		}
-		return expressionFact{tv: types.TypeAndValue{Type: typ}, hasOrderedOperation: ordered}, statement, true
+		return expressionFact{tv: types.TypeAndValue{Type: typ}, hasOrderedOperation: ordered}, true
 	case *gsxast.CondAttr:
-		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true}, true, true
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true}, true
 	case *gsxast.Element:
-		return expressionFact{tv: types.TypeAndValue{Type: runtime.node}}, false, true
+		return expressionFact{tv: types.TypeAndValue{Type: runtime.node}}, true
 	}
-	return expressionFact{}, false, false
+	return expressionFact{}, false
 }
 
-func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expressionFact) (ordered, statement, complete bool) {
+func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expressionFact) (ordered, complete bool) {
 	complete = true
 	seenValue := false
 	gsxast.Inspect(root, func(node gsxast.Node) bool {
@@ -349,9 +331,7 @@ func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expre
 				return true
 			}
 			ordered = ordered || fact.hasOrderedOperation || fact.tuple != nil
-			statement = statement || fact.tuple != nil
 		case *gsxast.ValueCF:
-			statement = true
 			ordered = true
 		}
 		return true
@@ -359,7 +339,7 @@ func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expre
 	if !seenValue {
 		complete = true
 	}
-	return ordered, statement, complete
+	return ordered, complete
 }
 
 func runtimePackageType(runtime runtimeContract, name string) types.Type {
@@ -379,32 +359,55 @@ func runtimePackageType(runtime runtimeContract, name string) types.Type {
 	return obj.Type()
 }
 
-func forceStatementMaterialization(plan materializationPlan, authored []componentPositionalAuthoredValue) materializationPlan {
-	statement := make(map[int]bool)
-	for _, value := range authored {
-		if value.requiresStatement {
-			for i, planned := range plan.values {
-				if planned.node == value.value.node {
-					statement[i] = true
-				}
-			}
-		}
-	}
-	next := 0
+// positionalMaterializationFacts describes the final expression returned by
+// each syntax-specific lowering path. Compound values such as f/js/css
+// literals, class/style values, ordered attrs, and attrs pairs consume their
+// own nested (T, error) operations while assembling that final expression.
+// The outer positional materializer must still treat that work as ordered, but
+// must not try to unwrap the already-consumed tuple a second time.
+func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) map[gsxast.Node]expressionFact {
+	result := maps.Clone(facts)
 	for _, value := range plan.values {
-		if value.temp != "" {
-			next++
-		}
-	}
-	for i := range plan.values {
-		if !statement[i] || plan.values[i].temp != "" {
+		if !positionalLoweringOwnsTuple(value) {
 			continue
 		}
-		plan.values[i].inline = false
-		plan.values[i].temp = fmt.Sprintf("_gsxv%d", next)
-		next++
+		fact, ok := result[value.node]
+		if !ok || fact.tuple == nil {
+			continue
+		}
+		fact.tuple = nil
+		fact.tv.Value = nil
+		fact.isNil = false
+		fact.hasOrderedOperation = true
+		if value.attrsNode != nil {
+			fact.tv.Type = runtime.attrs
+		} else if lowered, ok := syntaxDefinedComponentFact(value.node, facts, runtime); ok {
+			fact.tv.Type = lowered.tv.Type
+		}
+		result[value.node] = fact
 	}
-	return plan
+	return result
+}
+
+func positionalLoweringOwnsTuple(value componentInputValue) bool {
+	if value.attrsNode != nil {
+		switch value.attrsNode.kind {
+		case componentAttrsStreamPair, componentAttrsStreamSpread, componentAttrsStreamConditional:
+			return true
+		case componentAttrsStreamContributor:
+			switch value.attrsNode.attr.(type) {
+			case *gsxast.OrderedAttrsAttr, *gsxast.EmbeddedAttr:
+				return true
+			}
+		}
+		return false
+	}
+	switch value.node.(type) {
+	case *gsxast.ClassAttr, *gsxast.EmbeddedAttr, *gsxast.OrderedAttrsAttr:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateRecursiveAttrsOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) []diag.Diagnostic {
