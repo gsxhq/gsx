@@ -52,7 +52,7 @@ func Embedded(ch <-chan int) _gsxrt.Node {
 		t.Fatal(err)
 	}
 	plan := syntacticComponentTargetPlan(files)
-	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, nil, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
+	skeleton, err := buildComponentTargetSkeleton(file, funcTables{}, nil, nil, nil, nil, fset, bag, markers, plan, skeletonTargetDiscovery)
 	if err != nil {
 		t.Fatal(err)
 	}

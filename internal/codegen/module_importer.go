@@ -1447,7 +1447,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			skelErr = true
 			break
 		}
-		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, &componentPlan, skeletonFull)
+		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, fset, bag, inferNames, &componentPlan, skeletonFull)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -1528,7 +1528,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
 			m,
 			dir, pkgPath,
-			pkgName, gsxFiles, componentPlan, callSites, table, factsByFile, m.opts.FieldMatcher,
+			pkgName, gsxFiles, componentPlan, callSites, table, factsByFile,
 			fset, targetBag, targetImporter, typeEnvironment,
 		)
 		if targetErr != nil {
