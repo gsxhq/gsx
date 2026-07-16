@@ -15,6 +15,9 @@ func (s *Server) handleDocumentSymbol(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, []DocumentSymbol{})
 	}
+	if !s.diskViewValid {
+		return s.reply(f.ID, []DocumentSymbol{})
+	}
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
 	pkg := s.pkgs[filepath.Dir(path)]

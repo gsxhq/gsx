@@ -16,6 +16,9 @@ import (
 var errComponentParamNotRenamable = errors.New("component parameter is not available for semantic rename")
 
 func (s *Server) handlePrepareRename(f frame) error {
+	if !s.renamePrepareSupport {
+		return s.reply(f.ID, nil)
+	}
 	if err := s.componentParamRenameAvailability(); err != nil {
 		return s.reply(f.ID, nil)
 	}
@@ -75,6 +78,9 @@ func (s *Server) handleRename(f frame) error {
 func (s *Server) componentParamRenameAvailability() error {
 	if !s.watchDynamicRegistration || !s.watchRegistrationActive {
 		return errors.New("component parameter rename unavailable until watched-file registration is active")
+	}
+	if !s.renameDynamicRegistration || !s.renameRegistrationActive {
+		return errors.New("component parameter rename unavailable until dynamic rename registration is active")
 	}
 	if !s.diskViewValid {
 		return errors.New("component parameter rename unavailable because the saved-source view is stale")

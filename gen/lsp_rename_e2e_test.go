@@ -466,10 +466,15 @@ func lspRenameReadyFrames(t *testing.T) string {
 		"jsonrpc": "2.0", "id": 1, "method": "initialize",
 		"params": map[string]any{"capabilities": map[string]any{
 			"workspace": map[string]any{"didChangeWatchedFiles": map[string]any{"dynamicRegistration": true}},
+			"textDocument": map[string]any{"rename": map[string]any{
+				"dynamicRegistration": true,
+				"prepareSupport":      true,
+			}},
 		}},
 	})
 	in += frameMsg(t, map[string]any{"jsonrpc": "2.0", "method": "initialized"})
 	in += frameMsg(t, map[string]any{"jsonrpc": "2.0", "id": "gsx-watched-files", "result": nil})
+	in += frameMsg(t, map[string]any{"jsonrpc": "2.0", "id": "gsx-rename", "result": nil})
 	return in
 }
 

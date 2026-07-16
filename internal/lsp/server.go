@@ -91,17 +91,20 @@ type diskRefresher interface {
 // goroutines only invoke analysis on a snapshot and send the result back; they
 // never begin, update, or clear an override.
 type Server struct {
-	conn                     *conn
-	docs                     *docStore
-	analyzer                 Analyzer
-	pkgs                     map[string]*Package // dir → latest analyzed package
-	enc                      encoding
-	shutdown                 bool
-	exited                   bool
-	watchDynamicRegistration bool
-	watchRegistrationActive  bool
-	diskViewValid            bool
-	pendingClientRequests    map[string]func(frame) error
+	conn                      *conn
+	docs                      *docStore
+	analyzer                  Analyzer
+	pkgs                      map[string]*Package // dir → latest analyzed package
+	enc                       encoding
+	shutdown                  bool
+	exited                    bool
+	watchDynamicRegistration  bool
+	watchRegistrationActive   bool
+	renameDynamicRegistration bool
+	renamePrepareSupport      bool
+	renameRegistrationActive  bool
+	diskViewValid             bool
+	pendingClientRequests     map[string]func(frame) error
 
 	moduleRefs        []CrossRef                 // whole-module cross-reference index (lazy; find-references)
 	moduleRefsValid   bool                       // false ⇒ rebuild on next references request
@@ -311,16 +314,14 @@ func (s *Server) handleInitialize(f frame) error {
 		encName = "utf-8"
 	}
 	s.watchDynamicRegistration = p.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
-	var renameProvider *RenameOptions
-	if s.watchDynamicRegistration {
-		renameProvider = &RenameOptions{PrepareProvider: true}
-	}
+	s.renameDynamicRegistration = p.Capabilities.TextDocument.Rename.DynamicRegistration
+	s.renamePrepareSupport = p.Capabilities.TextDocument.Rename.PrepareSupport
 	return s.reply(f.ID, initializeResult{Capabilities: serverCapabilities{
 		PositionEncoding:           encName,
 		TextDocumentSync:           1, // full document sync
 		DefinitionProvider:         true,
 		ReferencesProvider:         true,
-		RenameProvider:             renameProvider,
+		RenameProvider:             nil,
 		DocumentFormattingProvider: true,
 		HoverProvider:              true,
 		DocumentSymbolProvider:     true,
@@ -330,6 +331,7 @@ func (s *Server) handleInitialize(f frame) error {
 }
 
 const watchedFilesRegistrationID = "gsx-watched-files"
+const renameRegistrationID = "gsx-rename"
 
 func (s *Server) handleInitialized() error {
 	if !s.watchDynamicRegistration {
@@ -356,6 +358,33 @@ func (s *Server) handleInitialized() error {
 			}{Type: 1, Message: "gsx: client rejected watched-file registration; component parameter rename remains unavailable"})
 		}
 		s.watchRegistrationActive = true
+		return s.registerRename()
+	})
+}
+
+func (s *Server) registerRename() error {
+	if !s.renameDynamicRegistration {
+		return s.notify("window/logMessage", struct {
+			Type    int    `json:"type"`
+			Message string `json:"message"`
+		}{Type: 2, Message: "gsx: client does not support dynamic rename registration; component parameter rename remains unavailable"})
+	}
+	s.renameRegistrationActive = false
+	return s.requestClient(renameRegistrationID, "client/registerCapability", registrationParams{Registrations: []registration{{
+		ID:     renameRegistrationID,
+		Method: "textDocument/rename",
+		RegisterOptions: renameRegistrationOptions{
+			DocumentSelector: []documentFilter{{Scheme: "file", Pattern: "**/*.gsx"}},
+			RenameOptions:    RenameOptions{PrepareProvider: s.renamePrepareSupport},
+		},
+	}}}, func(response frame) error {
+		if len(response.Error) != 0 && string(response.Error) != "null" {
+			return s.notify("window/logMessage", struct {
+				Type    int    `json:"type"`
+				Message string `json:"message"`
+			}{Type: 1, Message: "gsx: client rejected dynamic rename registration; component parameter rename remains unavailable"})
+		}
+		s.renameRegistrationActive = true
 		return nil
 	})
 }
@@ -419,8 +448,6 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 		for dir := range fallbackDirs {
 			affected = append(affected, dir)
 		}
-	} else {
-		s.diskViewValid = true
 	}
 	affected = sortedUniqueDirs(affected)
 	for _, dir := range affected {
@@ -428,15 +455,14 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 		delete(s.pkgs, dir)
 	}
 	if refreshErr != nil {
-		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(paths, ", "), refreshErr); err != nil {
+		restartErr := fmt.Errorf("%w; saved-source intelligence remains disabled until the language server restarts", refreshErr)
+		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(paths, ", "), restartErr); err != nil {
 			return err
 		}
-		for _, dir := range s.openAffectedDirs(affected) {
-			if err := s.publishEmptyOpenGSX(s.docs.snapshotDir(dir)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.publishEmptyOpenDirs(affected)
+	}
+	if !s.diskViewValid {
+		return s.publishEmptyOpenDirs(affected)
 	}
 	return s.analyzeDirsNow(s.openAffectedDirs(affected))
 }
@@ -451,6 +477,15 @@ func watchedFileRelevant(path string) bool {
 	default:
 		return false
 	}
+}
+
+func (s *Server) publishEmptyOpenDirs(dirs []string) error {
+	for _, dir := range s.openAffectedDirs(dirs) {
+		if err := s.publishEmptyOpenGSX(s.docs.snapshotDir(dir)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) reply(id json.RawMessage, result any) error {
@@ -515,6 +550,10 @@ func (s *Server) handleDidOpen(f frame) error {
 			return err
 		}
 	}
+	if !s.diskViewValid {
+		delete(s.pkgs, dir)
+		return s.publishEmptyOpenDirs(append(affected, dir))
+	}
 
 	// Open is not debounced: the buffer just became authoritative, so every open
 	// affected package is refreshed promptly. An identical-byte transition may
@@ -554,6 +593,10 @@ func (s *Server) handleDidChange(f frame) error {
 		if err := s.logAnalyzerTransitionError("set override", path, transitionErr); err != nil {
 			return err
 		}
+	}
+	if !s.diskViewValid {
+		delete(s.pkgs, dir)
+		return s.publishEmptyOpenDirs(append(affected, dir))
 	}
 
 	// Debounce the exact open affected set. An identical-byte edit does not evict
@@ -598,6 +641,9 @@ func (s *Server) handleDidClose(f frame) error {
 		if err := s.logAnalyzerTransitionError("clear override", path, transitionErr); err != nil {
 			return err
 		}
+	}
+	if !s.diskViewValid {
+		return s.publishEmptyOpenDirs(affected)
 	}
 	// Clear always ends override authority, even when the newly exposed saved
 	// source is unreadable. Reanalyze every affected package that still has an

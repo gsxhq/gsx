@@ -37,8 +37,18 @@ type initializeParams struct {
 }
 
 type clientCapabilities struct {
-	General   generalCapabilities   `json:"general"`
-	Workspace workspaceCapabilities `json:"workspace"`
+	General      generalCapabilities      `json:"general"`
+	Workspace    workspaceCapabilities    `json:"workspace"`
+	TextDocument textDocumentCapabilities `json:"textDocument"`
+}
+
+type textDocumentCapabilities struct {
+	Rename renameClientCapabilities `json:"rename"`
+}
+
+type renameClientCapabilities struct {
+	DynamicRegistration bool `json:"dynamicRegistration"`
+	PrepareSupport      bool `json:"prepareSupport"`
 }
 
 type generalCapabilities struct {
@@ -105,6 +115,16 @@ type serverCapabilities struct {
 
 type RenameOptions struct {
 	PrepareProvider bool `json:"prepareProvider"`
+}
+
+type renameRegistrationOptions struct {
+	DocumentSelector []documentFilter `json:"documentSelector"`
+	RenameOptions
+}
+
+type documentFilter struct {
+	Scheme  string `json:"scheme,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
 }
 
 // CodeActionOptions advertises which code-action kinds the server produces. It
