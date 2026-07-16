@@ -1,6 +1,6 @@
 -- doc --
 name: Explicit parameter forwarding
-summary: Composite values are ordinary component parameters. Forward them by exact parameter name at both top-level and method component calls.
+summary: Composite values are ordinary component parameters, forwarded by exact parameter name at both top-level and method component calls.
 category: Components
 page: props
 pageOrder: 30
