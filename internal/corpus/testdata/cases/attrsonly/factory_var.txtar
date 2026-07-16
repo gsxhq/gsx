@@ -35,5 +35,6 @@ var HomeIcon = namedIcon("house")
 -- invoke --
 Page()
 -- diagnostics.golden --
+16:3: component-unnamed-fixed-param: parameter 0 has no markup-bindable name
+17:3: component-unnamed-fixed-param: parameter 0 has no markup-bindable name
 -- render.golden --
-<div><svg class="w-5 h-5 h-3 w-3">house</svg><svg class="w-5 h-5">house</svg></div>

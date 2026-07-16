@@ -7,7 +7,7 @@ component Theme(w int, accent string, raw gsx.RawCSS) {
 	<style>.card{width:@{w}px;color:@{accent};border:@{raw}}</style>
 }
 -- invoke --
-Theme(ThemeProps{W: 8, Accent: "red", Raw: gsx.RawCSS("1px solid")})
+Theme(8, "red", gsx.RawCSS("1px solid"))
 -- diagnostics.golden --
 -- render.golden --
 <style>.card{width:8px;color:red;border:1px solid}</style>
@@ -23,18 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type ThemeProps struct {
-	W      int
-	Accent string
-	Raw    gsx.RawCSS
-}
-
 //line input.gsx:5:1
-func Theme(_gsxp ThemeProps) _gsxrt.Node {
+func Theme(w int, accent string, raw gsx.RawCSS) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		w := _gsxp.W
-		accent := _gsxp.Accent
-		raw := _gsxp.Raw
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:6:2

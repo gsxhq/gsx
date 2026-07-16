@@ -18,7 +18,7 @@ component Page(id string) {
 	<button @click={mk(id)}>Open</button>
 }
 -- invoke --
-Page(PageProps{Id: "abc"})
+Page("abc")
 -- diagnostics.golden --
 -- render.golden --
 <button @click="open(&#34;abc&#34;)">Open</button>
@@ -38,14 +38,9 @@ func mk(id string) gsx.RawJS {
 	return _gsxrt.RawJS("open(" + _gsxrt.EscapeJSVal(id) + ")")
 }
 
-type PageProps struct {
-	Id string
-}
-
 //line input.gsx:9:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<button @click=\"")

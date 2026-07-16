@@ -15,4 +15,4 @@ component Page(u string, c bool) {
 	<Card title="Hi" { if c { onclick=js"do(@{u})" } } />
 }
 -- diagnostics.golden --
-8:28: embedded js attribute literal "onclick" with @{ } interpolation cannot be used as a component prop on <Card> yet; pass an ordinary prop value or move the literal to an element inside the component
+8:28: Card has no attrs param; unexpected attribute "onclick"

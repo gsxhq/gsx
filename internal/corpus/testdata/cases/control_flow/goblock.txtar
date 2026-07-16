@@ -5,7 +5,7 @@ component Chip(first string, last string) {
 	<div>{{ full := first + " " + last }}<span>{full}</span></div>
 }
 -- invoke --
-Chip(ChipProps{First: "Ada", Last: "Lovelace"})
+Chip("Ada", "Lovelace")
 -- diagnostics.golden --
 -- render.golden --
 <div><span>Ada Lovelace</span></div>

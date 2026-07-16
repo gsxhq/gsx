@@ -28,18 +28,9 @@ import (
 	_gsxio "io"
 )
 
-type FieldProps[T string | int] struct {
-	Value T
-	A     gsx.Attrs
-	B     gsx.Attrs
-}
-
 //line input.gsx:5:1
-func Field[T string | int](_gsxp FieldProps[T]) _gsxrt.Node {
+func Field[T string | int](value T, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		value := _gsxp.Value
-		a := _gsxp.A
-		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := a
@@ -62,9 +53,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Field[string](FieldProps[string]{Value: "a<b", A: nil, B: nil}))
+		_gsxgw.Node(ctx, Field[string]("a<b", nil, nil))
 //line input.gsx:11:2
-		_gsxgw.Node(ctx, Field[int](FieldProps[int]{Value: 7, A: nil, B: nil}))
+		_gsxgw.Node(ctx, Field[int](7, nil, nil))
 		return _gsxgw.Err()
 	})
 }

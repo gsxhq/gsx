@@ -8,4 +8,4 @@ component Box() { <div>x</div> }
 
 component Page() { <Box class="x"/> }
 -- diagnostics.golden --
-5:20: no-argument component Box accepts no attributes or children
+5:25: Box has no attrs param; unexpected attribute "class"

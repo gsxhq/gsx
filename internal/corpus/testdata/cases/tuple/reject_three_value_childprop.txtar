@@ -9,4 +9,4 @@ component Card(x int) { <div>{x}</div> }
 
 component Page() { <Card x={triple()}/> }
 -- diagnostics.golden --
-7:26: child prop "x" value "triple()" returns (int, string, bool); only (T, error) is supported
+7:20: value returns (int, string, bool); only (T, error) is consumed as one value

@@ -22,7 +22,7 @@ component card() {
 	<em>c</em>
 }
 
-component Outer() {
+component Outer(children gsx.Node) {
 	<b>{children}</b>
 }
 
@@ -66,14 +66,9 @@ func card() _gsxrt.Node {
 	})
 }
 
-type OuterProps struct {
-	Children _gsxrt.Node
-}
-
 //line input.gsx:15:1
-func Outer(_gsxp OuterProps) _gsxrt.Node {
+func Outer(children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		children := _gsxp.Children
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:2
 		_gsxgw.S("<b>")
@@ -94,14 +89,14 @@ func Page() _gsxrt.Node {
 		_gsxgw.Node(ctx, wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:14
-			_gsxgw.Node(ctx, Outer(OuterProps{Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw.Node(ctx, Outer(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:21
 				_gsxgw.Node(ctx, Inner())
 //line input.gsx:20:29
 				_gsxgw.Node(ctx, card())
 				return _gsxgw.Err()
-			})}))
+			})))
 			return _gsxgw.Err()
 		})))
 		_gsxgw.S("</div>")

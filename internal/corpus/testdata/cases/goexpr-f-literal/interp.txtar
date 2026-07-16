@@ -19,7 +19,7 @@ component Shout(label string) {
 	<p>{ emphasize(f`@{label}!`) }</p>
 }
 -- invoke --
-Shout(ShoutProps{Label: "hi"})
+Shout("hi")
 -- diagnostics.golden --
 -- render.golden --
 <p><em>hi!</em></p>
@@ -34,14 +34,9 @@ import (
 	_gsxio "io"
 )
 
-type ShoutProps struct {
-	Label string
-}
-
 //line input.gsx:3:1
-func Shout(_gsxp ShoutProps) _gsxrt.Node {
+func Shout(label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")

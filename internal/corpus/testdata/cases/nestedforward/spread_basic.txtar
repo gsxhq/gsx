@@ -5,11 +5,13 @@
 -- input.gsx --
 package views
 
-component Icon(name string) {
+
+import "github.com/gsxhq/gsx"
+component Icon(name string, attrs gsx.Attrs) {
 	<span class="icon" data-name={name} { attrs... }>i</span>
 }
 
-component SearchIcon() {
+component SearchIcon(attrs gsx.Attrs) {
 	<Icon name="search" class="w-5 h-5" { attrs... }/>
 }
 
@@ -28,22 +30,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type IconProps struct {
-	Name  string
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Icon(_gsxp IconProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Icon(name string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<span class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("icon"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
@@ -59,27 +55,22 @@ func Icon(_gsxp IconProps) _gsxrt.Node {
 	})
 }
 
-type SearchIconProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:7:1
-func SearchIcon(_gsxp SearchIconProps) _gsxrt.Node {
+//line input.gsx:9:1
+func SearchIcon(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Icon(IconProps{Name: "search", Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5 h-5"}}, attrs)}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Icon("search", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5 h-5"}}, attrs)))
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:11:1
+//line input.gsx:13:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.Node(ctx, SearchIcon(SearchIconProps{Attrs: _gsxrt.Attrs{{Key: "class", Value: "text-red"}, {Key: "aria-label", Value: "Search"}}}))
+//line input.gsx:14:2
+		_gsxgw.Node(ctx, SearchIcon(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "text-red"}}, _gsxrt.Attrs{{Key: "aria-label", Value: "Search"}})))
 		return _gsxgw.Err()
 	})
 }

@@ -1,11 +1,5 @@
-# False rejection TODAY: the token scan sees the `attrs` token in the func
-# literal's parameter list AND its body and fires usesAttrs, synthesizing an
-# unused Attrs field (the only `attrs` in scope at the call site, `f(nil)`,
-# is the parameter, never the implicit bag) — "declared and not used:
-# attrs". Stage 2 (freeUseAttrs) pushes a scope for the FuncLit, defines its
-# parameter name there, and finds every `attrs` inside the body bound, so
-# the two-stage trigger does NOT fire. The generated CounterProps struct
-# below carries only the declared `Label` field — NO Attrs field.
+# A function-literal parameter named attrs is scoped to that function and
+# remains an ordinary local. It does not declare an attrs component role.
 -- input.gsx --
 package views
 
@@ -14,7 +8,7 @@ component Counter(label string) {
 	<div data-label={label} data-n={f(nil)}>x</div>
 }
 -- invoke --
-Counter(CounterProps{Label: "c"})
+Counter("c")
 -- diagnostics.golden --
 -- render.golden --
 <div data-label="c" data-n="0">x</div>
@@ -29,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type CounterProps struct {
-	Label string
-}
-
 //line input.gsx:3:1
-func Counter(_gsxp CounterProps) _gsxrt.Node {
+func Counter(label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

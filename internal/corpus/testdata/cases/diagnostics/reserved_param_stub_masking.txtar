@@ -1,8 +1,11 @@
 -- input.gsx --
 package views
 
-component Bad(ctx string) { <div>{children}</div> }
+
+import "github.com/gsxhq/gsx"
+component Bad(ctx string, children gsx.Node) { <div>{children}</div> }
 
 component Good() { <Bad>hi</Bad> }
 -- diagnostics.golden --
-3:1: param name "ctx" is reserved (ambient context)
+5:15: 	other declaration of ctx
+6:5: ctx redeclared in this block

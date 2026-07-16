@@ -1,0 +1,41 @@
+# A gsx.Node parameter accepts markup while a concrete Render implementation is
+# an ordinary exact-name expression parameter.
+-- props.go --
+package views
+
+import (
+	"context"
+	"io"
+
+	"github.com/gsxhq/gsx"
+)
+
+// widget implements Render but is NOT gsx.Node — it is a concrete struct, not
+// the gsx.Node interface. A field of type widget must NOT be classified as a
+// node-field by loadExternalStructFields.
+type widget struct{ label string }
+
+func (w widget) Render(_ context.Context, wr io.Writer) error {
+	_, err := wr.Write([]byte("<span>" + w.label + "</span>"))
+	return err
+}
+
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(header gsx.Node, icon widget, title string) {
+	<div>{header}{icon}{title}</div>
+}
+
+component Page(w widget) {
+	<Card header="Hello" icon={w} title="World"/>
+}
+-- invoke --
+Page(widget{label: "star"})
+-- diagnostics.golden --
+7:2: "github.com/gsxhq/gsx" imported and not used
+7:2: "github.com/gsxhq/gsx" imported and not used
+-- render.golden --
+-- generated.x.go.golden --

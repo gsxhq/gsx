@@ -7,4 +7,4 @@ component Box() { <div>x</div> }
 
 component Page() { <Box>kids</Box> }
 -- diagnostics.golden --
-5:20: no-argument component Box accepts no attributes or children
+5:20: Box has no children param; component body cannot be passed

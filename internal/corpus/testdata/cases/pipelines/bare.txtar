@@ -3,7 +3,7 @@ package views
 
 component Hi(name string) { <p>{ name |> upper }</p> }
 -- invoke --
-Hi(HiProps{Name: "ada"})
+Hi("ada")
 -- diagnostics.golden --
 -- render.golden --
 <p>ADA</p>

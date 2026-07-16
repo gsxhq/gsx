@@ -11,7 +11,7 @@ component Row(who string) {
 	<p>{f`a @{ string(js`f(@{who})`) }`}</p>
 }
 -- invoke --
-Row(RowProps{Who: "<b>\"'"})
+Row("<b>\"'")
 -- diagnostics.golden --
 -- render.golden --
 <p>a f(&#34;\u003cb\u003e\&#34;&#39;&#34;)</p>
@@ -26,14 +26,9 @@ import (
 	_gsxio "io"
 )
 
-type RowProps struct {
-	Who string
-}
-
 //line input.gsx:3:1
-func Row(_gsxp RowProps) _gsxrt.Node {
+func Row(who string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		who := _gsxp.Who
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")

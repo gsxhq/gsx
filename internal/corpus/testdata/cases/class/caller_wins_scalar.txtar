@@ -1,11 +1,13 @@
 -- input.gsx --
 package views
 
-component Link() {
+
+import "github.com/gsxhq/gsx"
+component Link(children gsx.Node, attrs gsx.Attrs) {
 	<a href="/default" onclick="track()" { attrs... }>{children}</a>
 }
 -- invoke --
-Link(LinkProps{Attrs: gsx.Attrs{{Key: "href", Value: "/custom"}}})
+Link(nil, gsx.Attrs{{Key: "href", Value: "/custom"}})
 -- diagnostics.golden --
 -- render.golden --
 <a onclick="track()" href="/custom"></a>

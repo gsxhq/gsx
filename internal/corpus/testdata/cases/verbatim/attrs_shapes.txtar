@@ -156,8 +156,7 @@ func Page() _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv5 := _gsxv4
-		_gsxgw.Node(ctx, Shell(_gsxrt.ConcatAttrs(_gsxv5, _gsxrt.Attrs{{Key: "id", Value: "conditional"}})))
+		_gsxgw.Node(ctx, Shell(_gsxrt.ConcatAttrs(_gsxv4, _gsxrt.Attrs{{Key: "id", Value: "conditional"}})))
 //line input.gsx:32:2
 		_gsxgw.Node(ctx, Defined([]_gsxrt.Attr(_gsxrt.Attrs{{Key: "id", Value: "defined"}})))
 //line input.gsx:33:2

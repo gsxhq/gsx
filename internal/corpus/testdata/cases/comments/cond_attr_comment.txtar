@@ -12,7 +12,7 @@ component C(on bool) {
 	/>
 }
 -- invoke --
-C(CProps{On: true})
+C(true)
 -- diagnostics.golden --
 -- render.golden --
 <input checked/>

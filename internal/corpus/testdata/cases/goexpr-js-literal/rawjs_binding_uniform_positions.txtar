@@ -16,7 +16,7 @@ component Page(prop string, name string) {
 	<button {a...}>x</button>
 }
 -- invoke --
-Page(PageProps{Prop: "bar", Name: "y"})
+Page("bar", "y")
 -- diagnostics.golden --
 -- render.golden --
 <button @click="obj.bar = 1; let y = 2;">x</button>
@@ -32,16 +32,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Prop string
-	Name string
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(prop string, name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		prop := _gsxp.Prop
-		name := _gsxp.Name
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		a := gsx.Attrs{

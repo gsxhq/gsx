@@ -1,6 +1,6 @@
 # Context: a COMPONENT tag (not an HTML tag) in expression position with a
-# typed prop — `<Badge count={12}/>` — confirms the element literal lowers to
-# the ordinary component call-site (`Badge(BadgeProps{Count: 12})`), the same
+# typed input — `<Badge count={12}/>` — confirms the element literal lowers to
+# the authored component call-site (`Badge(12)`), the same
 # lowering a component body's child tags already use, not some special-cased
 # path for the expression-position case.
 -- input.gsx --
@@ -31,14 +31,9 @@ import (
 	_gsxio "io"
 )
 
-type BadgeProps struct {
-	Count int
-}
-
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) _gsxrt.Node {
+func Badge(count int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		count := _gsxp.Count
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2
@@ -53,7 +48,7 @@ func Badge(_gsxp BadgeProps) _gsxrt.Node {
 var badge = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:13
-	_gsxgw.Node(ctx, Badge(BadgeProps{Count: 12}))
+	_gsxgw.Node(ctx, Badge(12))
 	return _gsxgw.Err()
 })
 

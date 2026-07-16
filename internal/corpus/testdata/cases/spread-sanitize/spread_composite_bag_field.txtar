@@ -1,6 +1,7 @@
 # A spread onto an element sanitizes URL keys regardless of provenance (issue
-# #75): a byo struct's second gsx.Attrs field (not named Attrs) spread onto <a>
-# routes through the leaf URL sink, so a javascript: href becomes about:invalid#gsx.
+# #75): an attrs value stored in an ordinary composite parameter and spread
+# onto <a> routes through the leaf URL sink, so a javascript: href becomes
+# about:invalid#gsx.
 -- input.gsx --
 package views
 

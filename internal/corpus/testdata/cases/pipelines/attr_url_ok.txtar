@@ -3,7 +3,7 @@ package views
 
 component C(u string) { <a href={ u |> trim }>x</a> }
 -- invoke --
-C(CProps{U: "  /p?q=a&b  "})
+C("  /p?q=a&b  ")
 -- diagnostics.golden --
 -- render.golden --
 <a href="/p?q=a&amp;b">x</a>

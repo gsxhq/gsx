@@ -21,7 +21,7 @@ func fail() (string, error) { return "", sentinel }
 
 func checkedErrorPage() gsx.Node {
 	return gsx.Func(func(ctx context.Context, w io.Writer) error {
-		err := FailPage(FailPageProps{Edit: true}).Render(ctx, w)
+		err := FailPage(true).Render(ctx, w)
 		if !errors.Is(err, sentinel) {
 			return fmt.Errorf("render error = %v, want sentinel", err)
 		}
@@ -31,9 +31,11 @@ func checkedErrorPage() gsx.Node {
 -- input.gsx --
 package views
 
+
+import "github.com/gsxhq/gsx"
 func hi() (string, error) { return "there", nil }
 
-component Field(label string) { <input aria-label={label} { attrs... }/> }
+component Field(label string, attrs gsx.Attrs) { <input aria-label={label} { attrs... }/> }
 
 component Page(edit bool) {
 	<Field label="c" { if edit { title=f"Hi @{hi()}" } } />
@@ -43,7 +45,7 @@ component FailPage(edit bool) {
 	<Field label="c" { if edit { title=f"Hi @{fail()}" } } />
 }
 -- invoke --
-gsx.Fragment(Page(PageProps{Edit: true}), checkedErrorPage())
+gsx.Fragment(Page(true), checkedErrorPage())
 -- diagnostics.golden --
 -- render.golden --
 <input aria-label="c" title="Hi there"/>

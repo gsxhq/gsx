@@ -7,7 +7,7 @@ component Page(id string) {
 	</script>
 }
 -- invoke --
-Page(PageProps{Id: "42"})
+Page("42")
 -- diagnostics.golden --
 -- render.golden --
 <script>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Id string
-}
-
 //line input.gsx:3:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<script")

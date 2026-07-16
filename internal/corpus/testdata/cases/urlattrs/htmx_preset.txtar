@@ -9,7 +9,7 @@ package views
 
 component Nav(u string) { <a hx-get={u}>x</a> }
 -- invoke --
-Nav(NavProps{U: "javascript:alert(1)"})
+Nav("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
 <a hx-get="about:invalid#gsx">x</a>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type NavProps struct {
-	U string
-}
-
 //line input.gsx:3:1
-func Nav(_gsxp NavProps) _gsxrt.Node {
+func Nav(u string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		u := _gsxp.U
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:27
 		_gsxgw.S("<a hx-get=\"")

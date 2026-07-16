@@ -1,0 +1,38 @@
+# A parent bundles child inputs as ordinary composite values and forwards each
+# value by the child's exact parameter name. The composite is an ordinary Go
+# parameter value throughout.
+-- input.gsx --
+package views
+
+type UserPanelInput struct {
+	Name string
+}
+
+type GroupPanelInput struct {
+	Team string
+}
+
+type PanelInput struct {
+	User  UserPanelInput
+	Group GroupPanelInput
+}
+
+component UserPanel(input UserPanelInput) {
+	<span>user:{ input.Name }</span>
+}
+
+component GroupPanel(input GroupPanelInput) {
+	<span>group:{ input.Team }</span>
+}
+
+component Panel(input PanelInput) {
+	<div>
+		<UserPanel input={input.User}/>
+		<GroupPanel input={input.Group}/>
+	</div>
+}
+-- invoke --
+Panel(PanelInput{User: UserPanelInput{Name: "ann"}, Group: GroupPanelInput{Team: "core"}})
+-- diagnostics.golden --
+-- render.golden --
+<div><span>user:ann</span><span>group:core</span></div>

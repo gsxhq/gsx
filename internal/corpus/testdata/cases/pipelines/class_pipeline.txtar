@@ -8,7 +8,7 @@ component C(theme string, active bool) {
 	<div class={ theme |> upper, "on" : active }>x</div>
 }
 -- invoke --
-C(CProps{Theme: "dark", Active: true})
+C("dark", true)
 -- diagnostics.golden --
 -- render.golden --
 <div class="DARK on">x</div>
@@ -24,16 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type CProps struct {
-	Theme  string
-	Active bool
-}
-
 //line input.gsx:3:1
-func C(_gsxp CProps) _gsxrt.Node {
+func C(theme string, active bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		theme := _gsxp.Theme
-		active := _gsxp.Active
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div class=\"")

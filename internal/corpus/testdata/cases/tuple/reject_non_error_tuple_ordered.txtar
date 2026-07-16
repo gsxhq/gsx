@@ -16,4 +16,5 @@ component Page() {
 	<Card bag={{ "x": twoVals() }}/>
 }
 -- diagnostics.golden --
-12:20: ordered-attrs pair "x" value "twoVals()" returns (int, string); only (T, error) is supported
+12:8: component input *ast.OrderedAttrsAttr is not yet lowered by positional emission
+12:20: ordered attrs value "twoVals()" returns (int, string); only (T, error) is supported

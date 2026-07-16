@@ -8,7 +8,7 @@ component C(decl string) {
 	<div style={ decl |> upper }>x</div>
 }
 -- invoke --
-C(CProps{Decl: "color: red"})
+C("color: red")
 -- diagnostics.golden --
 -- render.golden --
 <div style="COLOR: RED">x</div>

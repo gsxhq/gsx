@@ -5,7 +5,7 @@ component Styled(userStyle string) {
 	<div style={ userStyle }>x</div>
 }
 -- invoke --
-Styled(StyledProps{UserStyle: "width:1px; background:url(javascript:alert(1))"})
+Styled("width:1px; background:url(javascript:alert(1))")
 -- diagnostics.golden --
 -- render.golden --
 <div style="ZgotmplZ">x</div>

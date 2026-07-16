@@ -12,7 +12,7 @@ component C(v any) {
 	} }>x</span>
 }
 -- invoke --
-C(CProps{V: "hi"})
+C("hi")
 -- diagnostics.golden --
 -- render.golden --
 <span class="str">x</span>
@@ -27,14 +27,9 @@ import (
 	_gsxio "io"
 )
 
-type CProps struct {
-	V any
-}
-
 //line input.gsx:3:1
-func C(_gsxp CProps) _gsxrt.Node {
+func C(v any) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")

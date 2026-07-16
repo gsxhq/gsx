@@ -7,7 +7,7 @@ component Item(name string) {
 	<div data-tag=f"row `@{name}`">x</div>
 }
 -- invoke --
-Item(ItemProps{Name: "a&b"})
+Item("a&b")
 -- diagnostics.golden --
 -- render.golden --
 <div data-tag="row `a&amp;b`">x</div>
@@ -22,14 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type ItemProps struct {
-	Name string
-}
-
 //line input.gsx:3:1
-func Item(_gsxp ItemProps) _gsxrt.Node {
+func Item(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div data-tag=\"row `")

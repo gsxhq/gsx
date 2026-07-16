@@ -1,6 +1,6 @@
-# The byo heuristic, by example: only a SOLE non-receiver param whose type is a
-# same-package named struct flips to byo (used directly). A single SCALAR param
-# and a MULTI-param component both keep the generated <Name>Props wrapper.
+# Component declarations retain their authored signatures for scalar,
+# multi-parameter, and ordinary composite-value shapes. Markup binds each
+# non-reserved parameter by its exact authored name.
 -- input.gsx --
 package views
 
@@ -24,7 +24,7 @@ component Page() {
 	<>
 		<Greeting name="Ann"/>
 		<Card title="T" n={2}/>
-		<Panel title="P"/>
+		<Panel p={Props{Title: "P"}}/>
 	</>
 }
 -- invoke --
@@ -47,14 +47,9 @@ type Props struct {
 	Title string
 }
 
-type GreetingProps struct {
-	Name string
-}
-
 //line input.gsx:7:1
-func Greeting(_gsxp GreetingProps) _gsxrt.Node {
+func Greeting(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<p>Hi ")
@@ -65,16 +60,9 @@ func Greeting(_gsxp GreetingProps) _gsxrt.Node {
 	})
 }
 
-type CardProps struct {
-	Title string
-	N     int
-}
-
 //line input.gsx:11:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(title string, n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
-		n := _gsxp.N
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:12:2
@@ -107,9 +95,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:21:3
-		_gsxgw.Node(ctx, Greeting(GreetingProps{Name: "Ann"}))
+		_gsxgw.Node(ctx, Greeting("Ann"))
 //line input.gsx:22:3
-		_gsxgw.Node(ctx, Card(CardProps{Title: "T", N: 2}))
+		_gsxgw.Node(ctx, Card("T", 2))
 //line input.gsx:23:3
 		_gsxgw.Node(ctx, Panel(Props{Title: "P"}))
 		return _gsxgw.Err()

@@ -1,11 +1,13 @@
 -- input.gsx --
 package views
 
-component Link() {
+
+import "github.com/gsxhq/gsx"
+component Link(children gsx.Node, attrs gsx.Attrs) {
 	<a href="/x" { attrs... }>{children}</a>
 }
 -- invoke --
-Link(LinkProps{Attrs: gsx.Attrs{{Key: "href", Value: "/evil"}, {Key: "data-y", Value: "1"}}})
+Link(nil, gsx.Attrs{{Key: "href", Value: "/evil"}, {Key: "data-y", Value: "1"}})
 -- diagnostics.golden --
 -- render.golden --
 <a href="/evil" data-y="1"></a>

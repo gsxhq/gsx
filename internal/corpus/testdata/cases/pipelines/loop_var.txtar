@@ -3,7 +3,7 @@ package views
 
 component L(xs []string) { <ul>{ for _, x := range xs { <li>{ x |> upper }</li> } }</ul> }
 -- invoke --
-L(LProps{Xs: []string{"a","b"}})
+L([]string{"a","b"})
 -- diagnostics.golden --
 -- render.golden --
 <ul><li>A</li><li>B</li></ul>

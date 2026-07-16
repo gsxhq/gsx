@@ -20,7 +20,7 @@ component Uses(name string, other int) {
 	<div>{ wrap(<b>{ name }</b>) }{ other }</div>
 }
 -- invoke --
-Uses(UsesProps{Name: "world", Other: 7})
+Uses("world", 7)
 -- diagnostics.golden --
 -- render.golden --
 <div><b>world</b>7</div>
@@ -38,16 +38,9 @@ import (
 
 func wrap(n gsx.Node) gsx.Node { return n }
 
-type UsesProps struct {
-	Name  string
-	Other int
-}
-
 //line input.gsx:7:1
-func Uses(_gsxp UsesProps) _gsxrt.Node {
+func Uses(name string, other int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
-		other := _gsxp.Other
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:8:2

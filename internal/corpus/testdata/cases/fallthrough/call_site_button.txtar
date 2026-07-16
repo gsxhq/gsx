@@ -1,7 +1,9 @@
 -- input.gsx --
 package views
 
-component Button(variant string) {
+
+import "github.com/gsxhq/gsx"
+component Button(variant string, children gsx.Node) {
 	<button class="btn" data-variant={variant}>{children}</button>
 }
 
@@ -9,4 +11,6 @@ component Page() {
 	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">Save</Button>
 }
 -- diagnostics.golden --
-8:28: attribute on <Button> matches no declared prop of component Button, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <Button>'s body to accept forwarded attributes
+10:28: Button has no attrs param; unexpected attribute "class"
+10:43: Button has no attrs param; unexpected attribute "data-test"
+10:57: Button has no attrs param; unexpected attribute "hx-post"

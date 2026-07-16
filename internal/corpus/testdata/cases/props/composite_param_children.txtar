@@ -1,22 +1,20 @@
-# author-owns-Props: a component whose sole non-receiver param is an
-# author-declared struct uses that struct DIRECTLY (no generated <Name>Props).
-# Tag attrs map to the struct's FIELDS; {children} uses an explicit Children field.
+# A composite value is an ordinary exact-name parameter; body content is a
+# separate declared children role.
 -- input.gsx --
 package views
 
 import "github.com/gsxhq/gsx"
 
 type Props struct {
-	Variant  string
-	Children gsx.Node
+	Variant string
 }
 
-component Button(p Props) {
-	<button class={ "btn", p.Variant }>{ p.Children }</button>
+component Button(p Props, children gsx.Node) {
+	<button class={ "btn", p.Variant }>{ children }</button>
 }
 
 component Page() {
-	<Button variant="primary">Save</Button>
+	<Button p={Props{Variant: "primary"}}>Save</Button>
 }
 -- invoke --
 Page()
@@ -36,35 +34,34 @@ import (
 )
 
 type Props struct {
-	Variant  string
-	Children gsx.Node
+	Variant string
 }
 
-//line input.gsx:10:1
-func Button(p Props) _gsxrt.Node {
+//line input.gsx:9:1
+func Button(p Props, children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:2
+//line input.gsx:10:2
 		_gsxgw.S("<button class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("btn"), _gsxrt.Class(p.Variant))
 		_gsxgw.S("\">")
-//line input.gsx:11:37
-		_gsxgw.Node(ctx, p.Children)
+//line input.gsx:10:37
+		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</button>")
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:14:1
+//line input.gsx:13:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:15:2
-		_gsxgw.Node(ctx, Button(Props{Variant: "primary", Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+//line input.gsx:14:2
+		_gsxgw.Node(ctx, Button(Props{Variant: "primary"}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("Save")
 			return _gsxgw.Err()
-		})}))
+		})))
 		return _gsxgw.Err()
 	})
 }

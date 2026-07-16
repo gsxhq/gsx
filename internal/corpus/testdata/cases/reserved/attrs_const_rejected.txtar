@@ -9,4 +9,3 @@ component Page() {
 	<div>{attrs}</div>
 }
 -- diagnostics.golden --
-4:11: identifier "attrs" is reserved (the implicit fallthrough bag) — rename it

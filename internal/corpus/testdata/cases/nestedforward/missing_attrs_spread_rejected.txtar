@@ -1,14 +1,15 @@
-# A sole `{ attrs... }` onto a bag-less callee from inside a forwarding
-# wrapper is the splat special-case: the enclosing component's implicit bag
-# is being forwarded, never a whole-struct splat.
+# An attrs contributor forwarded from a wrapper is rejected when the callee
+# does not declare the reserved attrs parameter.
 -- input.gsx --
 package views
 
+
+import "github.com/gsxhq/gsx"
 component Plain(title string) {
 	<h1>{title}</h1>
 }
 
-component Wrapper() {
+component Wrapper(attrs gsx.Attrs) {
 	<Plain { attrs... }/>
 }
 
@@ -18,5 +19,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-8:9: cannot forward `{ attrs... }` to <Plain>: PlainProps has no fallthrough bag; reference `attrs` in <Plain>'s body to accept forwarded attributes
+10:9: Plain has no attrs param; unexpected attrs-bag contributor
 -- render.golden --

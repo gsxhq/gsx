@@ -8,7 +8,7 @@ component Box(tone int) {
 	} }>x</div>
 }
 -- invoke --
-Box(BoxProps{Tone: 1})
+Box(1)
 -- render.golden --
 <div style="padding: 4px; color: red">x</div>
 -- diagnostics.golden --
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	Tone int
-}
-
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(tone int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		tone := _gsxp.Tone
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")

@@ -3,7 +3,7 @@ package views
 
 component C(v string) { <div data-x={v}>y</div> }
 -- invoke --
-C(CProps{V: "\"><script>alert(1)</script>"})
+C("\"><script>alert(1)</script>")
 -- diagnostics.golden --
 -- render.golden --
 <div data-x="&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">y</div>

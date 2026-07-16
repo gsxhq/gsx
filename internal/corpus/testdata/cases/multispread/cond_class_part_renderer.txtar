@@ -39,7 +39,7 @@ component Page(val pg.Text, on bool, a gsx.Attrs, b gsx.Attrs) {
 	<div class={ val: on } { a... } { b... }>x</div>
 }
 -- invoke --
-Page(PageProps{Val: mkText("btn", true), On: true, A: gsx.Attrs{{Key: "data-a", Value: "1"}}, B: gsx.Attrs{{Key: "data-b", Value: "2"}}})
+Page(mkText("btn", true), true, gsx.Attrs{{Key: "data-a", Value: "1"}}, gsx.Attrs{{Key: "data-b", Value: "2"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="btn" data-a="1" data-b="2">x</div>
@@ -60,20 +60,9 @@ import (
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
-type PageProps struct {
-	Val pg.Text
-	On  bool
-	A   gsx.Attrs
-	B   gsx.Attrs
-}
-
 //line input.gsx:11:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(val pg.Text, on bool, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		val := _gsxp.Val
-		on := _gsxp.On
-		a := _gsxp.A
-		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
 		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.ClassIf(_gsxf0.PgText((val)), on))}}, a, b)

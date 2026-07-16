@@ -16,7 +16,7 @@ component Page(title string) {
 	<Panel header={ <h2>{ makeTitle(title) }</h2> }/>
 }
 -- invoke --
-Page(PageProps{Title: "News"})
+Page("News")
 -- diagnostics.golden --
 -- render.golden --
 <div class="panel"><h2>-- News --</h2></div>
@@ -34,14 +34,9 @@ import (
 
 func makeTitle(s string) (string, error) { return "-- " + s + " --", nil }
 
-type PanelProps struct {
-	Header gsx.Node
-}
-
 //line input.gsx:7:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+func Panel(header gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		header := _gsxp.Header
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div class=\"panel\">")
@@ -52,17 +47,12 @@ func Panel(_gsxp PanelProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	Title string
-}
-
 //line input.gsx:11:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(title string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Header: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.Node(ctx, Panel(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:18
 			_gsxgw.S("<h2>")
@@ -74,7 +64,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 			_gsxgw.Text(string(_gsxv0))
 			_gsxgw.S("</h2>")
 			return _gsxgw.Err()
-		})}))
+		})))
 		return _gsxgw.Err()
 	})
 }

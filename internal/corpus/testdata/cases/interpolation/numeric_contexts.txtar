@@ -14,7 +14,7 @@ component Nums(items []int, flag bool) {
 	</div>
 }
 -- invoke --
-Nums(NumsProps{Items: []int{10, 20}, Flag: true})
+Nums([]int{10, 20}, true)
 -- diagnostics.golden --
 -- render.golden --
 <div><p>2</p><span>10</span><ul><li>0: 10</li><li>1: 20</li></ul>2</div>
@@ -29,16 +29,9 @@ import (
 	_gsxio "io"
 )
 
-type NumsProps struct {
-	Items []int
-	Flag  bool
-}
-
 //line input.gsx:3:1
-func Nums(_gsxp NumsProps) _gsxrt.Node {
+func Nums(items []int, flag bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		items := _gsxp.Items
-		flag := _gsxp.Flag
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

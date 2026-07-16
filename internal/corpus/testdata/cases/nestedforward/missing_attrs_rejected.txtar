@@ -14,5 +14,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-8:19: attribute on <Plain> matches no declared prop of component Plain, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <Plain>'s body to accept forwarded attributes
+8:19: Plain has no attrs param; unexpected attribute "data-x"
 -- render.golden --

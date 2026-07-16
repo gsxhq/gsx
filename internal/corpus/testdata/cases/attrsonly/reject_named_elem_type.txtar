@@ -18,4 +18,4 @@ component Page() {
 	<Bad class="x"/>
 }
 -- diagnostics.golden --
-10:2: <Bad> is not tag-callable: its type is func(a []myAttr) gsx.Node, not a component-value signature (one parameter with underlying type []gsx.Attr, result gsx.Node), and no BadProps struct was found
+10:7: Bad has no attrs param; unexpected attribute "class"

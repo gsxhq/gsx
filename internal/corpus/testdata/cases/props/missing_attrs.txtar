@@ -1,0 +1,14 @@
+# An unmatched attribute is rejected when the authored signature has no attrs
+# role.
+-- input.gsx --
+package views
+
+component Button(variant string) {
+	<button class={ variant }></button>
+}
+
+component Page() {
+	<Button variant="primary" data-id="7"/>
+}
+-- diagnostics.golden --
+8:28: Button has no attrs param; unexpected attribute "data-id"

@@ -4,11 +4,13 @@
 -- input.gsx --
 package views
 
-component Icon() {
+
+import "github.com/gsxhq/gsx"
+component Icon(attrs gsx.Attrs) {
 	<span { attrs... }>i</span>
 }
 
-component Wrapper() {
+component Wrapper(attrs gsx.Attrs) {
 	<Icon class={ attrs.Class() }/>
 }
 
@@ -27,20 +29,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type IconProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Icon(_gsxp IconProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Icon(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<span")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
@@ -50,27 +48,22 @@ func Icon(_gsxp IconProps) _gsxrt.Node {
 	})
 }
 
-type WrapperProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:7:1
-func Wrapper(_gsxp WrapperProps) _gsxrt.Node {
+//line input.gsx:9:1
+func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Icon(IconProps{Attrs: _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(attrs.Class()))}}}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Icon(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(attrs.Class()))}}))
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:11:1
+//line input.gsx:13:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.Node(ctx, Wrapper(WrapperProps{Attrs: _gsxrt.Attrs{{Key: "class", Value: "w-5"}}}))
+//line input.gsx:14:2
+		_gsxgw.Node(ctx, Wrapper(_gsxrt.Attrs{{Key: "class", Value: "w-5"}}))
 		return _gsxgw.Err()
 	})
 }

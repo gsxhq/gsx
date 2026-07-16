@@ -12,7 +12,7 @@ component Bad(u string) {
 	<object data={u}></object>
 }
 -- invoke --
-Bad(BadProps{U: "data:image/svg+xml;base64,PHN2Zy8+"})
+Bad("data:image/svg+xml;base64,PHN2Zy8+")
 -- diagnostics.golden --
 -- render.golden --
 <object data="about:invalid#gsx"></object>

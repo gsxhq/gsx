@@ -11,7 +11,7 @@ component C(n uint64) {
 	} }>x</span>
 }
 -- invoke --
-C(CProps{N: 1 << 63})
+C(1 << 63)
 -- diagnostics.golden --
 -- render.golden --
 <span class="big">x</span>
@@ -26,14 +26,9 @@ import (
 	_gsxio "io"
 )
 
-type CProps struct {
-	N uint64
-}
-
 //line input.gsx:3:1
-func C(_gsxp CProps) _gsxrt.Node {
+func C(n uint64) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		n := _gsxp.N
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")

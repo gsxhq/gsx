@@ -11,7 +11,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Wrap() {
+component Wrap(children gsx.Node) {
 	<section>{children}</section>
 }
 
@@ -38,14 +38,9 @@ import (
 	_gsxio "io"
 )
 
-type WrapProps struct {
-	Children _gsxrt.Node
-}
-
 //line input.gsx:5:1
-func Wrap(_gsxp WrapProps) _gsxrt.Node {
+func Wrap(children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		children := _gsxp.Children
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<section>")
@@ -61,7 +56,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Wrap(WrapProps{Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.Node(ctx, Wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:3
 			attrs := gsx.Attrs{{Key: "id", Value: "x"}}
@@ -72,7 +67,7 @@ func Page() _gsxrt.Node {
 			_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 			_gsxgw.S(">hi</span>")
 			return _gsxgw.Err()
-		})}))
+		})))
 		return _gsxgw.Err()
 	})
 }

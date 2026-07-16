@@ -9,7 +9,7 @@ component Page(n int) {
 	<Card title="Hello" count={n}/>
 }
 -- invoke --
-Page(PageProps{N: 5})
+Page(5)
 -- diagnostics.golden --
 -- render.golden --
 <div><h2>Hello</h2><span>5</span></div>

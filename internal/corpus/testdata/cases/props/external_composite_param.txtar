@@ -1,6 +1,5 @@
-# author-owns-Props (external struct): the byo Props type is declared in a
-# SIBLING .go file (not the .gsx). This exercises the preliminary go/packages
-# type-load that enumerates the struct's fields BEFORE the skeleton is built.
+# An ordinary composite parameter may use a type declared in a sibling Go file;
+# markup fills the parameter itself by exact name.
 -- data.go --
 package views
 
@@ -15,7 +14,7 @@ component Card(p cardData) {
 }
 
 component Page() {
-	<Card title="Hi"/>
+	<Card p={cardData{Title: "Hi"}}/>
 }
 -- invoke --
 Page()

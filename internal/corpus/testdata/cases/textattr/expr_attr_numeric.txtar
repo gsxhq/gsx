@@ -8,7 +8,7 @@ component Metrics(i int, u uint, f float64) {
 	<div data-i={i} data-u={u} data-f={f}>x</div>
 }
 -- invoke --
-Metrics(MetricsProps{I: -7, U: 42, F: 3.5})
+Metrics(-7, 42, 3.5)
 -- diagnostics.golden --
 -- render.golden --
 <div data-i="-7" data-u="42" data-f="3.5">x</div>
@@ -23,18 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type MetricsProps struct {
-	I int
-	U uint
-	F float64
-}
-
 //line input.gsx:3:1
-func Metrics(_gsxp MetricsProps) _gsxrt.Node {
+func Metrics(i int, u uint, f float64) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		i := _gsxp.I
-		u := _gsxp.U
-		f := _gsxp.F
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

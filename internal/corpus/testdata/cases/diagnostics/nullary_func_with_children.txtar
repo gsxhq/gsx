@@ -15,4 +15,4 @@ component Page() {
 	<Divider>oops</Divider>
 }
 -- diagnostics.golden --
-4:2: no-argument component Divider accepts no attributes or children
+4:2: Divider has no children param; component body cannot be passed

@@ -17,4 +17,4 @@ component Page() {
 	<Card bag={attrsOf("e1")}/>
 }
 -- diagnostics.golden --
-14:26: cannot use attrsOf("e1") (value of type map[string]any) as gsx.Attrs value in struct literal
+14:2: attribute "bag" cannot be passed to github.com/gsxhq/gsx.Attrs: zero.go:2:18: cannot use _gsxvalue (variable of type map[string]any) as _gsxwant value in variable declaration

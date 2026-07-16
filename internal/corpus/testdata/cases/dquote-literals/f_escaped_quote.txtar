@@ -8,7 +8,7 @@ component Note(w string) {
 	<div title=f"say \"@{w}\"">n</div>
 }
 -- invoke --
-Note(NoteProps{W: "hi"})
+Note("hi")
 -- diagnostics.golden --
 -- render.golden --
 <div title="say &#34;hi&#34;">n</div>
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type NoteProps struct {
-	W string
-}
-
 //line input.gsx:3:1
-func Note(_gsxp NoteProps) _gsxrt.Node {
+func Note(w string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		w := _gsxp.W
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div title=\"say &#34;")

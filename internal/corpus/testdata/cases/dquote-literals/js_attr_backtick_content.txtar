@@ -10,7 +10,7 @@ component Button(x string) {
 	<button @click=js"const t = `hi @{x}`; send(t)">Save</button>
 }
 -- invoke --
-Button(ButtonProps{X: "abc"})
+Button("abc")
 -- diagnostics.golden --
 -- render.golden --
 <button @click="const t = `hi abc`; send(t)">Save</button>
@@ -25,14 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type ButtonProps struct {
-	X string
-}
-
 //line input.gsx:3:1
-func Button(_gsxp ButtonProps) _gsxrt.Node {
+func Button(x string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		x := _gsxp.X
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<button @click=\"const t = `hi ")

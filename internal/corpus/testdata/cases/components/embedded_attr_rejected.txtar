@@ -13,4 +13,4 @@ component Page(id string) {
 	<Card title="Hi" x-model=js`items[@{id}]`/>
 }
 -- diagnostics.golden --
-8:19: embedded js attribute literal "x-model" with @{ } interpolation cannot be used as a component prop on <Card> yet; pass an ordinary prop value or move the literal to an element inside the component
+8:19: Card has no attrs param; unexpected attribute "x-model"

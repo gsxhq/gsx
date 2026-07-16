@@ -9,7 +9,7 @@ component Button(action string) {
 	<button onclick={ handler(action) }>click</button>
 }
 -- invoke --
-Button(ButtonProps{Action: "save"})
+Button("save")
 -- diagnostics.golden --
 -- render.golden --
 <button onclick="doThing(&#39;save&#39;)">click</button>
@@ -26,14 +26,9 @@ import (
 
 func handler(action string) (string, error) { return "doThing('" + action + "')", nil }
 
-type ButtonProps struct {
-	Action string
-}
-
 //line input.gsx:5:1
-func Button(_gsxp ButtonProps) _gsxrt.Node {
+func Button(action string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		action := _gsxp.Action
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button")

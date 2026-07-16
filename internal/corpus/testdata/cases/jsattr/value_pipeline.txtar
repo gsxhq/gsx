@@ -6,7 +6,7 @@ component Page(name string) {
 	<div x-data="{ n: @{ name |> upper } }">x</div>
 }
 -- invoke --
-Page(PageProps{Name: "ada"})
+Page("ada")
 -- diagnostics.golden --
 -- render.golden --
 <div x-data="{ n: @{ name |&gt; upper } }">x</div>
@@ -21,12 +21,8 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Name string
-}
-
 //line input.gsx:3:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2

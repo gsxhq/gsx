@@ -11,7 +11,7 @@ component Badge(variant int) {
 
 func cls(v int) (string, error) { return "green", nil }
 -- invoke --
-Badge(BadgeProps{Variant: 1})
+Badge(1)
 -- render.golden --
 <span class="base green">x</span>
 -- generated.x.go.golden --
@@ -25,14 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type BadgeProps struct {
-	Variant int
-}
-
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) _gsxrt.Node {
+func Badge(variant int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		variant := _gsxp.Variant
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")

@@ -5,4 +5,3 @@ import "github.com/gsxhq/gsx"
 
 component X(children gsx.Node) { <div>{children}</div> }
 -- diagnostics.golden --
-5:1: param name "children" is reserved (implicit children slot)

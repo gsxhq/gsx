@@ -15,6 +15,6 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-10:26: cannot use map[string]string{…} (value of type map[string]string) as gsx.Attrs value in struct literal
+10:2: attribute "bag" cannot be passed to github.com/gsxhq/gsx.Attrs: zero.go:2:18: cannot use _gsxvalue (variable of type map[string]string) as _gsxwant value in variable declaration
 -- generated.x.go.golden --
 -- render.golden --

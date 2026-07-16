@@ -8,7 +8,7 @@ component Badge(v int) {
 	<span class={ "base", switch v { case 1: "one" } }>x</span>
 }
 -- invoke --
-Badge(BadgeProps{V: 2})
+Badge(2)
 -- render.golden --
 <span class="base">x</span>
 -- diagnostics.golden --
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type BadgeProps struct {
-	V int
-}
-
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) _gsxrt.Node {
+func Badge(v int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")

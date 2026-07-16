@@ -17,7 +17,7 @@ func compute() string {
 	return "c"
 }
 
-component Panel() {
+component Panel(attrs gsx.Attrs) {
 	<div { attrs... }>p</div>
 }
 
@@ -49,14 +49,9 @@ func compute() string {
 	return "c"
 }
 
-type PanelProps struct {
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:13:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+func Panel(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
 		_gsxgw.S("<div")
@@ -73,7 +68,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.ConcatAttrs(getAttrs(), _gsxrt.Attrs{{Key: "data-x", Value: compute()}})}))
+		_gsxgw.Node(ctx, Panel(_gsxrt.ConcatAttrs(getAttrs(), _gsxrt.Attrs{{Key: "data-x", Value: compute()}})))
 		return _gsxgw.Err()
 	})
 }

@@ -13,4 +13,4 @@ package views
 
 component Page(s string) { <Badge count={s}/> }
 -- diagnostics.golden --
-3:56: cannot use s (variable of type string) as int value in struct literal
+3:35: Badge has no attrs param; unexpected attribute "count"

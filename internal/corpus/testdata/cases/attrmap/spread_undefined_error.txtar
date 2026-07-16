@@ -9,7 +9,7 @@ component Card(bag gsx.Attrs) {
 	<div { undefinedSpreadVar... }>x</div>
 }
 -- invoke --
-Card(CardProps{})
+Card(nil)
 -- diagnostics.golden --
 6:29: undefined: undefinedSpreadVar
 -- render.golden --

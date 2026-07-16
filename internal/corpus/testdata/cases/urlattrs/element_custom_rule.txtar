@@ -11,7 +11,7 @@ package views
 
 component Bad(u string) { <div data-x={u}>x</div> }
 -- invoke --
-Bad(BadProps{U: "javascript:alert(1)"})
+Bad("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
 <div data-x="about:invalid#gsx">x</div>
@@ -26,14 +26,9 @@ import (
 	_gsxio "io"
 )
 
-type BadProps struct {
-	U string
-}
-
 //line input.gsx:3:1
-func Bad(_gsxp BadProps) _gsxrt.Node {
+func Bad(u string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		u := _gsxp.U
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:27
 		_gsxgw.S("<div data-x=\"")

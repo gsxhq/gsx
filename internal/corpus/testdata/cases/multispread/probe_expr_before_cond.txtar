@@ -11,7 +11,7 @@ component Page(on bool, extra gsx.Attrs) {
 	<div data-a={ label("a") } { if on { { extra... } } } { gsx.Attrs{{Key: "data-z", Value: "z"}}... }>x</div>
 }
 -- invoke --
-Page(PageProps{On: true, Extra: gsx.Attrs{{Key: "data-b", Value: "b"}}})
+Page(true, gsx.Attrs{{Key: "data-b", Value: "b"}})
 -- diagnostics.golden --
 -- render.golden --
 <div data-a="a" data-b="b" data-z="z">x</div>

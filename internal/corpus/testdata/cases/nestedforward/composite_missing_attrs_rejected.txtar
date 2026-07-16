@@ -1,0 +1,28 @@
+# An ordinary composite parameter does not opt a component into accepting
+# unmatched attributes. Forwarding an attrs contributor to Card is rejected
+# until Card explicitly declares the reserved attrs parameter.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type CardProps struct {
+	Title string
+}
+
+component Card(p CardProps) {
+	<div>{p.Title}</div>
+}
+
+component Wrapper(attrs gsx.Attrs) {
+	<Card p={CardProps{Title: "card"}} { attrs... }/>
+}
+
+component Page() {
+	<Wrapper data-x="1"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+14:37: Card has no attrs param; unexpected attrs-bag contributor
+-- render.golden --

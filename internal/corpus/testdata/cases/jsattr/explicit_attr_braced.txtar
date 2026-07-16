@@ -7,7 +7,7 @@ component Button(id string) {
 -- input.go --
 package p
 import "github.com/gsxhq/gsx"
-func Render() gsx.Node { return Button(ButtonProps{Id: "abc"}) }
+func Render() gsx.Node { return Button("abc") }
 -- render.golden --
 <button @click="save(&#34;abc&#34;)">Save</button>
 -- diagnostics.golden --

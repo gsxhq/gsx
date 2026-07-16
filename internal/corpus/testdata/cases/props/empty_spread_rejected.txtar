@@ -1,0 +1,17 @@
+# A spread requires an expression before `...`.
+-- input.gsx --
+package views
+
+type cardData struct {
+	Title string
+}
+
+component Card(d cardData) {
+	<div>{ d.Title }</div>
+}
+
+component Page() {
+	<Card {...}/>
+}
+-- diagnostics.golden --
+12:8: Card has no attrs param; unexpected attrs-bag contributor

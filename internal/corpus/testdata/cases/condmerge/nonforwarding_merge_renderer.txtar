@@ -33,8 +33,8 @@ component Box(on bool, value pg.Text) {
 }
 -- invoke --
 gsx.Fragment(
-	Box(BoxProps{On: false, Value: text("bad", false)}),
-	Box(BoxProps{On: true, Value: text("margin:0", true)}),
+	Box(false, text("bad", false)),
+	Box(true, text("margin:0", true)),
 )
 -- diagnostics.golden --
 -- generated.x.go.golden --
@@ -53,16 +53,9 @@ import (
 
 func text(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
-type BoxProps struct {
-	On    bool
-	Value pg.Text
-}
-
 //line input.gsx:7:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(on bool, value pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		on := _gsxp.On
-		value := _gsxp.Value
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}

@@ -10,4 +10,3 @@ component (attrs page) C() {
 	<div>hi</div>
 }
 -- diagnostics.golden --
-5:1: method-component receiver var "attrs" is reserved (explicit attribute forwarding)

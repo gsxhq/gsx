@@ -7,7 +7,9 @@
 -- input.gsx --
 package views
 
-component Panel() {
+
+import "github.com/gsxhq/gsx"
+component Panel(attrs gsx.Attrs) {
 	<div { attrs... }>p</div>
 }
 
@@ -32,20 +34,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type PanelProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Panel(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
@@ -55,12 +53,12 @@ func Panel(_gsxp PanelProps) _gsxrt.Node {
 	})
 }
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.Attrs{{Key: "data-caller", Value: "yes"}}}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Panel(_gsxrt.Attrs{{Key: "data-caller", Value: "yes"}}))
 		return _gsxgw.Err()
 	})
 }

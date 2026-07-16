@@ -37,8 +37,8 @@ func checkedRendererOrder() gsx.Node {
 			node gsx.Node
 			want string
 		}{
-			{"expr", ExprPage(ExprPageProps{Val: pg.Text{Value: "x"}}), "expr-prior"},
-			{"class", ClassPage(ClassPageProps{Val: pg.Text{Value: "x"}}), "class-prior"},
+			{"expr", ExprPage(pg.Text{Value: "x"}), "expr-prior"},
+			{"class", ClassPage(pg.Text{Value: "x"}), "class-prior"},
 		} {
 			calls = nil
 			err := tc.node.Render(ctx, io.Discard)

@@ -25,5 +25,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-6:2: <data> is not tag-callable: its type is int, not a component-value signature (one parameter with underlying type []gsx.Attr, result gsx.Node), and no dataProps struct was found
+6:3: component target package variable is not callable
 -- render.golden --

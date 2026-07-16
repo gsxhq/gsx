@@ -7,7 +7,7 @@ component List(items []gsx.Node) {
 	<ul>{items}</ul>
 }
 -- invoke --
-List(ListProps{Items: []gsx.Node{gsx.Raw("<li>a</li>"), gsx.Raw("<li>b</li>")}})
+List([]gsx.Node{gsx.Raw("<li>a</li>"), gsx.Raw("<li>b</li>")})
 -- diagnostics.golden --
 -- render.golden --
 <ul><li>a</li><li>b</li></ul>

@@ -31,5 +31,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
+25:9: Hello has no attrs param; unexpected attribute "class"
 -- render.golden --
-<span class="w">hello</span>

@@ -23,5 +23,5 @@ component (p UsersPage) Row(rp RowProps) {
 -- invoke --
 (UsersPage{Users: []User{{Email: "x@y"}}}).Page()
 -- diagnostics.golden --
+16:43: p.Row has no attrs param; unexpected attribute "user"
 -- render.golden --
-<ul><li>x@y</li></ul>

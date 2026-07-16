@@ -9,12 +9,7 @@ component CondSpreadElse(c bool, base gsx.Attrs, x gsx.Attrs, y gsx.Attrs) {
 	<div { base... } { if c { { x... } } else { { y... } } }>z</div>
 }
 -- invoke --
-CondSpreadElse(CondSpreadElseProps{
-	C:    false,
-	Base: gsx.Attrs{{Key: "class", Value: "b"}},
-	X:    gsx.Attrs{{Key: "class", Value: "xc"}, {Key: "data-x", Value: "1"}},
-	Y:    gsx.Attrs{{Key: "class", Value: "yc"}, {Key: "data-y", Value: "2"}},
-})
+CondSpreadElse(false, gsx.Attrs{{Key: "class", Value: "b"}}, gsx.Attrs{{Key: "class", Value: "xc"}, {Key: "data-x", Value: "1"}}, gsx.Attrs{{Key: "class", Value: "yc"}, {Key: "data-y", Value: "2"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="b yc" data-y="2">z</div>
@@ -30,20 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type CondSpreadElseProps struct {
-	C    bool
-	Base gsx.Attrs
-	X    gsx.Attrs
-	Y    gsx.Attrs
-}
-
 //line input.gsx:5:1
-func CondSpreadElse(_gsxp CondSpreadElseProps) _gsxrt.Node {
+func CondSpreadElse(c bool, base gsx.Attrs, x gsx.Attrs, y gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		c := _gsxp.C
-		base := _gsxp.Base
-		x := _gsxp.X
-		y := _gsxp.Y
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := base
