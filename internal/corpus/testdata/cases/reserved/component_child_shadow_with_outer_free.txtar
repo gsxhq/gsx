@@ -1,13 +1,10 @@
-# Component-child reserved-name shadow PLUS an outer sibling free use — the mixed
-# shape final review flagged. Inside <Wrap>'s children `{{ attrs := … }}` is a
-# closure-scoped shadow (component children lower into a nested gsx.Func slot
-# closure, emitSlotClosure); the outer `<span { attrs... }>` is a FREE use, so C
-# declares its outer Attrs parameter directly at the render closure's top scope.
-# The skeleton is flat, so probing the child shadow at top scope collided with
-# that binding (`no new variables on left side of :=`) — a skeleton-only false
-# rejection. The fix wraps the component-slot probes in a Go block, restoring
-# emit ≡ probe. Render proves both scopes: the inner div spreads the SHADOW bag
-# (data-inner), the outer span spreads the CALLER bag (data-outer).
+# Component-child reserved-name shadow plus an outer sibling body-local binding.
+# Inside <Wrap>'s children `{{ attrs := … }}` is a closure-scoped shadow
+# (component children lower into a nested gsx.Func slot closure,
+# emitSlotClosure); the outer `<span { attrs... }>` uses the ordinary local
+# declared in C's render closure. Render proves both scopes: the inner div
+# spreads the shadow bag (data-inner), while the outer span spreads the outer
+# body-local bag (data-outer).
 -- input.gsx --
 package views
 
@@ -17,7 +14,8 @@ component Wrap(children gsx.Node) {
 	<section>{children}</section>
 }
 
-component C(attrs gsx.Attrs) {
+component C() {
+	{{ attrs := gsx.Attrs{{Key: "data-outer", Value: "9"}} }}
 	<Wrap>
 		{{ attrs := gsx.Attrs{{Key: "data-inner", Value: "1"}} }}
 		<div { attrs... }>in</div>
@@ -25,7 +23,7 @@ component C(attrs gsx.Attrs) {
 	<span { attrs... }>out</span>
 }
 -- invoke --
-C(gsx.Attrs{{Key: "data-outer", Value: "9"}})
+C()
 -- diagnostics.golden --
 -- render.golden --
 <section><div data-inner="1">in</div></section><span data-outer="9">out</span>
@@ -55,15 +53,17 @@ func Wrap(children gsx.Node) _gsxrt.Node {
 }
 
 //line input.gsx:9:1
-func C(attrs gsx.Attrs) _gsxrt.Node {
+func C() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
+		attrs := gsx.Attrs{{Key: "data-outer", Value: "9"}}
+//line input.gsx:11:2
 		_gsxgw.Node(ctx, Wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:3
-			attrs := gsx.Attrs{{Key: "data-inner", Value: "1"}}
 //line input.gsx:12:3
+			attrs := gsx.Attrs{{Key: "data-inner", Value: "1"}}
+//line input.gsx:13:3
 			_gsxgw.S("<div")
 			_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 			_gsxgw.StyleMerged("", attrs.Style())
@@ -71,7 +71,7 @@ func C(attrs gsx.Attrs) _gsxrt.Node {
 			_gsxgw.S(">in</div>")
 			return _gsxgw.Err()
 		})))
-//line input.gsx:14:2
+//line input.gsx:15:2
 		_gsxgw.S("<span")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
