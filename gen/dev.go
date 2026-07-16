@@ -2,6 +2,7 @@ package gen
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/fsnotify/fsnotify"
 )
 
 // runDev owns the dev loop: it generates (warm Module), builds+runs the Go
@@ -87,14 +89,19 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	sess := armed.session
 	w := armed.watcher
 	sources := armed.sources
+	dirty := newWatchDirtySet()
 	startup, err := sess.initialGenerate()
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
 	}
-	// Drive the overlay from the cold generate (e.g. a pre-existing codegen error).
-	postEvent(viteURL, aggregateEvent(startup))
-	reportHardErrors(gsxOut, startup)
+	dirty.retainOperational(startup)
+	// Drive the overlay from the cold generate (e.g. a pre-existing codegen
+	// error). A mixed operational failure has not committed its filesystem
+	// transaction, so only its errors/diagnostics are publishable at this point.
+	publishedStartup := publishableStartupResults(startup)
+	postEvent(viteURL, aggregateEvent(publishedStartup))
+	reportHardErrors(gsxOut, publishedStartup)
 
 	// --- Vite (front door), unless --no-web ---
 	var vite *exec.Cmd
@@ -138,9 +145,14 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	} else {
 		fmt.Fprintf(stdout, "gsx dev: managing Go side only (no front door) — watching %s\n", workDir)
 	}
+	shutdownProcesses := func() {
+		srv.stop()
+		if vite != nil {
+			killProcGroup(vite, 5*time.Second)
+		}
+	}
 
 	var (
-		dirty    = newWatchDirtySet()
 		envDirty bool
 		timer    *time.Timer
 		fire     = make(chan struct{}, 1)
@@ -164,13 +176,20 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if timer != nil {
 				timer.Stop()
 			}
-			srv.stop()
-			if vite != nil {
-				killProcGroup(vite, 5*time.Second)
-			}
+			shutdownProcesses()
 			return 0
 
-		case ev := <-w.Events:
+		case ev, ok := <-w.Events:
+			if !ok {
+				fmt.Fprintf(stderr, "gsx dev: watch error: %v\n", fsnotify.ErrClosed)
+				shutdownProcesses()
+				return 1
+			}
+			// Parent sentinels exist only to observe recreation of an explicitly
+			// selected root. Ignore sibling files before special-casing .env.
+			if !sources.observed(ev.Name) {
+				continue
+			}
 			if isEnvFile(ev.Name) {
 				envDirty = true
 				schedule()
@@ -179,7 +198,8 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty)
 			if eventErr != nil {
 				fmt.Fprintf(stderr, "gsx dev: watch event: %v\n", eventErr)
-				continue
+				shutdownProcesses()
+				return 1
 			}
 			if changed {
 				schedule()
@@ -249,8 +269,25 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			}
 			overlayUp = false
 
-		case werr := <-w.Errors:
+		case werr, ok := <-w.Errors:
+			if !ok || errors.Is(werr, fsnotify.ErrClosed) {
+				if werr == nil {
+					werr = fsnotify.ErrClosed
+				}
+				fmt.Fprintf(stderr, "gsx dev: watch error: %v\n", werr)
+				shutdownProcesses()
+				return 1
+			}
 			fmt.Fprintf(stderr, "gsx dev: watch error: %v\n", werr)
+			changed, reconcileErr := reconcileWatchState(w, sess, sources, dirty)
+			if reconcileErr != nil {
+				fmt.Fprintf(stderr, "gsx dev: reconcile after watch error: %v\n", reconcileErr)
+				shutdownProcesses()
+				return 1
+			}
+			if changed {
+				schedule()
+			}
 		}
 	}
 }

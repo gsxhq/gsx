@@ -140,7 +140,10 @@ func TestSourceTrackerSkipsUnchangedFollowupEvents(t *testing.T) {
 	path := filepath.Join(root, "main.go")
 	writeFileT(t, path, "package main\n\nfunc main() {}\n")
 
-	tracker := newSourceTracker([]string{root})
+	tracker, err := newSourceTracker([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if tracker.changed(path) {
 		t.Fatal("unchanged file event reported as changed")
 	}
@@ -161,7 +164,10 @@ func TestSourceTrackerTreatsDeletionAsOneChange(t *testing.T) {
 	path := filepath.Join(root, "page.gsx")
 	writeFileT(t, path, "package main\n\ncomponent Page() { <div/> }\n")
 
-	tracker := newSourceTracker([]string{root})
+	tracker, err := newSourceTracker([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove source: %v", err)
 	}
@@ -180,7 +186,10 @@ func TestSourceTrackerHonorsExplicitExcludedNamedRoot(t *testing.T) {
 	path := filepath.Join(root, "main.go")
 	writeFileT(t, path, "package main\n\nfunc main() {}\n")
 
-	tracker := newSourceTracker([]string{root})
+	tracker, err := newSourceTracker([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if tracker.changed(path) {
 		t.Fatal("unchanged file under an explicitly watched tmp root was not inventoried")
 	}

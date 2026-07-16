@@ -3,6 +3,7 @@ package gen
 import (
 	"errors"
 	"maps"
+	"slices"
 	"testing"
 )
 
@@ -76,13 +77,107 @@ func TestWatchDirtySetRetainsPerDirectoryOperationalFailure(t *testing.T) {
 	results, _, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
 		return []cycleResult{{Dir: "/module/ui", OK: false, Err: wantErr}}, nil
 	})
-	if err != nil {
-		t.Fatalf("per-directory failure became top-level regeneration error: %v", err)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("per-directory failure = %v, want %v", err, wantErr)
 	}
-	if len(results) != 1 || !errors.Is(results[0].Err, wantErr) {
-		t.Fatalf("operational result = %+v, want %v", results, wantErr)
+	if len(results) != 0 {
+		t.Fatalf("failed partial results were published as committed: %+v", results)
 	}
 	if !maps.Equal(dirty.dirs, map[string]bool{"/module/ui": true}) {
 		t.Fatalf("per-directory operational failure committed dirty state: %v", dirty.dirs)
+	}
+}
+
+func TestWatchDirtySetCarriesFailedFilesystemEffectsIntoSuccessfulCommit(t *testing.T) {
+	dirty := newWatchDirtySet()
+	dirty.dirs["/module/a"] = true
+	dirty.dirs["/module/b"] = true
+	diskFull := errors.New("disk full")
+
+	results, _, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+		return []cycleResult{
+			{Dir: "/module/a", Written: []string{"/module/a/a.x.go"}, Removed: []string{"/module/a/old.x.go"}, OK: true},
+			{Dir: "/module/b", Err: diskFull},
+		}, nil
+	})
+	if !errors.Is(err, diskFull) {
+		t.Fatalf("failed cycle error = %v, want %v", err, diskFull)
+	}
+	if len(results) != 0 {
+		t.Fatalf("failed partial results were published as committed: %+v", results)
+	}
+
+	results, _, err = dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+		// The retry is effect-free because the first attempt already changed disk.
+		return []cycleResult{{Dir: "/module/a", OK: true}, {Dir: "/module/b", OK: true}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written, removed []string
+	for _, result := range results {
+		written = append(written, result.Written...)
+		removed = append(removed, result.Removed...)
+	}
+	if !slices.Equal(written, []string{"/module/a/a.x.go"}) || !slices.Equal(removed, []string{"/module/a/old.x.go"}) {
+		t.Fatalf("committed effects = written %v, removed %v", written, removed)
+	}
+}
+
+func TestWatchDirtySetCarriesEffectsReturnedWithTopLevelFailure(t *testing.T) {
+	dirty := newWatchDirtySet()
+	dirty.dirs["/module/a"] = true
+	dirty.dirs["/module/b"] = true
+	refreshErr := errors.New("refresh b")
+
+	results, _, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+		return []cycleResult{{Dir: "/module/a", Removed: []string{"/module/a/a.x.go"}, OK: true}}, refreshErr
+	})
+	if !errors.Is(err, refreshErr) || len(results) != 0 {
+		t.Fatalf("failed cycle = (%+v, %v), want no committed results and refresh error", results, err)
+	}
+	results, _, err = dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !slices.Equal(results[0].Removed, []string{"/module/a/a.x.go"}) {
+		t.Fatalf("committed retained removal = %+v", results)
+	}
+}
+
+func TestWatchDirtySetRetainsInitialOperationalFailures(t *testing.T) {
+	dirty := newWatchDirtySet()
+	dirty.retainOperational([]cycleResult{
+		{Dir: "/module/a", OK: true},
+		{Dir: "/module/b", Written: []string{"/module/b/b.x.go"}, Err: errors.New("rename failed")},
+		{Err: errors.New("orphan sweep failed")},
+	})
+	if !maps.Equal(dirty.dirs, map[string]bool{"/module/b": true}) {
+		t.Fatalf("initial dirty dirs = %v, want /module/b", dirty.dirs)
+	}
+	if !dirty.depDirty {
+		t.Fatal("unscoped startup failure did not retain full-session dirtiness")
+	}
+}
+
+func TestStartupPublicationHidesUncommittedFilesystemEffects(t *testing.T) {
+	opErr := errors.New("rename failed")
+	startup := []cycleResult{
+		{Dir: "/module/a", Written: []string{"/module/a/a.x.go"}, OK: true},
+		{Dir: "/module/b", Removed: []string{"/module/b/old.x.go"}, Err: opErr},
+	}
+	published := publishableStartupResults(startup)
+	if len(published) != 1 || !errors.Is(published[0].Err, opErr) {
+		t.Fatalf("published startup = %+v, want only operational failure", published)
+	}
+	if len(published[0].Written) != 0 || len(published[0].Removed) != 0 {
+		t.Fatalf("published uncommitted effects: %+v", published[0])
+	}
+
+	committed := publishableStartupResults([]cycleResult{{Dir: "/module/a", Written: []string{"/module/a/a.x.go"}, OK: true}})
+	if len(committed) != 1 || len(committed[0].Written) != 1 {
+		t.Fatalf("successful startup effects were hidden: %+v", committed)
 	}
 }

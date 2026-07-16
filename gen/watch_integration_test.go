@@ -109,6 +109,46 @@ func TestRunWatch_GeneratesFirstGsxCreatedAfterStartup(t *testing.T) {
 	}
 }
 
+func TestRunWatch_RearmsExplicitExcludedRootAfterRecreation(t *testing.T) {
+	root := t.TempDir()
+	writeMod(t, root)
+	// The selected root sits below an excluded ancestor. Its own watch vanishes
+	// on deletion, and the module-root walk deliberately does not watch tmp, so
+	// only the explicit-root parent sentinel can observe this recreation.
+	explicit := filepath.Join(root, "tmp", "selected")
+	gsxPath := filepath.Join(explicit, "page.gsx")
+	writeFileT(t, gsxPath, "package selected\ncomponent Page() { <h1>old</h1> }\n")
+
+	out := &syncBuf{}
+	errOut := &syncBuf{}
+	stop := make(chan struct{})
+	done := make(chan int, 1)
+	go func() {
+		done <- runWatchWithStop(watchConfig{
+			paths: []string{explicit}, format: "ndjson", stdout: out, stderr: errOut,
+		}, stop)
+	}()
+	waitFor(t, 60*time.Second, func() bool { return countGenerated(out.String(), true) >= 1 })
+	prior := countGenerated(out.String(), true)
+
+	// Delete the excluded ancestor, not only the requested root. The watcher on
+	// tmp vanishes too; recreation must be noticed from the surviving module-root
+	// watch and must re-arm only the requested branch below tmp.
+	if err := os.RemoveAll(filepath.Join(root, "tmp")); err != nil {
+		t.Fatal(err)
+	}
+	writeFileT(t, gsxPath, "package selected\ncomponent Page() { <h1>recreated</h1> }\n")
+	waitFor(t, 60*time.Second, func() bool {
+		generated, err := os.ReadFile(filepath.Join(explicit, "page.x.go"))
+		return err == nil && strings.Contains(string(generated), "recreated</h1>") && countGenerated(out.String(), true) > prior
+	})
+
+	close(stop)
+	if code := <-done; code != 0 {
+		t.Fatalf("runWatch exit = %d, want 0; stderr=%s", code, errOut.String())
+	}
+}
+
 func TestRunWatch_ReactsToUnpairedXGoDependency(t *testing.T) {
 	root := t.TempDir()
 	writeMod(t, root)
