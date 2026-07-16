@@ -63,6 +63,27 @@ type ComponentCallFact struct {
 	Params        map[gsxast.Attr]ComponentParamFact
 }
 
+// ComponentParamKey is the stable semantic identity of one callable parameter
+// on a logical component family.
+type ComponentParamKey struct {
+	PackagePath  string
+	ComponentKey string
+	Ordinal      int
+}
+
+// ComponentParamRenameFact is the complete module-wide rename surface for one
+// semantically validated GSX parameter. Decls contains every equivalent
+// build-tag variant; Refs contains exact semantic body uses and planner-bound
+// invocation attrs.
+type ComponentParamRenameFact struct {
+	Key    ComponentParamKey
+	Name   string
+	Role   ComponentParamRole
+	Origin *types.Var
+	Decls  []token.Position
+	Refs   []token.Position
+}
+
 // CtrlRef is the LSP mirror of codegen.ctrlRef: a control-flow clause's
 // skeleton position and smallest containing skeleton node, used for
 // go-to-definition on loop variables and condition identifiers.
@@ -98,7 +119,7 @@ type Package struct {
 	ExprMap    map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
 	CrossIndex map[string]CrossRef
-	NavIndex   []NavRef // navigable Go references → .gsx targets (func, props-struct, field)
+	NavIndex   []NavRef // navigable Go references → .gsx declaration targets
 	// ComponentCalls maps authored elements to exact target and parameter facts.
 	// The package owns this immutable analysis snapshot and its nested maps.
 	ComponentCalls map[*gsxast.Element]ComponentCallFact

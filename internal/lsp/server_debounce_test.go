@@ -37,6 +37,9 @@ func (a *countingAnalyzer) SetOverride(path string, _ []byte) ([]string, error) 
 func (a *countingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
+func (a *countingAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
+	return nil, nil
+}
 
 func (a *countingAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil

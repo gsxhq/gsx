@@ -510,7 +510,7 @@ func exprDefinitionAt(pkg *Package, path string, off int) (token.Position, bool)
 	// Only surface real source locations. Params resolve back to .gsx via the
 	// skeleton's param //line (D3); user Go symbols resolve to real .go files.
 	// Anything still pointing at a bare skeleton overlay path (the in-memory
-	// <base>.x.go) is a synthesized internal (e.g. the `ctx`/`_gsxp` bindings) —
+	// <base>.x.go) is a synthesized internal (for example, a generated binding) —
 	// return no definition rather than jump into generated code that may not even
 	// exist on disk. (`.x.go` is gsx's reserved generated suffix; the only false
 	// positive would be a hand-written dependency file literally named `*.x.go`.)

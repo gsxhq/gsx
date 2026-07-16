@@ -40,6 +40,9 @@ func (symbolFileAnalyzer) Analyze(_ string, override map[string][]byte) (*Packag
 func (symbolFileAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
+func (symbolFileAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
+	return nil, nil
+}
 func (symbolFileAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil
 }

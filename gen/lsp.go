@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/token"
 	"go/types"
 	"io"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
 )
@@ -527,6 +529,120 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 		refs = append(refs, cr)
 	}
 	return refs, nil
+}
+
+// AnalyzeModuleParams returns complete GSX-authored parameter families for
+// semantic rename. Unlike references and workspace symbols, rename cannot use
+// partial module results: an un-analyzable GSX package could contain an omitted
+// invocation, which would make the resulting WorkspaceEdit silently partial.
+//
+// Codegen publishes declarations, semantic body uses, and exact planner-bound
+// invocation attrs independently per package. This method performs the sole
+// module-wide join by the stable semantic key (target package path, component
+// key, ordinal). A ref
+// without a GSX declaration family is intentionally ignored: it belongs to a
+// plain-Go callable or an invalid/non-equivalent GSX family and is not a safe
+// rename target.
+func (a lspAnalyzer) AnalyzeModuleParams(dir string, _ map[string][]byte) ([]lsp.ComponentParamRenameFact, error) {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := discoverDirs([]string{root})
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, _, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]*codegen.PackageResult, 0, len(dirs))
+	for _, packageDir := range dirs {
+		result, err := m.Package(packageDir)
+		if err != nil {
+			return nil, fmt.Errorf("analyze component parameter package %s: %w", packageDir, err)
+		}
+		if result == nil {
+			continue
+		}
+		for _, diagnostic := range result.Diags {
+			if diagnostic.Severity == diag.Error {
+				return nil, fmt.Errorf("component parameter rename unavailable while %s has analysis errors", packageDir)
+			}
+		}
+		results = append(results, result)
+	}
+
+	byKey := make(map[lsp.ComponentParamKey]*lsp.ComponentParamRenameFact)
+	for _, result := range results {
+		for _, declaration := range result.ComponentParamDecls {
+			key := lsp.ComponentParamKey{
+				PackagePath:  declaration.PackagePath,
+				ComponentKey: declaration.ComponentKey,
+				Ordinal:      declaration.Ordinal,
+			}
+			if key.PackagePath == "" || key.ComponentKey == "" || key.Ordinal < 0 ||
+				declaration.Name == "" || declaration.Origin == nil || len(declaration.Decls) == 0 {
+				return nil, errors.New("codegen published an incomplete component parameter family")
+			}
+			if _, exists := byKey[key]; exists {
+				return nil, fmt.Errorf("codegen published duplicate component parameter family %+v", key)
+			}
+			byKey[key] = &lsp.ComponentParamRenameFact{
+				Key:    key,
+				Name:   declaration.Name,
+				Role:   lsp.ComponentParamRole(declaration.Role),
+				Origin: declaration.Origin.Origin(),
+				Decls:  append([]token.Position(nil), declaration.Decls...),
+			}
+		}
+	}
+
+	for _, result := range results {
+		for _, reference := range result.ComponentParamRefs {
+			key := lsp.ComponentParamKey{
+				PackagePath:  reference.PackagePath,
+				ComponentKey: reference.ComponentKey,
+				Ordinal:      reference.Ordinal,
+			}
+			family := byKey[key]
+			if family == nil {
+				continue
+			}
+			if reference.Origin == nil || reference.Name != family.Name || lsp.ComponentParamRole(reference.Role) != family.Role || !reference.Ref.IsValid() {
+				return nil, fmt.Errorf("codegen published a component parameter ref inconsistent with family %+v", key)
+			}
+			family.Refs = append(family.Refs, reference.Ref)
+		}
+	}
+
+	facts := make([]lsp.ComponentParamRenameFact, 0, len(byKey))
+	for _, family := range byKey {
+		sortTokenPositions(family.Decls)
+		sortTokenPositions(family.Refs)
+		facts = append(facts, *family)
+	}
+	sort.Slice(facts, func(i, j int) bool {
+		if facts[i].Key.PackagePath != facts[j].Key.PackagePath {
+			return facts[i].Key.PackagePath < facts[j].Key.PackagePath
+		}
+		if facts[i].Key.ComponentKey != facts[j].Key.ComponentKey {
+			return facts[i].Key.ComponentKey < facts[j].Key.ComponentKey
+		}
+		return facts[i].Key.Ordinal < facts[j].Key.Ordinal
+	})
+	return facts, nil
+}
+
+func sortTokenPositions(positions []token.Position) {
+	sort.Slice(positions, func(i, j int) bool {
+		if positions[i].Filename != positions[j].Filename {
+			return positions[i].Filename < positions[j].Filename
+		}
+		return positions[i].Offset < positions[j].Offset
+	})
 }
 
 // ModuleSymbols returns every symbol declared in every .gsx package in the

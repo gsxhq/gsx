@@ -64,6 +64,9 @@ func (a *overrideLifetimeAnalyzer) Analyze(string, map[string][]byte) (*Package,
 func (a *overrideLifetimeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
+func (a *overrideLifetimeAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
+	return nil, nil
+}
 
 func (a *overrideLifetimeAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil
@@ -90,6 +93,9 @@ func (a *blockingAnalyzer) ClearOverride(string) ([]string, error)       { retur
 func (a *blockingAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
 
 func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+	return nil, nil
+}
+func (a *blockingAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
 	return nil, nil
 }
 

@@ -29,6 +29,9 @@ func (a *wsSymAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { r
 func (a *wsSymAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
+func (a *wsSymAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
+	return nil, nil
+}
 func (a *wsSymAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	a.calls++
 	return a.syms, nil
