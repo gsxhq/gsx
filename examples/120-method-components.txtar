@@ -1,6 +1,6 @@
 -- doc --
 name: Method components
-summary: Components can be methods on a type, so page state lives on the receiver (p) and per-call data in the props struct.
+summary: Components can be methods on a type, so page state lives on the receiver (p) and authored parameters carry per-call data.
 category: Components & composition
 order: 120
 page: composition

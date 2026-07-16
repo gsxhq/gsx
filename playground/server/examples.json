@@ -54,7 +54,7 @@
     "invoke": "Label(\"hello\")"
   },
   {
-    "name": "Error unwrap: childprop",
+    "name": "Error unwrap: component input",
     "category": "Basics",
     "source": "package views\n\nfunc lookup(k string) (string, error) { return \"val-\" + k, nil }\n\ncomponent Row(label string) {\n\t<span>{ label }</span>\n}\n\ncomponent Page(k string) {\n\t<Row label={lookup(k)}/>\n}\n",
     "invoke": "Page(\"item\")"
@@ -162,7 +162,7 @@
     "invoke": "Page()"
   },
   {
-    "name": "Interpolation & props",
+    "name": "Interpolation & inputs",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
     "invoke": "Greeting(\"World\", 3)"
@@ -198,7 +198,7 @@
     "invoke": "Badge(\"warn\")"
   },
   {
-    "name": "Components & props",
+    "name": "Components & inputs",
     "category": "Components & composition",
     "source": "package views\n\ncomponent Card(title string, featured bool, count int) {\n\t<div class={ \"card\", \"card-featured\": featured }>\n\t\t<h2>{ title }</h2>\n\t\t<span>{ count }</span>\n\t</div>\n}\n\ncomponent Page(t string, n int) {\n\t<Card title={t} featured count={n}/>\n}\n",
     "invoke": "Page(\"Hi\", 3)"
