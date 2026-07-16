@@ -43,5 +43,6 @@ component Home() {
 -- invoke --
 pages.Home()
 -- diagnostics.golden --
+7:2: attribute "theme" is required here: its zero value cannot be expressed inline
 -- render.golden --
 -- generated.x.go.golden --

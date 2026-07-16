@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"go/types"
 	"maps"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -798,6 +799,29 @@ type callSiteRecord struct {
 type callSiteRegistry struct {
 	byElement map[*gsxast.Element]callSiteID
 	records   []callSiteRecord
+}
+
+// componentTargetQualifiers returns the syntactic selector roots used by
+// component targets in one source file. This is the same exact syntactic
+// contract used by unused-import analysis for ordinary Go selectors: if the
+// authored target is <ui.Card>, ui is referenced even though the operand
+// skeleton deliberately leaves target validation to the separate target pass.
+func componentTargetQualifiers(registry *callSiteRegistry, path string) map[string]bool {
+	qualifiers := make(map[string]bool)
+	if registry == nil {
+		return qualifiers
+	}
+	cleanPath := filepath.Clean(path)
+	for _, record := range registry.records {
+		if record.disposition != callSitePlanned || filepath.Clean(record.path) != cleanPath || record.element == nil {
+			continue
+		}
+		qualifier, _, ok := strings.Cut(record.element.Tag, ".")
+		if ok && token.IsIdentifier(qualifier) {
+			qualifiers[qualifier] = true
+		}
+	}
+	return qualifiers
 }
 
 func (r *callSiteRegistry) hasPlanned() bool {

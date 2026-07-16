@@ -1360,6 +1360,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// below. Confirmation (the type-checker actually reporting the spec
 	// unused) happens in the confirmedSunk block after the type check.
 	sunkImports := map[string]map[sunkImportKey]bool{}
+	// targetImports are import specs referenced by the exact component-target
+	// syntax but intentionally absent from the operand skeleton. They remain
+	// named in emitted Go; this set only removes the operand skeleton's false
+	// unused-import error after the target pass has owned that reference.
+	targetImports := map[string]map[sunkImportKey]bool{}
 	var allImportSpecs []importSpec
 	factsByFile := map[string]*fileFacts{}
 	// skelByGsx captures exactly what unused_imports_syntactic.go's
@@ -1492,7 +1497,21 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		factsByXGo[absXpath] = ff
 		ctrlOffByXGo[absXpath] = ctrlOff
 		inferByXGo[absXpath] = infReg
-		skelByGsx[path] = fileSkeleton{skel: gf, imps: imps, sunk: sunkImports[path]}
+		targetQualifiers := componentTargetQualifiers(callSites, path)
+		if len(targetQualifiers) != 0 && ff.depAliasSpecs != nil {
+			set := make(map[sunkImportKey]bool)
+			for qualifier := range targetQualifiers {
+				if spec, ok := ff.depAliasSpecs[qualifier]; ok && spec.pos.IsValid() {
+					set[sunkImportKey{line: fset.Position(spec.pos).Line, path: spec.path}] = true
+				}
+			}
+			if len(set) != 0 {
+				targetImports[path] = set
+			}
+		}
+		skelByGsx[path] = fileSkeleton{
+			skel: gf, imps: imps, sunk: sunkImports[path], targetQualifiers: targetQualifiers,
+		}
 	}
 	if skelErr {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
@@ -1640,6 +1659,16 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 					confirmedSunk[file] = map[sunkImportKey]bool{}
 				}
 				confirmedSunk[file][key] = true
+				continue
+			}
+			kept = append(kept, e)
+		}
+		typeErrs = kept
+	}
+	if len(targetImports) != 0 {
+		kept := typeErrs[:0]
+		for _, e := range typeErrs {
+			if _, _, ok := sunkUnusedImportError(e, targetImports); ok {
 				continue
 			}
 			kept = append(kept, e)
