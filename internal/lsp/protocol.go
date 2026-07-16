@@ -37,11 +37,53 @@ type initializeParams struct {
 }
 
 type clientCapabilities struct {
-	General generalCapabilities `json:"general"`
+	General   generalCapabilities   `json:"general"`
+	Workspace workspaceCapabilities `json:"workspace"`
 }
 
 type generalCapabilities struct {
 	PositionEncodings []string `json:"positionEncodings"`
+}
+
+type workspaceCapabilities struct {
+	DidChangeWatchedFiles didChangeWatchedFilesClientCapabilities `json:"didChangeWatchedFiles"`
+}
+
+type didChangeWatchedFilesClientCapabilities struct {
+	DynamicRegistration bool `json:"dynamicRegistration"`
+}
+
+type registrationParams struct {
+	Registrations []registration `json:"registrations"`
+}
+
+type registration struct {
+	ID              string `json:"id"`
+	Method          string `json:"method"`
+	RegisterOptions any    `json:"registerOptions"`
+}
+
+type didChangeWatchedFilesRegistrationOptions struct {
+	Watchers []fileSystemWatcher `json:"watchers"`
+}
+
+type fileSystemWatcher struct {
+	GlobPattern string `json:"globPattern"`
+}
+
+const (
+	fileChangeCreated = 1
+	fileChangeChanged = 2
+	fileChangeDeleted = 3
+)
+
+type didChangeWatchedFilesParams struct {
+	Changes []fileEvent `json:"changes"`
+}
+
+type fileEvent struct {
+	URI  string `json:"uri"`
+	Type int    `json:"type"`
 }
 
 type initializeResult struct {

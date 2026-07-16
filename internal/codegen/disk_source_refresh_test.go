@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -87,6 +89,34 @@ func TestRefreshDiskSourcesKeepsBodyOnlyEditWarm(t *testing.T) {
 	}
 	if got := module.externalLoads(); got != 1 {
 		t.Fatalf("external loads = %d, want body-only edit to stay warm", got)
+	}
+}
+
+func TestRefreshDiskSourcesAndInvalidateIsOneExactAnalysisTransition(t *testing.T) {
+	m, root := setupChainModule(t)
+	utilDir := filepath.Join(root, "util")
+	pagesDir := filepath.Join(root, "pages")
+	soloDir := filepath.Join(root, "solo")
+	if _, err := m.Package(pagesDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Package(soloDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(utilDir, "util.gsx"), []byte("package util\ncomponent Y(label string) { <strong>{label}</strong> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	affected, err := m.RefreshDiskSourcesAndInvalidate(utilDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{utilDir, filepath.Join(root, "components"), pagesDir}
+	slices.Sort(want)
+	if !reflect.DeepEqual(affected, want) {
+		t.Fatalf("affected = %v, want exact reverse closure %v", affected, want)
+	}
+	if got := m.cachedDirs(); !reflect.DeepEqual(got, []string{soloDir}) {
+		t.Fatalf("cached dirs after atomic refresh = %v, want unrelated package only", got)
 	}
 }
 

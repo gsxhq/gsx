@@ -15,6 +15,9 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, []SymbolInformation{})
 	}
+	if !s.diskViewValid {
+		return s.reply(f.ID, []SymbolInformation{})
+	}
 	if !s.moduleSymsValid {
 		dir := s.anyOpenDir()
 		syms, err := s.analyzer.ModuleSymbols(dir, s.docs.allOpenGSX())

@@ -128,8 +128,10 @@ type Options struct {
 // classification is module-wide, so its declaration/table caches and every
 // retained package analysis are dropped while the ext importer stays warm.
 // RefreshDiskSources is the explicit saved-source transition for watch events;
-// Invalidate is the public entry point for callers that only need to evict a
-// directory without changing the source snapshot.
+// RefreshDiskSourcesAndInvalidate is the atomic saved-source plus retained-fact
+// transition used by concurrent callers such as the LSP. Invalidate is the
+// public entry point for callers that only need to evict a directory without
+// changing the source snapshot.
 //
 // FileSet: the Module uses ONE *token.FileSet (m.fset) for its whole lifetime,
 // covering BOTH the external packages.Load AND every project analyze() call. So

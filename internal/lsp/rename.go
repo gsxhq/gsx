@@ -16,6 +16,9 @@ import (
 var errComponentParamNotRenamable = errors.New("component parameter is not available for semantic rename")
 
 func (s *Server) handlePrepareRename(f frame) error {
+	if err := s.componentParamRenameAvailability(); err != nil {
+		return s.reply(f.ID, nil)
+	}
 	var params textDocumentPositionParams
 	if err := json.Unmarshal(f.Params, &params); err != nil {
 		return s.reply(f.ID, nil)
@@ -37,6 +40,9 @@ func (s *Server) handleRename(f frame) error {
 	var params renameParams
 	if err := json.Unmarshal(f.Params, &params); err != nil {
 		return s.replyError(f.ID, -32602, "invalid rename parameters")
+	}
+	if err := s.componentParamRenameAvailability(); err != nil {
+		return s.replyError(f.ID, -32602, err.Error())
 	}
 	fact, _, err := s.componentParamAt(params.TextDocument.URI, params.Position)
 	if err != nil {
@@ -64,6 +70,16 @@ func (s *Server) handleRename(f frame) error {
 		return s.replyError(f.ID, -32602, err.Error())
 	}
 	return s.reply(f.ID, edit)
+}
+
+func (s *Server) componentParamRenameAvailability() error {
+	if !s.watchDynamicRegistration || !s.watchRegistrationActive {
+		return errors.New("component parameter rename unavailable until watched-file registration is active")
+	}
+	if !s.diskViewValid {
+		return errors.New("component parameter rename unavailable because the saved-source view is stale")
+	}
+	return nil
 }
 
 // componentParamAt resolves only retained semantic parameter facts. It does not

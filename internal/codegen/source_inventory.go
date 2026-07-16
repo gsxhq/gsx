@@ -72,9 +72,32 @@ func inspectGsxSourceInventory(path string, source []byte, present bool) (gsxSou
 // A body-only change preserves the cold importer. Package membership/clause
 // changes, or an import addition absent from the published importer, mark the
 // source inventory for an atomic FileSet/importer rebuild at the next analysis.
-// Like Invalidate, callers must not invoke this concurrently with an in-flight
-// Package or Generate on the same Module.
+// RefreshDiskSources serializes the refresh itself against analysis. Callers
+// that also need invalidation should use RefreshDiskSourcesAndInvalidate so no
+// analysis can observe refreshed saved bytes through stale retained facts.
 func (m *Module) RefreshDiskSources(dirs ...string) error {
+	m.analysisMu.Lock()
+	defer m.analysisMu.Unlock()
+	return m.refreshDiskSources(dirs...)
+}
+
+// RefreshDiskSourcesAndInvalidate atomically refreshes the complete saved-source
+// inventory for dirs, computes their exact retained reverse closure, and evicts
+// that closure while analysis is excluded. This is the LSP watched-file
+// transition: returning affected dirs from the same critical section prevents a
+// concurrent Package call from republishing facts from the pre-refresh view.
+func (m *Module) RefreshDiskSourcesAndInvalidate(dirs ...string) ([]string, error) {
+	m.analysisMu.Lock()
+	defer m.analysisMu.Unlock()
+	if err := m.refreshDiskSources(dirs...); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.invalidateLocked(dirs), nil
+}
+
+func (m *Module) refreshDiskSources(dirs ...string) error {
 	if len(dirs) == 0 {
 		return nil
 	}
