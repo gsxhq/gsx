@@ -43,21 +43,27 @@ component (p Page) Render() {
 		got = string(src)
 	}
 	for _, want := range []string{
-		"type PageBoxProps[T string | int] struct",
-		"func (p Page) Box[T string | int](_gsxp PageBoxProps[T]) _gsxrt.Node",
-		"p.Box[int](PageBoxProps[int]{Value: 7})",
+		// Verbatim generic method declaration — the authored signature emitted
+		// directly, with no synthesized <Recv><Name>Props struct or _gsxp param.
+		"func (p Page) Box[T string | int](value T) _gsxrt.Node",
+		"p.Box[int](7)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated source missing %q:\n%s", want, got)
 		}
 	}
+	// The verbatim ABI must NOT synthesize a Props struct or an _gsxp wrapper
+	// parameter for a (generic) method component.
+	if strings.Contains(got, "PageBoxProps") {
+		t.Fatalf("verbatim ABI must not synthesize a Props struct, but found PageBoxProps:\n%s", got)
+	}
 	// Both the explicit-type-arg call site (<p.Box[int] .../>) and the
 	// omitted-type-arg one (<p.Box .../>, inferred via the caller-side probe
-	// — finding 8's method-component gate) must independently emit this
-	// exact instantiated call; a plain Contains above would already pass if
-	// only ONE of the two sites produced it, so count occurrences to prove
-	// the inference probe path (not just the explicit-type-arg path) worked.
-	const wantCall = "p.Box[int](PageBoxProps[int]{Value: 7})"
+	// — the method-component inference gate) must independently emit this
+	// exact instantiated positional call; a plain Contains above would already
+	// pass if only ONE of the two sites produced it, so count occurrences to
+	// prove the inference probe path (not just the explicit-type-arg path) worked.
+	const wantCall = "p.Box[int](7)"
 	if n := strings.Count(got, wantCall); n != 2 {
 		t.Fatalf("want 2 occurrences of %q (one per call site), got %d:\n%s", wantCall, n, got)
 	}
