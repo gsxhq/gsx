@@ -447,9 +447,33 @@ spread machinery is unchanged.
 ### Node-valued props
 
 A non-`children` node-typed prop (`icon gsx.Node`, `header gsx.Node`) is an
-ordinary named prop, filled by a **markup-valued attribute** — `header={<h1/>}`.
-(This is the existing attribute-value grammar, *not* a distinct body-child slot
-grammar; "named slots" are just node-typed props filled this way.)
+ordinary named prop. It accepts a **markup-valued attribute** —
+`header={<h1/>}` — and preserves the existing GSX component-boundary promotion
+for renderable values:
+
+| Authored operand for an exact `gsx.Node` parameter | Positional argument |
+|---|---|
+| markup or a value already assignable to `gsx.Node` | unchanged |
+| static string attribute or `f`-literal | `gsx.Text(value)` |
+| other supported scalar / string / `fmt.Stringer` expression | `gsx.Val(value)` |
+
+This is the existing attribute-value grammar, *not* a distinct body-child slot
+grammar; "named slots" are just node-typed props filled this way. Leaf HTML
+emission keeps its direct-write fast path: this promotion exists only at a
+component parameter boundary.
+
+The destination test is semantic identity with the canonical runtime
+`gsx.Node` type (including aliases through `types.Identical`), not “implements
+Node.” A concrete type that implements `gsx.Node` remains an ordinary exact-type
+parameter because neither `gsx.Text` nor `gsx.Val` produces that concrete type.
+
+Planning records one adapter per supplied operand: identity, NodeText, or
+NodeVal. Tuple/error unwrapping happens before adaptation. The adapted semantic
+fact participates in generic inference, assignment validation, and final-call
+validation; emission consumes the recorded decision after the operand's
+once-only evaluation/materialization and never reclassifies it. This prevents an
+emitter-only wrapper from disagreeing with inference or diagnostics and requires
+no additional package load for imported components.
 
 ### Forwarding and spreads
 
@@ -1108,6 +1132,11 @@ creating exported analysis artifacts or changing allocation.
   - untyped call-valued constants such as `min(1, 2)` retain target context, and
     **`(T, error)`** propagation through every contributor kind completes before
     positional assembly;
+  - exact-`gsx.Node` boundary promotion for static strings, `f`-literals,
+    Stringers, scalars, existing Nodes, and tuple-unwrapped values; generic
+    inference consumes the adapted fact; concrete Node implementations remain
+    exact-type parameters; imported components and aliases are covered; and leaf
+    `f`-literal direct-write behavior remains unchanged;
   - duplicate ordinary fills get `duplicate-prop`, while repeated `attrs`
     contributors remain legal; blank/unnamed parameters (fixed and variadic)
     receive the general named-parameters diagnostic and grouped parameter
