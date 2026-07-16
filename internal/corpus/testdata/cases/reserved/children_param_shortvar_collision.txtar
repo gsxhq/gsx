@@ -1,6 +1,6 @@
-# Rejection (spec §14): a body-scope `children :=` collides with the implicit
-# children slot local that `{children}` placement brings into scope. Reserved
-# regardless of the type mismatch.
+# An explicit children parameter and `children :=` occupy the same Go function
+# scope. This is an ordinary Go redeclaration/type error, not a GSX reserved-name
+# diagnostic; nested Go scopes may shadow the parameter normally.
 -- input.gsx --
 package views
 

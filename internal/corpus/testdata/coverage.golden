@@ -241,7 +241,6 @@ diagnostics/nullary_func_with_attrs	diag(error)
 diagnostics/nullary_func_with_children	diag(error)
 diagnostics/param_name_collision	diag render
 diagnostics/pointer_node_render	diag render
-diagnostics/reserved_param_children	diag
 diagnostics/reserved_param_ctx	diag(error)
 diagnostics/reserved_param_gsx_prefix	diag(error)
 diagnostics/reserved_param_stub_masking	diag(error)
@@ -719,8 +718,8 @@ reserved/attrs_reassign	diag gen render
 reserved/attrs_receiver_rejected	diag
 reserved/attrs_shortvar_rejected	diag
 reserved/attrs_tuple_rejected	diag
-reserved/children_shortvar_rejected	diag(error)
-reserved/children_shortvar_unplaced_rejected	diag(error)
+reserved/children_body_local	diag render
+reserved/children_param_shortvar_collision	diag(error)
 reserved/children_value_after_placement	diag gen render
 reserved/children_value_unplaced	diag(error)
 reserved/closure_over_attrs	diag gen render
@@ -895,4 +894,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 897 cases (render: 766, error: 93, gen-pinned: 518)
+TOTAL: 896 cases (render: 767, error: 92, gen-pinned: 518)
