@@ -28,6 +28,15 @@ const (
 	targetConcreteMethodValue
 )
 
+type componentTargetRejection uint8
+
+const (
+	componentTargetAccepted componentTargetRejection = iota
+	componentTargetDefinitiveNonCallablePackageObject
+	componentTargetUnresolved
+	componentTargetDisallowedProvenance
+)
+
 type authoredTypeArgFact struct {
 	expr goast.Expr
 	typ  types.Type
@@ -51,6 +60,7 @@ type componentTargetFact struct {
 	targetDiags      []diag.Diagnostic
 
 	provenance componentTargetProvenance
+	rejection  componentTargetRejection
 
 	hasSelection  bool
 	selectionKind types.SelectionKind
@@ -210,6 +220,10 @@ func componentTargetMarkerName(site callSiteID) string {
 	return fmt.Sprintf("_gsxtarget%d", site)
 }
 
+func (r *componentTargetMarkerRegistry) hasCandidate(element *gsxast.Element) bool {
+	return r != nil && r.callSites != nil && r.callSites.hasCandidate(element)
+}
+
 func (r *componentTargetMarkerRegistry) emitBinding(sb *strings.Builder, element *gsxast.Element, fset *token.FileSet) error {
 	if r == nil || r.callSites == nil {
 		return fmt.Errorf("codegen: target binding emitted without a marker registry")
@@ -219,7 +233,7 @@ func (r *componentTargetMarkerRegistry) emitBinding(sb *strings.Builder, element
 		return fmt.Errorf("codegen: component element <%s> has no call-site identity", element.Tag)
 	}
 	record := r.callSites.records[site-1]
-	if record.disposition != callSitePlanned {
+	if record.disposition != componentSiteCandidate {
 		return fmt.Errorf("codegen: preserved call site %d entered target discovery", site)
 	}
 	if _, duplicate := r.bySite[site]; duplicate {
@@ -303,11 +317,11 @@ func (r *componentTargetMarkerRegistry) validateComplete() error {
 	for _, record := range r.callSites.records {
 		_, emitted := r.bySite[record.id]
 		switch record.disposition {
-		case callSitePlanned:
+		case componentSiteCandidate:
 			if !emitted {
 				return fmt.Errorf("codegen: planned call site %d <%s> has no target marker", record.id, record.element.Tag)
 			}
-		case callSitePreserveUnsupportedGoBlock:
+		case componentSitePreservedInvalidRegion:
 			if emitted {
 				return fmt.Errorf("codegen: preserved call site %d <%s> has a target marker", record.id, record.element.Tag)
 			}
@@ -466,6 +480,20 @@ func targetDeclaredReceiverIsInterface(fn *types.Func) bool {
 	return ok
 }
 
+func definitiveNonCallablePackageObject(object types.Object) bool {
+	if object == nil || object.Pkg() == nil || object.Parent() != object.Pkg().Scope() {
+		return false
+	}
+	switch object := object.(type) {
+	case *types.Const, *types.TypeName:
+		return true
+	case *types.Var:
+		return targetCallableSignature(object.Type()) == nil
+	default:
+		return false
+	}
+}
+
 func componentTargetDiagnostic(element *gsxast.Element, fset *token.FileSet, code, message string) diag.Diagnostic {
 	diagnostic := diag.Diagnostic{Severity: diag.Error, Code: code, Message: message, Source: "codegen"}
 	if fset == nil || element == nil {
@@ -585,6 +613,7 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 	for _, marker := range registry.ordered {
 		fact := componentTargetFact{site: marker.site, expr: marker.expr}
 		if marker.syntaxDiagnostic != nil {
+			fact.rejection = componentTargetDisallowedProvenance
 			fact.targetDiags = []diag.Diagnostic{*marker.syntaxDiagnostic}
 			facts[marker.site] = fact
 			continue
@@ -592,6 +621,7 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 
 		shape, ok := componentTargetShapeOf(marker.expr)
 		if !ok {
+			fact.rejection = componentTargetDisallowedProvenance
 			fact.targetDiags = append(fact.targetDiags, componentTargetDiagnostic(marker.element, fset, "invalid-component-target", "component target must be an identifier, selector, or explicit generic instantiation"))
 			facts[marker.site] = fact
 			continue
@@ -633,7 +663,11 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 				}
 			}
 		case fact.object == nil:
+			fact.rejection = componentTargetUnresolved
 			provenanceMessage = "component target could not be resolved"
+		case invalidSemanticTypeSeen(fact.object.Type(), make(map[types.Type]bool)):
+			fact.rejection = componentTargetUnresolved
+			provenanceMessage = "component target has an incomplete semantic type"
 		default:
 			if shape.selector != nil {
 				qualifier, isIdent := shape.selector.X.(*goast.Ident)
@@ -664,11 +698,17 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 				fact.origin = object.Origin()
 				fact.raw = targetCallableSignature(object.Type())
 				if fact.raw == nil {
+					fact.rejection = componentTargetDefinitiveNonCallablePackageObject
 					provenanceMessage = "component target package variable is not callable"
 				} else {
 					fact.provenance = targetPackageVar
 				}
 			default:
+				if definitiveNonCallablePackageObject(object) {
+					fact.rejection = componentTargetDefinitiveNonCallablePackageObject
+				} else {
+					fact.rejection = componentTargetDisallowedProvenance
+				}
 				provenanceMessage = "component target is not a package function, package function variable, or concrete bound method"
 			}
 		}
@@ -676,6 +716,9 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 		lookupSucceeded := fact.object != nil
 		omitIncompleteGeneric := expectedIncompleteGenericTarget(marker, fact, errs, fset)
 		if provenanceRejected {
+			if fact.rejection == componentTargetAccepted {
+				fact.rejection = componentTargetDisallowedProvenance
+			}
 			fact.object = nil
 			fact.raw = nil
 			fact.origin = nil
@@ -684,12 +727,12 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 			// marker span. Resolved-but-disallowed semantic shapes additionally get
 			// positioned provenance guidance; their native checker diagnostics remain
 			// intact below.
-			if lookupSucceeded || len(errs) == 0 {
+			if fact.rejection == componentTargetUnresolved || lookupSucceeded || len(errs) == 0 {
 				fact.targetDiags = append(fact.targetDiags, componentTargetDiagnostic(marker.element, fset, "invalid-component-target", provenanceMessage))
 			}
 		}
 
-		if !omitIncompleteGeneric {
+		if !omitIncompleteGeneric && fact.rejection != componentTargetUnresolved {
 			for _, typeErr := range errs {
 				fact.targetDiags = append(fact.targetDiags, componentTargetTypeDiagnostic(typeErr))
 			}
@@ -705,6 +748,85 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 		facts[marker.site] = fact
 	}
 	return facts, unrelated, nil
+}
+
+func incompleteComponentResult(sig *types.Signature) bool {
+	if sig == nil || sig.Results().Len() != 1 {
+		return false
+	}
+	return invalidSemanticTypeSeen(sig.Results().At(0).Type(), make(map[types.Type]bool))
+}
+
+func (r *callSiteRegistry) finalizeComponentIdentity(facts map[callSiteID]componentTargetFact, runtime runtimeContract, fset *token.FileSet, bag *diag.Bag) error {
+	if r == nil {
+		return fmt.Errorf("codegen: cannot finalize a nil call-site registry")
+	}
+	if r.finalized {
+		return fmt.Errorf("codegen: component identity already finalized")
+	}
+	if bag == nil {
+		return fmt.Errorf("codegen: component identity finalization requires a diagnostic bag")
+	}
+	for _, element := range r.leafTypeArgs {
+		reportLeafTypeArgs(bag, element)
+	}
+	for i := range r.records {
+		record := &r.records[i]
+		if record.element == nil {
+			return fmt.Errorf("codegen: call site %d has no element", record.id)
+		}
+		if record.element.IsComponent {
+			return fmt.Errorf("codegen: call site %d <%s> was stamped before semantic finalization", record.id, record.element.Tag)
+		}
+		if record.disposition == componentSitePreservedInvalidRegion {
+			continue
+		}
+		if record.disposition != componentSiteCandidate {
+			return fmt.Errorf("codegen: call site %d <%s> has non-candidate disposition %d before finalization", record.id, record.element.Tag, record.disposition)
+		}
+		fact, ok := facts[record.id]
+		if !ok {
+			return fmt.Errorf("codegen: candidate call site %d <%s> has no semantic target fact", record.id, record.element.Tag)
+		}
+
+		if record.candidate == componentCandidateLowercasePackage && fact.rejection == componentTargetDefinitiveNonCallablePackageObject {
+			record.disposition = componentSiteLeaf
+			if record.element.TypeArgs != "" {
+				reportLeafTypeArgs(bag, record.element)
+			}
+			continue
+		}
+		if fact.rejection != componentTargetAccepted || len(fact.targetDiags) != 0 || fact.raw == nil || fact.provenance == 0 {
+			record.disposition = componentSiteRejected
+			if len(fact.targetDiags) == 0 {
+				bag.Add(componentTargetDiagnostic(record.element, fset, "invalid-component-target", "component target could not be resolved to an allowed callable"))
+			} else {
+				for _, diagnostic := range fact.targetDiags {
+					bag.Add(diagnostic)
+				}
+			}
+			continue
+		}
+
+		signature := fact.effectiveSignature()
+		_, resultErr := componentResultType(signature, runtime)
+		if resultErr != nil {
+			if record.candidate == componentCandidateLowercasePackage && !incompleteComponentResult(signature) {
+				record.disposition = componentSiteLeaf
+				if record.element.TypeArgs != "" {
+					reportLeafTypeArgs(bag, record.element)
+				}
+				continue
+			}
+			record.disposition = componentSiteRejected
+			bag.Add(positionalSignatureDiagnostic(record.element, fset, resultErr))
+			continue
+		}
+		record.element.IsComponent = true
+		record.disposition = componentSitePlanned
+	}
+	r.finalized = true
+	return nil
 }
 
 type componentTargetCheckConfig struct {
@@ -785,20 +907,26 @@ const invalidCallSiteID callSiteID = 0
 type callSiteDisposition uint8
 
 const (
-	callSitePlanned callSiteDisposition = iota
-	callSitePreserveUnsupportedGoBlock
+	componentSiteCandidate callSiteDisposition = iota
+	componentSitePlanned
+	componentSiteLeaf
+	componentSiteRejected
+	componentSitePreservedInvalidRegion
 )
 
 type callSiteRecord struct {
 	id          callSiteID
 	path        string
 	element     *gsxast.Element
+	candidate   componentCandidateKind
 	disposition callSiteDisposition
 }
 
 type callSiteRegistry struct {
-	byElement map[*gsxast.Element]callSiteID
-	records   []callSiteRecord
+	byElement    map[*gsxast.Element]callSiteID
+	records      []callSiteRecord
+	leafTypeArgs []*gsxast.Element
+	finalized    bool
 }
 
 // componentTargetQualifiers returns the syntactic selector roots used by
@@ -813,7 +941,7 @@ func componentTargetQualifiers(registry *callSiteRegistry, path string) map[stri
 	}
 	cleanPath := filepath.Clean(path)
 	for _, record := range registry.records {
-		if record.disposition != callSitePlanned || filepath.Clean(record.path) != cleanPath || record.element == nil {
+		if (record.disposition != componentSiteCandidate && record.disposition != componentSitePlanned) || filepath.Clean(record.path) != cleanPath || record.element == nil {
 			continue
 		}
 		qualifier, _, ok := strings.Cut(record.element.Tag, ".")
@@ -824,16 +952,24 @@ func componentTargetQualifiers(registry *callSiteRegistry, path string) map[stri
 	return qualifiers
 }
 
-func (r *callSiteRegistry) hasPlanned() bool {
+func (r *callSiteRegistry) hasCandidates() bool {
 	if r == nil {
 		return false
 	}
 	for _, record := range r.records {
-		if record.disposition == callSitePlanned {
+		if record.disposition == componentSiteCandidate {
 			return true
 		}
 	}
 	return false
+}
+
+func (r *callSiteRegistry) hasCandidate(element *gsxast.Element) bool {
+	if r == nil || element == nil {
+		return false
+	}
+	id, ok := r.byElement[element]
+	return ok && id != invalidCallSiteID && int(id) <= len(r.records) && r.records[id-1].disposition == componentSiteCandidate
 }
 
 type callSitePreprocessResult struct {
@@ -851,7 +987,7 @@ func (r callSitePreprocessResult) analysisReady() bool {
 // transition allowed to
 // materialize markup embedded in Go expressions. It completes that mutation
 // for every file first, validates exact GoWithElements exclusion mappings,
-// resolves JavaScript context on the expanded tree, stamps component tags, and
+// resolves JavaScript context on the expanded tree, records component candidates, and
 // only then allocates stable one-based call-site IDs in path and authored source
 // order.
 func preprocessClaimedComponentCallSites(files map[string]*gsxast.File, declNames map[string]bool, fset *token.FileSet, classifier *attrclass.Classifier, bag *diag.Bag) (callSitePreprocessResult, error) {
@@ -897,15 +1033,16 @@ func preprocessClaimedComponentCallSites(files map[string]*gsxast.File, declName
 	if !scriptsOK {
 		return callSitePreprocessResult{syntaxOK: true, scriptsOK: false}, nil
 	}
+	candidates := make(map[*gsxast.Element]componentCandidateKind)
 	for _, path := range paths {
-		if err := stampMaterializedComponentTags(files[path], declNames, goExclusions, bag); err != nil {
+		if err := collectMaterializedComponentCandidates(files[path], declNames, goExclusions, candidates, bag); err != nil {
 			return callSitePreprocessResult{}, err
 		}
 	}
 
 	registry := &callSiteRegistry{byElement: make(map[*gsxast.Element]callSiteID)}
 	for _, path := range paths {
-		if err := registry.collectFile(path, files[path], bag); err != nil {
+		if err := registry.collectFile(path, files[path], candidates, bag); err != nil {
 			return callSitePreprocessResult{}, err
 		}
 	}
@@ -941,11 +1078,11 @@ func packageGoWithElementsExclusions(paths []string, files map[string]*gsxast.Fi
 	return out, syntaxOK, nil
 }
 
-// stampMaterializedComponentTags walks every markup-bearing field, including
+// collectMaterializedComponentCandidates walks every markup-bearing field, including
 // Interp.Embedded and GoBlock.Embedded, which gsxast.Inspect deliberately does
 // not traverse. All elements therefore share one classification rule whether
 // they came from the original parse or expression preprocessing.
-func stampMaterializedComponentTags(file *gsxast.File, declNames map[string]bool, goExclusions map[*gsxast.GoWithElements]map[int]componentExclusions, bag *diag.Bag) error {
+func collectMaterializedComponentCandidates(file *gsxast.File, declNames map[string]bool, goExclusions map[*gsxast.GoWithElements]map[int]componentExclusions, candidates map[*gsxast.Element]componentCandidateKind, bag *diag.Bag) error {
 	var walk func([]gsxast.Markup, componentExclusions, bool)
 	var walkParts func([]gsxast.GoPart, componentExclusions, bool)
 	walkParts = func(parts []gsxast.GoPart, exclusions componentExclusions, reportDiagnostics bool) {
@@ -959,7 +1096,7 @@ func stampMaterializedComponentTags(file *gsxast.File, declNames map[string]bool
 		for _, node := range nodes {
 			switch node := node.(type) {
 			case *gsxast.Element:
-				stampComponentTag(node, declNames, exclusions, bag, reportDiagnostics)
+				recordComponentCandidate(candidates, node, declNames, exclusions, bag, reportDiagnostics)
 				walkMarkupAttrs(node.Attrs, func(value []gsxast.Markup) { walk(value, exclusions, reportDiagnostics) })
 				walk(node.Children, exclusions, reportDiagnostics)
 			case *gsxast.Fragment:
@@ -1007,7 +1144,7 @@ func stampMaterializedComponentTags(file *gsxast.File, declNames map[string]bool
 	return nil
 }
 
-func (r *callSiteRegistry) add(path string, element *gsxast.Element, disposition callSiteDisposition) error {
+func (r *callSiteRegistry) add(path string, element *gsxast.Element, candidate componentCandidateKind, disposition callSiteDisposition) error {
 	if prior, exists := r.byElement[element]; exists {
 		return fmt.Errorf("codegen: element <%s> in %s was visited twice while assigning call-site IDs (first ID %d)", element.Tag, path, prior)
 	}
@@ -1016,11 +1153,11 @@ func (r *callSiteRegistry) add(path string, element *gsxast.Element, disposition
 		return fmt.Errorf("codegen: call-site ID overflow")
 	}
 	r.byElement[element] = id
-	r.records = append(r.records, callSiteRecord{id: id, path: path, element: element, disposition: disposition})
+	r.records = append(r.records, callSiteRecord{id: id, path: path, element: element, candidate: candidate, disposition: disposition})
 	return nil
 }
 
-func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, bag *diag.Bag) error {
+func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidates map[*gsxast.Element]componentCandidateKind, bag *diag.Bag) error {
 	var walk func([]gsxast.Markup) error
 	var walkParts func([]gsxast.GoPart) error
 	walkParts = func(parts []gsxast.GoPart) error {
@@ -1037,10 +1174,12 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, bag *diag
 		for _, node := range nodes {
 			switch node := node.(type) {
 			case *gsxast.Element:
-				if node.IsComponent {
-					if err := r.add(path, node, callSitePlanned); err != nil {
+				if candidate := candidates[node]; candidate != componentCandidateNone {
+					if err := r.add(path, node, candidate, componentSiteCandidate); err != nil {
 						return err
 					}
+				} else if node.TypeArgs != "" {
+					r.leafTypeArgs = append(r.leafTypeArgs, node)
 				}
 				var attrErr error
 				walkMarkupAttrs(node.Attrs, func(value []gsxast.Markup) {
@@ -1089,7 +1228,7 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, bag *diag
 					bag.Errorf(first.Pos(), first.End(), "unsupported-node", "element literals inside {{ }} blocks are not supported yet")
 					for _, part := range node.Embedded {
 						if element, ok := part.(*gsxast.Element); ok {
-							if err := r.add(path, element, callSitePreserveUnsupportedGoBlock); err != nil {
+							if err := r.add(path, element, componentCandidateNone, componentSitePreservedInvalidRegion); err != nil {
 								return err
 							}
 						}

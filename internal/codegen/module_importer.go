@@ -992,10 +992,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Materialize embedded markup, resolve every component-vs-leaf decision,
-	// classify the now-complete JavaScript tree, and assign stable call-site IDs
-	// BEFORE any skeleton/probe/emit walk. This is the package AST's only
-	// preprocessing mutation; later phases retain the same element pointers.
+	// Materialize embedded markup, classify the now-complete JavaScript tree,
+	// and assign stable candidate IDs before any skeleton/probe/emit walk.
+	// Component identity remains unstamped until exact target discovery below.
 	declNames := packageDeclNamesFromFiles(companionFiles, gsxFiles)
 	preprocessed, err := parsed.preprocessComponentCallSites(declNames, fset, m.classifierFor(dir), bag)
 	if err != nil {
@@ -1023,6 +1022,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err := m.validateBundleProjectImports(gsxFiles, fset); err != nil {
 		return nil, err
 	}
+	if len(reservedFiles) != 0 {
+		for path := range reservedFiles {
+			delete(gsxFiles, path)
+		}
+		callSites = nil
+	}
 	pkgPath := dir
 	if path, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
 		pkgPath = path
@@ -1045,17 +1050,66 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		gsxFiles = nil
 		callSites = nil
 	}
-	// Mutual wrapper cycles (A unconditionally renders <B>, B unconditionally
-	// renders <A>) compile clean — self-exclusion only breaks a DIRECT
-	// self-loop — but recurse forever at render. Must run after every
-	// element's IsComponent is stamped (the loop above).
-	reportWrapperCycles(gsxFiles, bag)
 	// Per-dir: an imported sibling package resolves its OWN filter table here,
 	// because analyze is the recursion point for the import graph.
 	table, err := m.filterTableFor(dir, true)
 	if err != nil {
 		return nil, err
 	}
+	var targetFacts map[callSiteID]componentTargetFact
+	var targetExprFacts map[gsxast.Node]expressionFact
+	var targetPackage *types.Package
+	var targetRuntime runtimeContract
+	var targetPlanningReady bool
+	var positionalPlan componentPositionalPackagePlan
+	var targetErrs []types.Error
+	var targetDiagnostics []diag.Diagnostic
+	if callSites != nil && (callSites.hasCandidates() || len(componentPlan.families) != 0) {
+		targetBag := diag.NewBag(fset)
+		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
+			m,
+			dir, pkgPath,
+			pkgName, gsxFiles, componentPlan, callSites, table,
+			fset, targetBag, targetImporter, typeEnvironment,
+		)
+		if targetErr != nil {
+			return nil, targetErr
+		}
+		if len(targetResult.diagnostics) != 0 {
+			targetErrs = append(targetErrs, unrelatedTargetErrs...)
+			targetDiagnostics = append(targetDiagnostics, targetResult.diagnostics...)
+			for _, diagnostic := range targetResult.diagnostics {
+				bag.Add(diagnostic)
+			}
+			// Target or runtime incompleteness rejects the package before full
+			// skeleton construction. Partial semantic facts never escape.
+			gsxFiles = map[string]*gsxast.File{}
+			callSites = nil
+		} else {
+			// Errors outside exact target-marker spans remain fatal, but the full
+			// skeleton is their authoritative diagnostic owner. Continuing preserves
+			// missing-import/source-error publication without letting positional
+			// planning consume incomplete operand facts.
+			targetErrs = append(targetErrs, unrelatedTargetErrs...)
+			targetFacts = targetResult.facts
+			targetExprFacts = targetResult.expressionFacts
+			targetPackage = targetResult.pkg
+			targetRuntime, err = runtimeContractFromAnalysisPackage(targetPackage)
+			if err != nil {
+				return nil, err
+			}
+			targetPlanningReady = len(unrelatedTargetErrs) == 0
+			if err := callSites.finalizeComponentIdentity(targetFacts, targetRuntime, fset, bag); err != nil {
+				return nil, err
+			}
+		}
+	} else if callSites != nil {
+		if err := callSites.finalizeComponentIdentity(nil, runtimeContract{}, fset, bag); err != nil {
+			return nil, err
+		}
+	}
+	// Mutual wrapper cycles consume only final semantic stamps.
+	reportWrapperCycles(gsxFiles, bag)
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
 	// gwMarkupsByXGo holds, per skeleton file, the GoWithElements-embedded
@@ -1111,11 +1165,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// accepted for the same reason the attrError one is: the correctly
 		// positioned diagnostic on the actual mistake is worth an extra,
 		// obviously-downstream error on a file that did nothing wrong.
-		if reservedFiles[path] {
-			delete(gsxFiles, path)
-			callSites = nil
-			continue
-		}
 		// Body-scope reservation (ctx/children/attrs): a POSITIONED, worded
 		// diagnostic upgrading the raw Go collision error. Unlike checkReservedDecls
 		// above (and the attrError skip below), this does NOT delete the file: a
@@ -1184,58 +1233,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if skelErr {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
 		callSites = nil
-	}
-	var targetFacts map[callSiteID]componentTargetFact
-	var targetExprFacts map[gsxast.Node]expressionFact
-	var targetPackage *types.Package
-	var positionalPlan componentPositionalPackagePlan
-	var targetErrs []types.Error
-	var targetDiagnostics []diag.Diagnostic
-	if callSites != nil && (callSites.hasPlanned() || len(componentPlan.families) != 0) {
-		targetBag := diag.NewBag(fset)
-		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
-			m,
-			dir, pkgPath,
-			pkgName, gsxFiles, componentPlan, callSites, table,
-			fset, targetBag, targetImporter, typeEnvironment,
-		)
-		if targetErr != nil {
-			return nil, targetErr
-		}
-		if len(targetResult.diagnostics) == 0 && len(unrelatedTargetErrs) == 0 {
-			targetFacts = targetResult.facts
-			targetExprFacts = targetResult.expressionFacts
-			targetPackage = targetResult.pkg
-			runtime, runtimeErr := runtimeContractFromAnalysisPackage(targetPackage)
-			if runtimeErr != nil {
-				return nil, runtimeErr
-			}
-			var planningDiagnostics []diag.Diagnostic
-			positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{
-				callSites:       callSites,
-				targets:         targetFacts,
-				expressionFacts: targetExprFacts,
-				runtime:         runtime,
-				analysisPackage: targetPackage,
-				fset:            fset,
-			})
-			for _, diagnostic := range planningDiagnostics {
-				bag.Add(diagnostic)
-			}
-		} else {
-			// The exact target phase is now authoritative for component calls.
-			// Partial facts still cannot escape, but every failure must surface;
-			// retaining these privately would let emission silently fall back to the
-			// removed Props convention.
-			targetErrs = append(targetErrs, unrelatedTargetErrs...)
-			targetDiagnostics = append(targetDiagnostics, targetResult.diagnostics...)
-			for _, diagnostic := range targetResult.diagnostics {
-				bag.Add(diagnostic)
-			}
-			for _, targetErr := range unrelatedTargetErrs {
-				bag.Add(componentTargetTypeDiagnostic(targetErr))
-			}
-		}
 	}
 	// Shared _gsxuse/_gsxcompsig helpers, added to every package's overlay.
 	//
@@ -1320,6 +1317,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// every skeleton.
 	spansByFile := make(map[*goast.File][]posSpan, len(goFiles))
 	var quietSpans []posSpan
+	fullTypeDiagnosticOwned := false
 	for _, gf := range goFiles {
 		spans := harvestProbeSpans(gf)
 		spansByFile[gf] = spans
@@ -1345,11 +1343,31 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// retained skeleton error is therefore a native Go error and passes through
 		// verbatim after internal unwrap names are removed.
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
+		fullTypeDiagnosticOwned = true
+	}
+	if !fullTypeDiagnosticOwned {
+		for _, targetErr := range targetErrs {
+			bag.Add(componentTargetTypeDiagnostic(targetErr))
+		}
 	}
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate
 		// the error without caching so the caller receives it.
 		return nil, mi.cycleErr
+	}
+	if callSites != nil && targetPlanningReady {
+		var planningDiagnostics []diag.Diagnostic
+		positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{
+			callSites:       callSites,
+			targets:         targetFacts,
+			expressionFacts: targetExprFacts,
+			runtime:         targetRuntime,
+			analysisPackage: targetPackage,
+			fset:            fset,
+		})
+		for _, diagnostic := range planningDiagnostics {
+			bag.Add(diagnostic)
+		}
 	}
 
 	// Cache the type-checked package so every entry point — Package, Generate, and
@@ -1393,12 +1411,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		if !ok {
 			continue
 		}
-		harvest(gf, comps, info, resolved, exprMap, &componentPlan)
+		harvest(gf, comps, info, resolved, exprMap, &componentPlan, nil)
 		// Second pass for this file's GoWithElements-embedded values (see
 		// buildSkeleton's gwMarkups doc): resolve each inline `_gsxelem(N)`-
 		// marked IIFE's probe calls back onto the embedded value's own markup
 		// list, using the same ordered probe stream as ordinary component bodies.
-		harvestEmbeddedElements(gf, gwMarkupsByXGo[fname], info, resolved, exprMap)
+		harvestEmbeddedElements(gf, gwMarkupsByXGo[fname], info, resolved, exprMap, nil)
 		declLogicalKeys := map[string]string{}
 		for _, c := range comps {
 			logicalKey := componentPlan.logicalKey(c)

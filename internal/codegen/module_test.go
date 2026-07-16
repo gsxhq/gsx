@@ -281,6 +281,96 @@ func TestModuleGenerateProducesXGo(t *testing.T) {
 	}
 }
 
+func TestPackageMainTag(t *testing.T) {
+	const source = `package main
+
+import (
+	"context"
+	"io"
+	"github.com/gsxhq/gsx"
+)
+
+type concreteNode struct{}
+func (concreteNode) Render(context.Context, io.Writer) error { return nil }
+var _ gsx.Node = concreteNode{}
+func main() {}
+func concrete() concreteNode { return concreteNode{} }
+
+component Page() {
+	<main><concrete/></main>
+}
+`
+	dir, module := openTestModule(t, map[string]string{"page.gsx": source})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("Generate diagnostics: %+v", diagnostics)
+	}
+	generated := string(output[filepath.Join(dir, "page.gsx")])
+	if !strings.Contains(generated, `_gsxgw.S("<main>")`) || !strings.Contains(generated, `_gsxgw.S("</main>")`) {
+		t.Fatalf("generated output does not retain literal <main>:\n%s", generated)
+	}
+	if !strings.Contains(generated, `_gsxgw.Node(ctx, concrete())`) {
+		t.Fatalf("generated output does not call concrete component:\n%s", generated)
+	}
+
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamps := map[string]bool{}
+	for _, parsed := range result.GSXFiles {
+		for tag, stamp := range collectStamps(parsed) {
+			stamps[tag] = stamp
+		}
+	}
+	if stamps["main"] || !stamps["concrete"] {
+		t.Fatalf("semantic stamps=%v, want main=false concrete=true", stamps)
+	}
+}
+
+func TestSemanticComponentIdentity(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]string
+		code  string
+	}{
+		{name: "missing explicit", files: map[string]string{"page.gsx": "package page\ncomponent Page() { <Missing/> }\n"}, code: "invalid-component-target"},
+		{name: "zero result explicit", files: map[string]string{"page.gsx": "package page\nfunc Zero() {}\ncomponent Page() { <Zero/> }\n"}, code: "component-result-count"},
+		{name: "zero result imported", files: map[string]string{
+			"dep/dep.go": "package dep\nfunc Zero() {}\n",
+			"page.gsx":   "package page\nimport \"testmod/dep\"\ncomponent Page() { <dep.Zero/> }\n",
+		}, code: "component-result-count"},
+		{name: "parameter validation after identity", files: map[string]string{"page.gsx": "package page\nimport \"github.com/gsxhq/gsx\"\nfunc broken(attrs string) gsx.Node { return nil }\ncomponent Page() { <broken/> }\n"}, code: "component-attrs-type"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, module := openTestModule(t, tt.files)
+			output, diagnostics, err := module.Generate(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(output) != 0 {
+				t.Fatalf("generated output escaped semantic rejection: %v", output)
+			}
+			var found bool
+			for _, diagnostic := range diagnostics {
+				if diagnostic.Code == tt.code {
+					found = true
+					if diagnostic.Start.Filename == "" || diagnostic.Start.Line == 0 {
+						t.Errorf("diagnostic is unpositioned: %+v", diagnostic)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("diagnostics=%+v, want code %q", diagnostics, tt.code)
+			}
+		})
+	}
+}
+
 // TestModuleImporterRejectsImportCycle proves that the cycle guard in
 // moduleImporter.Import returns an error (not an infinite recursion/hang) when
 // two gsx packages mutually import each other.

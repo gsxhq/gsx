@@ -924,8 +924,9 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, re
 				fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 			}
 		case *gsxast.Element:
-			if t.IsComponent {
-				if targetRegistry != nil {
+			candidateProbe := targetRegistry != nil && targetRegistry.hasCandidate(t)
+			if t.IsComponent || candidateProbe {
+				if candidateProbe {
 					if err := targetRegistry.emitBinding(sb, t, fset); err != nil {
 						return err
 					}
@@ -1638,7 +1639,7 @@ func firstDirectGoBlockMarkup(parts []gsxast.GoPart) gsxast.GoPart {
 // harvest reads each interpolation's resolved type from a type-checked skeleton
 // file. An interpolation probe is now an ExprStmt whose call target is the
 // identifier `_gsxuse`; harvest the single argument's type.
-func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, plan *componentTargetPlan) {
+func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, plan *componentTargetPlan, candidates *callSiteRegistry) {
 	// Key by receiver-type + method name, not name alone: two method components
 	// with the same method name on different receivers (e.g. (UsersPage) Row and
 	// (OrdersPage) Row) are distinct, and their skeleton funcs are distinct
@@ -1662,7 +1663,7 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 		if !ok || fd.Body == nil {
 			continue
 		}
-		harvestBody(fd.Body, c.Body, info, out, exprOut)
+		harvestBody(fd.Body, c.Body, info, out, exprOut, candidates)
 	}
 }
 
@@ -1673,9 +1674,9 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 // slice. Extracted from harvest so BOTH a component's top-level skeleton func
 // and a GoWithElements-embedded element's inline IIFE share ONE resolution
 // path (emit≡probe: the same probe shapes, harvested the same way).
-func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr) {
+func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, candidates *callSiteRegistry) {
 	var nodes []gsxast.Node
-	collectExprs(bodyMarkup, &nodes)
+	collectExprs(bodyMarkup, &nodes, candidates)
 	k := 0
 	goast.Inspect(body, func(node goast.Node) bool {
 		// A GoWithElements-embedded value's probe IIFE (`func() _gsxrt.Node {
@@ -1746,7 +1747,7 @@ func isEmbeddedElemProbeFuncLit(fl *goast.FuncLit) bool {
 	return ok && id.Name == "_gsxelem" && len(call.Args) == 1
 }
 
-func harvestEmbeddedElements(f *goast.File, markups [][]gsxast.Markup, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr) {
+func harvestEmbeddedElements(f *goast.File, markups [][]gsxast.Markup, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, candidates *callSiteRegistry) {
 	if len(markups) == 0 {
 		return
 	}
@@ -1764,7 +1765,7 @@ func harvestEmbeddedElements(f *goast.File, markups [][]gsxast.Markup, info *typ
 		if err != nil || idx < 0 || idx >= len(markups) {
 			return true
 		}
-		harvestBody(fl.Body, markups[idx], info, out, exprOut)
+		harvestBody(fl.Body, markups[idx], info, out, exprOut, candidates)
 		return true
 	})
 }
@@ -2158,7 +2159,7 @@ func lookupMethod(t types.Type, name string) *types.Func {
 // in depth-first source order — per element, attribute expressions BEFORE
 // children — matching emitProbes/genNode traversal so the k-th probe aligns with
 // the k-th node.
-func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
+func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node, candidates *callSiteRegistry) {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -2167,12 +2168,12 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			// Holes first (matching emitProbes' order), then the node itself
 			// ONLY when it carries a whole-literal pipeline — a Stages-less
 			// literal renders per-segment and needs no node-level type.
-			collectExprs(t.Segments, out)
+			collectExprs(t.Segments, out, candidates)
 			if len(t.Stages) > 0 {
 				*out = append(*out, t)
 			}
 		case *gsxast.Element:
-			if t.IsComponent {
+			if t.IsComponent || candidates != nil && candidates.hasCandidate(t) {
 				// Child component: collect ExprAttr nodes (prop values) first, then
 				// OrderedPair nodes (pair values, one per pair per OrderedAttrsAttr),
 				// then class-attr CF arms + plain parts (walkClassAttrs, recursing
@@ -2236,7 +2237,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 					*out = append(*out, ea)
 				})
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-					collectExprs(value, out)
+					collectExprs(value, out, candidates)
 				})
 				// Collect each braced-attr whole-literal pipeline node AFTER the
 				// markup-attr/hole nodes above — emitProbes emits the matching
@@ -2245,7 +2246,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 				walkEmbeddedAttrStages(t.Attrs, func(ea *gsxast.EmbeddedAttr) {
 					*out = append(*out, ea)
 				})
-				collectExprs(t.Children, out)
+				collectExprs(t.Children, out, candidates)
 				continue
 			}
 			// Collect each attr-expr (top-level and CondAttr-nested) in canonical
@@ -2286,24 +2287,24 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			// Then each explicit JS attribute literal (e.g. x-data=js`…@{x}…`) interp, in
 			// attr source order — emitProbes walks identically (same walkMarkupAttrs).
 			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-				collectExprs(value, out)
+				collectExprs(value, out, candidates)
 			})
 			// Collect each braced-attr whole-literal pipeline node AFTER the
 			// markup-attr/hole nodes above — matching emitProbes' ordering.
 			walkEmbeddedAttrStages(t.Attrs, func(ea *gsxast.EmbeddedAttr) {
 				*out = append(*out, ea)
 			})
-			collectExprs(t.Children, out)
+			collectExprs(t.Children, out, candidates)
 		case *gsxast.Fragment:
-			collectExprs(t.Children, out)
+			collectExprs(t.Children, out, candidates)
 		case *gsxast.ForMarkup:
-			collectExprs(t.Body, out)
+			collectExprs(t.Body, out, candidates)
 		case *gsxast.IfMarkup:
-			collectExprs(t.Then, out)
-			collectExprs(t.Else, out)
+			collectExprs(t.Then, out, candidates)
+			collectExprs(t.Else, out, candidates)
 		case *gsxast.SwitchMarkup:
 			for _, cc := range t.Cases {
-				collectExprs(cc.Body, out)
+				collectExprs(cc.Body, out, candidates)
 			}
 		}
 	}

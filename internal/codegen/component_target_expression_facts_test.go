@@ -72,7 +72,7 @@ func Embedded(ch <-chan int) _gsxrt.Node {
 		t.Fatalf("target package errors = %+v\n%s", typeErrs, skeleton.source)
 	}
 
-	facts := harvestComponentTargetExpressionFacts(parsed, file, pkg, info, fset, skeleton.embeddedMarkups, plan)
+	facts := harvestComponentTargetExpressionFacts(parsed, file, pkg, info, fset, skeleton.embeddedMarkups, plan, nil)
 	if got, want := len(facts), 8; got != want {
 		t.Fatalf("expression facts = %d, want %d", got, want)
 	}

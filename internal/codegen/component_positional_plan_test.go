@@ -458,6 +458,6 @@ func TestPositionalMaterializationFactsLeaveTupleOwnershipWithCompoundLowering(t
 func positionalTestRegistry(el *gsxast.Element) *callSiteRegistry {
 	return &callSiteRegistry{
 		byElement: map[*gsxast.Element]callSiteID{el: 1},
-		records:   []callSiteRecord{{id: 1, path: "page.gsx", element: el, disposition: callSitePlanned}},
+		records:   []callSiteRecord{{id: 1, path: "page.gsx", element: el, disposition: componentSitePlanned}},
 	}
 }
