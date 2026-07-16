@@ -5,7 +5,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Counter(signals gsx.Attrs) {
+component Counter(signals gsx.Attrs, children gsx.Node) {
 	<button { signals... }>{ children }</button>
 }
 
@@ -20,4 +20,4 @@ Renders:
 <button data-signals="{count:0}" data-text="$count" data-on-click="$count++">Count</button>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBDb3VudGVyKHNpZ25hbHMgZ3N4LkF0dHJzKSB7XG5cdFx1MDAzY2J1dHRvbiB7IHNpZ25hbHMuLi4gfVx1MDAzZXsgY2hpbGRyZW4gfVx1MDAzYy9idXR0b25cdTAwM2Vcbn1cblxuY29tcG9uZW50IFBhZ2UoKSB7XG5cdFx1MDAzY0NvdW50ZXIgc2lnbmFscz17eyBcImRhdGEtc2lnbmFsc1wiOiBcIntjb3VudDowfVwiLCBcImRhdGEtdGV4dFwiOiBcIiRjb3VudFwiLCBcImRhdGEtb24tY2xpY2tcIjogXCIkY291bnQrK1wiIH19XHUwMDNlQ291bnRcdTAwM2MvQ291bnRlclx1MDAzZVxufVxuIiwiaSI6IlBhZ2UoKSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBDb3VudGVyKHNpZ25hbHMgZ3N4LkF0dHJzLCBjaGlsZHJlbiBnc3guTm9kZSkge1xuXHRcdTAwM2NidXR0b24geyBzaWduYWxzLi4uIH1cdTAwM2V7IGNoaWxkcmVuIH1cdTAwM2MvYnV0dG9uXHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKCkge1xuXHRcdTAwM2NDb3VudGVyIHNpZ25hbHM9e3sgXCJkYXRhLXNpZ25hbHNcIjogXCJ7Y291bnQ6MH1cIiwgXCJkYXRhLXRleHRcIjogXCIkY291bnRcIiwgXCJkYXRhLW9uLWNsaWNrXCI6IFwiJGNvdW50KytcIiB9fVx1MDAzZUNvdW50XHUwMDNjL0NvdW50ZXJcdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)
