@@ -19,7 +19,6 @@ import (
 // evaluation-order planning see authored operands ONLY.
 type suppliedOperand struct {
 	paramIndex int
-	expr       goast.Expr
 	tv         types.TypeAndValue
 }
 

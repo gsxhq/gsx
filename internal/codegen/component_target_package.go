@@ -274,11 +274,3 @@ func harvestComponentTargetExpressionFacts(
 	}
 	return facts
 }
-
-type targetPackageInvariantError struct {
-	message string
-}
-
-func (e *targetPackageInvariantError) Error() string {
-	return "codegen: target discovery: " + e.message
-}

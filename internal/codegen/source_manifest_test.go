@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 
@@ -150,12 +151,7 @@ func TestProvidedSourceManifestFreezesAnalysisAndCacheUntilRefresh(t *testing.T)
 }
 
 func containsPath(paths []string, want string) bool {
-	for _, path := range paths {
-		if path == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(paths, want)
 }
 
 func outputPaths(output map[string][]byte) []string {

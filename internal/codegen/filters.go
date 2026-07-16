@@ -88,22 +88,6 @@ func lowerPipe(seed string, stages []ast.PipeStage, table funcTables, wrap func(
 	return acc, usedPkgs, nil
 }
 
-// finalStageErr reports whether the LAST stage of a pipeline is an
-// error-returning filter. lowerPipe leaves that final (R, error) tuple
-// UNWRAPPED (it hoists only NON-final error stages — see its doc), so a caller
-// that splices the lowered expression into single-value position (e.g. an Attrs
-// bag literal entry) must perform the final-stage unwrap itself. Because the
-// final stage of an error pipeline is always a two-value filter call, this
-// condition is exactly equivalent to "the lowered expression is a (T, error)
-// call". An unknown final filter (already rejected by lowerPipe) reports false.
-func finalStageErr(stages []ast.PipeStage, table funcTables) bool {
-	if len(stages) == 0 {
-		return false
-	}
-	e, ok := table.filters.lookup(stages[len(stages)-1].Name)
-	return ok && e.hasErr
-}
-
 // filterEntry is one harvested filter. funcName is the exported Go name in its
 // owning package (e.g. "Upper"); wantsCtx is true when the filter's first
 // parameter is context.Context (gsx injects the ambient ctx as that argument);
@@ -148,29 +132,6 @@ func (t filterTable) lookup(name string) (filterEntry, bool) {
 type funcTables struct {
 	filters   filterTable
 	renderers rendererTable
-}
-
-// aliasForPath returns the reserved import alias registered for a filter OR
-// renderer package's import path, if ANY entry in either table belongs to
-// that package — e.g. "github.com/gsxhq/gsx/std" -> "_gsxstd", a user filter
-// package -> "_gsxf0", etc. Every entry harvested from the same package
-// shares that package's one alias (see filterEntry.alias/rendererEntry.alias
-// and filterAliases), so the first match found while ranging over a table is
-// authoritative; there is no need to check every entry once one is found.
-// Filters are checked before renderers; a package registered as both shares
-// one alias either way, so the order does not change the result.
-func (t funcTables) aliasForPath(path string) (string, bool) {
-	for _, e := range t.filters {
-		if e.pkgPath == path {
-			return e.alias, true
-		}
-	}
-	for _, e := range t.renderers {
-		if e.pkgPath == path {
-			return e.alias, true
-		}
-	}
-	return "", false
 }
 
 // stdImportPath is the gsx built-in filter package. It is always available

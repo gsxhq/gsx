@@ -6,7 +6,6 @@ import (
 	goast "go/ast"
 	"go/parser"
 	"go/printer"
-	"go/scanner"
 	"go/token"
 	"go/types"
 	"maps"
@@ -1770,36 +1769,6 @@ func harvestEmbeddedElements(f *goast.File, markups [][]gsxast.Markup, info *typ
 	})
 }
 
-// forEachComponentTagElement invokes fn for every component-tag *Element in a
-// markup tree (recursing through children, named-slot markup-attr values, and
-// control-flow bodies), so harvest can attach a resolved signature to each
-// invocation site. Mirrors collectExprs's recursion structure.
-func forEachComponentTagElement(nodes []gsxast.Markup, fn func(*gsxast.Element)) {
-	for _, n := range nodes {
-		switch t := n.(type) {
-		case *gsxast.Element:
-			if t.IsComponent {
-				fn(t)
-			}
-			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-				forEachComponentTagElement(value, fn)
-			})
-			forEachComponentTagElement(t.Children, fn)
-		case *gsxast.Fragment:
-			forEachComponentTagElement(t.Children, fn)
-		case *gsxast.ForMarkup:
-			forEachComponentTagElement(t.Body, fn)
-		case *gsxast.IfMarkup:
-			forEachComponentTagElement(t.Then, fn)
-			forEachComponentTagElement(t.Else, fn)
-		case *gsxast.SwitchMarkup:
-			for _, cc := range t.Cases {
-				forEachComponentTagElement(cc.Body, fn)
-			}
-		}
-	}
-}
-
 // componentKey identifies a component by receiver-type + name, so same-named
 // methods on different receivers are distinct. A function component (no receiver)
 // keys on its name alone (with a leading "." marker so it can never collide with
@@ -2562,8 +2531,8 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 			}
 			add(t.Code)
 			// The verbatim Code fed above hides each embedded literal's @{…} holes
-			// inside a raw string, so valueIdents can't see an ident referenced
-			// ONLY there (`{{ x := js`f(@{param})` }}`). Feed each hole's expr (and
+			// inside a raw string, so the normal Go-expression analysis cannot see an
+			// ident referenced ONLY there (`{{ x := js`f(@{param})` }}`). Feed each hole's expr (and
 			// its filter args) explicitly, mirroring usedParams' Interp.Embedded
 			// handling, so such a param/local is still bound in the render closure.
 			for _, part := range t.Embedded {
@@ -2676,29 +2645,6 @@ func valueFormArms(cf *gsxast.ValueCF) []*gsxast.ValueArm {
 	return out
 }
 
-// valueIdents returns the identifiers used in value position in a Go expression
-// (i.e. excluding selector fields after a '.'). Token-based, so it is precise
-// without building/walking a full AST.
-func valueIdents(exprSrc string) map[string]bool {
-	out := map[string]bool{}
-	fset := token.NewFileSet()
-	f := fset.AddFile("", fset.Base(), len(exprSrc))
-	var s scanner.Scanner
-	s.Init(f, []byte(exprSrc), nil, 0)
-	prevPeriod := false
-	for {
-		_, tok, lit := s.Scan()
-		if tok == token.EOF {
-			break
-		}
-		if tok == token.IDENT && !prevPeriod {
-			out[lit] = true
-		}
-		prevPeriod = tok == token.PERIOD
-	}
-	return out
-}
-
 // parseRecv parses a method-component receiver clause (INCLUDING parens, e.g.
 // "(p UsersPage)", "(f *Form)") into its variable name, full receiver type, and
 // the bare receiver type name used to resolve receiver-qualified component
@@ -2785,33 +2731,12 @@ func parseTypeParamFieldList(src string) (*goast.FieldList, *token.FileSet, erro
 	return fd.Type.TypeParams, fset, nil
 }
 
-func parseTypeParamNames(src string) ([]string, error) {
-	tpl, _, err := parseTypeParamFieldList(src)
-	if err != nil || tpl == nil {
-		return nil, err
-	}
-	var names []string
-	for _, field := range tpl.List {
-		for _, nm := range field.Names {
-			names = append(names, nm.Name)
-		}
-	}
-	return names, nil
-}
-
 func typeParamDecl(src string) string {
 	src = strings.TrimSpace(src)
 	if src == "" {
 		return ""
 	}
 	return "[" + src + "]"
-}
-
-func typeParamUse(names []string) string {
-	if len(names) == 0 {
-		return ""
-	}
-	return "[" + strings.Join(names, ", ") + "]"
 }
 
 // goDeclWrapPrefix wraps a top-level Go region as a parseable file for

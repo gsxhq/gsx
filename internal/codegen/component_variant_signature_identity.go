@@ -25,8 +25,8 @@ func componentVariantSignatureUsable(signature *types.Signature) bool {
 }
 
 func componentVariantTypeParamsUsable(parameters *types.TypeParamList, seen map[types.Type]bool) bool {
-	for index := 0; index < parameters.Len(); index++ {
-		constraint := parameters.At(index).Constraint()
+	for parameter := range parameters.TypeParams() {
+		constraint := parameter.Constraint()
 		if constraint == nil || !componentVariantTypeUsable(constraint, seen) {
 			return false
 		}
@@ -38,8 +38,8 @@ func componentVariantTupleUsable(tuple *types.Tuple, seen map[types.Type]bool) b
 	if tuple == nil {
 		return true // go/types represents an empty parameter/result tuple as nil
 	}
-	for index := 0; index < tuple.Len(); index++ {
-		if !componentVariantTypeUsable(tuple.At(index).Type(), seen) {
+	for variable := range tuple.Variables() {
+		if !componentVariantTypeUsable(variable.Type(), seen) {
 			return false
 		}
 	}
@@ -93,20 +93,20 @@ func componentVariantTypeUsable(t types.Type, seen map[types.Type]bool) bool {
 		return componentVariantSignatureUsableWithSeen(t, seen)
 	case *types.Interface:
 		t.Complete()
-		for index := 0; index < t.NumExplicitMethods(); index++ {
-			if !componentVariantTypeUsable(t.ExplicitMethod(index).Type(), seen) {
+		for method := range t.ExplicitMethods() {
+			if !componentVariantTypeUsable(method.Type(), seen) {
 				return false
 			}
 		}
-		for index := 0; index < t.NumEmbeddeds(); index++ {
-			if !componentVariantTypeUsable(t.EmbeddedType(index), seen) {
+		for embedded := range t.EmbeddedTypes() {
+			if !componentVariantTypeUsable(embedded, seen) {
 				return false
 			}
 		}
 		return true
 	case *types.Union:
-		for index := 0; index < t.Len(); index++ {
-			if !componentVariantTypeUsable(t.Term(index).Type(), seen) {
+		for term := range t.Terms() {
+			if !componentVariantTypeUsable(term.Type(), seen) {
 				return false
 			}
 		}
