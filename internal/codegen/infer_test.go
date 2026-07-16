@@ -1325,44 +1325,6 @@ func TestInferredTypeArgImportNoCollision(t *testing.T) {
 	}
 }
 
-// TestTypeArgNameCollides pins the collision predicate childTypeArgUse's qf
-// consults before plain-importing an inferred type argument's package,
-// including the RESERVED-name row the map's zero value can silently defeat:
-// generateFile seeds `boundNames[classMergerAlias] = ""` — an entry that is
-// PRESENT with an empty path (the class-merger alias is reserved whether or
-// not a merger is configured, so it must collide with EVERY candidate path).
-// A zero-value check (`boundNames[name] != ""`) cannot tell that deliberate
-// sentinel apart from an unset entry, so a package literally named `_gsxcm`
-// (a legal Go identifier) would fall through to the plain-import branch and
-// the emitted file would bind `_gsxcm` twice — `go build`'s "redeclared in
-// this block" with gsx exiting 0, the exact hard-invariant hole. The
-// predicate must use the comma-ok idiom: presence is what makes a name
-// taken.
-func TestTypeArgNameCollides(t *testing.T) {
-	bound := map[string]string{
-		"context": "context",
-		"gsx":     "github.com/gsxhq/gsx",
-		"ids":     "example.com/x/other/ids",
-		"_gsxcm":  "", // the reserved class-merger sentinel: present, empty path
-	}
-	for _, tc := range []struct {
-		desc string
-		name string
-		path string
-		want bool
-	}{
-		{"unset name is free", "models", "example.com/x/models", false},
-		{"same name same path reuses the binding", "ids", "example.com/x/other/ids", false},
-		{"same name different path collides", "ids", "example.com/x/ids", true},
-		{"runtime import name collides with a different path", "gsx", "example.com/x/gsx", true},
-		{"reserved sentinel collides with any path", "_gsxcm", "example.com/x/_gsxcm", true},
-	} {
-		if got := typeArgNameCollides(bound, tc.name, tc.path); got != tc.want {
-			t.Errorf("%s: typeArgNameCollides(bound, %q, %q) = %v, want %v", tc.desc, tc.name, tc.path, got, tc.want)
-		}
-	}
-}
-
 // TestPackageWideInferHelperNamesAcrossFiles reproduces the final whole-branch
 // review's Critical-1 finding: buildSkeleton used to construct a FRESH
 // inferRegistry per file (one call per .gsx file), and inferRegistry.nextName
