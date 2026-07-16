@@ -32,6 +32,45 @@ type NavRef struct {
 	To   token.Position
 }
 
+// ComponentParamRole is the semantic role of an authored callable parameter.
+// It is published for retained tooling facts only; generated code continues to
+// consume the private componentSignatureModel role directly.
+type ComponentParamRole uint8
+
+const (
+	ComponentParamOrdinary ComponentParamRole = iota
+	ComponentParamAttrs
+	ComponentParamChildren
+	ComponentParamGoOnlyVariadic
+)
+
+// ComponentParamFact identifies the exact callable parameter bound by one
+// authored markup attribute. Var belongs to the instantiated signature used at
+// this call; Origin is the declaration identity retained across generic
+// instantiation. Ordinal is stable within that origin signature.
+type ComponentParamFact struct {
+	Var     *types.Var
+	Origin  *types.Var
+	Name    string
+	Ordinal int
+	Role    ComponentParamRole
+}
+
+// ComponentCallFact is the retained semantic identity of one successfully
+// planned markup call. Params contains only attribute names that semantically
+// reference a callable parameter: exact ordinary bindings and explicit
+// lowercase attrs contributors. Fallthrough attribute names are deliberately
+// absent even though their values feed the attrs bag.
+//
+// PackageResult owns this map and its nested maps; LSP consumers treat them as
+// immutable snapshots, like the retained go/types objects alongside them.
+type ComponentCallFact struct {
+	Target       types.Object
+	TargetOrigin types.Object
+	Signature    *types.Signature
+	Params       map[gsxast.Attr]ComponentParamFact
+}
+
 // PackageResult is the per-package outcome of code generation.
 type PackageResult struct {
 	Files map[string][]byte // .gsx path -> generated .x.go source
@@ -47,6 +86,11 @@ type PackageResult struct {
 	GSXFiles   map[string]*gsxast.File
 	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
 	NavIndex   []NavRef            // navigable Go references → .gsx targets (func, props-struct, field)
+	// ComponentCalls maps each successfully planned component element to its
+	// exact callable target and bound-parameter identities. It is the retained
+	// definition/hover surface for markup calls; consumers must not reconstruct
+	// these facts from tag spelling or generated Props shapes.
+	ComponentCalls map[*gsxast.Element]ComponentCallFact
 
 	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock, and each
 	// value-form if condition's *ValueIf) to its
