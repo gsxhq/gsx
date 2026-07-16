@@ -33,7 +33,7 @@ func Summary(count int, enabled bool, title string) _gsxrt.Node {
 		_gsxgw.IntInto(_gsxnum[:], int64(_gsxstd.Default((count), 12)))
 		_gsxgw.S("|")
 //line input.gsx:4:30
-		_gsxgw.Text(_gsxsc.FormatBool(bool(_gsxstd.Default((enabled), true))))
+		_gsxgw.S(_gsxsc.FormatBool(bool(_gsxstd.Default((enabled), true))))
 		_gsxgw.S("|")
 //line input.gsx:4:59
 		_gsxgw.Text(string(_gsxstd.Default((title), "Untitled")))
