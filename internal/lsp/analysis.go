@@ -74,14 +74,16 @@ type ComponentParamKey struct {
 // ComponentParamRenameFact is the complete module-wide rename surface for one
 // semantically validated GSX parameter. Decls contains every equivalent
 // build-tag variant; Refs contains exact semantic body uses and planner-bound
-// invocation attrs.
+// invocation attrs. BlockedNames is the complete module-wide union of typed
+// declaration-scope and authored call-attribute namespace collisions.
 type ComponentParamRenameFact struct {
-	Key    ComponentParamKey
-	Name   string
-	Role   ComponentParamRole
-	Origin *types.Var
-	Decls  []token.Position
-	Refs   []token.Position
+	Key          ComponentParamKey
+	Name         string
+	Role         ComponentParamRole
+	Origin       *types.Var
+	Decls        []token.Position
+	Refs         []token.Position
+	BlockedNames []string
 }
 
 // CtrlRef is the LSP mirror of codegen.ctrlRef: a control-flow clause's

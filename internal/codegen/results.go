@@ -76,7 +76,8 @@ type ComponentCallFact struct {
 // ComponentParamDeclFact is one semantically validated GSX component
 // parameter family. PackagePath, ComponentKey, and Ordinal form its stable
 // identity. Decls contains the exact authored name position for every
-// equivalent build-tag variant.
+// equivalent build-tag variant. BlockedNames is the union of typed names whose
+// scopes would collide with a renamed parameter in any variant.
 type ComponentParamDeclFact struct {
 	PackagePath  string
 	ComponentKey string
@@ -85,12 +86,14 @@ type ComponentParamDeclFact struct {
 	Role         ComponentParamRole
 	Origin       *types.Var
 	Decls        []token.Position
+	BlockedNames []string
 }
 
 // ComponentParamRefFact is one exact authored parameter reference: either an
 // invocation attribute bound by the component planner or a semantic use inside
 // a GSX component body. Unmatched fallthrough attrs and mere name matches are
-// absent.
+// absent from Ref; invocation refs carry their call's other authored attribute
+// names in BlockedNames so a rename cannot silently change planner binding.
 type ComponentParamRefFact struct {
 	PackagePath  string
 	ComponentKey string
@@ -99,6 +102,7 @@ type ComponentParamRefFact struct {
 	Role         ComponentParamRole
 	Origin       *types.Var
 	Ref          token.Position
+	BlockedNames []string
 }
 
 // PackageResult is the per-package outcome of code generation.

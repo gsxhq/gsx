@@ -5,12 +5,22 @@ import (
 	goast "go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"sort"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
 
-func componentParamDeclarationFacts(compByKey map[string][]*gsxast.Component, objKey map[types.Object]string, fset *token.FileSet, packagePath string) ([]ComponentParamDeclFact, error) {
+func componentParamDeclarationFacts(
+	compByKey map[string][]*gsxast.Component,
+	objKey map[types.Object]string,
+	compsByXGo map[string][]*gsxast.Component,
+	goFiles []*goast.File,
+	componentPlan *componentTargetPlan,
+	info *types.Info,
+	fset *token.FileSet,
+	packagePath string,
+) ([]ComponentParamDeclFact, error) {
 	keys := make([]string, 0, len(compByKey))
 	for key := range compByKey {
 		keys = append(keys, key)
@@ -76,11 +86,145 @@ func componentParamDeclarationFacts(compByKey map[string][]*gsxast.Component, ob
 					return nil, fmt.Errorf("codegen: component parameter facts: %s parameter %d variants have different roles", key, ordinal)
 				}
 				fact.Decls = append(fact.Decls, fset.Position(component.ParamsPos+token.Pos(parameter.nameOff)))
+				declaration := componentFuncDecl(component, compsByXGo, goFiles, componentPlan, fset)
+				if declaration == nil {
+					return nil, fmt.Errorf("codegen: component parameter facts: %s variant has no semantic function declaration", key)
+				}
+				fact.BlockedNames = append(fact.BlockedNames, componentParamBlockedNames(declaration, ordinal, info)...)
 			}
+			fact.BlockedNames = sortedUniqueStrings(fact.BlockedNames)
 			facts = append(facts, fact)
 		}
 	}
 	return facts, nil
+}
+
+func componentFuncDecl(
+	component *gsxast.Component,
+	compsByXGo map[string][]*gsxast.Component,
+	goFiles []*goast.File,
+	plan *componentTargetPlan,
+	fset *token.FileSet,
+) *goast.FuncDecl {
+	key := componentKey(component)
+	if plan != nil {
+		if emission, ok := plan.emission(component); ok && emission.splitBody && !emission.public {
+			key = componentKeyWithName(component, emission.bodyName)
+		}
+	}
+	for _, file := range goFiles {
+		filename := fset.Position(file.Pos()).Filename
+		if !slices.ContainsFunc(compsByXGo[filename], func(candidate *gsxast.Component) bool {
+			return candidate == component
+		}) {
+			continue
+		}
+		return funcDeclForKey(file, key)
+	}
+	return nil
+}
+
+func componentParamBlockedNames(declaration *goast.FuncDecl, ordinal int, info *types.Info) []string {
+	if declaration == nil || declaration.Type == nil || declaration.Type.Params == nil || declaration.Body == nil || info == nil {
+		return nil
+	}
+	parameterIdentifiers := fieldListIdentifiers(declaration.Type.Params)
+	if ordinal < 0 || ordinal >= len(parameterIdentifiers) {
+		return nil
+	}
+	target, ok := info.Defs[parameterIdentifiers[ordinal]].(*types.Var)
+	if !ok || target == nil || target.Parent() == nil {
+		return nil
+	}
+	target = target.Origin()
+	targetScope := target.Parent()
+	blocked := map[string]bool{}
+	blockDefinitions := func(list *goast.FieldList) {
+		for _, identifier := range fieldListIdentifiers(list) {
+			object := info.Defs[identifier]
+			if object == nil || object == target || object.Name() == "" || object.Name() == "_" {
+				continue
+			}
+			blocked[object.Name()] = true
+		}
+	}
+	blockDefinitions(declaration.Recv)
+	blockDefinitions(declaration.Type.TypeParams)
+	blockDefinitions(declaration.Type.Params)
+	blockDefinitions(declaration.Type.Results)
+
+	var targetUses []token.Pos
+	goast.Inspect(declaration.Body, func(node goast.Node) bool {
+		identifier, ok := node.(*goast.Ident)
+		if !ok {
+			return true
+		}
+		if variable, ok := info.Uses[identifier].(*types.Var); ok && variable.Origin() == target {
+			targetUses = append(targetUses, identifier.Pos())
+		}
+		return true
+	})
+	goast.Inspect(declaration.Body, func(node goast.Node) bool {
+		identifier, ok := node.(*goast.Ident)
+		if !ok {
+			return true
+		}
+		if object := info.Defs[identifier]; object != nil && object != target && object.Name() != "" && object.Name() != "_" {
+			if _, label := object.(*types.Label); !label && (object.Parent() == targetScope || scopeContainsAny(object.Parent(), targetUses)) {
+				blocked[object.Name()] = true
+			}
+		}
+		if object := info.Uses[identifier]; object != nil && object != target && object.Name() != "" && object.Name() != "_" {
+			if scopeAncestorOf(object.Parent(), targetScope) {
+				blocked[object.Name()] = true
+			}
+		}
+		return true
+	})
+	names := make([]string, 0, len(blocked))
+	for name := range blocked {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func fieldListIdentifiers(list *goast.FieldList) []*goast.Ident {
+	if list == nil {
+		return nil
+	}
+	var identifiers []*goast.Ident
+	for _, field := range list.List {
+		identifiers = append(identifiers, field.Names...)
+	}
+	return identifiers
+}
+
+func scopeContainsAny(scope *types.Scope, positions []token.Pos) bool {
+	if scope == nil {
+		return false
+	}
+	return slices.ContainsFunc(positions, scope.Contains)
+}
+
+func scopeAncestorOf(ancestor, scope *types.Scope) bool {
+	if ancestor == nil {
+		return false
+	}
+	for current := scope; current != nil; current = current.Parent() {
+		if current == ancestor {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedUniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	sort.Strings(values)
+	return slices.Compact(values)
 }
 
 func componentParamReferenceFacts(calls map[*gsxast.Element]ComponentCallFact, declarations []ComponentParamDeclFact, fset *token.FileSet) []ComponentParamRefFact {
@@ -94,7 +238,7 @@ func componentParamReferenceFacts(calls map[*gsxast.Element]ComponentCallFact, d
 		origins[familyKey{declaration.PackagePath, declaration.ComponentKey, declaration.Ordinal}] = declaration.Origin
 	}
 	var facts []ComponentParamRefFact
-	for _, call := range calls {
+	for element, call := range calls {
 		for attr, parameter := range call.Params {
 			name, ok := componentInputAttrName(attr)
 			if !ok || !attr.Pos().IsValid() || name != parameter.Name {
@@ -115,6 +259,7 @@ func componentParamReferenceFacts(calls map[*gsxast.Element]ComponentCallFact, d
 				Role:         parameter.Role,
 				Origin:       origin,
 				Ref:          fset.Position(attr.Pos()),
+				BlockedNames: componentCallBlockedNames(element, attr),
 			})
 		}
 	}
@@ -134,6 +279,30 @@ func componentParamReferenceFacts(calls map[*gsxast.Element]ComponentCallFact, d
 		return facts[i].Ref.Offset < facts[j].Ref.Offset
 	})
 	return facts
+}
+
+func componentCallBlockedNames(element *gsxast.Element, renamed gsxast.Attr) []string {
+	if element == nil {
+		return nil
+	}
+	var names []string
+	var walk func([]gsxast.Attr)
+	walk = func(attrs []gsxast.Attr) {
+		for _, attr := range attrs {
+			if attr == renamed {
+				continue
+			}
+			if name, ok := componentInputAttrName(attr); ok {
+				names = append(names, name)
+			}
+			if conditional, ok := attr.(*gsxast.CondAttr); ok {
+				walk(conditional.Then)
+				walk(conditional.Else)
+			}
+		}
+	}
+	walk(element.Attrs)
+	return sortedUniqueStrings(names)
 }
 
 // componentParamBodyReferenceFacts publishes exact authored references inside

@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +47,9 @@ func (s *Server) handleRename(f frame) error {
 	}
 	if err := validateComponentParamName(params.NewName); err != nil {
 		return s.replyError(f.ID, -32602, err.Error())
+	}
+	if params.NewName != fact.Name && slices.Contains(fact.BlockedNames, params.NewName) {
+		return s.replyError(f.ID, -32602, fmt.Sprintf("component parameter %q conflicts with an existing declaration or call-site attribute", params.NewName))
 	}
 	for _, other := range s.moduleParams {
 		if other.Key.PackagePath == fact.Key.PackagePath &&
