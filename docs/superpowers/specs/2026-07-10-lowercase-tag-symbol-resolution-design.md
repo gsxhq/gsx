@@ -1,15 +1,16 @@
-# Lowercase tags resolve to package symbols
+# Semantic component-tag resolution
 
 **Date:** 2026-07-10
 **Status:** Implemented 2026-07-10; semantic-eligibility revision approved 2026-07-16, implementation pending
 
 **2026-07-16 revision:** structpages dogfooding exposed the executable-package
 collision `package main` + `func main()` + `<main>`. The original rule treated
-every same-named package declaration as component intent, so the mandatory Go
+syntax and declaration existence as component truth, so the mandatory Go
 entrypoint captured the ordinary HTML element and then failed signature
-validation. The revised rule below removes that category error generally: a
-lowercase tag resolves as a component only when the matching package symbol is
-actually callable as a GSX component. There is no `main` special case.
+validation. The revised rule below restores the semantic invariant for every
+tag shape: a function value is a component only when its allowed callable
+target has exactly one result assignable to canonical `gsx.Node`. There is no
+`main` special case.
 
 ## Problem
 
@@ -18,29 +19,34 @@ stamp. The parser never sets it. Codegen's package preprocessor sets it once,
 and emission, analysis, and the LSP consume that field rather than re-deriving
 component-ness from the tag string.
 
-The current writer, `stampComponentTag`, combines two inputs: the syntactic
+The current writer, `stampComponentTag`, combines two syntactic inputs: the
 capitalized/dotted test from `ast.IsComponentTag`, and a package declaration-
-name set for lowercase simple tags. The second input is too broad. It stamps a
-lowercase tag as a component whenever any same-named package declaration
-exists, without establishing that the declaration is callable as a component.
-The resulting stamp is internally consistent but semantically wrong: for
-example, mandatory zero-result `func main()` in `package main` makes ordinary
-HTML `<main>` a component target.
+name set for lowercase simple tags. Both inputs are candidates, not proof. The
+writer stamps capitalized/dotted tags immediately and stamps a lowercase tag
+whenever any same-named package declaration exists, without establishing that
+the resolved value is callable or returns a node. The resulting stamp is
+internally consistent but semantically wrong: for example, mandatory
+zero-result `func main()` in `package main` makes ordinary HTML `<main>` a
+component target.
 
 The revision keeps `Element.IsComponent` as the single source of truth and
-changes only how the preprocessor computes that stamp. Lowercase candidates
-must be resolved against exact component-capability facts instead of declaration
-existence. No parser or consumer-side component classifier is introduced.
+changes how the preprocessor computes that stamp. Every candidate must resolve
+against exact callable provenance and result facts before the field becomes
+true. No parser or consumer-side component classifier is introduced.
 
 ## The rule
 
 A tag resolves in exactly one of three ways:
 
-1. **Capital-first or dotted tag** — stamped as component intent, unchanged.
-   Exact target resolution then validates the callable's signature and allowed
-   provenance. Dotted targets cover imported package functions and concrete
-   bound method values; method expressions, interface dispatch, function-valued
-   fields, and local function variables remain invalid component targets.
+1. **Capital-first or dotted candidate** — resolve the exact target. It is a
+   component only when the target has allowed callable provenance and exactly
+   one result assignable to canonical `gsx.Node`. Dotted targets cover imported
+   package functions and concrete bound method values; method expressions,
+   interface dispatch, function-valued fields, local function variables, and
+   zero/multiple/wrong-result callables are not components. Because the syntax
+   explicitly claims a component, a failed claim produces a positioned target
+   or result diagnostic and rejects generation; it never silently emits a
+   capitalized/dotted HTML element.
 2. **Lowercase simple tag whose name resolves to a component-capable
    package-level symbol** — component. A component-capable symbol has a
    callable signature with exactly one result assignable to the imported
@@ -55,14 +61,19 @@ unless `div` is a real component callable. Tags that are not valid Go
 identifiers (e.g. custom elements with dashes, `<my-widget>`) can never match a
 package symbol and are always leaves.
 
-### What counts as a component-capable package symbol
+`Element.IsComponent` becomes true only in the two successful component cases.
+For a failed explicit claim, semantic resolution reports the error before any
+emitter or LSP consumer can use the incomplete package result; false is never
+treated as permission to emit that failed claim as a leaf.
 
-The syntactic declaration-name scan remains the cheap candidate inventory, but
-existence alone no longer decides component-ness. GSX builds the package's
-existing declaration-only semantic surface from authored component signature
-stubs plus active hand-written Go companions, type-checks that surface with the
-normal module importer, and indexes only callable package objects whose exact
-signature satisfies the component contract.
+### What counts as a component-capable target
+
+The syntactic tag shape and declaration-name scan remain cheap candidate
+inventories, but neither decides component-ness. GSX builds the existing
+declaration-only semantic surface from authored component signature stubs plus
+active hand-written Go companions, type-checks that surface with the normal
+module importer, and records only callable targets whose result shape
+establishes component identity.
 
 This is a reordering of the existing exact-target machinery, not a second
 semantic system: declaration skeleton mode already emits authored GSX
@@ -71,10 +82,12 @@ runtime identity and importer. The implementation must reuse those facts. It
 must not add a `packages.Load`, Go subprocess, return-count text scan, HTML-name
 allowlist, or other heuristic classifier.
 
-- **Candidates:** package-level `func`, `var`, `type`, and `const` names.
-- **Eligible:** package functions and callable package variables with exactly
-  one result assignable to canonical `gsx.Node`; authored `component`
-  declarations qualify through their declaration stubs.
+- **Candidates:** capital-first/dotted tag expressions and lowercase
+  package-level `func`, `var`, `type`, and `const` names.
+- **Component-capable:** package functions, callable package variables, and
+  concrete bound method values with exactly one result assignable to canonical
+  `gsx.Node`; authored `component` declarations qualify through their
+  declaration stubs.
 - **Never eligible:** import names (`import "time"` must not capture `<time>`),
   names declared only in `_test.go` files, and function-local names (Go
   bodies stay opaque blobs per the Go-as-blob decision).
@@ -83,11 +96,18 @@ allowlist, or other heuristic classifier.
   selected by the authoritative Go build context. Inactive textual declarations
   cannot capture a tag.
 
+Component identity deliberately does not validate parameters. Once a callable's
+result establishes component identity, `Element.IsComponent` is true and exact
+component-signature analysis owns parameter roles, names, variadics, and call
+binding diagnostics. A malformed `attrs` or `children` parameter must remain a
+component error; it must not silently turn the tag into a leaf element.
+
 If declaration analysis is unavailable or incomplete, resolution fails closed
 with the underlying positioned semantic diagnostic; it must not silently stamp
-an uncertain tag as either a component or a leaf. When analysis succeeds and a
+an uncertain tag or emit it as a leaf. When analysis succeeds and a lowercase
 same-named symbol definitively does not satisfy the component contract, the tag
-is definitively a leaf.
+is definitively a leaf. The same fact on an explicit capital-first/dotted claim
+is a diagnostic instead, because that syntax has no leaf fallback.
 
 **Scope rule:** simple lowercase tags resolve only component-capable
 package-level symbols. A local `item := ...` does not make `<item>` a component;
@@ -116,7 +136,8 @@ component div(children gsx.Node, attrs gsx.Attrs) {
   included: inside `component (p page) div()`, tag `<div>` is a leaf even if
   a package-level `div` is also declared — least surprise; the package
   component remains reachable via the call form. Dotted self-invocation
-  (`<p.div>`) is unaffected (dotted is always a component).
+  (`<p.div>`) is unaffected by self-exclusion and resolves as an explicit dotted
+  component candidate.
 
 **Self-reference diagnostic (warning):** a self-named tag whose name is
 *not* a spec HTML element name almost certainly intended recursion — warn:
@@ -148,12 +169,12 @@ The current ownership boundary remains:
 - **Type-arg admission loosens to any tag.** `<list[int]>` parses whether or
   not `list` resolves. Codegen errors if a tag carrying type args resolves
   to a leaf ("type arguments on HTML element `<list>`").
-- `ast.IsComponentTag` is only the parser-independent syntactic seed for
-  capitalized/dotted tags. It does not answer whether a parsed element is a
+- `ast.IsComponentTag` is only the parser-independent syntactic candidate test
+  for capitalized/dotted tags. It does not answer whether a parsed element is a
   component.
 - The package preprocessor is the only owner that stamps
-  `Element.IsComponent`. Its lowercase input changes from declaration names to
-  the component-capability index.
+  `Element.IsComponent`. It resolves explicit capitalized/dotted candidates and
+  lowercase package candidates against the same semantic callable-result facts.
 - Codegen emission/analysis and LSP definition/hover continue consuming that
   same resolved field. They must not add fallback classification branches.
 
@@ -186,7 +207,7 @@ up front:
   cycle latency, no additional `packages.Load`, and no additional Go-command
   launch. Declaration eligibility must reuse the exact package semantic work
   already required by target discovery.
-- **Complexity:** there is one component-capability index and one final tag
+- **Complexity:** there is one component-capability fact model and one final tag
   stamp. If implementation requires parallel semantic classifiers or a
   provisional stamp that can leak into emission/LSP facts, stop and reassess.
 
@@ -213,6 +234,12 @@ where the capital rule is stated.
 
 Corpus cases (semantic corpus, per context where applicable):
 
+- capital-first and dotted targets become components only when their allowed
+  callable target returns one result assignable to `gsx.Node`
+- capital-first and dotted zero-result, wrong-result, unknown, and disallowed
+  provenance claims produce positioned errors and never render as leaf HTML
+- concrete node implementations and aliases are valid result types; zero,
+  multiple, unrelated, and incomplete results are not component results
 - lowercase tag resolves to a package `func` component (same file and
   cross-file within the package)
 - lowercase tag resolves to callable package variables, including a named
