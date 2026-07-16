@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"go/types"
@@ -37,7 +38,18 @@ type lspAnalyzer struct {
 type moduleSet struct {
 	mu            sync.Mutex
 	byRoot        map[string]*codegen.Module
-	overrideRoots map[string]string // clean absolute buffer path -> exact warm-module owner
+	modulePaths   map[string]string // module root -> module directive bound into byRoot[root]
+	overrideRoots map[string]moduleOverride
+}
+
+// moduleOverride records the exact Module instance holding one buffer's
+// authority. Root alone is insufficient: changing a go.mod module directive
+// replaces the warm Module at the same filesystem root, while buffers opened
+// under the previous identity still need an exact clear-and-replay transfer.
+type moduleOverride struct {
+	root   string
+	module *codegen.Module
+	source []byte
 }
 
 // newLSPAnalyzer constructs an lspAnalyzer with an empty warm-module cache.
@@ -47,7 +59,8 @@ func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
 		warnw:  warnw,
 		mods: &moduleSet{
 			byRoot:        map[string]*codegen.Module{},
-			overrideRoots: map[string]string{},
+			modulePaths:   map[string]string{},
+			overrideRoots: map[string]moduleOverride{},
 		},
 		ec: newEditorConfigResolver(),
 	}
@@ -59,27 +72,27 @@ func (mods *moduleSet) setOverride(root string, module *codegen.Module, path str
 	path = filepath.Clean(path)
 	var affected []string
 	var clearErr error
-	if previousRoot, ok := mods.overrideRoots[path]; ok && previousRoot != root {
+	if previous, ok := mods.overrideRoots[path]; ok && previous.module != module {
 		delete(mods.overrideRoots, path)
-		if previous := mods.byRoot[previousRoot]; previous != nil {
+		if previous.module != nil {
 			// A root move clears the prior override; its affected closure must
 			// still reach the caller for eviction alongside the new scope.
-			cleared, err := previous.ClearOverride(path)
+			cleared, err := previous.module.ClearOverride(path)
 			affected = append(affected, cleared...)
 			clearErr = err
 		}
 	}
 	affected = append(affected, module.SetOverride(path, source)...)
-	mods.overrideRoots[path] = root
+	mods.overrideRoots[path] = moduleOverride{root: root, module: module, source: bytes.Clone(source)}
 	return sortedUniqueDirs(affected), clearErr
 }
 
 func (mods *moduleSet) clearOverride(path string) ([]string, error) {
-	_, module, ok := mods.detachOverride(path)
-	if !ok || module == nil {
+	owner, ok := mods.detachOverride(path)
+	if !ok || owner.module == nil {
 		return nil, nil
 	}
-	return module.ClearOverride(filepath.Clean(path))
+	return owner.module.ClearOverride(filepath.Clean(path))
 }
 
 // detachOverride removes path's owner record before any fallible root discovery
@@ -88,16 +101,16 @@ func (mods *moduleSet) clearOverride(path string) ([]string, error) {
 // analysis transitions are serialized, so this preserves exact same-byte
 // SetOverride semantics without permitting a failed transition to retain stale
 // authority after it returns.
-func (mods *moduleSet) detachOverride(path string) (string, *codegen.Module, bool) {
+func (mods *moduleSet) detachOverride(path string) (moduleOverride, bool) {
 	mods.mu.Lock()
 	defer mods.mu.Unlock()
 	path = filepath.Clean(path)
-	root, ok := mods.overrideRoots[path]
+	owner, ok := mods.overrideRoots[path]
 	if !ok {
-		return "", nil, false
+		return moduleOverride{}, false
 	}
 	delete(mods.overrideRoots, path)
-	return root, mods.byRoot[root], true
+	return owner, true
 }
 
 func sortedUniqueDirs(dirs []string) []string {
@@ -120,11 +133,11 @@ func sortedUniqueDirs(dirs []string) []string {
 // dirty dirs, and Package (called from Analyze) applies the reverse-reflexive-
 // transitive closure via applyDirty so importers of changed packages are
 // automatically re-type-checked. No manual cache management is required.
-func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Module, error) {
+func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Module, []string, error) {
 	a.mods.mu.Lock()
 	defer a.mods.mu.Unlock()
-	if m, ok := a.mods.byRoot[root]; ok {
-		return m, nil
+	if m, ok := a.mods.byRoot[root]; ok && a.mods.modulePaths[root] == modPath {
+		return m, nil, nil
 	}
 	m, err := codegen.Open(codegen.Options{
 		ModuleRoot:   root,
@@ -136,10 +149,36 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 		Classifier:   merged.classifier(),
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	// A changed module directive creates a distinct Module identity at the same
+	// root. Transfer every still-open buffer from its exact previous Module so
+	// the new analysis universe neither loses unsaved bytes nor leaves stale
+	// authority behind. Paths are sorted to make joined errors deterministic.
+	var paths []string
+	for path, owner := range a.mods.overrideRoots {
+		if owner.root == root && owner.module != m {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	var affected []string
+	var transferErr error
+	for _, path := range paths {
+		owner := a.mods.overrideRoots[path]
+		if owner.module != nil {
+			cleared, clearErr := owner.module.ClearOverride(path)
+			affected = append(affected, cleared...)
+			transferErr = errors.Join(transferErr, clearErr)
+		}
+		affected = append(affected, m.SetOverride(path, owner.source)...)
+		owner.module = m
+		a.mods.overrideRoots[path] = owner
 	}
 	a.mods.byRoot[root] = m
-	return m, nil
+	a.mods.modulePaths[root] = modPath
+	return m, sortedUniqueDirs(affected), transferErr
 }
 
 // adaptPackageResult converts a *codegen.PackageResult (the Module path's output)
@@ -211,12 +250,12 @@ func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
 	// opening the next owner: either operation may fail. The old Module retains
 	// the bytes only long enough to distinguish an exact same-root update; every
 	// failure clears it before returning.
-	previousRoot, previous, hadPrevious := a.mods.detachOverride(absPath)
+	previous, hadPrevious := a.mods.detachOverride(absPath)
 	clearPrevious := func() ([]string, error) {
-		if !hadPrevious || previous == nil {
+		if !hadPrevious || previous.module == nil {
 			return nil, nil
 		}
-		return previous.ClearOverride(absPath)
+		return previous.module.ClearOverride(absPath)
 	}
 	dir := filepath.Dir(absPath)
 	root, modPath, err := moduleRoot(dir)
@@ -225,17 +264,20 @@ func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
 		return oldAffected, errors.Join(clearErr, err)
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
-	if err != nil {
+	m, moduleAffected, moduleErr := a.module(root, modPath, merged)
+	if m == nil {
 		oldAffected, clearErr := clearPrevious()
-		return oldAffected, errors.Join(clearErr, err)
+		return sortedUniqueDirs(append(oldAffected, moduleAffected...)), errors.Join(clearErr, moduleErr)
 	}
-	if hadPrevious && previousRoot == root && previous == m {
-		return a.mods.setOverride(root, m, absPath, source)
+	if hadPrevious && previous.root == root && previous.module == m {
+		newAffected, setErr := a.mods.setOverride(root, m, absPath, source)
+		return sortedUniqueDirs(append(moduleAffected, newAffected...)), errors.Join(moduleErr, setErr)
 	}
 	oldAffected, clearErr := clearPrevious()
 	newAffected, setErr := a.mods.setOverride(root, m, absPath, source)
-	return sortedUniqueDirs(append(oldAffected, newAffected...)), errors.Join(clearErr, setErr)
+	affected := append(moduleAffected, oldAffected...)
+	affected = append(affected, newAffected...)
+	return sortedUniqueDirs(affected), errors.Join(moduleErr, clearErr, setErr)
 }
 
 func (a lspAnalyzer) ClearOverride(path string) ([]string, error) {
@@ -252,7 +294,7 @@ func (a lspAnalyzer) Analyze(dir string, _ map[string][]byte) (*lsp.Package, err
 		return nil, err
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +332,7 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 		return nil, err
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +446,7 @@ func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbo
 		return nil, err
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +520,7 @@ func (a lspAnalyzer) ResolveImport(dir, name, symbol string) []string {
 		return nil
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil
 	}
