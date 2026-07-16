@@ -12,6 +12,6 @@ package views
 
 component Page() { <Box/> }
 -- invoke --
-Page(PageProps{})
+Page()
 -- render.golden --
 <div>box</div>

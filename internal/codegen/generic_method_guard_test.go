@@ -49,28 +49,11 @@ func TestGenericMethodUnsupportedToolchain(t *testing.T) {
 }
 
 // TestGenericMethodGuardedCallSiteNoUndefinedSelector is the 1.26-reachable
-// regression pin for finding 8: a caller-side inference probe for a dotted
-// method tag (`<p.Row v={1}/>`, NO explicit type args) must never probe a
-// selector on the receiver (the OLD, broken design's `p.GsxInferRow` —
-// undefined, since the receiver has no such method). With caller-side probes
-// (this package's current design) the tag instead drives a package-level
-// generic helper keyed off the props type (PageRowProps) — see
-// importedTagAlias's isMethod gate — so on an unsupported toolchain the ONLY
-// diagnostic for this file must be the guard's positioned
-// "unsupported-toolchain", with no hard error and no undefined-selector (or
-// undefined-type) diagnostic masking it.
-//
-// This also pins a real bug found while writing this test: emitComponentStub
-// (the toolchain guard's props-only stub) named the guarded component's props
-// struct "RowProps" instead of the receiver-qualified "PageRowProps" the real
-// emitter uses (see emitComponentStub's propsName doc) — the mismatch broke
-// the call site's OWN caller-side probe (`_gsxinfer1[T](...) PageRowProps[T]`
-// referencing an undeclared type), producing two "undefined: PageRowProps"
-// hard type errors that silently swallowed the unsupported-toolchain
-// diagnostic entirely and aborted generation for the whole file (zero
-// Files). Fixed by threading recvTypeName through emitComponentStub so every
-// early-exit stub names a method component's props struct exactly like
-// emitComponentSkeleton's/genComponent's real (non-stub) path does.
+// regression pin for a caller-side inference probe on a dotted generic method
+// tag (`<p.Row v={1}/>`, with no explicit type arguments). On an unsupported
+// toolchain the only diagnostic must be the positioned unsupported-toolchain
+// error; analysis scaffolding must not leak an undefined receiver selector or
+// an undefined synthesized type, and the package must not hard-abort.
 func TestGenericMethodGuardedCallSiteNoUndefinedSelector(t *testing.T) {
 	if toolchainHasGenericMethods() {
 		t.Skip("toolchain parses generic methods; the guard path is inert (covered by TestGenericMethodComponentGo127)")

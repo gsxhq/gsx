@@ -2,7 +2,7 @@
 # component prop (`<Child val={val}/>`): renderers apply only at a render
 # boundary (this task wires text only), never to a value merely flowing
 # through a component-prop position. generated.x.go.golden pins that the
-# caller passes the raw value (`ChildProps{Val: val}`), not a renderer call —
+# caller passes the raw value (`Child(val)`), not a renderer call —
 # the renderer fires only inside Child's own body where val.String is
 # explicitly read as a plain string (no pg.Text interpolation occurs there).
 -- gsx.toml --

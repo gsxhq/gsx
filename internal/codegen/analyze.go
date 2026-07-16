@@ -668,8 +668,8 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 	return aliases
 }
 
-// emitComponentSkeleton writes one component's probe skeleton (props struct +
-// func/method signature + probe body) into sb, accumulating into usedFilters
+// emitComponentSkeleton writes one component's probe skeleton (verbatim
+// func/method signature plus probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
 func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode, emission componentTargetEmission) error {
