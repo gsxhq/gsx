@@ -61,7 +61,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Field("Go", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "@click", Value: "toggle()"}}, _gsxrt.Attrs{{Key: "data-style", Value: "color:red"}})))
+		_gsxgw.Node(ctx, Field("Go", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "@click", Value: _gsxrt.RawJS("toggle()")}}, _gsxrt.Attrs{{Key: "data-style", Value: _gsxrt.RawCSS("color:red")}})))
 		return _gsxgw.Err()
 	})
 }

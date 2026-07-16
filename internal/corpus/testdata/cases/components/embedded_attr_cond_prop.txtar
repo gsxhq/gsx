@@ -53,7 +53,7 @@ func Page(edit bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxv0, _gsxerr := _gsxrt.AttrsCond(edit, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "x-model", Value: "pdcaCategory"}}, nil
+			return _gsxrt.Attrs{{Key: "x-model", Value: _gsxrt.RawJS("pdcaCategory")}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

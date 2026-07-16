@@ -1548,6 +1548,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 				targets:         targetFacts,
 				expressionFacts: targetExprFacts,
 				runtime:         runtime,
+				table:           table,
 				analysisPackage: targetPackage,
 				fset:            fset,
 			})

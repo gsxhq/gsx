@@ -326,7 +326,7 @@ func TestPositionalMaterializationFactsLeaveTupleOwnershipWithCompoundLowering(t
 		pair:     {tv: types.TypeAndValue{Type: tuple}, tuple: tuple},
 	}
 
-	materializationFacts := positionalMaterializationFacts(plan, facts, fx.runtime)
+	materializationFacts := positionalMaterializationFacts(plan, facts, fx.runtime, funcTables{})
 	if got := materializationFacts[embedded]; got.tuple != nil || !types.Identical(got.tv.Type, types.Typ[types.String]) || !got.hasOrderedOperation {
 		t.Fatalf("embedded lowering fact = %+v, want ordered string without outer tuple", got)
 	}

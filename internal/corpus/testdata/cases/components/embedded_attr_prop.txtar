@@ -63,7 +63,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Field("Category", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "x-model", Value: "pdcaCategory"}}, _gsxrt.Attrs{{Key: "data-tip", Value: `plain text`}}, _gsxrt.Attrs{{Key: "x-init", Value: "color:red"}})))
+		_gsxgw.Node(ctx, Field("Category", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "x-model", Value: _gsxrt.RawJS("pdcaCategory")}}, _gsxrt.Attrs{{Key: "data-tip", Value: `plain text`}}, _gsxrt.Attrs{{Key: "x-init", Value: _gsxrt.RawCSS("color:red")}})))
 		return _gsxgw.Err()
 	})
 }
