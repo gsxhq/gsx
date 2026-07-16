@@ -1116,9 +1116,10 @@ func collectMaterializedComponentCandidates(file *gsxast.File, declNames map[str
 				}
 			case *gsxast.GoBlock:
 				// Direct element/fragment parts make the entire block an
-				// unsupported preserve region. Still stamp every element so the
-				// AST is total, but suppress secondary validation diagnostics; the
-				// registry collector owns the block's one rejection.
+				// unsupported preserve region. Still record candidate classifications
+				// while leaving every semantic stamp false, but suppress secondary
+				// validation diagnostics; the registry collector owns the block's one
+				// rejection.
 				blockDiagnostics := reportDiagnostics && node.UnsupportedMarkup == nil
 				walkParts(node.Embedded, exclusions, blockDiagnostics)
 			}
