@@ -130,6 +130,26 @@ func TestInferAuthoredInstance(t *testing.T) {
 		}
 	})
 
+	t.Run("explicit type argument context accepts an untyped constant", func(t *testing.T) {
+		pkg := inferTestPkg()
+		tp := newTypeParam(pkg, "T", anyConstraint())
+		raw := types.NewSignatureType(nil, nil, []*types.TypeParam{tp},
+			types.NewTuple(types.NewVar(token.NoPos, pkg, "x", tp)),
+			types.NewTuple(), false)
+		fact := componentTargetFact{raw: raw, authoredTypeArgs: []authoredTypeArgFact{{typ: types.Typ[types.Float64]}}}
+		ops := []suppliedOperand{{paramIndex: 0, tv: types.TypeAndValue{
+			Type:  types.Typ[types.UntypedInt],
+			Value: constant.MakeInt64(4),
+		}}}
+		inst, diags := inferAuthoredInstance(inferenceContext{pkg: pkg}, fact, ops)
+		if len(diags) != 0 {
+			t.Fatalf("unexpected diagnostics: %+v", diags)
+		}
+		if inst.TypeArgs == nil || inst.TypeArgs.Len() != 1 || types.Unalias(inst.TypeArgs.At(0)).String() != "float64" {
+			t.Fatalf("want explicit [float64], got %v", inst.TypeArgs)
+		}
+	})
+
 	t.Run("constraint violation with a complete instance is the native diagnostic", func(t *testing.T) {
 		// F[T int | float64](x T): supplying a string operand infers T=string,
 		// which go/types records as a complete instance UNDER a constraint error.

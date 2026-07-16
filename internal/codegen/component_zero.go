@@ -184,27 +184,29 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 }
 
 // operandArgSource returns the source text used to pass one operand to the
-// carrier. An untyped nil is emitted literally (it carries no type to infer
-// from, exactly as authored); every other operand is passed through a synthetic
-// variable of its resolved type — untyped constants default first, matching
-// Go's inference of a type parameter from an untyped constant argument — so no
-// foreign type is ever spelled.
+// carrier. Untyped constants are emitted as exact constant expressions so an
+// explicit type argument supplies the same assignment context as the real call;
+// defaulting them into synthetic variables first would incorrectly reject calls
+// such as F[float64](4). An untyped rune is wrapped in rune(...) to retain its
+// distinct default type. Untyped nil is emitted literally. Every typed operand
+// is passed through a synthetic variable of its resolved type, so no foreign
+// type is ever spelled.
 func operandArgSource(op suppliedOperand, probe *types.Package, index int) string {
 	t := op.tv.Type
 	if basic, ok := t.(*types.Basic); ok && basic.Kind() == types.UntypedNil {
 		return "nil"
 	}
-	if isUntypedBasic(t) {
-		t = types.Default(t)
+	if basic, ok := t.(*types.Basic); ok && basic.Info()&types.IsUntyped != 0 && op.tv.Value != nil {
+		if source, ok := constantSource(op.tv.Value); ok {
+			if basic.Kind() == types.UntypedRune {
+				return "rune(" + source + ")"
+			}
+			return source
+		}
 	}
 	name := fmt.Sprintf("_gsxarg%d", index)
 	probe.Scope().Insert(types.NewVar(token.NoPos, probe, name, t))
 	return name
-}
-
-func isUntypedBasic(t types.Type) bool {
-	basic, ok := t.(*types.Basic)
-	return ok && basic.Info()&types.IsUntyped != 0
 }
 
 func targetPositioned(ic inferenceContext, target componentTargetFact, code, message string) diag.Diagnostic {
