@@ -43,12 +43,8 @@ func TestManualCheckersUseRetained386TypeSizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pageProps := shipping.Types.Scope().Lookup("PageProps")
-	if pageProps == nil {
-		t.Fatal("shipping PageProps missing")
-	}
-	pageStruct := pageProps.Type().Underlying().(*types.Struct)
-	requireArrayLength(t, pageStruct.Field(0).Type(), 4)
+	page := shipping.Types.Scope().Lookup("Page").(*types.Func).Type().(*types.Signature)
+	requireArrayLength(t, page.Params().At(0).Type(), 4)
 
 	external, err := module.externalImporter()
 	if err != nil {
@@ -98,8 +94,8 @@ func TestBundleManualCheckerUsesExplicit386TypeSizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	props := result.Types.Scope().Lookup("WidthProps").Type().Underlying().(*types.Struct)
-	requireArrayLength(t, props.Field(0).Type(), 4)
+	width := result.Types.Scope().Lookup("Width").(*types.Func).Type().(*types.Signature)
+	requireArrayLength(t, width.Params().At(0).Type(), 4)
 
 	// The exact-target checker shares the same Bundle environment.
 	exact, err := newComponentTargetImporter(module, imports).Import("example.com/bundle")
