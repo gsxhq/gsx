@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// Two components each with a distinct codegen error must BOTH be reported
-// (component-boundary recovery), and each diagnostic must carry a .gsx position.
+// Two call sites each with a distinct codegen error must BOTH be reported, and
+// each diagnostic must carry a .gsx position.
 func TestComponentRecoveryReportsAllPositioned(t *testing.T) {
 	t.Parallel()
 	mod := tempModule(t, "gsxrecoverytest")
@@ -15,15 +15,17 @@ func TestComponentRecoveryReportsAllPositioned(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Two reserved-param errors in two components (a codegen-layer check, not types).
+	// Two missing-attrs errors in two components (a codegen-layer check, not types).
 	src := `package views
 
-component A(ctx string) {
-	<div></div>
+component Leaf() { <span/> }
+
+component A() {
+	<Leaf x="a"/>
 }
 
-component B(children string) {
-	<div></div>
+component B() {
+	<Leaf y="b"/>
 }
 `
 	if err := os.WriteFile(filepath.Join(dir, "v.gsx"), []byte(src), 0o644); err != nil {
