@@ -1,6 +1,8 @@
 package codegen
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -34,9 +36,9 @@ if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
 	if [ -n "$GSX_MUTATE_COMPILER_DURING_ENV" ]; then
-		printf 'compiler changed during command' > "$GSX_FAKE_COMPILER"
+		printf 'compiler changed during command %s' "$$" > "$GSX_FAKE_COMPILER"
 	fi
-	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_TOOL_DIR"
+	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux","GOROOT":"%s","GOVERSION":"%s","GOTOOLCHAIN":"go1.26.1+auto","GOENV":"/persisted/go/env","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_SELECTED_GOROOT" "$GSX_FAKE_SELECTED_VERSION"
 	exit 0
 fi
 if [ "$1" = "tool" ] && [ "$2" = "-n" ] && [ "$3" = "compile" ]; then
@@ -87,8 +89,8 @@ func TestGoCommandContextCaptureCommandContract(t *testing.T) {
 	sort.Strings(gotCommands)
 	wantCommands := []string{
 		"env -changed -json",
+		"env -json",
 		"env -json GOTOOLDIR GOHOSTOS GOROOT GOVERSION",
-		"env -json GOWORK GOTOOLDIR GOHOSTOS GOROOT GOVERSION GOTOOLCHAIN",
 	}
 	if !slices.Equal(gotCommands, wantCommands) {
 		t.Fatalf("capture Go commands = %q, want exact bounded contract %q", gotCommands, wantCommands)
@@ -114,8 +116,75 @@ func TestGoCommandContextCaptureCommandContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(string(commands)); got != "env -json" {
-		t.Fatalf("cache fingerprint Go commands = %q, want one lazy complete environment query", got)
+	if got := strings.TrimSpace(string(commands)); got != "" {
+		t.Fatalf("cache fingerprint Go commands = %q, want retained capture environment with no subprocess", got)
+	}
+}
+
+func TestGoCommandContextRetainedEnvironmentMatchesFreshFrozenQuery(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOFLAGS", "-tags=retained")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+	context := CaptureGoCommandContext(root)
+	if context.buildEnvErr != nil {
+		t.Fatal(context.buildEnvErr)
+	}
+	freshJSON, err := context.Run("env", "-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := map[string]string{}
+	if err := json.Unmarshal(freshJSON, &fresh); err != nil {
+		t.Fatal(err)
+	}
+	freshCanonical, err := canonicalGoEnvironment(fresh, context.buildEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(context.cacheEnv, freshCanonical) {
+		t.Fatalf("retained canonical environment differs from fresh frozen query:\nretained: %s\nfresh:    %s", context.cacheEnv, freshCanonical)
+	}
+	canonical := map[string]string{}
+	if err := json.Unmarshal(context.cacheEnv, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := canonical["GOGCCFLAGS"]; ok {
+		t.Fatal("retained canonical environment contains transient GOGCCFLAGS")
+	}
+	if got := canonical["GOENV"]; got != "" {
+		t.Fatalf("canonical GOENV = %q, want cmd/go's empty report for disabled GOENV", got)
+	}
+	if _, ok := canonical["GOPACKAGESDRIVER"]; ok {
+		t.Fatal("canonical environment invented non-go-env GOPACKAGESDRIVER key")
+	}
+}
+
+func TestGoCommandContextProcessEnvironmentPrecedesPersistedGoEnv(t *testing.T) {
+	root := t.TempDir()
+	goEnv := filepath.Join(t.TempDir(), "go.env")
+	if err := os.WriteFile(goEnv, []byte("GOFLAGS=-tags=persisted\nGOPROXY=https://persisted.example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOENV", goEnv)
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOFLAGS", "-tags=process")
+	t.Setenv("GOPROXY", "https://process.example")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+	context := CaptureGoCommandContext(root)
+	if context.buildEnvErr != nil {
+		t.Fatal(context.buildEnvErr)
+	}
+	canonical := map[string]string{}
+	if err := json.Unmarshal(context.cacheEnv, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if got := canonical["GOFLAGS"]; got != "-tags=process" {
+		t.Fatalf("canonical GOFLAGS = %q, want explicit process value", got)
+	}
+	if got := canonical["GOPROXY"]; got != "https://process.example" {
+		t.Fatalf("canonical GOPROXY = %q, want explicit process value", got)
 	}
 }
 
@@ -191,7 +260,7 @@ if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
 	exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
-	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"` + filepath.Dir(marker) + `","GOHOSTOS":"linux","GOPROXY":"%s","GOGCCFLAGS":"transient-%s"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_GOPROXY" "$$"
+	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"` + filepath.Dir(marker) + `","GOHOSTOS":"linux","GOROOT":"` + goRoot + `","GOVERSION":"go1.26.1","GOTOOLCHAIN":"go1.26.1+auto","GOENV":"/persisted/go/env","GOPROXY":"%s","GOGCCFLAGS":"transient-%s"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_GOPROXY" "$$"
 	exit 0
 fi
 if [ "$1" = "tool" ] && [ "$2" = "-n" ] && [ "$3" = "compile" ]; then

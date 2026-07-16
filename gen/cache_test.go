@@ -37,6 +37,10 @@ if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ] && [ -n "$GSX_CREATE_VE
 	/bin/mkdir -p "$GSX_CREATE_VENDOR_DIR"
 	: > "$GSX_CREATE_VENDOR_DURING_FINGERPRINT_MARKER"
 fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
+	printf '{"GOFLAGS":"%s","GOWORK":"off","GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"go1.26.1","GOTOOLCHAIN":"go1.26.1+auto","GOENV":"/persisted/go/env","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_HOST_OS" "$GSX_FAKE_GOROOT"
+	exit 0
+fi
 if [ "$1" = "env" ]; then
 	exec "$REAL_GO" "$@"
 fi
