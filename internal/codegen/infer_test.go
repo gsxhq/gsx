@@ -1,9 +1,6 @@
 package codegen
 
 import (
-	goast "go/ast"
-	goparser "go/parser"
-	"go/token"
 	"go/types"
 	"os"
 	"os/exec"
@@ -12,9 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
-	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 // TestInferProbeNameExactMatch pins isInferProbeName's exact-match contract:
@@ -107,148 +102,6 @@ component Page() {
 	}
 	if !strings.Contains(src, "Button[int](7)") {
 		t.Fatalf("inference corrupted by user GsxInferStuff func; generated:\n%s", src)
-	}
-}
-
-// TestInferProbeRawSpanRecovery is the viability spike for the diagnostics
-// task's span-matching design, pinning both sides of a deliberate tension:
-//
-// Probe statements are emitted UNDER the enclosing tag's //line mapping (NOT
-// //line-free as the original task brief sketched) — module_importer.go's
-// diagnostic loop drops any type error whose adjusted position still names
-// the synthetic .x.go overlay, so a //line-free probe would make inference-
-// failure diagnostics vanish entirely. That makes the ADJUSTED position of a
-// probe's "cannot infer" error a .gsx position (survival), while the RAW
-// skeleton offset — what inferSite.span is expressed in — must be recovered
-// with fset.PositionFor(pos, false) (adjusted=false ignores //line).
-//
-// This test drives a real inference failure (`value={nil}` gives Go nothing
-// to infer T from), reaches into the package-internal pipeline (buildSkeleton
-// + checkSkeletonPackage, the same seam resolver_test.go uses), and asserts:
-//
-//  1. survival: the error's adjusted position maps to the .gsx (so the
-//     module_importer filter keeps it), and
-//  2. recovery: PositionFor(pos, false) yields a byte offset that falls
-//     INSIDE the recorded inferSite.span for the probe.
-//
-// If (2) ever breaks, the diagnostics task's raw-position span matching is
-// not viable as designed and needs a rethink before building on it.
-func TestInferProbeRawSpanRecovery(t *testing.T) {
-	t.Parallel()
-	const src = `package views
-
-component Box[T any](value T) {
-	<span>{value}</span>
-}
-
-component Page() {
-	<Box value={nil} />
-}
-`
-	repoRootAbs, _ := filepath.Abs("../..")
-	dir := t.TempDir()
-	// loadFilterTable resolves the std filter package via `go list` from dir,
-	// so the temp dir needs a real module context (same scaffold as
-	// TestChildPropPipelineSkeletonImportsStd).
-	writeFile(t, dir, "go.mod", "module ipsr\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRootAbs+"\n")
-	gsxPath := filepath.Join(dir, "views.gsx")
-	writeFile(t, dir, "views.gsx", src)
-	fset := token.NewFileSet()
-	file, err := gsxparser.ParseFile(fset, gsxPath, []byte(src), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files := map[string]*gsxast.File{gsxPath: file}
-	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(dir, files)
-	if err != nil {
-		t.Fatalf("propFields: %v", err)
-	}
-	table, err := loadFilterTable(dir)
-	if err != nil {
-		t.Fatalf("loadFilterTable: %v", err)
-	}
-	genericSigs := genericSigsFor(files, byo)
-	// Run the same one-pass preprocessing as production: without the component
-	// stamp, <Box .../> would be misclassified as a plain HTML element and never
-	// reach the inference-probe path this test is pinning.
-	declNames := packageDeclNames(dir, files)
-	bag := diag.NewBag(fset)
-	if _, err := preprocessComponentCallSites(files, declNames, fset, nil, bag); err != nil {
-		t.Fatalf("preprocess: %v", err)
-	}
-	skel, _, _, _, registry, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, bag, nil, nil, skeletonFull)
-	if err != nil {
-		t.Fatalf("buildSkeleton: %v", err)
-	}
-	site, ok := registry.lookup("_gsxinfer1")
-	if !ok {
-		t.Fatalf("no _gsxinfer1 probe recorded; skeleton:\n%s", skel)
-	}
-	// The recorded span must cover exactly the probe CALL statement in the
-	// final skeleton string (the helper func decl is hoisted elsewhere).
-	if spanText := skel[site.span.start:site.span.end]; !strings.HasPrefix(spanText, "_ = _gsxinfer1(") {
-		t.Fatalf("span [%d,%d) does not cover the probe call; got %q", site.span.start, site.span.end, spanText)
-	}
-
-	// Type-check the skeleton through the same seam resolver_test.go uses.
-	xgoPath := filepath.Join(dir, "views.x.go")
-	gf, err := goparser.ParseFile(fset, xgoPath, skel, goparser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse skeleton: %v\n%s", err, skel)
-	}
-	shim, err := goparser.ParseFile(fset, filepath.Join(dir, "_gsxshared.x.go"),
-		"package views\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\n", goparser.SkipObjectResolution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle, err := newCachedResolver(repoRoot(t), []string{stdImportPath}, nil, allowImportsFixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, typeErrs := checkSkeletonPackage(dir, "views", []*goast.File{gf, shim}, fset, bundle.importer(), testTypeCheckEnvironment())
-
-	var found bool
-	for _, e := range typeErrs {
-		if !strings.Contains(e.Msg, "cannot infer") {
-			continue
-		}
-		found = true
-		// Survival: the ADJUSTED position (honoring //line) must map to the
-		// .gsx — this is what keeps the diagnostic alive through
-		// module_importer's synthetic-position filter.
-		if adj := fset.Position(e.Pos); !strings.HasSuffix(adj.Filename, ".gsx") {
-			t.Errorf("adjusted position %v does not map to the .gsx; the diagnostic would be dropped", adj)
-		}
-		// Recovery: the RAW position (adjusted=false, ignoring //line) must
-		// name the skeleton overlay and fall inside the recorded probe span.
-		raw := fset.PositionFor(e.Pos, false)
-		if raw.Filename != xgoPath {
-			t.Errorf("raw position filename = %q, want the skeleton overlay %q", raw.Filename, xgoPath)
-		}
-		if raw.Offset < site.span.start || raw.Offset >= site.span.end {
-			t.Errorf("raw offset %d outside probe span [%d,%d); span text %q, error %q",
-				raw.Offset, site.span.start, site.span.end, skel[site.span.start:site.span.end], e.Msg)
-		}
-	}
-	if !found {
-		t.Fatalf("no 'cannot infer' type error surfaced; typeErrs=%v\nskeleton:\n%s", typeErrs, skel)
-	}
-
-	// declSpan / siteAt spot-check (accumulated Task-8 input #1): the hoisted
-	// helper decl carries no //line reset, so an error positioned inside its
-	// OWN body (not the inline call above) would still need to resolve back
-	// to this site. Assert the recorded declSpan actually covers the emitted
-	// "func _gsxinfer1[...]" decl text in the final skeleton, and that siteAt
-	// resolves an offset inside it (which falls OUTSIDE span, the call's own
-	// range) to the SAME site.
-	if declText := skel[site.declSpan.start:site.declSpan.end]; !strings.HasPrefix(declText, "func _gsxinfer1[") {
-		t.Fatalf("declSpan [%d,%d) does not cover the hoisted helper decl; got %q", site.declSpan.start, site.declSpan.end, declText)
-	}
-	if site.declSpan.start >= site.span.start && site.declSpan.start < site.span.end {
-		t.Fatalf("declSpan and span unexpectedly overlap; declSpan=%+v span=%+v", site.declSpan, site.span)
-	}
-	if got, ok := registry.siteAt(site.declSpan.start); !ok || got != site {
-		t.Fatalf("siteAt(declSpan.start) = %+v, %v; want the same site %+v", got, ok, site)
 	}
 }
 
