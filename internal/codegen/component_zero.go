@@ -13,12 +13,26 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
+// componentOperandAdapter is the one call-boundary conversion proved during
+// positional planning. Emission consumes this decision after lowering and
+// materialization; it never rediscovers the destination type or syntax.
+type componentOperandAdapter uint8
+
+const (
+	componentAdapterIdentity componentOperandAdapter = iota
+	componentAdapterNodeText
+	componentAdapterNodeVal
+)
+
 // suppliedOperand is one authored value that survives into the real call: the
-// parameter it fills, its authored Go expression, and its resolved go/types
-// TypeAndValue. Omitted parameters are never represented here — inference and
-// evaluation-order planning see authored operands ONLY.
+// syntax-plan value and parameter it fills, its call-boundary adapter, and the
+// post-adaptation go/types TypeAndValue used by inference and call validation.
+// The raw expression fact remains on the positional site for evaluation-order
+// planning. Omitted parameters are never represented here.
 type suppliedOperand struct {
+	valueIndex int
 	paramIndex int
+	adapter    componentOperandAdapter
 	tv         types.TypeAndValue
 }
 

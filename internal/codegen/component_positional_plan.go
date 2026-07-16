@@ -135,7 +135,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 		call, operandDiags := validateComponentOperands(call, siteFacts, input.runtime)
 		operandDiags = append(operandDiags, validateRecursiveAttrsOperands(call, siteFacts, input.runtime)...)
 		operandDiags = append(operandDiags, validateRequiredAttrsFacts(call, siteFacts, input.fset)...)
-		operands, suppliedDiags := positionalSuppliedOperands(call, siteFacts, input.fset)
+		operands, suppliedDiags := positionalSuppliedOperands(call, siteFacts, input.runtime, input.fset)
 		factDiags = append(factDiags, suppliedDiags...)
 		operandDiags = append(operandDiags, factDiags...)
 		if len(operandDiags) != 0 {
@@ -678,10 +678,10 @@ func validateRequiredAttrsFacts(plan componentCallPlan, facts map[gsxast.Node]ex
 	return diagnostics
 }
 
-func positionalSuppliedOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, fset *token.FileSet) ([]suppliedOperand, []diag.Diagnostic) {
+func positionalSuppliedOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract, fset *token.FileSet) ([]suppliedOperand, []diag.Diagnostic) {
 	var operands []suppliedOperand
 	var diagnostics []diag.Diagnostic
-	for _, value := range plan.values {
+	for valueIndex, value := range plan.values {
 		if value.kind != componentInputProp {
 			continue
 		}
@@ -698,7 +698,28 @@ func positionalSuppliedOperands(plan componentCallPlan, facts map[gsxast.Node]ex
 			}
 			tv = types.TypeAndValue{Type: unwrapped}
 		}
-		operands = append(operands, suppliedOperand{paramIndex: value.paramIndex, tv: tv})
+		adapter := componentAdapterIdentity
+		if value.paramIndex >= 0 && value.paramIndex < len(plan.target.params) {
+			want := plan.target.params[value.paramIndex].typ
+			if types.Identical(want, runtime.node) && !types.AssignableTo(tv.Type, want) {
+				adapter = componentAdapterNodeVal
+				switch node := value.node.(type) {
+				case *gsxast.StaticAttr:
+					adapter = componentAdapterNodeText
+				case *gsxast.EmbeddedAttr:
+					if node.Lang == gsxast.EmbeddedText {
+						adapter = componentAdapterNodeText
+					}
+				}
+				tv = types.TypeAndValue{Type: runtime.node}
+			}
+		}
+		operands = append(operands, suppliedOperand{
+			valueIndex: valueIndex,
+			paramIndex: value.paramIndex,
+			adapter:    adapter,
+			tv:         tv,
+		})
 	}
 	return operands, diagnostics
 }

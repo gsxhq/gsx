@@ -57,6 +57,10 @@ func emitPositionalComponentCall(
 	ctx positionalEmitContext,
 ) bool {
 	values := make(map[int]string, len(plan.call.values))
+	adapters := make(map[int]componentOperandAdapter, len(plan.operands))
+	for _, operand := range plan.operands {
+		adapters[operand.valueIndex] = operand.adapter
+	}
 	type loweredValue struct {
 		expr       string
 		statements []byte
@@ -134,6 +138,7 @@ func emitPositionalComponentCall(
 			fmt.Fprintf(b, "%s := %s\n", temp, expr)
 			expr = temp
 		}
+		expr = applyPositionalOperandAdapter(expr, adapters[valueIndex], ctx.rt)
 		values[valueIndex] = normalizePositionalAttrsContributor(expr, value, plan, ctx)
 	}
 
@@ -188,6 +193,19 @@ func emitPositionalComponentCall(
 	}
 	fmt.Fprintf(b, "_gsxgw.Node(ctx, %s%s(%s))\n", el.Tag, typeArgs, strings.Join(args, ", "))
 	return true
+}
+
+func applyPositionalOperandAdapter(expr string, adapter componentOperandAdapter, rt rtImports) string {
+	switch adapter {
+	case componentAdapterIdentity:
+		return expr
+	case componentAdapterNodeText:
+		return rt.rt() + ".Text(" + expr + ")"
+	case componentAdapterNodeVal:
+		return rt.rt() + ".Val(" + expr + ")"
+	default:
+		panic(fmt.Sprintf("codegen: unknown component operand adapter %d", adapter))
+	}
 }
 
 func normalizePositionalAttrsContributor(expr string, value componentInputValue, plan componentPositionalSitePlan, ctx positionalEmitContext) string {
