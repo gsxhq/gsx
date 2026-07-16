@@ -72,11 +72,11 @@ func Page(csv string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
+		_gsxa1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Label(_gsxv1))
+		_gsxgw.Node(ctx, Label(_gsxa1))
 		return _gsxgw.Err()
 	})
 }

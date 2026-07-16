@@ -65,7 +65,7 @@ func Page(k string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxa0, _gsxerr := f(k)
+		_gsxa2, _gsxerr := f(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -73,12 +73,12 @@ func Page(k string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxa1 := _gsxrt.Attrs{{Key: "x", Value: _gsxv1}}
-		_gsxa2, _gsxerr := h(k)
+		_gsxa3 := _gsxrt.Attrs{{Key: "x", Value: _gsxv1}}
+		_gsxa4, _gsxerr := h(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(_gsxa0, _gsxa1, _gsxa2))
+		_gsxgw.Node(ctx, Card(_gsxa2, _gsxa3, _gsxa4))
 		return _gsxgw.Err()
 	})
 }

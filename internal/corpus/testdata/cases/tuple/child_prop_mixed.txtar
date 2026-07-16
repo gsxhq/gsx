@@ -47,11 +47,11 @@ func Page(name string, n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:38
-		_gsxv0, _gsxerr := greeting(name)
+		_gsxa0, _gsxerr := greeting(name)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(_gsxv0, n))
+		_gsxgw.Node(ctx, Card(_gsxa0, n))
 		return _gsxgw.Err()
 	})
 }
