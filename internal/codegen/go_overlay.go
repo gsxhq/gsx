@@ -221,14 +221,12 @@ func moduleVendorDir(moduleRoot string) (bool, error) {
 	return false, fmt.Errorf("codegen: inspect module vendor source: %w", err)
 }
 
-// freezeGoCommandEnvironment snapshots every Go setting whose effective value
-// differs from an empty/default environment, then disables later GOENV reads.
-// Explicit process settings already present in buildEnv remain authoritative;
-// changed values additionally capture settings persisted by `go env -w`.
-// GOWORK is resolved separately because its automatic module-root search is
-// directory-dependent and must also be fixed at Open. In normal mode gsx owns
-// one source-inventory overlay and cannot combine it soundly with another
-// overlay or an external packages driver.
+// freezeGoCommandEnvironment captures persisted settings and the
+// directory-dependent workspace/toolchain selection, then disables later
+// GOENV reads and dynamic toolchain switching. Explicit process settings in
+// buildEnv remain authoritative. In normal mode gsx owns one source-inventory
+// overlay and cannot combine it soundly with another overlay or an external
+// packages driver.
 func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPath string, snapshot *golauncher.Snapshot) ([]string, string, string, error) {
 	driver := environmentValue(buildEnv, "GOPACKAGESDRIVER")
 	switch {

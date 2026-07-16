@@ -150,11 +150,22 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 
 	bctx, contextErr := goContext.CacheFingerprint()
 	if contextErr != nil {
-		// A valid but unrepresentable context (workspace/vendor), or a failed
-		// capture, must never share a persistent key. Generation receives the same
-		// context and will either proceed without cache or surface its semantic
-		// boundary error.
-		writeAll(dirs, mustGen(root, dirs, genOpts, &res), &res)
+		// Only a valid context whose source universe is deliberately outside the
+		// persistent key can fall back to uncached generation. Capture, command,
+		// decoding, and live-provenance failures are unsafe to continue: the
+		// context may have changed and Module does not own enough state to reopen it.
+		if errors.Is(contextErr, codegen.ErrUncacheableGoContext) {
+			// CacheFingerprint returns uncacheable classifications without its
+			// normal final validation. Establish the uncached semantic commit
+			// boundary here before Module consumes that context.
+			if err := goContext.ValidateCurrent(); err != nil {
+				res.Errs = append(res.Errs, fmt.Errorf("gen: validate uncacheable Go command context before generation: %w", err))
+				return
+			}
+			writeAll(dirs, mustGen(root, dirs, genOpts, &res), &res)
+			return
+		}
+		res.Errs = append(res.Errs, fmt.Errorf("gen: fingerprint Go command context: %w", contextErr))
 		return
 	}
 	graphRoots := []string{"github.com/gsxhq/gsx"}
