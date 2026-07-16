@@ -733,6 +733,24 @@ func TestAnalyzeComponentSignatureOrdinaryVariadics(t *testing.T) {
 	}
 }
 
+func TestComponentResultTypeDoesNotValidateParameters(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	user := types.NewPackage("example.test/results", "results")
+	badAttrs := testParam(user, "attrs", types.Typ[types.String])
+	sig := testSignature(user, nil, []*types.Var{badAttrs}, []types.Type{fx.runtime.node}, false)
+
+	result, err := componentResultType(sig, fx.runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !types.Identical(result, fx.runtime.node) {
+		t.Fatalf("result = %v, want canonical Node", result)
+	}
+	if _, err := analyzeComponentSignature(sig, fx.runtime); err == nil || !strings.Contains(err.Error(), "component-attrs-type") {
+		t.Fatalf("full signature error = %v, want component-attrs-type", err)
+	}
+}
+
 func TestAnalyzeComponentSignatureResultContract(t *testing.T) {
 	fx := newSignatureRuntimeFixture(t)
 	user := types.NewPackage("example.test/results", "results")
