@@ -40,6 +40,9 @@ func (s *Server) handleCodeAction(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, []CodeAction{})
 	}
+	if !s.diskViewValid {
+		return s.reply(f.ID, []CodeAction{})
+	}
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
 	if !strings.HasSuffix(path, ".gsx") {

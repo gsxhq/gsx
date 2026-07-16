@@ -18,6 +18,9 @@ func (s *Server) handleHover(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, nil)
 	}
+	if !s.diskViewValid {
+		return s.reply(f.ID, nil)
+	}
 	path := uriToPath(p.TextDocument.URI)
 	if strings.HasSuffix(path, ".go") {
 		return s.reply(f.ID, nil) // gopls owns .go hover

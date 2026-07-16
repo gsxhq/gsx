@@ -15,9 +15,14 @@ func renameReadyFrame() string {
 		"jsonrpc": "2.0", "id": 1, "method": "initialize",
 		"params": map[string]any{"capabilities": map[string]any{
 			"workspace": map[string]any{"didChangeWatchedFiles": map[string]any{"dynamicRegistration": true}},
+			"textDocument": map[string]any{"rename": map[string]any{
+				"dynamicRegistration": true,
+				"prepareSupport":      true,
+			}},
 		}},
 	}) + jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "initialized"}) +
-		jsonFrame(map[string]any{"jsonrpc": "2.0", "id": watchedFilesRegistrationID, "result": nil})
+		jsonFrame(map[string]any{"jsonrpc": "2.0", "id": watchedFilesRegistrationID, "result": nil}) +
+		jsonFrame(map[string]any{"jsonrpc": "2.0", "id": renameRegistrationID, "result": nil})
 }
 
 type renameAnalyzer struct {
@@ -32,7 +37,7 @@ func (a *renameAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]Compo
 	return a.facts, a.err
 }
 
-func TestInitializeAdvertisesPrepareRename(t *testing.T) {
+func TestInitializeOmitsStaticRenameProvider(t *testing.T) {
 	out := drive(t, &renameAnalyzer{}, renameReadyFrame()+jsonFrame(map[string]any{
 		"jsonrpc": "2.0", "method": "exit",
 	}))
@@ -41,8 +46,8 @@ func TestInitializeAdvertisesPrepareRename(t *testing.T) {
 	if err := json.Unmarshal(msgs[0]["result"], &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Capabilities.RenameProvider == nil || !result.Capabilities.RenameProvider.PrepareProvider {
-		t.Fatalf("rename capability = %+v, want prepareProvider", result.Capabilities.RenameProvider)
+	if result.Capabilities.RenameProvider != nil {
+		t.Fatalf("rename capability = %+v, want dynamic registration only", result.Capabilities.RenameProvider)
 	}
 }
 

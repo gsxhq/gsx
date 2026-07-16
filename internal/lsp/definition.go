@@ -380,6 +380,9 @@ func (s *Server) handleDefinition(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, nil)
 	}
+	if !s.diskViewValid {
+		return s.reply(f.ID, nil)
+	}
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
 	if strings.HasSuffix(path, ".go") {
