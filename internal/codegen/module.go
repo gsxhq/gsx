@@ -1280,6 +1280,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.componentPlan, a.gsxFset, a.skelFset, a.info, a.pkg)
+	res.ComponentCalls = componentCallFacts(a.positionalPlan)
 	// Unused imports come from analyze's syntactic classifier (unusedFromSkeletons,
 	// computed alongside the type-check) — the same classifier the `gsx fmt` CLI
 	// trusts (Module.UnusedImports) — never from correlating raw type-error
