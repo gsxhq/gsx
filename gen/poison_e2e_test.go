@@ -291,29 +291,12 @@ var _ = GSX_GENERATION_FAILED__see_icon_gsx
 	}
 }
 
-// TestPoison_AttrsOnlyProbeUnaffected pins the same self-reference safety
-// property as TestPoison_LSPIgnoresPoisonOnDisk and
-// TestPoison_GenericCrossPkgProbeUnaffected above, but for the ATTRS-ONLY
-// component-values probe path (PR #72, internal/codegen/attrsonly.go —
-// merged as 52c9750 and now present after this branch's rebase). A
-// cross-package dotted tag <ui.HomeIcon/> whose selector is a
-// func(gsx.Attrs) gsx.Node value (no ui.HomeIconProps type exists) is
-// resolved via isAttrsOnlyCandidate's _gsxcompsig probe against the imported
-// package's SKELETON (module_importer.go's key-presence check at :964) — not
-// against whatever real .x.go bytes happen to be on disk for ui. This
-// fixture is taken directly from PR #72's own corpus case
-// (internal/corpus/testdata/cases/attrsonly/imported.txtar), which is the
-// canonical shape for "attrs-only value consumed cross-package".
-//
-// Fixture: package "ui" has icons.gsx (the attrs-only value: a same-package
-// renderIcon component wrapped by namedIcon into var HomeIcon
-// func(gsx.Attrs) gsx.Node — imported.txtar's exact shape) and banner.gsx
-// (valid, unrelated), with a stale poison banner.x.go on disk simulating
-// "fixed but not yet regenerated". Sibling package "app" has post.gsx, which
-// references ui.HomeIcon via the attrs-only tag form — a probe that must see
-// ui's real skeleton (built from .gsx source), never banner.x.go's on-disk
-// poison bytes.
-func TestPoison_AttrsOnlyProbeUnaffected(t *testing.T) {
+// TestPoison_CallableTargetUnaffected pins the same self-reference safety as
+// the component-declaration probes above for a direct authored Go callable.
+// The cross-package target and its exact parameters must resolve from ui's
+// current synthetic source package, never from an unrelated stale poison
+// .x.go file on disk.
+func TestPoison_CallableTargetUnaffected(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
@@ -324,22 +307,13 @@ func TestPoison_AttrsOnlyProbeUnaffected(t *testing.T) {
 
 import "github.com/gsxhq/gsx"
 
-type iconProps struct {
-	Name  string
-	Attrs gsx.Attrs
+component renderIcon(name string, attrs gsx.Attrs) {
+	<svg { attrs... }>{name}</svg>
 }
 
-component renderIcon(p iconProps) {
-	<svg { p.Attrs... }>{p.Name}</svg>
+func HomeIcon(label string, attrs gsx.Attrs) gsx.Node {
+	return renderIcon(label, attrs)
 }
-
-func namedIcon(name string) func(gsx.Attrs) gsx.Node {
-	return func(attrs gsx.Attrs) gsx.Node {
-		return renderIcon(iconProps{Name: name, Attrs: attrs})
-	}
-}
-
-var HomeIcon = namedIcon("house")
 `)
 	writeFile(t, ui, "banner.gsx", "package ui\n\ncomponent Banner() {\n\t<div>ok</div>\n}\n")
 	// Stale poison for banner.gsx, structurally matching poisonFile's real
@@ -357,10 +331,10 @@ package ui
 var _ = GSX_GENERATION_FAILED__see_banner_gsx
 `)
 	app := filepath.Join(mod, "app")
-	writeFile(t, app, "post.gsx", "package app\n\nimport \"example.com/poison7/ui\"\n\ncomponent Post() {\n\t<ui.HomeIcon class=\"h-3 w-3\"/>\n}\n")
+	writeFile(t, app, "post.gsx", "package app\n\nimport \"example.com/poison7/ui\"\n\ncomponent Post() {\n\t<ui.HomeIcon label=\"house\" class=\"h-3 w-3\"/>\n}\n")
 
 	if _, err := Generate([]string{mod}); err != nil {
-		t.Fatalf("Generate failed — the attrs-only cross-package probe treated ui's on-disk poison as authoritative instead of its synthetic skeleton (sticky poison): %v", err)
+		t.Fatalf("Generate failed — the cross-package callable target treated ui's on-disk poison as authoritative instead of its synthetic skeleton (sticky poison): %v", err)
 	}
 	goBuild(t, mod)
 
@@ -371,8 +345,8 @@ var _ = GSX_GENERATION_FAILED__see_banner_gsx
 		t.Errorf("banner.x.go poison not overwritten by clean output (err=%v)", err)
 	}
 
-	// Confirm the attrs-only probe path was genuinely exercised (not silently
-	// downgraded to some other lowering): post.x.go must bag-call ui.HomeIcon.
+	// Confirm the exact callable-target path was genuinely exercised: post.x.go
+	// must call ui.HomeIcon directly.
 	postXgo, err := os.ReadFile(filepath.Join(app, "post.x.go"))
 	if err != nil {
 		t.Fatalf("post.x.go not written: %v", err)

@@ -18,7 +18,7 @@ import (
 // pkgTypes (or vice versa), leaving live types.Package objects with Pos() values
 // in the discarded fset — then Fset.Position would return an invalid position
 // (line 0 or wrong file). badgeDeclLine would then call t.Fatal because no valid
-// Info.Uses entry maps to a positive line. The test would fail before the
+// exact target fact maps to a positive line. The test would fail before the
 // wantBadgeLine assertion even fires.
 //
 // Note: the Task-3 codegen-level tests (TestCrossPkgResolutionSurvivesRebuild,

@@ -55,10 +55,12 @@ type ComponentParamFact struct {
 // planned markup call. Params is keyed by the authored attribute node, so LSP
 // never needs to reproduce component binding rules.
 type ComponentCallFact struct {
-	Target       types.Object
-	TargetOrigin types.Object
-	Signature    *types.Signature
-	Params       map[gsxast.Attr]ComponentParamFact
+	Target        types.Object
+	TargetOrigin  types.Object
+	TargetPackage string
+	TargetKey     string
+	Signature     *types.Signature
+	Params        map[gsxast.Attr]ComponentParamFact
 }
 
 // CtrlRef is the LSP mirror of codegen.ctrlRef: a control-flow clause's
