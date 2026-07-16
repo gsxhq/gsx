@@ -193,7 +193,7 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 		return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute")
 	}
 	core := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
-	if core == "" {
+	if !hasGoToken(core) {
 		rawInner := p.src[p.i+1 : end]
 		markerOffset := strings.LastIndex(rawInner, "...")
 		markerStart := p.i + 1 + markerOffset
@@ -234,6 +234,20 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	sa := &ast.SpreadAttr{Expr: seed, ExprPos: exprPos, Stages: stages}
 	ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 	return sa, nil
+}
+
+// hasGoToken reports whether src contains any non-comment Go token. Comments
+// are lexical whitespace, so a spread subject consisting only of comments has
+// no expression just like one consisting only of spaces or newlines. Use the Go
+// scanner rather than stripping comment-shaped bytes: comment delimiters inside
+// strings and raw strings must remain ordinary expression content.
+func hasGoToken(src string) bool {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), func(token.Position, string) {}, 0)
+	_, tok, _ := s.Scan()
+	return tok != token.EOF
 }
 
 // parseSingleAttr parses exactly one attribute at the cursor: a conditional
