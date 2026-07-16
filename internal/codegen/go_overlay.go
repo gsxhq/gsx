@@ -333,15 +333,15 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 	return environmentWithValue(buildEnv, "GOPACKAGESDRIVER", "off"), toolchain.GOTOOLDIR, toolchain.GOHOSTOS, nil
 }
 
-func (m *Module) validateGoCommandLauncher() error {
+func (m *Module) validateGoCommandContext() error {
 	if m.opts.Bundle != nil {
 		return nil
 	}
-	if m.goLauncher == nil {
-		return fmt.Errorf("codegen: active Go command identity is unavailable; create a new Module after restoring the build environment")
+	if m.goContext == nil {
+		return fmt.Errorf("codegen: active Go command context is unavailable; create a new Module after restoring the build environment")
 	}
-	if err := m.goLauncher.Validate(m.opts.ModuleRoot, m.buildEnv); err != nil {
-		return fmt.Errorf("codegen: active Go command changed since Module.Open (%s); create a new Module after changing the build environment", err)
+	if err := m.goContext.ValidateCurrent(); err != nil {
+		return fmt.Errorf("codegen: active Go command context changed since Module.Open (%s); create a new Module after changing the build environment", err)
 	}
 	return nil
 }

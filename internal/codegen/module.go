@@ -17,7 +17,6 @@ import (
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
-	"github.com/gsxhq/gsx/internal/golauncher"
 	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
@@ -154,7 +153,7 @@ type Module struct {
 	opts                      Options
 	buildEnv                  []string                            // immutable process environment used by the Module's authoritative Go build selection
 	buildEnvErr               error                               // immutable Open-time normal-mode environment validation; surfaced only by semantic cold loads
-	goLauncher                *golauncher.Launcher                // content/compiler identity sealed at Open; validated around the cold load
+	goContext                 *GoCommandContext                   // complete Open-time Go command provenance; validated around every cold load
 	bundleProjectImportChecks map[string]bundleProjectImportCheck // Bundle local-Go transitive GSX guard, versioned by source membership epoch
 	overrides                 map[string][]byte                   // abs .gsx path -> in-memory source
 	ext                       types.Importer                      // lazily built external importer (stdlib + third-party)
@@ -271,9 +270,9 @@ func Open(opts Options) (*Module, error) {
 	}
 	buildEnv := append([]string(nil), os.Environ()...)
 	var buildEnvErr error
-	var goLauncher *golauncher.Launcher
+	var goContext *GoCommandContext
 	if opts.Bundle == nil {
-		goContext := opts.GoCommandContext
+		goContext = opts.GoCommandContext
 		if goContext == nil {
 			goContext = CaptureGoCommandContext(opts.ModuleRoot)
 		}
@@ -282,14 +281,13 @@ func Open(opts Options) (*Module, error) {
 		} else {
 			buildEnv = append([]string(nil), goContext.buildEnv...)
 			buildEnvErr = goContext.buildEnvErr
-			goLauncher = goContext.goLauncher
 		}
 	}
 	return &Module{
 		opts:                      opts,
 		buildEnv:                  buildEnv,
 		buildEnvErr:               buildEnvErr,
-		goLauncher:                goLauncher,
+		goContext:                 goContext,
 		bundleProjectImportChecks: map[string]bundleProjectImportCheck{},
 		overrides:                 map[string][]byte{},
 		fset:                      token.NewFileSet(),
@@ -690,17 +688,17 @@ func (m *Module) externalImporter() (types.Importer, error) {
 			}
 		}
 		loadPaths = uniqueLoadPaths
-		if err := m.validateGoCommandLauncher(); err != nil {
+		if err := m.validateGoCommandContext(); err != nil {
 			return nil, err
 		}
 		pkgs, loadErr := packages.Load(cfg, loadPaths...)
-		launcherErr := m.validateGoCommandLauncher()
+		contextErr := m.validateGoCommandContext()
 		m.mu.Lock()
 		m.extLoads++
 		staleManifest := m.sourceManifestEpoch != epoch || m.sourceSnapshotEpoch != snapshotEpoch || m.fset != fset
 		m.mu.Unlock()
-		if launcherErr != nil {
-			return nil, launcherErr
+		if contextErr != nil {
+			return nil, contextErr
 		}
 		if staleManifest {
 			m.rebuildFset()
