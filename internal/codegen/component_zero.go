@@ -575,6 +575,41 @@ type expressionFact struct {
 	tuple               *types.Tuple
 }
 
+// expressionHasOrderedOperation reports whether evaluating expr executes an
+// operation whose relative order Go defines lexically: a function or method
+// call, a receive, or logical short-circuiting. It walks the exact expression
+// AST retained by target discovery; source reconstruction or reparsing would
+// lose the authority of the type-checked artifact. Function-literal bodies are
+// skipped because creating a function value does not execute its body (an
+// immediately invoked literal is still caught by its outer CallExpr).
+func expressionHasOrderedOperation(expr goast.Expr) bool {
+	found := false
+	goast.Inspect(expr, func(node goast.Node) bool {
+		if found {
+			return false
+		}
+		switch node := node.(type) {
+		case *goast.FuncLit:
+			return false
+		case *goast.CallExpr:
+			found = true
+			return false
+		case *goast.UnaryExpr:
+			if node.Op == token.ARROW {
+				found = true
+				return false
+			}
+		case *goast.BinaryExpr:
+			if node.Op == token.LAND || node.Op == token.LOR {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
 func (f expressionFact) contextual() bool {
 	return f.isNil || f.tv.Value != nil
 }

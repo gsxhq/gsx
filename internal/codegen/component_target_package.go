@@ -6,6 +6,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,11 +18,19 @@ import (
 )
 
 type componentTargetPackageResult struct {
-	pkg         *types.Package
-	info        *types.Info
-	files       []*goast.File
-	facts       map[callSiteID]componentTargetFact
-	diagnostics []diag.Diagnostic
+	pkg             *types.Package
+	info            *types.Info
+	files           []*goast.File
+	facts           map[callSiteID]componentTargetFact
+	expressionFacts map[gsxast.Node]expressionFact
+	diagnostics     []diag.Diagnostic
+}
+
+type componentTargetExpressionHarvest struct {
+	parsed          *goast.File
+	source          *gsxast.File
+	inferRegistry   *inferRegistry
+	embeddedMarkups [][]gsxast.Markup
 }
 
 func pairedTargetOutputs(gsxFiles map[string]*gsxast.File) map[string]bool {
@@ -137,6 +146,7 @@ func discoverComponentTargets(
 	sort.Strings(paths)
 	var goFiles []*goast.File
 	var importPaths []string
+	var expressionHarvests []componentTargetExpressionHarvest
 	for _, path := range paths {
 		markerStart := len(markers.ordered)
 		fileFacts := factsByFile[path]
@@ -164,6 +174,12 @@ func discoverComponentTargets(
 			return componentTargetPackageResult{}, nil, err
 		}
 		goFiles = append(goFiles, parsed)
+		expressionHarvests = append(expressionHarvests, componentTargetExpressionHarvest{
+			parsed:          parsed,
+			source:          gsxFiles[path],
+			inferRegistry:   skeleton.inferRegistry,
+			embeddedMarkups: skeleton.embeddedMarkups,
+		})
 	}
 	if bag.HasErrors() {
 		return componentTargetPackageResult{diagnostics: bag.Sorted()}, nil, nil
@@ -197,7 +213,77 @@ func discoverComponentTargets(
 	if err != nil {
 		return componentTargetPackageResult{}, nil, err
 	}
-	return componentTargetPackageResult{pkg: pkg, info: info, files: goFiles, facts: facts, diagnostics: bag.Sorted()}, unrelated, nil
+	expressionFacts := make(map[gsxast.Node]expressionFact)
+	for _, harvest := range expressionHarvests {
+		maps.Copy(expressionFacts, harvestComponentTargetExpressionFacts(
+			harvest.parsed, harvest.source, pkg, info, fset,
+			harvest.inferRegistry, harvest.embeddedMarkups, plan,
+		))
+	}
+	return componentTargetPackageResult{
+		pkg:             pkg,
+		info:            info,
+		files:           goFiles,
+		facts:           facts,
+		expressionFacts: expressionFacts,
+		diagnostics:     bag.Sorted(),
+	}, unrelated, nil
+}
+
+// harvestComponentTargetExpressionFacts resolves authored component-call
+// operands from the exact discovery skeleton that was type-checked to resolve
+// their targets. The skeleton's probe registry and embedded-markup index are
+// part of that artifact: rebuilding either after checking could associate a
+// source node with a different expression AST.
+func harvestComponentTargetExpressionFacts(
+	parsed *goast.File,
+	source *gsxast.File,
+	pkg *types.Package,
+	info *types.Info,
+	fset *token.FileSet,
+	inferRegistry *inferRegistry,
+	embeddedMarkups [][]gsxast.Markup,
+	plan componentTargetPlan,
+) map[gsxast.Node]expressionFact {
+	resolved := make(map[gsxast.Node]types.Type)
+	expressions := make(map[gsxast.Node]goast.Expr)
+	var components []*gsxast.Component
+	for _, declaration := range source.Decls {
+		if component, ok := declaration.(*gsxast.Component); ok {
+			components = append(components, component)
+		}
+	}
+	harvest(parsed, components, info, resolved, expressions, inferRegistry, &plan)
+	harvestEmbeddedElements(parsed, embeddedMarkups, info, resolved, expressions, inferRegistry)
+
+	facts := make(map[gsxast.Node]expressionFact, len(expressions))
+	for node, expr := range expressions {
+		// The variadic _gsxuse/_gsxuseq probe gives the package checker enough
+		// context to validate every shape, including tuples, but assigning an
+		// untyped constant to its `any` element type defaults that constant. Recheck
+		// the SAME AST node at the SAME lexical position without an assignment/call
+		// context. CheckExpr neither reconstructs nor reparses source, and therefore
+		// recovers the authored TypeAndValue while resolving locals against the
+		// already-checked package's scope tree.
+		exactInfo := &types.Info{Types: make(map[goast.Expr]types.TypeAndValue)}
+		if err := types.CheckExpr(fset, pkg, expr.Pos(), expr, exactInfo); err != nil {
+			// The package check already owns expression diagnostics. An invalid
+			// expression has no authoritative standalone operand fact to publish.
+			continue
+		}
+		tv, ok := exactInfo.Types[expr]
+		if !ok {
+			continue
+		}
+		fact := expressionFact{
+			tv:                  tv,
+			isNil:               tv.IsNil(),
+			hasOrderedOperation: expressionHasOrderedOperation(expr),
+		}
+		fact.tuple, _ = tv.Type.(*types.Tuple)
+		facts[node] = fact
+	}
+	return facts
 }
 
 type targetPackageInvariantError struct {
