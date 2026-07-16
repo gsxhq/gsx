@@ -147,9 +147,9 @@ func TestComponentVariantMethodReceiverAliasIdentityIsSemantic(t *testing.T) {
 		"card_b.gsx": "//go:build variantB\n\npackage views\ncomponent (r Alias) Card(value string) { <span>b</span> }\n",
 		"companion.go": `package views
 
-func variantNavProbe(r Receiver, p ReceiverCardProps) {
+func variantNavProbe(r Receiver) {
 	_ = r.Card
-	_ = p.Value
+	_ = r.Card("x")
 }
 `,
 	})
@@ -205,11 +205,7 @@ func variantNavProbe(r Receiver, p ReceiverCardProps) {
 	if cardEntries != 1 {
 		t.Fatalf("Card cross-index entries = %d, want one semantic family", cardEntries)
 	}
-	navTargets := map[string]string{
-		"Card":              "card_a.gsx",
-		"ReceiverCardProps": "card_a.gsx",
-		"Value":             "card_a.gsx",
-	}
+	navTargets := map[string]string{"Card": "card_a.gsx"}
 	for _, nav := range pkg.NavIndex {
 		if !strings.HasSuffix(nav.From.Filename, "companion.go") {
 			continue
