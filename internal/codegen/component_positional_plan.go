@@ -140,6 +140,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			pkg:   input.analysisPackage,
 			fset:  input.fset,
 			scope: input.analysisPackage.Scope().Innermost(fact.exprPos()),
+			tag:   record.element.Tag,
 		}, fact, operands)
 		if len(inferenceDiags) != 0 {
 			diagnostics = append(diagnostics, inferenceDiags...)
