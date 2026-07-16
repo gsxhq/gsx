@@ -32,8 +32,9 @@ func checkedComponentPipelineOrder() gsx.Node {
 		if err := Page().Render(ctx, io.Discard); err != nil {
 			return err
 		}
-		if got := strings.Join(pipelineCalls, ","); got != "pipe-first,pipe-after,pipe" {
-			return fmt.Errorf("evaluation order = %s, want pipe-first,pipe-after,pipe", got)
+		const want = "pipe-first,pipe-after,pipe,pipe-first-2,pipe-after-2,pipe-2"
+		if got := strings.Join(pipelineCalls, ","); got != want {
+			return fmt.Errorf("evaluation order = %s, want %s", got, want)
 		}
 		return nil
 	})
@@ -52,6 +53,11 @@ component Page() {
 		first={markPipeline("pipe-first", "A")}
 		after={markPipeline("pipe-after", "Z")}
 		data-mid={markPipeline("pipe", "x") |> check |> upper}
+	/>
+	<PipelineTarget
+		first={markPipeline("pipe-first-2", "B")}
+		after={markPipeline("pipe-after-2", "Y")}
+		data-mid={markPipeline("pipe-2", "y") |> check |> upper}
 	/>
 }
 -- invoke --
@@ -95,13 +101,21 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxa0 := markPipeline("pipe-first", "A")
-		_gsxa1 := markPipeline("pipe-after", "Z")
+		_gsxa1 := markPipeline("pipe-first", "A")
+		_gsxa2 := markPipeline("pipe-after", "Z")
 		_gsxv0, _gsxerr := _gsxf0.Check((markPipeline("pipe", "x")))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, PipelineTarget(_gsxa0, _gsxa1, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv0)}}))
+		_gsxgw.Node(ctx, PipelineTarget(_gsxa1, _gsxa2, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv0)}}))
+//line input.gsx:15:2
+		_gsxa4 := markPipeline("pipe-first-2", "B")
+		_gsxa5 := markPipeline("pipe-after-2", "Y")
+		_gsxv3, _gsxerr := _gsxf0.Check((markPipeline("pipe-2", "y")))
+		if _gsxerr != nil {
+			return _gsxerr
+		}
+		_gsxgw.Node(ctx, PipelineTarget(_gsxa4, _gsxa5, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv3)}}))
 		return _gsxgw.Err()
 	})
 }

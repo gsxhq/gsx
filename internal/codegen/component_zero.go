@@ -214,17 +214,53 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 // is passed through a synthetic variable of its resolved type, so no foreign
 // type is ever spelled.
 func operandArgSource(op suppliedOperand, probe *types.Package, index int) string {
+	if basic, source, ok := untypedOperandSource(op); ok {
+		if basic.Kind() == types.UntypedNil {
+			return "nil"
+		}
+		if basic.Kind() == types.UntypedRune {
+			return "rune(" + source + ")"
+		}
+		return source
+	}
+	return typedOperandVar(op, probe, index)
+}
+
+// assignmentOperandArgSource preserves the assignment context of the emitted
+// component call. In particular, an untyped rune must remain untyped: 'x' is
+// assignable to a defined rune type, while rune('x') is not.
+func assignmentOperandArgSource(op suppliedOperand, probe *types.Package, index int) string {
+	if basic, source, ok := untypedOperandSource(op); ok {
+		if basic.Kind() == types.UntypedNil {
+			return "nil"
+		}
+		return source
+	}
+	return typedOperandVar(op, probe, index)
+}
+
+func untypedOperandSource(op suppliedOperand) (*types.Basic, string, bool) {
+	basic, ok := op.tv.Type.(*types.Basic)
+	if !ok || basic.Info()&types.IsUntyped == 0 {
+		return nil, "", false
+	}
+	if basic.Kind() == types.UntypedNil {
+		return basic, "", true
+	}
+	if op.tv.Value == nil {
+		return nil, "", false
+	}
+	source, ok := constantSource(op.tv.Value)
+	if !ok {
+		return nil, "", false
+	}
+	return basic, source, true
+}
+
+func typedOperandVar(op suppliedOperand, probe *types.Package, index int) string {
 	t := op.tv.Type
 	if basic, ok := t.(*types.Basic); ok && basic.Kind() == types.UntypedNil {
 		return "nil"
-	}
-	if basic, ok := t.(*types.Basic); ok && basic.Info()&types.IsUntyped != 0 && op.tv.Value != nil {
-		if source, ok := constantSource(op.tv.Value); ok {
-			if basic.Kind() == types.UntypedRune {
-				return "rune(" + source + ")"
-			}
-			return source
-		}
 	}
 	name := fmt.Sprintf("_gsxarg%d", index)
 	probe.Scope().Insert(types.NewVar(token.NoPos, probe, name, t))
