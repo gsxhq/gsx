@@ -1,5 +1,9 @@
 # Fallthrough forwarding through nested component calls
 
+> **Partly superseded:** Nested attrs forwarding remains, but both caller and
+> callee now declare an `attrs` parameter; there is no synthesized bag or BYO
+> branch. See `2026-07-14-verbatim-component-signatures-design.md`.
+
 **Date:** 2026-07-13
 **Status:** approved design, pre-implementation
 **Prior art:** `2026-07-07-attrs-only-component-values-design.md` §"Alternative

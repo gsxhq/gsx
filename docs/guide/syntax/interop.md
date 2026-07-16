@@ -10,13 +10,22 @@ choosing a template system, see [Comparisons](../comparisons.md).
 
 Call a gsx component directly from a `.templ` file:
 
-```templ
-templ Page() {
-	@views.Card(views.CardProps{Title: "Welcome"})
+```gsx
+import "github.com/gsxhq/gsx"
+
+component Card(title string, children gsx.Node) {
+	<article><h2>{title}</h2>{children}</article>
 }
 ```
 
-`views.Card` returns a `gsx.Node`, which also satisfies `templ.Component`.
+```templ
+templ Page() {
+	@views.Card("Welcome", nil)
+}
+```
+
+`views.Card` retains its authored Go signature and returns a `gsx.Node`, which
+also satisfies `templ.Component`.
 
 ### Render templ from gsx
 
@@ -29,9 +38,7 @@ component Shell(body gsx.Node) {
 ```
 
 ```go
-page := views.Shell(views.ShellProps{
-	Body: templComponent, // templComponent is a templ.Component
-})
+page := views.Shell(templComponent) // templComponent is a templ.Component
 ```
 
 The templ component satisfies `gsx.Node` structurally and renders in place.
@@ -39,7 +46,8 @@ The templ component satisfies `gsx.Node` structurally and renders in place.
 ### Children stay explicit
 
 templ passes block children through `context.Context`; gsx receives children
-through an explicit `Children gsx.Node` prop. Pass the child value directly:
+through an explicit lowercase `children gsx.Node` parameter. Pass the child
+value directly:
 
 ```templ
 templ Child() {
@@ -47,7 +55,7 @@ templ Child() {
 }
 
 templ Page() {
-	@views.Card(views.CardProps{Children: Child()})
+	@views.Card("Welcome", Child())
 }
 ```
 
@@ -85,9 +93,7 @@ if err := tmpl.Execute(&body, data); err != nil {
 	return err
 }
 
-return views.Shell(views.ShellProps{
-	Body: gsx.Raw(body.String()),
-}).Render(ctx, w)
+return views.Shell(gsx.Raw(body.String())).Render(ctx, w)
 ```
 
 `gsx.Raw` bypasses HTML escaping. Use it only for output produced by a trusted

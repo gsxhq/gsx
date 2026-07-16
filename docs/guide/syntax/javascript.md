@@ -31,7 +31,7 @@ component Bind(path string) {
 :::
 
 Keep a `js` or `css` literal with `@{}` holes on the native element that
-consumes it. A wrapper should accept ordinary props and build the contextual
+consumes it. A wrapper should accept ordinary parameters and build the contextual
 literal at that destination:
 
 ```gsx
@@ -69,7 +69,7 @@ documented passthrough; see [Escaping](./escaping.md#trusted-value-helpers). Do
 not render the literal directly as visible body text.
 
 A component may explicitly accept the trusted type. Use braces so the literal
-binds the declared prop as a Go expression:
+binds the declared parameter as a Go expression:
 
 ```gsx
 component Widget(Handler gsx.RawJS, Rule gsx.RawCSS) {

@@ -1,5 +1,8 @@
 # gsx — Two component styles, side by side
 
+> **Superseded:** Retained as historical design exploration. The current
+> component contract is `2026-07-14-verbatim-component-signatures-design.md`.
+
 **Date:** 2026-06-18
 **Status:** Design exploration — deciding whether to support both styles
 

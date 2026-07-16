@@ -1,5 +1,9 @@
 # Nested Fallthrough Forwarding Implementation Plan
 
+> **Superseded implementation plan:** The forwarding behavior remains, but the
+> implicit/synthesized implementation described here is removed. See
+> `2026-07-14-verbatim-component-signatures.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `<Inner { attrs... }/>` (and every other `attrs` reference in nested component-call positions) forwards the enclosing component's implicit bag into the callee's synthesized bag; component-call bags align to element source-order merge; fallthrough onto a bag-less component gets a worded diagnostic.

@@ -1,5 +1,9 @@
 # Syntactic BYO struct-field enumeration (drop the per-directory type-load)
 
+> **Superseded:** Retained as implementation history. BYO classification and
+> component struct-field enumeration are removed by
+> `2026-07-14-verbatim-component-signatures-design.md`.
+
 **Status:** design
 **Date:** 2026-07-06
 **Follow-up to:** `2026-07-05-fmt-syntactic-unused-imports-design.md` (PR #36)
