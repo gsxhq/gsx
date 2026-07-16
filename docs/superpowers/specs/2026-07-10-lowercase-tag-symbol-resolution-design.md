@@ -13,33 +13,34 @@ actually callable as a GSX component. There is no `main` special case.
 
 ## Problem
 
-Today `ast.IsComponentTag` (ast/ast.go) is purely syntactic: dotted or
-ASCII-uppercase-first tags are components; every other tag is a leaf HTML
-element rendered as-is. The rule is shared by the parser (type-arg
-admission), codegen (call lowering vs. HTML emission), and the LSP.
+`ast.Element.IsComponent` is the authoritative resolved component-vs-leaf
+stamp. The parser never sets it. Codegen's package preprocessor sets it once,
+and emission, analysis, and the LSP consume that field rather than re-deriving
+component-ness from the tag string.
 
-The consequence is that a component must be capitalized — which in Go means
-exported — and the capital/lowercase split feels arbitrary from the Go side,
-where lowercase names are ordinary package symbols. We relax the rule:
-lowercase tags participate in symbol resolution.
+The current writer, `stampComponentTag`, combines two inputs: the syntactic
+capitalized/dotted test from `ast.IsComponentTag`, and a package declaration-
+name set for lowercase simple tags. The second input is too broad. It stamps a
+lowercase tag as a component whenever any same-named package declaration
+exists, without establishing that the declaration is callable as a component.
+The resulting stamp is internally consistent but semantically wrong: for
+example, mandatory zero-result `func main()` in `package main` makes ordinary
+HTML `<main>` a component target.
 
-Verified by probe: lowercase `component card(label string)` declarations
-already parse and generate (`func card(label string) gsx.Node`) — they were
-merely unreachable by tag syntax. This change is therefore
-**resolution-only**; component
-declarations need no parser change.
+The revision keeps `Element.IsComponent` as the single source of truth and
+changes only how the preprocessor computes that stamp. Lowercase candidates
+must be resolved against exact component-capability facts instead of declaration
+existence. No parser or consumer-side component classifier is introduced.
 
 ## The rule
 
 A tag resolves in exactly one of three ways:
 
-1. **Capital-first or dotted tag** — component, unchanged. Codegen emits the
-   call and `go build` resolves the name (including function-local names,
-   which is why capital tags work for element-literal locals today). This
-   already covers **lowercase struct methods**: `<p.content/>` on the
-   enclosing receiver generates `p.content()` today, unexported type and
-   method included (verified by probe). Methods therefore need no symbol
-   resolution at all — they ride the dotted rule.
+1. **Capital-first or dotted tag** — stamped as component intent, unchanged.
+   Exact target resolution then validates the callable's signature and allowed
+   provenance. Dotted targets cover imported package functions and concrete
+   bound method values; method expressions, interface dispatch, function-valued
+   fields, and local function variables remain invalid component targets.
 2. **Lowercase simple tag whose name resolves to a component-capable
    package-level symbol** — component. A component-capable symbol has a
    callable signature with exactly one result assignable to the imported
@@ -88,9 +89,9 @@ an uncertain tag as either a component or a leaf. When analysis succeeds and a
 same-named symbol definitively does not satisfy the component contract, the tag
 is definitively a leaf.
 
-**Documented asymmetry:** capital tags resolve function-local names (via
-`go build`); lowercase tags resolve only package-level declarations. A local
-`item := ...` does not make `<item>` a component.
+**Scope rule:** simple lowercase tags resolve only component-capable
+package-level symbols. A local `item := ...` does not make `<item>` a component;
+local function variables are not valid tag targets regardless of capitalization.
 
 ## Self-exclusion
 
@@ -142,17 +143,19 @@ already visited); no new pass over source.
 
 ## Parser / codegen split
 
-The parser is per-file and syntactic — it cannot know the package semantic
-surface. Therefore:
+The current ownership boundary remains:
 
 - **Type-arg admission loosens to any tag.** `<list[int]>` parses whether or
   not `list` resolves. Codegen errors if a tag carrying type args resolves
   to a leaf ("type arguments on HTML element `<list>`").
-- `ast.IsComponentTag` stops being the single source of truth for
-  component-ness. It remains the rule for capital/dotted tags; the lowercase
-  decision moves to codegen/analyze, where the component-capability index is
-  in hand. Every current caller (codegen emit/analyze/attrsonly, LSP
-  definition/hover) consumes the same resolved stamp, not a syntactic guess.
+- `ast.IsComponentTag` is only the parser-independent syntactic seed for
+  capitalized/dotted tags. It does not answer whether a parsed element is a
+  component.
+- The package preprocessor is the only owner that stamps
+  `Element.IsComponent`. Its lowercase input changes from declaration names to
+  the component-capability index.
+- Codegen emission/analysis and LSP definition/hover continue consuming that
+  same resolved field. They must not add fallback classification branches.
 
 ## Invalidation
 
