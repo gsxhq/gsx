@@ -1,0 +1,23 @@
+# A hole-bearing embedded-language contributor forwards through a component's
+# reserved attrs bag. embeddedJSValueExpr applies JavaScript-context escaping to
+# each hole before the value is stored as gsx.RawJS; RawCSS follows the same
+# contract through embeddedCSSValueExpr and gsx.RawCSS. The child's final
+# {attrs...} spread performs HTML-attribute escaping and any key-specific URL
+# sanitization, so URL sinks are intentionally not byte-for-byte passthrough.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(title string, attrs gsx.Attrs) {
+	<div {attrs...}>{title}</div>
+}
+
+component Page(id string) {
+	<Card title="Hi" x-model=js`items[@{id}]`/>
+}
+-- invoke --
+Page("row")
+-- diagnostics.golden --
+-- render.golden --
+<div x-model="items[&#34;row&#34;]">Hi</div>

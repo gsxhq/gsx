@@ -1,11 +1,11 @@
-# An INSTANTIATED generic named func type is a valid attrs-only component value:
-# `type C[T any] func(...gsx.Attr) gsx.Node` + `var Y C[int]` has a static type
+# An instantiated generic named func type is a valid component value when its
+# static signature publishes the reserved `attrs` role:
+# `type C[T any] func(attrs ...gsx.Attr) gsx.Node` + `var Y C[int]` has a static type
 # whose underlying — after type-arg substitution — is exactly
-# func(...gsx.Attr) gsx.Node, so attrsOnlySig unwraps the Named and matches. This
+# func(attrs ...gsx.Attr) gsx.Node after substitution. This
 # is a concrete VALUE, not a generic API: the type params are already bound, and
-# attrsOnlySig's TypeParams().Len() == 0 guard still holds on the substituted
-# signature. (Uninstantiated generics can't be expressed as a value, so they stay
-# rejected naturally — see the spec's Scope boundaries.)
+# signature has no remaining type parameters. Uninstantiated generics cannot be
+# expressed as values and remain rejected naturally.
 -- input.gsx --
 package views
 
@@ -20,7 +20,7 @@ component renderIcon(p iconProps) {
 	<svg { p.Attrs... }>{p.Name}</svg>
 }
 
-type Component[T any] func(...gsx.Attr) gsx.Node
+type Component[T any] func(attrs ...gsx.Attr) gsx.Node
 
 var Y Component[int] = func(attrs ...gsx.Attr) gsx.Node {
 	return renderIcon(iconProps{Name: "y", Attrs: gsx.Attrs(attrs)})
@@ -32,5 +32,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-21:5: Y has no attrs param; unexpected attribute "class"
 -- render.golden --
+<svg class="c">y</svg>

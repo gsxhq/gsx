@@ -1,6 +1,6 @@
-# Callee-kind: forwarding into an attrs-only component VALUE (a package var
-# holding a `func(gsx.Attrs) gsx.Node`, the spec's driving icon shape — PR
-# #72's go/types-based recognition, no <Name>Props type at all). The wrapper
+# Callee-kind: forwarding into a component value whose static signature names
+# the reserved `attrs` role (a package var holding a callable; no generated
+# <Name>Props type). The wrapper
 # spreads its implicit bag alongside a literal class onto the tag.
 -- input.gsx --
 package views

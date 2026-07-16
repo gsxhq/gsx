@@ -1,4 +1,4 @@
-# An empty non-self-closing attrs-only tag <Chip></Chip> carries no children
+# An empty non-self-closing component-value tag <Chip></Chip> carries no children
 # (len(el.Children) == 0, same as structural newline/indent which the parser
 # trims), so it is NOT the children-rejection case: it lowers to the identical
 # Chip(nil...) call as the self-closing <Chip/>. This matches nullary-component

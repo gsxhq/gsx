@@ -1,5 +1,5 @@
-# attrs-only value recognized through a factory-initialized var: go/types
-# infers the var's type; no syntactic initializer-chasing exists or is needed.
+# A factory-initialized component value binds from the statically named return
+# signature. No initializer or returned-closure chasing exists or is needed.
 -- input.gsx --
 package views
 
@@ -25,7 +25,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-func namedIcon(name string) func(gsx.Attrs) gsx.Node {
+func namedIcon(name string) func(attrs gsx.Attrs) gsx.Node {
 	return func(attrs gsx.Attrs) gsx.Node {
 		return renderIcon(iconProps{Name: name, Attrs: attrs})
 	}
@@ -35,6 +35,5 @@ var HomeIcon = namedIcon("house")
 -- invoke --
 Page()
 -- diagnostics.golden --
-16:3: component-unnamed-fixed-param: parameter 0 has no markup-bindable name
-17:3: component-unnamed-fixed-param: parameter 0 has no markup-bindable name
 -- render.golden --
+<div><svg class="w-5 h-5 h-3 w-3">house</svg><svg class="w-5 h-5">house</svg></div>

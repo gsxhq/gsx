@@ -1,4 +1,5 @@
-# {{ }} literal bound to a name with no matching gsx.Attrs field → diagnostic.
+# An ordered literal whose name matches no ordinary parameter falls through;
+# without a declared `attrs` role, that is a strict missing-attrs diagnostic.
 -- input.gsx --
 package views
 

@@ -1,0 +1,22 @@
+# A conditional component-attrs branch materializes contributors in source
+# order and forwards hole-bearing embedded-language values as RawJS/RawCSS in
+# the child's reserved attrs bag. Earlier ordinary contributors run before the
+# embedded-hole hoist and later contributors run after it; tuple/error paths
+# remain exact-once. The child's {attrs...} spread applies the final sink rules.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(title string, attrs gsx.Attrs) {
+	<div {attrs...}>{title}</div>
+}
+
+component Page(u string, c bool) {
+	<Card title="Hi" { if c { onclick=js"do(@{u})" } } />
+}
+-- invoke --
+Page("row", true)
+-- diagnostics.golden --
+-- render.golden --
+<div onclick="do(&#34;row&#34;)">Hi</div>

@@ -13,5 +13,5 @@ component Page(userStr string) {
 -- invoke --
 Page("<script>")
 -- diagnostics.golden --
-10:2: attribute "body" cannot be passed to github.com/gsxhq/gsx.Node: zero.go:2:18: cannot use _gsxvalue (variable of type string) as _gsxwant value in variable declaration: string does not implement gsx.Node (missing method Render)
 -- render.golden --
+<div>&lt;script&gt;</div>

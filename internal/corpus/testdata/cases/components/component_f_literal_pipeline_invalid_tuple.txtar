@@ -12,5 +12,4 @@ component Page() {
 	<Header text=f`item-@{bad()}`/>
 }
 -- diagnostics.golden --
-8:10: component input *ast.EmbeddedAttr is not yet lowered by positional emission
 8:23: interpolation "bad()" returns (int, string); only (T, error) is supported

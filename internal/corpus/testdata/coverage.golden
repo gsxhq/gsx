@@ -163,9 +163,9 @@ components/cond_branch_embedded_hole	diag gen render
 components/cond_branch_embedded_hole_generic	diag render
 components/cond_branch_embedded_hole_tuple	diag render
 components/embedded_attr_cond_prop	diag gen render
+components/embedded_attr_hole_forwarding	diag render
 components/embedded_attr_prop	diag gen render
 components/embedded_attr_rawjs_bag	diag gen render
-components/embedded_attr_rejected	diag(error)
 components/embedded_prop_binding	diag gen render
 components/generic_attr_typeparam	diag gen render
 components/generic_children	diag gen render
@@ -181,7 +181,7 @@ components/generic_tilde_mixed_diag	diag gen render
 components/generic_uniform_constraint	diag gen render
 components/gobuild_directives	diag gen render
 components/handwritten_func_with_props	diag render
-components/jscss_hole_cond_branch_reject	diag(error)
+components/jscss_hole_cond_branch_forwarding	diag render
 components/named_slot	diag render
 components/named_slot_bad_name	diag(error)
 components/named_slot_binding	diag render
@@ -234,7 +234,7 @@ datajson/island_multi_hole_rejected	diag(error)
 datajson/island_value	diag gen render
 diagnostics/class_part_undefined_ident	diag(error)
 diagnostics/ctx_in_interp	diag render
-diagnostics/handwritten_func_bad_attr	diag(error)
+diagnostics/handwritten_func_bad_attr	diag
 diagnostics/noprops_component_with_attrs	diag(error)
 diagnostics/noprops_component_with_children	diag(error)
 diagnostics/nullary_func_with_attrs	diag(error)
@@ -894,4 +894,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 896 cases (render: 767, error: 92, gen-pinned: 518)
+TOTAL: 896 cases (render: 769, error: 89, gen-pinned: 518)

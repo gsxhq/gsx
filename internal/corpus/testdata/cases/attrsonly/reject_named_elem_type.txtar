@@ -1,10 +1,6 @@
-# func([]myAttr) gsx.Node, where myAttr is a user-defined named type sharing
-# gsx.Attr's underlying (but NOT gsx.Attr itself), is NOT tag-callable: the
-# named-type restriction dropped for the SLICE (see named_slice_type.txtar)
-# never applied to the ELEMENT — slice conversions require identical element
-# types, not merely identical underlying element types, so a []gsx.Attr(bag)
-# conversion against a []myAttr parameter would not compile. Pins the updated
-# structural diagnostic wording.
+# A named `a []myAttr` parameter is an ordinary exact-name prop. It does not
+# declare the reserved `attrs` role, so the unmatched `class` input receives the
+# strict missing-attrs diagnostic regardless of the slice's element shape.
 -- input.gsx --
 package views
 

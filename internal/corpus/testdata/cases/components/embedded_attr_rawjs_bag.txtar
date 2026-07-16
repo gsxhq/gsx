@@ -5,7 +5,7 @@
 # (embedded_attr_prop.txtar). The provenance survives the re-interpolation the
 # child performs on { attrs... } spread; rendered output is unchanged vs the
 # plain-string era because toStr prints RawJS/RawCSS as source through AttrValue.
-# (Hole-bearing bag forwarding stays unsupported — see embedded_attr_rejected.)
+# Hole-bearing forwarding is pinned by embedded_attr_hole_forwarding.
 -- input.gsx --
 package demo
 

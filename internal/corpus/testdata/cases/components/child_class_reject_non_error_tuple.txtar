@@ -4,7 +4,9 @@
 -- input.gsx --
 package views
 
-component Card(title string) { <div class="card">{title}</div> }
+import "github.com/gsxhq/gsx"
+
+component Card(title string, attrs gsx.Attrs) { <div class="card" {attrs...}>{title}</div> }
 
 component Page(v int) {
 	<Card title="Hi" class={ "base", cls(v) } />
@@ -12,4 +14,4 @@ component Page(v int) {
 
 func cls(v int) (int, string) { return 1, "x" }
 -- diagnostics.golden --
-6:19: Card has no attrs param; unexpected attribute "class"
+8:34: class part "cls(v)" returns (int, string); only (T, error) is supported

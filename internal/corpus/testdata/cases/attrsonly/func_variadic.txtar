@@ -1,4 +1,4 @@
-# attrs-only component value: package-level func with the variadic signature.
+# Component value: package-level func with the reserved variadic `attrs` signature.
 # Zero-attr call must emit Chip() (variadic needs no nil argument).
 -- input.gsx --
 package views
