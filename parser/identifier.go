@@ -40,7 +40,7 @@ func goIdentifierContinueBefore(src string, at int) bool {
 		return false
 	}
 	r, size := utf8.DecodeLastRuneInString(src[:at])
-	return !(r == utf8.RuneError && size == 1) && goIdentifierContinue(r)
+	return (r != utf8.RuneError || size != 1) && goIdentifierContinue(r)
 }
 
 // scanGoIdentifier returns the first byte after the Go identifier beginning at

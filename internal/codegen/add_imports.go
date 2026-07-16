@@ -7,6 +7,7 @@ import (
 	"go/importer"
 	"go/token"
 	"go/types"
+	"maps"
 	"slices"
 	"sync/atomic"
 
@@ -253,9 +254,7 @@ func (m *Module) depGraphPackages() map[string]*types.Package {
 	if m.opts.Bundle == nil {
 		m.mu.Lock()
 		packages := make(mapImporter, len(m.extPkgs))
-		for path, pkg := range m.extPkgs {
-			packages[path] = pkg
-		}
+		maps.Copy(packages, m.extPkgs)
 		m.mu.Unlock()
 		return completeDepGraphPackages(packages)
 	}

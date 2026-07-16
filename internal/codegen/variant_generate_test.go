@@ -3,6 +3,7 @@ package codegen
 import (
 	"go/token"
 	"go/types"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -358,9 +359,7 @@ func TestInvalidComponentVariantSignaturesNeverGraduate(t *testing.T) {
 				"icon_a.gsx": "//go:build variantA\n\npackage views\ncomponent Icon(value " + test.first + ") { <span>a</span> }\n",
 				"icon_b.gsx": "//go:build variantB\n\npackage views\ncomponent Icon(value " + test.last + ") { <span>b</span> }\n",
 			}
-			for path, source := range test.additional {
-				files[path] = source
-			}
+			maps.Copy(files, test.additional)
 			dir, module := openTestModule(t, files)
 			pkg, err := module.Package(dir)
 			if err != nil {

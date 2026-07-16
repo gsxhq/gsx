@@ -250,8 +250,8 @@ func semanticReceiverOrigin(object *types.Func) *types.TypeName {
 	if origin == nil {
 		return nil
 	}
-	for index := 0; index < origin.NumMethods(); index++ {
-		if origin.Method(index) == object {
+	for method := range origin.Methods() {
+		if method == object {
 			return origin.Obj()
 		}
 	}

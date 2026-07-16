@@ -118,8 +118,8 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 	// keeps _gsxstd so std-only output is byte-identical to before. The class
 	// merger's reserved alias is ALWAYS reserved here (whether or not the merger
 	// ends up used — see below), so an inferred type argument can never collide
-	// with it either. Renderer packages join filterAlias/boundNames here (not
-	// just aliasForPath) so a renderer-only package that a later render-boundary
+	// with it either. Renderer packages join filterAlias/boundNames here so a
+	// renderer-only package that a later render-boundary
 	// task references can be import-emitted the same way a filter package is.
 	filterAlias := map[string]string{}
 	for _, e := range table.filters {
