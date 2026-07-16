@@ -39,8 +39,8 @@ component Page() {
 	if call.Target == nil || call.Target.Name() != "Card" {
 		t.Fatalf("target = %v, want Card object", call.Target)
 	}
-	if call.TargetPackage != "example.com/test" || call.TargetKey != ".Card" {
-		t.Fatalf("target identity = (%q, %q), want (example.com/test, .Card)", call.TargetPackage, call.TargetKey)
+	if call.TargetPackage != "testmod" || call.TargetKey != ".Card" {
+		t.Fatalf("target identity = (%q, %q), want (testmod, .Card)", call.TargetPackage, call.TargetKey)
 	}
 	if call.Signature == nil || call.Signature.Params().Len() != 3 {
 		t.Fatalf("signature = %v, want three params", call.Signature)
