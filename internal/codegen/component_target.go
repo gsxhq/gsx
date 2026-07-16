@@ -65,6 +65,8 @@ type componentTargetFact struct {
 	hasSelection  bool
 	selectionKind types.SelectionKind
 	selectionRecv types.Type
+
+	usesImportedQualifier bool
 }
 
 func (f componentTargetFact) effectiveSignature() *types.Signature {
@@ -631,6 +633,11 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 		}
 		fact.object = info.Uses[shape.supplier]
 		errs := siteErrors[marker.site]
+		if shape.selector != nil {
+			qualifier, isIdent := shape.selector.X.(*goast.Ident)
+			pkgName, isPkgName := info.Uses[qualifier].(*types.PkgName)
+			fact.usesImportedQualifier = isIdent && isPkgName && importObjects[marker.file][pkgName]
+		}
 
 		selection := info.Selections[shape.selector]
 		if selection != nil {
@@ -727,12 +734,12 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 			// marker span. Resolved-but-disallowed semantic shapes additionally get
 			// positioned provenance guidance; their native checker diagnostics remain
 			// intact below.
-			if fact.rejection == componentTargetUnresolved || lookupSucceeded || len(errs) == 0 {
+			if lookupSucceeded || len(errs) == 0 {
 				fact.targetDiags = append(fact.targetDiags, componentTargetDiagnostic(marker.element, fset, "invalid-component-target", provenanceMessage))
 			}
 		}
 
-		if !omitIncompleteGeneric && fact.rejection != componentTargetUnresolved {
+		if !omitIncompleteGeneric {
 			for _, typeErr := range errs {
 				fact.targetDiags = append(fact.targetDiags, componentTargetTypeDiagnostic(typeErr))
 			}
@@ -934,14 +941,26 @@ type callSiteRegistry struct {
 // contract used by unused-import analysis for ordinary Go selectors: if the
 // authored target is <ui.Card>, ui is referenced even though the operand
 // skeleton deliberately leaves target validation to the separate target pass.
-func componentTargetQualifiers(registry *callSiteRegistry, path string) map[string]bool {
+func componentTargetQualifiers(registry *callSiteRegistry, facts map[callSiteID]componentTargetFact, path string) map[string]bool {
 	qualifiers := make(map[string]bool)
 	if registry == nil {
 		return qualifiers
 	}
 	cleanPath := filepath.Clean(path)
 	for _, record := range registry.records {
-		if (record.disposition != componentSiteCandidate && record.disposition != componentSitePlanned) || filepath.Clean(record.path) != cleanPath || record.element == nil {
+		if filepath.Clean(record.path) != cleanPath || record.element == nil {
+			continue
+		}
+		switch record.disposition {
+		case componentSiteCandidate:
+			// Importer-free preparation has no semantic facts and therefore keeps
+			// syntactic selector roots conservatively.
+		case componentSitePlanned, componentSiteRejected:
+			fact, ok := facts[record.id]
+			if !ok || !fact.usesImportedQualifier {
+				continue
+			}
+		default:
 			continue
 		}
 		qualifier, _, ok := strings.Cut(record.element.Tag, ".")

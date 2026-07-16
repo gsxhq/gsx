@@ -187,7 +187,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 		}
 		out.byGsx[path] = fileSkeleton{
 			skel: gf, imps: imps,
-			targetQualifiers: componentTargetQualifiers(preprocessed.registry, path),
+			targetQualifiers: componentTargetQualifiers(preprocessed.registry, nil, path),
 		}
 	}
 	return out, nil
