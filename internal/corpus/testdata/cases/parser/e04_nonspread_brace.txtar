@@ -5,6 +5,5 @@ package p
 component X() { <div { x }>text</div> }
 -- ast.golden --
 File package=p
-  GoChunk len=19
 -- diagnostics.golden --
 3:22: expected `...` trailing spread inside `{ }` attribute
