@@ -9,6 +9,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
+	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 func TestPlanComponentPositionalCallsAcceptsExplicitOperandsAndZerosOmissions(t *testing.T) {
@@ -388,6 +389,135 @@ func TestPlanComponentPositionalCallsDerivesSyntaxDefinedOrdinaryPropFacts(t *te
 	}
 }
 
+func TestPlanComponentPositionalCallsDerivesNestedClassAndStyleFactsForSiblings(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	elements, fset := plannerElements(t, `<div>
+	<C class={ if on { first() } else { "off" } }/>
+	<C style={ "display:block", css`+"`"+`color:@{tone()}`+"`"+` }/>
+</div>`)
+	if len(elements) != 2 {
+		t.Fatalf("component elements = %d, want 2", len(elements))
+	}
+	classAttr := elements[0].Attrs[0].(*gsxast.ClassAttr)
+	styleAttr := elements[1].Attrs[0].(*gsxast.ClassAttr)
+	if len(styleAttr.Parts) != 2 || styleAttr.Parts[1].CSSSegments == nil {
+		t.Fatalf("style parts = %+v, want plain part followed by CSS literal", styleAttr.Parts)
+	}
+	stylePlain := &styleAttr.Parts[0]
+	classArms := valueFormArms(classAttr.Parts[0].CF)
+	if len(classArms) != 2 {
+		t.Fatalf("class arms = %d, want 2", len(classArms))
+	}
+	var cssValue *gsxast.Interp
+	gsxast.Inspect(&styleAttr.Parts[1], func(node gsxast.Node) bool {
+		if interp, ok := node.(*gsxast.Interp); ok {
+			cssValue = interp
+		}
+		return true
+	})
+	if cssValue == nil {
+		t.Fatal("CSS literal has no embedded value node")
+	}
+
+	pkg := types.NewPackage("example.test/page", "page")
+	sig := types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(types.NewVar(token.NoPos, pkg, "attrs", fx.runtime.attrs)),
+		types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), false)
+	registry := &callSiteRegistry{
+		byElement: map[*gsxast.Element]callSiteID{elements[0]: 1, elements[1]: 2},
+		records: []callSiteRecord{
+			{id: 1, path: "page.gsx", element: elements[0], disposition: componentSitePlanned},
+			{id: 2, path: "page.gsx", element: elements[1], disposition: componentSitePlanned},
+		},
+	}
+	target := componentTargetFact{raw: sig, provenance: targetPackageFunc}
+	got, diagnostics := planComponentPositionalCalls(componentPositionalPlanningInput{
+		callSites: registry,
+		targets: map[callSiteID]componentTargetFact{
+			1: target,
+			2: target,
+		},
+		expressionFacts: map[gsxast.Node]expressionFact{
+			classArms[0]: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
+			classArms[1]: {tv: types.TypeAndValue{Type: types.Typ[types.UntypedString], Value: constant.MakeString("off")}},
+			stylePlain:   {tv: types.TypeAndValue{Type: types.Typ[types.UntypedString], Value: constant.MakeString("display:block")}},
+			cssValue:     {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
+		},
+		runtime:         fx.runtime,
+		analysisPackage: pkg,
+		fset:            fset,
+	})
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	for id, attr := range map[callSiteID]*gsxast.ClassAttr{1: classAttr, 2: styleAttr} {
+		site, ok := got.sites[id]
+		if !ok {
+			t.Errorf("site %d missing", id)
+			continue
+		}
+		fact, ok := site.expressionFacts[attr]
+		if !ok || !types.Identical(fact.tv.Type, types.Typ[types.String]) || !fact.hasOrderedOperation {
+			t.Errorf("site %d class fact = %+v, want ordered string", id, fact)
+		}
+	}
+}
+
+func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
+	t.Run("plain class part owns fact", func(t *testing.T) {
+		part := &gsxast.ClassPart{Expr: "label"}
+		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{*part}}
+		part = &root.Parts[0]
+		if _, complete := aggregateNestedComponentFacts(root, nil); complete {
+			t.Fatal("plain part without its authoritative fact reported complete")
+		}
+		if _, complete := aggregateNestedComponentFacts(root, map[gsxast.Node]expressionFact{part: {}}); complete {
+			t.Fatal("plain part with an incomplete authoritative fact reported complete")
+		}
+		ordered, complete := aggregateNestedComponentFacts(root, map[gsxast.Node]expressionFact{
+			part: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
+		})
+		if !complete || !ordered {
+			t.Fatalf("plain part aggregate = ordered %v complete %v", ordered, complete)
+		}
+	})
+
+	t.Run("control flow delegates to value arms", func(t *testing.T) {
+		thenArm := &gsxast.ValueArm{Expr: "first()"}
+		elseArm := &gsxast.ValueArm{Expr: `"off"`}
+		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{{CF: &gsxast.ValueCF{If: &gsxast.ValueIf{Then: thenArm, Else: elseArm}}}}}
+		facts := map[gsxast.Node]expressionFact{
+			thenArm: {tv: types.TypeAndValue{Type: types.Typ[types.String]}},
+			elseArm: {tv: types.TypeAndValue{Type: types.Typ[types.UntypedString]}},
+		}
+		ordered, complete := aggregateNestedComponentFacts(root, facts)
+		if !complete || !ordered {
+			t.Fatalf("control-flow aggregate = ordered %v complete %v", ordered, complete)
+		}
+		delete(facts, elseArm)
+		if _, complete := aggregateNestedComponentFacts(root, facts); complete {
+			t.Fatal("control flow with a missing arm fact reported complete")
+		}
+	})
+
+	t.Run("CSS literal delegates to embedded values", func(t *testing.T) {
+		value := &gsxast.Interp{Expr: "tone()"}
+		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{{CSSSegments: []gsxast.Markup{&gsxast.Text{Value: "color:"}, value}}}}
+		ordered, complete := aggregateNestedComponentFacts(root, map[gsxast.Node]expressionFact{
+			value: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, tuple: types.NewTuple(
+				types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),
+				types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type()),
+			)},
+		})
+		if !complete || !ordered {
+			t.Fatalf("CSS aggregate = ordered %v complete %v", ordered, complete)
+		}
+		if _, complete := aggregateNestedComponentFacts(root, nil); complete {
+			t.Fatal("CSS literal with a missing embedded-value fact reported complete")
+		}
+	})
+}
+
 func TestPlanComponentPositionalCallsAdaptsExactNodeOperands(t *testing.T) {
 	fx := newSignatureRuntimeFixture(t)
 	el, fset := plannerElement(t, "<C static=\"x\" formatted=f`hi` label={label} count={n} flag node={node} markup={<i/>} labelTuple={makeLabel()} nodeTuple={makeNode()}/>")
@@ -603,4 +733,22 @@ func positionalTestRegistry(el *gsxast.Element) *callSiteRegistry {
 		byElement: map[*gsxast.Element]callSiteID{el: 1},
 		records:   []callSiteRecord{{id: 1, path: "page.gsx", element: el, disposition: componentSitePlanned}},
 	}
+}
+
+func plannerElements(t *testing.T, markup string) ([]*gsxast.Element, *token.FileSet) {
+	t.Helper()
+	fset := token.NewFileSet()
+	source := "package p\ncomponent Host() { " + markup + " }\n"
+	file, err := gsxparser.ParseFile(fset, "planner.gsx", []byte(source), 0)
+	if err != nil {
+		t.Fatalf("parse planner markup: %v\n%s", err, source)
+	}
+	var elements []*gsxast.Element
+	gsxast.Inspect(file, func(node gsxast.Node) bool {
+		if element, ok := node.(*gsxast.Element); ok && element.Tag == "C" {
+			elements = append(elements, element)
+		}
+		return true
+	})
+	return elements, fset
 }
