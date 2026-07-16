@@ -75,6 +75,9 @@ import (
 var updateVerbatimInventory = flag.Bool("update-verbatim-inventory", false,
 	"regenerate the verbatim-signature migration manifest metadata (Task 7)")
 
+var recordVerbatimAfter = flag.Bool("record-verbatim-after", false,
+	"record only applied after-hashes in the reviewed verbatim-signature migration manifest")
+
 const migrationManifestRel = "docs/superpowers/plans/2026-07-14-verbatim-component-signatures-migration-manifest.json"
 
 const migrationManifestVersion = 1
@@ -179,6 +182,9 @@ func TestVerbatimMigrationInventory(t *testing.T) {
 	}
 
 	manifestPath := filepath.Join(repoRoot, migrationManifestRel)
+	if *updateVerbatimInventory && *recordVerbatimAfter {
+		t.Fatal("-update-verbatim-inventory and -record-verbatim-after are mutually exclusive")
+	}
 
 	if *updateVerbatimInventory {
 		prev, _ := loadManifest(manifestPath) // best-effort; absent is fine
@@ -187,6 +193,21 @@ func TestVerbatimMigrationInventory(t *testing.T) {
 			t.Fatalf("write manifest: %v", err)
 		}
 		t.Logf("wrote %d entries to %s", len(next.Entries), migrationManifestRel)
+		return
+	}
+	if *recordVerbatimAfter {
+		planned, err := loadManifest(manifestPath)
+		if err != nil {
+			t.Fatalf("load reviewed manifest for after recording: %v", err)
+		}
+		applied, err := recordAppliedManifest(repoRoot, universe, planned)
+		if err != nil {
+			t.Fatalf("record applied manifest: %v", err)
+		}
+		if err := writeManifest(manifestPath, applied); err != nil {
+			t.Fatalf("write applied manifest: %v", err)
+		}
+		t.Logf("recorded applied after-hashes for %d reviewed entries in %s", len(applied.Entries), migrationManifestRel)
 		return
 	}
 
@@ -368,20 +389,30 @@ func buildManifest(t *testing.T, repoRoot string, universe []string, prev *migra
 
 // unitsFor splits a source file into classified migration units.
 func unitsFor(rel string, data []byte) []migrationUnit {
-	if strings.HasSuffix(rel, ".txtar") {
-		return txtarUnits(rel, data)
+	units := unitSnapshotsFor(rel, data)
+	if !strings.HasSuffix(rel, ".txtar") {
+		classifyUnit(rel, "", data, &units[0])
+		return units
 	}
-	u := migrationUnit{Kind: "raw-file", BeforeSHA256: hashBytes(data)}
-	classifyUnit(rel, "", data, &u)
-	return []migrationUnit{u}
+	archive := txtar.Parse(data)
+	classifyUnit(rel, "", archive.Comment, &units[0])
+	for index, file := range archive.Files {
+		classifyUnit(rel, file.Name, file.Data, &units[index+1])
+	}
+	return units
 }
 
-func txtarUnits(rel string, data []byte) []migrationUnit {
+// unitSnapshotsFor splits a file into stable unit identities and hashes without
+// classifying it. Applied recording deliberately uses this metadata-only path:
+// a new unit has no reviewed action and must be rejected, never reclassified.
+func unitSnapshotsFor(rel string, data []byte) []migrationUnit {
+	if !strings.HasSuffix(rel, ".txtar") {
+		return []migrationUnit{{Kind: "raw-file", BeforeSHA256: hashBytes(data)}}
+	}
 	arch := txtar.Parse(data)
 	var units []migrationUnit
 
 	comment := migrationUnit{Kind: "txtar-comment", BeforeSHA256: hashBytes(arch.Comment)}
-	classifyUnit(rel, "", arch.Comment, &comment)
 	units = append(units, comment)
 
 	for i, f := range arch.Files {
@@ -392,7 +423,6 @@ func txtarUnits(rel string, data []byte) []migrationUnit {
 			SectionName:  f.Name,
 			BeforeSHA256: hashBytes(f.Data),
 		}
-		classifyUnit(rel, f.Name, f.Data, &u)
 		units = append(units, u)
 	}
 	return units
@@ -711,35 +741,230 @@ func dedupeNotes(in []string) []string {
 // Verification
 // ---------------------------------------------------------------------------
 
+type migrationUnitIdentity struct {
+	kind        string
+	sectionName string
+}
+
+func recordAppliedManifest(repoRoot string, universe []string, planned *migrationManifest) (*migrationManifest, error) {
+	if planned == nil {
+		return nil, fmt.Errorf("nil migration manifest")
+	}
+	if planned.Version != migrationManifestVersion {
+		return nil, fmt.Errorf("manifest version = %d, want %d", planned.Version, migrationManifestVersion)
+	}
+	if planned.Phase != "planned" {
+		return nil, fmt.Errorf("manifest phase = %q, want %q before recording", planned.Phase, "planned")
+	}
+
+	entries := make(map[string]int, len(planned.Entries))
+	for entryIndex, entry := range planned.Entries {
+		if _, exists := entries[entry.Path]; exists {
+			return nil, fmt.Errorf("duplicate manifest entry for %s", entry.Path)
+		}
+		entries[entry.Path] = entryIndex
+		if _, err := reviewedUnitsByIdentity(entry.Path, entry.Units); err != nil {
+			return nil, err
+		}
+		for unitIndex, unit := range entry.Units {
+			if err := reviewedUnitError(entry.Path, unitIndex, unit); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	universeSet := make(map[string]bool, len(universe))
+	for _, rel := range universe {
+		if universeSet[rel] {
+			return nil, fmt.Errorf("duplicate universe file %s", rel)
+		}
+		universeSet[rel] = true
+		if _, ok := entries[rel]; !ok {
+			return nil, fmt.Errorf("current file %s is not in reviewed manifest", rel)
+		}
+	}
+
+	applied := cloneManifest(planned)
+	for entryIndex := range applied.Entries {
+		entry := &applied.Entries[entryIndex]
+		if !universeSet[entry.Path] {
+			if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(entry.Path))); err == nil {
+				return nil, fmt.Errorf("%s: planned deletion still exists", entry.Path)
+			} else if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("stat %s: %w", entry.Path, err)
+			}
+			for unitIndex, unit := range entry.Units {
+				if unit.Action != migrationDelete {
+					return nil, fmt.Errorf("%s unit %d (%s): reviewed unit is absent without delete action", entry.Path, unitIndex, unit.SectionName)
+				}
+				entry.Units[unitIndex].AfterSHA256 = ""
+			}
+			entry.AfterSHA256 = ""
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(entry.Path)))
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", entry.Path, err)
+		}
+		current, err := currentUnitsByIdentity(entry.Path, unitSnapshotsFor(entry.Path, data))
+		if err != nil {
+			return nil, err
+		}
+		reviewed, err := reviewedUnitsByIdentity(entry.Path, entry.Units)
+		if err != nil {
+			return nil, err
+		}
+		for identity := range current {
+			if _, ok := reviewed[identity]; !ok {
+				return nil, fmt.Errorf("%s: unreviewed current unit %s", entry.Path, formatUnitIdentity(identity))
+			}
+		}
+		for unitIndex := range entry.Units {
+			unit := &entry.Units[unitIndex]
+			identity := unitIdentity(*unit)
+			currentUnit, exists := current[identity]
+			if unit.Action == migrationDelete {
+				if exists {
+					return nil, fmt.Errorf("%s unit %d (%s): planned deletion still exists", entry.Path, unitIndex, unit.SectionName)
+				}
+				unit.AfterSHA256 = ""
+				continue
+			}
+			if !exists {
+				return nil, fmt.Errorf("%s unit %d (%s): reviewed unit is absent", entry.Path, unitIndex, unit.SectionName)
+			}
+			unit.AfterSHA256 = currentUnit.BeforeSHA256
+		}
+		entry.AfterSHA256 = hashBytes(data)
+	}
+	applied.Phase = "applied"
+	return applied, nil
+}
+
+func cloneManifest(manifest *migrationManifest) *migrationManifest {
+	clone := *manifest
+	clone.Entries = append([]migrationEntry(nil), manifest.Entries...)
+	for entryIndex := range clone.Entries {
+		original := manifest.Entries[entryIndex]
+		clone.Entries[entryIndex].Units = append([]migrationUnit(nil), original.Units...)
+		for unitIndex := range clone.Entries[entryIndex].Units {
+			unit := &clone.Entries[entryIndex].Units[unitIndex]
+			originalUnit := original.Units[unitIndex]
+			unit.Kinds = append([]migrationKind(nil), originalUnit.Kinds...)
+			if originalUnit.SectionIndex != nil {
+				index := *originalUnit.SectionIndex
+				unit.SectionIndex = &index
+			}
+		}
+	}
+	return &clone
+}
+
+func unitIdentity(unit migrationUnit) migrationUnitIdentity {
+	return migrationUnitIdentity{kind: unit.Kind, sectionName: unit.SectionName}
+}
+
+func reviewedUnitsByIdentity(rel string, units []migrationUnit) (map[migrationUnitIdentity]int, error) {
+	indexed := make(map[migrationUnitIdentity]int, len(units))
+	for index, unit := range units {
+		identity := unitIdentity(unit)
+		if _, exists := indexed[identity]; exists {
+			return nil, fmt.Errorf("%s: duplicate reviewed unit identity %s", rel, formatUnitIdentity(identity))
+		}
+		indexed[identity] = index
+	}
+	return indexed, nil
+}
+
+func currentUnitsByIdentity(rel string, units []migrationUnit) (map[migrationUnitIdentity]migrationUnit, error) {
+	indexed := make(map[migrationUnitIdentity]migrationUnit, len(units))
+	for _, unit := range units {
+		identity := unitIdentity(unit)
+		if _, exists := indexed[identity]; exists {
+			return nil, fmt.Errorf("%s: duplicate current unit identity %s", rel, formatUnitIdentity(identity))
+		}
+		indexed[identity] = unit
+	}
+	return indexed, nil
+}
+
+func formatUnitIdentity(identity migrationUnitIdentity) string {
+	if identity.sectionName == "" {
+		return identity.kind
+	}
+	return fmt.Sprintf("%s %q", identity.kind, identity.sectionName)
+}
+
+func reviewedUnitError(rel string, index int, unit migrationUnit) error {
+	switch unit.Action {
+	case migrationUnreviewed:
+		return fmt.Errorf("%s unit %d (%s): action still unreviewed", rel, index, unit.SectionName)
+	case migrationRegenerate, migrationReviewedNoChange, migrationManualEdit, migrationDelete:
+		// Reviewed action.
+	default:
+		return fmt.Errorf("%s unit %d (%s): unknown action %q", rel, index, unit.SectionName, unit.Action)
+	}
+	generated := isGeneratedOutputPath(rel) || isGeneratedSectionName(unit.SectionName)
+	if generated && unit.Action != migrationRegenerate {
+		return fmt.Errorf("%s unit %d (%s): generated output must be regenerate, got %q", rel, index, unit.SectionName, unit.Action)
+	}
+	if !generated && unit.Action == migrationRegenerate {
+		return fmt.Errorf("%s unit %d (%s): non-generated unit classified regenerate", rel, index, unit.SectionName)
+	}
+	needsNote := unit.Action == migrationManualEdit || unit.Action == migrationDelete || containsKind(unit.Kinds, kindManualSemanticChoice)
+	if needsNote && strings.TrimSpace(unit.ReviewNote) == "" {
+		return fmt.Errorf("%s unit %d (%s): %s requires a non-empty review_note", rel, index, unit.SectionName, unit.Action)
+	}
+	return nil
+}
+
 func verifyManifest(t *testing.T, repoRoot string, universe []string, man *migrationManifest) {
 	t.Helper()
-
-	if man.Version != migrationManifestVersion {
-		t.Errorf("manifest version = %d, want %d", man.Version, migrationManifestVersion)
+	for _, err := range verifyManifestErrors(repoRoot, universe, man) {
+		t.Error(err)
 	}
-	if man.Phase != "planned" {
-		t.Errorf("manifest phase = %q, want %q", man.Phase, "planned")
+}
+
+func verifyManifestErrors(repoRoot string, universe []string, man *migrationManifest) []error {
+	if man == nil {
+		return []error{fmt.Errorf("nil migration manifest")}
+	}
+	var problems []error
+	if man.Version != migrationManifestVersion {
+		problems = append(problems, fmt.Errorf("manifest version = %d, want %d", man.Version, migrationManifestVersion))
+	}
+	if man.Phase != "planned" && man.Phase != "applied" {
+		problems = append(problems, fmt.Errorf("manifest phase = %q, want planned or applied", man.Phase))
+		return problems
 	}
 
 	// One-to-one universe <-> manifest match.
 	manifestPaths := map[string]migrationEntry{}
 	for _, e := range man.Entries {
 		if _, dup := manifestPaths[e.Path]; dup {
-			t.Errorf("duplicate manifest entry for %s", e.Path)
+			problems = append(problems, fmt.Errorf("duplicate manifest entry for %s", e.Path))
 		}
 		manifestPaths[e.Path] = e
 	}
 	universeSet := map[string]bool{}
 	for _, rel := range universe {
+		if universeSet[rel] {
+			problems = append(problems, fmt.Errorf("duplicate universe file %s", rel))
+			continue
+		}
 		universeSet[rel] = true
 		if _, ok := manifestPaths[rel]; !ok {
-			t.Errorf("universe file missing from manifest: %s", rel)
+			problems = append(problems, fmt.Errorf("universe file missing from manifest: %s", rel))
 		}
 	}
 	for _, e := range man.Entries {
-		if !universeSet[e.Path] {
-			t.Errorf("manifest entry not in universe: %s", e.Path)
+		if !universeSet[e.Path] && man.Phase == "planned" {
+			problems = append(problems, fmt.Errorf("manifest entry not in universe: %s", e.Path))
 		}
+	}
+	if man.Phase == "applied" {
+		return append(problems, verifyAppliedManifestErrors(repoRoot, universeSet, man.Entries)...)
 	}
 
 	// Recompute current units and compare identity + hashes; verify actions.
@@ -750,57 +975,103 @@ func verifyManifest(t *testing.T, repoRoot string, universe []string, man *migra
 		}
 		data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
 		if err != nil {
-			t.Errorf("read %s: %v", rel, err)
+			problems = append(problems, fmt.Errorf("read %s: %v", rel, err))
 			continue
 		}
 		if got := hashBytes(data); got != entry.BeforeSHA256 {
-			t.Errorf("%s: entry before-hash %s != current %s (regenerate the manifest)", rel, entry.BeforeSHA256, got)
+			problems = append(problems, fmt.Errorf("%s: entry before-hash %s != current %s (regenerate the manifest)", rel, entry.BeforeSHA256, got))
 		}
 
 		want := unitsFor(rel, data)
 		if len(want) != len(entry.Units) {
-			t.Errorf("%s: %d manifest units, %d current units", rel, len(entry.Units), len(want))
+			problems = append(problems, fmt.Errorf("%s: %d manifest units, %d current units", rel, len(entry.Units), len(want)))
 			continue
 		}
 		for i, wu := range want {
 			gu := entry.Units[i]
 			if gu.Kind != wu.Kind || gu.SectionName != wu.SectionName || !intPtrEq(gu.SectionIndex, wu.SectionIndex) {
-				t.Errorf("%s unit %d: identity mismatch (kind/section/index)", rel, i)
+				problems = append(problems, fmt.Errorf("%s unit %d: identity mismatch (kind/section/index)", rel, i))
 			}
 			if gu.BeforeSHA256 != wu.BeforeSHA256 {
-				t.Errorf("%s unit %d (%s): before-hash mismatch (regenerate the manifest)", rel, i, gu.SectionName)
+				problems = append(problems, fmt.Errorf("%s unit %d (%s): before-hash mismatch (regenerate the manifest)", rel, i, gu.SectionName))
 			}
-			verifyUnitAction(t, rel, i, gu)
+			if err := reviewedUnitError(rel, i, gu); err != nil {
+				problems = append(problems, err)
+			}
 		}
 	}
+	return problems
 }
 
-func verifyUnitAction(t *testing.T, rel string, i int, got migrationUnit) {
-	t.Helper()
-	switch got.Action {
-	case migrationUnreviewed:
-		t.Errorf("%s unit %d (%s): action still `unreviewed`", rel, i, got.SectionName)
-	case migrationRegenerate, migrationReviewedNoChange, migrationManualEdit, migrationDelete:
-		// ok
-	default:
-		t.Errorf("%s unit %d (%s): unknown action %q", rel, i, got.SectionName, got.Action)
-	}
+func verifyAppliedManifestErrors(repoRoot string, universeSet map[string]bool, entries []migrationEntry) []error {
+	var problems []error
+	for _, entry := range entries {
+		for unitIndex, unit := range entry.Units {
+			if err := reviewedUnitError(entry.Path, unitIndex, unit); err != nil {
+				problems = append(problems, err)
+			}
+		}
+		if _, err := reviewedUnitsByIdentity(entry.Path, entry.Units); err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		if !universeSet[entry.Path] {
+			if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(entry.Path))); err == nil {
+				problems = append(problems, fmt.Errorf("%s: planned deletion still exists", entry.Path))
+			} else if !os.IsNotExist(err) {
+				problems = append(problems, fmt.Errorf("stat %s: %v", entry.Path, err))
+			}
+			for unitIndex, unit := range entry.Units {
+				if unit.Action != migrationDelete || unit.AfterSHA256 != "" {
+					problems = append(problems, fmt.Errorf("%s unit %d (%s): absent file is not a pinned planned deletion", entry.Path, unitIndex, unit.SectionName))
+				}
+			}
+			if entry.AfterSHA256 != "" {
+				problems = append(problems, fmt.Errorf("%s: planned file deletion has after-hash", entry.Path))
+			}
+			continue
+		}
 
-	// Generated sections must be classified only as regenerate.
-	generated := isGeneratedOutputPath(rel) || isGeneratedSectionName(got.SectionName)
-	if generated && got.Action != migrationRegenerate {
-		t.Errorf("%s unit %d (%s): generated output must be `regenerate`, got %q", rel, i, got.SectionName, got.Action)
+		data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(entry.Path)))
+		if err != nil {
+			problems = append(problems, fmt.Errorf("read %s: %v", entry.Path, err))
+			continue
+		}
+		if got := hashBytes(data); got != entry.AfterSHA256 {
+			problems = append(problems, fmt.Errorf("%s: entry after-hash %s != current %s", entry.Path, entry.AfterSHA256, got))
+		}
+		current, err := currentUnitsByIdentity(entry.Path, unitSnapshotsFor(entry.Path, data))
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		reviewed, _ := reviewedUnitsByIdentity(entry.Path, entry.Units)
+		for identity := range current {
+			if _, ok := reviewed[identity]; !ok {
+				problems = append(problems, fmt.Errorf("%s: unreviewed current unit %s", entry.Path, formatUnitIdentity(identity)))
+			}
+		}
+		for unitIndex, unit := range entry.Units {
+			currentUnit, exists := current[unitIdentity(unit)]
+			if unit.Action == migrationDelete {
+				if exists {
+					problems = append(problems, fmt.Errorf("%s unit %d (%s): planned deletion still exists", entry.Path, unitIndex, unit.SectionName))
+				}
+				if unit.AfterSHA256 != "" {
+					problems = append(problems, fmt.Errorf("%s unit %d (%s): planned deletion has after-hash", entry.Path, unitIndex, unit.SectionName))
+				}
+				continue
+			}
+			if !exists {
+				problems = append(problems, fmt.Errorf("%s unit %d (%s): reviewed unit is absent", entry.Path, unitIndex, unit.SectionName))
+				continue
+			}
+			if currentUnit.BeforeSHA256 != unit.AfterSHA256 {
+				problems = append(problems, fmt.Errorf("%s unit %d (%s): after-hash mismatch", entry.Path, unitIndex, unit.SectionName))
+			}
+		}
 	}
-	if !generated && got.Action == migrationRegenerate {
-		t.Errorf("%s unit %d (%s): non-generated unit classified `regenerate`", rel, i, got.SectionName)
-	}
-
-	// Manual edit / delete / semantic choice require a non-empty review note.
-	needsNote := got.Action == migrationManualEdit || got.Action == migrationDelete ||
-		containsKind(got.Kinds, kindManualSemanticChoice)
-	if needsNote && strings.TrimSpace(got.ReviewNote) == "" {
-		t.Errorf("%s unit %d (%s): %s requires a non-empty review_note", rel, i, got.SectionName, got.Action)
-	}
+	return problems
 }
 
 func containsKind(ks []migrationKind, want migrationKind) bool {
@@ -845,4 +1116,343 @@ func intPtrEq(a, b *int) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+func TestRecordVerbatimAfterPreservesReviewedMetadataAndStableTxtarIdentity(t *testing.T) {
+	root, universe, planned, current := recordAfterFixture(t)
+	before := cloneMigrationManifest(t, planned)
+
+	applied, err := recordAppliedManifest(root, universe, planned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Phase != "applied" {
+		t.Fatalf("phase = %q, want applied", applied.Phase)
+	}
+	assertOnlyAfterMetadataChanged(t, before, applied)
+
+	entries := migrationEntriesByPath(applied)
+	archive := entries["case.txtar"]
+	if archive.AfterSHA256 != hashBytes(current["case.txtar"]) {
+		t.Fatalf("archive after hash = %q, want current content hash", archive.AfterSHA256)
+	}
+	units := migrationUnitsByIdentity(t, archive.Units)
+	parsed := txtar.Parse(current["case.txtar"])
+	wantHashes := map[string]string{
+		"txtar-comment\x00":              hashBytes(parsed.Comment),
+		"txtar-section\x00input.gsx":     hashBytes(parsed.Files[1].Data),
+		"txtar-section\x00render.golden": hashBytes(parsed.Files[0].Data),
+	}
+	for identity, want := range wantHashes {
+		if got := units[identity].AfterSHA256; got != want {
+			t.Errorf("%s after hash = %q, want %q", identity, got, want)
+		}
+	}
+	deleted := units["txtar-section\x00obsolete.txt"]
+	if deleted.Action != migrationDelete || deleted.AfterSHA256 != "" {
+		t.Fatalf("planned section deletion = %+v, want retained with empty after hash", deleted)
+	}
+	if deleted.SectionIndex == nil || *deleted.SectionIndex != 1 {
+		t.Fatalf("planned section index changed during name-based reconciliation: %+v", deleted.SectionIndex)
+	}
+	if gone := entries["gone.go"]; len(gone.Units) != 1 || gone.Units[0].Action != migrationDelete || gone.AfterSHA256 != "" || gone.Units[0].AfterSHA256 != "" {
+		t.Fatalf("planned file deletion = %+v, want retained and absent", gone)
+	}
+
+	for path, want := range current {
+		got, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("recorder rewrote source %s", path)
+		}
+	}
+}
+
+func TestRecordVerbatimAfterRejectsUnreviewedOrUnexplainedChanges(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+		edit func(t *testing.T, root string, universe *[]string, manifest *migrationManifest)
+	}{
+		{
+			name: "unreviewed unit", want: "unreviewed",
+			edit: func(_ *testing.T, _ string, _ *[]string, manifest *migrationManifest) {
+				manifest.Entries[0].Units[0].Action = migrationUnreviewed
+			},
+		},
+		{
+			name: "unknown action", want: "unknown action",
+			edit: func(_ *testing.T, _ string, _ *[]string, manifest *migrationManifest) {
+				manifest.Entries[0].Units[0].Action = migrationAction("invented")
+			},
+		},
+		{
+			name: "new file", want: "not in reviewed manifest",
+			edit: func(t *testing.T, root string, universe *[]string, _ *migrationManifest) {
+				writeInventoryFixtureFile(t, root, "new.go", []byte("package p\n"))
+				*universe = append(*universe, "new.go")
+			},
+		},
+		{
+			name: "new txtar section", want: "unreviewed current unit",
+			edit: func(t *testing.T, root string, _ *[]string, _ *migrationManifest) {
+				data, err := os.ReadFile(filepath.Join(root, "case.txtar"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeInventoryFixtureFile(t, root, "case.txtar", append(data, []byte("-- new.txt --\nnew\n")...))
+			},
+		},
+		{
+			name: "missing reviewed section", want: "reviewed unit is absent",
+			edit: func(t *testing.T, root string, _ *[]string, _ *migrationManifest) {
+				writeInventoryFixtureFile(t, root, "case.txtar", []byte("after comment\n-- render.golden --\nafter golden\n"))
+			},
+		},
+		{
+			name: "planned deletion survives", want: "planned deletion still exists",
+			edit: func(t *testing.T, root string, _ *[]string, _ *migrationManifest) {
+				data, err := os.ReadFile(filepath.Join(root, "case.txtar"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeInventoryFixtureFile(t, root, "case.txtar", append(data, []byte("-- obsolete.txt --\nstill here\n")...))
+			},
+		},
+		{
+			name: "duplicate current section identity", want: "duplicate current unit identity",
+			edit: func(t *testing.T, root string, _ *[]string, _ *migrationManifest) {
+				data, err := os.ReadFile(filepath.Join(root, "case.txtar"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeInventoryFixtureFile(t, root, "case.txtar", append(data, []byte("-- input.gsx --\nduplicate\n")...))
+			},
+		},
+		{
+			name: "duplicate reviewed section identity", want: "duplicate reviewed unit identity",
+			edit: func(_ *testing.T, _ string, _ *[]string, manifest *migrationManifest) {
+				manifest.Entries[0].Units = append(manifest.Entries[0].Units, manifest.Entries[0].Units[1])
+			},
+		},
+		{
+			name: "duplicate manifest file", want: "duplicate manifest entry",
+			edit: func(_ *testing.T, _ string, _ *[]string, manifest *migrationManifest) {
+				manifest.Entries = append(manifest.Entries, manifest.Entries[0])
+			},
+		},
+		{
+			name: "duplicate universe file", want: "duplicate universe file",
+			edit: func(_ *testing.T, _ string, universe *[]string, _ *migrationManifest) {
+				*universe = append(*universe, (*universe)[0])
+			},
+		},
+		{
+			name: "missing file without delete action", want: "absent without delete action",
+			edit: func(t *testing.T, root string, universe *[]string, _ *migrationManifest) {
+				if err := os.Remove(filepath.Join(root, "raw.go")); err != nil {
+					t.Fatal(err)
+				}
+				*universe = slices.DeleteFunc(*universe, func(path string) bool { return path == "raw.go" })
+			},
+		},
+		{
+			name: "already applied", want: "phase",
+			edit: func(_ *testing.T, _ string, _ *[]string, manifest *migrationManifest) {
+				manifest.Phase = "applied"
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, universe, manifest, _ := recordAfterFixture(t)
+			test.edit(t, root, &universe, manifest)
+			_, err := recordAppliedManifest(root, universe, manifest)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestAppliedManifestVerificationPinsAfterHashesAndDeletions(t *testing.T) {
+	root, universe, planned, _ := recordAfterFixture(t)
+	applied, err := recordAppliedManifest(root, universe, planned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := verifyManifestErrors(root, universe, applied); len(problems) != 0 {
+		t.Fatalf("fresh applied manifest verification: %v", problems)
+	}
+
+	t.Run("surviving file hash", func(t *testing.T) {
+		writeInventoryFixtureFile(t, root, "raw.go", []byte("package changed_again\n"))
+		if problems := verifyManifestErrors(root, universe, applied); !problemsContain(problems, "after-hash") {
+			t.Fatalf("problems = %v, want after-hash mismatch", problems)
+		}
+	})
+
+	t.Run("planned file deletion", func(t *testing.T) {
+		root, universe, planned, _ := recordAfterFixture(t)
+		applied, err := recordAppliedManifest(root, universe, planned)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeInventoryFixtureFile(t, root, "gone.go", []byte("package p\n"))
+		universe = append(universe, "gone.go")
+		if problems := verifyManifestErrors(root, universe, applied); !problemsContain(problems, "planned deletion still exists") {
+			t.Fatalf("problems = %v, want planned deletion failure", problems)
+		}
+	})
+
+	t.Run("planned file deletion has after hash", func(t *testing.T) {
+		root, universe, planned, _ := recordAfterFixture(t)
+		applied, err := recordAppliedManifest(root, universe, planned)
+		if err != nil {
+			t.Fatal(err)
+		}
+		applied.Entries[2].AfterSHA256 = hashBytes([]byte("must stay empty"))
+		if problems := verifyManifestErrors(root, universe, applied); !problemsContain(problems, "planned file deletion has after-hash") {
+			t.Fatalf("problems = %v, want planned file deletion after-hash failure", problems)
+		}
+	})
+
+	t.Run("new section", func(t *testing.T) {
+		root, universe, planned, _ := recordAfterFixture(t)
+		applied, err := recordAppliedManifest(root, universe, planned)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(root, "case.txtar"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeInventoryFixtureFile(t, root, "case.txtar", append(data, []byte("-- new.txt --\nnew\n")...))
+		if problems := verifyManifestErrors(root, universe, applied); !problemsContain(problems, "unreviewed current unit") {
+			t.Fatalf("problems = %v, want unreviewed unit failure", problems)
+		}
+	})
+}
+
+func recordAfterFixture(t *testing.T) (string, []string, *migrationManifest, map[string][]byte) {
+	t.Helper()
+	root := t.TempDir()
+	beforeArchive := []byte("before comment\n-- input.gsx --\nbefore input\n-- obsolete.txt --\nremove me\n-- render.golden --\nbefore golden\n")
+	current := map[string][]byte{
+		"case.txtar": []byte("after comment\n-- render.golden --\nafter golden\n-- input.gsx --\nafter input\n"),
+		"raw.go":     []byte("package after\n"),
+	}
+	for path, data := range current {
+		writeInventoryFixtureFile(t, root, path, data)
+	}
+	archiveUnits := unitsFor("case.txtar", beforeArchive)
+	archiveUnits[0].Action = migrationReviewedNoChange
+	archiveUnits[1].Action = migrationManualEdit
+	archiveUnits[1].Kinds = []migrationKind{kindDeclareAttrs}
+	archiveUnits[1].ReviewNote = "reviewed input migration"
+	archiveUnits[2].Action = migrationDelete
+	archiveUnits[2].Kinds = []migrationKind{kindManualSemanticChoice}
+	archiveUnits[2].ReviewNote = "reviewed section deletion"
+	archiveUnits[3].Action = migrationRegenerate
+	archiveUnits[3].Kinds = []migrationKind{kindGeneratedOutput}
+	archiveUnits[3].ReviewNote = ""
+	rawBefore := []byte("package before\n")
+	goneBefore := []byte("package gone\n")
+	planned := &migrationManifest{
+		Version: migrationManifestVersion,
+		Phase:   "planned",
+		Entries: []migrationEntry{
+			{Path: "case.txtar", BeforeSHA256: hashBytes(beforeArchive), Units: archiveUnits},
+			{Path: "raw.go", BeforeSHA256: hashBytes(rawBefore), Units: []migrationUnit{{
+				Kind: "raw-file", BeforeSHA256: hashBytes(rawBefore), Action: migrationManualEdit,
+				Kinds: []migrationKind{kindDirectPropsInvoke}, ReviewNote: "reviewed raw migration",
+			}}},
+			{Path: "gone.go", BeforeSHA256: hashBytes(goneBefore), Units: []migrationUnit{{
+				Kind: "raw-file", BeforeSHA256: hashBytes(goneBefore), Action: migrationDelete,
+				Kinds: []migrationKind{kindManualSemanticChoice}, ReviewNote: "reviewed file deletion",
+			}}},
+		},
+	}
+	return root, []string{"case.txtar", "raw.go"}, planned, current
+}
+
+func writeInventoryFixtureFile(t *testing.T, root, rel string, data []byte) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func cloneMigrationManifest(t *testing.T, manifest *migrationManifest) *migrationManifest {
+	t.Helper()
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clone migrationManifest
+	if err := json.Unmarshal(data, &clone); err != nil {
+		t.Fatal(err)
+	}
+	return &clone
+}
+
+func assertOnlyAfterMetadataChanged(t *testing.T, before, after *migrationManifest) {
+	t.Helper()
+	normalized := cloneMigrationManifest(t, after)
+	normalized.Phase = before.Phase
+	for entryIndex := range normalized.Entries {
+		normalized.Entries[entryIndex].AfterSHA256 = before.Entries[entryIndex].AfterSHA256
+		for unitIndex := range normalized.Entries[entryIndex].Units {
+			normalized.Entries[entryIndex].Units[unitIndex].AfterSHA256 = before.Entries[entryIndex].Units[unitIndex].AfterSHA256
+		}
+	}
+	if beforeJSON, _ := json.Marshal(before); string(beforeJSON) != mustJSON(t, normalized) {
+		t.Fatalf("recorder changed reviewed metadata\nbefore: %s\nafter:  %s", beforeJSON, mustJSON(t, normalized))
+	}
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func migrationEntriesByPath(manifest *migrationManifest) map[string]migrationEntry {
+	entries := make(map[string]migrationEntry, len(manifest.Entries))
+	for _, entry := range manifest.Entries {
+		entries[entry.Path] = entry
+	}
+	return entries
+}
+
+func migrationUnitsByIdentity(t *testing.T, units []migrationUnit) map[string]migrationUnit {
+	t.Helper()
+	indexed := make(map[string]migrationUnit, len(units))
+	for _, unit := range units {
+		identity := unit.Kind + "\x00" + unit.SectionName
+		if _, exists := indexed[identity]; exists {
+			t.Fatalf("duplicate unit identity %q", identity)
+		}
+		indexed[identity] = unit
+	}
+	return indexed
+}
+
+func problemsContain(problems []error, substring string) bool {
+	for _, problem := range problems {
+		if strings.Contains(problem.Error(), substring) {
+			return true
+		}
+	}
+	return false
 }
