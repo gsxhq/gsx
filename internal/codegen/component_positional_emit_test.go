@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"bytes"
 	"go/token"
 	"go/types"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 func TestNormalizePositionalAttrsContributor(t *testing.T) {
@@ -159,4 +161,83 @@ component Page(name string) {
 	if pipeline < 0 || text < pipeline {
 		t.Fatalf("NodeText must wrap the fallible f-literal pipeline temporary:\n%s", generated)
 	}
+}
+
+func TestPositionalValueDiagnosticDoesNotCascadeToUnsupportedLowering(t *testing.T) {
+	tmp := tempModule(t, "example.com/diagnosticowner")
+	writeFile(t, tmp, "page.gsx", `package diagnosticowner
+
+import "github.com/gsxhq/gsx"
+
+component Card(title string, attrs gsx.Attrs) {
+	<div {attrs...}>{title}</div>
+}
+
+component Page(v int) {
+	<Card title="Hi" class={ "base", cls(v) }/>
+}
+
+func cls(v int) (int, string) { return v, "x" }
+`)
+
+	result, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := result[tmp].Diags
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %+v, want one precise invalid-tuple diagnostic", diagnostics)
+	}
+	if diagnostic := diagnostics[0]; diagnostic.Code != "invalid-tuple" || !strings.Contains(diagnostic.Message, `class part "cls(v)" returns (int, string); only (T, error) is supported`) {
+		t.Fatalf("diagnostic = %+v, want precise class-part tuple error", diagnostic)
+	}
+}
+
+func TestPositionalValueLoweringOwnsFailureOutcome(t *testing.T) {
+	t.Run("unsupported node remains caller-owned", func(t *testing.T) {
+		bag := diag.NewBag(token.NewFileSet())
+		counter := 0
+		got := positionalValueExpr(&bytes.Buffer{}, componentInputValue{node: &gsxast.CommentAttr{}}, componentPositionalSitePlan{}, positionalEmitContext{
+			bag: bag, interpTemp: &counter,
+		})
+		if got.outcome != positionalLoweringUnsupported {
+			t.Fatalf("outcome = %d, want unsupported", got.outcome)
+		}
+		if diagnostics := bag.Sorted(); len(diagnostics) != 0 {
+			t.Fatalf("unsupported lowerer reported diagnostics itself: %+v", diagnostics)
+		}
+	})
+
+	t.Run("ordered attrs diagnostic is callee-owned", func(t *testing.T) {
+		bag := diag.NewBag(token.NewFileSet())
+		counter := 0
+		attr := &gsxast.OrderedAttrsAttr{Pairs: []gsxast.OrderedPair{{Key: "x", Value: "pair()"}}}
+		tuple := types.NewTuple(
+			types.NewVar(token.NoPos, nil, "", types.Typ[types.Int]),
+			types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),
+		)
+		got := positionalValueExpr(&bytes.Buffer{}, componentInputValue{node: attr}, componentPositionalSitePlan{
+			expressionFacts: map[gsxast.Node]expressionFact{&attr.Pairs[0]: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}},
+		}, positionalEmitContext{bag: bag, interpTemp: &counter})
+		if got.outcome != positionalLoweringDiagnosed {
+			t.Fatalf("outcome = %d, want diagnosed", got.outcome)
+		}
+		if diagnostics := bag.Sorted(); len(diagnostics) != 1 || diagnostics[0].Code != "invalid-tuple" {
+			t.Fatalf("diagnostics = %+v, want one invalid-tuple", diagnostics)
+		}
+	})
+
+	t.Run("embedded literal diagnostic is callee-owned", func(t *testing.T) {
+		bag := diag.NewBag(token.NewFileSet())
+		counter := 0
+		got := positionalValueExpr(&bytes.Buffer{}, componentInputValue{node: &gsxast.EmbeddedAttr{Lang: 255}}, componentPositionalSitePlan{}, positionalEmitContext{
+			bag: bag, interpTemp: &counter,
+		})
+		if got.outcome != positionalLoweringDiagnosed {
+			t.Fatalf("outcome = %d, want diagnosed", got.outcome)
+		}
+		if diagnostics := bag.Sorted(); len(diagnostics) != 1 || diagnostics[0].Code != "component-positional-emission" {
+			t.Fatalf("diagnostics = %+v, want one embedded-language diagnostic", diagnostics)
+		}
+	})
 }

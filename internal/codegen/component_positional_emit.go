@@ -35,6 +35,31 @@ type positionalEmitContext struct {
 	errReturn           string
 }
 
+type positionalLoweringOutcome uint8
+
+const (
+	positionalLoweringUnsupported positionalLoweringOutcome = iota
+	positionalLoweringReady
+	positionalLoweringDiagnosed
+)
+
+// positionalValueLowering makes failure ownership explicit. Diagnosed means a
+// helper already emitted the precise user-facing diagnostic; unsupported means
+// the caller still owns the generic internal lowering diagnostic.
+type positionalValueLowering struct {
+	expr    string
+	used    map[string]string
+	outcome positionalLoweringOutcome
+}
+
+func readyPositionalValue(expr string, used map[string]string) positionalValueLowering {
+	return positionalValueLowering{expr: expr, used: used, outcome: positionalLoweringReady}
+}
+
+func diagnosedPositionalValue() positionalValueLowering {
+	return positionalValueLowering{outcome: positionalLoweringDiagnosed}
+}
+
 func (ctx positionalEmitContext) errorReturn() string {
 	if ctx.errReturn != "" {
 		return ctx.errReturn
@@ -76,12 +101,16 @@ func emitPositionalComponentCall(
 			continue
 		}
 		var statements bytes.Buffer
-		expr, used, ok := positionalValueExpr(&statements, value, plan, ctx)
-		if !ok {
+		valueLowering := positionalValueExpr(&statements, value, plan, ctx)
+		if valueLowering.outcome != positionalLoweringReady {
+			if valueLowering.outcome == positionalLoweringDiagnosed {
+				return false
+			}
 			ctx.bag.Errorf(value.node.Pos(), value.node.End(), "component-positional-emission",
 				"component input %T is not yet lowered by positional emission", value.node)
 			return false
 		}
+		expr, used := valueLowering.expr, valueLowering.used
 		if exprAttr, ok := value.node.(*gsxast.ExprAttr); ok && value.attrsNode == nil && len(exprAttr.Stages) != 0 {
 			var err error
 			expr, used, err = lowerPipe(exprAttr.Expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements))
@@ -236,64 +265,71 @@ func nextPositionalArgumentTemp(counter *int) string {
 	return name
 }
 
-func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
+func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
 	if value.attrsNode != nil {
 		return positionalAttrsValueExpr(b, *value.attrsNode, plan, ctx)
 	}
 	switch node := value.node.(type) {
 	case *gsxast.StaticAttr:
-		return strconv.Quote(node.Value), nil, true
+		return readyPositionalValue(strconv.Quote(node.Value), nil)
 	case *gsxast.BoolAttr:
-		return "true", nil, true
+		return readyPositionalValue("true", nil)
 	case *gsxast.ExprAttr:
-		return strings.TrimSpace(node.Expr), nil, true
+		return readyPositionalValue(strings.TrimSpace(node.Expr), nil)
 	case *gsxast.MarkupAttr:
 		expr, ok := positionalSlotClosure(node.Value, ctx)
-		return expr, nil, ok
+		if !ok {
+			return diagnosedPositionalValue()
+		}
+		return readyPositionalValue(expr, nil)
 	case *gsxast.OrderedAttrsAttr:
-		expr, ok := positionalOrderedAttrsExpr(b, node, plan, ctx)
-		return expr, nil, ok
+		return positionalOrderedAttrsExpr(b, node, plan, ctx)
 	case *gsxast.ClassAttr:
 		if node.Name == "style" {
 			expr, _, ok := rootStyleString(b, node, nil, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.resolved)
-			return expr, nil, ok
+			if !ok {
+				return diagnosedPositionalValue()
+			}
+			return readyPositionalValue(expr, nil)
 		}
 		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.pipeWrap(b), ctx.errorReturn())
 		if err != nil {
 			positionalAttrsError(node, err, ctx)
-			return "", nil, false
+			return diagnosedPositionalValue()
 		}
-		return expr, used, true
+		return readyPositionalValue(expr, used)
 	case *gsxast.EmbeddedAttr:
-		expr, ok := positionalEmbeddedValueExpr(b, node, ctx)
-		return expr, nil, ok
+		return positionalEmbeddedValueExpr(b, node, ctx)
 	case *gsxast.Element:
 		if value.kind != componentInputBody {
-			return "", nil, false
+			return positionalValueLowering{outcome: positionalLoweringUnsupported}
 		}
 		expr, ok := positionalSlotClosure(value.children, ctx)
-		return expr, nil, ok
+		if !ok {
+			return diagnosedPositionalValue()
+		}
+		return readyPositionalValue(expr, nil)
 	default:
-		return "", nil, false
+		return positionalValueLowering{outcome: positionalLoweringUnsupported}
 	}
 }
 
-func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
+func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
 	switch node.kind {
 	case componentAttrsStreamPair, componentAttrsStreamSpread:
 		if embedded, ok := node.attr.(*gsxast.EmbeddedAttr); ok && (embedded.Lang == gsxast.EmbeddedJS || embedded.Lang == gsxast.EmbeddedCSS) {
-			expr, ok := positionalEmbeddedValueExpr(b, embedded, ctx)
-			if !ok {
-				return "", nil, false
+			lowering := positionalEmbeddedValueExpr(b, embedded, ctx)
+			if lowering.outcome != positionalLoweringReady {
+				return lowering
 			}
-			return fmt.Sprintf("%s.Attrs{{Key: %s, Value: %s}}", ctx.rt.rt(), strconv.Quote(embedded.Name), expr), nil, true
+			return readyPositionalValue(fmt.Sprintf("%s.Attrs{{Key: %s, Value: %s}}", ctx.rt.rt(), strconv.Quote(embedded.Name), lowering.expr), nil)
 		}
 		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond)
 		if err != nil {
 			positionalAttrsError(node.attr, err, ctx)
-			return "", nil, false
+			return diagnosedPositionalValue()
 		}
-		return expr, used, true
+		return readyPositionalValue(expr, used)
 	case componentAttrsStreamContributor:
 		switch attr := node.attr.(type) {
 		case *gsxast.ExprAttr:
@@ -304,23 +340,21 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 				expr, used, err = lowerPipe(attr.Expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
 				if err != nil {
 					ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
-					return "", nil, false
+					return diagnosedPositionalValue()
 				}
 			}
-			return expr, used, true
+			return readyPositionalValue(expr, used)
 		case *gsxast.OrderedAttrsAttr:
-			expr, ok := positionalOrderedAttrsExpr(b, attr, plan, ctx)
-			return expr, nil, ok
+			return positionalOrderedAttrsExpr(b, attr, plan, ctx)
 		case *gsxast.EmbeddedAttr:
-			expr, ok := positionalEmbeddedValueExpr(b, attr, ctx)
-			return expr, nil, ok
+			return positionalEmbeddedValueExpr(b, attr, ctx)
 		default:
-			return "", nil, false
+			return positionalValueLowering{outcome: positionalLoweringUnsupported}
 		}
 	case componentAttrsStreamConditional:
 		return positionalConditionalAttrsExpr(b, node, plan, ctx)
 	default:
-		return "", nil, false
+		return positionalValueLowering{outcome: positionalLoweringUnsupported}
 	}
 }
 
@@ -335,38 +369,48 @@ func positionalAttrsError(node gsxast.Node, err error, ctx positionalEmitContext
 	ctx.bag.Errorf(node.Pos(), node.End(), "component-positional-emission", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 }
 
-func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx positionalEmitContext) (string, bool) {
+func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx positionalEmitContext) positionalValueLowering {
 	switch attr.Lang {
 	case gsxast.EmbeddedText:
-		return componentEmbeddedTextValueExpr(b, attr, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn())
+		expr, ok := componentEmbeddedTextValueExpr(b, attr, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn())
+		if !ok {
+			return diagnosedPositionalValue()
+		}
+		return readyPositionalValue(expr, nil)
 	case gsxast.EmbeddedJS:
 		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
-		expr, ok = positionalEmbeddedPipeline(b, attr, expr, ok, ctx)
 		if !ok {
-			return "", false
+			return diagnosedPositionalValue()
 		}
-		return ctx.rt.rt() + ".RawJS(" + expr + ")", true
+		lowering := positionalEmbeddedPipeline(b, attr, expr, ctx)
+		if lowering.outcome != positionalLoweringReady {
+			return lowering
+		}
+		return readyPositionalValue(ctx.rt.rt()+".RawJS("+lowering.expr+")", nil)
 	case gsxast.EmbeddedCSS:
 		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
-		expr, ok = positionalEmbeddedPipeline(b, attr, expr, ok, ctx)
 		if !ok {
-			return "", false
+			return diagnosedPositionalValue()
 		}
-		return ctx.rt.rt() + ".RawCSS(" + expr + ")", true
+		lowering := positionalEmbeddedPipeline(b, attr, expr, ctx)
+		if lowering.outcome != positionalLoweringReady {
+			return lowering
+		}
+		return readyPositionalValue(ctx.rt.rt()+".RawCSS("+lowering.expr+")", nil)
 	default:
 		ctx.bag.Errorf(attr.Pos(), attr.End(), "component-positional-emission", "unknown embedded literal language %d", attr.Lang)
-		return "", false
+		return diagnosedPositionalValue()
 	}
 }
 
-func positionalEmbeddedPipeline(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, expr string, ok bool, ctx positionalEmitContext) (string, bool) {
-	if !ok || len(attr.Stages) == 0 {
-		return expr, ok
+func positionalEmbeddedPipeline(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, expr string, ctx positionalEmitContext) positionalValueLowering {
+	if len(attr.Stages) == 0 {
+		return readyPositionalValue(expr, nil)
 	}
 	lowered, used, err := lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
 	if err != nil {
 		ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
-		return "", false
+		return diagnosedPositionalValue()
 	}
 	for _, path := range used {
 		ctx.imports[path] = true
@@ -375,56 +419,56 @@ func positionalEmbeddedPipeline(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, expr
 		if tuple, isTuple := fact.(*types.Tuple); isTuple {
 			if _, valid := tupleUnwrapType(tuple); !valid {
 				ctx.bag.Errorf(attr.Pos(), attr.End(), "invalid-tuple", "component attribute %q pipeline returns %s; only (T, error) is supported", attr.Name, tuple)
-				return "", false
+				return diagnosedPositionalValue()
 			}
 			lowered = hoistTupleReturning(b, lowered, ctx.interpTemp, ctx.errorReturn())
 		}
 	}
-	return lowered, true
+	return readyPositionalValue(lowered, nil)
 }
 
-func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
+func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
 	cond, ok := node.attr.(*gsxast.CondAttr)
 	if !ok {
-		return "", nil, false
+		return positionalValueLowering{outcome: positionalLoweringUnsupported}
 	}
-	thenExpr, thenUsed, ok := positionalAttrsBranchThunk(node.then, plan, ctx)
-	if !ok {
-		return "", nil, false
+	thenLowering := positionalAttrsBranchThunk(node.then, plan, ctx)
+	if thenLowering.outcome != positionalLoweringReady {
+		return thenLowering
 	}
 	elseExpr := "nil"
-	used := thenUsed
+	used := thenLowering.used
 	if len(node.otherwise) != 0 {
-		var elseUsed map[string]string
-		elseExpr, elseUsed, ok = positionalAttrsBranchThunk(node.otherwise, plan, ctx)
-		if !ok {
-			return "", nil, false
+		elseLowering := positionalAttrsBranchThunk(node.otherwise, plan, ctx)
+		if elseLowering.outcome != positionalLoweringReady {
+			return elseLowering
 		}
+		elseExpr = elseLowering.expr
 		if used == nil {
 			used = make(map[string]string)
 		}
-		maps.Copy(used, elseUsed)
+		maps.Copy(used, elseLowering.used)
 	}
-	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), strings.TrimSpace(cond.Cond), thenExpr, elseExpr)
+	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), strings.TrimSpace(cond.Cond), thenLowering.expr, elseExpr)
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
 	fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
 	fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
-	return name, used, true
+	return readyPositionalValue(name, used)
 }
 
-func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
+func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
 	var body bytes.Buffer
 	ctx.errReturn = "return nil, _gsxerr"
 	parts := make([]string, 0, len(nodes))
 	used := make(map[string]string)
 	for _, node := range nodes {
-		expr, nodeUsed, ok := positionalAttrsValueExpr(&body, node, plan, ctx)
-		if !ok {
-			return "", nil, false
+		lowering := positionalAttrsValueExpr(&body, node, plan, ctx)
+		if lowering.outcome != positionalLoweringReady {
+			return lowering
 		}
-		parts = append(parts, expr)
-		maps.Copy(used, nodeUsed)
+		parts = append(parts, lowering.expr)
+		maps.Copy(used, lowering.used)
 	}
 	expr := ctx.rt.rt() + ".Attrs{}"
 	if len(parts) == 1 {
@@ -442,14 +486,14 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 		}
 	}
 	fmt.Fprintf(&thunk, "\treturn %s, nil\n} ", expr)
-	return strings.TrimSpace(thunk.String()), used, true
+	return readyPositionalValue(strings.TrimSpace(thunk.String()), used)
 }
 
 func positionalSlotClosure(nodes []gsxast.Markup, ctx positionalEmitContext) (string, bool) {
 	return emitSlotClosure(nodes, ctx.currentPkg, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.interpTemp, ctx.fset, ctx.recvVar, ctx.recvTypeName, ctx.cls, ctx.bag, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan)
 }
 
-func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, bool) {
+func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
 	entries := make([]string, 0, len(attr.Pairs))
 	for i := range attr.Pairs {
 		pair := &attr.Pairs[i]
@@ -457,7 +501,7 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		if fact, ok := plan.expressionFacts[pair]; ok && fact.tuple != nil {
 			if _, valid := tupleUnwrapType(fact.tuple); !valid {
 				ctx.bag.Errorf(pair.Pos(), pair.End(), "invalid-tuple", "ordered attrs value %q returns %s; only (T, error) is supported", pair.Value, fact.tuple)
-				return "", false
+				return diagnosedPositionalValue()
 			}
 			name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 			*ctx.interpTemp++
@@ -467,7 +511,7 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		}
 		entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(pair.Key), expr))
 	}
-	return fmt.Sprintf("%s.Attrs{%s}", ctx.rt.rt(), strings.Join(entries, ", ")), true
+	return readyPositionalValue(fmt.Sprintf("%s.Attrs{%s}", ctx.rt.rt(), strings.Join(entries, ", ")), nil)
 }
 
 func positionalAttrsArg(slot componentArgSlot, values map[int]string, ctx positionalEmitContext) (string, bool) {
