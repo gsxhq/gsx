@@ -12,7 +12,11 @@ import (
 
 func writeTracingGoCommand(t *testing.T, trace, compiler string) string {
 	t.Helper()
-	bin := t.TempDir()
+	goRoot := t.TempDir()
+	bin := filepath.Join(goRoot, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	command := filepath.Join(bin, "go")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "$GSX_GO_COMMAND_TRACE"
@@ -21,10 +25,17 @@ if [ "$1" = "env" ] && [ "$2" = "-changed" ]; then
 	exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOWORK" ]; then
-	printf '{"GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux"}' "$GOWORK" "$GSX_FAKE_TOOL_DIR"
+	printf '{"GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux","GOROOT":"%s","GOVERSION":"%s","GOTOOLCHAIN":"go1.26.1+auto"}' "$GOWORK" "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_SELECTED_GOROOT" "$GSX_FAKE_SELECTED_VERSION"
+	exit 0
+fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
+	printf '{"GOTOOLDIR":"%s","GOHOSTOS":"linux","GOROOT":"%s","GOVERSION":"%s"}' "$GSX_FAKE_TOOL_DIR" "$GSX_FAKE_LOCAL_GOROOT" "$GSX_FAKE_LOCAL_VERSION"
 	exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
+	if [ -n "$GSX_MUTATE_COMPILER_DURING_ENV" ]; then
+		printf 'compiler changed during command' > "$GSX_FAKE_COMPILER"
+	fi
 	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_TOOL_DIR"
 	exit 0
 fi
@@ -41,6 +52,10 @@ exit 1
 	t.Setenv("GSX_GO_COMMAND_TRACE", trace)
 	t.Setenv("GSX_FAKE_COMPILER", compiler)
 	t.Setenv("GSX_FAKE_TOOL_DIR", filepath.Dir(compiler))
+	t.Setenv("GSX_FAKE_SELECTED_GOROOT", goRoot)
+	t.Setenv("GSX_FAKE_LOCAL_GOROOT", goRoot)
+	t.Setenv("GSX_FAKE_SELECTED_VERSION", "go1.26.1")
+	t.Setenv("GSX_FAKE_LOCAL_VERSION", "go1.26.1")
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOFLAGS", "")
@@ -70,7 +85,11 @@ func TestGoCommandContextCaptureCommandContract(t *testing.T) {
 	}
 	gotCommands := strings.Split(strings.TrimSpace(string(commands)), "\n")
 	sort.Strings(gotCommands)
-	wantCommands := []string{"env -changed -json", "env -json GOWORK GOTOOLDIR GOHOSTOS"}
+	wantCommands := []string{
+		"env -changed -json",
+		"env -json GOTOOLDIR GOHOSTOS GOROOT GOVERSION",
+		"env -json GOWORK GOTOOLDIR GOHOSTOS GOROOT GOVERSION GOTOOLCHAIN",
+	}
 	if !slices.Equal(gotCommands, wantCommands) {
 		t.Fatalf("capture Go commands = %q, want exact bounded contract %q", gotCommands, wantCommands)
 	}
@@ -100,9 +119,63 @@ func TestGoCommandContextCaptureCommandContract(t *testing.T) {
 	}
 }
 
+func TestGoCommandContextRejectsUnsealedGoExecutables(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		goFlags string
+		want    string
+	}{
+		{name: "gccgo compiler", goFlags: "-compiler=gccgo", want: "only gc can be sealed"},
+		{name: "tool exec wrapper", goFlags: "-toolexec=/tmp/go-tool-wrapper", want: "executable graph cannot be sealed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			compiler := filepath.Join(t.TempDir(), "compile")
+			if err := os.WriteFile(compiler, []byte("compiler bytes"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeTracingGoCommand(t, filepath.Join(t.TempDir(), "trace"), compiler)
+			t.Setenv("GOFLAGS", test.goFlags)
+			context := CaptureGoCommandContext(t.TempDir())
+			if err := context.ValidateCurrent(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateCurrent error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestGoCommandContextRejectsToolchainSwitch(t *testing.T) {
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTracingGoCommand(t, filepath.Join(t.TempDir(), "trace"), compiler)
+	t.Setenv("GSX_FAKE_SELECTED_VERSION", "go1.99.0")
+	context := CaptureGoCommandContext(t.TempDir())
+	if err := context.ValidateCurrent(); err == nil || !strings.Contains(err.Error(), "toolchain switching") || !strings.Contains(err.Error(), "PATH-local") {
+		t.Fatalf("ValidateCurrent error = %v, want direct PATH-local toolchain diagnostic", err)
+	}
+}
+
+func TestGoCommandContextRunRejectsCompilerMutationDuringCommand(t *testing.T) {
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTracingGoCommand(t, filepath.Join(t.TempDir(), "trace"), compiler)
+	t.Setenv("GSX_MUTATE_COMPILER_DURING_ENV", "1")
+	context := CaptureGoCommandContext(t.TempDir())
+	if _, err := context.Run("env", "-json"); err == nil || !strings.Contains(err.Error(), "changed while running env -json") || !strings.Contains(err.Error(), "compiler") {
+		t.Fatalf("Run error = %v, want compiler mutation during command rejection", err)
+	}
+}
+
 func writeFakeGoCommand(t *testing.T, marker string) string {
 	t.Helper()
-	bin := t.TempDir()
+	goRoot := t.TempDir()
+	bin := filepath.Join(goRoot, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	command := filepath.Join(bin, "go")
 	script := `#!/bin/sh
 if [ "$1" = "env" ] && [ "$2" = "-changed" ]; then
@@ -110,7 +183,11 @@ if [ "$1" = "env" ] && [ "$2" = "-changed" ]; then
 	exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOWORK" ]; then
-	printf '{"GOWORK":"%s","GOTOOLDIR":"` + filepath.Dir(marker) + `","GOHOSTOS":"linux"}' "$GOWORK"
+	printf '{"GOWORK":"%s","GOTOOLDIR":"` + filepath.Dir(marker) + `","GOHOSTOS":"linux","GOROOT":"` + goRoot + `","GOVERSION":"go1.26.1","GOTOOLCHAIN":"go1.26.1+auto"}' "$GOWORK"
+	exit 0
+fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
+	printf '{"GOTOOLDIR":"` + filepath.Dir(marker) + `","GOHOSTOS":"linux","GOROOT":"` + goRoot + `","GOVERSION":"go1.26.1"}'
 	exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
@@ -155,6 +232,58 @@ func TestGoCommandContextFingerprintIncludesSelectedCompilerIdentity(t *testing.
 	}
 	if first == second {
 		t.Fatal("compiler -V=full identity changed without changing the Go-context fingerprint")
+	}
+}
+
+func TestGoCommandContextFingerprintRevalidatesMemoizedCompiler(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(t *testing.T, compiler string)
+	}{
+		{
+			name: "in-place mutation",
+			mutate: func(t *testing.T, compiler string) {
+				t.Helper()
+				if err := os.WriteFile(compiler, []byte("compiler version two"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "replacement",
+			mutate: func(t *testing.T, compiler string) {
+				t.Helper()
+				replacement := filepath.Join(t.TempDir(), "replacement")
+				if err := os.WriteFile(replacement, []byte("compiler version one"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(replacement, compiler); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			compiler := filepath.Join(t.TempDir(), "compile")
+			if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", writeFakeGoCommand(t, compiler))
+			t.Setenv("GOWORK", "off")
+			t.Setenv("GOENV", "off")
+			t.Setenv("GOFLAGS", "")
+			t.Setenv("GOPACKAGESDRIVER", "off")
+
+			context := CaptureGoCommandContext(root)
+			if _, err := context.CacheFingerprint(); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, compiler)
+			if _, err := context.CacheFingerprint(); err == nil || !strings.Contains(err.Error(), "compiler") {
+				t.Fatalf("memoized CacheFingerprint error = %v, want compiler mutation rejection", err)
+			}
+		})
 	}
 }
 
@@ -219,6 +348,13 @@ func TestGoCommandContextFingerprintStableAcrossRealGoQueries(t *testing.T) {
 	}
 	if first != second {
 		t.Fatalf("identical real Go contexts produced unstable fingerprints:\n%s\n%s", first, second)
+	}
+	context := CaptureGoCommandContext(root)
+	if context.buildEnvErr != nil {
+		t.Fatal(context.buildEnvErr)
+	}
+	if got := environmentValue(context.buildEnv, "GOTOOLCHAIN"); got != "local" {
+		t.Fatalf("default auto-selected local toolchain was frozen as GOTOOLCHAIN=%q, want local", got)
 	}
 }
 
@@ -333,6 +469,22 @@ func TestGoCommandContextDisablesPersistentCacheForWorkspaceAndVendor(t *testing
 		_, err := CaptureGoCommandContext(root).CacheFingerprint()
 		if !errors.Is(err, ErrUncacheableGoContext) {
 			t.Fatalf("CacheFingerprint error = %v, want ErrUncacheableGoContext", err)
+		}
+	})
+
+	t.Run("vendor appears after memoized fingerprint", func(t *testing.T) {
+		t.Setenv("GOWORK", "off")
+		t.Setenv("GOFLAGS", "-mod=mod")
+		root := t.TempDir()
+		context := CaptureGoCommandContext(root)
+		if _, err := context.CacheFingerprint(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(root, "vendor"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := context.CacheFingerprint(); err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
+			t.Fatalf("memoized CacheFingerprint error = %v, want vendor state rejection", err)
 		}
 	})
 

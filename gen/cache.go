@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
@@ -180,6 +179,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 	}
 
 	keys := map[string]string{} // dir -> key (only when computable)
+	hits := map[string]pkgOutput{}
 	var miss []string
 	for _, dir := range dirs {
 		if gerr != nil {
@@ -192,22 +192,26 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 			continue
 		}
 		keys[dir] = k
-		if _, ok := storeGet(cdir, k); ok {
+		if cached, ok := storeGet(cdir, k); ok {
+			hits[dir] = cached
 			continue // HIT
 		}
 		miss = append(miss, dir)
 	}
 
+	// CacheFingerprint was computed before graph loading and key classification.
+	// Revalidate at the semantic commit boundary immediately before any cached
+	// bytes are consumed or any MISS is generated and stored. A changed
+	// launcher, compiler, or vendor-selection state must fail closed without
+	// publishing output under a stale provenance key.
+	if err := goContext.ValidateCurrent(); err != nil {
+		res.Errs = append(res.Errs, fmt.Errorf("gen: validate Go command context before cache commit: %w", err))
+		return
+	}
+
 	// RESTORE phase: write every HIT's cached output to disk (hash-gated), BEFORE generating.
 	for _, dir := range dirs {
-		k, ok := keys[dir]
-		if !ok {
-			continue
-		}
-		if slices.Contains(miss, dir) {
-			continue
-		}
-		out, ok := storeGet(cdir, k)
+		out, ok := hits[dir]
 		if !ok {
 			continue
 		}

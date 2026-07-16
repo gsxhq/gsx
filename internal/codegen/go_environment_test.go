@@ -306,9 +306,29 @@ func TestModuleRejectsInPlaceGoLauncherMutationDuringColdLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	launcherDir := t.TempDir()
+	goEnv := func(name string) string {
+		t.Helper()
+		output, err := exec.Command(realGo, "env", name).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	launcherRoot := t.TempDir()
+	launcherDir := filepath.Join(launcherRoot, "bin")
+	if err := os.MkdirAll(launcherDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	launcher := filepath.Join(launcherDir, "go")
 	const source = `#!/bin/sh
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOWORK" ]; then
+	printf '{"GOWORK":"off","GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"%s","GOTOOLCHAIN":"auto"}' "$REAL_GOTOOLDIR" "$REAL_GOHOSTOS" "$FAKE_GOROOT" "$REAL_GOVERSION"
+	exit 0
+fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
+	printf '{"GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"%s"}' "$REAL_GOTOOLDIR" "$REAL_GOHOSTOS" "$FAKE_GOROOT" "$REAL_GOVERSION"
+	exit 0
+fi
 if [ "$1" = "list" ]; then
 	printf '#!/bin/sh\nexec "$REAL_GO" "$@"\n' > "$0"
 fi
@@ -318,7 +338,12 @@ exec "$REAL_GO" "$@"
 		t.Fatal(err)
 	}
 	t.Setenv("REAL_GO", realGo)
+	t.Setenv("REAL_GOTOOLDIR", goEnv("GOTOOLDIR"))
+	t.Setenv("REAL_GOHOSTOS", goEnv("GOHOSTOS"))
+	t.Setenv("REAL_GOVERSION", goEnv("GOVERSION"))
+	t.Setenv("FAKE_GOROOT", launcherRoot)
 	t.Setenv("PATH", launcherDir)
+	t.Setenv("GOWORK", "off")
 	t.Setenv("GOPACKAGESDRIVER", "off")
 
 	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})

@@ -15,10 +15,13 @@ import (
 	"github.com/gsxhq/gsx/internal/golauncher"
 )
 
-type effectiveGoWorkspace struct {
-	GOWORK    string
-	GOTOOLDIR string
-	GOHOSTOS  string
+type effectiveGoToolchain struct {
+	GOWORK      string
+	GOTOOLDIR   string
+	GOHOSTOS    string
+	GOROOT      string
+	GOVERSION   string
+	GOTOOLCHAIN string
 }
 
 // ErrUncacheableGoContext marks a valid Go command context whose semantic
@@ -39,6 +42,7 @@ type GoCommandContext struct {
 	cacheOnce   sync.Once
 	cacheKey    string
 	cacheKeyErr error
+	vendorDir   bool
 }
 
 // CaptureGoCommandContext freezes exactly the environment and Go launcher a
@@ -50,9 +54,12 @@ func CaptureGoCommandContext(moduleRoot string) *GoCommandContext {
 		moduleRoot: filepath.Clean(moduleRoot),
 		buildEnv:   append([]string(nil), os.Environ()...),
 	}
+	context.vendorDir, context.buildEnvErr = moduleVendorDir(context.moduleRoot)
 	packagesDriverPath, _ := exec.LookPath("gopackagesdriver")
-	snapshot, err := golauncher.SnapshotLive()
-	context.buildEnvErr = err
+	var snapshot *golauncher.Snapshot
+	if context.buildEnvErr == nil {
+		snapshot, context.buildEnvErr = golauncher.SnapshotLive()
+	}
 	var toolDir, hostOS string
 	if context.buildEnvErr == nil {
 		context.buildEnv, toolDir, hostOS, context.buildEnvErr = freezeGoCommandEnvironment(
@@ -81,7 +88,44 @@ func (context *GoCommandContext) Run(args ...string) ([]byte, error) {
 	if context.goLauncher == nil {
 		return nil, fmt.Errorf("codegen: Go launcher identity is unavailable")
 	}
-	return context.goLauncher.Run(context.moduleRoot, context.buildEnv, args...)
+	if err := context.ValidateCurrent(); err != nil {
+		return nil, fmt.Errorf("codegen: validate Go command context before running %s: %w", strings.Join(args, " "), err)
+	}
+	output, runErr := context.goLauncher.Run(context.moduleRoot, context.buildEnv, args...)
+	if err := context.ValidateCurrent(); err != nil {
+		validationErr := fmt.Errorf("codegen: Go command context changed while running %s: %w", strings.Join(args, " "), err)
+		if runErr != nil {
+			return nil, errors.Join(runErr, validationErr)
+		}
+		return nil, validationErr
+	}
+	return output, runErr
+}
+
+// ValidateCurrent proves that the Go launcher, compiler, and frozen selection
+// environment still match this context. It performs exact file inspection and
+// starts no subprocesses.
+func (context *GoCommandContext) ValidateCurrent() error {
+	if context == nil {
+		return fmt.Errorf("codegen: nil Go command context")
+	}
+	if context.buildEnvErr != nil {
+		return context.buildEnvErr
+	}
+	if context.goLauncher == nil {
+		return fmt.Errorf("codegen: Go launcher identity is unavailable")
+	}
+	if err := context.goLauncher.Validate(context.moduleRoot, context.buildEnv); err != nil {
+		return err
+	}
+	vendorDir, err := moduleVendorDir(context.moduleRoot)
+	if err != nil {
+		return err
+	}
+	if vendorDir != context.vendorDir {
+		return fmt.Errorf("codegen: module vendor directory state changed after Go command context capture")
+	}
+	return nil
 }
 
 // CacheFingerprint returns a canonical digest of the frozen effective Go
@@ -140,19 +184,8 @@ func (context *GoCommandContext) CacheFingerprint() (string, error) {
 				return
 			}
 		}
-		if info, err := os.Stat(filepath.Join(context.moduleRoot, "vendor")); err == nil && info.IsDir() {
+		if context.vendorDir {
 			context.cacheKeyErr = fmt.Errorf("%w: module vendor source is present", ErrUncacheableGoContext)
-			return
-		} else if err != nil && !os.IsNotExist(err) {
-			context.cacheKeyErr = fmt.Errorf("codegen: inspect module vendor source: %w", err)
-			return
-		}
-		if context.goLauncher == nil {
-			context.cacheKeyErr = fmt.Errorf("codegen: fingerprint Go command: launcher identity is unavailable")
-			return
-		}
-		if err := context.goLauncher.Validate(context.moduleRoot, context.buildEnv); err != nil {
-			context.cacheKeyErr = fmt.Errorf("codegen: fingerprint selected Go compiler: %w", err)
 			return
 		}
 		launcherDigest := context.goLauncher.Digest()
@@ -165,7 +198,27 @@ func (context *GoCommandContext) CacheFingerprint() (string, error) {
 		hash.Write([]byte(compilerIdentity))
 		context.cacheKey = fmt.Sprintf("%x", hash.Sum(nil))
 	})
-	return context.cacheKey, context.cacheKeyErr
+	if context.cacheKeyErr != nil {
+		return "", context.cacheKeyErr
+	}
+	// The fingerprint computation is memoized, but the provenance it names is
+	// live state. Revalidate on every return so an all-HIT cache operation cannot
+	// consume a key after the selected compiler or launcher has changed.
+	if err := context.ValidateCurrent(); err != nil {
+		return "", fmt.Errorf("codegen: fingerprint selected Go toolchain: %w", err)
+	}
+	return context.cacheKey, nil
+}
+
+func moduleVendorDir(moduleRoot string) (bool, error) {
+	info, err := os.Stat(filepath.Join(moduleRoot, "vendor"))
+	if err == nil {
+		return info.IsDir(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("codegen: inspect module vendor source: %w", err)
 }
 
 // freezeGoCommandEnvironment snapshots every Go setting whose effective value
@@ -205,16 +258,32 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 		buildEnv = environmentWithValue(buildEnv, key, changed[key])
 	}
 
-	environmentOutput, err := snapshot.Run(moduleRoot, buildEnv, "env", "-json", "GOWORK", "GOTOOLDIR", "GOHOSTOS")
+	environmentOutput, err := snapshot.Run(moduleRoot, buildEnv, "env", "-json", "GOWORK", "GOTOOLDIR", "GOHOSTOS", "GOROOT", "GOVERSION", "GOTOOLCHAIN")
 	if err != nil {
 		return nil, "", "", fmt.Errorf("codegen: resolve effective Go workspace and toolchain: %w", err)
 	}
-	var workspace effectiveGoWorkspace
-	if err := json.Unmarshal(environmentOutput, &workspace); err != nil {
+	var toolchain effectiveGoToolchain
+	if err := json.Unmarshal(environmentOutput, &toolchain); err != nil {
 		return nil, "", "", fmt.Errorf("codegen: decode effective Go workspace and toolchain: %w", err)
 	}
-	if workspace.GOWORK == "" {
-		workspace.GOWORK = "off"
+	if toolchain.GOWORK == "" {
+		toolchain.GOWORK = "off"
+	}
+
+	localEnv := environmentWithValue(buildEnv, "GOTOOLCHAIN", "local")
+	localOutput, err := snapshot.Run(moduleRoot, localEnv, "env", "-json", "GOTOOLDIR", "GOHOSTOS", "GOROOT", "GOVERSION")
+	if err != nil {
+		return nil, "", "", fmt.Errorf("codegen: resolve local Go toolchain: %w", err)
+	}
+	var local effectiveGoToolchain
+	if err := json.Unmarshal(localOutput, &local); err != nil {
+		return nil, "", "", fmt.Errorf("codegen: decode local Go toolchain: %w", err)
+	}
+	if toolchain.GOVERSION != local.GOVERSION || toolchain.GOROOT != local.GOROOT || toolchain.GOTOOLDIR != local.GOTOOLDIR || toolchain.GOHOSTOS != local.GOHOSTOS {
+		return nil, "", "", fmt.Errorf("codegen: Go toolchain switching is not supported: selected %s at %q, PATH-local launcher provides %s at %q; invoke the selected toolchain directly so it is PATH-local", toolchain.GOVERSION, toolchain.GOROOT, local.GOVERSION, local.GOROOT)
+	}
+	if err := snapshot.RequireLocalToolchain(toolchain.GOROOT, toolchain.GOHOSTOS); err != nil {
+		return nil, "", "", fmt.Errorf("codegen: effective Go toolchain is not PATH-local: %w; invoke the selected toolchain directly so it is PATH-local", err)
 	}
 
 	effectiveGoFlags := environmentValue(buildEnv, "GOFLAGS")
@@ -222,27 +291,48 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 	if err != nil {
 		return nil, "", "", fmt.Errorf("codegen: parse effective GOFLAGS: %w", err)
 	}
-	var overlayValue string
-	var overlayHasValue, overlaySeen bool
+	compiler := "gc"
+	var overlayValue, toolExecValue string
+	var overlayHasValue, overlaySeen, toolExecHasValue, toolExecSeen bool
 	for _, flag := range flags {
 		name, value, hasValue := goFlagValue(flag)
-		if name == "overlay" {
+		switch name {
+		case "compiler":
+			if !hasValue {
+				return nil, "", "", fmt.Errorf("codegen: effective GOFLAGS -compiler requires a value")
+			}
+			compiler = value
+		case "overlay":
 			overlaySeen = true
 			overlayValue = value
 			overlayHasValue = hasValue
+		case "toolexec":
+			toolExecSeen = true
+			toolExecValue = value
+			toolExecHasValue = hasValue
 		}
+	}
+	if compiler != "gc" {
+		return nil, "", "", fmt.Errorf("codegen: effective GOFLAGS selects unsupported -compiler=%s; only gc can be sealed", compiler)
 	}
 	if overlaySeen && (!overlayHasValue || overlayValue != "") {
 		return nil, "", "", fmt.Errorf("codegen: effective GOFLAGS -overlay is not supported in normal mode")
 	}
+	if toolExecSeen && (!toolExecHasValue || toolExecValue != "") {
+		return nil, "", "", fmt.Errorf("codegen: effective GOFLAGS -toolexec is not supported because its executable graph cannot be sealed")
+	}
 
 	buildEnv = environmentWithValue(buildEnv, "GOFLAGS", effectiveGoFlags)
-	buildEnv = environmentWithValue(buildEnv, "GOWORK", workspace.GOWORK)
+	buildEnv = environmentWithValue(buildEnv, "GOWORK", toolchain.GOWORK)
+	// The selected toolchain was proved identical to the captured launcher's
+	// local toolchain. Freeze local mode so later commands cannot dynamically
+	// re-exec a PATH or downloaded goN executable that was never sealed.
+	buildEnv = environmentWithValue(buildEnv, "GOTOOLCHAIN", "local")
 	buildEnv = environmentWithValue(buildEnv, "GOENV", "off")
 	// x/tools/go/packages consults the live process PATH when no driver is
 	// explicit in Config.Env. Pin the already-validated no-driver state so a
 	// later process-environment mutation cannot escape this frozen boundary.
-	return environmentWithValue(buildEnv, "GOPACKAGESDRIVER", "off"), workspace.GOTOOLDIR, workspace.GOHOSTOS, nil
+	return environmentWithValue(buildEnv, "GOPACKAGESDRIVER", "off"), toolchain.GOTOOLDIR, toolchain.GOHOSTOS, nil
 }
 
 func (m *Module) validateGoCommandLauncher() error {
