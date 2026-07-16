@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -304,9 +305,7 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 		if used == nil {
 			used = make(map[string]string)
 		}
-		for name, path := range elseUsed {
-			used[name] = path
-		}
+		maps.Copy(used, elseUsed)
 	}
 	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), strings.TrimSpace(cond.Cond), thenExpr, elseExpr)
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
@@ -326,9 +325,7 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 			return "", nil, false
 		}
 		parts = append(parts, expr)
-		for name, path := range nodeUsed {
-			used[name] = path
-		}
+		maps.Copy(used, nodeUsed)
 	}
 	expr := ctx.rt.rt() + ".Attrs{}"
 	if len(parts) == 1 {
@@ -338,7 +335,7 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 	}
 	var thunk strings.Builder
 	fmt.Fprintf(&thunk, "func() (%s.Attrs, error) {\n", ctx.rt.rt())
-	for _, line := range strings.Split(strings.TrimSuffix(body.String(), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSuffix(body.String(), "\n"), "\n") {
 		if line != "" {
 			thunk.WriteString("\t")
 			thunk.WriteString(line)
