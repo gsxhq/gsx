@@ -7,11 +7,13 @@ pageOrder: 90
 -- input.gsx --
 package views
 
-component Icon(name string) {
+import "github.com/gsxhq/gsx"
+
+component Icon(name string, attrs gsx.Attrs) {
 	<span class="icon" data-name={name} { attrs... }>i</span>
 }
 
-component SearchIcon() {
+component SearchIcon(attrs gsx.Attrs) {
 	<Icon name="search" class="w-5 h-5" { attrs... }/>
 }
 
