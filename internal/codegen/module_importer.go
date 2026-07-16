@@ -295,12 +295,6 @@ func (m *Module) affectedLocked(seeds []string) invalidationScope {
 	for dir := range m.pkgResults {
 		scope.dirs[dir] = true
 	}
-	for dir := range m.depFacts {
-		scope.dirs[dir] = true
-	}
-	for dir := range m.syntacticDepFacts {
-		scope.dirs[dir] = true
-	}
 	addForwardGraphDirs(scope.dirs, m.imports)
 	addForwardGraphDirs(scope.dirs, m.targetImports)
 	addForwardGraphDirs(scope.dirs, m.sourceDeclImports)
@@ -345,8 +339,6 @@ func (m *Module) invalidateConfiguredSourceStateLocked() {
 	m.targetDeclTypes = map[string]*types.Package{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
-	m.depFacts = map[string]*depPropFacts{}
-	m.syntacticDepFacts = map[string]*depPropFacts{}
 }
 
 // invalidateLocked drops the reverse-closure of ordinary dirs from pkgTypes and
@@ -363,8 +355,6 @@ func (m *Module) invalidateLocked(dirs []string) []string {
 		delete(m.targetDeclTypes, d)
 		delete(m.configuredDeclTypes, d)
 		delete(m.pkgResults, d)
-		delete(m.depFacts, d)
-		delete(m.syntacticDepFacts, d)
 	}
 	return scope.sorted()
 }
@@ -592,55 +582,6 @@ func (m *Module) recordSourceDeclImports(dir string, paths []string) {
 	m.sourceDeclImports[dir] = newDeps
 }
 
-// depPropFacts caches the declared package name for a dependency directory.
-// It holds no FileSet positions and survives FileSet rebuilds, while normal
-// dirty-closure invalidation still removes stale entries.
-type depPropFacts struct {
-	pkgName string
-}
-
-func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
-	m.mu.Lock()
-	if facts, ok := m.depFacts[depDir]; ok {
-		m.mu.Unlock()
-		return facts, nil
-	}
-	m.mu.Unlock()
-	parsed, err := m.parsePackageWithFset(depDir, m.fset)
-	if err != nil {
-		return nil, err
-	}
-	facts := &depPropFacts{pkgName: parsed.name}
-	m.mu.Lock()
-	if m.depFacts == nil {
-		m.depFacts = map[string]*depPropFacts{}
-	}
-	m.depFacts[depDir] = facts
-	m.mu.Unlock()
-	return facts, nil
-}
-
-func (m *Module) importedPropFactsSyntactic(depDir string) (*depPropFacts, error) {
-	m.mu.Lock()
-	if facts, ok := m.syntacticDepFacts[depDir]; ok {
-		m.mu.Unlock()
-		return facts, nil
-	}
-	m.mu.Unlock()
-	parsed, err := m.parsePackageWithFset(depDir, m.fset)
-	if err != nil {
-		return nil, err
-	}
-	facts := &depPropFacts{pkgName: parsed.name}
-	m.mu.Lock()
-	if m.syntacticDepFacts == nil {
-		m.syntacticDepFacts = map[string]*depPropFacts{}
-	}
-	m.syntacticDepFacts[depDir] = facts
-	m.mu.Unlock()
-	return facts, nil
-}
-
 // resolveImportPackageName returns the declared package name from the same
 // semantic universe used by type checking. Normal modules resolve local names
 // from the authoritative source inventory and external names from retained
@@ -709,16 +650,6 @@ func (m *Module) bundleSourcePackageName(dir string) (string, bool) {
 	return name, name != ""
 }
 
-// fileFacts is the per-.gsx-file view of prop facts: the package's own facts
-// plus, for each gsx package imported BY THIS FILE, the dep's facts qualified
-// under the file's alias. Go import aliases are file-scoped, so these views
-// must be too — a package-wide alias merge collides when two files bind the
-// same alias to different packages.
-type fileFacts struct {
-	failed        bool
-	depAliasSpecs map[string]importSpec
-}
-
 // importSpecPosition identifies one user import spec within one .gsx file.
 type importSpecPosition struct {
 	line int
@@ -749,51 +680,25 @@ func fileImportSpecs(f *gsxast.File, fset *token.FileSet) []importSpec {
 	return specs
 }
 
-func (m *Module) fileScopedFacts(dir string, f *gsxast.File, bag *diag.Bag, fset *token.FileSet) *fileFacts {
-	return m.fileScopedFactsWith(dir, f, bag, fset, m.importedPropFacts)
-}
-
-func (m *Module) fileScopedFactsSyntactic(dir string, f *gsxast.File, bag *diag.Bag, fset *token.FileSet) *fileFacts {
-	return m.fileScopedFactsWith(dir, f, bag, fset, m.importedPropFactsSyntactic)
-}
-
-func (m *Module) fileScopedFactsWith(
-	dir string,
-	f *gsxast.File,
-	bag *diag.Bag,
-	fset *token.FileSet,
-	loadDepFacts func(string) (*depPropFacts, error),
-) *fileFacts {
-	out := &fileFacts{depAliasSpecs: make(map[string]importSpec)}
-	for _, spec := range fileImportSpecs(f, fset) {
+// importSpecsByQualifier resolves each ordinary import spec to the exact name
+// it binds in this file. It uses the retained Go/source package universe and
+// never parses or preprocesses the imported GSX package merely to classify a
+// reference in the importing file.
+func (m *Module) importSpecsByQualifier(specs []importSpec) map[string]importSpec {
+	out := make(map[string]importSpec)
+	for _, spec := range specs {
 		if spec.name == "." || spec.name == "_" {
-			continue
-		}
-		depDir, ok := m.sourcePackageDir(spec.path)
-		if !ok || depDir == dir {
-			continue
-		}
-		facts, err := loadDepFacts(depDir)
-		if err != nil {
-			out.failed = true
-			if diags, ok := diagnosticsFromSourceError(err); ok {
-				for _, d := range diags {
-					bag.Add(d)
-				}
-			} else {
-				pos := fset.Position(spec.pos)
-				bag.Add(diag.Diagnostic{
-					Start: pos, End: pos, Severity: diag.Error, Code: "imported-component-unavailable", Source: "codegen",
-					Message: fmt.Sprintf("cannot analyze imported gsx package %q: %v", spec.path, err),
-				})
-			}
 			continue
 		}
 		alias := spec.name
 		if alias == "" {
-			alias = facts.pkgName
+			var ok bool
+			alias, ok = m.resolveImportPackageName(spec.path)
+			if !ok {
+				continue
+			}
 		}
-		out.depAliasSpecs[alias] = spec
+		out[alias] = spec
 	}
 	return out
 }
@@ -1230,11 +1135,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 					"identifier %q is reserved (%s) — rename it", rb.name, reservedBodyMeaning(rb.name))
 			}
 		}
-		ff := m.fileScopedFacts(dir, f, bag, fset)
-		if ff.failed {
-			skelErr = true
-			break
-		}
 		skel, comps, imps, ctrlOff, gwMarkups, berr := buildSkeleton(f, table, fset, bag, &componentPlan, skeletonFull)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
@@ -1253,15 +1153,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			break
 		}
 		allImportSpecs = append(allImportSpecs, imps...)
-		// A requalification-failed generic tag's SKELETON sink drops the tag's
-		// reference to its dep package (see analyze.go's emitProbes fail-safe
-		// branch), so when that tag was the file's ONLY use of the import, the
-		// skeleton type-check raises a SPURIOUS `"path" imported and not used`
-		// hard error at the user's import line — the import IS used in the
-		// .gsx source. Resolve each failed alias to its import path now
-		// (fileFacts.depAliasSpecs) so the type-error loop below can filter
-		// exactly those errors, and Generate can rewrite the emitted import to
-		// a blank `_` import (the emitted file drops the reference too).
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		absXpath := filepath.Join(dir, base+".x.go")
 		gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
@@ -1273,10 +1164,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		gwMarkupsByXGo[absXpath] = gwMarkups
 		ctrlOffByXGo[absXpath] = ctrlOff
 		targetQualifiers := componentTargetQualifiers(callSites, path)
-		if len(targetQualifiers) != 0 && ff.depAliasSpecs != nil {
+		if len(targetQualifiers) != 0 {
+			byQualifier := m.importSpecsByQualifier(imps)
 			set := make(map[importSpecPosition]bool)
 			for qualifier := range targetQualifiers {
-				if spec, ok := ff.depAliasSpecs[qualifier]; ok && spec.pos.IsValid() {
+				if spec, ok := byQualifier[qualifier]; ok && spec.pos.IsValid() {
 					set[importSpecPosition{line: fset.Position(spec.pos).Line, path: spec.path}] = true
 				}
 			}
@@ -1573,7 +1465,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// already type-checked above — no extra parse, no lock, no packages.Load.
 	// See unusedFromSkeletons' doc and the design doc
 	// (docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md).
-	unusedImports := unusedFromSkeletons(skelByGsx, fset, pkg)
+	unusedImports := unusedFromSkeletons(skelByGsx, pkg)
 
 	// Missing imports for the LSP surface (Package's PackageResult.MissingImports),
 	// computed from the same skeletons and the same type-checked info — no extra

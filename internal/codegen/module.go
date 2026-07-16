@@ -195,8 +195,6 @@ type Module struct {
 	targetDeclTypes           map[string]*types.Package           // abs dir -> exact-signature declarations; never aliases the shipping Props cache
 	configuredDeclTypes       map[string]*types.Package           // abs dir -> configured declaration-universe package cache
 	pkgResults                map[string]*PackageResult           // abs dir -> cached full analysis result (Package path only)
-	depFacts                  map[string]*depPropFacts            // abs dep dir -> cached imported prop facts (see importedPropFacts)
-	syntacticDepFacts         map[string]*depPropFacts            // importer-free fmt fact universe; never shares semantic companion facts
 	imports                   map[string][]string                 // dir -> authoritative module-local shipping dependencies (forward edges)
 	importedBy                map[string]map[string]bool          // dep dir -> set of importer dirs (reverse edges)
 	targetImports             map[string][]string                 // exact-target declaration graph forward edges
@@ -308,8 +306,6 @@ func Open(opts Options) (*Module, error) {
 		externalImportPaths:       map[string]bool{},
 		externalBackedges:         map[string][]string{},
 		pkgResults:                map[string]*PackageResult{},
-		depFacts:                  map[string]*depPropFacts{},
-		syntacticDepFacts:         map[string]*depPropFacts{},
 		imports:                   map[string][]string{},
 		importedBy:                map[string]map[string]bool{},
 		targetImports:             map[string][]string{},
@@ -1196,8 +1192,6 @@ func (m *Module) rebuildFset() {
 	m.targetDeclTypes = map[string]*types.Package{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
-	m.depFacts = map[string]*depPropFacts{}
-	m.syntacticDepFacts = map[string]*depPropFacts{}
 	m.fsetBaseline = 0
 	m.rebuildCount++
 }

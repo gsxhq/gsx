@@ -273,7 +273,7 @@ func importNamesFromTypes(pkg *types.Package) map[string]string {
 // checked against the file's used set before it is reported unused. An
 // unresolvable candidate path (resolveNames' result has no entry) is
 // conservatively kept, never removed.
-func unusedImportsCore(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, resolveNames func(paths []string) map[string]string) map[string][]UnusedImport {
+func unusedImportsCore(byGsx map[string]fileSkeleton, resolveNames func(paths []string) map[string]string) map[string][]UnusedImport {
 	out := map[string][]UnusedImport{}
 	usedByFile := map[string]map[string]bool{}
 	type pending struct {
@@ -324,9 +324,9 @@ func unusedImportsCore(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, re
 // instead of a fresh packages.Load — no extra parse, no lock, no subprocess.
 // See Module.Package's use of a.unusedImports and the design doc
 // (docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md).
-func unusedFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, pkg *types.Package) map[string][]UnusedImport {
+func unusedFromSkeletons(byGsx map[string]fileSkeleton, pkg *types.Package) map[string][]UnusedImport {
 	names := importNamesFromTypes(pkg)
-	return unusedImportsCore(byGsx, gsxFset, func([]string) map[string]string { return names })
+	return unusedImportsCore(byGsx, func([]string) map[string]string { return names })
 }
 
 // UnusedImports returns, per .gsx file (abs path) in dir, the imports the file
@@ -347,6 +347,6 @@ func (m *Module) UnusedImports(dir string) (map[string][]UnusedImport, []diag.Di
 	if err != nil {
 		return nil, nil, err
 	}
-	out := unusedImportsCore(ps.byGsx, ps.gsxFset, m.resolvePackageNames)
+	out := unusedImportsCore(ps.byGsx, m.resolvePackageNames)
 	return out, ps.goParseDiags, nil
 }

@@ -227,7 +227,7 @@ component Good() { <p>ok</p> }
 	}
 }
 
-func TestUnusedImportsPreservesFileWhenDependencyFactsFail(t *testing.T) {
+func TestUnusedImportsDoesNotAnalyzeImportedComponentBodies(t *testing.T) {
 	dir, m := openTestModule(t, map[string]string{
 		"ui/broken.gsx": `package ui
 
@@ -252,8 +252,9 @@ component Page() { <p>ok</p> }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unused := got[filepath.Join(dir, "page.gsx")]; len(unused) != 0 {
-		t.Fatalf("partial dependency facts must not authorize import removal: unused=%+v", unused)
+	unused := got[filepath.Join(dir, "page.gsx")]
+	if len(unused) != 2 || unused[0].Path != "testmod/ui" || unused[1].Path != "bytes" {
+		t.Fatalf("unused=%+v, want ui and bytes without analyzing the imported component body", unused)
 	}
 }
 
