@@ -39,11 +39,12 @@ func (r cycleResult) durationMs() int64 { return r.DurMs }
 // anchored at ITS module, or cross-package refs in a sibling module read as "not
 // loaded". root is the primary module root, used only for the startup banner.
 type watchSession struct {
-	cfg        watchConfig
-	root       string                     // primary module root (startup banner only)
-	roots      []string                   // every module root the session spans
-	watchRoots []string                   // requested trees plus their owning module trees
-	modules    map[string]*codegen.Module // module root -> warm Module
+	cfg            watchConfig
+	root           string                     // primary module root (startup banner only)
+	roots          []string                   // every module root the session spans
+	requestedRoots []string                   // exact user-selected trees; never excluded as descendants
+	watchRoots     []string                   // requested trees plus their owning module trees
+	modules        map[string]*codegen.Module // module root -> warm Module
 }
 
 // openModule constructs a fresh *codegen.Module for the given module root,
@@ -116,11 +117,12 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 	}
 
 	s := &watchSession{
-		cfg:        cfg,
-		root:       targets.moduleRoots[0],
-		roots:      append([]string(nil), targets.moduleRoots...),
-		watchRoots: append([]string(nil), targets.watchRoots...),
-		modules:    map[string]*codegen.Module{},
+		cfg:            cfg,
+		root:           targets.moduleRoots[0],
+		roots:          append([]string(nil), targets.moduleRoots...),
+		requestedRoots: append([]string(nil), targets.requestedRoots...),
+		watchRoots:     append([]string(nil), targets.watchRoots...),
+		modules:        map[string]*codegen.Module{},
 	}
 	for _, root := range s.roots {
 		m, err := s.openModule(root)
@@ -204,8 +206,9 @@ func (s *watchSession) reopen() ([]cycleResult, error) {
 }
 
 type watchTargets struct {
-	watchRoots  []string
-	moduleRoots []string
+	requestedRoots []string
+	watchRoots     []string
+	moduleRoots    []string
 }
 
 // resolveWatchTargets separates structural observation from GSX package
@@ -274,8 +277,9 @@ func resolveWatchTargets(paths []string) (watchTargets, error) {
 		watchSet[root] = true
 	}
 	return watchTargets{
-		watchRoots:  compactRoots(sortedSet(watchSet)),
-		moduleRoots: moduleRoots,
+		requestedRoots: requested,
+		watchRoots:     compactRoots(sortedSet(watchSet)),
+		moduleRoots:    moduleRoots,
 	}, nil
 }
 
@@ -517,7 +521,7 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 		// requires an atomic source-inventory reload; watch does not guess from
 		// fsnotify operation kinds.
 		if err := m.RefreshDiskSources(dir); err != nil {
-			return nil, fmt.Errorf("refresh saved GSX sources in %s: %w", dir, err)
+			return results, fmt.Errorf("refresh saved GSX sources in %s: %w", dir, err)
 		}
 		m.Invalidate(dir)
 		empty := onlyGeneratedRemains(dir)
