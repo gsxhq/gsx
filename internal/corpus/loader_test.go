@@ -23,7 +23,7 @@ func TestLoadCaseSinglePackage(t *testing.T) {
 	if c.multiPkg {
 		t.Errorf("multiPkg = true, want false")
 	}
-	if string(c.invoke) != "Greeting(GreetingProps{Name: \"X\"})\n" {
+	if string(c.invoke) != "Greeting(\"X\")\n" {
 		t.Errorf("invoke = %q", c.invoke)
 	}
 	if _, ok := c.files["input.gsx"]; !ok {

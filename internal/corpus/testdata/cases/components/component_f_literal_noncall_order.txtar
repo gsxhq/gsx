@@ -80,9 +80,9 @@ func Page(ch <-chan string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "data-x", Value: string(<-ch)}}
-		_gsxv1 := <-ch
-		_gsxgw.Node(ctx, Field(_gsxv1, _gsxv0))
+		_gsxa0 := _gsxrt.Attrs{{Key: "data-x", Value: string(<-ch)}}
+		_gsxa1 := <-ch
+		_gsxgw.Node(ctx, Field(_gsxa1, _gsxa0))
 		return _gsxgw.Err()
 	})
 }

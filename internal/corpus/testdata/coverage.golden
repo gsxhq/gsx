@@ -881,11 +881,11 @@ verbatim/direct_go_signature	diag gen render
 verbatim/zero_inference_xpkg	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
-xpkg/generic_inference_unavailable_warning	diag render
 xpkg/generic_inferred_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
 xpkg/generic_skipped_sink_values	diag gen render
+xpkg/generic_unexported_constraint	diag render
 xpkg/go_component_attrs_literal	diag gen render
 xpkg/go_component_attrs_literal_missing	diag render
 xpkg/imported_alias_collision	diag gen render

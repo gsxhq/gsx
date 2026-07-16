@@ -30,6 +30,5 @@ component Home() {
 -- invoke --
 pages.Home()
 -- diagnostics.golden --
-3:8: "corpustest/cases/xpkg_go_component_attrs_literal_missing/uigo" imported and not used
 6:15: uigo.Widget has no attrs param; unexpected attrs contributor
 -- render.golden --

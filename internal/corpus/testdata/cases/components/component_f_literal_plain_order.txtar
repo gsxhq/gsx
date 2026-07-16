@@ -81,10 +81,10 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0 := mark("plain-first", "A")
-		_gsxv1 := _gsxrt.Attrs{{Key: "data-mid", Value: string(mark("plain-mid", "M"))}}
-		_gsxv2 := mark("plain-last", "Z")
-		_gsxgw.Node(ctx, Target(_gsxv0, _gsxv2, _gsxv1))
+		_gsxa0 := mark("plain-first", "A")
+		_gsxa1 := _gsxrt.Attrs{{Key: "data-mid", Value: string(mark("plain-mid", "M"))}}
+		_gsxa2 := mark("plain-last", "Z")
+		_gsxgw.Node(ctx, Target(_gsxa0, _gsxa2, _gsxa1))
 		return _gsxgw.Err()
 	})
 }
