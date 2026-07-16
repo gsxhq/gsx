@@ -18,6 +18,6 @@ component Profile(id string) {
 	} }</div>
 }
 -- invoke --
-Profile(ProfileProps{Id: "42"})
+Profile("42")
 -- render.golden --
 <div><span>User:42</span></div>

@@ -11,6 +11,6 @@ component Row(id string, n int) {
 	<div data-key=f`row-@{id}-@{n}` title=f`Item @{ id |> upper }`>Row</div>
 }
 -- invoke --
-Row(RowProps{Id: "a&b", N: 5})
+Row("a&b", 5)
 -- render.golden --
 <div data-key="row-a&amp;b-5" title="Item A&amp;B">Row</div>

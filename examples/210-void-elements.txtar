@@ -15,6 +15,6 @@ component AvatarField(src string, alt string, disabled bool) {
 	</div>
 }
 -- invoke --
-AvatarField(AvatarFieldProps{Src: "/avatar.png", Alt: "User", Disabled: true})
+AvatarField("/avatar.png", "User", true)
 -- render.golden --
 <div><img src="/avatar.png" alt="User"/><br/><input type="text" required disabled/></div>

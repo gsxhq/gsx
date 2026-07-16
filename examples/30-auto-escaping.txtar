@@ -13,6 +13,6 @@ component Comment(body string) {
 	<blockquote>{body}</blockquote>
 }
 -- invoke --
-Comment(CommentProps{Body: "<img src=x onerror=alert(1)>"})
+Comment("<img src=x onerror=alert(1)>")
 -- render.golden --
 <blockquote>&lt;img src=x onerror=alert(1)&gt;</blockquote>

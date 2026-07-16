@@ -11,6 +11,6 @@ component Link(x string) {
 	<a href=f`javascript:@{x}`>go</a>
 }
 -- invoke --
-Link(LinkProps{X: "alert(1)"})
+Link("alert(1)")
 -- render.golden --
 <a href="about:invalid#gsx">go</a>
