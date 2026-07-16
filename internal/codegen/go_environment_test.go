@@ -329,6 +329,10 @@ if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOTOOLDIR" ]; then
 	printf '{"GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"%s"}' "$REAL_GOTOOLDIR" "$REAL_GOHOSTOS" "$FAKE_GOROOT" "$REAL_GOVERSION"
 	exit 0
 fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
+	printf '{"GOFLAGS":"%s","GOWORK":"off","GOTOOLDIR":"%s","GOHOSTOS":"%s","GOROOT":"%s","GOVERSION":"%s","GOTOOLCHAIN":"auto","GOENV":"","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$REAL_GOTOOLDIR" "$REAL_GOHOSTOS" "$FAKE_GOROOT" "$REAL_GOVERSION"
+	exit 0
+fi
 if [ "$1" = "list" ]; then
 	printf '#!/bin/sh\nexec "$REAL_GO" "$@"\n' > "$0"
 fi
