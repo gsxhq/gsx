@@ -116,14 +116,15 @@ func splitPipeSegments(src string, splits []int) []string {
 	return append(segs, src[start:])
 }
 
-// isStageName reports whether s is a (optionally dotted) Go identifier, e.g.
-// "upper" or "strings.ToUpper".
+// isStageName reports whether s is an optionally dotted sequence of Go lexical
+// identifiers, e.g. "upper" or "strings.ToUpper". Stage names are registry
+// keys, so keyword-shaped segments such as "default" are valid.
 func isStageName(s string) bool {
 	if s == "" {
 		return false
 	}
 	for part := range strings.SplitSeq(s, ".") {
-		if !token.IsIdentifier(part) {
+		if end := scanGoIdentifier(part, 0); end == 0 || end != len(part) {
 			return false
 		}
 	}

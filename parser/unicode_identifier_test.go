@@ -66,16 +66,16 @@ component Δ() { <Δ><span /></Δ> }
 	}
 }
 
-func TestUnicodePipelineStageNamesUseGoIdentifierRules(t *testing.T) {
-	_, stages, err := parsePipe("value |> φίλτρο |> 包.处理", token.Pos(100))
+func TestUnicodePipelineStageNamesUseGoLexicalIdentifierRules(t *testing.T) {
+	_, stages, err := parsePipe("value |> if |> φίλτρο |> 包.default", token.Pos(100))
 	if err != nil {
 		t.Fatalf("parsePipe Unicode stages: %v", err)
 	}
-	if len(stages) != 2 || stages[0].Name != "φίλτρο" || stages[1].Name != "包.处理" {
+	if len(stages) != 3 || stages[0].Name != "if" || stages[1].Name != "φίλτρο" || stages[2].Name != "包.default" {
 		t.Fatalf("stages = %#v", stages)
 	}
 
-	for _, src := range []string{"value |> if", "value |> ٣filter", "value |> Cafe\u0301"} {
+	for _, src := range []string{"value |> ٣filter", "value |> Cafe\u0301"} {
 		t.Run(src, func(t *testing.T) {
 			if _, _, err := parsePipe(src, token.NoPos); err == nil {
 				t.Fatalf("parsePipe(%q) succeeded; stage is not a Go identifier", src)
