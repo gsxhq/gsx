@@ -126,7 +126,6 @@ func discoverComponentTargets(
 	callSites *callSiteRegistry,
 	table funcTables,
 	factsByFile map[string]*fileFacts,
-	fieldMatcher FieldMatcher,
 	fset *token.FileSet,
 	bag *diag.Bag,
 	importer types.Importer,
@@ -156,7 +155,7 @@ func discoverComponentTargets(
 		skeleton, err := buildComponentTargetSkeleton(
 			gsxFiles[path], table,
 			fileFacts.propFields, fileFacts.nodeProps, fileFacts.attrsProps,
-			fileFacts.byo, fieldMatcher, fset, bag, markers, plan, skeletonTargetDiscovery,
+			fileFacts.byo, fset, bag, markers, plan, skeletonTargetDiscovery,
 		)
 		if err != nil {
 			return componentTargetPackageResult{}, nil, err

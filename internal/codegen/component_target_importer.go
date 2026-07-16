@@ -144,8 +144,7 @@ func (m *Module) targetDeclarationPackage(dir string, importer *componentTargetI
 	var importPaths []string
 	for _, path := range paths {
 		skeleton, err := buildComponentTargetSkeleton(
-			gsxFiles[path], funcTables{}, nil, nil, nil, nil,
-			m.opts.FieldMatcher, m.fset, bag, nil, plan, skeletonTargetDeclarations,
+			gsxFiles[path], funcTables{}, nil, nil, nil, nil, m.fset, bag, nil, plan, skeletonTargetDeclarations,
 		)
 		if err != nil {
 			return nil, err

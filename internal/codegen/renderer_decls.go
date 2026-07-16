@@ -142,7 +142,6 @@ func (r *sourceDeclResolver) packageForDir(dir string) (*types.Package, error) {
 			genericSigs,
 			nil,
 			byo,
-			r.m.opts.FieldMatcher,
 			fset,
 			bag,
 			inferNames,

@@ -192,7 +192,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 			continue
 		}
 		skel, _, imps, _, infReg, _, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps,
-			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, &componentPlan, skeletonFull)
+			genericSigs, ff.genericSigs, ff.byo, fset, bag, inferNames, &componentPlan, skeletonFull)
 		if berr != nil {
 			continue // unbuildable → keep all imports (no entry)
 		}

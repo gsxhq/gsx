@@ -32,7 +32,6 @@ type positionalEmitContext struct {
 	recvVar             string
 	recvTypeName        string
 	cls                 *attrclass.Classifier
-	fm                  FieldMatcher
 	bag                 *diag.Bag
 	mergeExpr           string
 	enclosingAttrsBound bool
@@ -397,7 +396,7 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 }
 
 func positionalSlotClosure(nodes []gsxast.Markup, ctx positionalEmitContext) (string, bool) {
-	return emitSlotClosure(nodes, ctx.currentPkg, ctx.resolved, ctx.table, ctx.structFields, ctx.nodeProps, ctx.attrsProps, ctx.byo, ctx.imports, ctx.rt, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.interpTemp, ctx.fset, ctx.recvVar, ctx.recvTypeName, ctx.cls, ctx.fm, ctx.bag, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan)
+	return emitSlotClosure(nodes, ctx.currentPkg, ctx.resolved, ctx.table, ctx.structFields, ctx.nodeProps, ctx.attrsProps, ctx.byo, ctx.imports, ctx.rt, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.interpTemp, ctx.fset, ctx.recvVar, ctx.recvTypeName, ctx.cls, ctx.bag, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan)
 }
 
 func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, bool) {

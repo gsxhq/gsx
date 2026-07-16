@@ -78,13 +78,12 @@ type Options struct {
 	// via harvestFilters) into the funcTables.renderers every dir's analyze
 	// consults. Unlike FilterPkgs, Renderers has no PerDir override — a
 	// registered renderer applies module-wide.
-	Renderers    []RendererAlias
-	FieldMatcher FieldMatcher
-	Classifier   *attrclass.Classifier
-	CSSMin       func(string) (string, error) // custom static-CSS minifier (nil = built-in when CSSMinify)
-	JSMin        func(string) (string, error) // custom static-JS minifier (nil = built-in when JSMinify)
-	CSSMinify    bool                         // minify static <style> CSS
-	JSMinify     bool                         // minify static <script> JS
+	Renderers  []RendererAlias
+	Classifier *attrclass.Classifier
+	CSSMin     func(string) (string, error) // custom static-CSS minifier (nil = built-in when CSSMinify)
+	JSMin      func(string) (string, error) // custom static-JS minifier (nil = built-in when JSMinify)
+	CSSMinify  bool                         // minify static <style> CSS
+	JSMinify   bool                         // minify static <script> JS
 	// Bundle, when non-nil, supplies the external importer and filter table
 	// directly (a prebuilt Bundle) so the Module type-checks skeletons
 	// with NO packages.Load / `go list` — the mode a WASM build uses. The Module
@@ -1275,7 +1274,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, a.classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, a.merger, a.sunkImports[path], a.positionalPlan)
+				a.gsxFset, a.classifier, a.bag, nil, nil, true, true, a.merger, a.sunkImports[path], a.positionalPlan)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -1342,7 +1341,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, a.classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.sunkImports[path], a.positionalPlan)
+				a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.sunkImports[path], a.positionalPlan)
 			if !ok {
 				continue
 			}
