@@ -100,6 +100,41 @@ func TestValidateAssembledPositionalCallChecksCompletedShape(t *testing.T) {
 	}
 }
 
+func TestValidateAssembledPositionalCallPreservesUntypedRuneAssignmentContext(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	pkg := types.NewPackage("example.test/page", "page")
+	letter := types.NewNamed(
+		types.NewTypeName(token.NoPos, pkg, "Letter", nil),
+		types.Typ[types.Rune],
+		nil,
+	)
+	sig := types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(types.NewVar(token.NoPos, pkg, "letter", letter)),
+		types.NewTuple(types.NewVar(token.NoPos, pkg, "", fx.runtime.node)), false)
+	model, err := analyzeComponentSignature(sig, fx.runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := componentCallPlan{
+		target: model,
+		args:   []componentArgSlot{{param: model.params[0], valueIndexes: []int{0}}},
+	}
+	operands := []suppliedOperand{{
+		paramIndex: 0,
+		tv: types.TypeAndValue{
+			Type:  types.Typ[types.UntypedRune],
+			Value: constant.MakeInt64('x'),
+		},
+	}}
+	assembly, err := assemblePositionalCall(plan, operands, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAssembledPositionalCall(plan, assembly, fx.runtime); err != nil {
+		t.Fatalf("valid untyped rune assignment to defined rune: %v", err)
+	}
+}
+
 func TestValidateAssembledPositionalCallChecksVariadicChildrenArity(t *testing.T) {
 	fx := newSignatureRuntimeFixture(t)
 	pkg := types.NewPackage("example.test/page", "page")

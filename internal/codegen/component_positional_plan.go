@@ -361,7 +361,7 @@ func validateAssembledPositionalCall(plan componentCallPlan, assembly componentP
 				args = append(args, addVar(param.typ))
 			}
 		case componentPositionalArgumentProp:
-			args = append(args, operandArgSource(argument.operand, probe, argN))
+			args = append(args, assignmentOperandArgSource(argument.operand, probe, argN))
 			argN++
 		case componentPositionalArgumentChildren:
 			args = append(args, addVar(runtime.node))

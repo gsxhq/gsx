@@ -111,7 +111,6 @@ func emitPositionalComponentCall(
 		materialized[value.valueIndex] = value
 	}
 
-	argumentTemp := 0
 	for valueIndex, value := range plan.call.values {
 		if value.kind == componentInputBody {
 			continue
@@ -126,12 +125,12 @@ func emitPositionalComponentCall(
 		expr := result.expr
 		switch {
 		case decision.unwrapTuple:
-			temp := nextPositionalArgumentTemp(&argumentTemp)
+			temp := nextPositionalArgumentTemp(ctx.interpTemp)
 			fmt.Fprintf(b, "%s, _gsxerr := %s\n", temp, expr)
 			fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 			expr = temp
 		case decision.temp != "":
-			temp := nextPositionalArgumentTemp(&argumentTemp)
+			temp := nextPositionalArgumentTemp(ctx.interpTemp)
 			fmt.Fprintf(b, "%s := %s\n", temp, expr)
 			expr = temp
 		}
