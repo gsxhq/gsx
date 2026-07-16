@@ -248,6 +248,11 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 	for _, key := range keys {
 		buildEnv = environmentWithValue(buildEnv, key, changed[key])
 	}
+	// Every persisted value is now materialized in buildEnv. Disable GOENV
+	// before any further query so a concurrent go env -w cannot introduce a
+	// previously-default setting into the retained cache environment without
+	// also entering the frozen execution environment.
+	buildEnv = environmentWithValue(buildEnv, "GOENV", "off")
 
 	environmentOutput, err := snapshot.Run(moduleRoot, buildEnv, "env", "-json")
 	if err != nil {
@@ -324,7 +329,6 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 	// local toolchain. Freeze local mode so later commands cannot dynamically
 	// re-exec a PATH or downloaded goN executable that was never sealed.
 	buildEnv = environmentWithValue(buildEnv, "GOTOOLCHAIN", "local")
-	buildEnv = environmentWithValue(buildEnv, "GOENV", "off")
 	// x/tools/go/packages consults the live process PATH when no driver is
 	// explicit in Config.Env. Pin the already-validated no-driver state so a
 	// later process-environment mutation cannot escape this frozen boundary.
