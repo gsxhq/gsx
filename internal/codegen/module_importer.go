@@ -1800,7 +1800,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue
 		}
 		for _, c := range comps {
-			if refs := buildSigTypeRefs(gf, c, byo, &componentPlan); refs != nil {
+			if refs := buildSigTypeRefs(gf, c, &componentPlan); refs != nil {
 				sigTypes[c] = refs
 			}
 		}

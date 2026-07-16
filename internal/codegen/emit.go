@@ -548,11 +548,6 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return false
 	}
-	// Type-param validation MUST precede reserved-param validation — MIRRORS
-	// emitComponentSkeleton's priority: when both defects co-occur
-	// (`Box[T](children T)`), the skeleton skips the component on the broken
-	// type-param list (a broken list makes every param type suspect), so the
-	// diagnostic surfaced here must be the same defect.
 	typeParamNames, err := parseTypeParamNames(c.TypeParams)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -563,14 +558,19 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		return false
 	}
 	typeParamsDecl := typeParamDecl(c.TypeParams)
-	typeParamsUse := typeParamUse(typeParamNames)
+	declarationParams, err := parseComponentParamDecls(c.Params)
+	if err != nil {
+		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return false
+	}
+	hasAttrs := false
+	for _, parameter := range declarationParams {
+		if parameter.role == declarationParamAttrs {
+			hasAttrs = true
+			break
+		}
+	}
 
-	// A method component (non-empty Recv) emits a Go method whose receiver var is
-	// in scope in the body (so `{p.Field}` works); its props struct (if any) is
-	// named <RecvTypeName><Name>Props, and the receiver clause is emitted verbatim
-	// in the signature. A free function component has no receiver: props struct
-	// <Name>Props and a plain `func <Name>`.
-	propsName := c.Name + "Props"
 	// recvVar/recvTypeName stay "" for a function component; for a method component
 	// they are threaded into genNode → genChildComponent so a dotted child tag whose
 	// left == recvVar lowers to a method call.
@@ -586,7 +586,6 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 			bag.Errorf(c.Pos(), c.End(), "reserved-recv", "%s", strings.TrimPrefix(rerr.Error(), "codegen: "))
 			return false
 		}
-		propsName = recvTypeName + c.Name + "Props"
 	}
 	if c.Recv != "" && len(typeParamNames) > 0 && !toolchainHasGenericMethods() {
 		// A generic METHOD component needs a toolchain whose go/parser accepts
@@ -601,110 +600,17 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		return false
 	}
 
-	// BYO (author-owns-Props): the sole non-receiver param is an author-declared
-	// struct used DIRECTLY — gsx generates NO props struct and emits the real param
-	// (name + type verbatim from the .gsx). The body refers to the param's fields
-	// (`p.Field`) directly; there is NO {children}/attrs magic (the author exposes
-	// Children/Attrs as real fields and renders them explicitly). MIRRORS the byo
-	// branch in emitComponentSkeleton so emit ≡ probe.
-	if _, isByo := byo.structTypeName(componentKey(c)); isByo {
-		// Anchor the generated func declaration to the `component` decl position
-		// so go/types (and thus LSP go-to-definition) reports the component's true
-		// .gsx location, not a line drifted from the previous //line directive.
-		emitLine(b, fset, c.Pos())
-		if c.Recv != "" {
-			fmt.Fprintf(b, "func %s %s%s(%s) %s.Node {\n", c.Recv, c.Name, typeParamsDecl, strings.TrimSpace(c.Params), rt.rt())
-		} else {
-			fmt.Fprintf(b, "func %s%s(%s) %s.Node {\n", c.Name, typeParamsDecl, strings.TrimSpace(c.Params), rt.rt())
-		}
-		fmt.Fprintf(b, "\treturn %s.Func(func(ctx %s.Context, _gsxw %s.Writer) error {\n", rt.rt(), rt.ctx(), rt.io())
-		// BYO components never synthesize an `attrs` local (the author accesses
-		// p.Attrs directly, if their struct even has such a field) — enclosingAttrsBound
-		// is false here regardless of what the byo author's own struct declares.
-		if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr, false) {
-			return false
-		}
-		b.WriteString("\t})\n}\n\n")
-		return true
-	}
-
-	// Props struct (field types are syntactic — straight from the param list).
-	// When the body references `{children}`, synthesize an implicit
-	// `Children gsx.Node` slot field after the param fields; the parent fills it
-	// with a render closure (genChildComponent). A NULLARY component (function OR
-	// method: no params, no children, no fallthrough) gets NO props struct and NO
-	// _gsxp param — emitted as `func Name() gsx.Node`, called as `Name()`. A
-	// component grows a props struct ONLY when it has params, uses `{children}`,
-	// or forwards attrs (references the `attrs` bag).
-	hasChildren := usesChildren(c.Body)
-	// MANUAL mode: a component whose body references the identifier `attrs` (a
-	// `{ attrs... }` element spread, `attrs.X()` in an interp/expr/clause, or any
-	// `attrs` reference in a nested component-tag attr position — spread, prop
-	// value, conditional, class part, ordered-literal value) takes over
-	// fallthrough placement itself. Explicit forwarding is required:
-	// we only synthesize an `Attrs gsx.Attrs` field when the author actually
-	// references `attrs`; there is no implicit single-root auto-injection path
-	// (removed by the 2026-06-30 explicit-forwarding decision).
-	manual := usesAttrs(c.Body)
-	hasProps := len(params) > 0 || hasChildren || manual
-	if hasProps {
-		fmt.Fprintf(b, "type %s%s struct {\n", propsName, typeParamsDecl)
-		for _, p := range params {
-			fmt.Fprintf(b, "\t%s %s\n", fieldName(p.name), p.typ)
-		}
-		if hasChildren {
-			fmt.Fprintf(b, "\tChildren %s.Node\n", rt.rt())
-		}
-		if manual {
-			fmt.Fprintf(b, "\tAttrs %s.Attrs\n", rt.rt())
-		}
-		fmt.Fprintf(b, "}\n\n")
-	}
-
-	// Render func/method. The only differences between function and method
-	// components are the signature (receiver clause + props-struct name) and
-	// whether a props struct exists; the render-closure body is identical.
-	// Anchor the func declaration to the `component` decl position so go/types /
-	// LSP go-to-definition reports the component's true .gsx location (not a line
-	// drifted from the previous //line directive).
+	// Emit exactly the authored declaration. Parameters are already in lexical
+	// scope for the nested render closure, so no props type, adapter, or binding
+	// locals are required.
 	emitLine(b, fset, c.Pos())
 	if c.Recv != "" {
-		fmt.Fprintf(b, "func %s %s%s(", c.Recv, c.Name, typeParamsDecl)
+		fmt.Fprintf(b, "func %s %s%s(%s) %s.Node {\n", c.Recv, c.Name, typeParamsDecl, strings.TrimSpace(c.Params), rt.rt())
 	} else {
-		fmt.Fprintf(b, "func %s%s(", c.Name, typeParamsDecl)
+		fmt.Fprintf(b, "func %s%s(%s) %s.Node {\n", c.Name, typeParamsDecl, strings.TrimSpace(c.Params), rt.rt())
 	}
-	if hasProps {
-		fmt.Fprintf(b, "_gsxp %s%s", propsName, typeParamsUse)
-	}
-	fmt.Fprintf(b, ") %s.Node {\n", rt.rt())
-
-	// Bind each USED param to a same-named local so interpolation expressions can
-	// be emitted verbatim. The props param, io.Writer closure param, and
-	// gsx.Writer local use the reserved _gsx* namespace so a user param named
-	// p/w/gw cannot collide with them. ctx stays ambient (user interpolation exprs
-	// may reference it). For a method component the receiver var is already in
-	// scope (it's the method receiver) and is NOT bound as a prop local.
 	fmt.Fprintf(b, "\treturn %s.Func(func(ctx %s.Context, _gsxw %s.Writer) error {\n", rt.rt(), rt.ctx(), rt.io())
-	used := usedParams(c, params)
-	for _, p := range params {
-		if used[p.name] {
-			fmt.Fprintf(b, "\t\t%s := _gsxp.%s\n", p.name, fieldName(p.name))
-		}
-	}
-	if hasChildren {
-		// Bind the implicit slot local; the bare `{children}` interp resolves to
-		// this gsx.Node and renders via the catNode path (gw.Node, nil-safe).
-		b.WriteString("\t\tchildren := _gsxp.Children\n")
-	}
-	if manual {
-		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
-		// `{ attrs... }` element spread (emitted via `_gsxgw.Spread(ctx,
-		// attrs, …)`) and any `attrs.X()` reference resolve. Nil-safe: a nil bag
-		// spreads/queries to nothing. usesAttrs guarantees that lowering consumes
-		// this binding.
-		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
-	}
-	if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr, manual) {
+	if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr, hasAttrs) {
 		return false
 	}
 	b.WriteString("\t})\n}\n\n")
