@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -22,11 +23,18 @@ type Snapshot struct {
 	digest [sha256.Size]byte
 }
 
-// Launcher is a sealed Snapshot plus the compiler tool identity observed under
-// the exact environment used for Go metadata queries and package loading.
+// Launcher is a sealed Snapshot plus the exact compiler tool selected under
+// the environment used for Go metadata queries and package loading.
 type Launcher struct {
-	snapshot         Snapshot
-	compilerIdentity string
+	snapshot Snapshot
+	env      []string
+	compiler compilerSnapshot
+}
+
+type compilerSnapshot struct {
+	path   string
+	info   os.FileInfo
+	digest [sha256.Size]byte
 }
 
 // SnapshotLive resolves the process's selected Go command and records both its
@@ -55,21 +63,83 @@ func (snapshot *Snapshot) Path() string {
 	return snapshot.path
 }
 
-// Seal records the exact compiler selected by the final environment. The
-// compiler query itself is guarded by before-and-after launcher validation.
+// Seal records the exact compiler selected by the final environment. `go tool
+// -n compile` is the Go command's authoritative selected executable path; no
+// arguments follow the tool name, so its single output line is the opaque path
+// even when that path contains spaces or quotes. The query itself is guarded
+// by before-and-after launcher validation.
 func (snapshot *Snapshot) Seal(dir string, env []string) (*Launcher, error) {
 	if snapshot == nil {
 		return nil, fmt.Errorf("nil Go launcher snapshot")
 	}
-	output, err := snapshot.Run(dir, env, "tool", "compile", "-V=full")
+	output, err := snapshot.Run(dir, env, "tool", "-n", "compile")
 	if err != nil {
-		return nil, fmt.Errorf("identify Go compiler: %w", err)
+		return nil, fmt.Errorf("locate Go compiler: %w", err)
 	}
-	identity := strings.TrimSpace(string(output))
-	if identity == "" {
-		return nil, fmt.Errorf("identify Go compiler: empty identity")
+	compilerPath, err := parseCompilerPath(output)
+	if err != nil {
+		return nil, err
 	}
-	return &Launcher{snapshot: *snapshot, compilerIdentity: identity}, nil
+	info, digest, err := inspect(compilerPath)
+	if err != nil {
+		return nil, fmt.Errorf("inspect selected Go compiler %q: %w", compilerPath, err)
+	}
+	return snapshot.sealedLauncher(env, compilerPath, info, digest), nil
+}
+
+// SealToolchain seals the compiler selected by cmd/go's builtin-tool contract
+// without starting a third Go process. `go env GOTOOLDIR` is cmd/go's
+// build.ToolDir, and builtin ToolPath appends the installed-host executable
+// suffix. If that shipped path cannot be inspected, Seal falls back to `go
+// tool -n compile`, preserving cmd/go's dynamic builtin-tool resolution.
+func (snapshot *Snapshot) SealToolchain(dir string, env []string, toolDir, hostOS string) (*Launcher, error) {
+	if snapshot == nil {
+		return nil, fmt.Errorf("nil Go launcher snapshot")
+	}
+	if !filepath.IsAbs(toolDir) {
+		return nil, fmt.Errorf("Go tool directory is not absolute: %q", toolDir)
+	}
+	var suffix string
+	switch hostOS {
+	case "windows":
+		suffix = ".exe"
+	case "":
+		return nil, fmt.Errorf("Go host OS is empty")
+	}
+	compilerPath := filepath.Join(toolDir, "compile"+suffix)
+	if err := snapshot.validateLive(); err != nil {
+		return nil, err
+	}
+	info, digest, err := inspect(compilerPath)
+	if err != nil {
+		return snapshot.Seal(dir, env)
+	}
+	if err := snapshot.validateLive(); err != nil {
+		return nil, fmt.Errorf("Go launcher changed while selecting compiler: %w", err)
+	}
+	return snapshot.sealedLauncher(env, compilerPath, info, digest), nil
+}
+
+func (snapshot *Snapshot) sealedLauncher(env []string, compilerPath string, info os.FileInfo, digest [sha256.Size]byte) *Launcher {
+	return &Launcher{
+		snapshot: *snapshot,
+		env:      append([]string(nil), env...),
+		compiler: compilerSnapshot{path: compilerPath, info: info, digest: digest},
+	}
+}
+
+func parseCompilerPath(output []byte) (string, error) {
+	if !bytes.HasSuffix(output, []byte("\n")) {
+		return "", fmt.Errorf("locate Go compiler: go tool -n compile returned no terminating newline")
+	}
+	path := string(output[:len(output)-1])
+	if path == "" || strings.ContainsAny(path, "\r\n") {
+		return "", fmt.Errorf("locate Go compiler: go tool -n compile returned invalid path %q", path)
+	}
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("locate Go compiler: go tool -n compile returned non-absolute path %q", path)
+	}
+	return filepath.Clean(path), nil
 }
 
 // Run executes the captured absolute launcher only while its live PATH
@@ -118,13 +188,14 @@ func (launcher *Launcher) Digest() [sha256.Size]byte {
 	return launcher.snapshot.digest
 }
 
-// CompilerIdentity returns the compiler identity captured when the launcher was
-// sealed. Call Validate before using it as current provenance.
+// CompilerIdentity returns the selected compiler path and content digest
+// captured when the launcher was sealed. Call Validate before using it as
+// current provenance.
 func (launcher *Launcher) CompilerIdentity() string {
 	if launcher == nil {
 		return ""
 	}
-	return launcher.compilerIdentity
+	return fmt.Sprintf("path=%s\x00sha256=%x", launcher.compiler.path, launcher.compiler.digest)
 }
 
 // Run executes the sealed launcher with content validation before and after.
@@ -135,19 +206,43 @@ func (launcher *Launcher) Run(dir string, env []string, args ...string) ([]byte,
 	return launcher.snapshot.Run(dir, env, args...)
 }
 
-// Validate proves that the live Go launcher still has the captured bytes and
-// resolves the same compiler tool under env.
-func (launcher *Launcher) Validate(dir string, env []string) error {
+// Validate proves that the live Go launcher and exact selected compiler still
+// have the captured filesystem identities and bytes. The selected compiler
+// path cannot drift without the frozen environment or launcher changing: Seal
+// obtains it from the Go command under that boundary and Validate rejects an
+// environment mismatch before inspecting the path. The working directory is
+// deliberately not part of builtin compiler selection; callers may seal before
+// discovering the module directory used for later package loading.
+func (launcher *Launcher) Validate(_ string, env []string) error {
 	if launcher == nil {
 		return fmt.Errorf("nil sealed Go launcher")
 	}
-	output, err := launcher.snapshot.Run(dir, env, "tool", "compile", "-V=full")
-	if err != nil {
-		return err
+	if !slices.Equal(env, launcher.env) {
+		return fmt.Errorf("Go compiler selection environment changed after launcher seal")
 	}
-	identity := strings.TrimSpace(string(output))
-	if identity != launcher.compilerIdentity {
-		return fmt.Errorf("Go compiler identity changed from %q to %q", launcher.compilerIdentity, identity)
+	type compilerInspection struct {
+		info   os.FileInfo
+		digest [sha256.Size]byte
+		err    error
+	}
+	compilerResult := make(chan compilerInspection, 1)
+	go func() {
+		info, digest, err := inspect(launcher.compiler.path)
+		compilerResult <- compilerInspection{info: info, digest: digest, err: err}
+	}()
+	launcherErr := launcher.snapshot.validateLive()
+	compiler := <-compilerResult
+	if launcherErr != nil {
+		return launcherErr
+	}
+	if compiler.err != nil {
+		return fmt.Errorf("inspect live Go compiler %q: %w", launcher.compiler.path, compiler.err)
+	}
+	if launcher.compiler.info == nil || !os.SameFile(launcher.compiler.info, compiler.info) {
+		return fmt.Errorf("Go compiler identity changed at %q", launcher.compiler.path)
+	}
+	if compiler.digest != launcher.compiler.digest {
+		return fmt.Errorf("Go compiler %q content changed", launcher.compiler.path)
 	}
 	return nil
 }

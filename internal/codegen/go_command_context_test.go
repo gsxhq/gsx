@@ -4,8 +4,101 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
 	"testing"
 )
+
+func writeTracingGoCommand(t *testing.T, trace, compiler string) string {
+	t.Helper()
+	bin := t.TempDir()
+	command := filepath.Join(bin, "go")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "$GSX_GO_COMMAND_TRACE"
+if [ "$1" = "env" ] && [ "$2" = "-changed" ]; then
+	printf '{"GOFLAGS":"%s"}' "$GOFLAGS"
+	exit 0
+fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOWORK" ]; then
+	printf '{"GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux"}' "$GOWORK" "$GSX_FAKE_TOOL_DIR"
+	exit 0
+fi
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
+	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"%s","GOHOSTOS":"linux","GOGCCFLAGS":"transient"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_TOOL_DIR"
+	exit 0
+fi
+if [ "$1" = "tool" ] && [ "$2" = "-n" ] && [ "$3" = "compile" ]; then
+	printf '%s\n' "$GSX_FAKE_COMPILER"
+	exit 0
+fi
+exit 1
+`
+	if err := os.WriteFile(command, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("GSX_GO_COMMAND_TRACE", trace)
+	t.Setenv("GSX_FAKE_COMPILER", compiler)
+	t.Setenv("GSX_FAKE_TOOL_DIR", filepath.Dir(compiler))
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+	return bin
+}
+
+func TestGoCommandContextCaptureCommandContract(t *testing.T) {
+	root := t.TempDir()
+	trace := filepath.Join(t.TempDir(), "go-command-trace")
+	compiler := filepath.Join(t.TempDir(), "compiler dir 'quoted'", "compile")
+	if err := os.MkdirAll(filepath.Dir(compiler), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(compiler, []byte("compiler bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTracingGoCommand(t, trace, compiler)
+
+	context := CaptureGoCommandContext(root)
+	if context.buildEnvErr != nil {
+		t.Fatal(context.buildEnvErr)
+	}
+	commands, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotCommands := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	sort.Strings(gotCommands)
+	wantCommands := []string{"env -changed -json", "env -json GOWORK GOTOOLDIR GOHOSTOS"}
+	if !slices.Equal(gotCommands, wantCommands) {
+		t.Fatalf("capture Go commands = %q, want exact bounded contract %q", gotCommands, wantCommands)
+	}
+
+	if err := os.WriteFile(trace, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := context.goLauncher.Validate(root, context.buildEnv); err != nil {
+		t.Fatal(err)
+	}
+	commands, err = os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(commands)); got != "" {
+		t.Fatalf("compiler validation launched Go subprocesses: %q", got)
+	}
+	if _, err := context.CacheFingerprint(); err != nil {
+		t.Fatal(err)
+	}
+	commands, err = os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(commands)); got != "env -json" {
+		t.Fatalf("cache fingerprint Go commands = %q, want one lazy complete environment query", got)
+	}
+}
 
 func writeFakeGoCommand(t *testing.T, marker string) string {
 	t.Helper()
@@ -13,19 +106,19 @@ func writeFakeGoCommand(t *testing.T, marker string) string {
 	command := filepath.Join(bin, "go")
 	script := `#!/bin/sh
 if [ "$1" = "env" ] && [ "$2" = "-changed" ]; then
-	printf '{}'
+	printf '{"GOFLAGS":"%s"}' "$GOFLAGS"
 	exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ "$3" = "GOWORK" ]; then
-	printf '{"GOWORK":"%s"}' "$GOWORK"
+	printf '{"GOWORK":"%s","GOTOOLDIR":"` + filepath.Dir(marker) + `","GOHOSTOS":"linux"}' "$GOWORK"
 	exit 0
 fi
-if [ "$1" = "env" ] && [ "$2" = "-json" ]; then
-	printf '{"GOARCH":"amd64","CGO_ENABLED":"0","GOFLAGS":"%s","GOOS":"linux","GOVERSION":"go1.26.1","GOWORK":"%s"}' "$GOFLAGS" "$GOWORK"
+if [ "$1" = "env" ] && [ "$2" = "-json" ] && [ -z "$3" ]; then
+	printf '{"GOFLAGS":"%s","GOWORK":"%s","GOTOOLDIR":"` + filepath.Dir(marker) + `","GOHOSTOS":"linux","GOPROXY":"%s","GOGCCFLAGS":"transient-%s"}' "$GOFLAGS" "$GOWORK" "$GSX_FAKE_GOPROXY" "$$"
 	exit 0
 fi
-if [ "$1" = "tool" ] && [ "$2" = "compile" ] && [ "$3" = "-V=full" ]; then
-	/bin/cat '` + marker + `'
+if [ "$1" = "tool" ] && [ "$2" = "-n" ] && [ "$3" = "compile" ]; then
+	printf '%s\n' '` + marker + `'
 	exit 0
 fi
 exit 1
@@ -38,7 +131,7 @@ exit 1
 
 func TestGoCommandContextFingerprintIncludesSelectedCompilerIdentity(t *testing.T) {
 	root := t.TempDir()
-	marker := filepath.Join(t.TempDir(), "compiler-version")
+	marker := filepath.Join(t.TempDir(), "compile")
 	if err := os.WriteFile(marker, []byte("compile version one\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +140,7 @@ func TestGoCommandContextFingerprintIncludesSelectedCompilerIdentity(t *testing.
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOFLAGS", "")
 	t.Setenv("GOPACKAGESDRIVER", "off")
+	t.Setenv("GSX_FAKE_GOPROXY", "https://proxy.example")
 
 	first, err := CaptureGoCommandContext(root).CacheFingerprint()
 	if err != nil {
@@ -64,8 +158,156 @@ func TestGoCommandContextFingerprintIncludesSelectedCompilerIdentity(t *testing.
 	}
 }
 
+func TestGoCommandContextFingerprintIsStableAndIncludesEffectiveSettings(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "compiler")
+	if err := os.WriteFile(marker, []byte("compiler bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", writeFakeGoCommand(t, marker))
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+
+	first, err := CaptureGoCommandContext(root).CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CaptureGoCommandContext(root).CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("identical frozen Go contexts produced unstable fingerprints:\n%s\n%s", first, second)
+	}
+
+	t.Setenv("GOFLAGS", "-tags=feature")
+	changed, err := CaptureGoCommandContext(root).CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == first {
+		t.Fatal("effective GOFLAGS changed without changing the Go-context fingerprint")
+	}
+
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GSX_FAKE_GOPROXY", "https://other-proxy.example")
+	defaultChanged, err := CaptureGoCommandContext(root).CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultChanged == first {
+		t.Fatal("effective Go environment default changed without changing the Go-context fingerprint")
+	}
+}
+
+func TestGoCommandContextFingerprintStableAcrossRealGoQueries(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+
+	first, err := CaptureGoCommandContext(root).CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CaptureGoCommandContext(root).CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("identical real Go contexts produced unstable fingerprints:\n%s\n%s", first, second)
+	}
+}
+
+func BenchmarkGoCommandContextCaptureAndFingerprint(b *testing.B) {
+	root := b.TempDir()
+	b.Setenv("GOWORK", "off")
+	b.Setenv("GOENV", "off")
+	b.Setenv("GOFLAGS", "")
+	b.Setenv("GOPACKAGESDRIVER", "off")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := CaptureGoCommandContext(root).CacheFingerprint(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestGoCommandContextFingerprintIncludesPersistedGoEnvSetting(t *testing.T) {
+	root := t.TempDir()
+	goEnv := filepath.Join(t.TempDir(), "go.env")
+	t.Setenv("GOENV", goEnv)
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+	unsetEnvironment(t, "GOFLAGS")
+	if err := os.WriteFile(goEnv, []byte("GOFLAGS=-tags=one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	firstContext := CaptureGoCommandContext(root)
+	first, err := firstContext.CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := environmentValue(firstContext.buildEnv, "GOFLAGS"); got != "-tags=one" {
+		t.Fatalf("frozen GOFLAGS = %q, want persisted setting", got)
+	}
+	if got := environmentValue(firstContext.buildEnv, "GOENV"); got != "off" {
+		t.Fatalf("frozen GOENV = %q, want off after settings snapshot", got)
+	}
+
+	if err := os.WriteFile(goEnv, []byte("GOFLAGS=-tags=two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := CaptureGoCommandContext(root).CacheFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("persisted go env setting changed without changing the Go-context fingerprint")
+	}
+}
+
+func TestGoCommandContextResolvesWorkspaceFromModuleRoot(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	moduleRoot := filepath.Join(workspaceRoot, "module")
+	if err := os.MkdirAll(moduleRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleRoot, "go.mod"), []byte("module example.com/app\n\ngo 1.26.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	goWork := filepath.Join(workspaceRoot, "go.work")
+	if err := os.WriteFile(goWork, []byte("go 1.26.1\n\nuse ./module\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unsetEnvironment(t, "GOWORK")
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPACKAGESDRIVER", "off")
+
+	context := CaptureGoCommandContext(moduleRoot)
+	if context.buildEnvErr != nil {
+		t.Fatal(context.buildEnvErr)
+	}
+	wantGoWork, err := filepath.EvalSymlinks(goWork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := environmentValue(context.buildEnv, "GOWORK"); got != wantGoWork {
+		t.Fatalf("frozen GOWORK = %q, want module-root resolution %q", got, wantGoWork)
+	}
+	if _, err := context.CacheFingerprint(); !errors.Is(err, ErrUncacheableGoContext) {
+		t.Fatalf("CacheFingerprint error = %v, want active workspace uncacheable", err)
+	}
+}
+
 func TestGoCommandContextDisablesPersistentCacheForWorkspaceAndVendor(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "compiler-version")
+	marker := filepath.Join(t.TempDir(), "compile")
 	if err := os.WriteFile(marker, []byte("compile version\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
