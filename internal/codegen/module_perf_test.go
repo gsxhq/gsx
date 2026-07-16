@@ -67,6 +67,22 @@ func setupComponentBenchmarkFixture(b *testing.B, kind string) componentBenchmar
 			[]byte("package app\n\n// warm variant a\ncomponent Page(label string) {\n\t<main>{ hold(<Card title={ label }/>) }</main>\n}\n"),
 			[]byte("package app\n\n// warm variant b\ncomponent Page(label string) {\n\t<main>{ hold(<Card title={ label }/>) }</main>\n}\n"),
 		}
+	case "attrs-stream":
+		write("app/card.gsx", "package app\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(title string, attrs gsx.Attrs) {\n\t<article {attrs...}>{title}</article>\n}\n")
+		fixture.targetDir = filepath.Join(root, "app")
+		fixture.overridePath = filepath.Join(fixture.targetDir, "page.gsx")
+		fixture.variants = [2][]byte{
+			[]byte("package app\n\nimport \"github.com/gsxhq/gsx\"\n\n// warm variant a\ncomponent Page(label string, attrs gsx.Attrs) {\n\t<main><Card title={label} attrs={attrs} data-bench=\"a\"/></main>\n}\n"),
+			[]byte("package app\n\nimport \"github.com/gsxhq/gsx\"\n\n// warm variant b\ncomponent Page(label string, attrs gsx.Attrs) {\n\t<main><Card title={label} attrs={attrs} data-bench=\"a\"/></main>\n}\n"),
+		}
+	case "variadic-children":
+		write("app/tabs.gsx", "package app\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Tabs(children ...gsx.Node) {\n\t<ul>{ for _, child := range children { <li>{child}</li> } }</ul>\n}\n")
+		fixture.targetDir = filepath.Join(root, "app")
+		fixture.overridePath = filepath.Join(fixture.targetDir, "page.gsx")
+		fixture.variants = [2][]byte{
+			[]byte("package app\n\n// warm variant a\ncomponent Page(label string) {\n\t<Tabs><span>{label}</span><strong>fixed</strong></Tabs>\n}\n"),
+			[]byte("package app\n\n// warm variant b\ncomponent Page(label string) {\n\t<Tabs><span>{label}</span><strong>fixed</strong></Tabs>\n}\n"),
+		}
 	default:
 		b.Fatalf("unknown component benchmark fixture %q", kind)
 	}
@@ -79,7 +95,7 @@ func setupComponentBenchmarkFixture(b *testing.B, kind string) componentBenchmar
 }
 
 func BenchmarkModuleGenerateComponentCold(b *testing.B) {
-	for _, kind := range []string{"same-package", "imported", "embedded"} {
+	for _, kind := range []string{"same-package", "imported", "embedded", "attrs-stream", "variadic-children"} {
 		b.Run(kind, func(b *testing.B) {
 			b.StopTimer()
 			fixture := setupComponentBenchmarkFixture(b, kind)
@@ -109,7 +125,7 @@ func BenchmarkModuleGenerateComponentCold(b *testing.B) {
 }
 
 func BenchmarkModuleGenerateComponentWarm(b *testing.B) {
-	for _, kind := range []string{"same-package", "imported", "embedded"} {
+	for _, kind := range []string{"same-package", "imported", "embedded", "attrs-stream", "variadic-children"} {
 		b.Run(kind, func(b *testing.B) {
 			b.StopTimer()
 			fixture := setupComponentBenchmarkFixture(b, kind)
