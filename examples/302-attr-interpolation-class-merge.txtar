@@ -7,10 +7,12 @@ pageOrder: 40
 -- input.gsx --
 package views
 
-component Badge(variant string) {
+import "github.com/gsxhq/gsx"
+
+component Badge(variant string, attrs gsx.Attrs) {
 	<span class=f`badge-@{variant}` { attrs... }>Hi</span>
 }
 -- invoke --
-Badge(BadgeProps{Variant: "x", Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}}})
+Badge("x", gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}})
 -- render.golden --
 <span class="badge-x hl" id="a">Hi</span>

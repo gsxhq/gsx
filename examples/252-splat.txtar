@@ -1,6 +1,6 @@
 -- doc --
-name: Whole-struct splat
-summary: Pass a prebuilt struct as the entire props value with { x... } — bypasses field-by-field building. Works for both top-level components and method components.
+name: Explicit parameter forwarding
+summary: Composite values are ordinary component parameters. Forward them by exact parameter name at both top-level and method component calls.
 category: Components
 page: props
 pageOrder: 30
@@ -22,7 +22,7 @@ component Card(d cardData) {
 }
 
 component Page(d pageData) {
-	<Card { cardData{Title: d.Heading}... }/>
+	<Card d={cardData{Title: d.Heading}}/>
 }
 
 component (p Home) Content(pd pageData) {
@@ -30,7 +30,7 @@ component (p Home) Content(pd pageData) {
 }
 
 component (p Home) Shell(pd pageData) {
-	<p.Content { pd... }/>
+	<p.Content pd={pd}/>
 }
 -- invoke --
 (Home{}).Shell(pageData{Heading: "Hi"})

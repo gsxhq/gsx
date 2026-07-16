@@ -1,6 +1,6 @@
 -- doc --
-name: Props heuristic
-summary: Param shape decides the model — a single named-struct param is bring-your-own; anything else (scalar or multi-param) gets a generated NameProps struct.
+name: Signature shapes
+summary: Every authored parameter is part of the component's Go signature. Scalar, multi-parameter, and composite-value signatures follow the same exact-name rule.
 category: Components
 page: props
 pageOrder: 20
@@ -27,7 +27,7 @@ component Page() {
 	<>
 		<Greeting name="Ann"/>
 		<Card title="T" n={2}/>
-		<Panel title="P"/>
+		<Panel p={Props{Title: "P"}}/>
 	</>
 }
 -- invoke --
