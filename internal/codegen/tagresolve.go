@@ -16,6 +16,14 @@ import (
 
 type componentExclusions map[string]bool
 
+type componentCandidateKind uint8
+
+const (
+	componentCandidateNone componentCandidateKind = iota
+	componentCandidateExplicit
+	componentCandidateLowercasePackage
+)
+
 func oneComponentExclusion(name string) componentExclusions {
 	if name == "" {
 		return nil
@@ -23,26 +31,26 @@ func oneComponentExclusion(name string) componentExclusions {
 	return componentExclusions{name: true}
 }
 
-// resolveTag applies the resolution rule from the 2026-07-10 spec:
-// capital/dotted → component; lowercase Go identifier → component iff a
-// package-level declaration with that name exists AND the tag is not the
-// enclosing declaration's own name (self-exclusion, wrapper pattern);
-// everything else (dashes, unknown names) → leaf.
-func resolveTag(tag string, declNames map[string]bool, exclusions componentExclusions) bool {
+// componentCandidateFor classifies only the syntax/declaration evidence that
+// warrants exact target discovery. It never decides component identity.
+func componentCandidateFor(tag string, declNames map[string]bool, exclusions componentExclusions) componentCandidateKind {
 	if gsxast.IsComponentTag(tag) {
-		return true
+		return componentCandidateExplicit
 	}
-	if !token.IsIdentifier(tag) {
-		return false // <my-widget> etc. can never name a Go declaration
+	if exclusions[tag] {
+		return componentCandidateNone
 	}
-	return !exclusions[tag] && declNames[tag]
+	if token.IsIdentifier(tag) && declNames[tag] {
+		return componentCandidateLowercasePackage
+	}
+	return componentCandidateNone
 }
 
-// isSelfExcluded reports whether tag hits resolveTag's self-exclusion branch
+// isSelfExcluded reports whether tag hits componentCandidateFor's exclusion
 // specifically (as opposed to simply not being a declared name at all): tag
 // equals the enclosing declaration's own name, is a plain Go identifier
 // (never a component-tag shape), and IS a real package-level declaration.
-// Split out from resolveTag so stampComponentTag can distinguish
+// Split out so candidate collection can distinguish
 // self-exclusion from an ordinary leaf and drive the warning below.
 func isSelfExcluded(tag string, declNames map[string]bool, exclusions componentExclusions) bool {
 	return exclusions[tag] && token.IsIdentifier(tag) && !gsxast.IsComponentTag(tag) && declNames[tag]
@@ -71,21 +79,15 @@ func reportLeafTypeArgs(bag *diag.Bag, el *gsxast.Element) {
 		"type arguments on HTML element <%s>: type args are only valid on component tags", el.Tag)
 }
 
-// stampComponentTag applies the complete component-vs-leaf decision and its
-// associated diagnostics to one element. Keeping the mutation and diagnostics
-// together gives the package preprocessor and narrow unit-test walker one
-// resolution primitive; neither reimplements part of the rule.
-func stampComponentTag(el *gsxast.Element, declNames map[string]bool, exclusions componentExclusions, bag *diag.Bag, reportDiagnostics bool) {
+// recordComponentCandidate records discovery membership without mutating the
+// element's final semantic stamp.
+func recordComponentCandidate(candidates map[*gsxast.Element]componentCandidateKind, el *gsxast.Element, declNames map[string]bool, exclusions componentExclusions, bag *diag.Bag, reportDiagnostics bool) {
 	excluded := isSelfExcluded(el.Tag, declNames, exclusions)
-	el.IsComponent = !excluded && resolveTag(el.Tag, declNames, exclusions)
-	if !reportDiagnostics {
-		return
+	if candidate := componentCandidateFor(el.Tag, declNames, exclusions); candidate != componentCandidateNone {
+		candidates[el] = candidate
 	}
-	if excluded {
+	if reportDiagnostics && excluded {
 		reportSelfRefWarning(bag, el, el.Tag)
-	}
-	if !el.IsComponent && el.TypeArgs != "" {
-		reportLeafTypeArgs(bag, el)
 	}
 }
 

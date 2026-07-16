@@ -104,7 +104,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 
 	var diagnostics []diag.Diagnostic
 	for _, record := range input.callSites.records {
-		if record.disposition != callSitePlanned {
+		if record.disposition != componentSitePlanned {
 			continue
 		}
 		fact, ok := input.targets[record.id]

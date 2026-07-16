@@ -46,6 +46,103 @@ func TestComponentTargetFactEffectiveSignature(t *testing.T) {
 	}
 }
 
+func TestFinalizeComponentIdentity(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "views.gsx", `package views
+component Page() {
+	<Card/>
+	<card/>
+	<main/>
+	<Main/>
+	<time/>
+	<Missing/>
+	<broken/>
+}
+`)
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(
+		map[string]*gsxast.File{"views.gsx": file},
+		map[string]bool{"Page": true, "card": true, "main": true, "time": true, "broken": true},
+		fset, attrclass.Builtin(), bag,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preprocessed.analysisReady() {
+		t.Fatalf("preprocessing diagnostics: %+v", bag.Sorted())
+	}
+
+	fx := newSignatureRuntimeFixture(t)
+	user := types.NewPackage("example.test/views", "views")
+	concrete := testRenderableType(t, user, "concreteNode", false)
+	signature := func(params []*types.Var, results ...types.Type) *types.Signature {
+		return testSignature(user, nil, params, results, false)
+	}
+	facts := make(map[callSiteID]componentTargetFact)
+	for _, record := range preprocessed.registry.records {
+		fact := componentTargetFact{site: record.id}
+		switch record.element.Tag {
+		case "Card":
+			fact.raw = signature(nil, fx.runtime.node)
+			fact.provenance = targetPackageFunc
+		case "card":
+			fact.raw = signature(nil, concrete)
+			fact.provenance = targetPackageFunc
+		case "main", "Main":
+			fact.raw = signature(nil)
+			fact.provenance = targetPackageFunc
+		case "time":
+			fact.rejection = componentTargetDefinitiveNonCallablePackageObject
+		case "Missing":
+			fact.rejection = componentTargetUnresolved
+			fact.targetDiags = []diag.Diagnostic{componentTargetDiagnostic(record.element, fset, "invalid-component-target", "component target could not be resolved")}
+		case "broken":
+			fact.raw = signature([]*types.Var{testParam(user, "attrs", types.Typ[types.String])}, fx.runtime.node)
+			fact.provenance = targetPackageFunc
+		default:
+			t.Fatalf("unexpected candidate <%s>", record.element.Tag)
+		}
+		facts[record.id] = fact
+	}
+
+	if err := preprocessed.registry.finalizeComponentIdentity(facts, fx.runtime, fset, bag); err != nil {
+		t.Fatal(err)
+	}
+	wantDisposition := map[string]callSiteDisposition{
+		"Card": componentSitePlanned, "card": componentSitePlanned, "broken": componentSitePlanned,
+		"main": componentSiteLeaf, "time": componentSiteLeaf,
+		"Main": componentSiteRejected, "Missing": componentSiteRejected,
+	}
+	for _, record := range preprocessed.registry.records {
+		want := wantDisposition[record.element.Tag]
+		if record.disposition != want {
+			t.Errorf("<%s> disposition=%d, want %d", record.element.Tag, record.disposition, want)
+		}
+		wantComponent := want == componentSitePlanned
+		if record.element.IsComponent != wantComponent {
+			t.Errorf("<%s> IsComponent=%t, want %t", record.element.Tag, record.element.IsComponent, wantComponent)
+		}
+	}
+
+	diagnostics := bag.Sorted()
+	if len(diagnostics) != 2 {
+		t.Fatalf("diagnostics=%+v, want Main result-count and Missing target errors", diagnostics)
+	}
+	wantCodes := map[string]bool{"component-result-count": true, "invalid-component-target": true}
+	for _, diagnostic := range diagnostics {
+		if !wantCodes[diagnostic.Code] {
+			t.Errorf("unexpected diagnostic: %+v", diagnostic)
+		}
+		delete(wantCodes, diagnostic.Code)
+	}
+	if len(wantCodes) != 0 {
+		t.Errorf("missing diagnostic codes: %v", wantCodes)
+	}
+	if _, err := analyzeComponentSignature(facts[preprocessed.registry.byElement[targetTestElements(file, "broken")[0]]].raw, fx.runtime); err == nil || !strings.Contains(err.Error(), "component-attrs-type") {
+		t.Fatalf("broken full signature error=%v, want component-attrs-type", err)
+	}
+}
+
 func TestParseComponentTargetExpressionMapsSyntaxErrorToAuthoredCloseBracket(t *testing.T) {
 	fset := token.NewFileSet()
 	file := parseTargetTestFile(t, fset, "target.gsx", `package p
@@ -614,9 +711,8 @@ component Page() { <MissingOne/><MissingTwo/> }
 	}
 	for _, record := range preprocessed.registry.records {
 		fact := facts[record.id]
-		want := "undefined: " + record.element.Tag
-		if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "types" || fact.targetDiags[0].Message != want {
-			t.Errorf("<%s> diagnostics = %+v, want only %q", record.element.Tag, fact.targetDiags, want)
+		if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "codegen" || fact.targetDiags[0].Code != "invalid-component-target" {
+			t.Errorf("<%s> diagnostics = %+v, want one invalid-component-target", record.element.Tag, fact.targetDiags)
 		}
 	}
 	if len(unrelated) != 1 || unrelated[0].Msg != "undefined: MissingOutside" {
@@ -670,8 +766,8 @@ component Page() { <Missing/> }
 		t.Fatalf("unrelated target-skeleton errors: %+v", unrelated)
 	}
 	fact := facts[1]
-	if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "types" || fact.targetDiags[0].Message != "undefined: Missing" {
-		t.Fatalf("lookup diagnostics = %+v, want one native checker error", fact.targetDiags)
+	if len(fact.targetDiags) != 1 || fact.targetDiags[0].Source != "codegen" || fact.targetDiags[0].Code != "invalid-component-target" {
+		t.Fatalf("lookup diagnostics = %+v, want one invalid-component-target", fact.targetDiags)
 	}
 }
 
@@ -1144,7 +1240,7 @@ component Z() { <Last/> }
 	if first.path != "a.gsx" || second.path != "a.gsx" || third.path != "z.gsx" {
 		t.Fatalf("paths=%q,%q,%q", first.path, second.path, third.path)
 	}
-	if first.disposition != callSitePlanned || second.disposition != callSitePlanned || third.disposition != callSitePlanned {
+	if first.disposition != componentSiteCandidate || second.disposition != componentSiteCandidate || third.disposition != componentSiteCandidate {
 		t.Fatalf("planned dispositions = %d,%d,%d", first.disposition, second.disposition, third.disposition)
 	}
 	if len(bag.Sorted()) != 0 {
@@ -1190,7 +1286,7 @@ component Page() {
 	}
 	nested := embedded[0]
 	nestedRecord := registryRecordFor(t, first, nested)
-	if nestedRecord.disposition != callSitePlanned {
+	if nestedRecord.disposition != componentSiteCandidate {
 		t.Fatalf("Nested disposition=%d, want planned", nestedRecord.disposition)
 	}
 	top := targetTestElements(file, "TopCall")
@@ -1280,13 +1376,13 @@ component Page() {
 	byTag := map[string]*gsxast.Element{}
 	for _, el := range blockElements {
 		byTag[el.Tag] = el
-		if !el.IsComponent {
-			t.Errorf("unsupported <%s> was not stamped", el.Tag)
+		if el.IsComponent {
+			t.Errorf("unsupported <%s> received a semantic component stamp", el.Tag)
 		}
 	}
 	for _, tag := range []string{"Direct", "Second"} {
 		record := registryRecordFor(t, registry, byTag[tag])
-		if record.disposition != callSitePreserveUnsupportedGoBlock {
+		if record.disposition != componentSitePreservedInvalidRegion {
 			t.Errorf("%s disposition=%d, want preserve", tag, record.disposition)
 		}
 	}
@@ -1294,7 +1390,7 @@ component Page() {
 		t.Fatal("nested call inside unsupported GoBlock entered registry")
 	}
 	planned := targetTestElements(file, "Planned")
-	if len(planned) != 1 || registryRecordFor(t, registry, planned[0]).disposition != callSitePlanned {
+	if len(planned) != 1 || registryRecordFor(t, registry, planned[0]).disposition != componentSiteCandidate {
 		t.Fatal("supported sibling call was not planned")
 	}
 	diags := bag.Sorted()
@@ -1369,11 +1465,11 @@ component item(value string) {
 		}
 	}
 	second := byTag["Second"]
-	if second == nil || registryRecordFor(t, preprocessed.registry, second).disposition != callSitePreserveUnsupportedGoBlock {
+	if second == nil || registryRecordFor(t, preprocessed.registry, second).disposition != componentSitePreservedInvalidRegion {
 		t.Fatal("direct <Second> was not preserved as part of the unsupported block")
 	}
 	planned := targetTestElements(file, "Planned")
-	if len(planned) != 1 || registryRecordFor(t, preprocessed.registry, planned[0]).disposition != callSitePlanned {
+	if len(planned) != 1 || registryRecordFor(t, preprocessed.registry, planned[0]).disposition != componentSiteCandidate {
 		t.Fatal("supported sibling call was not planned")
 	}
 	diags := bag.Sorted()
@@ -1574,7 +1670,7 @@ func TestPreprocessUnsupportedGoBlockHasSingleDiagnostic(t *testing.T) {
 				t.Fatalf("diagnostics=%+v, want exactly one unsupported-node", diags)
 			}
 			for _, record := range registry.records {
-				if record.disposition != callSitePreserveUnsupportedGoBlock {
+				if record.disposition != componentSitePreservedInvalidRegion {
 					t.Fatalf("record=%+v, unsupported block must not contain planned sites", record)
 				}
 			}

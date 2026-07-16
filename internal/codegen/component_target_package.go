@@ -207,7 +207,7 @@ func discoverComponentTargets(
 	for _, harvest := range expressionHarvests {
 		maps.Copy(expressionFacts, harvestComponentTargetExpressionFacts(
 			harvest.parsed, harvest.source, pkg, info, fset,
-			harvest.embeddedMarkups, plan,
+			harvest.embeddedMarkups, plan, callSites,
 		))
 	}
 	return componentTargetPackageResult{
@@ -233,6 +233,7 @@ func harvestComponentTargetExpressionFacts(
 	fset *token.FileSet,
 	embeddedMarkups [][]gsxast.Markup,
 	plan componentTargetPlan,
+	candidates *callSiteRegistry,
 ) map[gsxast.Node]expressionFact {
 	resolved := make(map[gsxast.Node]types.Type)
 	expressions := make(map[gsxast.Node]goast.Expr)
@@ -242,8 +243,8 @@ func harvestComponentTargetExpressionFacts(
 			components = append(components, component)
 		}
 	}
-	harvest(parsed, components, info, resolved, expressions, &plan)
-	harvestEmbeddedElements(parsed, embeddedMarkups, info, resolved, expressions)
+	harvest(parsed, components, info, resolved, expressions, &plan, candidates)
+	harvestEmbeddedElements(parsed, embeddedMarkups, info, resolved, expressions, candidates)
 
 	facts := make(map[gsxast.Node]expressionFact, len(expressions))
 	for node, expr := range expressions {

@@ -226,12 +226,11 @@ type Element struct {
 	// is the value's own layout, not a request to break the list. Elements with
 	// no attributes never set it — there is no list to break.
 	AttrsMultiline bool
-	// IsComponent is the resolved component-vs-leaf decision for this tag:
-	// true for capital-first/dotted tags, and for lowercase tags that match a
-	// package-level declaration (with self-exclusion inside the declaration of
-	// the same name). Set by codegen's package preprocessor — NEVER by the
-	// parser — so formatter round-trip equality is unaffected. Codegen and LSP
-	// read this field instead of re-deriving component-ness from the tag string.
+	// IsComponent is the final semantic component-vs-leaf decision for this tag.
+	// It becomes true only after codegen resolves the target to an allowed
+	// callable whose result is assignable to the canonical gsx.Node type. The
+	// parser and syntax preprocessor never stamp it. Codegen and LSP read this
+	// field instead of re-deriving component identity from the tag string.
 	IsComponent bool
 }
 
@@ -822,12 +821,10 @@ func Inspect(node Node, f func(Node) bool) {
 	f(nil)
 }
 
-// IsComponentTag reports the SYNTACTIC component rule: dotted (ui.Button,
-// p.item) or Go-exported-name tags are always components. It is one
-// input to codegen's package preprocessor, which additionally resolves
-// lowercase tags against the package's declared names and stamps the result
-// on Element.IsComponent. Read the stamp, not this function, when deciding
-// how a specific element lowers.
+// IsComponentTag reports explicit component-candidate syntax: dotted
+// (ui.Button, p.item) or Go-exported-name tags. It does not establish component
+// identity. Read Element.IsComponent after semantic analysis when deciding how
+// a specific element lowers.
 func IsComponentTag(tag string) bool {
 	if tag == "" {
 		return false

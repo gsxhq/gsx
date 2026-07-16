@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"go/types"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -8,7 +9,7 @@ import (
 	"go/token"
 )
 
-func preprocessTagsForTest(t testing.TB, fset *token.FileSet, file *gsxast.File, declNames map[string]bool, bag *diag.Bag) *callSiteRegistry {
+func preprocessTagsForTest(t *testing.T, fset *token.FileSet, file *gsxast.File, declNames map[string]bool, bag *diag.Bag) *callSiteRegistry {
 	t.Helper()
 	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"test.gsx": file}, declNames, fset, nil, bag)
 	if err != nil {
@@ -16,6 +17,21 @@ func preprocessTagsForTest(t testing.TB, fset *token.FileSet, file *gsxast.File,
 	}
 	if !preprocessed.analysisReady() {
 		t.Fatalf("preprocess component tags was not analysis-ready: %+v", bag.Sorted())
+	}
+	fx := newSignatureRuntimeFixture(t)
+	facts := make(map[callSiteID]componentTargetFact)
+	for _, record := range preprocessed.registry.records {
+		if record.disposition != componentSiteCandidate {
+			continue
+		}
+		facts[record.id] = componentTargetFact{
+			site:       record.id,
+			raw:        testSignature(fx.pkg, nil, nil, []types.Type{fx.runtime.node}, false),
+			provenance: targetPackageFunc,
+		}
+	}
+	if err := preprocessed.registry.finalizeComponentIdentity(facts, fx.runtime, fset, bag); err != nil {
+		t.Fatalf("finalize component tags: %v", err)
 	}
 	return preprocessed.registry
 }
@@ -41,6 +57,75 @@ func collectStamps(f *gsxast.File) map[string]bool {
 		return true
 	})
 	return out
+}
+
+func TestComponentCandidateLifecycle(t *testing.T) {
+	f, fset := parseGSXForTestWithFset(t, `package views
+
+component lower() {
+	<lower/>
+}
+
+component Page() {
+	<Upper/>
+	<ui.Card/>
+	<lower/>
+	<main/>
+	<div/>
+}
+`)
+	declNames := map[string]bool{"lower": true, "main": true, "Page": true}
+	bag := diag.NewBag(fset)
+	parsed := newParsedGSXPackage("views", map[string]*gsxast.File{"test.gsx": f})
+	preprocessed, err := parsed.preprocessComponentCallSites(declNames, fset, nil, bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preprocessed.analysisReady() {
+		t.Fatalf("preprocessing diagnostics: %+v", bag.Sorted())
+	}
+
+	registry := preprocessed.registry
+	wantKinds := map[string]componentCandidateKind{
+		"Upper":   componentCandidateExplicit,
+		"ui.Card": componentCandidateExplicit,
+		"lower":   componentCandidateLowercasePackage,
+		"main":    componentCandidateLowercasePackage,
+	}
+	for tag, want := range wantKinds {
+		elements := targetTestElements(f, tag)
+		if tag == "lower" {
+			if len(elements) != 2 {
+				t.Fatalf("lower elements=%d, want self-excluded and candidate", len(elements))
+			}
+			if _, exists := registry.byElement[elements[0]]; exists {
+				t.Fatal("self-excluded <lower> entered the candidate registry")
+			}
+			elements = elements[1:]
+		}
+		if len(elements) != 1 {
+			t.Fatalf("%s elements=%d, want 1", tag, len(elements))
+		}
+		record := registryRecordFor(t, registry, elements[0])
+		if record.candidate != want {
+			t.Errorf("<%s> candidate=%d, want %d", tag, record.candidate, want)
+		}
+	}
+	if divs := targetTestElements(f, "div"); len(divs) != 1 {
+		t.Fatalf("div elements=%d, want 1", len(divs))
+	} else if _, exists := registry.byElement[divs[0]]; exists {
+		t.Fatal("undeclared <div> entered the candidate registry")
+	}
+	gsxast.Inspect(f, func(node gsxast.Node) bool {
+		if element, ok := node.(*gsxast.Element); ok && element.IsComponent {
+			t.Errorf("preprocessing provisionally stamped <%s> as a component", element.Tag)
+		}
+		return true
+	})
+
+	if _, err := parsed.preprocessComponentCallSites(declNames, fset, nil, diag.NewBag(fset)); err == nil {
+		t.Fatal("second preprocessing claim succeeded")
+	}
 }
 
 func TestResolveComponentTags(t *testing.T) {
