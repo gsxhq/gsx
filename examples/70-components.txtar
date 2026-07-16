@@ -1,6 +1,6 @@
 -- doc --
-name: Components & props
-summary: Call a component with a typed props struct; boolean props pass bare (featured).
+name: Components & inputs
+summary: Markup binds authored parameters by exact name; boolean inputs pass bare (featured).
 category: Components & composition
 order: 70
 page: composition
