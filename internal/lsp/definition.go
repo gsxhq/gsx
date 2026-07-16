@@ -396,6 +396,22 @@ func (s *Server) handleDefinition(f frame) error {
 
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
+	// D2: exact call-target identity from codegen. For a GSX build-variant
+	// family, retain the existing multi-location picker after the exact target
+	// establishes that this authored element is a component call.
+	if dp, ok := componentTargetDeclAt(pkg, path, off); ok {
+		if strings.HasSuffix(dp.Filename, ".gsx") {
+			if decls, found := componentTagDeclAt(pkg, path, off); found && len(decls) > 1 {
+				locs := make([]Location, 0, len(decls))
+				for _, d := range decls {
+					locs = append(locs, s.locationForPos(d))
+				}
+				return s.reply(f.ID, locs)
+			}
+		}
+		return s.reply(f.ID, s.locationForPos(dp))
+	}
+
 	// D2: cursor on a component tag name in a .gsx file → jump to the component
 	// declaration(s). A single variant replies with a plain Location (unchanged
 	// wire shape); multiple build-tag variants (Task 7) reply with a []Location
@@ -414,17 +430,6 @@ func (s *Server) handleDefinition(f frame) error {
 	// B: cursor on a dotted/cross-package component tag → its declaration in the
 	// imported package's .gsx.
 	if dp, ok := crossPkgTagDeclAt(pkg, path, off); ok {
-		return s.reply(f.ID, s.locationForPos(dp))
-	}
-
-	// D4: cursor on an attrs-only component-value tag (a var/func of type
-	// func(gsx.Attrs) gsx.Node / func(...gsx.Attr) gsx.Node, not a `component`
-	// declaration — see docs/superpowers/specs/2026-07-07-attrs-only-component-
-	// values-design.md) → its own var/func declaration, same-package or
-	// cross-package (dotted). Checked after D2/B since those cover the more
-	// common `component`-declared tags first; falls through to null when the
-	// tag isn't an attrs-only value either.
-	if dp, ok := attrsOnlyTagDeclAt(pkg, path, off); ok {
 		return s.reply(f.ID, s.locationForPos(dp))
 	}
 

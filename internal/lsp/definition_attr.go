@@ -1,156 +1,180 @@
 package lsp
 
 import (
-	"go/ast"
-	"go/parser"
 	"go/token"
 	"go/types"
 	"strings"
-	"unicode"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
 
-// firstUpper returns s with its first rune upper-cased (the gsx exported-field
-// rule: attr name `title` ↔ field/param `Title`). "" stays "".
-func firstUpper(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	r[0] = unicode.ToUpper(r[0])
-	return string(r)
+type componentTargetCursor struct {
+	element *gsxast.Element
+	fact    ComponentCallFact
+	start   int
+	length  int
 }
 
-// paramOffsetIn parses a gsx component's raw parameter-list source (e.g.
-// "comments []store.Comment" or grouped "a, b string") with go/parser and
-// returns the byte offset, WITHIN params, of the name of the parameter matching
-// attr under the default exported-field rule firstUpper(name)==firstUpper(attr).
-// ok is false when params is empty, unparseable, or has no matching parameter —
-// the caller falls through to a null definition. It never panics.
-func paramOffsetIn(params, attr string) (int, bool) {
-	if strings.TrimSpace(params) == "" {
-		return 0, false
+// componentTargetAtOffset returns the exact callable selected by codegen for a
+// cursor on either spelling of a successfully planned component tag.
+func componentTargetAtOffset(pkg *Package, path string, off int) (componentTargetCursor, bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files[path] == nil {
+		return componentTargetCursor{}, false
 	}
-	const prefix = "package p\nfunc _("
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", prefix+params+"){}", 0)
-	if err != nil {
-		return 0, false
-	}
-	var fn *ast.FuncDecl
-	for _, d := range file.Decls {
-		if f, ok := d.(*ast.FuncDecl); ok {
-			fn = f
-			break
-		}
-	}
-	if fn == nil || fn.Type.Params == nil {
-		return 0, false
-	}
-	// params starts immediately after the prefix, so a name's offset within
-	// params is its offset in the synthetic source minus len(prefix).
-	want := firstUpper(attr)
-	for _, field := range fn.Type.Params.List {
-		for _, name := range field.Names {
-			if firstUpper(name.Name) == want {
-				return fset.Position(name.Pos()).Offset - len(prefix), true
-			}
-		}
-	}
-	return 0, false
-}
-
-// paramDeclIn parses a gsx component's raw parameter-list source and returns the
-// matched parameter's declaration as "name type" (e.g. "comments []store.Comment",
-// grouped "b string"), matched to attr by firstUpper(name)==firstUpper(attr). ok
-// is false when params is empty, unparseable, or has no matching parameter. Never
-// panics.
-func paramDeclIn(params, attr string) (string, bool) {
-	if strings.TrimSpace(params) == "" {
-		return "", false
-	}
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", "package p\nfunc _("+params+"){}", 0)
-	if err != nil {
-		return "", false
-	}
-	var fn *ast.FuncDecl
-	for _, d := range file.Decls {
-		if f, ok := d.(*ast.FuncDecl); ok {
-			fn = f
-			break
-		}
-	}
-	if fn == nil || fn.Type.Params == nil {
-		return "", false
-	}
-	want := firstUpper(attr)
-	for _, field := range fn.Type.Params.List {
-		for _, name := range field.Names {
-			if firstUpper(name.Name) == want {
-				return name.Name + " " + types.ExprString(field.Type), true
-			}
-		}
-	}
-	return "", false
-}
-
-// componentAttrAtOffset finds a cursor on a component-invocation attribute NAME.
-// It walks the in-memory gsx AST for an element whose tag resolves as a
-// component (el.IsComponent — the codegen-stamped answer, covering capital,
-// dotted, AND lowercase-matching-a-declaration tags) and whose named attr's
-// name span [attr.Pos(), +len(name)) covers off. Returns the tag, the attr
-// name, and the attr-name byte start (edited-file offset).
-func componentAttrAtOffset(pkg *Package, path string, off int) (tag, attr string, attrStart int, ok bool) {
-	f := pkg.Files[path]
-	if f == nil || pkg.GSXFset == nil {
-		return "", "", 0, false
-	}
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
-		if tag != "" {
+	var found componentTargetCursor
+	inspectWithEmbedded(pkg.Files[path], func(n gsxast.Node) bool {
+		if found.element != nil {
 			return false
 		}
-		el, isEl := n.(*gsxast.Element)
-		if !isEl || !el.IsComponent {
+		el, ok := n.(*gsxast.Element)
+		if !ok {
 			return true
 		}
-		for _, a := range el.Attrs {
-			name, named := attrName(a)
-			if !named || name == "" {
+		fact, ok := pkg.ComponentCalls[el]
+		if !ok || fact.Target == nil {
+			return true
+		}
+		start := pkg.GSXFset.Position(el.TagPos).Offset
+		onOpen := off >= start && off < start+len(el.Tag)
+		onClose := false
+		if el.CloseNamePos.IsValid() {
+			closeStart := pkg.GSXFset.Position(el.CloseNamePos).Offset
+			onClose = off >= closeStart && off < closeStart+len(el.Tag)
+			if onClose {
+				start = closeStart
+			}
+		}
+		if onOpen || onClose {
+			found = componentTargetCursor{element: el, fact: fact, start: start, length: len(el.Tag)}
+			return false
+		}
+		return true
+	})
+	return found, found.element != nil
+}
+
+func componentTargetObject(fact ComponentCallFact) types.Object {
+	if fact.TargetOrigin != nil {
+		return fact.TargetOrigin
+	}
+	return fact.Target
+}
+
+func componentTargetDeclAt(pkg *Package, path string, off int) (token.Position, bool) {
+	cursor, ok := componentTargetAtOffset(pkg, path, off)
+	if !ok || pkg.Fset == nil {
+		return token.Position{}, false
+	}
+	obj := componentTargetObject(cursor.fact)
+	if obj == nil || !obj.Pos().IsValid() {
+		return token.Position{}, false
+	}
+	pos := pkg.Fset.Position(obj.Pos())
+	if pos.Filename == "" || strings.HasSuffix(pos.Filename, ".x.go") {
+		return token.Position{}, false
+	}
+	return pos, true
+}
+
+// componentDeclForTarget finds a GSX declaration by the retained target
+// identity's resolved declaration position. It is used only to preserve the
+// component-specific hover presentation; target resolution itself is exact.
+func componentDeclForTarget(pkg *Package, fact ComponentCallFact) *gsxast.Component {
+	if pkg == nil || pkg.Fset == nil || pkg.GSXFset == nil {
+		return nil
+	}
+	obj := componentTargetObject(fact)
+	if obj == nil || !obj.Pos().IsValid() {
+		return nil
+	}
+	want := pkg.Fset.Position(obj.Pos())
+	for _, file := range pkg.Files {
+		for _, decl := range file.Decls {
+			comp, ok := decl.(*gsxast.Component)
+			if !ok || !comp.NamePos.IsValid() {
 				continue
 			}
-			start := pkg.GSXFset.Position(a.Pos()).Offset
+			got := pkg.GSXFset.Position(comp.NamePos)
+			if got.Filename == want.Filename && got.Line == want.Line && got.Column == want.Column {
+				return comp
+			}
+		}
+	}
+	return nil
+}
+
+type componentAttrCursor struct {
+	element *gsxast.Element
+	attr    gsxast.Attr
+	name    string
+	start   int
+	fact    ComponentCallFact
+	param   ComponentParamFact
+}
+
+// componentAttrAtOffset returns codegen's exact binding for a cursor on a
+// component attribute name. Only attributes present in the retained semantic
+// fact map are navigable: unmatched HTML-attribute fallthrough deliberately is
+// not a reference to the attrs parameter.
+func componentAttrAtOffset(pkg *Package, path string, off int) (componentAttrCursor, bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files[path] == nil {
+		return componentAttrCursor{}, false
+	}
+	var found componentAttrCursor
+	inspectWithEmbedded(pkg.Files[path], func(n gsxast.Node) bool {
+		if found.element != nil {
+			return false
+		}
+		el, ok := n.(*gsxast.Element)
+		if !ok {
+			return true
+		}
+		fact, ok := pkg.ComponentCalls[el]
+		if !ok {
+			return true
+		}
+		for attr, param := range fact.Params {
+			name, named := attrName(attr)
+			if !named || name == "" || !attr.Pos().IsValid() {
+				continue
+			}
+			start := pkg.GSXFset.Position(attr.Pos()).Offset
 			if off >= start && off < start+len(name) {
-				tag, attr, attrStart = el.Tag, name, start
+				found = componentAttrCursor{
+					element: el,
+					attr:    attr,
+					name:    name,
+					start:   start,
+					fact:    fact,
+					param:   param,
+				}
 				return false
 			}
 		}
 		return true
 	})
-	return tag, attr, attrStart, tag != ""
+	return found, found.element != nil
 }
 
-// componentAttrParamAt resolves a cursor on a component-invocation attribute name
-// to that component's matching parameter position (same-package and cross-package).
 func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, bool) {
-	tag, attr, _, ok := componentAttrAtOffset(pkg, path, off)
-	if !ok {
+	cursor, ok := componentAttrAtOffset(pkg, path, off)
+	if !ok || pkg.Fset == nil {
 		return token.Position{}, false
 	}
-	comp, fset, ok := resolveTagComponent(pkg, tag)
-	if !ok || !comp.ParamsPos.IsValid() {
+	param := cursor.param.Origin
+	if param == nil {
+		param = cursor.param.Var
+	}
+	if param == nil || !param.Pos().IsValid() {
 		return token.Position{}, false
 	}
-	rel, ok := paramOffsetIn(comp.Params, attr)
-	if !ok {
+	pos := pkg.Fset.Position(param.Pos())
+	if pos.Filename == "" || strings.HasSuffix(pos.Filename, ".x.go") {
 		return token.Position{}, false
 	}
-	return fset.Position(comp.ParamsPos + token.Pos(rel)), true
+	return pos, true
 }
 
-// attrName returns the attribute's name and true for the named attr kinds; a
-// SpreadAttr (no name) returns ("", false).
 func attrName(a gsxast.Attr) (string, bool) {
 	switch t := a.(type) {
 	case *gsxast.ExprAttr:
@@ -163,16 +187,17 @@ func attrName(a gsxast.Attr) (string, bool) {
 		return t.Name, true
 	case *gsxast.EmbeddedAttr:
 		return t.Name, true
+	case *gsxast.ClassAttr:
+		return t.Name, true
+	case *gsxast.OrderedAttrsAttr:
+		return t.Name, true
 	default:
 		return "", false
 	}
 }
 
-// findComponentDecl returns the function-component (no receiver) named name from
-// any .gsx file in the package, or nil. A package cannot declare two
-// function-components with the same name (a Go redeclaration error), so the
-// first match is unambiguous despite pkg.Files being a map; the c.Recv == ""
-// filter excludes a same-named method-component.
+// findComponentDecl supports the retained cross-package source resolver. Exact
+// same-package call navigation uses ComponentCalls and does not call this.
 func findComponentDecl(pkg *Package, name string) *gsxast.Component {
 	for _, f := range pkg.Files {
 		for _, d := range f.Decls {

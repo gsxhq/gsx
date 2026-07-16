@@ -222,6 +222,25 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		}
 		sig[c] = lr
 	}
+	calls := make(map[*gsxast.Element]lsp.ComponentCallFact, len(pr.ComponentCalls))
+	for element, call := range pr.ComponentCalls {
+		params := make(map[gsxast.Attr]lsp.ComponentParamFact, len(call.Params))
+		for attr, param := range call.Params {
+			params[attr] = lsp.ComponentParamFact{
+				Var:     param.Var,
+				Origin:  param.Origin,
+				Name:    param.Name,
+				Ordinal: param.Ordinal,
+				Role:    lsp.ComponentParamRole(param.Role),
+			}
+		}
+		calls[element] = lsp.ComponentCallFact{
+			Target:       call.Target,
+			TargetOrigin: call.TargetOrigin,
+			Signature:    call.Signature,
+			Params:       params,
+		}
+	}
 	return &lsp.Package{
 		Diags:          pr.Diags,
 		GSXFset:        pr.GSXFset,
@@ -232,6 +251,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		Files:          pr.GSXFiles,
 		CrossIndex:     cross,
 		NavIndex:       nav,
+		ComponentCalls: calls,
 		CtrlMap:        ctrl,
 		SigTypes:       sig,
 		UnusedImports:  unused,
