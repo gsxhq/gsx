@@ -1,6 +1,6 @@
 -- doc --
 name: Verbatim component signature
-summary: A component's authored parameters are its Go signature. Exact-name props, nested children, and fallthrough attrs are passed directly without a generated props type.
+summary: A component's authored parameters are its Go signature. Exact-name props, body children, and fallthrough attrs are passed directly without a generated props type.
 category: Components
 page: props
 pageOrder: 10

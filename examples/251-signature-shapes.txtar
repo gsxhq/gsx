@@ -1,6 +1,6 @@
 -- doc --
 name: Signature shapes
-summary: Every authored parameter is part of the component's Go signature. Scalar, multi-parameter, and composite-value signatures follow the same exact-name rule.
+summary: Every authored parameter is part of the component's Go signature. Scalar, multi-parameter, and composite-value parameters follow the same exact-name rule.
 category: Components
 page: props
 pageOrder: 20
