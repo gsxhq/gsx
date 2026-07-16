@@ -146,14 +146,13 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 		return m, nil, nil
 	}
 	m, err := codegen.Open(codegen.Options{
-		ModuleRoot:   root,
-		ModulePath:   modPath,
-		FilterPkgs:   merged.filterPkgs,
-		Aliases:      merged.aliases,
-		Renderers:    merged.renderers,
-		FieldMatcher: merged.fieldMatcher,
-		Classifier:   merged.classifier(),
-		ClassMerger:  merged.classMerger,
+		ModuleRoot:  root,
+		ModulePath:  modPath,
+		FilterPkgs:  merged.filterPkgs,
+		Aliases:     merged.aliases,
+		Renderers:   merged.renderers,
+		Classifier:  merged.classifier(),
+		ClassMerger: merged.classMerger,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -213,19 +212,17 @@ func lspSemanticConfigIdentity(cfg config) string {
 		classMerger = cfg.classMerger.PkgPath + "." + cfg.classMerger.FuncName
 	}
 	payload := struct {
-		FilterPackages  []string
-		Aliases         []codegen.FilterAlias
-		Renderers       []codegen.RendererAlias
-		Classifier      string
-		ClassMerger     string
-		HasFieldMatcher bool
+		FilterPackages []string
+		Aliases        []codegen.FilterAlias
+		Renderers      []codegen.RendererAlias
+		Classifier     string
+		ClassMerger    string
 	}{
-		FilterPackages:  cfg.filterPkgs,
-		Aliases:         cfg.aliases,
-		Renderers:       renderers,
-		Classifier:      cfg.classifier().Fingerprint(),
-		ClassMerger:     classMerger,
-		HasFieldMatcher: cfg.fieldMatcher != nil,
+		FilterPackages: cfg.filterPkgs,
+		Aliases:        cfg.aliases,
+		Renderers:      renderers,
+		Classifier:     cfg.classifier().Fingerprint(),
+		ClassMerger:    classMerger,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

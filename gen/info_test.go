@@ -21,7 +21,7 @@ func TestRunInfoStd(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -43,7 +43,7 @@ func TestRunInfoVersionSingleLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -74,7 +74,7 @@ func TestRunInfoShadow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath, "gsxmf/myfilters"}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath, "gsxmf/myfilters"}, nil, nil, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -116,7 +116,7 @@ func TestRunInfoRenderers(t *testing.T) {
 	}
 	renderers := []codegen.RendererAlias{{TypeKey: "gsxmf/pg.Text", PkgPath: "gsxmf/rend", FuncName: "PgText"}}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath}, nil, renderers, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath}, nil, renderers, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -176,7 +176,7 @@ func RenderText(v pg.Text) (string, error) {
 
 	renderers := []codegen.RendererAlias{{TypeKey: "example.com/app/pg.Text", PkgPath: "example.com/app/renderers", FuncName: "RenderText"}}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, tmp, "", []string{stdImportPath}, nil, renderers, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &errBuf, tmp, "", []string{stdImportPath}, nil, renderers, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0; stderr:\n%s", code, errBuf.String())
 	}
@@ -204,7 +204,7 @@ func TestRunInfoNoRenderersOmitsSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -221,7 +221,7 @@ func TestRunInfoBadPkg(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, repoRoot, "", []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &errBuf, repoRoot, "", []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, nil, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 1 {
 		t.Fatalf("runInfo exit = %d, want 1", code)
 	}
@@ -240,7 +240,7 @@ func TestRunInfoPrintsConfigBeforeFilterError(t *testing.T) {
 	cfgPath := filepath.Join(repoRoot, "gsx.toml")
 	aliases := []codegen.FilterAlias{{Name: "x", PkgPath: "github.com/gsxhq/gsx/does-not-exist", FuncName: "F"}}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, repoRoot, cfgPath, nil, aliases, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &errBuf, repoRoot, cfgPath, nil, aliases, nil, attrclass.Builtin(), nil, MinifyNone, MinifyNone, 80)
 	if code != 1 {
 		t.Fatalf("runInfo exit = %d, want 1 (alias targets a non-resolvable package)", code)
 	}
@@ -256,7 +256,7 @@ func TestRunInfo_MinifyAndEnv(t *testing.T) {
 	var out, errb bytes.Buffer
 	// css=none/js=none reflect the explicitly-passed MinifyNone levels; GSX_MINIFY
 	// appears in the Environment section because it is set.
-	code := runInfo(&out, &errb, ".", "", nil, nil, nil, nil, nil,
+	code := runInfo(&out, &errb, ".", "", nil, nil, nil, nil,
 		[]string{}, MinifyNone, MinifyNone, 100)
 	if code != 0 {
 		t.Fatalf("runInfo exit %d, stderr=%s", code, errb.String())
@@ -283,12 +283,13 @@ func TestBuildManifestReportsURLRulesOnly(t *testing.T) {
 		return attrclass.CtxJS, true
 	})
 
-	data, err := json.Marshal(buildManifest("example.com/app", cls, false, nil, MinifyNone, MinifyNone, 80))
+	data, err := json.Marshal(buildManifest("example.com/app", cls, nil, MinifyNone, MinifyNone, 80))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded struct {
-		UserRules map[string]json.RawMessage `json:"userRules"`
+		SchemaVersion int                        `json:"schemaVersion"`
+		UserRules     map[string]json.RawMessage `json:"userRules"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
@@ -296,8 +297,11 @@ func TestBuildManifestReportsURLRulesOnly(t *testing.T) {
 	if len(decoded.UserRules) != 1 || decoded.UserRules["url"] == nil {
 		t.Fatalf("manifest userRules = %s, want URL-only rules", decoded.UserRules)
 	}
+	if decoded.SchemaVersion != manifestSchemaVersion {
+		t.Fatalf("manifest schemaVersion = %d, want %d", decoded.SchemaVersion, manifestSchemaVersion)
+	}
 	got := string(data)
-	for _, unexpected := range []string{"hasPredicate", "predicateLabel", "wire:", "data-style"} {
+	for _, unexpected := range []string{"hasFieldMatcher", "hasPredicate", "predicateLabel", "wire:", "data-style"} {
 		if strings.Contains(got, unexpected) {
 			t.Fatalf("manifest should omit %q from URL-only attr metadata: %s", unexpected, got)
 		}

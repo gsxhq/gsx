@@ -22,7 +22,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	t.Setenv("GSXCACHE", t.TempDir())
 
 	// cold: both generate
-	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), nil, true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 
 	// warm no-op: nothing regenerated (Written empty — restores are skipped when on-disk matches)
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), nil, true, nil, nil, true, true, nil)
+	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 
 	// edit only v -> only v regenerates
 	mkgsx("v", "package v\n\ncomponent A(name string) { <p>Hi {name}</p> }\n")
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), nil, true, nil, nil, true, true, nil)
+	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestNoCacheBypassesCache(t *testing.T) {
 	t.Setenv("GSXCACHE", t.TempDir())
 
 	// warm the cache
-	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), nil, true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestNoCacheBypassesCache(t *testing.T) {
 	}
 
 	// with --no-cache (useCache=false): regenerates despite warm cache → Written=1
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), nil, false, nil, nil, true, true, nil)
+	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), false, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
