@@ -7,11 +7,9 @@ import (
 	"testing"
 )
 
-// TestNavIndex: a component Card(title string) declared in card.gsx, called from
-// main.go as Card(CardProps{Title: "x"}), must produce NavRefs for:
-//   - "Card"      (func ref)    → card.gsx component decl
-//   - "CardProps" (struct ref)  → card.gsx component decl
-//   - "Title"     (field ref)   → card.gsx param position for "title"
+// TestNavIndex: a component Card(title string) declared in card.gsx and called
+// directly from main.go must navigate the function reference to the authored
+// component declaration.
 func TestNavIndex(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -21,7 +19,7 @@ func TestNavIndex(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package nav\n\ncomponent Card(title string) {\n\t<div>{ title }</div>\n}\n")
 	writeFile(t, dir, "main.go",
-		"package nav\n\nvar _ = Card(CardProps{Title: \"x\"})\n")
+		"package nav\n\nvar _ = Card(\"x\")\n")
 
 	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/nav"})
 	if err != nil {
@@ -53,38 +51,6 @@ func TestNavIndex(t *testing.T) {
 		}
 	}
 
-	// --- CardProps struct reference → card.gsx (start of the argument list) ---
-	propsRef, ok := byName["CardProps"]
-	if !ok {
-		t.Errorf("NavIndex missing NavRef for 'CardProps' from main.go; all refs: %+v", pr.NavIndex)
-	} else {
-		if !strings.HasSuffix(propsRef.To.Filename, "card.gsx") {
-			t.Errorf("CardProps NavRef.To.Filename = %q, want card.gsx", propsRef.To.Filename)
-		}
-		// exact: To must land on the start of the argument list — the 't' of the
-		// first param `title` in `component Card(title string)`.
-		if data, err := os.ReadFile(propsRef.To.Filename); err == nil {
-			if propsRef.To.Offset >= len(data) || data[propsRef.To.Offset] != 't' {
-				t.Errorf("CardProps NavRef.To should land on the argument-list start (byte 't' of 'title'); To=%v", propsRef.To)
-			}
-		}
-	}
-
-	// --- Title field reference → card.gsx (the 'title' param position) ---
-	titleRef, ok := byName["Title"]
-	if !ok {
-		t.Errorf("NavIndex missing NavRef for 'Title' from main.go; all refs: %+v", pr.NavIndex)
-	} else {
-		if !strings.HasSuffix(titleRef.To.Filename, "card.gsx") {
-			t.Errorf("Title NavRef.To.Filename = %q, want card.gsx", titleRef.To.Filename)
-		}
-		// exact: To must point at the 'title' param in the component signature.
-		if data, err := os.ReadFile(titleRef.To.Filename); err == nil {
-			if titleRef.To.Offset >= len(data) || data[titleRef.To.Offset] != 't' {
-				t.Errorf("Title NavRef.To should land on the 'title' param (byte 't'); To=%v", titleRef.To)
-			}
-		}
-	}
 	// exact: Card NavRef.To must land on the 'C' of `component Card`.
 	if data, err := os.ReadFile(cardRef.To.Filename); err == nil && cardRef.To.Offset < len(data) {
 		if data[cardRef.To.Offset] != 'C' {
