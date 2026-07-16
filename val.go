@@ -45,34 +45,40 @@ func (n valNode) Render(ctx context.Context, w io.Writer) error {
 		gw.Text(string(t))
 	case fmt.Stringer:
 		gw.Text(t.String())
+	// The bool and numeric kinds below write via gw.S, not gw.Text: strconv's
+	// output charset here (decimal digits, '-', '+', '.', 'e', and the Inf/NaN
+	// and true/false letters) contains no byte htmlReplacer rewrites, so the
+	// escape pass is a no-op on every possible value and the emitted bytes are
+	// identical either way. This mirrors the same reasoning IntInto/FloatInto
+	// document. Do NOT extend gw.S to the string/[]byte/Stringer cases above —
+	// those carry arbitrary author content and must escape.
 	case bool:
-		// gw.Text mirrors emitRender: catBool uses _gsxgw.Text(strconv.FormatBool(...)).
-		gw.Text(strconv.FormatBool(t))
+		gw.S(strconv.FormatBool(t))
 	case int:
-		gw.Text(strconv.FormatInt(int64(t), 10))
+		gw.S(strconv.FormatInt(int64(t), 10))
 	case int8:
-		gw.Text(strconv.FormatInt(int64(t), 10))
+		gw.S(strconv.FormatInt(int64(t), 10))
 	case int16:
-		gw.Text(strconv.FormatInt(int64(t), 10))
+		gw.S(strconv.FormatInt(int64(t), 10))
 	case int32:
-		gw.Text(strconv.FormatInt(int64(t), 10))
+		gw.S(strconv.FormatInt(int64(t), 10))
 	case int64:
-		gw.Text(strconv.FormatInt(t, 10))
+		gw.S(strconv.FormatInt(t, 10))
 	case uint:
-		gw.Text(strconv.FormatUint(uint64(t), 10))
+		gw.S(strconv.FormatUint(uint64(t), 10))
 	case uint8:
-		gw.Text(strconv.FormatUint(uint64(t), 10))
+		gw.S(strconv.FormatUint(uint64(t), 10))
 	case uint16:
-		gw.Text(strconv.FormatUint(uint64(t), 10))
+		gw.S(strconv.FormatUint(uint64(t), 10))
 	case uint32:
-		gw.Text(strconv.FormatUint(uint64(t), 10))
+		gw.S(strconv.FormatUint(uint64(t), 10))
 	case uint64:
-		gw.Text(strconv.FormatUint(t, 10))
+		gw.S(strconv.FormatUint(t, 10))
 	case float32:
 		// emitRender always uses bitsize 64: FormatFloat(float64(x), 'g', -1, 64).
-		gw.Text(strconv.FormatFloat(float64(t), 'g', -1, 64))
+		gw.S(strconv.FormatFloat(float64(t), 'g', -1, 64))
 	case float64:
-		gw.Text(strconv.FormatFloat(t, 'g', -1, 64))
+		gw.S(strconv.FormatFloat(t, 'g', -1, 64))
 	default:
 		return fmt.Errorf("gsx.Val: value of type %T is not renderable in a gsx.Node prop", n.v)
 	}
