@@ -2361,7 +2361,10 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n ast.
 	case catFloat:
 		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
 	case catBool:
-		fmt.Fprintf(b, "\t\t_gsxgw.Text(%s.FormatBool(bool(%s)))\n", rt.sc(), expr)
+		// S, not Text: FormatBool yields only "true"/"false", neither of which
+		// carries a byte htmlReplacer rewrites, so escaping is a no-op on every
+		// possible value (same reasoning as the IntInto/FloatInto arms above).
+		fmt.Fprintf(b, "\t\t_gsxgw.S(%s.FormatBool(bool(%s)))\n", rt.sc(), expr)
 	case catStringer:
 		fmt.Fprintf(b, "\t\t_gsxgw.Text((%s).String())\n", expr)
 	case catNode:
