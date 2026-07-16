@@ -127,7 +127,7 @@ func TestTupleErrorPropagation(t *testing.T) {
 //
 //	_gsxv0, _gsxerr := propFn()
 //	if _gsxerr != nil { return _gsxerr }
-//	_gsxgw.Node(ctx, Child(ChildProps{X: _gsxv0}))
+//	_gsxgw.Node(ctx, Child(_gsxv0))
 //
 // Asserts that the error short-circuits BEFORE the child component renders.
 func TestTupleErrorPropagationChildComponent(t *testing.T) {
@@ -148,7 +148,7 @@ func TestTupleErrorPropagationChildComponent(t *testing.T) {
 	// Mirrors generated Page.Render for <Child x={propFn()}/> :
 	//   _gsxv0, _gsxerr := propFn()
 	//   if _gsxerr != nil { return _gsxerr }
-	//   _gsxgw.Node(ctx, Child(ChildProps{X: _gsxv0}))
+	//   _gsxgw.Node(ctx, Child(_gsxv0))
 	page := Func(func(ctx context.Context, w io.Writer) error {
 		gw := W(w)
 		gw.S("<main>")

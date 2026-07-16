@@ -13,10 +13,9 @@ import (
 // `x string` and badInt is an int) must produce a positioned type-mismatch
 // diagnostic — the SAME way it already does when the identical tag sits
 // inside a component body (see the sibling case this mirrors: a component
-// body's child-tag prop mismatch is caught via the real Go struct-literal
-// assignability check `_ = Child(ChildProps{X: badInt})`, which go/types
-// rejects on its own, no special-cased "int is invalid for X" logic
-// required).
+// body's child-tag prop mismatch is caught via the real Go call assignability
+// check `_ = Child(badInt)`, which go/types rejects on its own, with no
+// special-cased "int is invalid for x" logic required).
 //
 // Before Task 5, buildSkeleton did not walk *ast.GoWithElements at all: the
 // embedded element (and the surrounding `var help = ...` construct) was
