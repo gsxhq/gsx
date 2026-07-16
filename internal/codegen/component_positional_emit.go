@@ -462,20 +462,38 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 	ctx.errReturn = "return nil, _gsxerr"
 	parts := make([]string, 0, len(nodes))
 	used := make(map[string]string)
+	attrsExpr := func(parts []string) string {
+		switch len(parts) {
+		case 0:
+			return ctx.rt.rt() + ".Attrs{}"
+		case 1:
+			return parts[0]
+		default:
+			return fmt.Sprintf("%s.ConcatAttrs(%s)", ctx.rt.rt(), strings.Join(parts, ", "))
+		}
+	}
 	for _, node := range nodes {
-		lowering := positionalAttrsValueExpr(&body, node, plan, ctx)
+		var statements bytes.Buffer
+		lowering := positionalAttrsValueExpr(&statements, node, plan, ctx)
 		if lowering.outcome != positionalLoweringReady {
 			return lowering
 		}
+		// The lowering buffer is authoritative for eager statement work, just as
+		// it is for the outer positional call. If this contributor emitted any,
+		// evaluate every earlier contributor before those statements; otherwise
+		// the earlier expressions would remain deferred in the final return and
+		// execute after the later contributor's hoists.
+		if statements.Len() != 0 && len(parts) != 0 {
+			name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
+			*ctx.interpTemp++
+			fmt.Fprintf(&body, "%s := %s\n", name, attrsExpr(parts))
+			parts = []string{name}
+		}
+		body.Write(statements.Bytes())
 		parts = append(parts, lowering.expr)
 		maps.Copy(used, lowering.used)
 	}
-	expr := ctx.rt.rt() + ".Attrs{}"
-	if len(parts) == 1 {
-		expr = parts[0]
-	} else if len(parts) > 1 {
-		expr = fmt.Sprintf("%s.ConcatAttrs(%s)", ctx.rt.rt(), strings.Join(parts, ", "))
-	}
+	expr := attrsExpr(parts)
 	var thunk strings.Builder
 	fmt.Fprintf(&thunk, "func() (%s.Attrs, error) {\n", ctx.rt.rt())
 	for line := range strings.SplitSeq(strings.TrimSuffix(body.String(), "\n"), "\n") {
