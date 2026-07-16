@@ -1,0 +1,15 @@
+# `children` is an ordinary body-local identifier when the component has no
+# explicit children parameter. The local binding renders like any other Go
+# value; no reserved-name rule applies inside the body.
+-- input.gsx --
+package views
+
+component Page() {
+	{{ children := "hi" }}
+	<div>{children}</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div>hi</div>
