@@ -68,6 +68,14 @@ type Analyzer interface {
 	ResolveImport(dir, name, symbol string) []string
 }
 
+// diskRefresher is the saved-source transition paired with Analyzer. Keeping it
+// as a focused capability lets small read-only analyzer implementations remain
+// useful, while the production LSP analyzer must implement it or watched events
+// fail closed and evict every open package.
+type diskRefresher interface {
+	RefreshDisk(paths []string) (affected []string, err error)
+}
+
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the
 // protocol; code analysis is delegated to an injected Analyzer.
 //
@@ -83,13 +91,17 @@ type Analyzer interface {
 // goroutines only invoke analysis on a snapshot and send the result back; they
 // never begin, update, or clear an override.
 type Server struct {
-	conn     *conn
-	docs     *docStore
-	analyzer Analyzer
-	pkgs     map[string]*Package // dir → latest analyzed package
-	enc      encoding
-	shutdown bool
-	exited   bool
+	conn                     *conn
+	docs                     *docStore
+	analyzer                 Analyzer
+	pkgs                     map[string]*Package // dir → latest analyzed package
+	enc                      encoding
+	shutdown                 bool
+	exited                   bool
+	watchDynamicRegistration bool
+	watchRegistrationActive  bool
+	diskViewValid            bool
+	pendingClientRequests    map[string]func(frame) error
 
 	moduleRefs        []CrossRef                 // whole-module cross-reference index (lazy; find-references)
 	moduleRefsValid   bool                       // false ⇒ rebuild on next references request
@@ -146,12 +158,14 @@ type analysisResult struct {
 // negotiates otherwise.
 func NewServer(r io.Reader, w io.Writer, a Analyzer) *Server {
 	return &Server{
-		conn:     newConn(r, w),
-		docs:     newDocStore(),
-		analyzer: a,
-		pkgs:     map[string]*Package{},
-		enc:      encUTF16,
-		debounce: defaultDebounce,
+		conn:                  newConn(r, w),
+		docs:                  newDocStore(),
+		analyzer:              a,
+		pkgs:                  map[string]*Package{},
+		enc:                   encUTF16,
+		diskViewValid:         true,
+		pendingClientRequests: map[string]func(frame) error{},
+		debounce:              defaultDebounce,
 		schedule: func(d time.Duration, f func()) func() {
 			t := time.AfterFunc(d, f)
 			return func() { t.Stop() }
@@ -235,11 +249,18 @@ func (s *Server) readLoop(out chan<- readResult, done <-chan struct{}) {
 }
 
 func (s *Server) handle(f frame) error {
+	if f.Method == "" && len(f.ID) != 0 {
+		if complete := s.pendingClientRequests[string(f.ID)]; complete != nil {
+			delete(s.pendingClientRequests, string(f.ID))
+			return complete(f)
+		}
+		return nil
+	}
 	switch f.Method {
 	case "initialize":
 		return s.handleInitialize(f)
 	case "initialized":
-		return nil
+		return s.handleInitialized()
 	case "shutdown":
 		s.shutdown = true
 		return s.reply(f.ID, nil)
@@ -252,6 +273,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleDidChange(f)
 	case "textDocument/didClose":
 		return s.handleDidClose(f)
+	case "workspace/didChangeWatchedFiles":
+		return s.handleDidChangeWatchedFiles(f)
 	case "textDocument/definition":
 		return s.handleDefinition(f)
 	case "textDocument/references":
@@ -287,18 +310,147 @@ func (s *Server) handleInitialize(f frame) error {
 		s.enc = encUTF8
 		encName = "utf-8"
 	}
+	s.watchDynamicRegistration = p.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
+	var renameProvider *RenameOptions
+	if s.watchDynamicRegistration {
+		renameProvider = &RenameOptions{PrepareProvider: true}
+	}
 	return s.reply(f.ID, initializeResult{Capabilities: serverCapabilities{
 		PositionEncoding:           encName,
 		TextDocumentSync:           1, // full document sync
 		DefinitionProvider:         true,
 		ReferencesProvider:         true,
-		RenameProvider:             &RenameOptions{PrepareProvider: true},
+		RenameProvider:             renameProvider,
 		DocumentFormattingProvider: true,
 		HoverProvider:              true,
 		DocumentSymbolProvider:     true,
 		WorkspaceSymbolProvider:    true,
 		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind, quickFixKind}},
 	}})
+}
+
+const watchedFilesRegistrationID = "gsx-watched-files"
+
+func (s *Server) handleInitialized() error {
+	if !s.watchDynamicRegistration {
+		return s.notify("window/logMessage", struct {
+			Type    int    `json:"type"`
+			Message string `json:"message"`
+		}{Type: 2, Message: "gsx: client does not support dynamic watched-file registration; closed-file disk changes cannot be observed safely"})
+	}
+	s.watchRegistrationActive = false
+	return s.requestClient(watchedFilesRegistrationID, "client/registerCapability", registrationParams{Registrations: []registration{{
+		ID:     watchedFilesRegistrationID,
+		Method: "workspace/didChangeWatchedFiles",
+		RegisterOptions: didChangeWatchedFilesRegistrationOptions{Watchers: []fileSystemWatcher{
+			{GlobPattern: "**/*.gsx"},
+			{GlobPattern: "**/gsx.toml"},
+			{GlobPattern: "**/go.mod"},
+			{GlobPattern: "**/go.work"},
+		}},
+	}}}, func(response frame) error {
+		if len(response.Error) != 0 && string(response.Error) != "null" {
+			return s.notify("window/logMessage", struct {
+				Type    int    `json:"type"`
+				Message string `json:"message"`
+			}{Type: 1, Message: "gsx: client rejected watched-file registration; component parameter rename remains unavailable"})
+		}
+		s.watchRegistrationActive = true
+		return nil
+	})
+}
+
+func (s *Server) requestClient(id, method string, params any, complete func(frame) error) error {
+	idJSON, err := json.Marshal(id)
+	if err != nil {
+		return err
+	}
+	key := string(idJSON)
+	if _, exists := s.pendingClientRequests[key]; exists {
+		return fmt.Errorf("lsp: duplicate pending client request %s", id)
+	}
+	s.pendingClientRequests[key] = complete
+	if err := s.conn.writeMessage(struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      string `json:"id"`
+		Method  string `json:"method"`
+		Params  any    `json:"params"`
+	}{JSONRPC: "2.0", ID: id, Method: method, Params: params}); err != nil {
+		delete(s.pendingClientRequests, key)
+		return err
+	}
+	return nil
+}
+
+func (s *Server) handleDidChangeWatchedFiles(f frame) error {
+	var params didChangeWatchedFilesParams
+	if err := json.Unmarshal(f.Params, &params); err != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(params.Changes))
+	fallbackDirs := map[string]bool{}
+	for _, change := range params.Changes {
+		path := filepath.Clean(uriToPath(change.URI))
+		if path == "." || !watchedFileRelevant(path) {
+			continue
+		}
+		paths = append(paths, path)
+		fallbackDirs[filepath.Dir(path)] = true
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	slices.Sort(paths)
+	paths = slices.Compact(paths)
+	s.invalidateModuleIndexes()
+	refresher, ok := s.analyzer.(diskRefresher)
+	var affected []string
+	var refreshErr error
+	if !ok {
+		refreshErr = errors.New("analyzer does not support saved-source refresh")
+	} else {
+		affected, refreshErr = refresher.RefreshDisk(paths)
+	}
+	if refreshErr != nil {
+		s.diskViewValid = false
+		for dir := range s.docs.byDirSnapshot() {
+			fallbackDirs[dir] = true
+		}
+		for dir := range fallbackDirs {
+			affected = append(affected, dir)
+		}
+	} else {
+		s.diskViewValid = true
+	}
+	affected = sortedUniqueDirs(affected)
+	for _, dir := range affected {
+		s.beginMutation(dir)
+		delete(s.pkgs, dir)
+	}
+	if refreshErr != nil {
+		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(paths, ", "), refreshErr); err != nil {
+			return err
+		}
+		for _, dir := range s.openAffectedDirs(affected) {
+			if err := s.publishEmptyOpenGSX(s.docs.snapshotDir(dir)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return s.analyzeDirsNow(s.openAffectedDirs(affected))
+}
+
+func watchedFileRelevant(path string) bool {
+	if strings.HasSuffix(path, ".gsx") {
+		return true
+	}
+	switch filepath.Base(path) {
+	case "gsx.toml", "go.mod", "go.work":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) reply(id json.RawMessage, result any) error {

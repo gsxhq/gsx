@@ -19,6 +19,16 @@ type docStore struct {
 	docs map[string]*document
 }
 
+func (d *docStore) byDirSnapshot() map[string]bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dirs := make(map[string]bool)
+	for uri := range d.docs {
+		dirs[filepath.Dir(uriToPath(uri))] = true
+	}
+	return dirs
+}
+
 func newDocStore() *docStore { return &docStore{docs: map[string]*document{}} }
 
 func (s *docStore) open(uri, text string, version int) {

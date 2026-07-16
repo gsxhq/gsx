@@ -45,7 +45,7 @@ func TestLSPRenameComponentParameterEndToEnd(t *testing.T) {
 	pageURI := lspTestPathURI(pagePath)
 	requestPosition := lsp.Position{Line: 4, Character: strings.Index(strings.Split(page, "\n")[4], "value") + 1}
 
-	in := frameMsg(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in := lspRenameReadyFrames(t)
 	in += frameMsg(t, map[string]any{
 		"jsonrpc": "2.0", "method": "textDocument/didOpen",
 		"params": map[string]any{"textDocument": map[string]any{"uri": pageURI, "version": 1, "text": page}},
@@ -121,6 +121,98 @@ func TestLSPRenameComponentParameterEndToEnd(t *testing.T) {
 	}
 	if len(facts) != 1 || facts[0].Name != "label" || len(facts[0].Decls) != 2 || len(facts[0].Refs) != 3 {
 		t.Fatalf("renamed semantic family = %+v, want label with 2 declarations and 3 exact refs", facts)
+	}
+}
+
+type watchedRenameAnalyzer struct {
+	lspAnalyzer
+	path   string
+	source []byte
+	wrote  bool
+}
+
+func (a *watchedRenameAnalyzer) RefreshDisk(paths []string) ([]string, error) {
+	if !a.wrote {
+		if err := os.WriteFile(a.path, a.source, 0o644); err != nil {
+			return nil, err
+		}
+		a.wrote = true
+	}
+	return a.lspAnalyzer.RefreshDisk(paths)
+}
+
+func TestLSPWatchedClosedFileAddsReferenceBeforeNextRename(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real module analysis")
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := "package ui\ncomponent Card(value string) { <p>{value}</p> }\n"
+	initialPage := "package page\nimport \"example.com/unsafe/ui\"\ncomponent Page() { <ui.Card value=\"one\"/> }\n"
+	updatedPage := "package page\nimport \"example.com/unsafe/ui\"\ncomponent Page() { <ui.Card value=\"one\"/> <ui.Card value=\"two\"/> }\n"
+	writeLSPRenameModule(t, root, repoRoot, map[string]string{
+		"ui/card.gsx":   card,
+		"page/page.gsx": initialPage,
+	})
+	cardPath := filepath.Join(root, "ui", "card.gsx")
+	pagePath := filepath.Join(root, "page", "page.gsx")
+	cardURI := lspTestPathURI(cardPath)
+	pageURI := lspTestPathURI(pagePath)
+	declOffset := strings.Index(card, "value string") + 1
+	position := lsp.Position{Line: strings.Count(card[:declOffset], "\n")}
+	position.Character = declOffset - (strings.LastIndex(card[:declOffset], "\n") + 1)
+
+	in := lspRenameReadyFrames(t)
+	in += frameMsg(t, map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": cardURI, "version": 1, "text": card}},
+	})
+	renameFrame := func(id int) string {
+		return frameMsg(t, map[string]any{
+			"jsonrpc": "2.0", "id": id, "method": "textDocument/rename",
+			"params": map[string]any{
+				"textDocument": map[string]any{"uri": cardURI},
+				"position":     position,
+				"newName":      "label",
+			},
+		})
+	}
+	in += renameFrame(2)
+	in += frameMsg(t, map[string]any{
+		"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+		"params": map[string]any{"changes": []map[string]any{{"uri": pageURI, "type": 2}}},
+	})
+	in += renameFrame(3)
+	in += frameMsg(t, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+
+	analyzer := &watchedRenameAnalyzer{
+		lspAnalyzer: newLSPAnalyzer(config{}, nil),
+		path:        pagePath,
+		source:      []byte(updatedPage),
+	}
+	var out bytes.Buffer
+	if err := lsp.NewServer(strings.NewReader(in), &out, analyzer).Run(); err != nil {
+		t.Fatal(err)
+	}
+	pageEditCount := func(id int) int {
+		response := lspTestResponse(t, out.String(), id)
+		if len(response.Error) != 0 {
+			t.Fatalf("rename %d error = %s", id, response.Error)
+		}
+		var edit lsp.WorkspaceEdit
+		if err := json.Unmarshal(response.Result, &edit); err != nil {
+			t.Fatal(err)
+		}
+		return len(edit.Changes[pageURI])
+	}
+	if got := pageEditCount(2); got != 1 {
+		t.Fatalf("initial closed-file edits = %d, want 1", got)
+	}
+	if got := pageEditCount(3); got != 2 {
+		t.Fatalf("post-notification closed-file edits = %d, want newly appended reference included", got)
 	}
 }
 
@@ -347,7 +439,7 @@ func runLSPRename(t *testing.T, path, source string, offset int, newName string)
 	position := lsp.Position{Line: strings.Count(source[:offset], "\n")}
 	lineStart := strings.LastIndex(source[:offset], "\n") + 1
 	position.Character = offset - lineStart
-	in := frameMsg(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in := lspRenameReadyFrames(t)
 	in += frameMsg(t, map[string]any{
 		"jsonrpc": "2.0", "method": "textDocument/didOpen",
 		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
@@ -366,6 +458,19 @@ func runLSPRename(t *testing.T, path, source string, offset int, newName string)
 		t.Fatalf("runLSP exit = %d, stderr = %s", code, errOut.String())
 	}
 	return lspTestResponse(t, out.String(), 2)
+}
+
+func lspRenameReadyFrames(t *testing.T) string {
+	t.Helper()
+	in := frameMsg(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "initialize",
+		"params": map[string]any{"capabilities": map[string]any{
+			"workspace": map[string]any{"didChangeWatchedFiles": map[string]any{"dynamicRegistration": true}},
+		}},
+	})
+	in += frameMsg(t, map[string]any{"jsonrpc": "2.0", "method": "initialized"})
+	in += frameMsg(t, map[string]any{"jsonrpc": "2.0", "id": "gsx-watched-files", "result": nil})
+	return in
 }
 
 type lspTestWireResponse struct {

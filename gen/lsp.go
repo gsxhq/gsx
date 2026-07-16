@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -54,9 +55,10 @@ type moduleSet struct {
 // replaces the warm Module at the same filesystem root, while buffers opened
 // under the previous identity still need an exact clear-and-replay transfer.
 type moduleOverride struct {
-	root   string
-	module *codegen.Module
-	source []byte
+	root       string
+	module     *codegen.Module
+	source     []byte
+	configPath string
 }
 
 // newLSPAnalyzer constructs an lspAnalyzer with an empty warm-module cache.
@@ -74,7 +76,7 @@ func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
 	}
 }
 
-func (mods *moduleSet) setOverride(root string, module *codegen.Module, path string, source []byte) ([]string, error) {
+func (mods *moduleSet) setOverride(root string, module *codegen.Module, path string, source []byte, configPath string) ([]string, error) {
 	mods.mu.Lock()
 	defer mods.mu.Unlock()
 	path = filepath.Clean(path)
@@ -91,8 +93,34 @@ func (mods *moduleSet) setOverride(root string, module *codegen.Module, path str
 		}
 	}
 	affected = append(affected, module.SetOverride(path, source)...)
-	mods.overrideRoots[path] = moduleOverride{root: root, module: module, source: bytes.Clone(source)}
+	if configPath != "" {
+		configPath = filepath.Clean(configPath)
+	}
+	mods.overrideRoots[path] = moduleOverride{root: root, module: module, source: bytes.Clone(source), configPath: configPath}
 	return sortedUniqueDirs(affected), clearErr
+}
+
+func (mods *moduleSet) snapshot() (map[string]moduleOverride, map[string]*codegen.Module) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	overrides := make(map[string]moduleOverride, len(mods.overrideRoots))
+	for path, owner := range mods.overrideRoots {
+		owner.source = bytes.Clone(owner.source)
+		overrides[path] = owner
+	}
+	modules := make(map[string]*codegen.Module, len(mods.byRoot))
+	maps.Copy(modules, mods.byRoot)
+	return overrides, modules
+}
+
+func (mods *moduleSet) evictRoots(roots map[string]bool) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	for root := range roots {
+		delete(mods.byRoot, root)
+		delete(mods.modulePaths, root)
+		delete(mods.configIDs, root)
+	}
 }
 
 func (mods *moduleSet) clearOverride(path string) ([]string, error) {
@@ -339,6 +367,7 @@ func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
 		oldAffected, clearErr := clearPrevious()
 		return oldAffected, errors.Join(clearErr, err)
 	}
+	configPath, _ := discoverConfig(dir)
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
 	m, moduleAffected, moduleErr := a.module(root, modPath, merged)
 	if m == nil {
@@ -346,11 +375,11 @@ func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
 		return sortedUniqueDirs(append(oldAffected, moduleAffected...)), errors.Join(clearErr, moduleErr)
 	}
 	if hadPrevious && previous.root == root && previous.module == m {
-		newAffected, setErr := a.mods.setOverride(root, m, absPath, source)
+		newAffected, setErr := a.mods.setOverride(root, m, absPath, source, configPath)
 		return sortedUniqueDirs(append(moduleAffected, newAffected...)), errors.Join(moduleErr, setErr)
 	}
 	oldAffected, clearErr := clearPrevious()
-	newAffected, setErr := a.mods.setOverride(root, m, absPath, source)
+	newAffected, setErr := a.mods.setOverride(root, m, absPath, source, configPath)
 	affected := append(moduleAffected, oldAffected...)
 	affected = append(affected, newAffected...)
 	if hadPrevious && previous.module != m {
@@ -365,6 +394,154 @@ func (a lspAnalyzer) ClearOverride(path string) ([]string, error) {
 		return nil, err
 	}
 	return a.mods.clearOverride(absPath)
+}
+
+// RefreshDisk applies one saved-filesystem notification batch to the retained
+// analyzer universe. Source refresh and reverse-closure eviction are atomic per
+// Module. Configuration and Go-universe changes replace only Modules proven to
+// be governed by the changed file, replaying their open buffers through the
+// ordinary ownership transition.
+func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
+	var gsxPaths, configPaths, goModPaths, goWorkPaths []string
+	for _, path := range paths {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		absPath = filepath.Clean(absPath)
+		switch {
+		case strings.HasSuffix(absPath, ".gsx"):
+			gsxPaths = append(gsxPaths, absPath)
+		case filepath.Base(absPath) == configFileName:
+			configPaths = append(configPaths, absPath)
+		case filepath.Base(absPath) == "go.mod":
+			goModPaths = append(goModPaths, absPath)
+		case filepath.Base(absPath) == "go.work":
+			goWorkPaths = append(goWorkPaths, canonicalWatchedPath(absPath))
+		}
+	}
+	gsxPaths = sortedUniqueDirs(gsxPaths)
+	configPaths = sortedUniqueDirs(configPaths)
+	goModPaths = sortedUniqueDirs(goModPaths)
+	goWorkPaths = sortedUniqueDirs(goWorkPaths)
+
+	overrides, modules := a.mods.snapshot()
+	replay := map[string]moduleOverride{}
+	evictRoots := map[string]bool{}
+	for _, goModPath := range goModPaths {
+		root := filepath.Dir(goModPath)
+		if modules[root] != nil {
+			evictRoots[root] = true
+		}
+	}
+	for path, owner := range overrides {
+		dir := filepath.Dir(path)
+		newConfigPath, _ := discoverConfig(dir)
+		if owner.configPath != "" && slices.Contains(configPaths, owner.configPath) ||
+			newConfigPath != "" && slices.Contains(configPaths, filepath.Clean(newConfigPath)) {
+			replay[path] = owner
+		}
+		newRoot, _, rootErr := moduleRoot(dir)
+		for _, goModPath := range goModPaths {
+			changedRoot := filepath.Dir(goModPath)
+			if owner.root == changedRoot || rootErr == nil && newRoot == changedRoot ||
+				rootErr != nil && pathWithinTree(changedRoot, dir) {
+				replay[path] = owner
+				evictRoots[owner.root] = true
+				if rootErr == nil {
+					evictRoots[newRoot] = true
+				}
+			}
+		}
+	}
+
+	for root, module := range modules {
+		if len(goWorkPaths) == 0 {
+			break
+		}
+		oldWorkspace, err := module.GoWorkFile()
+		if err != nil {
+			return nil, fmt.Errorf("resolve retained workspace for %s: %w", root, err)
+		}
+		newWorkspace, err := codegen.ResolveGoWorkFile(root)
+		if err != nil {
+			return nil, fmt.Errorf("resolve refreshed workspace for %s: %w", root, err)
+		}
+		if oldWorkspace != "" {
+			oldWorkspace = canonicalWatchedPath(oldWorkspace)
+		}
+		if newWorkspace != "" {
+			newWorkspace = canonicalWatchedPath(newWorkspace)
+		}
+		if !slices.Contains(goWorkPaths, oldWorkspace) && !slices.Contains(goWorkPaths, newWorkspace) {
+			continue
+		}
+		evictRoots[root] = true
+		for path, owner := range overrides {
+			if owner.root == root {
+				replay[path] = owner
+			}
+		}
+	}
+
+	if len(evictRoots) != 0 {
+		a.mods.evictRoots(evictRoots)
+	}
+	var affected []string
+	var transitionErr error
+	replayPaths := make([]string, 0, len(replay))
+	for path := range replay {
+		replayPaths = append(replayPaths, path)
+	}
+	sort.Strings(replayPaths)
+	for _, path := range replayPaths {
+		owner := replay[path]
+		changed, err := a.SetOverride(path, owner.source)
+		affected = append(affected, changed...)
+		if err != nil {
+			affected = append(affected, filepath.Dir(path))
+			transitionErr = errors.Join(transitionErr, fmt.Errorf("rebind %s: %w", path, err))
+		}
+	}
+	if transitionErr != nil {
+		return sortedUniqueDirs(affected), transitionErr
+	}
+
+	_, modules = a.mods.snapshot()
+	dirsByModule := map[*codegen.Module][]string{}
+	for _, path := range gsxPaths {
+		dir := filepath.Dir(path)
+		root, _, err := moduleRoot(dir)
+		if err != nil {
+			return sortedUniqueDirs(affected), err
+		}
+		if module := modules[root]; module != nil {
+			dirsByModule[module] = append(dirsByModule[module], dir)
+		}
+	}
+	for module, dirs := range dirsByModule {
+		changed, err := module.RefreshDiskSourcesAndInvalidate(sortedUniqueDirs(dirs)...)
+		affected = append(affected, changed...)
+		if err != nil {
+			transitionErr = errors.Join(transitionErr, err)
+		}
+	}
+	return sortedUniqueDirs(affected), transitionErr
+}
+
+// canonicalWatchedPath gives client paths and Go-command paths one identity.
+// On macOS those commonly differ by /var versus /private/var. For delete events
+// the leaf no longer exists, so canonicalize its existing parent and reattach
+// the basename.
+func canonicalWatchedPath(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	if resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		return filepath.Join(resolvedParent, filepath.Base(path))
+	}
+	return path
 }
 
 func (a lspAnalyzer) Analyze(dir string, _ map[string][]byte) (*lsp.Package, error) {

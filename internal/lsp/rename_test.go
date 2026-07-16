@@ -10,6 +10,16 @@ import (
 	"testing"
 )
 
+func renameReadyFrame() string {
+	return jsonFrame(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "initialize",
+		"params": map[string]any{"capabilities": map[string]any{
+			"workspace": map[string]any{"didChangeWatchedFiles": map[string]any{"dynamicRegistration": true}},
+		}},
+	}) + jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "initialized"}) +
+		jsonFrame(map[string]any{"jsonrpc": "2.0", "id": watchedFilesRegistrationID, "result": nil})
+}
+
 type renameAnalyzer struct {
 	nilAnalyzer
 	facts []ComponentParamRenameFact
@@ -23,7 +33,7 @@ func (a *renameAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]Compo
 }
 
 func TestInitializeAdvertisesPrepareRename(t *testing.T) {
-	out := drive(t, &renameAnalyzer{}, initFrame()+jsonFrame(map[string]any{
+	out := drive(t, &renameAnalyzer{}, renameReadyFrame()+jsonFrame(map[string]any{
 		"jsonrpc": "2.0", "method": "exit",
 	}))
 	msgs := readFrames(t, out)
@@ -49,7 +59,7 @@ func TestPrepareAndRenameComponentParameterFromDeclarationAndInvocation(t *testi
 
 	for _, target := range []int{decl, ref} {
 		position := positionForByteOffset(source, target+2, encUTF16)
-		out := drive(t, a, initFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
+		out := drive(t, a, renameReadyFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
 			jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 		msg := responseByID(t, out, 2)
 		var got prepareRenameResult
@@ -62,7 +72,7 @@ func TestPrepareAndRenameComponentParameterFromDeclarationAndInvocation(t *testi
 	}
 
 	position := positionForByteOffset(source, ref+2, encUTF16)
-	out := drive(t, a, initFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/rename", uri, position, "heading")+
+	out := drive(t, a, renameReadyFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/rename", uri, position, "heading")+
 		jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 	msg := responseByID(t, out, 2)
 	var edit WorkspaceEdit
@@ -106,7 +116,7 @@ func TestRenameComponentParameterAcrossPackagesAndEquivalentVariants(t *testing.
 	a := &renameAnalyzer{facts: []ComponentParamRenameFact{fact}}
 	uri := pathToURI(pagePath)
 	position := positionForByteOffset(page, strings.Index(page, "value=")+1, encUTF16)
-	out := drive(t, a, initFrame()+didOpenFrame(uri, page)+renameRequestFrame(2, "textDocument/rename", uri, position, "label")+
+	out := drive(t, a, renameReadyFrame()+didOpenFrame(uri, page)+renameRequestFrame(2, "textDocument/rename", uri, position, "label")+
 		jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 	msg := responseByID(t, out, 2)
 	var edit WorkspaceEdit
@@ -151,7 +161,7 @@ func TestComponentParameterRenameRejectsReservedTargetsAndNames(t *testing.T) {
 	}{{"children", childrenOff}, {"attrs", attrsOff}} {
 		t.Run("existing_"+tc.name, func(t *testing.T) {
 			position := positionForByteOffset(source, tc.off+1, encUTF16)
-			out := drive(t, &renameAnalyzer{facts: facts}, initFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
+			out := drive(t, &renameAnalyzer{facts: facts}, renameReadyFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
 				renameRequestFrame(3, "textDocument/rename", uri, position, "other")+jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 			if got := responseByID(t, out, 2)["result"]; string(got) != "null" {
 				t.Fatalf("prepare result = %s, want null", got)
@@ -163,7 +173,7 @@ func TestComponentParameterRenameRejectsReservedTargetsAndNames(t *testing.T) {
 	for _, newName := range []string{"_", "children", "attrs", "ctx", "_gsxName", "bad-name", "func", ""} {
 		t.Run("new_"+newName, func(t *testing.T) {
 			position := positionForByteOffset(source, titleOff+1, encUTF16)
-			out := drive(t, &renameAnalyzer{facts: facts}, initFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/rename", uri, position, newName)+
+			out := drive(t, &renameAnalyzer{facts: facts}, renameReadyFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/rename", uri, position, newName)+
 				jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 			assertInvalidParams(t, responseByID(t, out, 2))
 		})
@@ -171,7 +181,7 @@ func TestComponentParameterRenameRejectsReservedTargetsAndNames(t *testing.T) {
 
 	t.Run("collision", func(t *testing.T) {
 		position := positionForByteOffset(source, titleOff+1, encUTF16)
-		out := drive(t, &renameAnalyzer{facts: facts}, initFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/rename", uri, position, "other")+
+		out := drive(t, &renameAnalyzer{facts: facts}, renameReadyFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/rename", uri, position, "other")+
 			jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 		assertInvalidParams(t, responseByID(t, out, 2))
 	})
@@ -186,7 +196,7 @@ func TestComponentParameterRenameRejectsUnavailableAndStaleFamilies(t *testing.T
 	position := positionForByteOffset(source, off+1, encUTF16)
 
 	t.Run("plain Go or non-equivalent variants publish no fact", func(t *testing.T) {
-		out := drive(t, &renameAnalyzer{}, initFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
+		out := drive(t, &renameAnalyzer{}, renameReadyFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
 			renameRequestFrame(3, "textDocument/rename", uri, position, "label")+jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 		if got := responseByID(t, out, 2)["result"]; string(got) != "null" {
 			t.Fatalf("prepare result = %s, want null", got)
@@ -197,7 +207,7 @@ func TestComponentParameterRenameRejectsUnavailableAndStaleFamilies(t *testing.T
 	t.Run("one stale span rejects the whole edit", func(t *testing.T) {
 		fact := renameFact(path, source, ".GoCard", 0, "title", ComponentParamOrdinary, nil, []int{off})
 		fact.Decls = []token.Position{tokenPosition(filepath.Join(dir, "missing.gsx"), "title", 0)}
-		out := drive(t, &renameAnalyzer{facts: []ComponentParamRenameFact{fact}}, initFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
+		out := drive(t, &renameAnalyzer{facts: []ComponentParamRenameFact{fact}}, renameReadyFrame()+didOpenFrame(uri, source)+renameRequestFrame(2, "textDocument/prepareRename", uri, position, "")+
 			renameRequestFrame(3, "textDocument/rename", uri, position, "label")+
 			jsonFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 		if got := responseByID(t, out, 2)["result"]; string(got) != "null" {
