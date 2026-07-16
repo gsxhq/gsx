@@ -1279,6 +1279,16 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
 	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
+	if !a.bag.HasErrors() && len(a.typeErrs) == 0 {
+		res.ComponentParamDecls, err = componentParamDeclarationFacts(a.compByKey, a.objKey, a.gsxFset, a.pkg.Path())
+		if err != nil {
+			return nil, err
+		}
+		res.ComponentParamRefs = componentParamReferenceFacts(res.ComponentCalls, res.ComponentParamDecls, a.gsxFset)
+		res.ComponentParamRefs = append(res.ComponentParamRefs, componentParamBodyReferenceFacts(
+			res.ComponentParamDecls, a.objKey, a.exprMap, a.ctrlMap, a.info, a.gsxFset,
+		)...)
+	}
 	// Unused imports come from analyze's syntactic classifier (unusedFromSkeletons,
 	// computed alongside the type-check) — the same classifier the `gsx fmt` CLI
 	// trusts (Module.UnusedImports) — never from correlating raw type-error

@@ -73,6 +73,34 @@ type ComponentCallFact struct {
 	Params        map[gsxast.Attr]ComponentParamFact
 }
 
+// ComponentParamDeclFact is one semantically validated GSX component
+// parameter family. PackagePath, ComponentKey, and Ordinal form its stable
+// identity. Decls contains the exact authored name position for every
+// equivalent build-tag variant.
+type ComponentParamDeclFact struct {
+	PackagePath  string
+	ComponentKey string
+	Ordinal      int
+	Name         string
+	Role         ComponentParamRole
+	Origin       *types.Var
+	Decls        []token.Position
+}
+
+// ComponentParamRefFact is one exact authored parameter reference: either an
+// invocation attribute bound by the component planner or a semantic use inside
+// a GSX component body. Unmatched fallthrough attrs and mere name matches are
+// absent.
+type ComponentParamRefFact struct {
+	PackagePath  string
+	ComponentKey string
+	Ordinal      int
+	Name         string
+	Role         ComponentParamRole
+	Origin       *types.Var
+	Ref          token.Position
+}
+
 // PackageResult is the per-package outcome of code generation.
 type PackageResult struct {
 	Files map[string][]byte // .gsx path -> generated .x.go source
@@ -87,12 +115,14 @@ type PackageResult struct {
 	ExprMap    map[gsxast.Node]goast.Expr
 	GSXFiles   map[string]*gsxast.File
 	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
-	NavIndex   []NavRef            // navigable Go references → .gsx targets (func, props-struct, field)
+	NavIndex   []NavRef            // navigable Go references → .gsx declaration targets
 	// ComponentCalls maps each successfully planned component element to its
 	// exact callable target and bound-parameter identities. It is the retained
 	// definition/hover surface for markup calls; consumers must not reconstruct
-	// these facts from tag spelling or generated Props shapes.
-	ComponentCalls map[*gsxast.Element]ComponentCallFact
+	// these facts from tag spelling or a reconstructed callable shape.
+	ComponentCalls      map[*gsxast.Element]ComponentCallFact
+	ComponentParamDecls []ComponentParamDeclFact
+	ComponentParamRefs  []ComponentParamRefFact
 
 	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock, and each
 	// value-form if condition's *ValueIf) to its
