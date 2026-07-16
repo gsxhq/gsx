@@ -28,9 +28,8 @@ type parsedParamFieldList struct {
 }
 
 // parseParamFieldList parses a component's raw parameter-list source through
-// the Go parser. It preserves the parsed field grouping so each consumer can
-// project the exact model it owns: the shipping Props model remains named-only,
-// while the verbatim declaration model retains every logical parameter.
+// the Go parser. It preserves field grouping while the declaration model expands
+// every authored logical parameter in exact order.
 func parseParamFieldList(src string) (parsedParamFieldList, error) {
 	src = strings.TrimSpace(src)
 	if src == "" {
