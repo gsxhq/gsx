@@ -2,6 +2,9 @@ package gen
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/types"
@@ -39,6 +42,7 @@ type moduleSet struct {
 	mu            sync.Mutex
 	byRoot        map[string]*codegen.Module
 	modulePaths   map[string]string // module root -> module directive bound into byRoot[root]
+	configIDs     map[string]string // module root -> exact semantic config bound into byRoot[root]
 	overrideRoots map[string]moduleOverride
 }
 
@@ -60,6 +64,7 @@ func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
 		mods: &moduleSet{
 			byRoot:        map[string]*codegen.Module{},
 			modulePaths:   map[string]string{},
+			configIDs:     map[string]string{},
 			overrideRoots: map[string]moduleOverride{},
 		},
 		ec: newEditorConfigResolver(),
@@ -136,7 +141,8 @@ func sortedUniqueDirs(dirs []string) []string {
 func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Module, []string, error) {
 	a.mods.mu.Lock()
 	defer a.mods.mu.Unlock()
-	if m, ok := a.mods.byRoot[root]; ok && a.mods.modulePaths[root] == modPath {
+	configID := lspSemanticConfigIdentity(merged)
+	if m, ok := a.mods.byRoot[root]; ok && a.mods.modulePaths[root] == modPath && a.mods.configIDs[root] == configID {
 		return m, nil, nil
 	}
 	m, err := codegen.Open(codegen.Options{
@@ -147,6 +153,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 		Renderers:    merged.renderers,
 		FieldMatcher: merged.fieldMatcher,
 		Classifier:   merged.classifier(),
+		ClassMerger:  merged.classMerger,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -167,6 +174,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 	var transferErr error
 	for _, path := range paths {
 		owner := a.mods.overrideRoots[path]
+		affected = append(affected, filepath.Dir(path))
 		if owner.module != nil {
 			cleared, clearErr := owner.module.ClearOverride(path)
 			affected = append(affected, cleared...)
@@ -178,7 +186,53 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 	}
 	a.mods.byRoot[root] = m
 	a.mods.modulePaths[root] = modPath
+	a.mods.configIDs[root] = configID
 	return m, sortedUniqueDirs(affected), transferErr
+}
+
+// lspSemanticConfigIdentity is the complete code-analysis configuration bound
+// into one warm Module. Formatter/minifier/dev settings are deliberately absent:
+// they do not participate in Module.Package semantics. Renderer registrations
+// are reduced to their effective last-wins table before hashing.
+func lspSemanticConfigIdentity(cfg config) string {
+	finalRenderers := map[string]codegen.RendererAlias{}
+	for _, renderer := range cfg.renderers {
+		finalRenderers[renderer.TypeKey] = renderer
+	}
+	rendererKeys := make([]string, 0, len(finalRenderers))
+	for key := range finalRenderers {
+		rendererKeys = append(rendererKeys, key)
+	}
+	sort.Strings(rendererKeys)
+	renderers := make([]codegen.RendererAlias, 0, len(rendererKeys))
+	for _, key := range rendererKeys {
+		renderers = append(renderers, finalRenderers[key])
+	}
+	classMerger := ""
+	if cfg.classMerger != nil {
+		classMerger = cfg.classMerger.PkgPath + "." + cfg.classMerger.FuncName
+	}
+	payload := struct {
+		FilterPackages  []string
+		Aliases         []codegen.FilterAlias
+		Renderers       []codegen.RendererAlias
+		Classifier      string
+		ClassMerger     string
+		HasFieldMatcher bool
+	}{
+		FilterPackages:  cfg.filterPkgs,
+		Aliases:         cfg.aliases,
+		Renderers:       renderers,
+		Classifier:      cfg.classifier().Fingerprint(),
+		ClassMerger:     classMerger,
+		HasFieldMatcher: cfg.fieldMatcher != nil,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		panic(fmt.Sprintf("encode LSP semantic config identity: %v", err))
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 // adaptPackageResult converts a *codegen.PackageResult (the Module path's output)
@@ -299,6 +353,9 @@ func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
 	newAffected, setErr := a.mods.setOverride(root, m, absPath, source)
 	affected := append(moduleAffected, oldAffected...)
 	affected = append(affected, newAffected...)
+	if hadPrevious && previous.module != m {
+		affected = append(affected, filepath.Dir(absPath))
+	}
 	return sortedUniqueDirs(affected), errors.Join(moduleErr, clearErr, setErr)
 }
 
