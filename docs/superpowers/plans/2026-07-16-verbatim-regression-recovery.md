@@ -216,7 +216,10 @@ and integrated. Task 7 is the final adversarial gate.
 - Modify: affected `internal/corpus/testdata/cases/**/*.txtar` inputs
 - Regenerate: generated/render/diagnostic sections and
   `internal/corpus/testdata/coverage.golden`
-- Modify: migration manifest if its source hashes require reconciliation
+- Preserve:
+  `2026-07-14-verbatim-component-signatures-migration-manifest.json`; it is the
+  finalized `phase: applied` audit snapshot of the atomic cutover, not a live
+  current-tree hash index.
 
 - [ ] Re-run the full corpus before editing and save the exact failing-case list.
   Classify it against Node promotion, named factory signatures, intended
@@ -242,8 +245,10 @@ and integrated. Task 7 is the final adversarial gate.
 - [ ] Run a before/after diagnostic inventory and prove the reported regression
   groups are gone while intentional missing-attrs/named-parameter diagnostics
   remain.
-- [ ] Reconcile the migration manifest using its generator/validator, never by
-  manually changing hashes.
+- [ ] Verify the historical applied migration manifest remains byte-for-byte
+  unchanged. Its generator/validator was deliberately deleted when the cutover
+  was finalized; do not restore it or rewrite the audit snapshot for later
+  regression fixes.
 - [ ] Commit coherent corpus migrations in small category commits, each with
   focused corpus verification and review.
 
