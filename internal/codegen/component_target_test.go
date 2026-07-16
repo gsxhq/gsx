@@ -684,6 +684,12 @@ func targetTestImporter() types.Importer {
 	}
 	runtimePkg := types.NewPackage("github.com/gsxhq/gsx", "gsx")
 	namedInterface(runtimePkg, "Node")
+	attrObject := types.NewTypeName(token.NoPos, runtimePkg, "Attr", nil)
+	runtimePkg.Scope().Insert(attrObject)
+	attrType := types.NewNamed(attrObject, types.NewStruct(nil, nil), nil)
+	attrsObject := types.NewTypeName(token.NoPos, runtimePkg, "Attrs", nil)
+	runtimePkg.Scope().Insert(attrsObject)
+	types.NewNamed(attrsObject, types.NewSlice(attrType), nil)
 	runtimePkg.MarkComplete()
 	contextPkg := types.NewPackage("context", "context")
 	namedInterface(contextPkg, "Context")
