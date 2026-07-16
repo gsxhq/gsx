@@ -78,7 +78,7 @@ func TestDidChangeSchedulesExactOpenAffectedDirectories(t *testing.T) {
 	server.schedule = func(_ time.Duration, _ func()) func() { return func() {} }
 
 	err := server.handleDidChange(frame{Params: rawParams(t, map[string]any{
-		"textDocument": map[string]any{"uri": pathToURI(dependencyPath), "version": 2},
+		"textDocument":   map[string]any{"uri": pathToURI(dependencyPath), "version": 2},
 		"contentChanges": []map[string]any{{"text": "package dependency\n\ncomponent New() { <div/> }"}},
 	})})
 	if err != nil {
@@ -193,7 +193,7 @@ func TestIdenticalByteChangeRepublishesRetainedPackageAtCurrentVersion(t *testin
 	}}}
 
 	err := server.handleDidChange(frame{Params: rawParams(t, map[string]any{
-		"textDocument": map[string]any{"uri": uri, "version": 2},
+		"textDocument":   map[string]any{"uri": uri, "version": 2},
 		"contentChanges": []map[string]any{{"text": "package page"}},
 	})})
 	if err != nil {
