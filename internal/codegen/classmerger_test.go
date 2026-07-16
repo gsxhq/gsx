@@ -79,7 +79,7 @@ func generateClassFixture(t *testing.T, ref *ClassMergerRef) string {
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
 		t.Fatalf("mkdir views: %v", err)
 	}
-	writeFile(t, viewsDir, "card.gsx", "package views\n\ncomponent Card() {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
+	writeFile(t, viewsDir, "card.gsx", "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(attrs gsx.Attrs, children gsx.Node) {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
 
 	res, err := GenerateDirs(tmp, []string{viewsDir}, Options{
 		FilterPkgs:  []string{StdImportPath},

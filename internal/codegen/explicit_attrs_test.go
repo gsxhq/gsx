@@ -23,7 +23,7 @@ func TestGeneratedExplicitAttrsHasNoUnusedGuard(t *testing.T) {
 		t.Fatalf("mkdir views: %v", err)
 	}
 	writeFile(t, viewsDir, "card.gsx",
-		"package views\n\ncomponent Card() {\n\t<div { attrs... }/>\n}\n")
+		"package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(attrs gsx.Attrs) {\n\t<div { attrs... }/>\n}\n")
 
 	res, err := GenerateDirs(tmp, []string{viewsDir}, Options{
 		FilterPkgs: []string{StdImportPath},
@@ -40,8 +40,8 @@ func TestGeneratedExplicitAttrsHasNoUnusedGuard(t *testing.T) {
 	for _, src := range dr.Files {
 		got = string(src)
 	}
-	if !strings.Contains(got, "attrs := _gsxp.Attrs") {
-		t.Fatalf("missing explicit attrs binding:\n%s", got)
+	if !strings.Contains(got, "func Card(attrs gsx.Attrs)") {
+		t.Fatalf("missing authored attrs parameter:\n%s", got)
 	}
 	if strings.Contains(got, "_ = attrs") {
 		t.Fatalf("generated explicit attrs binding has an unused guard:\n%s", got)

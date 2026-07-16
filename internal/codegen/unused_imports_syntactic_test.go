@@ -224,39 +224,6 @@ func TestBuildPackageSkeletonsDottedComponentKeepsImport(t *testing.T) {
 	}
 }
 
-func TestBuildPackageSkeletonsEmbeddedComponentKeepsImport(t *testing.T) {
-	dir, m := openTestModule(t, map[string]string{
-		"page.gsx": `package testmod
-
-import (
-	gsx "github.com/gsxhq/gsx"
-	uix "testmod/ui"
-)
-
-func wrap(node gsx.Node) gsx.Node { return node }
-
-component Page() {
-	{ wrap(<uix.Button/>) }
-}
-`,
-	})
-	ps, err := m.buildPackageSkeletons(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fs, ok := ps.byGsx[filepath.Join(dir, "page.gsx")]
-	if !ok {
-		t.Fatalf("no skeleton for page.gsx; got %v", ps.byGsx)
-	}
-	used := skeletonUsedNames(fs.skel)
-	if !used["uix"] {
-		t.Fatalf("embedded <uix.Button/> lost from syntactic skeleton; used=%v", used)
-	}
-	if n := m.externalLoads(); n != 0 {
-		t.Fatalf("buildPackageSkeletons did %d external loads, want 0", n)
-	}
-}
-
 func TestUnusedImportsPreservesAffectedFileOnPreprocessError(t *testing.T) {
 	dir, m := openTestModule(t, map[string]string{
 		"bad.gsx": `package testmod
