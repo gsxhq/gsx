@@ -131,6 +131,8 @@ git commit -m "refactor(codegen): centralize component identity result contract"
 
 ### Task 2: Record Candidates Without Stamping Components
 
+> **Execution dependency:** Tasks 2 and 3 are one green subsystem and must be implemented, committed, and reviewed together. Removing the old stamps before discovery is reordered would leave every component call classified as a leaf; retaining the old writer temporarily would create the forbidden dual classifier.
+
 **Files:**
 - Modify: `ast/ast.go`
 - Modify: `internal/codegen/tagresolve.go`
@@ -240,6 +242,8 @@ Expected: tests pass and comments describe `IsComponentTag` as candidate syntax 
 ---
 
 ### Task 3: Discover Targets Before Full Skeleton Analysis
+
+> **Execution dependency:** Execute under Task 2's combined subsystem gate. Task 2's candidate-only preprocessor becomes valid production behavior only when this task moves exact discovery ahead of the final stamp in the same committed state.
 
 **Files:**
 - Modify: `internal/codegen/analyze.go`
