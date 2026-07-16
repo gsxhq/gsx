@@ -193,6 +193,16 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 		return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute")
 	}
 	core := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
+	if core == "" {
+		rawInner := p.src[p.i+1 : end]
+		markerOffset := strings.LastIndex(rawInner, "...")
+		markerStart := p.i + 1 + markerOffset
+		return nil, p.errorfRange(
+			p.posAt(markerStart),
+			p.posAt(markerStart+len("...")),
+			"spread attribute requires an expression before `...`",
+		)
+	}
 	coreOff := p.i + 1 + leadingSpaceLen(p.src[p.i+1:end])
 	// The spread/splat subject may carry a `|>` pipeline. Its canonical form
 	// parenthesizes the pipeline so the trailing `...` reads unambiguously as the
