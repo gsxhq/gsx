@@ -115,9 +115,9 @@ comments/attr_comment	diag render
 comments/cond_attr_comment	diag render
 comments/content_comment	diag render
 comments/parse_snapshot	ast diag
-components/attrs_literal_duplicate_error	diag gen render
 components/attrs_literal_merge	diag gen render
 components/attrs_literal_merge_tuple	diag gen render
+components/attrs_literal_multiple	diag gen render
 components/child_class_evaluation_order	diag gen render
 components/child_class_fallthrough	diag render
 components/child_class_part_tuple	diag gen render
