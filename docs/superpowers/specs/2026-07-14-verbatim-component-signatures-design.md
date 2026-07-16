@@ -475,6 +475,11 @@ once-only evaluation/materialization and never reclassifies it. This prevents an
 emitter-only wrapper from disagreeing with inference or diagnostics and requires
 no additional package load for imported components.
 
+Known-scalar specialized Node wrappers may avoid `gsx.Val`'s `any` box in the
+future, but are deliberately outside this recovery. They require a separately
+benchmarked runtime/codegen design. This cutover restores the existing contract:
+Text for static/`f` strings, Val for other promoted renderable values.
+
 ### Forwarding and spreads
 
 There is **no component struct-splat** (`<C {structVal...}/>`). It was cut after
