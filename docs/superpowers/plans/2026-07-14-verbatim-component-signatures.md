@@ -842,6 +842,17 @@ every debounce event at document mutation; advance the epoch on
 set/cancel/close/transfer, reject queued stale or no-open-document events, and
 supersede in-flight analysis at `didChange` receipt rather than timer fire.
 
+Treat live `gsx.toml` changes as a semantic configuration transition, not only
+as a module/source invalidation. Give the effective filters, aliases, renderers,
+classifier, field-matcher removal state, and class merger one explicit config
+identity; when it changes, rebuild the affected module configuration, replay
+every still-open buffer into the new module, and invalidate every retained
+result derived from the old identity. Pin a ClassMerger-only edit and an alias/
+renderer edit through the LSP lifecycle: the next diagnostics/generation must
+use the new configuration without closing the documents or restarting the
+server. Do not patch individual option fields on a live `codegen.Module`; a
+mixed old/new semantic configuration is not a valid cache state.
+
 - [ ] **Step 3: Re-type-check retained syntax through the shared project resolver**
 
 When a project-local Go-only import is reached, type-check its retained ASTs with the same recursive project resolver; route GSX children to the current declaration skeletons, cache the result in `projectTypes`, and record forward/reverse edges for both Go-only and GSX directories. Shipping, target, renderer, filter/alias harvest, and merger validation select the appropriate GSX declaration mode while sharing retained Go-only syntax and graph ownership. A GSX declaration edit invalidates the reverse closure and rechecks retained syntax without another load. Do not add another `packages.Load` or a source parser. Pin local filter and merger packages whose Go-only source reaches a poisoned-stale GSX package; neither may harvest the cold load's partial/stale `Types`.
