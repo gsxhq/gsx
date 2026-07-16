@@ -23,6 +23,7 @@ type componentPositionalPlanningInput struct {
 	targets         map[callSiteID]componentTargetFact
 	expressionFacts map[gsxast.Node]expressionFact
 	runtime         runtimeContract
+	table           funcTables
 	analysisPackage *types.Package
 	fset            *token.FileSet
 }
@@ -174,7 +175,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			diagnostics = append(diagnostics, zeroDiags...)
 			continue
 		}
-		materialization := planComponentMaterialization(call, positionalMaterializationFacts(call, siteFacts, input.runtime))
+		materialization := planComponentMaterialization(call, positionalMaterializationFacts(call, siteFacts, input.runtime, input.table))
 		result.sites[record.id] = componentPositionalSitePlan{
 			runtime:         input.runtime,
 			call:            call,
@@ -365,13 +366,18 @@ func runtimePackageType(runtime runtimeContract, name string) types.Type {
 // own nested (T, error) operations while assembling that final expression.
 // The outer positional materializer must still treat that work as ordered, but
 // must not try to unwrap the already-consumed tuple a second time.
-func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) map[gsxast.Node]expressionFact {
+func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract, table funcTables) map[gsxast.Node]expressionFact {
 	result := maps.Clone(facts)
 	for _, value := range plan.values {
+		fact, ok := result[value.node]
+		if ok {
+			fact.emitsStatements = positionalLoweringEmitsStatements(value, facts, table)
+			result[value.node] = fact
+		}
 		if !positionalLoweringOwnsTuple(value) {
 			continue
 		}
-		fact, ok := result[value.node]
+		fact, ok = result[value.node]
 		if !ok || fact.tuple == nil {
 			continue
 		}
@@ -387,6 +393,45 @@ func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Nod
 		result[value.node] = fact
 	}
 	return result
+}
+
+func positionalLoweringEmitsStatements(value componentInputValue, facts map[gsxast.Node]expressionFact, table funcTables) bool {
+	root := value.node
+	if value.attrsNode != nil {
+		root = value.attrsNode.attr
+	}
+	emits := false
+	gsxast.Inspect(root, func(node gsxast.Node) bool {
+		if node == nil || emits {
+			return !emits
+		}
+		if fact, ok := facts[node]; ok {
+			if fact.tuple != nil {
+				emits = true
+				return false
+			}
+			if renderer, ok := table.renderers[rendererKey(fact.tv.Type)]; ok && renderer.hasErr {
+				emits = true
+				return false
+			}
+		}
+		switch node := node.(type) {
+		case *gsxast.CondAttr, *gsxast.ValueCF:
+			emits = true
+			return false
+		case *gsxast.EmbeddedAttr:
+			if node.Lang == gsxast.EmbeddedJS || node.Lang == gsxast.EmbeddedCSS {
+				for _, segment := range node.Segments {
+					if _, ok := segment.(*gsxast.Interp); ok {
+						emits = true
+						return false
+					}
+				}
+			}
+		}
+		return true
+	})
+	return emits
 }
 
 func positionalLoweringOwnsTuple(value componentInputValue) bool {

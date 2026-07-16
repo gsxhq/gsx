@@ -473,4 +473,24 @@ func TestPlanComponentMaterialization(t *testing.T) {
 			t.Fatalf("a lone ordered value needs no temp, got %+v", got.values)
 		}
 	})
+
+	t.Run("early materialization closes over the authored prefix", func(t *testing.T) {
+		first := &gsxast.ExprAttr{Name: "first", Expr: "mark(\"first\")"}
+		middle := &gsxast.ExprAttr{Name: "attrs", Expr: "mark(\"middle\")"}
+		last := &gsxast.ExprAttr{Name: "last", Expr: "mark(\"last\")"}
+		plan := componentCallPlan{values: []componentInputValue{
+			{kind: componentInputProp, paramIndex: 0, contributorIndex: -1, node: first},
+			{kind: componentInputAttrsPair, paramIndex: 2, contributorIndex: 0, node: middle},
+			{kind: componentInputProp, paramIndex: 1, contributorIndex: -1, node: last},
+		}}
+		facts := map[gsxast.Node]expressionFact{
+			first:  {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
+			middle: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
+			last:   {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
+		}
+		got := planComponentMaterialization(plan, facts)
+		if len(got.values) != 3 || got.values[0].temp == "" || got.values[1].temp == "" || got.values[2].temp == "" {
+			t.Fatalf("a later eager temp must not overtake an earlier call: %+v", got.values)
+		}
+	})
 }

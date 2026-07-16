@@ -238,6 +238,13 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) (string, map[string]string, bool) {
 	switch node.kind {
 	case componentAttrsStreamPair, componentAttrsStreamSpread:
+		if embedded, ok := node.attr.(*gsxast.EmbeddedAttr); ok && (embedded.Lang == gsxast.EmbeddedJS || embedded.Lang == gsxast.EmbeddedCSS) {
+			expr, ok := positionalEmbeddedValueExpr(b, embedded, ctx)
+			if !ok {
+				return "", nil, false
+			}
+			return fmt.Sprintf("%s.Attrs{{Key: %s, Value: %s}}", ctx.rt.rt(), strconv.Quote(embedded.Name), expr), nil, true
+		}
 		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond)
 		if err != nil {
 			positionalAttrsError(node.attr, err, ctx)

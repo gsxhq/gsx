@@ -73,11 +73,12 @@ func Page(k string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv3, _gsxerr := h(k)
+		_gsxv3 := _gsxrt.Attrs{{Key: "x", Value: _gsxv2}}
+		_gsxv4, _gsxerr := h(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(_gsxv1, _gsxrt.Attrs{{Key: "x", Value: _gsxv2}}, _gsxv3))
+		_gsxgw.Node(ctx, Card(_gsxv1, _gsxv3, _gsxv4))
 		return _gsxgw.Err()
 	})
 }

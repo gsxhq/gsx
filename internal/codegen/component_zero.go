@@ -641,6 +641,7 @@ type expressionFact struct {
 	isNil               bool
 	hasOrderedOperation bool
 	tuple               *types.Tuple
+	emitsStatements     bool
 }
 
 // expressionHasOrderedOperation reports whether evaluating expr executes an
@@ -805,6 +806,28 @@ func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]
 			mv.inline = true
 		}
 		out.values = append(out.values, mv)
+	}
+
+	// Materialization is eager: its statement is emitted while walking authored
+	// values, before the final call expression evaluates anything left inline.
+	// Therefore every non-contextual value before the last eager boundary must
+	// also be materialized. Otherwise a later temp (or a compound lowerer's own
+	// statements) overtakes an earlier call/read even when signature order did
+	// not itself invert that pair.
+	lastBoundary := -1
+	for i, mv := range out.values {
+		if mv.temp != "" || mv.unwrapTuple || entries[i].fact.emitsStatements {
+			lastBoundary = i
+		}
+	}
+	for i := 0; i < lastBoundary; i++ {
+		mv := &out.values[i]
+		if mv.temp != "" || (entries[i].hasFact && entries[i].fact.contextual()) {
+			continue
+		}
+		mv.inline = false
+		mv.temp = fmt.Sprintf("_gsxv%d", tempN)
+		tempN++
 	}
 	return out
 }
