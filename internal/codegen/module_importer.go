@@ -1347,6 +1347,17 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		typeErrs = kept
 	}
+	// Tolerate cross-file build-tag variant redeclarations of raw Go decls: a
+	// same-name const/var/type/func across ≥2 files whose //go:build constraints
+	// are provably disjoint and whose signatures match is a build variant that
+	// go build — not gsx — resolves (icon.gsx `//go:build !never` vs
+	// icon_never.gsx `//go:build never`). Non-disjoint tags, a signature
+	// mismatch, or a within-file duplicate keep the error. Applied to both the
+	// skeleton errors here and the target-plan errors below, since both phases
+	// type-check the same colliding files.
+	variantConstraints := buildConstraintByFile(gsxFiles)
+	variantSites := collectVariantDeclSites(goFiles, fset)
+	typeErrs = suppressCrossFileVariantRedeclarations(typeErrs, variantSites, variantConstraints)
 	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
 	// element-spread harvest probe. Each expression is also checked in a native
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
@@ -1390,7 +1401,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
 		reportableFullTypeErrs = append(reportableFullTypeErrs, e)
 	}
-	for _, targetErr := range unmatchedTargetTypeErrors(targetErrs, reportableFullTypeErrs) {
+	for _, targetErr := range unmatchedTargetTypeErrors(suppressCrossFileVariantRedeclarations(targetErrs, variantSites, variantConstraints), reportableFullTypeErrs) {
 		bag.Add(componentTargetTypeDiagnostic(targetErr))
 	}
 	if mi.cycleErr != nil {

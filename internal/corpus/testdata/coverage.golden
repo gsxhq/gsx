@@ -58,6 +58,7 @@ bodyinterp/plain	diag gen render
 bodyinterp/sub_expression	diag gen render
 bodyinterp/whole_pipe	diag gen render
 buildtags/helper_variant	diag render
+buildtags/helper_variant_diff_sig	diag render
 buildtags/method_variant	diag render
 buildtags/redeclare_within_file	diag(error)
 buildtags/variant_diff_sig	diag(error)
@@ -894,4 +895,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 896 cases (render: 769, error: 89, gen-pinned: 518)
+TOTAL: 897 cases (render: 770, error: 89, gen-pinned: 518)

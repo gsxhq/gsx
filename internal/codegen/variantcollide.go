@@ -323,3 +323,249 @@ func equalVariantParamIdentity(left, right []variantParamIdentity) bool {
 	}
 	return true
 }
+
+// --- raw-Go cross-file build-variant redeclaration tolerance ---
+//
+// The variant-family machinery above governs same-name COMPONENT declarations.
+// Raw Go declarations in a file's verbatim region (const/var/type/func) are not
+// *gsxast.Component nodes, so they never reach it; a same-name pair across two
+// build-tagged files therefore surfaces as a native go/types "redeclared in
+// this block" error. gsx tolerates such a pair only when it can PROVE the two
+// files never build together AND the declarations are signature-identical —
+// the raw-Go analogue of the component path's "distinct build constraint +
+// matching signature" rule. Everything else (non-disjoint tags, differing
+// signatures, within-file duplicates) keeps the error; go build remains the
+// arbiter of which tagged file is active.
+
+// redeclName extracts the declared name from a go/types redeclaration-class
+// diagnostic. go/types (observed on Go 1.26.1) emits two message families:
+// funcs/vars/consts/types produce a "<name> redeclared in this block" record
+// plus an "other declaration of <name>" note; methods produce a single
+// "method <Base>.<Method> already declared at …" record. <Base> is the receiver
+// base type with no pointer or generic arg list.
+func redeclName(msg string) (string, bool) {
+	msg = strings.TrimSpace(msg)
+	if i := strings.Index(msg, " redeclared"); i > 0 {
+		return msg[:i], true
+	}
+	const other = "other declaration of "
+	if strings.HasPrefix(msg, other) {
+		return strings.TrimSpace(msg[len(other):]), true
+	}
+	const method = "method "
+	if strings.HasPrefix(msg, method) {
+		if j := strings.Index(msg, " already declared"); j > len(method) {
+			return msg[len(method):j], true
+		}
+	}
+	return "", false
+}
+
+// recvBaseName returns a method receiver's base type identifier, stripping a
+// leading pointer and any generic argument list so it matches the "<Base>"
+// go/types prints in a method-redeclaration message: `*Form` → "Form",
+// `Form[T]` → "Form".
+func recvBaseName(expr goast.Expr) string {
+	switch t := expr.(type) {
+	case *goast.StarExpr:
+		return recvBaseName(t.X)
+	case *goast.IndexExpr:
+		return recvBaseName(t.X)
+	case *goast.IndexListExpr:
+		return recvBaseName(t.X)
+	case *goast.Ident:
+		return t.Name
+	}
+	return ""
+}
+
+// variantDeclSite is one top-level declaration occurrence of a redeclared name.
+type variantDeclSite struct {
+	file string // filepath.Base of the declaring source file
+	sig  string // syntactic signature/type key (identical across true variants)
+}
+
+// collectVariantDeclSites records one variantDeclSite per top-level name each
+// skeleton file declares, keyed by the redeclName form (methods as
+// "<Base>.<Method>"). Facts come from the skeleton ASTs, not go/types error
+// positions: go/types anchors every redeclaration against the single
+// globally-first decl, and files are fed to the checker in map order, so
+// per-error file attribution is unreliable — the AST sees every declaration.
+func collectVariantDeclSites(goFiles []*goast.File, fset *token.FileSet) map[string][]variantDeclSite {
+	sites := map[string][]variantDeclSite{}
+	add := func(name, sig string, pos token.Pos) {
+		if name == "" {
+			return
+		}
+		sites[name] = append(sites[name], variantDeclSite{
+			file: filepath.Base(fset.Position(pos).Filename),
+			sig:  sig,
+		})
+	}
+	for _, gf := range goFiles {
+		for _, d := range gf.Decls {
+			switch decl := d.(type) {
+			case *goast.FuncDecl:
+				sig := types.ExprString(decl.Type)
+				if decl.Recv != nil && len(decl.Recv.List) > 0 {
+					if base := recvBaseName(decl.Recv.List[0].Type); base != "" {
+						add(base+"."+decl.Name.Name, sig, decl.Pos())
+					}
+				} else {
+					add(decl.Name.Name, sig, decl.Pos())
+				}
+			case *goast.GenDecl:
+				for _, spec := range decl.Specs {
+					switch s := spec.(type) {
+					case *goast.ValueSpec:
+						for i, n := range s.Names {
+							if n.Name != "_" {
+								add(n.Name, valueSpecSig(s, i), n.Pos())
+							}
+						}
+					case *goast.TypeSpec:
+						if s.Name.Name != "_" {
+							add(s.Name.Name, "type "+types.ExprString(s.Type), s.Name.Pos())
+						}
+					}
+				}
+			}
+		}
+	}
+	return sites
+}
+
+// valueSpecSig is a best-effort syntactic type key for a const/var name: its
+// explicit type when written, else the syntactic kind of a literal value (two
+// string-literal consts read identical; a string vs an int one does not). A
+// non-literal untyped value falls back to the printed expression, which is
+// conservative — a difference there keeps the redeclaration error.
+func valueSpecSig(s *goast.ValueSpec, i int) string {
+	if s.Type != nil {
+		return types.ExprString(s.Type)
+	}
+	if i < len(s.Values) {
+		if lit, ok := s.Values[i].(*goast.BasicLit); ok {
+			return "lit:" + lit.Kind.String()
+		}
+		return "expr:" + types.ExprString(s.Values[i])
+	}
+	return ""
+}
+
+// collectConstraintTags gathers the tag names referenced by a build expression.
+func collectConstraintTags(e constraint.Expr, set map[string]struct{}) {
+	switch x := e.(type) {
+	case *constraint.TagExpr:
+		set[x.Tag] = struct{}{}
+	case *constraint.NotExpr:
+		collectConstraintTags(x.X, set)
+	case *constraint.AndExpr:
+		collectConstraintTags(x.X, set)
+		collectConstraintTags(x.Y, set)
+	case *constraint.OrExpr:
+		collectConstraintTags(x.X, set)
+		collectConstraintTags(x.Y, set)
+	}
+}
+
+// constraintsProvablyDisjoint reports whether (a AND b) is unsatisfiable with
+// every build tag treated as an independent boolean. This proves mutual
+// exclusion for complementary custom tags (X vs !X) and any boolean-unsat pair.
+// It deliberately does NOT model GOOS/GOARCH "exactly one is set" semantics (the
+// known lists are not exported by the standard library), so e.g. linux vs
+// windows is treated as satisfiable and such a pair is reported, not tolerated —
+// a conservative bound, never a false tolerate. A nil (unconstrained) file is
+// always active, so it is never disjoint from anything.
+func constraintsProvablyDisjoint(a, b constraint.Expr) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	tags := map[string]struct{}{}
+	collectConstraintTags(a, tags)
+	collectConstraintTags(b, tags)
+	names := make([]string, 0, len(tags))
+	for t := range tags {
+		names = append(names, t)
+	}
+	if len(names) > 24 { // 2^24 enumeration ceiling; unrealistic for real constraints
+		return false
+	}
+	for mask := 0; mask < (1 << uint(len(names))); mask++ {
+		assign := make(map[string]bool, len(names))
+		for i, name := range names {
+			assign[name] = mask&(1<<uint(i)) != 0
+		}
+		ok := func(tag string) bool { return assign[tag] }
+		if a.Eval(ok) && b.Eval(ok) {
+			return false
+		}
+	}
+	return true
+}
+
+// buildConstraintByFile maps each .gsx file's base name to its parsed leading
+// //go:build expression (nil when it carries none), for the disjointness check.
+func buildConstraintByFile(gsxFiles map[string]*gsxast.File) map[string]constraint.Expr {
+	out := make(map[string]constraint.Expr, len(gsxFiles))
+	for path, gf := range gsxFiles {
+		out[filepath.Base(path)] = fileBuildConstraint(gf.Doc, gf.Package)
+	}
+	return out
+}
+
+// fileBuildConstraint parses a file's leading //go:build expression from its
+// pre-package byte prefix (gsxast.File.Doc). Returns nil when the file carries
+// no (or an invalid) //go:build line.
+func fileBuildConstraint(doc, pkg string) constraint.Expr {
+	source := []byte(doc + "\n\npackage " + pkg + "\n")
+	_, goBuild, err := parseBuildConstraintHeader(source)
+	if err != nil || goBuild == nil {
+		return nil
+	}
+	expr, err := constraint.Parse(string(goBuild))
+	if err != nil {
+		return nil
+	}
+	return expr
+}
+
+// suppressCrossFileVariantRedeclarations drops redeclaration-class errors for a
+// name whose declarations are all in distinct files with pairwise provably-
+// disjoint build constraints and identical signatures — a tolerated build-tag
+// variant that go build (not gsx) resolves. A within-file duplicate, a
+// signature mismatch, or any non-disjoint pair keeps every error for that name.
+func suppressCrossFileVariantRedeclarations(errs []types.Error, sites map[string][]variantDeclSite, constraintByFile map[string]constraint.Expr) []types.Error {
+	tolerable := func(name string) bool {
+		s := sites[name]
+		if len(s) < 2 {
+			return false
+		}
+		seen := map[string]bool{}
+		for _, site := range s {
+			if seen[site.file] {
+				return false // within-file duplicate: a genuine mistake
+			}
+			seen[site.file] = true
+			if site.sig != s[0].sig {
+				return false // differing signature across variants
+			}
+		}
+		for i := range s {
+			for j := i + 1; j < len(s); j++ {
+				if !constraintsProvablyDisjoint(constraintByFile[s[i].file], constraintByFile[s[j].file]) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	kept := errs[:0]
+	for _, e := range errs {
+		if name, ok := redeclName(e.Msg); ok && tolerable(name) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
+}

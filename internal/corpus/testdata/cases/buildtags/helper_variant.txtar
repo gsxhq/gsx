@@ -21,6 +21,5 @@ component IconNever() {
 -- invoke --
 Icon()
 -- diagnostics.golden --
-5:7: 	other declaration of iconPath
-5:7: iconPath redeclared in this block
 -- render.golden --
+<img src="/active.svg"/>
