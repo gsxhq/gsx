@@ -516,17 +516,25 @@ func TestPlanComponentInputsOrdinaryVariadicIsGoOnly(t *testing.T) {
 			t.Fatalf("diagnostic codes = %v", got)
 		}
 	})
-	t.Run("blank name is not bindable", func(t *testing.T) {
-		el, fset := plannerElement(t, `<C _={items}/>`)
-		plan, diagnostics := planComponentInputs(1, el, plannerTarget(
-			plannerParam{name: "attrs", role: roleAttrs},
-			plannerParam{name: "_", role: roleGoOnlyVariadic},
-		), fset)
+}
+
+func TestPlanComponentInputsDifferentlyNamedAttrsBagIsOrdinary(t *testing.T) {
+	t.Run("exact bag prop binds normally", func(t *testing.T) {
+		el, fset := plannerElement(t, `<C a={{"role": "status"}}/>`)
+		plan, diagnostics := planComponentInputs(1, el, plannerTarget(plannerParam{name: "a", role: roleProp}), fset)
 		if len(diagnostics) != 0 {
 			t.Fatalf("diagnostics = %+v", diagnostics)
 		}
-		if !plan.args[1].omitted || len(plan.args[1].valueIndexes) != 0 || len(plan.args[0].valueIndexes) != 1 || plan.values[0].kind != componentInputAttrsPair {
-			t.Fatalf("blank variadic unexpectedly bound: %+v", plan)
+		if len(plan.values) != 1 || plan.values[0].kind != componentInputProp || plan.values[0].paramIndex != 0 || plan.args[0].omitted {
+			t.Fatalf("plan = %+v, want exact ordinary prop binding", plan)
+		}
+	})
+
+	t.Run("unmatched class alone needs literal attrs role", func(t *testing.T) {
+		el, fset := plannerElement(t, `<C class="x"/>`)
+		_, diagnostics := planComponentInputs(1, el, plannerTarget(plannerParam{name: "a", role: roleProp}), fset)
+		if got := diagnosticCodes(diagnostics); !slices.Equal(got, []string{"component-missing-attrs"}) {
+			t.Fatalf("diagnostic codes = %v, want component-missing-attrs", got)
 		}
 	})
 }

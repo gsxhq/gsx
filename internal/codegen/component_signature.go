@@ -327,6 +327,12 @@ func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (c
 	}
 	for i := range sig.Params().Len() {
 		variable := sig.Params().At(i)
+		switch variable.Name() {
+		case "":
+			return componentSignatureModel{}, fmt.Errorf("component-parameter-name: function parameters must be named to be used as a component; parameter %d is unnamed", i)
+		case "_":
+			return componentSignatureModel{}, fmt.Errorf("component-parameter-name: function parameters must be named to be used as a component; parameter %d is blank", i)
+		}
 		if invalidSemanticTypeSeen(variable.Type(), checkedTypes) {
 			return componentSignatureModel{}, fmt.Errorf("component-param-type: parameter %d %q contains an invalid semantic type", i, variable.Name())
 		}
@@ -356,8 +362,6 @@ func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (c
 			param.attrsMode = mode
 		case variadic:
 			param.role = roleGoOnlyVariadic
-		case param.name == "" || param.name == "_":
-			return componentSignatureModel{}, fmt.Errorf("component-unnamed-fixed-param: parameter %d has no markup-bindable name", i)
 		default:
 			param.role = roleProp
 		}
