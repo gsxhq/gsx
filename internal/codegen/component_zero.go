@@ -31,6 +31,7 @@ type inferenceContext struct {
 	pkg   *types.Package
 	fset  *token.FileSet
 	scope *types.Scope
+	tag   string
 }
 
 // inferAuthoredInstance performs Go type inference for a generic component
@@ -72,11 +73,11 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 	}
 	for i := range fresh {
 		constraint := substituteTypeParams(tparams.At(i).Constraint(), subst)
-		iface, ok := constraint.(*types.Interface)
-		if !ok {
-			return types.Instance{}, []diag.Diagnostic{targetPositioned(ic, target, "component-inference", "component target constraint is not an interface after substitution")}
-		}
-		fresh[i].SetConstraint(iface)
+		// A legal constraint may retain named or aliased interface identity after
+		// substitution, especially across a package boundary. Type parameters accept
+		// that semantic type directly; asserting the concrete *types.Interface shape
+		// would reject valid imported constraints before Go inference can run.
+		fresh[i].SetConstraint(constraint)
 	}
 
 	// Carrier value parameters: only the supplied parameters, substituted onto
@@ -145,6 +146,26 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 	types.NewChecker(&config, fset, probe, info).Files([]*goast.File{file})
 
 	var carrierInst types.Instance
+	var carrierCall *goast.CallExpr
+	goast.Inspect(file, func(node goast.Node) bool {
+		call, ok := node.(*goast.CallExpr)
+		if !ok {
+			return true
+		}
+		id, ok := call.Fun.(*goast.Ident)
+		if !ok {
+			if indexed, indexedOK := call.Fun.(*goast.IndexExpr); indexedOK {
+				id, ok = indexed.X.(*goast.Ident)
+			} else if indexed, indexedOK := call.Fun.(*goast.IndexListExpr); indexedOK {
+				id, ok = indexed.X.(*goast.Ident)
+			}
+		}
+		if ok && id.Name == "_gsxcarrier" {
+			carrierCall = call
+			return false
+		}
+		return true
+	})
 	for id, inst := range info.Instances {
 		if id.Name == "_gsxcarrier" {
 			carrierInst = inst
@@ -155,19 +176,20 @@ func inferAuthoredInstance(ic inferenceContext, target componentTargetFact, oper
 
 	if len(probeErrs) > 0 {
 		if !complete {
-			// Incomplete inference: the explicit-type-argument hint.
-			return types.Instance{}, []diag.Diagnostic{incompleteInferenceDiagnostic(ic, target)}
+			// Preserve Go's conflict substance while adding the source-language tag
+			// and exact explicit-argument hint.
+			return types.Instance{}, []diag.Diagnostic{incompleteInferenceDiagnostic(ic, target, sanitizeCarrierDiagnostic(probeErrs[0].Msg))}
 		}
 		// A complete instance under an error is a constraint violation; surface
 		// the native diagnostics without claiming explicit arguments would help.
 		diags := make([]diag.Diagnostic, 0, len(probeErrs))
 		for _, te := range probeErrs {
-			diags = append(diags, nativeInferenceDiagnostic(ic, target, te))
+			diags = append(diags, nativeInferenceDiagnostic(ic, target, te, carrierCall, operands))
 		}
 		return types.Instance{}, diags
 	}
 	if !complete {
-		return types.Instance{}, []diag.Diagnostic{incompleteInferenceDiagnostic(ic, target)}
+		return types.Instance{}, []diag.Diagnostic{incompleteInferenceDiagnostic(ic, target, "")}
 	}
 
 	// Instantiate the origin signature with the inferred type arguments, stripped
@@ -218,18 +240,62 @@ func targetPositioned(ic inferenceContext, target componentTargetFact, code, mes
 	return d
 }
 
-func incompleteInferenceDiagnostic(ic inferenceContext, target componentTargetFact) diag.Diagnostic {
+func incompleteInferenceDiagnostic(ic inferenceContext, target componentTargetFact, substance string) diag.Diagnostic {
+	if substance == "" {
+		substance = "cannot infer type arguments from the supplied attributes"
+	}
 	return targetPositioned(ic, target, "component-type-args",
-		"cannot infer type arguments from the supplied attributes; instantiate the component explicitly, e.g. <Tag[T] .../>")
+		fmt.Sprintf("type inference failed for <%s>: %s; please instantiate with <%s[%s] ...>",
+			inferenceTag(ic), substance, inferenceTag(ic), strings.TrimSuffix(strings.Repeat("type, ", target.raw.TypeParams().Len()), ", ")))
 }
 
-func nativeInferenceDiagnostic(ic inferenceContext, target componentTargetFact, te types.Error) diag.Diagnostic {
-	d := diag.Diagnostic{Severity: diag.Error, Code: "component-constraint", Message: te.Msg, Source: "types"}
+func inferenceTag(ic inferenceContext) string {
+	if ic.tag != "" {
+		return ic.tag
+	}
+	return "Tag"
+}
+
+func nativeInferenceDiagnostic(ic inferenceContext, target componentTargetFact, te types.Error, call *goast.CallExpr, operands []suppliedOperand) diag.Diagnostic {
+	message := sanitizeCarrierDiagnostic(te.Msg)
+	code := "component-constraint"
+	if operandIndex := carrierOperandIndex(call, te.Pos); operandIndex >= 0 && operandIndex < len(operands) {
+		operand := operands[operandIndex]
+		if operand.paramIndex >= 0 && operand.paramIndex < target.raw.Params().Len() {
+			code = "component-prop-type"
+			message = fmt.Sprintf("%s for prop %q of <%s>", message, target.raw.Params().At(operand.paramIndex).Name(), inferenceTag(ic))
+		}
+	} else {
+		message = fmt.Sprintf("component constraint failed for <%s>: %s", inferenceTag(ic), message)
+	}
+	d := diag.Diagnostic{Severity: diag.Error, Code: code, Message: message, Source: "types"}
 	if ic.fset != nil && target.expr != nil && target.expr.Pos().IsValid() {
 		d.Start = ic.fset.Position(target.expr.Pos())
 		d.End = d.Start
 	}
 	return d
+}
+
+func sanitizeCarrierDiagnostic(message string) string {
+	if _, suffix, ok := strings.Cut(message, "in call to _gsxcarrier, "); ok {
+		message = suffix
+	}
+	if index := strings.Index(message, " in argument to _gsxcarrier"); index >= 0 {
+		message = message[:index]
+	}
+	return message
+}
+
+func carrierOperandIndex(call *goast.CallExpr, pos token.Pos) int {
+	if call == nil || !pos.IsValid() {
+		return -1
+	}
+	for i, arg := range call.Args {
+		if arg.Pos() <= pos && pos <= arg.End() {
+			return i
+		}
+	}
+	return -1
 }
 
 // substituteTypeParams reconstructs t with every origin type parameter in subst
