@@ -40,6 +40,9 @@ func (a *moduleRefsAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRe
 	a.moduleCalls++
 	return a.moduleRefs, a.moduleErr
 }
+func (a *moduleRefsAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
+	return nil, nil
+}
 func (a *moduleRefsAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil
 }

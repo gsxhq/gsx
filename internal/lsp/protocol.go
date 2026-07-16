@@ -53,11 +53,16 @@ type serverCapabilities struct {
 	TextDocumentSync           int                `json:"textDocumentSync"`
 	DefinitionProvider         bool               `json:"definitionProvider"`
 	ReferencesProvider         bool               `json:"referencesProvider"`
+	RenameProvider             *RenameOptions     `json:"renameProvider,omitempty"`
 	DocumentFormattingProvider bool               `json:"documentFormattingProvider"`
 	HoverProvider              bool               `json:"hoverProvider"`
 	DocumentSymbolProvider     bool               `json:"documentSymbolProvider"`
 	WorkspaceSymbolProvider    bool               `json:"workspaceSymbolProvider"`
 	CodeActionProvider         *CodeActionOptions `json:"codeActionProvider,omitempty"`
+}
+
+type RenameOptions struct {
+	PrepareProvider bool `json:"prepareProvider"`
 }
 
 // CodeActionOptions advertises which code-action kinds the server produces. It
@@ -144,6 +149,17 @@ type referenceParams struct {
 type textDocumentPositionParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
 	Position     Position               `json:"position"`
+}
+
+type renameParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	NewName      string                 `json:"newName"`
+}
+
+type prepareRenameResult struct {
+	Range       Range  `json:"range"`
+	Placeholder string `json:"placeholder"`
 }
 
 // Location is the LSP Location type: a URI and a range within it.

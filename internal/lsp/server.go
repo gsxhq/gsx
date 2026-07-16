@@ -43,6 +43,10 @@ type Analyzer interface {
 	// whole module). Used by find-references; failure is non-fatal (the server
 	// falls back to the per-package CrossIndex).
 	AnalyzeModule(dir string, override map[string][]byte) ([]CrossRef, error)
+	// AnalyzeModuleParams returns complete, exact GSX parameter declarations,
+	// semantic body uses, and invocation facts for rename. It must not return
+	// partial families.
+	AnalyzeModuleParams(dir string, override map[string][]byte) ([]ComponentParamRenameFact, error)
 	// ModuleSymbols returns every symbol (component + top-level Go decl) declared
 	// in every .gsx package in the module containing dir. Used by workspace/symbol.
 	ModuleSymbols(dir string, override map[string][]byte) ([]Symbol, error)
@@ -87,8 +91,11 @@ type Server struct {
 	shutdown bool
 	exited   bool
 
-	moduleRefs      []CrossRef // whole-module cross-reference index (lazy; find-references)
-	moduleRefsValid bool       // false ⇒ rebuild on next references request
+	moduleRefs        []CrossRef                 // whole-module cross-reference index (lazy; find-references)
+	moduleRefsValid   bool                       // false ⇒ rebuild on next references request
+	moduleParams      []ComponentParamRenameFact // complete GSX parameter families (lazy; rename)
+	moduleParamsValid bool                       // false ⇒ rebuild on next rename request
+	moduleParamsDir   string                     // request directory that owns the cached module view
 
 	moduleSyms      []Symbol // whole-module symbol index (lazy; workspace/symbol)
 	moduleSymsValid bool     // false ⇒ rebuild on next workspace/symbol request
@@ -249,6 +256,10 @@ func (s *Server) handle(f frame) error {
 		return s.handleDefinition(f)
 	case "textDocument/references":
 		return s.handleReferences(f)
+	case "textDocument/prepareRename":
+		return s.handlePrepareRename(f)
+	case "textDocument/rename":
+		return s.handleRename(f)
 	case "textDocument/hover":
 		return s.handleHover(f)
 	case "textDocument/formatting":
@@ -281,6 +292,7 @@ func (s *Server) handleInitialize(f frame) error {
 		TextDocumentSync:           1, // full document sync
 		DefinitionProvider:         true,
 		ReferencesProvider:         true,
+		RenameProvider:             &RenameOptions{PrepareProvider: true},
 		DocumentFormattingProvider: true,
 		HoverProvider:              true,
 		DocumentSymbolProvider:     true,
@@ -319,12 +331,15 @@ func (s *Server) notify(method string, params any) error {
 	}{"2.0", method, params})
 }
 
-// invalidateModuleRefs drops the cached whole-module reference index and symbol
-// index; the next references / workspace/symbol request rebuilds them. Any
-// document mutation may change either.
-func (s *Server) invalidateModuleRefs() {
+// invalidateModuleIndexes drops the cached whole-module reference, parameter, and
+// symbol indexes; the next references, rename, or workspace/symbol request
+// rebuilds its view. Any document mutation may change any of them.
+func (s *Server) invalidateModuleIndexes() {
 	s.moduleRefs = nil
 	s.moduleRefsValid = false
+	s.moduleParams = nil
+	s.moduleParamsValid = false
+	s.moduleParamsDir = ""
 	s.moduleSyms = nil
 	s.moduleSymsValid = false
 }
@@ -334,7 +349,7 @@ func (s *Server) handleDidOpen(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
-	s.invalidateModuleRefs()
+	s.invalidateModuleIndexes()
 	s.docs.open(p.TextDocument.URI, p.TextDocument.Text, p.TextDocument.Version)
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
@@ -372,7 +387,7 @@ func (s *Server) handleDidChange(f frame) error {
 	if len(p.ContentChanges) == 0 {
 		return nil
 	}
-	s.invalidateModuleRefs()
+	s.invalidateModuleIndexes()
 	// Full-document sync: the last change carries the whole new text.
 	text := p.ContentChanges[len(p.ContentChanges)-1].Text
 	s.docs.update(p.TextDocument.URI, text, p.TextDocument.Version)
@@ -411,7 +426,7 @@ func (s *Server) handleDidClose(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
-	s.invalidateModuleRefs()
+	s.invalidateModuleIndexes()
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
 	dir := filepath.Dir(path)

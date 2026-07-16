@@ -20,6 +20,9 @@ func (nilAnalyzer) ClearOverride(string) ([]string, error)              { return
 func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
+func (nilAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
+	return nil, nil
+}
 func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }
 func (nilAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
 	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
