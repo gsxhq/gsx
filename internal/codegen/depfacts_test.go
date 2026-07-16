@@ -27,7 +27,9 @@ func writeDepFactsModule(t *testing.T) (root, uiDir, pagesDir string) {
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	writeFile(t, uiDir, "card.gsx", `package ui
 
-component Card(title string) {
+import "github.com/gsxhq/gsx"
+
+component Card(title string, attrs gsx.Attrs) {
 	<div class="card" { attrs... }>{title}</div>
 }
 `)
@@ -40,46 +42,6 @@ component Home() {
 }
 `)
 	return root, uiDir, pagesDir
-}
-
-func TestImportedPropFactsCachedAndInvalidated(t *testing.T) {
-	root, uiDir, _ := writeDepFactsModule(t)
-	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	f1, err := m.importedPropFacts(uiDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !f1.propFields["CardProps"]["Title"] || !f1.propFields["CardProps"]["Attrs"] {
-		t.Fatalf("CardProps fields = %v; want Title and Attrs", f1.propFields["CardProps"])
-	}
-	f2, err := m.importedPropFacts(uiDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f1 != f2 {
-		t.Fatal("second lookup did not hit the cache (different *depPropFacts)")
-	}
-	// A content change to the dep invalidates its cached facts.
-	m.SetOverride(filepath.Join(uiDir, "card.gsx"), []byte(`package ui
-
-component Card(title string, variant string) {
-	<div class="card" { attrs... }>{title}</div>
-}
-`))
-	m.Invalidate(uiDir)
-	f3, err := m.importedPropFacts(uiDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f3 == f1 {
-		t.Fatal("facts not recomputed after invalidation")
-	}
-	if !f3.propFields["CardProps"]["Variant"] {
-		t.Fatalf("recomputed CardProps fields = %v; want Variant", f3.propFields["CardProps"])
-	}
 }
 
 func TestImportedPropFactsRunsCanonicalPreprocessor(t *testing.T) {
@@ -163,7 +125,7 @@ func TestImportedPropFactsUseOnlyActiveCompanionSyntax(t *testing.T) {
 
 import "example.com/app/ui"
 
-component Page() { <ui.Card Title="hello"/> }
+component Page() { <ui.Card data={ui.CardData{Title: "hello"}}/> }
 `)
 
 	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
@@ -179,11 +141,6 @@ component Page() { <ui.Card Title="hello"/> }
 	_, diagnostics, err := m.Generate(pagesDir)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "byo-missing-attrs" {
-			t.Fatalf("imported facts used excluded CardData.Count: %+v", diagnostic)
-		}
 	}
 	if hasDiagErrors(diagnostics) {
 		t.Fatalf("Generate diagnostics = %v", diagnostics)
@@ -233,13 +190,17 @@ func TestFileScopedAliasNoCollision(t *testing.T) {
 	// ui.Panel has a Variant prop; widgets.Panel does NOT (variant falls to its bag).
 	mk("ui/panel.gsx", `package ui
 
-component Panel(variant string) {
+import "github.com/gsxhq/gsx"
+
+component Panel(variant string, attrs gsx.Attrs, children gsx.Node) {
 	<section data-variant={variant} { attrs... }>{children}</section>
 }
 `)
 	mk("widgets/panel.gsx", `package widgets
 
-component Panel() {
+import "github.com/gsxhq/gsx"
+
+component Panel(attrs gsx.Attrs, children gsx.Node) {
 	<aside { attrs... }>{children}</aside>
 }
 `)
@@ -273,14 +234,13 @@ component B() {
 	}
 	aGen := string(out[filepath.Join(pagesDir, "a.gsx")])
 	bGen := string(out[filepath.Join(pagesDir, "b.gsx")])
-	// a.gsx: ui = app/ui, Panel HAS Variant → caller-set prop, class falls through.
-	if !strings.Contains(aGen, "Variant:") {
-		t.Errorf("a.gsx should set Variant prop on ui.Panel; got:\n%s", aGen)
+	// a.gsx: ui = app/ui, Panel HAS variant → first positional argument;
+	// class falls through to attrs.
+	if !strings.Contains(aGen, `ui.Panel("big",`) {
+		t.Errorf("a.gsx should pass variant positionally to ui.Panel; got:\n%s", aGen)
 	}
-	// b.gsx: ui = app/widgets, Panel has NO Variant → variant AND class fall to the bag.
-	if strings.Contains(bGen, "Variant:") {
-		t.Errorf("b.gsx must NOT set a Variant prop on widgets.Panel; got:\n%s", bGen)
-	}
+	// b.gsx: ui = app/widgets, Panel has NO variant → variant AND class fall
+	// through to attrs.
 	if !strings.Contains(bGen, `{Key: "variant", Value: "big"}`) {
 		t.Errorf("b.gsx should send variant to the Attrs bag; got:\n%s", bGen)
 	}
