@@ -163,7 +163,6 @@ type cacheKeyConfig struct {
 	aliases               []codegen.FilterAlias
 	renderers             []codegen.RendererAlias
 	classifierFingerprint string
-	hasFieldMatcher       bool
 	cssMinify             bool
 	jsMinify              bool
 	classMerger           *codegen.ClassMergerRef
@@ -179,10 +178,6 @@ func computeKey(dir string, projection *sourceview.CacheProjection, config cache
 		return "", err
 	}
 	pins := dedupSorted(config.filterPackages)
-	fmStr := "0"
-	if config.hasFieldMatcher {
-		fmStr = "1"
-	}
 	// Fold the explicit WithFilter aliases (name+pkgPath+funcName, in registration
 	// order) into the key so a changed alias invalidates cached output. Order is
 	// significant (last-wins), so this is NOT sorted — mirror the registration
@@ -219,7 +214,7 @@ func computeKey(dir string, projection *sourceview.CacheProjection, config cache
 	// gsx binary hash, so it supersedes a bare Version() pin: any emit/lowering
 	// change auto-invalidates even when the constant is not bumped.
 	fmt.Fprintf(h, "gsxcache-v3\x00%s\x00%s\x00source=%s\x00", config.codegenIdentity, config.buildContext, sourceIdentity)
-	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00renderers=%s\x00cls=%s\x00fm=%s\x00minify=css:%d,js:%d\x00%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), strings.Join(rendererPins, "\x00"), config.classifierFingerprint, fmStr, b2i(config.cssMinify), b2i(config.jsMinify), cm)
+	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00renderers=%s\x00cls=%s\x00minify=css:%d,js:%d\x00%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), strings.Join(rendererPins, "\x00"), config.classifierFingerprint, b2i(config.cssMinify), b2i(config.jsMinify), cm)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 

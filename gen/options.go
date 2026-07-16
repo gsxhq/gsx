@@ -340,24 +340,6 @@ func WithURLPreset(names ...string) Option {
 	}
 }
 
-// WithFieldMatcher installs a custom FieldMatcher for the byo (bring-your-own
-// Props) attr→field resolution. The matcher is called for every attribute on a
-// byo child component; it replaces the default identifier-capitalize + kebab→Camel
-// logic. When nil the default matcher is used (no-op option).
-//
-// The FieldMatcher receives the raw attribute name (e.g. "aria-label") and the
-// child struct's exported field names, and returns the matched field name +
-// true, or ("", false) to send the attr to the Attrs bag.
-//
-// A custom matcher bypasses the incremental cache (funcs are not hashable) and
-// is recorded as hasFieldMatcher:true in gsx info --json so external tools know
-// the default matching was overridden.
-func WithFieldMatcher(fn FieldMatcher) Option {
-	return func(cfg *config) {
-		cfg.fieldMatcher = fn
-	}
-}
-
 // WithMinifyLevel pins the minification level for <style> CSS and <script> JS,
 // overriding both the [minify] config table and the GSX_MINIFY env var (code is
 // the most deliberate layer: option > env > config). The level GATES the pass;

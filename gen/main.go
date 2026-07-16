@@ -50,7 +50,6 @@ type config struct {
 	cssFmt         rawfmt.Formatter
 	jsFmt          rawfmt.Formatter
 	urlRules       []attrclass.Rule
-	fieldMatcher   codegen.FieldMatcher
 	errs           []error
 	printWidth     int                     // gsx.toml [formatter] print_width; 0 means "unset" → pretty.DefaultPrintWidth at use
 	tabWidth       int                     // gsx.toml [formatter] tab_width; 0 means "unset" → pretty.DefaultTabWidth at use
@@ -204,7 +203,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
 	case "dev":
 		devWorkDir := workDir
 		if len(cmdArgs) > 0 && !strings.HasPrefix(cmdArgs[0], "-") {
@@ -226,7 +225,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
+		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
 	case "fmt":
 		// fmt respects gsx.toml printWidth/tabWidth per-file (via formatSettingsFor
 		// inside runFmt) and tolerates a malformed config. The CSS/JS formatter
@@ -235,7 +234,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		// config).
 		//
 		// The syntactic unused-import analysis is best-effort: resolveConfig
-		// only feeds it (Classifier/FieldMatcher/Aliases/FilterPkgs — the knobs
+		// only feeds it (Classifier/Aliases/FilterPkgs — the knobs
 		// that affect skeleton import references). ClassMerger and minify are
 		// emit-only and are deliberately omitted, to avoid an unwanted extra
 		// package load. On a malformed config we fall back to the builtin
@@ -244,10 +243,9 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		fmtOpts := codegen.Options{Classifier: attrclass.Builtin()}
 		if merged, _, cerr := resolveConfig(cfg, workDir); cerr == nil {
 			fmtOpts = codegen.Options{
-				Classifier:   merged.classifier(),
-				FieldMatcher: merged.fieldMatcher,
-				Aliases:      merged.aliases,
-				FilterPkgs:   merged.filterPkgs,
+				Classifier: merged.classifier(),
+				Aliases:    merged.aliases,
+				FilterPkgs: merged.filterPkgs,
 			}
 		}
 		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, fmtOpts, workDir)
@@ -358,7 +356,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // registered renderer's package now joins the module's ONE packages.Load and
 // its rendererTable is harvested, but nothing yet CONSULTS that table at a
 // render boundary — that consumer lands in a later slice.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -399,16 +397,14 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 			paths: paths, format: formatFlag,
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
 			filterPkgs: filterPkgs, aliases: aliases, renderers: renderers, cls: cls,
-			fm: fm, cssMin: cssMin, jsMin: jsMin, cssMinify: cssMinify, jsMinify: jsMinify,
+			cssMin: cssMin, jsMin: jsMin, cssMinify: cssMinify, jsMinify: jsMinify,
 			classMerger: classMerger,
 		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.
-	// Bypass the cache when a custom field matcher is installed: funcs are not
-	// hashable, so the cache cannot key on fm. Mirror the minifier bypass pattern.
-	useCache := !nocacheFlag && cssMin == nil && jsMin == nil && fm == nil
-	res, err := generateCached(paths, filterPkgs, aliases, renderers, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger)
+	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
+	res, err := generateCached(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.

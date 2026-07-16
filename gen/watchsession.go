@@ -48,8 +48,8 @@ type watchSession struct {
 }
 
 // openModule constructs a fresh *codegen.Module for the given module root,
-// threading all watchConfig options (filters, aliases, classifier, field matcher,
-// minifiers) into codegen.Open. It does not perform any analysis; analysis is
+// threading all watchConfig options (filters, aliases, classifier, minifiers)
+// into codegen.Open. It does not perform any analysis; analysis is
 // lazy and triggered by the first Generate call.
 func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 	_, modPath, err := moduleRoot(root)
@@ -57,18 +57,17 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 		return nil, err
 	}
 	return codegen.Open(codegen.Options{
-		ModuleRoot:   root,
-		ModulePath:   modPath,
-		FilterPkgs:   s.cfg.filterPkgs,
-		Aliases:      s.cfg.aliases,
-		Renderers:    s.cfg.renderers,
-		FieldMatcher: s.cfg.fm,
-		Classifier:   s.cfg.cls,
-		CSSMin:       s.cfg.cssMin,
-		JSMin:        s.cfg.jsMin,
-		CSSMinify:    s.cfg.cssMinify,
-		JSMinify:     s.cfg.jsMinify,
-		ClassMerger:  s.cfg.classMerger,
+		ModuleRoot:  root,
+		ModulePath:  modPath,
+		FilterPkgs:  s.cfg.filterPkgs,
+		Aliases:     s.cfg.aliases,
+		Renderers:   s.cfg.renderers,
+		Classifier:  s.cfg.cls,
+		CSSMin:      s.cfg.cssMin,
+		JSMin:       s.cfg.jsMin,
+		CSSMinify:   s.cfg.cssMinify,
+		JSMinify:    s.cfg.jsMinify,
+		ClassMerger: s.cfg.classMerger,
 	})
 }
 
