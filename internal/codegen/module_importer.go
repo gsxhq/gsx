@@ -1131,6 +1131,9 @@ type analyzed struct {
 	// partially active set with missing skeleton markers.
 	callSites         *callSiteRegistry
 	targetFacts       map[callSiteID]componentTargetFact
+	targetExprFacts   map[gsxast.Node]expressionFact
+	targetPackage     *types.Package
+	positionalPlan    componentPositionalPackagePlan
 	targetErrs        []types.Error         // target-phase-fatal type errors retained privately until exact call planning becomes authoritative
 	targetDiagnostics []diag.Diagnostic     // target-phase-fatal source diagnostics retained on the same private boundary
 	factsByFile       map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
@@ -1496,6 +1499,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		callSites = nil
 	}
 	var targetFacts map[callSiteID]componentTargetFact
+	var targetExprFacts map[gsxast.Node]expressionFact
+	var targetPackage *types.Package
+	var positionalPlan componentPositionalPackagePlan
 	var targetErrs []types.Error
 	var targetDiagnostics []diag.Diagnostic
 	if callSites != nil && (callSites.hasPlanned() || len(componentPlan.families) != 0) {
@@ -1511,17 +1517,36 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		if len(targetResult.diagnostics) == 0 && len(unrelatedTargetErrs) == 0 {
 			targetFacts = targetResult.facts
+			targetExprFacts = targetResult.expressionFacts
+			targetPackage = targetResult.pkg
+			runtime, runtimeErr := runtimeContractFromAnalysisPackage(targetPackage)
+			if runtimeErr != nil {
+				return nil, runtimeErr
+			}
+			var planningDiagnostics []diag.Diagnostic
+			positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{
+				callSites:       callSites,
+				targets:         targetFacts,
+				expressionFacts: targetExprFacts,
+				runtime:         runtime,
+				analysisPackage: targetPackage,
+				fset:            fset,
+			})
+			for _, diagnostic := range planningDiagnostics {
+				bag.Add(diagnostic)
+			}
 		} else {
-			// The target phase itself fails closed: partial facts and graph edges
-			// cannot escape. During the ABI-neutral foundation tasks, shipping
-			// analysis remains the sole diagnostic authority; Task 5 consumes this
-			// retained error set when exact call planning becomes authoritative.
+			// The exact target phase is now authoritative for component calls.
+			// Partial facts still cannot escape, but every failure must surface;
+			// retaining these privately would let emission silently fall back to the
+			// removed Props convention.
 			targetErrs = append(targetErrs, unrelatedTargetErrs...)
 			targetDiagnostics = append(targetDiagnostics, targetResult.diagnostics...)
 			for _, diagnostic := range targetResult.diagnostics {
-				if diagnostic.Code == "duplicate-component" {
-					bag.Add(diagnostic)
-				}
+				bag.Add(diagnostic)
+			}
+			for _, targetErr := range unrelatedTargetErrs {
+				bag.Add(componentTargetTypeDiagnostic(targetErr))
 			}
 		}
 	}
@@ -1837,6 +1862,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		byo:               byo,
 		callSites:         callSites,
 		targetFacts:       targetFacts,
+		targetExprFacts:   targetExprFacts,
+		targetPackage:     targetPackage,
+		positionalPlan:    positionalPlan,
 		targetErrs:        targetErrs,
 		targetDiagnostics: targetDiagnostics,
 		factsByFile:       factsByFile,
