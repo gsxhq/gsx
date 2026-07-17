@@ -1,0 +1,50 @@
+# Two component call sites in one file infer the SAME cross-package type
+# argument (val.Flag). The first site allocates a generated import alias
+# (_gsxty1) for val and commits it; the second REUSES that alias, so its
+# transaction records no new import. Regression guard: the reused alias must
+# still route through the synthetic type-spelling probe (which declares
+# _gsxtyN) rather than the strict caller-scope check — otherwise the second
+# site fails with `inferred type argument … cannot be emitted: undefined:
+# _gsxty1`.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- val/val.gsx --
+package val
+
+type Flag struct{ On bool }
+-- model/model.gsx --
+package model
+
+import "example.com/app/val"
+
+type Data struct{ F val.Flag }
+-- comp/box.gsx --
+package comp
+
+import (
+	"github.com/gsxhq/gsx"
+	"example.com/app/val"
+)
+
+component Box[T bool | val.Flag](v T, attrs gsx.Attrs) {
+	<span { attrs... }>box</span>
+}
+-- views/page.gsx --
+package views
+
+import (
+	"example.com/app/comp"
+	"example.com/app/model"
+)
+
+component Page(d model.Data) {
+	<comp.Box v={d.F} />
+	<comp.Box v={d.F} />
+}
+-- invoke --
+views.Page(model.Data{})
+-- diagnostics.golden --
+-- render.golden --
+<span>box</span><span>box</span>

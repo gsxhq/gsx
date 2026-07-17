@@ -882,6 +882,7 @@ verbatim/zero_inference_xpkg	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inferred_import	diag render
+xpkg/generic_inferred_reused_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
 xpkg/generic_skipped_sink_values	diag gen render
@@ -896,4 +897,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 898 cases (render: 771, error: 89, gen-pinned: 518)
+TOTAL: 899 cases (render: 772, error: 89, gen-pinned: 518)
