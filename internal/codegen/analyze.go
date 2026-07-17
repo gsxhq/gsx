@@ -930,6 +930,21 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, re
 					if err := targetRegistry.emitBinding(sb, t, fset); err != nil {
 						return err
 					}
+				} else if t.TypeArgs != "" {
+					// A component tag's authored type arguments are consumed by the
+					// target-discovery binding (emitBinding, above), but the shipping
+					// skeleton lowers the call positionally and never re-emits them —
+					// so an import referenced ONLY inside a markup type-argument (e.g.
+					// <comp.Check[cons.Foo] .../>) would be a synthetic "imported and
+					// not used". Reference the whole authored type-argument list as a
+					// function-result type list (which is exactly a comma-separated
+					// list of type expressions, so nested generics and multiple args
+					// need no ad-hoc splitting), anchored at TypeArgsPos so any
+					// undefined-type diagnostic maps back to the authored bytes. The
+					// blank var is neither a _gsxuse nor _gsxuseq call, so the k-th
+					// probe → k-th node harvest alignment is undisturbed.
+					emitSkeletonLine(sb, fset, t.TypeArgsPos)
+					fmt.Fprintf(sb, "var _ func() (%s)\n", t.TypeArgs)
 				}
 				// Probe simple ExprAttr values (child-prop values) with _gsxuse so harvest
 				// records their RAW types into resolved[ea]. This is emitted for ALL child
@@ -1026,6 +1041,22 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, re
 							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 						}
 					}
+				})
+				// The class-part probes above reference each part's VALUE expr, but a
+				// conditional class part's `: cond` guard and a value-form CF part's
+				// if/switch control are emitted verbatim by codegen with no harvest —
+				// so a var used ONLY in a component-tag class cond (e.g. a loop index
+				// in `<C class={ "first": i == 0 }/>`) would be a synthetic "declared
+				// and not used". The leaf-element branch already emits this liveness
+				// (see walkLivenessAttrExprs below); the component branch must too. An
+				// element enters exactly one branch, so there is no double emission.
+				// These yield empty-bodied `if cond {}` / `switch {}` blocks (not
+				// _gsxuse calls), leaving the k-th probe → k-th node harvest alignment
+				// undisturbed, and record ctrlOff entries for LSP go-to-definition.
+				walkLivenessAttrExprs(t.Attrs, func(cf *gsxast.ValueCF) {
+					emitValueCFControl(sb, fset, cf, ctrlOff)
+				}, func(node gsxast.Node, cond string, condPos token.Pos) {
+					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
 				})
 				// Probe ExprAttr values nested in a component cond-attr branch
 				// (`{ if C { attr={expr} } }`) with _gsxuseq, AFTER the parts probes —
