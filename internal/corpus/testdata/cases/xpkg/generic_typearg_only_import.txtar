@@ -1,0 +1,43 @@
+# A cross-package generic component is invoked in markup with an EXPLICIT type
+# argument (<comp.Check[cons.Foo] …/>) whose package `cons` is imported by the
+# caller ONLY for that type argument. Regression guard: the shipping skeleton
+# must reference the authored markup type argument so `cons` is counted as used
+# — the target-discovery pass already did, but the shipping pass dropped it,
+# yielding a synthetic `"cons" imported and not used`.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- cons/cons.gsx --
+package cons
+
+type Foo struct{ V bool }
+-- comp/check.gsx --
+package comp
+
+import (
+	"github.com/gsxhq/gsx"
+	"example.com/app/cons"
+)
+
+func Zero() cons.Foo { return cons.Foo{} }
+
+component Check[T bool | cons.Foo](checked T, attrs gsx.Attrs) {
+	<label { attrs... }>check</label>
+}
+-- views/page.gsx --
+package views
+
+import (
+	"example.com/app/comp"
+	"example.com/app/cons"
+)
+
+component Page() {
+	<comp.Check[cons.Foo] checked={comp.Zero()} />
+}
+-- invoke --
+views.Page()
+-- diagnostics.golden --
+-- render.golden --
+<label>check</label>
