@@ -1,0 +1,36 @@
+A component tag carrying a markup type-argument (<comp.Check[cons.Foo]>) and an
+attrs={{ … }} bag whose value is a Go expression (gsx.RawJS(…)) round-trips
+through the formatter unchanged. The unused-import DETECTION for these positions
+is exercised in gen/fmt_test.go (TestFmtKeepsTypeArgAndAttrExprImports); this
+corpus layer takes the unused list as input, so with none supplied it pins that
+the formatter neither reorders nor drops these imports and keeps the tag's
+type-arg + attrs layout intact.
+
+-- imports --
+goimports
+-- input.gsx --
+package views
+
+import (
+	"github.com/gsxhq/gsx"
+
+	"views/comp"
+	"views/cons"
+)
+
+component Page(d bool) {
+	<comp.Check[cons.Foo] checked={d} attrs={{ "@x": gsx.RawJS("f()") }} />
+}
+-- fmt.golden --
+package views
+
+import (
+	"github.com/gsxhq/gsx"
+
+	"views/comp"
+	"views/cons"
+)
+
+component Page(d bool) {
+	<comp.Check[cons.Foo] checked={d} attrs={{ "@x": gsx.RawJS("f()") }}/>
+}
