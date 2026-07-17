@@ -118,6 +118,7 @@ comments/parse_snapshot	ast diag
 components/attrs_literal_merge	diag gen render
 components/attrs_literal_merge_tuple	diag gen render
 components/attrs_literal_multiple	diag gen render
+components/child_class_cond_loopvar	diag render
 components/child_class_evaluation_order	diag gen render
 components/child_class_fallthrough	diag render
 components/child_class_part_tuple	diag gen render
@@ -882,9 +883,11 @@ verbatim/zero_inference_xpkg	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inferred_import	diag render
+xpkg/generic_inferred_reused_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
 xpkg/generic_skipped_sink_values	diag gen render
+xpkg/generic_typearg_only_import	diag render
 xpkg/generic_unexported_constraint	diag render
 xpkg/go_component_attrs_literal	diag gen render
 xpkg/go_component_attrs_literal_missing	diag render
@@ -895,4 +898,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 897 cases (render: 770, error: 89, gen-pinned: 518)
+TOTAL: 900 cases (render: 773, error: 89, gen-pinned: 518)
