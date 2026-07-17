@@ -337,12 +337,21 @@ func anyRenderVal(v any) (s string, k valKind, ok bool)   // kindString, kindBoo
 ```
 
 **Matching must be by underlying type**, or `Flag(false)` never reaches the
-lookup. Per the repo's correctness-first/optimize-simple rule, the general path
-is the default and the fast path must be proven equivalent: `reflect.Kind`
-classification is the correct general behaviour, with the existing exact-type
-switch retained **as a fast path**, and a differential test asserting they agree
-on every case. Reflect is then reached only on the miss path — named types — so
-`bool`/`string`/`int` never pay for it.
+lookup. `reflect.Kind` classification is the correct general behaviour, so it is
+**the implementation** — one table, no special cases, nothing to keep in sync.
+
+**Do not pre-build a fast path.** An earlier draft specified keeping the existing
+exact-type switch in front of reflect "so `bool`/`string`/`int` never pay for it".
+That is a guess wearing architecture's clothes: it assumes a cost nobody has
+measured, on a path nobody has profiled, and it is exactly the fast-path-reasoned-
+correct-in-isolation shape the repo's correctness-first/optimize-simple rule
+exists to prevent.
+
+The order is: ship the correct general version, **then measure** the spread and
+attribute paths. If the numbers justify an exact-type fast path, add it as an
+optimisation — proven byte-identical to the general path by a differential test
+over every case, exactly as `gw.S` was earned in PR #122. If they don't, the
+simpler code stands.
 
 ## Diagnostics
 
@@ -487,5 +496,9 @@ programs, not diff reading) before merge. Feature work in a git worktree.
 3. **`Toggle` on an enumerated attribute** (`aria-hidden={gsx.Toggle(b)}`) produces
    the invalid bare form. Not blocked, per §Goals — the author asked. Detecting it
    would need a second (enumerated) list; deferred.
-4. **`reflect` on the runtime path.** Confined to the miss path, but benchmark the
-   named-bool bag case before merge; the spread path is hot.
+4. **`reflect` cost is unmeasured — and stays that way until it is implemented.**
+   Not a design input. Ship the correct general version, benchmark the spread and
+   attribute paths, and let the numbers decide whether an exact-type fast path is
+   worth its complexity (§Prerequisite). Do not pre-optimise on a guess; PR #122
+   is the precedent — the "obvious" `IntInto` optimisation measured 2.2× *slower*
+   on the common case, and only benchmarking found the change that actually won.
