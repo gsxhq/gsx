@@ -1,5 +1,5 @@
 # A multi-spread element whose second spread is a methodless []gsx.Attr
-# (variadic param captured by direct factory markup) folds through
+# (statically named variadic `attrs` param captured by direct factory markup) folds through
 # ConcatAttrs, whose ...Attrs parameter accepts []gsx.Attr by assignability —
 # no per-operand conversion needed. Pins the fold path's exemption from the
 # spread-boundary gsx.Attrs normalization.
@@ -8,7 +8,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return <svg class="size-5" { gsx.Attrs{{Key: "data-x", Value: "1"}}... } { attrs... }>{ name }</svg>
 	}
@@ -34,7 +34,7 @@ import (
 	_gsxio "io"
 )
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
@@ -60,7 +60,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Search(_gsxrt.Attrs{{Key: "class", Value: "size-4"}, {Key: "data-x", Value: "2"}}...))
+		_gsxgw.Node(ctx, Search(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "size-4"}}, _gsxrt.Attrs{{Key: "data-x", Value: "2"}})...))
 		return _gsxgw.Err()
 	})
 }

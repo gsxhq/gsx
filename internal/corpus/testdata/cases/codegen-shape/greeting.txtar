@@ -5,7 +5,7 @@ component Greeting(name string, count int) {
 	<p>Hello, {name}! You have {count} messages.</p>
 }
 -- invoke --
-Greeting(GreetingProps{Name: "World", Count: 3})
+Greeting("World", 3)
 -- diagnostics.golden --
 -- render.golden --
 <p>Hello, World! You have 3 messages.</p>
@@ -20,16 +20,9 @@ import (
 	_gsxio "io"
 )
 
-type GreetingProps struct {
-	Name  string
-	Count int
-}
-
 //line input.gsx:3:1
-func Greeting(_gsxp GreetingProps) _gsxrt.Node {
+func Greeting(name string, count int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
-		count := _gsxp.Count
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

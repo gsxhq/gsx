@@ -25,7 +25,7 @@ component Page(id string, w string) {
 	<Widget Handler={ js`open(@{id})` } Rule={ css`width:@{w}px` }/>
 }
 -- invoke --
-Page(PageProps{Id: "abc", W: "10"})
+Page("abc", "10")
 -- diagnostics.golden --
 -- render.golden --
 <button @click="open(&#34;abc&#34;)" data-style="width:10px">Go</button>
@@ -41,16 +41,9 @@ import (
 	_gsxio "io"
 )
 
-type WidgetProps struct {
-	Handler gsx.RawJS
-	Rule    gsx.RawCSS
-}
-
 //line input.gsx:5:1
-func Widget(_gsxp WidgetProps) _gsxrt.Node {
+func Widget(Handler gsx.RawJS, Rule gsx.RawCSS) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		Handler := _gsxp.Handler
-		Rule := _gsxp.Rule
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button @click=\"")
@@ -62,23 +55,15 @@ func Widget(_gsxp WidgetProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	Id string
-	W  string
-}
-
 //line input.gsx:9:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(id string, w string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
-		w := _gsxp.W
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxv0 := _gsxrt.EscapeJSVal(id)
-		_gsxv2 := _gsxrt.RawJS("open(" + _gsxv0 + ")")
+		_gsxa2 := _gsxrt.RawJS("open(" + _gsxv0 + ")")
 		_gsxv1 := _gsxrt.FilterCSS(string(w))
-		_gsxv3 := _gsxrt.RawCSS("width:" + _gsxv1 + "px")
-		_gsxgw.Node(ctx, Widget(WidgetProps{Handler: _gsxv2, Rule: _gsxv3}))
+		_gsxgw.Node(ctx, Widget(_gsxa2, _gsxrt.RawCSS("width:"+_gsxv1+"px")))
 		return _gsxgw.Err()
 	})
 }

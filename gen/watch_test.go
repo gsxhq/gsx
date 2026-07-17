@@ -1,9 +1,9 @@
 package gen
 
 import (
-	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExcludedDir_OnlyOwnBasename(t *testing.T) {
@@ -24,19 +24,30 @@ func TestExcludedDir_OnlyOwnBasename(t *testing.T) {
 	}
 }
 
-// --watch with --format=ndjson on an empty/non-existent path set must not block:
-// runWatch returns promptly with exit 0 when there are no dirs to watch, and
-// writes nothing to stdout that isn't valid (empty is fine here).
-func TestRunWatch_NoDirsReturnsCleanly(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir() // no .gsx files
-	var out, errb bytes.Buffer
-	code := runWatch(watchConfig{
-		paths:  []string{dir},
-		format: "ndjson",
-		stdout: &out,
-		stderr: &errb,
-	})
+// An empty module is a structural watch target: the process stays live until
+// stopped so it can observe the first .gsx package created after startup.
+func TestRunWatch_EmptyModuleStaysLive(t *testing.T) {
+	dir := t.TempDir()
+	writeMod(t, dir)
+	out, errb := &syncBuf{}, &syncBuf{}
+	stop := make(chan struct{})
+	done := make(chan int, 1)
+	go func() {
+		done <- runWatchWithStop(watchConfig{
+			paths:  []string{dir},
+			format: "ndjson",
+			stdout: out,
+			stderr: errb,
+		}, stop)
+	}()
+	waitFor(t, 10*time.Second, func() bool { return strings.Contains(out.String(), `"event":"start"`) })
+	select {
+	case code := <-done:
+		t.Fatalf("runWatch exited before stop with code %d; stderr=%s", code, errb.String())
+	default:
+	}
+	close(stop)
+	code := <-done
 	if code != 0 {
 		t.Fatalf("runWatch exit = %d, want 0; stderr=%s", code, errb.String())
 	}

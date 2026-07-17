@@ -1,4 +1,5 @@
-# {{ }} literal bound to a name with no matching gsx.Attrs field → diagnostic.
+# An ordered literal whose name matches no ordinary parameter falls through;
+# without a declared `attrs` role, that is a strict missing-attrs diagnostic.
 -- input.gsx --
 package views
 
@@ -12,6 +13,6 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-8:8: ordered-attrs literal {{ }} on <Card> attribute "mystery-attrs" matches no field of CardProps and cannot fall through to the Attrs bag; declare a gsx.Attrs field to receive it
+8:8: Card has no attrs param; unexpected attribute "mystery-attrs"
 -- generated.x.go.golden --
 -- render.golden --

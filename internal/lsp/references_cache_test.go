@@ -27,6 +27,9 @@ type moduleRefsAnalyzer struct {
 	pkg         *Package
 }
 
+func (a *moduleRefsAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
+func (a *moduleRefsAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+
 func (a *moduleRefsAnalyzer) Analyze(string, map[string][]byte) (*Package, error) {
 	if a.pkg != nil {
 		return a.pkg, nil
@@ -36,6 +39,9 @@ func (a *moduleRefsAnalyzer) Analyze(string, map[string][]byte) (*Package, error
 func (a *moduleRefsAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	a.moduleCalls++
 	return a.moduleRefs, a.moduleErr
+}
+func (a *moduleRefsAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
+	return nil, nil
 }
 func (a *moduleRefsAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil

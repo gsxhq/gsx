@@ -6,13 +6,13 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(title gsx.Node) { <div class="card" { attrs... }>{title}</div> }
+component Card(title gsx.Node, attrs gsx.Attrs) { <div class="card" { attrs... }>{title}</div> }
 
 component Page(outer bool, inner bool) {
 	<Card title="Hi" { if outer { data-o="1" { if inner { data-i="1" } } } } />
 }
 -- invoke --
-Page(PageProps{Outer: true, Inner: true})
+Page(true, true)
 -- diagnostics.golden --
 -- render.golden --
 <div class="card" data-o="1" data-i="1">Hi</div>
@@ -28,57 +28,43 @@ import (
 	_gsxio "io"
 )
 
-type CardProps struct {
-	Title gsx.Node
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(title gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:34
+//line input.gsx:5:51
 		_gsxgw.S("<div class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("card"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:5:65
+//line input.gsx:5:82
 		_gsxgw.Node(ctx, title)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
 }
 
-type PageProps struct {
-	Outer bool
-	Inner bool
-}
-
 //line input.gsx:7:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(outer bool, inner bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		outer := _gsxp.Outer
-		inner := _gsxp.Inner
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxv2, _gsxerr := _gsxrt.AttrsCond(outer, func() (_gsxrt.Attrs, error) {
-			_gsxv0 := _gsxrt.Attrs{{Key: "data-o", Value: "1"}}
-			_gsxv1, _gsxerr := _gsxrt.AttrsCond(inner, func() (_gsxrt.Attrs, error) {
+			_gsxv1 := _gsxrt.Attrs{{Key: "data-o", Value: "1"}}
+			_gsxv0, _gsxerr := _gsxrt.AttrsCond(inner, func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-i", Value: "1"}}, nil
 			}, nil)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.ConcatAttrs(_gsxv0, _gsxv1), nil
+			return _gsxrt.ConcatAttrs(_gsxv1, _gsxv0), nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxv2)}))
+		_gsxgw.Node(ctx, Card(_gsxrt.Text("Hi"), _gsxv2))
 		return _gsxgw.Err()
 	})
 }

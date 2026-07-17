@@ -7,7 +7,7 @@ component Box(color string) {
 -- input.go --
 package p
 import "github.com/gsxhq/gsx"
-func Render() gsx.Node { return Box(BoxProps{Color: "teal"}) }
+func Render() gsx.Node { return Box("teal") }
 -- render.golden --
 <div data-style="color:TEAL">x</div>
 -- diagnostics.golden --

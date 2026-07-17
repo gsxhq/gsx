@@ -3,7 +3,9 @@
 ```gsx
 package views
 
-component Button(variant string) {
+import "github.com/gsxhq/gsx"
+
+component Button(variant string, children gsx.Node, attrs gsx.Attrs) {
 	<button class="btn" data-variant={variant} { attrs... }>{ children }</button>
 }
 
@@ -18,4 +20,4 @@ Renders:
 <button class="btn w-full" data-variant="primary" data-test="x" hx-post="/go">Save</button>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQnV0dG9uKHZhcmlhbnQgc3RyaW5nKSB7XG5cdFx1MDAzY2J1dHRvbiBjbGFzcz1cImJ0blwiIGRhdGEtdmFyaWFudD17dmFyaWFudH0geyBhdHRycy4uLiB9XHUwMDNleyBjaGlsZHJlbiB9XHUwMDNjL2J1dHRvblx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjQnV0dG9uIHZhcmlhbnQ9XCJwcmltYXJ5XCIgY2xhc3M9XCJ3LWZ1bGxcIiBkYXRhLXRlc3Q9XCJ4XCIgaHgtcG9zdD1cIi9nb1wiXHUwMDNlU2F2ZVx1MDAzYy9CdXR0b25cdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBCdXR0b24odmFyaWFudCBzdHJpbmcsIGNoaWxkcmVuIGdzeC5Ob2RlLCBhdHRycyBnc3guQXR0cnMpIHtcblx0XHUwMDNjYnV0dG9uIGNsYXNzPVwiYnRuXCIgZGF0YS12YXJpYW50PXt2YXJpYW50fSB7IGF0dHJzLi4uIH1cdTAwM2V7IGNoaWxkcmVuIH1cdTAwM2MvYnV0dG9uXHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKCkge1xuXHRcdTAwM2NCdXR0b24gdmFyaWFudD1cInByaW1hcnlcIiBjbGFzcz1cInctZnVsbFwiIGRhdGEtdGVzdD1cInhcIiBoeC1wb3N0PVwiL2dvXCJcdTAwM2VTYXZlXHUwMDNjL0J1dHRvblx1MDAzZVxufVxuIiwiaSI6IlBhZ2UoKSJ9)

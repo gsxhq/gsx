@@ -25,7 +25,7 @@ type runFile struct {
 // runReq is the lean render request. The client (WASM) already produced the
 // generated Go, so the server only compiles+runs it — no gsx generate. files are
 // the generated .x.go (one per source .gsx, all package views); invoke is a Go
-// expression yielding the gsx.Node to render (e.g. Page(PageProps{...})).
+// expression yielding the gsx.Node to render (e.g. Page("home")).
 type runReq struct {
 	Files  []runFile `json:"files"`
 	Invoke string    `json:"invoke"`

@@ -1,4 +1,4 @@
-# Regression: an attrs-only tag inside an element-literal Go-expression
+# Regression: a factory component with a static `attrs` role inside an element-literal Go-expression
 # (var initializer) must not mis-type the OTHER interps in the same literal. The
 # bag keep-alive is alignment-neutral, so {count} (an int) inside the same <div>
 # literal keeps its int type instead of being harvested as the bag's gsx.Attrs
@@ -17,7 +17,7 @@ component renderIcon(p iconProps) {
 	<svg { p.Attrs... }>{p.Name}</svg>
 }
 
-func icon(name string) func(gsx.Attrs) gsx.Node {
+func icon(name string) func(attrs gsx.Attrs) gsx.Node {
 	return func(attrs gsx.Attrs) gsx.Node {
 		return renderIcon(iconProps{Name: name, Attrs: attrs})
 	}

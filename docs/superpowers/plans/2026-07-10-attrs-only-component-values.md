@@ -1,5 +1,9 @@
 # Attrs-only Component Values Implementation Plan
 
+> **Superseded implementation plan:** Callable values now use the universal
+> exact-signature analyzer and named `attrs` role. Retained as history only; see
+> `2026-07-14-verbatim-component-signatures.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make a package-level `var`/`func` whose static type is exactly `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr) gsx.Node` callable as a component tag (`<HomeIcon class="w-5 h-5"/>`), per `docs/superpowers/specs/2026-07-07-attrs-only-component-values-design.md`.

@@ -3,7 +3,7 @@ package views
 
 component C(u string) { <a href={ u |> trim }>x</a> }
 -- invoke --
-C(CProps{U: "  javascript:alert(1)  "})
+C("  javascript:alert(1)  ")
 -- diagnostics.golden --
 -- render.golden --
 <a href="about:invalid#gsx">x</a>

@@ -1,7 +1,5 @@
-# Cross-package attrs-only component value: a dotted tag <ui.HomeIcon/> whose
-# selector names an exported func(gsx.Attrs) gsx.Node value in an imported gsx
-# package (no ui.HomeIconProps type exists) is gated onto the _gsxcompsig probe
-# and lowered to a bag call, exactly like the same-package factory_var case.
+# A dotted factory component uses the imported value's static return signature.
+# Its named `attrs` parameter defines fallthrough without a generated Props ABI.
 -- go.mod --
 module example.com/app
 
@@ -20,7 +18,7 @@ component renderIcon(p iconProps) {
 	<svg { p.Attrs... }>{p.Name}</svg>
 }
 
-func namedIcon(name string) func(gsx.Attrs) gsx.Node {
+func namedIcon(name string) func(attrs gsx.Attrs) gsx.Node {
 	return func(attrs gsx.Attrs) gsx.Node {
 		return renderIcon(iconProps{Name: name, Attrs: attrs})
 	}

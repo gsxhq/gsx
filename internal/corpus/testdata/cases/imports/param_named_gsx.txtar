@@ -8,7 +8,7 @@ component Uses(gsx string, strconv int) {
 	<b>{ gsx }{ strconv }</b>
 }
 -- invoke --
-Uses(UsesProps{Gsx: "ok", Strconv: 1})
+Uses("ok", 1)
 -- diagnostics.golden --
 -- render.golden --
 <b>ok1</b>
@@ -23,16 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type UsesProps struct {
-	Gsx     string
-	Strconv int
-}
-
 //line input.gsx:3:1
-func Uses(_gsxp UsesProps) _gsxrt.Node {
+func Uses(gsx string, strconv int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		gsx := _gsxp.Gsx
-		strconv := _gsxp.Strconv
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

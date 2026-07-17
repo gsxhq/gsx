@@ -9,7 +9,7 @@ component Label(key string) {
 	<span>{lookup(key)}</span>
 }
 -- invoke --
-Label(LabelProps{Key: "hello"})
+Label("hello")
 -- diagnostics.golden --
 -- render.golden --
 <span>hello</span>

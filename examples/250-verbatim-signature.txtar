@@ -1,0 +1,22 @@
+-- doc --
+name: Verbatim component signature
+summary: A component's authored parameters are its Go signature. Exact-name inputs, body children, and fallthrough attrs are passed directly without a generated wrapper type.
+category: Components
+page: props
+pageOrder: 10
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Button(variant string, children gsx.Node, attrs gsx.Attrs) {
+	<button class={ "btn", variant } { attrs... }>{ children }</button>
+}
+
+component Page() {
+	<Button variant="primary" data-test="save">Save</Button>
+}
+-- invoke --
+Page()
+-- render.golden --
+<button class="btn primary" data-test="save">Save</button>

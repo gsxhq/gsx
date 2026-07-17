@@ -3,7 +3,7 @@ package views
 
 component Tags(tags []string, sep string) { <p>{ tags |> join(sep) }</p> }
 -- invoke --
-Tags(TagsProps{Tags: []string{"a","b"}, Sep: " / "})
+Tags([]string{"a","b"}, " / ")
 -- diagnostics.golden --
 -- render.golden --
 <p>a / b</p>

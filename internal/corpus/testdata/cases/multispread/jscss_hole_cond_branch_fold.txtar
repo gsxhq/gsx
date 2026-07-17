@@ -17,7 +17,7 @@ component Page(u string, c bool, a gsx.Attrs, b gsx.Attrs) {
 	<div { a... } { b... } { if c { style=css"color:@{part()}" } }>x</div>
 }
 -- invoke --
-Page(PageProps{U: "x", C: true})
+Page("x", true, nil, nil)
 -- diagnostics.golden --
 -- render.golden --
 <button onclick="do(&#34;x&#34;)">go</button><div style="color:red">x</div>

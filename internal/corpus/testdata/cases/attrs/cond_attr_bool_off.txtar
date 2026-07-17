@@ -3,7 +3,7 @@ package views
 
 component C(featured bool) { <span { if featured { class="badge" } }>y</span> }
 -- invoke --
-C(CProps{Featured: false})
+C(false)
 -- diagnostics.golden --
 -- render.golden --
 <span>y</span>

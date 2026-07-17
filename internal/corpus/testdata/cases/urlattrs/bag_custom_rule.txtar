@@ -1,5 +1,5 @@
 # Bag hardening Part A: a project [[url_attrs]] exact-name rule (data-href) makes
-# that name URL-classified, so a value smuggled through a fallthrough bag is
+# that name URL-classified, so a value carried by an ordinary struct prop is
 # extracted and sanitized at the leaf just like a built-in URL attribute.
 -- gsx.toml --
 [[url_attrs]]
@@ -18,7 +18,7 @@ component Widget(p widgetProps) {
 }
 
 component Page() {
-	<Widget data-href={"javascript:alert(1)"}/>
+	<Widget p={widgetProps{Attrs: gsx.Attrs{{Key: "data-href", Value: "javascript:alert(1)"}}}}/>
 }
 -- invoke --
 Page()
@@ -61,7 +61,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Widget(widgetProps{Attrs: _gsxrt.Attrs{{Key: "data-href", Value: "javascript:alert(1)"}}}))
+		_gsxgw.Node(ctx, Widget(widgetProps{Attrs: gsx.Attrs{{Key: "data-href", Value: "javascript:alert(1)"}}}))
 		return _gsxgw.Err()
 	})
 }

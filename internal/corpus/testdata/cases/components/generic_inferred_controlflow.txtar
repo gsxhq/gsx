@@ -25,14 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps[T string | int] struct {
-	Value T
-}
-
 //line input.gsx:3:1
-func Box[T string | int](_gsxp BoxProps[T]) _gsxrt.Node {
+func Box[T string | int](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		value := _gsxp.Value
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span>")
@@ -50,15 +45,15 @@ func Page() _gsxrt.Node {
 //line input.gsx:8:2
 		for _, x := range []int{1, 2} {
 //line input.gsx:8:36
-			_gsxgw.Node(ctx, Box[int](BoxProps[int]{Value: x}))
+			_gsxgw.Node(ctx, Box[int](x))
 		}
 //line input.gsx:9:2
 		if true {
 //line input.gsx:9:14
-			_gsxgw.Node(ctx, Box[string](BoxProps[string]{Value: "yes"}))
+			_gsxgw.Node(ctx, Box[string]("yes"))
 		} else {
 //line input.gsx:9:45
-			_gsxgw.Node(ctx, Box[string](BoxProps[string]{Value: "no"}))
+			_gsxgw.Node(ctx, Box[string]("no"))
 		}
 		return _gsxgw.Err()
 	})

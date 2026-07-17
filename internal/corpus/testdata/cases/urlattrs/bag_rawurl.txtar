@@ -16,7 +16,7 @@ component Link(p linkProps) {
 }
 
 component Page() {
-	<Link href={gsx.RawURL("app://z")}/>
+	<Link p={linkProps{Attrs: gsx.Attrs{{Key: "href", Value: gsx.RawURL("app://z")}}}}/>
 }
 -- invoke --
 Page()
@@ -59,7 +59,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Link(linkProps{Attrs: _gsxrt.Attrs{{Key: "href", Value: gsx.RawURL("app://z")}}}))
+		_gsxgw.Node(ctx, Link(linkProps{Attrs: gsx.Attrs{{Key: "href", Value: gsx.RawURL("app://z")}}}))
 		return _gsxgw.Err()
 	})
 }

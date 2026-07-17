@@ -14,7 +14,7 @@ component Page(show bool, xs []int) {
 	<div>{ if show { <Divider/> } }{ for range xs { <Divider/> } }</div>
 }
 -- invoke --
-Page(PageProps{Show: true, Xs: []int{1, 2}})
+Page(true, []int{1, 2})
 -- render.golden --
 <div><hr><hr><hr></div>
 -- diagnostics.golden --

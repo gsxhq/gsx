@@ -68,6 +68,12 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 			file.AddLine(i + 1)
 		}
 	}
+	if off := firstInvalidUTF8(srcBytes); off >= 0 {
+		return nil, []Error{{
+			Pos: file.Pos(off), End: file.Pos(off + 1),
+			Msg: "illegal UTF-8 encoding",
+		}}
+	}
 	srcStr := string(srcBytes)
 
 	pkgName, pkgKwPos, pkgEnd, err := scanPackage(file, srcBytes)

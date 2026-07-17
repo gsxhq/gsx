@@ -167,9 +167,8 @@ func TestDefinitionSignatureParamTypeCrossPkg(t *testing.T) {
 }
 
 // gd on a SAME-package type in a parameter signature resolves to that type's
-// declaration in a sibling .go file of the same package — covering the
-// props-struct path (a bare type) and the BYO path (a sole struct param whose
-// type is the author struct itself).
+// declaration in a sibling .go file of the same package — covering both a
+// slice element type and an author-owned struct parameter.
 func TestDefinitionSignatureParamTypeSamePkg(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -188,8 +187,8 @@ func TestDefinitionSignatureParamTypeSamePkg(t *testing.T) {
 	}
 	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	must("types.go", "package x\n\ntype Post struct{ Title string }\n\ntype Form struct{ Name string }\n")
-	// PostList takes a slice of a same-package type (props-struct path); FormView
-	// takes the sole struct param Form directly (BYO path).
+	// PostList takes a slice of a same-package type; FormView takes the
+	// author-owned struct parameter Form directly.
 	src := "package x\n\ncomponent PostList(posts []Post) {\n\t<ul></ul>\n}\n\ncomponent FormView(f Form) {\n\t<form>{ f.Name }</form>\n}\n"
 	must("comp.gsx", src)
 	lines := strings.Split(src, "\n")
@@ -205,18 +204,18 @@ func TestDefinitionSignatureParamTypeSamePkg(t *testing.T) {
 		return -1
 	}
 
-	// props-struct path: `Post` in `[]Post` → types.go.
+	// `Post` in `[]Post` → types.go.
 	pl := find("posts []Post")
 	loc := sigTypeDefAt(t, dir, "comp.gsx", src, pl, col("Post)", lines[pl]))
 	if loc == nil || !strings.HasSuffix(loc.URI, "types.go") {
 		t.Fatalf("`Post` (slice param) resolved to %v, want types.go", loc)
 	}
 
-	// BYO path: `Form` in `f Form` → types.go.
+	// `Form` in `f Form` → types.go.
 	fv := find("f Form)")
 	loc = sigTypeDefAt(t, dir, "comp.gsx", src, fv, col("Form)", lines[fv]))
 	if loc == nil || !strings.HasSuffix(loc.URI, "types.go") {
-		t.Fatalf("`Form` (BYO param) resolved to %v, want types.go", loc)
+		t.Fatalf("`Form` (author-owned struct param) resolved to %v, want types.go", loc)
 	}
 }
 

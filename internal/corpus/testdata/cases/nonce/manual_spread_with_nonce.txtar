@@ -16,9 +16,11 @@ func withTestNonce(n gsx.Node) gsx.Node {
 -- input.gsx --
 package views
 
-component Page() { <script { attrs... }>init()</script> }
+
+import "github.com/gsxhq/gsx"
+component Page(attrs gsx.Attrs) { <script { attrs... }>init()</script> }
 -- invoke --
-withTestNonce(Page(PageProps{Attrs: gsx.Attrs{{Key: "nonce", Value: "mine"}}}))
+withTestNonce(Page(gsx.Attrs{{Key: "nonce", Value: "mine"}}))
 -- diagnostics.golden --
 -- render.golden --
 <script nonce="mine">init()</script>

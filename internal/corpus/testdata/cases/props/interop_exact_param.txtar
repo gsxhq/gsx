@@ -1,0 +1,35 @@
+# A hand-written Go component participates in the same exact-name signature
+# model: its composite parameter is filled explicitly by `p={p}`.
+-- picker.go --
+package views
+
+import (
+	"context"
+	"io"
+
+	"github.com/gsxhq/gsx"
+)
+
+type PickerProps struct {
+	Name  string
+	Label string
+}
+
+func Picker(p PickerProps) gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, "<span>"+p.Label+":"+p.Name+"</span>")
+		return err
+	})
+}
+-- input.gsx --
+package views
+
+component Page() {
+	{{ p := PickerProps{Name: "status", Label: "Status"} }}
+	<Picker p={p}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<span>Status:status</span>

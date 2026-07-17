@@ -12,7 +12,7 @@ component Badge(kind string) {
 	} }</span>
 }
 -- invoke --
-Badge(BadgeProps{Kind: "err"})
+Badge("err")
 -- diagnostics.golden --
 -- render.golden --
 <span><b>error</b></span>

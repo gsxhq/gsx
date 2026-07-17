@@ -1,0 +1,38 @@
+-- doc --
+name: Explicit parameter forwarding
+summary: Composite values are ordinary component parameters, forwarded by exact parameter name at both top-level and method component calls.
+category: Components
+page: props
+pageOrder: 30
+-- input.gsx --
+package views
+
+type cardData struct {
+	Title string
+}
+
+type pageData struct {
+	Heading string
+}
+
+type Home struct{}
+
+component Card(d cardData) {
+	<div>{ d.Title }</div>
+}
+
+component Page(d pageData) {
+	<Card d={cardData{Title: d.Heading}}/>
+}
+
+component (p Home) Content(pd pageData) {
+	<h1>{ pd.Heading }</h1>
+}
+
+component (p Home) Shell(pd pageData) {
+	<p.Content pd={pd}/>
+}
+-- invoke --
+(Home{}).Shell(pageData{Heading: "Hi"})
+-- render.golden --
+<h1>Hi</h1>

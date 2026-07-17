@@ -5,13 +5,15 @@
 -- input.gsx --
 package views
 
-component Box(a bool) {
+
+import "github.com/gsxhq/gsx"
+component Box(a bool, attrs gsx.Attrs) {
 	<div class="base" { attrs... } { if a { class="on" aria-current="page" } }>x</div>
 }
 -- invoke --
 gsx.Fragment(
-	Box(BoxProps{A: true, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
-	Box(BoxProps{A: false, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
+	Box(true, gsx.Attrs{{Key: "class", Value: "sp"}}),
+	Box(false, gsx.Attrs{{Key: "class", Value: "sp"}}),
 )
 -- diagnostics.golden --
 -- render.golden --
@@ -23,22 +25,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	A     bool
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Box(a bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		a := _gsxp.A
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}, attrs)
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond(a, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}, {Key: "aria-current", Value: _gsxrt.RawURL("page")}}, nil

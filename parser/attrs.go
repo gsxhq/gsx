@@ -150,7 +150,7 @@ func validateGoExpr(expr string) error {
 func leadingKeyword(seg string) string {
 	s := strings.TrimLeft(seg, " \t\r\n")
 	for _, kw := range [...]string{"if", "switch"} {
-		if strings.HasPrefix(s, kw) && (len(s) == len(kw) || !isIdentByte(s[len(kw)])) {
+		if strings.HasPrefix(s, kw) && !goIdentifierContinueAt(s, len(kw)) {
 			return kw
 		}
 	}
@@ -193,6 +193,16 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 		return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute")
 	}
 	core := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
+	if !hasGoToken(core) {
+		rawInner := p.src[p.i+1 : end]
+		markerOffset := strings.LastIndex(rawInner, "...")
+		markerStart := p.i + 1 + markerOffset
+		return nil, p.errorfRange(
+			p.posAt(markerStart),
+			p.posAt(markerStart+len("...")),
+			"spread attribute requires an expression before `...`",
+		)
+	}
 	coreOff := p.i + 1 + leadingSpaceLen(p.src[p.i+1:end])
 	// The spread/splat subject may carry a `|>` pipeline. Its canonical form
 	// parenthesizes the pipeline so the trailing `...` reads unambiguously as the
@@ -226,6 +236,20 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	return sa, nil
 }
 
+// hasGoToken reports whether src contains any non-comment Go token. Comments
+// are lexical whitespace, so a spread subject consisting only of comments has
+// no expression just like one consisting only of spaces or newlines. Use the Go
+// scanner rather than stripping comment-shaped bytes: comment delimiters inside
+// strings and raw strings must remain ordinary expression content.
+func hasGoToken(src string) bool {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), func(token.Position, string) {}, 0)
+	_, tok, _ := s.Scan()
+	return tok != token.EOF
+}
+
 // parseSingleAttr parses exactly one attribute at the cursor: a conditional
 // `{ if … }`, a spread `{ expr... }`, or a name-based attribute
 // (static / expr / markup / bool). The cursor must be at the attribute start
@@ -245,9 +269,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	}
 	attrStart := p.i
 	attrStartPos := p.posAt(attrStart)
-	for !p.eof() && isAttrNameByte(p.src[p.i]) {
-		p.i++
-	}
+	p.i = scanAttrName(p.src, p.i)
 	if p.i == attrStart {
 		return nil, p.errorf(p.pos(), "expected attribute name, got %q", string(p.peek()))
 	}

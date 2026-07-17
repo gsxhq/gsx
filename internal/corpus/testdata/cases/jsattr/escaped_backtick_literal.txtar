@@ -5,7 +5,7 @@ component Button(name string) {
 	<button @click=js`save(\`hi @{name}\`)`>Save</button>
 }
 -- invoke --
-Button(ButtonProps{Name: "Ada"})
+Button("Ada")
 -- render.golden --
 <button @click="save(`hi Ada`)">Save</button>
 -- diagnostics.golden --
@@ -20,14 +20,9 @@ import (
 	_gsxio "io"
 )
 
-type ButtonProps struct {
-	Name string
-}
-
 //line input.gsx:2:1
-func Button(_gsxp ButtonProps) _gsxrt.Node {
+func Button(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:2
 		_gsxgw.S("<button @click=\"save(`hi ")

@@ -12,7 +12,7 @@ component CondSpread(on bool, extra gsx.Attrs) {
 	<a { if on { { extra... } } }>x</a>
 }
 -- invoke --
-CondSpread(CondSpreadProps{On: true, Extra: gsx.Attrs{{Key: "class", Value: "a"}, {Key: "class", Value: "b"}}})
+CondSpread(true, gsx.Attrs{{Key: "class", Value: "a"}, {Key: "class", Value: "b"}})
 -- diagnostics.golden --
 -- render.golden --
 <a class="a b">x</a>

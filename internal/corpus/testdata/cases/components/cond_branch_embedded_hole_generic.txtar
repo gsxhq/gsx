@@ -6,7 +6,9 @@
 -- input.gsx --
 package views
 
-component Field(label string) { <input aria-label={label} { attrs... }/> }
+
+import "github.com/gsxhq/gsx"
+component Field(label string, attrs gsx.Attrs) { <input aria-label={label} { attrs... }/> }
 
 component Wrap[T string | int](edit bool, v T) {
 	<Field label="c" { if edit { title=f"Hi @{v}" } } />

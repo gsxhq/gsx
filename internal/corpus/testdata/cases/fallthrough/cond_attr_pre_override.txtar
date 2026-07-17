@@ -5,7 +5,9 @@
 -- input.gsx --
 package views
 
-component Box(active bool) {
+
+import "github.com/gsxhq/gsx"
+component Box(active bool, attrs gsx.Attrs) {
 	<button { if active { id="mine" data-k="v" } } { attrs... }>x</button>
 }
 
@@ -22,22 +24,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	Active bool
-	Attrs  _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Box(active bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		active := _gsxp.Active
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<button")
 		if active {
 			if !attrs.Has("id") {
@@ -55,12 +51,12 @@ func Box(_gsxp BoxProps) _gsxrt.Node {
 	})
 }
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Box(BoxProps{Active: true, Attrs: _gsxrt.Attrs{{Key: "id", Value: "caller"}}}))
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Box(true, _gsxrt.Attrs{{Key: "id", Value: "caller"}}))
 		return _gsxgw.Err()
 	})
 }

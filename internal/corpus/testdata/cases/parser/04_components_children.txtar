@@ -2,12 +2,15 @@
 -- input.gsx --
 package p
 
-component Card(title string) { <div>{children}</div> }
+
+import "github.com/gsxhq/gsx"
+component Card(title string, children gsx.Node) { <div>{children}</div> }
 
 component Page() { <Card title="x"><b>kid</b></Card> }
 -- ast.golden --
 File package=p
-  Component name=Card recv="" params="title string"
+  GoChunk len=33
+  Component name=Card recv="" params="title string, children gsx.Node"
     Element tag=div void=false
       Interp expr="children"
   Component name=Page recv="" params=""

@@ -11,7 +11,10 @@ func TestIsComponentTag(t *testing.T) {
 		{"div", false},
 		{"my-el", false},
 		{"Box", true},
+		{"Δέλτα", true},
+		{"δέλτα", false},
 		{"ui.Button", true},
+		{"组件.卡片", true},
 		{"p.Row", true},
 		{"strings.x", true}, // dotted always wins, mirroring both old impls
 	}

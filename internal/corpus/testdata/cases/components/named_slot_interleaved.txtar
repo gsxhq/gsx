@@ -3,7 +3,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Panel(lead gsx.Node) {
+component Panel(lead gsx.Node, children gsx.Node) {
 	<div>{lead}{children}</div>
 }
 
@@ -13,7 +13,7 @@ component Page(s string, n int, b bool, f float64) {
 	<span>{f}</span>
 }
 -- invoke --
-Page(PageProps{S: "S", N: 7, B: true, F: 3.5})
+Page("S", 7, true, 3.5)
 -- diagnostics.golden --
 -- render.golden --
 <span>S</span><div><em>7</em>true</div><span>3.5</span>

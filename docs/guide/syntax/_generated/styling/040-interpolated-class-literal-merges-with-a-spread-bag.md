@@ -3,7 +3,9 @@
 ```gsx
 package views
 
-component Badge(variant string) {
+import "github.com/gsxhq/gsx"
+
+component Badge(variant string, attrs gsx.Attrs) {
 	<span class=f`badge-@{variant}` { attrs... }>Hi</span>
 }
 ```
@@ -14,4 +16,4 @@ Renders:
 <span class="badge-x hl" id="a">Hi</span>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQmFkZ2UodmFyaWFudCBzdHJpbmcpIHtcblx0XHUwMDNjc3BhbiBjbGFzcz1mYGJhZGdlLUB7dmFyaWFudH1gIHsgYXR0cnMuLi4gfVx1MDAzZUhpXHUwMDNjL3NwYW5cdTAwM2Vcbn1cbiIsImkiOiJCYWRnZShCYWRnZVByb3Bze1ZhcmlhbnQ6IFwieFwiLCBBdHRyczogZ3N4LkF0dHJze3tLZXk6IFwiY2xhc3NcIiwgVmFsdWU6IFwiaGxcIn0sIHtLZXk6IFwiaWRcIiwgVmFsdWU6IFwiYVwifX19KSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBCYWRnZSh2YXJpYW50IHN0cmluZywgYXR0cnMgZ3N4LkF0dHJzKSB7XG5cdFx1MDAzY3NwYW4gY2xhc3M9ZmBiYWRnZS1Ae3ZhcmlhbnR9YCB7IGF0dHJzLi4uIH1cdTAwM2VIaVx1MDAzYy9zcGFuXHUwMDNlXG59XG4iLCJpIjoiQmFkZ2UoXCJ4XCIsIGdzeC5BdHRyc3t7S2V5OiBcImNsYXNzXCIsIFZhbHVlOiBcImhsXCJ9LCB7S2V5OiBcImlkXCIsIFZhbHVlOiBcImFcIn19KSJ9)

@@ -9,7 +9,7 @@ component Pic(on bool, s string) {
 	<img alt="x" { if on { { b... } } }/>
 }
 -- invoke --
-Pic(PicProps{On: true, S: "ok.jpg 1x, javascript:alert(1) 2x"})
+Pic(true, "ok.jpg 1x, javascript:alert(1) 2x")
 -- diagnostics.golden --
 -- render.golden --
 <img alt="x" srcset="ok.jpg 1x, about:invalid#gsx"/>
@@ -25,16 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type PicProps struct {
-	On bool
-	S  string
-}
-
 //line input.gsx:5:1
-func Pic(_gsxp PicProps) _gsxrt.Node {
+func Pic(on bool, s string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		on := _gsxp.On
-		s := _gsxp.S
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		b := gsx.Attrs{{Key: "srcset", Value: s}}

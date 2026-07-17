@@ -5,14 +5,16 @@
 -- input.gsx --
 package views
 
-component Box(a bool, b bool) {
+
+import "github.com/gsxhq/gsx"
+component Box(a bool, b bool, attrs gsx.Attrs) {
 	<div class="base" { attrs... } { if a { class="x" } else if b { class="y" } else { class="z" } }>x</div>
 }
 -- invoke --
 gsx.Fragment(
-	Box(BoxProps{A: true, B: false, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
-	Box(BoxProps{A: false, B: true, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
-	Box(BoxProps{A: false, B: false, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
+	Box(true, false, gsx.Attrs{{Key: "class", Value: "sp"}}),
+	Box(false, true, gsx.Attrs{{Key: "class", Value: "sp"}}),
+	Box(false, false, gsx.Attrs{{Key: "class", Value: "sp"}}),
 )
 -- diagnostics.golden --
 -- render.golden --

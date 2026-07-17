@@ -8,7 +8,7 @@ component VouchedRefresh(u gsx.RawURL) {
 }
 
 -- invoke --
-VouchedRefresh(VouchedRefreshProps{U: "0;url=app://home"})
+VouchedRefresh("0;url=app://home")
 
 -- render.golden --
 <meta http-equiv="refresh" content="0;url=app://home"/>

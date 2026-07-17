@@ -110,7 +110,7 @@ component C(n string) {
 	}
 	got := renderWithFilters(t, myfilters, views,
 		[]string{stdImportPath, "gsxmf/myfilters"},
-		`p.C(p.CProps{N: "hi"})`)
+		`p.C("hi")`)
 	if !strings.Contains(got, "hi!") {
 		t.Fatalf("expected user filter shout to render \"hi!\"; got:\n%s", got)
 	}
@@ -140,7 +140,7 @@ component C(n string) {
 	}
 	got := renderWithFilters(t, myfilters, views,
 		[]string{stdImportPath, "gsxmf/myfilters"},
-		`p.C(p.CProps{N: "hi"})`)
+		`p.C("hi")`)
 	if !strings.Contains(got, "USER:hi") {
 		t.Fatalf("expected user Upper to shadow std (last-wins): want \"USER:hi\"; got:\n%s", got)
 	}
@@ -172,7 +172,7 @@ component C(n string) {
 	}
 	got := renderWithFilters(t, myfilters, views,
 		[]string{"gsxmf/myfilters", stdImportPath},
-		`p.C(p.CProps{N: "hi"})`)
+		`p.C("hi")`)
 	if !strings.Contains(got, "USER:hi") {
 		t.Fatalf("expected user Upper to win regardless of list order (std is always lowest-precedence): want \"USER:hi\"; got:\n%s", got)
 	}
@@ -213,7 +213,7 @@ component C(png []byte, s string) {
 	}
 	got := renderWithFilters(t, myfilters, views,
 		[]string{stdImportPath, "gsxmf/myfilters"},
-		`p.C(p.CProps{Png: []byte("hi"), S: "hi"})`)
+		`p.C([]byte("hi"), "hi")`)
 
 	wantUserDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("USER:hi"))
 	if !strings.Contains(got, wantUserDataURL) {

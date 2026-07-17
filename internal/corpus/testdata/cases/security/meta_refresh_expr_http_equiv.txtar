@@ -6,7 +6,7 @@ component ExprRefresh(to string) {
 }
 
 -- invoke --
-ExprRefresh(ExprRefreshProps{To: "javascript:alert(1)"})
+ExprRefresh("javascript:alert(1)")
 
 -- render.golden --
 <meta http-equiv="refresh" content="0;url=about:invalid#gsx"/>

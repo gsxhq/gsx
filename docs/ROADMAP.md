@@ -8,6 +8,22 @@ generator/CLI may use `golang.org/x/tools`.
 
 **Status key:** [x] done · [~] partial / in progress · [ ] not started.
 
+## Current component contract
+
+- [~] **Verbatim component signatures** — atomic cutover in progress
+  (`2026-07-14-verbatim-component-signatures-design.md`). A component emits the
+  exact parameter list the author wrote. Markup binds ordinary parameters by
+  exact name, `children` and `attrs` are declared reserved roles, ordinary
+  composite values are passed through their parameter name, and direct Go
+  callers use the function positionally. The generator emits no props wrapper,
+  performs no struct-field matching, and does not support component struct
+  destructuring.
+
+> Earlier completed milestones below preserve the implementation history. Their
+> descriptions of generated props, BYO classification, implicit roles, field
+> matching, and component struct splat are superseded by the current contract
+> above; they are not current syntax guidance.
+
 ## Pipeline at a glance
 
 `.gsx` → **parser** → **AST** → **codegen** (`go/packages` resolution) → `.x.go` → `go build` → renders HTML via the **runtime**.
@@ -16,7 +32,7 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | [x] Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | [x] done |
-| Codegen | [~] interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional, explicit JS/CSS attr literals `` js`...` `` / `` css`...` `` + URL attr classification) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
+| Codegen | [~] interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional, explicit JS/CSS attr literals `` js`...` `` / `` css`...` `` + URL attr classification) + pipeline `\|>` + verbatim component signatures with declared `children`/`attrs` roles + method components + named slots + attribute fallthrough + node-input promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
@@ -45,8 +61,8 @@ value-Node boxes. `gsx.Raw` / `gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed
 escape hatches. Independent-review SHIP.
 
 **Codegen phase 1** (`internal/codegen`) - `GeneratePackage(dir)`: `go/packages`
-+ `Overlay` skeleton type resolution (cross-file, cross-component); arity-safe
-`_gsxuse` probe; components+params → props + used-param local-binding; full §5
+with overlay type resolution (cross-file, cross-component); exact callable-signature
+analysis; authored component parameters emit directly; full §5
 type-aware interpolation (string / []byte / numeric / bool / `gsx.Node` /
 `[]gsx.Node` / `fmt.Stringer`; `gsx.Raw` via Node); **`(T,error)` auto-unwrap
 (implicit, no `?` marker)**; child components; GoChunk import hoisting;
@@ -1110,7 +1126,7 @@ vocabulary remains a design aspiration, not the current API.
   `lsp` / `clean --cache` / `version` / `help`; public `gen` package + `gen.Main`
   dispatch (`-C`/`-q`/`-v`, exit 0/1/2); `cmd/gsx` stock binary; `//go:generate gsx
   generate`. Extension seam: `WithFilters`/`WithFilter`, `WithCSSMinifier`/`WithJSMinifier`,
-  `WithURLAttrs`, `WithFieldMatcher`.
+  `WithURLAttrs`.
   `gsx info --json` config manifest. `generate`/`init` accept flags in any position
   (`fmt`/`info` require flags first). `WithClassMerger` + `class_merger` TOML knob
   **SHIPPED** (configurable merger seam; Tailwind wrapper idiom; `--watch` validates at
@@ -1352,14 +1368,11 @@ vocabulary remains a design aspiration, not the current API.
   discovery. `gen.Result.Removed`/`cycleResult.Removed` report what was
   deleted. Spec: `docs/superpowers/specs/2026-07-10-poison-xgo-on-failure-design.md`,
   "Orphaned `.x.go`".
-- [ ] **Param-qualifier dotted method tags mislower** - pre-existing gap found
-  while probing the lowercase-tag-resolution design (not introduced by it): a
-  dotted tag whose qualifier is an ordinary local/param rather than the
-  enclosing receiver - `component List(p page) { <p.Item/> }` - is mislowered
-  as a package-qualified component (`p.ItemProps{}`, producing `p.ItemProps is
-  not a type`). Method invocation currently only recognizes the enclosing
-  receiver's own name as a dotted qualifier. Spec
-  `2026-07-10-lowercase-tag-symbol-resolution-design.md`, "Out of scope".
+- [x] **Param-qualifier dotted method tags** - fixed by exact callable-signature
+  resolution. A dotted tag whose qualifier is an ordinary value, such as
+  `component List(p page) { <p.Item/> }`, resolves as a concrete bound method
+  value rather than being guessed as a package call. Pinned by the method-callee
+  corpus coverage.
 - [ ] **LSP semantic tokens for lowercase component tags** - static syntax
   highlighters (tree-sitter, CodeMirror) cannot run symbol resolution, so a
   lowercase tag that resolves to a component still highlights as a plain
@@ -1371,9 +1384,8 @@ vocabulary remains a design aspiration, not the current API.
 - [ ] **Element-literal `var` values are not tag-invocable** - a package-level
   `var` holding an element literal (`var chip = <em class="chip">c</em>`, type
   `gsx.Node`) counts as a declaration for lowercase-tag resolution, so `<chip>`
-  lowers as a component call - but `gsx.Node` doesn't match either component-value
-  signature (`func(gsx.Attrs) gsx.Node` etc.) or a `<Name>Props` struct, so it's a
-  loud `go build`-arbiter-style diagnostic at generate time, not a silent leaf
+  lowers as a component call - but `gsx.Node` is not a callable signature, so it
+  gets a loud generate-time diagnostic rather than silently becoming a leaf
   fallback. Pinned by `internal/corpus/testdata/cases/lowertags/resolves_var_value.txtar`.
   Making element-literal vars genuinely tag-invocable (e.g. treating a bare
   `gsx.Node` var as a zero-arg component value) is a potential future feature,

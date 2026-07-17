@@ -7,7 +7,7 @@ component Page(name string) {
 	<script>const n = @{ name |> trim |> truncate(4) };</script>
 }
 -- invoke --
-Page(PageProps{Name: "  hello  "})
+Page("  hello  ")
 -- diagnostics.golden --
 -- render.golden --
 <script>const n = "hell";</script>

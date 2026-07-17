@@ -7,7 +7,7 @@ component Filter(entityType string, extra map[string]string) {
 	<input hx-vals=js`{"entity_type": @{entityType}, "extra": @{extra}}`/>
 }
 -- invoke --
-Filter(FilterProps{EntityType: `deal "x" </tag>`, Extra: map[string]string{"page": "1"}})
+Filter(`deal "x" </tag>`, map[string]string{"page": "1"})
 -- diagnostics.golden --
 -- render.golden --
 <input hx-vals="{&#34;entity_type&#34;: &#34;deal \&#34;x\&#34; \u003c/tag\u003e&#34;, &#34;extra&#34;: {&#34;page&#34;:&#34;1&#34;}}"/>
@@ -22,16 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type FilterProps struct {
-	EntityType string
-	Extra      map[string]string
-}
-
 //line input.gsx:3:1
-func Filter(_gsxp FilterProps) _gsxrt.Node {
+func Filter(entityType string, extra map[string]string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		entityType := _gsxp.EntityType
-		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<input hx-vals=\"{&#34;entity_type&#34;: ")

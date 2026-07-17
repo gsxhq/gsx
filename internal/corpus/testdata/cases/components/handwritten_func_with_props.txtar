@@ -1,6 +1,5 @@
-# A hand-written func taking a props struct still uses the XxxProps convention:
-# only a ZERO-arg func bare-calls. <Badge/> with no attrs lowers to Badge(BadgeProps{}),
-# proving the bare-call candidate path falls through to props for arity >= 1.
+# A hand-written Go component retains its authored single composite parameter.
+# With no supplied inputs, <Badge/> calls Badge with the parameter's zero value.
 -- badge.go --
 package views
 

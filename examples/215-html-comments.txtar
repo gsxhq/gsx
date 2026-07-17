@@ -11,6 +11,6 @@ component Layout(name string) {
 	<div><!-- header --><h1>{name}</h1><!-- a < b --></div>
 }
 -- invoke --
-Layout(LayoutProps{Name: "Ada"})
+Layout("Ada")
 -- render.golden --
 <div><!-- header --><h1>Ada</h1><!-- a < b --></div>

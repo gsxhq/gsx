@@ -1,12 +1,11 @@
-# The userland alias spelling from the element-literals deferred note:
-# aliases are transparent to go/types, so this is recognized with no
-# alias-specific code.
+# A function-type alias retains the static `attrs` parameter name that defines
+# the callable's fallthrough role. The factory initializer is not inspected.
 -- input.gsx --
 package views
 
 import "github.com/gsxhq/gsx"
 
-type Component = func(...gsx.Attr) gsx.Node
+type Component = func(attrs ...gsx.Attr) gsx.Node
 
 type thingProps struct {
 	Label string

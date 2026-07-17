@@ -1,143 +1,188 @@
 package codegen
 
 import (
+	"go/token"
+	"go/types"
 	"strings"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/parser"
-	"go/token"
-	"go/types"
 )
 
-// mustParseComponent parses a single-component .gsx source and returns the
-// first *gsxast.Component declaration.
-func mustParseComponent(t *testing.T, src string) *gsxast.Component {
+func mustParseComponent(t *testing.T, source string) *gsxast.Component {
 	t.Helper()
 	fset := token.NewFileSet()
-	file, errs := parser.ParseFileWithClassifier(fset, "input.gsx", []byte(src), 0, nil)
-	if len(errs) > 0 {
-		t.Fatalf("parse: %v", errs)
-	}
-	for _, d := range file.Decls {
-		if c, ok := d.(*gsxast.Component); ok {
-			return c
+	files := parseVariantFiles(t, fset, map[string]string{"input.gsx": source})
+	for _, declaration := range files["input.gsx"].Decls {
+		if component, ok := declaration.(*gsxast.Component); ok {
+			return component
 		}
 	}
-	t.Fatal("no component")
+	t.Fatal("no component declaration")
 	return nil
 }
 
-func TestComponentSignature(t *testing.T) {
-	// Same props, different body → SAME signature (drop-in variant).
-	a := mustParseComponent(t, "package v\ncomponent Icon(name string) {\n\t<span>{ name }</span>\n}\n")
-	b := mustParseComponent(t, "package v\ncomponent Icon(name string) {\n\t<b>{ name }</b>\n}\n")
-	if componentSignature(a) != componentSignature(b) {
-		t.Fatalf("same-props variants must share a signature:\n a=%q\n b=%q", componentSignature(a), componentSignature(b))
+func parseVariantFiles(t *testing.T, fset *token.FileSet, sources map[string]string) map[string]*gsxast.File {
+	t.Helper()
+	files := make(map[string]*gsxast.File, len(sources))
+	for path, source := range sources {
+		file, diagnostics := parser.ParseFileWithClassifier(fset, path, []byte(source), 0, nil)
+		if len(diagnostics) != 0 {
+			t.Fatalf("parse %s: %v", path, diagnostics)
+		}
+		files[path] = file
 	}
-
-	// Different prop type → DIFFERENT signature.
-	c := mustParseComponent(t, "package v\ncomponent Icon(name int) {\n\t<span>{ name }</span>\n}\n")
-	if componentSignature(a) == componentSignature(c) {
-		t.Fatalf("different prop type must differ: %q", componentSignature(a))
-	}
-
-	// Param order does not matter (props map by name).
-	d := mustParseComponent(t, "package v\ncomponent Icon(x string, y string) { <i/> }\n")
-	e := mustParseComponent(t, "package v\ncomponent Icon(y string, x string) { <i/> }\n")
-	if componentSignature(d) != componentSignature(e) {
-		t.Fatalf("param order must not affect signature")
-	}
-
-	// Children presence is part of the signature.
-	f := mustParseComponent(t, "package v\ncomponent Box() { <div>{ children }</div> }\n")
-	g := mustParseComponent(t, "package v\ncomponent Box() { <div/> }\n")
-	if componentSignature(f) == componentSignature(g) {
-		t.Fatalf("children presence must differ")
-	}
+	return files
 }
 
-func TestDetectSignatureConflicts(t *testing.T) {
-	filesOf := func(srcs map[string]string) map[string]*gsxast.File {
-		out := map[string]*gsxast.File{}
-		for name, src := range srcs {
+func TestComponentFileHasEffectiveConstraint(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		path   string
+		source string
+		want   bool
+	}{
+		{name: "go build", path: "icon_a.gsx", source: "//go:build variantA\n\npackage p\ncomponent Icon() { <span/> }\n", want: true},
+		{name: "legacy build", path: "icon_a.gsx", source: "// +build variantA\n\npackage p\ncomponent Icon() { <span/> }\n", want: true},
+		{name: "invalid legacy ignored before valid", path: "icon_a.gsx", source: "// +build " + strings.Repeat("a ", 102) + "\n// +build linux\n\npackage p\ncomponent Icon() { <span/> }\n", want: true},
+		{name: "goos filename", path: "icon_linux.gsx", source: "package p\ncomponent Icon() { <span/> }\n", want: true},
+		{name: "goarch filename", path: "icon_amd64.gsx", source: "package p\ncomponent Icon() { <span/> }\n", want: true},
+		{name: "ordinary filename", path: "icon_variantA.gsx", source: "package p\ncomponent Icon() { <span/> }\n", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			fset := token.NewFileSet()
-			f, errs := parser.ParseFileWithClassifier(fset, name, []byte(src), 0, nil)
-			if len(errs) > 0 {
-				t.Fatalf("%s: %v", name, errs)
+			files := parseVariantFiles(t, fset, map[string]string{test.path: test.source})
+			got, err := componentFileHasEffectiveConstraint(test.path, files[test.path], []byte(test.source))
+			if err != nil {
+				t.Fatal(err)
 			}
-			out[name] = f
-		}
-		return out
-	}
-
-	// Same name, same signature, different files → NO conflict (tolerated variant).
-	same := filesOf(map[string]string{
-		"a.gsx": "package v\ncomponent Icon(name string) { <a>{ name }</a> }\n",
-		"b.gsx": "package v\ncomponent Icon(name string) { <b>{ name }</b> }\n",
-	})
-	if got := detectSignatureConflicts(same); len(got) != 0 {
-		t.Fatalf("same-sig variants: want 0 conflicts, got %d", len(got))
-	}
-
-	// Same name, DIFFERENT signature, different files → conflict.
-	diff := filesOf(map[string]string{
-		"a.gsx": "package v\ncomponent Icon(name string) { <a>{ name }</a> }\n",
-		"b.gsx": "package v\ncomponent Icon(name int) { <b>{ name }</b> }\n",
-	})
-	got := detectSignatureConflicts(diff)
-	if len(got) != 1 || got[0].key != ".Icon" || len(got[0].comps) != 2 {
-		t.Fatalf("diff-sig: want 1 conflict on .Icon with 2 comps, got %+v", got)
-	}
-
-	// Same name twice in ONE file → NOT our conflict (within-file; left to raw error).
-	within := filesOf(map[string]string{
-		"a.gsx": "package v\ncomponent Icon(name string) { <a/> }\ncomponent Icon(name int) { <b/> }\n",
-	})
-	if got := detectSignatureConflicts(within); len(got) != 0 {
-		t.Fatalf("within-file dup: want 0 conflicts, got %d", len(got))
+			if got != test.want {
+				t.Fatalf("componentFileHasEffectiveConstraint = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 
-func TestSuppressCrossFileRedeclarations(t *testing.T) {
+func TestSyntacticComponentTargetPlanHasNoVariantAuthority(t *testing.T) {
 	fset := token.NewFileSet()
-	fa := fset.AddFile("a.x.go", -1, 100)
-	fb := fset.AddFile("b.x.go", -1, 100)
-	posA := fa.Pos(10)
-	posB := fb.Pos(10)
-
-	// Cross-file redeclaration of Icon → both dropped.
-	// Within-file redeclaration of Dup (both in a.x.go) → both kept.
-	// An unrelated type error → kept.
-	posA2 := fa.Pos(40)
-	posA3 := fa.Pos(60)
-	errs := []types.Error{
-		{Fset: fset, Pos: posB, Msg: "Icon redeclared in this block"},
-		{Fset: fset, Pos: posA, Msg: "other declaration of Icon"},
-		{Fset: fset, Pos: posA2, Msg: "Dup redeclared in this block"},
-		{Fset: fset, Pos: posA3, Msg: "other declaration of Dup"},
-		{Fset: fset, Pos: posA, Msg: "undefined: Whatever"},
+	files := parseVariantFiles(t, fset, map[string]string{
+		"icon_linux.gsx":   "package p\ncomponent Icon() { <span/> }\n",
+		"icon_windows.gsx": "package p\ncomponent Icon() { <span/> }\n",
+	})
+	plan := syntacticComponentTargetPlan(files)
+	if len(plan.families) != 0 || plan.invalidMembership {
+		t.Fatalf("syntactic plan families = %+v invalid=%t, want no acceptance decisions", plan.families, plan.invalidMembership)
 	}
-	// Facts as the skeleton ASTs would report them: Icon is a pure cross-file
-	// variant (one decl in each of a/b); Dup is a within-file duplicate (twice
-	// in a.x.go), so its errors must be kept.
-	facts := redeclFacts{
-		crossFile: map[string]bool{"Icon": true, "Dup": false},
-		withinDup: map[string]bool{"Dup": true},
-	}
-	got := suppressCrossFileRedeclarations(errs, facts)
-
-	var msgs []string
-	for _, e := range got {
-		msgs = append(msgs, e.Msg)
-	}
-	// Icon pair gone; Dup pair + undefined kept.
-	for _, e := range got {
-		if strings.Contains(e.Msg, "Icon") {
-			t.Fatalf("cross-file Icon redeclaration should be suppressed, got %q", e.Msg)
+	public := 0
+	for component, emission := range plan.emissions {
+		if component.Name != "Icon" || emission.splitBody || emission.bodyName != "" {
+			t.Fatalf("emission for %s = %+v, want importer-free all-public skeleton", component.Name, emission)
+		}
+		if emission.public {
+			public++
 		}
 	}
-	if len(got) != 3 {
-		t.Fatalf("want 3 kept (2 Dup + 1 undefined), got %d: %v", len(got), msgs)
+	if public != 2 {
+		t.Fatalf("public emissions = %d, want every per-file declaration", public)
+	}
+}
+
+func TestComponentKeyInvalidReceiverCannotEnterFunctionNamespace(t *testing.T) {
+	first := &gsxast.Component{Name: "Card", Recv: "(r !)"}
+	second := &gsxast.Component{Name: "Card", Recv: "(r ?)"}
+	if got := componentKey(first); got == ".Card" {
+		t.Fatalf("invalid receiver key = %q, collided with package function namespace", got)
+	}
+	if componentKey(first) == componentKey(second) {
+		t.Fatalf("distinct invalid receivers share key %q", componentKey(first))
+	}
+}
+
+func TestSemanticVariantPlanDoesNotFoldUnresolvedMethodIntoFunction(t *testing.T) {
+	fset := token.NewFileSet()
+	sourceText := map[string]string{
+		"card_a.gsx": "//go:build variantA\n\npackage p\ncomponent (r Missing) Card() { <span/> }\n",
+		"card_b.gsx": "//go:build variantB\n\npackage p\ncomponent Card() { <span/> }\n",
+	}
+	files := parseVariantFiles(t, fset, sourceText)
+	sources := make(map[string][]byte, len(sourceText))
+	for path, source := range sourceText {
+		sources[path] = []byte(source)
+	}
+	privatePlan := privateComponentTargetPlan(files, nil)
+	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, nil, nil, diag.NewBag(fset))
+
+	if len(plan.families) != 0 || plan.invalidMembership {
+		t.Fatalf("semantic families = %+v invalid=%t, want unresolved method isolated from package function", plan.families, plan.invalidMembership)
+	}
+	if len(plan.emissions) != 2 {
+		t.Fatalf("emissions = %d, want both declarations", len(plan.emissions))
+	}
+	for component, emission := range plan.emissions {
+		if !emission.public || emission.splitBody {
+			t.Fatalf("%s emission = %+v, want independent public declaration", component.Name, emission)
+		}
+	}
+}
+
+func TestSemanticVariantPlanDoesNotFoldDifferentInvalidReceivers(t *testing.T) {
+	fset := token.NewFileSet()
+	sourceText := map[string]string{
+		"card_a.gsx": "//go:build variantA\n\npackage p\ncomponent (r MissingA) Card() { <span/> }\n",
+		"card_b.gsx": "//go:build variantB\n\npackage p\ncomponent (r MissingB) Card() { <span/> }\n",
+	}
+	files := parseVariantFiles(t, fset, sourceText)
+	sources := make(map[string][]byte, len(sourceText))
+	for path, source := range sourceText {
+		sources[path] = []byte(source)
+	}
+	privatePlan := privateComponentTargetPlan(files, nil)
+	objects := map[*gsxast.Component]*types.Func{}
+	for component := range privatePlan.emissions {
+		receiver := types.NewVar(token.NoPos, nil, "r", types.Typ[types.Invalid])
+		signature := types.NewSignatureType(receiver, nil, nil, types.NewTuple(), types.NewTuple(), false)
+		objects[component] = types.NewFunc(token.NoPos, nil, privatePlan.emissions[component].bodyName, signature)
+	}
+	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, objects, nil, diag.NewBag(fset))
+
+	if len(plan.families) != 0 || plan.invalidMembership {
+		t.Fatalf("semantic families = %+v invalid=%t, want different invalid receivers isolated", plan.families, plan.invalidMembership)
+	}
+	if len(plan.emissions) != 2 {
+		t.Fatalf("emissions = %d, want both unresolved methods", len(plan.emissions))
+	}
+}
+
+func TestSemanticVariantPlanGivesSameSpellingUnresolvedReceiversDistinctLogicalKeys(t *testing.T) {
+	fset := token.NewFileSet()
+	sourceText := map[string]string{
+		"card_a.gsx": "//go:build variantA\n\npackage p\ncomponent (r Missing) Card(value string) { <span/> }\n",
+		"card_b.gsx": "//go:build variantB\n\npackage p\ncomponent (r Missing) Card(value string) { <span/> }\n",
+	}
+	files := parseVariantFiles(t, fset, sourceText)
+	sources := make(map[string][]byte, len(sourceText))
+	for path, source := range sourceText {
+		sources[path] = []byte(source)
+	}
+	privatePlan := privateComponentTargetPlan(files, nil)
+	objects := map[*gsxast.Component]*types.Func{}
+	for component := range privatePlan.emissions {
+		receiver := types.NewVar(token.NoPos, nil, "r", types.Typ[types.Invalid])
+		signature := types.NewSignatureType(receiver, nil, nil, types.NewTuple(), types.NewTuple(), false)
+		objects[component] = types.NewFunc(token.NoPos, nil, privatePlan.emissions[component].bodyName, signature)
+	}
+	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, objects, nil, diag.NewBag(fset))
+	keys := map[string]bool{}
+	for component := range plan.emissions {
+		key := plan.logicalKey(component)
+		if !strings.HasPrefix(key, "!unresolved-receiver:") {
+			t.Fatalf("logical key = %q, want opaque unresolved receiver identity", key)
+		}
+		keys[key] = true
+	}
+	if len(keys) != 2 {
+		t.Fatalf("unresolved logical keys = %v, want one per declaration", keys)
 	}
 }

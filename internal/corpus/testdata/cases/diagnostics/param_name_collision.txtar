@@ -5,7 +5,7 @@ component Collide(gw string, w string, p string) {
 	<p>{gw}|{w}|{p}</p>
 }
 -- invoke --
-Collide(CollideProps{Gw: "G", W: "W", P: "P"})
+Collide("G", "W", "P")
 -- diagnostics.golden --
 -- render.golden --
 <p>G|W|P</p>

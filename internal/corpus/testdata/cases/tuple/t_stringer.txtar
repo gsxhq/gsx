@@ -18,7 +18,7 @@ component Badge(icon gsx.Node) { <span>{icon}</span> }
 
 component Page(s string) { <Badge icon={makeLabel(s)}/> }
 -- invoke --
-Page(PageProps{S: "ok"})
+Page("ok")
 -- diagnostics.golden --
 -- render.golden --
 <span>[ok]</span>
@@ -36,14 +36,9 @@ import (
 
 func makeLabel(s string) (myLabel, error) { return myLabel{text: "[" + s + "]"}, nil }
 
-type BadgeProps struct {
-	Icon gsx.Node
-}
-
 //line input.gsx:7:1
-func Badge(_gsxp BadgeProps) _gsxrt.Node {
+func Badge(icon gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		icon := _gsxp.Icon
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:34
 		_gsxgw.S("<span>")
@@ -54,21 +49,16 @@ func Badge(_gsxp BadgeProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	S string
-}
-
 //line input.gsx:9:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(s string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		s := _gsxp.S
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:28
-		_gsxv0, _gsxerr := makeLabel(s)
+		_gsxa0, _gsxerr := makeLabel(s)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Badge(BadgeProps{Icon: _gsxrt.Val(_gsxv0)}))
+		_gsxgw.Node(ctx, Badge(_gsxrt.Val(_gsxa0)))
 		return _gsxgw.Err()
 	})
 }

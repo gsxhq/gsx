@@ -23,9 +23,9 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Page(other gsx.Attrs) { <script { attrs.Merge(other)... }>init()</script> }
+component Page(other gsx.Attrs, attrs gsx.Attrs) { <script { attrs.Merge(other)... }>init()</script> }
 -- invoke --
-withTestNonce(Page(PageProps{Other: gsx.Attrs{{Key: "id", Value: "s"}}, Attrs: gsx.Attrs{{Key: "defer", Value: true}}}))
+withTestNonce(Page(gsx.Attrs{{Key: "id", Value: "s"}}, gsx.Attrs{{Key: "defer", Value: true}}))
 -- diagnostics.golden --
 -- render.golden --
 <script defer id="s" nonce="r4nd0m">init()</script>
@@ -41,18 +41,11 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Other gsx.Attrs
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(other gsx.Attrs, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		other := _gsxp.Other
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:35
+//line input.gsx:5:52
 		_gsxv0 := attrs.Merge(other)
 		_gsxgw.S("<script")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())

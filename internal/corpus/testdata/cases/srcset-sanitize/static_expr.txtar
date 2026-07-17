@@ -8,7 +8,7 @@ component Pic(a string, b string) {
 	<source srcset={ b }/>
 }
 -- invoke --
-Pic(PicProps{A: "ok.jpg 1x, javascript:alert(1) 2x", B: "data:image/png;base64,iVBOR 2x"})
+Pic("ok.jpg 1x, javascript:alert(1) 2x", "data:image/png;base64,iVBOR 2x")
 -- diagnostics.golden --
 -- render.golden --
 <img srcset="ok.jpg 1x, about:invalid#gsx" alt="x"/><source srcset="data:image/png;base64,iVBOR 2x"/>
@@ -23,16 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type PicProps struct {
-	A string
-	B string
-}
-
 //line input.gsx:3:1
-func Pic(_gsxp PicProps) _gsxrt.Node {
+func Pic(a string, b string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		a := _gsxp.A
-		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img srcset=\"")

@@ -14,8 +14,13 @@ import (
 // nilAnalyzer satisfies Analyzer and returns nothing.
 type nilAnalyzer struct{}
 
+func (nilAnalyzer) SetOverride(string, []byte) ([]string, error)        { return nil, nil }
 func (nilAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { return &Package{}, nil }
+func (nilAnalyzer) ClearOverride(string) ([]string, error)              { return nil, nil }
 func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+	return nil, nil
+}
+func (nilAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
 	return nil, nil
 }
 func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }

@@ -2,6 +2,7 @@ package gen
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -70,33 +71,37 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// --- warm watch session: initial cold generate ---
-	//
-	// Guard against newWatchSession panicking when there are no .gsx files.
-	// Without any .gsx source the overlay has nothing to generate, and the watch
-	// session cannot open a Module. Fail clearly so the user adds .gsx source.
-	gsxDirs, _ := discoverDirs([]string{workDir})
-	if len(gsxDirs) == 0 {
-		fmt.Fprintf(stderr, "gsx dev: no .gsx files found under %s\n", workDir)
-		return 1
-	}
-
+	// --- warm watch session: arm observation before the initial snapshot ---
 	wcfg := watchConfig{
 		paths: []string{workDir}, stdout: stdout, stderr: stderr,
 		filterPkgs: merged.filterPkgs, aliases: merged.aliases, renderers: merged.renderers,
-		cls: merged.classifier(),
-		fm:  merged.fieldMatcher, cssMin: merged.effectiveCSSMin(), jsMin: merged.effectiveJSMin(),
+		cls:    merged.classifier(),
+		cssMin: merged.effectiveCSSMin(), jsMin: merged.effectiveJSMin(),
 		cssMinify: merged.cssMinLevel.enabled(), jsMinify: merged.jsMinLevel.enabled(),
 		classMerger: merged.classMerger,
 	}
-	sess, startup, err := newWatchSession(wcfg)
+	armed, err := armWatchSession(wcfg)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
 	}
-	// Drive the overlay from the cold generate (e.g. a pre-existing codegen error).
-	postEvent(viteURL, aggregateEvent(startup))
-	reportHardErrors(gsxOut, startup)
+	defer armed.Close()
+	sess := armed.session
+	w := armed.watcher
+	sources := armed.sources
+	dirty := newWatchDirtySet()
+	startup, err := sess.initialGenerate()
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+		return 1
+	}
+	dirty.retainOperational(startup)
+	// Drive the overlay from the cold generate (e.g. a pre-existing codegen
+	// error). A mixed operational failure has not committed its filesystem
+	// transaction, so only its errors/diagnostics are publishable at this point.
+	publishedStartup := publishableStartupResults(startup)
+	postEvent(viteURL, aggregateEvent(publishedStartup))
+	reportHardErrors(gsxOut, publishedStartup)
 
 	// --- Vite (front door), unless --no-web ---
 	var vite *exec.Cmd
@@ -133,29 +138,21 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// still needed for build-error and .env recovery paths.
 	overlayUp := !startOK
 
-	// --- fsnotify watcher (sources + .env) ---
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
-		srv.stop()
-		if vite != nil {
-			killProcGroup(vite, 5*time.Second)
-		}
-		return 1
-	}
-	defer w.Close()
-	addWatchTree(w, []string{workDir})
-	sources := newSourceTracker([]string{workDir})
-
+	// Observation has been armed since before initialGenerate, so source and
+	// .env events that arrived during startup are already queued on w.
 	if dc.web != nil {
 		fmt.Fprintf(stdout, "gsx dev: watching %s — open %s\n", workDir, viteURL)
 	} else {
 		fmt.Fprintf(stdout, "gsx dev: managing Go side only (no front door) — watching %s\n", workDir)
 	}
+	shutdownProcesses := func() {
+		srv.stop()
+		if vite != nil {
+			killProcGroup(vite, 5*time.Second)
+		}
+	}
 
 	var (
-		pending  = map[string]bool{}
-		depDirty bool
 		envDirty bool
 		timer    *time.Timer
 		fire     = make(chan struct{}, 1)
@@ -179,34 +176,34 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if timer != nil {
 				timer.Stop()
 			}
-			srv.stop()
-			if vite != nil {
-				killProcGroup(vite, 5*time.Second)
-			}
+			shutdownProcesses()
 			return 0
 
-		case ev := <-w.Events:
+		case ev, ok := <-w.Events:
+			if !ok {
+				fmt.Fprintf(stderr, "gsx dev: watch error: %v\n", fsnotify.ErrClosed)
+				shutdownProcesses()
+				return 1
+			}
+			// Parent sentinels exist only to observe recreation of an explicitly
+			// selected root. Ignore sibling files before special-casing .env.
+			if !sources.observed(ev.Name) {
+				continue
+			}
 			if isEnvFile(ev.Name) {
 				envDirty = true
 				schedule()
 				continue
 			}
-			if !watchable(ev.Name) {
-				continue
+			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty)
+			if eventErr != nil {
+				fmt.Fprintf(stderr, "gsx dev: watch event: %v\n", eventErr)
+				shutdownProcesses()
+				return 1
 			}
-			if !sources.changed(ev.Name) {
-				continue
+			if changed {
+				schedule()
 			}
-			if isDepFile(ev.Name) {
-				depDirty = true
-			}
-			pending[filepath.Dir(ev.Name)] = true
-			if ev.Op&fsnotify.Create != 0 {
-				if fi, statErr := os.Stat(ev.Name); statErr == nil && fi.IsDir() && !excludedDir(ev.Name) {
-					_ = w.Add(ev.Name)
-				}
-			}
-			schedule()
 
 		case <-fire:
 			// .env change → restart server with fresh env (no rebuild) + reload.
@@ -229,20 +226,17 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 					postReload(viteURL)
 					overlayUp = false
 				}
-				// fall through: an .env-only fire has empty pending.
+				// fall through: an .env-only fire has no source dirtiness.
 			}
-			if len(pending) == 0 && !depDirty {
+			if len(dirty.dirs) == 0 && !dirty.depDirty {
 				continue
 			}
-			results, rerr := sess.regenPending(pending, depDirty)
-			goChanged := depDirty
-			pending = map[string]bool{}
-			depDirty = false
+			results, goChanged, rerr := dirty.regenerate(sess.regenPending)
 			if rerr != nil {
 				fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
 				postEvent(viteURL, buildErrorEvent("regen failed: "+rerr.Error()))
 				overlayUp = true
-				continue // preserve nothing; next event retries
+				continue // retained dirty state is retried on the next relevant event
 			}
 			// Overlay state from this cycle.
 			postEvent(viteURL, aggregateEvent(results))
@@ -275,8 +269,25 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			}
 			overlayUp = false
 
-		case werr := <-w.Errors:
+		case werr, ok := <-w.Errors:
+			if !ok || errors.Is(werr, fsnotify.ErrClosed) {
+				if werr == nil {
+					werr = fsnotify.ErrClosed
+				}
+				fmt.Fprintf(stderr, "gsx dev: watch error: %v\n", werr)
+				shutdownProcesses()
+				return 1
+			}
 			fmt.Fprintf(stderr, "gsx dev: watch error: %v\n", werr)
+			changed, reconcileErr := reconcileWatchState(w, sess, sources, dirty)
+			if reconcileErr != nil {
+				fmt.Fprintf(stderr, "gsx dev: reconcile after watch error: %v\n", reconcileErr)
+				shutdownProcesses()
+				return 1
+			}
+			if changed {
+				schedule()
+			}
 		}
 	}
 }

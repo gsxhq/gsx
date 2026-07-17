@@ -5,7 +5,7 @@ component C(on bool, extra string) {
 	<div class={ "btn", "btn-on": on, extra }>y</div>
 }
 -- invoke --
-C(CProps{On: true, Extra: "x"})
+C(true, "x")
 -- diagnostics.golden --
 -- render.golden --
 <div class="btn btn-on x">y</div>

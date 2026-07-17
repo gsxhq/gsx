@@ -179,3 +179,91 @@ func TestParseFileStillReturnsSingleError(t *testing.T) {
 		t.Fatalf("ParseFile must still return one formatted error, got %v", err)
 	}
 }
+
+func TestEmptySpreadRequiresExpression(t *testing.T) {
+	cases := []struct {
+		name string
+		tag  string
+	}{
+		{name: "component compact", tag: "<C {...}/>"},
+		{name: "component spaced", tag: "<C { ... }/>"},
+		{name: "element compact", tag: "<div {...}></div>"},
+		{name: "element multiline", tag: "<div {\n\t...\n}></div>"},
+		{name: "element CRLF multiline", tag: "<div {\r\n\t...\r\n}></div>"},
+		{name: "conditional then", tag: "<C { if ok { {\n\t...\n} } }/>"},
+		{name: "conditional else", tag: `<div { if ok { id="x" } else { {...} } }></div>`},
+		{name: "after valid spread", tag: `<div {attrs...} data-x="..." { ... }></div>`},
+		{name: "comment only", tag: `<C { /* no expression */ ... }/>`},
+		{name: "line comment only", tag: "<C { // no expression\n ... }/>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package p\ncomponent Page(ok bool, attrs map[string]any) { " + tc.tag + " }\n"
+			fset := token.NewFileSet()
+			_, errs := ParseFileWithClassifier(fset, "empty_spread.gsx", []byte(src), 0, attrclass.Builtin())
+			if len(errs) != 1 {
+				t.Fatalf("errors = %+v, want exactly one empty-spread error", errs)
+			}
+			if got, want := errs[0].Msg, "spread attribute requires an expression before `...`"; got != want {
+				t.Fatalf("message = %q, want %q", got, want)
+			}
+			start := fset.Position(errs[0].Pos).Offset
+			end := fset.Position(errs[0].End).Offset
+			wantStart := strings.LastIndex(src, "...")
+			if start != wantStart || end != wantStart+3 {
+				t.Fatalf("error range = %d..%d, want ellipsis %d..%d", start, end, wantStart, wantStart+3)
+			}
+		})
+	}
+}
+
+func TestEmptySpreadRecoverySkipsBrokenComponentOnly(t *testing.T) {
+	src := `package p
+
+component Bad() { <div {...}></div> }
+
+func helper() string { return "kept" }
+
+component Good() { <p>ok</p> }
+`
+	f, errs := ParseFileWithClassifier(token.NewFileSet(), "empty_spread_recovery.gsx", []byte(src), 0, attrclass.Builtin())
+	if len(errs) != 1 || errs[0].Msg != "spread attribute requires an expression before `...`" {
+		t.Fatalf("errors = %+v, want one precise empty-spread error", errs)
+	}
+	var componentNames []string
+	var goSource strings.Builder
+	for _, decl := range f.Decls {
+		switch decl := decl.(type) {
+		case *ast.Component:
+			componentNames = append(componentNames, decl.Name)
+		case *ast.GoChunk:
+			goSource.WriteString(decl.Src)
+		default:
+			t.Fatalf("broken component residue survived recovery as %T", decl)
+		}
+	}
+	if len(componentNames) != 1 || componentNames[0] != "Good" {
+		t.Fatalf("components = %v, want [Good]", componentNames)
+	}
+	if !strings.Contains(goSource.String(), `func helper() string { return "kept" }`) {
+		t.Fatalf("top-level Go after broken component was swallowed: %q", goSource.String())
+	}
+}
+
+func TestSpreadExpressionAndPipelineRemainValid(t *testing.T) {
+	for _, tag := range []string{
+		"<C {attrs...}/>",
+		"<C { (attrs |> normalize)... }/>",
+		"<C { attrs /* keep this comment */ ... }/>",
+		`<C { "/* string content */"... }/>`,
+		"<C { `/* raw string content */`... }/>",
+		"<C { if ok { {attrs...} } else { { (fallback |> normalize)... } } }/>",
+		"<div { attrs... }></div>",
+		"<div { attrs |> normalize... }></div>",
+	} {
+		src := "package p\ncomponent Page() { " + tag + " }\n"
+		if _, err := ParseFile(token.NewFileSet(), "spread.gsx", []byte(src), 0); err != nil {
+			t.Errorf("%s: %v", tag, err)
+		}
+	}
+}

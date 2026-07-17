@@ -5,7 +5,7 @@ component Page(m map[string]int) {
 	<div x-data={ m }>x</div>
 }
 -- invoke --
-Page(PageProps{M: map[string]int{"a": 1}})
+Page(map[string]int{"a": 1})
 -- diagnostics.golden --
 4:7: attribute value type map[string]int not supported (string/number/bool/Stringer only)
 -- generated.x.go.golden --

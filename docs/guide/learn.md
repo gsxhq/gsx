@@ -17,9 +17,10 @@ component Greeting(name string) {
 Code inside `{ ... }` is an ordinary Go expression. Its output is escaped for
 the surrounding HTML context; see [Escaping](./syntax/escaping.md).
 
-## 2. Props are typed
+## 2. Inputs are typed
 
-Declare props as Go parameters and pass them as component attributes.
+Declare inputs as Go parameters and pass them as component attributes. The
+authored parameter list is also the generated Go function signature.
 
 ```gsx
 component Meter(value int) {
@@ -31,14 +32,17 @@ component Dashboard() {
 }
 ```
 
-Go reports invalid prop names or values at build time.
+Go reports invalid input names or values at build time.
 
 ## 3. Components compose with children
 
-Use `{children}` where a component should render its nested content.
+Declare `children gsx.Node`, then use `{children}` where a component should
+render its nested content.
 
 ```gsx
-component Panel(title string) {
+import "github.com/gsxhq/gsx"
+
+component Panel(title string, children gsx.Node) {
 	<section class="panel">
 		<h2>{title}</h2>
 		<div>{children}</div>

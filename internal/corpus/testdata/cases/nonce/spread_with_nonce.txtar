@@ -20,7 +20,7 @@ import "github.com/gsxhq/gsx"
 
 component Page(extra gsx.Attrs) { <script { extra... }>init()</script> }
 -- invoke --
-withTestNonce(Page(PageProps{Extra: gsx.Attrs{{Key: "id", Value: "s"}, {Key: "nonce", Value: "mine"}}}))
+withTestNonce(Page(gsx.Attrs{{Key: "id", Value: "s"}, {Key: "nonce", Value: "mine"}}))
 -- diagnostics.golden --
 -- render.golden --
 <script id="s" nonce="mine">init()</script>

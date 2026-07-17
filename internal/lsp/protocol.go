@@ -37,11 +37,63 @@ type initializeParams struct {
 }
 
 type clientCapabilities struct {
-	General generalCapabilities `json:"general"`
+	General      generalCapabilities      `json:"general"`
+	Workspace    workspaceCapabilities    `json:"workspace"`
+	TextDocument textDocumentCapabilities `json:"textDocument"`
+}
+
+type textDocumentCapabilities struct {
+	Rename renameClientCapabilities `json:"rename"`
+}
+
+type renameClientCapabilities struct {
+	DynamicRegistration bool `json:"dynamicRegistration"`
+	PrepareSupport      bool `json:"prepareSupport"`
 }
 
 type generalCapabilities struct {
 	PositionEncodings []string `json:"positionEncodings"`
+}
+
+type workspaceCapabilities struct {
+	DidChangeWatchedFiles didChangeWatchedFilesClientCapabilities `json:"didChangeWatchedFiles"`
+}
+
+type didChangeWatchedFilesClientCapabilities struct {
+	DynamicRegistration bool `json:"dynamicRegistration"`
+}
+
+type registrationParams struct {
+	Registrations []registration `json:"registrations"`
+}
+
+type registration struct {
+	ID              string `json:"id"`
+	Method          string `json:"method"`
+	RegisterOptions any    `json:"registerOptions"`
+}
+
+type didChangeWatchedFilesRegistrationOptions struct {
+	Watchers []fileSystemWatcher `json:"watchers"`
+}
+
+type fileSystemWatcher struct {
+	GlobPattern string `json:"globPattern"`
+}
+
+const (
+	fileChangeCreated = 1
+	fileChangeChanged = 2
+	fileChangeDeleted = 3
+)
+
+type didChangeWatchedFilesParams struct {
+	Changes []fileEvent `json:"changes"`
+}
+
+type fileEvent struct {
+	URI  string `json:"uri"`
+	Type int    `json:"type"`
 }
 
 type initializeResult struct {
@@ -53,11 +105,26 @@ type serverCapabilities struct {
 	TextDocumentSync           int                `json:"textDocumentSync"`
 	DefinitionProvider         bool               `json:"definitionProvider"`
 	ReferencesProvider         bool               `json:"referencesProvider"`
+	RenameProvider             *RenameOptions     `json:"renameProvider,omitempty"`
 	DocumentFormattingProvider bool               `json:"documentFormattingProvider"`
 	HoverProvider              bool               `json:"hoverProvider"`
 	DocumentSymbolProvider     bool               `json:"documentSymbolProvider"`
 	WorkspaceSymbolProvider    bool               `json:"workspaceSymbolProvider"`
 	CodeActionProvider         *CodeActionOptions `json:"codeActionProvider,omitempty"`
+}
+
+type RenameOptions struct {
+	PrepareProvider bool `json:"prepareProvider"`
+}
+
+type renameRegistrationOptions struct {
+	DocumentSelector []documentFilter `json:"documentSelector"`
+	RenameOptions
+}
+
+type documentFilter struct {
+	Scheme  string `json:"scheme,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
 }
 
 // CodeActionOptions advertises which code-action kinds the server produces. It
@@ -144,6 +211,17 @@ type referenceParams struct {
 type textDocumentPositionParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
 	Position     Position               `json:"position"`
+}
+
+type renameParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	NewName      string                 `json:"newName"`
+}
+
+type prepareRenameResult struct {
+	Range       Range  `json:"range"`
+	Placeholder string `json:"placeholder"`
 }
 
 // Location is the LSP Location type: a URI and a range within it.

@@ -8,7 +8,9 @@ pageOrder: 20
 -- input.gsx --
 package views
 
-component div() {
+import "github.com/gsxhq/gsx"
+
+component div(children gsx.Node, attrs gsx.Attrs) {
 	<div { attrs... }>{children}</div>
 }
 

@@ -10,7 +10,7 @@ component (p UsersPage) Grid(sort string) {
 	<div>{sort}-{p.Title}</div>
 }
 -- invoke --
-(UsersPage{Title: "T"}).Grid(UsersPageGridProps{Sort: "name"})
+(UsersPage{Title: "T"}).Grid("name")
 -- diagnostics.golden --
 -- render.golden --
 <div>name-T</div>

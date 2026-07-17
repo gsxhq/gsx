@@ -12,6 +12,6 @@ component Pair(a string, b string) {
 	<><span>{a}</span><span>{b}</span></>
 }
 -- invoke --
-Pair(PairProps{A: "x", B: "y"})
+Pair("x", "y")
 -- render.golden --
 <span>x</span><span>y</span>

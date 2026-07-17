@@ -1,13 +1,14 @@
 # (T, error) auto-unwrap inside an attrs={{ }} literal that also composes with
-# the fallthrough bag: hoisting rebuilds the composed .Merge(...) form (not a
-# bare gsx.Attrs{…} literal) so the hoisted temp lands inside the merged-last
-# literal, not a duplicate Attrs field.
+# the fallthrough bag: the tuple is unwrapped once at the literal's authored
+# position before the complete attrs stream is passed to Panel.
 -- input.gsx --
 package views
 
+import "github.com/gsxhq/gsx"
+
 func f() (string, error) { return "2", nil }
 
-component Panel() {
+component Panel(attrs gsx.Attrs) {
 	<section { attrs... }>x</section>
 }
 
@@ -24,22 +25,18 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
 func f() (string, error) { return "2", nil }
 
-type PanelProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:5:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+//line input.gsx:7:1
+func Panel(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
+//line input.gsx:8:2
 		_gsxgw.S("<section")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
@@ -49,16 +46,16 @@ func Panel(_gsxp PanelProps) _gsxrt.Node {
 	})
 }
 
-//line input.gsx:9:1
+//line input.gsx:11:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
+//line input.gsx:12:2
 		_gsxv0, _gsxerr := f()
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxv0}})}))
+		_gsxgw.Node(ctx, Panel(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxv0}})))
 		return _gsxgw.Err()
 	})
 }

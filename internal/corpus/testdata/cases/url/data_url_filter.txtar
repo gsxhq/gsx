@@ -8,7 +8,7 @@ component Avatar(png []byte) {
 	<img src={ png |> dataURL("image/png") } alt="a" />
 }
 -- invoke --
-Avatar(AvatarProps{Png: []byte("hi")})
+Avatar([]byte("hi"))
 -- diagnostics.golden --
 -- render.golden --
 <img src="data:image/png;base64,aGk=" alt="a"/>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type AvatarProps struct {
-	Png []byte
-}
-
 //line input.gsx:3:1
-func Avatar(_gsxp AvatarProps) _gsxrt.Node {
+func Avatar(png []byte) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		png := _gsxp.Png
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img src=\"")

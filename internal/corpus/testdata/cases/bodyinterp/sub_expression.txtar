@@ -9,7 +9,7 @@ component Row(x string) {
 	<p>{`a` + x}</p>
 }
 -- invoke --
-Row(RowProps{X: "<b>"})
+Row("<b>")
 -- diagnostics.golden --
 -- render.golden --
 <p>a&lt;b&gt;</p>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type RowProps struct {
-	X string
-}
-
 //line input.gsx:3:1
-func Row(_gsxp RowProps) _gsxrt.Node {
+func Row(x string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		x := _gsxp.X
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")

@@ -5,18 +5,19 @@ boundaries.
 
 ## Calling components
 
-Call a component with its name and pass declared props as attributes. Use a
+Call a component with its name and pass declared inputs as attributes. Use a
 self-closing tag when it has no nested content.
 
-<!--@include: ./_generated/composition/010-components-props.md-->
+<!--@include: ./_generated/composition/010-components-inputs.md-->
 
-Here `Page` passes strings, numbers, and the bare boolean prop `featured` to
+Here `Page` passes strings, numbers, and the bare boolean input `featured` to
 `Card`. Package-qualified calls use the same form: `<ui.Button label="Save"/>`.
+Names match the callee's authored parameters exactly.
 
 ## Generic components
 
 Declare Go type parameters after the component name. gsx infers type arguments
-from the props supplied at each call site.
+from the inputs supplied at each call site.
 
 <!--@include: ./_generated/composition/070-generic-components.md-->
 
@@ -38,27 +39,28 @@ case even though an untyped `4` would otherwise infer `int`.
 
 ## Children `{children}`
 
-Write `{children}` where a component should render the content between its
-opening and closing tags.
+Declare `children gsx.Node`, then write `{children}` where the component should
+render the content between its opening and closing tags.
 
 <!--@include: ./_generated/composition/020-children.md-->
 
 `Card` owns the surrounding markup and chooses the exact placement of the
-caller's `<em>composed</em>` node. A bring-your-own props struct opts into nested
-content with an explicit `Children gsx.Node` field; see
-[Props](./props.md#bring-your-own-struct).
+caller's `<em>composed</em>` node. Use `children ...gsx.Node` when the component
+needs each static top-level child separately; inside the body it is a
+`[]gsx.Node`.
 
-`children` — like `attrs` below and `ctx` — is reserved at the top level of a
-component body. See [Reserved component variables](./props.md#reserved-variables).
+The body is the only fill source for lowercase `children`; `children={...}` is
+rejected. A component without this parameter rejects a non-empty body. See
+[Reserved component inputs](./props.md#reserved-variables).
 
 ## Named slots
 
-Use `gsx.Node` props for additional content positions such as a header or
+Use ordinary `gsx.Node` parameters for additional content positions such as a header or
 footer. Pass markup inline in the matching attribute.
 
 <!--@include: ./_generated/composition/030-named-slots.md-->
 
-Named slots and `{children}` can be used together: named slots receive explicit
+Named slots and `children` can be used together: named slots receive explicit
 attributes, while `{children}` receives the content inside the tag.
 
 ## Cross-file and cross-package calls
@@ -74,21 +76,22 @@ and exported components can be called as `<ui.Button .../>` after importing
 
 ## Explicit attribute forwarding
 
-Undeclared component attributes are accepted only when the component uses the
-`attrs` bag. Put `{ attrs... }` on the element that should receive them.
+Undeclared component attributes are accepted only when the component declares
+an `attrs` parameter. Put `{ attrs... }` on the element that should receive them.
 
 <!--@include: ./_generated/composition/050-explicit-attribute-forwarding.md-->
 
 The component can forward the bag, split selected values across elements, or
-omit it entirely. See [Attributes — Spread](./attributes.md#spread-x-—-ordered)
+omit it entirely. Every unmatched input and explicit attrs contributor enters
+the bag at its authored position. See [Attributes — Spread](./attributes.md#spread-x-—-ordered)
 for bag syntax and [Escaping](./escaping.md) for the trust rules applied at the
 destination.
 
-For JavaScript or CSS attributes with dynamic holes, accept ordinary wrapper
-props and build the contextual literal on the final native element; see
+For JavaScript or CSS attributes with dynamic holes, accept ordinary parameters
+and build the contextual literal on the final native element; see
 [JavaScript](./javascript.md#attribute-local-javascript). A component that
 intentionally accepts trusted code may instead declare a `gsx.RawJS` or
-`gsx.RawCSS` prop and receive a
+`gsx.RawCSS` parameter and receive a
 [braced contextual value](./javascript.md#contextual-literals-as-go-values).
 
 ### Precedence
@@ -121,17 +124,17 @@ component in the chain still chooses where the attributes finally land.
 <!--@include: ./_generated/composition/090-forwarding-through-components.md-->
 
 `SearchIcon` adds its default class, then forwards the outer caller's class and
-ARIA label through `Icon` to the final `<span>`. To forward into a bring-your-own
-component, put the bag in its explicit `Attrs` field and pass the props with a
-[whole-struct splat](./props.md#whole-struct-splat).
+ARIA label through `Icon` to the final `<span>`. The target must declare its own
+`attrs` parameter; a composite value parameter does not implicitly accept a bag.
 
 ## Method components
 
 Declare a component as a method when several views share state held by a named
-receiver. Inline params remain the per-call data.
+receiver. Authored parameters remain the method's exact Go signature and the
+per-call markup data.
 
 <!--@include: ./_generated/composition/060-method-components.md-->
 
 Call another method component through the receiver, as in
 `<p.Grid sort={p.Sort}/>`. This keeps page-level state on `p` without threading
-it through every component prop.
+it through every component parameter.

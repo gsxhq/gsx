@@ -1,0 +1,108 @@
+# Conditional component attrs evaluate the taken branch exactly once in source
+# order. The true branch pins before -> successful JS tuple hole -> CSS hole ->
+# after; the false branch evaluates only else. The failing JS tuple hole
+# propagates its sentinel after before and prevents CSS/after evaluation.
+-- helpers.go --
+package views
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/gsxhq/gsx"
+)
+
+var trace []string
+var sentinel = errors.New("conditional attrs sentinel")
+
+func mark(label string) string {
+	trace = append(trace, label)
+	return label
+}
+
+func pair(label string) (string, error) {
+	return mark(label), nil
+}
+
+func fail(label string) (string, error) {
+	mark(label)
+	return "", sentinel
+}
+
+func checkedBranches() gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		trace = nil
+		if err := BranchPage(true).Render(ctx, w); err != nil {
+			return fmt.Errorf("true render: %w", err)
+		}
+		got := strings.Join(trace, ",")
+		if got != "before,js,css,after" {
+			return fmt.Errorf("true trace = %q", got)
+		}
+		if _, err := fmt.Fprintf(w, "|true=%s", got); err != nil {
+			return err
+		}
+
+		trace = nil
+		if err := BranchPage(false).Render(ctx, w); err != nil {
+			return fmt.Errorf("false render: %w", err)
+		}
+		got = strings.Join(trace, ",")
+		if got != "else" {
+			return fmt.Errorf("false trace = %q", got)
+		}
+		if _, err := fmt.Fprintf(w, "|false=%s", got); err != nil {
+			return err
+		}
+
+		trace = nil
+		err := ErrorPage().Render(ctx, io.Discard)
+		if !errors.Is(err, sentinel) {
+			return fmt.Errorf("error render = %v, want sentinel", err)
+		}
+		got = strings.Join(trace, ",")
+		if got != "before,error" {
+			return fmt.Errorf("error trace = %q", got)
+		}
+		_, err = fmt.Fprintf(w, "|error=%s", got)
+		return err
+	})
+}
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Sink(attrs gsx.Attrs) {
+	<div {attrs...}>x</div>
+}
+
+component BranchPage(on bool) {
+	<Sink { if on {
+		data-before={mark("before")}
+		onclick=js`call(@{pair("js")})`
+		style=css`color:@{mark("css")}`
+		data-after={mark("after")}
+	} else {
+		data-else={mark("else")}
+	} }/>
+}
+
+component ErrorPage() {
+	<Sink { if true {
+		data-before={mark("before")}
+		onclick=js`call(@{fail("error")})`
+		style=css`color:@{mark("late-css")}`
+		data-after={mark("after")}
+	} else {
+		data-else={mark("unreachable-else")}
+	} }/>
+}
+-- invoke --
+checkedBranches()
+-- diagnostics.golden --
+-- render.golden --
+<div style="color:css" data-before="before" onclick="call(&#34;js&#34;)" data-after="after">x</div>|true=before,js,css,after<div data-else="else">x</div>|false=else|error=before,error

@@ -3,19 +3,19 @@
     "name": "Component declaration",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
-    "invoke": "Greeting(GreetingProps{Name: \"World\", Count: 3})"
+    "invoke": "Greeting(\"World\", 3)"
   },
   {
     "name": "Go code block",
     "category": "Basics",
     "source": "package views\n\ncomponent FullName(first string, last string) {\n\t<div>\n\t\t{{ full := first + \" \" + last }}\n\t\t<span>{ full }</span>\n\t</div>\n}\n",
-    "invoke": "FullName(FullNameProps{First: \"Ada\", Last: \"Lovelace\"})"
+    "invoke": "FullName(\"Ada\", \"Lovelace\")"
   },
   {
     "name": "Void elements",
     "category": "Elements",
     "source": "package views\n\ncomponent AvatarField(src string, alt string, disabled bool) {\n\t<div>\n\t\t<img src={src} alt={alt}/>\n\t\t<br/>\n\t\t<input type=\"text\" required disabled={disabled}/>\n\t</div>\n}\n",
-    "invoke": "AvatarField(AvatarFieldProps{Src: \"/avatar.png\", Alt: \"User\", Disabled: true})"
+    "invoke": "AvatarField(\"/avatar.png\", \"User\", true)"
   },
   {
     "name": "Raw-text elements",
@@ -27,13 +27,13 @@
     "name": "HTML comments",
     "category": "Elements",
     "source": "package views\n\ncomponent Layout(name string) {\n\t<div>\n\t\t<!-- header -->\n\t\t<h1>{ name }</h1>\n\t\t<!-- a < b -->\n\t</div>\n}\n",
-    "invoke": "Layout(LayoutProps{Name: \"Ada\"})"
+    "invoke": "Layout(\"Ada\")"
   },
   {
     "name": "Attribute comments",
     "category": "Elements",
     "source": "package views\n\ncomponent Toggle(name string) {\n\t<input\n\t\ttype=\"checkbox\"\n\t\t// source-only note, never rendered\n\t\tid={name}\n\t/>\n}\n",
-    "invoke": "Toggle(ToggleProps{Name: \"agree\"})"
+    "invoke": "Toggle(\"agree\")"
   },
   {
     "name": "Content comments",
@@ -51,162 +51,162 @@
     "name": "Function (T, error) unwrap",
     "category": "Basics",
     "source": "package views\n\nfunc lookup(k string) (string, error) { return k, nil }\n\ncomponent Label(key string) {\n\t<span>{ lookup(key) }</span>\n}\n",
-    "invoke": "Label(LabelProps{Key: \"hello\"})"
+    "invoke": "Label(\"hello\")"
   },
   {
-    "name": "Error unwrap: childprop",
+    "name": "Error unwrap: component input",
     "category": "Basics",
     "source": "package views\n\nfunc lookup(k string) (string, error) { return \"val-\" + k, nil }\n\ncomponent Row(label string) {\n\t<span>{ label }</span>\n}\n\ncomponent Page(k string) {\n\t<Row label={lookup(k)}/>\n}\n",
-    "invoke": "Page(PageProps{K: \"item\"})"
+    "invoke": "Page(\"item\")"
   },
   {
     "name": "Boolean Attributes",
     "category": "Basics",
     "source": "package views\n\ncomponent Field(on bool) {\n\t<input type=\"text\" class=\"form-control\" required disabled={on}/>\n}\n",
-    "invoke": "Field(FieldProps{On: true})"
+    "invoke": "Field(true)"
   },
   {
     "name": "Conditional Attributes",
     "category": "Basics",
     "source": "package views\n\ncomponent Badge(featured bool) {\n\t<span\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>\n\t\tcontent\n\t</span>\n}\n",
-    "invoke": "Badge(BadgeProps{Featured: true})"
+    "invoke": "Badge(true)"
   },
   {
     "name": "Spread Attributes",
     "category": "Basics",
     "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(extra gsx.Attrs) {\n\t<div { extra... }>content</div>\n}\n",
-    "invoke": "Card(CardProps{Extra: gsx.Attrs{{Key: \"id\", Value: \"box\"}, {Key: \"data-active\", Value: \"true\"}}})"
+    "invoke": "Card(gsx.Attrs{{Key: \"id\", Value: \"box\"}, {Key: \"data-active\", Value: \"true\"}})"
   },
   {
     "name": "Ordered Attributes",
     "category": "Basics",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter signals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}>Count</Counter>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs, children gsx.Node) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter signals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}>Count</Counter>\n}\n",
     "invoke": "Page()"
   },
   {
     "name": "Attribute Contexts",
     "category": "Basics",
     "source": "package views\n\ncomponent Link(href string, label string) {\n\t<a href={href}>{ label }</a>\n}\n",
-    "invoke": "Link(LinkProps{Href: \"javascript:alert(1)\", Label: \"click me\"})"
+    "invoke": "Link(\"javascript:alert(1)\", \"click me\")"
   },
   {
-    "name": "Bring-your-own props",
+    "name": "Verbatim component signature",
     "category": "Components",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ntype Props struct {\n\tVariant  string\n\tChildren gsx.Node\n\tAttrs    gsx.Attrs\n}\n\ncomponent Button(p Props) {\n\t<button class={ \"btn\", p.Variant } { p.Attrs... }>{ p.Children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" data-test=\"save\">Save</Button>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Button(variant string, children gsx.Node, attrs gsx.Attrs) {\n\t<button class={ \"btn\", variant } { attrs... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" data-test=\"save\">Save</Button>\n}\n",
     "invoke": "Page()"
   },
   {
-    "name": "Props heuristic",
+    "name": "Signature shapes",
     "category": "Components",
-    "source": "package views\n\ntype Props struct {\n\tTitle string\n}\n\ncomponent Greeting(name string) {\n\t<p>Hi { name }</p>\n}\n\ncomponent Card(title string, n int) {\n\t<div>{ title }: { n }</div>\n}\n\ncomponent Panel(p Props) {\n\t<section>{ p.Title }</section>\n}\n\ncomponent Page() {\n\t<>\n\t\t<Greeting name=\"Ann\"/>\n\t\t<Card title=\"T\" n={2}/>\n\t\t<Panel title=\"P\"/>\n\t</>\n}\n",
+    "source": "package views\n\ntype Props struct {\n\tTitle string\n}\n\ncomponent Greeting(name string) {\n\t<p>Hi { name }</p>\n}\n\ncomponent Card(title string, n int) {\n\t<div>{ title }: { n }</div>\n}\n\ncomponent Panel(p Props) {\n\t<section>{ p.Title }</section>\n}\n\ncomponent Page() {\n\t<>\n\t\t<Greeting name=\"Ann\"/>\n\t\t<Card title=\"T\" n={2}/>\n\t\t<Panel p={Props{Title: \"P\"}}/>\n\t</>\n}\n",
     "invoke": "Page()"
   },
   {
-    "name": "Whole-struct splat",
+    "name": "Explicit parameter forwarding",
     "category": "Components",
-    "source": "package views\n\ntype cardData struct {\n\tTitle string\n}\n\ntype pageData struct {\n\tHeading string\n}\n\ntype Home struct{}\n\ncomponent Card(d cardData) {\n\t<div>{ d.Title }</div>\n}\n\ncomponent Page(d pageData) {\n\t<Card { cardData{Title: d.Heading}... }/>\n}\n\ncomponent (p Home) Content(pd pageData) {\n\t<h1>{ pd.Heading }</h1>\n}\n\ncomponent (p Home) Shell(pd pageData) {\n\t<p.Content { pd... }/>\n}\n",
+    "source": "package views\n\ntype cardData struct {\n\tTitle string\n}\n\ntype pageData struct {\n\tHeading string\n}\n\ntype Home struct{}\n\ncomponent Card(d cardData) {\n\t<div>{ d.Title }</div>\n}\n\ncomponent Page(d pageData) {\n\t<Card d={cardData{Title: d.Heading}}/>\n}\n\ncomponent (p Home) Content(pd pageData) {\n\t<h1>{ pd.Heading }</h1>\n}\n\ncomponent (p Home) Shell(pd pageData) {\n\t<p.Content pd={pd}/>\n}\n",
     "invoke": "(Home{}).Shell(pageData{Heading: \"Hi\"})"
   },
   {
     "name": "Class & style merging",
     "category": "Styling",
-    "source": "package views\n\ncomponent Card() {\n\t<div class=\"card\" style=\"color: red\" { attrs... }>{ children }</div>\n}\n",
-    "invoke": "Card(CardProps{Attrs: gsx.Attrs{{Key: \"class\", Value: \"featured\"}, {Key: \"style\", Value: \"color: blue; margin: 0\"}}})"
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(children gsx.Node, attrs gsx.Attrs) {\n\t<div class=\"card\" style=\"color: red\" { attrs... }>{ children }</div>\n}\n",
+    "invoke": "Card(nil, gsx.Attrs{{Key: \"class\", Value: \"featured\"}, {Key: \"style\", Value: \"color: blue; margin: 0\"}})"
   },
   {
     "name": "Filter arguments",
     "category": "Transforming values",
     "source": "package views\n\ncomponent Stats(s string, count int) {\n\t<p>{ s |> trim |> truncate(5) }</p>\n\t<p>{ count |> printf(\"%d comments\") }</p>\n}\n",
-    "invoke": "Stats(StatsProps{S: \"  hello world  \", Count: 42})"
+    "invoke": "Stats(\"  hello world  \", 42)"
   },
   {
     "name": "Pipelines in attribute context",
     "category": "Transforming values",
     "source": "package views\n\ncomponent Link(u string) {\n\t<a href={u |> trim}>x</a>\n}\n",
-    "invoke": "Link(LinkProps{U: \"  javascript:alert(1)  \"})"
+    "invoke": "Link(\"  javascript:alert(1)  \")"
   },
   {
     "name": "Interpolating attribute literals",
     "category": "Basics",
     "source": "package views\n\ncomponent Row(id string, n int) {\n\t<div data-key=f`row-@{id}-@{n}` title=f`Item @{id |> upper}`>Row</div>\n}\n",
-    "invoke": "Row(RowProps{Id: \"a&b\", N: 5})"
+    "invoke": "Row(\"a&b\", 5)"
   },
   {
     "name": "URL attribute literals are sanitized whole",
     "category": "Basics",
     "source": "package views\n\ncomponent Link(x string) {\n\t<a href=f`javascript:@{x}`>go</a>\n}\n",
-    "invoke": "Link(LinkProps{X: \"alert(1)\"})"
+    "invoke": "Link(\"alert(1)\")"
   },
   {
     "name": "Interpolated class literal merges with a spread bag",
     "category": "Styling",
-    "source": "package views\n\ncomponent Badge(variant string) {\n\t<span class=f`badge-@{variant}` { attrs... }>Hi</span>\n}\n",
-    "invoke": "Badge(BadgeProps{Variant: \"x\", Attrs: gsx.Attrs{{Key: \"class\", Value: \"hl\"}, {Key: \"id\", Value: \"a\"}}})"
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Badge(variant string, attrs gsx.Attrs) {\n\t<span class=f`badge-@{variant}` { attrs... }>Hi</span>\n}\n",
+    "invoke": "Badge(\"x\", gsx.Attrs{{Key: \"class\", Value: \"hl\"}, {Key: \"id\", Value: \"a\"}})"
   },
   {
     "name": "Body backtick literals",
     "category": "Basics",
     "source": "package views\n\ncomponent Row(id string, n int) {\n\t<p>{f`row-@{id}-@{n}`}</p>\n}\n",
-    "invoke": "Row(RowProps{Id: \"a&b\", N: 5})"
+    "invoke": "Row(\"a&b\", 5)"
   },
   {
     "name": "Whole-literal pipelines",
     "category": "Transforming values",
     "source": "package views\n\ncomponent Item(id string) {\n\t<li>{f`item-@{id}` |> upper}</li>\n}\n",
-    "invoke": "Item(ItemProps{Id: \"a&b\"})"
+    "invoke": "Item(\"a&b\")"
   },
   {
     "name": "Forwarding through components",
     "category": "Components & composition",
-    "source": "package views\n\ncomponent Icon(name string) {\n\t<span class=\"icon\" data-name={name} { attrs... }>i</span>\n}\n\ncomponent SearchIcon() {\n\t<Icon name=\"search\" class=\"w-5 h-5\" { attrs... }/>\n}\n\ncomponent Page() {\n\t<SearchIcon class=\"text-red\" aria-label=\"Search\"/>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Icon(name string, attrs gsx.Attrs) {\n\t<span class=\"icon\" data-name={name} { attrs... }>i</span>\n}\n\ncomponent SearchIcon(attrs gsx.Attrs) {\n\t<Icon name=\"search\" class=\"w-5 h-5\" { attrs... }/>\n}\n\ncomponent Page() {\n\t<SearchIcon class=\"text-red\" aria-label=\"Search\"/>\n}\n",
     "invoke": "Page()"
   },
   {
-    "name": "Interpolation & props",
+    "name": "Interpolation & inputs",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
-    "invoke": "Greeting(GreetingProps{Name: \"World\", Count: 3})"
+    "invoke": "Greeting(\"World\", 3)"
   },
   {
     "name": "Expression Attributes",
     "category": "Basics",
     "source": "package views\n\ncomponent Link(url string, label string, count int) {\n\t<a href={url} data-count={count}>{ label }</a>\n}\n",
-    "invoke": "Link(LinkProps{Url: \"/p?q=a&b\", Label: \"Docs\", Count: 42})"
+    "invoke": "Link(\"/p?q=a&b\", \"Docs\", 42)"
   },
   {
     "name": "Auto-escaping & safe raw",
     "category": "Basics",
     "source": "package views\n\n// User input in normal interpolation is HTML-escaped.\ncomponent Comment(body string) {\n\t<blockquote>{ body }</blockquote>\n}\n",
-    "invoke": "Comment(CommentProps{Body: \"<img src=x onerror=alert(1)>\"})"
+    "invoke": "Comment(\"<img src=x onerror=alert(1)>\")"
   },
   {
     "name": "If / else",
     "category": "Control flow",
     "source": "package views\n\ncomponent Inbox(name string, count int) {\n\t<section>\n\t\t<h1>Hi { name }</h1>\n\t\t{ if count > 0 {\n\t\t\t<p class=\"badge\">{ count } new</p>\n\t\t} else {\n\t\t\t<p>all caught up</p>\n\t\t} }\n\t</section>\n}\n",
-    "invoke": "Inbox(InboxProps{Name: \"World\", Count: 2})"
+    "invoke": "Inbox(\"World\", 2)"
   },
   {
     "name": "Loops over lists",
     "category": "Control flow",
     "source": "package views\n\ntype Item struct {\n\tName  string\n\tCount int\n}\n\ncomponent List(items []Item) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t\t<li>{ it.Name }: { it.Count }</li>\n\t\t} }\n\t</ul>\n}\n",
-    "invoke": "List(ListProps{Items: []Item{{Name: \"alpha\", Count: 1}, {Name: \"beta\", Count: 2}}})"
+    "invoke": "List([]Item{{Name: \"alpha\", Count: 1}, {Name: \"beta\", Count: 2}})"
   },
   {
     "name": "Switch",
     "category": "Control flow",
     "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":\n\t\t\t\t<b>warning</b>\n\t\t\tcase \"err\":\n\t\t\t\t<b>error</b>\n\t\t\tdefault:\n\t\t\t\t<b>info</b>\n\t\t} }\n\t</span>\n}\n",
-    "invoke": "Badge(BadgeProps{Kind: \"warn\"})"
+    "invoke": "Badge(\"warn\")"
   },
   {
-    "name": "Components & props",
+    "name": "Components & inputs",
     "category": "Components & composition",
     "source": "package views\n\ncomponent Card(title string, featured bool, count int) {\n\t<div class={ \"card\", \"card-featured\": featured }>\n\t\t<h2>{ title }</h2>\n\t\t<span>{ count }</span>\n\t</div>\n}\n\ncomponent Page(t string, n int) {\n\t<Card title={t} featured count={n}/>\n}\n",
-    "invoke": "Page(PageProps{T: \"Hi\", N: 3})"
+    "invoke": "Page(\"Hi\", 3)"
   },
   {
     "name": "Children",
     "category": "Components & composition",
-    "source": "package views\n\ncomponent Card(title string) {\n\t<article class=\"card\">\n\t\t<h3>{ title }</h3>\n\t\t<div class=\"card__body\">{ children }</div>\n\t</article>\n}\n\ncomponent Page() {\n\t<Card title=\"Hello\">\n\t\t<em>composed</em>\n\t</Card>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(title string, children gsx.Node) {\n\t<article class=\"card\">\n\t\t<h3>{ title }</h3>\n\t\t<div class=\"card__body\">{ children }</div>\n\t</article>\n}\n\ncomponent Page() {\n\t<Card title=\"Hello\">\n\t\t<em>composed</em>\n\t</Card>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -218,13 +218,13 @@
   {
     "name": "Template composition",
     "category": "Components & composition",
-    "source": "-- components.gsx --\npackage views\n\ncomponent Button(label string) {\n\t<button class=\"btn\">{ label }</button>\n}\n\ncomponent Card(title string) {\n\t<section class=\"card\">\n\t\t<h2>{ title }</h2>\n\t\t{ children }\n\t</section>\n}\n-- page.gsx --\npackage views\n\ntype HomePage struct {\n\tTitle string\n}\n\ncomponent (p HomePage) Render() {\n\t<main>\n\t\t<Card title={p.Title}>\n\t\t\t<Button label=\"Save\"/>\n\t\t</Card>\n\t</main>\n}\n",
+    "source": "-- components.gsx --\npackage views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Button(label string) {\n\t<button class=\"btn\">{ label }</button>\n}\n\ncomponent Card(title string, children gsx.Node) {\n\t<section class=\"card\">\n\t\t<h2>{ title }</h2>\n\t\t{ children }\n\t</section>\n}\n-- page.gsx --\npackage views\n\ntype HomePage struct {\n\tTitle string\n}\n\ncomponent (p HomePage) Render() {\n\t<main>\n\t\t<Card title={p.Title}>\n\t\t\t<Button label=\"Save\"/>\n\t\t</Card>\n\t</main>\n}\n",
     "invoke": "(HomePage{Title: \"Dashboard\"}).Render()"
   },
   {
     "name": "Explicit attribute forwarding",
     "category": "Components & composition",
-    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant} { attrs... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">Save</Button>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Button(variant string, children gsx.Node, attrs gsx.Attrs) {\n\t<button class=\"btn\" data-variant={variant} { attrs... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">Save</Button>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -249,30 +249,30 @@
     "name": "Composable class",
     "category": "Styling",
     "source": "package views\n\ncomponent Tag(label string, active bool) {\n\t<span class={ \"tag\", \"tag--active\": active }>\n\t\t{ label }\n\t</span>\n}\n",
-    "invoke": "Tag(TagProps{Label: \"stable\", Active: true})"
+    "invoke": "Tag(\"stable\", true)"
   },
   {
     "name": "Style blocks",
     "category": "Styling",
     "source": "package views\n\ncomponent Card(w int, userColor string) {\n\t<style>\n\t\t.card {\n\t\t\twidth: @{ w }px;\n\t\t\tcolor: @{ userColor };\n\t\t}\n\t</style>\n}\n",
-    "invoke": "Card(CardProps{W: 12, UserColor: \"teal\"})"
+    "invoke": "Card(12, \"teal\")"
   },
   {
     "name": "Pipelines / filters",
     "category": "Transforming values",
     "source": "package views\n\ncomponent Hi(name string) {\n\t<p>{ name |> trim |> upper }</p>\n}\n",
-    "invoke": "Hi(HiProps{Name: \"  ada  \"})"
+    "invoke": "Hi(\"  ada  \")"
   },
   {
     "name": "Fragments",
     "category": "Interactive & whole-page",
     "source": "package views\n\ncomponent Pair(a string, b string) {\n\t<><span>{ a }</span><span>{ b }</span></>\n}\n",
-    "invoke": "Pair(PairProps{A: \"x\", B: \"y\"})"
+    "invoke": "Pair(\"x\", \"y\")"
   },
   {
     "name": "Forms",
     "category": "Interactive & whole-page",
-    "source": "package views\n\ncomponent Field(label string) {\n\t<div class=\"field\">\n\t\t<label>{ label }</label>\n\t\t<input class=\"control\" { attrs... }/>\n\t</div>\n}\n\ncomponent LoginForm() {\n\t<form method=\"post\" action=\"/login\">\n\t\t<Field label=\"Email\" type=\"email\" name=\"email\" required/>\n\t\t<Field label=\"Password\" type=\"password\" name=\"password\" required/>\n\t\t<button type=\"submit\">Sign in</button>\n\t</form>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Field(label string, attrs gsx.Attrs) {\n\t<div class=\"field\">\n\t\t<label>{ label }</label>\n\t\t<input class=\"control\" { attrs... }/>\n\t</div>\n}\n\ncomponent LoginForm() {\n\t<form method=\"post\" action=\"/login\">\n\t\t<Field label=\"Email\" type=\"email\" name=\"email\" required/>\n\t\t<Field label=\"Password\" type=\"password\" name=\"password\" required/>\n\t\t<button type=\"submit\">Sign in</button>\n\t</form>\n}\n",
     "invoke": "LoginForm()"
   },
   {
@@ -285,19 +285,19 @@
     "name": "Full HTML document",
     "category": "Interactive & whole-page",
     "source": "package views\n\ncomponent Page(title string) {\n\t<!DOCTYPE html>\n\t<html lang=\"en\">\n\t\t<head>\n\t\t\t<title>{ title }</title>\n\t\t</head>\n\t\t<body>hi</body>\n\t</html>\n}\n",
-    "invoke": "Page(PageProps{Title: \"Home\"})"
+    "invoke": "Page(\"Home\")"
   },
   {
     "name": "Wrapper pattern",
     "category": "Basics",
-    "source": "package views\n\ncomponent div() {\n\t<div { attrs... }>{ children }</div>\n}\n\ncomponent Page() {\n\t<div class=\"card\">Hello</div>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent div(children gsx.Node, attrs gsx.Attrs) {\n\t<div { attrs... }>{ children }</div>\n}\n\ncomponent Page() {\n\t<div class=\"card\">Hello</div>\n}\n",
     "invoke": "Page()"
   },
   {
     "name": "Init statement",
     "category": "Control flow",
     "source": "package views\n\nfunc loadUser(id string) (string, error) { return \"User:\" + id, nil }\n\ncomponent Profile(id string) {\n\t<div>\n\t\t{ if name, err := loadUser(id); err != nil {\n\t\t\t<span class=\"err\">{ err.Error() }</span>\n\t\t} else {\n\t\t\t<span>{ name }</span>\n\t\t} }\n\t</div>\n}\n",
-    "invoke": "Profile(ProfileProps{Id: \"42\"})"
+    "invoke": "Profile(\"42\")"
   },
   {
     "name": "Script interpolation",
@@ -321,19 +321,19 @@
     "name": "Complete Alpine search",
     "category": "JavaScript",
     "source": "package views\n\ncomponent AlpineSearch(maxWidth int) {\n\t<div\n\t\tx-data=js`{\n\t\t\tsearch: '',\n\t\t\titems: ['foo', 'bar', 'baz'],\n\t\t\tget filteredItems() {\n\t\t\t\treturn this.items.filter(i => i.startsWith(this.search))\n\t\t\t}\n\t\t}`\n\t\tstyle={css`max-width:@{maxWidth}px`}\n\t>\n\t\t<input x-model=js`search` placeholder=\"Search...\"/>\n\t\t<ul>\n\t\t\t<template x-for=js`item in filteredItems` :key=js`item`>\n\t\t\t\t<li x-text=js`item`></li>\n\t\t\t</template>\n\t\t</ul>\n\t</div>\n}\n",
-    "invoke": "AlpineSearch(AlpineSearchProps{MaxWidth: 320})"
+    "invoke": "AlpineSearch(320)"
   },
   {
     "name": "JSON attribute values",
     "category": "JavaScript",
     "source": "package views\n\ncomponent EntityFilter(entityType string, opts map[string]string) {\n\t<input\n\t\ttype=\"checkbox\"\n\t\thx-post=\"/filter\"\n\t\thx-vals=js`{\"entity_type\": @{entityType}, \"opts\": @{opts}}`\n\t/>\n}\n",
-    "invoke": "EntityFilter(EntityFilterProps{EntityType: \"opportunity\", Opts: map[string]string{\"page\": \"1\"}})"
+    "invoke": "EntityFilter(\"opportunity\", map[string]string{\"page\": \"1\"})"
   },
   {
     "name": "Raw HTML",
     "category": "Basics",
     "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\n// ArticleBody renders pre-sanitized HTML from a CMS or Markdown converter.\n// { gsx.Raw(html) } emits the string verbatim — no entity encoding.\ncomponent ArticleBody(html string) {\n\t<article>{ gsx.Raw(html) }</article>\n}\n",
-    "invoke": "ArticleBody(ArticleBodyProps{Html: \"<em>Hello</em> &amp; <strong>World</strong>\"})"
+    "invoke": "ArticleBody(\"<em>Hello</em> &amp; <strong>World</strong>\")"
   },
   {
     "name": "Reading context",

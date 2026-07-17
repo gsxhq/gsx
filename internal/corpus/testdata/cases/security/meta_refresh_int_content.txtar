@@ -6,7 +6,7 @@ component Reload(secs int) {
 }
 
 -- invoke --
-Reload(ReloadProps{Secs: 5})
+Reload(5)
 
 -- render.golden --
 <meta http-equiv="refresh" content="5"/>

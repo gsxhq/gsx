@@ -25,7 +25,7 @@ component Page(v pg.Timestamptz) {
 	<div>{v}</div>
 }
 -- invoke --
-Page(PageProps{V: sample("13 Jul 2026")})
+Page(sample("13 Jul 2026"))
 -- diagnostics.golden --
 -- render.golden --
 <div><time>13 Jul 2026</time></div>
@@ -57,14 +57,9 @@ func Timestamptz(v pg.Timestamptz) gsx.Node {
 
 func sample(label string) pg.Timestamptz { return pg.Timestamptz{Label: label} }
 
-type PageProps struct {
-	V pg.Timestamptz
-}
-
 //line input.gsx:14:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(v pg.Timestamptz) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:15:2
 		_gsxgw.S("<div>")

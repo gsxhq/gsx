@@ -7,6 +7,7 @@ import (
 	"go/importer"
 	"go/token"
 	"go/types"
+	"maps"
 	"slices"
 	"sync/atomic"
 
@@ -29,25 +30,12 @@ import (
 // directives, so gsxFset maps a skeleton position back to its .gsx origin, the
 // same way diagnostics already do.
 //
-// analyze deliberately emits a SECOND copy of a component child-prop
-// expression, under its own //line stamp, as an inference-harvest probe (see
-// infer.go's inferRegistry doc) — so one source-level qualifier can appear
-// TWICE in the skeleton: once at its real site (the props literal / gsx.Attrs
-// assignment), once inside a _gsxuseq(...) probe call. The type-error loop
-// (module_importer.go) suppresses type errors landing inside a probe span
-// because "the props literal reports it" — so the ONE diagnostic the user
-// actually sees anchors at the props-literal copy, never the probe copy.
-// MissingImport.Pos is documented to mirror that diagnostic, so this function
-// must skip the same probe spans, computed by the same harvestProbeSpans
-// helper the type-error loop's quietSpans is built from
-// (module_importer.go). This is NOT the same thing as probeSiteForError:
-// that reports membership in an inferRegistry TYPE-INFERENCE span, which for
-// a GENERIC tag covers the props-literal occurrence (it is the one
-// participating in inference) — the occurrence we must KEEP — so filtering
-// on it used to drop the wrong copy for generics while accidentally working
-// for plain tags (where it never matched anything, and the (Name, Symbol)
-// dedupe below did all the work by keeping whichever copy ast.Inspect visited
-// first).
+// analyze deliberately emits a SECOND copy of some component operand
+// expressions, under their own //line stamps, as quiet type-harvest probes. A
+// source qualifier can therefore appear once in its native validation context
+// and once inside _gsxuseq(...). The type-error loop suppresses errors in the
+// quiet copy, so MissingImport.Pos must skip the same harvestProbeSpans and
+// retain the native occurrence.
 //
 // A second layer of dedupe collapses by (Name, Symbol) per file: two
 // GENUINE uses of the same qualifier+symbol (e.g. fmt.Sprint on two
@@ -56,15 +44,14 @@ import (
 // way — see add_imports_test.go's TestMissingImportsRepeatedGenuineUsesCollapse.
 // With the probe copies now filtered out up front, the surviving Pos for a
 // deduped (Name, Symbol) is always the FIRST non-probe occurrence in
-// ast.Inspect order — for the child-prop case, that is the props-literal
-// occurrence, matching the diagnostic.
+// ast.Inspect order, matching the diagnostic.
 //
 // Pure: walks ASTs analyze already parsed. No IO, no lock, no packages.Load, no
 // importer call. spansByFile is computed once per file by analyze (shared with
 // the type-error loop's quietSpans) and passed in, so this function itself does
 // no AST walk of its own beyond the SelectorExpr inspection below; per ident,
 // inHarvestProbe scans that file's span slice, so the cost is O(idents × spans)
-// — spans are few (one per child-prop/spread probe), so this stays cheap. Safe
+// — spans are few (one per operand/spread probe), so this stays cheap. Safe
 // on the Package() hot path.
 func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, info *types.Info, spansByFile map[*goast.File][]posSpan) map[string][]MissingImport {
 	if info == nil {
@@ -90,7 +77,7 @@ func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet,
 			// A selector root (se.X) is always a reference occurrence, never a
 			// declaration site, so only info.Uses (checked above) can resolve it.
 			if inHarvestProbe(probeSpans, id.Pos()) {
-				return true // _gsxuseq harvest-probe copy of a child-prop expr; the props-literal occurrence is reported instead
+				return true // _gsxuseq harvest-probe copy; the native operand occurrence is reported instead
 			}
 			key := id.Name + "." + se.Sel.Name
 			if seen[key] {
@@ -169,13 +156,23 @@ func (m *Module) ResolveImportCandidates(dir, name, symbol string) []string {
 	if name == "" {
 		return nil
 	}
+	// Candidate names, package identities, scopes, and the shared FileSet must
+	// all come from one analysis generation. This is a user-triggered slow path,
+	// so serialize the complete operation with Package/Generate instead of
+	// capturing a split snapshot and trying to reconcile it after the fact.
+	m.analysisMu.Lock()
+	defer m.analysisMu.Unlock()
+	m.maybeRebuildFset()
+	m.applyDirty()
+
 	importerPath, _ := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir)
 	graph := m.depGraphPackages()
+	names := m.importCandidatePackageNames(graph)
 
 	var cands []string
 	seen := map[string]bool{}
-	for path, pkg := range graph {
-		if pkg.Name() == name && !seen[path] && stdpath.InternalVisible(path, importerPath) {
+	for path, packageName := range names {
+		if packageName == name && !seen[path] && stdpath.InternalVisible(path, importerPath) {
 			seen[path] = true
 			cands = append(cands, path)
 		}
@@ -191,10 +188,17 @@ func (m *Module) ResolveImportCandidates(dir, name, symbol string) []string {
 		return cands
 	}
 
-	// Ambiguous: keep only candidates that export the symbol.
+	// Ambiguous: keep only candidates that export the symbol. Local scopes are
+	// rebuilt on demand through one declaration resolver within the same
+	// serialized snapshot used for enumeration above.
+	external, externalErr := m.externalImporter()
+	var resolver *sourceDeclResolver
+	if externalErr == nil {
+		resolver = newSourceDeclResolver(m, external)
+	}
 	var exact []string
 	for _, path := range cands {
-		if m.packageExports(graph, path, symbol) {
+		if m.packageExports(graph, resolver, path, symbol) {
 			exact = append(exact, path)
 		}
 	}
@@ -202,6 +206,25 @@ func (m *Module) ResolveImportCandidates(dir, name, symbol string) []string {
 		return exact
 	}
 	return cands // nothing eliminated it; let the caller offer them all
+}
+
+// importCandidatePackageNames combines the safe external type graph with the
+// authoritative main-module identities partitioned out of it. External
+// dependencies that re-enter the main module are absent: they are unsupported
+// imports, not code-action candidates.
+func (m *Module) importCandidatePackageNames(graph map[string]*types.Package) map[string]string {
+	names := make(map[string]string, len(graph))
+	for path, pkg := range graph {
+		names[path] = pkg.Name()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, source := range m.sourcePackages {
+		if source.pkgPath != "" && source.name != "" {
+			names[source.pkgPath] = source.name
+		}
+	}
+	return names
 }
 
 // depGraphPackages returns path -> *types.Package for every COMPLETE package
@@ -227,6 +250,13 @@ func (m *Module) depGraphPackages() map[string]*types.Package {
 	ext, err := m.externalImporter()
 	if err != nil {
 		return map[string]*types.Package{}
+	}
+	if m.opts.Bundle == nil {
+		m.mu.Lock()
+		packages := make(mapImporter, len(m.extPkgs))
+		maps.Copy(packages, m.extPkgs)
+		m.mu.Unlock()
+		return completeDepGraphPackages(packages)
 	}
 	mi, ok := ext.(mapImporter)
 	if !ok {
@@ -257,13 +287,23 @@ func completeDepGraphPackages(mi mapImporter) map[string]*types.Package {
 	return out
 }
 
-// packageExports reports whether path's package declares an exported `symbol`. A
-// package already in the graph answers from its scope for free; otherwise its
-// export data is read (and cached) via the gc importer. A load failure reports
-// false: better to offer one fewer candidate than to add a wrong import.
-func (m *Module) packageExports(graph map[string]*types.Package, path, symbol string) bool {
+// packageExports reports whether path's package declares an exported `symbol`.
+// A safe external package already in graph answers from its scope for free;
+// main-module source is rebuilt through resolver; remaining stdlib-table
+// candidates use cached gc export data. A load failure reports false: better to
+// offer one fewer candidate than add a wrong import.
+func (m *Module) packageExports(graph map[string]*types.Package, resolver *sourceDeclResolver, path, symbol string) bool {
 	if pkg, ok := graph[path]; ok {
 		return pkg.Scope().Lookup(symbol) != nil
+	}
+	if resolver != nil {
+		m.mu.Lock()
+		_, local := m.sourcePackageDirs[path]
+		m.mu.Unlock()
+		if local {
+			pkg, err := resolver.Import(path)
+			return err == nil && pkg != nil && pkg.Scope().Lookup(symbol) != nil
+		}
 	}
 	pkg, err := m.importExportData(path)
 	if err != nil || !pkg.Complete() {
@@ -275,15 +315,9 @@ func (m *Module) packageExports(graph map[string]*types.Package, path, symbol st
 // exportDataImporter lazily builds and caches a gc export-data importer, used
 // only by ResolveImportCandidates (a user-triggered code-action path, never
 // Package()'s hot path) to answer "does this stdlib table candidate export
-// symbol X" without a fresh packages.Load. Guarded by m.mu, NOT analysisMu:
-// Package() holds analysisMu for the duration of an analysis, and sync.Mutex is
-// not reentrant, so taking it here would self-deadlock any caller that (however
-// indirectly) reached this from within a held analysisMu. ResolveImportCandidates
-// never runs on that path, so m.mu is the correct, narrower lock.
-//
-// m.mu here guards only the lazy field assignment, not any use of the returned
-// importer — see importExportData, which is the only caller and which
-// additionally serializes the actual .Import() call under m.gcImporterMu.
+// symbol X" without a fresh packages.Load. ResolveImportCandidates holds
+// analysisMu for the complete enumeration-and-filter operation; m.mu only
+// protects publication of the cached field.
 func (m *Module) exportDataImporter() types.Importer {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -293,21 +327,11 @@ func (m *Module) exportDataImporter() types.Importer {
 	return m.gcImporter
 }
 
-// importExportData calls Import on the cached gc export-data importer,
-// serialized by m.gcImporterMu. go/importer's gc importer
-// (go/internal/gcimporter) mutates its own internal package cache during
-// Import, so two goroutines resolving different ambiguous names concurrently
-// (both hitting the "not already in the dep graph" branch of packageExports)
-// corrupt that cache even though the *importer value itself is safely
-// published by exportDataImporter's m.mu-guarded lazy init. gcImporterMu is a
-// dedicated lock for exactly this call — never m.mu (Import performs file IO
-// and must not block the fast mu-guarded fields like overrides/dirty) and
-// never analysisMu (ResolveImportCandidates deliberately runs off that path;
-// see the package doc above and the Module "Concurrency contract" comment in
-// module.go).
+// importExportData calls Import on the cached gc export-data importer. Its sole
+// caller is ResolveImportCandidates, whose analysisMu critical section
+// serializes the gc importer's mutable cache together with the authoritative
+// package snapshot.
 func (m *Module) importExportData(path string) (*types.Package, error) {
 	imp := m.exportDataImporter()
-	m.gcImporterMu.Lock()
-	defer m.gcImporterMu.Unlock()
 	return imp.Import(path)
 }

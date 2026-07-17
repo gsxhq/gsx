@@ -7,4 +7,3 @@ component C(u string) { <a href={ u |> absolute()? }>x</a> }
 3:33: the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)
 -- ast.golden --
 File package=examples
-  GoChunk len=29

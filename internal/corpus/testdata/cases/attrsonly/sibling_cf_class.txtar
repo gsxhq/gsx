@@ -1,6 +1,6 @@
-# Regression for #69, attrs-only branch: two sibling attrs-only component-VALUE
-# tags (a `func(gsx.Attrs) gsx.Node` factory value), each carrying a value-form
-# CF class part. The class bag is built by attrsOnlyBagExpr, which hoists a
+# Regression for #69: two sibling component-value tags whose static callable
+# signatures publish the reserved `attrs` role, each carrying a value-form
+# CF class part. The positional attrs plan hoists a
 # `_gsxvN` var+if into the SHARED skeleton function. A per-tag counter reset made
 # both emit `_gsxv0` → `_gsxv0 redeclared in this block`. The per-skeleton-function
 # counter keeps them unique.
@@ -32,7 +32,7 @@ var HomeIcon = func(attrs gsx.Attrs) gsx.Node {
 	return renderIcon(iconProps{Attrs: attrs})
 }
 -- invoke --
-Page(PageProps{On: true})
+Page(true)
 -- diagnostics.golden --
 -- render.golden --
 <div><svg class="a">i</svg><svg class="a">i</svg></div>
@@ -67,14 +67,9 @@ func renderIcon(p iconProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	On bool
-}
-
 //line input.gsx:13:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		on := _gsxp.On
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
 		_gsxgw.S("<div>")

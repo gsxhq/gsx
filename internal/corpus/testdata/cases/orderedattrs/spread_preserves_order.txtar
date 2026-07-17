@@ -29,14 +29,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	Bag gsx.Attrs
-}
-
 //line input.gsx:5:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(bag gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		bag := _gsxp.Bag
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := bag
@@ -54,7 +49,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Box(BoxProps{Bag: gsx.Attrs{{Key: "data-signals", Value: "{c:0}"}, {Key: "data-text", Value: "$c"}, {Key: "data-a", Value: "z"}}}))
+		_gsxgw.Node(ctx, Box(gsx.Attrs{{Key: "data-signals", Value: "{c:0}"}, {Key: "data-text", Value: "$c"}, {Key: "data-a", Value: "z"}}))
 		return _gsxgw.Err()
 	})
 }

@@ -19,6 +19,6 @@ component Inbox(name string, count int) {
 	</section>
 }
 -- invoke --
-Inbox(InboxProps{Name: "World", Count: 2})
+Inbox("World", 2)
 -- render.golden --
 <section><h1>Hi World</h1><p class="badge">2 new</p></section>

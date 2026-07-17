@@ -23,7 +23,7 @@ func TestLoadCaseSinglePackage(t *testing.T) {
 	if c.multiPkg {
 		t.Errorf("multiPkg = true, want false")
 	}
-	if string(c.invoke) != "Greeting(GreetingProps{Name: \"X\"})\n" {
+	if string(c.invoke) != "Greeting(\"X\")\n" {
 		t.Errorf("invoke = %q", c.invoke)
 	}
 	if _, ok := c.files["input.gsx"]; !ok {
@@ -147,7 +147,7 @@ func TestLoadCaseRenderersBadEntry(t *testing.T) {
 func TestLoadCaseDocSection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ex.txtar")
-	src := "-- doc --\nname: Demo\norder: 5\n-- input.gsx --\npackage views\n\ncomponent A() { <p>x</p> }\n-- invoke --\nA(AProps{})\n-- render.golden --\n<p>x</p>\n"
+	src := "-- doc --\nname: Demo\norder: 5\n-- input.gsx --\npackage views\n\ncomponent A() { <p>x</p> }\n-- invoke --\nA()\n-- render.golden --\n<p>x</p>\n"
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,11 @@
 package main
 
-import "github.com/gsxhq/vite"
+import (
+	"github.com/gsxhq/gsx"
+	"github.com/gsxhq/vite"
+)
 
-component Layout(title string) {
+component Layout(title string, children gsx.Node) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>

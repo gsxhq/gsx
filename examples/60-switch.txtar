@@ -19,6 +19,6 @@ component Badge(kind string) {
 	} }</span>
 }
 -- invoke --
-Badge(BadgeProps{Kind: "warn"})
+Badge("warn")
 -- render.golden --
 <span><b>warning</b></span>

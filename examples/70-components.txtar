@@ -1,6 +1,6 @@
 -- doc --
-name: Components & props
-summary: Call a component with a typed props struct; boolean props pass bare (featured).
+name: Components & inputs
+summary: Markup binds authored parameters by exact name; boolean inputs pass bare (featured).
 category: Components & composition
 order: 70
 page: composition
@@ -16,6 +16,6 @@ component Page(t string, n int) {
 	<Card title={t} featured count={n}/>
 }
 -- invoke --
-Page(PageProps{T: "Hi", N: 3})
+Page("Hi", 3)
 -- render.golden --
 <div class="card card-featured"><h2>Hi</h2><span>3</span></div>

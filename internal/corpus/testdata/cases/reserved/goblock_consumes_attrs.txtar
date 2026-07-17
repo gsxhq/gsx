@@ -5,12 +5,14 @@
 -- input.gsx --
 package views
 
-component Field(name string) {
+
+import "github.com/gsxhq/gsx"
+component Field(name string, attrs gsx.Attrs) {
 	{{ d := attrs.Has("class") }}
 	<input name={name} data-has-class={d}/>
 }
 -- invoke --
-Field(FieldProps{Name: "x", Attrs: gsx.Attrs{{Key: "class", Value: "y"}}})
+Field("x", gsx.Attrs{{Key: "class", Value: "y"}})
 -- diagnostics.golden --
 -- render.golden --
 <input name="x" data-has-class/>
@@ -21,24 +23,18 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type FieldProps struct {
-	Name  string
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Field(_gsxp FieldProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Field(name string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		d := attrs.Has("class")
-//line input.gsx:5:2
+//line input.gsx:7:2
 		_gsxgw.S("<input name=\"")
 		_gsxgw.AttrValue(string(name))
 		_gsxgw.S("\"")

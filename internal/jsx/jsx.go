@@ -70,6 +70,9 @@ func resolveGoParts(parts []ast.GoPart, bag *diag.Bag) bool {
 					ok = false
 				}
 			}
+			if !resolveMarkup(v.Segments, bag) {
+				ok = false
+			}
 		case *ast.Element:
 			if !resolveMarkup([]ast.Markup{v}, bag) {
 				ok = false
@@ -115,6 +118,14 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 			if strings.EqualFold(v.Tag, "script") {
 				if !resolveScript(v, bag) {
 					ok = false
+					continue
+				}
+				// resolveScript classifies the script's own holes. A hole's Go
+				// expression can itself contain a materialized js literal; recurse
+				// through those surviving Interp.Embedded payloads without
+				// reclassifying the outer script context.
+				if !resolveMarkup(v.Children, bag) {
+					ok = false
 				}
 				continue
 			}
@@ -142,6 +153,23 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 					ok = false
 				}
 			}
+		case *ast.Interp:
+			if !resolveGoParts(v.Embedded, bag) {
+				ok = false
+			}
+		case *ast.EmbeddedInterp:
+			if v.Lang == ast.EmbeddedJS {
+				if !ResolveEmbedded(v.Segments, bag) {
+					ok = false
+				}
+			}
+			if !resolveMarkup(v.Segments, bag) {
+				ok = false
+			}
+		case *ast.GoBlock:
+			if v.UnsupportedMarkup == nil && !resolveGoParts(v.Embedded, bag) {
+				ok = false
+			}
 		}
 	}
 	return ok
@@ -151,9 +179,22 @@ func resolveAttrList(attrs []ast.Attr, bag *diag.Bag) bool {
 	ok := true
 	for _, a := range attrs {
 		switch at := a.(type) {
+		case *ast.MarkupAttr:
+			if !resolveMarkup(at.Value, bag) {
+				ok = false
+			}
 		case *ast.EmbeddedAttr:
 			if at.Lang == ast.EmbeddedJS {
 				if !resolveJSAttr(at.Name, at.Segments, bag) {
+					ok = false
+				}
+			}
+			if !resolveMarkup(at.Segments, bag) {
+				ok = false
+			}
+		case *ast.ClassAttr:
+			for i := range at.Parts {
+				if at.Parts[i].CSSSegments != nil && !resolveMarkup(at.Parts[i].CSSSegments, bag) {
 					ok = false
 				}
 			}

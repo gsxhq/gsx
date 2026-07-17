@@ -24,7 +24,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return <svg stroke-width="2" class="size-5" { attrs |> withoutKey("id")... }>{ name }</svg>
 	}
@@ -51,7 +51,7 @@ import (
 	_gsxio "io"
 )
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
@@ -82,7 +82,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Search(_gsxrt.Attrs{{Key: "id", Value: "gone"}, {Key: "stroke-width", Value: "3"}, {Key: "class", Value: "size-4"}}...))
+		_gsxgw.Node(ctx, Search(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "id", Value: "gone"}}, _gsxrt.Attrs{{Key: "stroke-width", Value: "3"}}, _gsxrt.Attrs{{Key: "class", Value: "size-4"}})...))
 		return _gsxgw.Err()
 	})
 }

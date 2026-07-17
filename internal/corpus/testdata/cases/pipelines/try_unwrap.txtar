@@ -9,7 +9,7 @@ component Card(name string) {
 	<p>{greet(name)}</p>
 }
 -- invoke --
-Card(CardProps{Name: "Al"})
+Card("Al")
 -- diagnostics.golden --
 -- render.golden --
 <p>Hi Al</p>

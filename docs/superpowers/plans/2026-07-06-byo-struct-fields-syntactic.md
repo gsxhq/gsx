@@ -1,5 +1,9 @@
 # Syntactic BYO Struct-Field Enumeration Implementation Plan
 
+> **Superseded implementation plan:** BYO field enumeration is removed by the
+> verbatim-signature cutover. Retained as history only; see
+> `2026-07-14-verbatim-component-signatures.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `loadExternalStructFields`'s per-directory full `go/packages` type-load with a syntactic parse of the package's `.go` files, so BYO struct-field enumeration no longer type-checks the whole dependency graph — dropping `gsx fmt` from ~3.0s to sub-second and speeding `generate`'s cold path too.

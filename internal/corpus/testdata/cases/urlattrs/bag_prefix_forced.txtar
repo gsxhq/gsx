@@ -21,7 +21,7 @@ component Nav(p navProps) {
 }
 
 component Page() {
-	<Nav data-url-go={"javascript:alert(1)"} data-url-keep={"/safe"}/>
+	<Nav p={navProps{Attrs: gsx.Attrs{{Key: "data-url-go", Value: "javascript:alert(1)"}, {Key: "data-url-keep", Value: "/safe"}}}}/>
 }
 -- invoke --
 Page()
@@ -64,7 +64,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Nav(navProps{Attrs: _gsxrt.Attrs{{Key: "data-url-go", Value: "javascript:alert(1)"}, {Key: "data-url-keep", Value: "/safe"}}}))
+		_gsxgw.Node(ctx, Nav(navProps{Attrs: gsx.Attrs{{Key: "data-url-go", Value: "javascript:alert(1)"}, {Key: "data-url-keep", Value: "/safe"}}}))
 		return _gsxgw.Err()
 	})
 }

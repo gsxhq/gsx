@@ -1,0 +1,31 @@
+Component declarations preserve ordinary Go parameter shapes while formatting
+declared attrs/children roles, grouped names, and variadic children canonically.
+
+-- input.gsx --
+package p
+
+component Card( title string,attrs gsx.Attrs, children gsx.Node ) {
+	<section { attrs... }>{title}{children}</section>
+}
+
+component Pair(left,right string) {
+	<span>{left}{right}</span>
+}
+
+component Tabs( children ...gsx.Node ) {
+	<nav>{children}</nav>
+}
+-- fmt.golden --
+package p
+
+component Card(title string, attrs gsx.Attrs, children gsx.Node) {
+	<section { attrs... }>{ title }{ children }</section>
+}
+
+component Pair(left, right string) {
+	<span>{ left }{ right }</span>
+}
+
+component Tabs(children ...gsx.Node) {
+	<nav>{ children }</nav>
+}

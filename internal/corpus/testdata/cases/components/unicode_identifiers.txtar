@@ -1,0 +1,19 @@
+# A Unicode-exported component name and an ASCII-leading prop with Unicode
+# continuation runes survive parse, codegen, type checking, invocation, and
+# rendering. A Unicode-first prop is intentionally pinned at the parser layer
+# until Task 8 removes the legacy generated-Props field-name path.
+-- input.gsx --
+package views
+
+component Δέλτα(label数据٣ string) {
+	<p>{label数据٣}</p>
+}
+
+component Page() {
+	<Δέλτα label数据٣="γειά" />
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p>γειά</p>

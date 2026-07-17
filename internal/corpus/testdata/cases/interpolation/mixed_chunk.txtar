@@ -13,7 +13,7 @@ component Receipt(price Money) {
 	<p>{label()}{price}</p>
 }
 -- invoke --
-Receipt(ReceiptProps{Price: Money(9)})
+Receipt(Money(9))
 -- diagnostics.golden --
 -- render.golden --
 <p>price:$9</p>

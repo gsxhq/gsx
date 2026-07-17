@@ -56,6 +56,11 @@ func writeLSPTestFile(t *testing.T, dir, name, content string) {
 
 func analyzedLSPPackage(t *testing.T, src string) (*Package, string) {
 	t.Helper()
+	return analyzedLSPModule(t, map[string]string{"page/page.gsx": src}, "page/page.gsx")
+}
+
+func analyzedLSPModule(t *testing.T, files map[string]string, target string) (*Package, string) {
+	t.Helper()
 	root := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -64,9 +69,12 @@ func analyzedLSPPackage(t *testing.T, src string) (*Package, string) {
 	writeLSPTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	storeDir := filepath.Join(root, "store")
 	writeLSPTestFile(t, storeDir, "store.go", "package store\n\ntype ID string\n")
-	pageDir := filepath.Join(root, "page")
-	gsxPath := filepath.Join(pageDir, "page.gsx")
-	writeLSPTestFile(t, pageDir, "page.gsx", src)
+	for name, source := range files {
+		full := filepath.Join(root, filepath.FromSlash(name))
+		writeLSPTestFile(t, filepath.Dir(full), filepath.Base(full), source)
+	}
+	gsxPath := filepath.Join(root, filepath.FromSlash(target))
+	pageDir := filepath.Dir(gsxPath)
 
 	m, err := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{codegen.StdImportPath}})
 	if err != nil {
@@ -99,17 +107,107 @@ func analyzedLSPPackage(t *testing.T, src string) (*Package, string) {
 	for k, v := range pr.CrossIndex {
 		cross[k] = CrossRef{Name: v.Name, Decl: v.Decl, Decls: v.Decls, Refs: v.Refs}
 	}
+	calls := make(map[*gsxast.Element]ComponentCallFact, len(pr.ComponentCalls))
+	for element, call := range pr.ComponentCalls {
+		params := make(map[gsxast.Attr]ComponentParamFact, len(call.Params))
+		for attr, param := range call.Params {
+			params[attr] = ComponentParamFact{
+				Var:     param.Var,
+				Origin:  param.Origin,
+				Name:    param.Name,
+				Ordinal: param.Ordinal,
+				Role:    ComponentParamRole(param.Role),
+			}
+		}
+		calls[element] = ComponentCallFact{
+			Target:        call.Target,
+			TargetOrigin:  call.TargetOrigin,
+			TargetPackage: call.TargetPackage,
+			TargetKey:     call.TargetKey,
+			Signature:     call.Signature,
+			Params:        params,
+		}
+	}
 	return &Package{
-		GSXFset:    pr.GSXFset,
-		Fset:       pr.Fset,
-		Info:       pr.Info,
-		Types:      pr.Types,
-		Files:      pr.GSXFiles,
-		ExprMap:    pr.ExprMap,
-		CtrlMap:    ctrl,
-		SigTypes:   sigTypes,
-		CrossIndex: cross,
+		GSXFset:        pr.GSXFset,
+		Fset:           pr.Fset,
+		Info:           pr.Info,
+		Types:          pr.Types,
+		Files:          pr.GSXFiles,
+		ExprMap:        pr.ExprMap,
+		CtrlMap:        ctrl,
+		SigTypes:       sigTypes,
+		CrossIndex:     cross,
+		ComponentCalls: calls,
 	}, gsxPath
+}
+
+func TestFactoryComponentAttributeDefinitionUsesStaticSignaturePosition(t *testing.T) {
+	const sameFactory = `package page
+
+import "github.com/gsxhq/gsx"
+
+func factory() func(name string) gsx.Node {
+	return func(closureName string) gsx.Node { return nil }
+}
+
+var Badge = factory()
+`
+	const importedFactory = `package widgets
+
+import "github.com/gsxhq/gsx"
+
+type BadgeFactory = func(name string) gsx.Node
+
+func factory() BadgeFactory {
+	return func(closureName string) gsx.Node { return nil }
+}
+
+var Badge = factory()
+`
+	tests := []struct {
+		name          string
+		pagePath      string
+		pageSource    string
+		factorySource string
+		factoryFile   string
+		prefix        string
+	}{
+		{
+			name:          "same package anonymous return",
+			pagePath:      "page/page.gsx",
+			pageSource:    "package page\ncomponent Page() { <Badge name=\"ok\"/> }\n",
+			factorySource: sameFactory,
+			factoryFile:   "page/factory.go",
+			prefix:        "func factory() func(",
+		},
+		{
+			name:          "imported alias return",
+			pagePath:      "page/page.gsx",
+			pageSource:    "package page\nimport \"example.com/app/widgets\"\ncomponent Page() { <widgets.Badge name=\"ok\"/> }\n",
+			factorySource: importedFactory,
+			factoryFile:   "widgets/factory.go",
+			prefix:        "type BadgeFactory = func(",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			files := map[string]string{
+				test.pagePath:    test.pageSource,
+				test.factoryFile: test.factorySource,
+			}
+			pkg, path := analyzedLSPModule(t, files, test.pagePath)
+			offset := strings.Index(test.pageSource, `name="`)
+			position, ok := componentAttrParamAt(pkg, path, offset)
+			if !ok {
+				t.Fatal("factory component attribute has no definition")
+			}
+			wantOffset := strings.Index(test.factorySource, test.prefix) + len(test.prefix)
+			if filepath.Base(position.Filename) != filepath.Base(test.factoryFile) || position.Offset != wantOffset {
+				t.Fatalf("definition = %+v, want %s offset %d", position, test.factoryFile, wantOffset)
+			}
+		})
+	}
 }
 
 func TestSignatureTypeIdentAtTypeParams(t *testing.T) {

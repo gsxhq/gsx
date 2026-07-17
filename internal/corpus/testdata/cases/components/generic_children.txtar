@@ -3,7 +3,9 @@
 -- input.gsx --
 package views
 
-component Wrap[T string | int](title T) {
+import "github.com/gsxhq/gsx"
+
+component Wrap[T string | int](title T, children gsx.Node) {
 	<div>{title}{children}</div>
 }
 
@@ -22,43 +24,37 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type WrapProps[T string | int] struct {
-	Title    T
-	Children _gsxrt.Node
-}
-
-//line input.gsx:3:1
-func Wrap[T string | int](_gsxp WrapProps[T]) _gsxrt.Node {
+//line input.gsx:5:1
+func Wrap[T string | int](title T, children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
-		children := _gsxp.Children
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<div>")
-//line input.gsx:4:7
+//line input.gsx:6:7
 		_gsxgw.TextAny(title)
-//line input.gsx:4:14
+//line input.gsx:6:14
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Wrap[string](WrapProps[string]{Title: "hi", Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+//line input.gsx:10:2
+		_gsxgw.Node(ctx, Wrap[string]("hi", _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:29
+//line input.gsx:10:29
 			_gsxgw.S("<em>kid</em>")
 			return _gsxgw.Err()
-		})}))
+		})))
 		return _gsxgw.Err()
 	})
 }

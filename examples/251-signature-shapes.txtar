@@ -1,0 +1,36 @@
+-- doc --
+name: Signature shapes
+summary: Every authored parameter is part of the component's Go signature. Scalar, multi-parameter, and composite-value parameters follow the same exact-name rule.
+category: Components
+page: props
+pageOrder: 20
+-- input.gsx --
+package views
+
+type Props struct {
+	Title string
+}
+
+component Greeting(name string) {
+	<p>Hi { name }</p>
+}
+
+component Card(title string, n int) {
+	<div>{ title }: { n }</div>
+}
+
+component Panel(p Props) {
+	<section>{ p.Title }</section>
+}
+
+component Page() {
+	<>
+		<Greeting name="Ann"/>
+		<Card title="T" n={2}/>
+		<Panel p={Props{Title: "P"}}/>
+	</>
+}
+-- invoke --
+Page()
+-- render.golden --
+<p>Hi Ann</p><div>T: 2</div><section>P</section>

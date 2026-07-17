@@ -25,8 +25,8 @@ component Anchor(p anchorProps) {
 
 component Page() {
 	<div>
-		<Img src={"data:image/png;base64,iVBORw0KGgo="}/>
-		<Anchor href={"data:image/png;base64,iVBORw0KGgo="}/>
+		<Img p={imgProps{Attrs: gsx.Attrs{{Key: "src", Value: "data:image/png;base64,iVBORw0KGgo="}}}}/>
+		<Anchor p={anchorProps{Attrs: gsx.Attrs{{Key: "href", Value: "data:image/png;base64,iVBORw0KGgo="}}}}/>
 	</div>
 }
 -- invoke --
@@ -91,9 +91,9 @@ func Page() _gsxrt.Node {
 //line input.gsx:22:2
 		_gsxgw.S("<div>")
 //line input.gsx:23:3
-		_gsxgw.Node(ctx, Img(imgProps{Attrs: _gsxrt.Attrs{{Key: "src", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
+		_gsxgw.Node(ctx, Img(imgProps{Attrs: gsx.Attrs{{Key: "src", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
 //line input.gsx:24:3
-		_gsxgw.Node(ctx, Anchor(anchorProps{Attrs: _gsxrt.Attrs{{Key: "href", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
+		_gsxgw.Node(ctx, Anchor(anchorProps{Attrs: gsx.Attrs{{Key: "href", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

@@ -23,7 +23,7 @@ func fail(mark string) (string, error) {
 func checkedErrorPage() gsx.Node {
 	return gsx.Func(func(ctx context.Context, w io.Writer) error {
 		calls = nil
-		err := Page(PageProps{On: true}).Render(ctx, w)
+		err := Page(true).Render(ctx, w)
 		if !errors.Is(err, sentinel) {
 			return fmt.Errorf("render error = %v, want sentinel", err)
 		}

@@ -9,7 +9,7 @@ component Card(toggleAttrs gsx.Attrs) {
 }
 
 component Page() {
-	<Card toggle-attrs={{ "data-show": true, "data-hide": false }}/>
+	<Card toggleAttrs={{ "data-show": true, "data-hide": false }}/>
 }
 -- invoke --
 Page()
@@ -26,14 +26,9 @@ import (
 	_gsxio "io"
 )
 
-type CardProps struct {
-	ToggleAttrs gsx.Attrs
-}
-
 //line input.gsx:5:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(toggleAttrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		toggleAttrs := _gsxp.ToggleAttrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := toggleAttrs
@@ -51,7 +46,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{ToggleAttrs: _gsxrt.Attrs{{Key: "data-show", Value: true}, {Key: "data-hide", Value: false}}}))
+		_gsxgw.Node(ctx, Card(_gsxrt.Attrs{{Key: "data-show", Value: true}, {Key: "data-hide", Value: false}}))
 		return _gsxgw.Err()
 	})
 }

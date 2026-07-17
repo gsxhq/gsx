@@ -7,8 +7,9 @@ before a stable release.
 
 - Start a project, generate and format templates, inspect configuration, and run
   the Vite-backed development loop through the [CLI](./cli.md).
-- Build typed components with generated or user-owned props, children, slots,
-  control flow, pipelines, and attribute forwarding.
+- Build typed components whose authored parameters are their Go signature,
+  including declared children, slots, control flow, pipelines, and attribute
+  forwarding.
 - Render escaped HTML, URLs, CSS, and JavaScript values, with explicit trust
   boundaries where automatic encoding is not enough.
 - Use diagnostics, go-to-definition, hover, references, symbols, and formatting

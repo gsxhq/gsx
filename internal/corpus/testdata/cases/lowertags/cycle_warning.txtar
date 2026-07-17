@@ -5,11 +5,13 @@
 -- input.gsx --
 package views
 
-component div() {
+
+import "github.com/gsxhq/gsx"
+component div(children gsx.Node) {
 	<div><span>{children}</span></div>
 }
 
-component span() {
+component span(children gsx.Node) {
 	<span><div>{children}</div></span>
 }
 
@@ -19,6 +21,6 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-4:7: warning: wrapper cycle div → span → div will recurse infinitely at render
+6:7: warning: wrapper cycle div → span → div will recurse infinitely at render
 -- render.golden --
 <p>hi</p>

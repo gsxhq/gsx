@@ -31,6 +31,61 @@ type NavRef struct {
 	To   token.Position
 }
 
+type ComponentParamRole uint8
+
+const (
+	ComponentParamOrdinary ComponentParamRole = iota
+	ComponentParamAttrs
+	ComponentParamChildren
+	ComponentParamGoOnlyVariadic
+)
+
+// ComponentParamFact is the exact callable parameter selected for one authored
+// component attribute. Var is the instantiated identity and Origin is its
+// declaration identity.
+type ComponentParamFact struct {
+	Var     *types.Var
+	Origin  *types.Var
+	Name    string
+	Ordinal int
+	Role    ComponentParamRole
+}
+
+// ComponentCallFact is codegen's retained semantic answer for one successfully
+// planned markup call. Params is keyed by the authored attribute node, so LSP
+// never needs to reproduce component binding rules.
+type ComponentCallFact struct {
+	Target        types.Object
+	TargetOrigin  types.Object
+	TargetPackage string
+	TargetKey     string
+	Signature     *types.Signature
+	Params        map[gsxast.Attr]ComponentParamFact
+}
+
+// ComponentParamKey is the stable semantic identity of one callable parameter
+// on a logical component family.
+type ComponentParamKey struct {
+	PackagePath  string
+	ComponentKey string
+	Ordinal      int
+}
+
+// ComponentParamRenameFact is the complete module-wide rename surface for one
+// semantically validated GSX parameter. Decls contains every equivalent
+// build-tag variant; Refs contains exact semantic body uses and planner-bound
+// invocation attrs. BlockedNames is the complete module-wide union of typed
+// declaration-scope and authored call-attribute namespace collisions.
+type ComponentParamRenameFact struct {
+	Key          ComponentParamKey
+	Name         string
+	Role         ComponentParamRole
+	Origin       *types.Var
+	Decls        []token.Position
+	Refs         []token.Position
+	BlockedNames []string
+}
+
 // CtrlRef is the LSP mirror of codegen.ctrlRef: a control-flow clause's
 // skeleton position and smallest containing skeleton node, used for
 // go-to-definition on loop variables and condition identifiers.
@@ -66,7 +121,10 @@ type Package struct {
 	ExprMap    map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
 	CrossIndex map[string]CrossRef
-	NavIndex   []NavRef // navigable Go references → .gsx targets (func, props-struct, field)
+	NavIndex   []NavRef // navigable Go references → .gsx declaration targets
+	// ComponentCalls maps authored elements to exact target and parameter facts.
+	// The package owns this immutable analysis snapshot and its nested maps.
+	ComponentCalls map[*gsxast.Element]ComponentCallFact
 
 	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock, and each
 	// value-form if condition's *ValueIf) to its

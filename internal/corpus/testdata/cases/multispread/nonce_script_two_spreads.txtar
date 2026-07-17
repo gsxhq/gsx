@@ -25,10 +25,7 @@ component NonceTwoSpreads(p gsx.Attrs, q gsx.Attrs) {
 	<script { p... } { q... }>init()</script>
 }
 -- invoke --
-withTestNonce(NonceTwoSpreads(NonceTwoSpreadsProps{
-	P: gsx.Attrs{{Key: "id", Value: "s"}},
-	Q: gsx.Attrs{{Key: "data-x", Value: "1"}},
-}))
+withTestNonce(NonceTwoSpreads(gsx.Attrs{{Key: "id", Value: "s"}}, gsx.Attrs{{Key: "data-x", Value: "1"}}))
 -- diagnostics.golden --
 -- render.golden --
 <script id="s" data-x="1" nonce="r4nd0m">init()</script>
@@ -44,16 +41,9 @@ import (
 	_gsxio "io"
 )
 
-type NonceTwoSpreadsProps struct {
-	P gsx.Attrs
-	Q gsx.Attrs
-}
-
 //line input.gsx:5:1
-func NonceTwoSpreads(_gsxp NonceTwoSpreadsProps) _gsxrt.Node {
+func NonceTwoSpreads(p gsx.Attrs, q gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		p := _gsxp.P
-		q := _gsxp.Q
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := _gsxrt.ConcatAttrs(p, q)

@@ -16,6 +16,6 @@ component Page(title string) {
 	</html>
 }
 -- invoke --
-Page(PageProps{Title: "Home"})
+Page("Home")
 -- render.golden --
 <!DOCTYPE html><html lang="en"><head><title>Home</title></head><body>hi</body></html>

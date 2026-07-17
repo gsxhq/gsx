@@ -3,6 +3,7 @@ package gen
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +22,81 @@ func TestModuleRoot(t *testing.T) {
 	}
 	if modPath != "example.com/app" {
 		t.Errorf("modPath = %q, want example.com/app", modPath)
+	}
+}
+
+func TestModuleRootFailsClosedAtUnreadableNearestGoMod(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		setup func(*testing.T, string)
+	}{
+		{
+			name: "directory",
+			setup: func(t *testing.T, path string) {
+				if err := os.MkdirAll(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "broken symlink",
+			setup: func(t *testing.T, path string) {
+				if err := os.Symlink(filepath.Join(filepath.Dir(path), "missing.mod"), path); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := t.TempDir()
+			if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte("module example.com/parent\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			child := filepath.Join(parent, "child")
+			if err := os.MkdirAll(child, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			tt.setup(t, filepath.Join(child, "go.mod"))
+			dir := filepath.Join(child, "views")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			root, _, err := moduleRoot(dir)
+			if err == nil || !strings.Contains(err.Error(), filepath.Join(child, "go.mod")) {
+				t.Fatalf("moduleRoot = (%q, %v), want nearest go.mod read error", root, err)
+			}
+		})
+	}
+}
+
+func TestModuleRootRejectsNearestGoModWithoutModuleDirective(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte("module example.com/parent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(parent, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "go.mod"), []byte("go 1.26.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, modulePath, err := moduleRoot(child)
+	if err == nil || !strings.Contains(err.Error(), "module directive") {
+		t.Fatalf("moduleRoot = (%q, %q, %v), want missing module directive error", root, modulePath, err)
+	}
+}
+
+func TestModuleRootRejectsMalformedNearestGoMod(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\nrequire (\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gotRoot, modulePath, err := moduleRoot(root)
+	if err == nil || !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("moduleRoot = (%q, %q, %v), want malformed go.mod rejection", gotRoot, modulePath, err)
 	}
 }
 

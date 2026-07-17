@@ -1,4 +1,4 @@
-# byo method pass-through: two method components share ONE author-declared struct
+# Method pass-through: two method components share ONE author-declared struct
 # type (pageData) — gsx emits each method with the DIRECT param, no per-method
 # <RecvType><Method>Props wrapper.
 #
@@ -21,7 +21,7 @@ component (p home) Page(d pageData) {
 	<html>
 		<body>
 			<h1>{ d.Title }</h1>
-			<p.Content { d... }/>
+			<p.Content d={d}/>
 		</body>
 	</html>
 }

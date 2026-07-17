@@ -16,4 +16,4 @@ component Page() {
 	<Card bag={MyMap{"b": "2", "a": "1"}}/>
 }
 -- diagnostics.golden --
-12:26: cannot use MyMap{…} (value of map type MyMap) as gsx.Attrs value in struct literal
+12:2: attribute "bag" cannot be passed to github.com/gsxhq/gsx.Attrs: zero.go:2:18: cannot use _gsxvalue (variable of map type views.MyMap) as _gsxwant value in variable declaration

@@ -7,8 +7,8 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
-// reserved_bindings.go — the body-scope reservation check for the three
-// component-body identifiers (`ctx`, `children`, `attrs`). It is the "best-effort
+// reserved_bindings.go — the body-scope reservation check for the ambient
+// component-body identifier `ctx`. It is the "best-effort
 // wording" half of the reserved-identifiers design: it upgrades the raw Go
 // collision error a body-scope binding of a reserved name would otherwise draw
 // into a positioned, worded `reserved-identifier` diagnostic. It NEVER gates a
@@ -17,9 +17,9 @@ import (
 //
 // Scope is the whole game. A reserved name declared in the render closure's TOP
 // scope collides with what the generator binds there (`ctx` closure param,
-// `children := _gsxp.Children`, `attrs := _gsxp.Attrs`); a reserved name bound in
-// a NESTED scope (a `for`/`if`/`switch` body, a func literal, an inner block, a
-// component element's children) is an ordinary Go shadow and must NOT be flagged
+// `ctx` closure param); a `ctx` binding in a NESTED scope (a `for`/`if`/`switch`
+// body, a func literal, an inner block, a component element's children) is an
+// ordinary Go shadow and must NOT be flagged
 // — flagging it would reject correct code, the exact bug class this feature
 // eliminates.
 //
@@ -29,9 +29,8 @@ import (
 //   - PLAIN Element (`<div>…`) → writes the open tag, then emits its children
 //     inline (emit.go:1911-1917), no block — a plain element does NOT open a Go
 //     scope.
-//   - COMPONENT Element (`<Wrap>…`) → its children become the Children slot
-//     VALUE, a nested gsx.Func render closure (emitSlotClosure, emit.go:5147;
-//     wired via childPropsLiteral, emit.go:4587-4602) — a NEW Go scope. A
+//   - COMPONENT Element (`<Wrap>…`) → its children become the declared children
+//     argument, a nested gsx.Func render closure (emitSlotClosure) — a NEW Go scope. A
 //     reserved-name binding there is a legal shadow of the captured parent local
 //     (`attrs`/`children`); `ctx` re-binds as the slot closure's own param, so a
 //     `ctx :=` there is broken code the Go backstop reports, never gsx.
@@ -44,7 +43,7 @@ import (
 // component-element boundary emits into the closure's top scope (body-scope —
 // flag it); a GoBlock nested under one of those emits inside that block/closure
 // (nested-scope — legal shadow, do not flag). Element.IsComponent is stamped by
-// resolveComponentTags (module_importer.go:770) before this pass runs (:~874).
+// preprocessComponentCallSites before this pass runs.
 // `<script>`/`<style>` children route through genScriptChild/genStyleChild, not
 // genNode, so they cannot carry a body GoBlock and are not descended.  Attribute
 // markup (MarkupAttr child props — themselves slot closures — and CondAttr
@@ -52,8 +51,8 @@ import (
 // expressions, never the top scope; they are not descended either (a false
 // negative there is a nested shadow we would not flag anyway — sound).
 
-// checkReservedBodyBindings reports every body-scope binding of a reserved
-// component-body identifier (`ctx`/`children`/`attrs`) in c, positioned at the
+// checkReservedBodyBindings reports every body-scope binding of the ambient
+// component-body identifier `ctx` in c, positioned at the
 // binding ident. It walks c.Body, tracking whether the current markup position
 // still emits into the render closure's top scope, and reads each top-scope
 // GoBlock's top-level bindings via fragmentBindings (which already excludes
@@ -70,11 +69,16 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 		for _, n := range nodes {
 			switch t := n.(type) {
 			case *ast.GoBlock:
-				if !topScope || !t.CodePos.IsValid() {
+				if t.UnsupportedMarkup != nil || !topScope || !t.CodePos.IsValid() {
 					continue
 				}
 				for _, b := range fragmentBindings(t.Code, fragStmts) {
-					out = append(out, reservedDecl{name: b.name, pos: t.CodePos + token.Pos(b.off)})
+					// fragmentBindings is still shared with the pre-cutover free-use
+					// analyzer, so it returns attrs/children as well. They are ordinary
+					// authored parameters or locals now; only ambient ctx remains reserved.
+					if b.name == "ctx" {
+						out = append(out, reservedDecl{name: b.name, pos: t.CodePos + token.Pos(b.off)})
+					}
 				}
 			case *ast.Fragment:
 				walk(t.Children, topScope)
@@ -107,17 +111,12 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 // reservedBodyMeaning is the human-readable meaning of a reserved component-body
 // identifier, for the `reserved-identifier` diagnostic. The wording is the
 // design's canonical body-scope phrasing (spec "The model" / "Reservation
-// check"); it differs deliberately from checkReservedParams/checkReservedRecvVar,
-// whose legacy param/receiver wording ("explicit attribute forwarding") is pinned
-// by existing goldens.
+// check"); parameter and receiver diagnostics are emitted by their own exact
+// signature validation paths.
 func reservedBodyMeaning(name string) string {
 	switch name {
 	case "ctx":
 		return "the ambient context"
-	case "children":
-		return "the implicit children slot"
-	case "attrs":
-		return "the implicit fallthrough bag"
 	}
 	return "a reserved identifier"
 }

@@ -1,0 +1,33 @@
+# Cross-package generic inference uses semantic signature facts. An unexported
+# dependency-local constraint term does not need to be re-spelled in the caller:
+# the authored string operand infers T=string and the complete call renders.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- components/widget.gsx --
+package components
+
+type secret string
+
+component Widget[T secret | string](label T) {
+	<span>{string(label)}</span>
+}
+
+component Button(label string) {
+	<button>{label}</button>
+}
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/components"
+
+component Home() {
+	<components.Widget label="x" />
+	<components.Button label="ok" />
+}
+-- invoke --
+pages.Home()
+-- diagnostics.golden --
+-- render.golden --
+<span>x</span><button>ok</button>

@@ -19,7 +19,7 @@ component Show(widget *Widget) {
 	<div>{widget}</div>
 }
 -- invoke --
-Show(ShowProps{Widget: &Widget{Label: "hi"}})
+Show(&Widget{Label: "hi"})
 -- diagnostics.golden --
 -- render.golden --
 <div><b>hi</b></div>

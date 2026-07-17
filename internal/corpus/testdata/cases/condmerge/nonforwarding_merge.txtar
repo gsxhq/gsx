@@ -9,8 +9,8 @@ component Box(a bool) {
 }
 -- invoke --
 gsx.Fragment(
-	Box(BoxProps{A: true}),
-	Box(BoxProps{A: false}),
+	Box(true),
+	Box(false),
 )
 -- diagnostics.golden --
 -- generated.x.go.golden --
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	A bool
-}
-
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(a bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		a := _gsxp.A
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}

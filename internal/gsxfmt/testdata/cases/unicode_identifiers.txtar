@@ -1,0 +1,22 @@
+-- input.gsx --
+package views
+
+component Δέλτα(label数据٣ string,_κρυφό bool) {
+<section data-标签 = {label数据٣}>{label数据٣}</section>
+}
+
+component Page(value string) {
+<Δέλτα label数据٣={value} _κρυφό />
+<组件.卡片 标题={value}/>
+}
+-- fmt.golden --
+package views
+
+component Δέλτα(label数据٣ string, _κρυφό bool) {
+	<section data-标签={label数据٣}>{ label数据٣ }</section>
+}
+
+component Page(value string) {
+	<Δέλτα label数据٣={value} _κρυφό/>
+	<组件.卡片 标题={value}/>
+}

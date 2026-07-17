@@ -1,6 +1,6 @@
 -- doc --
-name: Error unwrap: childprop
-summary: A child-component prop value returning (T, error) auto-unwraps; the error propagates from Render.
+name: Error unwrap: component input
+summary: A component input returning (T, error) auto-unwraps; the error propagates from Render.
 category: Basics
 page: interpolation
 pageOrder: 35
@@ -13,6 +13,6 @@ component Row(label string) { <span>{label}</span> }
 
 component Page(k string) { <Row label={lookup(k)}/> }
 -- invoke --
-Page(PageProps{K: "item"})
+Page("item")
 -- render.golden --
 <span>val-item</span>

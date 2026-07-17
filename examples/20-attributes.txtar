@@ -12,6 +12,6 @@ component Link(url string, label string, count int) {
 	<a href={url} data-count={count}>{ label }</a>
 }
 -- invoke --
-Link(LinkProps{Url: "/p?q=a&b", Label: "Docs", Count: 42})
+Link("/p?q=a&b", "Docs", 42)
 -- render.golden --
 <a href="/p?q=a&amp;b" data-count="42">Docs</a>

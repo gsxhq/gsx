@@ -20,7 +20,7 @@ component Host(formID string) {
 	<div>{ consume(js`submit(@{formID})`) }</div>
 }
 -- invoke --
-Host(HostProps{FormID: "f1"})
+Host("f1")
 -- diagnostics.golden --
 -- render.golden --
 <div>submit(&#34;f1&#34;)</div>
@@ -35,14 +35,9 @@ import (
 	_gsxio "io"
 )
 
-type HostProps struct {
-	FormID string
-}
-
 //line input.gsx:3:1
-func Host(_gsxp HostProps) _gsxrt.Node {
+func Host(formID string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		formID := _gsxp.FormID
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div>")

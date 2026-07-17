@@ -17,14 +17,15 @@
 # In gsx the implicit `attrs` bag carries every unmatched call-site attribute
 # (type/placeholder/required) and is placed by hand on the <input>; the declared
 # `containerAttrs gsx.Attrs` param is a normal prop spread onto the wrapper <div>.
-# Call-site `container-attrs` kebab-matches the `ContainerAttrs` field, so it
-# binds to the param instead of falling through into the implicit bag.
+# Call-site `containerAttrs` binds to the param by its verbatim (camelCase) name,
+# so it targets the wrapper instead of falling through into the implicit bag.
+# (A kebab `container-attrs` is not an identifier, so it would fall through.)
 -- input.gsx --
 package views
 
 import "github.com/gsxhq/gsx"
 
-component Field(label string, containerAttrs gsx.Attrs) {
+component Field(label string, containerAttrs gsx.Attrs, attrs gsx.Attrs) {
 	<div class="field" { containerAttrs... }>
 		<label>{label}</label>
 		<input class="field-input" { attrs... }/>
@@ -34,7 +35,7 @@ component Field(label string, containerAttrs gsx.Attrs) {
 component Page() {
 	<Field
 		label="Email"
-		container-attrs={gsx.Attrs{{Key: "data-testid", Value: "email-field"}}}
+		containerAttrs={gsx.Attrs{{Key: "data-testid", Value: "email-field"}}}
 		type="email"
 		placeholder="you@co"
 		required
@@ -55,18 +56,9 @@ import (
 	_gsxio "io"
 )
 
-type FieldProps struct {
-	Label          string
-	ContainerAttrs gsx.Attrs
-	Attrs          _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func Field(_gsxp FieldProps) _gsxrt.Node {
+func Field(label string, containerAttrs gsx.Attrs, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
-		containerAttrs := _gsxp.ContainerAttrs
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := containerAttrs
@@ -97,7 +89,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Email", ContainerAttrs: gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, Attrs: _gsxrt.Attrs{{Key: "type", Value: "email"}, {Key: "placeholder", Value: "you@co"}, {Key: "required", Value: true}}}))
+		_gsxgw.Node(ctx, Field("Email", gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: true}})))
 		return _gsxgw.Err()
 	})
 }

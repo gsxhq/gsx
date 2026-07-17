@@ -12,7 +12,7 @@ component Link(userHref string) {
 	<a { mkBag(userHref)... }>click</a>
 }
 -- invoke --
-Link(LinkProps{UserHref: "javascript:alert(1)"})
+Link("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
 <a href="about:invalid#gsx">click</a>

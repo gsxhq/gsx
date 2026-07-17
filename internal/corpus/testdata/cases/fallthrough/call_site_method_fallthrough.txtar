@@ -1,9 +1,11 @@
 -- input.gsx --
 package views
 
+
+import "github.com/gsxhq/gsx"
 type Pg struct{}
 
-component (p Pg) Btn(variant string) {
+component (p Pg) Btn(variant string, children gsx.Node, attrs gsx.Attrs) {
 	<button data-variant={variant} { attrs... }>{children}</button>
 }
 

@@ -11,7 +11,7 @@ component Link(id string) {
 	<a href={ buildHref(id) } title={ label(id) }>profile</a>
 }
 -- invoke --
-Link(LinkProps{Id: "7"})
+Link("7")
 -- diagnostics.golden --
 -- render.golden --
 <a href="/u/7" title="user 7">profile</a>
@@ -29,14 +29,9 @@ import (
 func buildHref(id string) (string, error) { return "/u/" + id, nil }
 func label(id string) (string, error)     { return "user " + id, nil }
 
-type LinkProps struct {
-	Id string
-}
-
 //line input.gsx:6:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:2
 		_gsxgw.S("<a")

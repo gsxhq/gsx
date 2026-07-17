@@ -1,0 +1,34 @@
+# A raw Go helper redeclared across mutually-exclusive build-tag files is
+# tolerated ONLY when the declarations are signature-identical (see
+# helper_variant). Here the two `//go:build !never` / `never` files declare
+# `label` with DIFFERENT signatures (func() string vs func() int). Even though
+# the constraints are provably disjoint (the files never build together), the
+# mismatch means gsx cannot know which signature a referencing file sees, so it
+# does NOT suppress the redeclaration — go build is the arbiter of the active
+# file, but a signature mismatch is a real ambiguity that must surface.
+-- label.gsx --
+//go:build !never
+
+package views
+
+func label() string { return "active" }
+
+component Tag() {
+	<span>{ label() }</span>
+}
+-- label_never.gsx --
+//go:build never
+
+package views
+
+func label() int { return 0 }
+
+component TagNever() {
+	<span>never</span>
+}
+-- invoke --
+Tag()
+-- diagnostics.golden --
+5:6: 	other declaration of label
+5:6: label redeclared in this block
+-- render.golden --

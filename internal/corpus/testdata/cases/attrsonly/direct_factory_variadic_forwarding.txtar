@@ -1,12 +1,12 @@
-# A factory-produced attrs-only component may return direct markup from a
-# variadic func. The generated render closure must normalize the captured
+# A factory-produced component publishes a statically named variadic `attrs`
+# role and may return direct markup. The generated render closure normalizes the captured
 # []gsx.Attr parameter to gsx.Attrs before forwarding uses Has/Class/Style.
 -- input.gsx --
 package views
 
 import "github.com/gsxhq/gsx"
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return <svg stroke-width="2" class="size-5" { attrs... }>{ name }</svg>
 	}
@@ -32,7 +32,7 @@ import (
 	_gsxio "io"
 )
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
@@ -63,7 +63,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Search(_gsxrt.Attrs{{Key: "stroke-width", Value: "3"}, {Key: "class", Value: "size-4"}}...))
+		_gsxgw.Node(ctx, Search(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "stroke-width", Value: "3"}}, _gsxrt.Attrs{{Key: "class", Value: "size-4"}})...))
 		return _gsxgw.Err()
 	})
 }

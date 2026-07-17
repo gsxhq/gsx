@@ -24,16 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type ButtonProps[T string | int] struct {
-	Label T
-	Size  string
-}
-
 //line input.gsx:3:1
-func Button[T string | int](_gsxp ButtonProps[T]) _gsxrt.Node {
+func Button[T string | int](label T, size string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
-		size := _gsxp.Size
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<button class=\"")
@@ -51,7 +44,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Button[int](ButtonProps[int]{Label: 7}))
+		_gsxgw.Node(ctx, Button[int](7, ""))
 		return _gsxgw.Err()
 	})
 }

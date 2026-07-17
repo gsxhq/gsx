@@ -9,7 +9,7 @@ context; see [Escaping](./escaping.md).
 Braces accept ordinary Go expressions: names, calls, arithmetic, conversions,
 method calls, and element values.
 
-<!--@include: ./_generated/interpolation/010-interpolation-props.md-->
+<!--@include: ./_generated/interpolation/010-interpolation-inputs.md-->
 
 `{ name }` writes a string and `{ count }` writes a number. A `gsx.Node` renders
 as markup; other values are formatted according to their Go type.
@@ -77,13 +77,13 @@ returning it, use an explicit Go `if` statement; see
 [Control flow](./control-flow.md#init-statements). The automatic rule applies
 in every expression position; a pipeline applies it at any stage.
 
-### Component props
+### Component inputs
 
-The same rule applies when a function call supplies a component prop.
+The same rule applies when a function call supplies a component input.
 
-<!--@include: ./_generated/interpolation/035-error-unwrap-childprop.md-->
+<!--@include: ./_generated/interpolation/035-error-unwrap-component-input.md-->
 
-Multiple prop expressions are evaluated in source order, and the first
+Multiple input expressions are evaluated in source order, and the first
 non-nil error stops rendering.
 
 ## Choosing braces

@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +107,7 @@ component Page(m map[string]any) {
 	<Card bag={m}/>
 }
 `,
-			wantText:   "as gsx.Attrs",
+			wantText:   "to github.com/gsxhq/gsx.Attrs",
 			wantCount:  1,
 			forbidText: "_gsxbag",
 		},
@@ -242,13 +243,14 @@ func TestModuleInvalidateKeepsExternalWarm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The freshly-rebuilt Button props struct must reflect the int param.
-	obj := pkg.Scope().Lookup("ButtonProps")
-	if obj == nil {
-		t.Fatal("ButtonProps not in scope after invalidation")
+	// The freshly rebuilt authored signature must reflect the int param.
+	obj, ok := pkg.Scope().Lookup("Button").(*types.Func)
+	if !ok {
+		t.Fatal("Button function not in scope after invalidation")
 	}
-	if !strings.Contains(obj.Type().Underlying().String(), "int") {
-		t.Fatalf("Invalidate did not refresh comp types: %s", obj.Type().Underlying())
+	sig := obj.Type().(*types.Signature)
+	if sig.Params().Len() != 1 || !strings.Contains(sig.Params().At(0).Type().String(), "int") {
+		t.Fatalf("Invalidate did not refresh comp signature: %s", sig)
 	}
 	// ext importer must still be non-nil (warm, not cleared by Invalidate)
 	if m.ext == nil {

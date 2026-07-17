@@ -8,6 +8,6 @@ package views
 
 component Hello() { <p>hi</p> }
 -- invoke --
-Hello(HelloProps{})
+Hello()
 -- render.golden --
 <p>hi</p>

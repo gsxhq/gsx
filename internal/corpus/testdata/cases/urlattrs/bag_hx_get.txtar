@@ -19,7 +19,7 @@ component Ctrl(p ctrlProps) {
 }
 
 component Page() {
-	<Ctrl hx-get={"/path"} data-role={"tab"}/>
+	<Ctrl p={ctrlProps{Attrs: gsx.Attrs{{Key: "hx-get", Value: "/path"}, {Key: "data-role", Value: "tab"}}}}/>
 }
 -- invoke --
 Page()
@@ -62,7 +62,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Ctrl(ctrlProps{Attrs: _gsxrt.Attrs{{Key: "hx-get", Value: "/path"}, {Key: "data-role", Value: "tab"}}}))
+		_gsxgw.Node(ctx, Ctrl(ctrlProps{Attrs: gsx.Attrs{{Key: "hx-get", Value: "/path"}, {Key: "data-role", Value: "tab"}}}))
 		return _gsxgw.Err()
 	})
 }

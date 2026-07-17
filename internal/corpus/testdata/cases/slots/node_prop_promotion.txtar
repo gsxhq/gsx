@@ -11,7 +11,7 @@ component Page(n int) {
 	<Card title="Card Title" content={n}/>
 }
 -- invoke --
-Page(PageProps{N: 5})
+Page(5)
 -- diagnostics.golden --
 -- render.golden --
 <div class="card"><h2>Card Title</h2><div class="body">5</div></div>
@@ -27,16 +27,9 @@ import (
 	_gsxio "io"
 )
 
-type CardProps struct {
-	Title   gsx.Node
-	Content gsx.Node
-}
-
 //line input.gsx:5:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(title gsx.Node, content gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
-		content := _gsxp.Content
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div class=\"card\">")
@@ -54,17 +47,12 @@ func Card(_gsxp CardProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	N int
-}
-
 //line input.gsx:9:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		n := _gsxp.N
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Card Title"), Content: _gsxrt.Val(n)}))
+		_gsxgw.Node(ctx, Card(_gsxrt.Text("Card Title"), _gsxrt.Val(n)))
 		return _gsxgw.Err()
 	})
 }

@@ -5,7 +5,7 @@ component Page(tab string) {
 	<div x-data="{ tab: @{ tab }, open: false }">x</div>
 }
 -- invoke --
-Page(PageProps{Tab: "home"})
+Page("home")
 -- diagnostics.golden --
 -- render.golden --
 <div x-data="{ tab: @{ tab }, open: false }">x</div>
@@ -20,12 +20,8 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Tab string
-}
-
 //line input.gsx:3:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(tab string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
