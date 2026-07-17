@@ -43,6 +43,18 @@ replace the default `npx vite` command.
 Open `app.gsx`, change the text inside `<h1>`, and save. The server rebuilds
 and the browser reloads with the new text.
 
+`app.gsx` also shows reusable markup bound to a package-level `var` — inferred
+as `gsx.Node` and interpolated like any other node:
+
+```gsx
+var footer = <><hr/><small>Built with gsx</small></>
+
+component Page(children gsx.Node) {
+	<main>{children}</main>
+	{footer}
+}
+```
+
 Generated `*.x.go` files are ignored by the starter. Do not edit or commit
 them; gsx recreates them from the `.gsx` source.
 
