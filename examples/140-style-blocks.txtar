@@ -17,6 +17,6 @@ component Card(w int, userColor string) {
 	</style>
 }
 -- invoke --
-Card(CardProps{W: 12, UserColor: "teal"})
+Card(12, "teal")
 -- render.golden --
 <style>.card{width: 12px;color: teal}</style>

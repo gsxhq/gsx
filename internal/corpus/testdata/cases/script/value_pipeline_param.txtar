@@ -7,7 +7,7 @@ component Page(name string) {
 	<script>const n = @{ name |> truncate(3) };</script>
 }
 -- invoke --
-Page(PageProps{Name: "alice"})
+Page("alice")
 -- diagnostics.golden --
 -- render.golden --
 <script>const n = "ali";</script>
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Name string
-}
-
 //line input.gsx:3:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<script")

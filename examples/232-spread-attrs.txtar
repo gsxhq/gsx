@@ -13,6 +13,6 @@ component Card(extra gsx.Attrs) {
 	<div { extra... }>content</div>
 }
 -- invoke --
-Card(CardProps{Extra: gsx.Attrs{{Key: "id", Value: "box"}, {Key: "data-active", Value: "true"}}})
+Card(gsx.Attrs{{Key: "id", Value: "box"}, {Key: "data-active", Value: "true"}})
 -- render.golden --
 <div id="box" data-active="true">content</div>

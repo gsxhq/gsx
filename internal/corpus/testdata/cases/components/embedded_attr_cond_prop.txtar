@@ -4,13 +4,15 @@
 -- input.gsx --
 package views
 
-component Field(label string) { <input aria-label={label} { attrs... }/> }
+
+import "github.com/gsxhq/gsx"
+component Field(label string, attrs gsx.Attrs) { <input aria-label={label} { attrs... }/> }
 
 component Page(edit bool) {
 	<Field label="Category" { if edit { x-model=js`pdcaCategory` } } />
 }
 -- invoke --
-Page(PageProps{Edit: true})
+Page(true)
 -- diagnostics.golden --
 -- render.golden --
 <input aria-label="Category" x-model="pdcaCategory"/>
@@ -21,22 +23,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type FieldProps struct {
-	Label string
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Field(_gsxp FieldProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Field(label string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:3:33
+//line input.gsx:5:50
 		_gsxgw.S("<input")
 		if !attrs.Has("aria-label") {
 			_gsxgw.S(" aria-label=\"")
@@ -51,23 +47,18 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	Edit bool
-}
-
-//line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+//line input.gsx:7:1
+func Page(edit bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		edit := _gsxp.Edit
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
+//line input.gsx:8:2
 		_gsxv0, _gsxerr := _gsxrt.AttrsCond(edit, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "x-model", Value: "pdcaCategory"}}, nil
+			return _gsxrt.Attrs{{Key: "x-model", Value: _gsxrt.RawJS("pdcaCategory")}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: _gsxrt.ConcatAttrs(_gsxv0)}))
+		_gsxgw.Node(ctx, Field("Category", _gsxv0))
 		return _gsxgw.Err()
 	})
 }

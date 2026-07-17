@@ -11,7 +11,7 @@ Use this page to look up `.gsx` syntax. If you are new to gsx, follow
 4. [Attributes](./syntax/attributes.md) — static, dynamic, conditional, and spread attributes
 5. [Control flow](./syntax/control-flow.md) — `if`, `for`/`range`, and `switch`
 6. [Composition](./syntax/composition.md) — component calls, children, slots, and forwarding
-7. [Props](./syntax/props.md) — bring-your-own structs and generated props
+7. [Component signatures](./syntax/props.md) — exact inputs, options values, and direct Go calls
 
 ## More topics
 
@@ -102,7 +102,7 @@ Generation processes both files; `go build` selects the matching variant.
 | `header={ <h2>Title</h2> }` | [Named slot](./syntax/composition.md#named-slots) |
 | `{children}` | [Children placement](./syntax/composition.md#children-children) |
 | `<Inner { attrs... }/>` | [Attribute forwarding](./syntax/composition.md#forwarding-through-components) |
-| `<Card { props... }/>` | [Whole-struct splat](./syntax/props.md#whole-struct-splat) |
+| `<Card opts={opts}/>` | [Explicit value forwarding](./syntax/props.md#forward-values-explicitly) |
 
 > **Status — alpha.** Check [Status](./status.md) and the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) before relying

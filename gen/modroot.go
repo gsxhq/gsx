@@ -1,13 +1,15 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 
-	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/modpath"
+	"golang.org/x/mod/modfile"
 )
 
 // moduleGroup is a set of package directories that share one enclosing module,
@@ -59,8 +61,27 @@ func moduleRoot(dir string) (string, string, error) {
 	}
 	for {
 		gomod := filepath.Join(d, "go.mod")
-		if data, err := os.ReadFile(gomod); err == nil {
-			return d, codegen.ModulePathFromGoMod(data), nil
+		data, readErr := os.ReadFile(gomod)
+		if readErr == nil {
+			file, parseErr := modfile.Parse(gomod, data, nil)
+			if parseErr != nil {
+				return "", "", fmt.Errorf("gen: parse %s: %w", gomod, parseErr)
+			}
+			if file.Module == nil || file.Module.Mod.Path == "" {
+				return "", "", fmt.Errorf("gen: go.mod at %s has no module directive", gomod)
+			}
+			return d, file.Module.Mod.Path, nil
+		}
+		if !errors.Is(readErr, fs.ErrNotExist) {
+			return "", "", fmt.Errorf("gen: read %s: %w", gomod, readErr)
+		}
+		// ReadFile also reports ErrNotExist for a broken go.mod symlink. Such an
+		// entry is the nearest module boundary and must fail closed rather than
+		// silently falling through to an enclosing module.
+		if _, statErr := os.Lstat(gomod); statErr == nil {
+			return "", "", fmt.Errorf("gen: read %s: %w", gomod, readErr)
+		} else if !errors.Is(statErr, fs.ErrNotExist) {
+			return "", "", fmt.Errorf("gen: inspect %s: %w", gomod, statErr)
 		}
 		parent := filepath.Dir(d)
 		if parent == d {

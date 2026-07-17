@@ -17,8 +17,8 @@ component Ordered(on bool) {
 }
 -- invoke --
 gsx.Fragment(
-	Ordered(OrderedProps{On: true}),
-	Ordered(OrderedProps{On: false}),
+	Ordered(true),
+	Ordered(false),
 )
 -- diagnostics.golden --
 -- generated.x.go.golden --
@@ -39,14 +39,9 @@ func mark(label, value string) string {
 	return value
 }
 
-type OrderedProps struct {
-	On bool
-}
-
 //line input.gsx:10:1
-func Ordered(_gsxp OrderedProps) _gsxrt.Node {
+func Ordered(on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		on := _gsxp.On
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		trace = ""

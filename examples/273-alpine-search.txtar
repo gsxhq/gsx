@@ -28,7 +28,7 @@ component AlpineSearch(maxWidth int) {
 	</div>
 }
 -- invoke --
-AlpineSearch(AlpineSearchProps{MaxWidth: 320})
+AlpineSearch(320)
 -- render.golden --
 <div x-data="{
 search: &#39;&#39;,

@@ -265,7 +265,7 @@ func appendTomlRules(path, who string, dst []attrclass.Rule, add []tomlRule) ([]
 // config. The file base comes first; opts are appended after so they win under
 // the existing last-wins resolution: filterPkgs, aliases, and renderers are
 // base++opts (with filterPkgs deduped), URL attr rules are concatenated
-// base++opts, and func-valued fields (cssMin/jsMin, fieldMatcher) are taken
+// base++opts, and func-valued fields (cssMin/jsMin) are taken
 // from opts when set, else base. errs are concatenated. Slices are freshly
 // allocated so neither input is mutated.
 func mergeConfig(base, opts config) config {
@@ -302,11 +302,6 @@ func mergeConfig(base, opts config) config {
 	if opts.jsFmt != nil {
 		merged.jsFmt = opts.jsFmt
 	}
-	merged.fieldMatcher = base.fieldMatcher
-	if opts.fieldMatcher != nil {
-		merged.fieldMatcher = opts.fieldMatcher
-	}
-
 	merged.classMerger = base.classMerger
 	if opts.classMerger != nil {
 		merged.classMerger = opts.classMerger

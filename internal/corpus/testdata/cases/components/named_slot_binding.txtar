@@ -12,7 +12,7 @@ component Page(title string, xs []string) {
 	{ for _, x := range xs { <Panel header={ <b>{x}</b> }/> } }
 }
 -- invoke --
-Page(PageProps{Title: "Hi", Xs: []string{"a", "b"}})
+Page("Hi", []string{"a", "b"})
 -- diagnostics.golden --
 -- render.golden --
 <div><h1>Hi</h1></div><div><b>a</b></div><div><b>b</b></div>

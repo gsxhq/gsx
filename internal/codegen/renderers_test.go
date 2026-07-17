@@ -552,9 +552,11 @@ func TestClassPartBareIdentUnregisteredParity(t *testing.T) {
 	// that the stub is now unconditional.
 	writeMultiFile(t, viewsDir, "views.gsx", `package views
 
+	import "github.com/gsxhq/gsx"
+
 type box struct{ S string }
 
-component Card(title string) { <div { attrs... }>{title}</div> }
+component Card(title string, attrs gsx.Attrs) { <div { attrs... }>{title}</div> }
 
 component Page(val box) {
 	<Card title="hi" class={ val }/>

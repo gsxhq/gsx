@@ -3,7 +3,7 @@ package views
 
 component C(name string) { <div data-x={ name |> trim }>y</div> }
 -- invoke --
-C(CProps{Name: "  a\"b  "})
+C("  a\"b  ")
 -- diagnostics.golden --
 -- render.golden --
 <div data-x="a&#34;b">y</div>

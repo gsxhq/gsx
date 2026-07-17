@@ -15,7 +15,7 @@ component JSCssHoleLoneSpread(c bool, u string, x gsx.Attrs) {
 	<button onclick=js"do(@{u})" { if c { { x... } } }>go</button>
 }
 -- invoke --
-JSCssHoleLoneSpread(JSCssHoleLoneSpreadProps{C: true, U: "x", X: gsx.Attrs{{Key: "id", Value: "b"}}})
+JSCssHoleLoneSpread(true, "x", gsx.Attrs{{Key: "id", Value: "b"}})
 -- diagnostics.golden --
 -- render.golden --
 <button onclick="do(&#34;x&#34;)" id="b">go</button>
@@ -31,18 +31,9 @@ import (
 	_gsxio "io"
 )
 
-type JSCssHoleLoneSpreadProps struct {
-	C bool
-	U string
-	X gsx.Attrs
-}
-
 //line input.gsx:5:1
-func JSCssHoleLoneSpread(_gsxp JSCssHoleLoneSpreadProps) _gsxrt.Node {
+func JSCssHoleLoneSpread(c bool, u string, x gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		c := _gsxp.C
-		u := _gsxp.U
-		x := _gsxp.X
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button onclick=\"do(")

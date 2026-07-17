@@ -1,5 +1,5 @@
-# An undefined ident in a value passed to a hand-written (non-gsx) component via
-# its props struct. Pins that: (a) the primary error "undefined: undefinedX" surfaces
+# An undefined ident in a value passed to a hand-written (non-gsx) component.
+# Pins that: (a) the primary error "undefined: undefinedX" surfaces
 # exactly once, (b) no internal "_gsxunwrap" name leaks into any diagnostic, even
 # though the skeleton wraps the value in _gsxunwrap(...) for type-checking.
 -- badge.go --
@@ -7,17 +7,12 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-type BadgeProps struct {
-	Label string
-	Attrs gsx.Attrs
-}
-
-func Badge(p BadgeProps) gsx.Node {
-	return gsx.Raw("<span>" + p.Label + "</span>")
+func Badge(label string) gsx.Node {
+	return gsx.Raw("<span>" + label + "</span>")
 }
 -- input.gsx --
 package views
 
 component Page() { <Badge label={undefinedX}/> }
 -- diagnostics.golden --
-3:48: undefined: undefinedX
+3:35: undefined: undefinedX

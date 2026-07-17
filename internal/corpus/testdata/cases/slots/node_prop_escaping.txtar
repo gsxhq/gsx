@@ -11,7 +11,7 @@ component Page(userStr string) {
 	<Box body={userStr}/>
 }
 -- invoke --
-Page(PageProps{UserStr: "<script>"})
+Page("<script>")
 -- diagnostics.golden --
 -- render.golden --
 <div>&lt;script&gt;</div>

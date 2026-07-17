@@ -1,8 +1,6 @@
-# attrs={{ }} on a component from a plain Go package (no .gsx → declared ==
-# nil) whose Props type has NO Attrs field: still accepted at generate time
-# (blind-regime acceptance), so the emitted Attrs field literal is caught by
-# go/types at the generated-code-check stage instead. Documents the known
-# rough failure mode the review accepted.
+# A plain-Go component whose exact signature has only `p WidgetProps` declares
+# no reserved `attrs` role. An authored attrs contributor is therefore rejected
+# at the call site; gsx never guesses from struct fields or emits a wrapper.
 -- go.mod --
 module example.com/app
 
@@ -30,5 +28,5 @@ component Home() {
 -- invoke --
 pages.Home()
 -- diagnostics.golden --
-6:35: unknown field Attrs in struct literal of type uigo.WidgetProps
+6:15: uigo.Widget has no attrs param; unexpected attrs contributor
 -- render.golden --

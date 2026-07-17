@@ -26,7 +26,7 @@ component Page(v string) {
 	<div>{ mk(v) }</div>
 }
 -- invoke --
-Page(PageProps{V: "a"})
+Page("a")
 -- diagnostics.golden --
 3:41: @{ v |> must } uses an error-returning filter (|>); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
 -- render.golden --

@@ -9,7 +9,7 @@ component Page(t string, n int) {
 	<Card title={t} featured count={n}/>
 }
 -- invoke --
-Page(PageProps{T: "Hi", N: 3})
+Page("Hi", 3)
 -- diagnostics.golden --
 -- render.golden --
 <div class="card card-featured"><h2>Hi</h2><span>3</span></div>

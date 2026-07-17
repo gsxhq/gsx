@@ -16,9 +16,11 @@ func withTestNonce(n gsx.Node) gsx.Node {
 -- input.gsx --
 package views
 
-component Page() { <style { attrs... }>.c{color:red}</style> }
+
+import "github.com/gsxhq/gsx"
+component Page(attrs gsx.Attrs) { <style { attrs... }>.c{color:red}</style> }
 -- invoke --
-withTestNonce(Page(PageProps{Attrs: gsx.Attrs{{Key: "media", Value: "screen"}}}))
+withTestNonce(Page(gsx.Attrs{{Key: "media", Value: "screen"}}))
 -- diagnostics.golden --
 -- render.golden --
 <style media="screen" nonce="r4nd0m">.c{color:red}</style>

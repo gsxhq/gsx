@@ -52,7 +52,7 @@ func TestExamples(t *testing.T) {
 				t.Fatalf("example produced diagnostics (examples must be clean):\n%s", r.diag)
 			}
 			if *update {
-				setSection(c.archive, "render.golden", []byte(r.html))
+				c.setGoldenSection("render.golden", []byte(r.html))
 				writeArchive(t, paths[c.name], c.archive)
 				return
 			}

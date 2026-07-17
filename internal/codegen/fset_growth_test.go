@@ -85,29 +85,24 @@ func TestFsetRebuildDisabledAtZero(t *testing.T) {
 	}
 }
 
-// utilSymbolDeclPos finds the declaration position of the symbol named symName
-// from a package whose import path ends in pkgSuffix, as recorded in pr.Info.Uses.
-// It uses pr.Fset (the Module-wide shared FileSet) to resolve the declaration position.
+// utilSymbolDeclPos finds the authored declaration position of the component
+// named symName from the retained exact component-call facts.
 // Returns the absolute filename and 1-indexed line, or calls t.Fatal if not found.
 func utilSymbolDeclPos(t *testing.T, pr *PackageResult, symName, pkgSuffix string) (filename string, line int) {
 	t.Helper()
-	seen := map[string]bool{}
-	for _, obj := range pr.Info.Uses {
-		if obj == nil || obj.Name() != symName {
+	for _, call := range pr.ComponentCalls {
+		if call.Target == nil || call.Target.Name() != symName {
 			continue
 		}
-		p := obj.Pkg()
-		if p == nil || !strings.HasSuffix(p.Path(), pkgSuffix) {
+		pos := pr.Fset.Position(call.Target.Pos())
+		if !strings.Contains(filepath.ToSlash(pos.Filename), "/"+pkgSuffix+"/") {
 			continue
 		}
-		pos := pr.Fset.Position(obj.Pos())
-		if pos.Line <= 0 || seen[pos.Filename] {
-			continue
+		if pos.Line > 0 {
+			return pos.Filename, pos.Line
 		}
-		seen[pos.Filename] = true
-		return pos.Filename, pos.Line
 	}
-	t.Fatalf("no Info.Uses entry for %q from package ending in %q", symName, pkgSuffix)
+	t.Fatalf("no exact component-call fact for %q from package ending in %q: %+v", symName, pkgSuffix, pr.ComponentCalls)
 	return "", -1
 }
 

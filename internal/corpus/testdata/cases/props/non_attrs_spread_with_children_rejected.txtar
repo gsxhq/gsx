@@ -1,0 +1,21 @@
+# A component spread always contributes to the attrs role. A struct value is not
+# an attrs bag, including when the component also accepts body children.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type cardData struct {
+	Title string
+}
+
+component Card(d cardData, children gsx.Node, attrs gsx.Attrs) {
+	<div {attrs...}>{ d.Title }{children}</div>
+}
+
+component Page() {
+	data := cardData{Title: "Hello"}
+	<Card { data... }>child</Card>
+}
+-- diagnostics.golden --
+14:24: missing ',' in argument list

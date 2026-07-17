@@ -19,6 +19,6 @@ component List(items []Item) {
 	} }</ul>
 }
 -- invoke --
-List(ListProps{Items: []Item{{Name: "alpha", Count: 1}, {Name: "beta", Count: 2}}})
+List([]Item{{Name: "alpha", Count: 1}, {Name: "beta", Count: 2}})
 -- render.golden --
 <ul><li>alpha: 1</li><li>beta: 2</li></ul>

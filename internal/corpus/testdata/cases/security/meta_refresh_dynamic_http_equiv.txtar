@@ -6,7 +6,7 @@ component DynamicRefresh(kind string, to string) {
 }
 
 -- invoke --
-DynamicRefresh(DynamicRefreshProps{Kind: "refresh", To: "javascript:alert(1)"})
+DynamicRefresh("refresh", "javascript:alert(1)")
 
 -- render.golden --
 <meta http-equiv="refresh" content="0;url=javascript:alert(1)"/>
@@ -22,16 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type DynamicRefreshProps struct {
-	Kind string
-	To   string
-}
-
 //line input.gsx:3:1
-func DynamicRefresh(_gsxp DynamicRefreshProps) _gsxrt.Node {
+func DynamicRefresh(kind string, to string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		kind := _gsxp.Kind
-		to := _gsxp.To
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<meta http-equiv=\"")

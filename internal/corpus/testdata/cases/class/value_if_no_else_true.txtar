@@ -8,7 +8,7 @@ component Toggle(on bool) {
 	<i class={ "base", if on { "extra" } }>y</i>
 }
 -- invoke --
-Toggle(ToggleProps{On: true})
+Toggle(true)
 -- render.golden --
 <i class="base extra">y</i>
 -- diagnostics.golden --
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type ToggleProps struct {
-	On bool
-}
-
 //line input.gsx:3:1
-func Toggle(_gsxp ToggleProps) _gsxrt.Node {
+func Toggle(on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		on := _gsxp.On
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<i")

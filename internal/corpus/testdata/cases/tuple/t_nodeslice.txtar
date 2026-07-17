@@ -15,7 +15,7 @@ component List(items []gsx.Node) {
 
 component Page(n int) { <List items={makeItems(n)}/> }
 -- invoke --
-Page(PageProps{N: 2})
+Page(2)
 -- diagnostics.golden --
 -- render.golden --
 <ul>item</ul>
@@ -35,14 +35,9 @@ func makeItems(n int) ([]gsx.Node, error) {
 	return []gsx.Node{gsx.Text("item")}, nil
 }
 
-type ListProps struct {
-	Items []gsx.Node
-}
-
 //line input.gsx:9:1
-func List(_gsxp ListProps) _gsxrt.Node {
+func List(items []gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		items := _gsxp.Items
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<ul>")
@@ -55,21 +50,16 @@ func List(_gsxp ListProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	N int
-}
-
 //line input.gsx:13:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		n := _gsxp.N
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:25
-		_gsxv0, _gsxerr := makeItems(n)
+		_gsxa0, _gsxerr := makeItems(n)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, List(ListProps{Items: _gsxv0}))
+		_gsxgw.Node(ctx, List(_gsxa0))
 		return _gsxgw.Err()
 	})
 }

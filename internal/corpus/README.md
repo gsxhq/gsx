@@ -116,7 +116,7 @@ output.
        <p>Hello, {g.Who}!</p>
    }
    -- invoke --
-   Hello(HelloProps{Greeting: Greeting{Who: "world"}})
+   Hello(Greeting{Who: "world"})
    -- diagnostics.golden --
    ```
 

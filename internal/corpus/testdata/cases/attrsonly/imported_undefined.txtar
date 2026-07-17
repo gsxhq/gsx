@@ -1,7 +1,6 @@
-# Cross-package attrs-only: a dotted tag <ui.NopeIcon/> whose qualifier IS a
+# Cross-package callable probe: a dotted tag <ui.NopeIcon/> whose qualifier IS a
 # known gsx import but whose selector names nothing in that package. The tag is
-# gated onto the _gsxcompsig(ui.NopeIcon) probe (isDepAlias("ui") holds, no
-# ui.NopeIconProps type exists), and go/types reports the undefined selector at
+# checked through the _gsxcompsig(ui.NopeIcon) probe, and go/types reports the undefined selector at
 # the TRUE source column of the selector in pages/home.gsx — pinning that the
 # _gsxcompsig probe's mid-expression //line anchor maps the interior token back
 # to the real .gsx position, not a generated one.
@@ -23,7 +22,7 @@ component renderIcon(p iconProps) {
 	<svg { p.Attrs... }>{p.Name}</svg>
 }
 
-func namedIcon(name string) func(gsx.Attrs) gsx.Node {
+func namedIcon(name string) func(attrs gsx.Attrs) gsx.Node {
 	return func(attrs gsx.Attrs) gsx.Node {
 		return renderIcon(iconProps{Name: name, Attrs: attrs})
 	}

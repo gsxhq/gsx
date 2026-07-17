@@ -199,12 +199,15 @@ func (*Component) declNode() {}
 // Element is an HTML element or a component tag (Tag may be dotted, e.g. "ui.Button").
 type Element struct {
 	span
-	Tag         string
-	TypeArgs    string    // raw type-arg-list source, e.g. "int, string"; "" if none
-	TypeArgsPos token.Pos // position of the first char of TypeArgs in source (after `[` + ws); NoPos if none
-	Void        bool      // self-closing <tag/> or HTML void element
-	Attrs       []Attr
-	Children    []Markup
+	Tag              string
+	TagPos           token.Pos // position of the first char of Tag in the opening tag
+	TypeArgs         string    // raw type-arg-list source, e.g. "int, string"; "" if none
+	TypeArgsOpenPos  token.Pos // position of `[`; NoPos if no type arguments
+	TypeArgsPos      token.Pos // position of the first char of TypeArgs in source (after `[` + ws); NoPos if none
+	TypeArgsClosePos token.Pos // position of `]`; NoPos if no type arguments
+	Void             bool      // self-closing <tag/> or HTML void element
+	Attrs            []Attr
+	Children         []Markup
 	// CloseNamePos is the position of the first char of the name in the closing
 	// tag (the "Card" in "</Card>"); token.NoPos for void/self-closing elements
 	// (which have no closing tag). Tooling (LSP go-to-definition) uses it so a
@@ -223,12 +226,11 @@ type Element struct {
 	// is the value's own layout, not a request to break the list. Elements with
 	// no attributes never set it — there is no list to break.
 	AttrsMultiline bool
-	// IsComponent is the resolved component-vs-leaf decision for this tag:
-	// true for capital-first/dotted tags, and for lowercase tags that match a
-	// package-level declaration (with self-exclusion inside the declaration of
-	// the same name). Set by codegen's resolveComponentTags pass — NEVER by the
-	// parser — so formatter round-trip equality is unaffected. Codegen and LSP
-	// read this field instead of re-deriving component-ness from the tag string.
+	// IsComponent is the final semantic component-vs-leaf decision for this tag.
+	// It becomes true only after codegen resolves the target to an allowed
+	// callable whose result is assignable to the canonical gsx.Node type. The
+	// parser and syntax preprocessor never stamp it. Codegen and LSP read this
+	// field instead of re-deriving component identity from the tag string.
 	IsComponent bool
 }
 
@@ -309,7 +311,7 @@ type Interp struct {
 	// <tag>/<> element literals into interleaved GoText and *Element/*Fragment
 	// parts — e.g. `wrap(<b/>)` → [GoText("wrap("), *Element, GoText(")")].
 	// It is nil when Expr contains no embedded element (the common case) and is
-	// populated ONLY by codegen's analysis pass (buildSkeleton), never by the
+	// populated ONLY by codegen's package preprocessor, never by the
 	// parser — so the printer and the fmt faithfulness harness (which re-parse)
 	// never observe it, and Expr remains the single verbatim round-trip source.
 	// The analysis and emit passes share these parsed nodes (the type-checker
@@ -473,18 +475,26 @@ func (*EmbeddedInterp) goPartNode() {}
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
 //
-// Embedded is populated by codegen's analyze split (splitInterpEmbedded) when
+// Embedded is populated by codegen's package preprocessor when
 // Code contains an embedded f`/js`/css` literal (or a — currently unsupported —
 // `<tag>` element literal); nil otherwise. Code always remains the verbatim
 // round-trip source of truth (the printer prints from Code, never Embedded);
 // Embedded is the same GoText/*EmbeddedInterp/*Element/*Fragment split
 // SplitGoExprElements produces for a GoWithElements or Interp.Embedded, used
 // only by codegen to type-probe and lower the embedded literals.
+//
+// UnsupportedMarkup is populated by that same preprocessor with the first
+// direct *Element or *Fragment part when the block contains markup. Markup in
+// a GoBlock is not supported: the annotation makes every later consumer use
+// the one preprocessing decision instead of independently rediscovering the
+// unsupported shape. It remains nil for supported blocks, including blocks
+// whose embedded prefixed literals contain markup only inside their holes.
 type GoBlock struct {
 	span
-	Code     string
-	CodePos  token.Pos // first char of Code text in source (NoPos if unavailable)
-	Embedded []GoPart
+	Code              string
+	CodePos           token.Pos // first char of Code text in source (NoPos if unavailable)
+	Embedded          []GoPart
+	UnsupportedMarkup GoPart
 }
 
 func (*GoBlock) markupNode() {}
@@ -811,12 +821,10 @@ func Inspect(node Node, f func(Node) bool) {
 	f(nil)
 }
 
-// IsComponentTag reports the SYNTACTIC component rule: dotted (ui.Button,
-// p.item) or ASCII-uppercase-first tags are always components. It is one
-// input to codegen's resolveComponentTags pass, which additionally resolves
-// lowercase tags against the package's declared names and stamps the result
-// on Element.IsComponent. Read the stamp, not this function, when deciding
-// how a specific element lowers.
+// IsComponentTag reports explicit component-candidate syntax: dotted
+// (ui.Button, p.item) or Go-exported-name tags. It does not establish component
+// identity. Read Element.IsComponent after semantic analysis when deciding how
+// a specific element lowers.
 func IsComponentTag(tag string) bool {
 	if tag == "" {
 		return false
@@ -824,5 +832,5 @@ func IsComponentTag(tag string) bool {
 	if strings.Contains(tag, ".") {
 		return true
 	}
-	return tag[0] >= 'A' && tag[0] <= 'Z'
+	return token.IsExported(tag)
 }

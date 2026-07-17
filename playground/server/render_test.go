@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 func TestRenderSuccess(t *testing.T) {
 	resp := testPool.render(renderReq{
 		GSX:    "package views\n\ncomponent Greeting(name string) {\n\t<p>Hi {name}</p>\n}\n",
-		Invoke: `Greeting(GreetingProps{Name: "World"})`,
+		Invoke: `Greeting("World")`,
 	})
 	if resp.Error != "" || len(resp.Diagnostics) != 0 {
 		t.Fatalf("unexpected error/diags: %q %+v", resp.Error, resp.Diagnostics)
@@ -46,7 +46,7 @@ func TestRenderSuccess(t *testing.T) {
 func TestRenderDiagnostic(t *testing.T) {
 	resp := testPool.render(renderReq{
 		GSX:    "package views\n\ncomponent Bad() {\n\t<p>{missing}</p>\n}\n",
-		Invoke: "Bad(BadProps{})",
+		Invoke: "Bad()",
 	})
 	if len(resp.Diagnostics) == 0 {
 		t.Fatalf("expected a diagnostic, got none (err=%q)", resp.Error)
@@ -60,7 +60,7 @@ func TestRenderDiagnostic(t *testing.T) {
 func TestRenderEscaping(t *testing.T) {
 	resp := testPool.render(renderReq{
 		GSX:    "package views\n\ncomponent C(s string) {\n\t<div>{s}</div>\n}\n",
-		Invoke: `C(CProps{S: "<script>alert(1)</script>"})`,
+		Invoke: `C("<script>alert(1)</script>")`,
 	})
 	if strings.Contains(resp.HTML, "<script>") {
 		t.Fatalf("unescaped output: %q", resp.HTML)
@@ -95,7 +95,7 @@ func TestMethodGuard(t *testing.T) {
 func TestImportRejected(t *testing.T) {
 	resp := testPool.render(renderReq{
 		GSX:    "package views\n\nimport \"net/http\"\n\ncomponent C() {\n\t<p>{http.MethodGet}</p>\n}\n",
-		Invoke: "C(CProps{})",
+		Invoke: "C()",
 	})
 	if resp.HTML != "" {
 		t.Fatalf("expected rejection, got html %q", resp.HTML)
@@ -114,7 +114,7 @@ func TestImportRejected(t *testing.T) {
 func TestAllowedImportRenders(t *testing.T) {
 	resp := testPool.render(renderReq{
 		GSX:    "package views\n\nimport \"strings\"\n\ncomponent C(s string) {\n\t<p>{strings.ToUpper(s)}</p>\n}\n",
-		Invoke: `C(CProps{S: "hi"})`,
+		Invoke: `C("hi")`,
 	})
 	if resp.Error != "" || len(resp.Diagnostics) != 0 {
 		t.Fatalf("unexpected error/diags: %q %+v", resp.Error, resp.Diagnostics)
@@ -141,7 +141,7 @@ func TestPoolConcurrent(t *testing.T) {
 			name := "U" + strconv.Itoa(i)
 			resp := p.render(renderReq{
 				GSX:    "package views\n\ncomponent G(name string) {\n\t<p>{name}</p>\n}\n",
-				Invoke: `G(GProps{Name: "` + name + `"})`,
+				Invoke: `G("` + name + `")`,
 			})
 			results[i] = strings.TrimSpace(resp.HTML)
 		}(i)
@@ -211,7 +211,7 @@ func TestRenderMultiFile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("multi-file render needs the toolchain; skipped in -short")
 	}
-	src := "-- comp.gsx --\npackage views\n\ncomponent Card(title string) { <section>{title}{children}</section> }\n" +
+	src := "-- comp.gsx --\npackage views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(title string, children gsx.Node) { <section>{title}{children}</section> }\n" +
 		"-- page.gsx --\npackage views\n\ncomponent Page() { <Card title=\"Hi\"><em>x</em></Card> }\n"
 	resp := testPool.render(renderReq{GSX: src, Invoke: "Page()"})
 	if resp.Error != "" || len(resp.Diagnostics) > 0 {

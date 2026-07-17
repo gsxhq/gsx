@@ -7,7 +7,7 @@ component Link(id string) {
 	<a href=f`/u/@{id}/edit`>go</a>
 }
 -- invoke --
-Link(LinkProps{Id: "7"})
+Link("7")
 -- diagnostics.golden --
 -- render.golden --
 <a href="/u/7/edit">go</a>
@@ -22,14 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	Id string
-}
-
 //line input.gsx:3:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")

@@ -1,8 +1,7 @@
 # (1) An import name must NOT capture a tag (<time> stays a leaf despite
 # `import "time"` in a sibling). (2) A _test.go-only declaration must not
-# capture (<gadget> stays a leaf). (3) A non-invocable capture (var data int
-# + <data>) IS a component invocation and fails loudly in the type-checked
-# skeleton — go build is the arbiter, no silent fallback.
+# capture (<gadget> stays a leaf). (3) A lowercase package symbol with a
+# definitively non-component shape (var data int + <data>) is also a leaf.
 -- model.go --
 package views
 
@@ -25,5 +24,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-6:2: <data> is not tag-callable: its type is int, not a component-value signature (one parameter with underlying type []gsx.Attr, result gsx.Node), and no dataProps struct was found
 -- render.golden --
+<time>t</time><gadget>g</gadget><data>d</data>

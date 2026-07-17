@@ -10,7 +10,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component C(mode string) {
+component C(mode string, attrs gsx.Attrs) {
 	{ switch mode {
 	case "a":
 		{{ attrs := gsx.Attrs{{Key: "data-local", Value: "1"}} }}
@@ -20,7 +20,7 @@ component C(mode string) {
 	} }
 }
 -- invoke --
-gsx.Fragment(C(CProps{Mode: "a", Attrs: gsx.Attrs{{Key: "data-caller", Value: "9"}}}), C(CProps{Mode: "b", Attrs: gsx.Attrs{{Key: "data-caller", Value: "9"}}}))
+gsx.Fragment(C("a", gsx.Attrs{{Key: "data-caller", Value: "9"}}), C("b", gsx.Attrs{{Key: "data-caller", Value: "9"}}))
 -- diagnostics.golden --
 -- render.golden --
 <span data-local="1">a</span><div data-caller="9">b</div>
@@ -36,16 +36,9 @@ import (
 	_gsxio "io"
 )
 
-type CProps struct {
-	Mode  string
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func C(_gsxp CProps) _gsxrt.Node {
+func C(mode string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		mode := _gsxp.Mode
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		switch mode {

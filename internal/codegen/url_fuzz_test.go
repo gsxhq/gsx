@@ -120,7 +120,7 @@ import (
 )
 
 func main() {
-	_ = p.L(p.LProps{U: `+strconv.Quote(u)+`}).Render(context.Background(), os.Stdout)
+	_ = p.L(`+strconv.Quote(u)+`).Render(context.Background(), os.Stdout)
 }
 `)
 
@@ -195,7 +195,7 @@ import (
 )
 
 func main() {
-	_ = p.L(p.LProps{A: `+strconv.Quote(a)+`, B: `+strconv.Quote(b)+`}).Render(context.Background(), os.Stdout)
+	_ = p.L(`+strconv.Quote(a)+`, `+strconv.Quote(b)+`).Render(context.Background(), os.Stdout)
 }
 `)
 

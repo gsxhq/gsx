@@ -119,7 +119,7 @@ func TestCorpus(t *testing.T) {
 					gotHTML = r.html
 				}
 				if *update {
-					setSection(c.archive, "render.golden", []byte(gotHTML))
+					c.setGoldenSection("render.golden", []byte(gotHTML))
 					writeArchive(t, paths[c.name], c.archive)
 				} else {
 					diff, derr := htmlStructuralDiff(gotHTML, string(c.goldens["render.golden"]))
@@ -151,7 +151,7 @@ func checkOrUpdateFacet(t *testing.T, c *caseDoc, sec string, got []byte, path s
 		// Only (re)write the section if it already exists, or for diagnostics
 		// when there is something to record, to avoid spurious empty sections.
 		if present || sec == "diagnostics.golden" {
-			setSection(c.archive, sec, got)
+			c.setGoldenSection(sec, got)
 			writeArchive(t, path, c.archive)
 		}
 		return
@@ -270,17 +270,6 @@ func splitRunPattern(pattern string) []string {
 	}
 	parts = append(parts, buf.String())
 	return parts
-}
-
-// setSection replaces the Data of the named section if it exists, or appends it.
-func setSection(arc *txtar.Archive, name string, data []byte) {
-	for i, f := range arc.Files {
-		if f.Name == name {
-			arc.Files[i].Data = data
-			return
-		}
-	}
-	arc.Files = append(arc.Files, txtar.File{Name: name, Data: data})
 }
 
 // writeArchive writes the archive back to path.

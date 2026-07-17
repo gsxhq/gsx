@@ -144,10 +144,9 @@ func TestBadTypeParamListWithUnparsableRecv(t *testing.T) {
 	}
 }
 
-// A reserved param name CO-OCCURRING with an unparsable receiver clause is the
-// same early-stub defect class as above (the checkReservedParams stub also
-// emitted c.Recv verbatim, breaking the skeleton parse → whole-run hard abort);
-// pin it so the stubRecv guard covers every early-exit branch.
+// An unparsable receiver prevents construction of any callable signature, so
+// semantic checks on its parameters do not run. The parser diagnostic must be
+// positioned and must not hard-abort the whole generation run.
 func TestReservedParamWithUnparsableRecv(t *testing.T) {
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
@@ -166,7 +165,7 @@ func TestReservedParamWithUnparsableRecv(t *testing.T) {
 	dr := out[pkgDir]
 	var found bool
 	for _, d := range dr.Diags {
-		if d.Code == "reserved-param" {
+		if d.Code == "invalid-recv" {
 			found = true
 			if !strings.HasSuffix(d.Start.Filename, "bad.gsx") || d.Start.Line != 3 {
 				t.Errorf("diagnostic not anchored at bad.gsx:3: %+v", d.Start)
@@ -174,7 +173,7 @@ func TestReservedParamWithUnparsableRecv(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("no positioned reserved-param diagnostic; diags=%+v", dr.Diags)
+		t.Fatalf("no positioned invalid-recv diagnostic; diags=%+v", dr.Diags)
 	}
 	var goodGenerated bool
 	for path := range dr.Files {

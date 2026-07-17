@@ -1,5 +1,5 @@
-# Pure call-bearing component values preserve authored order when the final
-# props literal moves an unmatched f-literal into its synthesized Attrs field.
+# Pure call-bearing component values preserve authored order when an unmatched
+# f-literal contributes to the explicit attrs argument.
 -- helpers.go --
 package views
 
@@ -34,7 +34,9 @@ func checkedPlainComponentValueOrder() gsx.Node {
 -- input.gsx --
 package views
 
-component Target(first string, last string) {
+
+import "github.com/gsxhq/gsx"
+component Target(first string, last string, attrs gsx.Attrs) {
 	<div { attrs... }>{first}{last}</div>
 }
 
@@ -50,47 +52,39 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type TargetProps struct {
-	First string
-	Last  string
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Target(_gsxp TargetProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Target(first string, last string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		first := _gsxp.First
-		last := _gsxp.Last
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:4:20
+//line input.gsx:6:20
 		_gsxgw.Text(string(first))
-//line input.gsx:4:27
+//line input.gsx:6:27
 		_gsxgw.Text(string(last))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxv0 := mark("plain-first", "A")
-		_gsxv1 := string(mark("plain-mid", "M"))
-		_gsxv2 := mark("plain-last", "Z")
-		_gsxgw.Node(ctx, Target(TargetProps{First: _gsxv0, Last: _gsxv2, Attrs: _gsxrt.Attrs{{Key: "data-mid", Value: _gsxv1}}}))
+//line input.gsx:10:2
+		_gsxa0 := mark("plain-first", "A")
+		_gsxa1 := _gsxrt.Attrs{{Key: "data-mid", Value: string(mark("plain-mid", "M"))}}
+		_gsxa2 := mark("plain-last", "Z")
+		_gsxgw.Node(ctx, Target(_gsxa0, _gsxa2, _gsxa1))
 		return _gsxgw.Err()
 	})
 }

@@ -119,7 +119,7 @@ var _ = gsx.Raw
 
 func main() {
 	ctx := mf.WithGreeting(context.Background(), "hi")
-	_ = p.C(p.CProps{S: "v"}).Render(ctx, os.Stdout)
+	_ = p.C("v").Render(ctx, os.Stdout)
 }
 `)
 	out := goRun(t, tmp)
@@ -202,7 +202,7 @@ import (
 var _ = gsx.Raw
 
 func main() {
-	_ = p.C(p.CProps{S: "v"}).Render(context.Background(), os.Stdout)
+	_ = p.C("v").Render(context.Background(), os.Stdout)
 }
 `)
 	// go run compiles the generated .x.go; before the fix this failed with

@@ -3,6 +3,7 @@ package gen
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,11 +33,11 @@ func TestWatchSession_SiblingGoSymbol(t *testing.T) {
 
 	blogDir := filepath.Join(root, "blog")
 
-	// newWatchSession opens a Module and runs startup regenDir for blogDir, fully
+	// startWatchSessionForTest opens a Module and runs startup regenDir for blogDir, fully
 	// populating the import graph (including the sibling .go file).
-	s, startup, err := newWatchSession(watchConfig{paths: []string{blogDir}})
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{blogDir}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -83,11 +84,11 @@ func TestWatchSession_CrossPackage(t *testing.T) {
 	compDir := filepath.Join(root, "comp")
 	viewsDir := filepath.Join(root, "views")
 
-	// newWatchSession runs startup regenDir for both dirs, writing their .x.go
+	// startWatchSessionForTest runs startup regenDir for both dirs, writing their .x.go
 	// files and populating the cross-package import graph.
-	s, _, err := newWatchSession(watchConfig{paths: []string{compDir, viewsDir}})
+	s, _, err := startWatchSessionForTest(watchConfig{paths: []string{compDir, viewsDir}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 
 	// Warm regen of views: the Module must resolve comp.Card across packages.
@@ -129,9 +130,9 @@ func TestWatchSession_WarmRegen(t *testing.T) {
 	gsxPath := filepath.Join(root, "views", "page.gsx")
 	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>one</h1>\n}\n")
 
-	s, _, err := newWatchSession(watchConfig{paths: []string{filepath.Join(root, "views")}})
+	s, _, err := startWatchSessionForTest(watchConfig{paths: []string{filepath.Join(root, "views")}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	// Edit the source, then warm-regen.
 	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>two</h1>\n}\n")
@@ -179,7 +180,7 @@ component Show(sample pg.Timestamptz) {
 }
 `)
 
-	s, startup, err := newWatchSession(watchConfig{
+	s, startup, err := startWatchSessionForTest(watchConfig{
 		paths: []string{rendererDir, viewsDir},
 		renderers: []codegen.RendererAlias{{
 			TypeKey:  "example.com/m/pg.Timestamptz",
@@ -188,7 +189,7 @@ component Show(sample pg.Timestamptz) {
 		}},
 	})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -249,9 +250,9 @@ func TestWatchSession_RegenError(t *testing.T) {
 	gsxPath := filepath.Join(root, "views", "page.gsx")
 	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>{undefinedSym}</h1>\n}\n")
 
-	s, _, err := newWatchSession(watchConfig{paths: []string{filepath.Join(root, "views")}})
+	s, _, err := startWatchSessionForTest(watchConfig{paths: []string{filepath.Join(root, "views")}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	r := s.regenDir(filepath.Join(root, "views"))
 	if r.OK || len(r.Diags) == 0 {
@@ -259,7 +260,7 @@ func TestWatchSession_RegenError(t *testing.T) {
 	}
 }
 
-// TestWatchSession_BadMergerRefused proves that newWatchSession returns a clear
+// TestWatchSession_BadMergerRefused proves that startWatchSessionForTest returns a clear
 // signature error when the configured class_merger has the wrong type, instead
 // of silently emitting uncompilable .x.go files on each regen cycle.
 func TestWatchSession_BadMergerRefused(t *testing.T) {
@@ -276,7 +277,7 @@ func TestWatchSession_BadMergerRefused(t *testing.T) {
 	writeFileT(t, filepath.Join(root, "mrg", "mrg.go"),
 		"package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
 
-	_, _, err := newWatchSession(watchConfig{
+	_, _, err := startWatchSessionForTest(watchConfig{
 		paths:       []string{filepath.Join(root, "views")},
 		classMerger: &codegen.ClassMergerRef{PkgPath: "example.com/m/mrg", FuncName: "Merge"},
 	})
@@ -300,9 +301,9 @@ func TestRegenPending_RemovesOrphanOnSoleGsxDeleted(t *testing.T) {
 	gsxPath := filepath.Join(viewsDir, "page.gsx")
 	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>ok</h1>\n}\n")
 
-	s, startup, err := newWatchSession(watchConfig{paths: []string{viewsDir}})
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{viewsDir}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -352,9 +353,9 @@ func TestRegenPending_MultiFileDirRegeneratesSiblingAndRemovesOrphan(t *testing.
 	writeFileT(t, keepPath, "package views\n\ncomponent Keep() {\n\t<h1>keep</h1>\n}\n")
 	writeFileT(t, dropPath, "package views\n\ncomponent Drop() {\n\t<h1>drop</h1>\n}\n")
 
-	s, startup, err := newWatchSession(watchConfig{paths: []string{viewsDir}})
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{viewsDir}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -396,14 +397,14 @@ func TestRegenPending_MultiFileDirRegeneratesSiblingAndRemovesOrphan(t *testing.
 	}
 }
 
-// TestNewWatchSession_SweepsOrphanAtColdStart proves that newWatchSession
+// TestWatchSessionStartup_SweepsOrphanAtColdStart proves that startWatchSessionForTest
 // performs the same walk-level orphan sweep as the batch path's
 // generateCached (sweepOrphanDirs). Without it, a directory whose only .gsx
 // was deleted before `gsx dev` ever started drops out of discovery entirely
 // (discoverDirs only returns dirs that still directly contain a .gsx) and its
 // stale gsx-owned .x.go would survive cold start indefinitely (Task 8
 // reviewer's gap).
-func TestNewWatchSession_SweepsOrphanAtColdStart(t *testing.T) {
+func TestWatchSessionStartup_SweepsOrphanAtColdStart(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeMod(t, root)
@@ -419,16 +420,16 @@ func TestNewWatchSession_SweepsOrphanAtColdStart(t *testing.T) {
 	notOurs := filepath.Join(root, "old", "notours.x.go")
 	writeFileT(t, notOurs, "package old\n\nfunc keep() {}\n")
 
-	s, startup, err := newWatchSession(watchConfig{paths: []string{root}})
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	if s == nil {
-		t.Fatal("newWatchSession returned nil session")
+		t.Fatal("startWatchSessionForTest returned nil session")
 	}
 
 	if _, statErr := os.Stat(oldXgo); !os.IsNotExist(statErr) {
-		t.Fatalf("old/old.x.go (orphan, no .gsx) survived newWatchSession cold start (err=%v)", statErr)
+		t.Fatalf("old/old.x.go (orphan, no .gsx) survived startWatchSessionForTest cold start (err=%v)", statErr)
 	}
 	if _, statErr := os.Stat(notOurs); statErr != nil {
 		t.Fatalf("old/notours.x.go (header-less, not gsx-owned) was removed by the sweep: %v", statErr)
@@ -456,10 +457,10 @@ func TestNewWatchSession_SweepsOrphanAtColdStart(t *testing.T) {
 }
 
 // TestWatchSession_Reopen_SweepsOrphanAtColdStart is the reopen() analogue of
-// TestNewWatchSession_SweepsOrphanAtColdStart: reopen() re-runs the same
-// discoverDirs → per-dir regen sequence as newWatchSession (after a dep-file
+// TestWatchSessionStartup_SweepsOrphanAtColdStart: reopen() re-runs the same
+// discoverDirs → per-dir regen sequence as startWatchSessionForTest (after a dep-file
 // change), so it must sweep walk-level orphans too, not just the initial
-// newWatchSession call.
+// startWatchSessionForTest call.
 func TestWatchSession_Reopen_SweepsOrphanAtColdStart(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -467,9 +468,9 @@ func TestWatchSession_Reopen_SweepsOrphanAtColdStart(t *testing.T) {
 	viewsGsx := filepath.Join(root, "views", "page.gsx")
 	writeFileT(t, viewsGsx, "package views\n\ncomponent Page() {\n\t<h1>ok</h1>\n}\n")
 
-	s, startup, err := newWatchSession(watchConfig{paths: []string{root}})
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -527,9 +528,9 @@ func TestWatchSession_PoisonOnRegenError(t *testing.T) {
 	gsxPath := filepath.Join(viewsDir, "page.gsx")
 	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>ok</h1>\n}\n")
 
-	s, startup, err := newWatchSession(watchConfig{paths: []string{viewsDir}})
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{viewsDir}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -570,14 +571,11 @@ func TestWatchSession_PoisonOnRegenError(t *testing.T) {
 	}
 }
 
-// TestNewWatchSession_NoGsxAnywhere proves that newWatchSession returns a
-// clear error — not a panic — when discoverDirs finds no .gsx anywhere under
-// the watched paths (e.g. a module dir whose only .gsx was deleted, leaving a
-// gsx-owned orphan .x.go). Before the fix, groupByModule(dirs) returned zero
-// groups for an empty dirs slice, and the `len(groups) == 0` branch indexed
-// dirs[0] unconditionally — a panic. The orphan .x.go must still be swept:
-// there's nothing to watch, so no per-dir regenDir sweep would ever visit it.
-func TestNewWatchSession_NoGsxAnywhere(t *testing.T) {
+// TestWatchSessionStartup_NoGsxAnywhere proves that a module remains a valid watch
+// target before its first .gsx file exists. The session must stay live so a
+// later package/file creation can be observed. Cold-start orphan cleanup still
+// runs even though there are no package directories to regenerate yet.
+func TestWatchSessionStartup_NoGsxAnywhere(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeMod(t, root)
@@ -586,17 +584,66 @@ func TestNewWatchSession_NoGsxAnywhere(t *testing.T) {
 	oldXgo := filepath.Join(root, "old", "old.x.go")
 	writeFileT(t, oldXgo, gsxGeneratedHeader+"\n\npackage old\n\nfunc unused() {}\n")
 
-	s, _, err := newWatchSession(watchConfig{paths: []string{root}})
-	if err == nil {
-		t.Fatal("expected an error, got nil")
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest on an empty module: %v", err)
 	}
-	if !strings.Contains(err.Error(), "no .gsx") {
-		t.Fatalf("error does not mention the no-.gsx condition: %v", err)
+	if s == nil {
+		t.Fatal("startWatchSessionForTest returned a nil session")
 	}
-	if s != nil {
-		t.Fatalf("expected a nil session on error, got %+v", s)
+	if s.root != root {
+		t.Fatalf("session root = %q, want %q", s.root, root)
+	}
+	if s.modules[root] == nil {
+		t.Fatalf("session did not open the requested module root %q", root)
+	}
+	if len(startup) != 1 || !startup[0].OK || len(startup[0].Removed) != 1 || startup[0].Removed[0] != oldXgo {
+		t.Fatalf("startup = %+v, want one successful orphan-removal result for %s", startup, oldXgo)
 	}
 	if _, statErr := os.Stat(oldXgo); !os.IsNotExist(statErr) {
-		t.Fatalf("old/old.x.go (orphan, no .gsx anywhere) survived newWatchSession cold start (err=%v)", statErr)
+		t.Fatalf("old/old.x.go (orphan, no .gsx anywhere) survived startWatchSessionForTest cold start (err=%v)", statErr)
+	}
+}
+
+func TestWatchSessionStartup_RegistersNestedModuleWithoutGsx(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	nested := filepath.Join(root, "nested")
+	writeFileT(t, filepath.Join(nested, "go.mod"), "module example.com/nested\n\ngo 1.26.1\n")
+
+	s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest: %v", err)
+	}
+	if len(startup) != 0 {
+		t.Fatalf("startup = %+v, want no generation cycles", startup)
+	}
+	for _, moduleRoot := range []string{root, nested} {
+		if s.modules[moduleRoot] == nil {
+			t.Errorf("empty module root %q was not registered", moduleRoot)
+		}
+	}
+	if len(s.watchRoots) != 1 || s.watchRoots[0] != root {
+		t.Fatalf("watchRoots = %v, want compact owning tree [%s]", s.watchRoots, root)
+	}
+}
+
+func TestWatchSessionStartup_HonorsExplicitExcludedNamedRoot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	explicit := filepath.Join(root, "tmp")
+	if err := os.MkdirAll(explicit, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	s, _, err := startWatchSessionForTest(watchConfig{paths: []string{explicit}})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest: %v", err)
+	}
+	want := []string{root, explicit}
+	if !slices.Equal(s.watchRoots, want) {
+		t.Fatalf("watchRoots = %v, want %v; an explicit tmp root must not be lost behind the owning-root exclusion", s.watchRoots, want)
 	}
 }

@@ -3,13 +3,13 @@ package main
 import "testing"
 
 func TestCacheKeyDistinct(t *testing.T) {
-	a := cacheKey(renderReq{GSX: "x", Invoke: "Y(YProps{})"})
-	b := cacheKey(renderReq{GSX: "x", Invoke: "Z(ZProps{})"})
-	c := cacheKey(renderReq{GSX: "x2", Invoke: "Y(YProps{})"})
+	a := cacheKey(renderReq{GSX: "x", Invoke: "Y()"})
+	b := cacheKey(renderReq{GSX: "x", Invoke: "Z()"})
+	c := cacheKey(renderReq{GSX: "x2", Invoke: "Y()"})
 	if a == b || a == c || b == c {
 		t.Fatalf("keys collided: a=%s b=%s c=%s", a, b, c)
 	}
-	if a != cacheKey(renderReq{GSX: "x", Invoke: "Y(YProps{})"}) {
+	if a != cacheKey(renderReq{GSX: "x", Invoke: "Y()"}) {
 		t.Fatal("same input produced different keys")
 	}
 }
@@ -36,7 +36,7 @@ func TestCacheable(t *testing.T) {
 func TestCacheHit(t *testing.T) {
 	in := renderReq{
 		GSX:    "package views\n\ncomponent C(s string) {\n\t<p>{s}</p>\n}\n",
-		Invoke: `C(CProps{S: "cached"})`,
+		Invoke: `C("cached")`,
 	}
 	first := testPool.render(in)
 	if first.Cached {

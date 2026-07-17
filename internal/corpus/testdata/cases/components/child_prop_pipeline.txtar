@@ -7,7 +7,7 @@ component Card(title string) { <div>{title}</div> }
 
 component Page(t string) { <Card title={t |> upper}/> }
 -- invoke --
-Page(PageProps{T: "ada"})
+Page("ada")
 -- diagnostics.golden --
 -- render.golden --
 <div>ADA</div>

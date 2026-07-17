@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"go/token"
 	"reflect"
 	"strings"
@@ -101,6 +102,63 @@ func TestParsePipeStage(t *testing.T) {
 		if _, err := parsePipeStage(in, 0); err == nil {
 			t.Errorf("parsePipeStage(%q): expected error, got nil", in)
 		}
+	}
+}
+
+func TestParsePipeStageNames(t *testing.T) {
+	const base = token.Pos(100)
+	valid := []struct {
+		in   string
+		name string
+	}{
+		{in: "default", name: "default"},
+		{in: "μορφή2", name: "μορφή2"},
+		{in: "filters.default", name: "filters.default"},
+		{in: "μορφές.default", name: "μορφές.default"},
+		{in: "filters.default(1)", name: "filters.default"},
+	}
+	for _, tt := range valid {
+		t.Run("valid/"+tt.in, func(t *testing.T) {
+			got, err := parsePipeStage(tt.in, base)
+			if err != nil {
+				t.Fatalf("parsePipeStage(%q) error: %v", tt.in, err)
+			}
+			if got.Name != tt.name {
+				t.Errorf("Name = %q, want %q", got.Name, tt.name)
+			}
+			if got.NamePos != base {
+				t.Errorf("NamePos = %d, want %d", got.NamePos, base)
+			}
+		})
+	}
+
+	invalidUTF8 := string([]byte{'f', 'i', 'l', 't', 'e', 'r', '.', 0xff})
+	invalid := []struct {
+		name string
+		in   string
+	}{
+		{name: "malformed UTF-8", in: invalidUTF8},
+		{name: "digit first", in: "1filter"},
+		{name: "whitespace", in: "filter name"},
+		{name: "leading empty segment", in: ".filter"},
+		{name: "middle empty segment", in: "filter..name"},
+		{name: "trailing empty segment", in: "filter."},
+		{name: "punctuation", in: "filter-name"},
+	}
+	for _, tt := range invalid {
+		t.Run("invalid/"+tt.name, func(t *testing.T) {
+			_, err := parsePipeStage(tt.in, base)
+			if err == nil {
+				t.Fatalf("parsePipeStage(%q): expected error, got nil", tt.in)
+			}
+			var pipeErr pipeError
+			if !errors.As(err, &pipeErr) {
+				t.Fatalf("error type = %T, want pipeError", err)
+			}
+			if pipeErr.pos != base || pipeErr.end != base+token.Pos(len(tt.in)) {
+				t.Errorf("error range = %d..%d, want %d..%d", pipeErr.pos, pipeErr.end, base, base+token.Pos(len(tt.in)))
+			}
+		})
 	}
 }
 

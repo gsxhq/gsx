@@ -7,7 +7,7 @@ component Badge(variant string, n int) {
 	<span class=f`badge badge-@{variant} n-@{n}`>Hi</span>
 }
 -- invoke --
-Badge(BadgeProps{Variant: "primary", N: 3})
+Badge("primary", 3)
 -- diagnostics.golden --
 -- render.golden --
 <span class="badge badge-primary n-3">Hi</span>
@@ -22,16 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type BadgeProps struct {
-	Variant string
-	N       int
-}
-
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) _gsxrt.Node {
+func Badge(variant string, n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		variant := _gsxp.Variant
-		n := _gsxp.N
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

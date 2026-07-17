@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
-func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, error) {
+func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
@@ -50,7 +50,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, r
 		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
 	for _, g := range groups {
-		generateModule(g, filterPkgs, aliases, renderers, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger, &res)
+		generateModule(g, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger, &res)
 	}
 
 	sort.Strings(res.Written)
@@ -73,7 +73,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, r
 // MISS regenerate when the incremental cache is usable, else one batched
 // generate. Final result aggregation (sort, error join) is the caller's job, so
 // this only appends to res.
-func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, out *Result) {
+func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, out *Result) {
 	root, modPath, dirs := g.root, g.modPath, g.dirs
 
 	// Work against a LOCAL result so the per-module manifest guard can ask "was
@@ -120,19 +120,26 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 	}
 
 	clsFingerprint := cls.Fingerprint()
+	goContext := codegen.CaptureGoCommandContext(root)
+	sourceManifest, manifestErr := sourceview.Build(sourceview.BuildOptions{ModuleRoot: root, ModulePath: modPath})
+	if manifestErr != nil {
+		res.Errs = append(res.Errs, fmt.Errorf("gen: build source manifest: %w", manifestErr))
+		return
+	}
 
 	genOpts := codegen.Options{
-		ModulePath:   modPath,
-		FilterPkgs:   filterPkgs,
-		Aliases:      aliases,
-		Renderers:    renderers,
-		Classifier:   cls,
-		FieldMatcher: fm,
-		CSSMin:       cssMin,
-		JSMin:        jsMin,
-		CSSMinify:    cssMinify,
-		JSMinify:     jsMinify,
-		ClassMerger:  classMerger,
+		ModulePath:       modPath,
+		GoCommandContext: goContext,
+		SourceManifest:   sourceManifest,
+		FilterPkgs:       filterPkgs,
+		Aliases:          aliases,
+		Renderers:        renderers,
+		Classifier:       cls,
+		CSSMin:           cssMin,
+		JSMin:            jsMin,
+		CSSMinify:        cssMinify,
+		JSMinify:         jsMinify,
+		ClassMerger:      classMerger,
 	}
 
 	// No cache: one batched generate (Tier 0 path).
@@ -141,41 +148,81 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		return
 	}
 
-	graph, gerr := loadGraph(root)
-	bctx := buildContext(root)
+	bctx, contextErr := goContext.CacheFingerprint()
+	if contextErr != nil {
+		// Only a valid context whose source universe is deliberately outside the
+		// persistent key can fall back to uncached generation. Capture, command,
+		// decoding, and live-provenance failures are unsafe to continue: the
+		// context may have changed and Module does not own enough state to reopen it.
+		if errors.Is(contextErr, codegen.ErrUncacheableGoContext) {
+			// CacheFingerprint returns uncacheable classifications without its
+			// normal final validation. Establish the uncached semantic commit
+			// boundary here before Module consumes that context.
+			if err := goContext.ValidateCurrent(); err != nil {
+				res.Errs = append(res.Errs, fmt.Errorf("gen: validate uncacheable Go command context before generation: %w", err))
+				return
+			}
+			writeAll(dirs, mustGen(root, dirs, genOpts, &res), &res)
+			return
+		}
+		res.Errs = append(res.Errs, fmt.Errorf("gen: fingerprint Go command context: %w", contextErr))
+		return
+	}
+	graphRoots := []string{"github.com/gsxhq/gsx"}
+	graphRoots = append(graphRoots, configuredPackagePaths(filterPkgs, aliases, renderers, classMerger)...)
+	graph, gerr := loadGraphWithContext(goContext, sourceManifest, dedupSorted(graphRoots))
+	var projection *sourceview.CacheProjection
+	if gerr == nil {
+		projection, gerr = sourceview.NewCacheProjection(sourceManifest, graph)
+	}
 	codegenID := codegenIdentity()
-	goModH := fileHashOrEmpty(filepath.Join(root, "go.mod"))
-	goSumH := fileHashOrEmpty(filepath.Join(root, "go.sum"))
+	keyConfig := cacheKeyConfig{
+		buildContext:          bctx,
+		codegenIdentity:       codegenID,
+		additionalSourceRoots: []string{"github.com/gsxhq/gsx"},
+		filterPackages:        filterPkgs,
+		aliases:               aliases,
+		renderers:             renderers,
+		classifierFingerprint: clsFingerprint,
+		cssMinify:             cssMinify,
+		jsMinify:              jsMinify,
+		classMerger:           classMerger,
+	}
 
 	keys := map[string]string{} // dir -> key (only when computable)
+	hits := map[string]pkgOutput{}
 	var miss []string
 	for _, dir := range dirs {
 		if gerr != nil {
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
-		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, codegenID, filterPkgs, aliases, renderers, clsFingerprint, fm != nil, cssMinify, jsMinify, classMerger, root)
+		k, err := computeKey(dir, projection, keyConfig)
 		if err != nil {
 			miss = append(miss, dir) // uncertain → MISS
 			continue
 		}
 		keys[dir] = k
-		if _, ok := storeGet(cdir, k); ok {
+		if cached, ok := storeGet(cdir, k); ok {
+			hits[dir] = cached
 			continue // HIT
 		}
 		miss = append(miss, dir)
 	}
 
+	// CacheFingerprint was computed before graph loading and key classification.
+	// Revalidate at the semantic commit boundary immediately before any cached
+	// bytes are consumed or any MISS is generated and stored. A changed
+	// launcher, compiler, or vendor-selection state must fail closed without
+	// publishing output under a stale provenance key.
+	if err := goContext.ValidateCurrent(); err != nil {
+		res.Errs = append(res.Errs, fmt.Errorf("gen: validate Go command context before cache commit: %w", err))
+		return
+	}
+
 	// RESTORE phase: write every HIT's cached output to disk (hash-gated), BEFORE generating.
 	for _, dir := range dirs {
-		k, ok := keys[dir]
-		if !ok {
-			continue
-		}
-		if slices.Contains(miss, dir) {
-			continue
-		}
-		out, ok := storeGet(cdir, k)
+		out, ok := hits[dir]
 		if !ok {
 			continue
 		}

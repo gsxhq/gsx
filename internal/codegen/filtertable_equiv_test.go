@@ -65,7 +65,7 @@ func TestFilterTableFromExtMatchesGoList(t *testing.T) {
 	if _, err := m.externalImporter(); err != nil {
 		t.Fatalf("externalImporter: %v", err)
 	}
-	viaTypes, err := m.filterTableFromExt(dedupFilterPkgs(filterPkgs))
+	viaTypes, err := m.filterTableFromSource(dedupFilterPkgs(filterPkgs))
 	if err != nil {
 		t.Fatalf("filterTableFromExt: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestFilterHarvestErrorsMatch(t *testing.T) {
 			if _, err := m.externalImporter(); err != nil {
 				t.Fatalf("externalImporter: %v", err)
 			}
-			_, typesErr := m.filterTableFromExt(dedupFilterPkgs(filterPkgs))
+			_, typesErr := m.filterTableFromSource(dedupFilterPkgs(filterPkgs))
 
 			if goListErr == nil || typesErr == nil {
 				t.Fatalf("expected both paths to error; goList=%v types=%v", goListErr, typesErr)
@@ -229,7 +229,7 @@ func TestFilterTableFromExtRejectsBrokenPkg(t *testing.T) {
 	if _, err := m.externalImporter(); err != nil {
 		t.Fatalf("externalImporter: %v", err)
 	}
-	if _, err := m.filterTableFromExt(dedupFilterPkgs(filterPkgs)); err == nil {
+	if _, err := m.filterTableFromSource(dedupFilterPkgs(filterPkgs)); err == nil {
 		t.Fatal("a broken filter package yielded a table instead of an error")
 	}
 }

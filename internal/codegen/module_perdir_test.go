@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,15 +124,11 @@ func TestPerDirFilterTableRejectsForeignFilter(t *testing.T) {
 	}
 }
 
-// TestPerDirUnloadedFilterPkgIsHardError: naming a filter package that was never
-// loaded must fail loudly. An empty table here would silently disable every
-// filter for that dir.
-//
-// The package must live OUTSIDE the module: the importer's load ends with
-// "./...", so any in-module package is loaded whether or not LoadPkgs names it.
-// A mistyped or non-vendored filter package is the case that actually reaches
-// this guard.
-func TestPerDirUnloadedFilterPkgIsHardError(t *testing.T) {
+// Naming an unresolvable filter package must fail loudly. An empty table here
+// would silently disable every filter for that dir; configured package
+// resolution is authoritative even when the package was absent from the cold
+// module load.
+func TestPerDirUnresolvableFilterPkgIsHardError(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
 	}
@@ -143,7 +140,7 @@ func TestPerDirUnloadedFilterPkgIsHardError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a hard error for an unloaded filter package; got nil")
 	}
-	if !strings.Contains(err.Error(), "was not loaded") {
+	if !strings.Contains(err.Error(), `filter package "example.com/x/missing" type resolution failed`) {
 		t.Fatalf("wrong error: %v", err)
 	}
 }
@@ -161,7 +158,7 @@ func TestPerDirClassMergerApplies(t *testing.T) {
 		"b": {FilterPkgs: []string{StdImportPath, "example.com/x/bfilters"}},
 	}, []string{"example.com/x/afilters", "example.com/x/bfilters", "example.com/x/mrg"})
 
-	if err := m.validatePerDirMergers(); err != nil {
+	if err := m.validateConfiguredMergers(); err != nil {
 		t.Fatalf("validatePerDirMergers: %v", err)
 	}
 	if got := m.classMergerFor(filepath.Join(root, "a")); got == nil || got.FuncName != "Keep" {
@@ -206,27 +203,41 @@ func TestPerDirBadMergerFailsOnGeneratePath(t *testing.T) {
 func TestBundleRejectsPerDir(t *testing.T) {
 	_, err := Open(Options{
 		ModuleRoot: t.TempDir(),
-		Bundle:     &Bundle{},
+		Bundle:     testBundle(targetTestImporter(), funcTables{}),
 		PerDir:     map[string]DirOptions{"a": {FilterPkgs: []string{StdImportPath}}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "incompatible") {
 		t.Fatalf("Open(Bundle+PerDir) = %v; want an incompatibility error", err)
 	}
-	if _, err := Open(Options{ModuleRoot: t.TempDir(), Bundle: &Bundle{}}); err != nil {
+	if _, err := Open(Options{ModuleRoot: t.TempDir(), Bundle: testBundle(targetTestImporter(), funcTables{})}); err != nil {
 		t.Fatalf("Bundle alone must still open: %v", err)
 	}
 }
 
-// TestPerDirUnloadedMergerIsHardError guards the merger half the same way.
-func TestPerDirUnloadedMergerIsHardError(t *testing.T) {
+func TestOpenRejectsIncompleteBundle(t *testing.T) {
+	for name, bundle := range map[string]*Bundle{
+		"zero":             {},
+		"missing sizes":    {imp: targetTestImporter(), goVersion: "go1.26"},
+		"missing language": {imp: targetTestImporter(), sizes: types.SizesFor("gc", "amd64")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Open(Options{ModuleRoot: t.TempDir(), Bundle: bundle}); err == nil {
+				t.Fatal("Open accepted incomplete Bundle")
+			}
+		})
+	}
+}
+
+// An unresolvable class-merger package is the same hard configuration error.
+func TestPerDirUnresolvableMergerIsHardError(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
 	}
 	m, _ := setupPerDirModule(t, map[string]DirOptions{
 		"a": {ClassMerger: &ClassMergerRef{PkgPath: "example.com/x/nope", FuncName: "Keep"}},
 	}, nil)
-	err := m.validatePerDirMergers()
-	if err == nil || !strings.Contains(err.Error(), "was not loaded") {
+	err := m.validateConfiguredMergers()
+	if err == nil || !strings.Contains(err.Error(), `class_merger package "example.com/x/nope" type resolution failed`) {
 		t.Fatalf("expected hard error for unloaded merger package; got %v", err)
 	}
 }

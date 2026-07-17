@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,9 @@ func writeDepFactsModule(t *testing.T) (root, uiDir, pagesDir string) {
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	writeFile(t, uiDir, "card.gsx", `package ui
 
-component Card(title string) {
+import "github.com/gsxhq/gsx"
+
+component Card(title string, attrs gsx.Attrs) {
 	<div class="card" { attrs... }>{title}</div>
 }
 `)
@@ -41,43 +44,67 @@ component Home() {
 	return root, uiDir, pagesDir
 }
 
-func TestImportedPropFactsCachedAndInvalidated(t *testing.T) {
-	root, uiDir, _ := writeDepFactsModule(t)
+func TestImportedPropFactsUseOnlyActiveCompanionSyntax(t *testing.T) {
+	t.Setenv("GOFLAGS", "-tags=feature")
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	uiDir := filepath.Join(root, "ui")
+	pagesDir := filepath.Join(root, "pages")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, uiDir, "active.go", "//go:build feature\n\npackage ui\n\ntype CardData struct { Title string }\n")
+	writeFile(t, uiDir, "zz_inactive.go", "//go:build !feature\n\npackage ui\n\ntype CardData struct { Count int }\n")
+	writeFile(t, uiDir, "card.gsx", "package ui\n\ncomponent Card(data CardData) { <article>{data.Title}</article> }\n")
+	writeFile(t, pagesDir, "page.gsx", `package pages
+
+import "example.com/app/ui"
+
+component Page() { <ui.Card data={ui.CardData{Title: "hello"}}/> }
+`)
+
 	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f1, err := m.importedPropFacts(uiDir)
+	if _, err := m.buildPackageSkeletons(pagesDir); err != nil {
+		t.Fatalf("prewarm syntactic dependency facts: %v", err)
+	}
+	if got := m.externalLoads(); got != 0 {
+		t.Fatalf("syntactic dependency facts triggered %d external loads", got)
+	}
+	_, diagnostics, err := m.Generate(pagesDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !f1.propFields["CardProps"]["Title"] || !f1.propFields["CardProps"]["Attrs"] {
-		t.Fatalf("CardProps fields = %v; want Title and Attrs", f1.propFields["CardProps"])
+	if hasDiagErrors(diagnostics) {
+		t.Fatalf("Generate diagnostics = %v", diagnostics)
 	}
-	f2, err := m.importedPropFacts(uiDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f1 != f2 {
-		t.Fatal("second lookup did not hit the cache (different *depPropFacts)")
-	}
-	// A content change to the dep invalidates its cached facts.
-	m.SetOverride(filepath.Join(uiDir, "card.gsx"), []byte(`package ui
-
-component Card(title string, variant string) {
-	<div class="card" { attrs... }>{title}</div>
 }
-`))
-	m.Invalidate(uiDir)
-	f3, err := m.importedPropFacts(uiDir)
-	if err != nil {
-		t.Fatal(err)
+
+func TestComponentPreprocessFailurePreservesOnlyErrors(t *testing.T) {
+	bag := diag.NewBag(token.NewFileSet())
+	bag.Add(diag.Diagnostic{
+		Severity: diag.Warning,
+		Code:     "unrelated-warning",
+		Source:   "codegen",
+		Message:  "warning",
+	})
+	bag.Add(diag.Diagnostic{
+		Severity: diag.Error,
+		Code:     "preprocess-error",
+		Source:   "codegen",
+		Message:  "error",
+	})
+
+	err := componentPreprocessFailure("test", callSitePreprocessResult{syntaxOK: true, scriptsOK: true}, bag)
+	diags, ok := diagnosticsFromSourceError(err)
+	if !ok {
+		t.Fatalf("componentPreprocessFailure error = %T %v; want structured diagnostics", err, err)
 	}
-	if f3 == f1 {
-		t.Fatal("facts not recomputed after invalidation")
-	}
-	if !f3.propFields["CardProps"]["Variant"] {
-		t.Fatalf("recomputed CardProps fields = %v; want Variant", f3.propFields["CardProps"])
+	if len(diags) != 1 || diags[0].Severity != diag.Error || diags[0].Code != "preprocess-error" {
+		t.Fatalf("diagnostics = %+v; want only the preprocessing error", diags)
 	}
 }
 
@@ -99,13 +126,17 @@ func TestFileScopedAliasNoCollision(t *testing.T) {
 	// ui.Panel has a Variant prop; widgets.Panel does NOT (variant falls to its bag).
 	mk("ui/panel.gsx", `package ui
 
-component Panel(variant string) {
+import "github.com/gsxhq/gsx"
+
+component Panel(variant string, attrs gsx.Attrs, children gsx.Node) {
 	<section data-variant={variant} { attrs... }>{children}</section>
 }
 `)
 	mk("widgets/panel.gsx", `package widgets
 
-component Panel() {
+import "github.com/gsxhq/gsx"
+
+component Panel(attrs gsx.Attrs, children gsx.Node) {
 	<aside { attrs... }>{children}</aside>
 }
 `)
@@ -139,14 +170,13 @@ component B() {
 	}
 	aGen := string(out[filepath.Join(pagesDir, "a.gsx")])
 	bGen := string(out[filepath.Join(pagesDir, "b.gsx")])
-	// a.gsx: ui = app/ui, Panel HAS Variant → caller-set prop, class falls through.
-	if !strings.Contains(aGen, "Variant:") {
-		t.Errorf("a.gsx should set Variant prop on ui.Panel; got:\n%s", aGen)
+	// a.gsx: ui = app/ui, Panel HAS variant → first positional argument;
+	// class falls through to attrs.
+	if !strings.Contains(aGen, `ui.Panel("big",`) {
+		t.Errorf("a.gsx should pass variant positionally to ui.Panel; got:\n%s", aGen)
 	}
-	// b.gsx: ui = app/widgets, Panel has NO Variant → variant AND class fall to the bag.
-	if strings.Contains(bGen, "Variant:") {
-		t.Errorf("b.gsx must NOT set a Variant prop on widgets.Panel; got:\n%s", bGen)
-	}
+	// b.gsx: ui = app/widgets, Panel has NO variant → variant AND class fall
+	// through to attrs.
 	if !strings.Contains(bGen, `{Key: "variant", Value: "big"}`) {
 		t.Errorf("b.gsx should send variant to the Attrs bag; got:\n%s", bGen)
 	}
@@ -166,29 +196,35 @@ component B() {
 	}
 }
 
-// A dep with a transient parse error must degrade VISIBLY: the importer still
-// generates (assume-prop regime) and carries a positioned warning naming the dep.
-func TestImportedPropFactsFailureWarns(t *testing.T) {
+// A dependency analysis failure is a source error, not permission to guess its
+// component contract. Preserve the dependency diagnostic and emit nothing.
+func TestImportedPropFactsFailureFailsClosed(t *testing.T) {
 	root, uiDir, pagesDir := writeDepFactsModule(t)
 	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.SetOverride(filepath.Join(uiDir, "card.gsx"), []byte("package ui\n\ncomponent Card( {\n"))
-	_, diags, err := m.Generate(pagesDir)
+	out, diags, err := m.Generate(pagesDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(out) != 0 {
+		t.Fatalf("Generate emitted %d files after dependency analysis failed", len(out))
+	}
 	found := false
 	for _, d := range diags {
-		if d.Code == "imported-props-unavailable" && d.Severity == diag.Warning {
+		if d.Code == "parse-error" && d.Severity == diag.Error {
 			found = true
-			if d.Start.Line == 0 {
-				t.Errorf("warning should be positioned at the import spec; got %+v", d)
+			if d.Start.Filename != filepath.Join(uiDir, "card.gsx") || d.Start.Line == 0 {
+				t.Errorf("dependency diagnostic should retain its source position; got %+v", d)
 			}
+		}
+		if d.Code == "imported-props-unavailable" {
+			t.Errorf("dependency failure was downgraded to compatibility warning: %+v", d)
 		}
 	}
 	if !found {
-		t.Fatalf("expected imported-props-unavailable warning; diags = %+v", diags)
+		t.Fatalf("expected dependency parse diagnostic; diags = %+v", diags)
 	}
 }

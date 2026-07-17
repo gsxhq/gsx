@@ -7,7 +7,7 @@ component Page(name string) {
 	<div x-data="{ n: @{ name |> truncate(3) } }">x</div>
 }
 -- invoke --
-Page(PageProps{Name: "ada-extra"})
+Page("ada-extra")
 -- diagnostics.golden --
 -- render.golden --
 <div x-data="{ n: @{ name |&gt; truncate(3) } }">x</div>

@@ -3,11 +3,13 @@
 -- input.gsx --
 package views
 
-component Card(title string) { <div { attrs... }>{title}</div> }
+
+import "github.com/gsxhq/gsx"
+component Card(title string, attrs gsx.Attrs) { <div { attrs... }>{title}</div> }
 
 component Page(on bool) { <Card class={ "a", "b": on }/> }
 -- invoke --
-Page(PageProps{On: true})
+Page(true)
 -- diagnostics.golden --
 -- render.golden --
 <div class="a b"></div>

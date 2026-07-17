@@ -7,15 +7,11 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Box(active bool, extra gsx.Attrs) {
+component Box(active bool, extra gsx.Attrs, attrs gsx.Attrs) {
 	<div { if active { { extra... } } } { attrs... }>x</div>
 }
 -- invoke --
-Box(BoxProps{
-	Active: true,
-	Extra:  gsx.Attrs{{Key: "data-k", Value: "e"}},
-	Attrs:  gsx.Attrs{{Key: "data-k", Value: "a"}},
-})
+Box(true, gsx.Attrs{{Key: "data-k", Value: "e"}}, gsx.Attrs{{Key: "data-k", Value: "a"}})
 -- diagnostics.golden --
 -- render.golden --
 <div data-k="a">x</div>
@@ -31,18 +27,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	Active bool
-	Extra  gsx.Attrs
-	Attrs  _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(active bool, extra gsx.Attrs, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		active := _gsxp.Active
-		extra := _gsxp.Extra
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0, _gsxerr := _gsxrt.AttrsCond(active, func() (_gsxrt.Attrs, error) {

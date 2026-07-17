@@ -5,7 +5,7 @@ package views
 
 component C(s string) { <div data-x={ s |> truncate(8) }>y</div> }
 -- invoke --
-C(CProps{S: "abcdefghij"})
+C("abcdefghij")
 -- diagnostics.golden --
 -- render.golden --
 <div data-x="abcdefgh">y</div>

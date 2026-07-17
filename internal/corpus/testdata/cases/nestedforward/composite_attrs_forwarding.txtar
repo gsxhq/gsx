@@ -1,0 +1,28 @@
+# A component can combine an ordinary composite value parameter with the
+# explicit reserved attrs role. The wrapper's contributor is forwarded to
+# Card's attrs argument independently of the composite value.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type CardProps struct {
+	Title string
+}
+
+component Card(p CardProps, attrs gsx.Attrs) {
+	<div { attrs... }>{p.Title}</div>
+}
+
+component Wrapper(attrs gsx.Attrs) {
+	<Card p={CardProps{Title: "card"}} { attrs... }/>
+}
+
+component Page() {
+	<Wrapper data-x="1"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div data-x="1">card</div>

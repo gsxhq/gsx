@@ -9,7 +9,7 @@ component Link(u string) {
 	<a href={f`@{u}` |> upper}>go</a>
 }
 -- invoke --
-Link(LinkProps{U: "javascript:alert(1)"})
+Link("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
 <a href="about:invalid#gsx">go</a>
@@ -25,14 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	U string
-}
-
 //line input.gsx:3:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(u string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		u := _gsxp.U
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")

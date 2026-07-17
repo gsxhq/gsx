@@ -1,5 +1,8 @@
 # Plan: Codegen attribute fallthrough (Phase 7)
 
+> **Superseded implementation plan:** Retained as history. Current execution is
+> tracked by `2026-07-14-verbatim-component-signatures.md`.
+
 **Date:** 2026-06-20
 **Branch:** `feat/codegen-fallthrough` off `main`
 **Design:** `specs/2026-06-20-gsx-attr-fallthrough-design.md` (approved; D2 = auto+manual,

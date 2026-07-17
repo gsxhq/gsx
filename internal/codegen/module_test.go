@@ -6,6 +6,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,7 +141,7 @@ func TestCheckSkeletonPackageReturnsPkg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, info, errs := checkSkeletonPackage("/m/p", "p", []*goast.File{f}, fset, importer.Default())
+	pkg, info, errs := checkSkeletonPackage("/m/p", "p", []*goast.File{f}, fset, importer.Default(), testTypeCheckEnvironment())
 	if len(errs) != 0 {
 		t.Fatalf("unexpected type errors: %v", errs)
 	}
@@ -278,6 +279,125 @@ func TestModuleGenerateProducesXGo(t *testing.T) {
 	got := string(out[gsxPath])
 	if !strings.Contains(got, "package page") || !strings.Contains(got, "func Home(") {
 		t.Fatalf("unexpected generated output:\n%s", got)
+	}
+}
+
+func TestPackageMainTag(t *testing.T) {
+	const source = `package main
+
+import (
+	"context"
+	"io"
+	"github.com/gsxhq/gsx"
+)
+
+type concreteNode struct{}
+func (concreteNode) Render(context.Context, io.Writer) error { return nil }
+var _ gsx.Node = concreteNode{}
+func main() {}
+func concrete() concreteNode { return concreteNode{} }
+
+component Page() {
+	<main><concrete/></main>
+}
+`
+	dir, module := openTestModule(t, map[string]string{"page.gsx": source})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("Generate diagnostics: %+v", diagnostics)
+	}
+	generated := string(output[filepath.Join(dir, "page.gsx")])
+	if !strings.Contains(generated, `_gsxgw.S("<main>")`) || !strings.Contains(generated, `_gsxgw.S("</main>")`) {
+		t.Fatalf("generated output does not retain literal <main>:\n%s", generated)
+	}
+	if !strings.Contains(generated, `_gsxgw.Node(ctx, concrete())`) {
+		t.Fatalf("generated output does not call concrete component:\n%s", generated)
+	}
+
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamps := map[string]bool{}
+	for _, parsed := range result.GSXFiles {
+		maps.Copy(stamps, collectStamps(parsed))
+	}
+	if stamps["main"] || !stamps["concrete"] {
+		t.Fatalf("semantic stamps=%v, want main=false concrete=true", stamps)
+	}
+}
+
+func TestSemanticComponentIdentity(t *testing.T) {
+	tests := []struct {
+		name    string
+		files   map[string]string
+		code    string
+		message string
+	}{
+		{name: "missing explicit", files: map[string]string{"page.gsx": "package page\ncomponent Page() { <Missing/> }\n"}, message: "undefined: Missing"},
+		{name: "zero result explicit", files: map[string]string{"page.gsx": "package page\nfunc Zero() {}\ncomponent Page() { <Zero/> }\n"}, code: "component-result-count"},
+		{name: "zero result imported", files: map[string]string{
+			"dep/dep.go": "package dep\nfunc Zero() {}\n",
+			"page.gsx":   "package page\nimport \"testmod/dep\"\ncomponent Page() { <dep.Zero/> }\n",
+		}, code: "component-result-count"},
+		{name: "parameter validation after identity", files: map[string]string{"page.gsx": "package page\nimport \"github.com/gsxhq/gsx\"\nfunc broken(attrs string) gsx.Node { return nil }\ncomponent Page() { <broken/> }\n"}, code: "component-attrs-type"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, module := openTestModule(t, tt.files)
+			output, diagnostics, err := module.Generate(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(output) != 0 {
+				t.Fatalf("generated output escaped semantic rejection: %v", output)
+			}
+			var found bool
+			for _, diagnostic := range diagnostics {
+				if (tt.code != "" && diagnostic.Code == tt.code) || (tt.message != "" && diagnostic.Message == tt.message) {
+					found = true
+					if diagnostic.Start.Filename == "" || diagnostic.Start.Line == 0 {
+						t.Errorf("diagnostic is unpositioned: %+v", diagnostic)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("diagnostics=%+v, want code %q or message %q", diagnostics, tt.code, tt.message)
+			}
+		})
+	}
+}
+
+func TestRejectedLocalSelectorDoesNotKeepShadowedImportUsed(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"ui/ui.go": "package ui\n",
+		"page.gsx": `package page
+
+import "testmod/ui"
+
+type holder struct { Icon func() string }
+
+component Page(ui holder) { <ui.Icon/> }
+`,
+	})
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rejectedTarget, unusedImport bool
+	for _, diagnostic := range result.Diags {
+		rejectedTarget = rejectedTarget || diagnostic.Code == "invalid-component-target"
+		unusedImport = unusedImport || strings.Contains(diagnostic.Message, `"testmod/ui" imported and not used`)
+	}
+	if !rejectedTarget || !unusedImport {
+		t.Fatalf("diagnostics=%+v, want rejected local selector and unused shadowed import", result.Diags)
+	}
+	unused := result.UnusedImports[filepath.Join(dir, "page.gsx")]
+	if len(unused) != 1 || unused[0].Path != "testmod/ui" {
+		t.Fatalf("unused imports=%+v, want shadowed testmod/ui", result.UnusedImports)
 	}
 }
 

@@ -34,6 +34,53 @@ func TestHoverAttrParamSamePkg(t *testing.T) {
 	}
 }
 
+func TestHoverAttrParamExactCase(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	mk := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	src := "package x\n\ncomponent Card(title string, Title bool) {\n\t<div/>\n}\n\ncomponent Page() {\n\t<Card title=\"ok\" Title={true}/>\n}\n"
+	mk("comp.gsx", src)
+
+	h := hoverAt(t, dir, "comp.gsx", src, "Title={", 0)
+	if h == nil || !strings.Contains(h.Contents.Value, "Title bool") {
+		t.Fatalf("hover on exact-case attr = %+v, want contains 'Title bool'", h)
+	}
+}
+
+func TestHoverPlainGoCallableTarget(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	mk := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	mk("pill.go", "package x\n\nimport \"github.com/gsxhq/gsx\"\n\nfunc Pill(label string, attrs gsx.Attrs) gsx.Node {\n\treturn renderPill(label, attrs)\n}\n")
+	src := "package x\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent renderPill(label string, attrs gsx.Attrs) {\n\t<span { attrs... }>{label}</span>\n}\n\ncomponent Page() {\n\t<Pill label=\"ok\"/>\n}\n"
+	mk("comp.gsx", src)
+
+	h := hoverAt(t, dir, "comp.gsx", src, "Pill label", 1)
+	if h == nil || !strings.Contains(h.Contents.Value, "func Pill(label string, attrs gsx.Attrs) gsx.Node") {
+		t.Fatalf("hover on plain-Go callable target = %+v, want Pill's exact signature", h)
+	}
+}
+
 // H1 cross-package + H2: hover on `name` attr → "name string"; hover on the
 // `components.Input` tag → "component Input(".
 func TestHoverCrossPkgAttrAndTag(t *testing.T) {

@@ -24,7 +24,20 @@ type countingAnalyzer struct {
 	n    int
 }
 
+func (a *countingAnalyzer) ClearOverride(string) ([]string, error) { return nil, nil }
+
+// SetOverride returns the edited directory as invalidated, per the Analyzer
+// contract: a content-bearing change invalidates that package view, so the
+// server schedules a fresh analysis instead of republishing the retained
+// package (a nil affected set would model an identical-byte no-op).
+func (a *countingAnalyzer) SetOverride(path string, _ []byte) ([]string, error) {
+	return []string{filepath.Dir(path)}, nil
+}
+
 func (a *countingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+	return nil, nil
+}
+func (a *countingAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
 	return nil, nil
 }
 

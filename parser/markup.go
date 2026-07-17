@@ -70,11 +70,6 @@ func (p *parser) parseText() *ast.Text {
 	return p.parseTextCtx(false)
 }
 
-func isAttrNameByte(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' ||
-		b >= '0' && b <= '9' || b == '_' || b == ':' || b == '@' || b == '.' || b == '-'
-}
-
 // parseTagComment recognizes a tag-interior comment at the cursor: bare `//` or
 // `/* */`, or a comment-only `{ … }`. Returns (node, true, nil) when one is
 // consumed, (nil, false, nil) when the cursor is not at a comment, or
@@ -217,21 +212,15 @@ func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
 	return n, nil
 }
 
-// isIdentByte reports whether b can be part of a Go identifier.
-func isIdentByte(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' ||
-		b >= '0' && b <= '9' || b == '_'
-}
-
 // atWord reports whether the source at the cursor is exactly the word w,
-// not followed by an identifier character (so `else` matches but `elsewhere`
-// does not).
+// not followed by a Go identifier rune (so `else` matches but `elsewhere` and
+// `elseπ` do not).
 func (p *parser) atWord(w string) bool {
 	if !p.at(w) {
 		return false
 	}
 	next := p.i + len(w)
-	return next >= len(p.src) || !isIdentByte(p.src[next])
+	return !goIdentifierContinueAt(p.src, next)
 }
 
 // braceKeyword returns the leading control-flow keyword ("if", "for", "switch")
@@ -242,17 +231,10 @@ func (p *parser) braceKeyword() string {
 	for j < len(p.src) && (p.src[j] == ' ' || p.src[j] == '\t' || p.src[j] == '\n' || p.src[j] == '\r') {
 		j++
 	}
-	start := j
-	for j < len(p.src) && p.src[j] >= 'a' && p.src[j] <= 'z' {
-		j++
-	}
-	kw := p.src[start:j]
-	switch kw {
-	case "if", "for", "switch":
-		if j < len(p.src) && isIdentByte(p.src[j]) {
-			return ""
+	for _, kw := range [...]string{"if", "for", "switch"} {
+		if strings.HasPrefix(p.src[j:], kw) && !goIdentifierContinueAt(p.src, j+len(kw)) {
+			return kw
 		}
-		return kw
 	}
 	return ""
 }
@@ -698,7 +680,7 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	for j < len(p.src) && (p.src[j] == ' ' || p.src[j] == '\t' || p.src[j] == '\n' || p.src[j] == '\r') {
 		j++
 	}
-	if j < len(p.src) && p.src[j] == '<' && j+1 < len(p.src) && startsTag(p.src[j+1]) {
+	if j < len(p.src) && p.src[j] == '<' && startsTagAt(p.src, j+1) {
 		p.i++ // past '{'
 		nodes, err := p.parseMarkupUntilClose("markup attribute")
 		if err != nil {
@@ -715,16 +697,6 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, ExprPos: in.ExprPos, Stages: in.Stages}
 	ast.SetSpan(ea, attrStartPos, in.End())
 	return ea, nil
-}
-
-// startsTag reports whether b can begin a tag name (letter) or a fragment close.
-func startsTag(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b == '>' || b == '/'
-}
-
-func isTagNameByte(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' ||
-		b >= '0' && b <= '9' || b == '-' || b == '.'
 }
 
 func (p *parser) parseElement() (ast.Markup, error) {
@@ -754,20 +726,23 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	}
 
 	tagStart := p.i
-	for !p.eof() && isTagNameByte(p.src[p.i]) {
-		p.i++
-	}
+	p.i = scanTagName(p.src, p.i)
 	tag := p.src[tagStart:p.i]
 	if tag == "" {
 		return nil, p.errorf(startPos, "expected tag name")
 	}
+	tagPos := p.posAt(tagStart)
 	var typeArgs string
+	var typeArgsOpenPos token.Pos
 	var typeArgsPos token.Pos
+	var typeArgsClosePos token.Pos
 	if p.peek() == '[' {
+		typeArgsOpenPos = p.pos()
 		end, ok := bracketEnd(p.src, p.i)
 		if !ok {
 			return nil, p.errorf(p.pos(), "unterminated type args")
 		}
+		typeArgsClosePos = p.posAt(end)
 		raw := p.src[p.i+1 : end]
 		lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
 		typeArgsPos = p.posAt(p.i + 1 + lead)
@@ -785,7 +760,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 
 	if p.at("/>") {
 		p.i += 2
-		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Void: true, Attrs: attrs, AttrsMultiline: attrsMultiline}
+		el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Void: true, Attrs: attrs, AttrsMultiline: attrsMultiline}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -802,7 +777,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		if err != nil {
 			return nil, err
 		}
-		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, AttrsMultiline: attrsMultiline}
+		el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, AttrsMultiline: attrsMultiline}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -811,7 +786,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline, AttrsMultiline: attrsMultiline}
+	el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline, AttrsMultiline: attrsMultiline}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }
@@ -886,7 +861,7 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 			p.i+len(closeLower) <= len(p.src) &&
 			strings.EqualFold(p.src[p.i:p.i+len(closeLower)], closeLower) {
 			after := p.i + len(closeLower)
-			if after >= len(p.src) || !isTagNameByte(p.src[after]) {
+			if !tagNameRuneAt(p.src, after) {
 				flush(p.i)
 				p.i += len(closeLower)
 				p.skipSpace()
@@ -930,9 +905,7 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error)
 			// consume close tag
 			p.i += 2
 			start := p.i
-			for !p.eof() && isTagNameByte(p.src[p.i]) {
-				p.i++
-			}
+			p.i = scanTagName(p.src, p.i)
 			got := p.src[start:p.i]
 			closeNamePos := p.posAt(start)
 			p.skipSpace()

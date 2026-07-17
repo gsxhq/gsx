@@ -4,11 +4,13 @@
 -- input.gsx --
 package views
 
-component Icon(name string) {
+
+import "github.com/gsxhq/gsx"
+component Icon(name string, attrs gsx.Attrs) {
 	<span data-name={name} { attrs... }>i</span>
 }
 
-component Wrapper() {
+component Wrapper(attrs gsx.Attrs) {
 	<Icon name="x" { if attrs.Has("hot") { data-hot="1" } }/>
 }
 
@@ -27,22 +29,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type IconProps struct {
-	Name  string
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Icon(_gsxp IconProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Icon(name string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<span")
 		if !attrs.Has("data-name") {
 			_gsxgw.S(" data-name=\"")
@@ -57,33 +53,28 @@ func Icon(_gsxp IconProps) _gsxrt.Node {
 	})
 }
 
-type WrapperProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:7:1
-func Wrapper(_gsxp WrapperProps) _gsxrt.Node {
+//line input.gsx:9:1
+func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
+//line input.gsx:10:2
 		_gsxv0, _gsxerr := _gsxrt.AttrsCond(attrs.Has("hot"), func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-hot", Value: "1"}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Icon(IconProps{Name: "x", Attrs: _gsxrt.ConcatAttrs(_gsxv0)}))
+		_gsxgw.Node(ctx, Icon("x", _gsxv0))
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:11:1
+//line input.gsx:13:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.Node(ctx, Wrapper(WrapperProps{Attrs: _gsxrt.Attrs{{Key: "hot", Value: "1"}}}))
+//line input.gsx:14:2
+		_gsxgw.Node(ctx, Wrapper(_gsxrt.Attrs{{Key: "hot", Value: "1"}}))
 		return _gsxgw.Err()
 	})
 }

@@ -23,7 +23,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel, printWidth int) int {
+func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel, printWidth int) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -56,7 +56,7 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 		for _, fi := range infos {
 			mf = append(mf, manifestFilter{Name: fi.Name, Pkg: fi.Pkg, Func: fi.Func})
 		}
-		data, _ := json.MarshalIndent(buildManifest(modPath, cls, fm != nil, mf, cssMinLevel, jsMinLevel, printWidth), "", "  ")
+		data, _ := json.MarshalIndent(buildManifest(modPath, cls, mf, cssMinLevel, jsMinLevel, printWidth), "", "  ")
 		fmt.Fprintln(stdout, string(data))
 		return 0
 	}
@@ -139,16 +139,12 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 		rtw.Flush()
 	}
 
-	// Attribute rules section: show user-supplied URL rules and field-matcher status.
+	// Attribute rules section: show user-supplied URL rules.
 	rules := cls.Rules()
 	hasRules := len(rules.URL) > 0
-	hasFieldMatcher := fm != nil
-	if hasRules || hasFieldMatcher {
+	if hasRules {
 		fmt.Fprintf(stdout, "\nAttribute rules:\n")
 		printRuleSlice(stdout, "URL", rules.URL)
-		if hasFieldMatcher {
-			fmt.Fprintf(stdout, "  fieldMatcher: custom\n")
-		}
 	}
 
 	fmt.Fprintf(stdout, "\nminify: css=%s js=%s\n", cssMinLevel, jsMinLevel)

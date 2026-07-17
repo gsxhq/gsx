@@ -12,7 +12,7 @@ component Badge(kind string) {
 	} }</span>
 }
 -- invoke --
-Badge(BadgeProps{Kind: "warn"})
+Badge("warn")
 -- diagnostics.golden --
 -- render.golden --
 <span><b>warning</b></span>
@@ -27,14 +27,9 @@ import (
 	_gsxio "io"
 )
 
-type BadgeProps struct {
-	Kind string
-}
-
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) _gsxrt.Node {
+func Badge(kind string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		kind := _gsxp.Kind
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span>")

@@ -9,7 +9,7 @@ component Pic(s string) {
 	<img { b... } alt="x"/>
 }
 -- invoke --
-Pic(PicProps{S: "ok.jpg 1x, javascript:alert(1) 2x"})
+Pic("ok.jpg 1x, javascript:alert(1) 2x")
 -- diagnostics.golden --
 -- render.golden --
 <img srcset="ok.jpg 1x, about:invalid#gsx" alt="x"/>
@@ -25,14 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type PicProps struct {
-	S string
-}
-
 //line input.gsx:5:1
-func Pic(_gsxp PicProps) _gsxrt.Node {
+func Pic(s string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		s := _gsxp.S
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		b := gsx.Attrs{{Key: "srcset", Value: s}}

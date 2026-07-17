@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gsxhq/gsx/gen"
+	"github.com/gsxhq/gsx/playground/playbundle"
 )
 
 var pkgLine = regexp.MustCompile(`(?m)^package\s+\w+`)
@@ -174,7 +175,7 @@ type workspace struct {
 }
 
 type pool struct {
-	resolver *gen.CachedResolver
+	resolver *gen.BundledResolver
 	gocache  string
 	free     chan *workspace
 	cache    *respCache
@@ -231,9 +232,9 @@ func toDiagnostics(res gen.Result) []diagnostic {
 	return out
 }
 
-// newPool builds the cached resolver once, sets up `size` prepared workspaces
-// sharing one GOCACHE, and pre-warms the build cache. Workspaces are handed
-// out per request.
+// newPool builds the embedded resolver once, sets up `size` prepared workspaces
+// sharing one GOCACHE, and pre-warms the build cache. Workspaces are handed out
+// per request, but none supplies source or module state to the resolver.
 func newPool(gsxMod, work string, size int) (p *pool, err error) {
 	created := work == ""
 	if created {
@@ -259,6 +260,10 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 		"CGO_ENABLED=0",
 	}
 	p = &pool{gocache: gocache, free: make(chan *workspace, size), cache: newRespCache(512)}
+	p.resolver, err = playbundle.NewResolver()
+	if err != nil {
+		return nil, fmt.Errorf("build embedded resolver: %v", err)
+	}
 
 	for i := range size {
 		ws := &workspace{play: filepath.Join(work, fmt.Sprintf("play%d", i))}
@@ -266,41 +271,32 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 		if err = os.MkdirAll(ws.viewDir, 0o755); err != nil {
 			return nil, err
 		}
-		writeFile(filepath.Join(ws.play, "go.mod"), fmt.Sprintf("module gsxplay\n\ngo 1.23\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n", gsxMod))
+		writeFile(filepath.Join(ws.play, "go.mod"), fmt.Sprintf("module gsxplay\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n", gsxMod))
 		writeFile(filepath.Join(ws.play, "main.go"), "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n\n\t_ \"github.com/gsxhq/gsx\"\n\t\"gsxplay/views\"\n)\n\nfunc main() {\n\tif err := views.Render(context.Background(), os.Stdout); err != nil {\n\t\tpanic(err)\n\t}\n}\n")
 		writeFile(filepath.Join(ws.viewDir, "comp.gsx"), "package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n")
-		writeShim(ws.viewDir, "Hello()")
-		var out string
-		if out, err = run(context.Background(), ws.play, env, "go", "mod", "tidy"); err != nil {
-			return nil, fmt.Errorf("mod tidy: %v: %s", err, out)
-		}
 
-		// Build the cached resolver once from the first workspace's play dir,
-		// whose go.mod already has the gsx replace directive. Reuse it for all
-		// subsequent workspaces.
-		if i == 0 {
-			p.resolver, err = gen.NewCachedResolver(ws.play, gen.DefaultPlaygroundImports)
-			if err != nil {
-				return nil, fmt.Errorf("build cached resolver: %v", err)
-			}
-		}
-
-		// Seed the workspace with generated .x.go via the cached resolver so
-		// the subsequent go build has a real generated file to compile against.
+		// Seed the workspace from the embedded external type universe. The
+		// in-memory source set is complete; codegen does not inspect this
+		// workspace's module or source files.
 		seedSrc := map[string][]byte{
-			filepath.Join(ws.viewDir, "comp.gsx"): []byte("package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n"),
+			"comp.gsx": []byte("package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n"),
 		}
-		seedRes, seedErr := p.resolver.Generate(ws.viewDir, seedSrc)
+		seedRes, seedErr := p.resolver.GenerateSources(seedSrc)
 		if seedErr != nil {
 			return nil, fmt.Errorf("seed generate: %v", seedErr)
 		}
 		for path, b := range seedRes.Files {
-			// Files keys from in-process generate with absolute srcOverride keys
-			// are absolute .x.go paths. Write them directly.
+			// Virtual output names are mapped into this disposable workspace for
+			// the authentic Go build that follows.
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(ws.viewDir, filepath.Base(path))
 			}
 			writeFile(path, string(b))
+		}
+		writeShim(ws.viewDir, "Hello()")
+		var out string
+		if out, err = run(context.Background(), ws.play, env, "go", "mod", "tidy"); err != nil {
+			return nil, fmt.Errorf("mod tidy: %v: %s", err, out)
 		}
 
 		if out, err = run(context.Background(), ws.play, env, "go", "build", "-o", filepath.Join(ws.play, "play-bin"), "."); err != nil {
@@ -346,7 +342,7 @@ func writeShim(viewDir, invoke string) {
 }
 
 // renderIn performs one render cycle in the given workspace.
-func renderIn(resolver *gen.CachedResolver, gocache string, ws *workspace, in renderReq) renderResp {
+func renderIn(resolver *gen.BundledResolver, gocache string, ws *workspace, in renderReq) renderResp {
 	start := time.Now()
 	// 25s leaves headroom under Cloud Run's 30s request timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -359,14 +355,12 @@ func renderIn(resolver *gen.CachedResolver, gocache string, ws *workspace, in re
 		"CGO_ENABLED=0",
 	}
 
-	// Reset and write the user's shim. The .gsx source is passed via srcOverride
-	// to Generate rather than written to disk first.
+	// Reset the build workspace. GSX source remains solely in memory; only the
+	// generated Go and render shim are written below.
 	os.RemoveAll(ws.viewDir)
 	if err := os.MkdirAll(ws.viewDir, 0o755); err != nil {
 		return renderResp{Error: "reset workspace: " + err.Error()}
 	}
-	writeShim(ws.viewDir, strings.TrimSpace(in.Invoke))
-
 	ms := func() int64 { return time.Since(start).Milliseconds() }
 
 	srcFiles, splitErr := splitSources(in.GSX)
@@ -381,13 +375,10 @@ func renderIn(resolver *gen.CachedResolver, gocache string, ws *workspace, in re
 		}
 	}
 
-	// 1) In-process codegen via the cached resolver (no per-render go list).
+	// 1) In-process codegen from the complete in-memory source set and embedded
+	// external type universe (no host source discovery or per-render go list).
 	genStart := time.Now()
-	srcOverride := map[string][]byte{}
-	for name, b := range srcFiles {
-		srcOverride[filepath.Join(ws.viewDir, name)] = b
-	}
-	res, gerr := resolver.Generate(ws.viewDir, srcOverride)
+	res, gerr := resolver.GenerateSources(srcFiles)
 	genMs := time.Since(genStart).Milliseconds()
 
 	diags := toDiagnostics(res)
@@ -406,6 +397,7 @@ func renderIn(resolver *gen.CachedResolver, gocache string, ws *workspace, in re
 		}
 		writeFile(path, string(b))
 	}
+	writeShim(ws.viewDir, strings.TrimSpace(in.Invoke))
 
 	generatedGo := readGenerated(ws.viewDir)
 

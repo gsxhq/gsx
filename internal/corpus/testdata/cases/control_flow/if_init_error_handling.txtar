@@ -10,7 +10,7 @@ component Profile(id string) {
 	<div>{ if v, err := load(id); err != nil { <span class="err">{ err.Error() }</span> } else { <span>{ v }</span> } }</div>
 }
 -- invoke --
-Profile(ProfileProps{Id: "7"})
+Profile("7")
 -- diagnostics.golden --
 -- render.golden --
 <div><span>loaded:7</span></div>
@@ -27,14 +27,9 @@ import (
 
 func load(id string) (string, error) { return "loaded:" + id, nil }
 
-type ProfileProps struct {
-	Id string
-}
-
 //line input.gsx:5:1
-func Profile(_gsxp ProfileProps) _gsxrt.Node {
+func Profile(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div>")

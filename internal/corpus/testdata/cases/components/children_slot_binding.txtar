@@ -1,7 +1,9 @@
 -- input.gsx --
 package views
 
-component Wrap() {
+import "github.com/gsxhq/gsx"
+
+component Wrap(children gsx.Node) {
 	<div>{children}</div>
 }
 
@@ -12,7 +14,7 @@ component Page(name string, items []string) {
 	</Wrap>
 }
 -- invoke --
-Page(PageProps{Name: "Jo", Items: []string{"a", "b"}})
+Page("Jo", []string{"a", "b"})
 -- diagnostics.golden --
 -- render.golden --
 <div><span>Jo</span><li>a</li><li>b</li></div>

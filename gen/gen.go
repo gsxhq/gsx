@@ -134,9 +134,10 @@ func walkForGsx(root string, found map[string]bool) error {
 // module-graph failures, write failures) — NOT codegen/type diagnostics. Diags
 // holds all structured diagnostics (errors, warnings) collected from codegen.
 //
-// Files is populated by CachedResolver.Generate (in-process generation): it
-// maps each .gsx path (relative, e.g. "views/comp.x.go") to its generated
-// .x.go bytes. The disk-based Generate path leaves Files nil.
+// Files is populated by CachedResolver.Generate and by the BundledResolver
+// GenerateSource(s) methods. It maps each .gsx path (relative, e.g.
+// "views/comp.x.go") to its generated .x.go bytes. The top-level Generate
+// function writes outputs and leaves Files nil.
 type Result struct {
 	Written []string
 	Errs    []error
@@ -174,5 +175,5 @@ func Generate(paths []string) (Result, error) {
 // blocks. When either is non-nil the incremental cache is bypassed (a func is
 // not hashable), so each run re-generates. The built-in (nil) path keeps the cache.
 func generate(paths []string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (Result, error) {
-	return generateCached(paths, filterPkgs, nil, nil, attrclass.Builtin(), nil, cssMin == nil && jsMin == nil, cssMin, jsMin, true, true, nil)
+	return generateCached(paths, filterPkgs, nil, nil, attrclass.Builtin(), cssMin == nil && jsMin == nil, cssMin, jsMin, true, true, nil)
 }

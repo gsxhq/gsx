@@ -21,7 +21,7 @@ component Panel(id string) {
 	<button {mkAttrs(id)...}>Pick</button>
 }
 -- invoke --
-Panel(PanelProps{Id: "abc"})
+Panel("abc")
 -- diagnostics.golden --
 -- render.golden --
 <button @click="select(&#34;abc&#34;)" x-data="dialog(&#34;abc&#34;)">Pick</button>
@@ -44,14 +44,9 @@ func mkAttrs(id string) gsx.Attrs {
 	}
 }
 
-type PanelProps struct {
-	Id string
-}
-
 //line input.gsx:12:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+func Panel(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		id := _gsxp.Id
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
 		_gsxv0 := mkAttrs(id)

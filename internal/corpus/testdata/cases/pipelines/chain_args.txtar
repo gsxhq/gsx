@@ -7,7 +7,7 @@ package views
 
 component Hi(s string) { <p>{ s |> trim |> truncate(5) }</p> }
 -- invoke --
-Hi(HiProps{S: "  hello world  "})
+Hi("  hello world  ")
 -- diagnostics.golden --
 -- render.golden --
 <p>hello</p>
@@ -23,14 +23,9 @@ import (
 	_gsxio "io"
 )
 
-type HiProps struct {
-	S string
-}
-
 //line input.gsx:3:1
-func Hi(_gsxp HiProps) _gsxrt.Node {
+func Hi(s string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		s := _gsxp.S
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:26
 		_gsxgw.S("<p>")

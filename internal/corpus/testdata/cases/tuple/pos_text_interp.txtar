@@ -10,7 +10,7 @@ component Label(name string) {
 	<span>{ greet(name) }</span>
 }
 -- invoke --
-Label(LabelProps{Name: "World"})
+Label("World")
 -- diagnostics.golden --
 -- render.golden --
 <span>Hello World</span>
@@ -27,14 +27,9 @@ import (
 
 func greet(name string) (string, error) { return "Hello " + name, nil }
 
-type LabelProps struct {
-	Name string
-}
-
 //line input.gsx:5:1
-func Label(_gsxp LabelProps) _gsxrt.Node {
+func Label(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		name := _gsxp.Name
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<span>")

@@ -8,7 +8,7 @@ component Page(u string, color string, a gsx.Attrs, b gsx.Attrs) {
 	<div { a... } style=css"color:@{color}" { b... }>x</div>
 }
 -- invoke --
-Page(PageProps{U: "x", Color: "red"})
+Page("x", "red", nil, nil)
 -- diagnostics.golden --
 -- render.golden --
 <button onclick="do(&#34;x&#34;)">go</button><div style="color:red">x</div>
@@ -24,20 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	U     string
-	Color string
-	A     gsx.Attrs
-	B     gsx.Attrs
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(u string, color string, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		u := _gsxp.U
-		color := _gsxp.Color
-		a := _gsxp.A
-		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := a

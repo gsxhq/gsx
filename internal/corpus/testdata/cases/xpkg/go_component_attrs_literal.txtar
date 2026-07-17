@@ -1,7 +1,6 @@
-# attrs={{ }} on a component from a plain Go package (no .gsx → no prop
-# discovery, declared == nil): accepted, and the hand-written Props type's
-# Attrs field receives the bag. Pins locked decision: blind-regime
-# acceptance enables hand-written components with an Attrs field.
+# A component from a plain Go package exposes the exact static parameter `p`.
+# The caller constructs the author-owned WidgetProps value explicitly; gsx does
+# not infer a fallthrough role from its Attrs field.
 -- go.mod --
 module example.com/app
 
@@ -32,10 +31,13 @@ func Widget(p WidgetProps) gsx.Node {
 -- pages/home.gsx --
 package pages
 
-import "example.com/app/uigo"
+import (
+	"example.com/app/uigo"
+	"github.com/gsxhq/gsx"
+)
 
 component Home() {
-	<uigo.Widget attrs={{ "data-x": "1" }}/>
+	<uigo.Widget p={uigo.WidgetProps{Attrs: gsx.Attrs{{Key: "data-x", Value: "1"}}}}/>
 }
 -- invoke --
 pages.Home()
@@ -51,16 +53,17 @@ import (
 	"corpustest/cases/xpkg_go_component_attrs_literal/uigo"
 
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-//line home.gsx:5:1
+//line home.gsx:8:1
 func Home() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line home.gsx:6:2
-		_gsxgw.Node(ctx, uigo.Widget(uigo.WidgetProps{Attrs: _gsxrt.Attrs{{Key: "data-x", Value: "1"}}}))
+//line home.gsx:9:2
+		_gsxgw.Node(ctx, uigo.Widget(uigo.WidgetProps{Attrs: gsx.Attrs{{Key: "data-x", Value: "1"}}}))
 		return _gsxgw.Err()
 	})
 }

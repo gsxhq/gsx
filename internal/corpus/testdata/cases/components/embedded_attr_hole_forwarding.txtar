@@ -1,0 +1,25 @@
+# Hostile hole values are escaped in their JS/CSS contexts before RawJS/RawCSS
+# contributors enter a component's reserved attrs bag. The child's <a
+# {attrs...}> sink then HTML-attribute-escapes the forwarded values and applies
+# URL sanitization to the ordinary javascript: href.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Link(attrs gsx.Attrs) {
+	<a {attrs...}>go</a>
+}
+
+component Page(v string) {
+	<Link
+		onclick=js`call(@{v})`
+		style=css`content:@{v}`
+		href="javascript:alert(1)"
+	/>
+}
+-- invoke --
+Page("'\"</script><x>&\u2028\u2029")
+-- diagnostics.golden --
+-- render.golden --
+<a style="content:ZgotmplZ" onclick="call(&#34;&#39;\&#34;\u003c/script\u003e\u003cx\u003e\u0026\u2028\u2029&#34;)" href="about:invalid#gsx">go</a>

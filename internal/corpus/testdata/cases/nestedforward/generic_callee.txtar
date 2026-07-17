@@ -1,13 +1,12 @@
-# Forwarding the implicit attrs bag onto a GENERIC callee whose type args
-# are INFERRED (not written): <List items={...} { attrs... }/>. The spread is
-# the wrapper's ONLY reference to `attrs`, so the caller-side inference probe
-# (which infers T from `items`) must still consume the synthesized Attrs bag
-# expression — otherwise the skeleton trips `declared and not used: attrs`.
-# The render proves the forwarded attr lands on List's own leaf <ul>.
+# Forwarding an explicit attrs parameter onto a generic callee whose type args
+# are inferred from items. The render proves the contributor lands on List's
+# own leaf <ul> without interfering with type inference.
 -- input.gsx --
 package views
 
-component List[T any](items []T) {
+
+import "github.com/gsxhq/gsx"
+component List[T any](items []T, attrs gsx.Attrs) {
 	<ul class="list" { attrs... }>
 		{ for _, it := range items {
 			<li>{ it |> printf("%v") }</li>
@@ -15,7 +14,7 @@ component List[T any](items []T) {
 	</ul>
 }
 
-component Wrap() {
+component Wrap(attrs gsx.Attrs) {
 	<List items={[]string{"a", "b"}} { attrs... }/>
 }
 
@@ -34,34 +33,28 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxstd "github.com/gsxhq/gsx/std"
 	_gsxio "io"
 )
 
-type ListProps[T any] struct {
-	Items []T
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func List[T any](_gsxp ListProps[T]) _gsxrt.Node {
+//line input.gsx:5:1
+func List[T any](items []T, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		items := _gsxp.Items
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<ul class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("list"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:5:3
+//line input.gsx:7:3
 		for _, it := range items {
-//line input.gsx:6:4
+//line input.gsx:8:4
 			_gsxgw.S("<li>")
-//line input.gsx:6:8
+//line input.gsx:8:8
 			_gsxgw.Text(string(_gsxstd.Printf((it), "%v")))
 			_gsxgw.S("</li>")
 		}
@@ -70,27 +63,22 @@ func List[T any](_gsxp ListProps[T]) _gsxrt.Node {
 	})
 }
 
-type WrapProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:11:1
-func Wrap(_gsxp WrapProps) _gsxrt.Node {
+//line input.gsx:13:1
+func Wrap(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.Node(ctx, List[string](ListProps[string]{Items: []string{"a", "b"}, Attrs: _gsxrt.ConcatAttrs(attrs)}))
+//line input.gsx:14:2
+		_gsxgw.Node(ctx, List[string]([]string{"a", "b"}, attrs))
 		return _gsxgw.Err()
 	})
 }
 
-//line input.gsx:15:1
+//line input.gsx:17:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:16:2
-		_gsxgw.Node(ctx, Wrap(WrapProps{Attrs: _gsxrt.Attrs{{Key: "data-flag", Value: "1"}, {Key: "class", Value: "hot"}}}))
+//line input.gsx:18:2
+		_gsxgw.Node(ctx, Wrap(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-flag", Value: "1"}}, _gsxrt.Attrs{{Key: "class", Value: "hot"}})))
 		return _gsxgw.Err()
 	})
 }

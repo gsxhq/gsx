@@ -16,6 +16,6 @@ component ArticleBody(html string) {
 	<article>{ gsx.Raw(html) }</article>
 }
 -- invoke --
-ArticleBody(ArticleBodyProps{Html: "<em>Hello</em> &amp; <strong>World</strong>"})
+ArticleBody("<em>Hello</em> &amp; <strong>World</strong>")
 -- render.golden --
 <article><em>Hello</em> &amp; <strong>World</strong></article>

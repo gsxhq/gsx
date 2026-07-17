@@ -1,11 +1,13 @@
 -- input.gsx --
 package views
 
-component Panel(tab string) {
+
+import "github.com/gsxhq/gsx"
+component Panel(tab string, attrs gsx.Attrs) {
 	<div x-data="{ tab: @{ tab } }" { attrs... }>slot</div>
 }
 -- invoke --
-Panel(PanelProps{Tab: "home", Attrs: gsx.Attrs{{Key: "x-data", Value: "OVERRIDE"}}})
+Panel("home", gsx.Attrs{{Key: "x-data", Value: "OVERRIDE"}})
 -- diagnostics.golden --
 -- render.golden --
 <div x-data="OVERRIDE">slot</div>

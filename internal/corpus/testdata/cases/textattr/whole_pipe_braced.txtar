@@ -8,7 +8,7 @@ component Widget(v string) {
 	<div class={f`btn-@{v}` |> upper}>x</div>
 }
 -- invoke --
-Widget(WidgetProps{V: "x"})
+Widget("x")
 -- diagnostics.golden --
 -- render.golden --
 <div class="BTN-X">x</div>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type WidgetProps struct {
-	V string
-}
-
 //line input.gsx:3:1
-func Widget(_gsxp WidgetProps) _gsxrt.Node {
+func Widget(v string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div class=\"")

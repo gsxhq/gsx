@@ -10,7 +10,7 @@ component Card(w int, userColor string) {
 	</style>
 }
 -- invoke --
-Card(CardProps{W: 12, UserColor: "red; } body { display:none"})
+Card(12, "red; } body { display:none")
 -- render.golden --
 <style>.card{width: 12px;color: ZgotmplZ}</style>
 -- diagnostics.golden --
@@ -25,16 +25,9 @@ import (
 	_gsxio "io"
 )
 
-type CardProps struct {
-	W         int
-	UserColor string
-}
-
 //line input.gsx:3:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(w int, userColor string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		w := _gsxp.W
-		userColor := _gsxp.UserColor
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2

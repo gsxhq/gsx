@@ -7,7 +7,7 @@ component C(v int) {
 
 func cls(v int) (string, error) { return "green", nil }
 -- invoke --
-C(CProps{V: 1})
+C(1)
 -- render.golden --
 <span class="base green">x</span>
 -- diagnostics.golden --
@@ -22,14 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type CProps struct {
-	V int
-}
-
 //line input.gsx:3:1
-func C(_gsxp CProps) _gsxrt.Node {
+func C(v int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")

@@ -49,7 +49,7 @@ import (
 var _ = gsx.Raw
 
 func main() {
-	_ = p.Hi(p.HiProps{N: "hi"}).Render(context.Background(), os.Stdout)
+	_ = p.Hi("hi").Render(context.Background(), os.Stdout)
 }
 `)
 	cmd := exec.Command("go", "run", ".")

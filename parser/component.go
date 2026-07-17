@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"go/token"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -32,13 +33,14 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 
 	// name
 	nameStart := p.i
-	for !p.eof() && isTagNameByte(p.src[p.i]) && p.src[p.i] != '.' && p.src[p.i] != '-' {
-		p.i++
-	}
+	p.i = scanGoIdentifier(p.src, p.i)
 	c.Name = p.src[nameStart:p.i]
 	c.NamePos = p.posAt(nameStart)
 	if c.Name == "" {
 		return nil, p.errorf(p.pos(), "expected component name")
+	}
+	if !token.IsIdentifier(c.Name) {
+		return nil, p.errorfRange(c.NamePos, p.posAt(p.i), "component name %q is not a valid Go identifier", c.Name)
 	}
 
 	p.skipSpace()
@@ -77,9 +79,16 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	if p.peek() != '{' {
 		return nil, p.errorf(p.pos(), "expected `{` to open component body")
 	}
+	bodyOpen := p.i
 	p.i++ // past body '{'
 	nodes, err := p.parseMarkupUntilClose("component body")
 	if err != nil {
+		// A nested markup error may leave the cursor inside the component. Advance
+		// to its markup-aware body boundary before file recovery, or the broken
+		// remainder can be reinterpreted as top-level syntax and cascade.
+		if bodyEnd, ok := goExprEnd(p.src, bodyOpen); ok {
+			p.i = max(p.i, bodyEnd+1)
+		}
 		return nil, err
 	}
 	c.Body = nodes

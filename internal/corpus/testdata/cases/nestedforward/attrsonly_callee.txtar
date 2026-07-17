@@ -1,6 +1,6 @@
-# Callee-kind: forwarding into an attrs-only component VALUE (a package var
-# holding a `func(gsx.Attrs) gsx.Node`, the spec's driving icon shape — PR
-# #72's go/types-based recognition, no <Name>Props type at all). The wrapper
+# Callee-kind: forwarding into a component value whose static signature names
+# the reserved `attrs` role (a package var holding a callable; no generated
+# <Name>Props type). The wrapper
 # spreads its implicit bag alongside a literal class onto the tag.
 -- input.gsx --
 package views
@@ -19,7 +19,7 @@ var Dot = func(attrs gsx.Attrs) gsx.Node {
 	return renderDot(dotProps{Attrs: attrs})
 }
 
-component Wrapper() {
+component Wrapper(attrs gsx.Attrs) {
 	<Dot class="w-5" { attrs... }/>
 }
 
@@ -66,14 +66,9 @@ var Dot = func(attrs gsx.Attrs) gsx.Node {
 	return renderDot(dotProps{Attrs: attrs})
 }
 
-type WrapperProps struct {
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:17:1
-func Wrapper(_gsxp WrapperProps) _gsxrt.Node {
+func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
 		_gsxgw.Node(ctx, Dot(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5"}}, attrs)))
@@ -86,7 +81,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:2
-		_gsxgw.Node(ctx, Wrapper(WrapperProps{Attrs: _gsxrt.Attrs{{Key: "class", Value: "text-red"}, {Key: "data-x", Value: "1"}}}))
+		_gsxgw.Node(ctx, Wrapper(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "text-red"}}, _gsxrt.Attrs{{Key: "data-x", Value: "1"}})))
 		return _gsxgw.Err()
 	})
 }

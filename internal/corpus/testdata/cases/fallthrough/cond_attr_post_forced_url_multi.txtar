@@ -8,7 +8,9 @@
 -- input.gsx --
 package views
 
-component Btn(a bool, b bool) {
+
+import "github.com/gsxhq/gsx"
+component Btn(a bool, b bool, attrs gsx.Attrs) {
 	<button { attrs... } { if a { formaction="/x" } } { if b { formaction="/y" } }>x</button>
 }
 
@@ -29,24 +31,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type BtnProps struct {
-	A     bool
-	B     bool
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Btn(_gsxp BtnProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Btn(a bool, b bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		a := _gsxp.A
-		b := _gsxp.B
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<button")
 		_gsxv0 := []string{"class", "style"}
 		var _gsxv1 bool
@@ -73,16 +67,16 @@ func Btn(_gsxp BtnProps) _gsxrt.Node {
 	})
 }
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.Node(ctx, Btn(BtnProps{A: true, B: false, Attrs: _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}}))
-//line input.gsx:9:2
-		_gsxgw.Node(ctx, Btn(BtnProps{A: false, B: true, Attrs: _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}}))
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Btn(BtnProps{A: false, B: false, Attrs: _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}}))
+		_gsxgw.Node(ctx, Btn(true, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+//line input.gsx:11:2
+		_gsxgw.Node(ctx, Btn(false, true, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+//line input.gsx:12:2
+		_gsxgw.Node(ctx, Btn(false, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
 		return _gsxgw.Err()
 	})
 }

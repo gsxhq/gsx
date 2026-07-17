@@ -10,7 +10,7 @@ component C(show bool) {
 	</>
 }
 -- invoke --
-C(CProps{Show: false})
+C(false)
 -- diagnostics.golden --
 -- render.golden --
 <!-- oob -- swap --><p>no</p>

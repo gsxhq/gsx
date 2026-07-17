@@ -384,8 +384,7 @@ js = "full"
 Only function-valued hooks need a project-owned `gen.Main` binary:
 
 - custom CSS or JavaScript formatters;
-- custom CSS or JavaScript minifiers;
-- a custom props field matcher.
+- custom CSS or JavaScript minifiers.
 
 See [Extensions](./extensions.md) for setup and option details. Declarative
 filters, renderers, URL rules, minification levels, and class-merger references

@@ -3,7 +3,7 @@ package views
 
 component C(show bool, msg string) { <div { if show { title={msg} } }>y</div> }
 -- invoke --
-C(CProps{Show: true, Msg: "hello"})
+C(true, "hello")
 -- diagnostics.golden --
 -- render.golden --
 <div title="hello">y</div>

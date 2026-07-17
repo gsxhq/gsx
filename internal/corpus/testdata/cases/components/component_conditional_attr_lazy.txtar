@@ -11,13 +11,13 @@ type User struct {
 	Name string
 }
 
-component Card(title gsx.Node) { <div class="card" { attrs... }>{title}</div> }
+component Card(title gsx.Node, attrs gsx.Attrs) { <div class="card" { attrs... }>{title}</div> }
 
 component Page(u *User) {
 	<Card title="Hi" { if u != nil { data-name={ u.Name } } } />
 }
 -- invoke --
-Page(PageProps{U: nil})
+Page(nil)
 -- diagnostics.golden --
 -- render.golden --
 <div class="card">Hi</div>
@@ -37,39 +37,27 @@ type User struct {
 	Name string
 }
 
-type CardProps struct {
-	Title gsx.Node
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:9:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(title gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:9:34
+//line input.gsx:9:51
 		_gsxgw.S("<div class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("card"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:9:65
+//line input.gsx:9:82
 		_gsxgw.Node(ctx, title)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
 }
 
-type PageProps struct {
-	U *User
-}
-
 //line input.gsx:11:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(u *User) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		u := _gsxp.U
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
 		_gsxv0, _gsxerr := _gsxrt.AttrsCond(u != nil, func() (_gsxrt.Attrs, error) {
@@ -78,7 +66,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxv0)}))
+		_gsxgw.Node(ctx, Card(_gsxrt.Text("Hi"), _gsxv0))
 		return _gsxgw.Err()
 	})
 }

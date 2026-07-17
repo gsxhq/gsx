@@ -16,7 +16,7 @@ func drop(attrs []gsx.Attr, key string) []gsx.Attr {
 	return out
 }
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return <svg stroke-width="2" class="size-5" { drop(attrs, "id")... }>{ name }</svg>
 	}
@@ -52,7 +52,7 @@ func drop(attrs []gsx.Attr, key string) []gsx.Attr {
 	return out
 }
 
-func named(name string) func(...gsx.Attr) gsx.Node {
+func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
@@ -83,7 +83,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:24:2
-		_gsxgw.Node(ctx, Search(_gsxrt.Attrs{{Key: "id", Value: "gone"}, {Key: "stroke-width", Value: "3"}, {Key: "class", Value: "size-4"}}...))
+		_gsxgw.Node(ctx, Search(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "id", Value: "gone"}}, _gsxrt.Attrs{{Key: "stroke-width", Value: "3"}}, _gsxrt.Attrs{{Key: "class", Value: "size-4"}})...))
 		return _gsxgw.Err()
 	})
 }

@@ -27,7 +27,7 @@ import (
 	"github.com/gsxhq/gsx/playground/playbundle"
 )
 
-var resolver *gen.CachedResolver
+var resolver *gen.BundledResolver
 
 func main() {
 	r, err := playbundle.NewResolver()

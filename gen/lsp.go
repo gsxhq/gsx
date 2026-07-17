@@ -1,32 +1,37 @@
 package gen
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"go/token"
 	"go/types"
 	"io"
+	"maps"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
 )
 
 // lspAnalyzer is the concrete code analysis behind the language server: it
 // resolves the module root for a directory, retrieves (or lazily creates) a warm
-// per-root *codegen.Module, applies override buffers (which mark changed packages
-// dirty), and returns the retained Package — the diagnostics plus read-only type
+// per-root *codegen.Module, receives serialized buffer-lifetime transitions,
+// and returns the retained Package — the diagnostics plus read-only type
 // info (Fset, TypesInfo, expr-map, gsx AST) the read-intelligence features need.
 // The Module self-invalidates: Package drops the changed package and its
 // reverse-dependency closure from the type cache, keeping the rest warm. It never
 // writes .x.go to disk.
-//
-// Slice-1 limitation: codegen discovers .gsx files by on-disk glob, so a buffer
-// opened in the editor but never saved to disk is not analyzed (its override is
-// never consulted). Editing existing .gsx files works; unsaved-new files are a
-// slice-2 follow-up.
 type lspAnalyzer struct {
 	optCfg config                // programmatic opts (empty for the stock binary); layered OVER gsx.toml (opts win on conflict)
 	warnw  io.Writer             // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
@@ -38,8 +43,22 @@ type lspAnalyzer struct {
 // calls so the expensive external packages.Load stays warm. Callers may invoke
 // Analyze concurrently for different roots; module() serializes access per root.
 type moduleSet struct {
-	mu     sync.Mutex
-	byRoot map[string]*codegen.Module
+	mu            sync.Mutex
+	byRoot        map[string]*codegen.Module
+	modulePaths   map[string]string // module root -> module directive bound into byRoot[root]
+	configIDs     map[string]string // module root -> exact semantic config bound into byRoot[root]
+	overrideRoots map[string]moduleOverride
+}
+
+// moduleOverride records the exact Module instance holding one buffer's
+// authority. Root alone is insufficient: changing a go.mod module directive
+// replaces the warm Module at the same filesystem root, while buffers opened
+// under the previous identity still need an exact clear-and-replay transfer.
+type moduleOverride struct {
+	root       string
+	module     *codegen.Module
+	source     []byte
+	configPath string
 }
 
 // newLSPAnalyzer constructs an lspAnalyzer with an empty warm-module cache.
@@ -47,9 +66,101 @@ func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
 	return lspAnalyzer{
 		optCfg: cfg,
 		warnw:  warnw,
-		mods:   &moduleSet{byRoot: map[string]*codegen.Module{}},
-		ec:     newEditorConfigResolver(),
+		mods: &moduleSet{
+			byRoot:        map[string]*codegen.Module{},
+			modulePaths:   map[string]string{},
+			configIDs:     map[string]string{},
+			overrideRoots: map[string]moduleOverride{},
+		},
+		ec: newEditorConfigResolver(),
 	}
+}
+
+func (mods *moduleSet) setOverride(root string, module *codegen.Module, path string, source []byte, configPath string) ([]string, error) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	path = filepath.Clean(path)
+	var affected []string
+	var clearErr error
+	if previous, ok := mods.overrideRoots[path]; ok && previous.module != module {
+		delete(mods.overrideRoots, path)
+		if previous.module != nil {
+			// A root move clears the prior override; its affected closure must
+			// still reach the caller for eviction alongside the new scope.
+			cleared, err := previous.module.ClearOverride(path)
+			affected = append(affected, cleared...)
+			clearErr = err
+		}
+	}
+	affected = append(affected, module.SetOverride(path, source)...)
+	if configPath != "" {
+		configPath = filepath.Clean(configPath)
+	}
+	mods.overrideRoots[path] = moduleOverride{root: root, module: module, source: bytes.Clone(source), configPath: configPath}
+	return sortedUniqueDirs(affected), clearErr
+}
+
+func (mods *moduleSet) snapshot() (map[string]moduleOverride, map[string]*codegen.Module) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	overrides := make(map[string]moduleOverride, len(mods.overrideRoots))
+	for path, owner := range mods.overrideRoots {
+		owner.source = bytes.Clone(owner.source)
+		overrides[path] = owner
+	}
+	modules := make(map[string]*codegen.Module, len(mods.byRoot))
+	maps.Copy(modules, mods.byRoot)
+	return overrides, modules
+}
+
+func (mods *moduleSet) evictRoots(roots map[string]bool) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	for root := range roots {
+		delete(mods.byRoot, root)
+		delete(mods.modulePaths, root)
+		delete(mods.configIDs, root)
+	}
+}
+
+func (mods *moduleSet) clearOverride(path string) ([]string, error) {
+	owner, ok := mods.detachOverride(path)
+	if !ok || owner.module == nil {
+		return nil, nil
+	}
+	return owner.module.ClearOverride(filepath.Clean(path))
+}
+
+// detachOverride removes path's owner record before any fallible root discovery
+// or module construction begins. The returned Module still owns the buffer
+// bytes until the caller either proves this is a same-root update or clears it;
+// analysis transitions are serialized, so this preserves exact same-byte
+// SetOverride semantics without permitting a failed transition to retain stale
+// authority after it returns.
+func (mods *moduleSet) detachOverride(path string) (moduleOverride, bool) {
+	mods.mu.Lock()
+	defer mods.mu.Unlock()
+	path = filepath.Clean(path)
+	owner, ok := mods.overrideRoots[path]
+	if !ok {
+		return moduleOverride{}, false
+	}
+	delete(mods.overrideRoots, path)
+	return owner, true
+}
+
+func sortedUniqueDirs(dirs []string) []string {
+	if len(dirs) == 0 {
+		return nil
+	}
+	sort.Strings(dirs)
+	out := dirs[:1]
+	for _, dir := range dirs[1:] {
+		if dir != out[len(out)-1] {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // module returns the warm *codegen.Module for root (lazy-initialised). merged is
@@ -58,26 +169,98 @@ func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
 // dirty dirs, and Package (called from Analyze) applies the reverse-reflexive-
 // transitive closure via applyDirty so importers of changed packages are
 // automatically re-type-checked. No manual cache management is required.
-func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Module, error) {
+func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Module, []string, error) {
 	a.mods.mu.Lock()
 	defer a.mods.mu.Unlock()
-	if m, ok := a.mods.byRoot[root]; ok {
-		return m, nil
+	configID := lspSemanticConfigIdentity(merged)
+	if m, ok := a.mods.byRoot[root]; ok && a.mods.modulePaths[root] == modPath && a.mods.configIDs[root] == configID {
+		return m, nil, nil
 	}
 	m, err := codegen.Open(codegen.Options{
-		ModuleRoot:   root,
-		ModulePath:   modPath,
-		FilterPkgs:   merged.filterPkgs,
-		Aliases:      merged.aliases,
-		Renderers:    merged.renderers,
-		FieldMatcher: merged.fieldMatcher,
-		Classifier:   merged.classifier(),
+		ModuleRoot:  root,
+		ModulePath:  modPath,
+		FilterPkgs:  merged.filterPkgs,
+		Aliases:     merged.aliases,
+		Renderers:   merged.renderers,
+		Classifier:  merged.classifier(),
+		ClassMerger: merged.classMerger,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	// A changed module directive creates a distinct Module identity at the same
+	// root. Transfer every still-open buffer from its exact previous Module so
+	// the new analysis universe neither loses unsaved bytes nor leaves stale
+	// authority behind. Paths are sorted to make joined errors deterministic.
+	var paths []string
+	for path, owner := range a.mods.overrideRoots {
+		if owner.root == root && owner.module != m {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	var affected []string
+	var transferErr error
+	for _, path := range paths {
+		owner := a.mods.overrideRoots[path]
+		affected = append(affected, filepath.Dir(path))
+		if owner.module != nil {
+			cleared, clearErr := owner.module.ClearOverride(path)
+			affected = append(affected, cleared...)
+			transferErr = errors.Join(transferErr, clearErr)
+		}
+		affected = append(affected, m.SetOverride(path, owner.source)...)
+		owner.module = m
+		a.mods.overrideRoots[path] = owner
 	}
 	a.mods.byRoot[root] = m
-	return m, nil
+	a.mods.modulePaths[root] = modPath
+	a.mods.configIDs[root] = configID
+	return m, sortedUniqueDirs(affected), transferErr
+}
+
+// lspSemanticConfigIdentity is the complete code-analysis configuration bound
+// into one warm Module. Formatter/minifier/dev settings are deliberately absent:
+// they do not participate in Module.Package semantics. Renderer registrations
+// are reduced to their effective last-wins table before hashing.
+func lspSemanticConfigIdentity(cfg config) string {
+	finalRenderers := map[string]codegen.RendererAlias{}
+	for _, renderer := range cfg.renderers {
+		finalRenderers[renderer.TypeKey] = renderer
+	}
+	rendererKeys := make([]string, 0, len(finalRenderers))
+	for key := range finalRenderers {
+		rendererKeys = append(rendererKeys, key)
+	}
+	sort.Strings(rendererKeys)
+	renderers := make([]codegen.RendererAlias, 0, len(rendererKeys))
+	for _, key := range rendererKeys {
+		renderers = append(renderers, finalRenderers[key])
+	}
+	classMerger := ""
+	if cfg.classMerger != nil {
+		classMerger = cfg.classMerger.PkgPath + "." + cfg.classMerger.FuncName
+	}
+	payload := struct {
+		FilterPackages []string
+		Aliases        []codegen.FilterAlias
+		Renderers      []codegen.RendererAlias
+		Classifier     string
+		ClassMerger    string
+	}{
+		FilterPackages: cfg.filterPkgs,
+		Aliases:        cfg.aliases,
+		Renderers:      renderers,
+		Classifier:     cfg.classifier().Fingerprint(),
+		ClassMerger:    classMerger,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		panic(fmt.Sprintf("encode LSP semantic config identity: %v", err))
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 // adaptPackageResult converts a *codegen.PackageResult (the Module path's output)
@@ -121,6 +304,27 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		}
 		sig[c] = lr
 	}
+	calls := make(map[*gsxast.Element]lsp.ComponentCallFact, len(pr.ComponentCalls))
+	for element, call := range pr.ComponentCalls {
+		params := make(map[gsxast.Attr]lsp.ComponentParamFact, len(call.Params))
+		for attr, param := range call.Params {
+			params[attr] = lsp.ComponentParamFact{
+				Var:     param.Var,
+				Origin:  param.Origin,
+				Name:    param.Name,
+				Ordinal: param.Ordinal,
+				Role:    lsp.ComponentParamRole(param.Role),
+			}
+		}
+		calls[element] = lsp.ComponentCallFact{
+			Target:        call.Target,
+			TargetOrigin:  call.TargetOrigin,
+			TargetPackage: call.TargetPackage,
+			TargetKey:     call.TargetKey,
+			Signature:     call.Signature,
+			Params:        params,
+		}
+	}
 	return &lsp.Package{
 		Diags:          pr.Diags,
 		GSXFset:        pr.GSXFset,
@@ -131,6 +335,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		Files:          pr.GSXFiles,
 		CrossIndex:     cross,
 		NavIndex:       nav,
+		ComponentCalls: calls,
 		CtrlMap:        ctrl,
 		SigTypes:       sig,
 		UnusedImports:  unused,
@@ -138,18 +343,216 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	}
 }
 
-func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package, error) {
+func (a lspAnalyzer) SetOverride(path string, source []byte) ([]string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	absPath = filepath.Clean(absPath)
+	// A buffer path can move to a different module when a nearer go.mod appears,
+	// disappears, or becomes invalid. Detach its owner record before resolving or
+	// opening the next owner: either operation may fail. The old Module retains
+	// the bytes only long enough to distinguish an exact same-root update; every
+	// failure clears it before returning.
+	previous, hadPrevious := a.mods.detachOverride(absPath)
+	clearPrevious := func() ([]string, error) {
+		if !hadPrevious || previous.module == nil {
+			return nil, nil
+		}
+		return previous.module.ClearOverride(absPath)
+	}
+	dir := filepath.Dir(absPath)
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		oldAffected, clearErr := clearPrevious()
+		return oldAffected, errors.Join(clearErr, err)
+	}
+	configPath, _ := discoverConfig(dir)
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, moduleAffected, moduleErr := a.module(root, modPath, merged)
+	if m == nil {
+		oldAffected, clearErr := clearPrevious()
+		return sortedUniqueDirs(append(oldAffected, moduleAffected...)), errors.Join(clearErr, moduleErr)
+	}
+	if hadPrevious && previous.root == root && previous.module == m {
+		newAffected, setErr := a.mods.setOverride(root, m, absPath, source, configPath)
+		return sortedUniqueDirs(append(moduleAffected, newAffected...)), errors.Join(moduleErr, setErr)
+	}
+	oldAffected, clearErr := clearPrevious()
+	newAffected, setErr := a.mods.setOverride(root, m, absPath, source, configPath)
+	affected := append(moduleAffected, oldAffected...)
+	affected = append(affected, newAffected...)
+	if hadPrevious && previous.module != m {
+		affected = append(affected, filepath.Dir(absPath))
+	}
+	return sortedUniqueDirs(affected), errors.Join(moduleErr, clearErr, setErr)
+}
+
+func (a lspAnalyzer) ClearOverride(path string) ([]string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	return a.mods.clearOverride(absPath)
+}
+
+// RefreshDisk applies one saved-filesystem notification batch to the retained
+// analyzer universe. Source refresh and reverse-closure eviction are atomic per
+// Module. Configuration and Go-universe changes replace only Modules proven to
+// be governed by the changed file, replaying their open buffers through the
+// ordinary ownership transition.
+func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
+	var gsxPaths, configPaths, goModPaths, goWorkPaths []string
+	for _, path := range paths {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		absPath = filepath.Clean(absPath)
+		switch {
+		case strings.HasSuffix(absPath, ".gsx"):
+			gsxPaths = append(gsxPaths, absPath)
+		case filepath.Base(absPath) == configFileName:
+			configPaths = append(configPaths, absPath)
+		case filepath.Base(absPath) == "go.mod":
+			goModPaths = append(goModPaths, absPath)
+		case filepath.Base(absPath) == "go.work":
+			goWorkPaths = append(goWorkPaths, canonicalWatchedPath(absPath))
+		}
+	}
+	gsxPaths = sortedUniqueDirs(gsxPaths)
+	configPaths = sortedUniqueDirs(configPaths)
+	goModPaths = sortedUniqueDirs(goModPaths)
+	goWorkPaths = sortedUniqueDirs(goWorkPaths)
+
+	overrides, modules := a.mods.snapshot()
+	replay := map[string]moduleOverride{}
+	evictRoots := map[string]bool{}
+	for _, goModPath := range goModPaths {
+		root := filepath.Dir(goModPath)
+		if modules[root] != nil {
+			evictRoots[root] = true
+		}
+	}
+	for path, owner := range overrides {
+		dir := filepath.Dir(path)
+		newConfigPath, _ := discoverConfig(dir)
+		if owner.configPath != "" && slices.Contains(configPaths, owner.configPath) ||
+			newConfigPath != "" && slices.Contains(configPaths, filepath.Clean(newConfigPath)) {
+			replay[path] = owner
+		}
+		newRoot, _, rootErr := moduleRoot(dir)
+		for _, goModPath := range goModPaths {
+			changedRoot := filepath.Dir(goModPath)
+			if owner.root == changedRoot || rootErr == nil && newRoot == changedRoot ||
+				rootErr != nil && pathWithinTree(changedRoot, dir) {
+				replay[path] = owner
+				evictRoots[owner.root] = true
+				if rootErr == nil {
+					evictRoots[newRoot] = true
+				}
+			}
+		}
+	}
+
+	for root, module := range modules {
+		if len(goWorkPaths) == 0 {
+			break
+		}
+		oldWorkspace, err := module.GoWorkFile()
+		if err != nil {
+			return nil, fmt.Errorf("resolve retained workspace for %s: %w", root, err)
+		}
+		newWorkspace, err := codegen.ResolveGoWorkFile(root)
+		if err != nil {
+			return nil, fmt.Errorf("resolve refreshed workspace for %s: %w", root, err)
+		}
+		if oldWorkspace != "" {
+			oldWorkspace = canonicalWatchedPath(oldWorkspace)
+		}
+		if newWorkspace != "" {
+			newWorkspace = canonicalWatchedPath(newWorkspace)
+		}
+		if !slices.Contains(goWorkPaths, oldWorkspace) && !slices.Contains(goWorkPaths, newWorkspace) {
+			continue
+		}
+		evictRoots[root] = true
+		for path, owner := range overrides {
+			if owner.root == root {
+				replay[path] = owner
+			}
+		}
+	}
+
+	if len(evictRoots) != 0 {
+		a.mods.evictRoots(evictRoots)
+	}
+	var affected []string
+	var transitionErr error
+	replayPaths := make([]string, 0, len(replay))
+	for path := range replay {
+		replayPaths = append(replayPaths, path)
+	}
+	sort.Strings(replayPaths)
+	for _, path := range replayPaths {
+		owner := replay[path]
+		changed, err := a.SetOverride(path, owner.source)
+		affected = append(affected, changed...)
+		if err != nil {
+			affected = append(affected, filepath.Dir(path))
+			transitionErr = errors.Join(transitionErr, fmt.Errorf("rebind %s: %w", path, err))
+		}
+	}
+	if transitionErr != nil {
+		return sortedUniqueDirs(affected), transitionErr
+	}
+
+	_, modules = a.mods.snapshot()
+	dirsByModule := map[*codegen.Module][]string{}
+	for _, path := range gsxPaths {
+		dir := filepath.Dir(path)
+		root, _, err := moduleRoot(dir)
+		if err != nil {
+			return sortedUniqueDirs(affected), err
+		}
+		if module := modules[root]; module != nil {
+			dirsByModule[module] = append(dirsByModule[module], dir)
+		}
+	}
+	for module, dirs := range dirsByModule {
+		changed, err := module.RefreshDiskSourcesAndInvalidate(sortedUniqueDirs(dirs)...)
+		affected = append(affected, changed...)
+		if err != nil {
+			transitionErr = errors.Join(transitionErr, err)
+		}
+	}
+	return sortedUniqueDirs(affected), transitionErr
+}
+
+// canonicalWatchedPath gives client paths and Go-command paths one identity.
+// On macOS those commonly differ by /var versus /private/var. For delete events
+// the leaf no longer exists, so canonicalize its existing parent and reattach
+// the basename.
+func canonicalWatchedPath(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	if resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		return filepath.Join(resolvedParent, filepath.Base(path))
+	}
+	return path
+}
+
+func (a lspAnalyzer) Analyze(dir string, _ map[string][]byte) (*lsp.Package, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
-	}
-	for p, src := range override {
-		m.SetOverride(p, src)
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -173,10 +576,9 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 // an explicit second pass over all packages' type-info, mirroring the batch
 // path's compObjOwner pass. Matching is by import-path string rather than
 // types.Object pointer equality, so it is stable across concurrent or
-// differently-ordered type-checker runs. override supplies unsaved buffers
-// (abs path -> bytes); all overrides are applied before the Package calls so
-// find-references sees current editor content.
-func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]lsp.CrossRef, error) {
+// differently-ordered type-checker runs. Serialized SetOverride/ClearOverride
+// transitions update the warm Module before this read-only analysis begins.
+func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.CrossRef, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
@@ -186,16 +588,10 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 		return nil, err
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
 	}
-	// Apply all overrides before any Package call so applyDirty sees the full
-	// dirty set on the first Package call and subsequent calls run from clean state.
-	for p, src := range override {
-		m.SetOverride(p, src)
-	}
-
 	// Phase 1: analyze every package in the module and collect results.
 	type pkgEntry struct {
 		dir string
@@ -244,12 +640,34 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 		}
 	}
 
-	// Phase 4: cross-package routing pass — mirrors GenerateDirs' compObjOwner loop.
-	// For each package's type-info, find *types.Func uses that are declared in
-	// OTHER project packages and route those refs into the declaring component's
-	// CrossRef. In-package refs are skipped (pkgPath == myPath); external packages
-	// (not in importPathToDir) are skipped. Synthetic .x.go positions (no //line
-	// mapping back to a real source file) are also skipped, mirroring the batch pass.
+	// Phase 4a: route authored markup calls by their exact codegen identity.
+	// Same-package calls were already added to CrossIndex by Package; only
+	// cross-package calls need ownership routing here.
+	for _, e := range entries {
+		if e.pr.Types == nil {
+			continue
+		}
+		myPath := e.pr.Types.Path()
+		for element, call := range e.pr.ComponentCalls {
+			if element == nil || call.TargetPackage == "" || call.TargetPackage == myPath || call.TargetKey == "" || !element.TagPos.IsValid() {
+				continue
+			}
+			declDir, ok := importPathToDir[call.TargetPackage]
+			if !ok {
+				continue
+			}
+			owner := ownerKey{declDir, call.TargetKey}
+			cr, exists := cross[owner]
+			if !exists {
+				continue
+			}
+			cr.Refs = append(cr.Refs, e.pr.GSXFset.Position(element.TagPos))
+			cross[owner] = cr
+		}
+	}
+
+	// Phase 4b: route real Go references. Markup references are deliberately
+	// excluded here; they are owned exclusively by ComponentCalls above.
 	for _, e := range entries {
 		if e.pr.Info == nil || e.pr.Types == nil {
 			continue
@@ -274,8 +692,8 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 				continue // not a tracked component (e.g. a plain Go func, not a gsx component)
 			}
 			p := e.pr.Fset.Position(id.Pos())
-			if strings.HasSuffix(p.Filename, ".x.go") {
-				continue // synthetic skeleton position; no //line directive
+			if !strings.HasSuffix(p.Filename, ".go") || strings.HasSuffix(p.Filename, ".x.go") {
+				continue
 			}
 			cr := cross[ok2]
 			cr.Refs = append(cr.Refs, p)
@@ -291,12 +709,19 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 	return refs, nil
 }
 
-// ModuleSymbols returns every symbol declared in every .gsx package in the
-// module containing dir, for workspace/symbol. It reuses the warm per-root
-// Module (same instance Analyze/AnalyzeModule use) and calls lsp.FileSymbols on
-// each package's parsed files. Un-analyzable dirs are skipped (partial results
-// tolerated). override supplies unsaved buffers (abs path -> bytes).
-func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]lsp.Symbol, error) {
+// AnalyzeModuleParams returns complete GSX-authored parameter families for
+// semantic rename. Unlike references and workspace symbols, rename cannot use
+// partial module results: an un-analyzable GSX package could contain an omitted
+// invocation, which would make the resulting WorkspaceEdit silently partial.
+//
+// Codegen publishes declarations, semantic body uses, and exact planner-bound
+// invocation attrs independently per package. This method performs the sole
+// module-wide join by the stable semantic key (target package path, component
+// key, ordinal). A ref
+// without a GSX declaration family is intentionally ignored: it belongs to a
+// plain-Go callable or an invalid/non-equivalent GSX family and is not a safe
+// rename target.
+func (a lspAnalyzer) AnalyzeModuleParams(dir string, _ map[string][]byte) ([]lsp.ComponentParamRenameFact, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
@@ -306,12 +731,120 @@ func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]ls
 		return nil, err
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
 	}
-	for p, src := range override {
-		m.SetOverride(p, src)
+
+	results := make([]*codegen.PackageResult, 0, len(dirs))
+	for _, packageDir := range dirs {
+		result, err := m.Package(packageDir)
+		if err != nil {
+			return nil, fmt.Errorf("analyze component parameter package %s: %w", packageDir, err)
+		}
+		if result == nil {
+			continue
+		}
+		for _, diagnostic := range result.Diags {
+			if diagnostic.Severity == diag.Error {
+				return nil, fmt.Errorf("component parameter rename unavailable while %s has analysis errors", packageDir)
+			}
+		}
+		results = append(results, result)
+	}
+
+	byKey := make(map[lsp.ComponentParamKey]*lsp.ComponentParamRenameFact)
+	for _, result := range results {
+		for _, declaration := range result.ComponentParamDecls {
+			key := lsp.ComponentParamKey{
+				PackagePath:  declaration.PackagePath,
+				ComponentKey: declaration.ComponentKey,
+				Ordinal:      declaration.Ordinal,
+			}
+			if key.PackagePath == "" || key.ComponentKey == "" || key.Ordinal < 0 ||
+				declaration.Name == "" || declaration.Origin == nil || len(declaration.Decls) == 0 {
+				return nil, errors.New("codegen published an incomplete component parameter family")
+			}
+			if _, exists := byKey[key]; exists {
+				return nil, fmt.Errorf("codegen published duplicate component parameter family %+v", key)
+			}
+			byKey[key] = &lsp.ComponentParamRenameFact{
+				Key:          key,
+				Name:         declaration.Name,
+				Role:         lsp.ComponentParamRole(declaration.Role),
+				Origin:       declaration.Origin.Origin(),
+				Decls:        append([]token.Position(nil), declaration.Decls...),
+				BlockedNames: append([]string(nil), declaration.BlockedNames...),
+			}
+		}
+	}
+
+	for _, result := range results {
+		for _, reference := range result.ComponentParamRefs {
+			key := lsp.ComponentParamKey{
+				PackagePath:  reference.PackagePath,
+				ComponentKey: reference.ComponentKey,
+				Ordinal:      reference.Ordinal,
+			}
+			family := byKey[key]
+			if family == nil {
+				continue
+			}
+			if reference.Origin == nil || reference.Name != family.Name || lsp.ComponentParamRole(reference.Role) != family.Role || !reference.Ref.IsValid() {
+				return nil, fmt.Errorf("codegen published a component parameter ref inconsistent with family %+v", key)
+			}
+			family.Refs = append(family.Refs, reference.Ref)
+			family.BlockedNames = append(family.BlockedNames, reference.BlockedNames...)
+		}
+	}
+
+	facts := make([]lsp.ComponentParamRenameFact, 0, len(byKey))
+	for _, family := range byKey {
+		sortTokenPositions(family.Decls)
+		sortTokenPositions(family.Refs)
+		sort.Strings(family.BlockedNames)
+		family.BlockedNames = slices.Compact(family.BlockedNames)
+		facts = append(facts, *family)
+	}
+	sort.Slice(facts, func(i, j int) bool {
+		if facts[i].Key.PackagePath != facts[j].Key.PackagePath {
+			return facts[i].Key.PackagePath < facts[j].Key.PackagePath
+		}
+		if facts[i].Key.ComponentKey != facts[j].Key.ComponentKey {
+			return facts[i].Key.ComponentKey < facts[j].Key.ComponentKey
+		}
+		return facts[i].Key.Ordinal < facts[j].Key.Ordinal
+	})
+	return facts, nil
+}
+
+func sortTokenPositions(positions []token.Position) {
+	sort.Slice(positions, func(i, j int) bool {
+		if positions[i].Filename != positions[j].Filename {
+			return positions[i].Filename < positions[j].Filename
+		}
+		return positions[i].Offset < positions[j].Offset
+	})
+}
+
+// ModuleSymbols returns every symbol declared in every .gsx package in the
+// module containing dir, for workspace/symbol. It reuses the warm per-root
+// Module (same instance Analyze/AnalyzeModule use) and calls lsp.FileSymbols on
+// each package's parsed files. Un-analyzable dirs are skipped (partial results
+// tolerated). Serialized buffer transitions already updated the warm Module.
+func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbol, error) {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := discoverDirs([]string{root})
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, _, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, err
 	}
 	var syms []lsp.Symbol
 	for _, d := range dirs {
@@ -383,7 +916,7 @@ func (a lspAnalyzer) ResolveImport(dir, name, symbol string) []string {
 		return nil
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	m, err := a.module(root, modPath, merged)
+	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil
 	}

@@ -5,7 +5,7 @@ component Box(active bool) {
 	<div style={ "display: block", if active { "color: green" } else { "color: gray" } }>x</div>
 }
 -- invoke --
-Box(BoxProps{Active: true})
+Box(true)
 -- render.golden --
 <div style="display: block; color: green">x</div>
 -- diagnostics.golden --
@@ -20,14 +20,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	Active bool
-}
-
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(active bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		active := _gsxp.Active
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")

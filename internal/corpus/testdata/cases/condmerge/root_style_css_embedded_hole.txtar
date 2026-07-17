@@ -12,11 +12,7 @@ component Box(active bool, c string, extra gsx.Attrs) {
 	<div style=css"margin:@{c}" { if active { { extra... } } }>x</div>
 }
 -- invoke --
-Box(BoxProps{
-	Active: true,
-	C:      "5px",
-	Extra:  gsx.Attrs{{Key: "style", Value: "padding:1px"}},
-})
+Box(true, "5px", gsx.Attrs{{Key: "style", Value: "padding:1px"}})
 -- diagnostics.golden --
 -- render.golden --
 <div style="margin:5px; padding:1px">x</div>

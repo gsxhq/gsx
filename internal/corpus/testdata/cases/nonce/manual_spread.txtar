@@ -16,9 +16,11 @@ func withTestNonce(n gsx.Node) gsx.Node {
 -- input.gsx --
 package views
 
-component Page() { <script { attrs... }>init()</script> }
+
+import "github.com/gsxhq/gsx"
+component Page(attrs gsx.Attrs) { <script { attrs... }>init()</script> }
 -- invoke --
-withTestNonce(Page(PageProps{Attrs: gsx.Attrs{{Key: "defer", Value: true}}}))
+withTestNonce(Page(gsx.Attrs{{Key: "defer", Value: true}}))
 -- diagnostics.golden --
 -- render.golden --
 <script defer nonce="r4nd0m">init()</script>
@@ -29,20 +31,16 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Page(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:3:20
+//line input.gsx:5:35
 		_gsxgw.S("<script")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())

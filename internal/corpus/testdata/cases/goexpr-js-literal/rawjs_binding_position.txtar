@@ -19,7 +19,7 @@ component Page(xModelPath string) {
 	<input {syncAttrs...}/>
 }
 -- invoke --
-Page(PageProps{XModelPath: "form.email"})
+Page("form.email")
 -- diagnostics.golden --
 -- render.golden --
 <input @change="const foundId = lookup($event);
@@ -36,14 +36,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	XModelPath string
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(xModelPath string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		xModelPath := _gsxp.XModelPath
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		syncAttrs := gsx.Attrs{

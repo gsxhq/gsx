@@ -3,7 +3,7 @@ package views
 
 component Tags(tags []string) { <p>{ tags |> join(", ") }</p> }
 -- invoke --
-Tags(TagsProps{Tags: []string{"a","b","c"}})
+Tags([]string{"a","b","c"})
 -- diagnostics.golden --
 -- render.golden --
 <p>a, b, c</p>

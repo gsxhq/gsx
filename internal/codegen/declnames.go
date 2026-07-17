@@ -18,8 +18,41 @@ import (
 // Import names are never counted (imports are file-scoped, not declarations).
 // Syntax-only (go/parser), build-tag-oblivious, skips _test.go and .x.go —
 // same file-walk rules as packageTypeNames/packageNullaryFuncs (byo.go).
-// This set is the resolution input for lowercase tags: see resolveComponentTags.
+// This set is the resolution input for lowercase tags in
+// preprocessComponentCallSites.
 func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool {
+	return packageDeclNamesFromFiles(parseHandwrittenGoFiles(dir), files)
+}
+
+func parseHandwrittenGoFiles(dir string) []*goast.File {
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	fset := token.NewFileSet()
+	files := make([]*goast.File, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
+			continue
+		}
+		file, parseErr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if parseErr == nil && file != nil {
+			files = append(files, file)
+		}
+	}
+	return files
+}
+
+// packageDeclNamesFromFiles derives package declarations from a caller-owned
+// companion syntax selection. Module semantic resolvers pass retained active
+// CompiledGoFiles ASTs; the dir wrapper above preserves the standalone,
+// build-oblivious syntactic behavior.
+func packageDeclNamesFromFiles(goFiles []*goast.File, files map[string]*gsxast.File) map[string]bool {
 	out := map[string]bool{}
 	collectGoDecls := func(f *goast.File) {
 		for _, decl := range f.Decls {
@@ -44,8 +77,20 @@ func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool
 	}
 	scanChunk := func(src string) {
 		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
-		if f == nil && err != nil {
+		f, err := parser.ParseFile(fset, "", "package _gsxdecl\n"+src, 0)
+		if err != nil || f == nil {
+			return
+		}
+		collectGoDecls(f)
+	}
+	scanGoWithElements := func(g *gsxast.GoWithElements) {
+		reconstructed, err := reconstructGoWithElements(g)
+		if err != nil {
+			return
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "", reconstructed.source, 0)
+		if err != nil || f == nil {
 			return
 		}
 		collectGoDecls(f)
@@ -60,39 +105,12 @@ func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool
 			case *gsxast.GoChunk:
 				scanChunk(t.Src)
 			case *gsxast.GoWithElements:
-				// Reconstruct parseable Go: element parts become `nil`
-				// placeholders (offsets don't matter — names only).
-				var b strings.Builder
-				for _, p := range t.Parts {
-					if gt, ok := p.(gsxast.GoText); ok {
-						b.WriteString(gt.Src)
-					} else {
-						b.WriteString("nil")
-					}
-				}
-				scanChunk(b.String())
+				scanGoWithElements(t)
 			}
 		}
 	}
-	if dir == "" {
-		return out
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
-			continue
-		}
-		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-		if perr != nil || f == nil {
-			continue
-		}
-		collectGoDecls(f)
+	for _, file := range goFiles {
+		collectGoDecls(file)
 	}
 	return out
 }

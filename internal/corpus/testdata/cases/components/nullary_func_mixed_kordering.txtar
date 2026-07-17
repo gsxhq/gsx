@@ -16,7 +16,7 @@ component Page(y int, z string) {
 	<div><Divider/>{y}<Badge title={z}/><Divider/>{z}</div>
 }
 -- invoke --
-Page(PageProps{Y: 42, Z: "hi"})
+Page(42, "hi")
 -- render.golden --
 <div><hr>42<b>hi</b><hr>hi</div>
 -- diagnostics.golden --

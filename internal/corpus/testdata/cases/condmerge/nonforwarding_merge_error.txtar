@@ -16,8 +16,8 @@ component Box(on bool, ok bool) {
 }
 -- invoke --
 gsx.Fragment(
-	Box(BoxProps{On: false, Ok: false}),
-	Box(BoxProps{On: true, Ok: false}),
+	Box(false, false),
+	Box(true, false),
 )
 -- diagnostics.golden --
 -- generated.x.go.golden --
@@ -40,16 +40,9 @@ func maybeDecl(ok bool) (string, error) {
 	return "margin:0", nil
 }
 
-type BoxProps struct {
-	On bool
-	Ok bool
-}
-
 //line input.gsx:10:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(on bool, ok bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		on := _gsxp.On
-		ok := _gsxp.Ok
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}

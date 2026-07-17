@@ -11,7 +11,7 @@ component Bars(vals []int) {
 	</div>
 }
 -- invoke --
-Bars(BarsProps{Vals: []int{3, 8}})
+Bars([]int{3, 8})
 -- diagnostics.golden --
 -- render.golden --
 <div><span style="color: red">x</span><span style="color: red; font-weight: bold">x</span></div>

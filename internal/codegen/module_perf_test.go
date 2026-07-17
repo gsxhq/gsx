@@ -2,9 +2,168 @@ package codegen
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+type componentBenchmarkFixture struct {
+	opts         Options
+	targetDir    string
+	overridePath string
+	variants     [2][]byte
+}
+
+var componentBenchmarkOutput map[string][]byte
+
+func setupComponentBenchmarkFixture(b *testing.B, kind string) componentBenchmarkFixture {
+	b.Helper()
+	root := b.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		b.Fatal(err)
+	}
+	write := func(path, contents string) {
+		b.Helper()
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/componentbench\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	fixture := componentBenchmarkFixture{
+		opts: Options{
+			ModuleRoot: root,
+			ModulePath: "example.com/componentbench",
+			FilterPkgs: []string{StdImportPath},
+		},
+	}
+	switch kind {
+	case "same-package":
+		write("app/card.gsx", "package app\n\ncomponent Card(title string) {\n\t<article>{ title }</article>\n}\n")
+		fixture.targetDir = filepath.Join(root, "app")
+		fixture.overridePath = filepath.Join(fixture.targetDir, "page.gsx")
+		fixture.variants = [2][]byte{
+			[]byte("package app\n\n// warm variant a\ncomponent Page(label string) {\n\t<main><Card title={ label }/></main>\n}\n"),
+			[]byte("package app\n\n// warm variant b\ncomponent Page(label string) {\n\t<main><Card title={ label }/></main>\n}\n"),
+		}
+	case "imported":
+		write("components/card.gsx", "package components\n\ncomponent Card(title string) {\n\t<article>{ title }</article>\n}\n")
+		fixture.targetDir = filepath.Join(root, "pages")
+		fixture.overridePath = filepath.Join(fixture.targetDir, "page.gsx")
+		fixture.variants = [2][]byte{
+			[]byte("package pages\n\nimport \"example.com/componentbench/components\"\n\n// warm variant a\ncomponent Page(label string) {\n\t<main><components.Card title={ label }/></main>\n}\n"),
+			[]byte("package pages\n\nimport \"example.com/componentbench/components\"\n\n// warm variant b\ncomponent Page(label string) {\n\t<main><components.Card title={ label }/></main>\n}\n"),
+		}
+	case "embedded":
+		write("app/card.gsx", "package app\n\nimport \"github.com/gsxhq/gsx\"\n\nfunc hold(n gsx.Node) gsx.Node { return n }\n\ncomponent Card(title string) {\n\t<article>{ title }</article>\n}\n")
+		fixture.targetDir = filepath.Join(root, "app")
+		fixture.overridePath = filepath.Join(fixture.targetDir, "page.gsx")
+		fixture.variants = [2][]byte{
+			[]byte("package app\n\n// warm variant a\ncomponent Page(label string) {\n\t<main>{ hold(<Card title={ label }/>) }</main>\n}\n"),
+			[]byte("package app\n\n// warm variant b\ncomponent Page(label string) {\n\t<main>{ hold(<Card title={ label }/>) }</main>\n}\n"),
+		}
+	case "attrs-stream":
+		write("app/card.gsx", "package app\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(title string, attrs gsx.Attrs) {\n\t<article {attrs...}>{title}</article>\n}\n")
+		fixture.targetDir = filepath.Join(root, "app")
+		fixture.overridePath = filepath.Join(fixture.targetDir, "page.gsx")
+		fixture.variants = [2][]byte{
+			[]byte("package app\n\nimport \"github.com/gsxhq/gsx\"\n\n// warm variant a\ncomponent Page(label string, attrs gsx.Attrs) {\n\t<main><Card title={label} attrs={attrs} data-bench=\"a\"/></main>\n}\n"),
+			[]byte("package app\n\nimport \"github.com/gsxhq/gsx\"\n\n// warm variant b\ncomponent Page(label string, attrs gsx.Attrs) {\n\t<main><Card title={label} attrs={attrs} data-bench=\"a\"/></main>\n}\n"),
+		}
+	case "variadic-children":
+		write("app/tabs.gsx", "package app\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Tabs(children ...gsx.Node) {\n\t<ul>{ for _, child := range children { <li>{child}</li> } }</ul>\n}\n")
+		fixture.targetDir = filepath.Join(root, "app")
+		fixture.overridePath = filepath.Join(fixture.targetDir, "page.gsx")
+		fixture.variants = [2][]byte{
+			[]byte("package app\n\n// warm variant a\ncomponent Page(label string) {\n\t<Tabs><span>{label}</span><strong>fixed</strong></Tabs>\n}\n"),
+			[]byte("package app\n\n// warm variant b\ncomponent Page(label string) {\n\t<Tabs><span>{label}</span><strong>fixed</strong></Tabs>\n}\n"),
+		}
+	default:
+		b.Fatalf("unknown component benchmark fixture %q", kind)
+	}
+	overrideRel, err := filepath.Rel(root, fixture.overridePath)
+	if err != nil {
+		b.Fatal(err)
+	}
+	write(overrideRel, string(fixture.variants[0]))
+	return fixture
+}
+
+func BenchmarkModuleGenerateComponentCold(b *testing.B) {
+	for _, kind := range []string{"same-package", "imported", "embedded", "attrs-stream", "variadic-children"} {
+		b.Run(kind, func(b *testing.B) {
+			b.StopTimer()
+			fixture := setupComponentBenchmarkFixture(b, kind)
+			b.ReportAllocs()
+			for range b.N {
+				b.StartTimer()
+				m, err := Open(fixture.opts)
+				if err != nil {
+					b.StopTimer()
+					b.Fatal(err)
+				}
+				out, diags, err := m.Generate(fixture.targetDir)
+				b.StopTimer()
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(diags) != 0 {
+					b.Fatalf("Generate diagnostics: %v", diags)
+				}
+				if len(out) == 0 {
+					b.Fatal("Generate produced no component output")
+				}
+				componentBenchmarkOutput = out
+			}
+		})
+	}
+}
+
+func BenchmarkModuleGenerateComponentWarm(b *testing.B) {
+	for _, kind := range []string{"same-package", "imported", "embedded", "attrs-stream", "variadic-children"} {
+		b.Run(kind, func(b *testing.B) {
+			b.StopTimer()
+			fixture := setupComponentBenchmarkFixture(b, kind)
+			m, err := Open(fixture.opts)
+			if err != nil {
+				b.Fatal(err)
+			}
+			out, diags, err := m.Generate(fixture.targetDir)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(diags) != 0 {
+				b.Fatalf("prime Generate diagnostics: %v", diags)
+			}
+			if len(out) == 0 {
+				b.Fatal("prime Generate produced no component output")
+			}
+			componentBenchmarkOutput = out
+			b.ReportAllocs()
+			for i := range b.N {
+				m.SetOverride(fixture.overridePath, fixture.variants[(i+1)%len(fixture.variants)])
+				b.StartTimer()
+				out, diags, err := m.Generate(fixture.targetDir)
+				b.StopTimer()
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(diags) != 0 {
+					b.Fatalf("Generate diagnostics: %v", diags)
+				}
+				if len(out) == 0 {
+					b.Fatal("Generate produced no component output")
+				}
+				componentBenchmarkOutput = out
+			}
+		})
+	}
+}
 
 // TestWarmRegenDoesNoGoListReloads is a performance regression guard. The two
 // expensive, non-incremental costs in analyze() are go-list / packages.Load

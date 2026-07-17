@@ -8,11 +8,13 @@ pageOrder: 40
 -- components.gsx --
 package views
 
+import "github.com/gsxhq/gsx"
+
 component Button(label string) {
 	<button class="btn">{label}</button>
 }
 
-component Card(title string) {
+component Card(title string, children gsx.Node) {
 	<section class="card"><h2>{title}</h2>{children}</section>
 }
 -- page.gsx --

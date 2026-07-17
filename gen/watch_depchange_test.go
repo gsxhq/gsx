@@ -35,9 +35,9 @@ func TestWatchDepChange(t *testing.T) {
 	blogDir := filepath.Join(root, "blog")
 
 	// Cold-start: openModule + regenDir writes blog/page.x.go.
-	sess, startup, err := newWatchSession(watchConfig{paths: []string{blogDir}})
+	sess, startup, err := startWatchSessionForTest(watchConfig{paths: []string{blogDir}})
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if !r.OK {
@@ -116,9 +116,20 @@ func TestWatchDepChange_GoMod(t *testing.T) {
 			t.Errorf("isDepFile(%q) = false, want true", name)
 		}
 	}
-	// Generated .x.go must NOT trigger a dep rebuild (they are our own output).
-	if isDepFile("/some/pkg/page.x.go") {
-		t.Error("isDepFile(page.x.go) = true, want false")
+	root := t.TempDir()
+	paired := filepath.Join(root, "page.x.go")
+	unpaired := filepath.Join(root, "helper.x.go")
+	writeFileT(t, filepath.Join(root, "page.gsx"), "package sample\n")
+	writeFileT(t, paired, "package sample\n")
+	writeFileT(t, unpaired, "package sample\n")
+	// Only an .x.go paired with an exact same-base .gsx source is generated
+	// output. An unpaired .x.go is ordinary authored Go and must rebuild the
+	// dependency graph.
+	if isDepFile(paired) {
+		t.Error("isDepFile(paired page.x.go) = true, want false")
+	}
+	if !isDepFile(unpaired) {
+		t.Error("isDepFile(unpaired helper.x.go) = false, want true")
 	}
 }
 
@@ -129,7 +140,10 @@ func TestSourceTrackerSkipsUnchangedFollowupEvents(t *testing.T) {
 	path := filepath.Join(root, "main.go")
 	writeFileT(t, path, "package main\n\nfunc main() {}\n")
 
-	tracker := newSourceTracker([]string{root})
+	tracker, err := newSourceTracker([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if tracker.changed(path) {
 		t.Fatal("unchanged file event reported as changed")
 	}
@@ -150,7 +164,10 @@ func TestSourceTrackerTreatsDeletionAsOneChange(t *testing.T) {
 	path := filepath.Join(root, "page.gsx")
 	writeFileT(t, path, "package main\n\ncomponent Page() { <div/> }\n")
 
-	tracker := newSourceTracker([]string{root})
+	tracker, err := newSourceTracker([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove source: %v", err)
 	}
@@ -159,5 +176,21 @@ func TestSourceTrackerTreatsDeletionAsOneChange(t *testing.T) {
 	}
 	if tracker.changed(path) {
 		t.Fatal("unchanged follow-up deletion event reported as changed")
+	}
+}
+
+func TestSourceTrackerHonorsExplicitExcludedNamedRoot(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "tmp")
+	path := filepath.Join(root, "main.go")
+	writeFileT(t, path, "package main\n\nfunc main() {}\n")
+
+	tracker, err := newSourceTracker([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracker.changed(path) {
+		t.Fatal("unchanged file under an explicitly watched tmp root was not inventoried")
 	}
 }

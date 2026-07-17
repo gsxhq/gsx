@@ -18,7 +18,7 @@ package views
 
 component Page(hot bool) { <script { if hot { nonce="manual" } }>init()</script> }
 -- invoke --
-withTestNonce(Page(PageProps{Hot: false}))
+withTestNonce(Page(false))
 -- diagnostics.golden --
 -- render.golden --
 <script nonce="r4nd0m">init()</script>

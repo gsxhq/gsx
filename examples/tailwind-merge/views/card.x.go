@@ -4,30 +4,24 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxcm "github.com/gsxhq/gsx/examples/tailwind-merge/twcfg"
 	_gsxio "io"
 )
 
-type CardProps struct {
-	Children _gsxrt.Node
-	Attrs    _gsxrt.Attrs
-}
-
-//line card.gsx:3:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+//line card.gsx:5:1
+func Card(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		children := _gsxp.Children
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line card.gsx:4:2
+//line card.gsx:6:2
 		_gsxgw.S("<section class=\"")
 		_gsxgw.Class(_gsxcm.Merge, _gsxrt.Class("px-4 py-2"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line card.gsx:4:42
+//line card.gsx:6:42
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()

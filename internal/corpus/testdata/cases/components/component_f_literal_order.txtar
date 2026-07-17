@@ -31,7 +31,7 @@ func markInt(label string, value int, fail bool) (int, error) {
 func checkedComponentFLiteralAttributeOrder() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _ io.Writer) error {
 		calls = nil
-		if err := Page(PageProps{Fail: false}).Render(ctx, io.Discard); err != nil {
+		if err := Page(false).Render(ctx, io.Discard); err != nil {
 			return fmt.Errorf("successful render: %w", err)
 		}
 		if got := strings.Join(calls, ","); got != "first,hole,pair,bag,last" {
@@ -39,7 +39,7 @@ func checkedComponentFLiteralAttributeOrder() gsx.Node {
 		}
 
 		calls = nil
-		err := Page(PageProps{Fail: true}).Render(ctx, io.Discard)
+		err := Page(true).Render(ctx, io.Discard)
 		if err == nil || err.Error() != "hole failed" {
 			return fmt.Errorf("failed render error = %v, want hole failed", err)
 		}
@@ -54,7 +54,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Target(first string, formatted string, ordered gsx.Attrs, last string) {
+component Target(first string, formatted string, ordered gsx.Attrs, last string, attrs gsx.Attrs) {
 	<div { ordered... } { attrs... }>{first}{formatted}{last}</div>
 }
 
@@ -83,22 +83,9 @@ import (
 	_gsxsc "strconv"
 )
 
-type TargetProps struct {
-	First     string
-	Formatted string
-	Ordered   gsx.Attrs
-	Last      string
-	Attrs     _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func Target(_gsxp TargetProps) _gsxrt.Node {
+func Target(first string, formatted string, ordered gsx.Attrs, last string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		first := _gsxp.First
-		formatted := _gsxp.Formatted
-		ordered := _gsxp.Ordered
-		last := _gsxp.Last
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := _gsxrt.ConcatAttrs(ordered, attrs)
@@ -118,27 +105,22 @@ func Target(_gsxp TargetProps) _gsxrt.Node {
 	})
 }
 
-type PageProps struct {
-	Fail bool
-}
-
 //line input.gsx:9:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		fail := _gsxp.Fail
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv3 := mark("first", "A")
+		_gsxa3 := mark("first", "A")
 		_gsxv1, _gsxerr := markInt("hole", 7, fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxv2 := _gsxsc.FormatInt(int64(_gsxv1), 10)
-		_gsxv4 := "value-" + _gsxv2
-		_gsxv5 := mark("pair", "P")
-		_gsxv6 := mark("bag", "B")
-		_gsxv7 := mark("last", "Z")
-		_gsxgw.Node(ctx, Target(TargetProps{First: _gsxv3, Formatted: _gsxv4, Ordered: _gsxrt.Attrs{{Key: "data-pair", Value: _gsxv5}}, Last: _gsxv7, Attrs: _gsxrt.Attrs{{Key: "data-bag", Value: _gsxv6}}}))
+		_gsxa4 := "value-" + _gsxv2
+		_gsxa5 := _gsxrt.Attrs{{Key: "data-pair", Value: mark("pair", "P")}}
+		_gsxa6 := _gsxrt.Attrs{{Key: "data-bag", Value: mark("bag", "B")}}
+		_gsxa7 := mark("last", "Z")
+		_gsxgw.Node(ctx, Target(_gsxa3, _gsxa4, _gsxa5, _gsxa7, _gsxa6))
 		return _gsxgw.Err()
 	})
 }

@@ -13,9 +13,9 @@ import (
 // (widgets) is changed in-memory, an importer package (home) re-analyzed without
 // an explicit re-analysis of widgets sees the updated declaration position.
 //
-// Non-tautology: the test calls Analyze(homeDir) with widgetsV2 in the override
-// map but WITHOUT first calling Analyze(widgetsDir). This causes
-// m.SetOverride(widgetsFile, V2) to mark widgetsDir dirty. If applyDirty is
+// Non-tautology: the test transitions widgetsV2 into the analyzer but calls
+// Analyze(homeDir) WITHOUT first calling Analyze(widgetsDir). This causes the
+// warm Module to mark widgetsDir dirty. If applyDirty is
 // wired in Package (as it is after Task 4), Package(homeDir) drops
 // pkgTypes[widgetsDir] before analyzing home, which forces typesPackageWith to
 // re-analyze widgets from V2 → Badge appears at the new (higher) line.
@@ -24,8 +24,8 @@ import (
 // types.Package from the Phase-1 analysis, so typesPackageWith returns the V1
 // Badge object with its old Pos() → same line as Phase 1 → assertion failure.
 //
-// Test seam note: passing widgetsV2 inside the homeDir override (rather than via a
-// separate Analyze(widgetsDir) call, as the real server does on a widgets edit) is
+// Test seam note: transitioning widgetsV2 without a separate Analyze(widgetsDir)
+// call (as the real server does on a widgets edit) is
 // deliberate — it keeps widgets a CACHE-GATED DEPENDENCY (never a direct Package
 // target, so never re-analyzed directly), the only shape under which applyDirty's
 // drop is the sole refresh path and the test is non-tautological. Editing the dep
@@ -80,10 +80,13 @@ func TestDefinitionInvalidationCrossPkg(t *testing.T) {
 	// so widgetsDir is NOT marked dirty. Package(homeDir) analyzes home, which
 	// calls typesPackageWith(widgetsDir) → analyze(widgets) from V1 → caches
 	// pkgTypes[widgetsDir] = V1 types (Badge at line 3).
-	pkg1, err := a.Analyze(homeDir, map[string][]byte{
-		homeFile:    []byte(homeSrc),
-		widgetsFile: []byte(widgetsV1),
-	})
+	if _, err := a.SetOverride(homeFile, []byte(homeSrc)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.SetOverride(widgetsFile, []byte(widgetsV1)); err != nil {
+		t.Fatal(err)
+	}
+	pkg1, err := a.Analyze(homeDir, nil)
 	if err != nil {
 		t.Fatalf("phase-1 Analyze: %v", err)
 	}
@@ -91,17 +94,17 @@ func TestDefinitionInvalidationCrossPkg(t *testing.T) {
 		t.Fatalf("phase-1 Analyze returned nil or empty package")
 	}
 
-	// Phase 2: analyze home again, but now with V2 widgets in the override.
+	// Phase 2: transition widgets to V2, then analyze home again.
 	// SetOverride(widgetsFile, V2) detects V2 ≠ V1 and marks widgetsDir dirty.
 	// Package(homeDir) calls applyDirty, which drops pkgTypes[widgetsDir] (and
 	// pkgTypes[homeDir] via the reverse closure). analyze(homeDir) then calls
 	// typesPackageWith(widgetsDir) → not cached → analyze(widgets) from V2
 	// override → Badge at line 5. If applyDirty is NOT wired, pkgTypes[widgetsDir]
 	// = stale V1 → typesPackageWith returns V1 types → Badge stays at line 3.
-	pkg2, err := a.Analyze(homeDir, map[string][]byte{
-		homeFile:    []byte(homeSrc),
-		widgetsFile: []byte(widgetsV2),
-	})
+	if _, err := a.SetOverride(widgetsFile, []byte(widgetsV2)); err != nil {
+		t.Fatal(err)
+	}
+	pkg2, err := a.Analyze(homeDir, nil)
 	if err != nil {
 		t.Fatalf("phase-2 Analyze: %v", err)
 	}
@@ -139,19 +142,21 @@ func TestDefinitionInvalidationCrossPkg(t *testing.T) {
 	}
 }
 
-// badgeDeclLine finds the 1-indexed line of the declaration of an exported
-// function named funcName from a package whose import path ends with pkgSuffix,
-// as recorded in the analyzed home package's Info.Uses map. It uses pkg.Fset
-// (the Module-wide shared FileSet) to resolve the declaration position.
+// badgeDeclLine finds the declaration line through the exact component target
+// facts retained for authored markup calls. Imported targets no longer need to
+// appear in a generated-skeleton Info.Uses entry.
 func badgeDeclLine(t *testing.T, pkg *lsp.Package, funcName, pkgSuffix string) int {
 	t.Helper()
 	seen := map[string]bool{}
-	for _, obj := range pkg.Info.Uses {
+	for _, call := range pkg.ComponentCalls {
+		obj := call.TargetOrigin
+		if obj == nil {
+			obj = call.Target
+		}
 		if obj == nil || obj.Name() != funcName {
 			continue
 		}
-		p := obj.Pkg()
-		if p == nil || !strings.HasSuffix(p.Path(), pkgSuffix) {
+		if !strings.HasSuffix(call.TargetPackage, pkgSuffix) {
 			continue
 		}
 		pos := pkg.Fset.Position(obj.Pos())
@@ -161,6 +166,6 @@ func badgeDeclLine(t *testing.T, pkg *lsp.Package, funcName, pkgSuffix string) i
 		seen[pos.Filename] = true
 		return pos.Line
 	}
-	t.Fatalf("no Info.Uses entry for function %q from package ending in %q", funcName, pkgSuffix)
+	t.Fatalf("no exact component target for function %q from package ending in %q", funcName, pkgSuffix)
 	return -1
 }

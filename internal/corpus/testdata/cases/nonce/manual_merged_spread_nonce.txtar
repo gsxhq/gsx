@@ -21,9 +21,9 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Page(other gsx.Attrs) { <script { attrs.Merge(other)... }>init()</script> }
+component Page(other gsx.Attrs, attrs gsx.Attrs) { <script { attrs.Merge(other)... }>init()</script> }
 -- invoke --
-withTestNonce(Page(PageProps{Other: gsx.Attrs{{Key: "nonce", Value: "mine"}}, Attrs: gsx.Attrs{{Key: "defer", Value: true}}}))
+withTestNonce(Page(gsx.Attrs{{Key: "nonce", Value: "mine"}}, gsx.Attrs{{Key: "defer", Value: true}}))
 -- diagnostics.golden --
 -- render.golden --
 <script defer nonce="mine">init()</script>

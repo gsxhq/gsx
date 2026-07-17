@@ -81,7 +81,6 @@ func TestImportBaseName(t *testing.T) {
 }
 
 func TestClassifyUnusedImports(t *testing.T) {
-	fset := token.NewFileSet()
 	used := map[string]bool{"strings": true, "sx": true}
 	imps := []importSpec{
 		{name: "", path: "strings"},        // default, base used → kept
@@ -91,39 +90,12 @@ func TestClassifyUnusedImports(t *testing.T) {
 		{name: "_", path: "embed"},         // blank → never removed
 		{name: ".", path: "math"},          // dot → never removed
 	}
-	unused, candidates := classifyUnusedImports(used, imps, nil, fset)
+	unused, candidates := classifyUnusedImports(used, imps)
 	if len(unused) != 1 || unused[0].Path != "os" || unused[0].Name != "al" {
 		t.Errorf("unused=%+v, want only {al os}", unused)
 	}
 	if len(candidates) != 1 || candidates[0].path != "bytes" {
 		t.Errorf("candidates=%+v, want only bytes", candidates)
-	}
-}
-
-func TestClassifyUnusedImportsSkipsSunk(t *testing.T) {
-	fset := token.NewFileSet()
-	tf := fset.AddFile("page.gsx", -1, 1000)
-	pos := tf.Pos(0) // offset 0 → line 1
-
-	// A default import whose base name is not referenced: without a sunk entry
-	// it would be a removal candidate.
-	imps := []importSpec{
-		{name: "", path: "github.com/foo/sunk", pos: pos},
-	}
-
-	// Contrast/sanity: with no sunk map it IS a candidate, proving the sunk map
-	// (not something else) is what excludes it below.
-	unused, candidates := classifyUnusedImports(map[string]bool{}, imps, nil, fset)
-	if len(unused) != 0 || len(candidates) != 1 {
-		t.Fatalf("without sunk: unused=%+v candidates=%+v, want 0 unused / 1 candidate", unused, candidates)
-	}
-
-	// With a matching sunk entry the import is used in the .gsx source, so it must
-	// be excluded from BOTH unused and candidates.
-	sunk := map[sunkImportKey]bool{{line: 1, path: "github.com/foo/sunk"}: true}
-	unused, candidates = classifyUnusedImports(map[string]bool{}, imps, sunk, fset)
-	if len(unused) != 0 || len(candidates) != 0 {
-		t.Errorf("with sunk: unused=%+v candidates=%+v, want both empty", unused, candidates)
 	}
 }
 
@@ -224,6 +196,68 @@ func TestBuildPackageSkeletonsDottedComponentKeepsImport(t *testing.T) {
 	}
 }
 
+func TestUnusedImportsPreservesAffectedFileOnPreprocessError(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"bad.gsx": `package testmod
+
+import uix "example.com/app/ui"
+
+component Bad() {
+	{{ _ = <uix.Button/> }}
+}
+`,
+		"good.gsx": `package testmod
+
+import "bytes"
+
+component Good() { <p>ok</p> }
+`,
+	})
+
+	got, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unused := got[filepath.Join(dir, "bad.gsx")]; len(unused) != 0 {
+		t.Fatalf("unsupported preserved region lost its authored import use: unused=%+v", unused)
+	}
+	unused := got[filepath.Join(dir, "good.gsx")]
+	if len(unused) != 1 || unused[0].Path != "bytes" {
+		t.Fatalf("unaffected sibling unused imports=%+v, want bytes", unused)
+	}
+}
+
+func TestUnusedImportsDoesNotAnalyzeImportedComponentBodies(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"ui/broken.gsx": `package ui
+
+func wrap(v any) any { return v }
+
+component Broken() {
+	{ wrap(<Broken></Other>) }
+}
+`,
+		"page.gsx": `package testmod
+
+import (
+	ui "testmod/ui"
+	"bytes"
+)
+
+component Page() { <p>ok</p> }
+`,
+	})
+
+	got, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unused := got[filepath.Join(dir, "page.gsx")]
+	if len(unused) != 2 || unused[0].Path != "testmod/ui" || unused[1].Path != "bytes" {
+		t.Fatalf("unused=%+v, want ui and bytes without analyzing the imported component body", unused)
+	}
+}
+
 // anyErrorDiagCodegen reports whether diags contains an error-severity
 // diagnostic that is NOT a clean "imported and not used" error.
 //
@@ -246,22 +280,11 @@ func TestBuildPackageSkeletonsDottedComponentKeepsImport(t *testing.T) {
 // from the CLI's independent packages.Load, and this test's job is comparing
 // the two syntactic classifiers, not re-litigating that edge.
 //
-// Known blind spot (confirmed by adversarial review): this skip fires
-// precisely on the class of input where the two name sources diverge — an
-// import path outside analyze's own importer graph produces a go/types
-// "could not import" error (error severity, message not "imported and not
-// used"), which trips this guard and skips the whole case before
-// assertSameRemovalSet ever runs. Concretely, adding a math/rand/v2-shaped
-// case (default import, real name != path base, unresolvable via the
-// importer graph) to the cases map above would silently no-op, not exercise
-// anything — this oracle structurally cannot see that divergence. That gap
-// is deliberately NOT closed here; it is covered directly, with an oracle
-// that does not depend on a.pkg's completeness, by
-// TestPackageUnusedImportsDoesNotDeleteUsedRandV2 (the Critical false-positive
-// this divergence caused), TestPackageUnusedImportsKeepsUnresolvableCandidate,
-// TestPackageUnusedImportsHeadlineCaseStillRemoved, and
-// TestModuleAndPackageDivergeOnUnresolvableNameNeBase (all in
-// unused_imports_lsp_test.go).
+// Normal-mode source inventory now loads every GSX-authored import as a cold
+// root, including a math/rand/v2-shaped path whose declared name differs from
+// its base. Incomplete-package behavior is therefore pinned directly by
+// TestImportNamesFromTypesSkipsIncompletePackage rather than manufactured by
+// withholding an authoritative import from this integration oracle.
 func anyErrorDiagCodegen(diags []diag.Diagnostic) bool {
 	for _, d := range diags {
 		if d.Severity == diag.Error && !strings.Contains(d.Message, "imported and not used") {

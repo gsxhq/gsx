@@ -5,7 +5,7 @@ component Status(n int) {
 	<p>{ if n > 0 { <span>pos</span> } else if n < 0 { <span>neg</span> } else { <span>zero</span> } }</p>
 }
 -- invoke --
-Status(StatusProps{N: 0})
+Status(0)
 -- diagnostics.golden --
 -- render.golden --
 <p><span>zero</span></p>

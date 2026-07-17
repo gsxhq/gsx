@@ -1,11 +1,5 @@
-# False rejection TODAY: `opt{attrs: 1}`'s struct-literal KEY is just the bare
-# token `attrs` to the existing token scan (valueIdents matches any IDENT not
-# preceded by a `.`, and a composite-literal key is no exception), so today's
-# usesAttrs synthesizes an Attrs field that is never referenced (`o.attrs` is
-# a selector field, not the local) — "declared and not used: attrs". Stage 2
-# (freeUseAttrs) parses the fragment and sees the key is not a value ident at
-# all, so the two-stage trigger does NOT fire. The generated WidgetProps
-# struct below carries only the declared `Label` field — NO Attrs field.
+# A struct-literal key named attrs is an ordinary field name. It does not
+# declare or reference the reserved attrs component role.
 -- input.gsx --
 package views
 
@@ -18,7 +12,7 @@ component Widget(label string) {
 	<div data-label={label} data-n={o.attrs}>x</div>
 }
 -- invoke --
-Widget(WidgetProps{Label: "w"})
+Widget("w")
 -- diagnostics.golden --
 -- render.golden --
 <div data-label="w" data-n="1">x</div>
@@ -37,14 +31,9 @@ type opt struct {
 	attrs int
 }
 
-type WidgetProps struct {
-	Label string
-}
-
 //line input.gsx:7:1
-func Widget(_gsxp WidgetProps) _gsxrt.Node {
+func Widget(label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		label := _gsxp.Label
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:8:2

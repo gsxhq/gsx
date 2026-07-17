@@ -25,6 +25,9 @@ func (s *Server) handleReferences(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, []Location{})
 	}
+	if !s.diskViewValid {
+		return s.reply(f.ID, []Location{})
+	}
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
 	text, ok := s.docs.text(uri)

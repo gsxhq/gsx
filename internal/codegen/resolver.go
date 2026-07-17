@@ -3,7 +3,11 @@ package codegen
 import (
 	"fmt"
 	"go/types"
+	goversion "go/version"
+	"os"
+	"path/filepath"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -19,8 +23,10 @@ const StdImportPath = stdImportPath
 // and injects it through Options.Bundle. Passive data — it resolves nothing itself.
 // The zero value is invalid.
 type Bundle struct {
-	imp   types.Importer
-	table funcTables
+	imp       types.Importer
+	table     funcTables
+	sizes     types.Sizes
+	goVersion string
 }
 
 // tables returns the prebuilt funcTables (filters + renderers) so callers can
@@ -37,8 +43,16 @@ func (b *Bundle) importer() types.Importer { return b.imp }
 // runs without any subprocess. The returned resolver's tables() method exposes
 // the prebuilt funcTables so callers can skip a second loadFilterTableMulti.
 func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*Bundle, error) {
+	filterPkgs = dedupFilterPkgs(filterPkgs)
+	goVersion, err := moduleLanguageVersion(moduleDir)
+	if err != nil {
+		return nil, err
+	}
+	if !goversion.IsValid(goVersion) {
+		return nil, fmt.Errorf("codegen: cached resolver module has invalid Go language version %q", goVersion)
+	}
 	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
+		Mode: packages.NeedName | packages.NeedTypes | packages.NeedTypesSizes | packages.NeedImports | packages.NeedDeps,
 		Dir:  moduleDir,
 	}
 	loadPaths := []string{"github.com/gsxhq/gsx"}
@@ -51,17 +65,65 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 	if err != nil {
 		return nil, err
 	}
+	loadedByPath := make(map[string]*packages.Package, len(pkgs))
+	for _, pkg := range pkgs {
+		loadedByPath[pkg.PkgPath] = pkg
+	}
+	if err := checkLoadedPkg(loadedByPath["github.com/gsxhq/gsx"], "cached resolver runtime package \"github.com/gsxhq/gsx\"", moduleDir); err != nil {
+		return nil, err
+	}
+	for _, path := range filterPkgs {
+		if err := checkFilterPkg(loadedByPath[path], path, moduleDir, ""); err != nil {
+			return nil, err
+		}
+	}
+	for _, alias := range aliases {
+		if err := checkFilterPkg(loadedByPath[alias.PkgPath], alias.PkgPath, moduleDir, alias.Name); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range allowImports {
+		if err := checkLoadedPkg(loadedByPath[path], fmt.Sprintf("cached resolver allowed import %q", path), moduleDir); err != nil {
+			return nil, err
+		}
+	}
 	m := map[string]*types.Package{}
+	var sizes types.Sizes
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
 		if p.Types != nil {
 			m[p.PkgPath] = p.Types
 		}
+		if sizes == nil && p.TypesSizes != nil {
+			sizes = p.TypesSizes
+		}
 	})
-	table, rt, err := loadFilterTableMulti(moduleDir, filterPkgs, aliases, nil)
+	if sizes == nil {
+		return nil, fmt.Errorf("codegen: cached resolver load returned no target type sizes")
+	}
+	if goVersion == "" {
+		return nil, fmt.Errorf("codegen: cached resolver load returned no Go language version for %s", moduleDir)
+	}
+	table, rt, err := loadFilterTableFromTypes(m, filterPkgs, aliases, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &Bundle{imp: mapImporter(m), table: funcTables{filters: table, renderers: rt}}, nil
+	return &Bundle{imp: mapImporter(m), table: funcTables{filters: table, renderers: rt}, sizes: sizes, goVersion: goVersion}, nil
+}
+
+func moduleLanguageVersion(moduleDir string) (string, error) {
+	path := filepath.Join(moduleDir, "go.mod")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("codegen: read cached-resolver module language version from %s: %w", path, err)
+	}
+	file, err := modfile.Parse(path, data, nil)
+	if err != nil {
+		return "", fmt.Errorf("codegen: parse cached-resolver module language version from %s: %w", path, err)
+	}
+	if file.Go == nil || file.Go.Version == "" {
+		return "go1.16", nil
+	}
+	return "go" + file.Go.Version, nil
 }
 
 // NewCachedResolver is the public constructor for Bundle. It loads

@@ -14,7 +14,7 @@ component Page(color string) {
 	<div {s...} style="margin:0">x</div>
 }
 -- invoke --
-Page(PageProps{Color: "teal"})
+Page("teal")
 -- diagnostics.golden --
 -- render.golden --
 <div style="margin:0; color:teal">x</div>
@@ -30,14 +30,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Color string
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(color string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		color := _gsxp.Color
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		s := gsx.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(color)))}}

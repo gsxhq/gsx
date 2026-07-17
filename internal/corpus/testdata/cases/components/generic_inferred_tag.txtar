@@ -33,16 +33,9 @@ import (
 	_gsxio "io"
 )
 
-type GreetingProps[V ~string, W any] struct {
-	V V
-	W W
-}
-
 //line input.gsx:3:1
-func Greeting[V ~string, W any](_gsxp GreetingProps[V, W]) _gsxrt.Node {
+func Greeting[V ~string, W any](v V, w W) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		v := _gsxp.V
-		w := _gsxp.W
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
@@ -60,14 +53,9 @@ func Greeting[V ~string, W any](_gsxp GreetingProps[V, W]) _gsxrt.Node {
 
 type MyByte byte
 
-type ByteBoxProps[T []MyByte | string] struct {
-	Value T
-}
-
 //line input.gsx:10:1
-func ByteBox[T []MyByte | string](_gsxp ByteBoxProps[T]) _gsxrt.Node {
+func ByteBox[T []MyByte | string](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		value := _gsxp.Value
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		_gsxgw.S("<p>")
@@ -83,9 +71,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:15:2
-		_gsxgw.Node(ctx, Greeting[string, string](GreetingProps[string, string]{V: "hello", W: "world"}))
+		_gsxgw.Node(ctx, Greeting[string, string]("hello", "world"))
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, ByteBox[[]MyByte](ByteBoxProps[[]MyByte]{Value: []MyByte{'x'}}))
+		_gsxgw.Node(ctx, ByteBox[[]MyByte]([]MyByte{'x'}))
 		return _gsxgw.Err()
 	})
 }

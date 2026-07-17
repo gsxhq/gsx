@@ -11,4 +11,4 @@ component Card(x int) { <div>{x}</div> }
 
 component Page() { <Card x={twoVals()}/> }
 -- diagnostics.golden --
-7:26: child prop "x" value "twoVals()" returns (int, string); only (T, error) is supported
+7:20: value returns (int, string); only (T, error) is consumed as one value

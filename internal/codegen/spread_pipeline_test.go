@@ -3,8 +3,6 @@ package codegen
 import (
 	"strings"
 	"testing"
-
-	"github.com/gsxhq/gsx/ast"
 )
 
 // TestSpreadPipelineElement proves a `|>` pipeline works in an element HTML-attr
@@ -38,43 +36,8 @@ component C(extra gsx.Attrs) {
 	}
 	got := renderWithFilters(t, myfilters, views,
 		[]string{stdImportPath, "gsxmf/myfilters"},
-		`p.C(p.CProps{Extra: gsx.Attrs{{Key: "id", Value: "m"}}})`)
+		`p.C(gsx.Attrs{{Key: "id", Value: "m"}})`)
 	if !strings.Contains(got, `id="m"`) || !strings.Contains(got, `title="hi"`) {
 		t.Fatalf("expected spread pipeline to add title; got:\n%s", got)
-	}
-}
-
-// TestSplatPipelineComponent proves a `|>` pipeline lowers in a byo component
-// whole-struct splat `<Card { d |> f... }/>`: childPropsLiteral returns the LOWERED
-// splat subject (the SAME lowerPipe output the probe path produces) and reports the
-// filter package, with no other attrs. It drives childPropsLiteral directly because
-// a render here would need a byo Props struct AND a seed-first filter over that exact
-// struct type — and the dir-scoped byo enumeration only sees same-package structs,
-// while a cross-package filter cannot name a package-local type (import cycle). The
-// lowering itself (the unit under test) is package-agnostic.
-func TestSplatPipelineComponent(t *testing.T) {
-	t.Parallel()
-	table := funcTables{filters: filterTable{
-		"loud": {funcName: "Loud", alias: "_gsxf0", pkgPath: "gsxmf/myfilters"},
-	}}
-	byo := newByoData()
-	byo.structs["cardData"] = byoStruct{} // mark cardData as a byo struct (no fields needed)
-
-	// <Card { d |> loud... }/> — the sole attr is a piped whole-struct splat.
-	el := &ast.Element{
-		Tag:   "Card",
-		Void:  true,
-		Attrs: []ast.Attr{&ast.SpreadAttr{Expr: "d", Stages: []ast.PipeStage{{Name: "loud"}}}},
-	}
-	_, _, splatExpr, usedPkgs, err := childPropsLiteral(el, "cardData", "gsx", "gsx.DefaultClassMerge", table, nil, nil, byo, nil,
-		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil, nil, nil, nil, "", false, true)
-	if err != nil {
-		t.Fatalf("childPropsLiteral: %v", err)
-	}
-	if want := "_gsxf0.Loud((d))"; splatExpr != want {
-		t.Fatalf("splat lowering = %q, want %q", splatExpr, want)
-	}
-	if usedPkgs["_gsxf0"] != "gsxmf/myfilters" {
-		t.Fatalf("expected filter package recorded; got %v", usedPkgs)
 	}
 }

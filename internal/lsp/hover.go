@@ -18,6 +18,9 @@ func (s *Server) handleHover(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, nil)
 	}
+	if !s.diskViewValid {
+		return s.reply(f.ID, nil)
+	}
 	path := uriToPath(p.TextDocument.URI)
 	if strings.HasSuffix(path, ".go") {
 		return s.reply(f.ID, nil) // gopls owns .go hover
@@ -32,6 +35,25 @@ func (s *Server) handleHover(f frame) error {
 	}
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
+	// A successfully planned component tag hovers codegen's exact callable
+	// target. GSX declarations keep their source-language presentation; plain Go
+	// callable values use the ordinary go/types object string.
+	if cursor, ok := componentTargetAtOffset(pkg, path, off); ok {
+		rng := rangeForSpan(text, cursor.start, cursor.start+cursor.length, s.enc)
+		if comp := componentDeclForTarget(pkg, cursor.fact); comp != nil {
+			return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(comp)), Range: &rng})
+		}
+		// Imported GSX declarations are not retained in pkg.Files. Resolve only
+		// their presentation source here; the callable identity and range above
+		// still come from the exact call fact.
+		if comp, _, _, found := componentAtTag(pkg, path, off); found {
+			return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(comp)), Range: &rng})
+		}
+		if obj := componentTargetObject(cursor.fact); obj != nil {
+			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+		}
+	}
+
 	// A component tag (`<Card/>` or `<pkg.Comp/>`) → the component's signature.
 	// This path needs only the AST (pkg.GSXFset + pkg.Files), not type info,
 	// so it can answer even when type-checking failed (mid-edit state).
@@ -40,34 +62,23 @@ func (s *Server) handleHover(f frame) error {
 		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
 	}
 
-	// H1: a component-invocation attribute name → the matching param's type.
-	// AST-only (no type info needed), so it answers mid-edit too. Unlike the gd
-	// path (componentAttrParamAt), this renders from the Params string and needs
-	// no positions, so it deliberately does not require comp.ParamsPos.IsValid().
-	if tag, attr, attrStart, ok := componentAttrAtOffset(pkg, path, off); ok {
-		if comp, _, ok := resolveTagComponent(pkg, tag); ok {
-			if decl, ok := paramDeclIn(comp.Params, attr); ok {
-				rng := rangeForSpan(text, attrStart, attrStart+len(attr), s.enc)
-				return s.reply(f.ID, Hover{Contents: markdownGo(decl), Range: &rng})
-			}
+	// H1: a component-invocation attribute name → codegen's exact bound
+	// parameter. This consumes the same semantic fact as emission; it does not
+	// reparse the declaration or case-fold authored names.
+	if cursor, ok := componentAttrAtOffset(pkg, path, off); ok {
+		param := cursor.param.Var
+		if param == nil {
+			param = cursor.param.Origin
+		}
+		if param != nil {
+			decl := cursor.param.Name + " " + types.TypeString(param.Type(), qualifierFor(pkg))
+			rng := rangeForSpan(text, cursor.start, cursor.start+len(cursor.name), s.enc)
+			return s.reply(f.ID, Hover{Contents: markdownGo(decl), Range: &rng})
 		}
 	}
 
 	if pkg.Info == nil {
 		return s.reply(f.ID, nil) // expression hover needs type info
-	}
-
-	// H1b: an attrs-only component-value tag (a var/func of type
-	// func(gsx.Attrs) gsx.Node / func(...gsx.Attr) gsx.Node, not a `component`
-	// declaration — see docs/superpowers/specs/2026-07-07-attrs-only-component-
-	// values-design.md) → the value's own signature. componentAtTag above only
-	// recognizes gsxast.Component decls, so it misses these tags entirely;
-	// this reuses the exact resolution go-to-definition uses for the same tags
-	// (attrsOnlyTagDeclAt's seam, via attrsOnlyTagAt), needing go/types
-	// (pkg.Types), hence checked after the Info-nil gate unlike componentAtTag.
-	if obj, nameStart, nameLen, ok := attrsOnlyTagAt(pkg, path, off); ok {
-		rng := rangeForSpan(text, nameStart, nameStart+nameLen, s.enc)
-		return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
 	}
 
 	// H2: an identifier inside a component-signature parameter TYPE (e.g.
@@ -133,7 +144,7 @@ func (s *Server) handleHover(f frame) error {
 // types by package name (gopls-style: `User`, `store.User`).
 func qualifierFor(pkg *Package) types.Qualifier {
 	return func(p *types.Package) string {
-		if pkg.Types != nil && p == pkg.Types {
+		if pkg.Types != nil && (p == pkg.Types || p.Path() == pkg.Types.Path()) {
 			return ""
 		}
 		return p.Name()

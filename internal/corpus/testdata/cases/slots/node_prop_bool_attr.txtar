@@ -27,14 +27,9 @@ import (
 	_gsxio "io"
 )
 
-type BoxProps struct {
-	Flag gsx.Node
-}
-
 //line input.gsx:5:1
-func Box(_gsxp BoxProps) _gsxrt.Node {
+func Box(flag gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		flag := _gsxp.Flag
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div>")
@@ -50,7 +45,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Box(BoxProps{Flag: _gsxrt.Val(true)}))
+		_gsxgw.Node(ctx, Box(_gsxrt.Val(true)))
 		return _gsxgw.Err()
 	})
 }

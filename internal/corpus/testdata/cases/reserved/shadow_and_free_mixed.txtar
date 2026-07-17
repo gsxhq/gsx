@@ -18,11 +18,11 @@ func bags() []gsx.Attrs {
 	}
 }
 
-component Mixed() {
+component Mixed(attrs gsx.Attrs) {
 	<div { attrs... }>{ for _, attrs := range bags() { <span { attrs... }>i</span> } }</div>
 }
 -- invoke --
-Mixed(MixedProps{Attrs: gsx.Attrs{{Key: "class", Value: "root"}}})
+Mixed(gsx.Attrs{{Key: "class", Value: "root"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="root"><span class="a">i</span><span class="b">i</span></div>
@@ -45,14 +45,9 @@ func bags() []gsx.Attrs {
 	}
 }
 
-type MixedProps struct {
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:12:1
-func Mixed(_gsxp MixedProps) _gsxrt.Node {
+func Mixed(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
 		_gsxgw.S("<div")

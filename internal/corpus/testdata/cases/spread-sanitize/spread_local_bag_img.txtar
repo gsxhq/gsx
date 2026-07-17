@@ -11,7 +11,7 @@ component Pic(userSrc string) {
 	<img { b... }/>
 }
 -- invoke --
-Pic(PicProps{UserSrc: "javascript:alert(1)"})
+Pic("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
 <img src="about:invalid#gsx"/>

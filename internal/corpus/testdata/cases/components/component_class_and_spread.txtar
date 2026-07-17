@@ -6,13 +6,13 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(title gsx.Node) { <div class="card" { attrs... }>{title}</div> }
+component Card(title gsx.Node, attrs gsx.Attrs) { <div class="card" { attrs... }>{title}</div> }
 
 component Page(extra gsx.Attrs) {
 	<Card title="Hi" class={ "a" } { extra... } />
 }
 -- invoke --
-Page(PageProps{Extra: gsx.Attrs{{Key: "id", Value: "main"}}})
+Page(gsx.Attrs{{Key: "id", Value: "main"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="card a" id="main">Hi</div>
@@ -28,42 +28,30 @@ import (
 	_gsxio "io"
 )
 
-type CardProps struct {
-	Title gsx.Node
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func Card(_gsxp CardProps) _gsxrt.Node {
+func Card(title gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		title := _gsxp.Title
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:34
+//line input.gsx:5:51
 		_gsxgw.S("<div class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("card"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:5:65
+//line input.gsx:5:82
 		_gsxgw.Node(ctx, title)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
 }
 
-type PageProps struct {
-	Extra gsx.Attrs
-}
-
 //line input.gsx:7:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("a"))}}, extra)}))
+		_gsxgw.Node(ctx, Card(_gsxrt.Text("Hi"), _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("a"))}}, extra)))
 		return _gsxgw.Err()
 	})
 }

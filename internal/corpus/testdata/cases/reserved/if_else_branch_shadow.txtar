@@ -12,7 +12,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component C(cond bool) {
+component C(cond bool, attrs gsx.Attrs) {
 	{ if cond {
 		{{ attrs := gsx.Attrs{{Key: "data-local", Value: "1"}} }}
 		<span { attrs... }>t</span>
@@ -21,7 +21,7 @@ component C(cond bool) {
 	} }
 }
 -- invoke --
-gsx.Fragment(C(CProps{Cond: true, Attrs: gsx.Attrs{{Key: "data-caller", Value: "9"}}}), C(CProps{Cond: false, Attrs: gsx.Attrs{{Key: "data-caller", Value: "9"}}}))
+gsx.Fragment(C(true, gsx.Attrs{{Key: "data-caller", Value: "9"}}), C(false, gsx.Attrs{{Key: "data-caller", Value: "9"}}))
 -- diagnostics.golden --
 -- render.golden --
 <span data-local="1">t</span><div data-caller="9">e</div>
@@ -37,16 +37,9 @@ import (
 	_gsxio "io"
 )
 
-type CProps struct {
-	Cond  bool
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:5:1
-func C(_gsxp CProps) _gsxrt.Node {
+func C(cond bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		cond := _gsxp.Cond
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		if cond {

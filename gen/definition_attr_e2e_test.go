@@ -73,3 +73,105 @@ func TestDefinitionAttrParam(t *testing.T) {
 			loc.Range.Start.Line, loc.Range.Start.Character, declLine, declCol)
 	}
 }
+
+// Component parameter names are verbatim Go identifiers. Definition must use
+// the exact binding retained by codegen, not fold the first rune as the old
+// generated-Props navigation path did.
+func TestDefinitionAttrParamExactCase(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	src := "package x\n\ncomponent Card(title string, Title bool) {\n\t<div/>\n}\n\ncomponent Page() {\n\t<Card title=\"ok\" Title={true}/>\n}\n"
+	must("comp.gsx", src)
+	uri := "file://" + filepath.Join(dir, "comp.gsx")
+
+	lines := strings.Split(src, "\n")
+	callLine := 7
+	callCol := strings.Index(lines[callLine], "Title={")
+	frame := func(v any) string {
+		b, _ := json.Marshal(v)
+		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
+	}
+	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": src}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri},
+			"position": map[string]any{"line": callLine, "character": callCol}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+
+	var out, errBuf bytes.Buffer
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
+	}
+	loc := definitionResult(t, out.String(), 2)
+	if loc == nil {
+		t.Fatalf("definition returned null; out:\n%s\nstderr:\n%s", out.String(), errBuf.String())
+	}
+	declLine := 2
+	declCol := strings.Index(lines[declLine], "Title bool")
+	if loc.Range.Start.Line != declLine || loc.Range.Start.Character != declCol {
+		t.Fatalf("landed at L%d:C%d, want L%d:C%d (the exact Title param)",
+			loc.Range.Start.Line, loc.Range.Start.Character, declLine, declCol)
+	}
+}
+
+func TestDefinitionPlainGoCallableTarget(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pill := "package x\n\nimport \"github.com/gsxhq/gsx\"\n\nfunc Pill(label string, attrs gsx.Attrs) gsx.Node {\n\treturn renderPill(label, attrs)\n}\n"
+	must("pill.go", pill)
+	src := "package x\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent renderPill(label string, attrs gsx.Attrs) {\n\t<span { attrs... }>{label}</span>\n}\n\ncomponent Page() {\n\t<Pill label=\"ok\"/>\n}\n"
+	must("comp.gsx", src)
+	uri := "file://" + filepath.Join(dir, "comp.gsx")
+	lines := strings.Split(src, "\n")
+	callLine := 9
+	callCol := strings.Index(lines[callLine], "Pill")
+	frame := func(v any) string {
+		b, _ := json.Marshal(v)
+		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
+	}
+	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": src}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri},
+			"position": map[string]any{"line": callLine, "character": callCol}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+
+	var out, errBuf bytes.Buffer
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
+	}
+	loc := definitionResult(t, out.String(), 2)
+	if loc == nil {
+		t.Fatalf("definition returned null; out:\n%s\nstderr:\n%s", out.String(), errBuf.String())
+	}
+	wantLine := 4
+	wantCol := strings.Index(strings.Split(pill, "\n")[wantLine], "Pill")
+	if !strings.HasSuffix(loc.URI, "pill.go") || loc.Range.Start.Line != wantLine || loc.Range.Start.Character != wantCol {
+		t.Fatalf("plain-Go target = %s L%d:C%d, want pill.go L%d:C%d",
+			loc.URI, loc.Range.Start.Line, loc.Range.Start.Character, wantLine, wantCol)
+	}
+}

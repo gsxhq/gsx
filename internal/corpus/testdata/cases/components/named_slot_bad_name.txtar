@@ -11,4 +11,4 @@ component Page() {
 	<Panel data-x={ <m/> }/>
 }
 -- diagnostics.golden --
-10:9: non-identifier attribute "data-x" on component <Panel> (slot names must be valid Go identifiers)
+10:9: Panel has no attrs param; unexpected attribute "data-x"

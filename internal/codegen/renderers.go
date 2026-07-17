@@ -112,6 +112,9 @@ func harvestRendererEntries(byPath map[string]*types.Package, renderers []Render
 		}
 		subject := params.At(params.Len() - 1)
 		if pk := rendererKey(subject.Type()); pk != r.TypeKey {
+			if pk != "" && pk != subject.Type().String() {
+				return nil, fmt.Errorf("codegen: renderer %q takes %s (canonical renderer key %q); registered for %q", r.FuncName, subject.Type(), pk, r.TypeKey)
+			}
 			return nil, fmt.Errorf("codegen: renderer %q takes %s; registered for %q", r.FuncName, subject.Type(), r.TypeKey)
 		}
 		res := sig.Results().At(0).Type()

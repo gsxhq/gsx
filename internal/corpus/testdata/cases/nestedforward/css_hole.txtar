@@ -14,7 +14,7 @@ func strAttr(a gsx.Attrs, key string) string {
 	return s
 }
 
-component Widget() {
+component Widget(attrs gsx.Attrs) {
 	<div style={ css`color:@{ strAttr(attrs, "c") }` }>x</div>
 }
 
@@ -44,14 +44,9 @@ func strAttr(a gsx.Attrs, key string) string {
 	return s
 }
 
-type WidgetProps struct {
-	Attrs _gsxrt.Attrs
-}
-
 //line input.gsx:11:1
-func Widget(_gsxp WidgetProps) _gsxrt.Node {
+func Widget(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
 		_gsxgw.S("<div style=\"color:")
@@ -66,7 +61,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, Widget(WidgetProps{Attrs: _gsxrt.Attrs{{Key: "c", Value: "red"}}}))
+		_gsxgw.Node(ctx, Widget(_gsxrt.Attrs{{Key: "c", Value: "red"}}))
 		return _gsxgw.Err()
 	})
 }

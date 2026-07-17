@@ -6,7 +6,7 @@ component Base(u string) {
 }
 
 -- invoke --
-Base(BaseProps{U: "javascript:alert(1)"})
+Base("javascript:alert(1)")
 
 -- render.golden --
 <base href="about:invalid#gsx"/>
@@ -22,14 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type BaseProps struct {
-	U string
-}
-
 //line input.gsx:3:1
-func Base(_gsxp BaseProps) _gsxrt.Node {
+func Base(u string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		u := _gsxp.U
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<base href=\"")

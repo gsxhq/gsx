@@ -1,5 +1,5 @@
-# Regression: two attrs-only tags with INTERPOLATED attr values must not desync
-# the positional interp-type harvest. The attrs-only bag rides an
+# Regression: two factory tags with a static `attrs` role and interpolated attr
+# values must not desync the positional interp-type harvest. The attrs bag rides an
 # alignment-NEUTRAL keep-alive (_gsxusen), so the trailing {n} (an int) keeps its
 # real type instead of being mis-harvested as the bag's gsx.Attrs. Distinct-typed
 # interps around and between the two <Home class={label}/> tags pin that every
@@ -18,7 +18,7 @@ component renderIcon(p iconProps) {
 	<svg { p.Attrs... }>{p.Name}</svg>
 }
 
-func icon(name string) func(gsx.Attrs) gsx.Node {
+func icon(name string) func(attrs gsx.Attrs) gsx.Node {
 	return func(attrs gsx.Attrs) gsx.Node {
 		return renderIcon(iconProps{Name: name, Attrs: attrs})
 	}

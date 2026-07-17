@@ -1,5 +1,5 @@
-# Regression lock: a hand-written arity-1 func keeps the XxxProps convention, so a
-# bad attribute is caught at GENERATE time (not deferred to go build).
+# A hand-written arity-1 function exposes its exact static signature. Its
+# author-owned struct is passed through the ordinary parameter `p` as a whole.
 -- badge.go --
 package views
 
@@ -11,6 +11,5 @@ func Badge(p BadgeProps) gsx.Node { return gsx.Raw("x") }
 -- input.gsx --
 package views
 
-component Page(s string) { <Badge count={s}/> }
+component Page(count int) { <Badge p={BadgeProps{Count: count}}/> }
 -- diagnostics.golden --
-3:56: cannot use s (variable of type string) as int value in struct literal

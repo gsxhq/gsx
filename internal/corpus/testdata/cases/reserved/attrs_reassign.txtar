@@ -6,12 +6,14 @@
 -- input.gsx --
 package views
 
-component Panel() {
+
+import "github.com/gsxhq/gsx"
+component Panel(attrs gsx.Attrs) {
 	{{ attrs = attrs.Without("id") }}
 	<div { attrs... }>x</div>
 }
 -- invoke --
-Panel(PanelProps{Attrs: gsx.Attrs{{Key: "id", Value: "p1"}, {Key: "class", Value: "box"}}})
+Panel(gsx.Attrs{{Key: "id", Value: "p1"}, {Key: "class", Value: "box"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="box">x</div>
@@ -22,22 +24,18 @@ package views
 
 import (
 	_gsxctx "context"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-type PanelProps struct {
-	Attrs _gsxrt.Attrs
-}
-
-//line input.gsx:3:1
-func Panel(_gsxp PanelProps) _gsxrt.Node {
+//line input.gsx:5:1
+func Panel(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		attrs = attrs.Without("id")
-//line input.gsx:5:2
+//line input.gsx:7:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())

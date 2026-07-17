@@ -5,7 +5,7 @@ component Evil(u string) {
 	<span style={ "color: " + u }>x</span>
 }
 -- invoke --
-Evil(EvilProps{U: "red; pointer-events: none; background: url(javascript:alert(1))"})
+Evil("red; pointer-events: none; background: url(javascript:alert(1))")
 -- render.golden --
 <span style="ZgotmplZ">x</span>
 -- diagnostics.golden --
@@ -20,14 +20,9 @@ import (
 	_gsxio "io"
 )
 
-type EvilProps struct {
-	U string
-}
-
 //line input.gsx:3:1
-func Evil(_gsxp EvilProps) _gsxrt.Node {
+func Evil(u string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		u := _gsxp.U
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span style=\"")

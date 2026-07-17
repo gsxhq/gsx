@@ -20,7 +20,8 @@ A component has a name, typed parameters, and a markup body. The body is the res
 
 <!--@include: ./_generated/basic-syntax/010-component-declaration.md-->
 
-The declaration shape determines how callers pass values. See [Props](./props.md) for the available models.
+The authored parameter list determines how Go and markup callers pass values.
+See [Component signatures](./props.md).
 
 ## Element or component? {#element-vs-component}
 

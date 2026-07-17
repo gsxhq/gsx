@@ -1,5 +1,9 @@
 # Attrs-only component values — un-deferring `gsx.Component`
 
+> **Superseded:** The useful callable shapes are now ordinary exact signatures
+> with a named `attrs` role. The separate classifier and ABI described here are
+> removed by `2026-07-14-verbatim-component-signatures-design.md`.
+
 **Status:** design
 **Date:** 2026-07-07 (revised 2026-07-10 after probe review: recognition made
 probe-based on the existing `_gsxcompsig` emit≡probe loop, worked example

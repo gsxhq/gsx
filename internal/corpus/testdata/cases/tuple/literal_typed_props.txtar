@@ -31,17 +31,9 @@ type Count int
 
 type Toggle bool
 
-type GaugeProps struct {
-	Value float64
-	N     int8
-	C     Count
-	On    Toggle
-}
-
 //line input.gsx:7:1
-func Gauge(_gsxp GaugeProps) _gsxrt.Node {
+func Gauge(value float64, n int8, c Count, on Toggle) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		value := _gsxp.Value
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:7:62
@@ -58,7 +50,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:20
-		_gsxgw.Node(ctx, Gauge(GaugeProps{Value: 100, N: 3, C: 5, On: true}))
+		_gsxgw.Node(ctx, Gauge(100, 3, 5, true))
 		return _gsxgw.Err()
 	})
 }

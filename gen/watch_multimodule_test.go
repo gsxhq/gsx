@@ -42,9 +42,9 @@ func TestWatchSession_MultiModuleEditBoth(t *testing.T) {
 	writeFile(t, viewsDir, "page.gsx", "package views\n\nimport \"betamod/comp\"\n\ncomponent Page() {\n\t<comp.Card title=\"hi\"/>\n}\n")
 
 	cfg := watchConfig{paths: []string{parent}, cls: attrclass.Builtin()}
-	sess, startup, err := newWatchSession(cfg)
+	sess, startup, err := startWatchSessionForTest(cfg)
 	if err != nil {
-		t.Fatalf("newWatchSession: %v", err)
+		t.Fatalf("startWatchSessionForTest: %v", err)
 	}
 	for _, r := range startup {
 		if r.Err != nil {

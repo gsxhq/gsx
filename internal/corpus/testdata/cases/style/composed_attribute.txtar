@@ -5,7 +5,7 @@ component Badge(accent string, hide bool) {
 	<span style={ "color: red", "color: " + accent, "display: none": hide }>hi</span>
 }
 -- invoke --
-Badge(BadgeProps{Accent: "blue", Hide: false})
+Badge("blue", false)
 -- render.golden --
 <span style="color: red; color: blue">hi</span>
 -- diagnostics.golden --
@@ -20,16 +20,9 @@ import (
 	_gsxio "io"
 )
 
-type BadgeProps struct {
-	Accent string
-	Hide   bool
-}
-
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) _gsxrt.Node {
+func Badge(accent string, hide bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		accent := _gsxp.Accent
-		hide := _gsxp.Hide
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span style=\"")

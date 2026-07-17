@@ -20,7 +20,7 @@ component Page(detail string) {
 	<div {containerAttrs...}>x</div>
 }
 -- invoke --
-Page(PageProps{Detail: "d1"})
+Page("d1")
 -- diagnostics.golden --
 -- render.golden --
 <div @suggest-datetime.window="suggest(&#34;d1&#34;)">x</div>
@@ -36,14 +36,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Detail string
-}
-
 //line input.gsx:5:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(detail string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		detail := _gsxp.Detail
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		containerAttrs := gsx.Attrs{

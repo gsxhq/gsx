@@ -34,14 +34,9 @@ import (
 	_gsxio "io"
 )
 
-type LabelProps struct {
-	Text gsx.Node
-}
-
 //line input.gsx:5:1
-func Label(_gsxp LabelProps) _gsxrt.Node {
+func Label(text gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		text := _gsxp.Text
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<span>")
@@ -57,7 +52,7 @@ func Page(t tag) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Label(LabelProps{Text: _gsxrt.Val(t)}))
+		_gsxgw.Node(ctx, Label(_gsxrt.Val(t)))
 		return _gsxgw.Err()
 	})
 }

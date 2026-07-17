@@ -1,0 +1,14 @@
+# Passing a body to a component whose authored signature has no children role is
+# a positioned error.
+-- input.gsx --
+package views
+
+component Button(variant string) {
+	<button class={ variant }></button>
+}
+
+component Page() {
+	<Button variant="primary">Save</Button>
+}
+-- diagnostics.golden --
+8:2: Button has no children param; component body cannot be passed

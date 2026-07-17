@@ -7,7 +7,7 @@ component Link(a string, b string) {
 	<a href=f`@{a}@{b}`>go</a>
 }
 -- invoke --
-Link(LinkProps{A: "https://ex.com", B: "/p"})
+Link("https://ex.com", "/p")
 -- diagnostics.golden --
 -- render.golden --
 <a href="https://ex.com/p">go</a>
@@ -22,16 +22,9 @@ import (
 	_gsxio "io"
 )
 
-type LinkProps struct {
-	A string
-	B string
-}
-
 //line input.gsx:3:1
-func Link(_gsxp LinkProps) _gsxrt.Node {
+func Link(a string, b string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		a := _gsxp.A
-		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")

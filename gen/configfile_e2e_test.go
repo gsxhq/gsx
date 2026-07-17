@@ -88,7 +88,7 @@ var _ = gsx.Raw
 
 func main() {
 	ctx := mf.WithGreeting(context.Background(), "hi")
-	_ = p.C(p.CProps{S: "v"}).Render(ctx, os.Stdout)
+	_ = p.C("v").Render(ctx, os.Stdout)
 }
 `)
 	cmd := exec.Command("go", "run", ".")
@@ -264,10 +264,10 @@ func TestInfoNoConfig(t *testing.T) {
 //  2. A bad-signature merger (variadic) surfaces the generate-time validation
 //     error from ValidateClassMerger (wired in GenerateDirs).
 func TestGenClassMergerE2E(t *testing.T) {
-	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build e2e in -short mode")
 	}
+	t.Setenv("GSXCACHE", t.TempDir())
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -286,7 +286,7 @@ func TestGenClassMergerE2E(t *testing.T) {
 
 	// Component with an explicit attrs spread that triggers a class merge site.
 	mkfile(t, filepath.Join(tmp, "views", "card.gsx"),
-		"package views\n\ncomponent Card() {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
+		"package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(attrs gsx.Attrs, children gsx.Node) {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
 
 	// Run stock generation (reads gsx.toml automatically).
 	var out, errb bytes.Buffer
@@ -305,6 +305,17 @@ func TestGenClassMergerE2E(t *testing.T) {
 	}
 	if !strings.Contains(src, "_gsxgw.Class(_gsxcm.Merge,") {
 		t.Fatalf("generated .x.go missing direct merger reference _gsxgw.Class(_gsxcm.Merge,...); got:\n%s", src)
+	}
+
+	// Keep the config and generated package unchanged, but break the selected
+	// merger's source. A stale persistent hit must not bypass authoritative
+	// configured-source validation.
+	mkfile(t, filepath.Join(tmp, "mrg", "mrg.go"),
+		"package mrg\n\nfunc Merge(t ...any) string { return \"\" }\n")
+	var changedOut, changedErr bytes.Buffer
+	changedCode := run([]string{"-C", tmp, "generate", "./views"}, &changedOut, &changedErr)
+	if changedCode == 0 || !strings.Contains(changedErr.String(), "func([]string) string") {
+		t.Fatalf("changed merger source reused stale cache: exit=%d stdout=%q stderr=%q", changedCode, changedOut.String(), changedErr.String())
 	}
 
 	// Bad-signature variant: a variadic merger must fail validation.

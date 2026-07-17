@@ -32,7 +32,7 @@ component Widget(x string) {
 	<div {a...}>y</div>
 }
 -- invoke --
-Widget(WidgetProps{X: "a"})
+Widget("a")
 -- diagnostics.golden --
 -- render.golden --
 <div style="color: red;margin: 0;" x-data="{

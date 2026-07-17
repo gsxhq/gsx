@@ -7,7 +7,7 @@ component C(extra gsx.Attrs) {
 	<div { extra... }>y</div>
 }
 -- invoke --
-C(CProps{Extra: gsx.Attrs{{Key: "data-x", Value: "1"}, {Key: "hidden", Value: true}, {Key: "class", Value: "c"}}})
+C(gsx.Attrs{{Key: "data-x", Value: "1"}, {Key: "hidden", Value: true}, {Key: "class", Value: "c"}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="c" data-x="1" hidden>y</div>

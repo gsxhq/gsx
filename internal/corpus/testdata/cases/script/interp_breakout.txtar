@@ -7,7 +7,7 @@ component Page(payload string) {
 	</script>
 }
 -- invoke --
-Page(PageProps{Payload: "</script><script>alert(1)</script>"})
+Page("</script><script>alert(1)</script>")
 -- diagnostics.golden --
 -- render.golden --
 <script>
@@ -24,14 +24,9 @@ import (
 	_gsxio "io"
 )
 
-type PageProps struct {
-	Payload string
-}
-
 //line input.gsx:3:1
-func Page(_gsxp PageProps) _gsxrt.Node {
+func Page(payload string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		payload := _gsxp.Payload
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<script")

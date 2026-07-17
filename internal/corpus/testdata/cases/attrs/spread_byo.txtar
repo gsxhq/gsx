@@ -1,4 +1,4 @@
-# trailing-dots spread: { expr... } is the Go-convention spread syntax
+# A composite value is forwarded to an ordinary parameter by exact name.
 -- input.gsx --
 package views
 
@@ -12,7 +12,7 @@ var items = []props{{label: <p>x</p>}}
 component C(p props) { <div>{p.label}</div> }
 component page() {
   { for _, item := range items {
-    <C {item...} />
+    <C p={item} />
   } }
 }
 

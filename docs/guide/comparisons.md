@@ -4,7 +4,7 @@ Choose by where templates live, when they load, and where rendering happens.
 
 | tool | best fit | component typing | compile/load model | rendering model |
 | --- | --- | --- | --- | --- |
-| gsx | HTML-shaped Go views | Go props | generate before build | server HTML |
+| gsx | HTML-shaped Go views | Go parameters | generate before build | server HTML |
 | templ | Go-first components | Go parameters | generate before build | server HTML |
 | `html/template` | stdlib or dynamic templates | runtime data | parse embedded or runtime text | server HTML |
 | client-side JSX | browser applications | JavaScript or TypeScript props | compile for the browser | browser UI |
@@ -12,7 +12,7 @@ Choose by where templates live, when they load, and where rendering happens.
 ## Choose gsx
 
 Choose gsx when you want JSX-like calls and HTML-shaped component bodies while
-keeping expressions, props, and builds in Go. It is especially useful when
+keeping expressions, component inputs, and builds in Go. It is especially useful when
 class, attribute, and contextual-escaping rules should be part of the template
 language.
 
