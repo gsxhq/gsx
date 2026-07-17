@@ -311,6 +311,8 @@ js = "full"
 At `full`, CSS containing `@{...}` holes uses gsx's built-in hole-aware safe
 pass. A `<script>` body containing holes remains unminified.
 
+JSON-shaped `js`…`` attribute values — a `{`- or `[`-leading value that parses as valid JSON, such as htmx `hx-vals`, `hx-headers`, or `hx-vars` — are minified as JSON (whitespace stripped, keys and structure preserved) so they stay valid for `JSON.parse`. Values that are not valid JSON (Alpine `x-data`, event handlers) are minified as JavaScript as before.
+
 CSS and JavaScript are configured independently. `GSX_MINIFY=none` or
 `GSX_MINIFY=full` overrides both file values, and `gen.WithMinifyLevel` in a
 custom binary overrides the environment.

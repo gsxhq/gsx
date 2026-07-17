@@ -1,6 +1,7 @@
 package jsmin
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestMinifyFileGoBlockLiteral(t *testing.T) {
 		&ast.Text{Value: "const x =   1 ;\nfoo(  ) ;"},
 	}}
 	f := goBlockLit(lit)
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := litText(lit); strings.Contains(got, "  ") {
@@ -53,7 +54,7 @@ func TestMinifyFileGoBlockHoleyRoundTrip(t *testing.T) {
 		&ast.Text{Value: " = v ;"},
 	}}
 	f := goBlockLit(lit)
-	if err := MinifyFile(f, ext); err != nil {
+	if err := MinifyFile(f, Minifiers{JS: ext}); err != nil {
 		t.Fatal(err)
 	}
 	sawInterp := false
@@ -83,7 +84,7 @@ func TestMinifyFileInterpEmbeddedLiteral(t *testing.T) {
 	}}
 	in := &ast.Interp{Expr: "wrap(...)", Embedded: []ast.GoPart{ast.GoText{Src: "wrap("}, lit, ast.GoText{Src: ")"}}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{in}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := litText(lit); strings.Contains(got, "   ") {
@@ -100,7 +101,7 @@ func fileWith(el *ast.Element) *ast.File {
 
 func TestMinifyFileScript(t *testing.T) {
 	f := fileWith(scriptEl("function f() {\n\treturn 1;\n}"))
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -112,7 +113,7 @@ func TestMinifyFileScript(t *testing.T) {
 func TestMinifyFileExt(t *testing.T) {
 	ext := func(js string) (string, error) { return "EXT", nil }
 	f := fileWith(scriptEl("var x=1"))
-	if err := MinifyFile(f, ext); err != nil {
+	if err := MinifyFile(f, Minifiers{JS: ext}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -130,7 +131,7 @@ func TestMinifyFileSkipsHoleyScript(t *testing.T) {
 	text2 := &ast.Text{Value: ";\n\treturn data;"}
 	el := &ast.Element{Tag: "script", Children: []ast.Markup{text1, interp, text2}}
 	f := fileWith(el)
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -141,7 +142,7 @@ func TestMinifyFileSkipsHoleyScript(t *testing.T) {
 
 func TestMinifyFileLeavesStyleAlone(t *testing.T) {
 	f := fileWith(&ast.Element{Tag: "style", Children: []ast.Markup{&ast.Text{Value: "  .a { x: 1 }  "}}})
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -154,7 +155,7 @@ func TestMinifyFileScriptInForMarkup(t *testing.T) {
 	deep := scriptEl("function f() {\n\treturn 1;\n}")
 	loop := &ast.ForMarkup{Clause: "_, x := range xs", Body: []ast.Markup{deep}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{loop}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
@@ -166,7 +167,7 @@ func TestMinifyFileScriptInSwitchMarkup(t *testing.T) {
 	deep := scriptEl("function f() {\n\treturn 1;\n}")
 	sw := &ast.SwitchMarkup{Tag: "v", Cases: []*ast.CaseClause{{List: "1", Body: []ast.Markup{deep}}}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{sw}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
@@ -178,7 +179,7 @@ func TestMinifyFileScriptInFragment(t *testing.T) {
 	deep := scriptEl("function f() {\n\treturn 1;\n}")
 	frag := &ast.Fragment{Children: []ast.Markup{deep}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{frag}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
@@ -196,7 +197,7 @@ func TestMinifyFileSkipsDataIslandScript(t *testing.T) {
 		Children: []ast.Markup{&ast.Text{Value: body}},
 	}
 	f := fileWith(el)
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := el.Children[0].(*ast.Text).Value; got != body {
@@ -225,6 +226,59 @@ func TestMinifyJSAttrHolelessFull(t *testing.T) {
 	}
 	if !has(got, "open") || !has(got, "active") {
 		t.Fatalf("object keys lost: %q", got)
+	}
+}
+
+// TestMinifyJSAttrJSONShapedValueStaysValidJSON is a FAILING reproduction of the
+// hx-vals minify bug. A quoted-key object literal — valid JSON, as carried by htmx's
+// hx-vals/hx-headers/hx-vars, which htmx parses with JSON.parse — must survive
+// minification as valid JSON. Today the full JS pass unquotes the key
+// (`"exclude"`→`exclude`) and wraps the object in `(…)` to minify it as an expression,
+// yielding valid JavaScript but INVALID JSON (`({exclude:"SELF-1"})`); htmx's
+// JSON.parse then rejects it and silently drops the params. The `js` literal prefix
+// cannot distinguish an Alpine JS expression (x-data) from a JSON payload (hx-vals) —
+// both are `{`-leading js` values. This test asserts the intended behavior and fails
+// until the JSON-aware minify fix lands.
+func TestMinifyJSAttrJSONShapedValueStaysValidJSON(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "hx-vals", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{&ast.Text{Value: `{ "exclude": "SELF-1" }`}}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	got := attrSegs(f)[0].(*ast.Text).Value
+	if !json.Valid([]byte(got)) {
+		t.Fatalf("minified JSON-shaped attribute value is not valid JSON: %s", got)
+	}
+	if got != `{"exclude":"SELF-1"}` {
+		t.Fatalf("want compact JSON {\"exclude\":\"SELF-1\"}, got %q", got)
+	}
+}
+
+// TestMinifyJSAttrClassification pins the routing split: a holeless `{`/`[`-
+// leading value that json.Valid accepts goes through the JSON minifier
+// (compact, quoted keys); everything else — including near-JSON shapes that
+// are NOT valid JSON (unquoted keys, single quotes, trailing commas) — keeps
+// going through the UNCHANGED tdewolff JS-expression cascade.
+func TestMinifyJSAttrClassification(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"json_object", `{ "a": 1, "b": "x" }`, `{"a":1,"b":"x"}`},
+		{"json_array", `[ 1, 2, 3 ]`, `[1,2,3]`},
+		{"json_nested", `{ "a": { "b": [1, 2] } }`, `{"a":{"b":[1,2]}}`},
+		{"js_unquoted_key_stays_js", `{ open: false }`, `({open:!1})`},
+		{"js_single_quoted_key_stays_js", `{ 'a': 1 }`, `({a:1})`},
+		{"js_trailing_comma_stays_js", `{ "a": 1, }`, `({a:1})`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "hx-vals", Lang: ast.EmbeddedJS,
+				DoubleQuoted: true, Segments: []ast.Markup{&ast.Text{Value: c.in}}}))
+			if err := jsminFileMinify(f, fullminJS); err != nil {
+				t.Fatal(err)
+			}
+			if got := attrSegs(f)[0].(*ast.Text).Value; got != c.want {
+				t.Fatalf("in=%q got=%q want=%q", c.in, got, c.want)
+			}
+		})
 	}
 }
 
@@ -286,6 +340,53 @@ func TestMinifyJSAttrHoleyFull(t *testing.T) {
 	}
 	if !has(text, "id") || !has(text, "k") {
 		t.Fatalf("keys lost: %q", text)
+	}
+}
+
+// TestMinifyJSAttrHoleyJSONStaysValid is a holey counterpart to
+// TestMinifyJSAttrJSONShapedValueStaysValidJSON: a JSON-shaped hx-vals value
+// with a quoted key and an @{ } hole in value position must minify to compact
+// JSON with the hole preserved (`{"exclude":@{selfID}}`), not the identifier-
+// sentinel JS cascade's paren-wrapped, unquoted-key shape.
+func TestMinifyJSAttrHoleyJSONStaysValid(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "hx-vals", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{
+			&ast.Text{Value: `{ "exclude": `},
+			&ast.Interp{Expr: "selfID"},
+			&ast.Text{Value: ` }`},
+		}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	segs := attrSegs(f)
+	var text string
+	sawHole := false
+	for _, s := range segs {
+		switch x := s.(type) {
+		case *ast.Interp:
+			sawHole = true
+			if x.Expr != "selfID" {
+				t.Fatalf("hole expr changed: %q", x.Expr)
+			}
+		case *ast.Text:
+			text += x.Value
+		}
+	}
+	if !sawHole {
+		t.Fatalf("hole lost: %#v", segs)
+	}
+	// Structural checks: quoted key kept, no paren-wrap, whitespace gone.
+	if strings.Contains(text, "(") || strings.Contains(text, "exclude:") {
+		t.Fatalf("JSON structure broken: %q", text)
+	}
+	if !strings.Contains(text, `"exclude":`) {
+		t.Fatalf("quoted key lost: %q", text)
+	}
+	if strings.Contains(text, " ") {
+		t.Fatalf("whitespace not stripped: %q", text)
+	}
+	if strings.Contains(text, "gsxHole") || strings.Contains(text, "900000000") {
+		t.Fatalf("sentinel leaked: %q", text)
 	}
 }
 

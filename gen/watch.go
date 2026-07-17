@@ -33,6 +33,7 @@ type watchConfig struct {
 	cls         *attrclass.Classifier
 	cssMin      func(string) (string, error)
 	jsMin       func(string) (string, error)
+	jsonMin     func(string) (string, error)
 	cssMinify   bool
 	jsMinify    bool
 	classMerger *codegen.ClassMergerRef

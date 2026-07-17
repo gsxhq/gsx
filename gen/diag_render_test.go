@@ -25,7 +25,7 @@ func runGenerateArgs(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	wd, _ := os.Getwd()
-	code := runGenerate(args, &out, &errb, false, false, true /*noCache*/, nil, nil, nil, attrclass.Builtin(), nil, nil, true, true, nil, wd)
+	code := runGenerate(args, &out, &errb, false, false, true /*noCache*/, nil, nil, nil, attrclass.Builtin(), nil, nil, nil, true, true, nil, wd)
 	return code, out.String(), errb.String()
 }
 

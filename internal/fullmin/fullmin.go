@@ -13,6 +13,7 @@ import (
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"
 	"github.com/tdewolff/minify/v2/js"
+	"github.com/tdewolff/minify/v2/json"
 )
 
 // m is the shared minifier registry. tdewolff's *minify.M is safe for concurrent
@@ -24,6 +25,7 @@ func newMinifier() *minify.M {
 	m := minify.New()
 	m.AddFunc("text/css", css.Minify)
 	m.AddFunc("application/javascript", js.Minify)
+	m.AddFunc("application/json", json.Minify)
 	return m
 }
 
@@ -32,3 +34,7 @@ func CSS(s string) (string, error) { return m.String("text/css", s) }
 
 // JS aggressively minifies a complete (holeless) JS string.
 func JS(s string) (string, error) { return m.String("application/javascript", s) }
+
+// JSON aggressively minifies a complete (holeless) JSON string: whitespace is
+// stripped and validity preserved (quoted keys kept, no expression rewrites).
+func JSON(s string) (string, error) { return m.String("application/json", s) }

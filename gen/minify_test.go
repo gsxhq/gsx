@@ -162,7 +162,7 @@ func TestGenerate_MinifyFullViaConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := generateCached([]string{"."}, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), false, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger)
+	res, err := generateCached([]string{"."}, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), false, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestGenerate_MinifyNoneViaConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := generateCached([]string{"."}, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), false, merged.cssMin, merged.jsMin, merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger)
+	res, err := generateCached([]string{"."}, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), false, merged.cssMin, merged.jsMin, nil, merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger)
 	if err != nil {
 		t.Fatal(err)
 	}
