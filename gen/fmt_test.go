@@ -367,6 +367,35 @@ func TestFmtTwoDirsOneModule(t *testing.T) {
 	}
 }
 
+// TestFmtKeepsTypeArgAndAttrExprImports pins the detector fix for imports
+// referenced ONLY in positions the syntactic unused-import scan used to miss: a
+// markup type-argument (<comp.Check[cons.Foo]> uses cons) and a component-tag
+// attribute-value Go expression (attrs={{ "@x": gsx.RawJS(...) }} uses gsx).
+// componentTargetQualifiers formerly harvested only the tag qualifier, so fmt
+// stripped both imports and broke the file's compilation. Detection is
+// syntactic, so the referenced comp/cons packages need not exist; a genuinely
+// unused import (bytes) in the same file must still be the only one reported, to
+// prove the fix keeps used imports without disabling removal.
+func TestFmtKeepsTypeArgAndAttrExprImports(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := newModule(t, "fmtmod")
+	src := "package views\n\nimport (\n\t\"bytes\"\n\n\t\"github.com/gsxhq/gsx\"\n\n\t\"fmtmod/comp\"\n\t\"fmtmod/cons\"\n)\n\n" +
+		"component Page(d bool) {\n\t<comp.Check[cons.Foo] checked={d} attrs={{ \"@x\": gsx.RawJS(\"f()\") }} />\n}\n"
+	page := writeFile(t, filepath.Join(dir, "views"), "views.gsx", src)
+
+	refs, _ := analyzeUnusedImports(
+		[]string{page},
+		codegen.Options{Classifier: attrclass.Builtin()},
+	)
+	abs, _ := filepath.Abs(page)
+	if len(refs[abs]) != 1 || refs[abs][0].Path != "bytes" {
+		t.Fatalf("want only bytes unused (cons used in type-arg, gsx in attr expr, comp in tag), got %+v", refs[abs])
+	}
+}
+
 // TestFmtToleratesMalformedConfig proves that with a builtin-only
 // codegen.Options (the fallback gen/main.go's `fmt` case uses when
 // resolveConfig fails on a malformed gsx.toml), formatting still succeeds.
