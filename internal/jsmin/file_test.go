@@ -343,6 +343,53 @@ func TestMinifyJSAttrHoleyFull(t *testing.T) {
 	}
 }
 
+// TestMinifyJSAttrHoleyJSONStaysValid is a holey counterpart to
+// TestMinifyJSAttrJSONShapedValueStaysValidJSON: a JSON-shaped hx-vals value
+// with a quoted key and an @{ } hole in value position must minify to compact
+// JSON with the hole preserved (`{"exclude":@{selfID}}`), not the identifier-
+// sentinel JS cascade's paren-wrapped, unquoted-key shape.
+func TestMinifyJSAttrHoleyJSONStaysValid(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "hx-vals", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{
+			&ast.Text{Value: `{ "exclude": `},
+			&ast.Interp{Expr: "selfID"},
+			&ast.Text{Value: ` }`},
+		}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	segs := attrSegs(f)
+	var text string
+	sawHole := false
+	for _, s := range segs {
+		switch x := s.(type) {
+		case *ast.Interp:
+			sawHole = true
+			if x.Expr != "selfID" {
+				t.Fatalf("hole expr changed: %q", x.Expr)
+			}
+		case *ast.Text:
+			text += x.Value
+		}
+	}
+	if !sawHole {
+		t.Fatalf("hole lost: %#v", segs)
+	}
+	// Structural checks: quoted key kept, no paren-wrap, whitespace gone.
+	if strings.Contains(text, "(") || strings.Contains(text, "exclude:") {
+		t.Fatalf("JSON structure broken: %q", text)
+	}
+	if !strings.Contains(text, `"exclude":`) {
+		t.Fatalf("quoted key lost: %q", text)
+	}
+	if strings.Contains(text, " ") {
+		t.Fatalf("whitespace not stripped: %q", text)
+	}
+	if strings.Contains(text, "gsxHole") || strings.Contains(text, "900000000") {
+		t.Fatalf("sentinel leaked: %q", text)
+	}
+}
+
 // A single-line holey value has nothing to reindent, so the safe level is a no-op.
 func TestMinifyJSAttrHoleySafeSingleLineNoop(t *testing.T) {
 	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS,

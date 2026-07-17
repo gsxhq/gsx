@@ -13,10 +13,10 @@ import (
 
 // Minifiers carries the pluggable external minifier funcs jsmin threads
 // through a file: JS minifies a script/attribute JS body, JSON minifies a
-// JSON-shaped body (data-island <script> text, and — once consulted — a
-// JSON-shaped js`…` attribute value). A nil field uses the built-in safe
-// pass for that kind; JSON is currently threaded but NOT YET consulted by
-// any minifyJS* helper (that lands in a later slice).
+// JSON-shaped body (data-island <script> text, and a JSON-shaped js`…`
+// attribute value — both holeless and holey, via cascadeJS and
+// minifyJSSegmentsHoley respectively). A nil field uses the built-in safe
+// pass for that kind.
 type Minifiers struct {
 	JS   func(string) (string, error) // nil = safe level (built-in)
 	JSON func(string) (string, error) // nil = safe level (built-in)
@@ -290,10 +290,20 @@ func cascadeJS(text string, m Minifiers) string {
 }
 
 // minifyJSSegmentsHoley transforms a holey js`…` value via a sentinel round-trip:
-// each @{ } hole becomes a collision-free FREE IDENTIFIER (which the JS lexer never
-// mangles), the whole is transformed as one syntactically-complete string, then the
-// sentinels are split back into the original *ast.Interp holes. The transform
-// depends on the level:
+// each @{ } hole becomes a collision-free sentinel token, the whole is transformed
+// as one syntactically-complete string, then the sentinels are split back into the
+// original *ast.Interp holes.
+//
+// Before anything else (FULL level only), it tries a JSON-shaped classification: a
+// `{`/`[`-leading value is retried with each hole as a bare INTEGER sentinel (a
+// valid JSON number token). If that string is valid JSON, it is minified by the
+// JSON minifier and split back by exact numeric match — this keeps quoted keys and
+// avoids the `(…)` expression wrap the JS cascade requires, both of which htmx's
+// JSON.parse (hx-vals/hx-headers/hx-vars) would reject. Any classification miss or
+// split mismatch falls through to the identifier-sentinel JS path unchanged.
+//
+// Otherwise, each hole becomes a collision-free FREE IDENTIFIER (which the JS lexer
+// never mangles), and the transform depends on the level:
 //
 //   - FULL (m.JS != nil): cascade-minify the sentinel string. Safe because attribute
 //     holes sit in expression value positions (object property values, call args,
@@ -317,6 +327,37 @@ func minifyJSSegmentsHoley(segments []ast.Markup, m Minifiers) []ast.Markup {
 			scan.WriteString(t.Value)
 		}
 	}
+
+	// JSON branch (full level only): a `{`/`[`-leading holey value whose holes sit
+	// in JSON value positions (object property values, array elements) is tried as
+	// JSON first, via INTEGER sentinels instead of identifiers — a bare integer is
+	// a valid JSON number token, so the sentinel string can be json.Valid-checked
+	// and, if valid, minified by the tdewolff JSON minifier and split back by
+	// numeric match. Sentinels are `base+1..base+n` — never the bare `base` itself
+	// — because tdewolff's number minifier rewrites an exact round value like
+	// 900000000 to `9e8` (verified); base+1 and up (non-round) survive verbatim
+	// across many growth cycles (also verified). splitJSNumberSentinels parses
+	// full JSON number TOKENS (not bare digit runs), so even if some future/edge
+	// case reshapes a sentinel into exponent form, it is matched by numeric value
+	// rather than mis-matching a truncated digit prefix. Falls through to the
+	// identifier-sentinel JS cascade below on any classification miss or split
+	// mismatch (same "never corrupt output" contract as the existing JS path).
+	if m.JSON != nil {
+		n := countInterps(segments)
+		base := int64(900000000)
+		for containsAnySentinel(scan.String(), base, n) {
+			base *= 10
+		}
+		numStr, numInterps := buildNumberSentinelString(segments, base)
+		if looksJSON(numStr) {
+			if out, err := m.JSON(numStr); err == nil {
+				if split, ok := splitJSNumberSentinels(out, base, numInterps); ok {
+					return split
+				}
+			}
+		}
+	}
+
 	prefix := "gsxHole"
 	for strings.Contains(scan.String(), prefix) {
 		prefix += "q"
@@ -351,6 +392,151 @@ func minifyJSSegmentsHoley(segments []ast.Markup, m Minifiers) []ast.Markup {
 	}
 	// On any sentinel mismatch, leave the segments unchanged (safe).
 	return segments
+}
+
+// countInterps counts the *ast.Interp holes in segments.
+func countInterps(segments []ast.Markup) int {
+	n := 0
+	for _, s := range segments {
+		if _, ok := s.(*ast.Interp); ok {
+			n++
+		}
+	}
+	return n
+}
+
+// containsAnySentinel reports whether any of the n candidate integer sentinels
+// base+1..base+n appears as a substring of text — a collision the caller must
+// grow base away from (mirroring the identifier-prefix collision loop above).
+// (Sentinel numbering starts at base+1, not base — see buildNumberSentinelString.)
+func containsAnySentinel(text string, base int64, n int) bool {
+	for i := 1; i <= n; i++ {
+		if strings.Contains(text, strconv.FormatInt(base+int64(i), 10)) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildNumberSentinelString rebuilds segments as one string with each
+// *ast.Interp hole replaced by the bare integer literal base+1+<its index> (a
+// valid JSON number token), returning the *ast.Interp pointers in the same
+// index order (the i-th returned interp was substituted as base+1+i).
+//
+// Numbering starts at base+1, never the bare base itself: tdewolff's JSON
+// number minifier rewrites an exact round value like 900000000 to the shorter
+// `9e8`, which would defeat a literal round-trip; base+1 and up carry a
+// non-zero low digit and survive verbatim (verified empirically, including
+// across repeated *10 growth of base).
+func buildNumberSentinelString(segments []ast.Markup, base int64) (string, []*ast.Interp) {
+	var sb strings.Builder
+	var interps []*ast.Interp
+	for _, s := range segments {
+		switch t := s.(type) {
+		case *ast.Text:
+			sb.WriteString(t.Value)
+		case *ast.Interp:
+			sb.WriteString(strconv.FormatInt(base+1+int64(len(interps)), 10))
+			interps = append(interps, t)
+		}
+	}
+	return sb.String(), interps
+}
+
+// scanJSONNumberToken scans one JSON number token (RFC 8259 grammar: an
+// optional `-`, an integer part, an optional `.digits` fraction, an optional
+// `[eE][+-]?digits` exponent) starting at s[i] and returns its exclusive end
+// index. The caller has already established s[i] begins a number (a digit, or
+// `-` followed by a digit).
+func scanJSONNumberToken(s string, i int) int {
+	j := i
+	if j < len(s) && s[j] == '-' {
+		j++
+	}
+	for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+		j++
+	}
+	if j < len(s) && s[j] == '.' {
+		k := j + 1
+		for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+			k++
+		}
+		if k > j+1 {
+			j = k
+		}
+	}
+	if j < len(s) && (s[j] == 'e' || s[j] == 'E') {
+		k := j + 1
+		if k < len(s) && (s[k] == '+' || s[k] == '-') {
+			k++
+		}
+		start := k
+		for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+			k++
+		}
+		if k > start {
+			j = k
+		}
+	}
+	return j
+}
+
+// splitJSNumberSentinels reassembles a JSON-minified integer-sentinel string
+// into Text + Interp nodes. It scans s for JSON number TOKENS (not bare digit
+// runs — a minifier is free to reshape a number into exponent form, e.g.
+// `9e8`, so matching must be by parsed numeric VALUE, never by a truncated
+// digit prefix, or a token like `900000001e3` could be misread as sentinel
+// base+1). A token whose value is an integer in [base+1, base+len(interps)]
+// is a sentinel and is replaced by the corresponding interp (index
+// value-base-1); every other number token (a static JSON number from the
+// source) is left as literal text, byte-for-byte. ok=false if any hole ends
+// up missing or duplicated (every hole must survive exactly once) — the
+// caller falls back safely.
+func splitJSNumberSentinels(s string, base int64, interps []*ast.Interp) ([]ast.Markup, bool) {
+	var out []ast.Markup
+	var text strings.Builder
+	seen := make([]bool, len(interps))
+	flush := func() {
+		if text.Len() > 0 {
+			out = append(out, &ast.Text{Value: text.String()})
+			text.Reset()
+		}
+	}
+	for i := 0; i < len(s); {
+		c := s[i]
+		isNumStart := (c >= '0' && c <= '9') || (c == '-' && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '9')
+		if !isNumStart {
+			text.WriteByte(c)
+			i++
+			continue
+		}
+		j := scanJSONNumberToken(s, i)
+		tok := s[i:j]
+		i = j
+		// Values in this scheme's range (~1e9-1e14) are well within float64's
+		// exact-integer precision (2^53), so ParseFloat round-trips exactly.
+		if val, err := strconv.ParseFloat(tok, 64); err == nil {
+			if iv := int64(val); float64(iv) == val {
+				if idx := iv - base - 1; idx >= 0 && idx < int64(len(interps)) {
+					if seen[idx] {
+						return nil, false // duplicate sentinel: abort, fall back safely
+					}
+					seen[idx] = true
+					flush()
+					out = append(out, interps[idx])
+					continue
+				}
+			}
+		}
+		text.WriteString(tok)
+	}
+	flush()
+	for _, ok := range seen {
+		if !ok {
+			return nil, false
+		}
+	}
+	return out, true
 }
 
 // splitJSSentinels reassembles a minified sentinel string into Text + Interp
