@@ -30,3 +30,18 @@ func TestJS_Aggressive(t *testing.T) {
 		t.Fatalf("full JS dropped the function name: %q", got)
 	}
 }
+
+func TestJSON(t *testing.T) {
+	got, err := JSON(`{ "exclude": "SELF-1" }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `{"exclude":"SELF-1"}` {
+		t.Fatalf("JSON minify = %q, want %q", got, `{"exclude":"SELF-1"}`)
+	}
+	// A bare integer (the hole sentinel) must survive verbatim.
+	got2, _ := JSON(`{ "k": 909090900 }`)
+	if got2 != `{"k":909090900}` {
+		t.Fatalf("integer not preserved: %q", got2)
+	}
+}

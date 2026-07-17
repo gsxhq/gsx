@@ -94,7 +94,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	t.Setenv("GSXCACHE", t.TempDir())
 
 	// cold: both generate
-	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 
 	// warm no-op: nothing regenerated (Written empty — restores are skipped when on-disk matches)
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 
 	// edit only v -> only v regenerates
 	mkgsx("v", "package v\n\ncomponent A(name string) { <p>Hi {name}</p> }\n")
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestCacheFingerprintProvenanceFailureDoesNotFallBackToGeneration(t *testing
 	t.Setenv("GSX_CREATE_VENDOR_DURING_FINGERPRINT_MARKER", marker)
 	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
 
-	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
 		t.Fatalf("generate error = %v, want fingerprint provenance failure", err)
 	}
@@ -198,7 +198,7 @@ func TestCacheMissRejectsVendorAppearanceDuringPackagesLoad(t *testing.T) {
 	t.Setenv("GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER", counter)
 	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
 
-	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
 		t.Fatalf("generate error = %v, want packages.Load vendor mutation rejection", err)
 	}
@@ -251,7 +251,7 @@ func TestCacheHitRejectsCompilerMutationDuringGraphBeforeRestore(t *testing.T) {
 	writeCacheBoundaryGoCommand(t, compiler)
 	t.Setenv("GSXCACHE", t.TempDir())
 
-	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil); err != nil {
+	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
 		t.Fatalf("populate cache: %v", err)
 	}
 	xgo := filepath.Join(dir, "view.x.go")
@@ -261,7 +261,7 @@ func TestCacheHitRejectsCompilerMutationDuringGraphBeforeRestore(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "mutated")
 	t.Setenv("GSX_MUTATE_COMPILER_MARKER", marker)
 
-	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "compiler") {
 		t.Fatalf("all-HIT generate error = %v, want compiler mutation rejection", err)
 	}
@@ -303,7 +303,7 @@ func TestCacheHitRejectsVendorAppearanceDuringGraphBeforeRestore(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	t.Setenv("GSXCACHE", t.TempDir())
 
-	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil); err != nil {
+	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
 		t.Fatalf("populate cache: %v", err)
 	}
 	xgo := filepath.Join(dir, "view.x.go")
@@ -314,7 +314,7 @@ func TestCacheHitRejectsVendorAppearanceDuringGraphBeforeRestore(t *testing.T) {
 	t.Setenv("GSX_CREATE_VENDOR_MARKER", marker)
 	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
 
-	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
 		t.Fatalf("all-HIT generate error = %v, want vendor appearance rejection", err)
 	}
@@ -359,7 +359,7 @@ func TestCacheMissRejectsVendorAppearanceDuringGraphBeforeGenerate(t *testing.T)
 	t.Setenv("GSX_CREATE_VENDOR_MARKER", marker)
 	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
 
-	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
 		t.Fatalf("all-MISS generate error = %v, want vendor appearance rejection", err)
 	}
@@ -389,7 +389,7 @@ func TestNoCacheBypassesCache(t *testing.T) {
 	t.Setenv("GSXCACHE", t.TempDir())
 
 	// warm the cache
-	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, true, true, nil)
+	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestNoCacheBypassesCache(t *testing.T) {
 	}
 
 	// with --no-cache (useCache=false): regenerates despite warm cache → Written=1
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), false, nil, nil, true, true, nil)
+	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), false, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
