@@ -4,6 +4,7 @@ package sourceview
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	goast "go/ast"
 	"go/parser"
@@ -15,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -844,7 +846,7 @@ func directoryStartsModule(dir string) (bool, error) {
 	path := filepath.Join(dir, "go.mod")
 	info, err := os.Lstat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if pathAbsent(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("sourceview: inspect module boundary in %s: %w", dir, err)
@@ -924,6 +926,19 @@ func pathContainsVendor(root, path string) bool {
 	return false
 }
 
+// pathAbsent reports whether a filesystem-probe error means the path is simply
+// not present to inspect: either genuinely missing (ENOENT) or unreachable
+// because the environment has no filesystem at all (ENOSYS). The latter is the
+// browser js/wasm playground, which serves a purely in-memory virtual module
+// ("/__gsxmem__") that never exists on disk; there, every lstat/EvalSymlinks
+// returns ENOSYS ("not implemented on js") for the same paths a native run
+// resolves as ENOENT. Both cases mean "there is nothing on disk here — resolve
+// the path lexically." A broken symlink or any other error is NOT absence and
+// stays fail-closed.
+func pathAbsent(err error) bool {
+	return os.IsNotExist(err) || errors.Is(err, syscall.ENOSYS)
+}
+
 // resolvePathAllowMissing resolves every existing symlink prefix and then
 // appends a missing suffix lexically. A broken symlink is an error, not a
 // missing path, which keeps ownership checks fail-closed.
@@ -937,12 +952,12 @@ func resolvePathAllowMissing(path string) (string, error) {
 			parts := append([]string{filepath.Clean(resolved)}, missing...)
 			return filepath.Join(parts...), nil
 		}
-		if !os.IsNotExist(err) {
+		if !pathAbsent(err) {
 			return "", err
 		}
 		if _, lstatErr := os.Lstat(current); lstatErr == nil {
 			return "", err
-		} else if !os.IsNotExist(lstatErr) {
+		} else if !pathAbsent(lstatErr) {
 			return "", lstatErr
 		}
 		parent := filepath.Dir(current)

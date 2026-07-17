@@ -99,7 +99,7 @@ jobs:
           cat > /tmp/spread-attrs.json <<'JSON'
           {
             "gsx": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(extra gsx.Attrs) {\n\t<div { extra... }>content</div>\n}\n",
-            "invoke": "Card(CardProps{Extra: gsx.Attrs{{Key: \"id\", Value: \"box\"}, {Key: \"data-active\", Value: \"true\"}}})"
+            "invoke": "Card(gsx.Attrs{{Key: \"id\", Value: \"box\"}, {Key: \"data-active\", Value: \"true\"}})"
           }
           JSON
 
