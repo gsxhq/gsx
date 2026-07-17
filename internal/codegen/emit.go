@@ -437,6 +437,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, rt rtImports, aliase
 		{ctxAlias, "context"},
 		{ioAlias, "io"},
 		{scAlias, "strconv"},
+		{stAlias, "strings"},
 		{rtAlias, gsxRuntimePath},
 	} {
 		if rt[e.path] {
@@ -2352,6 +2353,8 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n ast.
 		fmt.Fprintf(b, "\t\t_gsxgw.Text(string(%s))\n", expr)
 	case catBytes:
 		fmt.Fprintf(b, "\t\t_gsxgw.Text(string(%s))\n", expr)
+	case catStringSlice:
+		fmt.Fprintf(b, "\t\t_gsxgw.Text(%s.Join(%s, \" \"))\n", rt.st(), expr)
 	case catInt:
 		// Format into the per-render scratch buffer and write the digit bytes
 		// directly — no string allocation, no escaping (digits are always safe).
@@ -2781,7 +2784,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 		nonce.markExplicit(b, t.Name)
 	case *ast.ExprAttr:
-		if !emitExprAttr(b, attrs, t, resolved, table, imports, interpTemp, cls, tag, bag) {
+		if !emitExprAttr(b, attrs, t, resolved, table, imports, rt, interpTemp, cls, tag, bag) {
 			return false
 		}
 		nonce.markExplicit(b, t.Name)
@@ -3083,7 +3086,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 				return false
 			}
 			fmt.Fprintf(b, "\t\t_gsxgw.%s(%s)\n", urlWriterMethod(tag, a.Name), strExpr)
-		} else if !emitAttrValue(b, lowered, t, a, bag) {
+		} else if !emitAttrValue(b, lowered, t, rt, a, bag) {
 			return false
 		}
 	case isURL:
@@ -3468,6 +3471,8 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 	switch classify(t) {
 	case catString, catBytes:
 		return "string(" + expr + ")", true
+	case catStringSlice:
+		return rt.st() + ".Join(" + expr + ", \" \")", true
 	case catAnyMixed:
 		if rejectErr {
 			// A mixed type-parameter value routes through rt.AttrString, which
@@ -3494,6 +3499,8 @@ func stringifyExpr(expr string, t types.Type, rt rtImports, n ast.Node, bag *dia
 	switch classify(t) {
 	case catString, catBytes:
 		return "string(" + expr + ")", true
+	case catStringSlice:
+		return rt.st() + ".Join(" + expr + ", \" \")", true
 	case catInt:
 		return rt.sc() + ".FormatInt(int64(" + expr + "), 10)", true
 	case catUint:
@@ -3609,7 +3616,7 @@ func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]ty
 		t = elemT
 	}
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
-	return emitAttrValue(b, expr, t, n, bag)
+	return emitAttrValue(b, expr, t, rt, n, bag)
 }
 
 // emitCSSAttrInterp renders one @{ } hole in an explicit CSS attribute literal.
@@ -4265,7 +4272,7 @@ func htmlAttrEscape(s string) string {
 // emitExprAttr emits an expr attribute value. URL attrs keep URL sanitization;
 // all other expr attrs use ordinary attribute rendering. Explicit js`...` and
 // css`...` literals opt into JS/CSS contextual rendering instead.
-func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
+func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
 	// (1) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
 	// the bare trimmed expr.
@@ -4329,7 +4336,7 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 		// which entity-escapes but skips the scheme allow-list.
 		fmt.Fprintf(b, "\t\t_gsxgw.%s(%s)\n", urlWriterMethod(tag, a.Name), urlStringExpr(expr, t))
 	} else {
-		if !emitAttrValue(b, expr, t, a, bag) {
+		if !emitAttrValue(b, expr, t, rt, a, bag) {
 			return false
 		}
 	}
@@ -4449,12 +4456,14 @@ func urlStringExpr(expr string, t types.Type) string {
 
 // emitAttrValue writes a non-URL attribute value via gw.AttrValue, §5 type-aware.
 // n is the AST node for positioning any error diagnostic.
-func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *diag.Bag) bool {
+func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n ast.Node, bag *diag.Bag) bool {
 	switch classify(t) {
 	case catString:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
 	case catBytes:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
+	case catStringSlice:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(%s.Join(%s, \" \"))\n", rt.st(), expr)
 	case catInt:
 		// Format into the per-render scratch buffer and write the digit bytes
 		// directly — no string allocation, no escaping. A decimal integer is

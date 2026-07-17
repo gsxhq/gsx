@@ -110,7 +110,12 @@ func (gw *Writer) URLVal(v any) {
 		gw.err = writeHTML(gw.w, string(r))
 		return
 	}
-	gw.err = writeURL(gw.w, toStr(v))
+	s, _, ok := anyRenderVal(v)
+	if !ok {
+		gw.err = fmt.Errorf("gsx: URL attribute: unsupported dynamic type %T", v)
+		return
+	}
+	gw.err = writeURL(gw.w, s)
 }
 
 // URLImageVal is URLVal for image-resource sinks (data:image/* permitted).
@@ -122,7 +127,12 @@ func (gw *Writer) URLImageVal(v any) {
 		gw.err = writeHTML(gw.w, string(r))
 		return
 	}
-	gw.err = writeURLImage(gw.w, toStr(v))
+	s, _, ok := anyRenderVal(v)
+	if !ok {
+		gw.err = fmt.Errorf("gsx: image URL attribute: unsupported dynamic type %T", v)
+		return
+	}
+	gw.err = writeURLImage(gw.w, s)
 }
 
 // Srcset writes s as a sanitized, escaped srcset attribute value: a
@@ -146,7 +156,12 @@ func (gw *Writer) SrcsetVal(v any) {
 		gw.err = writeHTML(gw.w, string(r))
 		return
 	}
-	gw.err = writeSrcset(gw.w, toStr(v))
+	s, _, ok := anyRenderVal(v)
+	if !ok {
+		gw.err = fmt.Errorf("gsx: srcset attribute: unsupported dynamic type %T", v)
+		return
+	}
+	gw.err = writeSrcset(gw.w, s)
 }
 
 // RefreshContent writes a meta refresh content value with any embedded redirect
@@ -183,61 +198,10 @@ func (gw *Writer) CSS(s string) {
 	gw.writeStr(cssValueFilter(s))
 }
 
-// anyRenderString converts a dynamically-typed renderable value to its text
-// form, matching the static per-category emit paths byte-for-byte (FormatInt
-// base 10, FormatFloat 'g' -1 64, FormatBool, Stringer.String, string/[]byte
-// verbatim). It matches EXACT predeclared types (string, []byte, the sized
-// int/uint/float kinds, bool) plus the fmt.Stringer interface (which also
-// matches named Stringer types) — a named scalar with no String() method
-// (type Slug string) returns ok=false, mirroring gsx.Val's documented
-// contract. codegen (classifyTypeParam) only routes here for type parameters
-// whose constraint terms are all non-tilde AND individually dispatchable —
-// an unnamed predeclared type, an unnamed []byte, or a Stringer — so every
-// term in the constraint has a matching case here and the dispatch is total.
-func anyRenderString(v any) (string, bool) {
-	switch t := v.(type) {
-	case string:
-		return t, true
-	case []byte:
-		return string(t), true
-	case fmt.Stringer:
-		return t.String(), true
-	case bool:
-		return strconv.FormatBool(t), true
-	case int:
-		return strconv.FormatInt(int64(t), 10), true
-	case int8:
-		return strconv.FormatInt(int64(t), 10), true
-	case int16:
-		return strconv.FormatInt(int64(t), 10), true
-	case int32:
-		return strconv.FormatInt(int64(t), 10), true
-	case int64:
-		return strconv.FormatInt(t, 10), true
-	case uint:
-		return strconv.FormatUint(uint64(t), 10), true
-	case uint8:
-		return strconv.FormatUint(uint64(t), 10), true
-	case uint16:
-		return strconv.FormatUint(uint64(t), 10), true
-	case uint32:
-		return strconv.FormatUint(uint64(t), 10), true
-	case uint64:
-		return strconv.FormatUint(t, 10), true
-	case uintptr:
-		return strconv.FormatUint(uint64(t), 10), true
-	case float32:
-		return strconv.FormatFloat(float64(t), 'g', -1, 64), true
-	case float64:
-		return strconv.FormatFloat(t, 'g', -1, 64), true
-	}
-	return "", false
-}
-
 // AttrString converts a dynamically typed renderable value to the same raw
 // string used by AttrAny before HTML attribute escaping.
 func AttrString(v any) (string, error) {
-	s, ok := anyRenderString(v)
+	s, _, ok := anyRenderVal(v)
 	if !ok {
 		return "", fmt.Errorf("gsx: AttrString: unsupported dynamic type %T", v)
 	}

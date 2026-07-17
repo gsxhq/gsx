@@ -2001,6 +2001,7 @@ const (
 	catUnsupported category = iota
 	catString
 	catBytes
+	catStringSlice // []string (any string-kinded elem) → joined with single spaces
 	catInt
 	catUint
 	catFloat
@@ -2047,6 +2048,20 @@ func classify(t types.Type) category {
 	case *types.Slice:
 		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
 			return catBytes
+		}
+		// []string joins with single spaces — the token-list reading, which is what
+		// class/style have always done for a bag's []string value. The JSON reading
+		// is reached explicitly via a js`@{v}` literal, so the plain form is free to
+		// be the friendly HTML one.
+		//
+		// The ELEMENT must be exactly `string`, not merely string-kinded: the emit
+		// lowers to strings.Join, whose parameter is []string, and a named element
+		// ([]Slug) is not assignable to it — it would classify here and then fail to
+		// compile. A named SLICE (type Tags []string) is fine: its element is still
+		// string, so it is assignable. anyRenderVal applies the identical rule at
+		// runtime; TestDispatchAgreement pins that they match.
+		if types.Identical(u.Elem(), types.Typ[types.String]) {
+			return catStringSlice
 		}
 	}
 	return catUnsupported
