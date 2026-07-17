@@ -121,23 +121,65 @@ means presence, and `download="true"` would be a *filename*. Listing it costs
 nothing, because the list only consults bool values — `download={"a.txt"}` still
 renders `download="a.txt"`.
 
+### Structure: derived and curated must be separate lists
+
+The mechanical part and the judgement part are **two lists, never one**. Merged,
+the next refresh from the spec silently drops `hidden` and `hidden={false}` starts
+hiding elements again — the regeneration would look clean and reintroduce the bug.
+
+```go
+// booleanAttrs is the WHATWG index's "Boolean attribute" rows, derived
+// mechanically (§Derivation). Regenerate wholesale; contains no judgement.
+var booleanAttrs = []string{"allowfullscreen", "async", "autofocus", /* … */}
+
+// presenceOnlyExtras are attributes the index does NOT type as "Boolean
+// attribute" but for which no string means false, so only absence can express
+// it. Hand-curated; each entry carries its reason; MUST survive a regeneration
+// of booleanAttrs.
+var presenceOnlyExtras = map[string]string{
+	"hidden":   `invalid value default is the Hidden state — hidden="false" HIDES the element`,
+	"download": `typed Text — download="true" would be a filename`,
+}
+```
+
+A third list exists **only as a test**, not runtime code — a guard against a
+future "fix" that re-adds an attribute which looks boolean but has a valid
+`"false"`, reviving the inverted render this design exists to remove:
+
+```go
+// notPresenceOnly must never appear in the effective list.
+var notPresenceOnly = []string{"contenteditable", "draggable", "spellcheck"}
+```
+
+The extras list is exactly two. `translate` (`yes`/`no`) and `autocapitalize`
+(`on`/`off`/…) use non-boolean keywords, so a bool does not apply and the author
+writes the string; `popover`'s bare form means `auto`, which is not what `={true}`
+implies. Only `hidden` and `download` are cases where a bool genuinely means
+presence while the type column disagrees.
+
 ### Derivation
 
 **Do not hand-copy the WHATWG index, and do not trust a fetched summary.** Two
 independent fetches of the attributes index during design contradicted each other
 (one reported `required`/`selected`/`multiple` as Boolean, the other as absent);
-the page is large enough that extraction truncates silently.
+the page is large enough that extraction truncates silently, and a truncated
+answer is indistinguishable from a complete one.
 
 Implementation must instead:
 
 1. Parse the index table programmatically, taking rows whose Value is exactly
-   "Boolean attribute".
+   "Boolean attribute". **Scope to the current index only** — the obsolete-features
+   table also carries boolean-typed attributes (`nowrap`, `compact`, `declare`),
+   which a naive parse will sweep in.
 2. **Review every row against the false-string test** — the type column is a
-   proxy, not the rule. Add `hidden` and `download`; keep `contenteditable`,
-   `draggable`, `spellcheck` out.
+   proxy, not the rule.
 3. Cross-check against two independent implementations that maintain the same
-   list — Vue's `isBooleanAttr` (`@vue/shared`) and React's property table.
-4. Record the spec URL, the derivation date, and a refresh policy beside the list.
+   list — Vue's `isBooleanAttr` (`@vue/shared`) and React's property table. A
+   disagreement is a signal to re-read the spec text for that attribute, not to
+   pick a majority.
+4. Record the spec URL and the derivation date beside `booleanAttrs`, and pin the
+   derived list in a test so a refresh shows up as a reviewable diff rather than
+   a silent behaviour change.
 
 ### Where it lives
 
@@ -390,6 +432,12 @@ No fmt corpus (no syntax change). No sibling-repo work.
 - **`hidden={false}` → omitted, NOT `hidden="false"`** — the invalid-value-default
   trap; `hidden={"until-found"}` → `="until-found"`
 - `download={true}` → bare; `download={"a.txt"}` → `="a.txt"`
+- **`notPresenceOnly` guard** — assert `contenteditable`, `draggable`,
+  `spellcheck` are absent from the effective list; this is the test that stops a
+  future refresh or "fix" reviving the inverted render
+- **`presenceOnlyExtras` survives regeneration** — assert `hidden` and `download`
+  are in the effective list even though `booleanAttrs` does not contain them
+- `booleanAttrs` pinned, so a spec refresh is a reviewable diff
 - listed name, **string** value → `="foo"` (the CSS-selector guarantee)
 - `gsx.Toggle(true/false)` on a listed and a non-listed name
 - `catAnyMixed` on a listed name (`AttrAnyToggle`): `Mixed[bool] req={false}` →
