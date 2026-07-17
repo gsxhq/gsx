@@ -1,0 +1,222 @@
+# DEFECT PIN — documents current (wrong) behaviour, not desired behaviour.
+# Evidence for docs/superpowers/specs/2026-07-16-gsx-bool-attr-semantics-design.md.
+# The goldens below flip when `?=` / gsx.Toggle land; this case is then their
+# regression test.
+#
+# TWO CLASSES OF ATTRIBUTE NEED OPPOSITE TREATMENT FROM THE SAME GO TYPE.
+#
+# `required` is a REAL boolean attribute: presence alone makes the field
+# required and the VALUE IS IGNORED. `required="false"` is required.
+# `required="true"` is required. `required=""` is required. Only ABSENCE is not
+# required — so PRESENCE is the only correct form, and no string can express
+# false.
+#
+# `aria-hidden` is an ENUMERATED attribute: the STRING IS the value, and the
+# only valid tokens are "true"/"false". `aria-hidden="true"` is the required
+# form. A bare `aria-hidden` yields `aria-hidden=""`, which is not a valid
+# token, so it falls back to the default (undefined) — i.e. NOT hidden.
+#
+# One Go `bool`; opposite correct renderings. The type cannot carry that, so
+# gsx's type-driven rule applies presence to both and is right for exactly one:
+#
+#   <Plain req={false} />         → <input/>           correct — static bool
+#   <Mixed[bool] req={false} />   → required="false"   WRONG → required
+#   bag {required: Flag(false)}   → required="false"   WRONG → required
+#   bag {required: anyFalse}      → <input/>           correct — see ROOT CAUSE
+#   <div aria-hidden={true} />    → <div aria-hidden/> WRONG → aria-hidden="" is
+#                                                      invalid → NOT hidden
+#   <div aria-hidden={strconv.FormatBool(hidden)} />
+#                                 → aria-hidden="true" correct — THE REQUIRED FORM
+#                                                      for an enumerated attribute
+#
+# THE ERGONOMIC PATH FOR ENUMERATED ATTRIBUTES IS TO FORMAT THE BOOL. The last
+# row is how you write it correctly today, and it is the shape the fix makes
+# automatic. Under the design (§Surface syntax) the attribute NAME decides, and
+# neither of the two common cases needs an annotation:
+#
+#   required={req}       → `required` is a standard boolean attribute → toggle
+#   aria-hidden={hidden} → not one → "true", no strconv call at all
+#
+# `?=` is then reserved for names a spec list cannot know — web components,
+# Datastar — and `required={strconv.FormatBool(b)}` forces the string back on a
+# listed name, because the list is consulted only for BOOL-typed values.
+# Correctness is the default; annotation is the exception.
+#
+# ROOT CAUSE — EXACT vs UNDERLYING dispatch, NOT "type erasure". Boxing is a red
+# herring: `anyFalse` is a plain `var anyFalse any = false` and renders
+# CORRECTLY, because Spread's `kv.Value.(bool)` sees the DYNAMIC type and a
+# boxed `bool` is still exactly `bool`. What breaks is the mismatch between the
+# two classifiers gsx runs:
+#
+#   static  (codegen)  classify(t) → t.Underlying() via go/types  →  Flag → catBool ✓
+#   runtime (writer)   anyRenderString / kv.Value.(bool)          →  EXACT types only ✗
+#
+# So a NAMED bool (`Flag`) and a TYPE PARAMETER (`T string | bool`) are the only
+# things that fall through — and they fall through to stringification:
+#
+#   row 2: _gsxgw.AttrAny(req) → AttrString → anyRenderString  `case bool:` misses T
+#   row 3: Spread              → kv.Value.(bool)               exact assertion, attrs.go:344
+#
+# This is gsx.Val's DOCUMENTED contract, not an oversight — val.go says named
+# scalar types "are NOT matched by the type switch ... even though { x } inline
+# classifies them by underlying type", and anyRenderString says it mirrors that
+# contract deliberately. The divergence is by design; what is missing is any way
+# for the author to declare the intent the exact-type switch cannot recover.
+#
+# WHY THERE IS NO WORKAROUND FOR `required`. Formatting the bool — the very
+# escape hatch that makes the last row correct for `aria-hidden` — cannot work
+# here, because THERE IS NO STRING THAT MEANS FALSE for a real boolean
+# attribute. Only absence means false. So the two classes do not merely differ,
+# they have disjoint escape hatches, and rows 2–3 have none:
+#   - Row 2: the constraint `T string | bool` contains bool, but gsx must pick at
+#     runtime and has no syntax to be told "this instantiation is a toggle".
+#     Nothing the author writes at the call site changes the emitted AttrAny.
+#   - Row 3: `Flag(false)` IS handled correctly one line away (row 1) — same
+#     value, same attribute, opposite meaning, decided only by whether it passed
+#     through a bag.
+# HOW THE DESIGN FIXES EACH ROW.
+#   row 3 — the boolean-attribute list makes `required` toggle by default, but
+#     `Flag(false)` only REACHES that lookup once the runtime can see "underlying
+#     bool". Unifying the four dispatch tables is therefore a prerequisite, not a
+#     cleanup.
+#   rows 5/6 — `aria-hidden` is not on the list, so `={hidden}` stringifies to
+#     "true" with no annotation, and row 6's manual strconv becomes unnecessary.
+#   row 2 — fixed by deferring only the BOOLNESS, never the name. Codegen has the
+#     literal name, so it resolves list membership statically and emits
+#     `AttrAnyToggle("required", req)`, which owns the whole span and can omit a
+#     name that would otherwise be baked into the static string. Both
+#     instantiations then render correctly with no annotation: Mixed[bool]
+#     req={false} → <input/>, Mixed[string] req={"foo"} → required="foo".
+#   row 1/4 — already correct; they are the controls that localise the defect.
+-- input.gsx --
+package views
+
+import (
+	"strconv"
+
+	"github.com/gsxhq/gsx"
+)
+
+type Flag bool
+
+var anyFalse any = false
+
+component Plain(req bool) {
+	<input required={req} />
+}
+
+component Mixed[T string | bool](req T) {
+	<input required={req} />
+}
+
+component Sink(extra gsx.Attrs) {
+	<input { extra... } />
+}
+
+component Aria(hidden bool) {
+	<div aria-hidden={hidden} />
+	<div aria-hidden={strconv.FormatBool(hidden)} />
+}
+
+component Page() {
+	<Plain req={false} />
+	<Mixed[bool] req={false} />
+	<Sink extra={gsx.Attrs{{Key: "required", Value: Flag(false)}}} />
+	<Sink extra={gsx.Attrs{{Key: "required", Value: anyFalse}}} />
+	<Aria hidden={true} />
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<input/><input required="false"/><input required="false"/><input/><div aria-hidden/><div aria-hidden="true"/>
+-- generated.x.go.golden --
+// Code generated by gsx; DO NOT EDIT.
+
+package views
+
+import (
+	"strconv"
+
+	_gsxctx "context"
+	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
+)
+
+type Flag bool
+
+var anyFalse any = false
+
+//line input.gsx:13:1
+func Plain(req bool) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
+//line input.gsx:14:2
+		_gsxgw.S("<input")
+		_gsxgw.BoolAttr("required", bool(req))
+		_gsxgw.S("/>")
+		return _gsxgw.Err()
+	})
+}
+
+//line input.gsx:17:1
+func Mixed[T string | bool](req T) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
+//line input.gsx:18:2
+		_gsxgw.S("<input required=\"")
+		_gsxgw.AttrAny(req)
+		_gsxgw.S("\"/>")
+		return _gsxgw.Err()
+	})
+}
+
+//line input.gsx:21:1
+func Sink(extra gsx.Attrs) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
+//line input.gsx:22:2
+		_gsxv0 := extra
+		_gsxgw.S("<input")
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.S("/>")
+		return _gsxgw.Err()
+	})
+}
+
+//line input.gsx:25:1
+func Aria(hidden bool) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
+//line input.gsx:26:2
+		_gsxgw.S("<div")
+		_gsxgw.BoolAttr("aria-hidden", bool(hidden))
+		_gsxgw.S("/>")
+//line input.gsx:27:2
+		_gsxgw.S("<div aria-hidden=\"")
+		_gsxgw.AttrValue(string(strconv.FormatBool(hidden)))
+		_gsxgw.S("\"/>")
+		return _gsxgw.Err()
+	})
+}
+
+//line input.gsx:30:1
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
+//line input.gsx:31:2
+		_gsxgw.Node(ctx, Plain(false))
+//line input.gsx:32:2
+		_gsxgw.Node(ctx, Mixed[bool](false))
+//line input.gsx:33:2
+		_gsxgw.Node(ctx, Sink(gsx.Attrs{{Key: "required", Value: Flag(false)}}))
+//line input.gsx:34:2
+		_gsxgw.Node(ctx, Sink(gsx.Attrs{{Key: "required", Value: anyFalse}}))
+//line input.gsx:35:2
+		_gsxgw.Node(ctx, Aria(true))
+		return _gsxgw.Err()
+	})
+}
