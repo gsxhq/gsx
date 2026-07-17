@@ -1,4 +1,7 @@
-# Bool values in {{ }}: true → bare attribute, false → attribute omitted.
+# Bool values in a {{ }} bag are name-driven at the leaf: a boolean-attribute key
+# toggles (true → bare, false → omitted), any other key stringifies to
+# "true"/"false" (the value IS the state for data-*/aria-*). gsx.Toggle forces
+# presence on a name the spec cannot know.
 -- input.gsx --
 package views
 
@@ -9,7 +12,7 @@ component Card(toggleAttrs gsx.Attrs) {
 }
 
 component Page() {
-	<Card toggleAttrs={{ "data-show": true, "data-hide": false }}/>
+	<Card toggleAttrs={{ "disabled": true, "checked": false, "data-show": true, "data-hide": false, "active": gsx.Toggle(true) }}/>
 }
 -- invoke --
 Page()
@@ -46,9 +49,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(_gsxrt.Attrs{{Key: "data-show", Value: true}, {Key: "data-hide", Value: false}}))
+		_gsxgw.Node(ctx, Card(_gsxrt.Attrs{{Key: "disabled", Value: true}, {Key: "checked", Value: false}, {Key: "data-show", Value: true}, {Key: "data-hide", Value: false}, {Key: "active", Value: gsx.Toggle(true)}}))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div data-show></div>
+<div disabled data-show="true" data-hide="false" active></div>

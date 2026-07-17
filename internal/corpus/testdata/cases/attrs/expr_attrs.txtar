@@ -8,4 +8,4 @@ component Link(url string, label string, n int, checked bool) {
 Link("/p?q=a&b", "a\"b", 5, true)
 -- diagnostics.golden --
 -- render.golden --
-<a href="/p?q=a&amp;b" data-label="a&#34;b" data-n="5" aria-hidden>a&#34;b</a>
+<a href="/p?q=a&amp;b" data-label="a&#34;b" data-n="5" aria-hidden="true">a&#34;b</a>
