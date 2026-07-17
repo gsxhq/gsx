@@ -1042,6 +1042,22 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, re
 						}
 					}
 				})
+				// The class-part probes above reference each part's VALUE expr, but a
+				// conditional class part's `: cond` guard and a value-form CF part's
+				// if/switch control are emitted verbatim by codegen with no harvest —
+				// so a var used ONLY in a component-tag class cond (e.g. a loop index
+				// in `<C class={ "first": i == 0 }/>`) would be a synthetic "declared
+				// and not used". The leaf-element branch already emits this liveness
+				// (see walkLivenessAttrExprs below); the component branch must too. An
+				// element enters exactly one branch, so there is no double emission.
+				// These yield empty-bodied `if cond {}` / `switch {}` blocks (not
+				// _gsxuse calls), leaving the k-th probe → k-th node harvest alignment
+				// undisturbed, and record ctrlOff entries for LSP go-to-definition.
+				walkLivenessAttrExprs(t.Attrs, func(cf *gsxast.ValueCF) {
+					emitValueCFControl(sb, fset, cf, ctrlOff)
+				}, func(node gsxast.Node, cond string, condPos token.Pos) {
+					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
+				})
 				// Probe ExprAttr values nested in a component cond-attr branch
 				// (`{ if C { attr={expr} } }`) with _gsxuseq, AFTER the parts probes —
 				// matching collectExprs's walkBranchAttrExprs pass exactly (Then→Else,

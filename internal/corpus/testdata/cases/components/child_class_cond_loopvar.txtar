@@ -1,0 +1,24 @@
+# A loop variable referenced ONLY inside a component-tag class-part condition
+# (class={ "first": i == 0 }) must count as used. Regression guard for the
+# component-tag branch, which — unlike the leaf-element branch — previously
+# omitted the class-part cond-guard liveness, so a var live only in the guard
+# was a synthetic `declared and not used: i`.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Item(label string, attrs gsx.Attrs) {
+	<span { attrs... }>{ label }</span>
+}
+
+component List(xs []string) {
+	{ for i, x := range xs {
+		<Item label={x} class={ "first": i == 0 } />
+	} }
+}
+-- invoke --
+List([]string{"a", "b"})
+-- diagnostics.golden --
+-- render.golden --
+<span class="first">a</span><span>b</span>
