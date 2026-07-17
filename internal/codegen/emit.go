@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gsxhq/gsx"
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/cssmin"
@@ -4317,8 +4318,22 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	// reverse.
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 
-	if classify(t) == catBool {
+	// Presence semantics apply when the author declared them (gsx.Toggle) or the
+	// name IS a boolean attribute. A bool value on any OTHER name falls through to
+	// the normal attribute-value path, which stringifies it to "true"/"false" —
+	// what enumerated attributes (aria-*, data-*, contenteditable) require, since
+	// there the string is the state. The list is consulted only for catBool, so a
+	// string value like required="foo" is never diverted here.
+	if isToggle(t) || (classify(t) == catBool && gsx.IsBooleanAttr(a.Name)) {
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
+		return true
+	}
+	// A mixed type parameter (T string | bool) on a boolean-attribute name: the
+	// value's kind is unknown until runtime, so AttrAnyToggle owns the whole span
+	// and decides then — a bool toggles, a string renders name="value". This is
+	// what makes one component correct at both instantiations without annotation.
+	if classify(t) == catAnyMixed && gsx.IsBooleanAttr(a.Name) {
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrAnyToggle(%s, %s)\n", strconv.Quote(a.Name), expr)
 		return true
 	}
 
@@ -4426,6 +4441,19 @@ func isRawURL(t types.Type) bool {
 		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
 }
 
+// isToggle reports whether t is gsx.Toggle — the author's declaration that this
+// attribute has presence semantics regardless of name, so it always lowers to
+// BoolAttr rather than consulting the boolean-attribute list.
+func isToggle(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := n.Obj()
+	return obj != nil && obj.Name() == "Toggle" &&
+		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
+}
+
 // isRawJS reports whether t is gsx.RawJS. A JSCtxBinding hole (a JS
 // binding/lvalue position) is legal only for this type, which is spliced
 // verbatim.
@@ -4462,6 +4490,11 @@ func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n a
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
 	case catBytes:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
+	case catBool:
+		// A bool on a NON-boolean attribute name: the string is the state, so
+		// render "true"/"false". (A bool on a boolean-attribute name never reaches
+		// here — emitExprAttr routes it to BoolAttr.) FormatBool is escape-free.
+		fmt.Fprintf(b, "\t\t_gsxgw.S(%s.FormatBool(bool(%s)))\n", rt.sc(), expr)
 	case catStringSlice:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(%s.Join(%s, \" \"))\n", rt.st(), expr)
 	case catInt:

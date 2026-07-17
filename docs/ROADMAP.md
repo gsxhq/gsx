@@ -170,7 +170,7 @@ render goldens.
    `{ prop... }` via `Writer.Spread`, which emits pairs in **slice
    order**. Keys must be quoted string literals (enables kebab/colon names);
    values are arbitrary Go expressions (`|>` pipelines not supported inside the literal);
-   `bool` values toggle bare/omitted. Duplicate keys and trailing commas are allowed;
+   `bool` values are name-driven (see the boolean-attribute-semantics note below). Duplicate keys and trailing commas are allowed;
    an empty `{{ }}` renders nothing. Using `{{ }}` directly on a plain-element
    attribute is a clean diagnostic. The bag does not participate in class/style
    merging. Escaping and unsafe-name validation mirror `Spread` exactly.
@@ -540,6 +540,27 @@ render goldens.
     element-literal `var` values not being tag-invocable, and an optional
     explicit allowlist for intentional obsolete-element wrapper names. Spec
     `2026-07-10-lowercase-tag-symbol-resolution-design.md`.
+20. [x] **Name-driven boolean-attribute semantics + `gsx.Toggle`** - `2026-07-17`.
+    Supersedes the `2026-06-18` "type-driven" rule, which was wrong: the Go type
+    says *what value* the author has, not *whether HTML wants presence or a
+    string*. The attribute **name** now decides — a `bool` on an HTML boolean
+    attribute (`checked`/`required`/`disabled`/`hidden`/…) toggles; on any other
+    name it renders `="true"`/`="false"` (aria-*/data-*/contenteditable want the
+    string). Fixes silent inversions: `contenteditable={false}` /
+    `draggable={false}` rendered their opposite (both default-on), `aria-expanded`
+    lost the collapsed state, a bag `{data-hide: false}` was dropped.
+    `gsx.IsBooleanAttr` is the single source of truth — a runtime var (three lists:
+    derived core, curated extras `hidden`/`download` where WHATWG's type column
+    lies, and a test-only guard) that codegen imports for the static path.
+    `gsx.Toggle(b)` (a value, not syntax, so it travels through components and
+    bags) forces presence on any name; `AttrAnyToggle` makes a mixed type
+    parameter (`T string | bool`) on a boolean name correct at both
+    instantiations. Consulted only for bool values, so `required="foo"` (a string)
+    is untouched. **Not a syntax change** (no parser/AST/formatter/sibling work).
+    Prerequisite dispatch-table unification landed as PR #126. Spec
+    `2026-07-16-gsx-bool-attr-semantics-design.md`. **Deferred:** a custom-element
+    hint (a hyphenated tag with a bool value not in the list renders `="true"` —
+    warn "use `gsx.Toggle` for a toggle") — helpfulness, not correctness.
 
 ## Language server (`gsx lsp`)
 

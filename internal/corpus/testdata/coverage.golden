@@ -8,6 +8,9 @@ attrmap/spread_undefined_error	diag render
 attrmap/tuple_map_compose	diag(error)
 attrs/attr_error_autounwrap	diag gen render
 attrs/attr_error_autounwrap_nested	diag gen render
+attrs/bool_anymixed_toggle	diag gen render
+attrs/bool_attr_name_driven	diag gen render
+attrs/bool_exact_dispatch_required	diag gen render
 attrs/cond_attr_bool_off	diag render
 attrs/cond_attr_bool_on	diag render
 attrs/cond_attr_else_if_other	diag render
@@ -900,4 +903,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 902 cases (render: 775, error: 89, gen-pinned: 520)
+TOTAL: 905 cases (render: 778, error: 89, gen-pinned: 523)

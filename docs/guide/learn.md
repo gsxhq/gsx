@@ -1,6 +1,6 @@
 # Learn gsx
 
-These six patterns cover the normal authoring model.
+These seven patterns cover the normal authoring model.
 
 ## 1. A component is Go plus markup
 
@@ -90,7 +90,26 @@ component Notice(message string) {
 See [Styling](./syntax/styling.md) and
 [JavaScript](./syntax/javascript.md) for their interpolation rules.
 
-## 6. Save and reload
+## 6. Markup can be a value
+
+Bind markup to a package-level `var` and it infers as `gsx.Node` — reuse it
+across components without a wrapper. A fragment (`<>…</>`) groups sibling nodes
+with no surrounding element.
+
+```gsx
+package views
+
+var footer = <><hr/><small>Built with gsx</small></>
+
+component Page(children gsx.Node) {
+	<main>{children}</main>
+	{footer}
+}
+```
+
+See [Fragments](./syntax/fragments.md) for more.
+
+## 7. Save and reload
 
 Run the starter's development server once:
 

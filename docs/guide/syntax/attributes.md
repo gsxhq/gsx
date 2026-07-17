@@ -21,8 +21,19 @@ are literal: `title="Item @{id}"` does not scan for `@{}` holes.
 
 ## Boolean attributes
 
-A bare boolean attribute is always present. A boolean expression renders the
-attribute when true and omits it when false.
+The attribute **name** decides how a `bool` value renders:
+
+- On an HTML boolean attribute (`checked`, `required`, `disabled`, `hidden`, …),
+  `true` renders a bare attribute and `false` omits it — presence is the state.
+- On any other name (`aria-*`, `data-*`, `contenteditable`, …), a `bool`
+  renders `="true"`/`="false"` — there the string is the state.
+
+A bare attribute (`<input required>`) is always present. A **string** value is
+never affected by the name, so `required="foo"` renders verbatim.
+
+For a name gsx cannot know is a toggle — a web component, a Datastar directive —
+wrap the value in `gsx.Toggle`, which forces presence anywhere:
+`active={ gsx.Toggle(open) }`.
 
 <!--@include: ./_generated/attributes/020-boolean-attributes.md-->
 
@@ -43,7 +54,7 @@ Spread a `gsx.Attrs` bag with `{ bag... }`; entries render in slice order.
 <!--@include: ./_generated/attributes/040-spread-attributes.md-->
 
 - Source order is kept.
-- Boolean `true` renders a bare attribute; `false` omits it.
+- A `bool` on an HTML boolean attribute toggles (`true` bare, `false` omitted); on any other name it renders `="true"`/`="false"`. `gsx.Toggle(b)` forces presence on any name.
 - Spread values are escaped for the destination attribute; URL and `srcset`
   destinations also run scheme sanitization.
 - `gsx.AttrMap.ToAttrs()` sorts map keys.
@@ -68,7 +79,7 @@ call site must declare the bag in source order.
 ::: v-pre
 - The literal is valid only as a component attribute value.
 - Keys must be quoted strings.
-- Boolean `true` renders a bare attribute; `false` omits it.
+- A `bool` on an HTML boolean attribute toggles (`true` bare, `false` omitted); on any other name it renders `="true"`/`="false"`. `gsx.Toggle(b)` forces presence on any name.
 - The last scalar value for a key wins.
 - All `class` and `style` values compose.
 :::
