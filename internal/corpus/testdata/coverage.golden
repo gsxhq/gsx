@@ -885,6 +885,7 @@ xpkg/generic_inferred_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
 xpkg/generic_skipped_sink_values	diag gen render
+xpkg/generic_typearg_only_import	diag render
 xpkg/generic_unexported_constraint	diag render
 xpkg/go_component_attrs_literal	diag gen render
 xpkg/go_component_attrs_literal_missing	diag render
@@ -895,4 +896,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 897 cases (render: 770, error: 89, gen-pinned: 518)
+TOTAL: 898 cases (render: 771, error: 89, gen-pinned: 518)

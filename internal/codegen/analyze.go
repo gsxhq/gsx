@@ -930,6 +930,21 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, re
 					if err := targetRegistry.emitBinding(sb, t, fset); err != nil {
 						return err
 					}
+				} else if t.TypeArgs != "" {
+					// A component tag's authored type arguments are consumed by the
+					// target-discovery binding (emitBinding, above), but the shipping
+					// skeleton lowers the call positionally and never re-emits them —
+					// so an import referenced ONLY inside a markup type-argument (e.g.
+					// <comp.Check[cons.Foo] .../>) would be a synthetic "imported and
+					// not used". Reference the whole authored type-argument list as a
+					// function-result type list (which is exactly a comma-separated
+					// list of type expressions, so nested generics and multiple args
+					// need no ad-hoc splitting), anchored at TypeArgsPos so any
+					// undefined-type diagnostic maps back to the authored bytes. The
+					// blank var is neither a _gsxuse nor _gsxuseq call, so the k-th
+					// probe → k-th node harvest alignment is undisturbed.
+					emitSkeletonLine(sb, fset, t.TypeArgsPos)
+					fmt.Fprintf(sb, "var _ func() (%s)\n", t.TypeArgs)
 				}
 				// Probe simple ExprAttr values (child-prop values) with _gsxuse so harvest
 				// records their RAW types into resolved[ea]. This is emitted for ALL child
