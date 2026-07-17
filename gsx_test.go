@@ -60,8 +60,11 @@ func TestIntegrationCard(t *testing.T) {
 
 func TestIntegrationBox(t *testing.T) {
 	got := render(t, box(false, true, Attrs{{Key: "aria-hidden", Value: true}, {Key: "id", Value: "b1"}}, Raw("x")))
-	// not padded -> data-tight + box class only; disabled bool; spread in slice order (aria-hidden, id)
-	want := `<div class="box" disabled data-tight aria-hidden id="b1">x</div>`
+	// not padded -> data-tight + box class only; disabled bool; spread in slice order (aria-hidden, id).
+	// aria-hidden is NOT a boolean attribute, so a bag bool renders "true" (the value
+	// IS the state); data-tight is an author-written BARE attribute (explicit
+	// presence) and stays bare regardless of name.
+	want := `<div class="box" disabled data-tight aria-hidden="true" id="b1">x</div>`
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
 	}
