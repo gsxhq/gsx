@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -487,5 +488,51 @@ func TestOwnsDirHandlesRootAndDirectoryBoundaries(t *testing.T) {
 	writeTestFile(t, nested, "go.mod", "module example.com/nested\n\ngo 1.26.1\n")
 	if ok, err := OwnsDir(root, nested); err != nil || ok {
 		t.Fatalf("OwnsDir(nested module) = %v, %v; want false, nil", ok, err)
+	}
+}
+
+// TestPathAbsentToleratesENOSYS pins the browser/js-wasm playground fix: a
+// filesystem-probe returning ENOSYS ("not implemented on js" — no filesystem)
+// must be treated as an absent path, exactly like ENOENT. The bundled resolver
+// serves an in-memory virtual module rooted at a path that never exists on
+// disk; on a native server EvalSymlinks/Lstat report ENOENT, but in a browser
+// they report ENOSYS. Without ENOSYS tolerance, OwnsPath aborts and the WASM
+// transform silently produces zero files. See manifest.go pathAbsent.
+func TestPathAbsentToleratesENOSYS(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"enoent", os.ErrNotExist, true},
+		{"enosys", syscall.ENOSYS, true},
+		{"wrapped-enosys", &os.PathError{Op: "lstat", Path: "/__gsxmem__", Err: syscall.ENOSYS}, true},
+		{"eacces", syscall.EACCES, false},
+		{"broken-symlink-style", errors.New("some other error"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pathAbsent(tc.err); got != tc.want {
+				t.Fatalf("pathAbsent(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolvePathAllowMissingLexicalWithoutFilesystem verifies the ownership
+// resolver falls back to a lexical path when the whole path is absent, the
+// behavior the virtual "/__gsxmem__" root depends on. The path is a fully
+// nonexistent absolute root (no real prefix to resolve symlinks against), the
+// same shape the bundled resolver feeds it; a native run reports ENOENT for
+// every component, the browser reports ENOSYS (see TestPathAbsentToleratesENOSYS).
+func TestResolvePathAllowMissingLexicalWithoutFilesystem(t *testing.T) {
+	missing := "/__gsxmem_test_does_not_exist__/views"
+	got, err := resolvePathAllowMissing(missing)
+	if err != nil {
+		t.Fatalf("resolvePathAllowMissing(%q) returned error: %v", missing, err)
+	}
+	if got != filepath.Clean(missing) {
+		t.Fatalf("resolvePathAllowMissing(%q) = %q, want lexical %q", missing, got, filepath.Clean(missing))
 	}
 }
