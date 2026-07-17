@@ -1,6 +1,7 @@
 package jsmin
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -235,20 +236,44 @@ func minifyJSSegments(segments []ast.Markup, m Minifiers) []ast.Markup {
 	return []ast.Markup{&ast.Text{Value: min}}
 }
 
+// looksJSON reports whether text is a JSON object/array literal (a real parse,
+// not a shape guess). Callers pass a hole-free string (holeless value, or a
+// holey value with holes replaced by JSON-valid integer sentinels).
+func looksJSON(text string) bool {
+	t := strings.TrimLeft(text, " \t\r\n")
+	if len(t) == 0 || (t[0] != '{' && t[0] != '[') {
+		return false
+	}
+	return json.Valid([]byte(text))
+}
+
 // cascadeJS minifies a JS FRAGMENT. tdewolff (m.JS) parses its input as a
 // program, so an object literal must be minified as an EXPRESSION via a `(…)`
 // wrap (kept in output — a parenthesized expression is an equivalent value).
 //
-// Order matters. A value that starts with `{` is an object literal (x-data,
-// Alpine `:class`/`:style` object bindings) OR a `{ … }` statement block. Parsing
-// it raw is WRONG for a single-property object: `{ open: false }` is a valid
-// program (a labeled block — `open:` label + `false`), so m.JS(raw) would strip
-// the braces to `open:!1` and break it. So for `{`-leading values we wrap FIRST
-// (object expression) and fall back to raw (a real statement block, where the
-// wrap fails). Non-`{` values (handler statements, call expressions) parse raw
-// first. Either way, the safe never-erroring built-in is the final fallback (and
-// the whole safe level, where m.JS is nil).
+// A `{`/`[`-leading value that is ALSO valid JSON (htmx hx-vals/hx-headers/
+// hx-vars, parsed by htmx with JSON.parse) is routed to the JSON minifier
+// first: JS minification would unquote keys and wrap objects in `(…)`, both of
+// which JSON.parse rejects. The JSON minifier is whitespace-only and never
+// rewrites values, so it can't break validity; on error it falls through to
+// the JS cascade below (same as any other minifier miss).
+//
+// Order matters for the JS fallback. A value that starts with `{` is an object
+// literal (x-data, Alpine `:class`/`:style` object bindings) OR a `{ … }`
+// statement block. Parsing it raw is WRONG for a single-property object:
+// `{ open: false }` is a valid program (a labeled block — `open:` label +
+// `false`), so m.JS(raw) would strip the braces to `open:!1` and break it. So
+// for `{`-leading values we wrap FIRST (object expression) and fall back to
+// raw (a real statement block, where the wrap fails). Non-`{` values (handler
+// statements, call expressions) parse raw first. Either way, the safe
+// never-erroring built-in is the final fallback (and the whole safe level,
+// where m.JS is nil).
 func cascadeJS(text string, m Minifiers) string {
+	if m.JSON != nil && looksJSON(text) {
+		if o, err := m.JSON(text); err == nil {
+			return o
+		}
+	}
 	if m.JS != nil {
 		first, second := text, "("+text+")"
 		if strings.HasPrefix(strings.TrimLeft(text, " \t\r\n"), "{") {

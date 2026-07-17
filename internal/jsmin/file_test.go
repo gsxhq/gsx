@@ -249,6 +249,37 @@ func TestMinifyJSAttrJSONShapedValueStaysValidJSON(t *testing.T) {
 	if !json.Valid([]byte(got)) {
 		t.Fatalf("minified JSON-shaped attribute value is not valid JSON: %s", got)
 	}
+	if got != `{"exclude":"SELF-1"}` {
+		t.Fatalf("want compact JSON {\"exclude\":\"SELF-1\"}, got %q", got)
+	}
+}
+
+// TestMinifyJSAttrClassification pins the routing split: a holeless `{`/`[`-
+// leading value that json.Valid accepts goes through the JSON minifier
+// (compact, quoted keys); everything else — including near-JSON shapes that
+// are NOT valid JSON (unquoted keys, single quotes, trailing commas) — keeps
+// going through the UNCHANGED tdewolff JS-expression cascade.
+func TestMinifyJSAttrClassification(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"json_object", `{ "a": 1, "b": "x" }`, `{"a":1,"b":"x"}`},
+		{"json_array", `[ 1, 2, 3 ]`, `[1,2,3]`},
+		{"json_nested", `{ "a": { "b": [1, 2] } }`, `{"a":{"b":[1,2]}}`},
+		{"js_unquoted_key_stays_js", `{ open: false }`, `({open:!1})`},
+		{"js_single_quoted_key_stays_js", `{ 'a': 1 }`, `({a:1})`},
+		{"js_trailing_comma_stays_js", `{ "a": 1, }`, `({a:1})`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "hx-vals", Lang: ast.EmbeddedJS,
+				DoubleQuoted: true, Segments: []ast.Markup{&ast.Text{Value: c.in}}}))
+			if err := jsminFileMinify(f, fullminJS); err != nil {
+				t.Fatal(err)
+			}
+			if got := attrSegs(f)[0].(*ast.Text).Value; got != c.want {
+				t.Fatalf("in=%q got=%q want=%q", c.in, got, c.want)
+			}
+		})
+	}
 }
 
 func TestMinifyJSAttrSafeKeepsContent(t *testing.T) {
