@@ -117,11 +117,12 @@ func TestSpreadOrderAndDrop(t *testing.T) {
 		{Key: "data-b", Value: "2"},
 		{Key: "data-a", Value: "1"},
 		{Key: "data-b", Value: "last"},
-		{Key: "checked", Value: true},
-		{Key: "skip me", Value: "x"}, // invalid name → dropped
-		{Key: "off", Value: false},   // false bool → omitted
+		{Key: "checked", Value: true},    // boolean attr, true → bare
+		{Key: "skip me", Value: "x"},     // invalid name → dropped
+		{Key: "disabled", Value: false},  // boolean attr, false → omitted
+		{Key: "aria-busy", Value: false}, // NOT a boolean attr → stringifies
 	}, nil, nil, nil, nil, nil)
-	if got := buf.String(); got != ` data-a="1" data-b="last" checked` {
+	if got := buf.String(); got != ` data-a="1" data-b="last" checked aria-busy="false"` {
 		t.Fatalf("Spread = %q", got)
 	}
 }

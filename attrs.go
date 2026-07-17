@@ -335,6 +335,14 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 		if attrNameExcluded(kv.Key, excluded) {
 			continue // class/style/forced/dropVar owns this name
 		}
+		// gsx.Toggle forces presence regardless of name, and BEFORE the URL sinks:
+		// it declares the attribute has no value, so a URL sink is inapplicable, not
+		// merely skipped. Checking it later would route Toggle(true) on href through
+		// URLVal → href="true", fabricating a value the author declared absent.
+		if tg, ok := kv.Value.(Toggle); ok {
+			gw.BoolAttr(kv.Key, bool(tg))
+			continue
+		}
 		switch {
 		case attrNameExcluded(kv.Key, imageNames):
 			gw.writeStr(" ")
@@ -375,7 +383,11 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 				}
 				return
 			}
-			if vk == kindBool {
+			// A bool value toggles ONLY on a boolean attribute name; on any other
+			// name it stringifies to "true"/"false", which is what enumerated
+			// attributes (aria-*, contenteditable, data-*) require. gsx.Toggle
+			// (handled above) is the escape hatch for a name the list cannot know.
+			if vk == kindBool && IsBooleanAttr(kv.Key) {
 				gw.BoolAttr(kv.Key, vs == "true")
 				continue
 			}
