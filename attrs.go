@@ -91,9 +91,27 @@ func (a Attrs) Style() string {
 	return out
 }
 
-// Get returns the value for key and whether it was present. DUPLICATE-KEY RULE: LAST
-// occurrence wins, matching JSX-style override order.
+// Get returns the value for key and whether it was present.
+//
+// DUPLICATE-KEY RULE: LAST occurrence wins for scalar keys, matching JSX-style
+// override order — EXCEPT "class" and "style", which COLLAPSE. A bag has one
+// class and one style, so Get returns the aggregate (Class()/Style()), agreeing
+// with what renders and with Merge. Last-wins there would report only the final
+// contribution and read as though the earlier ones had been dropped, even though
+// every one of them renders.
 func (a Attrs) Get(key string) (any, bool) {
+	switch key {
+	case "class":
+		if !a.Has(key) {
+			return nil, false
+		}
+		return a.Class(), true
+	case "style":
+		if !a.Has(key) {
+			return nil, false
+		}
+		return a.Style(), true
+	}
 	for i := len(a) - 1; i >= 0; i-- {
 		if a[i].Key == key {
 			return a[i].Value, true
@@ -102,10 +120,16 @@ func (a Attrs) Get(key string) (any, bool) {
 	return nil, false
 }
 
-// Has reports whether key is present.
+// Has reports whether key is present. It scans directly rather than delegating to
+// Get: Get collapses class/style by calling Class()/Style(), and routing Has
+// through it would recurse.
 func (a Attrs) Has(key string) bool {
-	_, ok := a.Get(key)
-	return ok
+	for i := len(a) - 1; i >= 0; i-- {
+		if a[i].Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // GetFold is Get with ASCII-case-insensitive key matching (last occurrence
@@ -341,14 +365,24 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 			case "style":
 				kv.Value = a.Style()
 			}
-			if b, ok := kv.Value.(bool); ok {
-				gw.BoolAttr(kv.Key, b)
+			if kv.Value == nil {
+				continue
+			}
+			vs, vk, vok := anyRenderVal(kv.Value)
+			if !vok {
+				if gw.err == nil {
+					gw.err = fmt.Errorf("gsx: attribute %q: unsupported dynamic type %T", kv.Key, kv.Value)
+				}
+				return
+			}
+			if vk == kindBool {
+				gw.BoolAttr(kv.Key, vs == "true")
 				continue
 			}
 			gw.writeStr(" ")
 			gw.writeStr(kv.Key)
 			gw.writeStr(`="`)
-			gw.AttrValue(toStr(kv.Value))
+			gw.AttrValue(vs)
 			gw.writeStr(`"`)
 		}
 	}
@@ -458,18 +492,10 @@ func validAttrName(k string) bool {
 
 // toStr renders an attribute/class value to a string.
 func toStr(v any) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case []byte:
-		return string(t)
-	case []string:
-		return strings.Join(t, " ")
-	case fmt.Stringer:
-		return t.String()
-	default:
-		return fmt.Sprint(v)
+	if s, _, ok := anyRenderVal(v); ok {
+		return s
 	}
+	return fmt.Sprint(v)
 }
 
 // joinAttrStrings concatenates two non-empty class/style values with the right

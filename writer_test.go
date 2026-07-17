@@ -126,13 +126,29 @@ func TestTextAny(t *testing.T) {
 	}
 }
 
-func TestTextAnyUnsupportedSetsErr(t *testing.T) {
-	type named string // named type: NOT matched, mirroring gsx.Val's contract
+// A named scalar renders by its UNDERLYING type, exactly as { x } does inline.
+// This previously errored — the exact-type switch could not see through the name,
+// which is why `type Flag bool` rendered required="false" through a bag while
+// rendering as a bare `required` statically.
+func TestTextAnyNamedTypeRendersByUnderlyingType(t *testing.T) {
+	type named string
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.TextAny(named("x"))
+	gw.TextAny(named("x<y"))
+	if gw.Err() != nil {
+		t.Fatalf("TextAny(named) = %v; want it to render by underlying type", gw.Err())
+	}
+	if got := buf.String(); got != "x&lt;y" {
+		t.Errorf("TextAny(named) wrote %q; want %q (escaped)", got, "x&lt;y")
+	}
+}
+
+func TestTextAnyUnsupportedSetsErr(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.TextAny(struct{ X int }{X: 1})
 	if gw.Err() == nil {
-		t.Fatal("want error for named type through TextAny")
+		t.Fatal("want error for a struct through TextAny")
 	}
 }
 
