@@ -790,11 +790,20 @@ func planComponentTypeArguments(target componentTargetFact, instance types.Insta
 }
 
 func validateTypeArgumentSpelling(expr string, want types.Type, target componentTargetFact, pkg *types.Package, fset *token.FileSet, txn *generatedImportTxn) error {
-	if len(txn.work.order) == txn.baseLen && target.expr != nil && target.expr.Pos().IsValid() {
-		parsed, err := goparser.ParseExpr(expr)
-		if err != nil {
-			return err
-		}
+	parsed, err := goparser.ParseExpr(expr)
+	if err != nil {
+		return err
+	}
+	// The strict caller-scope check type-checks the spelling against the real
+	// caller package: it knows the authored imports (and, via target.expr's
+	// position, any type parameters in scope) but NOT the yet-to-be-emitted
+	// _gsxtyN generated-import aliases. It is therefore valid ONLY when the
+	// spelling references no generated import. `len(txn.work.order) ==
+	// txn.baseLen` is not that condition: a spelling that REUSES a generated
+	// import already committed at an earlier call site (same cross-package type
+	// inferred twice) allocates no new order entry, yet still names _gsxtyN — it
+	// must go through the synthetic probe, which declares those aliases.
+	if !spellingReferencesGeneratedImport(parsed, txn) && target.expr != nil && target.expr.Pos().IsValid() {
 		info := &types.Info{Types: make(map[goast.Expr]types.TypeAndValue)}
 		if err := types.CheckExpr(fset, pkg, target.expr.Pos(), parsed, info); err != nil {
 			return err
@@ -805,6 +814,34 @@ func validateTypeArgumentSpelling(expr string, want types.Type, target component
 		return nil
 	}
 	return validateSyntheticTypeExpression(expr, want, pkg, txn)
+}
+
+// spellingReferencesGeneratedImport reports whether expr uses any selector
+// qualifier that names a generated (_gsxtyN) import alias. txn.work.order holds
+// every alias visible at this call site, including ones committed by prior
+// sites, so reused aliases are detected as well as freshly allocated ones.
+func spellingReferencesGeneratedImport(expr goast.Expr, txn *generatedImportTxn) bool {
+	if txn == nil {
+		return false
+	}
+	generated := make(map[string]bool, len(txn.work.order))
+	for _, spec := range txn.work.order {
+		generated[spec.name] = true
+	}
+	found := false
+	goast.Inspect(expr, func(node goast.Node) bool {
+		if found {
+			return false
+		}
+		if sel, ok := node.(*goast.SelectorExpr); ok {
+			if id, ok := sel.X.(*goast.Ident); ok && generated[id.Name] {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
 }
 
 func validateSyntheticTypeExpression(expr string, want types.Type, pkg *types.Package, txn *generatedImportTxn) error {
