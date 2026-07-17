@@ -102,6 +102,19 @@ func (c config) effectiveJSMin() func(string) (string, error) {
 	return nil
 }
 
+// effectiveJSONMin returns the JSON minifier to thread into codegen for
+// JSON-shaped bodies (a data-island <script>, and — once consulted — a
+// JSON-shaped js`…` attribute value). JSON has no separate level of its own:
+// it follows the JS gate, one level for both. There is no custom-override
+// knob for JSON yet (unlike cssMin/jsMin), so MinifyFull is the only case
+// that installs a minifier here.
+func (c config) effectiveJSONMin() func(string) (string, error) {
+	if c.jsMinLevel == MinifyFull {
+		return fullmin.JSON
+	}
+	return nil
+}
+
 // classifier builds the resolved Classifier from the accumulated options. A
 // config with no attr options yields a built-ins-only Classifier.
 func (cfg *config) classifier() *attrclass.Classifier {
@@ -203,7 +216,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
 	case "dev":
 		devWorkDir := workDir
 		if len(cmdArgs) > 0 && !strings.HasPrefix(cmdArgs[0], "-") {
@@ -356,7 +369,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // registered renderer's package now joins the module's ONE packages.Load and
 // its rendererTable is harvested, but nothing yet CONSULTS that table at a
 // render boundary — that consumer lands in a later slice.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -397,14 +410,14 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 			paths: paths, format: formatFlag,
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
 			filterPkgs: filterPkgs, aliases: aliases, renderers: renderers, cls: cls,
-			cssMin: cssMin, jsMin: jsMin, cssMinify: cssMinify, jsMinify: jsMinify,
+			cssMin: cssMin, jsMin: jsMin, jsonMin: jsonMin, cssMinify: cssMinify, jsMinify: jsMinify,
 			classMerger: classMerger,
 		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
-	res, err := generateCached(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger)
+	res, err := generateCached(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.

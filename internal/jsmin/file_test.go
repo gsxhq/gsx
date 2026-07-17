@@ -33,7 +33,7 @@ func TestMinifyFileGoBlockLiteral(t *testing.T) {
 		&ast.Text{Value: "const x =   1 ;\nfoo(  ) ;"},
 	}}
 	f := goBlockLit(lit)
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := litText(lit); strings.Contains(got, "  ") {
@@ -54,7 +54,7 @@ func TestMinifyFileGoBlockHoleyRoundTrip(t *testing.T) {
 		&ast.Text{Value: " = v ;"},
 	}}
 	f := goBlockLit(lit)
-	if err := MinifyFile(f, ext); err != nil {
+	if err := MinifyFile(f, Minifiers{JS: ext}); err != nil {
 		t.Fatal(err)
 	}
 	sawInterp := false
@@ -84,7 +84,7 @@ func TestMinifyFileInterpEmbeddedLiteral(t *testing.T) {
 	}}
 	in := &ast.Interp{Expr: "wrap(...)", Embedded: []ast.GoPart{ast.GoText{Src: "wrap("}, lit, ast.GoText{Src: ")"}}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{in}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := litText(lit); strings.Contains(got, "   ") {
@@ -101,7 +101,7 @@ func fileWith(el *ast.Element) *ast.File {
 
 func TestMinifyFileScript(t *testing.T) {
 	f := fileWith(scriptEl("function f() {\n\treturn 1;\n}"))
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -113,7 +113,7 @@ func TestMinifyFileScript(t *testing.T) {
 func TestMinifyFileExt(t *testing.T) {
 	ext := func(js string) (string, error) { return "EXT", nil }
 	f := fileWith(scriptEl("var x=1"))
-	if err := MinifyFile(f, ext); err != nil {
+	if err := MinifyFile(f, Minifiers{JS: ext}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -131,7 +131,7 @@ func TestMinifyFileSkipsHoleyScript(t *testing.T) {
 	text2 := &ast.Text{Value: ";\n\treturn data;"}
 	el := &ast.Element{Tag: "script", Children: []ast.Markup{text1, interp, text2}}
 	f := fileWith(el)
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -142,7 +142,7 @@ func TestMinifyFileSkipsHoleyScript(t *testing.T) {
 
 func TestMinifyFileLeavesStyleAlone(t *testing.T) {
 	f := fileWith(&ast.Element{Tag: "style", Children: []ast.Markup{&ast.Text{Value: "  .a { x: 1 }  "}}})
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
@@ -155,7 +155,7 @@ func TestMinifyFileScriptInForMarkup(t *testing.T) {
 	deep := scriptEl("function f() {\n\treturn 1;\n}")
 	loop := &ast.ForMarkup{Clause: "_, x := range xs", Body: []ast.Markup{deep}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{loop}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
@@ -167,7 +167,7 @@ func TestMinifyFileScriptInSwitchMarkup(t *testing.T) {
 	deep := scriptEl("function f() {\n\treturn 1;\n}")
 	sw := &ast.SwitchMarkup{Tag: "v", Cases: []*ast.CaseClause{{List: "1", Body: []ast.Markup{deep}}}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{sw}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
@@ -179,7 +179,7 @@ func TestMinifyFileScriptInFragment(t *testing.T) {
 	deep := scriptEl("function f() {\n\treturn 1;\n}")
 	frag := &ast.Fragment{Children: []ast.Markup{deep}}
 	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{frag}}}}
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
@@ -197,7 +197,7 @@ func TestMinifyFileSkipsDataIslandScript(t *testing.T) {
 		Children: []ast.Markup{&ast.Text{Value: body}},
 	}
 	f := fileWith(el)
-	if err := MinifyFile(f, nil); err != nil {
+	if err := MinifyFile(f, Minifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := el.Children[0].(*ast.Text).Value; got != body {

@@ -81,8 +81,14 @@ type Options struct {
 	Classifier *attrclass.Classifier
 	CSSMin     func(string) (string, error) // custom static-CSS minifier (nil = built-in when CSSMinify)
 	JSMin      func(string) (string, error) // custom static-JS minifier (nil = built-in when JSMinify)
-	CSSMinify  bool                         // minify static <style> CSS
-	JSMinify   bool                         // minify static <script> JS
+	// JSONMin minifies a JSON-shaped body (a data-island <script> and, once
+	// consulted, a JSON-shaped js`…` attribute value). It follows the JS gate:
+	// callers set it whenever JSMin's level is "full" (see gen's
+	// config.effectiveJSONMin), nil otherwise. Not yet CONSULTED by jsmin — this
+	// field is threaded ahead of the classifier that will read it.
+	JSONMin   func(string) (string, error)
+	CSSMinify bool // minify static <style> CSS
+	JSMinify  bool // minify static <script> JS
 	// Bundle, when non-nil, supplies the external importer and filter table
 	// directly (a prebuilt Bundle) so the Module type-checks skeletons
 	// with NO packages.Load / `go list` — the mode a WASM build uses. The Module
@@ -1266,7 +1272,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 && !a.bag.HasErrors() {
 		for _, f := range a.gsxFiles {
-			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, true, true, a.merger, a.positionalPlan)
+			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, a.merger, a.positionalPlan)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -1343,7 +1349,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// matching gate/comment in Package above.
 	if len(a.typeErrs) == 0 && !bag.HasErrors() {
 		for path, f := range a.gsxFiles {
-			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.positionalPlan)
+			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.positionalPlan)
 			if !ok {
 				continue
 			}

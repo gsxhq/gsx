@@ -6,7 +6,9 @@ import (
 	"strings"
 )
 
-func jsminFileMinify(f *ast.File, ext func(string) (string, error)) error { return MinifyFile(f, ext) }
-func fullminJS(s string) (string, error)                                  { return fullmin.JS(s) }
-func containsNL(s string) bool                                            { return strings.Contains(s, "\n") }
-func has(s, sub string) bool                                              { return strings.Contains(s, sub) }
+func jsminFileMinify(f *ast.File, ext func(string) (string, error)) error {
+	return MinifyFile(f, Minifiers{JS: ext, JSON: fullmin.JSON})
+}
+func fullminJS(s string) (string, error) { return fullmin.JS(s) }
+func containsNL(s string) bool           { return strings.Contains(s, "\n") }
+func has(s, sub string) bool             { return strings.Contains(s, sub) }

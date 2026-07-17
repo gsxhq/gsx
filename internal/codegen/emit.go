@@ -29,7 +29,7 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, positionalPlan componentPositionalPackagePlan) ([]byte, bool) {
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, positionalPlan componentPositionalPackagePlan) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -50,7 +50,7 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 	// from gen.WithJSMinifier. Only holeless <script> blocks are minified; a
 	// script carrying any @{ } hole is left un-minified for safety (see jsmin).
 	if jsMinify {
-		if err := jsmin.MinifyFile(file, jsMin); err != nil {
+		if err := jsmin.MinifyFile(file, jsmin.Minifiers{JS: jsMin, JSON: jsonMin}); err != nil {
 			bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
 			return nil, false
 		}
