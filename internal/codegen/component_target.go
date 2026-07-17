@@ -967,8 +967,116 @@ func componentTargetQualifiers(registry *callSiteRegistry, facts map[callSiteID]
 		if ok && token.IsIdentifier(qualifier) {
 			qualifiers[qualifier] = true
 		}
+		// The tag qualifier alone misses two authored uses of an import that never
+		// reach the operand skeleton: a markup type-argument (<comp.Check[cons.Foo]>
+		// references cons) and a component-tag attribute-value Go expression
+		// (attrs={{ "@x": gsx.RawJS(…) }} references gsx). Component-tag attributes
+		// are not emitted into the fmt skeleton, so skeletonUsedNames cannot see
+		// them; harvest their package-qualifier roots here so unused-import removal
+		// keeps them.
+		harvestElementQualifierRoots(record.element, qualifiers)
 	}
 	return qualifiers
+}
+
+// harvestElementQualifierRoots records, in qualifiers, every package-qualifier
+// root (the X in an X.Sel selector) authored in element's own type-argument list
+// and attribute-value Go expressions. It is a deliberately conservative
+// token-scan: any IDENT immediately followed by a PERIOD is a qualifier
+// reference, hence a use of that import. Over-keeping an import is safe;
+// dropping a used one is the bug this closes. It walks the element's attrs (not
+// its child elements — each nested component tag is its own registry record) via
+// gsxast.Inspect so every Go-expression carrier (ExprAttr, OrderedAttrsAttr
+// pairs, SpreadAttr, EmbeddedAttr holes, CondAttr branches, ClassAttr parts,
+// value-form control flow, pipeline stage args) is covered uniformly.
+func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string]bool) {
+	if element == nil {
+		return
+	}
+	scanQualifierRoots(element.TypeArgs, qualifiers)
+	for _, attr := range element.Attrs {
+		gsxast.Inspect(attr, func(n gsxast.Node) bool {
+			switch n := n.(type) {
+			case *gsxast.ExprAttr:
+				scanQualifierRoots(n.Expr, qualifiers)
+				scanStageQualifierRoots(n.Stages, qualifiers)
+			case *gsxast.SpreadAttr:
+				scanQualifierRoots(n.Expr, qualifiers)
+				scanStageQualifierRoots(n.Stages, qualifiers)
+			case *gsxast.OrderedPair:
+				scanQualifierRoots(n.Value, qualifiers)
+			case *gsxast.Interp:
+				scanQualifierRoots(n.Expr, qualifiers)
+				scanStageQualifierRoots(n.Stages, qualifiers)
+			case *gsxast.EmbeddedAttr:
+				scanStageQualifierRoots(n.Stages, qualifiers)
+			case *gsxast.EmbeddedInterp:
+				scanStageQualifierRoots(n.Stages, qualifiers)
+			case *gsxast.CondAttr:
+				scanQualifierRoots(n.Cond, qualifiers)
+			case *gsxast.ClassPart:
+				scanQualifierRoots(n.Expr, qualifiers)
+				scanQualifierRoots(n.Cond, qualifiers)
+				scanStageQualifierRoots(n.Stages, qualifiers)
+			case *gsxast.ValueArm:
+				scanQualifierRoots(n.Expr, qualifiers)
+				scanStageQualifierRoots(n.Stages, qualifiers)
+			case *gsxast.ValueIf:
+				scanQualifierRoots(n.Cond, qualifiers)
+			case *gsxast.ValueSwitch:
+				scanQualifierRoots(n.Tag, qualifiers)
+			case *gsxast.ValueSwitchCase:
+				scanQualifierRoots(n.List, qualifiers)
+			case *gsxast.Element:
+				// A component tag nested inside a markup attribute value is its own
+				// registry record, so its attrs are harvested there; keep only its
+				// type arguments conservatively here.
+				scanQualifierRoots(n.TypeArgs, qualifiers)
+			}
+			return true
+		})
+	}
+}
+
+// scanStageQualifierRoots harvests qualifier roots from the argument source of
+// each pipeline stage (`|> name(args)`); the stage name is a registered filter
+// identifier, never a package qualifier.
+func scanStageQualifierRoots(stages []gsxast.PipeStage, qualifiers map[string]bool) {
+	for _, st := range stages {
+		if st.HasArgs {
+			scanQualifierRoots(st.Args, qualifiers)
+		}
+	}
+}
+
+// scanQualifierRoots tokenizes src with go/scanner and records, in qualifiers,
+// every identifier immediately followed by a `.` — the qualifier X in a selector
+// X.Sel, which is exactly how an imported package name is referenced. Lexical
+// errors are ignored: a partial scan can only under-report, and any qualifier it
+// does find is a genuine use.
+func scanQualifierRoots(src string, qualifiers map[string]bool) {
+	if strings.TrimSpace(src) == "" {
+		return
+	}
+	var s scanner.Scanner
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	s.Init(file, []byte(src), func(token.Position, string) {}, 0)
+	prevIdent := ""
+	for {
+		_, tok, lit := s.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.PERIOD && prevIdent != "" {
+			qualifiers[prevIdent] = true
+		}
+		if tok == token.IDENT {
+			prevIdent = lit
+		} else {
+			prevIdent = ""
+		}
+	}
 }
 
 func (r *callSiteRegistry) hasCandidates() bool {
