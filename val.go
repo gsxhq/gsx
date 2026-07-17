@@ -4,18 +4,18 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strconv"
 )
 
 // Val wraps any renderable value as a Node (so a value can fill a gsx.Node prop).
-// A Node renders itself; string/[]byte/fmt.Stringer render as escaped text; the
-// numeric and bool kinds render their plain Go form (use the |> pipeline for
-// formatted numbers, e.g. { f | money("$") }); nil renders nothing.
+// A Node renders itself; string/[]byte/[]string/fmt.Stringer render as escaped
+// text ([]string joined with spaces); the numeric and bool kinds render their
+// plain Go form (use the |> pipeline for formatted numbers, e.g.
+// { f | money("$") }); nil renders nothing.
 //
-// Named scalar types (e.g. type Slug string, type Money float64) are NOT matched
-// by the type switch — they hit the default error case even though { x } inline
-// classifies them by underlying type. Workaround: convert to the base type
-// (string(slug)) or pass through a |> pipeline before promotion.
+// Values are classified by their UNDERLYING type, so a named scalar (type Slug
+// string, type Money float64) renders exactly as { x } does inline. See
+// anyRenderVal, the single classifier this shares with every other runtime
+// consumer.
 //
 // Why a runtime box rather than classify-and-specialize at codegen (the type IS
 // known at emit time): see docs/superpowers/specs/2026-06-23-gsx-node-prop-promotion-design.md §8.
@@ -27,7 +27,9 @@ func (n valNode) Render(ctx context.Context, w io.Writer) error {
 	if n.v == nil {
 		return nil
 	}
-	gw := W(w)
+	// Node and []Node first: reflect cannot see interface satisfaction the way
+	// classify's implementsNode can, and these render themselves rather than
+	// stringifying. Mirrors classify's Node → NodeSlice → Stringer → kind order.
 	switch t := n.v.(type) {
 	case Node:
 		if t == nil {
@@ -39,48 +41,19 @@ func (n valNode) Render(ctx context.Context, w io.Writer) error {
 		// element in order (so a value that renders inline as { rows } also
 		// renders when promoted into a gsx.Node prop). nil elements skipped.
 		return renderNodes(ctx, w, t)
-	case string:
-		gw.Text(t)
-	case []byte:
-		gw.Text(string(t))
-	case fmt.Stringer:
-		gw.Text(t.String())
-	// The bool and numeric kinds below write via gw.S, not gw.Text: strconv's
-	// output charset here (decimal digits, '-', '+', '.', 'e', and the Inf/NaN
-	// and true/false letters) contains no byte htmlReplacer rewrites, so the
-	// escape pass is a no-op on every possible value and the emitted bytes are
-	// identical either way. This mirrors the same reasoning IntInto/FloatInto
-	// document. Do NOT extend gw.S to the string/[]byte/Stringer cases above —
-	// those carry arbitrary author content and must escape.
-	case bool:
-		gw.S(strconv.FormatBool(t))
-	case int:
-		gw.S(strconv.FormatInt(int64(t), 10))
-	case int8:
-		gw.S(strconv.FormatInt(int64(t), 10))
-	case int16:
-		gw.S(strconv.FormatInt(int64(t), 10))
-	case int32:
-		gw.S(strconv.FormatInt(int64(t), 10))
-	case int64:
-		gw.S(strconv.FormatInt(t, 10))
-	case uint:
-		gw.S(strconv.FormatUint(uint64(t), 10))
-	case uint8:
-		gw.S(strconv.FormatUint(uint64(t), 10))
-	case uint16:
-		gw.S(strconv.FormatUint(uint64(t), 10))
-	case uint32:
-		gw.S(strconv.FormatUint(uint64(t), 10))
-	case uint64:
-		gw.S(strconv.FormatUint(t, 10))
-	case float32:
-		// emitRender always uses bitsize 64: FormatFloat(float64(x), 'g', -1, 64).
-		gw.S(strconv.FormatFloat(float64(t), 'g', -1, 64))
-	case float64:
-		gw.S(strconv.FormatFloat(t, 'g', -1, 64))
-	default:
+	}
+	s, k, ok := anyRenderVal(n.v)
+	if !ok {
 		return fmt.Errorf("gsx.Val: value of type %T is not renderable in a gsx.Node prop", n.v)
+	}
+	gw := W(w)
+	if k == kindString {
+		gw.Text(s) // arbitrary author content — must escape
+	} else {
+		// kindBool/kindNumber promise an escape-free charset (strconv's digits,
+		// '-', '+', '.', 'e', and the Inf/NaN and true/false letters), so the
+		// replacer scan is a no-op on every possible value — see PR #122.
+		gw.S(s)
 	}
 	return gw.Err()
 }
