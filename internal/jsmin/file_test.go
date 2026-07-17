@@ -1,6 +1,7 @@
 package jsmin
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -225,6 +226,28 @@ func TestMinifyJSAttrHolelessFull(t *testing.T) {
 	}
 	if !has(got, "open") || !has(got, "active") {
 		t.Fatalf("object keys lost: %q", got)
+	}
+}
+
+// TestMinifyJSAttrJSONShapedValueStaysValidJSON is a FAILING reproduction of the
+// hx-vals minify bug. A quoted-key object literal — valid JSON, as carried by htmx's
+// hx-vals/hx-headers/hx-vars, which htmx parses with JSON.parse — must survive
+// minification as valid JSON. Today the full JS pass unquotes the key
+// (`"exclude"`→`exclude`) and wraps the object in `(…)` to minify it as an expression,
+// yielding valid JavaScript but INVALID JSON (`({exclude:"SELF-1"})`); htmx's
+// JSON.parse then rejects it and silently drops the params. The `js` literal prefix
+// cannot distinguish an Alpine JS expression (x-data) from a JSON payload (hx-vals) —
+// both are `{`-leading js` values. This test asserts the intended behavior and fails
+// until the JSON-aware minify fix lands.
+func TestMinifyJSAttrJSONShapedValueStaysValidJSON(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "hx-vals", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{&ast.Text{Value: `{ "exclude": "SELF-1" }`}}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	got := attrSegs(f)[0].(*ast.Text).Value
+	if !json.Valid([]byte(got)) {
+		t.Fatalf("minified JSON-shaped attribute value is not valid JSON: %s", got)
 	}
 }
 
