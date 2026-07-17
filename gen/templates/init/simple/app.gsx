@@ -61,15 +61,22 @@ component Layout(title string, children gsx.Node) {
 	</html>
 }
 
+// Reusable markup binds to a package-level var, inferred as gsx.Node.
+var logos = (
+	<>
+		<a href="https://vite.dev" target="_blank" rel="noreferrer">
+			<img src="/public/vite.svg" class="logo" alt="Vite logo"/>
+		</a>
+		<a href="https://github.com/gsxhq/gsx" target="_blank" rel="noreferrer">
+			<img src="/public/gsx.svg" class="logo gsx" alt="gsx logo"/>
+		</a>
+	</>
+)
+
 component Index(title string) {
 	<Layout title={title}>
 		<div id="app">
-			<a href="https://vite.dev" target="_blank" rel="noreferrer">
-				<img src="/public/vite.svg" class="logo" alt="Vite logo"/>
-			</a>
-			<a href="https://github.com/gsxhq/gsx" target="_blank" rel="noreferrer">
-				<img src="/public/gsx.svg" class="logo gsx" alt="gsx logo"/>
-			</a>
+			{ logos }
 			<h1>gsx + Vite</h1>
 			<div class="card">
 				<button id="counter" type="button">count is 0</button>

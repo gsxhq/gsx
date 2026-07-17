@@ -31,11 +31,15 @@ Go compiler type-checks and builds:
 ```gsx
 import "github.com/gsxhq/gsx"
 
+// Markup can bind to a package-level var — inferred as gsx.Node.
+var footer = <><hr/><small>Built with gsx</small></>
+
 component Card(title string, featured bool, children gsx.Node) {
 	<section class={ "card", "card-featured": featured }>
 		<h2>{title}</h2>
 		{ if featured { <span class="badge">Featured</span> } }
 		<div class="body">{children}</div>
+		{footer}
 	</section>
 }
 ```
