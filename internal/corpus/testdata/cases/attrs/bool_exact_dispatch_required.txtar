@@ -1,7 +1,7 @@
 # DEFECT PIN — documents current (wrong) behaviour, not desired behaviour.
 # Evidence for docs/superpowers/specs/2026-07-16-gsx-bool-attr-semantics-design.md.
-# The goldens below flip when `?=` / gsx.Toggle land; this case is then their
-# regression test.
+# The goldens below flip when the presence-only list + gsx.Toggle land; this case
+# is then their regression test.
 #
 # TWO CLASSES OF ATTRIBUTE NEED OPPOSITE TREATMENT FROM THE SAME GO TYPE.
 #
@@ -37,10 +37,11 @@
 #   required={req}       → `required` is a standard boolean attribute → toggle
 #   aria-hidden={hidden} → not one → "true", no strconv call at all
 #
-# `?=` is then reserved for names a spec list cannot know — web components,
-# Datastar — and `required={strconv.FormatBool(b)}` forces the string back on a
-# listed name, because the list is consulted only for BOOL-typed values.
-# Correctness is the default; annotation is the exception.
+# `gsx.Toggle(b)` is then reserved for names a spec list cannot know — web
+# components, Datastar — and `required={strconv.FormatBool(b)}` forces the string
+# back on a listed name, because the list is consulted only for BOOL-typed values.
+# Correctness is the default; the override is the exception, and it is a VALUE
+# rather than syntax so it survives being passed through a component into a bag.
 #
 # ROOT CAUSE — EXACT vs UNDERLYING dispatch, NOT "type erasure". Boxing is a red
 # herring: `anyFalse` is a plain `var anyFalse any = false` and renders
