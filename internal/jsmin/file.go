@@ -486,12 +486,17 @@ func scanJSONNumberToken(s string, i int) int {
 // runs — a minifier is free to reshape a number into exponent form, e.g.
 // `9e8`, so matching must be by parsed numeric VALUE, never by a truncated
 // digit prefix, or a token like `900000001e3` could be misread as sentinel
-// base+1). A token whose value is an integer in [base+1, base+len(interps)]
-// is a sentinel and is replaced by the corresponding interp (index
-// value-base-1); every other number token (a static JSON number from the
-// source) is left as literal text, byte-for-byte. ok=false if any hole ends
-// up missing or duplicated (every hole must survive exactly once) — the
-// caller falls back safely.
+// base+1). This scan is intentionally quote-blind and matches by PARSED NUMERIC
+// VALUE: in isolation this could mis-convert a digit run inside a JSON string
+// into a hole. It is safe only because minifyJSSegmentsHoley enforces two
+// non-local invariants: (a) the sentinel base is grown until absent from the
+// raw static text, and (b) every hole's sentinel is always emitted, so any
+// accidental numeric collision produces a duplicate index, which the
+// duplicate-detection check aborts on (falling back safely). A token whose
+// value is an integer in [base+1, base+len(interps)] is a sentinel and is
+// replaced by the corresponding interp (index value-base-1); every other
+// number token is left as literal text. ok=false if any hole is missing or
+// duplicated — the caller falls back safely.
 func splitJSNumberSentinels(s string, base int64, interps []*ast.Interp) ([]ast.Markup, bool) {
 	var out []ast.Markup
 	var text strings.Builder

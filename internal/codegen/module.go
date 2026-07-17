@@ -81,11 +81,11 @@ type Options struct {
 	Classifier *attrclass.Classifier
 	CSSMin     func(string) (string, error) // custom static-CSS minifier (nil = built-in when CSSMinify)
 	JSMin      func(string) (string, error) // custom static-JS minifier (nil = built-in when JSMinify)
-	// JSONMin minifies a JSON-shaped body (a data-island <script> and, once
-	// consulted, a JSON-shaped js`…` attribute value). It follows the JS gate:
-	// callers set it whenever JSMin's level is "full" (see gen's
-	// config.effectiveJSONMin), nil otherwise. Not yet CONSULTED by jsmin — this
-	// field is threaded ahead of the classifier that will read it.
+	// JSONMin minifies a JSON-shaped body (a data-island <script> and a
+	// JSON-shaped js`…` attribute value). It follows the JS gate: callers set it
+	// whenever JSMin's level is "full" (see gen's config.effectiveJSONMin), nil
+	// otherwise. This field is consulted by cascadeJS and minifyJSSegmentsHoley
+	// in jsmin to optimize JSON-valued attributes (htmx hx-vals/hx-headers/hx-vars).
 	JSONMin   func(string) (string, error)
 	CSSMinify bool // minify static <style> CSS
 	JSMinify  bool // minify static <script> JS

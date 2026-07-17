@@ -103,11 +103,11 @@ func (c config) effectiveJSMin() func(string) (string, error) {
 }
 
 // effectiveJSONMin returns the JSON minifier to thread into codegen for
-// JSON-shaped bodies (a data-island <script>, and — once consulted — a
-// JSON-shaped js`…` attribute value). JSON has no separate level of its own:
-// it follows the JS gate, one level for both. There is no custom-override
-// knob for JSON yet (unlike cssMin/jsMin), so MinifyFull is the only case
-// that installs a minifier here.
+// JSON-shaped bodies (a data-island <script> and a JSON-shaped js`…`
+// attribute value). JSON has no separate level of its own: it follows the JS
+// gate, one level for both. There is no custom-override knob for JSON yet
+// (unlike cssMin/jsMin), so MinifyFull is the only case that installs a
+// minifier here.
 func (c config) effectiveJSONMin() func(string) (string, error) {
 	if c.jsMinLevel == MinifyFull {
 		return fullmin.JSON
