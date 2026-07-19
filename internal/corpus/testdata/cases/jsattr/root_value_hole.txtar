@@ -1,0 +1,23 @@
+# A js`…` ATTRIBUTE whose entire value is a single @{ } hole JSON-encodes the Go
+# value (slice/map/struct/string/number), the same way a hole INSIDE a JSON
+# literal does. The value is HTML-attr-escaped after JSON encoding, so a hostile
+# string can't break out. This is the idiom for chart data-* attributes and a
+# whole-value hx-vals. (A hole followed by tokens — `@{x} = 5`, `@{x} + 1` — is
+# still a binding/operand position and only accepts gsx.RawJS; see
+# goexpr-js-literal/binding_non_rawjs_rejected. A <script> body or Go-expression
+# js`…` literal keeps the strict binding rule too.)
+-- input.gsx --
+package views
+
+component Chart(labels []string, counts []int, opts map[string]string) {
+	<div
+		data-labels=js`@{labels}`
+		data-counts=js`@{counts}`
+		data-opts=js`@{opts}`
+	></div>
+}
+-- invoke --
+Chart([]string{"A", `B"x`}, []int{1, 2}, map[string]string{"page": "1"})
+-- diagnostics.golden --
+-- render.golden --
+<div data-labels="[&#34;A&#34;,&#34;B\&#34;x&#34;]" data-counts="[1,2]" data-opts="{&#34;page&#34;:&#34;1&#34;}"></div>
