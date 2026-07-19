@@ -66,18 +66,24 @@ func loadGraph(root string) (sourceview.Graph, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loadGraphWithContext(codegen.CaptureGoCommandContext(moduleDir), manifest, nil)
+	packageDirs := manifest.PackageDirs()
+	dirs := make([]string, 0, len(packageDirs))
+	for _, dir := range packageDirs {
+		dirs = append(dirs, dir)
+	}
+	return loadGraphWithContext(codegen.CaptureGoCommandContext(moduleDir), manifest, dirs, nil)
 }
 
 // loadGraphWithContext runs `go list -deps -json` (metadata only — NO -export)
-// from the captured module root. roots adds GSX-only and configured packages
-// that may not be reachable from the on-disk Go graph, so local replacements
-// behind those semantic inputs are visible to cache hashing.
-func loadGraphWithContext(context *codegen.GoCommandContext, manifest *sourceview.Manifest, roots []string) (sourceview.Graph, error) {
+// from the captured module root. dirs selects the requested authored GSX
+// closure. roots adds configured semantic packages that may not be reachable
+// from that graph, so local replacements behind those inputs are visible to
+// cache hashing.
+func loadGraphWithContext(context *codegen.GoCommandContext, manifest *sourceview.Manifest, dirs []string, roots []string) (sourceview.Graph, error) {
 	if manifest == nil {
 		return nil, fmt.Errorf("gen: cache metadata requires a source manifest")
 	}
-	patterns, err := graphQueryPatterns(manifest, roots)
+	patterns, err := graphQueryPatterns(manifest, dirs, roots)
 	if err != nil {
 		return nil, err
 	}
@@ -104,9 +110,9 @@ func loadGraphWithContext(context *codegen.GoCommandContext, manifest *sourcevie
 // the relative pattern enters the owned directory and lets -overlay provide the
 // selected Go file. External and otherwise unproven roots retain import-path
 // semantics.
-func graphQueryPatterns(manifest *sourceview.Manifest, roots []string) ([]string, error) {
-	patterns := []string{"./..."}
-	seen := map[string]bool{"./...": true, "C": true, "": true}
+func graphQueryPatterns(manifest *sourceview.Manifest, dirs []string, roots []string) ([]string, error) {
+	patterns := make([]string, 0)
+	seen := map[string]bool{"C": true, "": true}
 	add := func(path string) error {
 		if dir, owned := manifest.PackageDir(path); owned {
 			rel, err := filepath.Rel(manifest.ModuleRoot(), dir)
@@ -124,7 +130,11 @@ func graphQueryPatterns(manifest *sourceview.Manifest, roots []string) ([]string
 		}
 		return nil
 	}
-	for _, path := range manifest.LoadRoots() {
+	selectedRoots, err := manifest.SelectedLoadRoots(dirs)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range selectedRoots {
 		if err := add(path); err != nil {
 			return nil, err
 		}
@@ -134,6 +144,7 @@ func graphQueryPatterns(manifest *sourceview.Manifest, roots []string) ([]string
 			return nil, err
 		}
 	}
+	sort.Strings(patterns)
 	return patterns, nil
 }
 

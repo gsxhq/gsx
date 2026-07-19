@@ -741,7 +741,8 @@ func (manifest *Manifest) PackageDir(importPath string) (string, bool) {
 	return dir, ok
 }
 
-func (manifest *Manifest) packagePathForDir(dir string) (string, bool) {
+// PackagePathForDir returns the manifest-owned import path for dir.
+func (manifest *Manifest) PackagePathForDir(dir string) (string, bool) {
 	dir = canonicalPath(dir)
 	for importPath, packageDir := range manifest.packageDirs {
 		if canonicalPath(packageDir) == dir {
@@ -749,6 +750,37 @@ func (manifest *Manifest) packagePathForDir(dir string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// SelectedLoadRoots returns the deterministic authored GSX import closure of
+// dirs. Main-module packages are traversed through manifest edges; external
+// imports are roots but are not traversed here because cmd/go owns that graph.
+func (manifest *Manifest) SelectedLoadRoots(dirs []string) ([]string, error) {
+	var queue []string
+	for _, dir := range dirs {
+		path, ok := manifest.PackagePathForDir(dir)
+		if !ok {
+			return nil, fmt.Errorf("sourceview: no manifest package for selected directory %s", dir)
+		}
+		queue = append(queue, path)
+	}
+
+	seen := map[string]bool{"": true, "C": true}
+	var roots []string
+	for len(queue) > 0 {
+		path := queue[0]
+		queue = queue[1:]
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		roots = append(roots, path)
+		if dir, owned := manifest.PackageDir(path); owned {
+			queue = append(queue, manifest.ImportsForDir(dir)...)
+		}
+	}
+	sort.Strings(roots)
+	return roots, nil
 }
 
 func (manifest *Manifest) ImportsForDir(dir string) []string {

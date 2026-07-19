@@ -23,6 +23,7 @@ func TestCodegenIdentityKeySensitivity(t *testing.T) {
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/cid\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n"), 0o644)
+	os.WriteFile(filepath.Join(tmp, "a", "a.gsx"), []byte("package a\ncomponent View() { <p/> }\n"), 0o644)
 	graph, err := loadGraph(tmp)
 	if err != nil {
 		t.Fatal(err)

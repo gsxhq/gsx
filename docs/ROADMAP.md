@@ -1246,7 +1246,7 @@ vocabulary remains a design aspiration, not the current API.
   highlighters (`../vscode-gsx` TextMate, `gsxhq.github.io` CodeMirror) are
   unaffected (no tree, no injection-validity requirement). Revisit when a unified
   grammar is justified by additional wins (structural folding/nav/textobjects).
-- [ ] **Tooling performance measurement on a realistic large corpus** - the
+- [~] **Tooling performance measurement on a realistic large corpus** - the
   existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package
   `Analyze` (dominated by `go/packages.Load`), ~24.7 MiB/package retained. Plan:
@@ -1274,6 +1274,16 @@ vocabulary remains a design aspiration, not the current API.
   over the whole tree now completes in well under 1s (down from ~3s), and
   `generate`'s cold path speeds up correspondingly. Output is byte-identical
   (corpus goldens + a real-world `one-learning-gsx generate` diff check).
+  **Persistent one-shot generation cache repaired (2026-07-19):** at GSX
+  `bcb6636a` on a clean committed `one-learning-gsx` clone (116 `.gsx` files,
+  11 package directories), three unchanged warm runs were structural full hits
+  (11 hit, 0 miss, 0 uncacheable; no semantic generation) with median 0.64 s
+  wall time and 88,375,296 bytes peak RSS; all three warm runs reported all 116
+  cold-seeded generated outputs up to date. The cache now avoids the one-shot
+  semantic `go/packages.Load` path, but the original LSP work remains: measure
+  realistic retained `Analyze` memory/GC pressure, cap retained packages with
+  an LRU, and slim the `.gsx`-side full `Info` retained by long-lived sessions.
+  See `docs/superpowers/notes/2026-07-19-one-learning-cache-hit-measurement.md`.
 - [ ] **`gsx fmt` bracket-reflow for call-arg / bare composite-lit elements** -
   follow-up to the 2026-07-08 element-literal paren-wrap fix (item 15 above).
   A multi-line element/fragment as a call argument (`Wrap(<Foo>...</Foo>)`) or

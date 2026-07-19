@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,6 +43,7 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/bctx\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n"), 0o644)
+	os.WriteFile(filepath.Join(tmp, "a", "a.gsx"), []byte("package a\ncomponent View() { <p/> }\n"), 0o644)
 
 	graph, err := loadGraph(tmp)
 	if err != nil {
@@ -84,6 +86,7 @@ func TestComputeKeyDepClosure(t *testing.T) {
 	mk("a", "package a\n\nfunc A() string { return \"a\" }\n")
 	mk("b", "package b\n\nimport \"ex/app/a\"\n\nfunc B() string { return a.A() }\n")
 	mk("c", "package c\n\nfunc C() string { return \"c\" }\n")
+	os.WriteFile(filepath.Join(tmp, "b", "b.gsx"), []byte("package b\nimport \"ex/app/a\"\ncomponent View() { <p/> }\n"), 0o644)
 	graph, err := loadGraph(tmp)
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +126,7 @@ func TestComputeKeyConfiguredSourceClosure(t *testing.T) {
 	}
 	write("go.mod", "module ex/configured\n\ngo 1.26.1\n")
 	write("views/views.go", "package views\n")
+	write("views/views.gsx", "package views\ncomponent View() { <p/> }\n")
 	write("model/model.go", "package model\n\ntype Value string\n")
 	write("filters/filters.go", "package filters\n\nimport \"ex/configured/model\"\n\nfunc Format(value model.Value) string { return string(value) }\n")
 	write("merger/merger.go", "package merger\n\nfunc Merge(values []string) string { return \"\" }\n")
@@ -130,7 +134,7 @@ func TestComputeKeyConfiguredSourceClosure(t *testing.T) {
 	viewsDir := filepath.Join(root, "views")
 	key := func(filters []string, aliases []codegen.FilterAlias, merger *codegen.ClassMergerRef) string {
 		t.Helper()
-		graph := loadGraphMust(t, root)
+		graph := loadGraphWithRootsMust(t, root, configuredPackagePaths(filters, aliases, nil, merger))
 		value, err := computeTestKey(t, viewsDir, root, graph, cacheKeyConfig{
 			buildContext:          "build",
 			codegenIdentity:       "generator",
@@ -164,6 +168,64 @@ func TestComputeKeyConfiguredSourceClosure(t *testing.T) {
 	}
 }
 
+func TestComputeKeyFilterAliasIdentity(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write := func(rel, source string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module ex/alias-identity\n\ngo 1.26.1\n")
+	write("views/views.gsx", "package views\n\ncomponent View() { <p/> }\n")
+	write("filters/filters.go", "package filters\n\nfunc One(value string) string { return value }\nfunc Two(value string) string { return value }\n")
+
+	viewsDir := filepath.Join(root, "views")
+	filterPath := "ex/alias-identity/filters"
+	graph := loadGraphWithRootsMust(t, root, []string{filterPath})
+	projection := projectionForTest(t, root, graph)
+	key := func(aliases []codegen.FilterAlias) string {
+		t.Helper()
+		if got := fmt.Sprint(configuredPackagePaths(nil, aliases, nil, nil)); got != fmt.Sprint([]string{filterPath}) {
+			t.Fatalf("configured source roots = %s, want only %s", got, filterPath)
+		}
+		value, err := computeKey(viewsDir, projection, cacheKeyConfig{
+			buildContext:          "build",
+			codegenIdentity:       "generator",
+			aliases:               aliases,
+			classifierFingerprint: "classifier",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	alias := func(name, function string) codegen.FilterAlias {
+		return codegen.FilterAlias{Name: name, PkgPath: filterPath, FuncName: function}
+	}
+
+	base := key([]codegen.FilterAlias{alias("format", "One")})
+	if same := key([]codegen.FilterAlias{alias("format", "One")}); same != base {
+		t.Fatal("identical filter alias identity produced an unstable cache key")
+	}
+	if changedName := key([]codegen.FilterAlias{alias("render", "One")}); changedName == base {
+		t.Fatal("changing a filter alias name did not change the cache key")
+	}
+	if changedFunction := key([]codegen.FilterAlias{alias("format", "Two")}); changedFunction == base {
+		t.Fatal("changing a filter alias function did not change the cache key")
+	}
+	oneThenTwo := key([]codegen.FilterAlias{alias("format", "One"), alias("format", "Two")})
+	twoThenOne := key([]codegen.FilterAlias{alias("format", "Two"), alias("format", "One")})
+	if oneThenTwo == twoThenOne {
+		t.Fatal("reversing last-wins filter alias registrations did not change the cache key")
+	}
+}
+
 func TestComputeKeyHashesReachableLocalReplacement(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
@@ -193,6 +255,9 @@ func TestComputeKeyHashesReachableLocalReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(viewsDir, "views.go"), []byte("package views\n\nimport \"example.com/replacement\"\n\ntype Value = replacement.Value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(viewsDir, "views.gsx"), []byte("package views\nimport \"example.com/replacement\"\ncomponent View() { <p/> }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	key := func() string {
@@ -236,7 +301,7 @@ func TestComputeKeyHashesReachableLocalReplacement(t *testing.T) {
 	}
 }
 
-func TestComputeKeyRejectsReachableCgoPackage(t *testing.T) {
+func TestComputeKeyRejectsMainModuleCgo(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.26.1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -261,8 +326,54 @@ func TestComputeKeyRejectsReachableCgoPackage(t *testing.T) {
 		codegenIdentity:       "generator",
 		classifierFingerprint: "classifier",
 	})
-	if err == nil || !strings.Contains(err.Error(), "reachable cgo package") {
-		t.Fatalf("computeKey error = %v, want explicit cgo cache bypass", err)
+	if !errors.Is(err, sourceview.ErrUncacheableCgo) {
+		t.Fatalf("computeKey error = %v, want ErrUncacheableCgo", err)
+	}
+	if !strings.Contains(err.Error(), `"example.com/app/views"`) {
+		t.Fatalf("computeKey error = %v, want package detail", err)
+	}
+}
+
+func TestComputeKeyCachesImmutableCgoDependency(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.26.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "views")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "views.gsx"), []byte("package views\n\ncomponent View() { <p/> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graph := map[string]pkgInfo{
+		"example.com/app/views": {
+			ImportPath: "example.com/app/views",
+			Dir:        dir,
+			Imports:    []string{"example.com/immutable/cgo"},
+			Module:     &pkgModule{Path: "example.com/app", Dir: root, Main: true},
+		},
+		"example.com/immutable/cgo": {
+			ImportPath: "example.com/immutable/cgo",
+			CgoFiles:   []string{"bridge.go"},
+			Module:     &pkgModule{Path: "example.com/immutable", Version: "v1.2.3"},
+		},
+	}
+	config := cacheKeyConfig{
+		buildContext:          "build",
+		codegenIdentity:       "generator",
+		classifierFingerprint: "classifier",
+	}
+	first, err := computeTestKey(t, dir, root, graph, config)
+	if err != nil {
+		t.Fatalf("first computeKey: %v", err)
+	}
+	second, err := computeTestKey(t, dir, root, graph, config)
+	if err != nil {
+		t.Fatalf("second computeKey: %v", err)
+	}
+	if first != second {
+		t.Fatalf("immutable cgo key changed: first %s, second %s", first, second)
 	}
 }
 
@@ -276,12 +387,14 @@ func computeKeyForTest(t *testing.T, classMerger *codegen.ClassMergerRef) (strin
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/cmtest\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n"), 0o644)
+	os.WriteFile(filepath.Join(tmp, "a", "a.gsx"), []byte("package a\ncomponent View() { <p/> }\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "twcfg"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "twcfg", "merge.go"), []byte("package twcfg\nfunc Merge(values []string) string { return \"\" }\nfunc Other(values []string) string { return \"\" }\n"), 0o644)
-	graph, err := loadGraph(tmp)
-	if err != nil {
-		return "", err
+	var roots []string
+	if classMerger != nil {
+		roots = append(roots, classMerger.PkgPath)
 	}
+	graph := loadGraphWithRootsMust(t, tmp, roots)
 	aDir := filepath.Join(tmp, "a")
 	return computeTestKey(t, aDir, tmp, graph, cacheKeyConfig{
 		buildContext:    "go1.26\nlinux\namd64\n0\n\n",
@@ -319,12 +432,10 @@ func computeKeyForRenderersTest(t *testing.T, renderers []codegen.RendererAlias)
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/rndtest\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n"), 0o644)
+	os.WriteFile(filepath.Join(tmp, "a", "a.gsx"), []byte("package a\ncomponent View() { <p/> }\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "f"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "f", "render.go"), []byte("package f\nfunc RenderA(value string) string { return value }\nfunc RenderB(value string) string { return value }\nfunc RenderBOther(value string) string { return value }\n"), 0o644)
-	graph, err := loadGraph(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
+	graph := loadGraphWithRootsMust(t, tmp, configuredPackagePaths(nil, nil, renderers, nil))
 	aDir := filepath.Join(tmp, "a")
 	k, err := computeTestKey(t, aDir, tmp, graph, cacheKeyConfig{
 		buildContext:    "go1.26\nlinux\namd64\n0\n\n",
@@ -381,6 +492,7 @@ func TestComputeKeyRenderers(t *testing.T) {
 		}
 		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
 		write("views/views.go", "package views\n")
+		write("views/views.gsx", "package views\ncomponent View() { <p/> }\n")
 		write("renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
 
 		viewsDir := filepath.Join(root, "views")
@@ -427,6 +539,7 @@ func TestComputeKeyRenderers(t *testing.T) {
 		}
 		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n\nrequire external.example/renderers v0.0.0\nreplace external.example/renderers => "+filepath.ToSlash(external)+"\n")
 		write("views/views.go", "package views\n")
+		write("views/views.gsx", "package views\ncomponent View() { <p/> }\n")
 		// This physical directory is deliberately named after the external import
 		// path. Path identity must not mistake it for module-owned source: its real
 		// module import path is ex/rnddeps/external.example/renderers.
@@ -476,6 +589,7 @@ func TestComputeKeyRenderers(t *testing.T) {
 		}
 		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n\nrequire external.example/renderers v0.0.0\nreplace external.example/renderers => "+filepath.ToSlash(external)+"\n")
 		write("views/views.go", "package views\n")
+		write("views/views.gsx", "package views\ncomponent View() { <p/> }\n")
 		write("renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
 
 		viewsDir := filepath.Join(root, "views")
@@ -514,6 +628,7 @@ func TestComputeKeyRenderers(t *testing.T) {
 		}
 		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
 		write("views/views.go", "package views\n")
+		write("views/views.gsx", "package views\ncomponent View() { <p/> }\n")
 		write("ui/renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
 
 		viewsDir := filepath.Join(root, "views")
@@ -553,6 +668,7 @@ func TestComputeKeyRenderers(t *testing.T) {
 		}
 		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
 		write("views/views.go", "package views\n")
+		write("views/views.gsx", "package views\ncomponent View() { <p/> }\n")
 		write("a..b/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
 
 		viewsDir := filepath.Join(root, "views")
@@ -594,7 +710,12 @@ func loadGraphWithRootsMust(t *testing.T, root string, roots []string) sourcevie
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph, err := loadGraphWithContext(codegen.CaptureGoCommandContext(moduleDir), manifest, roots)
+	packageDirs := manifest.PackageDirs()
+	dirs := make([]string, 0, len(packageDirs))
+	for _, dir := range packageDirs {
+		dirs = append(dirs, dir)
+	}
+	graph, err := loadGraphWithContext(codegen.CaptureGoCommandContext(moduleDir), manifest, dirs, roots)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,6 +731,7 @@ func TestComputeKeyFingerprintSensitivity(t *testing.T) {
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/fptest\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n"), 0o644)
+	os.WriteFile(filepath.Join(tmp, "a", "a.gsx"), []byte("package a\ncomponent View() { <p/> }\n"), 0o644)
 
 	graph, err := loadGraph(tmp)
 	if err != nil {
@@ -673,7 +795,7 @@ func TestComputeKeyGsxOnlyDeps(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		graph, err := loadGraphWithContext(codegen.CaptureGoCommandContext(root), manifest, nil)
+		graph, err := loadGraphWithContext(codegen.CaptureGoCommandContext(root), manifest, []string{pagesDir}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -774,15 +896,20 @@ func TestGraphQueryPatternsUseRelativePathsOnlyForManifestPackages(t *testing.T)
 	write("go.mod", "module example.com/app\n\ngo 1.26.1\n")
 	write("ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
 	write("pages/home.gsx", "package pages\nimport (\n \"example.com/app/ui\"\n \"example.com/external\"\n)\ncomponent Home() { <ui.Card/> }\n")
+	write("admin/admin.gsx", "package admin\ncomponent Admin() { <p/> }\n")
 	manifest, err := sourceview.Build(sourceview.BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := graphQueryPatterns(manifest, []string{"github.com/gsxhq/gsx", "example.com/app/ui", "example.com/external"})
+	got, err := graphQueryPatterns(
+		manifest,
+		[]string{filepath.Join(root, "pages")},
+		[]string{"github.com/gsxhq/gsx", "example.com/configured"},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"./...", "./pages", "./ui", "example.com/external", "github.com/gsxhq/gsx"}
+	want := []string{"./pages", "./ui", "example.com/configured", "example.com/external", "github.com/gsxhq/gsx"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("graph query patterns = %v, want %v", got, want)
 	}
