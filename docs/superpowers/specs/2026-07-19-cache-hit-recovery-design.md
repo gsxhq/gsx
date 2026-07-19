@@ -29,10 +29,16 @@ about 1.6 MB. Against current `gsx` main:
 The cache-enabled number was initially mistaken for a cache hit. A fresh
 `GSXCACHE` remained empty, and a GC trace showed the heap staying small during
 metadata preparation before growing to roughly 4 GB when fallback generation
-started. The current pipeline can therefore fail to compute usable keys and
-silently regenerate everything. The exact current bypass reason is discarded
-by `generateModule`, so the first implementation step must expose and pin that
-reason before changing behaviour.
+started. The original absolute-path probe did not root configuration discovery
+at the target application, while the first observability slice's corrected
+`gsx -C <clone> generate -v .` probe did. That rooted probe exposed the first
+active bypass: one-learning's built-in `css = "full"` / `js = "full"` minifiers
+are represented as non-nil functions and are incorrectly classified as custom,
+unhashable minifiers. Cache admission therefore stops before graph preparation.
+The built-in functions are deterministic parts of the gsx binary and already
+pinned by minify level plus generator identity; only user-supplied minifier
+functions require bypass. After fixing admission, the structured report must
+expose and pin each next boundary rather than silently regenerating everything.
 
 Runtime rendering is not the priority for this slice. Existing runtime
 benchmarks show the common empty/root paths are already zero-allocation and in
@@ -54,7 +60,20 @@ the single-digit-nanosecond range.
 ## Architecture
 
 `generateModule` remains the single-module coordinator but loses its mixed
-cache responsibilities. Three unexported stages own distinct contracts.
+cache responsibilities. Cache admission retains configuration provenance, then
+three unexported stages own distinct contracts.
+
+### Cache admission
+
+Cache admission preserves minifier provenance at the configuration boundary:
+
+- built-in safe/full minification is cacheable and keyed by the existing
+  minify-level pins plus generator/binary identity; and
+- user-supplied `WithCSSMinifier` / `WithJSMinifier` functions remain
+  uncacheable because arbitrary function behaviour has no exact stable key.
+
+The implementation threads an explicit provenance boolean. It does not compare
+function pointers, names, output samples, or reflection values.
 
 ### `prepareCache`
 
@@ -154,6 +173,8 @@ variable or debug flag is introduced.
 Tests must prove:
 
 - the first run seeds entries and the unchanged second run is a full hit;
+- built-in full minification admits the cache while a custom minifier function
+  bypasses with an explicit reason;
 - a full hit performs zero `GenerateDirs` calls and zero semantic loads;
 - requested graph roots do not include unconditional `./...`;
 - an unrelated broken or main-module cgo package cannot disable caching for a

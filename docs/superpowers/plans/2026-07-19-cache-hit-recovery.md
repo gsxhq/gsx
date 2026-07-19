@@ -202,7 +202,7 @@ Record:
 - semantic generation immediately before generation;
 - ignored `storePut` errors in `StoreFailures`.
 
-At this stage `storeGet` still cannot distinguish missing from corrupt; record both as `entry-missing` until Task 5 changes the store interface. Do not turn cache bypasses into CLI failures.
+At this stage `storeGet` still cannot distinguish missing from corrupt; record both as `entry-missing` until Task 6 changes the store interface. Do not turn cache bypasses into CLI failures.
 
 - [ ] **Step 5: Show the report only under `-v`**
 
@@ -249,7 +249,145 @@ git commit -m "refactor(gen): report cache decisions"
 
 ---
 
-### Task 2: Scope metadata loading to the requested GSX dependency closure
+### Task 2: Distinguish built-in full minification from custom minifier functions
+
+Task 1's correctly rooted one-learning probe exposed the first active bypass: its committed `[minify] css = "full" / js = "full"` config resolves to the built-in `fullmin.CSS`, `fullmin.JS`, and `fullmin.JSON` functions, but `runGenerate` currently treats any non-nil CSS/JS function as custom and disables caching. Built-in full minification is deterministic, pinned by `cssMinify`/`jsMinify` plus `codegenIdentity`, and must be cacheable. User-supplied `WithCSSMinifier`/`WithJSMinifier` functions remain unhashable and must still bypass.
+
+**Files:**
+- Modify: `gen/main.go:37-116` (`config` minifier provenance helper)
+- Modify: `gen/main.go:212-220` (pass provenance before resolving effective funcs)
+- Modify: `gen/main.go:372-420` (`runGenerate`)
+- Test: `gen/minify_test.go`
+- Test: `gen/main_test.go`
+- Modify call sites: `gen/diag_render_test.go` and every other direct `runGenerate` test reference found with gopls
+
+**Interfaces:**
+
+```go
+// gen/main.go
+func (c config) hasCustomMinifier() bool {
+	return c.cssMin != nil || c.jsMin != nil
+}
+
+func runGenerate(
+	args []string,
+	stdout, stderr io.Writer,
+	quiet, verbose, noCache, customMinifier bool,
+	filterPkgs []string,
+	aliases []codegen.FilterAlias,
+	renderers []codegen.RendererAlias,
+	cls *attrclass.Classifier,
+	cssMin, jsMin, jsonMin func(string) (string, error),
+	cssMinify, jsMinify bool,
+	classMerger *codegen.ClassMergerRef,
+	workDir string,
+) int
+```
+
+At the `run` call site, calculate provenance from the merged config before passing the effective functions:
+
+```go
+return runGenerate(
+	cmdArgs, stdout, stderr, quiet, verbose, false, merged.hasCustomMinifier(),
+	merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(),
+	merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(),
+	merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(),
+	merged.classMerger, workDir,
+)
+```
+
+The cache decision becomes:
+
+```go
+useCache := !nocacheFlag && !customMinifier
+```
+
+Do not compare function pointers, names, reflect values, or output bytes. Provenance is explicit at the config boundary where custom options and built-in level selection are still distinct.
+
+- [ ] **Step 1: Write failing provenance unit tests**
+
+In `gen/minify_test.go`, assert:
+
+```go
+func TestConfigHasCustomMinifier(t *testing.T) {
+	custom := func(string) (string, error) { return "", nil }
+	for _, test := range []struct {
+		name string
+		cfg  config
+		want bool
+	}{
+		{name: "none", cfg: config{}, want: false},
+		{name: "builtin full", cfg: config{cssMinLevel: MinifyFull, jsMinLevel: MinifyFull}, want: false},
+		{name: "custom css", cfg: config{cssMin: custom, cssMinLevel: MinifyFull}, want: true},
+		{name: "custom js", cfg: config{jsMin: custom, jsMinLevel: MinifyFull}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.cfg.hasCustomMinifier(); got != test.want {
+				t.Fatalf("hasCustomMinifier() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+```
+
+Run: `go test ./gen -run '^TestConfigHasCustomMinifier$' -count=1`
+
+Expected: FAIL because the provenance helper does not exist.
+
+- [ ] **Step 2: Add failing CLI cache-admission tests**
+
+Create a small module and committed `gsx.toml` with:
+
+```toml
+[minify]
+css = "full"
+js = "full"
+```
+
+Run the real internal CLI twice with a fresh `GSXCACHE` and `-v`. The second run must contain `1 hit, 0 miss, 0 uncacheable` and must not contain `disabled-by-option`.
+
+Add the converse through `runConfig` using `WithCSSMinifier(custom)` plus `WithMinifyLevel(MinifyFull, MinifyFull)`: both runs must report one uncacheable directory with `disabled-by-option`, and the custom function must be called by semantic generation. This proves only user function provenance bypasses, not the full-minify level itself.
+
+Run: `go test ./gen -run 'TestRunGenerate(BuiltinFullMinifyUsesCache|CustomMinifierBypassesCache)' -count=1 -v`
+
+Expected: built-in full case FAILS with `disabled-by-option`; custom case preserves current behavior.
+
+- [ ] **Step 3: Implement explicit provenance and update every call site**
+
+Use:
+
+```bash
+gopls references gen/main.go:372:6
+```
+
+Add `hasCustomMinifier`, thread the boolean from merged config to `runGenerate`, and update test helpers/direct calls with `false` unless that test deliberately supplies a custom function. Keep public `generate(...)` behavior unchanged: its direct function arguments are custom by definition and it already passes `useCache=false` when either is non-nil.
+
+Update the stale `effectiveCSSMin` comment which currently claims any non-nil effective function bypasses the cache; document that admission now uses explicit custom-function provenance.
+
+- [ ] **Step 4: Pin output and key safety**
+
+In the built-in full integration test, assert the generated output is actually fully minified, read its bytes after the cold run, and compare them byte-for-byte after the warm hit. Re-run the existing `cachekey_minify_test.go` tests to prove `cssMinify` and `jsMinify` remain cache-key pins.
+
+- [ ] **Step 5: Capture the next real-corpus boundary**
+
+Repeat Task 1's disposable one-learning clone probe with a fresh cache and the new binary. Confirm `disabled-by-option` is gone. Record the next exact cache decision/reason in the task report; do not fix the next boundary in this task.
+
+- [ ] **Step 6: Run and commit**
+
+```bash
+gofmt -w gen/main.go gen/minify_test.go gen/main_test.go gen/diag_render_test.go
+gopls check -severity=hint gen/main.go
+gopls check -severity=hint gen/minify_test.go
+go test ./gen -run 'Test(ConfigHasCustomMinifier|RunGenerate.*Minifier|ComputeKey_MinifyChangesKey)' -count=1 -v
+go test ./gen -count=1
+git diff --check
+git add gen/main.go gen/minify_test.go gen/main_test.go gen/diag_render_test.go
+git commit -m "fix(gen): cache built-in full minification"
+```
+
+---
+
+### Task 3: Scope metadata loading to the requested GSX dependency closure
 
 Remove the unconditional `./...` query. The selected root set is the requested module-owned GSX directories, their authored GSX-import closure, configured filters/renderers/class merger, and `github.com/gsxhq/gsx`. `go list -deps` expands normal Go dependencies from those roots.
 
@@ -441,7 +579,7 @@ git commit -m "perf(gen): scope cache metadata to selected packages"
 
 ---
 
-### Task 3: Make immutable cgo dependencies cacheable and mutable cgo explicit
+### Task 4: Make immutable cgo dependencies cacheable and mutable cgo explicit
 
 The current projection checks `CgoFiles` before deciding whether package bytes need hashing. That incorrectly makes standard-library and immutable versioned dependencies uncacheable even though the key already pins their toolchain/module provenance.
 
@@ -510,7 +648,7 @@ git commit -m "fix(gen): cache packages with immutable cgo dependencies"
 
 ---
 
-### Task 4: Extract prepare, classify, and commit phases
+### Task 5: Extract prepare, classify, and commit phases
 
 With the failure now visible and graph/cgo semantics pinned, replace the monolithic `generateModule` cache block with explicit phase types. This is a behavior-preserving structural refactor except for per-directory isolation already specified by the design.
 
@@ -650,7 +788,7 @@ git commit -m "refactor(gen): separate cache prepare classify and commit"
 
 ---
 
-### Task 5: Distinguish missing, corrupt, and unreadable entries
+### Task 6: Distinguish missing, corrupt, and unreadable entries
 
 The store currently collapses every read/decode problem to `ok=false`. Give classification enough information to replace corruption intentionally and report filesystem failures without making the cache mandatory.
 
@@ -740,7 +878,7 @@ git commit -m "fix(gen): classify and replace corrupt cache entries"
 
 ---
 
-### Task 6: Add a realistic deterministic fixture and no-op benchmark
+### Task 7: Add a realistic deterministic fixture and no-op benchmark
 
 CI must prove structure and invalidation without enforcing machine timing. The fixture should exercise the same boundaries as the migrated application while remaining local, deterministic, and small enough for normal tests.
 
@@ -861,7 +999,7 @@ git commit -m "test(gen): pin realistic cached no-op behavior"
 
 ---
 
-### Task 7: Meet the one-learning performance gate and update the roadmap
+### Task 8: Meet the one-learning performance gate and update the roadmap
 
 This is the real acceptance test. Run it on a clean disposable clone at the exact GSX commit under review. If the structural report is correct but either resource target is missed, stop and profile the prepare/classify path; do not weaken the target or add a heuristic shortcut.
 
@@ -946,7 +1084,7 @@ git commit -m "docs: record cached generation performance"
 
 ---
 
-### Task 8: Full verification and independent adversarial review
+### Task 9: Full verification and independent adversarial review
 
 **Files:**
 - Review every changed file since `origin/main`
@@ -1020,7 +1158,7 @@ The branch is ready for the normal review/publish workflow only when the indepen
 
 ## Plan Self-Review
 
-- Every approved design phase maps to an implementation task: preparation/graph selection (Tasks 2 and 4), classification/cgo/store decisions (Tasks 3-5), commit semantics (Task 4), deterministic coverage (Tasks 1-6), real workload (Task 7), and adversarial verification (Task 8).
+- Every approved design phase maps to an implementation task: cache admission/provenance (Task 2), preparation/graph selection (Tasks 3 and 5), classification/cgo/store decisions (Tasks 4-6), commit semantics (Task 5), deterministic coverage (Tasks 1-7), real workload (Task 8), and adversarial verification (Task 9).
 - Every invalidation axis named in the design is either covered by the realistic table or preserved by the existing focused cache-key tests and re-run in the full suite.
 - There is no public API addition or `Result` layout change. `generateCachedWithReport`, `cacheReport`, phase types, reason codes, and store statuses remain internal/unexported; `sourceview.ErrUncacheableCgo` is exported only across the Go `internal` boundary.
 - The plan contains no implementation placeholders. The benchmark uses the complete current `generateCached` call, and execution commands require enumerating real changed paths.
