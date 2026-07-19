@@ -344,7 +344,7 @@ func resolveScript(el *ast.Element, bag *diag.Bag) bool {
 		}
 	}
 
-	if !classify(sb.String(), holes, bag) {
+	if !classify(sb.String(), holes, false, bag) {
 		return false
 	}
 
@@ -398,7 +398,7 @@ func ResolveJSAttr(name string, segments []ast.Markup) error {
 // binding / unclassifiable positions fail closed exactly as in <script>.
 // Returns true if clean, false if any diagnostic was added to bag.
 func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
-	return resolveEmbeddedJS(fmt.Sprintf("attribute %q", name), segments, bag)
+	return resolveEmbeddedJS(fmt.Sprintf("attribute %q", name), segments, true, bag)
 }
 
 // ResolveEmbedded classifies every @{ … } hole in a bare segment list for a
@@ -413,7 +413,7 @@ func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
 // already-classified segment list (re-classification just overwrites the same
 // values). Returns true if clean, false if any diagnostic was added to bag.
 func ResolveEmbedded(segments []ast.Markup, bag *diag.Bag) bool {
-	return resolveEmbeddedJS("js literal", segments, bag)
+	return resolveEmbeddedJS("js literal", segments, false, bag)
 }
 
 // resolveEmbeddedJS is the shared segment-walking core behind resolveJSAttr and
@@ -423,7 +423,7 @@ func ResolveEmbedded(segments []ast.Markup, bag *diag.Bag) bool {
 // diagnostic wording only (e.g. `attribute "x-data"` or the neutral
 // "js literal") and never affects classification logic.
 // Returns true if clean, false if any diagnostic was added to bag.
-func resolveEmbeddedJS(descriptor string, segments []ast.Markup, bag *diag.Bag) bool {
+func resolveEmbeddedJS(descriptor string, segments []ast.Markup, allowRootValue bool, bag *diag.Bag) bool {
 	// Bail early if there are no holes (a hole-free JS attr stays StaticAttr and
 	// never reaches here, but be defensive).
 	hasInterp := false
@@ -491,7 +491,7 @@ func resolveEmbeddedJS(descriptor string, segments []ast.Markup, bag *diag.Bag) 
 		}
 	}
 
-	if !classify(sb.String(), holes, bag) {
+	if !classify(sb.String(), holes, allowRootValue, bag) {
 		return false
 	}
 
@@ -517,11 +517,28 @@ func resolveEmbeddedJS(descriptor string, segments []ast.Markup, bag *diag.Bag) 
 // classify lexes the skeleton and assigns each hole a context (setting h.ctx /
 // h.comment / h.resolved), recording positioned fail-closed diagnostics in bag
 // for any hole in an unsafe code position. Returns true if clean.
-func classify(skeleton string, holes []*hole, bag *diag.Bag) bool {
+// allowRootValue enables the lone-hole-is-a-value rule below. It is true only for
+// JS ATTRIBUTES (`data-labels=js`@{labels}“, `hx-vals=js`@{obj}“), where a whole
+// attribute value that is one hole is intentionally the JSON of a Go value. In a
+// <script> body or a Go-expression js`…` literal a bare ordinary-value hole is
+// almost certainly a mistake (executable JS was meant), so those keep the
+// conservative binding rule and reject it — matching the strict plain-`{ }` attr.
+func classify(skeleton string, holes []*hole, allowRootValue bool, bag *diag.Bag) bool {
 	l := js.NewLexer(parse.NewInputString(skeleton))
 	pos := 0                 // running byte offset = start of the token about to be processed
 	prevSig := js.ErrorToken // previous SIGNIFICANT token (start-of-input)
 	ok := true
+
+	// A hole at expression start (`@{x}` with no preceding significant token) is
+	// classified JSCtxBinding by classifyHole (start-of-input is not a value
+	// position). But an expression that STARTS with a hole is a value unless a
+	// following significant token makes the hole an assignment target or operand
+	// (`@{x} = 5`, `@{x} + 1`). We can only know that on the NEXT significant
+	// token, so treat such a hole as a value tentatively and revert it if one
+	// follows. The surviving case — a LONE hole that is the whole js literal
+	// (`data-labels=js`@{labels}``) — cannot be an lvalue, so it stays a value and
+	// JSON-encodes, matching a hole INSIDE a JSON literal.
+	var pendingStartHole *hole
 
 	for {
 		tt, data := l.Next()
@@ -542,6 +559,13 @@ func classify(skeleton string, holes []*hole, bag *diag.Bag) bool {
 		start, end := pos, pos+len(data)
 		pos = end
 
+		// A significant token following a tentative start hole means the hole is
+		// not the whole expression — revert to the conservative binding rule.
+		if pendingStartHole != nil && isSignificant(tt) {
+			pendingStartHole.ctx = ast.JSCtxBinding
+			pendingStartHole = nil
+		}
+
 		for _, h := range holes {
 			if h.resolved {
 				continue
@@ -549,8 +573,12 @@ func classify(skeleton string, holes []*hole, bag *diag.Bag) bool {
 			if h.start < start || h.end > end {
 				continue // hole not (fully) within this token
 			}
+			atStart := prevSig == js.ErrorToken
 			if !classifyHole(h, tt, start, end, prevSig, bag) {
 				ok = false
+			} else if allowRootValue && atStart && h.ctx == ast.JSCtxBinding {
+				h.ctx = ast.JSCtxValue
+				pendingStartHole = h
 			}
 		}
 
