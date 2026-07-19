@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 type pkgOutput map[string][]byte
@@ -117,44 +118,52 @@ func encodeOutput(out pkgOutput) []byte {
 }
 
 func decodeOutput(b []byte) (pkgOutput, bool) {
-	read := func(n int) ([]byte, bool) {
-		if len(b) < n {
-			return nil, false
-		}
-		v := b[:n]
-		b = b[n:]
-		return v, true
-	}
-	readU64 := func() (int, bool) {
-		v, ok := read(8)
-		if !ok {
+	readU64 := func() (uint64, bool) {
+		if len(b) < 8 {
 			return 0, false
 		}
-		return int(binary.BigEndian.Uint64(v)), true
+		value := binary.BigEndian.Uint64(b[:8])
+		b = b[8:]
+		return value, true
 	}
 	count, ok := readU64()
 	if !ok {
 		return nil, false
 	}
-	out := make(pkgOutput, count)
-	for range count {
-		nl, ok := readU64()
+	// Every encoded entry contains at least its name and data lengths. Bound the
+	// count before converting it to int or allocating the map.
+	if count > uint64(len(b)/16) {
+		return nil, false
+	}
+	out := make(pkgOutput, int(count))
+	for range int(count) {
+		nameLength, ok := readU64()
 		if !ok {
 			return nil, false
 		}
-		name, ok := read(nl)
+		if nameLength > uint64(len(b)) {
+			return nil, false
+		}
+		name := string(b[:int(nameLength)])
+		b = b[int(nameLength):]
+		if name == "" || strings.IndexByte(name, 0) >= 0 || filepath.Base(name) != name || !strings.HasSuffix(name, ".x.go") {
+			return nil, false
+		}
+		if _, duplicate := out[name]; duplicate {
+			return nil, false
+		}
+		dataLength, ok := readU64()
 		if !ok {
 			return nil, false
 		}
-		dl, ok := readU64()
-		if !ok {
+		if dataLength > uint64(len(b)) {
 			return nil, false
 		}
-		data, ok := read(dl)
-		if !ok {
-			return nil, false
-		}
-		out[string(name)] = append([]byte(nil), data...)
+		out[name] = append([]byte(nil), b[:int(dataLength)]...)
+		b = b[int(dataLength):]
+	}
+	if len(b) != 0 {
+		return nil, false
 	}
 	return out, true
 }

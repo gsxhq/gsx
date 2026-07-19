@@ -205,6 +205,83 @@ func TestCachePipelineKeyFailurePreservesSiblingHit(t *testing.T) {
 	}
 }
 
+func TestCachePipelineUnreadableEntryPreservesSiblingHit(t *testing.T) {
+	root, firstDir, secondDir, _, keyConfig := cachePipelineProjection(t)
+	manifest, err := sourceview.Build(sourceview.BuildOptions{
+		ModuleRoot: root,
+		ModulePath: "example.com/cache-pipeline",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := &pkgModule{Path: "example.com/cache-pipeline", Dir: root, Main: true}
+	projection, err := sourceview.NewCacheProjection(manifest, sourceview.Graph{
+		"example.com/cache-pipeline/cacheable": {
+			ImportPath: "example.com/cache-pipeline/cacheable",
+			Dir:        firstDir,
+			Module:     module,
+		},
+		"example.com/cache-pipeline/uncacheable": {
+			ImportPath: "example.com/cache-pipeline/uncacheable",
+			Dir:        secondDir,
+			Module:     module,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheRoot := t.TempDir()
+	firstKey, err := computeKey(firstDir, projection, keyConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondKey, err := computeKey(secondDir, projection, keyConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHit := pkgOutput{"cacheable.x.go": []byte("package cacheable\n")}
+	if err := storePut(cacheRoot, firstKey, wantHit); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(entryPath(cacheRoot, secondKey), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	classification := classifyCache(cachePreparation{
+		dirs:       []string{firstDir, secondDir},
+		cacheDir:   cacheRoot,
+		projection: projection,
+		keyConfig:  keyConfig,
+		cacheReady: true,
+	})
+	if got := classification.hits[firstDir]; !reflect.DeepEqual(got, wantHit) {
+		t.Fatalf("sibling hit = %v, want %v", got, wantHit)
+	}
+	if want := []string{secondDir}; !reflect.DeepEqual(classification.misses, want) {
+		t.Fatalf("misses = %v, want %v", classification.misses, want)
+	}
+	if len(classification.uncacheable) != 0 {
+		t.Fatalf("uncacheable = %v, want none", classification.uncacheable)
+	}
+	if len(classification.dirReports) != 2 {
+		t.Fatalf("dir reports = %+v, want two", classification.dirReports)
+	}
+	for _, report := range classification.dirReports {
+		switch report.Dir {
+		case firstDir:
+			if report.Decision != cacheDecisionHit || report.Reason != cacheReasonEntryHit || report.Detail != "" {
+				t.Fatalf("hit report = %+v", report)
+			}
+		case secondDir:
+			if report.Decision != cacheDecisionMiss || report.Reason != cacheReasonEntryReadFailed || report.Detail == "" {
+				t.Fatalf("unreadable report = %+v", report)
+			}
+		default:
+			t.Fatalf("unexpected report = %+v", report)
+		}
+	}
+}
+
 func TestCachePipelineGenerationDirsAreStableUnion(t *testing.T) {
 	classification := cacheClassification{
 		misses:      []string{"/c", "/a", "/c"},
