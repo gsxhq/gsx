@@ -80,6 +80,40 @@ func TestRunGenerateQuiet(t *testing.T) {
 	}
 }
 
+func TestRunGenerateCacheReport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxruncachereport")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "hi.gsx", hiComponent)
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	code, out, errb := runCapture(t, []string{"generate", pkgDir})
+	if code != 0 {
+		t.Fatalf("normal generate exit = %d, stderr=%q", code, errb)
+	}
+	if strings.Contains(out, "gsx cache:") {
+		t.Fatalf("normal generate included cache report: %q", out)
+	}
+
+	code, out, errb = runCapture(t, []string{"generate", "-v", pkgDir})
+	if code != 0 {
+		t.Fatalf("verbose generate exit = %d, stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "gsx cache:") {
+		t.Fatalf("verbose generate omitted cache report: %q", out)
+	}
+
+	code, out, errb = runCapture(t, []string{"generate", "-q", "-v", pkgDir})
+	if code != 0 {
+		t.Fatalf("quiet verbose generate exit = %d, stderr=%q", code, errb)
+	}
+	if out != "" {
+		t.Fatalf("quiet verbose generate output = %q, want empty", out)
+	}
+}
+
 // TestRunGenerateMissingPath proves a non-existent path is a USAGE error (exit 2).
 func TestRunGenerateMissingPath(t *testing.T) {
 	t.Parallel()

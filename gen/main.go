@@ -417,7 +417,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
-	res, err := generateCached(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
+	res, report, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.
@@ -471,6 +471,9 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return 0
 	}
 	if verboseFlag {
+		for _, line := range report.verboseLines() {
+			fmt.Fprintln(stdout, line)
+		}
 		for _, w := range res.Written {
 			fmt.Fprintln(stdout, w)
 		}

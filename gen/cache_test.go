@@ -44,6 +44,14 @@ fi
 if [ "$1" = "env" ]; then
 	exec "$REAL_GO" "$@"
 fi
+if [ -n "$GSX_COMMAND_COUNTER" ]; then
+	count=0
+	if [ -f "$GSX_COMMAND_COUNTER" ]; then
+		read count < "$GSX_COMMAND_COUNTER"
+	fi
+	count=$((count + 1))
+	printf '%s' "$count" > "$GSX_COMMAND_COUNTER"
+fi
 if [ -n "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
 	count=0
 	if [ -f "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
@@ -93,22 +101,30 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	mkgsx("w", "package w\n\ncomponent B() { <div>hi</div> }\n")
 	t.Setenv("GSXCACHE", t.TempDir())
 
-	// cold: both generate
-	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	// cold: both miss and generate
+	res, report, err := generateCachedWithReport([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Written) != 2 {
 		t.Fatalf("cold: want 2 written, got %v", res.Written)
 	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 0 || misses != 2 || uncacheable != 0 || !report.semanticGeneration() {
+		t.Fatalf("cold cache report = %+v", report)
+	}
 
-	// warm no-op: nothing regenerated (Written empty — restores are skipped when on-disk matches)
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	// warm no-op: both hit; restores are skipped when on-disk matches.
+	res, report, err = generateCachedWithReport([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Written) != 0 {
 		t.Fatalf("warm no-op: want 0 written, got %v", res.Written)
+	}
+	hits, misses, uncacheable = report.counts()
+	if hits != 2 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm cache report = %+v", report)
 	}
 
 	// edit only v -> only v regenerates
@@ -119,6 +135,59 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 	if len(res.Written) != 1 || filepath.Base(filepath.Dir(res.Written[0])) != "v" {
 		t.Fatalf("edit v: want only v written, got %v", res.Written)
+	}
+}
+
+func TestCacheWarmHitAvoidsSemanticPackagesLoad(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-warm-hit\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	counter := filepath.Join(t.TempDir(), "command-count")
+	if err := os.WriteFile(counter, []byte("0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GSX_COMMAND_COUNTER", counter)
+
+	_, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 1 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm cache report = %+v", report)
+	}
+	data, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(data)); got != "1" {
+		t.Fatalf("warm non-env go commands = %s, want 1 metadata go list only", got)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
@@ -15,10 +16,16 @@ import (
 )
 
 func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, error) {
+	result, _, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
+	return result, err
+}
+
+func generateCachedWithReport(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, cacheReport, error) {
 	var res Result
+	var report cacheReport
 	dirs, err := discoverDirs(paths)
 	if err != nil {
-		return res, err
+		return res, report, err
 	}
 
 	// Walk-level orphan sweep: a directory whose only .gsx was just deleted
@@ -35,9 +42,9 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, r
 
 	if len(dirs) == 0 {
 		if len(res.Errs) > 0 {
-			return res, errors.Join(res.Errs...)
+			return res, report, errors.Join(res.Errs...)
 		}
-		return res, nil
+		return res, report, nil
 	}
 
 	// Discovery walks DOWN across go.mod boundaries, so the dir set may span
@@ -50,21 +57,21 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, r
 		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
 	for _, g := range groups {
-		generateModule(g, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger, &res)
+		generateModule(g, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger, &res, &report)
 	}
 
 	sort.Strings(res.Written)
 	sort.Strings(res.Removed)
 	if len(res.Errs) > 0 {
-		return res, errors.Join(res.Errs...)
+		return res, report, errors.Join(res.Errs...)
 	}
 	// Return a non-nil error when there are error-severity diagnostics, so that
 	// callers using the Go API (Generate, generate) can still detect failure
 	// without inspecting res.Diags directly.
 	if anyErrorDiag(res.Diags) {
-		return res, errors.New("codegen: diagnostics reported")
+		return res, report, errors.New("codegen: diagnostics reported")
 	}
-	return res, nil
+	return res, report, nil
 }
 
 // generateModule generates every .gsx package dir in one module group g, anchored
@@ -73,19 +80,21 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, r
 // MISS regenerate when the incremental cache is usable, else one batched
 // generate. Final result aggregation (sort, error join) is the caller's job, so
 // this only appends to res.
-func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, out *Result) {
+func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, out *Result, report *cacheReport) {
 	root, modPath, dirs := g.root, g.modPath, g.dirs
 
 	// Work against a LOCAL result so the per-module manifest guard can ask "was
 	// THIS module clean?" without seeing sibling modules' errors. Merge into the
 	// shared out on every exit path (including the early operational-error returns).
 	var res Result
+	moduleReport := moduleCacheReport{Root: root}
 	defer func() {
 		out.Written = append(out.Written, res.Written...)
 		out.Errs = append(out.Errs, res.Errs...)
 		out.Diags = append(out.Diags, res.Diags...)
 		out.UpToDate += res.UpToDate
 		out.Removed = append(out.Removed, res.Removed...)
+		report.Modules = append(report.Modules, moduleReport)
 	}()
 
 	// Dir-scoped orphan sweep: runs for every dir in this module BEFORE any
@@ -108,16 +117,26 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		res.Removed = append(res.Removed, removed...)
 	}
 
+	prepareStart := time.Now()
 	cdir, enabled := cacheDir()
 	if !useCache {
 		enabled = false
+		moduleReport.BypassReason = cacheReasonDisabledByOption
+		moduleReport.BypassDetail = "cache disabled by option"
 	}
 	// modPath must be non-empty for the cache key to correctly classify
 	// in-module deps. An empty modPath (malformed/missing module line in
 	// go.mod) silently breaks dep invalidation, so treat it as disabled.
 	if modPath == "" {
 		enabled = false
+		moduleReport.BypassReason = cacheReasonMissingModulePath
+		moduleReport.BypassDetail = "module path is empty"
 	}
+	if !enabled && moduleReport.BypassReason == "" {
+		moduleReport.BypassReason = cacheReasonDisabledByOption
+		moduleReport.BypassDetail = "cache unavailable"
+	}
+	moduleReport.Enabled = enabled
 
 	clsFingerprint := cls.Fingerprint()
 	goContext := codegen.CaptureGoCommandContext(root)
@@ -142,13 +161,21 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		JSMinify:         jsMinify,
 		ClassMerger:      classMerger,
 	}
+	moduleReport.Durations.Prepare = time.Since(prepareStart)
 
 	// No cache: one batched generate (Tier 0 path).
 	if !enabled {
+		for _, dir := range dirs {
+			moduleReport.Dirs = append(moduleReport.Dirs, cacheDirReport{Dir: dir, Decision: cacheDecisionUncacheable, Reason: moduleReport.BypassReason, Detail: moduleReport.BypassDetail})
+		}
+		generateStart := time.Now()
+		moduleReport.SemanticGeneration = true
 		writeAll(dirs, mustGen(root, dirs, genOpts, &res), &res)
+		moduleReport.Durations.Generate = time.Since(generateStart)
 		return
 	}
 
+	classifyStart := time.Now()
 	bctx, contextErr := goContext.CacheFingerprint()
 	if contextErr != nil {
 		// Only a valid context whose source universe is deliberately outside the
@@ -156,6 +183,10 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		// decoding, and live-provenance failures are unsafe to continue: the
 		// context may have changed and Module does not own enough state to reopen it.
 		if errors.Is(contextErr, codegen.ErrUncacheableGoContext) {
+			for _, dir := range dirs {
+				moduleReport.Dirs = append(moduleReport.Dirs, cacheDirReport{Dir: dir, Decision: cacheDecisionUncacheable, Reason: cacheReasonGoContextUncacheable, Detail: contextErr.Error()})
+			}
+			moduleReport.Durations.Classify = time.Since(classifyStart)
 			// CacheFingerprint returns uncacheable classifications without its
 			// normal final validation. Establish the uncached semantic commit
 			// boundary here before Module consumes that context.
@@ -163,7 +194,10 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 				res.Errs = append(res.Errs, fmt.Errorf("gen: validate uncacheable Go command context before generation: %w", err))
 				return
 			}
+			generateStart := time.Now()
+			moduleReport.SemanticGeneration = true
 			writeAll(dirs, mustGen(root, dirs, genOpts, &res), &res)
+			moduleReport.Durations.Generate = time.Since(generateStart)
 			return
 		}
 		res.Errs = append(res.Errs, fmt.Errorf("gen: fingerprint Go command context: %w", contextErr))
@@ -171,10 +205,11 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 	}
 	graphRoots := []string{"github.com/gsxhq/gsx"}
 	graphRoots = append(graphRoots, configuredPackagePaths(filterPkgs, aliases, renderers, classMerger)...)
-	graph, gerr := loadGraphWithContext(goContext, sourceManifest, dedupSorted(graphRoots))
+	graph, graphErr := loadGraphWithContext(goContext, sourceManifest, dedupSorted(graphRoots))
 	var projection *sourceview.CacheProjection
-	if gerr == nil {
-		projection, gerr = sourceview.NewCacheProjection(sourceManifest, graph)
+	var projectionErr error
+	if graphErr == nil {
+		projection, projectionErr = sourceview.NewCacheProjection(sourceManifest, graph)
 	}
 	codegenID := codegenIdentity()
 	keyConfig := cacheKeyConfig{
@@ -194,22 +229,32 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 	hits := map[string]pkgOutput{}
 	var miss []string
 	for _, dir := range dirs {
-		if gerr != nil {
+		if graphErr != nil {
+			moduleReport.Dirs = append(moduleReport.Dirs, cacheDirReport{Dir: dir, Decision: cacheDecisionUncacheable, Reason: cacheReasonGraphQueryFailed, Detail: graphErr.Error()})
+			miss = append(miss, dir) // graph failed → regenerate everything (safe)
+			continue
+		}
+		if projectionErr != nil {
+			moduleReport.Dirs = append(moduleReport.Dirs, cacheDirReport{Dir: dir, Decision: cacheDecisionUncacheable, Reason: cacheReasonProjectionFailed, Detail: projectionErr.Error()})
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
 		k, err := computeKey(dir, projection, keyConfig)
 		if err != nil {
+			moduleReport.Dirs = append(moduleReport.Dirs, cacheDirReport{Dir: dir, Decision: cacheDecisionUncacheable, Reason: cacheReasonKeyFailed, Detail: err.Error()})
 			miss = append(miss, dir) // uncertain → MISS
 			continue
 		}
 		keys[dir] = k
 		if cached, ok := storeGet(cdir, k); ok {
 			hits[dir] = cached
+			moduleReport.Dirs = append(moduleReport.Dirs, cacheDirReport{Dir: dir, Decision: cacheDecisionHit, Reason: cacheReasonEntryHit})
 			continue // HIT
 		}
+		moduleReport.Dirs = append(moduleReport.Dirs, cacheDirReport{Dir: dir, Decision: cacheDecisionMiss, Reason: cacheReasonEntryMissing})
 		miss = append(miss, dir)
 	}
+	moduleReport.Durations.Classify = time.Since(classifyStart)
 
 	// CacheFingerprint was computed before graph loading and key classification.
 	// Revalidate at the semantic commit boundary immediately before any cached
@@ -222,6 +267,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 	}
 
 	// RESTORE phase: write every HIT's cached output to disk (hash-gated), BEFORE generating.
+	restoreStart := time.Now()
 	for _, dir := range dirs {
 		out, ok := hits[dir]
 		if !ok {
@@ -235,10 +281,14 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		res.Written = append(res.Written, written...)
 		res.UpToDate += upToDate
 	}
+	moduleReport.Durations.Restore = time.Since(restoreStart)
 
 	// GENERATE phase: only the miss set, in ONE load.
 	if len(miss) > 0 {
+		generateStart := time.Now()
+		moduleReport.SemanticGeneration = true
 		genOut, err := codegen.GenerateDirs(root, miss, genOpts, nil)
+		moduleReport.Durations.Generate = time.Since(generateStart)
 		if err != nil {
 			res.Errs = append(res.Errs, err)
 			return
@@ -255,7 +305,9 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 				continue // failed dir (poisoned) or I/O error — never cached
 			}
 			if k, ok := keys[dir]; ok {
-				_ = storePut(cdir, k, po) // best-effort cache write
+				if err := storePut(cdir, k, po); err != nil {
+					moduleReport.StoreFailures = append(moduleReport.StoreFailures, cacheDirReport{Dir: dir, Reason: cacheReasonStoreWriteFailed, Detail: err.Error()})
+				}
 			}
 		}
 	}
