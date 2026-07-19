@@ -1,0 +1,26 @@
+# Companion to goblock_return_err: a plain (non-method) component whose body is
+# ordinary MARKUP (not a single child component). A raw `{{ }}` block's
+# `return err` propagates the render error here too.
+-- input.gsx --
+package views
+
+import "context"
+
+func label(ctx context.Context, k string) (string, error) {
+	return "L:" + k, nil
+}
+
+component Row(k string) {
+	{{
+		v, err := label(ctx, k)
+		if err != nil {
+			return err
+		}
+	}}
+	<p>{ v }</p>
+}
+-- invoke --
+Row("a")
+-- diagnostics.golden --
+-- render.golden --
+<p>L:a</p>

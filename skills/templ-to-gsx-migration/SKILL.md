@@ -644,6 +644,26 @@ func postFormAction(ctx context.Context, p store.Post) (string, error) {
 <form action={postFormAction(ctx, p)} method="post">
 ```
 
+When the fallible call is in a **statement** position — a `{{ }}` block computing
+a value, not a hole — `return err` directly. A `{{ }}` block runs inside the
+component's render closure, so a bare `return err` propagates the render error
+exactly like a hole does:
+
+```gsx
+component Card(key string) {
+    {{
+        id, err := lookupID(ctx, key)
+        if err != nil {
+            return err   // propagates from Render — no must()/panic
+        }
+    }}
+    <Inner id={id}/>
+}
+```
+
+This is not obvious (the component *looks* like it returns `gsx.Node`), but it is
+the idiom — never `panic(err)` or a `must()` wrapper in a component body.
+
 ## Repo integration: committed .x.go, hooks, and CI drift gates
 
 Two valid `.x.go` strategies. During mixed templ+gsx coexistence (table above),

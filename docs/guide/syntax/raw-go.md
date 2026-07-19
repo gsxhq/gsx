@@ -18,6 +18,27 @@ expression position instead.
 
 Use `{ expression }` when a value should render instead. See [Interpolation](./interpolation.md) for expressions and escaping.
 
+## Returning an error
+
+A GoBlock runs inside the component's render closure, so it may `return err` to
+abort rendering and propagate the error — the same way a failing `(T, error)`
+hole does. Use it when a statement needs a value from a function that can fail:
+
+```gsx
+component Card(key string) {
+    {{
+        id, err := lookupID(ctx, key)
+        if err != nil {
+            return err
+        }
+    }}
+    <div id={id}>…</div>
+}
+```
+
+Prefer this over a `panic`/`must(…)` helper: a returned error surfaces from
+`Render` like any other, instead of crashing the request.
+
 ## GoBlock or ordered attributes?
 
 ::: v-pre
