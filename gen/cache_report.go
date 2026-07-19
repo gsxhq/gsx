@@ -59,6 +59,10 @@ type cacheReport struct {
 	Modules []moduleCacheReport
 }
 
+func (report *moduleCacheReport) recordClassification(classification cacheClassification) {
+	report.Dirs = append(report.Dirs, classification.dirReports...)
+}
+
 func (report cacheReport) counts() (hits, misses, uncacheable int) {
 	for _, module := range report.Modules {
 		for _, dir := range module.Dirs {
