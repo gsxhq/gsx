@@ -138,6 +138,44 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 }
 
+func TestCacheIgnoresUnrelatedBrokenPackage(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-selected\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	viewsDir := filepath.Join(root, "views")
+	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(viewsDir, "view.gsx"), []byte("package views\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	brokenDir := filepath.Join(root, "broken")
+	if err := os.MkdirAll(brokenDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brokenDir, "broken.go"), []byte("package\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	if _, _, err := generateCachedWithReport([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("seed cache for selected views: %v", err)
+	}
+	_, report, err := generateCachedWithReport([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatalf("warm cache for selected views: %v", err)
+	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 1 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm selected cache report = %+v", report)
+	}
+}
+
 func TestCacheWarmHitAvoidsSemanticPackagesLoad(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell Go launcher probe is Unix-only")

@@ -90,9 +90,9 @@ type CacheProjection struct {
 }
 
 // NewCacheProjection joins the shared GSX manifest to cmd/go's selected graph.
-// It validates every GSX-only sentinel package before any cache key can be
-// computed, preventing cache metadata from describing a different package view
-// than packages.Load.
+// It validates every selected graph package claiming manifest ownership before
+// any cache key can be computed, preventing cache metadata from describing a
+// different package view than packages.Load.
 func NewCacheProjection(manifest *Manifest, graph Graph) (*CacheProjection, error) {
 	if manifest == nil {
 		return nil, fmt.Errorf("sourceview: nil manifest")
@@ -115,11 +115,12 @@ func NewCacheProjection(manifest *Manifest, graph Graph) (*CacheProjection, erro
 			projection.byDir[canonicalPath(metadata.Dir)] = importPath
 		}
 	}
-	for importPath, dir := range manifest.packageDirs {
-		metadata, ok := projection.graph[importPath]
-		if !ok {
-			return nil, fmt.Errorf("sourceview: selected Go graph has no manifest package %q", importPath)
+	for _, metadata := range projection.graph {
+		dir, owned := manifest.packageDirs[metadata.ImportPath]
+		if !owned {
+			continue
 		}
+		importPath := metadata.ImportPath
 		if canonicalPath(metadata.Dir) != canonicalPath(dir) {
 			return nil, fmt.Errorf("sourceview: selected package %q has dir %q, want manifest dir %q", importPath, metadata.Dir, dir)
 		}
@@ -213,12 +214,6 @@ func (projection *CacheProjection) LogicalFiles(dir string, extraRoots []string)
 func (projection *CacheProjection) inputs(dir string, extraRoots []string) ([]cacheInput, error) {
 	dir = canonicalPath(dir)
 	rootPath, ok := projection.byDir[dir]
-	if !ok {
-		if manifestPath, manifestOK := projection.manifest.packagePathForDir(dir); manifestOK {
-			rootPath = manifestPath
-			ok = true
-		}
-	}
 	if !ok {
 		return nil, fmt.Errorf("sourceview: target directory %s is absent from selected package graph", dir)
 	}

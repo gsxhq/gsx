@@ -205,7 +205,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 	}
 	graphRoots := []string{"github.com/gsxhq/gsx"}
 	graphRoots = append(graphRoots, configuredPackagePaths(filterPkgs, aliases, renderers, classMerger)...)
-	graph, graphErr := loadGraphWithContext(goContext, sourceManifest, dedupSorted(graphRoots))
+	graph, graphErr := loadGraphWithContext(goContext, sourceManifest, dirs, dedupSorted(graphRoots))
 	var projection *sourceview.CacheProjection
 	var projectionErr error
 	if graphErr == nil {

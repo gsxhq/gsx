@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -177,16 +178,73 @@ func TestCacheProjectionHashesReachableVersionlessReplacementProvenance(t *testi
 	}
 }
 
-func TestCacheProjectionRequiresEveryManifestPackageInSelectedGraph(t *testing.T) {
+func TestCacheProjectionAcceptsSelectedManifestSubset(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	writeTestFile(t, root, "ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
+	adminDir := filepath.Join(root, "admin")
+	writeTestFile(t, root, "admin/admin.gsx", "package admin\ncomponent Admin() { <p/> }\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphWithUI := Graph{
+		"example.com/app/ui": {
+			ImportPath: "example.com/app/ui",
+			Dir:        filepath.Join(root, "ui"),
+			Module: &ModuleMetadata{
+				Path:  "example.com/app",
+				Dir:   root,
+				GoMod: filepath.Join(root, "go.mod"),
+				Main:  true,
+			},
+		},
+	}
+	projection, err := NewCacheProjection(manifest, graphWithUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.Digest(adminDir, nil); err == nil {
+		t.Fatal("Digest accepted a selected directory absent from the Go graph")
+	}
+}
+
+func TestCacheProjectionRejectsInvalidSelectedManifestPackage(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	uiDir := filepath.Join(root, "ui")
 	writeTestFile(t, root, "ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
 	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewCacheProjection(manifest, Graph{}); err == nil {
-		t.Fatal("cache projection accepted a graph missing a GSX-only manifest package")
+
+	for _, test := range []struct {
+		name     string
+		dir      string
+		main     bool
+		wantText string
+	}{
+		{name: "wrong directory", dir: filepath.Join(root, "other"), main: true, wantText: "want manifest dir"},
+		{name: "non-main module", dir: uiDir, main: false, wantText: "is not owned by main module"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			graph := Graph{
+				"example.com/app/ui": {
+					ImportPath: "example.com/app/ui",
+					Dir:        test.dir,
+					Module: &ModuleMetadata{
+						Path:  "example.com/app",
+						Dir:   root,
+						GoMod: filepath.Join(root, "go.mod"),
+						Main:  test.main,
+					},
+				},
+			}
+			if _, err := NewCacheProjection(manifest, graph); err == nil || !strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("NewCacheProjection() error = %v, want text %q", err, test.wantText)
+			}
+		})
 	}
 }
 
