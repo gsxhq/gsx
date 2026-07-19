@@ -31,6 +31,12 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
   parameters. `children` receives the markup body. `attrs` receives unmatched
   attributes and ordered bag contributors such as `attrs={bag}` and
   `attrs={{ "id": id }}`. Capitalized `Children` and `Attrs` are ordinary inputs.
+- **Whitespace collapses JSX-style** (`internal/wsnorm`): a newline between
+  elements is dropped (no space); a same-line run of spaces collapses to one.
+  So inline tokens split across elements on separate lines render with **no**
+  space between them — put an explicit space *inside* an element
+  (`<span> → </span>`, `<span>label: </span>`) or keep them on one line. Bodies of
+  `pre`/`textarea`/`script`/`style` are kept verbatim.
 
 ## Forms
 
@@ -53,6 +59,20 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
 - Attribute fallthrough: declare `attrs gsx.Attrs` (or another supported attrs-bag
   shape), then spread `{ attrs... }` where the component chooses. A component
   without `attrs` rejects unmatched attributes and attrs-bag contributors.
+
+## Coming from JSX (don't get confused)
+
+Same shape, but the holes are **Go, not JavaScript**:
+
+- Values are Go: `{ expr }`, `name={ expr }` — not JS, not template strings.
+- `class` (not `className`), composable: `class={ base, "on": active }`.
+- Control flow is **blocks**, not operators: `{ if c { … } }`,
+  `{ for _, x := range xs { … } }` — no `&&`, ternary, or `.map()`.
+- Children: `{children}` in the body; `<C>…</C>` at the call site — no `props.children`.
+- Event handlers are strings, not funcs: ``@click=js`open = !open` `` (Alpine),
+  not `onClick={fn}`. No output from `{{ stmt }}`; `gsx.Raw(s)` is the
+  `dangerouslySetInnerHTML` opt-out. Body is emission — **no `return`**.
+- **Same as JSX:** `<>…</>` fragments, positional markup-vs-Go, whitespace collapse.
 
 ## The one subtlety: markup vs Go
 
