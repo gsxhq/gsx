@@ -193,7 +193,8 @@ func classifyCache(prep cachePreparation) cacheClassification {
 			continue
 		}
 		classification.keys[dir] = key
-		if cached, ok := storeGet(prep.cacheDir, key); ok {
+		cached, status, lookupErr := storeGet(prep.cacheDir, key)
+		if status == cacheLookupHit {
 			classification.hits[dir] = cached
 			classification.dirReports = append(classification.dirReports, cacheDirReport{
 				Dir:      dir,
@@ -202,11 +203,25 @@ func classifyCache(prep cachePreparation) cacheClassification {
 			})
 			continue
 		}
+		var reason cacheReason
+		var detail string
+		switch status {
+		case cacheLookupMissing:
+			reason = cacheReasonEntryMissing
+		case cacheLookupCorrupt:
+			reason = cacheReasonEntryCorrupt
+		case cacheLookupUnreadable:
+			reason = cacheReasonEntryReadFailed
+			detail = lookupErr.Error()
+		default:
+			panic(fmt.Sprintf("gen: unknown cache lookup status %d", status))
+		}
 		classification.misses = append(classification.misses, dir)
 		classification.dirReports = append(classification.dirReports, cacheDirReport{
 			Dir:      dir,
 			Decision: cacheDecisionMiss,
-			Reason:   cacheReasonEntryMissing,
+			Reason:   reason,
+			Detail:   detail,
 		})
 	}
 	classification.misses = dedupSorted(classification.misses)

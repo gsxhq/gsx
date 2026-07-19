@@ -255,10 +255,10 @@ func TestCachePipelineWriteStageCompletesBeforeStoreCandidates(t *testing.T) {
 	cacheRoot := t.TempDir()
 	report := moduleCacheReport{}
 	storeGeneratedOutputs(cacheRoot, candidates, &report)
-	if _, ok := storeGet(cacheRoot, "cacheable-key"); !ok {
+	if _, status, err := storeGet(cacheRoot, "cacheable-key"); err != nil || status != cacheLookupHit {
 		t.Fatal("cacheable sibling was not stored after the complete write stage")
 	}
-	if _, ok := storeGet(cacheRoot, "must-not-store"); ok {
+	if _, status, err := storeGet(cacheRoot, "must-not-store"); err != nil || status != cacheLookupMissing {
 		t.Fatal("poisoned uncacheable directory was stored")
 	}
 	if len(report.StoreFailures) != 0 {
@@ -371,10 +371,10 @@ func TestCachePipelineCommitStoresOnlyCacheableMisses(t *testing.T) {
 	if !report.SemanticGeneration {
 		t.Fatal("commit did not record semantic generation")
 	}
-	if _, ok := storeGet(cacheRoot, cacheableKey); !ok {
+	if _, status, err := storeGet(cacheRoot, cacheableKey); err != nil || status != cacheLookupHit {
 		t.Fatal("cacheable miss output was not stored")
 	}
-	if _, ok := storeGet(cacheRoot, uncacheableKey); ok {
+	if _, status, err := storeGet(cacheRoot, uncacheableKey); err != nil || status != cacheLookupMissing {
 		t.Fatal("uncacheable generated output was stored")
 	}
 	for _, dir := range []string{cacheableDir, uncacheableDir} {
@@ -382,5 +382,63 @@ func TestCachePipelineCommitStoresOnlyCacheableMisses(t *testing.T) {
 		if _, err := os.Stat(target); err != nil {
 			t.Fatalf("generated output %s: %v", target, err)
 		}
+	}
+}
+
+func TestCacheCorruptEntryRegeneratesAndReplaces(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxcachecorrupt")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "page.gsx", "package views\n\ncomponent Page() { <p>fresh</p> }\n")
+	cacheRoot := t.TempDir()
+	t.Setenv("GSXCACHE", cacheRoot)
+
+	generate := func() (Result, cacheReport, error) {
+		return generateCachedWithReport([]string{pkgDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, false, false, nil)
+	}
+	if result, _, err := generate(); err != nil || len(result.Errs) != 0 {
+		t.Fatalf("seed generation = (%+v, %v)", result, err)
+	}
+
+	prep, _, err := prepareCache(moduleGroup{
+		root:    mod,
+		modPath: "gsxcachecorrupt",
+		dirs:    []string{pkgDir},
+	}, moduleGenerateConfig{classifier: attrclass.Builtin(), useCache: true})
+	if err != nil || !prep.cacheReady {
+		t.Fatalf("cache preparation = (%+v, %v)", prep, err)
+	}
+	key, err := computeKey(pkgDir, prep.projection, prep.keyConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(entryPath(cacheRoot, key), []byte("truncated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(pkgDir, "page.x.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, report, err := generate()
+	if err != nil || len(result.Errs) != 0 {
+		t.Fatalf("corrupt-entry generation = (%+v, %v)", result, err)
+	}
+	if !report.semanticGeneration() {
+		t.Fatal("corrupt entry did not trigger semantic generation")
+	}
+	if got := report.Modules[0].Dirs; len(got) != 1 || got[0].Decision != cacheDecisionMiss || got[0].Reason != cacheReasonEntryCorrupt {
+		t.Fatalf("corrupt-entry report = %+v, want one entry-corrupt miss", got)
+	}
+	generated, err := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(generated), "fresh") {
+		t.Fatalf("regenerated output omitted source content:\n%s", generated)
+	}
+	if _, status, err := storeGet(cacheRoot, key); err != nil || status != cacheLookupHit {
+		t.Fatalf("replacement lookup = (%v, %v), want hit, nil", status, err)
 	}
 }

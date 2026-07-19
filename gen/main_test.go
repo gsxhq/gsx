@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // runCapture drives run with captured stdout/stderr and returns code+output.
@@ -111,6 +113,54 @@ func TestRunGenerateCacheReport(t *testing.T) {
 	}
 	if out != "" {
 		t.Fatalf("quiet verbose generate output = %q, want empty", out)
+	}
+}
+
+func TestRunGenerateStoreFailureIsVerboseOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxrunstorefailure")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "page.gsx", hiComponent)
+
+	t.Setenv("GSXCACHE", t.TempDir())
+	prep, _, err := prepareCache(moduleGroup{
+		root:    mod,
+		modPath: "gsxrunstorefailure",
+		dirs:    []string{pkgDir},
+	}, moduleGenerateConfig{classifier: attrclass.Builtin(), useCache: true})
+	if err != nil || !prep.cacheReady {
+		t.Fatalf("cache preparation = (%+v, %v)", prep, err)
+	}
+	key, err := computeKey(pkgDir, prep.projection, prep.keyConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badCache := t.TempDir()
+	if err := os.WriteFile(filepath.Join(badCache, key[:2]), []byte("not a cache shard directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GSXCACHE", badCache)
+
+	result, report, err := generateCachedWithReport([]string{pkgDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, false, false, nil)
+	if err != nil || len(result.Errs) != 0 {
+		t.Fatalf("store failure generation = (%+v, %v)", result, err)
+	}
+	if len(report.Modules) != 1 || len(report.Modules[0].StoreFailures) != 1 {
+		t.Fatalf("store failure report = %+v", report)
+	}
+
+	code, out, errb := runCapture(t, []string{"generate", pkgDir})
+	if code != 0 || strings.Contains(out, "cache store write failed") || errb != "" {
+		t.Fatalf("normal store failure generate = (%d, %q, %q), want successful and quiet", code, out, errb)
+	}
+	code, out, errb = runCapture(t, []string{"generate", "-v", pkgDir})
+	if code != 0 || errb != "" {
+		t.Fatalf("verbose store failure generate = (%d, %q, %q)", code, out, errb)
+	}
+	if !strings.Contains(out, "cache store write failed") || !strings.Contains(out, pkgDir) {
+		t.Fatalf("verbose store failure output = %q", out)
 	}
 }
 

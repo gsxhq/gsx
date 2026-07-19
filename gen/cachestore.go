@@ -9,6 +9,15 @@ import (
 
 type pkgOutput map[string][]byte
 
+type cacheLookupStatus uint8
+
+const (
+	cacheLookupHit cacheLookupStatus = iota + 1
+	cacheLookupMissing
+	cacheLookupCorrupt
+	cacheLookupUnreadable
+)
+
 // cacheDir returns the cache directory and whether caching is enabled.
 func cacheDir() (string, bool) {
 	switch v := os.Getenv("GSXCACHE"); {
@@ -32,13 +41,20 @@ func entryPath(dir, key string) string {
 	return filepath.Join(dir, shard, key)
 }
 
-func storeGet(dir, key string) (pkgOutput, bool) {
+func storeGet(dir, key string) (pkgOutput, cacheLookupStatus, error) {
 	data, err := os.ReadFile(entryPath(dir, key))
-	if err != nil {
-		return nil, false
+	switch {
+	case err == nil:
+		out, ok := decodeOutput(data)
+		if !ok {
+			return nil, cacheLookupCorrupt, nil
+		}
+		return out, cacheLookupHit, nil
+	case os.IsNotExist(err):
+		return nil, cacheLookupMissing, nil
+	default:
+		return nil, cacheLookupUnreadable, err
 	}
-	out, ok := decodeOutput(data)
-	return out, ok
 }
 
 // cachedirTagContent is the standard CACHEDIR.TAG sentinel content.
