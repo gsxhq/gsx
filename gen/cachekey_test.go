@@ -168,6 +168,64 @@ func TestComputeKeyConfiguredSourceClosure(t *testing.T) {
 	}
 }
 
+func TestComputeKeyFilterAliasIdentity(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write := func(rel, source string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module ex/alias-identity\n\ngo 1.26.1\n")
+	write("views/views.gsx", "package views\n\ncomponent View() { <p/> }\n")
+	write("filters/filters.go", "package filters\n\nfunc One(value string) string { return value }\nfunc Two(value string) string { return value }\n")
+
+	viewsDir := filepath.Join(root, "views")
+	filterPath := "ex/alias-identity/filters"
+	graph := loadGraphWithRootsMust(t, root, []string{filterPath})
+	projection := projectionForTest(t, root, graph)
+	key := func(aliases []codegen.FilterAlias) string {
+		t.Helper()
+		if got := fmt.Sprint(configuredPackagePaths(nil, aliases, nil, nil)); got != fmt.Sprint([]string{filterPath}) {
+			t.Fatalf("configured source roots = %s, want only %s", got, filterPath)
+		}
+		value, err := computeKey(viewsDir, projection, cacheKeyConfig{
+			buildContext:          "build",
+			codegenIdentity:       "generator",
+			aliases:               aliases,
+			classifierFingerprint: "classifier",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	alias := func(name, function string) codegen.FilterAlias {
+		return codegen.FilterAlias{Name: name, PkgPath: filterPath, FuncName: function}
+	}
+
+	base := key([]codegen.FilterAlias{alias("format", "One")})
+	if same := key([]codegen.FilterAlias{alias("format", "One")}); same != base {
+		t.Fatal("identical filter alias identity produced an unstable cache key")
+	}
+	if changedName := key([]codegen.FilterAlias{alias("render", "One")}); changedName == base {
+		t.Fatal("changing a filter alias name did not change the cache key")
+	}
+	if changedFunction := key([]codegen.FilterAlias{alias("format", "Two")}); changedFunction == base {
+		t.Fatal("changing a filter alias function did not change the cache key")
+	}
+	oneThenTwo := key([]codegen.FilterAlias{alias("format", "One"), alias("format", "Two")})
+	twoThenOne := key([]codegen.FilterAlias{alias("format", "Two"), alias("format", "One")})
+	if oneThenTwo == twoThenOne {
+		t.Fatal("reversing last-wins filter alias registrations did not change the cache key")
+	}
+}
+
 func TestComputeKeyHashesReachableLocalReplacement(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()

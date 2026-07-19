@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 type realisticCacheFixture struct {
@@ -81,6 +83,7 @@ component Home() { <main><ui.Card/></main> }
 	write(root, "ui/inactive_"+excludedGOOS+".go", fmt.Sprintf("//go:build %s\n\npackage ui\n\nconst inactivePlatform = %q\n", excludedGOOS, excludedGOOS+"-v1"))
 
 	write(root, "unrelatedcgo/cgo.go", "package unrelatedcgo\n\n/* static int unrelated(void) { return 1; } */\nimport \"C\"\n")
+	write(root, "unrelatedembed/embed.go", "package unrelatedembed\n\nimport _ \"embed\"\n\n//go:embed missing.txt\nvar missing string\n")
 	write(root, "admin/broken.go", "package admin\n\nvar broken int = \"unrelated type error\"\n")
 	write(root, "nested/go.mod", "module example.com/nested\n\ngo 1.26.1\n")
 	write(root, "nested/view/view.gsx", "package view\n\ncomponent Nested() { <p>nested</p> }\n")
@@ -91,6 +94,71 @@ component Home() { <main><ui.Card/></main> }
 		uiDir:          filepath.Join(root, "ui"),
 		iconsDir:       filepath.Join(root, "icons"),
 		replacementDir: replacementDir,
+	}
+}
+
+func TestRealisticCacheSelectedGraph(t *testing.T) {
+	fixture := newRealisticCacheFixture(t)
+	goContext := codegen.CaptureGoCommandContext(fixture.root)
+	if output, err := goContext.Run("list", "./..."); err == nil {
+		t.Fatalf("broad module graph query unexpectedly succeeded:\n%s", output)
+	} else if detail := string(output) + err.Error(); !strings.Contains(detail, "missing.txt") {
+		t.Fatalf("broad module graph query failed without exercising missing go:embed trap: %s", detail)
+	}
+
+	manifest, err := sourceview.Build(sourceview.BuildOptions{
+		ModuleRoot: fixture.root,
+		ModulePath: "example.com/app",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph, err := loadGraphWithContext(
+		goContext,
+		manifest,
+		[]string{fixture.pagesDir},
+		[]string{"github.com/gsxhq/gsx"},
+	)
+	if err != nil {
+		t.Fatalf("selected graph query: %v", err)
+	}
+	for importPath, wantDir := range map[string]string{
+		"example.com/app/pages":   fixture.pagesDir,
+		"example.com/app/ui":      fixture.uiDir,
+		"example.com/app/icons":   fixture.iconsDir,
+		"example.com/local/model": filepath.Join(fixture.replacementDir, "model"),
+	} {
+		metadata, ok := graph[importPath]
+		if !ok {
+			t.Fatalf("selected graph is missing %q", importPath)
+		}
+		gotDir, err := filepath.EvalSymlinks(metadata.Dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantDir, err = filepath.EvalSymlinks(wantDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotDir != wantDir {
+			t.Fatalf("selected graph directory for %q = %q, want %q", importPath, metadata.Dir, wantDir)
+		}
+	}
+	for _, importPath := range []string{
+		"example.com/app/admin",
+		"example.com/app/unrelatedcgo",
+		"example.com/app/unrelatedembed",
+		"example.com/nested/view",
+	} {
+		if _, ok := graph[importPath]; ok {
+			t.Fatalf("selected graph unexpectedly contains %q", importPath)
+		}
+	}
+	nestedRoot := filepath.Join(fixture.root, "nested")
+	for importPath, metadata := range graph {
+		if metadata.Dir != "" && sourceview.PathWithin(nestedRoot, metadata.Dir) {
+			t.Fatalf("selected graph unexpectedly contains nested-module package %q at %s", importPath, metadata.Dir)
+		}
 	}
 }
 
@@ -183,7 +251,7 @@ func TestRealisticCacheColdWarm(t *testing.T) {
 		t.Fatalf("warm report selected unexpected directories: %+v", warmReport)
 	}
 	reportText := fmt.Sprintf("%+v", warmReport)
-	for _, unrelated := range []string{"admin", "unrelatedcgo", "nested"} {
+	for _, unrelated := range []string{"admin", "unrelatedcgo", "unrelatedembed", "nested"} {
 		if strings.Contains(reportText, unrelated) {
 			t.Fatalf("warm report contains unrelated package %q: %s", unrelated, reportText)
 		}
