@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
@@ -90,7 +91,7 @@ func TestCachePipelinePrepareNoCacheReusesSemanticInputsWithoutMetadata(t *testi
 	if prep.genOpts.GoCommandContext != prep.goContext || prep.genOpts.SourceManifest != prep.manifest {
 		t.Fatal("generation options do not reuse the captured context and manifest")
 	}
-	if prep.cacheReady || prep.projection != nil || prep.keyConfig.buildContext != "" || prep.keyConfig.codegenIdentity != "" {
+	if prep.cacheDir != "" || prep.cacheReady || prep.projection != nil || prep.keyConfig.buildContext != "" || prep.keyConfig.codegenIdentity != "" {
 		t.Fatalf("no-cache preparation queried cache metadata: %+v", prep)
 	}
 	if report.Enabled || report.BypassReason != cacheReasonDisabledByOption {
@@ -98,6 +99,28 @@ func TestCachePipelinePrepareNoCacheReusesSemanticInputsWithoutMetadata(t *testi
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("no-cache preparation ran graph query; marker stat error = %v", err)
+	}
+}
+
+func TestCachePipelinePrepareManifestFailurePreservesCacheAdmission(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing-module-root")
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	_, report, err := prepareCache(moduleGroup{
+		root:    root,
+		modPath: "example.com/missing",
+	}, moduleGenerateConfig{
+		classifier: attrclass.Builtin(),
+		useCache:   true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "build source manifest") {
+		t.Fatalf("prepare error = %v, want source-manifest failure", err)
+	}
+	if !report.Enabled {
+		t.Fatalf("manifest-failure report = %+v, want cache admission preserved", report)
+	}
+	if report.BypassReason != "" || report.BypassDetail != "" {
+		t.Fatalf("admitted manifest-failure report has bypass state: %+v", report)
 	}
 }
 
@@ -189,6 +212,57 @@ func TestCachePipelineGenerationDirsAreStableUnion(t *testing.T) {
 	}
 	if got, want := classification.generationDirs(), []string{"/a", "/b", "/c"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("generation dirs = %v, want stable union %v", got, want)
+	}
+}
+
+func TestCachePipelineWriteStageCompletesBeforeStoreCandidates(t *testing.T) {
+	cacheableDir, cacheableGsx := mkGsxDir(t, "cacheable.gsx", "package cacheable\n\ncomponent View() { <p/> }\n")
+	poisonDir, poisonGsx := mkGsxDir(t, "poison.gsx", "package poison\n\ncomponent View() { <p/> }\n")
+	generationDirs := []string{cacheableDir, poisonDir}
+	generated := map[string]codegen.DirResult{
+		cacheableDir: {
+			Files: map[string][]byte{cacheableGsx: []byte("package cacheable\n")},
+		},
+		poisonDir: {
+			Diags: []diag.Diagnostic{errDiag(poisonGsx, 3, 1, "broken component")},
+		},
+	}
+	classification := cacheClassification{
+		keys:        map[string]string{cacheableDir: "cacheable-key", poisonDir: "must-not-store"},
+		misses:      []string{cacheableDir},
+		uncacheable: []string{poisonDir},
+	}
+
+	var result Result
+	candidates := writeGeneratedOutputs(generationDirs, generated, classification, &result)
+	for _, target := range []string{
+		filepath.Join(cacheableDir, "cacheable.x.go"),
+		filepath.Join(poisonDir, "poison.x.go"),
+	} {
+		if _, err := os.Stat(target); err != nil {
+			t.Fatalf("write stage returned before processing %s: %v", target, err)
+		}
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("store candidates = %+v, want only successful cacheable miss", candidates)
+	}
+	if candidate := candidates[0]; candidate.dir != cacheableDir || candidate.key != "cacheable-key" || len(candidate.output) != 1 {
+		t.Fatalf("store candidate = %+v", candidate)
+	}
+	if len(result.Diags) != 1 || result.Diags[0].Message != "broken component" {
+		t.Fatalf("write stage diagnostics = %v", result.Diags)
+	}
+	cacheRoot := t.TempDir()
+	report := moduleCacheReport{}
+	storeGeneratedOutputs(cacheRoot, candidates, &report)
+	if _, ok := storeGet(cacheRoot, "cacheable-key"); !ok {
+		t.Fatal("cacheable sibling was not stored after the complete write stage")
+	}
+	if _, ok := storeGet(cacheRoot, "must-not-store"); ok {
+		t.Fatal("poisoned uncacheable directory was stored")
+	}
+	if len(report.StoreFailures) != 0 {
+		t.Fatalf("store failures = %v", report.StoreFailures)
 	}
 }
 

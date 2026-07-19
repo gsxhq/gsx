@@ -46,6 +46,12 @@ type cacheClassification struct {
 	dirReports  []cacheDirReport
 }
 
+type cacheStoreCandidate struct {
+	dir    string
+	key    string
+	output pkgOutput
+}
+
 // prepareCache captures the semantic source and Go-command inputs exactly once,
 // then derives the shared cache projection when persistent caching is safe.
 func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePreparation, report moduleCacheReport, err error) {
@@ -57,6 +63,31 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 	prep.root = g.root
 	prep.dirs = append([]string(nil), g.dirs...)
 	report.Root = g.root
+	cacheAdmitted := false
+	switch {
+	case !config.useCache:
+		prep.bypassReason = cacheReasonDisabledByOption
+		prep.bypassDetail = "cache disabled by option"
+		report.BypassReason = prep.bypassReason
+		report.BypassDetail = prep.bypassDetail
+	case g.modPath == "":
+		prep.bypassReason = cacheReasonMissingModulePath
+		prep.bypassDetail = "module path is empty"
+		report.BypassReason = prep.bypassReason
+		report.BypassDetail = prep.bypassDetail
+	default:
+		var cacheEnabled bool
+		prep.cacheDir, cacheEnabled = cacheDir()
+		if cacheEnabled {
+			report.Enabled = true
+			cacheAdmitted = true
+		} else {
+			prep.bypassReason = cacheReasonDisabledByOption
+			prep.bypassDetail = "cache unavailable"
+			report.BypassReason = prep.bypassReason
+			report.BypassDetail = prep.bypassDetail
+		}
+	}
 
 	prep.goContext = codegen.CaptureGoCommandContext(g.root)
 	prep.manifest, err = sourceview.Build(sourceview.BuildOptions{
@@ -82,31 +113,9 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 		ClassMerger:      config.classMerger,
 	}
 
-	switch {
-	case !config.useCache:
-		prep.bypassReason = cacheReasonDisabledByOption
-		prep.bypassDetail = "cache disabled by option"
-		report.BypassReason = prep.bypassReason
-		report.BypassDetail = prep.bypassDetail
-		return prep, report, nil
-	case g.modPath == "":
-		prep.bypassReason = cacheReasonMissingModulePath
-		prep.bypassDetail = "module path is empty"
-		report.BypassReason = prep.bypassReason
-		report.BypassDetail = prep.bypassDetail
+	if !cacheAdmitted {
 		return prep, report, nil
 	}
-
-	var cacheEnabled bool
-	prep.cacheDir, cacheEnabled = cacheDir()
-	if !cacheEnabled {
-		prep.bypassReason = cacheReasonDisabledByOption
-		prep.bypassDetail = "cache unavailable"
-		report.BypassReason = prep.bypassReason
-		report.BypassDetail = prep.bypassDetail
-		return prep, report, nil
-	}
-	report.Enabled = true
 
 	buildContext, contextErr := prep.goContext.CacheFingerprint()
 	if contextErr != nil {
@@ -248,10 +257,19 @@ func commitCache(prep cachePreparation, classification cacheClassification, repo
 		result.Errs = append(result.Errs, err)
 		return
 	}
+	candidates := writeGeneratedOutputs(generationDirs, generated, classification, result)
+	storeGeneratedOutputs(prep.cacheDir, candidates, report)
+}
+
+// writeGeneratedOutputs completes the entire generated-output write phase and
+// returns the successful cacheable misses that become eligible for the later
+// store phase. It deliberately has no cache-directory or store access.
+func writeGeneratedOutputs(generationDirs []string, generated map[string]codegen.DirResult, classification cacheClassification, result *Result) []cacheStoreCandidate {
 	cacheableMisses := make(map[string]bool, len(classification.misses))
 	for _, dir := range classification.misses {
 		cacheableMisses[dir] = true
 	}
+	var candidates []cacheStoreCandidate
 	for _, dir := range generationDirs {
 		dirResult, ok := generated[dir]
 		if !ok {
@@ -266,9 +284,16 @@ func commitCache(prep cachePreparation, classification cacheClassification, repo
 		if !ok {
 			continue
 		}
-		if err := storePut(prep.cacheDir, key, output); err != nil {
+		candidates = append(candidates, cacheStoreCandidate{dir: dir, key: key, output: output})
+	}
+	return candidates
+}
+
+func storeGeneratedOutputs(cacheDir string, candidates []cacheStoreCandidate, report *moduleCacheReport) {
+	for _, candidate := range candidates {
+		if err := storePut(cacheDir, candidate.key, candidate.output); err != nil {
 			report.StoreFailures = append(report.StoreFailures, cacheDirReport{
-				Dir:    dir,
+				Dir:    candidate.dir,
 				Reason: cacheReasonStoreWriteFailed,
 				Detail: err.Error(),
 			})
