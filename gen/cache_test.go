@@ -229,6 +229,56 @@ func TestCacheWarmHitAvoidsSemanticPackagesLoad(t *testing.T) {
 	}
 }
 
+func TestCacheWarmHitWithStdlibCgo(t *testing.T) {
+	cgoEnabled, err := exec.Command("go", "env", "CGO_ENABLED").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(cgoEnabled)) != "1" {
+		t.Skip("selected Go environment has cgo disabled")
+	}
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-stdlib-cgo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.go"), []byte("package view\n\nimport _ \"plugin\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := loadGraph(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeCgo, ok := graph["runtime/cgo"]
+	if !ok || !runtimeCgo.Standard || len(runtimeCgo.CgoFiles) == 0 {
+		t.Fatalf("selected graph runtime/cgo = %+v, want standard cgo package", runtimeCgo)
+	}
+
+	t.Setenv("GSXCACHE", t.TempDir())
+	if _, _, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("cold cached generate: %v", err)
+	}
+	_, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatalf("warm cached generate: %v", err)
+	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 1 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm cache report = %+v", report)
+	}
+}
+
 func TestCacheFingerprintProvenanceFailureDoesNotFallBackToGeneration(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell Go launcher probe is Unix-only")

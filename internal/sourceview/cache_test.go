@@ -1,6 +1,7 @@
 package sourceview
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,87 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestCacheProjectionCgoClassification(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := &CacheProjection{manifest: manifest}
+
+	for _, test := range []struct {
+		name     string
+		metadata PackageMetadata
+		wantErr  bool
+	}{
+		{
+			name: "standard library cgo",
+			metadata: PackageMetadata{
+				ImportPath: "runtime/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Standard:   true,
+			},
+		},
+		{
+			name: "versioned external module cgo",
+			metadata: PackageMetadata{
+				ImportPath: "example.com/immutable/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Module: &ModuleMetadata{
+					Path:    "example.com/immutable",
+					Version: "v1.2.3",
+				},
+			},
+		},
+		{
+			name: "main module cgo",
+			metadata: PackageMetadata{
+				ImportPath: "example.com/app/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Module: &ModuleMetadata{
+					Path: "example.com/app",
+					Dir:  root,
+					Main: true,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "local replacement cgo",
+			metadata: PackageMetadata{
+				ImportPath: "example.com/local/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Module: &ModuleMetadata{
+					Path:    "example.com/local",
+					Version: "v0.0.0",
+					Replace: &ModuleMetadata{
+						Path: "example.com/local",
+						Dir:  filepath.Join(root, "replacement"),
+					},
+				},
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inputs, err := projection.inputsForPackage(test.metadata)
+			if test.wantErr {
+				if !errors.Is(err, ErrUncacheableCgo) {
+					t.Fatalf("inputsForPackage() error = %v, want ErrUncacheableCgo", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("inputsForPackage() error = %v, want nil", err)
+			}
+			if len(inputs) != 0 {
+				t.Fatalf("inputsForPackage() inputs = %v, want none", inputs)
+			}
+		})
+	}
+}
 
 func TestCacheProjectionUsesManifestEdgesAndActiveGoSelection(t *testing.T) {
 	root := t.TempDir()

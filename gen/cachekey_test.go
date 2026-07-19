@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -242,7 +243,7 @@ func TestComputeKeyHashesReachableLocalReplacement(t *testing.T) {
 	}
 }
 
-func TestComputeKeyRejectsReachableCgoPackage(t *testing.T) {
+func TestComputeKeyRejectsMainModuleCgo(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.26.1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -267,8 +268,54 @@ func TestComputeKeyRejectsReachableCgoPackage(t *testing.T) {
 		codegenIdentity:       "generator",
 		classifierFingerprint: "classifier",
 	})
-	if err == nil || !strings.Contains(err.Error(), "reachable cgo package") {
-		t.Fatalf("computeKey error = %v, want explicit cgo cache bypass", err)
+	if !errors.Is(err, sourceview.ErrUncacheableCgo) {
+		t.Fatalf("computeKey error = %v, want ErrUncacheableCgo", err)
+	}
+	if !strings.Contains(err.Error(), `"example.com/app/views"`) {
+		t.Fatalf("computeKey error = %v, want package detail", err)
+	}
+}
+
+func TestComputeKeyCachesImmutableCgoDependency(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.26.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "views")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "views.gsx"), []byte("package views\n\ncomponent View() { <p/> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graph := map[string]pkgInfo{
+		"example.com/app/views": {
+			ImportPath: "example.com/app/views",
+			Dir:        dir,
+			Imports:    []string{"example.com/immutable/cgo"},
+			Module:     &pkgModule{Path: "example.com/app", Dir: root, Main: true},
+		},
+		"example.com/immutable/cgo": {
+			ImportPath: "example.com/immutable/cgo",
+			CgoFiles:   []string{"bridge.go"},
+			Module:     &pkgModule{Path: "example.com/immutable", Version: "v1.2.3"},
+		},
+	}
+	config := cacheKeyConfig{
+		buildContext:          "build",
+		codegenIdentity:       "generator",
+		classifierFingerprint: "classifier",
+	}
+	first, err := computeTestKey(t, dir, root, graph, config)
+	if err != nil {
+		t.Fatalf("first computeKey: %v", err)
+	}
+	second, err := computeTestKey(t, dir, root, graph, config)
+	if err != nil {
+		t.Fatalf("second computeKey: %v", err)
+	}
+	if first != second {
+		t.Fatalf("immutable cgo key changed: first %s, second %s", first, second)
 	}
 }
 

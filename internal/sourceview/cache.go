@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"sort"
 	"strings"
 )
+
+var ErrUncacheableCgo = errors.New("sourceview: mutable cgo package is not representable by persistent source projection")
 
 // ModuleMetadata is the cmd/go module provenance attached to PackageMetadata.
 // Its fields are exported because encoding/json fills the `go list -json`
@@ -290,13 +293,13 @@ func (projection *CacheProjection) inputs(dir string, extraRoots []string) ([]ca
 }
 
 func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([]cacheInput, error) {
-	if len(metadata.CgoFiles) != 0 {
-		return nil, fmt.Errorf("sourceview: persistent source projection cannot represent reachable cgo package %q", metadata.ImportPath)
-	}
 	mainOwned := isMainModule(metadata.Module, projection.manifest)
 	_, mutable := mutableModule(metadata.Module)
 	if metadata.Standard || !mainOwned && !mutable {
 		return nil, nil
+	}
+	if len(metadata.CgoFiles) != 0 {
+		return nil, fmt.Errorf("%w: %q", ErrUncacheableCgo, metadata.ImportPath)
 	}
 	selected := metadata.CompiledGoFiles
 	if len(selected) == 0 {
