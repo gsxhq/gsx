@@ -114,6 +114,108 @@ func TestRunGenerateCacheReport(t *testing.T) {
 	}
 }
 
+func TestRunGenerateBuiltinFullMinifyUsesCache(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxrunbuiltinfullminify")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "page.gsx", `package views
+
+component Page() {
+	<style>
+		.card { color: #ffffff; }
+	</style>
+	<script>
+		const answer = 1 + 2;
+	</script>
+}
+`)
+	writeFile(t, mod, "gsx.toml", "[minify]\ncss = \"full\"\njs = \"full\"\n")
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	args := []string{"-C", mod, "generate", "-v", "./views"}
+	code, out, errb := runCapture(t, args)
+	if code != 0 {
+		t.Fatalf("cold generate exit = %d, stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "0 hit, 1 miss, 0 uncacheable") {
+		t.Fatalf("cold generate cache report = %q", out)
+	}
+	cold, err := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cold), "#fff") || strings.Contains(string(cold), "#ffffff") || !strings.Contains(string(cold), "const answer=1+2") {
+		t.Fatalf("built-in full minification did not minify generated output:\n%s", cold)
+	}
+
+	code, out, errb = runCapture(t, args)
+	if code != 0 {
+		t.Fatalf("warm generate exit = %d, stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "1 hit, 0 miss, 0 uncacheable") || strings.Contains(out, "disabled-by-option") {
+		t.Fatalf("warm built-in full cache report = %q", out)
+	}
+	warm, err := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cold, warm) {
+		t.Fatal("warm cache hit changed the fully minified generated output")
+	}
+}
+
+func TestRunGenerateCustomMinifierBypassesCache(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxruncustomminify")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "page.gsx", `package views
+
+component Page() {
+	<style>.card { color: red; }</style>
+}
+`)
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	called := 0
+	custom := func(string) (string, error) {
+		called++
+		return ".custom{color:red}", nil
+	}
+	var cfg config
+	WithCSSMinifier(custom)(&cfg)
+	WithMinifyLevel(MinifyFull, MinifyFull)(&cfg)
+	args := []string{"-C", mod, "generate", "-v", "./views"}
+	generate := func() (int, string, string) {
+		var out, errb bytes.Buffer
+		code := runConfig(args, &out, &errb, cfg)
+		return code, out.String(), errb.String()
+	}
+
+	for run := 1; run <= 2; run++ {
+		code, out, errb := generate()
+		if code != 0 {
+			t.Fatalf("run %d exit = %d, stderr=%q", run, code, errb)
+		}
+		if !strings.Contains(out, "0 hit, 0 miss, 1 uncacheable") || !strings.Contains(out, "disabled-by-option") {
+			t.Fatalf("run %d custom-minifier cache report = %q", run, out)
+		}
+	}
+	if called != 2 {
+		t.Fatalf("custom minifier calls = %d, want 2 semantic generations", called)
+	}
+	generated, err := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(generated), ".custom{color:red}") {
+		t.Fatalf("custom minifier output was not generated:\n%s", generated)
+	}
+}
+
 // TestRunGenerateMissingPath proves a non-existent path is a USAGE error (exit 2).
 func TestRunGenerateMissingPath(t *testing.T) {
 	t.Parallel()

@@ -139,6 +139,26 @@ func TestEffectiveMinifier_Full(t *testing.T) {
 	}
 }
 
+func TestConfigHasCustomMinifier(t *testing.T) {
+	custom := func(string) (string, error) { return "", nil }
+	for _, test := range []struct {
+		name string
+		cfg  config
+		want bool
+	}{
+		{name: "none", cfg: config{}, want: false},
+		{name: "builtin full", cfg: config{cssMinLevel: MinifyFull, jsMinLevel: MinifyFull}, want: false},
+		{name: "custom css", cfg: config{cssMin: custom, cssMinLevel: MinifyFull}, want: true},
+		{name: "custom js", cfg: config{jsMin: custom, jsMinLevel: MinifyFull}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.cfg.hasCustomMinifier(); got != test.want {
+				t.Fatalf("hasCustomMinifier() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestGenerate_MinifyFullViaConfig(t *testing.T) {
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("..")
