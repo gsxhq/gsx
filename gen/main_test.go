@@ -118,6 +118,21 @@ func TestRunGenerateBuiltinFullMinifyUsesCache(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
+	previousMinify, hadMinify := os.LookupEnv("GSX_MINIFY")
+	if err := os.Unsetenv("GSX_MINIFY"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var err error
+		if hadMinify {
+			err = os.Setenv("GSX_MINIFY", previousMinify)
+		} else {
+			err = os.Unsetenv("GSX_MINIFY")
+		}
+		if err != nil {
+			t.Error(err)
+		}
+	})
 	mod := newModule(t, "gsxrunbuiltinfullminify")
 	pkgDir := filepath.Join(mod, "views")
 	writeFile(t, pkgDir, "page.gsx", `package views
