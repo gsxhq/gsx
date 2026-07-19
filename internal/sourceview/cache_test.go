@@ -1,12 +1,95 @@
 package sourceview
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
+
+func TestCacheProjectionCgoClassification(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := &CacheProjection{manifest: manifest}
+
+	for _, test := range []struct {
+		name     string
+		metadata PackageMetadata
+		wantErr  bool
+	}{
+		{
+			name: "standard library cgo",
+			metadata: PackageMetadata{
+				ImportPath: "runtime/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Standard:   true,
+			},
+		},
+		{
+			name: "versioned external module cgo",
+			metadata: PackageMetadata{
+				ImportPath: "example.com/immutable/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Module: &ModuleMetadata{
+					Path:    "example.com/immutable",
+					Version: "v1.2.3",
+				},
+			},
+		},
+		{
+			name: "main module cgo",
+			metadata: PackageMetadata{
+				ImportPath: "example.com/app/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Module: &ModuleMetadata{
+					Path: "example.com/app",
+					Dir:  root,
+					Main: true,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "local replacement cgo",
+			metadata: PackageMetadata{
+				ImportPath: "example.com/local/cgo",
+				CgoFiles:   []string{"cgo.go"},
+				Module: &ModuleMetadata{
+					Path:    "example.com/local",
+					Version: "v0.0.0",
+					Replace: &ModuleMetadata{
+						Path: "example.com/local",
+						Dir:  filepath.Join(root, "replacement"),
+					},
+				},
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inputs, err := projection.inputsForPackage(test.metadata)
+			if test.wantErr {
+				if !errors.Is(err, ErrUncacheableCgo) {
+					t.Fatalf("inputsForPackage() error = %v, want ErrUncacheableCgo", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("inputsForPackage() error = %v, want nil", err)
+			}
+			if len(inputs) != 0 {
+				t.Fatalf("inputsForPackage() inputs = %v, want none", inputs)
+			}
+		})
+	}
+}
 
 func TestCacheProjectionUsesManifestEdgesAndActiveGoSelection(t *testing.T) {
 	root := t.TempDir()
@@ -177,16 +260,104 @@ func TestCacheProjectionHashesReachableVersionlessReplacementProvenance(t *testi
 	}
 }
 
-func TestCacheProjectionRequiresEveryManifestPackageInSelectedGraph(t *testing.T) {
+func TestCacheProjectionAcceptsSelectedManifestSubset(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	writeTestFile(t, root, "ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
+	adminDir := filepath.Join(root, "admin")
+	writeTestFile(t, root, "admin/admin.gsx", "package admin\ncomponent Admin() { <p/> }\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphWithUI := Graph{
+		"example.com/app/ui": {
+			ImportPath: "example.com/app/ui",
+			Dir:        filepath.Join(root, "ui"),
+			Module: &ModuleMetadata{
+				Path:  "example.com/app",
+				Dir:   root,
+				GoMod: filepath.Join(root, "go.mod"),
+				Main:  true,
+			},
+		},
+	}
+	projection, err := NewCacheProjection(manifest, graphWithUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.Digest(adminDir, nil); err == nil {
+		t.Fatal("Digest accepted a selected directory absent from the Go graph")
+	}
+}
+
+func TestCacheProjectionRejectsMissingTransitiveManifestPackage(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	pagesDir := filepath.Join(root, "pages")
+	writeTestFile(t, root, "pages/page.gsx", "package pages\nimport \"example.com/app/ui\"\ncomponent Page() { <ui.Card/> }\n")
 	writeTestFile(t, root, "ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
 	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewCacheProjection(manifest, Graph{}); err == nil {
-		t.Fatal("cache projection accepted a graph missing a GSX-only manifest package")
+	graphWithPagesOnly := Graph{
+		"example.com/app/pages": {
+			ImportPath: "example.com/app/pages",
+			Dir:        pagesDir,
+			Module: &ModuleMetadata{
+				Path:  "example.com/app",
+				Dir:   root,
+				GoMod: filepath.Join(root, "go.mod"),
+				Main:  true,
+			},
+		},
+	}
+	projection, err := NewCacheProjection(manifest, graphWithPagesOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.Digest(pagesDir, nil); err == nil || !strings.Contains(err.Error(), `reachable package "example.com/app/ui" is absent from selected Go graph`) {
+		t.Fatalf("Digest() error = %v, want missing reachable ui package", err)
+	}
+}
+
+func TestCacheProjectionRejectsInvalidSelectedManifestPackage(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	uiDir := filepath.Join(root, "ui")
+	writeTestFile(t, root, "ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		dir      string
+		main     bool
+		wantText string
+	}{
+		{name: "wrong directory", dir: filepath.Join(root, "other"), main: true, wantText: "want manifest dir"},
+		{name: "non-main module", dir: uiDir, main: false, wantText: "is not owned by main module"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			graph := Graph{
+				"example.com/app/ui": {
+					ImportPath: "example.com/app/ui",
+					Dir:        test.dir,
+					Module: &ModuleMetadata{
+						Path:  "example.com/app",
+						Dir:   root,
+						GoMod: filepath.Join(root, "go.mod"),
+						Main:  test.main,
+					},
+				},
+			}
+			if _, err := NewCacheProjection(manifest, graph); err == nil || !strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("NewCacheProjection() error = %v, want text %q", err, test.wantText)
+			}
+		})
 	}
 }
 

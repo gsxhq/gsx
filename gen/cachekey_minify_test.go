@@ -21,6 +21,9 @@ func keyWith(t *testing.T, cssMinify, jsMinify bool) string {
 	if err := os.WriteFile(filepath.Join(dir, "view.go"), []byte("package view\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\ncomponent View() { <p/> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	graph := loadGraphMust(t, root)
 	k, err := computeTestKey(t, dir, root, graph, cacheKeyConfig{
 		buildContext:          "bctx",

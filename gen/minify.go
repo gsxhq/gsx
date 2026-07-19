@@ -11,8 +11,9 @@ const (
 	// MinifyNone (default) disables minification: the asset is emitted verbatim.
 	MinifyNone MinifyLevel = iota
 	// MinifyFull runs an aggressive AST-based minifier (tdewolff/minify) that
-	// rewrites values; it bypasses the incremental cache. A custom minifier, if
-	// installed via gen.WithCSSMinifier/WithJSMinifier, takes precedence.
+	// rewrites values. Its built-in implementation is cacheable; a custom
+	// minifier installed via gen.WithCSSMinifier/WithJSMinifier takes precedence
+	// and bypasses the cache.
 	MinifyFull
 )
 

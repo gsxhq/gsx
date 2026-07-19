@@ -44,6 +44,18 @@ fi
 if [ "$1" = "env" ]; then
 	exec "$REAL_GO" "$@"
 fi
+if [ "$1" = "list" ] && [ "$2" = "-deps" ] && [ -n "$GSX_FAIL_GRAPH_MARKER" ]; then
+	: > "$GSX_FAIL_GRAPH_MARKER"
+	exit 1
+fi
+if [ -n "$GSX_COMMAND_COUNTER" ]; then
+	count=0
+	if [ -f "$GSX_COMMAND_COUNTER" ]; then
+		read count < "$GSX_COMMAND_COUNTER"
+	fi
+	count=$((count + 1))
+	printf '%s' "$count" > "$GSX_COMMAND_COUNTER"
+fi
 if [ -n "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
 	count=0
 	if [ -f "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
@@ -93,22 +105,30 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	mkgsx("w", "package w\n\ncomponent B() { <div>hi</div> }\n")
 	t.Setenv("GSXCACHE", t.TempDir())
 
-	// cold: both generate
-	res, err := generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	// cold: both miss and generate
+	res, report, err := generateCachedWithReport([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Written) != 2 {
 		t.Fatalf("cold: want 2 written, got %v", res.Written)
 	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 0 || misses != 2 || uncacheable != 0 || !report.semanticGeneration() {
+		t.Fatalf("cold cache report = %+v", report)
+	}
 
-	// warm no-op: nothing regenerated (Written empty — restores are skipped when on-disk matches)
-	res, err = generateCached([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	// warm no-op: both hit; restores are skipped when on-disk matches.
+	res, report, err = generateCachedWithReport([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Written) != 0 {
 		t.Fatalf("warm no-op: want 0 written, got %v", res.Written)
+	}
+	hits, misses, uncacheable = report.counts()
+	if hits != 2 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm cache report = %+v", report)
 	}
 
 	// edit only v -> only v regenerates
@@ -119,6 +139,290 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 	if len(res.Written) != 1 || filepath.Base(filepath.Dir(res.Written[0])) != "v" {
 		t.Fatalf("edit v: want only v written, got %v", res.Written)
+	}
+}
+
+func TestCacheIgnoresUnrelatedBrokenPackage(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-selected\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	viewsDir := filepath.Join(root, "views")
+	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(viewsDir, "view.gsx"), []byte("package views\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	brokenDir := filepath.Join(root, "broken")
+	if err := os.MkdirAll(brokenDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brokenDir, "broken.go"), []byte("package\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	if _, _, err := generateCachedWithReport([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("seed cache for selected views: %v", err)
+	}
+	_, report, err := generateCachedWithReport([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatalf("warm cache for selected views: %v", err)
+	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 1 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm selected cache report = %+v", report)
+	}
+}
+
+func TestCacheWarmHitAvoidsSemanticPackagesLoad(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-warm-hit\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	if _, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	xgo := filepath.Join(dir, "view.x.go")
+	wantSource, err := os.ReadFile(xgo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantInfo, err := os.Stat(xgo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counter := filepath.Join(t.TempDir(), "command-count")
+	if err := os.WriteFile(counter, []byte("0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GSX_COMMAND_COUNTER", counter)
+
+	_, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 1 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm cache report = %+v", report)
+	}
+	data, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(data)); got != "1" {
+		t.Fatalf("warm non-env go commands = %s, want 1 metadata go list only", got)
+	}
+	gotSource, err := os.ReadFile(xgo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotInfo, err := os.Stat(xgo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotSource) != string(wantSource) || !gotInfo.ModTime().Equal(wantInfo.ModTime()) {
+		t.Fatalf("warm all-hit changed generated output: bytes equal=%v modtime before=%s after=%s", string(gotSource) == string(wantSource), wantInfo.ModTime(), gotInfo.ModTime())
+	}
+}
+
+func TestCacheGraphFailureRegeneratesSelectedDirsWithoutStore(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-graph-failure\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "b"} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".gsx"), []byte("package "+name+"\n\ncomponent View() { <p>"+name+"</p> }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCacheBoundaryGoCommand(t, compiler)
+	t.Setenv("GOFLAGS", "-mod=mod")
+	cacheRoot := t.TempDir()
+	t.Setenv("GSXCACHE", cacheRoot)
+	marker := filepath.Join(t.TempDir(), "graph-failed")
+	t.Setenv("GSX_FAIL_GRAPH_MARKER", marker)
+
+	res, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatalf("graph-failure fallback: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("graph query was not failed by probe: %v", err)
+	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 0 || misses != 0 || uncacheable != 2 || !report.semanticGeneration() {
+		t.Fatalf("graph-failure report = %+v", report)
+	}
+	if len(res.Written) != 2 {
+		t.Fatalf("graph-failure written = %v, want both selected dirs", res.Written)
+	}
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("graph-failure stored entries under uncertain key: %v", entries)
+	}
+}
+
+func TestCachePartialMainModuleCgoPreservesSiblingHit(t *testing.T) {
+	cgoEnabled, err := exec.Command("go", "env", "CGO_ENABLED").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(cgoEnabled)) != "1" {
+		t.Skip("selected Go environment has cgo disabled")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-partial-cgo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cacheableDir := filepath.Join(root, "cacheable")
+	cgoDir := filepath.Join(root, "cgoview")
+	for _, dir := range []string{cacheableDir, cgoDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		name := filepath.Base(dir)
+		if err := os.WriteFile(filepath.Join(dir, name+".gsx"), []byte("package "+name+"\n\ncomponent View() { <p>"+name+"</p> }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(cgoDir, "bridge.go"), []byte("package cgoview\n\n// #include <stdlib.h>\nimport \"C\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	_, coldReport, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatalf("cold partial-cgo generate: %v", err)
+	}
+	hits, misses, uncacheable := coldReport.counts()
+	if hits != 0 || misses != 1 || uncacheable != 1 || !coldReport.semanticGeneration() {
+		t.Fatalf("cold partial-cgo report = %+v", coldReport)
+	}
+	for _, path := range []string{filepath.Join(cacheableDir, "cacheable.x.go"), filepath.Join(cgoDir, "cgoview.x.go")} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, warmReport, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatalf("warm partial-cgo generate: %v", err)
+	}
+	hits, misses, uncacheable = warmReport.counts()
+	if hits != 1 || misses != 0 || uncacheable != 1 || !warmReport.semanticGeneration() {
+		t.Fatalf("warm partial-cgo report = %+v", warmReport)
+	}
+	if len(res.Written) != 2 {
+		t.Fatalf("warm partial-cgo written = %v, want restored hit and regenerated cgo output", res.Written)
+	}
+	decisions := map[string]cacheDecisionKind{}
+	for _, module := range warmReport.Modules {
+		for _, dirReport := range module.Dirs {
+			decisions[dirReport.Dir] = dirReport.Decision
+		}
+	}
+	if decisions[cacheableDir] != cacheDecisionHit || decisions[cgoDir] != cacheDecisionUncacheable {
+		t.Fatalf("warm partial-cgo decisions = %v", decisions)
+	}
+}
+
+func TestCacheWarmHitWithStdlibCgo(t *testing.T) {
+	cgoEnabled, err := exec.Command("go", "env", "CGO_ENABLED").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(cgoEnabled)) != "1" {
+		t.Skip("selected Go environment has cgo disabled")
+	}
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module ex/cache-stdlib-cgo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\n\ncomponent View() { <p>safe</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.go"), []byte("package view\n\nimport _ \"plugin\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := loadGraph(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeCgo, ok := graph["runtime/cgo"]
+	if !ok || !runtimeCgo.Standard || len(runtimeCgo.CgoFiles) == 0 {
+		t.Fatalf("selected graph runtime/cgo = %+v, want standard cgo package", runtimeCgo)
+	}
+
+	t.Setenv("GSXCACHE", t.TempDir())
+	if _, _, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil); err != nil {
+		t.Fatalf("cold cached generate: %v", err)
+	}
+	_, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, nil)
+	if err != nil {
+		t.Fatalf("warm cached generate: %v", err)
+	}
+	hits, misses, uncacheable := report.counts()
+	if hits != 1 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
+		t.Fatalf("warm cache report = %+v", report)
 	}
 }
 

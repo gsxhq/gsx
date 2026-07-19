@@ -76,11 +76,17 @@ func (c config) effectiveImportsMode() gsxfmt.ImportsMode {
 	return c.importsMode.Or(gsxfmt.DefaultImportsMode)
 }
 
+// hasCustomMinifier reports whether config carries a user-supplied minifier.
+// Built-in full minification is selected by the levels and remains cacheable.
+func (c config) hasCustomMinifier() bool {
+	return c.cssMin != nil || c.jsMin != nil
+}
+
 // effectiveCSSMin returns the CSS minifier to thread into codegen when the gate
 // is on: a custom WithCSSMinifier wins; else the MinifyFull level installs the
 // built-in aggressive minifier; else nil (the gate runs the built-in SAFE pass).
-// Returning a non-nil func here is what makes full bypass the incremental cache
-// (useCache is gated on cssMin == nil).
+// Cache admission uses hasCustomMinifier so built-in full minification remains
+// cacheable while user functions bypass the cache.
 func (c config) effectiveCSSMin() func(string) (string, error) {
 	if c.cssMin != nil {
 		return c.cssMin
@@ -216,7 +222,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.hasCustomMinifier(), merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
 	case "dev":
 		devWorkDir := workDir
 		if len(cmdArgs) > 0 && !strings.HasPrefix(cmdArgs[0], "-") {
@@ -369,7 +375,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // registered renderer's package now joins the module's ONE packages.Load and
 // its rendererTable is harvested, but nothing yet CONSULTS that table at a
 // render boundary — that consumer lands in a later slice.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache, customMinifier bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -415,9 +421,9 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
-	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.
-	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
-	res, err := generateCached(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
+	// configured: user funcs are not hashable, unlike built-in full minifiers.
+	useCache := !nocacheFlag && !customMinifier
+	res, report, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.
@@ -471,6 +477,9 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return 0
 	}
 	if verboseFlag {
+		for _, line := range report.verboseLines() {
+			fmt.Fprintln(stdout, line)
+		}
 		for _, w := range res.Written {
 			fmt.Fprintln(stdout, w)
 		}

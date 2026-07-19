@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // runCapture drives run with captured stdout/stderr and returns code+output.
@@ -77,6 +79,205 @@ func TestRunGenerateQuiet(t *testing.T) {
 	}
 	if out != "" {
 		t.Fatalf("expected empty stdout with -q, got %q", out)
+	}
+}
+
+func TestRunGenerateCacheReport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxruncachereport")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "hi.gsx", hiComponent)
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	code, out, errb := runCapture(t, []string{"generate", pkgDir})
+	if code != 0 {
+		t.Fatalf("normal generate exit = %d, stderr=%q", code, errb)
+	}
+	if strings.Contains(out, "gsx cache:") {
+		t.Fatalf("normal generate included cache report: %q", out)
+	}
+
+	code, out, errb = runCapture(t, []string{"generate", "-v", pkgDir})
+	if code != 0 {
+		t.Fatalf("verbose generate exit = %d, stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "gsx cache:") {
+		t.Fatalf("verbose generate omitted cache report: %q", out)
+	}
+
+	code, out, errb = runCapture(t, []string{"generate", "-q", "-v", pkgDir})
+	if code != 0 {
+		t.Fatalf("quiet verbose generate exit = %d, stderr=%q", code, errb)
+	}
+	if out != "" {
+		t.Fatalf("quiet verbose generate output = %q, want empty", out)
+	}
+}
+
+func TestRunGenerateStoreFailureIsVerboseOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxrunstorefailure")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "page.gsx", hiComponent)
+
+	t.Setenv("GSXCACHE", t.TempDir())
+	prep, _, err := prepareCache(moduleGroup{
+		root:    mod,
+		modPath: "gsxrunstorefailure",
+		dirs:    []string{pkgDir},
+	}, moduleGenerateConfig{classifier: attrclass.Builtin(), useCache: true})
+	if err != nil || !prep.cacheReady {
+		t.Fatalf("cache preparation = (%+v, %v)", prep, err)
+	}
+	key, err := computeKey(pkgDir, prep.projection, prep.keyConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badCache := t.TempDir()
+	if err := os.WriteFile(filepath.Join(badCache, key[:2]), []byte("not a cache shard directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GSXCACHE", badCache)
+
+	result, report, err := generateCachedWithReport([]string{pkgDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, false, false, nil)
+	if err != nil || len(result.Errs) != 0 {
+		t.Fatalf("store failure generation = (%+v, %v)", result, err)
+	}
+	if len(report.Modules) != 1 || len(report.Modules[0].StoreFailures) != 1 {
+		t.Fatalf("store failure report = %+v", report)
+	}
+
+	code, out, errb := runCapture(t, []string{"generate", pkgDir})
+	if code != 0 || strings.Contains(out, "cache store write failed") || errb != "" {
+		t.Fatalf("normal store failure generate = (%d, %q, %q), want successful and quiet", code, out, errb)
+	}
+	code, out, errb = runCapture(t, []string{"generate", "-v", pkgDir})
+	if code != 0 || errb != "" {
+		t.Fatalf("verbose store failure generate = (%d, %q, %q)", code, out, errb)
+	}
+	if !strings.Contains(out, "cache store write failed") || !strings.Contains(out, pkgDir) {
+		t.Fatalf("verbose store failure output = %q", out)
+	}
+}
+
+func TestRunGenerateBuiltinFullMinifyUsesCache(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	previousMinify, hadMinify := os.LookupEnv("GSX_MINIFY")
+	if err := os.Unsetenv("GSX_MINIFY"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var err error
+		if hadMinify {
+			err = os.Setenv("GSX_MINIFY", previousMinify)
+		} else {
+			err = os.Unsetenv("GSX_MINIFY")
+		}
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	mod := newModule(t, "gsxrunbuiltinfullminify")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "page.gsx", `package views
+
+component Page() {
+	<style>
+		.card { color: #ffffff; }
+	</style>
+	<script>
+		const answer = 1 + 2;
+	</script>
+}
+`)
+	writeFile(t, mod, "gsx.toml", "[minify]\ncss = \"full\"\njs = \"full\"\n")
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	args := []string{"-C", mod, "generate", "-v", "./views"}
+	code, out, errb := runCapture(t, args)
+	if code != 0 {
+		t.Fatalf("cold generate exit = %d, stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "0 hit, 1 miss, 0 uncacheable") {
+		t.Fatalf("cold generate cache report = %q", out)
+	}
+	cold, err := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cold), "#fff") || strings.Contains(string(cold), "#ffffff") || !strings.Contains(string(cold), "const answer=1+2") {
+		t.Fatalf("built-in full minification did not minify generated output:\n%s", cold)
+	}
+
+	code, out, errb = runCapture(t, args)
+	if code != 0 {
+		t.Fatalf("warm generate exit = %d, stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "1 hit, 0 miss, 0 uncacheable") || strings.Contains(out, "disabled-by-option") {
+		t.Fatalf("warm built-in full cache report = %q", out)
+	}
+	warm, err := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cold, warm) {
+		t.Fatal("warm cache hit changed the fully minified generated output")
+	}
+}
+
+func TestRunGenerateCustomMinifierBypassesCache(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxruncustomminify")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "page.gsx", `package views
+
+component Page() {
+	<style>.card { color: red; }</style>
+}
+`)
+	t.Setenv("GSXCACHE", t.TempDir())
+
+	called := 0
+	custom := func(string) (string, error) {
+		called++
+		return ".custom{color:red}", nil
+	}
+	var cfg config
+	WithCSSMinifier(custom)(&cfg)
+	WithMinifyLevel(MinifyFull, MinifyFull)(&cfg)
+	args := []string{"-C", mod, "generate", "-v", "./views"}
+	generate := func() (int, string, string) {
+		var out, errb bytes.Buffer
+		code := runConfig(args, &out, &errb, cfg)
+		return code, out.String(), errb.String()
+	}
+
+	for run := 1; run <= 2; run++ {
+		code, out, errb := generate()
+		if code != 0 {
+			t.Fatalf("run %d exit = %d, stderr=%q", run, code, errb)
+		}
+		if !strings.Contains(out, "0 hit, 0 miss, 1 uncacheable") || !strings.Contains(out, "disabled-by-option") {
+			t.Fatalf("run %d custom-minifier cache report = %q", run, out)
+		}
+	}
+	if called != 2 {
+		t.Fatalf("custom minifier calls = %d, want 2 semantic generations", called)
+	}
+	generated, err := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(generated), ".custom{color:red}") {
+		t.Fatalf("custom minifier output was not generated:\n%s", generated)
 	}
 }
 

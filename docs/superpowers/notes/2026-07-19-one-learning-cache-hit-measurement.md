@@ -1,0 +1,142 @@
+# One-learning persistent-cache measurement
+
+**Date:** 2026-07-19
+
+The repaired one-shot persistent cache passes the real `one-learning-gsx`
+acceptance gate. On three unchanged warm runs, every selected directory hit,
+semantic generation stayed off, all 116 cold-seeded generated outputs were
+reported up to date, and the medians were 0.64 seconds wall time and 88,375,296
+bytes (84.28 MiB) maximum RSS. The targets were at most 1.5 seconds and
+262,144,000 bytes.
+
+This result is specifically for separate `gsx generate` processes sharing
+`GSXCACHE`. It does not complete the retained-memory work for the long-lived
+LSP: realistic `Analyze` memory/GC measurement, a retained-package LRU cap, and
+slimming the `.gsx`-side full `Info` remain open.
+
+## Revisions and machine
+
+- GSX: `bcb6636a707b5e8c01ec6d56db1380a973e0b322`
+  (`codex/cache-hit-recovery`), built once before cloning or measuring.
+- one-learning: committed checkout
+  `90f918f0e44c65c5cbbe5bb3fb78316c78a38819` (`gsx-migration`), cloned with
+  `--local --no-hardlinks`; source checkout, clone, and commit IDs were checked
+  before measurement. Both checkouts were clean.
+- Host: Apple M3 Ultra, 32 logical CPUs, 256 GiB RAM; macOS 15.7.7 (24G720),
+  Darwin 24.6.0 arm64; `go version go1.26.1 darwin/arm64`.
+- Disposable root: `/tmp/gsx-one-learning-cache.hKFFqe`. It matched the required
+  `/tmp/gsx-one-learning-cache.*` pattern and was deleted whole after evidence
+  was preserved. The real `/Users/jackieli/work/one-learning-gsx` checkout was
+  never modified.
+
+The committed corpus contained 116 `.gsx` files totalling 1,600,718 bytes in
+11 package directories. The cold run created `CACHEDIR.TAG` and 11 package
+entries: 12 cache files and 2,535,339 total bytes.
+
+## Cold and warm samples
+
+All runs used the same binary, clone, and fresh dedicated cache. `/usr/bin/time
+-lp` reported maximum resident set size in bytes.
+
+| sample | cache report | prepare | classify | restore | generate | semantic generation | wall | max RSS |
+| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| cold seed | 0 hit, 11 miss, 0 uncacheable | 784 ms | 2 ms | 0 s | 2.202 s | true | 3.10 s | 4,567,449,600 B |
+| warm 1 | 11 hit, 0 miss, 0 uncacheable | 622 ms | 3 ms | 2 ms | 0 s | false | 0.65 s | 89,473,024 B |
+| warm 2 | 11 hit, 0 miss, 0 uncacheable | 612 ms | 3 ms | 2 ms | 0 s | false | 0.64 s | 85,164,032 B |
+| warm 3 | 11 hit, 0 miss, 0 uncacheable | 617 ms | 3 ms | 2 ms | 0 s | false | 0.64 s | 88,375,296 B |
+| warm median | 11 hit, 0 miss, 0 uncacheable | - | - | - | - | false | **0.64 s** | **88,375,296 B** |
+
+Each warm sample retained structural full-hit semantics. The all-hit decision
+leaves the report's `SemanticGeneration` flag false; the verbose report also
+recorded a zero generation duration. The clone was clean before measurement,
+and each warm run reported `gsx: 116 up to date` with zero writes. That is the
+generated-output identity evidence: every cache hit restored the same bytes as
+the cold-created output already on disk. `git diff --exit-code` also remained
+empty, but one-learning ignores `*.x.go` and tracks no generated files, so that
+command proves only that tracked source and configuration stayed clean.
+
+## Dependency invalidation probe
+
+The leaf was selected only after inspecting the actual graph. `go list` over
+the exact 11 GSX package directories showed that `ds/icon` has two selected Go
+reverse dependents: `ds/pagination` and `ui`; authored `.gsx` imports confirmed
+both edges, and `ui` also reaches `ds/icon` transitively through pagination.
+Thus the exact selected reverse closure was:
+
+```text
+ds/icon -> ds/pagination
+ds/icon -> ui
+ds/pagination -> ui
+```
+
+A harmless source comment was added with `apply_patch` to the committed leaf
+`ds/icon/named.gsx` in the disposable clone. The next verbose run reported:
+
+```text
+gsx cache: 8 hit, 3 miss, 0 uncacheable; prepare=624ms classify=2ms restore=0s generate=2.099s
+gsx: wrote 1 file(s), 115 up to date
+```
+
+The three misses were exactly `ds/icon`, `ds/pagination`, and `ui`; the other
+eight selected package directories remained hits. The combined miss set
+entered semantic generation once. `ds/icon/named.x.go` was rewritten and
+changed (`gsx: wrote 1 file(s)`), while the other 115 generated outputs were
+reported up to date. Compile-only checks passed for all three packages, proving
+that the regenerated reverse closure compiled:
+
+```text
+go test -run '^$' ./ds/icon ./ds/pagination ./ui
+```
+
+The clone was deliberately left with `ds/icon/named.gsx` as its only tracked
+change, alongside the rewritten ignored `ds/icon/named.x.go`, and then removed
+as one disposable tree; neither checkout was reset or restored.
+
+## Commands
+
+Setup and clean-clone checks:
+
+```sh
+tmp=$(mktemp -d /tmp/gsx-one-learning-cache.XXXXXX)
+go build -o "$tmp/gsx" ./cmd/gsx
+git clone --local --no-hardlinks /Users/jackieli/work/one-learning-gsx "$tmp/repo"
+mkdir -p "$tmp/cache"
+git -C "$tmp/repo" status --short
+```
+
+Cold seed, three warm samples, cache inventory, and clean-output gate:
+
+```sh
+GSXCACHE="$tmp/cache" /usr/bin/time -lp "$tmp/gsx" -C "$tmp/repo" generate -v . >"$tmp/cold.out" 2>"$tmp/cold.time"
+for n in 1 2 3; do
+  GSXCACHE="$tmp/cache" /usr/bin/time -lp "$tmp/gsx" -C "$tmp/repo" generate -v . >"$tmp/warm${n}.out" 2>"$tmp/warm${n}.time"
+done
+find "$tmp/cache" -type f -print | sort >"$tmp/cache-files.txt"
+git -C "$tmp/repo" diff --exit-code
+```
+
+Graph and edit checks used the exact selected package list, not a broad
+`./...` query:
+
+```sh
+go -C "$tmp/repo" list -f '{{.ImportPath}}|{{join .Imports " "}}' \
+  ./ds/badge ./ds/button ./ds/card ./ds/field ./ds/form ./ds/icon \
+  ./ds/pagination ./ds/renderers ./ds/table ./email ./ui
+go -C "$tmp/repo" list -deps -json \
+  ./ds/badge ./ds/button ./ds/card ./ds/field ./ds/form ./ds/icon \
+  ./ds/pagination ./ds/renderers ./ds/table ./email ./ui
+GSXCACHE="$tmp/cache" /usr/bin/time -lp "$tmp/gsx" -C "$tmp/repo" generate -v . >"$tmp/edit.out" 2>"$tmp/edit.time"
+git -C "$tmp/repo" diff --exit-code -- '*.x.go'
+go -C "$tmp/repo" test -run '^$' ./ds/icon ./ds/pagination ./ui
+```
+
+The `git diff -- '*.x.go'` command is retained here as an executed command, not
+as identity evidence: the repository's ignore rules hide `*.x.go`, and Git
+tracks none of those generated files.
+
+Before cleanup, the path was checked against
+`/tmp/gsx-one-learning-cache.*`. The environment rejected the requested
+`rm -rf` command, so the already-validated tree was removed with the scoped
+equivalent `find "$tmp" -depth -delete`; a final existence check confirmed the
+whole temporary tree was gone. No implementation change or profiling was
+needed because every structural and resource gate passed.

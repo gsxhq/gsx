@@ -179,6 +179,34 @@ component Card() { <p>card</p> }
 	}
 }
 
+func TestManifestSelectedLoadRoots(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	pagesDir := filepath.Join(root, "pages")
+	writeTestFile(t, root, "pages/home.gsx", "package pages\nimport \"example.com/app/ui\"\ncomponent Home() { <ui.Card/> }\n")
+	writeTestFile(t, root, "ui/card.gsx", "package ui\nimport \"example.com/model\"\ncomponent Card() { <p/> }\n")
+	writeTestFile(t, root, "admin/admin.gsx", "package admin\ncomponent Admin() { <p/> }\n")
+	writeTestFile(t, root, "nested/go.mod", "module example.com/nested\n\ngo 1.26.1\n")
+	writeTestFile(t, root, "nested/hidden/hidden.gsx", "package hidden\ncomponent Hidden() { <p/> }\n")
+
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := manifest.SelectedLoadRoots([]string{pagesDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"example.com/app/pages",
+		"example.com/app/ui",
+		"example.com/model",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SelectedLoadRoots() = %v, want %v", got, want)
+	}
+}
+
 func TestBuildUsesOverridesAsAuthoritativeSources(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
