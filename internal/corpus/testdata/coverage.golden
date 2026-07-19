@@ -723,12 +723,13 @@ renderers/tuple_then_renderer	diag gen render
 renderers/valuecf_arm	diag gen render
 renderers/wins_over_stringer	diag gen render
 reserved/attrs_const_rejected	diag
+reserved/attrs_param_shadow	diag gen render
 reserved/attrs_reassign	diag gen render
 reserved/attrs_receiver_rejected	diag
 reserved/attrs_shortvar_rejected	diag
 reserved/attrs_tuple_rejected	diag
 reserved/children_body_local	diag render
-reserved/children_param_shadow	diag render
+reserved/children_param_shadow	diag gen render
 reserved/children_value_after_placement	diag gen render
 reserved/children_value_unplaced	diag(error)
 reserved/closure_over_attrs	diag gen render
@@ -905,4 +906,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 907 cases (render: 781, error: 88, gen-pinned: 523)
+TOTAL: 908 cases (render: 782, error: 88, gen-pinned: 525)
