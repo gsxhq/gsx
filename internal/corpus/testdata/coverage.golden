@@ -627,6 +627,8 @@ pipeerr/fallthrough_attr_final_stage/case	diag gen render
 pipeerr/final_stage_custom_filter	diag gen render
 pipeerr/generic_final_stage	diag gen render
 pipeerr/generic_mid_stage	diag gen render
+pipeerr/goblock_return_err	diag render
+pipeerr/goblock_return_err_markup	diag render
 pipeerr/halt_on_error	diag gen render
 pipeerr/js_attr_error_stage	diag gen render
 pipeerr/ordered_attrs_mid_stage	diag gen render
@@ -721,12 +723,13 @@ renderers/tuple_then_renderer	diag gen render
 renderers/valuecf_arm	diag gen render
 renderers/wins_over_stringer	diag gen render
 reserved/attrs_const_rejected	diag
+reserved/attrs_param_shadow	diag gen render
 reserved/attrs_reassign	diag gen render
 reserved/attrs_receiver_rejected	diag
 reserved/attrs_shortvar_rejected	diag
 reserved/attrs_tuple_rejected	diag
 reserved/children_body_local	diag render
-reserved/children_param_shortvar_collision	diag(error)
+reserved/children_param_shadow	diag gen render
 reserved/children_value_after_placement	diag gen render
 reserved/children_value_unplaced	diag(error)
 reserved/closure_over_attrs	diag gen render
@@ -903,4 +906,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 905 cases (render: 778, error: 89, gen-pinned: 523)
+TOTAL: 908 cases (render: 782, error: 88, gen-pinned: 525)

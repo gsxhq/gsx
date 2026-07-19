@@ -742,16 +742,21 @@ func emitNamedComponentSkeleton(sb *strings.Builder, c *gsxast.Component, declar
 		sb.WriteString("\treturn nil\n}\n")
 		return nil
 	}
-	// Bind the ambient `ctx` (matching the emitted closure's
-	// `func(ctx context.Context, _gsxw io.Writer)` param) so probe exprs that
-	// reference it — `{ fromCtx(ctx) }`, `id={ g(ctx) }` — type-check. The
-	// `_ = ctx` keeps it used for components that don't reference ctx.
-	sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
+	// Mirror the emitted render closure `_gsxrt.Func(func(ctx context.Context,
+	// _gsxw io.Writer) error { … })`: run the probe body inside an
+	// error-returning closure with `ctx` as its parameter. This binds the
+	// ambient `ctx` probe exprs reference (`{ fromCtx(ctx) }`, `id={ g(ctx) }`)
+	// AND lets a raw `{{ }}` block's `return err` type-check against `error`,
+	// exactly as it does in the generated code — a component body returning
+	// `_gsxrt.Node` would otherwise reject `return err`. A closure parameter is
+	// never "declared and not used", so no `_ = ctx` is needed; `_ = _gsxbody`
+	// keeps the closure itself used for components that never reference ctx.
+	sb.WriteString("\t_gsxbody := func(ctx _gsxctx.Context) error {\n")
 	cfTemp := 0
 	if err := emitProbes(sb, c.Body, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, nil, gw, bag, &cfTemp, hasAttrs); err != nil {
 		return err
 	}
-	sb.WriteString("\treturn nil\n}\n")
+	sb.WriteString("\t\treturn nil\n\t}\n\t_ = _gsxbody\n\treturn nil\n}\n")
 	return nil
 }
 

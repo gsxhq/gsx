@@ -5,5 +5,4 @@ component Bad(ctx string) { <div></div> }
 
 component Good() { <Bad ctx="x"/> }
 -- diagnostics.golden --
-3:15: 	other declaration of ctx
-4:5: ctx redeclared in this block
+5:20: component-reserved-param: parameter 0 "ctx" is reserved
