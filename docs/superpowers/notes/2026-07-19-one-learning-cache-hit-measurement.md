@@ -88,9 +88,9 @@ that the regenerated reverse closure compiled:
 go test -run '^$' ./ds/icon ./ds/pagination ./ui
 ```
 
-The clone was deliberately left with only the probe change to
-`ds/icon/named.gsx` and then removed as one disposable tree; neither checkout
-was reset or restored.
+The clone was deliberately left with `ds/icon/named.gsx` as its only tracked
+change, alongside the rewritten ignored `ds/icon/named.x.go`, and then removed
+as one disposable tree; neither checkout was reset or restored.
 
 ## Commands
 
