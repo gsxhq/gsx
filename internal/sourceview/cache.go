@@ -228,15 +228,12 @@ func (projection *CacheProjection) inputs(dir string, extraRoots []string) ([]ca
 			continue
 		}
 		metadata, inGraph := projection.graph[path]
-		_, inManifest := projection.manifest.packageDirs[path]
-		if !inGraph && !inManifest {
+		if !inGraph {
 			return nil, fmt.Errorf("sourceview: reachable package %q is absent from selected Go graph", path)
 		}
 		seen[path] = true
 		packagePaths = append(packagePaths, path)
-		if inGraph {
-			queue = append(queue, metadata.Imports...)
-		}
+		queue = append(queue, metadata.Imports...)
 		if sourceDir, exists := projection.manifest.packageDirs[path]; exists {
 			queue = append(queue, projection.manifest.importsByDir[sourceDir]...)
 		}

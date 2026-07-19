@@ -209,6 +209,37 @@ func TestCacheProjectionAcceptsSelectedManifestSubset(t *testing.T) {
 	}
 }
 
+func TestCacheProjectionRejectsMissingTransitiveManifestPackage(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	pagesDir := filepath.Join(root, "pages")
+	writeTestFile(t, root, "pages/page.gsx", "package pages\nimport \"example.com/app/ui\"\ncomponent Page() { <ui.Card/> }\n")
+	writeTestFile(t, root, "ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphWithPagesOnly := Graph{
+		"example.com/app/pages": {
+			ImportPath: "example.com/app/pages",
+			Dir:        pagesDir,
+			Module: &ModuleMetadata{
+				Path:  "example.com/app",
+				Dir:   root,
+				GoMod: filepath.Join(root, "go.mod"),
+				Main:  true,
+			},
+		},
+	}
+	projection, err := NewCacheProjection(manifest, graphWithPagesOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.Digest(pagesDir, nil); err == nil || !strings.Contains(err.Error(), `reachable package "example.com/app/ui" is absent from selected Go graph`) {
+		t.Fatalf("Digest() error = %v, want missing reachable ui package", err)
+	}
+}
+
 func TestCacheProjectionRejectsInvalidSelectedManifestPackage(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
