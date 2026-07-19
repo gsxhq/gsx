@@ -148,13 +148,16 @@ func emitExactTargetComponent(
 			builder.WriteString("return nil\n}\n")
 			return nil
 		}
-		builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
+		// Mirror the emitted render closure (func(ctx, w) error) so a raw
+		// `{{ }}` block's `return err` type-checks against `error`, matching
+		// emitNamedComponentSkeleton in analyze.go.
+		builder.WriteString("_gsxbody := func(ctx _gsxctx.Context) error {\n")
 		controlOffsets := make(map[gsxast.Node]int)
 		controlTemp := 0
 		if err := emitProbes(builder, component.Body, table, "", "", usedFilters, fset, controlOffsets, targets, goWithElements, bag, &controlTemp, hasAttrs); err != nil {
 			return err
 		}
-		builder.WriteString("return nil\n}\n")
+		builder.WriteString("return nil\n}\n_ = _gsxbody\nreturn nil\n}\n")
 		return nil
 	}
 

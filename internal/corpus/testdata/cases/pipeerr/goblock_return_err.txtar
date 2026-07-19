@@ -1,0 +1,35 @@
+# A raw `{{ }}` Go block may `return err` to propagate a render error, exactly
+# like a hole's (T, error) auto-unwrap. The component body is a single child
+# component call (no surrounding markup), the shape that previously made the
+# skeleton type-check the block against the component's `gsx.Node` return and
+# reject `return err`. The skeleton now mirrors the emitted `Func(func(ctx, w)
+# error { … })` closure, so the block type-checks against `error`.
+-- input.gsx --
+package views
+
+import "context"
+
+func lookupID(ctx context.Context, key string) (string, error) {
+	return "id-" + key, nil
+}
+
+component Inner(id string) {
+	<span>{ id }</span>
+}
+
+type Page struct{}
+
+component (p Page) Card(key string) {
+	{{
+		id, err := lookupID(ctx, key)
+		if err != nil {
+			return err
+		}
+	}}
+	<Inner id={id}/>
+}
+-- invoke --
+Page{}.Card("x")
+-- diagnostics.golden --
+-- render.golden --
+<span>id-x</span>

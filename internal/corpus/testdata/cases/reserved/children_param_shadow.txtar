@@ -1,0 +1,19 @@
+# A raw `{{ }}` block is emitted inside the component's render closure, which
+# CAPTURES the parameters — so `children := …` shadows the `children` param in a
+# nested scope and compiles, matching the emitted code. It is not a reserved-name
+# collision. (`ctx`, the closure's OWN parameter, still collides — see
+# reserved/ctx_shortvar_rejected.)
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Page(children gsx.Node) {
+	{{ children := "hi" }}
+	<div>{children}</div>
+}
+-- invoke --
+Page(nil)
+-- diagnostics.golden --
+-- render.golden --
+<div>hi</div>
