@@ -105,6 +105,13 @@ encoded as JSON values. The rendered attribute is then HTML-escaped; the browser
 restores the JSON text before the consumer reads it. Name keys in the literal
 and place dynamic holes in value positions.
 
+When the **entire** attribute value is a single hole — `data-labels=js`@{labels}``
+— gsx JSON-encodes the whole Go value, so chart `data-*` attributes and a
+whole-value `hx-vals` need no hand-built JSON. A hole that is *not* the whole
+value and sits before a token (`js`@{x} = 1``, `js`@{x} + 2``) is a
+binding/operand position and accepts only `gsx.RawJS`. This applies to `js`
+attributes; a plain `{ … }` attribute still takes only a string/number/bool.
+
 ## `<script>` interpolation
 
 Inside `<script>`, `@{ expr }` inserts a Go value in the surrounding JavaScript
