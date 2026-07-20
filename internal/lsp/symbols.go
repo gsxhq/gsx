@@ -267,6 +267,27 @@ func (s *partialGoSource) sourceOffset(parsedOffset int) (int, bool) {
 	return 0, false
 }
 
+func (s *partialGoSource) linearSourceSpan(parsedStart, parsedEnd int) (int, int, bool) {
+	if parsedEnd <= parsedStart {
+		return 0, 0, false
+	}
+	for _, segment := range s.segments {
+		if parsedStart < segment.parsedStart {
+			return 0, 0, false
+		}
+		if parsedStart > segment.parsedEnd || parsedEnd > segment.parsedEnd {
+			continue
+		}
+		if !segment.linear {
+			return 0, 0, false
+		}
+		sourceStart := segment.sourceStart + parsedStart - segment.parsedStart
+		sourceEnd := segment.sourceStart + parsedEnd - segment.parsedStart
+		return sourceStart, sourceEnd, true
+	}
+	return 0, 0, false
+}
+
 // partialGoChunkSymbols parses a GoChunk's verbatim source in recovery mode and
 // emits only declarations represented by the returned partial Go AST.
 func partialGoChunkSymbols(file *gsxast.File, fset *token.FileSet, source []byte, chunk *gsxast.GoChunk) []Symbol {
@@ -283,7 +304,7 @@ func partialGoChunkSymbols(file *gsxast.File, fset *token.FileSet, source []byte
 	if !reconstructed.appendAuthored(chunk.Src, start, end) {
 		return nil
 	}
-	return partialGoSymbols(file.Package, fset, tokenFile, reconstructed)
+	return partialGoSymbols(file.Package, fset, tokenFile, source, reconstructed)
 }
 
 func partialGoWithElementsSymbols(file *gsxast.File, fset *token.FileSet, source []byte, declaration *gsxast.GoWithElements) []Symbol {
@@ -324,10 +345,10 @@ func partialGoWithElementsSymbols(file *gsxast.File, fset *token.FileSet, source
 	if cursor != declarationEnd || reconstructed.text.Len() != declarationEnd-declarationStart {
 		return nil
 	}
-	return partialGoSymbols(file.Package, fset, tokenFile, reconstructed)
+	return partialGoSymbols(file.Package, fset, tokenFile, source, reconstructed)
 }
 
-func partialGoSymbols(packageName string, sourceFset *token.FileSet, sourceTokenFile *token.File, reconstructed partialGoSource) []Symbol {
+func partialGoSymbols(packageName string, sourceFset *token.FileSet, sourceTokenFile *token.File, source []byte, reconstructed partialGoSource) []Symbol {
 	gfset := token.NewFileSet()
 	gf, _ := parser.ParseFile(gfset, "recovery.go", partialGoWrapPrefix+reconstructed.text.String(), parser.AllErrors|parser.SkipObjectResolution)
 	if gf == nil {
@@ -346,10 +367,24 @@ func partialGoSymbols(packageName string, sourceFset *token.FileSet, sourceToken
 		}
 		return sourceFset.Position(sourceTokenFile.Pos(sourceOffset)), true
 	}
-	return partialGoASTSymbols(packageName, gf, mapPos)
+	// Parser recovery may synthesize identifiers. Prove the complete token came
+	// from one verbatim authored segment before publishing it as a symbol.
+	mapIdent := func(ident *goast.Ident) (token.Position, bool) {
+		if ident == nil || gfset.File(ident.Pos()) != parsedTokenFile || gfset.File(ident.End()) != parsedTokenFile {
+			return token.Position{}, false
+		}
+		parsedStart := parsedTokenFile.Offset(ident.Pos()) - len(partialGoWrapPrefix)
+		parsedEnd := parsedTokenFile.Offset(ident.End()) - len(partialGoWrapPrefix)
+		sourceStart, sourceEnd, ok := reconstructed.linearSourceSpan(parsedStart, parsedEnd)
+		if !ok || sourceStart < 0 || sourceEnd > len(source) || string(source[sourceStart:sourceEnd]) != ident.Name {
+			return token.Position{}, false
+		}
+		return sourceFset.Position(sourceTokenFile.Pos(sourceStart)), true
+	}
+	return partialGoASTSymbols(packageName, gf, mapPos, mapIdent)
 }
 
-func partialGoASTSymbols(packageName string, file *goast.File, mapPos func(token.Pos) (token.Position, bool)) []Symbol {
+func partialGoASTSymbols(packageName string, file *goast.File, mapPos func(token.Pos) (token.Position, bool), mapIdent func(*goast.Ident) (token.Position, bool)) []Symbol {
 	var out []Symbol
 	for _, d := range file.Decls {
 		switch decl := d.(type) {
@@ -363,7 +398,7 @@ func partialGoASTSymbols(packageName string, file *goast.File, mapPos func(token
 				kind = symKindMethod
 				container = exprTypeName(decl.Recv.List[0].Type)
 			}
-			namePos, nameOK := mapPos(decl.Name.Pos())
+			namePos, nameOK := mapIdent(decl.Name)
 			declStart, startOK := mapPos(decl.Pos())
 			declEnd, endOK := mapPos(decl.End())
 			if !nameOK || !startOK || !endOK {
@@ -386,7 +421,7 @@ func partialGoASTSymbols(packageName string, file *goast.File, mapPos func(token
 					if !ok || ts.Name == nil {
 						continue
 					}
-					namePos, ok := mapPos(ts.Name.Pos())
+					namePos, ok := mapIdent(ts.Name)
 					if !ok {
 						continue
 					}
@@ -406,11 +441,8 @@ func partialGoASTSymbols(packageName string, file *goast.File, mapPos func(token
 						continue
 					}
 					for _, n := range vs.Names {
-						if n.Name == "_" {
-							continue
-						}
-						namePos, ok := mapPos(n.Pos())
-						if !ok {
+						namePos, ok := mapIdent(n)
+						if !ok || n.Name == "_" {
 							continue
 						}
 						out = append(out, Symbol{

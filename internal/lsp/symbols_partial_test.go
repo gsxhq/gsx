@@ -32,6 +32,58 @@ var _ = "func Fabricated() {}"
 	}
 }
 
+func TestPartialGoSymbolsRejectParserSynthesizedNames(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		wantNames []string
+	}{
+		{
+			name: "function",
+			// go/parser absorbs After into the malformed function's recovery
+			// declaration, so neither declaration has independently proven
+			// provenance.
+			source: "package page\n\nfunc () {}\n\nfunc After() {}\n",
+		},
+		{
+			name:      "type",
+			source:    "package page\n\ntype = int\n\ntype After int\n",
+			wantNames: []string{"After"},
+		},
+		{
+			name:      "const",
+			source:    "package page\n\nconst = 1\n\nconst After = 2\n",
+			wantNames: []string{"After"},
+		},
+		{
+			name:      "var",
+			source:    "package page\n\nvar = 1\n\nvar After = 2\n",
+			wantNames: []string{"After"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			file, fset := parseGSX(t, "/m/synthesized-"+tt.name+".gsx", tt.source)
+			syms := FileSymbols("/m/synthesized-"+tt.name+".gsx", []byte(tt.source), file, fset, nil)
+
+			gotNames := make([]string, len(syms))
+			for i, symbol := range syms {
+				gotNames[i] = symbol.Name
+			}
+			if !slices.Equal(gotNames, tt.wantNames) {
+				t.Fatalf("recovered symbols = %v, want %v; all=%+v", gotNames, tt.wantNames, syms)
+			}
+			if len(tt.wantNames) > 0 {
+				after, _ := symByName(syms, "After")
+				wantName := strings.LastIndex(tt.source, "After")
+				if after.NamePos.Offset != wantName {
+					t.Errorf("After name offset = %d, want %d", after.NamePos.Offset, wantName)
+				}
+			}
+		})
+	}
+}
+
 func TestPartialGoWithElementsSymbolsKeepRecoveredDeclarations(t *testing.T) {
 	const source = `package page
 
