@@ -116,11 +116,12 @@ type Server struct {
 
 	moduleSyms map[string]moduleSymbolCache // normalized module root → lazy workspace-symbol index
 
-	workspaceFolders      []workspaceFolder // normalized initialized file workspace folders
-	workspaceRoots        []string          // normalized absolute folder paths
-	workspaceModules      []string          // sorted Go module roots owned by workspaceRoots
-	workspaceModuleOwners map[string]string // module root → deterministic declaring workspace root
-	workspaceModulePaths  map[string]string // module root → parsed go.mod module directive
+	workspaceFolders         []workspaceFolder   // normalized initialized file workspace folders
+	workspaceRoots           []string            // normalized absolute folder paths
+	workspaceModules         []string            // sorted Go module roots owned by workspaceRoots
+	workspaceModuleOwners    map[string]string   // module root → deterministic declaring workspace root
+	workspaceModulePaths     map[string]string   // module root → parsed go.mod module directive
+	pendingWorkspaceMetadata map[string]struct{} // normalized withheld go.mod/go.work paths awaiting replay
 
 	debounce time.Duration
 	// schedule arms a timer that calls f after d, returning a cancel func. It is a
@@ -168,18 +169,19 @@ type analysisResult struct {
 // negotiates otherwise.
 func NewServer(r io.Reader, w io.Writer, a Analyzer) *Server {
 	return &Server{
-		conn:                  newConn(r, w),
-		docs:                  newDocStore(),
-		analyzer:              a,
-		pkgs:                  map[string]*Package{},
-		enc:                   encUTF16,
-		diskViewValid:         true,
-		workspaceViewValid:    false,
-		pendingClientRequests: map[string]func(frame) error{},
-		moduleSyms:            map[string]moduleSymbolCache{},
-		workspaceModuleOwners: map[string]string{},
-		workspaceModulePaths:  map[string]string{},
-		debounce:              defaultDebounce,
+		conn:                     newConn(r, w),
+		docs:                     newDocStore(),
+		analyzer:                 a,
+		pkgs:                     map[string]*Package{},
+		enc:                      encUTF16,
+		diskViewValid:            true,
+		workspaceViewValid:       false,
+		pendingClientRequests:    map[string]func(frame) error{},
+		moduleSyms:               map[string]moduleSymbolCache{},
+		workspaceModuleOwners:    map[string]string{},
+		workspaceModulePaths:     map[string]string{},
+		pendingWorkspaceMetadata: map[string]struct{}{},
+		debounce:                 defaultDebounce,
 		schedule: func(d time.Duration, f func()) func() {
 			t := time.AfterFunc(d, f)
 			return func() { t.Stop() }
@@ -465,29 +467,46 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 	}
 	slices.Sort(paths)
 	paths = slices.Compact(paths)
-	refreshPaths := paths
-	metadataChanged := slices.ContainsFunc(paths, workspaceMetadataPath)
-	nonMetadataChanged := slices.ContainsFunc(paths, func(path string) bool { return !workspaceMetadataPath(path) })
-	if metadataChanged {
-		if err := s.refreshWorkspaceView(); err != nil {
-			if logErr := s.logWorkspaceViewRefreshError(paths, err); logErr != nil {
+	metadataPaths := slices.DeleteFunc(slices.Clone(paths), func(path string) bool { return !workspaceMetadataPath(path) })
+	nonMetadataPaths := slices.DeleteFunc(slices.Clone(paths), workspaceMetadataPath)
+	if s.pendingWorkspaceMetadata == nil {
+		s.pendingWorkspaceMetadata = make(map[string]struct{})
+	}
+	for _, path := range metadataPaths {
+		s.pendingWorkspaceMetadata[sourcePath(path)] = struct{}{}
+	}
+	refreshPaths := nonMetadataPaths
+	recoveringWorkspace := false
+	if len(metadataPaths) != 0 {
+		prepared, err := prepareWorkspaceFolders(s.workspaceFolders)
+		if err != nil {
+			s.workspaceViewValid = false
+			s.invalidateModuleIndexes()
+			if logErr := s.logWorkspaceViewRefreshError(metadataPaths, err); logErr != nil {
 				return logErr
 			}
-			refreshPaths = slices.DeleteFunc(slices.Clone(paths), workspaceMetadataPath)
 		} else {
-			// Go metadata can change build-selected source even when module roots
-			// and directives are identical, so every module symbol inventory must
-			// be rebuilt after a successful metadata event.
+			replay := s.pendingMetadataFor(prepared)
+			s.applyPreparedWorkspace(prepared)
+			s.workspaceViewValid = false
 			s.invalidateModuleIndexes()
+			refreshPaths = append(slices.Clone(replay), nonMetadataPaths...)
+			slices.Sort(refreshPaths)
+			refreshPaths = slices.Compact(refreshPaths)
+			recoveringWorkspace = true
 		}
 	}
-	if nonMetadataChanged {
+	if len(nonMetadataPaths) != 0 {
 		// Ordinary saved-source/config changes may alter any retained module fact.
 		// A mixed malformed-metadata batch also clears caches for the remaining
 		// paths even though ownership itself stays transactionally unchanged.
 		s.invalidateModuleIndexes()
 	}
 	if len(refreshPaths) == 0 {
+		if recoveringWorkspace {
+			s.retainPendingMetadata(nil)
+			s.workspaceViewValid = true
+		}
 		return nil
 	}
 	refresher, ok := s.analyzer.(diskRefresher)
@@ -507,17 +526,30 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 			affected = append(affected, dir)
 		}
 	}
-	affected = sortedUniqueDirs(affected)
-	for _, dir := range affected {
-		s.beginMutation(dir)
-		delete(s.pkgs, dir)
-	}
 	if refreshErr != nil {
+		affected = sortedUniqueDirs(affected)
+		for _, dir := range affected {
+			s.beginMutation(dir)
+			delete(s.pkgs, dir)
+		}
 		restartErr := fmt.Errorf("%w; saved-source intelligence remains disabled until the language server restarts", refreshErr)
 		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(refreshPaths, ", "), restartErr); err != nil {
 			return err
 		}
 		return s.publishEmptyOpenDirs(affected)
+	}
+	if recoveringWorkspace {
+		s.retainPendingMetadata(nil)
+		s.workspaceViewValid = true
+	}
+	return s.applySuccessfulDiskRefresh(affected)
+}
+
+func (s *Server) applySuccessfulDiskRefresh(affected []string) error {
+	affected = sortedUniqueDirs(affected)
+	for _, dir := range affected {
+		s.beginMutation(dir)
+		delete(s.pkgs, dir)
 	}
 	if !s.diskViewValid {
 		return s.publishEmptyOpenDirs(affected)

@@ -279,16 +279,42 @@ func (s *Server) applyPreparedWorkspace(prepared preparedWorkspace) {
 	s.invalidateNonSymbolModuleIndexes()
 }
 
-func (s *Server) refreshWorkspaceView() error {
-	prepared, err := prepareWorkspaceFolders(s.workspaceFolders)
-	if err != nil {
-		s.workspaceViewValid = false
-		s.invalidateModuleIndexes()
-		return err
+func (prepared preparedWorkspace) ownsMetadataPath(path string) bool {
+	path = sourcePath(path)
+	switch filepath.Base(path) {
+	case "go.mod":
+		for _, module := range prepared.modules {
+			if path == filepath.Join(module, "go.mod") {
+				return true
+			}
+		}
+	case "go.work":
+		for _, owner := range prepared.owners {
+			if path == filepath.Join(owner, "go.work") {
+				return true
+			}
+		}
 	}
-	s.applyPreparedWorkspace(prepared)
-	s.workspaceViewValid = true
-	return nil
+	return false
+}
+
+func (s *Server) pendingMetadataFor(prepared preparedWorkspace) []string {
+	paths := make([]string, 0, len(s.pendingWorkspaceMetadata))
+	for path := range s.pendingWorkspaceMetadata {
+		if prepared.ownsMetadataPath(path) {
+			paths = append(paths, path)
+		}
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+func (s *Server) retainPendingMetadata(paths []string) {
+	retained := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		retained[sourcePath(path)] = struct{}{}
+	}
+	s.pendingWorkspaceMetadata = retained
 }
 
 func (s *Server) changeWorkspaceFolders(added, removed []workspaceFolder) error {
@@ -314,11 +340,33 @@ func (s *Server) changeWorkspaceFolders(added, removed []workspaceFolder) error 
 		}
 		byPath[path] = cleanFolder
 	}
-	candidate := make([]workspaceFolder, 0, len(byPath))
+	candidateFolders := make([]workspaceFolder, 0, len(byPath))
 	for _, folder := range byPath {
-		candidate = append(candidate, folder)
+		candidateFolders = append(candidateFolders, folder)
 	}
-	return s.setWorkspaceFolders(candidate)
+	prepared, err := prepareWorkspaceFolders(candidateFolders)
+	if err != nil {
+		return err
+	}
+	replay := s.pendingMetadataFor(prepared)
+	var affected []string
+	if len(replay) != 0 {
+		refresher, ok := s.analyzer.(diskRefresher)
+		if !ok {
+			return fmt.Errorf("replay pending workspace metadata: analyzer does not support saved-source refresh")
+		}
+		affected, err = refresher.RefreshDisk(replay)
+		if err != nil {
+			return fmt.Errorf("replay pending workspace metadata %s: %w", strings.Join(replay, ", "), err)
+		}
+	}
+	s.applyPreparedWorkspace(prepared)
+	s.retainPendingMetadata(nil) // replayed paths succeeded; removed ownership is discarded
+	s.workspaceViewValid = true
+	if len(replay) != 0 {
+		s.invalidateModuleIndexes()
+	}
+	return s.applySuccessfulDiskRefresh(affected)
 }
 
 func (s *Server) handleDidChangeWorkspaceFolders(f frame) error {
