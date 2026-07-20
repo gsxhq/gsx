@@ -2,6 +2,8 @@ package codegen
 
 import (
 	"crypto/sha256"
+	goast "go/ast"
+	"go/parser"
 	"go/token"
 	"reflect"
 	"strings"
@@ -345,13 +347,33 @@ func TestBuildMappedSkeletonGoWithElements(t *testing.T) {
 		assertGeneratedSpanMaps(t, build, text.Src, sourceintel.Span{Path: path, Start: start, End: start + len(text.Src)}, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion|sourceintel.Symbol)
 	}
 
-	generatedStart := strings.Index(build.source, "/*line "+path)
-	if generatedStart < 0 {
-		t.Fatal("skeleton has no GoWithElements line anchor")
+	generatedFset := token.NewFileSet()
+	generatedFile, err := parser.ParseFile(generatedFset, "generated.go", build.source, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse generated skeleton: %v", err)
 	}
-	tokenFile := fset.File(declaration.Pos())
-	wantDeclaration := sourceintel.Span{Path: path, Start: tokenFile.Offset(declaration.Pos()), End: tokenFile.Offset(declaration.End())}
-	if got, ok := build.sourceMap.DeclarationSpan(generatedStart, len(build.source)); !ok || got != wantDeclaration {
+	var generatedDeclaration goast.Decl
+	for _, decl := range generatedFile.Decls {
+		general, ok := decl.(*goast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range general.Specs {
+			value, ok := spec.(*goast.ValueSpec)
+			if ok && len(value.Names) > 0 && value.Names[0].Name == "composed" {
+				generatedDeclaration = decl
+			}
+		}
+	}
+	if generatedDeclaration == nil {
+		t.Fatal("generated skeleton has no composed declaration")
+	}
+	generatedTokenFile := generatedFset.File(generatedFile.Pos())
+	generatedStart := generatedTokenFile.Offset(generatedDeclaration.Pos())
+	generatedEnd := generatedTokenFile.Offset(generatedDeclaration.End())
+	wantStart := strings.Index(source, "var composed")
+	wantDeclaration := sourceintel.Span{Path: path, Start: wantStart, End: wantStart + len("var composed = Wrap(<span>{firstValue}</span>, <b>{secondValue}</b>)")}
+	if got, ok := build.sourceMap.DeclarationSpan(generatedStart, generatedEnd); !ok || got != wantDeclaration {
 		t.Fatalf("DeclarationSpan = %+v, %v; want %+v", got, ok, wantDeclaration)
 	}
 }

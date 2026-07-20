@@ -571,15 +571,7 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 			}
 			compBuf.WriteString(declarationSource)
 		} else if compBuf.enabled {
-			tokenFile := fset.File(we.Pos())
-			if tokenFile == nil {
-				return "", nil, nil, nil, nil, fmt.Errorf("codegen: Go-with-elements declaration has no token file")
-			}
-			if err := compBuf.addDeclarationRegion(sourceintel.Span{
-				Path:  compBuf.sourcePath,
-				Start: tokenFile.Offset(we.Pos()),
-				End:   tokenFile.Offset(we.End()),
-			}, declarationGeneratedStart, compBuf.Len()); err != nil {
+			if err := addGoWithElementsDeclarationRegions(compBuf, fset, we, declarationGeneratedStart, compBuf.Len()); err != nil {
 				return "", nil, nil, nil, nil, err
 			}
 		}
@@ -659,6 +651,76 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 		sb.WriteByte('\n')
 	}
 	return sb.String(), comps, imports, ctrlOff, gwMarkups, nil
+}
+
+func addGoWithElementsDeclarationRegions(writer *skeletonSourceWriter, sourceFset *token.FileSet, declaration *gsxast.GoWithElements, generatedStart, generatedEnd int) error {
+	if writer == nil || !writer.enabled {
+		return nil
+	}
+	if generatedStart < 0 || generatedEnd < generatedStart || generatedEnd > writer.Len() {
+		return fmt.Errorf("codegen: invalid generated Go-with-elements declaration range %d:%d", generatedStart, generatedEnd)
+	}
+
+	reconstructed, err := reconstructGoWithElements(declaration)
+	if err != nil {
+		return err
+	}
+	authoredFset := token.NewFileSet()
+	authoredFile, err := parser.ParseFile(authoredFset, "", reconstructed.source, parser.SkipObjectResolution)
+	if err != nil {
+		return fmt.Errorf("codegen: parse reconstructed Go-with-elements declarations: %w", err)
+	}
+	const header = "package _gsxdecl\n"
+	generatedFset := token.NewFileSet()
+	generatedSource := header + writer.String()[generatedStart:generatedEnd]
+	generatedFile, err := parser.ParseFile(generatedFset, "", generatedSource, parser.SkipObjectResolution)
+	if err != nil {
+		return fmt.Errorf("codegen: parse generated Go-with-elements declarations: %w", err)
+	}
+	if len(authoredFile.Decls) != len(generatedFile.Decls) {
+		return fmt.Errorf("codegen: Go-with-elements declaration count changed from %d to %d during skeleton lowering", len(authoredFile.Decls), len(generatedFile.Decls))
+	}
+	authoredTokenFile := authoredFset.File(authoredFile.Pos())
+	generatedTokenFile := generatedFset.File(generatedFile.Pos())
+	sourceTokenFile := sourceFset.File(declaration.Pos())
+	if authoredTokenFile == nil || generatedTokenFile == nil || sourceTokenFile == nil {
+		return fmt.Errorf("codegen: Go-with-elements declaration mapping has no token file")
+	}
+	for i := range authoredFile.Decls {
+		authoredDeclaration := authoredFile.Decls[i]
+		generatedDeclaration := generatedFile.Decls[i]
+		if !sameTopLevelDeclarationShape(authoredDeclaration, generatedDeclaration) {
+			return fmt.Errorf("codegen: Go-with-elements declaration %d changed shape during skeleton lowering", i)
+		}
+		sourceStart, _ := reconstructed.originalRange(authoredTokenFile.Offset(authoredDeclaration.Pos()))
+		sourceEnd, _ := reconstructed.originalRange(authoredTokenFile.Offset(authoredDeclaration.End()))
+		if !sourceStart.IsValid() || !sourceEnd.IsValid() || sourceEnd < sourceStart {
+			return fmt.Errorf("codegen: Go-with-elements declaration %d has invalid authored endpoints", i)
+		}
+		regionGeneratedStart := generatedStart + generatedTokenFile.Offset(generatedDeclaration.Pos()) - len(header)
+		regionGeneratedEnd := generatedStart + generatedTokenFile.Offset(generatedDeclaration.End()) - len(header)
+		if err := writer.addDeclarationRegion(sourceintel.Span{
+			Path:  writer.sourcePath,
+			Start: sourceTokenFile.Offset(sourceStart),
+			End:   sourceTokenFile.Offset(sourceEnd),
+		}, regionGeneratedStart, regionGeneratedEnd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sameTopLevelDeclarationShape(authored, generated goast.Decl) bool {
+	switch authored := authored.(type) {
+	case *goast.FuncDecl:
+		_, ok := generated.(*goast.FuncDecl)
+		return ok
+	case *goast.GenDecl:
+		other, ok := generated.(*goast.GenDecl)
+		return ok && authored.Tok == other.Tok && len(authored.Specs) == len(other.Specs)
+	default:
+		return false
+	}
 }
 
 // goBody is a GoChunk's non-import remainder paired with the .gsx source

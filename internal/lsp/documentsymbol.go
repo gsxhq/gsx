@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"go/token"
+	"os"
 	"path/filepath"
 )
 
@@ -28,10 +29,15 @@ func (s *Server) handleDocumentSymbol(f frame) error {
 	if file == nil {
 		return s.reply(f.ID, []DocumentSymbol{})
 	}
-	text, _ := s.docs.text(uri) // "" if not open; positions still map best-effort
+	text, open := s.docs.text(uri)
+	if !open {
+		if source, err := os.ReadFile(path); err == nil {
+			text = string(source)
+		}
+	}
 	lineAt := lineAtFunc(text)
 
-	syms := FileSymbols(path, file, pkg.GSXFset)
+	syms := FileSymbols(path, []byte(text), file, pkg.GSXFset, pkg.SourceIndex)
 	out := make([]DocumentSymbol, 0, len(syms))
 	for _, sym := range syms {
 		out = append(out, DocumentSymbol{

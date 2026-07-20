@@ -11,6 +11,7 @@ import (
 	"go/types"
 	"io"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -834,7 +835,7 @@ func sortTokenPositions(positions []token.Position) {
 // Module (same instance Analyze/AnalyzeModule use) and calls lsp.FileSymbols on
 // each package's parsed files. Un-analyzable dirs are skipped (partial results
 // tolerated). Serialized buffer transitions already updated the warm Module.
-func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbol, error) {
+func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]lsp.Symbol, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
@@ -855,7 +856,14 @@ func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbo
 			continue
 		}
 		for path, file := range pr.GSXFiles {
-			syms = append(syms, lsp.FileSymbols(path, file, pr.GSXFset)...)
+			source, ok := override[path]
+			if !ok {
+				source, err = os.ReadFile(path)
+				if err != nil {
+					continue
+				}
+			}
+			syms = append(syms, lsp.FileSymbols(path, source, file, pr.GSXFset, pr.SourceIndex)...)
 		}
 	}
 	return syms, nil

@@ -4,9 +4,12 @@ import (
 	goast "go/ast"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceintel"
+	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 // LSP SymbolKind numeric constants (subset gsx emits).
@@ -21,8 +24,8 @@ const (
 )
 
 // Symbol is one navigable declaration in a .gsx file: a component or a
-// top-level Go declaration inside a GoChunk. Positions are resolved against the
-// file's FileSet (byte columns, 1-based line/column).
+// top-level authored Go declaration. Positions are resolved against the file's
+// FileSet (byte columns, 1-based line/column).
 type Symbol struct {
 	Name      string
 	Kind      int            // LSP SymbolKind
@@ -32,23 +35,118 @@ type Symbol struct {
 	DeclEnd   token.Position // end of the whole declaration
 }
 
-// FileSymbols extracts the symbols declared in one parsed .gsx file. fset
-// resolves gsx node positions (the package's GSXFset or the module-shared fset).
-// A nil file yields no symbols.
-func FileSymbols(path string, file *gsxast.File, fset *token.FileSet) []Symbol {
-	if file == nil {
-		return nil
+// FileSymbols extracts the symbols declared in one parsed .gsx file. Components
+// are owned by the GSX AST. Top-level Go declarations come from the retained
+// semantic index when it describes these exact source bytes; otherwise a
+// focused partial-parser fallback recovers declarations from GoChunks.
+func FileSymbols(path string, source []byte, file *gsxast.File, fset *token.FileSet, index *sourceintel.Index) []Symbol {
+	semantic := file != nil && fset != nil && index != nil && index.MatchesSource(path, source)
+	if !semantic {
+		fset = token.NewFileSet()
+		file, _ = gsxparser.ParseFileWithClassifier(fset, path, source, 0, nil)
+		if file == nil {
+			return nil
+		}
 	}
 	var out []Symbol
 	for _, d := range file.Decls {
 		switch decl := d.(type) {
 		case *gsxast.Component:
 			out = append(out, componentSymbol(file, fset, decl))
-		case *gsxast.GoChunk:
-			out = append(out, goChunkSymbols(file, fset, decl)...)
 		}
 	}
+	if semantic {
+		for _, declaration := range index.Declarations(path) {
+			if symbol, ok := semanticDeclarationSymbol(file, fset, declaration); ok {
+				out = append(out, symbol)
+			}
+		}
+	} else {
+		for _, d := range file.Decls {
+			if chunk, ok := d.(*gsxast.GoChunk); ok {
+				out = append(out, partialGoChunkSymbols(file, fset, chunk)...)
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left, right := out[i], out[j]
+		if left.DeclStart.Offset != right.DeclStart.Offset {
+			return left.DeclStart.Offset < right.DeclStart.Offset
+		}
+		leftLength := left.DeclEnd.Offset - left.DeclStart.Offset
+		rightLength := right.DeclEnd.Offset - right.DeclStart.Offset
+		if leftLength != rightLength {
+			return leftLength < rightLength
+		}
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		return left.Name < right.Name
+	})
 	return out
+}
+
+func semanticDeclarationSymbol(file *gsxast.File, fset *token.FileSet, declaration sourceintel.Declaration) (Symbol, bool) {
+	kind, ok := semanticSymbolKind(declaration.Kind)
+	if !ok || declaration.NameSpan.Path != declaration.DeclSpan.Path {
+		return Symbol{}, false
+	}
+	namePos, ok := sourceOffsetPosition(file, fset, declaration.NameSpan.Start)
+	if !ok {
+		return Symbol{}, false
+	}
+	declStart, ok := sourceOffsetPosition(file, fset, declaration.DeclSpan.Start)
+	if !ok {
+		return Symbol{}, false
+	}
+	declEnd, ok := sourceOffsetPosition(file, fset, declaration.DeclSpan.End)
+	if !ok {
+		return Symbol{}, false
+	}
+	container := declaration.Container
+	if container == "" {
+		container = file.Package
+	}
+	return Symbol{
+		Name:      declaration.Name,
+		Kind:      kind,
+		Container: container,
+		NamePos:   namePos,
+		DeclStart: declStart,
+		DeclEnd:   declEnd,
+	}, true
+}
+
+func semanticSymbolKind(kind sourceintel.DeclarationKind) (int, bool) {
+	switch kind {
+	case sourceintel.DeclarationFunction:
+		return symKindFunction, true
+	case sourceintel.DeclarationMethod:
+		return symKindMethod, true
+	case sourceintel.DeclarationType:
+		return symKindClass, true
+	case sourceintel.DeclarationStruct:
+		return symKindStruct, true
+	case sourceintel.DeclarationInterface:
+		return symKindInterface, true
+	case sourceintel.DeclarationConstant:
+		return symKindConstant, true
+	case sourceintel.DeclarationVariable:
+		return symKindVariable, true
+	default:
+		return 0, false
+	}
+}
+
+func sourceOffsetPosition(file *gsxast.File, fset *token.FileSet, offset int) (token.Position, bool) {
+	if file == nil || fset == nil {
+		return token.Position{}, false
+	}
+	tokenFile := fset.File(file.Pos())
+	if tokenFile == nil || offset < 0 || offset > tokenFile.Size() {
+		return token.Position{}, false
+	}
+	return fset.Position(tokenFile.Pos(offset)), true
 }
 
 func componentSymbol(file *gsxast.File, fset *token.FileSet, c *gsxast.Component) Symbol {
@@ -73,14 +171,13 @@ func componentSymbol(file *gsxast.File, fset *token.FileSet, c *gsxast.Component
 // .gsx (the chunk's Src is the source verbatim, so offsets align 1:1).
 const goWrapPrefix = "package p\n"
 
-// goChunkSymbols parses a GoChunk's verbatim Go source and returns a Symbol for
-// each top-level func/type/const/var declaration, with positions mapped back
-// into the .gsx file. A chunk whose Src does not parse yields no symbols.
-func goChunkSymbols(file *gsxast.File, fset *token.FileSet, gc *gsxast.GoChunk) []Symbol {
+// partialGoChunkSymbols parses a GoChunk's verbatim source in recovery mode and
+// emits only declarations represented by the returned partial Go AST.
+func partialGoChunkSymbols(file *gsxast.File, fset *token.FileSet, gc *gsxast.GoChunk) []Symbol {
 	gfset := token.NewFileSet()
-	gf, err := parser.ParseFile(gfset, "chunk.go", goWrapPrefix+gc.Src, 0)
-	if err != nil {
-		return nil // incomplete fragment; skip (tolerant)
+	gf, _ := parser.ParseFile(gfset, "chunk.go", goWrapPrefix+gc.Src, parser.AllErrors|parser.SkipObjectResolution)
+	if gf == nil {
+		return nil
 	}
 	tf := fset.File(gc.Pos())
 	if tf == nil {
@@ -117,7 +214,7 @@ func goChunkSymbols(file *gsxast.File, fset *token.FileSet, gc *gsxast.GoChunk) 
 					ts := sp.(*goast.TypeSpec)
 					out = append(out, Symbol{
 						Name: ts.Name.Name, Kind: typeSpecKind(ts), Container: file.Package,
-						NamePos: mapPos(ts.Name.Pos()), DeclStart: mapPos(ts.Pos()), DeclEnd: mapPos(ts.End()),
+						NamePos: mapPos(ts.Name.Pos()), DeclStart: mapPos(decl.Pos()), DeclEnd: mapPos(decl.End()),
 					})
 				}
 			case token.CONST, token.VAR:
@@ -133,7 +230,7 @@ func goChunkSymbols(file *gsxast.File, fset *token.FileSet, gc *gsxast.GoChunk) 
 						}
 						out = append(out, Symbol{
 							Name: n.Name, Kind: kind, Container: file.Package,
-							NamePos: mapPos(n.Pos()), DeclStart: mapPos(vs.Pos()), DeclEnd: mapPos(vs.End()),
+							NamePos: mapPos(n.Pos()), DeclStart: mapPos(decl.Pos()), DeclEnd: mapPos(decl.End()),
 						})
 					}
 				}
