@@ -621,9 +621,10 @@ total `HeapAlloc` (365.200-365.446 MiB), and 685.391 MiB total `HeapInuse`
 (362.773-363.707 MiB) and 679.055 MiB `HeapInuse` (675.938-707.883 MiB).
 This is an absolute four-root cost, not a baseline regression ratio.
 
-The exact committed harness was used at both revisions. At baseline it was
-applied with Go's `-overlay` to the already-existing `gen/perf_test.go`, leaving
-the baseline checkout unchanged. Harness SHA-256 is
+The exact committed harness was used at both revisions. At baseline a disposable
+untracked destination was added to the detached worktree and Go's `-overlay`
+mapped that destination to the harness, without modifying any tracked baseline
+file. Harness SHA-256 is
 `9f7a2c2a5bd7f8420761942a6f74f777b07526c36aa3ace8c033fef0eb9cde39`.
 
 Raw files and SHA-256 values:
@@ -636,18 +637,60 @@ fc80a94005b2c88cbf4e7680015191356639885eaf77bb0e01de6624b48e3fe8  /tmp/gsx-lsp-o
 e56f27a1b4346fad249cf89555b876e7e836618736e425d71b733c3a9c3b375f  /tmp/gsx-lsp-one-learning-baseline-b915e57c-overlay.json
 ```
 
-```sh
-GSX_PERF=1 GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
-  go test -overlay=/tmp/gsx-lsp-one-learning-baseline-b915e57c-overlay.json \
-  ./gen -run '^TestLSPManualOneLearningPerf$' -count=5 -v \
-  | tee /tmp/gsx-lsp-one-learning-controlled-before-b915e57c.txt
-GSX_PERF=1 GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
-  go test ./gen -run '^TestLSPManualOneLearningPerf$' -count=5 -v \
-  | tee /tmp/gsx-lsp-one-learning-controlled-after-562ae3c0.txt
-GSX_PERF=1 GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
-  GSX_LSP_WORKSPACE_MODE=repository \
-  go test ./gen -run '^TestLSPManualOneLearningPerf$' -count=5 -v \
-  | tee /tmp/gsx-lsp-one-learning-repository-after-562ae3c0.txt
+```bash
+set -eu
+
+repo=$(git rev-parse --show-toplevel)
+fixture=/Users/jackieli/work/one-learning-gsx
+harness=$repo/gen/lsp_one_learning_perf_test.go
+baseline=$(mktemp -d /tmp/gsx-lsp-one-learning-baseline-b915e57c.XXXXXX)
+rmdir "$baseline"
+overlay=$(mktemp /tmp/gsx-lsp-one-learning-overlay.XXXXXX)
+count=${COUNT:-5}
+before=${BEFORE_RAW:-/tmp/gsx-lsp-one-learning-controlled-before-b915e57c.txt}
+after=${AFTER_RAW:-/tmp/gsx-lsp-one-learning-controlled-after-562ae3c0.txt}
+repository=${REPOSITORY_RAW:-/tmp/gsx-lsp-one-learning-repository-after-562ae3c0.txt}
+
+cleanup() {
+  git -C "$repo" worktree remove -f "$baseline" >/dev/null 2>&1 || true
+  test ! -e "$overlay" || unlink "$overlay"
+}
+trap cleanup EXIT HUP INT TERM
+
+test "$(git -C "$fixture" rev-parse HEAD)" = ba0bc63096f5fa3d2b1464ab8eadf51673e61789
+test "$(git -C "$repo" log -1 --format=%H -- "$harness")" = 562ae3c0d0a852fcbea8b28e88523e37bca6b5bb
+test "$(shasum -a 256 "$harness" | awk '{print $1}')" = 9f7a2c2a5bd7f8420761942a6f74f777b07526c36aa3ace8c033fef0eb9cde39
+
+git -C "$repo" worktree add --detach "$baseline" b915e57c
+: >"$baseline/gen/lsp_one_learning_perf_test.go"
+cat >"$overlay" <<EOF
+{
+  "Replace": {
+    "$baseline/gen/lsp_one_learning_perf_test.go": "$harness"
+  }
+}
+EOF
+
+(
+  cd "$baseline"
+  GSX_PERF=1 GSX_LSP_FIXTURE="$fixture" \
+    go test -overlay="$overlay" ./gen \
+    -run '^TestLSPManualOneLearningPerf$' -count="$count" -v
+) >"$before" 2>&1
+(
+  cd "$repo"
+  GSX_PERF=1 GSX_LSP_FIXTURE="$fixture" \
+    go test ./gen -run '^TestLSPManualOneLearningPerf$' -count="$count" -v
+) >"$after" 2>&1
+(
+  cd "$repo"
+  GSX_PERF=1 GSX_LSP_FIXTURE="$fixture" GSX_LSP_WORKSPACE_MODE=repository \
+    go test ./gen -run '^TestLSPManualOneLearningPerf$' -count="$count" -v
+) >"$repository" 2>&1
+
+shasum -a 256 "$before" "$after" "$repository"
+trap - EXIT HUP INT TERM
+cleanup
 ```
 
 ### Absolute LSP/index costs
