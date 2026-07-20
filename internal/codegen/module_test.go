@@ -359,6 +359,67 @@ component Page() {
 	}
 }
 
+func TestModuleBuildsSourceIndexOnlyForRetainedPackage(t *testing.T) {
+	t.Parallel()
+	dir, module := openTestModule(t, map[string]string{
+		"generated/generated.gsx": `package generated
+
+component Page() { <p>generated</p> }
+`,
+		"dependency/dependency.gsx": `package dependency
+
+component Value() { <span>dependency</span> }
+`,
+		"importer/importer.gsx": `package importer
+
+import "testmod/dependency"
+
+component Page() { <div>{dependency.Value()}</div> }
+`,
+		"retaineddependency/dependency.gsx": `package retaineddependency
+
+component Value() { <span>retained dependency</span> }
+`,
+		"retained/retained.gsx": `package retained
+
+import "testmod/retaineddependency"
+
+component Page() { <div>{retaineddependency.Value()}</div> }
+`,
+	})
+
+	if _, diags, err := module.Generate(filepath.Join(dir, "generated")); err != nil {
+		t.Fatal(err)
+	} else if len(diags) != 0 {
+		t.Fatalf("Generate diagnostics: %+v", diags)
+	}
+	if got := module.sourceIndexBuilds(); got != 0 {
+		t.Fatalf("source index builds after Generate = %d, want 0", got)
+	}
+
+	importerPackage, err := module.typesPackage(filepath.Join(dir, "importer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if importerPackage.Scope().Lookup("Page") == nil {
+		t.Fatal("importer-only analysis did not type-check Page")
+	}
+	if got := module.sourceIndexBuilds(); got != 0 {
+		t.Fatalf("source index builds after importer-only analysis = %d, want 0", got)
+	}
+
+	result, err := module.Package(filepath.Join(dir, "retained"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SourceIndex == nil {
+		t.Fatal("retained Package result has no SourceIndex")
+	}
+	if got := module.sourceIndexBuilds(); got != 1 {
+		t.Fatalf("source index builds after Package = %d, want 1", got)
+	}
+}
+
 func assertSourceIndexExpressionType(t *testing.T, index *sourceintel.Index, path, source, want string) {
 	t.Helper()
 	start := strings.LastIndex(source, "helper()")

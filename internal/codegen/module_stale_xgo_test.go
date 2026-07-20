@@ -70,7 +70,7 @@ func TestModuleIgnoresStaleOnDiskXGo(t *testing.T) {
 		t.Fatalf("externalImporter: %v", err)
 	}
 	mi := &moduleImporter{m: m, external: ext, seen: map[string]bool{}}
-	a, err := m.analyze(pageDir, mi)
+	a, err := m.analyze(pageDir, mi, analysisTypeOnly)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}

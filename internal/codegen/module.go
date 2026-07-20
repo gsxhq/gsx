@@ -212,6 +212,7 @@ type Module struct {
 	fsetBaseline              int                                 // m.fset.Base() captured after the last packages.Load (growth measured since here)
 	fsetRebuildBytes          int                                 // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount              int                                 // count of fset rebuilds performed (observability; exposed via rebuilds())
+	sourceIndexBuildCount     int                                 // count of retained semantic index builds (observability; test hook)
 	gcImporter                types.Importer                      // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
 	mu                        sync.Mutex                          // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, and gcImporter publication
 	analysisMu                sync.Mutex                          // serializes Package/Generate/typesPackage (see concurrency contract)
@@ -1209,6 +1210,14 @@ func (m *Module) rebuilds() int {
 	return m.rebuildCount
 }
 
+// sourceIndexBuilds returns the number of retained semantic indexes built by
+// this Module (test hook).
+func (m *Module) sourceIndexBuilds() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sourceIndexBuildCount
+}
+
 // Package returns the full retained analysis for a single gsx package dir,
 // without codegen (Files stays empty; Generate fills it). It populates the
 // FileSets, *types.Info,
@@ -1231,7 +1240,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	a, err := m.analyze(dir, newModuleImporter(m, ext))
+	a, err := m.analyze(dir, newModuleImporter(m, ext), analysisRetainedPackage)
 	if err != nil {
 		if diags, ok := diagnosticsFromSourceError(err); ok {
 			return &PackageResult{Files: map[string][]byte{}, Diags: diags}, nil
@@ -1331,7 +1340,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	if err != nil {
 		return nil, nil, err
 	}
-	a, err := m.analyze(dir, newModuleImporter(m, ext))
+	a, err := m.analyze(dir, newModuleImporter(m, ext), analysisGeneration)
 	if err != nil {
 		if diags, ok := diagnosticsFromSourceError(err); ok {
 			return map[string][]byte{}, diags, nil
