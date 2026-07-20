@@ -3,6 +3,10 @@ package lsp
 import (
 	"bytes"
 	"encoding/json"
+	"go/token"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -116,6 +120,191 @@ func TestInitializeAdvertisesSymbolProviders(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("initialize result missing %s:\n%s", want, out)
 		}
+	}
+}
+
+func TestInitializeAdvertisesWorkspaceFolderLifecycle(t *testing.T) {
+	out := drive(t, nilAnalyzer{}, initFrame()+exitFrame())
+	var initialized initializeResult
+	if err := json.Unmarshal(responseByID(t, out, 1)["result"], &initialized); err != nil {
+		t.Fatal(err)
+	}
+	got := initialized.Capabilities.Workspace.WorkspaceFolders
+	if !got.Supported || !got.ChangeNotifications {
+		t.Fatalf("workspace folder capabilities = %+v, want supported change notifications", got)
+	}
+}
+
+func TestInitializeWorkspaceOwnershipPrecedence(t *testing.T) {
+	workspace := writeTestModule(t, filepath.Join(t.TempDir(), "workspace"), "example.test/workspace")
+	fallback := writeTestModule(t, filepath.Join(t.TempDir(), "fallback"), "example.test/fallback")
+
+	tests := []struct {
+		name   string
+		params map[string]any
+		want   []string
+	}{
+		{
+			name: "workspace folders precede root URI",
+			params: map[string]any{
+				"capabilities":     map[string]any{},
+				"rootUri":          pathToURI(fallback),
+				"workspaceFolders": []map[string]any{{"uri": pathToURI(workspace), "name": "workspace"}},
+			},
+			want: []string{workspace},
+		},
+		{
+			name: "explicit empty workspace folders do not fall back",
+			params: map[string]any{
+				"capabilities":     map[string]any{},
+				"rootUri":          pathToURI(fallback),
+				"workspaceFolders": []map[string]any{},
+			},
+			want: []string{},
+		},
+		{
+			name: "root URI is used when folders are absent",
+			params: map[string]any{
+				"capabilities": map[string]any{},
+				"rootUri":      pathToURI(fallback),
+			},
+			want: []string{fallback},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frames := framed(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": tt.params})
+			frames += framed(t, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+			var output bytes.Buffer
+			server := NewServer(strings.NewReader(frames), &output, nilAnalyzer{})
+			if err := server.Run(); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(server.workspaceModules, tt.want) {
+				t.Fatalf("workspace modules = %v, want %v", server.workspaceModules, tt.want)
+			}
+		})
+	}
+}
+
+func TestInitializeFallsBackToProcessWorkingDirectory(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := discoverWorkspaceModules([]string{wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	server := NewServer(strings.NewReader(initFrame()+exitFrame()), &output, nilAnalyzer{})
+	if err := server.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(server.workspaceModules, want) {
+		t.Fatalf("workspace modules = %v, want cwd-owned %v", server.workspaceModules, want)
+	}
+}
+
+func TestInitializeExplicitWorkspaceErrorDoesNotFallBack(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	frames := framed(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "initialize",
+		"params": map[string]any{
+			"rootUri":      pathToURI(missing),
+			"capabilities": map[string]any{},
+		},
+	}) + exitFrame()
+	var output bytes.Buffer
+	server := NewServer(strings.NewReader(frames), &output, nilAnalyzer{})
+	if err := server.Run(); err != nil {
+		t.Fatal(err)
+	}
+	response := responseByID(t, output.String(), 1)
+	if !strings.Contains(string(response["error"]), missing) {
+		t.Fatalf("initialize error = %s, want explicit root %s", response["error"], missing)
+	}
+	if len(server.workspaceModules) != 0 {
+		t.Fatalf("workspace modules = %v after rejected explicit root", server.workspaceModules)
+	}
+}
+
+func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testing.T) {
+	first := writeTestModule(t, filepath.Join(t.TempDir(), "first"), "example.test/first")
+	second := writeTestModule(t, filepath.Join(t.TempDir(), "second"), "example.test/second")
+	var output bytes.Buffer
+	server := NewServer(strings.NewReader(""), &output, nilAnalyzer{})
+	if err := server.setWorkspaceFolders([]workspaceFolder{{URI: pathToURI(first), Name: "first"}}); err != nil {
+		t.Fatal(err)
+	}
+	pkg := &Package{}
+	server.pkgs[first] = pkg
+	primeModuleCaches := func() {
+		server.moduleRefs = []CrossRef{{Name: "ref"}}
+		server.moduleRefsValid = true
+		server.moduleParams = []ComponentParamRenameFact{{Name: "param"}}
+		server.moduleParamsValid = true
+		server.moduleParamsDir = first
+		server.moduleSyms = []Symbol{{Name: "symbol", NamePos: token.Position{Filename: filepath.Join(first, "page.gsx")}}}
+		server.moduleSymsValid = true
+	}
+	assertOnlyModuleCachesInvalidated := func(t *testing.T) {
+		t.Helper()
+		if server.moduleRefs != nil || server.moduleRefsValid || server.moduleParams != nil || server.moduleParamsValid || server.moduleParamsDir != "" || server.moduleSyms != nil || server.moduleSymsValid {
+			t.Fatalf("whole-module caches retained: refs=%v/%v params=%v/%v/%q syms=%v/%v", server.moduleRefs, server.moduleRefsValid, server.moduleParams, server.moduleParamsValid, server.moduleParamsDir, server.moduleSyms, server.moduleSymsValid)
+		}
+		if server.pkgs[first] != pkg {
+			t.Fatalf("open package analysis was invalidated: got %p, want %p", server.pkgs[first], pkg)
+		}
+	}
+	handleChange := func(added, removed []workspaceFolder) error {
+		params, err := json.Marshal(didChangeWorkspaceFoldersParams{Event: workspaceFoldersChangeEvent{Added: added, Removed: removed}})
+		if err != nil {
+			return err
+		}
+		return server.handle(frame{Method: "workspace/didChangeWorkspaceFolders", Params: params})
+	}
+
+	primeModuleCaches()
+	if err := handleChange([]workspaceFolder{{URI: pathToURI(second), Name: "second"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	wantBoth := []string{first, second}
+	slices.Sort(wantBoth)
+	if !slices.Equal(server.workspaceModules, wantBoth) {
+		t.Fatalf("modules after add = %v, want %v", server.workspaceModules, wantBoth)
+	}
+	assertOnlyModuleCachesInvalidated(t)
+
+	primeModuleCaches()
+	if err := handleChange(nil, []workspaceFolder{{URI: pathToURI(first) + "/.", Name: "ignored"}}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{second}; !slices.Equal(server.workspaceModules, want) {
+		t.Fatalf("modules after normalized removal = %v, want %v", server.workspaceModules, want)
+	}
+	assertOnlyModuleCachesInvalidated(t)
+
+	primeModuleCaches()
+	beforeFolders := append([]workspaceFolder(nil), server.workspaceFolders...)
+	beforeModules := append([]string(nil), server.workspaceModules...)
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := handleChange([]workspaceFolder{{URI: pathToURI(missing), Name: "missing"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(server.workspaceFolders, beforeFolders) || !slices.Equal(server.workspaceModules, beforeModules) {
+		t.Fatalf("rejected update partially applied: folders=%v modules=%v", server.workspaceFolders, server.workspaceModules)
+	}
+	if !server.moduleRefsValid || !server.moduleParamsValid || !server.moduleSymsValid {
+		t.Fatal("rejected workspace update invalidated whole-module caches")
+	}
+	if server.pkgs[first] != pkg {
+		t.Fatal("rejected workspace update invalidated open package analysis")
+	}
+	if !strings.Contains(output.String(), "workspace folder change rejected") || !strings.Contains(output.String(), missing) {
+		t.Fatalf("notification failure was not surfaced: %s", output.String())
 	}
 }
 

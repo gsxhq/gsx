@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -114,6 +115,10 @@ type Server struct {
 
 	moduleSyms      []Symbol // whole-module symbol index (lazy; workspace/symbol)
 	moduleSymsValid bool     // false ⇒ rebuild on next workspace/symbol request
+
+	workspaceFolders []workspaceFolder // normalized initialized file workspace folders
+	workspaceRoots   []string          // normalized absolute folder paths
+	workspaceModules []string          // sorted Go module roots owned by workspaceRoots
 
 	debounce time.Duration
 	// schedule arms a timer that calls f after d, returning a cancel func. It is a
@@ -278,6 +283,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleDidClose(f)
 	case "workspace/didChangeWatchedFiles":
 		return s.handleDidChangeWatchedFiles(f)
+	case "workspace/didChangeWorkspaceFolders":
+		return s.handleDidChangeWorkspaceFolders(f)
 	case "textDocument/definition":
 		return s.handleDefinition(f)
 	case "textDocument/references":
@@ -316,6 +323,22 @@ func (s *Server) handleInitialize(f frame) error {
 	s.watchDynamicRegistration = p.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
 	s.renameDynamicRegistration = p.Capabilities.TextDocument.Rename.DynamicRegistration
 	s.renamePrepareSupport = p.Capabilities.TextDocument.Rename.PrepareSupport
+	var folders []workspaceFolder
+	switch {
+	case p.WorkspaceFolders != nil:
+		folders = p.WorkspaceFolders
+	case p.RootURI != "":
+		folders = []workspaceFolder{{URI: p.RootURI}}
+	default:
+		cwd, err := os.Getwd()
+		if err != nil {
+			return s.replyError(f.ID, -32602, "initialize workspace: process working directory: "+err.Error())
+		}
+		folders = []workspaceFolder{{URI: pathToURI(cwd)}}
+	}
+	if err := s.setWorkspaceFolders(folders); err != nil {
+		return s.replyError(f.ID, -32602, "initialize workspace: "+err.Error())
+	}
 	return s.reply(f.ID, initializeResult{Capabilities: serverCapabilities{
 		PositionEncoding:           encName,
 		TextDocumentSync:           1, // full document sync
@@ -327,6 +350,9 @@ func (s *Server) handleInitialize(f frame) error {
 		DocumentSymbolProvider:     true,
 		WorkspaceSymbolProvider:    true,
 		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind, quickFixKind}},
+		Workspace: workspaceServerCapabilities{WorkspaceFolders: workspaceFoldersServerCapabilities{
+			Supported: true, ChangeNotifications: true,
+		}},
 	}})
 }
 
