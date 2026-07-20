@@ -8,7 +8,37 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
+
+func semanticHover(pkg *Package, path string, source []byte, offset int) (Hover, bool) {
+	if pkg == nil || pkg.SourceIndex == nil || !pkg.SourceIndex.MatchesSource(path, source) {
+		return Hover{}, false
+	}
+	occurrence, ok := pkg.SourceIndex.At(path, offset)
+	if !ok {
+		return Hover{}, false
+	}
+	if occurrence.Object != nil {
+		object := sourceintel.Origin(occurrence.Object)
+		if _, authored := pkg.SourceIndex.Definition(object); !authored {
+			if object.Pkg() != nil {
+				if pkg.Fset == nil || !object.Pos().IsValid() {
+					return Hover{}, false
+				}
+				position := pkg.Fset.Position(object.Pos())
+				if position.Filename == "" || !strings.HasSuffix(position.Filename, ".go") || strings.HasSuffix(position.Filename, ".x.go") {
+					return Hover{}, false
+				}
+			}
+		}
+		return Hover{Contents: markdownGo(types.ObjectString(occurrence.Object, qualifierFor(pkg)))}, true
+	}
+	if occurrence.HasTypeValue && occurrence.TypeAndValue.Type != nil {
+		return Hover{Contents: markdownGo(types.TypeString(occurrence.TypeAndValue.Type, qualifierFor(pkg)))}, true
+	}
+	return Hover{}, false
+}
 
 // handleHover answers textDocument/hover for a .gsx file: it shows the Go
 // type/signature of the symbol or expression under the cursor. .go files are
@@ -77,65 +107,59 @@ func (s *Server) handleHover(f frame) error {
 		}
 	}
 
-	if pkg.Info == nil {
-		return s.reply(f.ID, nil) // expression hover needs type info
-	}
-
-	// H2: an identifier inside a component-signature parameter TYPE (e.g.
-	// `store.Comment` in `component C(c []store.Comment)`) → the resolved object's
-	// signature, like hovering the same identifier in Go.
-	if obj, idStart, idLen, ok := signatureTypeIdentAt(pkg, path, off); ok {
-		rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
-		return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
-	}
-
-	node, exprPos := exprNodeAtOffset(pkg, path, off)
-	if node == nil {
-		return s.reply(f.ID, nil)
-	}
-	// H3: an identifier inside a CtrlMap-bridged span — a for/if/{{ }} clause,
-	// switch tag or case list, in-tag conditional-attribute cond, class guard
-	// cond, or value-form control expression — hovers like the same identifier
-	// in Go. Checked before the pipeline path: a ClassPart's `: cond` guard is
-	// a ctrl span even when the part's expr carries a pipeline.
-	if isCtrlSpan(node, exprPos) {
-		if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
+	if pkg.Info != nil {
+		// H2: an identifier inside a component-signature parameter TYPE (e.g.
+		// `store.Comment` in `component C(c []store.Comment)`) → the resolved object's
+		// signature, like hovering the same identifier in Go.
+		if obj, idStart, idLen, ok := signatureTypeIdentAt(pkg, path, off); ok {
 			rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
 			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
 		}
-		return s.reply(f.ID, nil)
-	}
-	if hasPipeStages(node) {
-		if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
-			rng := rangeForSpan(text, span[0], span[1], s.enc)
-			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
-		}
-		return s.reply(f.ID, nil)
-	}
-	skel := pkg.ExprMap[node]
-	if skel == nil {
-		return s.reply(f.ID, nil)
-	}
-	exprStart := pkg.GSXFset.Position(exprPos).Offset
-	skelPos := skel.Pos() + token.Pos(off-exprStart)
-	qf := qualifierFor(pkg)
 
-	// On an identifier → show the resolved object's signature.
-	if id := innermostIdent(skel, skelPos); id != nil {
-		obj := pkg.Info.Uses[id]
-		if obj == nil {
-			obj = pkg.Info.Defs[id]
-		}
-		if obj != nil {
-			identStart := exprStart + int(id.Pos()-skel.Pos())
-			rng := rangeForSpan(text, identStart, identStart+len(id.Name), s.enc)
-			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qf)), Range: &rng})
+		node, exprPos := exprNodeAtOffset(pkg, path, off)
+		if node != nil {
+			// H3: an identifier inside a CtrlMap-bridged span — a for/if/{{ }} clause,
+			// switch tag or case list, in-tag conditional-attribute cond, class guard
+			// cond, or value-form control expression — hovers like the same identifier
+			// in Go. Checked before the pipeline path: a ClassPart's `: cond` guard is
+			// a ctrl span even when the part's expr carries a pipeline.
+			if isCtrlSpan(node, exprPos) {
+				if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
+					rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
+					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+				}
+			} else if hasPipeStages(node) {
+				if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
+					rng := rangeForSpan(text, span[0], span[1], s.enc)
+					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+				}
+			} else if skel := pkg.ExprMap[node]; skel != nil {
+				exprStart := pkg.GSXFset.Position(exprPos).Offset
+				skelPos := skel.Pos() + token.Pos(off-exprStart)
+				qf := qualifierFor(pkg)
+
+				// On an identifier → show the resolved object's signature.
+				if id := innermostIdent(skel, skelPos); id != nil {
+					obj := pkg.Info.Uses[id]
+					if obj == nil {
+						obj = pkg.Info.Defs[id]
+					}
+					if obj != nil {
+						identStart := exprStart + int(id.Pos()-skel.Pos())
+						rng := rangeForSpan(text, identStart, identStart+len(id.Name), s.enc)
+						return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qf)), Range: &rng})
+					}
+				}
+				// Otherwise → the whole expression's type.
+				if tv, ok := pkg.Info.Types[skel]; ok && tv.Type != nil {
+					rng := rangeForSpan(text, exprStart, exprStart+len(exprText(node)), s.enc)
+					return s.reply(f.ID, Hover{Contents: markdownGo(types.TypeString(tv.Type, qf)), Range: &rng})
+				}
+			}
 		}
 	}
-	// Otherwise → the whole expression's type.
-	if tv, ok := pkg.Info.Types[skel]; ok && tv.Type != nil {
-		rng := rangeForSpan(text, exprStart, exprStart+len(exprText(node)), s.enc)
-		return s.reply(f.ID, Hover{Contents: markdownGo(types.TypeString(tv.Type, qf)), Range: &rng})
+	if hover, ok := semanticHover(pkg, path, []byte(text), off); ok {
+		return s.reply(f.ID, hover)
 	}
 	return s.reply(f.ID, nil)
 }
