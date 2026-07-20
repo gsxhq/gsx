@@ -23,6 +23,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // lspAnalyzer is the concrete code analysis behind the language server: it
@@ -318,14 +319,25 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 				Role:    lsp.ComponentParamRole(param.Role),
 			}
 		}
-		calls[element] = lsp.ComponentCallFact{
-			Target:        call.Target,
-			TargetOrigin:  call.TargetOrigin,
-			TargetPackage: call.TargetPackage,
-			TargetKey:     call.TargetKey,
-			Signature:     call.Signature,
-			Params:        params,
+		paramDecls := make(map[int][]sourceintel.VersionedSpan, len(call.ParamDecls))
+		for ordinal, declarations := range call.ParamDecls {
+			paramDecls[ordinal] = append([]sourceintel.VersionedSpan(nil), declarations...)
 		}
+		calls[element] = lsp.ComponentCallFact{
+			Target:             call.Target,
+			TargetOrigin:       call.TargetOrigin,
+			TargetPackage:      call.TargetPackage,
+			TargetKey:          call.TargetKey,
+			Signature:          call.Signature,
+			Params:             params,
+			TargetDecls:        append([]sourceintel.VersionedSpan(nil), call.TargetDecls...),
+			ParamDecls:         paramDecls,
+			TargetPresentation: call.TargetPresentation,
+		}
+	}
+	componentDecls := make(map[lsp.ComponentDeclKey][]sourceintel.VersionedSpan, len(pr.ComponentDecls))
+	for key, declarations := range pr.ComponentDecls {
+		componentDecls[lsp.ComponentDeclKey{PackagePath: key.PackagePath, ComponentKey: key.ComponentKey}] = append([]sourceintel.VersionedSpan(nil), declarations...)
 	}
 	return &lsp.Package{
 		Diags:          pr.Diags,
@@ -338,6 +350,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		CrossIndex:     cross,
 		NavIndex:       nav,
 		ComponentCalls: calls,
+		ComponentDecls: componentDecls,
 		SourceIndex:    pr.SourceIndex,
 		CtrlMap:        ctrl,
 		SigTypes:       sig,

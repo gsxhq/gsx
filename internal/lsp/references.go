@@ -30,10 +30,12 @@ func (s *Server) handleReferences(f frame) error {
 	}
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
-	text, ok := s.docs.text(uri)
+	sources := s.sourceSnapshot()
+	textBytes, ok := sources.sourceText(path)
 	if !ok {
 		return s.reply(f.ID, []Location{})
 	}
+	text := string(textBytes)
 	curLine := p.Position.Line + 1
 	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
 		lineStartOffset(text, p.Position.Line) + 1
@@ -66,7 +68,7 @@ func (s *Server) handleReferences(f frame) error {
 
 	locs := make([]Location, 0, len(found.Refs)+len(found.Decls)+1)
 	for _, r := range found.Refs {
-		if location, ok := s.locationForResolvedPosition(r, len(found.Name)); ok {
+		if location, ok := sources.locationForResolvedPosition(r, len(found.Name)); ok {
 			locs = append(locs, location)
 		}
 	}
@@ -88,7 +90,7 @@ func (s *Server) handleReferences(f frame) error {
 				continue
 			}
 			seen[k] = true
-			if location, ok := s.locationForAuthoredPosition(d, len(found.Name)); ok {
+			if location, ok := sources.locationForAuthoredPosition(d, len(found.Name)); ok {
 				locs = append(locs, location)
 			}
 		}

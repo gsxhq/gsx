@@ -27,7 +27,8 @@ func (s *Server) handleDocumentSymbol(f frame) error {
 	if file == nil {
 		return s.reply(f.ID, []DocumentSymbol{})
 	}
-	text, ok := s.sourceText(path)
+	sources := s.sourceSnapshot()
+	text, ok := sources.sourceText(path)
 	if !ok {
 		return s.reply(f.ID, []DocumentSymbol{})
 	}
@@ -35,7 +36,7 @@ func (s *Server) handleDocumentSymbol(f frame) error {
 	syms := FileSymbols(path, text, file, pkg.GSXFset, pkg.SourceIndex)
 	out := make([]DocumentSymbol, 0, len(syms))
 	for _, sym := range syms {
-		declarationRange, ok := s.rangeForAuthoredPositions(sym.DeclStart, sym.DeclEnd)
+		declarationRange, ok := sources.rangeForAuthoredPositions(sym.DeclStart, sym.DeclEnd)
 		if !ok {
 			continue
 		}
@@ -43,7 +44,7 @@ func (s *Server) handleDocumentSymbol(f frame) error {
 		if !ok {
 			continue
 		}
-		selectionRange, ok := s.rangeForSpan(nameSpan)
+		selectionRange, ok := sources.rangeForSpan(nameSpan)
 		if !ok {
 			continue
 		}

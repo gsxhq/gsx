@@ -339,6 +339,7 @@ func (m *Module) invalidateConfiguredSourceStateLocked() {
 	m.classMergersErr, m.classMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.targetDeclTypes = map[string]*types.Package{}
+	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 }
@@ -355,6 +356,7 @@ func (m *Module) invalidateLocked(dirs []string) []string {
 	for d := range scope.dirs {
 		delete(m.pkgTypes, d)
 		delete(m.targetDeclTypes, d)
+		delete(m.targetDeclProvenance, d)
 		delete(m.configuredDeclTypes, d)
 		delete(m.pkgResults, d)
 	}
@@ -888,6 +890,7 @@ type analyzed struct {
 	targetFacts       map[callSiteID]componentTargetFact
 	targetExprFacts   map[gsxast.Node]expressionFact
 	targetPackage     *types.Package
+	componentDecls    map[ComponentDeclKey][]sourceintel.VersionedSpan
 	positionalPlan    componentPositionalPackagePlan
 	targetErrs        []types.Error     // target-phase-fatal type errors retained privately until exact call planning becomes authoritative
 	targetDiagnostics []diag.Diagnostic // target-phase-fatal source diagnostics retained on the same private boundary
@@ -1117,6 +1120,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	var targetFacts map[callSiteID]componentTargetFact
 	var targetExprFacts map[gsxast.Node]expressionFact
 	var targetPackage *types.Package
+	var componentDecls map[ComponentDeclKey][]sourceintel.VersionedSpan
 	var targetRuntime runtimeContract
 	var targetPlanningReady bool
 	var positionalPlan componentPositionalPackagePlan
@@ -1127,7 +1131,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
 			m,
 			dir, pkgPath,
-			pkgName, gsxFiles, componentPlan, callSites, table,
+			pkgName, gsxFiles, parsed.sources, componentPlan, callSites, table,
 			fset, targetBag, targetImporter, typeEnvironment,
 		)
 		if targetErr != nil {
@@ -1470,6 +1474,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 			bag.Add(diagnostic)
 		}
 	}
+	var localComponentProvenance map[string]componentTargetDeclarationProvenance
+	if !bag.HasErrors() && len(typeErrs) == 0 {
+		localComponentProvenance, err = componentTargetDeclarationProvenances(gsxFiles, parsed.sources, fset, componentPlan)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// Cache the type-checked package so every entry point — Package, Generate, and
 	// the recursive importer — sees the same freshly-checked result. This eliminates
@@ -1484,6 +1495,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		m.pkgTypes = map[string]*types.Package{}
 	}
 	m.pkgTypes[dir] = pkg
+	if localComponentProvenance != nil {
+		if m.targetDeclProvenance == nil {
+			m.targetDeclProvenance = componentTargetProvenanceCache{}
+		}
+		m.targetDeclProvenance[dir] = localComponentProvenance
+	}
 	m.mu.Unlock()
 
 	// Record the project-internal import graph for this package. Only successful
@@ -1594,6 +1611,17 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// the type-error loop's quietSpans, above, is built from. See
 	// missingFromSkeletons' doc.
 	missingImports := missingFromSkeletons(skelByGsx, fset, info, spansByFile)
+	if localComponentProvenance != nil {
+		componentDecls = make(map[ComponentDeclKey][]sourceintel.VersionedSpan)
+		for key, provenance := range localComponentProvenance {
+			componentDecls[ComponentDeclKey{PackagePath: pkgPath, ComponentKey: key}] = append([]sourceintel.VersionedSpan(nil), provenance.targetDecls...)
+		}
+		for _, imported := range pkg.Imports() {
+			for key, provenance := range m.componentTargetPackageProvenance(imported.Path()) {
+				componentDecls[ComponentDeclKey{PackagePath: imported.Path(), ComponentKey: key}] = append([]sourceintel.VersionedSpan(nil), provenance.targetDecls...)
+			}
+		}
+	}
 
 	return &analyzed{
 		pkgName:           pkgName,
@@ -1609,6 +1637,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		targetFacts:       targetFacts,
 		targetExprFacts:   targetExprFacts,
 		targetPackage:     targetPackage,
+		componentDecls:    componentDecls,
 		positionalPlan:    positionalPlan,
 		targetErrs:        targetErrs,
 		targetDiagnostics: targetDiagnostics,

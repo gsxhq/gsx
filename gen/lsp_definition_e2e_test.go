@@ -8,9 +8,193 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/gsxhq/gsx/internal/lsp"
 )
+
+func TestDefinitionUsesRetainedVariantProvenanceAcrossAliasCollisionAndUnsavedDependency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) string {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	write("one/card.gsx", `package widgets
+
+import "github.com/gsxhq/gsx"
+
+component Card[T ~string](first, second T, attrs ...gsx.Attr) { <div/> }
+`)
+	const secondA = `//go:build first
+
+package widgets
+
+import "github.com/gsxhq/gsx"
+
+component Card[T ~string](first, second T, attrs ...gsx.Attr) { <div/> }
+`
+	const secondBSaved = `//go:build second
+
+package widgets
+
+import "github.com/gsxhq/gsx"
+
+component Card[U ~string](first, second U, attrs ...gsx.Attr) { <span/> }
+`
+	const secondBOpen = `//go:build second
+
+package widgets
+
+import "github.com/gsxhq/gsx"
+
+/*😀*/ component Card[U ~string](first, second U, attrs ...gsx.Attr) { <span/> }
+`
+	secondAPath := write("two/card_a.gsx", secondA)
+	secondBPath := write("two/card_b.gsx", secondBSaved)
+	const page = `package page
+
+import one "example.com/app/one"
+import two "example.com/app/two"
+
+component Page() {
+	<one.Card first="a" second="b"/>
+	<two.Card first="c" second="d" attrs={{"class": "chosen"}}/>
+}
+`
+	pagePath := write("page/page.gsx", page)
+	pageURI := "file://" + pagePath
+	secondBURI := "file://" + secondBPath
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	input := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	input += frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": secondBURI, "version": 2, "text": secondBOpen}},
+	})
+	input += frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": pageURI, "version": 1, "text": page}},
+	})
+	requests := []struct {
+		id     int
+		cursor int
+		name   string
+	}{
+		{id: 2, cursor: strings.Index(page, "two.Card") + len("two."), name: "target"},
+		{id: 3, cursor: strings.LastIndex(page, "second=") + 1, name: "grouped parameter"},
+		{id: 4, cursor: strings.Index(page, "attrs=") + 1, name: "variadic attrs parameter"},
+	}
+	for _, request := range requests {
+		position := utf16PositionAt(page, request.cursor)
+		input += frame(map[string]any{
+			"jsonrpc": "2.0", "id": request.id, "method": "textDocument/definition",
+			"params": map[string]any{
+				"textDocument": map[string]any{"uri": pageURI},
+				"position":     map[string]any{"line": position.Line, "character": position.Character},
+			},
+		})
+	}
+	input += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+	wantSources := []struct {
+		path   string
+		source string
+	}{
+		{path: secondAPath, source: secondA},
+		{path: secondBPath, source: secondBOpen},
+	}
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			locations := definitionLocationList(t, output.String(), request.id)
+			if len(locations) != 2 {
+				t.Fatalf("definition locations = %+v, want both exact variants; output:\n%s", locations, output.String())
+			}
+			name := "Card"
+			switch request.id {
+			case 3:
+				name = "second"
+			case 4:
+				name = "attrs"
+			}
+			for index, target := range wantSources {
+				componentStart := strings.Index(target.source, "component Card")
+				start := componentStart + strings.Index(target.source[componentStart:], name)
+				want := lsp.Location{
+					URI: "file://" + target.path,
+					Range: lsp.Range{
+						Start: utf16PositionAt(target.source, start),
+						End:   utf16PositionAt(target.source, start+len(name)),
+					},
+				}
+				if locations[index] != want {
+					t.Fatalf("definition %d = %+v, want %+v", index, locations[index], want)
+				}
+			}
+		})
+	}
+}
+
+func utf16PositionAt(source string, offset int) lsp.Position {
+	line := strings.Count(source[:offset], "\n")
+	lineStart := strings.LastIndexByte(source[:offset], '\n') + 1
+	return lsp.Position{Line: line, Character: len(utf16.Encode([]rune(source[lineStart:offset])))}
+}
+
+func definitionLocationList(t *testing.T, output string, id int) []lsp.Location {
+	t.Helper()
+	marker := `"id":` + strconv.Itoa(id) + `,`
+	for part := range strings.SplitSeq(output, "Content-Length:") {
+		_, body, ok := strings.Cut(part, "\r\n\r\n")
+		if !ok || !strings.Contains(body, marker) {
+			continue
+		}
+		var response struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(body), &response); err != nil {
+			t.Fatal(err)
+		}
+		if string(response.Result) == "null" {
+			return nil
+		}
+		var locations []lsp.Location
+		if err := json.Unmarshal(response.Result, &locations); err == nil {
+			return locations
+		}
+		var location lsp.Location
+		if err := json.Unmarshal(response.Result, &location); err != nil {
+			t.Fatalf("decode definition result: %v", err)
+		}
+		return []lsp.Location{location}
+	}
+	t.Fatalf("no response with id %d in:\n%s", id, output)
+	return nil
+}
 
 func TestDefinitionAuthoredSourceIndexE2E(t *testing.T) {
 	if testing.Short() {

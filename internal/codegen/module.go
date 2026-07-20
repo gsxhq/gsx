@@ -200,6 +200,7 @@ type Module struct {
 	fset                      *token.FileSet                      // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
 	pkgTypes                  map[string]*types.Package           // abs dir -> shipping-universe package cache, including retained Go-only intermediaries
 	targetDeclTypes           map[string]*types.Package           // abs dir -> exact-signature declarations; never aliases the shipping Props cache
+	targetDeclProvenance      componentTargetProvenanceCache      // abs dir -> logical component key -> exact authored declarations
 	configuredDeclTypes       map[string]*types.Package           // abs dir -> configured declaration-universe package cache
 	pkgResults                map[string]*PackageResult           // abs dir -> cached full analysis result (Package path only)
 	imports                   map[string][]string                 // dir -> authoritative module-local shipping dependencies (forward edges)
@@ -302,6 +303,7 @@ func Open(opts Options) (*Module, error) {
 		rendererDirs:              map[string]bool{},
 		configuredSourceDirs:      map[string]bool{},
 		targetDeclTypes:           map[string]*types.Package{},
+		targetDeclProvenance:      componentTargetProvenanceCache{},
 		configuredDeclTypes:       map[string]*types.Package{},
 		sourcePackages:            map[string]projectSourcePackage{},
 		sourcePackageDirs:         map[string]string{},
@@ -1197,6 +1199,7 @@ func (m *Module) rebuildFset() {
 	m.classMergersErr, m.classMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.targetDeclTypes = map[string]*types.Package{}
+	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 	m.fsetBaseline = 0
@@ -1288,6 +1291,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
+	res.ComponentDecls = a.componentDecls
 	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
 	if !a.bag.HasErrors() && len(a.typeErrs) == 0 {
 		res.ComponentParamDecls, err = componentParamDeclarationFacts(

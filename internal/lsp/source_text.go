@@ -10,59 +10,141 @@ import (
 	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
-// sourceText returns the authoritative bytes for path. An open editor snapshot
-// takes precedence over the saved file.
-func (s *Server) sourceText(path string) ([]byte, bool) {
+type capturedSource struct {
+	openText string
+	text     []byte
+	open     bool
+	loaded   bool
+	ok       bool
+}
+
+// requestSourceSnapshot is one immutable view of editor and saved source for a
+// request. Open documents are captured together; saved files are read lazily at
+// most once per path and then retained for the request's lifetime.
+type requestSourceSnapshot struct {
+	enc     encoding
+	sources map[string]capturedSource
+}
+
+func (s *Server) sourceSnapshot() *requestSourceSnapshot {
+	snapshot := &requestSourceSnapshot{enc: s.enc, sources: make(map[string]capturedSource)}
+	if s.docs == nil {
+		return snapshot
+	}
+	s.docs.mu.Lock()
+	for uri, document := range s.docs.docs {
+		path := sourcePath(uri)
+		if path == "" || strings.HasSuffix(path, ".x.go") {
+			continue
+		}
+		snapshot.sources[path] = capturedSource{openText: document.text, open: true, ok: true}
+	}
+	s.docs.mu.Unlock()
+	return snapshot
+}
+
+// openGSXOverrides materializes the open GSX buffers retained by this request.
+// Whole-module analysis consumes every override, so these are all used paths;
+// unopened files remain lazy and are still read at most once by sourceText.
+func (snapshot *requestSourceSnapshot) openGSXOverrides() map[string][]byte {
+	overrides := make(map[string][]byte)
+	for path, source := range snapshot.sources {
+		if !source.open || !strings.HasSuffix(path, ".gsx") {
+			continue
+		}
+		text, ok := snapshot.sourceText(path)
+		if ok {
+			overrides[path] = text
+		}
+	}
+	return overrides
+}
+
+func (snapshot *requestSourceSnapshot) anyOpenDir() string {
+	dir := ""
+	for path, source := range snapshot.sources {
+		if !source.open {
+			continue
+		}
+		candidate := filepath.Dir(path)
+		if dir == "" || candidate < dir {
+			dir = candidate
+		}
+	}
+	if dir == "" {
+		return "."
+	}
+	return dir
+}
+
+func (snapshot *requestSourceSnapshot) sourceText(path string) ([]byte, bool) {
 	path = sourcePath(path)
 	if path == "" || strings.HasSuffix(path, ".x.go") {
 		return nil, false
 	}
-	if s.docs != nil {
-		s.docs.mu.Lock()
-		if document, ok := s.docs.docs[pathToURI(path)]; ok {
-			text := []byte(document.text)
-			s.docs.mu.Unlock()
-			return text, true
+	if source, found := snapshot.sources[path]; found {
+		if !source.loaded {
+			source.text = []byte(source.openText)
+			source.openText = ""
+			source.loaded = true
+			snapshot.sources[path] = source
 		}
-		for uri, document := range s.docs.docs {
-			if sourcePath(uri) == path {
-				text := []byte(document.text)
-				s.docs.mu.Unlock()
-				return text, true
-			}
-		}
-		s.docs.mu.Unlock()
+		return source.text, source.ok
 	}
 	text, err := os.ReadFile(path)
-	return text, err == nil
+	source := capturedSource{text: text, loaded: true, ok: err == nil}
+	snapshot.sources[path] = source
+	return source.text, source.ok
 }
 
-// position converts an authored byte offset using the negotiated LSP encoding.
-// Invalid offsets fail closed rather than being clamped into the snapshot.
-func (s *Server) position(path string, offset int) (Position, bool) {
-	text, ok := s.sourceText(path)
+// sourceText is the one-shot compatibility wrapper for callers outside a
+// request handler. Handlers create one requestSourceSnapshot and reuse it.
+func (s *Server) sourceText(path string) ([]byte, bool) {
+	return s.sourceSnapshot().sourceText(path)
+}
+
+func (snapshot *requestSourceSnapshot) position(path string, offset int) (Position, bool) {
+	text, ok := snapshot.sourceText(path)
 	if !ok || offset < 0 || offset > len(text) {
 		return Position{}, false
 	}
-	return positionForByteOffset(string(text), offset, s.enc), true
+	return positionForByteOffset(string(text), offset, snapshot.enc), true
 }
 
-// rangeForSpan converts an exact authored byte span using one authoritative
-// source snapshot. Invalid, reversed, and out-of-snapshot spans fail closed.
-func (s *Server) rangeForSpan(span sourceintel.Span) (Range, bool) {
-	text, ok := s.sourceText(span.Path)
+func (s *Server) position(path string, offset int) (Position, bool) {
+	return s.sourceSnapshot().position(path, offset)
+}
+
+func (snapshot *requestSourceSnapshot) rangeForSpan(span sourceintel.Span) (Range, bool) {
+	text, ok := snapshot.sourceText(span.Path)
 	if !ok || span.Start < 0 || span.End < span.Start || span.End > len(text) {
 		return Range{}, false
 	}
-	return rangeForSpan(string(text), span.Start, span.End, s.enc), true
+	return rangeForSpan(string(text), span.Start, span.End, snapshot.enc), true
 }
 
-func (s *Server) locationForSpan(span sourceintel.Span) (Location, bool) {
-	rng, ok := s.rangeForSpan(span)
+func (s *Server) rangeForSpan(span sourceintel.Span) (Range, bool) {
+	return s.sourceSnapshot().rangeForSpan(span)
+}
+
+func (snapshot *requestSourceSnapshot) locationForSpan(span sourceintel.Span) (Location, bool) {
+	rng, ok := snapshot.rangeForSpan(span)
 	if !ok {
 		return Location{}, false
 	}
 	return Location{URI: pathToURI(sourcePath(span.Path)), Range: rng}, true
+}
+
+func (s *Server) locationForSpan(span sourceintel.Span) (Location, bool) {
+	return s.sourceSnapshot().locationForSpan(span)
+}
+
+func (snapshot *requestSourceSnapshot) locationForVersionedSpan(versioned sourceintel.VersionedSpan) (Location, bool) {
+	text, ok := snapshot.sourceText(versioned.Span.Path)
+	if !ok || !versioned.SourceVersion.Matches(text) {
+		return Location{}, false
+	}
+	return snapshot.locationForSpan(versioned.Span)
 }
 
 func sourcePath(path string) string {
@@ -72,37 +154,40 @@ func sourcePath(path string) string {
 	return filepath.Clean(uriToPath(path))
 }
 
-// locationForAuthoredPosition converts an exact .gsx token offset to an
-// authored span. Line and column are deliberately not an alternative source of
-// truth for authored facts.
-func (s *Server) locationForAuthoredPosition(pos token.Position, length int) (Location, bool) {
+func (snapshot *requestSourceSnapshot) locationForAuthoredPosition(pos token.Position, length int) (Location, bool) {
 	span, ok := authoredSpanForPosition(pos, length)
 	if !ok {
 		return Location{}, false
 	}
-	return s.locationForSpan(span)
+	return snapshot.locationForSpan(span)
 }
 
+func (s *Server) locationForAuthoredPosition(pos token.Position, length int) (Location, bool) {
+	return s.sourceSnapshot().locationForAuthoredPosition(pos, length)
+}
+
+// authoredSpanForPosition uses filename and Offset only. A zero Line/Column is
+// valid because adjusted token positions are not the authority for GSX facts.
 func authoredSpanForPosition(pos token.Position, length int) (sourceintel.Span, bool) {
-	if !pos.IsValid() || !strings.HasSuffix(pos.Filename, ".gsx") || length < 0 || pos.Offset < 0 {
+	if pos.Filename == "" || !strings.HasSuffix(pos.Filename, ".gsx") || length < 0 || pos.Offset < 0 {
 		return sourceintel.Span{}, false
 	}
 	return sourceintel.Span{Path: sourcePath(pos.Filename), Start: pos.Offset, End: pos.Offset + length}, true
 }
 
-// locationForGoPosition adapts a genuine Go dependency token position. It
-// consults authoritative source text before interpreting line/column. The raw
-// byte-column fallback exists only when that real .go source is unavailable.
-func (s *Server) locationForGoPosition(pos token.Position, length int) (Location, bool) {
+func (snapshot *requestSourceSnapshot) locationForGoPosition(pos token.Position, length int) (Location, bool) {
 	if pos.Filename == "" || length < 0 || !strings.HasSuffix(pos.Filename, ".go") || strings.HasSuffix(pos.Filename, ".x.go") {
 		return Location{}, false
 	}
-	span, ok := s.spanForGoPosition(pos, length)
-	if ok {
-		return s.locationForSpan(span)
-	}
-	if _, available := s.sourceText(pos.Filename); available || !strings.HasSuffix(pos.Filename, ".go") {
-		return Location{}, false
+	text, available := snapshot.sourceText(pos.Filename)
+	if available {
+		start, ok := offsetForTokenPosition(text, pos)
+		if !ok || start+length > len(text) {
+			return Location{}, false
+		}
+		return snapshot.locationForSpan(sourceintel.Span{
+			Path: sourcePath(pos.Filename), Start: start, End: start + length,
+		})
 	}
 	line := pos.Line - 1
 	start := pos.Column - 1
@@ -118,33 +203,25 @@ func (s *Server) locationForGoPosition(pos token.Position, length int) (Location
 	}, true
 }
 
-func (s *Server) spanForGoPosition(pos token.Position, length int) (sourceintel.Span, bool) {
-	text, ok := s.sourceText(pos.Filename)
-	if !ok || length < 0 {
-		return sourceintel.Span{}, false
-	}
-	start, ok := offsetForTokenPosition(text, pos)
-	if !ok || start+length > len(text) {
-		return sourceintel.Span{}, false
-	}
-	return sourceintel.Span{Path: sourcePath(pos.Filename), Start: start, End: start + length}, true
+func (s *Server) locationForGoPosition(pos token.Position, length int) (Location, bool) {
+	return s.sourceSnapshot().locationForGoPosition(pos, length)
 }
 
-func (s *Server) rangeForAuthoredPositions(start, end token.Position) (Range, bool) {
+func (snapshot *requestSourceSnapshot) rangeForAuthoredPositions(start, end token.Position) (Range, bool) {
 	startSpan, ok := authoredSpanForPosition(start, 0)
-	if !ok || !end.IsValid() || !strings.HasSuffix(end.Filename, ".gsx") || end.Offset < 0 || sourcePath(start.Filename) != sourcePath(end.Filename) {
+	if !ok || end.Filename == "" || !strings.HasSuffix(end.Filename, ".gsx") || end.Offset < 0 || sourcePath(start.Filename) != sourcePath(end.Filename) {
 		return Range{}, false
 	}
 	startSpan.End = end.Offset
-	return s.rangeForSpan(startSpan)
+	return snapshot.rangeForSpan(startSpan)
 }
 
-func (s *Server) locationForResolvedPosition(pos token.Position, length int) (Location, bool) {
+func (snapshot *requestSourceSnapshot) locationForResolvedPosition(pos token.Position, length int) (Location, bool) {
 	switch {
 	case strings.HasSuffix(pos.Filename, ".gsx"):
-		return s.locationForAuthoredPosition(pos, length)
+		return snapshot.locationForAuthoredPosition(pos, length)
 	case strings.HasSuffix(pos.Filename, ".go") && !strings.HasSuffix(pos.Filename, ".x.go"):
-		return s.locationForGoPosition(pos, length)
+		return snapshot.locationForGoPosition(pos, length)
 	default:
 		return Location{}, false
 	}

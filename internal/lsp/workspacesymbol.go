@@ -2,7 +2,6 @@ package lsp
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"strings"
 )
 
@@ -11,6 +10,7 @@ import (
 // list is built lazily via ModuleSymbols, cached, and invalidated on any document
 // mutation. On ModuleSymbols error it replies with an empty list.
 func (s *Server) handleWorkspaceSymbol(f frame) error {
+	sources := s.sourceSnapshot()
 	var p workspaceSymbolParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, []SymbolInformation{})
@@ -19,8 +19,7 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 		return s.reply(f.ID, []SymbolInformation{})
 	}
 	if !s.moduleSymsValid {
-		dir := s.anyOpenDir()
-		syms, err := s.analyzer.ModuleSymbols(dir, s.docs.allOpenGSX())
+		syms, err := s.analyzer.ModuleSymbols(sources.anyOpenDir(), sources.openGSXOverrides())
 		if err != nil {
 			return s.reply(f.ID, []SymbolInformation{})
 		}
@@ -37,7 +36,7 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 		if !ok {
 			continue
 		}
-		location, ok := s.locationForSpan(span)
+		location, ok := sources.locationForSpan(span)
 		if !ok {
 			continue
 		}
@@ -49,13 +48,4 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 		})
 	}
 	return s.reply(f.ID, out)
-}
-
-// anyOpenDir returns the directory of some open document (any is fine — the
-// module root is derived from it). Falls back to "." when nothing is open.
-func (s *Server) anyOpenDir() string {
-	for path := range s.docs.allOpenGSX() {
-		return filepath.Dir(path)
-	}
-	return "."
 }

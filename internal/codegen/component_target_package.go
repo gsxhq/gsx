@@ -121,6 +121,7 @@ func discoverComponentTargets(
 	module *Module,
 	dir, pkgPath, pkgName string,
 	gsxFiles map[string]*gsxast.File,
+	gsxSources map[string][]byte,
 	plan componentTargetPlan,
 	callSites *callSiteRegistry,
 	table funcTables,
@@ -203,6 +204,25 @@ func discoverComponentTargets(
 	if err != nil {
 		return componentTargetPackageResult{}, nil, err
 	}
+	rootProvenance, err := componentTargetDeclarationProvenances(gsxFiles, gsxSources, fset, plan)
+	if err != nil {
+		return componentTargetPackageResult{}, nil, err
+	}
+	for site, fact := range facts {
+		identity := fact.origin
+		if identity == nil {
+			identity = fact.object
+		}
+		key := componentCallTargetKey(identity)
+		switch {
+		case identity == nil || identity.Pkg() == nil || key == "":
+		case identity.Pkg().Path() == pkgPath:
+			fact.declaration = cloneComponentTargetDeclarationProvenance(rootProvenance[key])
+		default:
+			fact.declaration = module.componentTargetDeclarationProvenance(identity.Pkg().Path(), key)
+		}
+		facts[site] = fact
+	}
 	expressionFacts := make(map[gsxast.Node]expressionFact)
 	for _, harvest := range expressionHarvests {
 		maps.Copy(expressionFacts, harvestComponentTargetExpressionFacts(
@@ -218,6 +238,25 @@ func discoverComponentTargets(
 		expressionFacts: expressionFacts,
 		diagnostics:     bag.Sorted(),
 	}, unrelated, nil
+}
+
+func (m *Module) componentTargetDeclarationProvenance(packagePath, key string) componentTargetDeclarationProvenance {
+	return cloneComponentTargetDeclarationProvenance(m.componentTargetPackageProvenance(packagePath)[key])
+}
+
+func (m *Module) componentTargetPackageProvenance(packagePath string) map[string]componentTargetDeclarationProvenance {
+	dir, ok := m.sourcePackageDir(packagePath)
+	if !ok {
+		return nil
+	}
+	m.mu.Lock()
+	cached := m.targetDeclProvenance[dir]
+	provenance := make(map[string]componentTargetDeclarationProvenance, len(cached))
+	for key, declaration := range cached {
+		provenance[key] = cloneComponentTargetDeclarationProvenance(declaration)
+	}
+	m.mu.Unlock()
+	return provenance
 }
 
 // harvestComponentTargetExpressionFacts resolves authored component-call

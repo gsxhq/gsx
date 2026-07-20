@@ -66,12 +66,20 @@ type ComponentParamFact struct {
 // PackageResult owns this map and its nested maps; LSP consumers treat them as
 // immutable snapshots, like the retained go/types objects alongside them.
 type ComponentCallFact struct {
-	Target        types.Object
-	TargetOrigin  types.Object
-	TargetPackage string
-	TargetKey     string
-	Signature     *types.Signature
-	Params        map[gsxast.Attr]ComponentParamFact
+	Target             types.Object
+	TargetOrigin       types.Object
+	TargetPackage      string
+	TargetKey          string
+	Signature          *types.Signature
+	Params             map[gsxast.Attr]ComponentParamFact
+	TargetDecls        []sourceintel.VersionedSpan
+	ParamDecls         map[int][]sourceintel.VersionedSpan
+	TargetPresentation string
+}
+
+type ComponentDeclKey struct {
+	PackagePath  string
+	ComponentKey string
 }
 
 // ComponentParamDeclFact is one semantically validated GSX component
@@ -131,6 +139,7 @@ type PackageResult struct {
 	// definition/hover surface for markup calls; consumers must not reconstruct
 	// these facts from tag spelling or a reconstructed callable shape.
 	ComponentCalls      map[*gsxast.Element]ComponentCallFact
+	ComponentDecls      map[ComponentDeclKey][]sourceintel.VersionedSpan
 	ComponentParamDecls []ComponentParamDeclFact
 	ComponentParamRefs  []ComponentParamRefFact
 

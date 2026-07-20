@@ -60,17 +60,19 @@ func (s *Server) handleHover(f frame) error {
 	if strings.HasSuffix(path, ".go") {
 		return s.reply(f.ID, nil) // gopls owns .go hover
 	}
-	text, ok := s.docs.text(p.TextDocument.URI)
+	sources := s.sourceSnapshot()
+	textBytes, ok := sources.sourceText(path)
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
+	text := string(textBytes)
 	pkg := s.pkgs[filepath.Dir(path)]
 	if pkg == nil {
 		return s.reply(f.ID, nil)
 	}
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 	rangeAt := func(start, end int) (Range, bool) {
-		return s.rangeForSpan(sourceintel.Span{Path: path, Start: start, End: end})
+		return sources.rangeForSpan(sourceintel.Span{Path: path, Start: start, End: end})
 	}
 
 	// A successfully planned component tag hovers codegen's exact callable
@@ -81,14 +83,11 @@ func (s *Server) handleHover(f frame) error {
 		if !ok {
 			return s.reply(f.ID, nil)
 		}
-		if comp := componentDeclForTarget(pkg, cursor.fact); comp != nil {
-			return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(comp)), Range: &rng})
-		}
-		// Imported GSX declarations are not retained in pkg.Files. Resolve only
-		// their presentation source here; the callable identity and range above
-		// still come from the exact call fact.
-		if comp, _, _, found := componentAtTag(pkg, path, off); found {
-			return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(comp)), Range: &rng})
+		if len(cursor.fact.TargetDecls) != 0 {
+			if _, valid := versionedDefinitionResult(sources, cursor.fact.TargetDecls); !valid || cursor.fact.TargetPresentation == "" {
+				return s.reply(f.ID, nil)
+			}
+			return s.reply(f.ID, Hover{Contents: markdownGo(cursor.fact.TargetPresentation), Range: &rng})
 		}
 		if obj := componentTargetObject(cursor.fact); obj != nil {
 			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
@@ -200,7 +199,7 @@ func (s *Server) handleHover(f frame) error {
 		}
 	}
 	if hover, span, ok := semanticHoverOccurrence(pkg, path, []byte(text), off); ok {
-		rng, ok := s.rangeForSpan(span)
+		rng, ok := sources.rangeForSpan(span)
 		if !ok {
 			return s.reply(f.ID, nil)
 		}

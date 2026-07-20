@@ -51,6 +51,15 @@ type SourceVersion struct {
 	SHA256 [sha256.Size]byte
 }
 
+type VersionedSpan struct {
+	Span          Span
+	SourceVersion SourceVersion
+}
+
+func (v SourceVersion) Matches(source []byte) bool {
+	return v.Size == len(source) && v.SHA256 == sha256.Sum256(source)
+}
+
 type MappedFile struct {
 	AST           *ast.File
 	TokenFile     *token.File
@@ -415,5 +424,5 @@ func (i *Index) Declarations(path string) []Declaration {
 
 func (i *Index) MatchesSource(path string, source []byte) bool {
 	version, ok := i.sources[path]
-	return ok && version.Size == len(source) && version.SHA256 == sha256.Sum256(source)
+	return ok && version.Matches(source)
 }

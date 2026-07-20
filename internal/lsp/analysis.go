@@ -56,12 +56,20 @@ type ComponentParamFact struct {
 // planned markup call. Params is keyed by the authored attribute node, so LSP
 // never needs to reproduce component binding rules.
 type ComponentCallFact struct {
-	Target        types.Object
-	TargetOrigin  types.Object
-	TargetPackage string
-	TargetKey     string
-	Signature     *types.Signature
-	Params        map[gsxast.Attr]ComponentParamFact
+	Target             types.Object
+	TargetOrigin       types.Object
+	TargetPackage      string
+	TargetKey          string
+	Signature          *types.Signature
+	Params             map[gsxast.Attr]ComponentParamFact
+	TargetDecls        []sourceintel.VersionedSpan
+	ParamDecls         map[int][]sourceintel.VersionedSpan
+	TargetPresentation string
+}
+
+type ComponentDeclKey struct {
+	PackagePath  string
+	ComponentKey string
 }
 
 // ComponentParamKey is the stable semantic identity of one callable parameter
@@ -131,6 +139,7 @@ type Package struct {
 	// ComponentCalls maps authored elements to exact target and parameter facts.
 	// The package owns this immutable analysis snapshot and its nested maps.
 	ComponentCalls map[*gsxast.Element]ComponentCallFact
+	ComponentDecls map[ComponentDeclKey][]sourceintel.VersionedSpan
 
 	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock, and each
 	// value-form if condition's *ValueIf) to its

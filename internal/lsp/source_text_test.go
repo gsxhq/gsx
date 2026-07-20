@@ -1,9 +1,9 @@
 package lsp
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"go/token"
-	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,6 +170,73 @@ func TestAuthoredPositionUsesExactOffsetAndGoPositionUsesLineColumn(t *testing.T
 	}
 }
 
+func TestAuthoredPositionAcceptsAuthoritativeOffsetWithoutLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "page.gsx")
+	source := "package page\ncomponent Target() {}\n"
+	start := strings.Index(source, "Target")
+	s := &Server{docs: newDocStore(), enc: encUTF16}
+	s.docs.open(pathToURI(path), source, 1)
+
+	position := token.Position{Filename: path, Offset: start}
+	got, ok := s.locationForAuthoredPosition(position, len("Target"))
+	want := rangeForSpan(source, start, start+len("Target"), encUTF16)
+	if !ok || got.Range != want {
+		t.Fatalf("authored zero-line location = (%+v, %t), want exact-offset range %+v", got, ok, want)
+	}
+}
+
+func TestRequestSourceSnapshotIsImmutableAndMemoizesDisk(t *testing.T) {
+	dir := t.TempDir()
+	openPath := filepath.Join(dir, "open.gsx")
+	diskPath := filepath.Join(dir, "disk.gsx")
+	if err := os.WriteFile(diskPath, []byte("disk one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{docs: newDocStore(), enc: encUTF16}
+	s.docs.open(pathToURI(openPath), "open one", 1)
+	snapshot := s.sourceSnapshot()
+
+	s.docs.update(pathToURI(openPath), "open two", 2)
+	overrides := snapshot.openGSXOverrides()
+	if got := string(overrides[openPath]); got != "open one" {
+		t.Fatalf("captured analysis override = %q, want open one", got)
+	}
+	if got := snapshot.anyOpenDir(); got != dir {
+		t.Fatalf("captured analysis directory = %q, want %q", got, dir)
+	}
+	if err := os.WriteFile(diskPath, []byte("disk two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := snapshot.sourceText(openPath); !ok || string(got) != "open one" {
+		t.Fatalf("captured open source = (%q, %t), want open one", got, ok)
+	}
+	if got, ok := snapshot.sourceText(diskPath); !ok || string(got) != "disk two" {
+		t.Fatalf("first disk source = (%q, %t), want disk two", got, ok)
+	}
+	if err := os.WriteFile(diskPath, []byte("disk three"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := snapshot.sourceText(diskPath); !ok || string(got) != "disk two" {
+		t.Fatalf("memoized disk source = (%q, %t), want disk two", got, ok)
+	}
+}
+
+func TestVersionedSpanValidatesTheCapturedRequestSource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "target.gsx")
+	analyzed := []byte("package target\ncomponent Card() {}\n")
+	open := []byte("package target\n/*😀*/ component Card() {}\n")
+	start := strings.Index(string(analyzed), "Card")
+	span := sourceintel.VersionedSpan{
+		Span:          sourceintel.Span{Path: path, Start: start, End: start + len("Card")},
+		SourceVersion: sourceintel.SourceVersion{Size: len(analyzed), SHA256: sha256.Sum256(analyzed)},
+	}
+	s := &Server{docs: newDocStore(), enc: encUTF16}
+	s.docs.open(pathToURI(path), string(open), 1)
+	if got, ok := s.sourceSnapshot().locationForVersionedSpan(span); ok {
+		t.Fatalf("stale versioned location = %+v, want fail closed", got)
+	}
+}
+
 type authoritativeLocationAnalyzer struct {
 	pkg  *Package
 	refs []CrossRef
@@ -230,7 +297,7 @@ func TestDefinitionUsesUnsavedUTF16Target(t *testing.T) {
 	}
 }
 
-func TestDefinitionResolvesCrossPackageComponentThroughExactASTOffset(t *testing.T) {
+func TestDefinitionRetainsCrossPackageComponentExactAuthoredSpan(t *testing.T) {
 	const page = `package page
 
 import "example.com/app/widgets"
@@ -253,24 +320,83 @@ component Card(title string) {
 	if !ok {
 		t.Fatal("componentTargetAtOffset returned no cross-package call")
 	}
-	component, fset, ok := componentForObject(pkg, componentTargetObject(cursor.fact))
-	if !ok {
-		object := componentTargetObject(cursor.fact)
-		var imports []string
-		for _, imported := range pkg.Types.Imports() {
-			candidate := imported.Scope().Lookup(object.Name())
-			candidateText := "<nil>"
-			if candidate != nil {
-				candidateText = types.ObjectString(candidate, nil)
-			}
-			imports = append(imports, imported.Path()+"/"+imported.Name()+" candidate="+candidateText)
-		}
-		t.Fatalf("componentForObject returned no exact cross-package declaration: object=%s pos=%+v imports=%v",
-			types.ObjectString(object, nil), pkg.Fset.Position(object.Pos()), imports)
+	if len(cursor.fact.TargetDecls) != 1 {
+		t.Fatalf("retained target declarations = %+v, want one", cursor.fact.TargetDecls)
 	}
-	position := fset.Position(component.NamePos)
-	if position.Offset != strings.Index(card, "Card") {
-		t.Fatalf("component position offset = %d, want %d", position.Offset, strings.Index(card, "Card"))
+	span := cursor.fact.TargetDecls[0].Span
+	if filepath.Base(span.Path) != "card.gsx" || span.Start != strings.Index(card, "Card") || span.End != span.Start+len("Card") {
+		t.Fatalf("retained target span = %+v, want card.gsx Card span", span)
+	}
+}
+
+func TestDefinitionRetainsCrossPackageComponentIndexForExpressionObject(t *testing.T) {
+	const page = `package page
+
+import "example.com/app/helpers"
+
+component Page() { <div>{helpers.Thing()}</div> }
+`
+	const dependency = `package helpers
+
+component Thing() { <span/> }
+`
+	pkg, path := analyzedLSPModule(t, map[string]string{
+		"page/page.gsx":       page,
+		"helpers/helpers.gsx": dependency,
+	}, "page/page.gsx")
+	offset := strings.Index(page, "Thing") + 1
+	target, ok := exprDefinitionTargetAt(pkg, path, offset)
+	if !ok {
+		t.Fatal("expression target was not resolved")
+	}
+	object := sourceintel.Origin(target.object)
+	if object.Pkg() == nil {
+		t.Fatalf("expression object = %v, want package object", object)
+	}
+	key := ComponentDeclKey{PackagePath: object.Pkg().Path(), ComponentKey: componentObjectKey(object)}
+	declarations := pkg.ComponentDecls[key]
+	if len(declarations) != 1 {
+		t.Fatalf("component declaration index[%+v] = %+v; object=%T %s position=%+v all=%+v", key, declarations, object, object, pkg.Fset.Position(object.Pos()), pkg.ComponentDecls)
+	}
+	s := &Server{docs: newDocStore(), enc: encUTF16}
+	stale := strings.Replace(dependency, "component Thing", "/*😀*/ component Thing", 1)
+	s.docs.open(pathToURI(declarations[0].Span.Path), stale, 2)
+	if result, ok := objectDefinitionResult(s.sourceSnapshot(), pkg, object); ok {
+		t.Fatalf("stale expression component definition = %+v, want fail closed", result)
+	}
+}
+
+func TestComponentCallHoverFailsClosedOnStaleTargetVersion(t *testing.T) {
+	const page = `package page
+
+import "example.com/app/widgets"
+
+component Page() { <widgets.Card title="hello"/> }
+`
+	const dependency = `package widgets
+
+component Card(title string) { <span/> }
+`
+	pkg, pagePath := analyzedLSPModule(t, map[string]string{
+		"page/page.gsx":    page,
+		"widgets/card.gsx": dependency,
+	}, "page/page.gsx")
+	var targetPath string
+	for _, call := range pkg.ComponentCalls {
+		if len(call.TargetDecls) == 1 {
+			targetPath = call.TargetDecls[0].Span.Path
+		}
+	}
+	if targetPath == "" {
+		t.Fatal("cross-package call retained no target provenance")
+	}
+	stale := strings.Replace(dependency, "component Card", "/*😀*/ component Card", 1)
+	pageURI, targetURI := pathToURI(pagePath), pathToURI(targetPath)
+	cursor := strings.Index(page, "widgets.Card") + len("widgets.")
+	out := drive(t, &authoritativeLocationAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(targetURI, stale)+didOpenFrame(pageURI, page)+
+		hoverFrame(2, pageURI, positionForByteOffset(page, cursor, encUTF16))+exitFrame())
+	if got := hoverResult(t, out, 2); got != nil {
+		t.Fatalf("stale target hover = %+v, want fail closed", got)
 	}
 }
 

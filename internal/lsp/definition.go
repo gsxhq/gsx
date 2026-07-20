@@ -2,7 +2,6 @@ package lsp
 
 import (
 	"encoding/json"
-	goast "go/ast"
 	"go/parser"
 	"go/token"
 	"go/types"
@@ -216,72 +215,69 @@ func signatureTypeIdentAt(pkg *Package, path string, off int) (obj types.Object,
 // `package` clauses of its files, like gopls — rather than back to the import
 // site. Any other object jumps to its single declaration. Returns nil (→ null)
 // when there is no real source target.
-func (s *Server) signatureTypeDefinition(pkg *Package, obj types.Object) any {
+func signatureTypeDefinition(sources *requestSourceSnapshot, pkg *Package, obj types.Object) any {
 	if pn, ok := obj.(*types.PkgName); ok {
-		if locs := s.packageLocations(pn.Imported(), pkg.Fset); len(locs) > 0 {
+		if locs := packageLocations(sources, pn.Imported(), pkg.Fset); len(locs) > 0 {
 			return locs
 		}
 		return nil
 	}
-	if location, ok := s.locationForObjectDefinition(pkg, obj); ok {
-		return location
+	if result, ok := objectDefinitionResult(sources, pkg, obj); ok {
+		return result
 	}
 	return nil
 }
 
-func (s *Server) locationForObjectDefinition(pkg *Package, obj types.Object) (Location, bool) {
+func objectDefinitionResult(sources *requestSourceSnapshot, pkg *Package, obj types.Object) (any, bool) {
 	if pkg == nil || obj == nil {
-		return Location{}, false
+		return nil, false
 	}
 	object := sourceintel.Origin(obj)
 	if pkg.SourceIndex != nil {
 		if span, ok := pkg.SourceIndex.Definition(object); ok {
-			return s.locationForSpan(span)
+			text, available := sources.sourceText(span.Path)
+			if !available || !pkg.SourceIndex.MatchesSource(span.Path, text) {
+				return nil, false
+			}
+			return sources.locationForSpan(span)
 		}
 	}
-	if component, fset, ok := componentForObject(pkg, object); ok {
-		return s.locationForAuthoredPosition(fset.Position(component.NamePos), len(component.Name))
+	if object.Pkg() != nil {
+		key := ComponentDeclKey{PackagePath: object.Pkg().Path(), ComponentKey: componentObjectKey(object)}
+		if result, ok := versionedDefinitionResult(sources, pkg.ComponentDecls[key]); ok {
+			return result, true
+		}
 	}
 	if !object.Pos().IsValid() {
-		return Location{}, false
+		return nil, false
 	}
 	if pkg.Fset == nil {
-		return Location{}, false
+		return nil, false
 	}
 	dp := pkg.Fset.Position(object.Pos())
 	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
-		return Location{}, false
+		return nil, false
 	}
-	return s.locationForGoPosition(dp, len(object.Name()))
+	return sources.locationForGoPosition(dp, len(object.Name()))
 }
 
-// componentForObject resolves an already-proven Go object identity to its GSX
-// declaration. Package path plus package-scope lookup is the stable identity
-// across the normal and exact-target type-check instances; pointer equality is
-// not. The name is never searched in source text.
-func componentForObject(pkg *Package, object types.Object) (*gsxast.Component, *token.FileSet, bool) {
-	if pkg == nil || object == nil || object.Pkg() == nil || pkg.Types == nil {
-		return nil, nil, false
+func componentObjectKey(object types.Object) string {
+	function, ok := object.(*types.Func)
+	if !ok {
+		return ""
 	}
-	if object.Pkg() == pkg.Types || object.Pkg().Path() == pkg.Types.Path() {
-		candidate := pkg.Types.Scope().Lookup(object.Name())
-		if candidate == nil || candidate.Pkg() == nil || candidate.Pkg().Path() != object.Pkg().Path() {
-			return nil, nil, false
-		}
-		component := findComponentDecl(pkg, object.Name())
-		return component, pkg.GSXFset, component != nil
+	signature, ok := function.Type().(*types.Signature)
+	if !ok || signature.Recv() == nil {
+		return "." + function.Name()
 	}
-	for _, imported := range pkg.Types.Imports() {
-		if imported != object.Pkg() && imported.Path() != object.Pkg().Path() {
-			continue
-		}
-		candidate := imported.Scope().Lookup(object.Name())
-		if candidate == nil || candidate.Pkg() == nil || candidate.Pkg().Path() != object.Pkg().Path() {
-			return nil, nil, false
-		}
-		return resolveCrossPkgComponent(pkg, imported.Name(), object.Name())
+	receiver := types.Unalias(signature.Recv().Type())
+	if pointer, ok := receiver.(*types.Pointer); ok {
+		receiver = types.Unalias(pointer.Elem())
 	}
-	return nil, nil, false
+	if named, ok := receiver.(*types.Named); ok && named.Obj() != nil {
+		return named.Obj().Name() + "." + function.Name()
+	}
+	return ""
 }
 
 // packageLocations returns the `package` clause location of every file in imp
@@ -290,7 +286,7 @@ func componentForObject(pkg *Package, object types.Object) (*gsxast.Component, *
 // file declaring nothing package-level is not listed) and sorted for stable
 // output. Returns nil when imp is nil or no source files can be located (e.g. a
 // dependency available only as export data without file positions).
-func (s *Server) packageLocations(imp *types.Package, fset *token.FileSet) []Location {
+func packageLocations(sources *requestSourceSnapshot, imp *types.Package, fset *token.FileSet) []Location {
 	if imp == nil || fset == nil {
 		return nil
 	}
@@ -313,7 +309,7 @@ func (s *Server) packageLocations(imp *types.Package, fset *token.FileSet) []Loc
 	sort.Strings(sorted)
 	var locs []Location
 	for _, fn := range sorted {
-		if loc, ok := s.packageClauseLocation(fn); ok {
+		if loc, ok := packageClauseLocation(sources, fn); ok {
 			locs = append(locs, loc)
 		}
 	}
@@ -324,8 +320,8 @@ func (s *Server) packageLocations(imp *types.Package, fset *token.FileSet) []Loc
 // the `package X` clause of the Go file at filename (what go-to-definition on a
 // package qualifier should land on). Returns ok=false if the file cannot be read
 // or parsed.
-func (s *Server) packageClauseLocation(filename string) (Location, bool) {
-	data, ok := s.sourceText(filename)
+func packageClauseLocation(sources *requestSourceSnapshot, filename string) (Location, bool) {
+	data, ok := sources.sourceText(filename)
 	if !ok {
 		return Location{}, false
 	}
@@ -335,7 +331,7 @@ func (s *Server) packageClauseLocation(filename string) (Location, bool) {
 		return Location{}, false
 	}
 	p := fset.Position(f.Name.Pos())
-	return s.locationForGoPosition(p, len(f.Name.Name))
+	return sources.locationForGoPosition(p, len(f.Name.Name))
 }
 
 // importDefAt answers go-to-definition for a cursor on an import statement in a
@@ -345,7 +341,7 @@ func (s *Server) packageClauseLocation(filename string) (Location, bool) {
 // was on an import spec at all (so the caller stops dispatching even when the
 // import does not resolve). gsx imports live in top-level GoChunks, so the
 // chunk under the cursor is re-parsed for its import specs.
-func (s *Server) importDefAt(pkg *Package, path string, off int) (any, bool) {
+func importDefAt(sources *requestSourceSnapshot, pkg *Package, path string, off int) (any, bool) {
 	f := pkg.Files[path]
 	if f == nil || pkg.GSXFset == nil || pkg.Types == nil {
 		return nil, false
@@ -364,7 +360,7 @@ func (s *Server) importDefAt(pkg *Package, path string, off int) (any, bool) {
 			return nil, false
 		}
 		if tpkg := importedPackageByPath(pkg.Types, impPath); tpkg != nil {
-			if locs := s.packageLocations(tpkg, pkg.Fset); len(locs) > 0 {
+			if locs := packageLocations(sources, tpkg, pkg.Fset); len(locs) > 0 {
 				return locs, true
 			}
 		}
@@ -449,6 +445,35 @@ func isCtrlSpan(node gsxast.Node, matched token.Pos) bool {
 	return false
 }
 
+func versionedDefinitionResult(sources *requestSourceSnapshot, spans []sourceintel.VersionedSpan) (any, bool) {
+	if len(spans) == 0 {
+		return nil, false
+	}
+	locations := make([]Location, 0, len(spans))
+	for _, span := range spans {
+		location, ok := sources.locationForVersionedSpan(span)
+		if !ok {
+			return nil, false
+		}
+		locations = append(locations, location)
+	}
+	if len(locations) == 1 {
+		return locations[0], true
+	}
+	return locations, true
+}
+
+func genuineGoObjectLocation(sources *requestSourceSnapshot, pkg *Package, object types.Object) (Location, bool) {
+	if pkg == nil || pkg.Fset == nil || object == nil || !object.Pos().IsValid() {
+		return Location{}, false
+	}
+	position := pkg.Fset.Position(object.Pos())
+	if !strings.HasSuffix(position.Filename, ".go") || strings.HasSuffix(position.Filename, ".x.go") {
+		return Location{}, false
+	}
+	return sources.locationForGoPosition(position, len(object.Name()))
+}
+
 // handleDefinition answers textDocument/definition for D1: a Go symbol under the
 // cursor that resolves to a definition in a real .go file.
 func (s *Server) handleDefinition(f frame) error {
@@ -461,13 +486,15 @@ func (s *Server) handleDefinition(f frame) error {
 	}
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
+	sources := s.sourceSnapshot()
 	if strings.HasSuffix(path, ".go") {
-		return s.handleGoDefinition(f, uri, path)
+		return s.handleGoDefinition(f, path, sources)
 	}
-	text, ok := s.docs.text(uri)
+	textBytes, ok := sources.sourceText(path)
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
+	text := string(textBytes)
 	pkg := s.pkgs[filepath.Dir(path)]
 	if pkg == nil || pkg.Info == nil {
 		return s.reply(f.ID, nil)
@@ -479,29 +506,10 @@ func (s *Server) handleDefinition(f frame) error {
 	// family, retain the existing multi-location picker after the exact target
 	// establishes that this authored element is a component call.
 	if cursor, ok := componentTargetAtOffset(pkg, path, off); ok {
-		if dp, resolved := componentTargetDeclAt(pkg, path, off); resolved && strings.HasSuffix(dp.Filename, ".gsx") {
-			if decls, found := componentTagDeclAt(pkg, path, off); found && len(decls) > 1 {
-				locs := make([]Location, 0, len(decls))
-				for _, d := range decls {
-					if location, ok := s.locationForAuthoredPosition(d, len(componentTargetObject(cursor.fact).Name())); ok {
-						locs = append(locs, location)
-					}
-				}
-				if len(locs) == 0 {
-					return s.reply(f.ID, nil)
-				}
-				return s.reply(f.ID, locs)
-			}
+		if result, valid := versionedDefinitionResult(sources, cursor.fact.TargetDecls); valid {
+			return s.reply(f.ID, result)
 		}
-		if component := componentDeclForTarget(pkg, cursor.fact); component != nil {
-			position := pkg.GSXFset.Position(component.NamePos)
-			location, valid := s.locationForAuthoredPosition(position, len(component.Name))
-			if !valid {
-				return s.reply(f.ID, nil)
-			}
-			return s.reply(f.ID, location)
-		}
-		location, ok := s.locationForObjectDefinition(pkg, componentTargetObject(cursor.fact))
+		location, ok := genuineGoObjectLocation(sources, pkg, componentTargetObject(cursor.fact))
 		if !ok {
 			return s.reply(f.ID, nil)
 		}
@@ -518,7 +526,7 @@ func (s *Server) handleDefinition(f frame) error {
 			nameLength = len(component.Name)
 		}
 		if len(decls) == 1 {
-			location, ok := s.locationForAuthoredPosition(decls[0], nameLength)
+			location, ok := sources.locationForAuthoredPosition(decls[0], nameLength)
 			if !ok {
 				return s.reply(f.ID, nil)
 			}
@@ -526,7 +534,7 @@ func (s *Server) handleDefinition(f frame) error {
 		}
 		locs := make([]Location, 0, len(decls))
 		for _, d := range decls {
-			if location, ok := s.locationForAuthoredPosition(d, nameLength); ok {
+			if location, ok := sources.locationForAuthoredPosition(d, nameLength); ok {
 				locs = append(locs, location)
 			}
 		}
@@ -536,48 +544,17 @@ func (s *Server) handleDefinition(f frame) error {
 		return s.reply(f.ID, locs)
 	}
 
-	// B: cursor on a dotted/cross-package component tag → its declaration in the
-	// imported package's .gsx.
-	if dp, ok := crossPkgTagDeclAt(pkg, path, off); ok {
-		nameLength := 0
-		if component, _, _, found := componentAtTag(pkg, path, off); found {
-			nameLength = len(component.Name)
-		}
-		location, ok := s.locationForResolvedPosition(dp, nameLength)
-		if !ok {
-			return s.reply(f.ID, nil)
-		}
-		return s.reply(f.ID, location)
-	}
-
 	// A/C: cursor on a component-invocation attribute name → the matching component
 	// parameter (same-package function components and cross-package dotted tags).
 	if cursor, ok := componentAttrAtOffset(pkg, path, off); ok {
+		if result, valid := versionedDefinitionResult(sources, cursor.fact.ParamDecls[cursor.param.Ordinal]); valid {
+			return s.reply(f.ID, result)
+		}
 		param := cursor.param.Origin
 		if param == nil {
 			param = cursor.param.Var
 		}
-		if component := componentDeclForTarget(pkg, cursor.fact); component != nil {
-			if position, valid := componentParamAuthoredPosition(component, pkg.GSXFset, cursor.param.Ordinal, cursor.param.Name); valid {
-				location, valid := s.locationForAuthoredPosition(position, len(cursor.param.Name))
-				if !valid {
-					return s.reply(f.ID, nil)
-				}
-				return s.reply(f.ID, location)
-			}
-			return s.reply(f.ID, nil)
-		}
-		if component, fset, found := componentForObject(pkg, componentTargetObject(cursor.fact)); found {
-			if position, valid := componentParamAuthoredPosition(component, fset, cursor.param.Ordinal, cursor.param.Name); valid {
-				location, valid := s.locationForAuthoredPosition(position, len(cursor.param.Name))
-				if !valid {
-					return s.reply(f.ID, nil)
-				}
-				return s.reply(f.ID, location)
-			}
-			return s.reply(f.ID, nil)
-		}
-		location, ok := s.locationForObjectDefinition(pkg, param)
+		location, ok := genuineGoObjectLocation(sources, pkg, param)
 		if !ok {
 			return s.reply(f.ID, nil)
 		}
@@ -591,80 +568,39 @@ func (s *Server) handleDefinition(f frame) error {
 	// gopls-style). A cursor on a signature type that does not resolve replies
 	// null rather than falling through to expression resolution.
 	if obj, _, _, ok := signatureTypeIdentAt(pkg, path, off); ok {
-		return s.reply(f.ID, s.signatureTypeDefinition(pkg, obj))
+		return s.reply(f.ID, signatureTypeDefinition(sources, pkg, obj))
 	}
 
 	// F: cursor on an import statement in the .gsx → into the imported package
 	// (its files' `package` clauses), the same picker as a type qualifier.
-	if res, ok := s.importDefAt(pkg, path, off); ok {
+	if res, ok := importDefAt(sources, pkg, path, off); ok {
 		return s.reply(f.ID, res)
 	}
 
 	if target, ok := exprDefinitionTargetAt(pkg, path, off); ok {
-		location, ok := s.locationForObjectDefinition(pkg, target.object)
+		result, ok := objectDefinitionResult(sources, pkg, target.object)
 		if !ok && target.position.Filename != "" {
-			location, ok = s.locationForResolvedPosition(target.position, 0)
+			result, ok = sources.locationForResolvedPosition(target.position, 0)
 		}
 		if !ok {
 			return s.reply(f.ID, nil)
 		}
-		return s.reply(f.ID, location)
+		return s.reply(f.ID, result)
 	}
 	if target, ok := semanticDefinition(pkg, path, []byte(text), off); ok {
 		if target.Authored.Path != "" {
-			if location, ok := s.locationForSpan(target.Authored); ok {
+			if location, ok := sources.locationForSpan(target.Authored); ok {
 				return s.reply(f.ID, location)
 			}
 			return s.reply(f.ID, nil)
 		}
-		location, ok := s.locationForGoPosition(target.Go, 0)
+		location, ok := sources.locationForGoPosition(target.Go, 0)
 		if !ok {
 			return s.reply(f.ID, nil)
 		}
 		return s.reply(f.ID, location)
 	}
 	return s.reply(f.ID, nil)
-}
-
-// componentParamAuthoredPosition structurally parses the retained Go parameter
-// list and selects the planner-proven ordinal. Exact source spelling at the
-// resulting offset is a provenance check, not a name search.
-func componentParamAuthoredPosition(component *gsxast.Component, fset *token.FileSet, ordinal int, expectedName string) (token.Position, bool) {
-	if component == nil || fset == nil || !component.ParamsPos.IsValid() || ordinal < 0 || expectedName == "" {
-		return token.Position{}, false
-	}
-	const prefix = "package p\nfunc _("
-	parsedFset := token.NewFileSet()
-	file, err := parser.ParseFile(parsedFset, "", prefix+component.Params+"){ }", parser.SkipObjectResolution)
-	if err != nil || len(file.Decls) != 1 {
-		return token.Position{}, false
-	}
-	declaration, ok := file.Decls[0].(*goast.FuncDecl)
-	if !ok || declaration.Type.Params == nil {
-		return token.Position{}, false
-	}
-	logical := 0
-	for _, field := range declaration.Type.Params.List {
-		if len(field.Names) == 0 {
-			if logical == ordinal {
-				return token.Position{}, false
-			}
-			logical++
-			continue
-		}
-		for _, name := range field.Names {
-			if logical != ordinal {
-				logical++
-				continue
-			}
-			offset := parsedFset.Position(name.Pos()).Offset - len(prefix)
-			if offset < 0 || offset+len(name.Name) > len(component.Params) || name.Name != expectedName || component.Params[offset:offset+len(name.Name)] != expectedName {
-				return token.Position{}, false
-			}
-			return fset.Position(component.ParamsPos + token.Pos(offset)), true
-		}
-	}
-	return token.Position{}, false
 }
 
 type resolvedDefinitionTarget struct {
@@ -775,15 +711,16 @@ func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off in
 // handleGoDefinition answers definition for a cursor in a .go file: if the
 // cursor sits on a reference to a gsx component (per the cross-index), jump to
 // that component's .gsx declaration. Otherwise null (gopls handles real Go).
-func (s *Server) handleGoDefinition(f frame, uri, path string) error {
+func (s *Server) handleGoDefinition(f frame, path string, sources *requestSourceSnapshot) error {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, nil)
 	}
-	text, ok := s.docs.text(uri)
+	textBytes, ok := sources.sourceText(path)
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
+	text := string(textBytes)
 	pkg := s.pkgs[filepath.Dir(path)]
 	if pkg == nil || (len(pkg.NavIndex) == 0 && len(pkg.CrossIndex) == 0) {
 		return s.reply(f.ID, nil) // not a gsx package
@@ -793,7 +730,7 @@ func (s *Server) handleGoDefinition(f frame, uri, path string) error {
 		lineStartOffset(text, p.Position.Line) + 1 // 1-based byte column on the line
 	for _, nr := range pkg.NavIndex {
 		if nr.To.IsValid() && posCoversCursor(nr.From, path, curLine, curCol, len(nr.Name)) {
-			location, ok := s.locationForAuthoredPosition(nr.To, len(nr.Name))
+			location, ok := sources.locationForAuthoredPosition(nr.To, len(nr.Name))
 			if !ok {
 				return s.reply(f.ID, nil)
 			}

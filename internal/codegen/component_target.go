@@ -67,6 +67,7 @@ type componentTargetFact struct {
 	selectionRecv types.Type
 
 	usesImportedQualifier bool
+	declaration           componentTargetDeclarationProvenance
 }
 
 func (f componentTargetFact) effectiveSignature() *types.Signature {
