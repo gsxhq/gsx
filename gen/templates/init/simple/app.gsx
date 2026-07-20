@@ -24,20 +24,25 @@ component Layout(title string, children gsx.Node) {
 					}
 				</style>
 				<script>
-					// Dev-only FOUC gate. Vite injects CSS through JS a tick after the
-					// HTML loads, so hide the page until the entry module (which imports
-					// the CSS) has run, then reveal. Prod ships real <link rel=stylesheet>
-					// tags below, so no gate is emitted there.
+					// Dev-only FOUC gate. Vite injects CSS via JS after the HTML
+					// loads, so hide the page until every module script has run
+					// (DOMContentLoaded) and one paint has landed (double rAF),
+					// then reveal. Prod ships real <link rel=stylesheet> tags
+					// below, so no gate is emitted there.
 					document.documentElement.dataset.loading = "true";
-					window.__gsxReveal = function () {
-						// Force a style flush BEFORE dropping the gate, so the
-						// unstyled->styled commit lands under "transition: none" and
-						// nothing animates.
-						void document.documentElement.offsetHeight;
+					var unhide = function () {
 						document.documentElement.removeAttribute("data-loading");
 					};
-					// Safety net: reveal anyway if the entry module never loads.
-					setTimeout(window.__gsxReveal, 5000);
+					var reveal = function () {
+						requestAnimationFrame(function () { requestAnimationFrame(unhide); });
+					};
+					if (document.readyState === "loading") {
+						document.addEventListener("DOMContentLoaded", reveal);
+					} else {
+						reveal();
+					}
+					// Safety net (rAF pauses in background tabs).
+					setTimeout(unhide, 5000);
 				</script>
 			} }
 			{{ assets := v.Entry("web/main.js") }}
@@ -48,13 +53,7 @@ component Layout(title string, children gsx.Node) {
 				<link rel="modulepreload" href={src}/>
 			} }
 			{ for _, src := range assets.JS {
-				<script
-					type="module"
-					src={src}
-					{ if v.Dev() && src == assets.JS[len(assets.JS)-1] {
-						onload="window.__gsxReveal()"
-					} }
-				></script>
+				<script type="module" src={src}></script>
 			} }
 		</head>
 		<body>{ children }</body>
