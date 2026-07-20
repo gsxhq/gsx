@@ -75,16 +75,18 @@ type Index struct {
 	sources      map[string]SourceVersion
 }
 
-// IndexStats describes the dedicated payload retained by an Index. PayloadBytes
-// counts concrete map keys/values, slice elements, and unique string contents;
-// it excludes runtime map-bucket overhead and the go/types objects referenced
-// (but not owned) by occurrences and declarations.
+// IndexStats describes the logical entries retained directly by an Index.
+// ShallowBytesLowerBound counts the Index value, logical map key/value storage,
+// and slice backing arrays. It deliberately excludes map bucket/control
+// overhead, string backing storage, allocator overhead, and the go/types object
+// graphs referenced by occurrences and declarations. It is therefore a stable
+// shallow lower bound, not a retained-heap measurement.
 type IndexStats struct {
-	Files        int
-	Occurrences  int
-	Definitions  int
-	Declarations int
-	PayloadBytes int64
+	Files                  int
+	Occurrences            int
+	Definitions            int
+	Declarations           int
+	ShallowBytesLowerBound int64
 }
 
 func (i *Index) Stats() IndexStats {
@@ -92,45 +94,26 @@ func (i *Index) Stats() IndexStats {
 		return IndexStats{}
 	}
 	stats := IndexStats{
-		Files:       len(i.sources),
-		Definitions: len(i.definitions),
-	}
-	stringsSeen := make(map[string]struct{})
-	addString := func(value string) {
-		if _, ok := stringsSeen[value]; ok {
-			return
-		}
-		stringsSeen[value] = struct{}{}
-		stats.PayloadBytes += int64(len(value))
+		Files:                  len(i.sources),
+		Definitions:            len(i.definitions),
+		ShallowBytesLowerBound: int64(unsafe.Sizeof(*i)),
 	}
 	for path, occurrences := range i.occurrences {
-		addString(path)
 		stats.Occurrences += len(occurrences)
-		stats.PayloadBytes += int64(unsafe.Sizeof(path))
-		stats.PayloadBytes += int64(len(occurrences)) * int64(unsafe.Sizeof(Occurrence{}))
-		for _, occurrence := range occurrences {
-			addString(occurrence.Span.Path)
-		}
+		stats.ShallowBytesLowerBound += int64(unsafe.Sizeof(path))
+		stats.ShallowBytesLowerBound += int64(unsafe.Sizeof(occurrences))
+		stats.ShallowBytesLowerBound += int64(len(occurrences)) * int64(unsafe.Sizeof(Occurrence{}))
 	}
-	stats.PayloadBytes += int64(len(i.definitions)) * int64(unsafe.Sizeof(Span{}))
-	for _, span := range i.definitions {
-		addString(span.Path)
-	}
+	var object types.Object
+	stats.ShallowBytesLowerBound += int64(len(i.definitions)) * (int64(unsafe.Sizeof(object)) + int64(unsafe.Sizeof(Span{})))
 	for path, declarations := range i.declarations {
-		addString(path)
 		stats.Declarations += len(declarations)
-		stats.PayloadBytes += int64(unsafe.Sizeof(path))
-		stats.PayloadBytes += int64(len(declarations)) * int64(unsafe.Sizeof(Declaration{}))
-		for _, declaration := range declarations {
-			addString(declaration.Name)
-			addString(declaration.Container)
-			addString(declaration.NameSpan.Path)
-			addString(declaration.DeclSpan.Path)
-		}
+		stats.ShallowBytesLowerBound += int64(unsafe.Sizeof(path))
+		stats.ShallowBytesLowerBound += int64(unsafe.Sizeof(declarations))
+		stats.ShallowBytesLowerBound += int64(len(declarations)) * int64(unsafe.Sizeof(Declaration{}))
 	}
 	for path := range i.sources {
-		addString(path)
-		stats.PayloadBytes += int64(unsafe.Sizeof(path)) + int64(unsafe.Sizeof(SourceVersion{}))
+		stats.ShallowBytesLowerBound += int64(unsafe.Sizeof(path)) + int64(unsafe.Sizeof(SourceVersion{}))
 	}
 	return stats
 }

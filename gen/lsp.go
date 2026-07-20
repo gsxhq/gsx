@@ -24,6 +24,7 @@ import (
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
 	"github.com/gsxhq/gsx/internal/sourceintel"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // lspAnalyzer is the concrete code analysis behind the language server: it
@@ -684,6 +685,12 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 
 	// Phase 4b: route real Go references. Markup references are deliberately
 	// excluded here; they are owned exclusively by ComponentCalls above.
+	authoredGSX := make(map[string]bool)
+	for _, entry := range entries {
+		for path := range entry.pr.GSXFiles {
+			authoredGSX[filepath.Clean(path)] = true
+		}
+	}
 	for _, e := range entries {
 		if e.pr.Info == nil || e.pr.Types == nil {
 			continue
@@ -708,7 +715,8 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 				continue // not a tracked component (e.g. a plain Go func, not a gsx component)
 			}
 			p := e.pr.Fset.Position(id.Pos())
-			if !strings.HasSuffix(p.Filename, ".go") || strings.HasSuffix(p.Filename, ".x.go") {
+			pairedGSX, pairedCandidate := sourceview.PairedGSXPath(p.Filename)
+			if !strings.HasSuffix(p.Filename, ".go") || pairedCandidate && authoredGSX[pairedGSX] {
 				continue
 			}
 			cr := cross[ok2]

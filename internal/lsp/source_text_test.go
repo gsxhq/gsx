@@ -103,14 +103,37 @@ func TestSourceTextNormalizesOpenDocumentPath(t *testing.T) {
 	}
 }
 
-func TestSourceTextExcludesPhysicalGeneratedGo(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "page.x.go")
-	if err := os.WriteFile(path, []byte("package page\n"), 0o600); err != nil {
-		t.Fatal(err)
+func TestSourceTextClassifiesOnlyExactPairedGeneratedGoAsUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	const source = "package page\nvar Target = 1\n"
+	write := func(name string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
 	}
+	write("page.gsx")
+	paired := write("page.x.go")
+	unpaired := write("hand.x.go")
+	ordinary := write("ordinary.go")
 	s := &Server{docs: newDocStore()}
-	if got, ok := s.sourceText(path); ok {
-		t.Fatalf("sourceText generated file = %q, want unavailable", got)
+	if got, ok := s.sourceText(paired); ok {
+		t.Fatalf("sourceText paired generated file = %q, want unavailable", got)
+	}
+	for _, path := range []string{unpaired, ordinary} {
+		if got, ok := s.sourceText(path); !ok || string(got) != source {
+			t.Fatalf("sourceText authored %s = (%q, %t), want exact bytes", path, got, ok)
+		}
+	}
+
+	openGSX := filepath.Join(dir, "open.gsx")
+	openPaired := write("open.x.go")
+	s.docs.open(pathToURI(openGSX), "package page\ncomponent Open() {}\n", 1)
+	s.docs.open(pathToURI(openPaired), source, 1)
+	if got, ok := s.sourceText(openPaired); ok {
+		t.Fatalf("sourceText output paired with unsaved GSX = %q, want unavailable", got)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 type componentTargetPackageResult struct {
@@ -35,8 +36,10 @@ type componentTargetExpressionHarvest struct {
 func pairedTargetOutputs(gsxFiles map[string]*gsxast.File) map[string]bool {
 	paired := make(map[string]bool, len(gsxFiles))
 	for path := range gsxFiles {
-		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
-		paired[filepath.Join(filepath.Dir(path), base+".x.go")] = true
+		output, ok := sourceview.PairedGeneratedOutputPath(path)
+		if ok {
+			paired[output] = true
+		}
 	}
 	return paired
 }

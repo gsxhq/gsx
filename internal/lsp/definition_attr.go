@@ -3,7 +3,6 @@ package lsp
 import (
 	"go/token"
 	"go/types"
-	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
@@ -126,7 +125,7 @@ func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, b
 		return token.Position{}, false
 	}
 	pos := pkg.Fset.Position(param.Pos())
-	if pos.Filename == "" || strings.HasSuffix(pos.Filename, ".x.go") {
+	if pos.Filename == "" {
 		return token.Position{}, false
 	}
 	return pos, true

@@ -35,7 +35,10 @@ func semanticDefinition(pkg *Package, path string, source []byte, offset int) (s
 		return semanticDefinitionTarget{}, false
 	}
 	goPosition := pkg.Fset.Position(object.Pos())
-	if goPosition.Filename == "" || !strings.HasSuffix(goPosition.Filename, ".go") || strings.HasSuffix(goPosition.Filename, ".x.go") {
+	if goPosition.Filename == "" || !strings.HasSuffix(goPosition.Filename, ".go") {
+		return semanticDefinitionTarget{}, false
+	}
+	if (&requestSourceSnapshot{sources: make(map[string]*capturedSource)}).isPairedGeneratedOutput(goPosition.Filename) {
 		return semanticDefinitionTarget{}, false
 	}
 	return semanticDefinitionTarget{Go: goPosition}, true
@@ -255,7 +258,7 @@ func objectDefinitionResult(sources *requestSourceSnapshot, pkg *Package, obj ty
 		return nil, false
 	}
 	dp := pkg.Fset.Position(object.Pos())
-	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
+	if dp.Filename == "" {
 		return nil, false
 	}
 	return sources.locationForGoPosition(dp, len(object.Name()))
@@ -298,7 +301,7 @@ func packageLocations(sources *requestSourceSnapshot, imp *types.Package, fset *
 			continue
 		}
 		fn := fset.Position(o.Pos()).Filename
-		if strings.HasSuffix(fn, ".go") && !strings.HasSuffix(fn, ".x.go") {
+		if strings.HasSuffix(fn, ".go") {
 			files[fn] = true
 		}
 	}
@@ -468,7 +471,7 @@ func genuineGoObjectLocation(sources *requestSourceSnapshot, pkg *Package, objec
 		return Location{}, false
 	}
 	position := pkg.Fset.Position(object.Pos())
-	if !strings.HasSuffix(position.Filename, ".go") || strings.HasSuffix(position.Filename, ".x.go") {
+	if !strings.HasSuffix(position.Filename, ".go") {
 		return Location{}, false
 	}
 	return sources.locationForGoPosition(position, len(object.Name()))
@@ -642,7 +645,7 @@ func resolvedTargetForObject(pkg *Package, obj types.Object, ok bool) (resolvedD
 		return resolvedDefinitionTarget{}, false
 	}
 	position := pkg.Fset.Position(obj.Pos())
-	if position.Filename == "" || strings.HasSuffix(position.Filename, ".x.go") {
+	if position.Filename == "" {
 		return resolvedDefinitionTarget{}, false
 	}
 	return resolvedDefinitionTarget{object: obj, position: position}, true
@@ -693,15 +696,15 @@ func ctrlObjectAt(pkg *Package, node gsxast.Node, exprPos token.Pos, off int) (o
 }
 
 // ctrlDefinitionPos resolves a cursor inside a CtrlMap-bridged span to the
-// defining object's source position, rejecting positions still inside
-// generated .x.go overlays.
+// defining object's source position. The request source snapshot performs the
+// exact paired-generated-output ownership check before publishing a location.
 func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off int) (token.Position, bool) {
 	obj, _, _, ok := ctrlObjectAt(pkg, node, exprPos, off)
 	if !ok || !obj.Pos().IsValid() {
 		return token.Position{}, false
 	}
 	dp := pkg.Fset.Position(obj.Pos())
-	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
+	if dp.Filename == "" {
 		return token.Position{}, false
 	}
 	return dp, true

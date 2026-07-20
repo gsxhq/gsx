@@ -4,7 +4,6 @@ import (
 	"go/token"
 	"go/types"
 	"sort"
-	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
@@ -18,6 +17,7 @@ import (
 func buildCrossNav(
 	compByKey map[string][]*gsxast.Component,
 	objKey map[types.Object]string,
+	gsxFiles map[string]*gsxast.File,
 	gsxFset, skelFset *token.FileSet,
 	info *types.Info,
 ) (map[string]CrossRef, []NavRef) {
@@ -48,10 +48,11 @@ func buildCrossNav(
 	}
 
 	var navIndex []NavRef
+	pairedOutputs := pairedTargetOutputs(gsxFiles)
 	for id, obj := range info.Uses {
 		p := skelFset.Position(id.Pos())
-		if strings.HasSuffix(p.Filename, ".x.go") {
-			continue // synthetic skeleton position with no //line — skip
+		if pairedOutputs[p.Filename] {
+			continue
 		}
 		// Case 1: component func reference → .gsx component decl.
 		if key, ok := objKey[obj]; ok {

@@ -512,14 +512,19 @@ measurements, not a causal attribution to one individual implementation part.
 | total allocation delta | 166.2 MiB (166.1-166.6 MiB) | 167.6 MiB (167.4-167.9 MiB) |
 
 The implementation fixture retained 200 source versions and 800 indexed
-occurrences. Its dedicated index payload estimate was 132.8 KiB median
-(132.6-132.8 KiB), about 0.2% of the measured retained heap. `Index.Stats`
-counts concrete keys/values, slice elements, and unique string content; it
-explicitly excludes runtime map-bucket overhead and shared `go/types` objects.
-`TestIndexDoesNotRetainASTOrSourceBytes` structurally proves that the index owns
-no AST, `token.File`, source map, or source byte slice. The warm LSP package
-test also keeps external/filter load counts at one/zero across ten edited,
-index-bearing analyses.
+occurrences. Its `Index.Stats` shallow-storage lower bound was 126.6 KiB in
+each of five follow-up runs, about 0.2% of the measured retained heap. This
+number counts the `Index` value, logical map key/value storage, and slice
+backing arrays. It deliberately excludes map bucket/control overhead, string
+backing storage, allocator overhead, and referenced `go/types` graphs, so it is
+not a retained-heap or owned-byte estimate. The synthetic 50-package fixture
+has no authored Go declarations; the separate declaration-bearing structural
+test records one file, two occurrences, one definition, one declaration, and a
+560-byte shallow lower bound while exercising the same accounting path.
+`TestIndexDoesNotRetainASTOrSourceBytes` also proves that the index owns no
+AST, `token.File`, source map, or source byte slice. The warm LSP package test
+keeps external/filter load counts at one/zero across ten edited, index-bearing
+analyses.
 
 ```sh
 git worktree add --detach /tmp/gsx-lsp-baseline-task11 b915e57c

@@ -416,7 +416,7 @@ func generatedGlueIndex(t *testing.T, path, source string, useStart int) (*sourc
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "fake.x.go", generated, 0)
+	file, err := parser.ParseFile(fset, strings.TrimSuffix(path, ".gsx")+".x.go", generated, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

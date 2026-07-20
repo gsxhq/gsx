@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/sourceintel"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 type capturedSource struct {
@@ -35,12 +36,17 @@ func (s *Server) sourceSnapshot() *requestSourceSnapshot {
 	s.docs.mu.Lock()
 	for uri, document := range s.docs.docs {
 		path := sourcePath(uri)
-		if path == "" || strings.HasSuffix(path, ".x.go") {
+		if path == "" {
 			continue
 		}
 		snapshot.sources[path] = &capturedSource{stringValue: document.text, open: true, hasString: true, ok: true}
 	}
 	s.docs.mu.Unlock()
+	for path := range snapshot.sources {
+		if snapshot.isPairedGeneratedOutput(path) {
+			delete(snapshot.sources, path)
+		}
+	}
 	return snapshot
 }
 
@@ -104,7 +110,7 @@ func (snapshot *requestSourceSnapshot) sourceString(path string) (string, bool) 
 
 func (snapshot *requestSourceSnapshot) source(path string) (*capturedSource, bool) {
 	path = sourcePath(path)
-	if path == "" || strings.HasSuffix(path, ".x.go") {
+	if path == "" || snapshot.isPairedGeneratedOutput(path) {
 		return nil, false
 	}
 	if source, found := snapshot.sources[path]; found {
@@ -114,6 +120,22 @@ func (snapshot *requestSourceSnapshot) source(path string) (*capturedSource, boo
 	source := &capturedSource{bytesValue: text, hasBytes: true, ok: err == nil}
 	snapshot.sources[path] = source
 	return source, source.ok
+}
+
+// isPairedGeneratedOutput classifies generated ownership by one exact sibling
+// identity: path is excluded only when its `name.gsx` counterpart exists in
+// this request's open source view or on disk. An unpaired `name.x.go` remains
+// ordinary authored Go source.
+func (snapshot *requestSourceSnapshot) isPairedGeneratedOutput(path string) bool {
+	gsxPath, candidate := sourceview.PairedGSXPath(sourcePath(path))
+	if !candidate {
+		return false
+	}
+	if source, ok := snapshot.sources[gsxPath]; ok && source.ok {
+		return true
+	}
+	info, err := os.Stat(gsxPath)
+	return err == nil && !info.IsDir()
 }
 
 // sourceText is the one-shot compatibility wrapper for callers outside a
@@ -212,7 +234,7 @@ func authoredSpanForPosition(pos token.Position, length int) (sourceintel.Span, 
 }
 
 func (snapshot *requestSourceSnapshot) locationForGoPosition(pos token.Position, length int) (Location, bool) {
-	if pos.Filename == "" || length < 0 || !strings.HasSuffix(pos.Filename, ".go") || strings.HasSuffix(pos.Filename, ".x.go") {
+	if pos.Filename == "" || length < 0 || !strings.HasSuffix(pos.Filename, ".go") || snapshot.isPairedGeneratedOutput(pos.Filename) {
 		return Location{}, false
 	}
 	text, available := snapshot.sourceText(pos.Filename)
@@ -256,7 +278,7 @@ func (snapshot *requestSourceSnapshot) locationForResolvedPosition(pos token.Pos
 	switch {
 	case strings.HasSuffix(pos.Filename, ".gsx"):
 		return snapshot.locationForAuthoredPosition(pos, length)
-	case strings.HasSuffix(pos.Filename, ".go") && !strings.HasSuffix(pos.Filename, ".x.go"):
+	case strings.HasSuffix(pos.Filename, ".go"):
 		return snapshot.locationForGoPosition(pos, length)
 	default:
 		return Location{}, false

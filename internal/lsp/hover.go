@@ -17,6 +17,13 @@ func semanticHover(pkg *Package, path string, source []byte, offset int) (Hover,
 }
 
 func semanticHoverOccurrence(pkg *Package, path string, source []byte, offset int) (Hover, sourceintel.Span, bool) {
+	return semanticHoverOccurrenceFromSources(
+		pkg, path, source, offset,
+		&requestSourceSnapshot{sources: make(map[string]*capturedSource)},
+	)
+}
+
+func semanticHoverOccurrenceFromSources(pkg *Package, path string, source []byte, offset int, sources *requestSourceSnapshot) (Hover, sourceintel.Span, bool) {
 	if pkg == nil || pkg.SourceIndex == nil || !pkg.SourceIndex.MatchesSource(path, source) {
 		return Hover{}, sourceintel.Span{}, false
 	}
@@ -32,7 +39,7 @@ func semanticHoverOccurrence(pkg *Package, path string, source []byte, offset in
 					return Hover{}, sourceintel.Span{}, false
 				}
 				position := pkg.Fset.Position(object.Pos())
-				if position.Filename == "" || !strings.HasSuffix(position.Filename, ".go") || strings.HasSuffix(position.Filename, ".x.go") {
+				if position.Filename == "" || !strings.HasSuffix(position.Filename, ".go") || sources.isPairedGeneratedOutput(position.Filename) {
 					return Hover{}, sourceintel.Span{}, false
 				}
 			}
@@ -197,7 +204,7 @@ func (s *Server) handleHover(f frame) error {
 			}
 		}
 	}
-	if hover, span, ok := semanticHoverOccurrence(pkg, path, []byte(text), off); ok {
+	if hover, span, ok := semanticHoverOccurrenceFromSources(pkg, path, []byte(text), off, sources); ok {
 		rng, ok := sources.rangeForSpan(span)
 		if !ok {
 			return s.reply(f.ID, nil)

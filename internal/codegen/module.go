@@ -1289,7 +1289,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 	}
 	res.Diags = a.bag.Sorted()
-	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info)
+	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
 	res.ComponentDecls = a.componentDecls
 	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
