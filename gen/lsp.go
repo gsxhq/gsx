@@ -265,8 +265,9 @@ func lspSemanticConfigIdentity(cfg config) string {
 
 // adaptPackageResult converts a *codegen.PackageResult (the Module path's output)
 // into the *lsp.Package the server's read-intelligence features consume.
-// Every field mapping is preserved: Diags, GSXFset, Fset, Info, Types, ExprMap,
-// GSXFiles→Files, CrossIndex/NavIndex/CtrlMap/SigTypes conversions, UnusedImports conversion.
+// Every field mapping is preserved: Diags, GSXFset, Fset, Info, SourceIndex,
+// Types, ExprMap, GSXFiles→Files, CrossIndex/NavIndex/CtrlMap/SigTypes
+// conversions, UnusedImports conversion.
 func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	cross := make(map[string]lsp.CrossRef, len(pr.CrossIndex))
 	for k, v := range pr.CrossIndex {
@@ -336,6 +337,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		CrossIndex:     cross,
 		NavIndex:       nav,
 		ComponentCalls: calls,
+		SourceIndex:    pr.SourceIndex,
 		CtrlMap:        ctrl,
 		SigTypes:       sig,
 		UnusedImports:  unused,

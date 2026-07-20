@@ -1239,15 +1239,16 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		return nil, err
 	}
 	res := &PackageResult{
-		Files:    map[string][]byte{},
-		GSXFset:  a.gsxFset,
-		Fset:     a.skelFset,
-		Info:     a.info,
-		Types:    a.pkg,
-		GSXFiles: a.gsxFiles,
-		ExprMap:  a.exprMap,
-		CtrlMap:  a.ctrlMap,
-		SigTypes: a.sigTypes,
+		Files:       map[string][]byte{},
+		GSXFset:     a.gsxFset,
+		Fset:        a.skelFset,
+		Info:        a.info,
+		Types:       a.pkg,
+		GSXFiles:    a.gsxFiles,
+		ExprMap:     a.exprMap,
+		CtrlMap:     a.ctrlMap,
+		SigTypes:    a.sigTypes,
+		SourceIndex: a.sourceIndex,
 	}
 	// Run emit for side-effect diagnostics only (unknown filter, attr-error, etc.).
 	// Gated on len(a.typeErrs)==0, exactly like Generate: running generateFile on a

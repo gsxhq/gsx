@@ -8,6 +8,7 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // CrossRef is one component's cross-boundary entry (see the .go->.gsx design):
@@ -113,10 +114,15 @@ type SigTypeRef struct {
 // *token.FileSet (the module-wide shared fset); callers must not assume they
 // are distinct objects.
 type Package struct {
-	Diags      []diag.Diagnostic
-	GSXFset    *token.FileSet
-	Fset       *token.FileSet
-	Info       *types.Info
+	Diags   []diag.Diagnostic
+	GSXFset *token.FileSet
+	Fset    *token.FileSet
+	Info    *types.Info
+
+	// SourceIndex is codegen's immutable authored-source semantic index. The
+	// adapter preserves its pointer and package-snapshot lifetime directly.
+	SourceIndex *sourceintel.Index
+
 	Types      *types.Package
 	ExprMap    map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST

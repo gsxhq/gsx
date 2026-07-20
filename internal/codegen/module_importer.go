@@ -17,6 +17,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/modpath"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -896,6 +897,7 @@ type analyzed struct {
 	typeErrs          []types.Error                  // raw type errors from checkSkeletonPackage
 	unusedImports     map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
 	missingImports    map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
+	sourceIndex       *sourceintel.Index             // immutable authored semantic facts harvested from the full skeleton check
 
 }
 
@@ -1156,6 +1158,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// Mutual wrapper cycles consume only final semantic stamps.
 	reportWrapperCycles(gsxFiles, bag)
 	var goFiles []*goast.File
+	var mappedFiles []sourceintel.MappedFile
 	compsByXGo := map[string][]*gsxast.Component{}
 	// gwMarkupsByXGo holds, per skeleton file, the GoWithElements-embedded
 	// values' markup lists in source order (buildSkeleton's gwMarkups). Each
@@ -1260,6 +1263,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			return nil, skeletonParseError(perr)
 		}
 		goFiles = append(goFiles, gf)
+		mappedFiles = append(mappedFiles, sourceintel.MappedFile{
+			AST:       gf,
+			TokenFile: fset.File(gf.Pos()),
+			SourceMap: build.sourceMap,
+			SourceVersion: sourceintel.SourceVersion{
+				Size:   len(parsed.sources[path]),
+				SHA256: build.sourceHash,
+			},
+		})
 		compsByXGo[absXpath] = comps
 		gwMarkupsByXGo[absXpath] = gwMarkups
 		ctrlOffByXGo[absXpath] = ctrlOff
@@ -1414,6 +1426,8 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// the error without caching so the caller receives it.
 		return nil, mi.cycleErr
 	}
+	sourceIndex := sourceintel.BuildIndex(info, mappedFiles)
+	mappedFiles = nil
 	if callSites != nil && targetPlanningReady {
 		var planningDiagnostics []diag.Diagnostic
 		positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{
@@ -1584,6 +1598,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		typeErrs:          typeErrs,
 		unusedImports:     unusedImports,
 		missingImports:    missingImports,
+		sourceIndex:       sourceIndex,
 	}, nil
 }
 

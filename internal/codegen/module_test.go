@@ -9,9 +9,12 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 func TestImportPathDirRoundTrip(t *testing.T) {
@@ -253,6 +256,124 @@ func TestModulePackageRetainsAnalysis(t *testing.T) {
 	}
 	if _, ok := pr.CrossIndex[".Home"]; !ok {
 		t.Fatalf("CrossIndex missing .Home: %v", pr.CrossIndex)
+	}
+}
+
+func TestModulePackageResultRetainsSourceIndex(t *testing.T) {
+	t.Parallel()
+	const source = `package page
+
+type Label string
+
+func helper(value Label) Label { return value }
+
+component Box[T string | int](value T) {
+	<span>{value}</span>
+}
+
+component Page(label Label) {
+	<Box[string] value={string(helper(label))} />
+}
+`
+	dir, module := openTestModule(t, map[string]string{"page.gsx": source})
+	path := filepath.Join(dir, "page.gsx")
+	generatedPath := filepath.Join(dir, "page.x.go")
+
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SourceIndex == nil {
+		t.Fatal("PackageResult.SourceIndex is nil")
+	}
+	if !result.SourceIndex.MatchesSource(path, []byte(source)) {
+		t.Fatal("SourceIndex does not retain the analyzed source version")
+	}
+	for _, target := range []string{"helper(value", "label Label", "string] value"} {
+		offset := strings.Index(source, target)
+		if offset < 0 {
+			t.Fatalf("source does not contain %q", target)
+		}
+		if _, ok := result.SourceIndex.At(path, offset); !ok {
+			t.Errorf("SourceIndex.At(%q) returned no occurrence", target)
+		}
+	}
+	if _, err := os.Stat(generatedPath); !os.IsNotExist(err) {
+		t.Fatalf("Package created physical generated output %q: %v", generatedPath, err)
+	}
+}
+
+func TestModuleSourceIndexInvalidatesWithEditedPackage(t *testing.T) {
+	t.Parallel()
+	const before = `package page
+
+func helper() string { return "before" }
+
+component Page() {
+	<p>{helper()}</p>
+}
+`
+	const after = `package page
+
+func helper() int { return 42 }
+
+component Page() {
+	<p>{helper()}</p>
+}
+`
+	dir, module := openTestModule(t, map[string]string{"page.gsx": before})
+	path := filepath.Join(dir, "page.gsx")
+	generatedPath := filepath.Join(dir, "page.x.go")
+
+	first, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SourceIndex == nil {
+		t.Fatal("first PackageResult.SourceIndex is nil")
+	}
+	assertSourceIndexExpressionType(t, first.SourceIndex, path, before, "string")
+
+	affected := module.SetOverride(path, []byte(after))
+	if !slices.Contains(affected, dir) {
+		t.Fatalf("SetOverride affected = %v, want %q", affected, dir)
+	}
+	second, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SourceIndex == nil {
+		t.Fatal("second PackageResult.SourceIndex is nil")
+	}
+	if second.SourceIndex == first.SourceIndex {
+		t.Fatal("edited package retained the superseded SourceIndex pointer")
+	}
+	assertSourceIndexExpressionType(t, second.SourceIndex, path, after, "int")
+
+	if !first.SourceIndex.MatchesSource(path, []byte(before)) || first.SourceIndex.MatchesSource(path, []byte(after)) {
+		t.Fatal("superseded SourceIndex source version was mutated")
+	}
+	assertSourceIndexExpressionType(t, first.SourceIndex, path, before, "string")
+	if _, err := os.Stat(generatedPath); !os.IsNotExist(err) {
+		t.Fatalf("warm Package lifecycle created physical generated output %q: %v", generatedPath, err)
+	}
+}
+
+func assertSourceIndexExpressionType(t *testing.T, index *sourceintel.Index, path, source, want string) {
+	t.Helper()
+	start := strings.LastIndex(source, "helper()")
+	if start < 0 {
+		t.Fatal("source does not contain helper()")
+	}
+	occurrence, ok := index.At(path, start+len("helper"))
+	if !ok {
+		t.Fatal("SourceIndex has no occurrence at helper call parentheses")
+	}
+	if !occurrence.HasTypeValue || occurrence.TypeAndValue.Type == nil {
+		t.Fatalf("helper call occurrence has no type: %#v", occurrence)
+	}
+	if got := occurrence.TypeAndValue.Type.String(); got != want {
+		t.Fatalf("helper call type = %q, want %q", got, want)
 	}
 }
 
