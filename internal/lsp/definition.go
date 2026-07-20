@@ -12,7 +12,35 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
+
+type semanticDefinitionTarget struct {
+	Authored sourceintel.Span
+	Go       token.Position
+}
+
+func semanticDefinition(pkg *Package, path string, source []byte, offset int) (semanticDefinitionTarget, bool) {
+	if pkg == nil || pkg.SourceIndex == nil || !pkg.SourceIndex.MatchesSource(path, source) {
+		return semanticDefinitionTarget{}, false
+	}
+	occurrence, ok := pkg.SourceIndex.At(path, offset)
+	if !ok || occurrence.Object == nil {
+		return semanticDefinitionTarget{}, false
+	}
+	object := sourceintel.Origin(occurrence.Object)
+	if authored, ok := pkg.SourceIndex.Definition(object); ok {
+		return semanticDefinitionTarget{Authored: authored}, true
+	}
+	if pkg.Fset == nil || !object.Pos().IsValid() {
+		return semanticDefinitionTarget{}, false
+	}
+	goPosition := pkg.Fset.Position(object.Pos())
+	if goPosition.Filename == "" || !strings.HasSuffix(goPosition.Filename, ".go") || strings.HasSuffix(goPosition.Filename, ".x.go") {
+		return semanticDefinitionTarget{}, false
+	}
+	return semanticDefinitionTarget{Go: goPosition}, true
+}
 
 // navSpan is one navigable Go-fragment byte span of a gsx node: pos is the
 // first byte of the (trimmed) fragment text in the .gsx, ln its byte length.
@@ -461,7 +489,36 @@ func (s *Server) handleDefinition(f frame) error {
 	if dp, ok := exprDefinitionAt(pkg, path, off); ok {
 		return s.reply(f.ID, s.locationForPos(dp))
 	}
+	if target, ok := semanticDefinition(pkg, path, []byte(text), off); ok {
+		if target.Authored.Path != "" {
+			if location, ok := s.locationForAuthoredSpan(target.Authored, path, text); ok {
+				return s.reply(f.ID, location)
+			}
+			return s.reply(f.ID, nil)
+		}
+		return s.reply(f.ID, s.locationForPos(target.Go))
+	}
 	return s.reply(f.ID, nil)
+}
+
+func (s *Server) locationForAuthoredSpan(span sourceintel.Span, currentPath, currentSource string) (Location, bool) {
+	source := currentSource
+	if span.Path != currentPath {
+		uri := pathToURI(span.Path)
+		var ok bool
+		source, ok = s.docs.text(uri)
+		if !ok {
+			data, err := os.ReadFile(span.Path)
+			if err != nil {
+				return Location{}, false
+			}
+			source = string(data)
+		}
+	}
+	if span.Start < 0 || span.End < span.Start || span.End > len(source) {
+		return Location{}, false
+	}
+	return Location{URI: pathToURI(span.Path), Range: rangeForSpan(source, span.Start, span.End, s.enc)}, true
 }
 
 // exprDefinitionAt answers go-to-definition for a cursor inside any Go-fragment

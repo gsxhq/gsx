@@ -132,6 +132,7 @@ func analyzedLSPModule(t *testing.T, files map[string]string, target string) (*P
 		GSXFset:        pr.GSXFset,
 		Fset:           pr.Fset,
 		Info:           pr.Info,
+		SourceIndex:    pr.SourceIndex,
 		Types:          pr.Types,
 		Files:          pr.GSXFiles,
 		ExprMap:        pr.ExprMap,
