@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"golang.org/x/mod/modfile"
 )
@@ -128,7 +129,10 @@ func normalizeWorkspaceFolder(folder workspaceFolder) (workspaceFolder, string, 
 	if err != nil {
 		return workspaceFolder{}, "", fmt.Errorf("workspace folder URI %q: %w", folder.URI, err)
 	}
-	if parsed.Scheme != "file" || (parsed.Host != "" && parsed.Host != "localhost") || parsed.Path == "" {
+	hostname := parsed.Hostname()
+	if !strings.EqualFold(parsed.Scheme, "file") || parsed.User != nil || parsed.Port() != "" ||
+		(parsed.Host != "" && (!strings.EqualFold(hostname, "localhost") || !strings.EqualFold(parsed.Host, hostname))) ||
+		parsed.Path == "" {
 		return workspaceFolder{}, "", fmt.Errorf("workspace folder URI %q is not a local file URI", folder.URI)
 	}
 	path, err := normalizeWorkspacePath(parsed.Path)

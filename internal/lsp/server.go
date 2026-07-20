@@ -313,7 +313,9 @@ func (s *Server) handle(f frame) error {
 
 func (s *Server) handleInitialize(f frame) error {
 	var p initializeParams
-	_ = json.Unmarshal(f.Params, &p) // absent or malformed params -> defaults
+	if err := json.Unmarshal(f.Params, &p); err != nil {
+		return s.replyError(f.ID, -32602, "invalid initialize params: "+err.Error())
+	}
 	s.enc = encUTF16
 	encName := "utf-16"
 	if slices.Contains(p.Capabilities.General.PositionEncodings, "utf-8") {

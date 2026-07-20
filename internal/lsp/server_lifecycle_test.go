@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -228,6 +229,43 @@ func TestInitializeExplicitWorkspaceErrorDoesNotFallBack(t *testing.T) {
 	}
 	if len(server.workspaceModules) != 0 {
 		t.Fatalf("workspace modules = %v after rejected explicit root", server.workspaceModules)
+	}
+}
+
+func TestInitializeRejectsMalformedExplicitWorkspaceIdentityWithoutCWDFallback(t *testing.T) {
+	tests := []struct {
+		name     string
+		identity map[string]any
+	}{
+		{name: "root URI has the wrong type", identity: map[string]any{"rootUri": 7}},
+		{name: "workspace folders have the wrong type", identity: map[string]any{"workspaceFolders": map[string]any{"uri": "file:///wrong"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cwdModule := writeTestModule(t, filepath.Join(t.TempDir(), "cwd-module"), "example.test/cwd")
+			t.Chdir(cwdModule)
+			params := map[string]any{"capabilities": map[string]any{}}
+			maps.Copy(params, tt.identity)
+			frames := framed(t, map[string]any{
+				"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": params,
+			}) + exitFrame()
+			var output bytes.Buffer
+			server := NewServer(strings.NewReader(frames), &output, nilAnalyzer{})
+			if err := server.Run(); err != nil {
+				t.Fatal(err)
+			}
+			response := responseByID(t, output.String(), 1)
+			assertInvalidParams(t, response)
+			if _, repliedSuccess := response["result"]; repliedSuccess {
+				t.Fatalf("malformed initialize also replied success: %s", output.String())
+			}
+			if !strings.Contains(string(response["error"]), "initialize params") {
+				t.Fatalf("initialize error is not actionable: %s", response["error"])
+			}
+			if server.workspaceFolders != nil || server.workspaceRoots != nil || server.workspaceModules != nil {
+				t.Fatalf("malformed initialize fell back to cwd: folders=%v roots=%v modules=%v", server.workspaceFolders, server.workspaceRoots, server.workspaceModules)
+			}
+		})
 	}
 }
 

@@ -135,3 +135,48 @@ func TestSetWorkspaceFoldersDecodesPercentEscapedLocalURI(t *testing.T) {
 		t.Fatalf("folders = %+v, want normalized %+v", server.workspaceFolders, want)
 	}
 }
+
+func TestNormalizeWorkspaceFolderAuthority(t *testing.T) {
+	rootWithSpace := filepath.Join(t.TempDir(), "module with space")
+	canonicalURI := pathToURI(rootWithSpace)
+	for _, tt := range []struct {
+		name string
+		uri  string
+	}{
+		{name: "localhost is case insensitive", uri: strings.Replace(canonicalURI, "file://", "file://LOCALHOST", 1)},
+		{name: "file scheme is case insensitive", uri: strings.Replace(canonicalURI, "file://", "FILE://LOCALHOST", 1)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			folder, path, err := normalizeWorkspaceFolder(workspaceFolder{URI: tt.uri, Name: "local"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if path != rootWithSpace {
+				t.Fatalf("path = %q, want decoded %q", path, rootWithSpace)
+			}
+			if want := (workspaceFolder{URI: canonicalURI, Name: "local"}); folder != want {
+				t.Fatalf("folder = %+v, want canonical %+v", folder, want)
+			}
+		})
+	}
+
+	root := filepath.Join(t.TempDir(), "module")
+	tests := []struct {
+		name string
+		uri  string
+	}{
+		{name: "userinfo", uri: "file://user@localhost" + root},
+		{name: "port", uri: "file://localhost:80" + root},
+		{name: "remote host", uri: "file://remote.example" + root},
+		{name: "non file scheme", uri: "https://localhost" + root},
+		{name: "missing path", uri: "file://localhost"},
+	}
+	for _, tt := range tests {
+		t.Run("rejects "+tt.name, func(t *testing.T) {
+			_, _, err := normalizeWorkspaceFolder(workspaceFolder{URI: tt.uri, Name: tt.name})
+			if err == nil || !strings.Contains(err.Error(), tt.uri) || !strings.Contains(err.Error(), "local file URI") {
+				t.Fatalf("error = %v, want path-bearing local file URI rejection", err)
+			}
+		})
+	}
+}
