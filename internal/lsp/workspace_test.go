@@ -118,6 +118,27 @@ func TestDiscoverWorkspaceModules(t *testing.T) {
 	})
 }
 
+func TestWorkspaceModuleStateOwnerIsDeterministic(t *testing.T) {
+	module := writeTestModule(t, filepath.Join(t.TempDir(), "module"), "example.test/module")
+	first := filepath.Join(module, "a")
+	second := filepath.Join(module, "b")
+	for _, root := range []string{first, second} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	states, err := discoverWorkspaceModuleStates([]string{second, first, module})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 1 {
+		t.Fatalf("states = %+v, want one canonical module", states)
+	}
+	if states[0].root != module || states[0].ownerRoot != first || states[0].modulePath != "example.test/module" {
+		t.Fatalf("state = %+v, want deepest lexical owner %s and retained module path", states[0], first)
+	}
+}
+
 func TestSetWorkspaceFoldersDecodesPercentEscapedLocalURI(t *testing.T) {
 	root := writeTestModule(t, filepath.Join(t.TempDir(), "module with space"), "example.test/escaped")
 	uri := pathToURI(root)

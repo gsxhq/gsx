@@ -538,6 +538,7 @@ func TestDocumentSymbolsUseUnsavedUTF16Target(t *testing.T) {
 
 func TestWorkspaceSymbolsUseUnsavedUTF16Target(t *testing.T) {
 	dir := t.TempDir()
+	writeWorkspaceSymbolSource(t, filepath.Join(dir, "go.mod"), "module example.test/page\n\ngo 1.26.1\n")
 	path := filepath.Join(dir, "page.gsx")
 	saved := "package page\nvar _ = \"x\"; var Target = 1\n"
 	open := "package page\nvar _ = \"\U0001f600\"; var Target = 1\n"
@@ -548,7 +549,7 @@ func TestWorkspaceSymbolsUseUnsavedUTF16Target(t *testing.T) {
 	pos := authoredTokenPosition(path, open, start)
 	a := &authoritativeLocationAnalyzer{syms: []Symbol{{Name: "Target", Kind: symKindVariable, Container: "page", NamePos: pos}}}
 	uri := pathToURI(path)
-	out := drive(t, a, initFrame()+didOpenFrame(uri, open)+wsSymFrame(2, "Target")+exitFrame())
+	out := drive(t, a, workspaceSymbolInitializeFrame(dir)+didOpenFrame(uri, open)+wsSymFrame(2, "Target")+exitFrame())
 	var symbols []SymbolInformation
 	decodeResult(t, out, 2, &symbols)
 	want := rangeForSpan(open, start, start+len("Target"), encUTF16)

@@ -285,13 +285,23 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 		server.moduleParams = []ComponentParamRenameFact{{Name: "param"}}
 		server.moduleParamsValid = true
 		server.moduleParamsDir = first
-		server.moduleSyms = []Symbol{{Name: "symbol", NamePos: token.Position{Filename: filepath.Join(first, "page.gsx")}}}
-		server.moduleSymsValid = true
+		server.moduleSyms = make(map[string]moduleSymbolCache, len(server.workspaceModules))
+		for _, module := range server.workspaceModules {
+			server.moduleSyms[module] = moduleSymbolCache{symbols: []Symbol{{Name: "symbol", NamePos: token.Position{Filename: filepath.Join(module, "page.gsx")}}}, valid: true}
+		}
 	}
-	assertOnlyModuleCachesInvalidated := func(t *testing.T) {
+	assertOnlyNonSymbolCachesInvalidated := func(t *testing.T, wantSymbolModules ...string) {
 		t.Helper()
-		if server.moduleRefs != nil || server.moduleRefsValid || server.moduleParams != nil || server.moduleParamsValid || server.moduleParamsDir != "" || server.moduleSyms != nil || server.moduleSymsValid {
-			t.Fatalf("whole-module caches retained: refs=%v/%v params=%v/%v/%q syms=%v/%v", server.moduleRefs, server.moduleRefsValid, server.moduleParams, server.moduleParamsValid, server.moduleParamsDir, server.moduleSyms, server.moduleSymsValid)
+		if server.moduleRefs != nil || server.moduleRefsValid || server.moduleParams != nil || server.moduleParamsValid || server.moduleParamsDir != "" {
+			t.Fatalf("whole-module caches retained: refs=%v/%v params=%v/%v/%q", server.moduleRefs, server.moduleRefsValid, server.moduleParams, server.moduleParamsValid, server.moduleParamsDir)
+		}
+		if len(server.moduleSyms) != len(wantSymbolModules) {
+			t.Fatalf("symbol cache modules = %v, want %v", server.moduleSyms, wantSymbolModules)
+		}
+		for _, module := range wantSymbolModules {
+			if !server.moduleSyms[module].valid {
+				t.Fatalf("symbol cache for retained module %s was invalidated", module)
+			}
 		}
 		if server.pkgs[first] != pkg {
 			t.Fatalf("open package analysis was invalidated: got %p, want %p", server.pkgs[first], pkg)
@@ -314,7 +324,7 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	if !slices.Equal(server.workspaceModules, wantBoth) {
 		t.Fatalf("modules after add = %v, want %v", server.workspaceModules, wantBoth)
 	}
-	assertOnlyModuleCachesInvalidated(t)
+	assertOnlyNonSymbolCachesInvalidated(t, first)
 
 	primeModuleCaches()
 	if err := handleChange(nil, []workspaceFolder{{URI: pathToURI(first) + "/.", Name: "ignored"}}); err != nil {
@@ -323,7 +333,7 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	if want := []string{second}; !slices.Equal(server.workspaceModules, want) {
 		t.Fatalf("modules after normalized removal = %v, want %v", server.workspaceModules, want)
 	}
-	assertOnlyModuleCachesInvalidated(t)
+	assertOnlyNonSymbolCachesInvalidated(t, second)
 
 	primeModuleCaches()
 	beforeFolders := append([]workspaceFolder(nil), server.workspaceFolders...)
@@ -335,7 +345,7 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	if !slices.Equal(server.workspaceFolders, beforeFolders) || !slices.Equal(server.workspaceModules, beforeModules) {
 		t.Fatalf("rejected update partially applied: folders=%v modules=%v", server.workspaceFolders, server.workspaceModules)
 	}
-	if !server.moduleRefsValid || !server.moduleParamsValid || !server.moduleSymsValid {
+	if !server.moduleRefsValid || !server.moduleParamsValid || len(server.moduleSyms) != 1 || !server.moduleSyms[second].valid {
 		t.Fatal("rejected workspace update invalidated whole-module caches")
 	}
 	if server.pkgs[first] != pkg {

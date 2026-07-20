@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,11 +14,33 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
+type workspaceModuleState struct {
+	root       string
+	ownerRoot  string
+	modulePath string
+}
+
 // discoverWorkspaceModules resolves only the Go modules explicitly owned by
 // roots. A go.work at a root owns its use directives. Without one, the nearest
 // go.mod at or above the root owns it. Nested modules are never searched for.
 func discoverWorkspaceModules(roots []string) ([]string, error) {
-	modules := make([]string, 0, len(roots))
+	states, err := discoverWorkspaceModuleStates(roots)
+	if err != nil {
+		return nil, err
+	}
+	modules := make([]string, len(states))
+	for i, state := range states {
+		modules[i] = state.root
+	}
+	return modules, nil
+}
+
+// discoverWorkspaceModuleStates retains the exact initialized workspace root
+// that declared each Go module and the parsed module directive validated during
+// discovery. When several roots declare one module, the deepest root wins;
+// equal-depth roots are resolved lexically so input order cannot affect sorting.
+func discoverWorkspaceModuleStates(roots []string) ([]workspaceModuleState, error) {
+	byModule := make(map[string]workspaceModuleState)
 	for _, rawRoot := range roots {
 		root, err := normalizeWorkspacePath(rawRoot)
 		if err != nil {
@@ -48,69 +71,93 @@ func discoverWorkspaceModules(roots []string) ([]string, error) {
 				if err != nil {
 					return nil, fmt.Errorf("workspace file %q use %q: %w", workPath, use.Path, err)
 				}
-				if err := validateWorkspaceModule(moduleRoot); err != nil {
+				modulePath, err := workspaceModulePath(moduleRoot)
+				if err != nil {
 					return nil, fmt.Errorf("workspace file %q use %q: %w", workPath, use.Path, err)
 				}
-				modules = append(modules, moduleRoot)
+				retainWorkspaceModuleState(byModule, workspaceModuleState{root: moduleRoot, ownerRoot: root, modulePath: modulePath})
 			}
 			continue
 		case !os.IsNotExist(err):
 			return nil, fmt.Errorf("read workspace file %q: %w", workPath, err)
 		}
 
-		moduleRoot, found, err := nearestWorkspaceModule(root)
+		moduleRoot, modulePath, found, err := nearestWorkspaceModule(root)
 		if err != nil {
 			return nil, err
 		}
 		if found {
-			modules = append(modules, moduleRoot)
+			retainWorkspaceModuleState(byModule, workspaceModuleState{root: moduleRoot, ownerRoot: root, modulePath: modulePath})
 		}
 	}
-	slices.Sort(modules)
-	return slices.Compact(modules), nil
+	states := make([]workspaceModuleState, 0, len(byModule))
+	for _, state := range byModule {
+		states = append(states, state)
+	}
+	slices.SortFunc(states, func(a, b workspaceModuleState) int { return cmp.Compare(a.root, b.root) })
+	return states, nil
 }
 
-func nearestWorkspaceModule(root string) (string, bool, error) {
+func retainWorkspaceModuleState(states map[string]workspaceModuleState, candidate workspaceModuleState) {
+	current, exists := states[candidate.root]
+	if !exists || workspacePathDepth(candidate.ownerRoot) > workspacePathDepth(current.ownerRoot) ||
+		(workspacePathDepth(candidate.ownerRoot) == workspacePathDepth(current.ownerRoot) && candidate.ownerRoot < current.ownerRoot) {
+		states[candidate.root] = candidate
+	}
+}
+
+func workspacePathDepth(path string) int {
+	volume := filepath.VolumeName(path)
+	rel := strings.TrimPrefix(filepath.Clean(path), volume)
+	rel = strings.Trim(rel, string(filepath.Separator))
+	if rel == "" {
+		return 0
+	}
+	return len(strings.Split(rel, string(filepath.Separator)))
+}
+
+func nearestWorkspaceModule(root string) (string, string, bool, error) {
 	for dir := root; ; dir = filepath.Dir(dir) {
 		modPath := filepath.Join(dir, "go.mod")
 		_, err := os.Stat(modPath)
 		switch {
 		case err == nil:
-			if err := validateWorkspaceModule(dir); err != nil {
-				return "", false, err
+			modulePath, err := workspaceModulePath(dir)
+			if err != nil {
+				return "", "", false, err
 			}
-			return dir, true, nil
+			return dir, modulePath, true, nil
 		case !os.IsNotExist(err):
-			return "", false, fmt.Errorf("inspect module file %q: %w", modPath, err)
+			return "", "", false, fmt.Errorf("inspect module file %q: %w", modPath, err)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", false, nil
+			return "", "", false, nil
 		}
 	}
 }
 
-func validateWorkspaceModule(root string) error {
+func workspaceModulePath(root string) (string, error) {
 	info, err := os.Stat(root)
 	if err != nil {
-		return fmt.Errorf("module root %q: %w", root, err)
+		return "", fmt.Errorf("module root %q: %w", root, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("module root %q is not a directory", root)
+		return "", fmt.Errorf("module root %q is not a directory", root)
 	}
 	modPath := filepath.Join(root, "go.mod")
 	modSource, err := os.ReadFile(modPath)
 	if err != nil {
-		return fmt.Errorf("read module file %q: %w", modPath, err)
+		return "", fmt.Errorf("read module file %q: %w", modPath, err)
 	}
 	parsed, err := modfile.Parse(modPath, modSource, nil)
 	if err != nil {
-		return fmt.Errorf("parse module file %q: %w", modPath, err)
+		return "", fmt.Errorf("parse module file %q: %w", modPath, err)
 	}
 	if parsed.Module == nil {
-		return fmt.Errorf("parse module file %q: missing module directive", modPath)
+		return "", fmt.Errorf("parse module file %q: missing module directive", modPath)
 	}
-	return nil
+	return parsed.Module.Mod.Path, nil
 }
 
 func normalizeWorkspacePath(path string) (string, error) {
@@ -142,7 +189,7 @@ func normalizeWorkspaceFolder(folder workspaceFolder) (workspaceFolder, string, 
 	return workspaceFolder{URI: pathToURI(path), Name: folder.Name}, path, nil
 }
 
-func prepareWorkspaceFolders(folders []workspaceFolder) ([]workspaceFolder, []string, []string, error) {
+func prepareWorkspaceFolders(folders []workspaceFolder) ([]workspaceFolder, []string, []workspaceModuleState, error) {
 	type normalizedFolder struct {
 		folder workspaceFolder
 		path   string
@@ -176,7 +223,7 @@ func prepareWorkspaceFolders(folders []workspaceFolder) ([]workspaceFolder, []st
 		cleanFolders = append(cleanFolders, entry.folder)
 		roots = append(roots, entry.path)
 	}
-	modules, err := discoverWorkspaceModules(roots)
+	modules, err := discoverWorkspaceModuleStates(roots)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -184,17 +231,37 @@ func prepareWorkspaceFolders(folders []workspaceFolder) ([]workspaceFolder, []st
 }
 
 func (s *Server) setWorkspaceFolders(folders []workspaceFolder) error {
-	cleanFolders, roots, modules, err := prepareWorkspaceFolders(folders)
+	cleanFolders, roots, states, err := prepareWorkspaceFolders(folders)
 	if err != nil {
 		return err
 	}
-	if slices.Equal(s.workspaceFolders, cleanFolders) && slices.Equal(s.workspaceRoots, roots) && slices.Equal(s.workspaceModules, modules) {
+	modules := make([]string, len(states))
+	owners := make(map[string]string, len(states))
+	modulePaths := make(map[string]string, len(states))
+	for i, state := range states {
+		modules[i] = state.root
+		owners[state.root] = state.ownerRoot
+		modulePaths[state.root] = state.modulePath
+	}
+	if slices.Equal(s.workspaceFolders, cleanFolders) && slices.Equal(s.workspaceRoots, roots) && slices.Equal(s.workspaceModules, modules) &&
+		maps.Equal(s.workspaceModuleOwners, owners) && maps.Equal(s.workspaceModulePaths, modulePaths) {
 		return nil
+	}
+	retained := make(map[string]moduleSymbolCache, len(states))
+	for _, module := range modules {
+		if s.workspaceModulePaths[module] == modulePaths[module] {
+			if cached, ok := s.moduleSyms[module]; ok {
+				retained[module] = cached
+			}
+		}
 	}
 	s.workspaceFolders = cleanFolders
 	s.workspaceRoots = roots
 	s.workspaceModules = modules
-	s.invalidateModuleIndexes()
+	s.workspaceModuleOwners = owners
+	s.workspaceModulePaths = modulePaths
+	s.moduleSyms = retained
+	s.invalidateNonSymbolModuleIndexes()
 	return nil
 }
 

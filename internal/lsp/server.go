@@ -113,12 +113,13 @@ type Server struct {
 	moduleParamsValid bool                       // false ⇒ rebuild on next rename request
 	moduleParamsDir   string                     // request directory that owns the cached module view
 
-	moduleSyms      []Symbol // whole-module symbol index (lazy; workspace/symbol)
-	moduleSymsValid bool     // false ⇒ rebuild on next workspace/symbol request
+	moduleSyms map[string]moduleSymbolCache // normalized module root → lazy workspace-symbol index
 
-	workspaceFolders []workspaceFolder // normalized initialized file workspace folders
-	workspaceRoots   []string          // normalized absolute folder paths
-	workspaceModules []string          // sorted Go module roots owned by workspaceRoots
+	workspaceFolders      []workspaceFolder // normalized initialized file workspace folders
+	workspaceRoots        []string          // normalized absolute folder paths
+	workspaceModules      []string          // sorted Go module roots owned by workspaceRoots
+	workspaceModuleOwners map[string]string // module root → deterministic declaring workspace root
+	workspaceModulePaths  map[string]string // module root → parsed go.mod module directive
 
 	debounce time.Duration
 	// schedule arms a timer that calls f after d, returning a cancel func. It is a
@@ -173,6 +174,9 @@ func NewServer(r io.Reader, w io.Writer, a Analyzer) *Server {
 		enc:                   encUTF16,
 		diskViewValid:         true,
 		pendingClientRequests: map[string]func(frame) error{},
+		moduleSyms:            map[string]moduleSymbolCache{},
+		workspaceModuleOwners: map[string]string{},
+		workspaceModulePaths:  map[string]string{},
 		debounce:              defaultDebounce,
 		schedule: func(d time.Duration, f func()) func() {
 			t := time.AfterFunc(d, f)
@@ -546,17 +550,30 @@ func (s *Server) notify(method string, params any) error {
 	}{"2.0", method, params})
 }
 
-// invalidateModuleIndexes drops the cached whole-module reference, parameter, and
-// symbol indexes; the next references, rename, or workspace/symbol request
-// rebuilds its view. Any document mutation may change any of them.
+// invalidateModuleIndexes drops every whole-module index. Workspace-structure
+// and saved configuration transitions use this conservative path because they
+// can change module ownership itself.
 func (s *Server) invalidateModuleIndexes() {
+	s.invalidateNonSymbolModuleIndexes()
+	clear(s.moduleSyms)
+}
+
+func (s *Server) invalidateNonSymbolModuleIndexes() {
 	s.moduleRefs = nil
 	s.moduleRefsValid = false
 	s.moduleParams = nil
 	s.moduleParamsValid = false
 	s.moduleParamsDir = ""
-	s.moduleSyms = nil
-	s.moduleSymsValid = false
+}
+
+// invalidateModuleIndexesForPath keeps unrelated initialized modules warm.
+// References and rename still use a single request-owned module index, so only
+// workspace symbols can currently be invalidated at finer granularity.
+func (s *Server) invalidateModuleIndexesForPath(path string) {
+	s.invalidateNonSymbolModuleIndexes()
+	if module := workspaceModuleForPath(s.workspaceModules, path); module != "" {
+		delete(s.moduleSyms, module)
+	}
 }
 
 func (s *Server) handleDidOpen(f frame) error {
@@ -564,10 +581,10 @@ func (s *Server) handleDidOpen(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
-	s.invalidateModuleIndexes()
 	s.docs.open(p.TextDocument.URI, p.TextDocument.Text, p.TextDocument.Version)
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
+	s.invalidateModuleIndexesForPath(path)
 	dir := filepath.Dir(path)
 	s.lastURI[dir] = uri
 	s.beginMutation(dir)
@@ -606,12 +623,12 @@ func (s *Server) handleDidChange(f frame) error {
 	if len(p.ContentChanges) == 0 {
 		return nil
 	}
-	s.invalidateModuleIndexes()
 	// Full-document sync: the last change carries the whole new text.
 	text := p.ContentChanges[len(p.ContentChanges)-1].Text
 	s.docs.update(p.TextDocument.URI, text, p.TextDocument.Version)
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
+	s.invalidateModuleIndexesForPath(path)
 	dir := filepath.Dir(path)
 	s.lastURI[dir] = uri
 	s.beginMutation(dir)
@@ -649,9 +666,9 @@ func (s *Server) handleDidClose(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
-	s.invalidateModuleIndexes()
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
+	s.invalidateModuleIndexesForPath(path)
 	dir := filepath.Dir(path)
 	s.beginMutation(dir)
 	s.docs.close(uri)
