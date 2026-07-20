@@ -111,6 +111,14 @@ component (p *Page) Render(label Alias) {
 			id: 7, name: "cross-package explicit type argument", cursor: strings.Index(source, "Box[widgets.Label]") + len("Box[widgets."),
 			wantURI: "file://" + dependencyPath, wantStart: strings.Index(dependency, "Label"), wantSource: dependency,
 		},
+		{
+			id: 8, name: "component parameter declaration to self", cursor: strings.Index(source, "value T"),
+			wantURI: uri, wantStart: strings.Index(source, "value T"), wantLength: len("value"), wantSource: source,
+		},
+		{
+			id: 9, name: "component parameter use", cursor: strings.Index(source, "{value}") + 1,
+			wantURI: uri, wantStart: strings.Index(source, "value T"), wantSource: source,
+		},
 	}
 
 	frame := func(value any) string {
