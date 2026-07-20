@@ -75,6 +75,7 @@ func TestSourceSpanRequiresExactCapabilityCoverage(t *testing.T) {
 		{"adjacent segments merge", 10, 15, Definition, Span{Path: "view.gsx", Start: 0, End: 5}, true},
 		{"half-open left edge", 10, 10, Definition, Span{Path: "view.gsx", Start: 0, End: 0}, true},
 		{"half-open right edge", 15, 15, Definition, Span{Path: "view.gsx", Start: 5, End: 5}, true},
+		{"half-open left edge after generated gap", 18, 18, Symbol, Span{Path: "view.gsx", Start: 8, End: 8}, true},
 		{"mid-expression bytes", 11, 14, Hover, Span{Path: "view.gsx", Start: 1, End: 4}, true},
 		{"line-edge bytes", 13, 15, Definition, Span{Path: "view.gsx", Start: 3, End: 5}, true},
 		{"generated gap", 15, 18, Definition, Span{}, false},
@@ -110,8 +111,9 @@ func TestDeclarationSpanRequiresOwnedRegionEndpoints(t *testing.T) {
 		ok         bool
 	}{
 		{"owned region includes generated glue", 4, 20, Span{Path: "view.gsx", Start: 0, End: 8}, true},
-		{"owned region prefix", 4, 12, Span{Path: "view.gsx", Start: 0, End: 8}, true},
-		{"owned region suffix", 12, 20, Span{Path: "view.gsx", Start: 0, End: 8}, true},
+		{"owned region prefix does not own declaration endpoints", 4, 12, Span{}, false},
+		{"owned region suffix does not own declaration endpoints", 12, 20, Span{}, false},
+		{"owned region interior does not own declaration endpoints", 8, 16, Span{}, false},
 		{"crossing GoWithElements IIFE has no owner", 18, 22, Span{}, false},
 		{"crossing declaration regions has no owner", 4, 26, Span{}, false},
 		{"outside any region", 0, 4, Span{}, false},

@@ -164,7 +164,7 @@ func (m *SourceMap) DeclarationSpan(generatedStart, generatedEnd int) (Span, boo
 		return Span{}, false
 	}
 	region := m.regions[index]
-	if generatedEnd > region.GeneratedEnd {
+	if generatedStart != region.GeneratedStart || generatedEnd != region.GeneratedEnd {
 		return Span{}, false
 	}
 	return region.Source, true
