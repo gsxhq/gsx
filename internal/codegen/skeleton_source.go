@@ -99,14 +99,23 @@ func (w *skeletonSourceWriter) String() string {
 }
 
 func (w *skeletonSourceWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
 	return w.builder.Write(p)
 }
 
 func (w *skeletonSourceWriter) WriteString(text string) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
 	return w.builder.WriteString(text)
 }
 
 func (w *skeletonSourceWriter) WriteByte(b byte) error {
+	if w.err != nil {
+		return w.err
+	}
 	return w.builder.WriteByte(b)
 }
 
@@ -149,6 +158,9 @@ func (w *skeletonSourceWriter) writeAuthored(start, end int, emitted string, cap
 }
 
 func (w *skeletonSourceWriter) writeAuthoredAt(fset *token.FileSet, pos token.Pos, emitted string, capabilities sourceintel.Capability) error {
+	if w.err != nil {
+		return w.err
+	}
 	if !w.enabled {
 		w.builder.WriteString(emitted)
 		return nil

@@ -3,6 +3,7 @@ package codegen
 import (
 	"crypto/sha256"
 	"go/token"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -21,6 +22,71 @@ func TestSkeletonSourceWriterRejectsNonIdenticalAuthoredBytes(t *testing.T) {
 	}
 	if got := w.builder.String(); got != "prefix:" {
 		t.Fatalf("writer contents = %q, want generated prefix only", got)
+	}
+}
+
+func TestSkeletonSourceWriterPreservesFirstErrorAndStopsMutation(t *testing.T) {
+	const path = "input.gsx"
+	source := []byte("alpha beta")
+	w := newSkeletonSourceWriter(path, source)
+	w.writeGenerated("prefix:")
+	if err := w.writeAuthored(0, 5, "alpha", sourceintel.Definition); err != nil {
+		t.Fatalf("initial writeAuthored: %v", err)
+	}
+	if err := w.addDeclarationRegion(sourceintel.Span{Path: path, Start: 0, End: 5}, 0, w.builder.Len()); err != nil {
+		t.Fatalf("initial addDeclarationRegion: %v", err)
+	}
+
+	firstErr := w.writeAuthored(6, 10, "BETA", sourceintel.Hover)
+	if firstErr == nil {
+		t.Fatal("writeAuthored accepted non-identical bytes")
+	}
+	wantBytes := w.builder.String()
+	wantSegments := append([]sourceintel.Segment(nil), w.segments...)
+	wantRegions := append([]sourceintel.DeclarationRegion(nil), w.regions...)
+
+	if n, err := w.Write([]byte("write")); n != 0 || err != firstErr {
+		t.Errorf("Write after error = (%d, %v), want (0, original error %v)", n, err, firstErr)
+	}
+	if n, err := w.WriteString("string"); n != 0 || err != firstErr {
+		t.Errorf("WriteString after error = (%d, %v), want (0, original error %v)", n, err, firstErr)
+	}
+	if err := w.WriteByte('b'); err != firstErr {
+		t.Errorf("WriteByte after error = %v, want original error %v", err, firstErr)
+	}
+	w.writeGenerated("generated")
+	if err := w.writeAuthored(6, 10, "beta", sourceintel.Hover); err != firstErr {
+		t.Errorf("writeAuthored after error = %v, want original error %v", err, firstErr)
+	}
+	if err := w.writeAuthoredAt(nil, token.NoPos, "later", sourceintel.Hover); err != firstErr {
+		t.Errorf("writeAuthoredAt after error = %v, want original error %v", err, firstErr)
+	}
+	if err := w.addDeclarationRegion(sourceintel.Span{Path: path, Start: 6, End: 10}, 0, w.builder.Len()); err != firstErr {
+		t.Errorf("addDeclarationRegion after error = %v, want original error %v", err, firstErr)
+	}
+	child := newSkeletonSourceWriter(path, source)
+	child.writeGenerated("child")
+	if err := child.writeAuthored(6, 10, "beta", sourceintel.Definition); err != nil {
+		t.Fatalf("child writeAuthored: %v", err)
+	}
+	if err := child.addDeclarationRegion(sourceintel.Span{Path: path, Start: 6, End: 10}, 0, child.builder.Len()); err != nil {
+		t.Fatalf("child addDeclarationRegion: %v", err)
+	}
+	if err := w.appendMapped(child); err != firstErr {
+		t.Errorf("appendMapped after error = %v, want original error %v", err, firstErr)
+	}
+	if _, _, err := w.finish(); err != firstErr {
+		t.Errorf("finish after error = %v, want original error %v", err, firstErr)
+	}
+
+	if got := w.builder.String(); got != wantBytes {
+		t.Errorf("builder after error = %q, want unchanged %q", got, wantBytes)
+	}
+	if !reflect.DeepEqual(w.segments, wantSegments) {
+		t.Errorf("segments after error = %+v, want unchanged %+v", w.segments, wantSegments)
+	}
+	if !reflect.DeepEqual(w.regions, wantRegions) {
+		t.Errorf("regions after error = %+v, want unchanged %+v", w.regions, wantRegions)
 	}
 }
 
