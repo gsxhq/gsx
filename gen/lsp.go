@@ -865,6 +865,7 @@ func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]ls
 	if err != nil {
 		return nil, err
 	}
+	dirs = moduleSymbolDirs(root, dirs, override)
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
 	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
@@ -888,6 +889,28 @@ func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]ls
 		}
 	}
 	return syms, nil
+}
+
+// moduleSymbolDirs augments disk discovery with directories owned by exact
+// authored GSX overrides. Workspace partitioning normally supplies only this
+// module's open buffers; the lexical Rel check is a defensive ownership
+// boundary for direct Analyzer callers. It neither walks new roots nor infers
+// ownership from basename or string prefix.
+func moduleSymbolDirs(root string, discovered []string, override map[string][]byte) []string {
+	root = filepath.Clean(root)
+	dirs := append([]string(nil), discovered...)
+	for path := range override {
+		path = filepath.Clean(path)
+		if _, authored := sourceview.PairedGeneratedOutputPath(path); !authored {
+			continue
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		dirs = append(dirs, filepath.Dir(path))
+	}
+	return sortedUniqueDirs(dirs)
 }
 
 // crossRefKeyForFunc derives the component key for a *types.Func: ".Name" for

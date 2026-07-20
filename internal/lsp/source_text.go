@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gsxhq/gsx/internal/sourceintel"
 	"github.com/gsxhq/gsx/internal/sourceview"
@@ -26,10 +27,31 @@ type capturedSource struct {
 type requestSourceSnapshot struct {
 	enc     encoding
 	sources map[string]*capturedSource
+
+	// Request handlers own the snapshot on one goroutine; sources is therefore
+	// intentionally unsynchronized. Ownership classification may be reached by
+	// independent location helpers, so its first observation is synchronized and
+	// frozen for the request lifetime.
+	ownershipMu sync.Mutex
+	openGSX     map[string]struct{}
+	ownership   map[string]pairedGeneratedOwnership
 }
 
+type pairedGeneratedOwnership uint8
+
+const (
+	pairedOwnershipUnknown pairedGeneratedOwnership = iota
+	pairedOwnershipAuthored
+	pairedOwnershipGenerated
+)
+
 func (s *Server) sourceSnapshot() *requestSourceSnapshot {
-	snapshot := &requestSourceSnapshot{enc: s.enc, sources: make(map[string]*capturedSource)}
+	snapshot := &requestSourceSnapshot{
+		enc:       s.enc,
+		sources:   make(map[string]*capturedSource),
+		openGSX:   make(map[string]struct{}),
+		ownership: make(map[string]pairedGeneratedOwnership),
+	}
 	if s.docs == nil {
 		return snapshot
 	}
@@ -42,6 +64,11 @@ func (s *Server) sourceSnapshot() *requestSourceSnapshot {
 		snapshot.sources[path] = &capturedSource{stringValue: document.text, open: true, hasString: true, ok: true}
 	}
 	s.docs.mu.Unlock()
+	for path, source := range snapshot.sources {
+		if source.ok && strings.HasSuffix(path, ".gsx") {
+			snapshot.openGSX[path] = struct{}{}
+		}
+	}
 	for path := range snapshot.sources {
 		if snapshot.isPairedGeneratedOutput(path) {
 			delete(snapshot.sources, path)
@@ -127,15 +154,28 @@ func (snapshot *requestSourceSnapshot) source(path string) (*capturedSource, boo
 // this request's open source view or on disk. An unpaired `name.x.go` remains
 // ordinary authored Go source.
 func (snapshot *requestSourceSnapshot) isPairedGeneratedOutput(path string) bool {
-	gsxPath, candidate := sourceview.PairedGSXPath(sourcePath(path))
+	path = sourcePath(path)
+	gsxPath, candidate := sourceview.PairedGSXPath(path)
 	if !candidate {
 		return false
 	}
-	if source, ok := snapshot.sources[gsxPath]; ok && source.ok {
-		return true
+	snapshot.ownershipMu.Lock()
+	defer snapshot.ownershipMu.Unlock()
+	if ownership := snapshot.ownership[path]; ownership != pairedOwnershipUnknown {
+		return ownership == pairedOwnershipGenerated
 	}
+	_, open := snapshot.openGSX[gsxPath]
 	info, err := os.Stat(gsxPath)
-	return err == nil && !info.IsDir()
+	generated := open || err == nil && !info.IsDir()
+	if snapshot.ownership == nil {
+		snapshot.ownership = make(map[string]pairedGeneratedOwnership)
+	}
+	if generated {
+		snapshot.ownership[path] = pairedOwnershipGenerated
+	} else {
+		snapshot.ownership[path] = pairedOwnershipAuthored
+	}
+	return generated
 }
 
 // sourceText is the one-shot compatibility wrapper for callers outside a

@@ -137,6 +137,84 @@ func TestSourceTextClassifiesOnlyExactPairedGeneratedGoAsUnavailable(t *testing.
 	}
 }
 
+func TestRequestSourceSnapshotFreezesExactPairedGeneratedOwnership(t *testing.T) {
+	const source = "package page\nvar Target = 1\n"
+	assertUnavailable := func(t *testing.T, snapshot *requestSourceSnapshot, path string) {
+		t.Helper()
+		if got, ok := snapshot.sourceText(path); ok {
+			t.Fatalf("sourceText = %q, want paired output unavailable", got)
+		}
+		if got, ok := snapshot.position(path, 0); ok {
+			t.Fatalf("position = %+v, want paired output unavailable", got)
+		}
+		if got, ok := snapshot.locationForGoPosition(token.Position{Filename: path, Line: 1, Column: 1}, 1); ok {
+			t.Fatalf("locationForGoPosition = %+v, want paired output unavailable", got)
+		}
+	}
+	assertAvailable := func(t *testing.T, snapshot *requestSourceSnapshot, path string) {
+		t.Helper()
+		if got, ok := snapshot.sourceText(path); !ok || string(got) != source {
+			t.Fatalf("sourceText = (%q, %t), want exact authored bytes", got, ok)
+		}
+		if got, ok := snapshot.position(path, strings.Index(source, "Target")); !ok || got != (Position{Line: 1, Character: 4}) {
+			t.Fatalf("position = (%+v, %t), want stable authored position", got, ok)
+		}
+		if got, ok := snapshot.locationForGoPosition(token.Position{Filename: path, Line: 2, Column: 5}, len("Target")); !ok || got.Range != (Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 10}}) {
+			t.Fatalf("locationForGoPosition = (%+v, %t), want stable authored location", got, ok)
+		}
+	}
+
+	t.Run("disk ownership observed present remains generated after sibling removal", func(t *testing.T) {
+		dir := t.TempDir()
+		gsxPath := filepath.Join(dir, "page.gsx")
+		xgoPath := filepath.Join(dir, "page.x.go")
+		if err := os.WriteFile(gsxPath, []byte("package page\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(xgoPath, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		snapshot := (&Server{docs: newDocStore()}).sourceSnapshot()
+		assertUnavailable(t, snapshot, xgoPath)
+		if err := os.Remove(gsxPath); err != nil {
+			t.Fatal(err)
+		}
+		assertUnavailable(t, snapshot, xgoPath)
+		assertUnavailable(t, snapshot, xgoPath)
+	})
+
+	t.Run("disk ownership observed absent remains authored after sibling creation", func(t *testing.T) {
+		dir := t.TempDir()
+		gsxPath := filepath.Join(dir, "hand.gsx")
+		xgoPath := filepath.Join(dir, "hand.x.go")
+		if err := os.WriteFile(xgoPath, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		snapshot := (&Server{docs: newDocStore()}).sourceSnapshot()
+		assertAvailable(t, snapshot, xgoPath)
+		if err := os.WriteFile(gsxPath, []byte("package page\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		assertAvailable(t, snapshot, xgoPath)
+		assertAvailable(t, snapshot, xgoPath)
+	})
+
+	t.Run("open authoritative gsx is captured without disk source", func(t *testing.T) {
+		dir := t.TempDir()
+		gsxPath := filepath.Join(dir, "open.gsx")
+		xgoPath := filepath.Join(dir, "open.x.go")
+		if err := os.WriteFile(xgoPath, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		server := &Server{docs: newDocStore()}
+		server.docs.open(pathToURI(gsxPath), "package page\ncomponent Open() {}\n", 1)
+		snapshot := server.sourceSnapshot()
+		assertUnavailable(t, snapshot, xgoPath)
+		server.docs.close(pathToURI(gsxPath))
+		assertUnavailable(t, snapshot, xgoPath)
+	})
+}
+
 func TestTokenPositionAdapterUsesAuthoritativeGoSource(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dependency.go")
