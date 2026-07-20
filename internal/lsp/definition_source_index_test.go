@@ -235,10 +235,21 @@ component OtherPage(value Other) {
 
 	t.Run("signature type", func(t *testing.T) {
 		firstOffset := strings.Index(source, "value First") + len("value ")
-		pkg.SourceIndex = conflictingDefinitionIndex(t, path, source, "First", firstOffset, strings.Index(source, "type Other")+len("type "))
+		firstObject, _, _, ok := signatureTypeIdentAt(pkg, path, firstOffset)
+		if !ok {
+			t.Fatal("signatureTypeIdentAt returned no original First object")
+		}
+		firstDefinition := strings.Index(source, "type First") + len("type ")
+		otherDefinition := strings.Index(source, "type Other") + len("type ")
+		pkg.SourceIndex = conflictingDefinitionIndexPreservingObject(
+			t, path, source, "First", firstOffset, "Other", otherDefinition, firstObject, firstDefinition,
+		)
 		semantic, ok := semanticDefinition(pkg, path, []byte(source), firstOffset)
-		if !ok || semantic.Authored.Start != strings.Index(source, "type Other")+len("type ") {
+		if !ok || semantic.Authored.Start != otherDefinition {
 			t.Fatalf("semantic fallback = %+v, want conflicting Other declaration", semantic)
+		}
+		if preserved, ok := pkg.SourceIndex.Definition(firstObject); !ok || preserved.Start != firstDefinition {
+			t.Fatalf("preserved specialized definition = (%+v, %t), want First at %d", preserved, ok, firstDefinition)
 		}
 
 		cursor := positionForByteOffset(source, firstOffset, encUTF16)
@@ -249,6 +260,99 @@ component OtherPage(value Other) {
 			t.Fatalf("definition = %+v, want specialized First target at %+v; output:\n%s", got, want, out)
 		}
 	})
+}
+
+// conflictingDefinitionIndexPreservingObject keeps Package Info and
+// SourceIndex snapshot-consistent for the specialized object while assigning a
+// different object to the indexed use. The handler must therefore prefer the
+// specialized First object non-vacuously, yet can still convert that object's
+// exact authored span through the one authoritative index.
+func conflictingDefinitionIndexPreservingObject(
+	t *testing.T,
+	path, source, useName string,
+	useStart int,
+	conflictingName string,
+	conflictingDefinitionStart int,
+	preservedObject types.Object,
+	preservedDefinitionStart int,
+) *sourceintel.Index {
+	t.Helper()
+	generated := "package fake\n\ntype " + useName + " string\ntype " + conflictingName + " string\nvar _ " + useName + "\n"
+	preservedGenerated := strings.Index(generated, useName)
+	conflictingGenerated := strings.Index(generated, conflictingName)
+	useGenerated := strings.LastIndex(generated, useName)
+	segments := []sourceintel.Segment{
+		{
+			Source:         sourceintel.Span{Path: path, Start: preservedDefinitionStart, End: preservedDefinitionStart + len(useName)},
+			GeneratedStart: preservedGenerated,
+			GeneratedEnd:   preservedGenerated + len(useName),
+			Capabilities:   sourceintel.Definition | sourceintel.Hover,
+		},
+		{
+			Source:         sourceintel.Span{Path: path, Start: conflictingDefinitionStart, End: conflictingDefinitionStart + len(conflictingName)},
+			GeneratedStart: conflictingGenerated,
+			GeneratedEnd:   conflictingGenerated + len(conflictingName),
+			Capabilities:   sourceintel.Definition | sourceintel.Hover,
+		},
+		{
+			Source:         sourceintel.Span{Path: path, Start: useStart, End: useStart + len(useName)},
+			GeneratedStart: useGenerated,
+			GeneratedEnd:   useGenerated + len(useName),
+			Capabilities:   sourceintel.Definition | sourceintel.Hover,
+		},
+	}
+	sourceMap, err := sourceintel.NewSourceMap(len(generated), len(source), path, segments, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "fake.go", generated, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := &types.Info{
+		Types:      map[ast.Expr]types.TypeAndValue{},
+		Defs:       map[*ast.Ident]types.Object{},
+		Uses:       map[*ast.Ident]types.Object{},
+		Implicits:  map[ast.Node]types.Object{},
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+		Scopes:     map[ast.Node]*types.Scope{},
+	}
+	if _, err := new(types.Config).Check("fake", fset, []*ast.File{file}, info); err != nil {
+		t.Fatal(err)
+	}
+	var preservedIdent, conflictingIdent, useIdent *ast.Ident
+	ast.Inspect(file, func(node ast.Node) bool {
+		ident, ok := node.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		offset := fset.Position(ident.Pos()).Offset
+		switch offset {
+		case preservedGenerated:
+			preservedIdent = ident
+		case conflictingGenerated:
+			conflictingIdent = ident
+		case useGenerated:
+			useIdent = ident
+		}
+		return true
+	})
+	if preservedIdent == nil || conflictingIdent == nil || useIdent == nil {
+		t.Fatalf("generated identifiers missing: preserved=%v conflicting=%v use=%v", preservedIdent, conflictingIdent, useIdent)
+	}
+	conflictingObject := info.Defs[conflictingIdent]
+	if conflictingObject == nil {
+		t.Fatal("conflicting declaration has no object")
+	}
+	info.Defs[preservedIdent] = preservedObject
+	info.Uses[useIdent] = conflictingObject
+	return sourceintel.BuildIndex(info, []sourceintel.MappedFile{{
+		AST:           file,
+		TokenFile:     fset.File(file.Pos()),
+		SourceMap:     sourceMap,
+		SourceVersion: sourceintel.SourceVersion{Size: len(source), SHA256: sha256.Sum256([]byte(source))},
+	}})
 }
 
 func conflictingDefinitionIndex(t *testing.T, path, source, name string, useStart, definitionStart int) *sourceintel.Index {

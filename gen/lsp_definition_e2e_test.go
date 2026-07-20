@@ -117,7 +117,7 @@ component (p *Page) Render(label Alias) {
 		},
 		{
 			id: 9, name: "component parameter use", cursor: strings.Index(source, "{value}") + 1,
-			wantURI: uri, wantStart: strings.Index(source, "value T"), wantSource: source,
+			wantURI: uri, wantStart: strings.Index(source, "value T"), wantLength: len("value"), wantSource: source,
 		},
 	}
 

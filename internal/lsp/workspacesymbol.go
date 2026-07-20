@@ -33,11 +33,19 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 		if q != "" && !strings.Contains(strings.ToLower(sym.Name), q) {
 			continue
 		}
+		span, ok := authoredSpanForPosition(sym.NamePos, len(sym.Name))
+		if !ok {
+			continue
+		}
+		location, ok := s.locationForSpan(span)
+		if !ok {
+			continue
+		}
 		out = append(out, SymbolInformation{
 			Name:          sym.Name,
 			Kind:          sym.Kind,
 			ContainerName: sym.Container,
-			Location:      s.locationForNameSpan(sym.NamePos, len(sym.Name)),
+			Location:      location,
 		})
 	}
 	return s.reply(f.ID, out)

@@ -66,7 +66,9 @@ func (s *Server) handleReferences(f frame) error {
 
 	locs := make([]Location, 0, len(found.Refs)+len(found.Decls)+1)
 	for _, r := range found.Refs {
-		locs = append(locs, s.locationForPos(r))
+		if location, ok := s.locationForResolvedPosition(r, len(found.Name)); ok {
+			locs = append(locs, location)
+		}
 	}
 	if p.Context.IncludeDeclaration {
 		// Emit every build-tag variant's declaration (found.Decls), not just the
@@ -86,7 +88,9 @@ func (s *Server) handleReferences(f frame) error {
 				continue
 			}
 			seen[k] = true
-			locs = append(locs, s.locationForPos(d))
+			if location, ok := s.locationForAuthoredPosition(d, len(found.Name)); ok {
+				locs = append(locs, location)
+			}
 		}
 	}
 	return s.reply(f.ID, locs)

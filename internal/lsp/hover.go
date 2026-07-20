@@ -69,12 +69,18 @@ func (s *Server) handleHover(f frame) error {
 		return s.reply(f.ID, nil)
 	}
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
+	rangeAt := func(start, end int) (Range, bool) {
+		return s.rangeForSpan(sourceintel.Span{Path: path, Start: start, End: end})
+	}
 
 	// A successfully planned component tag hovers codegen's exact callable
 	// target. GSX declarations keep their source-language presentation; plain Go
 	// callable values use the ordinary go/types object string.
 	if cursor, ok := componentTargetAtOffset(pkg, path, off); ok {
-		rng := rangeForSpan(text, cursor.start, cursor.start+cursor.length, s.enc)
+		rng, ok := rangeAt(cursor.start, cursor.start+cursor.length)
+		if !ok {
+			return s.reply(f.ID, nil)
+		}
 		if comp := componentDeclForTarget(pkg, cursor.fact); comp != nil {
 			return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(comp)), Range: &rng})
 		}
@@ -93,11 +99,17 @@ func (s *Server) handleHover(f frame) error {
 	// This path needs only the AST (pkg.GSXFset + pkg.Files), not type info,
 	// so it can answer even when type-checking failed (mid-edit state).
 	if c, nameStart, nameLen, ok := componentAtTag(pkg, path, off); ok {
-		rng := rangeForSpan(text, nameStart, nameStart+nameLen, s.enc)
+		rng, ok := rangeAt(nameStart, nameStart+nameLen)
+		if !ok {
+			return s.reply(f.ID, nil)
+		}
 		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
 	}
 	if c, nameStart, ok := componentDeclarationAtOffset(pkg, path, off); ok {
-		rng := rangeForSpan(text, nameStart, nameStart+len(c.Name), s.enc)
+		rng, ok := rangeAt(nameStart, nameStart+len(c.Name))
+		if !ok {
+			return s.reply(f.ID, nil)
+		}
 		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
 	}
 
@@ -111,7 +123,10 @@ func (s *Server) handleHover(f frame) error {
 		}
 		if param != nil {
 			decl := cursor.param.Name + " " + types.TypeString(param.Type(), qualifierFor(pkg))
-			rng := rangeForSpan(text, cursor.start, cursor.start+len(cursor.name), s.enc)
+			rng, ok := rangeAt(cursor.start, cursor.start+len(cursor.name))
+			if !ok {
+				return s.reply(f.ID, nil)
+			}
 			return s.reply(f.ID, Hover{Contents: markdownGo(decl), Range: &rng})
 		}
 	}
@@ -121,7 +136,10 @@ func (s *Server) handleHover(f frame) error {
 		// `store.Comment` in `component C(c []store.Comment)`) → the resolved object's
 		// signature, like hovering the same identifier in Go.
 		if obj, idStart, idLen, ok := signatureTypeIdentAt(pkg, path, off); ok {
-			rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
+			rng, ok := rangeAt(idStart, idStart+idLen)
+			if !ok {
+				return s.reply(f.ID, nil)
+			}
 			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
 		}
 
@@ -134,13 +152,19 @@ func (s *Server) handleHover(f frame) error {
 			// a ctrl span even when the part's expr carries a pipeline.
 			if isCtrlSpan(node, exprPos) {
 				if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
-					rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
+					rng, ok := rangeAt(idStart, idStart+idLen)
+					if !ok {
+						return s.reply(f.ID, nil)
+					}
 					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
 				}
 				return s.reply(f.ID, nil)
 			} else if hasPipeStages(node) {
 				if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
-					rng := rangeForSpan(text, span[0], span[1], s.enc)
+					rng, ok := rangeAt(span[0], span[1])
+					if !ok {
+						return s.reply(f.ID, nil)
+					}
 					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
 				}
 				return s.reply(f.ID, nil)
@@ -157,20 +181,29 @@ func (s *Server) handleHover(f frame) error {
 					}
 					if obj != nil {
 						identStart := exprStart + int(id.Pos()-skel.Pos())
-						rng := rangeForSpan(text, identStart, identStart+len(id.Name), s.enc)
+						rng, ok := rangeAt(identStart, identStart+len(id.Name))
+						if !ok {
+							return s.reply(f.ID, nil)
+						}
 						return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qf)), Range: &rng})
 					}
 				}
 				// Otherwise → the whole expression's type.
 				if tv, ok := pkg.Info.Types[skel]; ok && tv.Type != nil {
-					rng := rangeForSpan(text, exprStart, exprStart+len(exprText(node)), s.enc)
+					rng, ok := rangeAt(exprStart, exprStart+len(exprText(node)))
+					if !ok {
+						return s.reply(f.ID, nil)
+					}
 					return s.reply(f.ID, Hover{Contents: markdownGo(types.TypeString(tv.Type, qf)), Range: &rng})
 				}
 			}
 		}
 	}
 	if hover, span, ok := semanticHoverOccurrence(pkg, path, []byte(text), off); ok {
-		rng := rangeForSpan(text, span.Start, span.End, s.enc)
+		rng, ok := s.rangeForSpan(span)
+		if !ok {
+			return s.reply(f.ID, nil)
+		}
 		hover.Range = &rng
 		return s.reply(f.ID, hover)
 	}
