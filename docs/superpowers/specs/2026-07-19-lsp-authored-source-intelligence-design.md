@@ -464,3 +464,100 @@ throwaway probe programs rather than reading only the diff.
   component binding is introduced.
 - Completion remains unadvertised until its own partial-source design is
   approved.
+
+## Implementation evidence (2026-07-20)
+
+The approved design above is unchanged. This appendix records the executable
+evidence gathered after implementation on Go 1.26.1 (`darwin/arm64`, Apple M3
+Ultra).
+
+### Generated-file independence and consumer probe
+
+`TestModuleSourceIndexIgnoresOnDiskXGo` performs fresh package analyses with a
+paired output absent, invalid, stale, and conflicting. Indexed occurrences,
+declarations, and package scope are identical, and poison bytes/modtimes are
+unchanged. `TestLSPStructuredAnswersIgnorePhysicalGeneratedFile` repeats the
+same four states through definition, hover, document symbols, and workspace
+symbols with a fresh production analyzer/server for each state.
+
+The manual consumer fixture was
+`/Users/jackieli/work/one-learning-gsx` at commit
+`ba0bc63096f5fa3d2b1464ab8eadf51673e61789`. The test copied it to a temporary
+module while excluding every `.x.go`, queried `time.Duration`, `Badge`,
+`variant`, `pgtype.Bool`, and `duration.Hours`, plus document inventories for
+the four named files and workspace `Badge` symbols. It then added conflicting
+poison at the four paired output paths and repeated with a fresh analyzer and
+server. Every result was non-null and byte-identical; poison bytes/modtimes
+were unchanged.
+
+```sh
+GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
+  go test ./gen -run TestLSPManualOneLearning -count=1 -v
+```
+
+### Retention and comparable 50-package fixture
+
+The existing synthetic fixture contains 50 packages, 200 `.gsx` files, and 50
+`.go` files. Five independent runs were captured at baseline commit `b915e57c`
+and at the implementation head. Values below are the median of each run's
+reported metric, followed by the five-run range. These are comparable fixture
+measurements, not a causal attribution to one individual implementation part.
+
+| Metric | `b915e57c` | implementation |
+| --- | ---: | ---: |
+| cold per-package median | 364.875 us (362.583-391.125 us) | 386.667 us (382.250-389.333 us) |
+| cold total, 50 packages | 421.847 ms (415.091-446.631 ms) | 417.639 ms (416.058-420.830 ms) |
+| warm per-package median | 41.375 us (40.791-41.875 us) | 43.333 us (42.500-51.375 us) |
+| retained HeapInuse delta | 57.4 MiB (55.0-59.7 MiB) | 57.0 MiB (56.6-58.7 MiB) |
+| total allocation delta | 166.2 MiB (166.1-166.6 MiB) | 167.6 MiB (167.4-167.9 MiB) |
+
+The implementation fixture retained 200 source versions and 800 indexed
+occurrences. Its dedicated index payload estimate was 132.8 KiB median
+(132.6-132.8 KiB), about 0.2% of the measured retained heap. `Index.Stats`
+counts concrete keys/values, slice elements, and unique string content; it
+explicitly excludes runtime map-bucket overhead and shared `go/types` objects.
+`TestIndexDoesNotRetainASTOrSourceBytes` structurally proves that the index owns
+no AST, `token.File`, source map, or source byte slice. The warm LSP package
+test also keeps external/filter load counts at one/zero across ten edited,
+index-bearing analyses.
+
+```sh
+git worktree add --detach /tmp/gsx-lsp-baseline-task11 b915e57c
+(cd /tmp/gsx-lsp-baseline-task11 && \
+  GSX_PERF=1 go test ./gen -run TestPerfBaseline -count=5 -v) \
+  | tee /tmp/gsx-lsp-perf-before.txt
+GSX_PERF=1 go test ./gen -run TestPerfBaseline -count=5 -v \
+  | tee /tmp/gsx-lsp-perf-after.txt
+git worktree remove -f /tmp/gsx-lsp-baseline-task11
+```
+
+### Absolute LSP/index costs
+
+Ten benchmark runs produced the following medians and ranges. Allocation
+columns were stable unless shown as a range.
+
+| Benchmark | time/op median (range) | B/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| `BenchmarkModuleAnalyzeSourceIndex` | 143.694 us (142.535-145.210 us) | 129421-129472 | 2080 |
+| `BenchmarkSourceIndexLookup` | 41.28 ns (40.85-41.79 ns) | 0 | 0 |
+| `BenchmarkSemanticDefinition` | 136.3 ns (135.6-144.0 ns) | 0 | 0 |
+| `BenchmarkSemanticHover` | 433.1 ns (421.7-453.9 ns) | 464 | 7 |
+| `BenchmarkDocumentSymbols` | 758.3 ns (751.4-768.7 ns) | 1656 | 7 |
+| `BenchmarkCachedWorkspaceSymbols` | 10.584 us (10.530-11.114 us) | 2529-2531 | 25 |
+| `BenchmarkColdModuleWorkspaceSymbols` | 342.459 ms (332.380-367.170 ms) | 155489056-155656506 | 2857842-2858094 |
+
+The cold workspace benchmark intentionally creates a fresh analyzer/module
+inventory each iteration; cached workspace symbols retain one analyzer
+inventory and measure request-time filtering, exact source validation, sorting,
+location conversion, and JSON-RPC encoding. Setup and non-empty-result checks
+are outside timed loops.
+
+```sh
+go test ./internal/codegen ./internal/lsp ./gen -run '^$' \
+  -bench 'SourceIndex|SemanticDefinition|SemanticHover|DocumentSymbols|WorkspaceSymbols' \
+  -benchmem -count=10 | tee /tmp/gsx-lsp-index-after.txt
+go test ./internal/sourceintel ./internal/codegen ./internal/lsp ./gen -count=1
+make check
+make lint
+make ci
+```

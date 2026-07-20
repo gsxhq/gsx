@@ -1459,7 +1459,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		m.sourceIndexBuildCount++
 		m.mu.Unlock()
 	}
-	mappedFiles = nil
 	if callSites != nil && targetPlanningReady {
 		var planningDiagnostics []diag.Diagnostic
 		positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{

@@ -36,7 +36,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
-| Language server (`gsx lsp`) | [~] diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion and external/non-project references deferred; references cover project components discovered during module analysis. |
+| Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + find-references + formatting ship; completion and external/non-project references deferred. Read intelligence does not consume physical `.x.go` files. |
 | Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.4.5) + `github.com/gsxhq/vite` (v0.2.0). |
 
 ## Done
@@ -436,56 +436,6 @@ render goldens.
     function call" diagnostic instead of a raw `expected operand, found '>'`
     parse error. Spec `2026-07-13-literal-position-gap-closing-design.md`.
 
-18. [x] **Attrs-only component values** - `2026-07-10`. Un-defers the
-    "component values" item parked in 15 above: a package-level `var`/`func`
-    whose static type is exactly `func(gsx.Attrs) gsx.Node` or
-    `func(...gsx.Attr) gsx.Node` is now tag-callable - `<HomeIcon
-    class="w-5 h-5"/>` lowers to `HomeIcon(gsx.Attrs{{Key: "class", Value:
-    "w-5 h-5"}})` (`...`-spread for the variadic shape; a zero-attr call
-    lowers to `HomeIcon(nil)`/`HomeIcon()`). Recognition rides the existing
-    emit-≡-probe loop: the analysis pass emits a `_gsxcompsig` probe for any
-    tag callee that isn't `component`-declared, byo, a method, or a bare-call
-    nullary candidate, and whose package has no matching `<Name>Props` type;
-    `go/types` decides the match on the harvested signature, so any
-    initializer works (`var HomeIcon = namedIcon("house")`) and a type alias
-    (`type Component = func(...gsx.Attr) gsx.Node`) is recognized for free -
-    aliases are transparent to the type checker. The bare unnamed
-    `func([]gsx.Attr) gsx.Node` is deliberately excluded (named `gsx.Attrs`
-    required). Because there's no props struct, there's no field-matching
-    step at all: every call-site attribute (bare, `{ x... }` spread,
-    conditional, and the `attrs={{ … }}` ordered literal) is fallthrough into
-    one bag via the same bag-assembly code the synthesized `Attrs` field
-    already uses, merging in the same source order. **Scope:**
-    package-level identifiers only, plain or dotted (`<ui.HomeIcon/>`) - a
-    dotted tag's qualifier must resolve as a package import, so a struct
-    field or local (`<item.Icon/>`) never reaches the probe and stays on the
-    `<Name>Props` convention path. No `{children}` support (a clear
-    diagnostic: "component values do not support children — declare a
-    Children slot on a named-struct component instead"). No `(gsx.Node,
-    error)` variants - `component`-declared functions never return an error,
-    and there's no existing plumbing for a tag *callee* itself failing before
-    its Node is constructed. A probed identifier whose type matches neither
-    signature gets a new, required diagnostic ("`<X>` is not tag-callable:
-    its type is `T`, not `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr)
-    gsx.Node`, and no `XProps` struct was found") in place of the raw
-    `undefined: XProps` this region used to surface. **LSP:** go-to-definition
-    works on these tags, same-package and cross-package, via the same
-    two-bridge wiring recipe as the rest of the nav matrix (PR #28). No
-    surface syntax change - capitalized/qualified tags already parsed, so
-    the sibling grammars are unaffected. Corpus:
-    `internal/corpus/testdata/cases/attrsonly/*` (direct func decl,
-    factory-initialized var, type-alias spelling, cross-package/dotted,
-    zero-attr calls for both signatures, bare+spread+conditional+ordered-literal
-    merge order, and rejection cases for the unnamed slice, an
-    extra-`error`-result func, a non-package-level callee, unsupported
-    children, and an undefined identifier). Docs: `syntax/props.md` §Attrs-only
-    component values (props model table grows a fourth row), `syntax/
-    composition.md` cross-reference, `syntax/attributes.md` cross-reference.
-    **Follow-up, SHIPPED (2026-07-13):** fallthrough forwarding through
-    nested component calls (`<Inner { attrs... }/>`) was a related but
-    separate gap this spec identified and deliberately left open - now
-    closed, see "Tracked debts / deferrals" below and spec
-    `2026-07-13-nested-fallthrough-forwarding-design.md`.
 19. [x] **Lowercase tags resolve to package symbols** - `2026-07-10`. A tag
     resolves in exactly one of three ways: capital-first/dotted tags stay
     components unchanged (`go build` resolves the name, including
@@ -517,7 +467,7 @@ render goldens.
     admission loosens to any tag (`<list[int]>` parses whether or not `list`
     resolves); codegen errors if a type-arg-carrying tag resolves to a leaf.
     `ast.IsComponentTag` stays authoritative for capital/dotted tags only -
-    every caller (codegen emit/analyze/attrsonly, LSP definition/hover) was
+    every caller (codegen emit/analyze and LSP definition/hover) was
     audited to take the resolved answer instead of the syntactic guess for
     lowercase tags. **Invalidation:** rides the existing dependency edge - a
     package's `.x.go` already depends on sibling `.go` sources via
@@ -571,13 +521,20 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
 - [x] **Diagnostics** (`textDocument/publishDiagnostics`) - positioned parse +
   type errors (Start/End, severity, code, help) from the shared `internal/diag`
   bag; re-analyses on every change; semantic multi-error + component-boundary recovery.
-- [x] **Go-to-definition** (`textDocument/definition`) - four cases: `.gsx`
-  Go-expr → `.go` def (D1/D3); `<Card/>` tag → `component` decl in `.gsx` (D2);
-  `.go` component ref → `.gsx` declaration (D1.go). Uses the skeleton `go/types`
-  analysis + cross-index + NavIndex.
-- [x] **Hover** (`textDocument/hover`) - gopls-style type/signature for an
-  identifier or expression; component-tag hover shows the component signature
-  (answered from the AST even when type-checking fails mid-edit).
+- [x] **Go-to-definition** (`textDocument/definition`) - exact authored-source
+  navigation across component declarations/signatures/calls, explicit type
+  arguments, top-level Go, and Go surrounding nested markup, while preserving
+  specialised component-family targets. External Go objects resolve to real
+  `.go` declarations; generated glue and physical `.x.go` never become targets.
+- [x] **Hover** (`textDocument/hover`) - gopls-style type/signature from the same
+  retained authored semantic index; component declarations/calls preserve GSX
+  presentation and all valid authored Go regions are covered.
+- [x] **Document symbols** (`textDocument/documentSymbol`) - components and
+  recoverable top-level Go declarations, including Go-with-elements bodies,
+  with exact selection and declaration ranges from the authoritative buffer.
+- [x] **Workspace symbols** (`workspace/symbol`) - deterministic, module-owned
+  inventories across initialized workspace folders and `go.work` modules, with
+  open-buffer UTF-16 locations and transactional metadata invalidation.
 - [x] **Find-references** (`textDocument/references`) - `.go` call sites + `.gsx`
   tag sites for project components discovered during module analysis; external/non-project packages are skipped.
 - [x] **Formatting** (`textDocument/formatting`) - canonical form with
@@ -605,11 +562,11 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   positions there), paren-unwrapped spread pipelines (`{ (x |> f)... }` seed),
   and ctrl spans inside COMPONENT-tag attributes (`<Kid { if c { … } }/>` -
   the liveness walk that records ctrl offsets only runs for plain elements).
-- **Deferred:** completion and external/non-project references; references cover
-  project components discovered during module analysis. Dotted/cross-package
-  component tags (`<ui.Button/>`) are deferred. Hover on attrs-only
-  component-value tags (item 18) shows nothing - go-to-definition ships for
-  these tags, but hover is a separate follow-up.
+- [ ] **Completion design** (`textDocument/completion`) - design cursor-time
+  invalid-syntax handling, candidate enumeration, exact text edits, and ranking
+  as a separate capability built on the authored source map/index.
+- **Deferred:** external/non-project references; references cover project
+  components discovered during module analysis.
 
 Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
 `2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.
@@ -834,8 +791,7 @@ vocabulary remains a design aspiration, not the current API.
    `2026-07-13-nested-fallthrough-forwarding-design.md`): a component
    invocation's fallthrough bag (bare attrs, `{ expr… }` spreads, conditional
    attrs) now assembles in strict source order exactly like an element's,
-   instead of coalescing all bare attrs into one leading literal - `attrsonly/
-   merge_order.txtar` regenerated with a corrected comment.
+   instead of coalescing all bare attrs into one leading literal.
 
 ## Tracked debts / deferrals
 
@@ -954,22 +910,8 @@ vocabulary remains a design aspiration, not the current API.
   already-split GoText/EmbeddedInterp parts) instead of parsing `t.Code`
   whole.
 - [x] **Fallthrough forwarding through nested component calls** - SHIPPED
-  (2026-07-13, `2026-07-13-nested-fallthrough-forwarding-design.md`). The
-  attrs-only component values spec (item 18 above, "Alternative considered")
-  named this as the competing design for the icon-wrapper use case and
-  deliberately left it open: `{ attrs... }` fallthrough is only recognized
-  when spread onto a plain element, not when spread onto a *nested component
-  call* - `<Inner { attrs... }/>` inside a component body still fails with
-  `error: undefined: attrs`. Fixing this would let a wrapper component forward
-  its own implicit bag straight into a callee's synthesized bag (`component
-  SearchIcon() { <dsicon.Icon name="search" class="w-5 h-5" { attrs... }/> }`),
-  closing a composability hole that reaches beyond icons. It is its own
-  semantic feature with its own merge-order questions (where the caller's bag
-  joins the callee's, whose `class_merger` site applies, how cond-attrs
-  interleave) and deserves its own spec - complementary to, not blocked by or
-  blocking, attrs-only component values. Spec
-  `2026-07-07-attrs-only-component-values-design.md` §"Alternative considered".
-  One rule, no new syntax: `attrs` now binds in every Go-fragment position of
+  (2026-07-13, `2026-07-13-nested-fallthrough-forwarding-design.md`). One rule,
+  no new syntax: `attrs` now binds in every Go-fragment position of
   a nested component invocation, exactly as it already does in plain-element
   and body positions - uniform binding, not spread-only. Component-call bags
   now merge in strict source order (a bare attr after a spread wins per key,

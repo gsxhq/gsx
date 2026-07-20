@@ -110,25 +110,26 @@ component Page() {
 		}
 		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
 	}
-	input := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
-	input += frame(map[string]any{
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+	input.WriteString(frame(map[string]any{
 		"jsonrpc": "2.0", "method": "textDocument/didOpen",
 		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
-	})
+	}))
 	for _, request := range requests {
 		position := lspUTF16PositionAt(source, request.cursor)
-		input += frame(map[string]any{
+		input.WriteString(frame(map[string]any{
 			"jsonrpc": "2.0", "id": request.id, "method": "textDocument/hover",
 			"params": map[string]any{
 				"textDocument": map[string]any{"uri": uri},
 				"position":     map[string]any{"line": position.Line, "character": position.Character},
 			},
-		})
+		}))
 	}
-	input += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 
 	var output, stderr bytes.Buffer
-	if code := runLSP(strings.NewReader(input), &output, &stderr, config{}, nil); code != 0 {
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
 	}
 	if strings.Contains(output.String(), ".x.go") {

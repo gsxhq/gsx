@@ -64,23 +64,24 @@ component Card() {
 `
 	secondPath := write("second/view/view.gsx", secondSource)
 	firstURI := lspTestPathURI(firstPath)
-	input := frameMsg(t, map[string]any{
+	var input strings.Builder
+	input.WriteString(frameMsg(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "initialize",
 		"params": map[string]any{"rootUri": lspTestPathURI(workspace), "capabilities": map[string]any{}},
-	})
-	input += frameMsg(t, map[string]any{
+	}))
+	input.WriteString(frameMsg(t, map[string]any{
 		"jsonrpc": "2.0", "method": "textDocument/didOpen",
 		"params": map[string]any{"textDocument": map[string]any{"uri": firstURI, "version": 1, "text": firstOpen}},
-	})
+	}))
 	for id := 2; id <= 4; id++ {
-		input += frameMsg(t, map[string]any{
+		input.WriteString(frameMsg(t, map[string]any{
 			"jsonrpc": "2.0", "id": id, "method": "workspace/symbol", "params": map[string]any{"query": ""},
-		})
+		}))
 	}
-	input += frameMsg(t, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	input.WriteString(frameMsg(t, map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 
 	var output, stderr bytes.Buffer
-	if code := runLSP(strings.NewReader(input), &output, &stderr, config{}, nil); code != 0 {
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
 	}
 	firstResult := lspTestResponse(t, output.String(), 2).Result

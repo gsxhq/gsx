@@ -60,49 +60,6 @@ func componentTargetObject(fact ComponentCallFact) types.Object {
 	return fact.Target
 }
 
-func componentTargetDeclAt(pkg *Package, path string, off int) (token.Position, bool) {
-	cursor, ok := componentTargetAtOffset(pkg, path, off)
-	if !ok || pkg.Fset == nil {
-		return token.Position{}, false
-	}
-	obj := componentTargetObject(cursor.fact)
-	if obj == nil || !obj.Pos().IsValid() {
-		return token.Position{}, false
-	}
-	pos := pkg.Fset.Position(obj.Pos())
-	if pos.Filename == "" || strings.HasSuffix(pos.Filename, ".x.go") {
-		return token.Position{}, false
-	}
-	return pos, true
-}
-
-// componentDeclForTarget finds a GSX declaration by the retained target
-// identity's resolved declaration position. It is used only to preserve the
-// component-specific hover presentation; target resolution itself is exact.
-func componentDeclForTarget(pkg *Package, fact ComponentCallFact) *gsxast.Component {
-	if pkg == nil || pkg.Fset == nil || pkg.GSXFset == nil {
-		return nil
-	}
-	obj := componentTargetObject(fact)
-	if obj == nil || !obj.Pos().IsValid() {
-		return nil
-	}
-	want := pkg.Fset.Position(obj.Pos())
-	for _, file := range pkg.Files {
-		for _, decl := range file.Decls {
-			comp, ok := decl.(*gsxast.Component)
-			if !ok || !comp.NamePos.IsValid() {
-				continue
-			}
-			got := pkg.GSXFset.Position(comp.NamePos)
-			if got.Filename == want.Filename && got.Line == want.Line && got.Column == want.Column {
-				return comp
-			}
-		}
-	}
-	return nil
-}
-
 type componentAttrCursor struct {
 	element *gsxast.Element
 	attr    gsxast.Attr

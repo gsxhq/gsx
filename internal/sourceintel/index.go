@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"go/types"
 	"sort"
+	"unsafe"
 )
 
 type OccurrenceKind uint8
@@ -72,6 +73,66 @@ type Index struct {
 	definitions  map[types.Object]Span
 	declarations map[string][]Declaration
 	sources      map[string]SourceVersion
+}
+
+// IndexStats describes the dedicated payload retained by an Index. PayloadBytes
+// counts concrete map keys/values, slice elements, and unique string contents;
+// it excludes runtime map-bucket overhead and the go/types objects referenced
+// (but not owned) by occurrences and declarations.
+type IndexStats struct {
+	Files        int
+	Occurrences  int
+	Definitions  int
+	Declarations int
+	PayloadBytes int64
+}
+
+func (i *Index) Stats() IndexStats {
+	if i == nil {
+		return IndexStats{}
+	}
+	stats := IndexStats{
+		Files:       len(i.sources),
+		Definitions: len(i.definitions),
+	}
+	stringsSeen := make(map[string]struct{})
+	addString := func(value string) {
+		if _, ok := stringsSeen[value]; ok {
+			return
+		}
+		stringsSeen[value] = struct{}{}
+		stats.PayloadBytes += int64(len(value))
+	}
+	for path, occurrences := range i.occurrences {
+		addString(path)
+		stats.Occurrences += len(occurrences)
+		stats.PayloadBytes += int64(unsafe.Sizeof(path))
+		stats.PayloadBytes += int64(len(occurrences)) * int64(unsafe.Sizeof(Occurrence{}))
+		for _, occurrence := range occurrences {
+			addString(occurrence.Span.Path)
+		}
+	}
+	stats.PayloadBytes += int64(len(i.definitions)) * int64(unsafe.Sizeof(Span{}))
+	for _, span := range i.definitions {
+		addString(span.Path)
+	}
+	for path, declarations := range i.declarations {
+		addString(path)
+		stats.Declarations += len(declarations)
+		stats.PayloadBytes += int64(unsafe.Sizeof(path))
+		stats.PayloadBytes += int64(len(declarations)) * int64(unsafe.Sizeof(Declaration{}))
+		for _, declaration := range declarations {
+			addString(declaration.Name)
+			addString(declaration.Container)
+			addString(declaration.NameSpan.Path)
+			addString(declaration.DeclSpan.Path)
+		}
+	}
+	for path := range i.sources {
+		addString(path)
+		stats.PayloadBytes += int64(unsafe.Sizeof(path)) + int64(unsafe.Sizeof(SourceVersion{}))
+	}
+	return stats
 }
 
 func BuildIndex(info *types.Info, files []MappedFile) *Index {

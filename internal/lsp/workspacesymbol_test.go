@@ -254,12 +254,13 @@ func TestWorkspaceSymbolPartitionsOverridesByExactModuleOwnership(t *testing.T) 
 		writeWorkspaceSymbolSource(t, path, "package page\n")
 	}
 	a := &wsSymAnalyzer{symsByModule: map[string][]Symbol{parent: nil, nested: nil, outside: nil}}
-	frames := workspaceSymbolInitializeFrame(workspace)
+	var frames strings.Builder
+	frames.WriteString(workspaceSymbolInitializeFrame(workspace))
 	for _, path := range []string{parentPath, nestedPath, outsidePath, siblingPath} {
-		frames += didOpenFrame(pathToURI(path), "package page\n// unsaved\n")
+		frames.WriteString(didOpenFrame(pathToURI(path), "package page\n// unsaved\n"))
 	}
-	frames += wsSymFrame(2, "") + exitFrame()
-	drive(t, a, frames)
+	frames.WriteString(wsSymFrame(2, "") + exitFrame())
+	drive(t, a, frames.String())
 
 	for module, wantPath := range map[string]string{parent: parentPath, nested: nestedPath, outside: outsidePath} {
 		calls := a.overridesByCall[module]

@@ -333,6 +333,10 @@ func TestIndexDoesNotRetainASTOrSourceBytes(t *testing.T) {
 	}
 
 	assertNoRetainedSourceInputs(t, reflect.ValueOf(index), make(map[reflectionVisit]bool), "Index")
+	stats := index.Stats()
+	if stats.Files != 1 || stats.Occurrences == 0 || stats.Definitions == 0 || stats.Declarations == 0 || stats.PayloadBytes <= 0 {
+		t.Fatalf("Index.Stats = %+v, want one file and non-empty semantic payload", stats)
+	}
 }
 
 func TestIndexMatchesExactSourceVersion(t *testing.T) {
