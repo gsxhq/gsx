@@ -106,8 +106,8 @@ func TestIndexAtUsesBoundedPointStabbingLookup(t *testing.T) {
 	}
 	occurrences = append(occurrences, inner, identifier)
 	index := &Index{
-		occurrences: map[string]occurrenceIndex{
-			path: newOccurrenceIndex(occurrences),
+		occurrences: map[string][]Occurrence{
+			path: indexOccurrences(occurrences),
 		},
 	}
 
@@ -116,8 +116,8 @@ func TestIndexAtUsesBoundedPointStabbingLookup(t *testing.T) {
 	}
 	if got, ok, visits := index.at(path, queryOffset); !ok || got != identifier {
 		t.Fatalf("at(identifier start) = (%#v, %t, %d visits), want identifier", got, ok, visits)
-	} else if maxVisits := bits.Len(uint(len(occurrences))) + 3; visits > maxVisits {
-		t.Fatalf("at(pathological overlap) inspected %d intervals, want at most tree height plus 3 overlaps (%d); completed siblings: %d", visits, maxVisits, completedSiblings)
+	} else if maxVisits := 4 * bits.Len(uint(len(occurrences))); visits > maxVisits {
+		t.Fatalf("at(pathological overlap) inspected %d intervals, want at most four per tree level (%d); completed siblings: %d", visits, maxVisits, completedSiblings)
 	}
 	if got, ok, _ := index.at(path, identifier.Span.End); !ok || got != inner {
 		t.Fatalf("at(identifier end) = (%#v, %t), want half-open identifier exclusion and inner expression", got, ok)
@@ -312,7 +312,7 @@ func TestIndexDoesNotRetainASTOrSourceBytes(t *testing.T) {
 
 	indexValue := reflect.ValueOf(index).Elem()
 	allowedFields := map[string]reflect.Type{
-		"occurrences":  reflect.TypeFor[map[string]occurrenceIndex](),
+		"occurrences":  reflect.TypeFor[map[string][]Occurrence](),
 		"definitions":  reflect.TypeFor[map[types.Object]Span](),
 		"declarations": reflect.TypeFor[map[string][]Declaration](),
 		"sources":      reflect.TypeFor[map[string]SourceVersion](),

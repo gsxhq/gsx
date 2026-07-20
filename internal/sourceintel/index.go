@@ -17,11 +17,12 @@ const (
 )
 
 type Occurrence struct {
-	Span         Span
-	Kind         OccurrenceKind
-	Object       types.Object
-	TypeAndValue types.TypeAndValue
-	HasTypeValue bool
+	Span          Span
+	Kind          OccurrenceKind
+	Object        types.Object
+	TypeAndValue  types.TypeAndValue
+	HasTypeValue  bool
+	subtreeMaxEnd int // maximum Span.End in this implicit tree node's subtree
 }
 
 type DeclarationKind uint8
@@ -57,24 +58,8 @@ type MappedFile struct {
 	SourceVersion SourceVersion
 }
 
-type occurrenceIndex struct {
-	items []Occurrence
-	nodes []occurrenceNode
-	root  int
-}
-
-// occurrenceNode is a centered interval-tree node. The two orders let a point
-// query stop immediately after the center-crossing intervals that contain it.
-type occurrenceNode struct {
-	center  int
-	left    int
-	right   int
-	byStart []int
-	byEnd   []int
-}
-
 type Index struct {
-	occurrences  map[string]occurrenceIndex
+	occurrences  map[string][]Occurrence
 	definitions  map[types.Object]Span
 	declarations map[string][]Declaration
 	sources      map[string]SourceVersion
@@ -82,7 +67,7 @@ type Index struct {
 
 func BuildIndex(info *types.Info, files []MappedFile) *Index {
 	index := &Index{
-		occurrences:  make(map[string]occurrenceIndex),
+		occurrences:  make(map[string][]Occurrence),
 		definitions:  make(map[types.Object]Span),
 		declarations: make(map[string][]Declaration),
 		sources:      make(map[string]SourceVersion),
@@ -99,7 +84,7 @@ func BuildIndex(info *types.Info, files []MappedFile) *Index {
 		index.harvestDeclarations(info, file)
 	}
 	for path, occurrences := range index.occurrences {
-		index.occurrences[path] = newOccurrenceIndex(occurrences.items)
+		index.occurrences[path] = indexOccurrences(occurrences)
 	}
 	for path := range index.declarations {
 		declarations := index.declarations[path]
@@ -173,27 +158,19 @@ func (i *Index) addIdentifier(file MappedFile, ident *ast.Ident, kind Occurrence
 }
 
 func (i *Index) addOccurrence(occurrence Occurrence) {
-	index := i.occurrences[occurrence.Span.Path]
-	index.items = append(index.items, occurrence)
-	i.occurrences[occurrence.Span.Path] = index
+	i.occurrences[occurrence.Span.Path] = append(i.occurrences[occurrence.Span.Path], occurrence)
 }
 
-func newOccurrenceIndex(occurrences []Occurrence) occurrenceIndex {
-	index := occurrenceIndex{root: -1}
-	for _, occurrence := range occurrences {
-		if occurrence.Span.End > occurrence.Span.Start {
-			index.items = append(index.items, occurrence)
-		}
+func indexOccurrences(occurrences []Occurrence) []Occurrence {
+	indexed := append([]Occurrence(nil), occurrences...)
+	for occurrence := range indexed {
+		indexed[occurrence].subtreeMaxEnd = 0
 	}
-	sort.SliceStable(index.items, func(left, right int) bool {
-		return occurrenceLess(index.items[left], index.items[right])
+	sort.SliceStable(indexed, func(left, right int) bool {
+		return occurrenceLess(indexed[left], indexed[right])
 	})
-	indices := make([]int, len(index.items))
-	for item := range index.items {
-		indices[item] = item
-	}
-	index.root = index.build(indices)
-	return index
+	augmentOccurrenceEnds(indexed, 0, len(indexed))
+	return indexed
 }
 
 func occurrenceLess(left, right Occurrence) bool {
@@ -213,44 +190,20 @@ func occurrenceLess(left, right Occurrence) bool {
 	return left.Kind < right.Kind
 }
 
-func (i *occurrenceIndex) build(indices []int) int {
-	if len(indices) == 0 {
+func augmentOccurrenceEnds(occurrences []Occurrence, lo, hi int) int {
+	if lo >= hi {
 		return -1
 	}
-	center := i.items[indices[len(indices)/2]].Span.Start
-	left := make([]int, 0, len(indices)/2)
-	right := make([]int, 0, len(indices)/2)
-	overlaps := make([]int, 0, len(indices))
-	for _, item := range indices {
-		span := i.items[item].Span
-		switch {
-		case span.End <= center:
-			left = append(left, item)
-		case span.Start > center:
-			right = append(right, item)
-		default:
-			overlaps = append(overlaps, item)
-		}
+	mid := lo + (hi-lo)/2
+	maxEnd := occurrences[mid].Span.End
+	if leftMaxEnd := augmentOccurrenceEnds(occurrences, lo, mid); leftMaxEnd > maxEnd {
+		maxEnd = leftMaxEnd
 	}
-	nodeIndex := len(i.nodes)
-	i.nodes = append(i.nodes, occurrenceNode{
-		center:  center,
-		left:    -1,
-		right:   -1,
-		byStart: overlaps,
-		byEnd:   append([]int(nil), overlaps...),
-	})
-	sort.SliceStable(i.nodes[nodeIndex].byEnd, func(left, right int) bool {
-		leftOccurrence := i.items[i.nodes[nodeIndex].byEnd[left]]
-		rightOccurrence := i.items[i.nodes[nodeIndex].byEnd[right]]
-		if leftOccurrence.Span.End != rightOccurrence.Span.End {
-			return leftOccurrence.Span.End > rightOccurrence.Span.End
-		}
-		return occurrenceLess(leftOccurrence, rightOccurrence)
-	})
-	i.nodes[nodeIndex].left = i.build(left)
-	i.nodes[nodeIndex].right = i.build(right)
-	return nodeIndex
+	if rightMaxEnd := augmentOccurrenceEnds(occurrences, mid+1, hi); rightMaxEnd > maxEnd {
+		maxEnd = rightMaxEnd
+	}
+	occurrences[mid].subtreeMaxEnd = maxEnd
+	return maxEnd
 }
 
 func (i *Index) harvestDeclarations(info *types.Info, file MappedFile) {
@@ -395,59 +348,43 @@ func (i *Index) At(path string, offset int) (Occurrence, bool) {
 }
 
 func (i *Index) at(path string, offset int) (Occurrence, bool, int) {
-	index, ok := i.occurrences[path]
+	occurrences, ok := i.occurrences[path]
 	if !ok {
 		return Occurrence{}, false, 0
 	}
-	return index.at(offset)
+	lookup := occurrenceLookup{offset: offset}
+	lookupOccurrenceTree(occurrences, 0, len(occurrences), &lookup)
+	lookup.best.subtreeMaxEnd = 0
+	return lookup.best, lookup.found, lookup.visits
 }
 
-func (i occurrenceIndex) at(offset int) (Occurrence, bool, int) {
-	var best Occurrence
-	found := false
-	visits := 0
-	for nodeIndex := i.root; nodeIndex >= 0; {
-		node := i.nodes[nodeIndex]
-		switch {
-		case offset < node.center:
-			for _, item := range node.byStart {
-				visits++
-				candidate := i.items[item]
-				if candidate.Span.Start > offset {
-					break
-				}
-				if !found || occurrencePreferred(candidate, best) {
-					best = candidate
-					found = true
-				}
-			}
-			nodeIndex = node.left
-		case offset > node.center:
-			for _, item := range node.byEnd {
-				visits++
-				candidate := i.items[item]
-				if candidate.Span.End <= offset {
-					break
-				}
-				if !found || occurrencePreferred(candidate, best) {
-					best = candidate
-					found = true
-				}
-			}
-			nodeIndex = node.right
-		default:
-			for _, item := range node.byStart {
-				visits++
-				candidate := i.items[item]
-				if !found || occurrencePreferred(candidate, best) {
-					best = candidate
-					found = true
-				}
-			}
-			nodeIndex = -1
-		}
+type occurrenceLookup struct {
+	offset int
+	best   Occurrence
+	found  bool
+	visits int
+}
+
+func lookupOccurrenceTree(occurrences []Occurrence, lo, hi int, lookup *occurrenceLookup) {
+	if lo >= hi {
+		return
 	}
-	return best, found, visits
+	mid := lo + (hi-lo)/2
+	candidate := occurrences[mid]
+	lookup.visits++
+	if candidate.subtreeMaxEnd <= lookup.offset {
+		return
+	}
+
+	lookupOccurrenceTree(occurrences, lo, mid, lookup)
+	if candidate.Span.Start > lookup.offset {
+		return
+	}
+	if lookup.offset < candidate.Span.End && (!lookup.found || occurrencePreferred(candidate, lookup.best)) {
+		lookup.best = candidate
+		lookup.found = true
+	}
+	lookupOccurrenceTree(occurrences, mid+1, hi, lookup)
 }
 
 func occurrencePreferred(candidate, current Occurrence) bool {
