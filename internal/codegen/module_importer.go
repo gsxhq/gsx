@@ -1230,7 +1230,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 					"identifier %q is reserved (%s) — rename it", rb.name, reservedBodyMeaning(rb.name))
 			}
 		}
-		skel, comps, imps, ctrlOff, gwMarkups, berr := buildSkeleton(f, table, fset, bag, &componentPlan, skeletonFull)
+		build, berr := buildMappedSkeleton(f, table, fset, bag, &componentPlan, skeletonFull, path, parsed.sources[path])
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -1247,6 +1247,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			skelErr = true
 			break
 		}
+		skel := build.source
+		comps := build.components
+		imps := build.imports
+		ctrlOff := build.ctrlStarts
+		gwMarkups := build.markupGroups
 		allImportSpecs = append(allImportSpecs, imps...)
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		absXpath := filepath.Join(dir, base+".x.go")
