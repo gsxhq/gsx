@@ -96,6 +96,10 @@ func (s *Server) handleHover(f frame) error {
 		rng := rangeForSpan(text, nameStart, nameStart+nameLen, s.enc)
 		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
 	}
+	if c, nameStart, ok := componentDeclarationAtOffset(pkg, path, off); ok {
+		rng := rangeForSpan(text, nameStart, nameStart+len(c.Name), s.enc)
+		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
+	}
 
 	// H1: a component-invocation attribute name → codegen's exact bound
 	// parameter. This consumes the same semantic fact as emission; it does not
@@ -270,6 +274,31 @@ func componentAtTag(pkg *Package, path string, off int) (comp *gsxast.Component,
 		return nil, 0, 0, false
 	}
 	return c, nameStart, nameLen, true
+}
+
+func componentDeclarationAtOffset(pkg *Package, path string, off int) (*gsxast.Component, int, bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
+		return nil, 0, false
+	}
+	file := pkg.Files[path]
+	if file == nil {
+		return nil, 0, false
+	}
+	for _, declaration := range file.Decls {
+		component, ok := declaration.(*gsxast.Component)
+		if !ok || !component.NamePos.IsValid() {
+			continue
+		}
+		tokenFile := pkg.GSXFset.File(component.NamePos)
+		if tokenFile == nil {
+			continue
+		}
+		nameStart := tokenFile.Offset(component.NamePos)
+		if off >= nameStart && off < nameStart+len(component.Name) {
+			return component, nameStart, true
+		}
+	}
+	return nil, 0, false
 }
 
 // renderComponentSig renders a component declaration's signature, e.g.

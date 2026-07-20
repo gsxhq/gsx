@@ -192,6 +192,31 @@ func helper() int { _ = "😀"; result := 1; return result }
 	}
 }
 
+func TestHoverComponentDeclarationUsesAuthoredSignature(t *testing.T) {
+	const source = `package page
+
+type Page struct{}
+
+component (頁 *Page) Card(title string) {
+	<p>{title}</p>
+}
+`
+	pkg, path := analyzedLSPPackage(t, source)
+	uri := pathToURI(path)
+	nameStart := strings.Index(source, "Card")
+	cursor := positionForByteOffset(source, nameStart, encUTF16)
+	out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, source)+hoverFrame(2, uri, cursor)+exitFrame())
+	got := hoverResult(t, out, 2)
+	wantContents := markdownGo("component (頁 *Page) Card(title string)")
+	if got == nil || got.Contents != wantContents {
+		t.Fatalf("hover = %+v, want authored component signature %+v; output:\n%s", got, wantContents, out)
+	}
+	wantRange := rangeForSpan(source, nameStart, nameStart+len("Card"), encUTF16)
+	if got.Range == nil || *got.Range != wantRange {
+		t.Fatalf("hover range = %+v, want exact NamePos UTF-16 range %+v", got.Range, wantRange)
+	}
+}
+
 func TestHoverSpecializedFactsPrecedeSourceIndex(t *testing.T) {
 	const source = `package page
 
