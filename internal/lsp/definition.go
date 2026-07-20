@@ -490,11 +490,10 @@ func (s *Server) handleDefinition(f frame) error {
 	if strings.HasSuffix(path, ".go") {
 		return s.handleGoDefinition(f, path, sources)
 	}
-	textBytes, ok := sources.sourceText(path)
+	text, ok := sources.sourceString(path)
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
-	text := string(textBytes)
 	pkg := s.pkgs[filepath.Dir(path)]
 	if pkg == nil || pkg.Info == nil {
 		return s.reply(f.ID, nil)
@@ -716,11 +715,10 @@ func (s *Server) handleGoDefinition(f frame, path string, sources *requestSource
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, nil)
 	}
-	textBytes, ok := sources.sourceText(path)
+	text, ok := sources.sourceString(path)
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
-	text := string(textBytes)
 	pkg := s.pkgs[filepath.Dir(path)]
 	if pkg == nil || (len(pkg.NavIndex) == 0 && len(pkg.CrossIndex) == 0) {
 		return s.reply(f.ID, nil) // not a gsx package

@@ -61,11 +61,10 @@ func (s *Server) handleHover(f frame) error {
 		return s.reply(f.ID, nil) // gopls owns .go hover
 	}
 	sources := s.sourceSnapshot()
-	textBytes, ok := sources.sourceText(path)
+	text, ok := sources.sourceString(path)
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
-	text := string(textBytes)
 	pkg := s.pkgs[filepath.Dir(path)]
 	if pkg == nil {
 		return s.reply(f.ID, nil)

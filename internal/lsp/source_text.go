@@ -11,11 +11,12 @@ import (
 )
 
 type capturedSource struct {
-	openText string
-	text     []byte
-	open     bool
-	loaded   bool
-	ok       bool
+	stringValue string
+	bytesValue  []byte
+	open        bool
+	hasString   bool
+	hasBytes    bool
+	ok          bool
 }
 
 // requestSourceSnapshot is one immutable view of editor and saved source for a
@@ -23,11 +24,11 @@ type capturedSource struct {
 // most once per path and then retained for the request's lifetime.
 type requestSourceSnapshot struct {
 	enc     encoding
-	sources map[string]capturedSource
+	sources map[string]*capturedSource
 }
 
 func (s *Server) sourceSnapshot() *requestSourceSnapshot {
-	snapshot := &requestSourceSnapshot{enc: s.enc, sources: make(map[string]capturedSource)}
+	snapshot := &requestSourceSnapshot{enc: s.enc, sources: make(map[string]*capturedSource)}
 	if s.docs == nil {
 		return snapshot
 	}
@@ -37,7 +38,7 @@ func (s *Server) sourceSnapshot() *requestSourceSnapshot {
 		if path == "" || strings.HasSuffix(path, ".x.go") {
 			continue
 		}
-		snapshot.sources[path] = capturedSource{openText: document.text, open: true, ok: true}
+		snapshot.sources[path] = &capturedSource{stringValue: document.text, open: true, hasString: true, ok: true}
 	}
 	s.docs.mu.Unlock()
 	return snapshot
@@ -78,23 +79,41 @@ func (snapshot *requestSourceSnapshot) anyOpenDir() string {
 }
 
 func (snapshot *requestSourceSnapshot) sourceText(path string) ([]byte, bool) {
+	source, ok := snapshot.source(path)
+	if source == nil || !ok {
+		return nil, false
+	}
+	if !source.hasBytes {
+		source.bytesValue = []byte(source.stringValue)
+		source.hasBytes = true
+	}
+	return source.bytesValue, true
+}
+
+func (snapshot *requestSourceSnapshot) sourceString(path string) (string, bool) {
+	source, ok := snapshot.source(path)
+	if source == nil || !ok {
+		return "", false
+	}
+	if !source.hasString {
+		source.stringValue = string(source.bytesValue)
+		source.hasString = true
+	}
+	return source.stringValue, true
+}
+
+func (snapshot *requestSourceSnapshot) source(path string) (*capturedSource, bool) {
 	path = sourcePath(path)
 	if path == "" || strings.HasSuffix(path, ".x.go") {
 		return nil, false
 	}
 	if source, found := snapshot.sources[path]; found {
-		if !source.loaded {
-			source.text = []byte(source.openText)
-			source.openText = ""
-			source.loaded = true
-			snapshot.sources[path] = source
-		}
-		return source.text, source.ok
+		return source, source.ok
 	}
 	text, err := os.ReadFile(path)
-	source := capturedSource{text: text, loaded: true, ok: err == nil}
+	source := &capturedSource{bytesValue: text, hasBytes: true, ok: err == nil}
 	snapshot.sources[path] = source
-	return source.text, source.ok
+	return source, source.ok
 }
 
 // sourceText is the one-shot compatibility wrapper for callers outside a
@@ -104,11 +123,11 @@ func (s *Server) sourceText(path string) ([]byte, bool) {
 }
 
 func (snapshot *requestSourceSnapshot) position(path string, offset int) (Position, bool) {
-	text, ok := snapshot.sourceText(path)
+	text, ok := snapshot.sourceString(path)
 	if !ok || offset < 0 || offset > len(text) {
 		return Position{}, false
 	}
-	return positionForByteOffset(string(text), offset, snapshot.enc), true
+	return positionForByteOffset(text, offset, snapshot.enc), true
 }
 
 func (s *Server) position(path string, offset int) (Position, bool) {
@@ -116,11 +135,11 @@ func (s *Server) position(path string, offset int) (Position, bool) {
 }
 
 func (snapshot *requestSourceSnapshot) rangeForSpan(span sourceintel.Span) (Range, bool) {
-	text, ok := snapshot.sourceText(span.Path)
+	text, ok := snapshot.sourceString(span.Path)
 	if !ok || span.Start < 0 || span.End < span.Start || span.End > len(text) {
 		return Range{}, false
 	}
-	return rangeForSpan(string(text), span.Start, span.End, snapshot.enc), true
+	return rangeForSpan(text, span.Start, span.End, snapshot.enc), true
 }
 
 func (s *Server) rangeForSpan(span sourceintel.Span) (Range, bool) {

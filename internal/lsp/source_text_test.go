@@ -204,20 +204,90 @@ func TestRequestSourceSnapshotIsImmutableAndMemoizesDisk(t *testing.T) {
 	if got := snapshot.anyOpenDir(); got != dir {
 		t.Fatalf("captured analysis directory = %q, want %q", got, dir)
 	}
+	if got, ok := snapshot.sourceString(openPath); !ok || got != "open one" {
+		t.Fatalf("captured open string = (%q, %t), want open one", got, ok)
+	}
 	if err := os.WriteFile(diskPath, []byte("disk two"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := snapshot.sourceText(openPath); !ok || string(got) != "open one" {
-		t.Fatalf("captured open source = (%q, %t), want open one", got, ok)
+	if got, ok := snapshot.sourceString(diskPath); !ok || got != "disk two" {
+		t.Fatalf("first disk string = (%q, %t), want disk two", got, ok)
 	}
-	if got, ok := snapshot.sourceText(diskPath); !ok || string(got) != "disk two" {
-		t.Fatalf("first disk source = (%q, %t), want disk two", got, ok)
+	if got, ok := snapshot.sourceText(openPath); !ok || string(got) != "open one" {
+		t.Fatalf("captured open bytes = (%q, %t), want open one", got, ok)
 	}
 	if err := os.WriteFile(diskPath, []byte("disk three"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := snapshot.sourceText(diskPath); !ok || string(got) != "disk two" {
-		t.Fatalf("memoized disk source = (%q, %t), want disk two", got, ok)
+		t.Fatalf("memoized disk bytes = (%q, %t), want disk two", got, ok)
+	}
+}
+
+func TestRequestSourceSnapshotPositionConversionsDoNotCopyFullSource(t *testing.T) {
+	dir := t.TempDir()
+	source := strings.Repeat("a", 1<<20) + "\nTarget\n"
+	start := strings.Index(source, "Target")
+	span := sourceintel.Span{Start: start, End: start + len("Target")}
+
+	for _, test := range []struct {
+		name string
+		open bool
+	}{
+		{name: "open", open: true},
+		{name: "disk"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(dir, test.name+".gsx")
+			if test.open {
+				server := &Server{docs: newDocStore(), enc: encUTF16}
+				server.docs.open(pathToURI(path), source, 1)
+				snapshot := server.sourceSnapshot()
+				assertSnapshotPositionAllocations(t, snapshot, path, span)
+				return
+			}
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			snapshot := (&Server{docs: newDocStore(), enc: encUTF16}).sourceSnapshot()
+			assertSnapshotPositionAllocations(t, snapshot, path, span)
+		})
+	}
+}
+
+func assertSnapshotPositionAllocations(t *testing.T, snapshot *requestSourceSnapshot, path string, span sourceintel.Span) {
+	t.Helper()
+	span.Path = path
+	if _, ok := snapshot.rangeForSpan(span); !ok {
+		t.Fatal("rangeForSpan warmup failed")
+	}
+	if _, ok := snapshot.position(path, span.Start); !ok {
+		t.Fatal("position warmup failed")
+	}
+
+	for name, operation := range map[string]func() bool{
+		"range": func() bool {
+			_, ok := snapshot.rangeForSpan(span)
+			return ok
+		},
+		"position": func() bool {
+			_, ok := snapshot.position(path, span.Start)
+			return ok
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := testing.Benchmark(func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					if !operation() {
+						b.Fatal("position conversion failed")
+					}
+				}
+			})
+			if got := result.AllocedBytesPerOp(); got != 0 {
+				t.Fatalf("position conversion allocated %d bytes/op, want 0 after warmup", got)
+			}
+		})
 	}
 }
 

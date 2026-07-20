@@ -31,11 +31,10 @@ func (s *Server) handleReferences(f frame) error {
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
 	sources := s.sourceSnapshot()
-	textBytes, ok := sources.sourceText(path)
+	text, ok := sources.sourceString(path)
 	if !ok {
 		return s.reply(f.ID, []Location{})
 	}
-	text := string(textBytes)
 	curLine := p.Position.Line + 1
 	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
 		lineStartOffset(text, p.Position.Line) + 1
@@ -44,10 +43,7 @@ func (s *Server) handleReferences(f frame) error {
 	// AnalyzeModule — even an empty result — is cached; an error leaves the
 	// cache invalid so the single-package fallback below still answers.
 	if !s.moduleRefsValid {
-		if refs, err := s.analyzer.AnalyzeModule(filepath.Dir(path), s.docs.allOpenGSX()); err == nil {
-			s.moduleRefs = refs
-			s.moduleRefsValid = true
-		}
+		s.refreshModuleReferences(sources, filepath.Dir(path))
 	}
 
 	found := identifyCrossRef(s.moduleRefs, path, curLine, curCol)
@@ -96,6 +92,13 @@ func (s *Server) handleReferences(f frame) error {
 		}
 	}
 	return s.reply(f.ID, locs)
+}
+
+func (s *Server) refreshModuleReferences(sources *requestSourceSnapshot, dir string) {
+	if refs, err := s.analyzer.AnalyzeModule(dir, sources.openGSXOverrides()); err == nil {
+		s.moduleRefs = refs
+		s.moduleRefsValid = true
+	}
 }
 
 // identifyCrossRef finds the component whose declaration (exact NamePos) or a
