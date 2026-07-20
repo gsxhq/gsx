@@ -23,14 +23,21 @@ type watchedWorkspaceSymbolAnalyzer struct {
 	refreshCalls [][]string
 	refreshHook  func([]string)
 	refreshErr   error
+	refreshErrs  []error
+	refreshIndex int
 }
 
 func (a *watchedWorkspaceSymbolAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 	a.refreshCalls = append(a.refreshCalls, slices.Clone(paths))
-	if a.refreshHook != nil {
+	err := a.refreshErr
+	if a.refreshIndex < len(a.refreshErrs) {
+		err = a.refreshErrs[a.refreshIndex]
+		a.refreshIndex++
+	}
+	if err == nil && a.refreshHook != nil {
 		a.refreshHook(paths)
 	}
-	return nil, a.refreshErr
+	return nil, err
 }
 
 type pendingMetadataFixture struct {
@@ -658,6 +665,9 @@ func TestWorkspaceFolderRemovalReplaysRetainedPendingMetadata(t *testing.T) {
 
 func TestDidChangeWatchedFilesKeepsPendingMetadataWhenAnalyzerReplayFails(t *testing.T) {
 	fixture := newPendingMetadataFixture(t)
+	if got := fixture.symbols(t, 50); len(got) != 2 || got[0].Name != "Before" || got[1].Name != "Stable" {
+		t.Fatalf("initial symbols = %+v, want Before and Stable", got)
+	}
 	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
 	if err := os.WriteFile(fixture.secondMod, []byte("module\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -671,6 +681,62 @@ func TestDidChangeWatchedFilesKeepsPendingMetadataWhenAnalyzerReplayFails(t *tes
 	}
 	if fixture.server.workspaceViewValid {
 		t.Fatal("failed analyzer replay restored workspace validity")
+	}
+	if !fixture.server.diskViewValid {
+		t.Fatal("recoverable metadata replay failure poisoned permanent disk view")
+	}
+	if logs := fixture.output.String(); !strings.Contains(logs, "replay workspace metadata") || !strings.Contains(logs, "relevant metadata event succeeds") || strings.Contains(logs, "language server restarts") {
+		t.Fatalf("recoverable metadata replay log blurred restart boundary: %s", logs)
+	}
+	if got := fixture.symbols(t, 51); len(got) != 0 {
+		t.Fatalf("failed metadata replay served workspace symbols: %+v", got)
+	}
+
+	fixture.analyzer.refreshErr = nil
+	fixture.watch(t, fixture.secondMod)
+	wantReplay := []string{fixture.firstMod, fixture.secondMod}
+	slices.Sort(wantReplay)
+	if len(fixture.analyzer.refreshCalls) != 2 || !slices.Equal(fixture.analyzer.refreshCalls[0], wantReplay) || !slices.Equal(fixture.analyzer.refreshCalls[1], wantReplay) {
+		t.Fatalf("metadata replay attempts = %v, want two exact A+B attempts %v", fixture.analyzer.refreshCalls, wantReplay)
+	}
+	if len(fixture.server.pendingWorkspaceMetadata) != 0 {
+		t.Fatalf("successful retry retained pending metadata: %v", fixture.server.pendingWorkspaceMetadata)
+	}
+	if !fixture.server.diskViewValid || !fixture.server.workspaceViewValid {
+		t.Fatalf("successful retry validity: disk=%t workspace=%t, want both true", fixture.server.diskViewValid, fixture.server.workspaceViewValid)
+	}
+	got := fixture.symbols(t, 52)
+	if len(got) != 2 || got[0].Name != "After" || got[1].Name != "Stable" {
+		t.Fatalf("retried symbols = %+v, want refreshed After and Stable", got)
+	}
+}
+
+func TestDidChangeWatchedFilesSeparatesRecoverableMetadataFromOrdinaryRefresh(t *testing.T) {
+	fixture := newPendingMetadataFixture(t)
+	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
+	fixture.analyzer.refreshErrs = []error{errors.New("metadata replay failed"), nil, nil}
+	fixture.watch(t, fixture.firstMod, fixture.firstPath)
+
+	if len(fixture.analyzer.refreshCalls) != 2 || !slices.Equal(fixture.analyzer.refreshCalls[0], []string{fixture.firstMod}) || !slices.Equal(fixture.analyzer.refreshCalls[1], []string{fixture.firstPath}) {
+		t.Fatalf("mixed refresh calls = %v, want separate metadata then source transactions", fixture.analyzer.refreshCalls)
+	}
+	if !fixture.server.diskViewValid || fixture.server.workspaceViewValid {
+		t.Fatalf("mixed transient metadata failure validity: disk=%t workspace=%t, want true/false", fixture.server.diskViewValid, fixture.server.workspaceViewValid)
+	}
+	if got := slices.Sorted(maps.Keys(fixture.server.pendingWorkspaceMetadata)); !slices.Equal(got, []string{fixture.firstMod}) {
+		t.Fatalf("mixed transient metadata failure pending = %v, want first go.mod", got)
+	}
+
+	fixture.watch(t, fixture.firstMod)
+	if len(fixture.analyzer.refreshCalls) != 3 || !slices.Equal(fixture.analyzer.refreshCalls[2], []string{fixture.firstMod}) {
+		t.Fatalf("metadata retry calls = %v, want exact pending replay", fixture.analyzer.refreshCalls)
+	}
+	if !fixture.server.diskViewValid || !fixture.server.workspaceViewValid || len(fixture.server.pendingWorkspaceMetadata) != 0 {
+		t.Fatalf("mixed-event recovery validity: disk=%t workspace=%t pending=%v", fixture.server.diskViewValid, fixture.server.workspaceViewValid, fixture.server.pendingWorkspaceMetadata)
+	}
+	got := fixture.symbols(t, 53)
+	if len(got) != 2 || got[0].Name != "After" || got[1].Name != "Stable" {
+		t.Fatalf("mixed-event retried symbols = %+v, want refreshed After and Stable", got)
 	}
 }
 

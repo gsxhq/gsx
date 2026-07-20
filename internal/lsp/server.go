@@ -475,7 +475,7 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 	for _, path := range metadataPaths {
 		s.pendingWorkspaceMetadata[sourcePath(path)] = struct{}{}
 	}
-	refreshPaths := nonMetadataPaths
+	var replay []string
 	recoveringWorkspace := false
 	if len(metadataPaths) != 0 {
 		prepared, err := prepareWorkspaceFolders(s.workspaceFolders)
@@ -486,13 +486,10 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 				return logErr
 			}
 		} else {
-			replay := s.pendingMetadataFor(prepared)
+			replay = s.pendingMetadataFor(prepared)
 			s.applyPreparedWorkspace(prepared)
 			s.workspaceViewValid = false
 			s.invalidateModuleIndexes()
-			refreshPaths = append(slices.Clone(replay), nonMetadataPaths...)
-			slices.Sort(refreshPaths)
-			refreshPaths = slices.Compact(refreshPaths)
 			recoveringWorkspace = true
 		}
 	}
@@ -502,21 +499,22 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 		// paths even though ownership itself stays transactionally unchanged.
 		s.invalidateModuleIndexes()
 	}
-	if len(refreshPaths) == 0 {
-		if recoveringWorkspace {
+	var affected []string
+	if recoveringWorkspace {
+		metadataAffected, err := s.refreshDisk(replay)
+		if err != nil {
+			if logErr := s.logWorkspaceMetadataReplayError(replay, err); logErr != nil {
+				return logErr
+			}
+		} else {
+			affected = append(affected, metadataAffected...)
 			s.retainPendingMetadata(nil)
 			s.workspaceViewValid = true
 		}
-		return nil
 	}
-	refresher, ok := s.analyzer.(diskRefresher)
-	var affected []string
-	var refreshErr error
-	if !ok {
-		refreshErr = errors.New("analyzer does not support saved-source refresh")
-	} else {
-		affected, refreshErr = refresher.RefreshDisk(refreshPaths)
-	}
+
+	ordinaryAffected, refreshErr := s.refreshDisk(nonMetadataPaths)
+	affected = append(affected, ordinaryAffected...)
 	if refreshErr != nil {
 		s.diskViewValid = false
 		for dir := range s.docs.byDirSnapshot() {
@@ -533,16 +531,23 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 			delete(s.pkgs, dir)
 		}
 		restartErr := fmt.Errorf("%w; saved-source intelligence remains disabled until the language server restarts", refreshErr)
-		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(refreshPaths, ", "), restartErr); err != nil {
+		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(nonMetadataPaths, ", "), restartErr); err != nil {
 			return err
 		}
 		return s.publishEmptyOpenDirs(affected)
 	}
-	if recoveringWorkspace {
-		s.retainPendingMetadata(nil)
-		s.workspaceViewValid = true
-	}
 	return s.applySuccessfulDiskRefresh(affected)
+}
+
+func (s *Server) refreshDisk(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	refresher, ok := s.analyzer.(diskRefresher)
+	if !ok {
+		return nil, errors.New("analyzer does not support saved-source refresh")
+	}
+	return refresher.RefreshDisk(paths)
 }
 
 func (s *Server) applySuccessfulDiskRefresh(affected []string) error {
@@ -573,6 +578,17 @@ func (s *Server) logWorkspaceViewRefreshError(paths []string, err error) error {
 	}{
 		Type: 1,
 		Message: "gsx: refresh workspace ownership for " + strings.Join(paths, ", ") + ": " + err.Error() +
+			"; workspace-owned operations remain disabled until a relevant metadata event succeeds",
+	})
+}
+
+func (s *Server) logWorkspaceMetadataReplayError(paths []string, err error) error {
+	return s.notify("window/logMessage", struct {
+		Type    int    `json:"type"`
+		Message string `json:"message"`
+	}{
+		Type: 1,
+		Message: "gsx: replay workspace metadata for " + strings.Join(paths, ", ") + ": " + err.Error() +
 			"; workspace-owned operations remain disabled until a relevant metadata event succeeds",
 	})
 }
