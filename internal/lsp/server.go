@@ -500,11 +500,16 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 		s.invalidateModuleIndexes()
 	}
 	var affected []string
+	var failedMetadataDirs []string
 	if recoveringWorkspace {
 		metadataAffected, err := s.refreshDisk(replay)
 		if err != nil {
+			failedMetadataDirs = s.invalidatePackageDirs(metadataAffected)
 			if logErr := s.logWorkspaceMetadataReplayError(replay, err); logErr != nil {
 				return logErr
+			}
+			if publishErr := s.publishEmptyOpenDirs(failedMetadataDirs); publishErr != nil {
+				return publishErr
 			}
 		} else {
 			affected = append(affected, metadataAffected...)
@@ -514,6 +519,11 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 	}
 
 	ordinaryAffected, refreshErr := s.refreshDisk(nonMetadataPaths)
+	if refreshErr == nil && len(failedMetadataDirs) != 0 {
+		ordinaryAffected = slices.DeleteFunc(ordinaryAffected, func(dir string) bool {
+			return slices.Contains(failedMetadataDirs, filepath.Clean(dir))
+		})
+	}
 	affected = append(affected, ordinaryAffected...)
 	if refreshErr != nil {
 		s.diskViewValid = false
@@ -525,11 +535,7 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 		}
 	}
 	if refreshErr != nil {
-		affected = sortedUniqueDirs(affected)
-		for _, dir := range affected {
-			s.beginMutation(dir)
-			delete(s.pkgs, dir)
-		}
+		affected = s.invalidatePackageDirs(affected)
 		restartErr := fmt.Errorf("%w; saved-source intelligence remains disabled until the language server restarts", refreshErr)
 		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(nonMetadataPaths, ", "), restartErr); err != nil {
 			return err
@@ -551,15 +557,20 @@ func (s *Server) refreshDisk(paths []string) ([]string, error) {
 }
 
 func (s *Server) applySuccessfulDiskRefresh(affected []string) error {
+	affected = s.invalidatePackageDirs(affected)
+	if !s.diskViewValid {
+		return s.publishEmptyOpenDirs(affected)
+	}
+	return s.analyzeDirsNow(s.openAffectedDirs(affected))
+}
+
+func (s *Server) invalidatePackageDirs(affected []string) []string {
 	affected = sortedUniqueDirs(affected)
 	for _, dir := range affected {
 		s.beginMutation(dir)
 		delete(s.pkgs, dir)
 	}
-	if !s.diskViewValid {
-		return s.publishEmptyOpenDirs(affected)
-	}
-	return s.analyzeDirsNow(s.openAffectedDirs(affected))
+	return affected
 }
 
 func workspaceMetadataPath(path string) bool {

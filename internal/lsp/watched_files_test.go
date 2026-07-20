@@ -20,11 +20,12 @@ import (
 
 type watchedWorkspaceSymbolAnalyzer struct {
 	*wsSymAnalyzer
-	refreshCalls [][]string
-	refreshHook  func([]string)
-	refreshErr   error
-	refreshErrs  []error
-	refreshIndex int
+	refreshCalls    [][]string
+	refreshHook     func([]string)
+	refreshErr      error
+	refreshErrs     []error
+	refreshIndex    int
+	refreshAffected []string
 }
 
 func (a *watchedWorkspaceSymbolAnalyzer) RefreshDisk(paths []string) ([]string, error) {
@@ -37,7 +38,7 @@ func (a *watchedWorkspaceSymbolAnalyzer) RefreshDisk(paths []string) ([]string, 
 	if err == nil && a.refreshHook != nil {
 		a.refreshHook(paths)
 	}
-	return nil, err
+	return slices.Clone(a.refreshAffected), err
 }
 
 type pendingMetadataFixture struct {
@@ -708,6 +709,88 @@ func TestDidChangeWatchedFilesKeepsPendingMetadataWhenAnalyzerReplayFails(t *tes
 	got := fixture.symbols(t, 52)
 	if len(got) != 2 || got[0].Name != "After" || got[1].Name != "Stable" {
 		t.Fatalf("retried symbols = %+v, want refreshed After and Stable", got)
+	}
+}
+
+func TestDidChangeWatchedFilesMetadataReplayFailureInvalidatesExactAffectedPackages(t *testing.T) {
+	fixture := newPendingMetadataFixture(t)
+	unaffectedDir := t.TempDir()
+	unaffectedPath := filepath.Join(unaffectedDir, "unaffected.gsx")
+	unaffectedSource := "package unaffected\ncomponent Unaffected() { <p/> }\n"
+	writeWorkspaceSymbolSource(t, unaffectedPath, unaffectedSource)
+	fixture.server.docs.open(pathToURI(fixture.firstPath), fixture.firstSource, 1)
+	fixture.server.docs.open(pathToURI(fixture.secondPath), fixture.secondSource, 1)
+	fixture.server.docs.open(pathToURI(unaffectedPath), unaffectedSource, 1)
+	firstPkg := &Package{}
+	secondPkg := &Package{}
+	unaffectedPkg, _ := parseOnlyPackage(t, unaffectedPath, unaffectedSource)
+	fixture.server.pkgs[fixture.first] = firstPkg
+	fixture.server.pkgs[fixture.second] = secondPkg
+	fixture.server.pkgs[unaffectedDir] = unaffectedPkg
+	fixture.server.epoch[fixture.first] = 7
+	fixture.server.gen[fixture.first] = 11
+	fixture.server.epoch[fixture.second] = 13
+	fixture.server.gen[fixture.second] = 17
+
+	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
+	fixture.analyzer.refreshAffected = []string{fixture.second, fixture.first, filepath.Join(fixture.first, ".")}
+	fixture.analyzer.refreshErr = errors.New("metadata replay partially transitioned")
+	fixture.watch(t, fixture.firstMod)
+
+	if fixture.server.pkgs[fixture.first] != nil || fixture.server.pkgs[fixture.second] != nil {
+		t.Fatalf("failed metadata replay retained affected package facts: first=%p second=%p", fixture.server.pkgs[fixture.first], fixture.server.pkgs[fixture.second])
+	}
+	if fixture.server.pkgs[unaffectedDir] != unaffectedPkg {
+		t.Fatal("failed metadata replay evicted unaffected package facts")
+	}
+	if fixture.server.epoch[fixture.first] != 8 || fixture.server.gen[fixture.first] != 12 || fixture.server.epoch[fixture.second] != 14 || fixture.server.gen[fixture.second] != 18 {
+		t.Fatalf("failed metadata replay mutations: first epoch/gen=%d/%d second=%d/%d, want one exact mutation each", fixture.server.epoch[fixture.first], fixture.server.gen[fixture.first], fixture.server.epoch[fixture.second], fixture.server.gen[fixture.second])
+	}
+	if fixture.server.epoch[unaffectedDir] != 0 || fixture.server.gen[unaffectedDir] != 0 {
+		t.Fatalf("failed metadata replay mutated unaffected package: epoch/gen=%d/%d", fixture.server.epoch[unaffectedDir], fixture.server.gen[unaffectedDir])
+	}
+	if !fixture.server.diskViewValid || fixture.server.workspaceViewValid {
+		t.Fatalf("failed metadata replay validity: disk=%t workspace=%t, want true/false", fixture.server.diskViewValid, fixture.server.workspaceViewValid)
+	}
+	if got := slices.Sorted(maps.Keys(fixture.server.pendingWorkspaceMetadata)); !slices.Equal(got, []string{fixture.firstMod}) {
+		t.Fatalf("failed metadata replay pending = %v, want first go.mod", got)
+	}
+	if output := fixture.output.String(); strings.Count(output, "textDocument/publishDiagnostics") != 2 || strings.Count(output, `"diagnostics":[]`) != 2 || strings.Contains(output, pathToURI(unaffectedPath)) {
+		t.Fatalf("failed metadata replay did not clear only affected open diagnostics: %s", output)
+	}
+
+	request := func(id int, method string, params any) json.RawMessage {
+		t.Helper()
+		raw, _ := json.Marshal(params)
+		if err := fixture.server.handle(frame{ID: json.RawMessage(strconv.Itoa(id)), Method: method, Params: raw}); err != nil {
+			t.Fatal(err)
+		}
+		return responseByID(t, fixture.output.String(), id)["result"]
+	}
+	position := textDocumentPositionParams{TextDocument: textDocumentIdentifier{URI: pathToURI(fixture.firstPath)}}
+	if got := string(request(54, "textDocument/definition", position)); got != "null" {
+		t.Fatalf("definition after partial metadata transition = %s, want null", got)
+	}
+	if got := string(request(55, "textDocument/hover", position)); got != "null" {
+		t.Fatalf("hover after partial metadata transition = %s, want null", got)
+	}
+	document := documentSymbolParams{TextDocument: textDocumentIdentifier{URI: pathToURI(fixture.firstPath)}}
+	if got := string(request(56, "textDocument/documentSymbol", document)); got != "[]" {
+		t.Fatalf("document symbols after partial metadata transition = %s, want []", got)
+	}
+	unaffectedDocument := documentSymbolParams{TextDocument: textDocumentIdentifier{URI: pathToURI(unaffectedPath)}}
+	if got := string(request(57, "textDocument/documentSymbol", unaffectedDocument)); !strings.Contains(got, `"name":"Unaffected"`) {
+		t.Fatalf("unaffected document symbols = %s, want retained package result", got)
+	}
+
+	fixture.analyzer.refreshErr = nil
+	fixture.analyzer.refreshAffected = []string{fixture.first, fixture.second}
+	fixture.watch(t, fixture.firstMod)
+	if fixture.server.pkgs[fixture.first] == nil || fixture.server.pkgs[fixture.second] == nil {
+		t.Fatalf("successful full replay did not rebuild open affected packages: first=%p second=%p", fixture.server.pkgs[fixture.first], fixture.server.pkgs[fixture.second])
+	}
+	if fixture.server.pkgs[unaffectedDir] != unaffectedPkg {
+		t.Fatal("successful full replay replaced unaffected package facts")
 	}
 }
 
