@@ -469,9 +469,12 @@ throwaway probe programs rather than reading only the diff.
 
 The approved design above is unchanged. This appendix records executable
 evidence gathered on Go 1.26.1 (`darwin/arm64`, Apple M3 Ultra) at the exact
-code/test commit
-`87cf1ba517319aa833deb09b5ded8efe9f18ce12`. The later evidence-only commit
-changes this appendix and no benchmarked code.
+production code/test commit
+`87cf1ba517319aa833deb09b5ded8efe9f18ce12`. The realistic-session measurement
+harness was frozen separately at
+`562ae3c0d0a852fcbea8b28e88523e37bca6b5bb`; it changes only an opt-in test.
+The later evidence-only commit changes this appendix and no benchmarked code or
+measurement harness.
 
 ### Generated-file independence and consumer probe
 
@@ -548,6 +551,103 @@ git worktree add --detach /tmp/gsx-lsp-baseline-task11 b915e57c
 GSX_PERF=1 go test ./gen -run TestPerfBaseline -count=5 -v \
   | tee /tmp/gsx-lsp-perf-after-87cf1ba5.txt
 git worktree remove -f /tmp/gsx-lsp-baseline-task11
+```
+
+### Controlled one-learning module and realistic repository workspace
+
+`TestLSPManualOneLearningPerf` copies the pinned one-learning fixture at
+`ba0bc63096f5fa3d2b1464ab8eadf51673e61789`, excluding every `.x.go`, then
+recursively asserts that none remains. The copied tree is identical in every
+run: SHA-256
+`513c7efc8351894c7d8987cbc6783284d93a1b76841f019edbd78ed5f6448527`,
+2,095 regular files, 116 `.gsx` files, and 330,310,058 bytes. A fresh production
+analyzer and JSON-RPC server are initialized without opening or prewarming a
+document. The timed operation is the first `workspace/symbol` request for
+`Badge`; all runs return 43 filtered results including the exact `Badge`
+function symbol URI, kind, container, and UTF-16 range.
+
+The fixture-ready, initialized, and post-query snapshots each force two garbage
+collections immediately before `runtime.ReadMemStats`. The post-query snapshot
+keeps the analyzer, server, response wire, and copied module live. `HeapAlloc`
+and `HeapInuse` are therefore total live process heap, not index-owned bytes or
+causal attribution. Fixture-ready deltas remove some harness/process state but
+preserve the same limitation.
+
+The fixture's committed `go.work` uses four roots: the one-learning module, its
+`cmd/sqlc-gen-custom` module, and absolute local `gsx` and `vite` checkouts. The
+baseline server predates workspace-root support and ignores initialize roots;
+a naive repository-root before/after therefore measures one baseline module
+against four current modules. That initial comparison was discarded as
+non-equivalent.
+
+The controlled comparison initializes both servers below the root `go.work`, at
+`ds/badge`. The baseline's legacy cwd-derived workspace and the current
+server's nearest-module resolution then select the same complete one-learning
+module. Both retain one module, 11 package results, 27 shipping type packages,
+25 target declaration packages, three configured declaration packages, 40
+source packages, 11 GSX source directories, 929 external packages, and one
+external load. Current code additionally retains 27 exact target-provenance
+families and 11 source indexes, and publishes 1,148 cached symbols rather than
+the baseline's 1,052 because authored top-level Go declarations are now part of
+workspace symbols.
+
+Controlled five-run summaries (median, range):
+
+| Metric | `b915e57c` | `562ae3c0` |
+| --- | ---: | ---: |
+| cold `workspace/symbol` latency | 2.898 s (2.612-2.951 s) | 2.959 s (2.673-2.997 s) |
+| post-query total `HeapAlloc` | 287.671 MiB (287.553-287.756 MiB) | 296.480 MiB (296.252-296.526 MiB) |
+| post-query total `HeapInuse` | 561.094 MiB (553.227-577.344 MiB) | 585.047 MiB (562.539-591.359 MiB) |
+| post-query minus fixture-ready `HeapAlloc` | 285.226 MiB (285.132-286.066 MiB) | 293.937 MiB (293.820-294.765 MiB) |
+| post-query minus fixture-ready `HeapInuse` | 554.898 MiB (547.102-571.789 MiB) | 578.656 MiB (560.070-585.594 MiB) |
+
+Median controlled cold latency is 2.1% higher and total `HeapAlloc` is 3.1%
+higher (8.8 MiB) while producing the expanded authored symbol inventory. A
+second sequence alternated five baseline and five current runs in separate test
+processes. It reproduced 2.627 s versus 2.694 s median latency (+2.6%) and
+287.596 versus 296.237 MiB total `HeapAlloc` (+3.0%), ruling out sequential
+revision order as the earlier apparent regression's cause. `HeapInuse` varies
+more because it reports allocator spans; its modest five-sample shift is not
+treated as object-attributed retention. The controlled result is not a material
+regression under this design, so no speculative production optimization or
+profile-driven representation change was made.
+
+The final current-head repository-workspace measurement separately records the
+absolute cost users get when opening the committed root `go.work`. It retains
+four module roots, 12 package results, 1,151 cached symbols, and two external
+loads. Five-run medians are 3.832 s cold latency (3.509-3.862 s), 365.403 MiB
+total `HeapAlloc` (365.200-365.446 MiB), and 685.391 MiB total `HeapInuse`
+(678.297-714.398 MiB). The fixture-ready deltas are 362.857 MiB `HeapAlloc`
+(362.773-363.707 MiB) and 679.055 MiB `HeapInuse` (675.938-707.883 MiB).
+This is an absolute four-root cost, not a baseline regression ratio.
+
+The exact committed harness was used at both revisions. At baseline it was
+applied with Go's `-overlay` to the already-existing `gen/perf_test.go`, leaving
+the baseline checkout unchanged. Harness SHA-256 is
+`9f7a2c2a5bd7f8420761942a6f74f777b07526c36aa3ace8c033fef0eb9cde39`.
+
+Raw files and SHA-256 values:
+
+```text
+6dcb782dc51b3c0af88994193ee7cd056a7ca171ca03b175728924eb4050837b  /tmp/gsx-lsp-one-learning-controlled-before-b915e57c.txt
+f744f10d9af15bc675cee864ce6bd6e55f876536e8646e3edde21f2a54c523ab  /tmp/gsx-lsp-one-learning-controlled-after-562ae3c0.txt
+fc80a94005b2c88cbf4e7680015191356639885eaf77bb0e01de6624b48e3fe8  /tmp/gsx-lsp-one-learning-controlled-interleaved-562ae3c0.txt
+03ee5b4aa3d6aaa8165994b505e7e477326a6f8a0902ad2324769ff05118c78b  /tmp/gsx-lsp-one-learning-repository-after-562ae3c0.txt
+e56f27a1b4346fad249cf89555b876e7e836618736e425d71b733c3a9c3b375f  /tmp/gsx-lsp-one-learning-baseline-b915e57c-overlay.json
+```
+
+```sh
+GSX_PERF=1 GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
+  go test -overlay=/tmp/gsx-lsp-one-learning-baseline-b915e57c-overlay.json \
+  ./gen -run '^TestLSPManualOneLearningPerf$' -count=5 -v \
+  | tee /tmp/gsx-lsp-one-learning-controlled-before-b915e57c.txt
+GSX_PERF=1 GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
+  go test ./gen -run '^TestLSPManualOneLearningPerf$' -count=5 -v \
+  | tee /tmp/gsx-lsp-one-learning-controlled-after-562ae3c0.txt
+GSX_PERF=1 GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
+  GSX_LSP_WORKSPACE_MODE=repository \
+  go test ./gen -run '^TestLSPManualOneLearningPerf$' -count=5 -v \
+  | tee /tmp/gsx-lsp-one-learning-repository-after-562ae3c0.txt
 ```
 
 ### Absolute LSP/index costs
