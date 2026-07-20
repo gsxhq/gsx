@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -154,6 +155,27 @@ func TestSetWorkspaceFoldersDecodesPercentEscapedLocalURI(t *testing.T) {
 	}
 	if want := []workspaceFolder{{URI: uri, Name: "escaped"}}; !slices.Equal(server.workspaceFolders, want) {
 		t.Fatalf("folders = %+v, want normalized %+v", server.workspaceFolders, want)
+	}
+}
+
+func TestRejectedWorkspaceFolderChangePreservesInvalidOwnershipState(t *testing.T) {
+	root := writeTestModule(t, filepath.Join(t.TempDir(), "module"), "example.test/module")
+	server := NewServer(strings.NewReader(""), os.Stderr, nilAnalyzer{})
+	if err := server.setWorkspaceFolders([]workspaceFolder{{URI: pathToURI(root)}}); err != nil {
+		t.Fatal(err)
+	}
+	server.workspaceViewValid = false // models a prior malformed watched metadata event
+	beforeModules := slices.Clone(server.workspaceModules)
+	beforePaths := maps.Clone(server.workspaceModulePaths)
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := server.changeWorkspaceFolders([]workspaceFolder{{URI: pathToURI(missing)}}, nil); err == nil {
+		t.Fatal("missing folder change unexpectedly succeeded")
+	}
+	if server.workspaceViewValid {
+		t.Fatal("rejected folder change restored invalid workspace ownership")
+	}
+	if !slices.Equal(server.workspaceModules, beforeModules) || !maps.Equal(server.workspaceModulePaths, beforePaths) {
+		t.Fatalf("rejected folder change partially replaced ownership: modules=%v paths=%v", server.workspaceModules, server.workspaceModulePaths)
 	}
 }
 

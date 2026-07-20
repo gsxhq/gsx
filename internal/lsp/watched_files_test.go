@@ -6,6 +6,7 @@ import (
 	"errors"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -15,6 +16,16 @@ import (
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
+
+type watchedWorkspaceSymbolAnalyzer struct {
+	*wsSymAnalyzer
+	refreshCalls [][]string
+}
+
+func (a *watchedWorkspaceSymbolAnalyzer) RefreshDisk(paths []string) ([]string, error) {
+	a.refreshCalls = append(a.refreshCalls, slices.Clone(paths))
+	return nil, nil
+}
 
 type watchedFilesAnalyzer struct {
 	nilAnalyzer
@@ -310,6 +321,195 @@ func TestDidChangeWatchedFilesRefreshesAllEventKindsAndOpenAffectedPackages(t *t
 	}
 	if got := analyzer.analyses; len(got) != 2 || got[0] != openDir || got[1] != openDir {
 		t.Fatalf("analyzed dirs = %v, want didOpen plus watched refresh of open affected package", got)
+	}
+}
+
+func TestDidChangeWatchedFilesRebuildsWorkspaceOwnershipAndRecovers(t *testing.T) {
+	workspace := t.TempDir()
+	first := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "first"))
+	second := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "second"))
+	third := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "third"))
+	goWorkPath := filepath.Join(workspace, "go.work")
+	writeWork := func(uses string) {
+		t.Helper()
+		writeWorkspaceSymbolSource(t, goWorkPath, "go 1.26.1\n\nuse (\n"+uses+")\n")
+	}
+	writeWork("\t./first\n\t./second\n")
+	type moduleSource struct {
+		root, path, source, name string
+	}
+	modules := []moduleSource{
+		{root: first, path: filepath.Join(first, "page.gsx"), source: "package page\n\nvar First = 1\n", name: "First"},
+		{root: second, path: filepath.Join(second, "page.gsx"), source: "package page\n\nvar Second = 1\n", name: "Second"},
+		{root: third, path: filepath.Join(third, "page.gsx"), source: "package page\n\nvar Third = 1\n", name: "Third"},
+	}
+	syms := make(map[string][]Symbol, len(modules))
+	for _, module := range modules {
+		writeWorkspaceSymbolSource(t, module.path, module.source)
+		syms[module.root] = []Symbol{{Name: module.name, Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(module.path, module.source, strings.Index(module.source, module.name))}}
+	}
+	analyzer := &watchedWorkspaceSymbolAnalyzer{wsSymAnalyzer: &wsSymAnalyzer{symsByModule: syms}}
+	var output bytes.Buffer
+	server := NewServer(nil, &output, analyzer)
+	if err := server.setWorkspaceFolders([]workspaceFolder{{URI: pathToURI(workspace), Name: "workspace"}}); err != nil {
+		t.Fatal(err)
+	}
+	requestSymbols := func(id int) []SymbolInformation {
+		t.Helper()
+		params, _ := json.Marshal(workspaceSymbolParams{})
+		if err := server.handleWorkspaceSymbol(frame{ID: json.RawMessage(strconv.Itoa(id)), Params: params}); err != nil {
+			t.Fatal(err)
+		}
+		var result []SymbolInformation
+		decodeResult(t, output.String(), id, &result)
+		return result
+	}
+	watch := func(path string) {
+		t.Helper()
+		params, _ := json.Marshal(didChangeWatchedFilesParams{Changes: []fileEvent{{URI: pathToURI(path), Type: fileChangeChanged}}})
+		if err := server.handleDidChangeWatchedFiles(frame{Params: params}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := func(symbols []SymbolInformation) []string {
+		result := make([]string, len(symbols))
+		for i, symbol := range symbols {
+			result[i] = symbol.Name
+		}
+		return result
+	}
+
+	if got := names(requestSymbols(10)); !slices.Equal(got, []string{"First", "Second"}) {
+		t.Fatalf("initial workspace symbols = %v, want First Second", got)
+	}
+	if err := os.WriteFile(goWorkPath, []byte("go not-a-version\nuse (\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch(goWorkPath)
+	if got := requestSymbols(11); len(got) != 0 {
+		t.Fatalf("malformed workspace symbols = %+v, want fail closed", got)
+	}
+	if !server.diskViewValid {
+		t.Fatal("malformed workspace metadata poisoned the permanent disk view")
+	}
+	if server.workspaceViewValid {
+		t.Fatal("malformed workspace metadata left workspace ownership valid")
+	}
+	if want := []string{first, second}; !slices.Equal(server.workspaceModules, want) || server.workspaceModulePaths[first] != "example.test/first" || server.workspaceModulePaths[second] != "example.test/second" {
+		t.Fatalf("malformed metadata partially replaced ownership: modules=%v paths=%v", server.workspaceModules, server.workspaceModulePaths)
+	}
+	if len(analyzer.refreshCalls) != 0 {
+		t.Fatalf("malformed ownership metadata reached analyzer RefreshDisk: %v", analyzer.refreshCalls)
+	}
+	watch(goWorkPath)
+	if got := requestSymbols(111); len(got) != 0 || server.workspaceViewValid {
+		t.Fatalf("repeated malformed event restored workspace ownership: symbols=%+v valid=%t", got, server.workspaceViewValid)
+	}
+	if got := strings.Count(output.String(), "refresh workspace ownership for"); got != 2 {
+		t.Fatalf("malformed ownership logs = %d, want exactly one per failed event", got)
+	}
+	if !strings.Contains(output.String(), goWorkPath) || !strings.Contains(output.String(), "parse workspace file") {
+		t.Fatalf("malformed ownership error was not surfaced actionably: %s", output.String())
+	}
+
+	writeWork("\t./first\n\t./third\n")
+	watch(goWorkPath)
+	if got := names(requestSymbols(12)); !slices.Equal(got, []string{"First", "Third"}) {
+		t.Fatalf("recovered workspace symbols = %v, want First Third", got)
+	}
+	if !server.workspaceViewValid {
+		t.Fatal("fixed workspace metadata did not restore ownership validity")
+	}
+	if want := []string{first, third}; !slices.Equal(server.workspaceModules, want) {
+		t.Fatalf("recovered workspace modules = %v, want %v", server.workspaceModules, want)
+	}
+	if _, retained := server.moduleSyms[second]; retained {
+		t.Fatalf("removed module cache retained: %+v", server.moduleSyms)
+	}
+	if server.workspaceModuleOwners[first] != workspace || server.workspaceModuleOwners[third] != workspace || server.workspaceModulePaths[third] != "example.test/third" {
+		t.Fatalf("recovered ownership metadata = owners %v paths %v", server.workspaceModuleOwners, server.workspaceModulePaths)
+	}
+	if len(analyzer.refreshCalls) != 1 || !slices.Equal(analyzer.refreshCalls[0], []string{goWorkPath}) {
+		t.Fatalf("recovered metadata refresh calls = %v, want fixed go.work once", analyzer.refreshCalls)
+	}
+	if analyzer.callsByModule[first] != 2 || analyzer.callsByModule[second] != 1 || analyzer.callsByModule[third] != 1 {
+		t.Fatalf("module symbol calls = %v, want first recovery refresh, removed second once, new third once", analyzer.callsByModule)
+	}
+}
+
+func TestDidChangeWatchedFilesRefreshesModuleDirectiveContainersAndRecovers(t *testing.T) {
+	workspace := t.TempDir()
+	first := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "first"))
+	second := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "second"))
+	firstPath := filepath.Join(first, "page.gsx")
+	secondPath := filepath.Join(second, "page.gsx")
+	firstSource := "package page\n\nvar SharedFirst = 1\n"
+	secondSource := "package page\n\nvar SharedSecond = 1\n"
+	writeWorkspaceSymbolSource(t, firstPath, firstSource)
+	writeWorkspaceSymbolSource(t, secondPath, secondSource)
+	analyzer := &watchedWorkspaceSymbolAnalyzer{wsSymAnalyzer: &wsSymAnalyzer{symsByModule: map[string][]Symbol{
+		first:  {{Name: "SharedFirst", Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(firstPath, firstSource, strings.Index(firstSource, "SharedFirst"))}},
+		second: {{Name: "SharedSecond", Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(secondPath, secondSource, strings.Index(secondSource, "SharedSecond"))}},
+	}}}
+	var output bytes.Buffer
+	server := NewServer(nil, &output, analyzer)
+	if err := server.setWorkspaceFolders([]workspaceFolder{{URI: pathToURI(first)}, {URI: pathToURI(second)}}); err != nil {
+		t.Fatal(err)
+	}
+	request := func(id int) []SymbolInformation {
+		params, _ := json.Marshal(workspaceSymbolParams{Query: "Shared"})
+		if err := server.handleWorkspaceSymbol(frame{ID: json.RawMessage(strconv.Itoa(id)), Params: params}); err != nil {
+			t.Fatal(err)
+		}
+		var result []SymbolInformation
+		decodeResult(t, output.String(), id, &result)
+		return result
+	}
+	watch := func() {
+		params, _ := json.Marshal(didChangeWatchedFilesParams{Changes: []fileEvent{{URI: pathToURI(filepath.Join(first, "go.mod")), Type: fileChangeChanged}}})
+		if err := server.handleDidChangeWatchedFiles(frame{Params: params}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := request(20); len(got) != 2 || got[0].ContainerName != "example.test/first" {
+		t.Fatalf("initial ambiguous containers = %+v", got)
+	}
+	if err := os.WriteFile(filepath.Join(first, "go.mod"), []byte("module\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch()
+	if got := request(21); len(got) != 0 {
+		t.Fatalf("malformed go.mod workspace symbols = %+v, want fail closed", got)
+	}
+	if !server.diskViewValid || len(analyzer.refreshCalls) != 0 {
+		t.Fatalf("malformed go.mod poisoned disk view or reached analyzer: valid=%t calls=%v", server.diskViewValid, analyzer.refreshCalls)
+	}
+	if server.workspaceViewValid {
+		t.Fatal("malformed go.mod left workspace ownership valid")
+	}
+	if server.workspaceModulePaths[first] != "example.test/first" {
+		t.Fatalf("malformed go.mod partially replaced module path: %v", server.workspaceModulePaths)
+	}
+	if !strings.Contains(output.String(), filepath.Join(first, "go.mod")) || !strings.Contains(output.String(), "parse module file") {
+		t.Fatalf("malformed go.mod ownership error was not surfaced: %s", output.String())
+	}
+	writeWorkspaceSymbolSource(t, filepath.Join(first, "go.mod"), "module example.test/renamed\n\ngo 1.26.1\n")
+	watch()
+	got := request(22)
+	if !server.workspaceViewValid {
+		t.Fatal("fixed go.mod did not restore workspace ownership validity")
+	}
+	if len(got) != 2 || got[0].ContainerName != "example.test/renamed" {
+		t.Fatalf("refreshed module directive containers = %+v, want example.test/renamed", got)
+	}
+	if len(analyzer.refreshCalls) != 1 || !slices.Equal(analyzer.refreshCalls[0], []string{filepath.Join(first, "go.mod")}) {
+		t.Fatalf("recovered go.mod refresh calls = %v, want fixed module metadata once", analyzer.refreshCalls)
+	}
+	writeWorkspaceSymbolSource(t, filepath.Join(first, "go.mod"), "module example.test/renamed\n\ngo 1.26.1\n// same module identity, changed build universe\n")
+	watch()
+	_ = request(23)
+	if analyzer.callsByModule[first] != 3 || analyzer.callsByModule[second] != 3 {
+		t.Fatalf("same-identity go.mod edit reused symbol caches: calls=%v, want both modules rebuilt", analyzer.callsByModule)
 	}
 }
 

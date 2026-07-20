@@ -33,7 +33,7 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, []SymbolInformation{})
 	}
-	if !s.diskViewValid {
+	if !s.diskViewValid || !s.workspaceViewValid {
 		return s.reply(f.ID, []SymbolInformation{})
 	}
 	if s.moduleSyms == nil {
@@ -55,7 +55,7 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 		}
 		for _, sym := range cached.symbols {
 			span, ok := authoredSpanForPosition(sym.NamePos, len(sym.Name))
-			if !ok || workspaceModuleForPath(s.workspaceModules, span.Path) != module {
+			if !ok || workspaceModuleForPath(s.workspaceModules, span.Path) != module || !sources.spanTextEquals(span, sym.Name) {
 				continue
 			}
 			if sym.Kind != symKindMethod {
@@ -103,7 +103,16 @@ func (s *Server) handleWorkspaceSymbol(f frame) error {
 		if n := cmp.Compare(a.start, b.start); n != 0 {
 			return n
 		}
-		return cmp.Compare(a.kind, b.kind)
+		if n := cmp.Compare(a.kind, b.kind); n != 0 {
+			return n
+		}
+		if n := cmp.Compare(a.module, b.module); n != 0 {
+			return n
+		}
+		if n := cmp.Compare(a.info.Location.URI, b.info.Location.URI); n != 0 {
+			return n
+		}
+		return cmp.Compare(a.info.ContainerName, b.info.ContainerName)
 	})
 	out := make([]SymbolInformation, len(all))
 	for i := range all {

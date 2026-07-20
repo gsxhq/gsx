@@ -105,6 +105,7 @@ type Server struct {
 	renamePrepareSupport      bool
 	renameRegistrationActive  bool
 	diskViewValid             bool
+	workspaceViewValid        bool
 	pendingClientRequests     map[string]func(frame) error
 
 	moduleRefs        []CrossRef                 // whole-module cross-reference index (lazy; find-references)
@@ -173,6 +174,7 @@ func NewServer(r io.Reader, w io.Writer, a Analyzer) *Server {
 		pkgs:                  map[string]*Package{},
 		enc:                   encUTF16,
 		diskViewValid:         true,
+		workspaceViewValid:    false,
 		pendingClientRequests: map[string]func(frame) error{},
 		moduleSyms:            map[string]moduleSymbolCache{},
 		workspaceModuleOwners: map[string]string{},
@@ -463,14 +465,38 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 	}
 	slices.Sort(paths)
 	paths = slices.Compact(paths)
-	s.invalidateModuleIndexes()
+	refreshPaths := paths
+	metadataChanged := slices.ContainsFunc(paths, workspaceMetadataPath)
+	nonMetadataChanged := slices.ContainsFunc(paths, func(path string) bool { return !workspaceMetadataPath(path) })
+	if metadataChanged {
+		if err := s.refreshWorkspaceView(); err != nil {
+			if logErr := s.logWorkspaceViewRefreshError(paths, err); logErr != nil {
+				return logErr
+			}
+			refreshPaths = slices.DeleteFunc(slices.Clone(paths), workspaceMetadataPath)
+		} else {
+			// Go metadata can change build-selected source even when module roots
+			// and directives are identical, so every module symbol inventory must
+			// be rebuilt after a successful metadata event.
+			s.invalidateModuleIndexes()
+		}
+	}
+	if nonMetadataChanged {
+		// Ordinary saved-source/config changes may alter any retained module fact.
+		// A mixed malformed-metadata batch also clears caches for the remaining
+		// paths even though ownership itself stays transactionally unchanged.
+		s.invalidateModuleIndexes()
+	}
+	if len(refreshPaths) == 0 {
+		return nil
+	}
 	refresher, ok := s.analyzer.(diskRefresher)
 	var affected []string
 	var refreshErr error
 	if !ok {
 		refreshErr = errors.New("analyzer does not support saved-source refresh")
 	} else {
-		affected, refreshErr = refresher.RefreshDisk(paths)
+		affected, refreshErr = refresher.RefreshDisk(refreshPaths)
 	}
 	if refreshErr != nil {
 		s.diskViewValid = false
@@ -488,7 +514,7 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 	}
 	if refreshErr != nil {
 		restartErr := fmt.Errorf("%w; saved-source intelligence remains disabled until the language server restarts", refreshErr)
-		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(paths, ", "), restartErr); err != nil {
+		if err := s.logAnalyzerTransitionError("refresh watched files", strings.Join(refreshPaths, ", "), restartErr); err != nil {
 			return err
 		}
 		return s.publishEmptyOpenDirs(affected)
@@ -497,6 +523,26 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 		return s.publishEmptyOpenDirs(affected)
 	}
 	return s.analyzeDirsNow(s.openAffectedDirs(affected))
+}
+
+func workspaceMetadataPath(path string) bool {
+	switch filepath.Base(path) {
+	case "go.mod", "go.work":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) logWorkspaceViewRefreshError(paths []string, err error) error {
+	return s.notify("window/logMessage", struct {
+		Type    int    `json:"type"`
+		Message string `json:"message"`
+	}{
+		Type: 1,
+		Message: "gsx: refresh workspace ownership for " + strings.Join(paths, ", ") + ": " + err.Error() +
+			"; workspace-owned operations remain disabled until a relevant metadata event succeeds",
+	})
 }
 
 func watchedFileRelevant(path string) bool {

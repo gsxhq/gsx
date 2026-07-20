@@ -20,6 +20,14 @@ type workspaceModuleState struct {
 	modulePath string
 }
 
+type preparedWorkspace struct {
+	folders     []workspaceFolder
+	roots       []string
+	modules     []string
+	owners      map[string]string
+	modulePaths map[string]string
+}
+
 // discoverWorkspaceModules resolves only the Go modules explicitly owned by
 // roots. A go.work at a root owns its use directives. Without one, the nearest
 // go.mod at or above the root owns it. Nested modules are never searched for.
@@ -189,7 +197,7 @@ func normalizeWorkspaceFolder(folder workspaceFolder) (workspaceFolder, string, 
 	return workspaceFolder{URI: pathToURI(path), Name: folder.Name}, path, nil
 }
 
-func prepareWorkspaceFolders(folders []workspaceFolder) ([]workspaceFolder, []string, []workspaceModuleState, error) {
+func prepareWorkspaceFolders(folders []workspaceFolder) (preparedWorkspace, error) {
 	type normalizedFolder struct {
 		folder workspaceFolder
 		path   string
@@ -198,7 +206,7 @@ func prepareWorkspaceFolders(folders []workspaceFolder) ([]workspaceFolder, []st
 	for _, folder := range folders {
 		cleanFolder, path, err := normalizeWorkspaceFolder(folder)
 		if err != nil {
-			return nil, nil, nil, err
+			return preparedWorkspace{}, err
 		}
 		normalized = append(normalized, normalizedFolder{folder: cleanFolder, path: path})
 	}
@@ -225,43 +233,61 @@ func prepareWorkspaceFolders(folders []workspaceFolder) ([]workspaceFolder, []st
 	}
 	modules, err := discoverWorkspaceModuleStates(roots)
 	if err != nil {
-		return nil, nil, nil, err
+		return preparedWorkspace{}, err
 	}
-	return cleanFolders, roots, modules, nil
+	prepared := preparedWorkspace{
+		folders: cleanFolders, roots: roots, modules: make([]string, len(modules)),
+		owners: make(map[string]string, len(modules)), modulePaths: make(map[string]string, len(modules)),
+	}
+	for i, state := range modules {
+		prepared.modules[i] = state.root
+		prepared.owners[state.root] = state.ownerRoot
+		prepared.modulePaths[state.root] = state.modulePath
+	}
+	return prepared, nil
 }
 
 func (s *Server) setWorkspaceFolders(folders []workspaceFolder) error {
-	cleanFolders, roots, states, err := prepareWorkspaceFolders(folders)
+	prepared, err := prepareWorkspaceFolders(folders)
 	if err != nil {
 		return err
 	}
-	modules := make([]string, len(states))
-	owners := make(map[string]string, len(states))
-	modulePaths := make(map[string]string, len(states))
-	for i, state := range states {
-		modules[i] = state.root
-		owners[state.root] = state.ownerRoot
-		modulePaths[state.root] = state.modulePath
+	s.applyPreparedWorkspace(prepared)
+	s.workspaceViewValid = true
+	return nil
+}
+
+func (s *Server) applyPreparedWorkspace(prepared preparedWorkspace) {
+	if slices.Equal(s.workspaceFolders, prepared.folders) && slices.Equal(s.workspaceRoots, prepared.roots) && slices.Equal(s.workspaceModules, prepared.modules) &&
+		maps.Equal(s.workspaceModuleOwners, prepared.owners) && maps.Equal(s.workspaceModulePaths, prepared.modulePaths) {
+		return
 	}
-	if slices.Equal(s.workspaceFolders, cleanFolders) && slices.Equal(s.workspaceRoots, roots) && slices.Equal(s.workspaceModules, modules) &&
-		maps.Equal(s.workspaceModuleOwners, owners) && maps.Equal(s.workspaceModulePaths, modulePaths) {
-		return nil
-	}
-	retained := make(map[string]moduleSymbolCache, len(states))
-	for _, module := range modules {
-		if s.workspaceModulePaths[module] == modulePaths[module] {
+	retained := make(map[string]moduleSymbolCache, len(prepared.modules))
+	for _, module := range prepared.modules {
+		if s.workspaceModulePaths[module] == prepared.modulePaths[module] {
 			if cached, ok := s.moduleSyms[module]; ok {
 				retained[module] = cached
 			}
 		}
 	}
-	s.workspaceFolders = cleanFolders
-	s.workspaceRoots = roots
-	s.workspaceModules = modules
-	s.workspaceModuleOwners = owners
-	s.workspaceModulePaths = modulePaths
+	s.workspaceFolders = prepared.folders
+	s.workspaceRoots = prepared.roots
+	s.workspaceModules = prepared.modules
+	s.workspaceModuleOwners = prepared.owners
+	s.workspaceModulePaths = prepared.modulePaths
 	s.moduleSyms = retained
 	s.invalidateNonSymbolModuleIndexes()
+}
+
+func (s *Server) refreshWorkspaceView() error {
+	prepared, err := prepareWorkspaceFolders(s.workspaceFolders)
+	if err != nil {
+		s.workspaceViewValid = false
+		s.invalidateModuleIndexes()
+		return err
+	}
+	s.applyPreparedWorkspace(prepared)
+	s.workspaceViewValid = true
 	return nil
 }
 

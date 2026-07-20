@@ -179,6 +179,67 @@ func TestWorkspaceSymbolContainerAmbiguityIsIndependentOfQuery(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSymbolOmitsStaleInBoundsNameSpan(t *testing.T) {
+	module := writeWorkspaceSymbolModule(t, filepath.Join(t.TempDir(), "module"))
+	path := filepath.Join(module, "page.gsx")
+	source := "package page\n\nvar Staled = 1\n"
+	writeWorkspaceSymbolSource(t, path, source)
+	a := &wsSymAnalyzer{symsByModule: map[string][]Symbol{
+		module: {{Name: "Target", Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(path, source, strings.Index(source, "Staled"))}},
+	}}
+	out := drive(t, a, workspaceSymbolInitializeFrame(module)+wsSymFrame(2, "Target")+exitFrame())
+	var symbols []SymbolInformation
+	decodeResult(t, out, 2, &symbols)
+	if len(symbols) != 0 {
+		t.Fatalf("stale in-bounds symbol name was published: %+v", symbols)
+	}
+}
+
+func TestWorkspaceSymbolNameValidationComparesEveryUTF8Byte(t *testing.T) {
+	module := writeWorkspaceSymbolModule(t, filepath.Join(t.TempDir(), "module"))
+	path := filepath.Join(module, "page.gsx")
+	source := "package page\n\nvar ê = 1\n"
+	writeWorkspaceSymbolSource(t, path, source)
+	a := &wsSymAnalyzer{symsByModule: map[string][]Symbol{
+		module: {{Name: "é", Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(path, source, strings.Index(source, "ê"))}},
+	}}
+	out := drive(t, a, workspaceSymbolInitializeFrame(module)+wsSymFrame(2, "")+exitFrame())
+	var symbols []SymbolInformation
+	decodeResult(t, out, 2, &symbols)
+	if len(symbols) != 0 {
+		t.Fatalf("same-length Unicode byte mismatch was published: %+v", symbols)
+	}
+}
+
+func TestWorkspaceSymbolTotalOrderBreaksRequiredTupleTies(t *testing.T) {
+	module := writeWorkspaceSymbolModule(t, filepath.Join(t.TempDir(), "module"))
+	path := filepath.Join(module, "page.gsx")
+	source := "package page\n\nvar Shared = 1\n"
+	writeWorkspaceSymbolSource(t, path, source)
+	position := authoredTokenPosition(path, source, strings.Index(source, "Shared"))
+	base := []Symbol{
+		{Name: "Shared", Kind: symKindVariable, Container: "Zulu", NamePos: position},
+		{Name: "Shared", Kind: symKindVariable, Container: "Alpha", NamePos: position},
+	}
+	run := func(symbols []Symbol) []SymbolInformation {
+		t.Helper()
+		a := &wsSymAnalyzer{symsByModule: map[string][]Symbol{module: symbols}}
+		out := drive(t, a, workspaceSymbolInitializeFrame(module)+wsSymFrame(2, "Shared")+exitFrame())
+		var result []SymbolInformation
+		decodeResult(t, out, 2, &result)
+		return result
+	}
+	forward := run(slices.Clone(base))
+	reversedInput := slices.Clone(base)
+	slices.Reverse(reversedInput)
+	reversed := run(reversedInput)
+	forwardJSON, _ := json.Marshal(forward)
+	reversedJSON, _ := json.Marshal(reversed)
+	if string(forwardJSON) != string(reversedJSON) {
+		t.Fatalf("tied symbols depend on analyzer order:\nforward=%s\nreverse=%s", forwardJSON, reversedJSON)
+	}
+}
+
 func TestWorkspaceSymbolPartitionsOverridesByExactModuleOwnership(t *testing.T) {
 	workspace := t.TempDir()
 	parent := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "parent"))

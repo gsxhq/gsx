@@ -154,6 +154,23 @@ func (snapshot *requestSourceSnapshot) locationForSpan(span sourceintel.Span) (L
 	return Location{URI: pathToURI(sourcePath(span.Path)), Range: rng}, true
 }
 
+// spanTextEquals validates a retained authored fact against this request's
+// authoritative bytes without materializing another string. Cached semantic
+// positions may remain in bounds after an edit while no longer naming the same
+// declaration, so bounds alone are not sufficient.
+func (snapshot *requestSourceSnapshot) spanTextEquals(span sourceintel.Span, want string) bool {
+	text, ok := snapshot.sourceText(span.Path)
+	if !ok || span.Start < 0 || span.End < span.Start || span.End > len(text) || span.End-span.Start != len(want) {
+		return false
+	}
+	for i := 0; i < len(want); i++ {
+		if text[span.Start+i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) locationForSpan(span sourceintel.Span) (Location, bool) {
 	return s.sourceSnapshot().locationForSpan(span)
 }

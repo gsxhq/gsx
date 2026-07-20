@@ -185,6 +185,9 @@ func TestInitializeWorkspaceOwnershipPrecedence(t *testing.T) {
 			if !slices.Equal(server.workspaceModules, tt.want) {
 				t.Fatalf("workspace modules = %v, want %v", server.workspaceModules, tt.want)
 			}
+			if !server.workspaceViewValid {
+				t.Fatal("successful initialize did not mark workspace ownership valid")
+			}
 		})
 	}
 }
@@ -262,7 +265,7 @@ func TestInitializeRejectsMalformedExplicitWorkspaceIdentityWithoutCWDFallback(t
 			if !strings.Contains(string(response["error"]), "initialize params") {
 				t.Fatalf("initialize error is not actionable: %s", response["error"])
 			}
-			if server.workspaceFolders != nil || server.workspaceRoots != nil || server.workspaceModules != nil {
+			if server.workspaceFolders != nil || server.workspaceRoots != nil || server.workspaceModules != nil || server.workspaceViewValid {
 				t.Fatalf("malformed initialize fell back to cwd: folders=%v roots=%v modules=%v", server.workspaceFolders, server.workspaceRoots, server.workspaceModules)
 			}
 		})
@@ -345,7 +348,7 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	if !slices.Equal(server.workspaceFolders, beforeFolders) || !slices.Equal(server.workspaceModules, beforeModules) {
 		t.Fatalf("rejected update partially applied: folders=%v modules=%v", server.workspaceFolders, server.workspaceModules)
 	}
-	if !server.moduleRefsValid || !server.moduleParamsValid || len(server.moduleSyms) != 1 || !server.moduleSyms[second].valid {
+	if !server.workspaceViewValid || !server.moduleRefsValid || !server.moduleParamsValid || len(server.moduleSyms) != 1 || !server.moduleSyms[second].valid {
 		t.Fatal("rejected workspace update invalidated whole-module caches")
 	}
 	if server.pkgs[first] != pkg {
