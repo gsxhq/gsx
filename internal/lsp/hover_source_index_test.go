@@ -175,15 +175,20 @@ component Box[T Labelish](value T) {
 func TestHoverSourceIndexHandler(t *testing.T) {
 	const source = `package page
 
-func helper() int { return 1 }
+func helper() int { _ = "😀"; result := 1; return result }
 `
 	pkg, path := analyzedLSPPackage(t, source)
 	uri := pathToURI(path)
-	cursor := positionForByteOffset(source, strings.Index(source, "helper"), encUTF16)
+	resultUse := strings.Index(source, "return result") + len("return ")
+	cursor := positionForByteOffset(source, resultUse, encUTF16)
 	out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, source)+hoverFrame(2, uri, cursor)+exitFrame())
 	got := hoverResult(t, out, 2)
-	if got == nil || !strings.Contains(got.Contents.Value, "func helper() int") {
-		t.Fatalf("hover = %+v, want top-level helper signature; output:\n%s", got, out)
+	if got == nil || !strings.Contains(got.Contents.Value, "var result int") {
+		t.Fatalf("hover = %+v, want top-level local; output:\n%s", got, out)
+	}
+	wantRange := rangeForSpan(source, resultUse, resultUse+len("result"), encUTF16)
+	if got.Range == nil || *got.Range != wantRange {
+		t.Fatalf("hover range = %+v, want UTF-16 range %+v", got.Range, wantRange)
 	}
 }
 
@@ -231,6 +236,66 @@ component Page() {
 		got := hoverResult(t, out, 2)
 		if got == nil || !strings.Contains(got.Contents.Value, "value First") {
 			t.Fatalf("hover = %+v, want specialized bound parameter; output:\n%s", got, out)
+		}
+	})
+}
+
+func TestHoverSpecializedTerminalNullPrecedesSourceIndex(t *testing.T) {
+	t.Run("failed control resolution", func(t *testing.T) {
+		const source = `package page
+
+component Page(disabled bool) {
+	{ if !disabled { <p/> } }
+}
+`
+		pkg, path := analyzedLSPPackage(t, source)
+		offset := strings.Index(source, "!disabled")
+		node, exprPos := exprNodeAtOffset(pkg, path, offset)
+		if node == nil || !isCtrlSpan(node, exprPos) {
+			t.Fatalf("cursor is not a control span: node=%T pos=%v", node, exprPos)
+		}
+		if _, _, _, ok := ctrlObjectAt(pkg, node, exprPos, offset); ok {
+			t.Fatal("control resolver unexpectedly found an object at the operator")
+		}
+		pkg.SourceIndex = conflictingDefinitionIndex(t, path, source, "T", offset, 0)
+		if semantic, ok := semanticHover(pkg, path, []byte(source), offset); !ok || !strings.Contains(semantic.Contents.Value, "type fake.T string") {
+			t.Fatalf("semantic fallback = %+v, want conflicting indexed type", semantic)
+		}
+
+		uri := pathToURI(path)
+		cursor := positionForByteOffset(source, offset, encUTF16)
+		out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, source)+hoverFrame(2, uri, cursor)+exitFrame())
+		if got := hoverResult(t, out, 2); got != nil {
+			t.Fatalf("hover = %+v, want terminal null for unresolved control span; output:\n%s", got, out)
+		}
+	})
+
+	t.Run("failed pipeline resolution", func(t *testing.T) {
+		const source = `package page
+
+component Page(value string) {
+	<p>{value |> truncate(5)}</p>
+}
+`
+		pkg, path := analyzedLSPPackage(t, source)
+		offset := strings.Index(source, "truncate(5)") + len("truncate(")
+		node, exprPos := exprNodeAtOffset(pkg, path, offset)
+		if node == nil || !hasPipeStages(node) {
+			t.Fatalf("cursor is not a piped expression: node=%T pos=%v", node, exprPos)
+		}
+		if _, _, ok := pipedTarget(pkg, node, exprPos, offset); ok {
+			t.Fatal("pipeline resolver unexpectedly found a target at the literal argument")
+		}
+		pkg.SourceIndex = conflictingDefinitionIndex(t, path, source, "T", offset, 0)
+		if semantic, ok := semanticHover(pkg, path, []byte(source), offset); !ok || !strings.Contains(semantic.Contents.Value, "type fake.T string") {
+			t.Fatalf("semantic fallback = %+v, want conflicting indexed type", semantic)
+		}
+
+		uri := pathToURI(path)
+		cursor := positionForByteOffset(source, offset, encUTF16)
+		out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, source)+hoverFrame(2, uri, cursor)+exitFrame())
+		if got := hoverResult(t, out, 2); got != nil {
+			t.Fatalf("hover = %+v, want terminal null for unresolved pipeline; output:\n%s", got, out)
 		}
 	})
 }

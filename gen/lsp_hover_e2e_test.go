@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/gsxhq/gsx/internal/lsp"
 )
@@ -54,7 +55,8 @@ import (
 type Alias string
 
 func duration(d time.Duration) float64 {
-	result := d.Hours()
+	prefix, result := "😀", d.Hours()
+	_ = prefix
 	return result
 }
 
@@ -81,22 +83,24 @@ component Page() {
 		id            int
 		name          string
 		cursor        int
+		wantStart     int
+		wantLength    int
 		wantFragments []string
 	}
 	requests := []request{
-		{id: 2, name: "external signature type", cursor: strings.Index(source, "time.Duration") + len("time."), wantFragments: []string{"type time.Duration int64"}},
-		{id: 3, name: "top-level local", cursor: strings.Index(source, "return result") + len("return "), wantFragments: []string{"var result float64"}},
-		{id: 4, name: "method selection", cursor: strings.Index(source, "d.Hours") + len("d."), wantFragments: []string{"func (time.Duration).Hours() float64"}},
-		{id: 5, name: "whole top-level call", cursor: strings.Index(source, "d.Hours()") + len("d.Hours"), wantFragments: []string{"float64"}},
-		{id: 6, name: "component declaration", cursor: strings.Index(source, "Card"), wantFragments: []string{"func Card", "[T widgets.Labelish]", "value T"}},
-		{id: 7, name: "component parameter declaration", cursor: strings.Index(source, "value T"), wantFragments: []string{"var value T"}},
-		{id: 8, name: "component parameter use", cursor: strings.Index(source, "{value}") + 1, wantFragments: []string{"var value T"}},
-		{id: 9, name: "same-package type argument", cursor: strings.Index(source, "Card[Alias]") + len("Card["), wantFragments: []string{"type Alias string"}},
-		{id: 10, name: "cross-package type argument", cursor: strings.Index(source, "Box[widgets.Label]") + len("Box[widgets."), wantFragments: []string{"type widgets.Label string"}},
-		{id: 11, name: "GoWithElements declaration", cursor: strings.Index(source, "nested"), wantFragments: []string{"func nested(input Alias) Alias"}},
-		{id: 12, name: "GoWithElements before markup", cursor: strings.Index(source, "local :="), wantFragments: []string{"var local Alias"}},
-		{id: 13, name: "GoWithElements inside markup", cursor: strings.Index(source, "{local}") + 1, wantFragments: []string{"var local Alias"}},
-		{id: 14, name: "GoWithElements after markup", cursor: strings.Index(source, "return local") + len("return "), wantFragments: []string{"var local Alias"}},
+		{id: 2, name: "external signature type", cursor: strings.Index(source, "time.Duration") + len("time."), wantStart: strings.Index(source, "time.Duration") + len("time."), wantLength: len("Duration"), wantFragments: []string{"type time.Duration int64"}},
+		{id: 3, name: "top-level local", cursor: strings.Index(source, "return result") + len("return "), wantStart: strings.Index(source, "return result") + len("return "), wantLength: len("result"), wantFragments: []string{"var result float64"}},
+		{id: 4, name: "method selection", cursor: strings.Index(source, "d.Hours") + len("d."), wantStart: strings.Index(source, "d.Hours") + len("d."), wantLength: len("Hours"), wantFragments: []string{"func (time.Duration).Hours() float64"}},
+		{id: 5, name: "whole top-level call", cursor: strings.Index(source, "d.Hours()") + len("d.Hours"), wantStart: strings.Index(source, "d.Hours()"), wantLength: len("d.Hours()"), wantFragments: []string{"float64"}},
+		{id: 6, name: "component declaration", cursor: strings.Index(source, "Card"), wantStart: strings.Index(source, "Card"), wantLength: len("Card"), wantFragments: []string{"func Card", "[T widgets.Labelish]", "value T"}},
+		{id: 7, name: "component parameter declaration", cursor: strings.Index(source, "value T"), wantStart: strings.Index(source, "value T"), wantLength: len("value"), wantFragments: []string{"var value T"}},
+		{id: 8, name: "component parameter use", cursor: strings.Index(source, "{value}") + 1, wantStart: strings.Index(source, "{value}") + 1, wantLength: len("value"), wantFragments: []string{"var value T"}},
+		{id: 9, name: "same-package type argument", cursor: strings.Index(source, "Card[Alias]") + len("Card["), wantStart: strings.Index(source, "Card[Alias]") + len("Card["), wantLength: len("Alias"), wantFragments: []string{"type Alias string"}},
+		{id: 10, name: "cross-package type argument", cursor: strings.Index(source, "Box[widgets.Label]") + len("Box[widgets."), wantStart: strings.Index(source, "Box[widgets.Label]") + len("Box[widgets."), wantLength: len("Label"), wantFragments: []string{"type widgets.Label string"}},
+		{id: 11, name: "GoWithElements declaration", cursor: strings.Index(source, "nested"), wantStart: strings.Index(source, "nested"), wantLength: len("nested"), wantFragments: []string{"func nested(input Alias) Alias"}},
+		{id: 12, name: "GoWithElements before markup", cursor: strings.Index(source, "local :="), wantStart: strings.Index(source, "local :="), wantLength: len("local"), wantFragments: []string{"var local Alias"}},
+		{id: 13, name: "GoWithElements inside markup", cursor: strings.Index(source, "{local}") + 1, wantStart: strings.Index(source, "{local}") + 1, wantLength: len("local"), wantFragments: []string{"var local Alias"}},
+		{id: 14, name: "GoWithElements after markup", cursor: strings.Index(source, "return local") + len("return "), wantStart: strings.Index(source, "return local") + len("return "), wantLength: len("local"), wantFragments: []string{"var local Alias"}},
 	}
 
 	frame := func(value any) string {
@@ -112,7 +116,7 @@ component Page() {
 		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
 	})
 	for _, request := range requests {
-		position := lspPositionAt(source, request.cursor)
+		position := lspUTF16PositionAt(source, request.cursor)
 		input += frame(map[string]any{
 			"jsonrpc": "2.0", "id": request.id, "method": "textDocument/hover",
 			"params": map[string]any{
@@ -144,6 +148,13 @@ component Page() {
 					t.Errorf("hover %q does not contain %q", hover.Contents.Value, fragment)
 				}
 			}
+			wantRange := lsp.Range{
+				Start: lspUTF16PositionAt(source, request.wantStart),
+				End:   lspUTF16PositionAt(source, request.wantStart+request.wantLength),
+			}
+			if hover.Range == nil || *hover.Range != wantRange {
+				t.Errorf("hover range = %+v, want %+v", hover.Range, wantRange)
+			}
 		})
 	}
 
@@ -155,6 +166,12 @@ component Page() {
 			t.Fatalf("physical generated file exists: %s", generated)
 		}
 	}
+}
+
+func lspUTF16PositionAt(source string, offset int) lsp.Position {
+	line := strings.Count(source[:offset], "\n")
+	lineStart := strings.LastIndexByte(source[:offset], '\n') + 1
+	return lsp.Position{Line: line, Character: len(utf16.Encode([]rune(source[lineStart:offset])))}
 }
 
 func authoredHoverResult(t *testing.T, output string, id int) *lsp.Hover {

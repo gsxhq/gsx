@@ -12,32 +12,37 @@ import (
 )
 
 func semanticHover(pkg *Package, path string, source []byte, offset int) (Hover, bool) {
+	hover, _, ok := semanticHoverOccurrence(pkg, path, source, offset)
+	return hover, ok
+}
+
+func semanticHoverOccurrence(pkg *Package, path string, source []byte, offset int) (Hover, sourceintel.Span, bool) {
 	if pkg == nil || pkg.SourceIndex == nil || !pkg.SourceIndex.MatchesSource(path, source) {
-		return Hover{}, false
+		return Hover{}, sourceintel.Span{}, false
 	}
 	occurrence, ok := pkg.SourceIndex.At(path, offset)
 	if !ok {
-		return Hover{}, false
+		return Hover{}, sourceintel.Span{}, false
 	}
 	if occurrence.Object != nil {
 		object := sourceintel.Origin(occurrence.Object)
 		if _, authored := pkg.SourceIndex.Definition(object); !authored {
 			if object.Pkg() != nil {
 				if pkg.Fset == nil || !object.Pos().IsValid() {
-					return Hover{}, false
+					return Hover{}, sourceintel.Span{}, false
 				}
 				position := pkg.Fset.Position(object.Pos())
 				if position.Filename == "" || !strings.HasSuffix(position.Filename, ".go") || strings.HasSuffix(position.Filename, ".x.go") {
-					return Hover{}, false
+					return Hover{}, sourceintel.Span{}, false
 				}
 			}
 		}
-		return Hover{Contents: markdownGo(types.ObjectString(occurrence.Object, qualifierFor(pkg)))}, true
+		return Hover{Contents: markdownGo(types.ObjectString(occurrence.Object, qualifierFor(pkg)))}, occurrence.Span, true
 	}
 	if occurrence.HasTypeValue && occurrence.TypeAndValue.Type != nil {
-		return Hover{Contents: markdownGo(types.TypeString(occurrence.TypeAndValue.Type, qualifierFor(pkg)))}, true
+		return Hover{Contents: markdownGo(types.TypeString(occurrence.TypeAndValue.Type, qualifierFor(pkg)))}, occurrence.Span, true
 	}
-	return Hover{}, false
+	return Hover{}, sourceintel.Span{}, false
 }
 
 // handleHover answers textDocument/hover for a .gsx file: it shows the Go
@@ -128,11 +133,13 @@ func (s *Server) handleHover(f frame) error {
 					rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
 					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
 				}
+				return s.reply(f.ID, nil)
 			} else if hasPipeStages(node) {
 				if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
 					rng := rangeForSpan(text, span[0], span[1], s.enc)
 					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
 				}
+				return s.reply(f.ID, nil)
 			} else if skel := pkg.ExprMap[node]; skel != nil {
 				exprStart := pkg.GSXFset.Position(exprPos).Offset
 				skelPos := skel.Pos() + token.Pos(off-exprStart)
@@ -158,7 +165,9 @@ func (s *Server) handleHover(f frame) error {
 			}
 		}
 	}
-	if hover, ok := semanticHover(pkg, path, []byte(text), off); ok {
+	if hover, span, ok := semanticHoverOccurrence(pkg, path, []byte(text), off); ok {
+		rng := rangeForSpan(text, span.Start, span.End, s.enc)
+		hover.Range = &rng
 		return s.reply(f.ID, hover)
 	}
 	return s.reply(f.ID, nil)
