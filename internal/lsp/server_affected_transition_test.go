@@ -18,18 +18,22 @@ type affectedTransitionAnalyzer struct {
 	nilAnalyzer
 	setAffected   []string
 	setErr        error
+	setPaths      []string
 	clearAffected []string
 	clearErr      error
+	clearPaths    []string
 	analyzed      []string
 	pkg           *Package
 	analyzeErr    error
 }
 
-func (a *affectedTransitionAnalyzer) SetOverride(string, []byte) ([]string, error) {
+func (a *affectedTransitionAnalyzer) SetOverride(path string, _ []byte) ([]string, error) {
+	a.setPaths = append(a.setPaths, path)
 	return append([]string(nil), a.setAffected...), a.setErr
 }
 
-func (a *affectedTransitionAnalyzer) ClearOverride(string) ([]string, error) {
+func (a *affectedTransitionAnalyzer) ClearOverride(path string) ([]string, error) {
+	a.clearPaths = append(a.clearPaths, path)
 	return append([]string(nil), a.clearAffected...), a.clearErr
 }
 
@@ -48,6 +52,40 @@ func rawParams(t *testing.T, value any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestInvalidDocumentURIsFailClosedBeforeStateOrAnalyzerMutation(t *testing.T) {
+	analyzer := &affectedTransitionAnalyzer{}
+	var out bytes.Buffer
+	server := NewServer(strings.NewReader(""), &out, analyzer)
+	invalidURI := "file://remote.example/tmp/page.gsx"
+
+	if err := server.handleDidOpen(frame{Params: rawParams(t, map[string]any{
+		"textDocument": map[string]any{"uri": invalidURI, "version": 1, "text": "package page"},
+	})}); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.handleDidChange(frame{Params: rawParams(t, map[string]any{
+		"textDocument":   map[string]any{"uri": invalidURI, "version": 2},
+		"contentChanges": []map[string]any{{"text": "package changed"}},
+	})}); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.handleDidClose(frame{Params: rawParams(t, map[string]any{
+		"textDocument": map[string]any{"uri": invalidURI},
+	})}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(server.docs.docs) != 0 || len(server.lastURI) != 0 || len(server.gen) != 0 || len(server.timers) != 0 {
+		t.Fatalf("invalid document mutated server state: docs=%v lastURI=%v gen=%v timers=%v", server.docs.docs, server.lastURI, server.gen, server.timers)
+	}
+	if len(analyzer.setPaths) != 0 || len(analyzer.clearPaths) != 0 || len(analyzer.analyzed) != 0 {
+		t.Fatalf("invalid document reached analyzer: set=%v clear=%v analyzed=%v", analyzer.setPaths, analyzer.clearPaths, analyzer.analyzed)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("invalid document produced output: %s", out.String())
+	}
 }
 
 func TestDidChangeSchedulesExactOpenAffectedDirectories(t *testing.T) {

@@ -455,8 +455,8 @@ func (s *Server) handleDidChangeWatchedFiles(f frame) error {
 	paths := make([]string, 0, len(params.Changes))
 	fallbackDirs := map[string]bool{}
 	for _, change := range params.Changes {
-		path := filepath.Clean(uriToPath(change.URI))
-		if path == "." || !watchedFileRelevant(path) {
+		path, err := localFileURIPath(change.URI)
+		if err != nil || !watchedFileRelevant(path) {
 			continue
 		}
 		paths = append(paths, path)
@@ -686,9 +686,12 @@ func (s *Server) handleDidOpen(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
-	s.docs.open(p.TextDocument.URI, p.TextDocument.Text, p.TextDocument.Version)
-	uri := p.TextDocument.URI
-	path := uriToPath(uri)
+	path, err := localFileURIPath(p.TextDocument.URI)
+	if err != nil {
+		return nil
+	}
+	uri := pathToURI(path)
+	s.docs.open(uri, p.TextDocument.Text, p.TextDocument.Version)
 	s.invalidateModuleIndexesForPath(path)
 	dir := filepath.Dir(path)
 	s.lastURI[dir] = uri
@@ -728,11 +731,14 @@ func (s *Server) handleDidChange(f frame) error {
 	if len(p.ContentChanges) == 0 {
 		return nil
 	}
+	path, err := localFileURIPath(p.TextDocument.URI)
+	if err != nil {
+		return nil
+	}
+	uri := pathToURI(path)
 	// Full-document sync: the last change carries the whole new text.
 	text := p.ContentChanges[len(p.ContentChanges)-1].Text
-	s.docs.update(p.TextDocument.URI, text, p.TextDocument.Version)
-	uri := p.TextDocument.URI
-	path := uriToPath(uri)
+	s.docs.update(uri, text, p.TextDocument.Version)
 	s.invalidateModuleIndexesForPath(path)
 	dir := filepath.Dir(path)
 	s.lastURI[dir] = uri
@@ -771,8 +777,11 @@ func (s *Server) handleDidClose(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
-	uri := p.TextDocument.URI
-	path := uriToPath(uri)
+	path, err := localFileURIPath(p.TextDocument.URI)
+	if err != nil {
+		return nil
+	}
+	uri := pathToURI(path)
 	s.invalidateModuleIndexesForPath(path)
 	dir := filepath.Dir(path)
 	s.beginMutation(dir)

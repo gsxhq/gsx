@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -180,19 +179,9 @@ func normalizeWorkspacePath(path string) (string, error) {
 }
 
 func normalizeWorkspaceFolder(folder workspaceFolder) (workspaceFolder, string, error) {
-	parsed, err := url.Parse(folder.URI)
+	path, err := localFileURIPath(folder.URI)
 	if err != nil {
-		return workspaceFolder{}, "", fmt.Errorf("workspace folder URI %q: %w", folder.URI, err)
-	}
-	hostname := parsed.Hostname()
-	if !strings.EqualFold(parsed.Scheme, "file") || parsed.User != nil || parsed.Port() != "" ||
-		(parsed.Host != "" && (!strings.EqualFold(hostname, "localhost") || !strings.EqualFold(parsed.Host, hostname))) ||
-		parsed.Path == "" {
-		return workspaceFolder{}, "", fmt.Errorf("workspace folder URI %q is not a local file URI", folder.URI)
-	}
-	path, err := normalizeWorkspacePath(parsed.Path)
-	if err != nil {
-		return workspaceFolder{}, "", fmt.Errorf("workspace folder URI %q: %w", folder.URI, err)
+		return workspaceFolder{}, "", fmt.Errorf("workspace folder URI %q is not a local file URI: %w", folder.URI, err)
 	}
 	return workspaceFolder{URI: pathToURI(path), Name: folder.Name}, path, nil
 }

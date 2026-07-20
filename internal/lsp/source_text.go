@@ -249,7 +249,14 @@ func sourcePath(path string) string {
 	if path == "" {
 		return ""
 	}
-	return filepath.Clean(uriToPath(path))
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	decoded, err := localFileURIPath(path)
+	if err != nil {
+		return ""
+	}
+	return decoded
 }
 
 func (snapshot *requestSourceSnapshot) locationForAuthoredPosition(pos token.Position, length int) (Location, bool) {

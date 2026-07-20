@@ -36,7 +36,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
-| Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + find-references + formatting ship; completion and external/non-project references deferred. Read intelligence does not consume physical `.x.go` files. |
+| Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + find-references + formatting ship; completion and external/non-project references deferred. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
 | Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.4.5) + `github.com/gsxhq/vite` (v0.2.0). |
 
 ## Done
@@ -525,7 +525,8 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   navigation across component declarations/signatures/calls, explicit type
   arguments, top-level Go, and Go surrounding nested markup, while preserving
   specialised component-family targets. External Go objects resolve to real
-  `.go` declarations; generated glue and physical `.x.go` never become targets.
+  `.go` declarations; exact paired generated `.x.go` glue never becomes a target,
+  while legitimate unpaired authored `.x.go` remains navigable.
 - [x] **Hover** (`textDocument/hover`) - gopls-style type/signature from the same
   retained authored semantic index; component declarations/calls preserve GSX
   presentation and all valid authored Go regions are covered.

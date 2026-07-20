@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,6 +173,74 @@ component Box[T Labelish](value T) {
 			t.Fatalf("semanticDefinition(generated glue) = %+v, want no target", got)
 		}
 	})
+}
+
+func TestSemanticDefinitionFreezesPairedGeneratedOwnershipForRequest(t *testing.T) {
+	const source = "package page\n\ncomponent Page() {\n\t<p>{target}</p>\n}\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "page.gsx")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	targetPath := filepath.Join(dir, "hand.x.go")
+	const targetSource = "package page\n\nvar target int\nvar _ = target\n"
+	if err := os.WriteFile(targetPath, []byte(targetSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	useOffset := strings.Index(source, "target")
+	index, fset := goTargetSourceIndex(t, path, source, useOffset, targetPath, targetSource)
+	pkg := &Package{SourceIndex: index, Fset: fset}
+	occurrence, ok := index.At(path, useOffset)
+	if !ok || occurrence.Object == nil {
+		t.Fatalf("SourceIndex.At(%q, %d) = (%+v, %t), want target occurrence", path, useOffset, occurrence, ok)
+	}
+	if position := fset.Position(sourceintel.Origin(occurrence.Object).Pos()); position.Filename != targetPath {
+		t.Fatalf("target object position = %+v, want filename %q", position, targetPath)
+	}
+
+	t.Run("sibling created after authored classification", func(t *testing.T) {
+		sources := newTestRequestSourceSnapshot()
+		first, ok := semanticDefinitionFromSnapshot(pkg, path, []byte(source), useOffset, sources)
+		if !ok || first.Go.Filename != targetPath {
+			t.Fatalf("first semantic definition = (%+v, %t), want authored %q", first, ok, targetPath)
+		}
+		if err := os.WriteFile(strings.TrimSuffix(targetPath, ".x.go")+".gsx", []byte("package page\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		second, ok := semanticDefinitionFromSnapshot(pkg, path, []byte(source), useOffset, sources)
+		if !ok || second != first {
+			t.Fatalf("second semantic definition = (%+v, %t), want frozen %+v", second, ok, first)
+		}
+		if location, ok := sources.locationForGoPosition(second.Go, 0); !ok || location.URI != pathToURI(targetPath) {
+			t.Fatalf("location = (%+v, %t), want authored target URI %q", location, ok, pathToURI(targetPath))
+		}
+	})
+
+	t.Run("sibling removed after generated classification", func(t *testing.T) {
+		gsxPath := strings.TrimSuffix(targetPath, ".x.go") + ".gsx"
+		if err := os.WriteFile(gsxPath, []byte("package page\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sources := newTestRequestSourceSnapshot()
+		if got, ok := semanticDefinitionFromSnapshot(pkg, path, []byte(source), useOffset, sources); ok {
+			t.Fatalf("first semantic definition = %+v, want generated target rejected", got)
+		}
+		if err := os.Remove(gsxPath); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := semanticDefinitionFromSnapshot(pkg, path, []byte(source), useOffset, sources); ok {
+			t.Fatalf("second semantic definition = %+v, want frozen generated rejection", got)
+		}
+	})
+}
+
+func newTestRequestSourceSnapshot() *requestSourceSnapshot {
+	return &requestSourceSnapshot{
+		enc:       encUTF16,
+		sources:   make(map[string]*capturedSource),
+		openGSX:   make(map[string]struct{}),
+		ownership: make(map[string]pairedGeneratedOwnership),
+	}
 }
 
 func TestDefinitionSourceIndexHandler(t *testing.T) {
@@ -438,6 +507,42 @@ func generatedGlueIndex(t *testing.T, path, source string, useStart int) (*sourc
 		SourceVersion: sourceintel.SourceVersion{Size: len(source), SHA256: sha256.Sum256([]byte(source))},
 	}})
 	return index, fset
+}
+
+func goTargetSourceIndex(t *testing.T, path, source string, useStart int, targetPath, targetSource string) (*sourceintel.Index, *token.FileSet) {
+	t.Helper()
+	useGenerated := strings.LastIndex(targetSource, "target")
+	sourceMap, err := sourceintel.NewSourceMap(len(targetSource), len(source), path, []sourceintel.Segment{{
+		Source:         sourceintel.Span{Path: path, Start: useStart, End: useStart + len("target")},
+		GeneratedStart: useGenerated,
+		GeneratedEnd:   useGenerated + len("target"),
+		Capabilities:   sourceintel.Definition | sourceintel.Hover,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, targetPath, targetSource, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := &types.Info{
+		Types:      map[ast.Expr]types.TypeAndValue{},
+		Defs:       map[*ast.Ident]types.Object{},
+		Uses:       map[*ast.Ident]types.Object{},
+		Implicits:  map[ast.Node]types.Object{},
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+		Scopes:     map[ast.Node]*types.Scope{},
+	}
+	if _, err := new(types.Config).Check("example.test/page", fset, []*ast.File{file}, info); err != nil {
+		t.Fatal(err)
+	}
+	return sourceintel.BuildIndex(info, []sourceintel.MappedFile{{
+		AST:           file,
+		TokenFile:     fset.File(file.Pos()),
+		SourceMap:     sourceMap,
+		SourceVersion: sourceintel.SourceVersion{Size: len(source), SHA256: sha256.Sum256([]byte(source))},
+	}}), fset
 }
 
 func definitionFrame(id int, uri string, position Position) string {

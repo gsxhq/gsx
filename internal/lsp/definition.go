@@ -20,6 +20,14 @@ type semanticDefinitionTarget struct {
 }
 
 func semanticDefinition(pkg *Package, path string, source []byte, offset int) (semanticDefinitionTarget, bool) {
+	return semanticDefinitionFromSnapshot(pkg, path, source, offset, &requestSourceSnapshot{
+		sources:   make(map[string]*capturedSource),
+		openGSX:   make(map[string]struct{}),
+		ownership: make(map[string]pairedGeneratedOwnership),
+	})
+}
+
+func semanticDefinitionFromSnapshot(pkg *Package, path string, source []byte, offset int, sources *requestSourceSnapshot) (semanticDefinitionTarget, bool) {
 	if pkg == nil || pkg.SourceIndex == nil || !pkg.SourceIndex.MatchesSource(path, source) {
 		return semanticDefinitionTarget{}, false
 	}
@@ -38,7 +46,7 @@ func semanticDefinition(pkg *Package, path string, source []byte, offset int) (s
 	if goPosition.Filename == "" || !strings.HasSuffix(goPosition.Filename, ".go") {
 		return semanticDefinitionTarget{}, false
 	}
-	if (&requestSourceSnapshot{sources: make(map[string]*capturedSource)}).isPairedGeneratedOutput(goPosition.Filename) {
+	if sources == nil || sources.isPairedGeneratedOutput(goPosition.Filename) {
 		return semanticDefinitionTarget{}, false
 	}
 	return semanticDefinitionTarget{Go: goPosition}, true
@@ -589,7 +597,7 @@ func (s *Server) handleDefinition(f frame) error {
 		}
 		return s.reply(f.ID, result)
 	}
-	if target, ok := semanticDefinition(pkg, path, []byte(text), off); ok {
+	if target, ok := semanticDefinitionFromSnapshot(pkg, path, []byte(text), off, sources); ok {
 		if target.Authored.Path != "" {
 			if location, ok := sources.locationForSpan(target.Authored); ok {
 				return s.reply(f.ID, location)
