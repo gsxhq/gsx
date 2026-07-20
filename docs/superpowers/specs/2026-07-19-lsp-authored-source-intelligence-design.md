@@ -467,9 +467,11 @@ throwaway probe programs rather than reading only the diff.
 
 ## Implementation evidence (2026-07-20)
 
-The approved design above is unchanged. This appendix records the executable
-evidence gathered after implementation on Go 1.26.1 (`darwin/arm64`, Apple M3
-Ultra).
+The approved design above is unchanged. This appendix records executable
+evidence gathered on Go 1.26.1 (`darwin/arm64`, Apple M3 Ultra) at the exact
+code/test commit
+`87cf1ba517319aa833deb09b5ded8efe9f18ce12`. The later evidence-only commit
+changes this appendix and no benchmarked code.
 
 ### Generated-file independence and consumer probe
 
@@ -478,7 +480,14 @@ paired output absent, invalid, stale, and conflicting. Indexed occurrences,
 declarations, and package scope are identical, and poison bytes/modtimes are
 unchanged. `TestLSPStructuredAnswersIgnorePhysicalGeneratedFile` repeats the
 same four states through definition, hover, document symbols, and workspace
-symbols with a fresh production analyzer/server for each state.
+symbols with a fresh production analyzer/server for each state. Its assertions
+are independently source-derived and exact for result URIs, UTF-16 ranges,
+hover signatures, document inventories, workspace order, poison bytes, and
+modtimes. `TestRequestSourceSnapshotFreezesExactPairedGeneratedOwnership`
+additionally proves one request cannot reclassify a paired output after a GSX
+sibling is removed or created. `TestWorkspaceSymbolsMultiModuleAuthoredSourceE2E`
+covers open-only GSX directories, disk/override deduplication, exact lexical
+module ownership, close invalidation, and unpaired authored `.x.go` targets.
 
 The manual consumer fixture was
 `/Users/jackieli/work/one-learning-gsx` at commit
@@ -487,8 +496,10 @@ module while excluding every `.x.go`, queried `time.Duration`, `Badge`,
 `variant`, `pgtype.Bool`, and `duration.Hours`, plus document inventories for
 the four named files and workspace `Badge` symbols. It then added conflicting
 poison at the four paired output paths and repeated with a fresh analyzer and
-server. Every result was non-null and byte-identical; poison bytes/modtimes
-were unchanged.
+server. Exact definition targets, substantive hover signatures and ranges,
+required document/workspace symbols, and deterministic workspace order were
+independently checked; absent and poisoned result bytes were identical, and
+poison bytes/modtimes were unchanged.
 
 ```sh
 GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
@@ -499,16 +510,19 @@ GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
 
 The existing synthetic fixture contains 50 packages, 200 `.gsx` files, and 50
 `.go` files. Five independent runs were captured at baseline commit `b915e57c`
-and at the implementation head. Values below are the median of each run's
-reported metric, followed by the five-run range. These are comparable fixture
-measurements, not a causal attribution to one individual implementation part.
+and code commit `87cf1ba5`. The baseline remains compatible: the only
+`gen/perf_test.go` difference is after-side source-index reporting; fixture
+construction, workload, and existing metrics are unchanged. Values below are
+the median of each run's reported metric, followed by the five-run range. These
+are comparable fixture measurements, not a causal attribution to one
+individual implementation part.
 
-| Metric | `b915e57c` | implementation |
+| Metric | `b915e57c` | `87cf1ba5` |
 | --- | ---: | ---: |
-| cold per-package median | 364.875 us (362.583-391.125 us) | 386.667 us (382.250-389.333 us) |
-| cold total, 50 packages | 421.847 ms (415.091-446.631 ms) | 417.639 ms (416.058-420.830 ms) |
-| warm per-package median | 41.375 us (40.791-41.875 us) | 43.333 us (42.500-51.375 us) |
-| retained HeapInuse delta | 57.4 MiB (55.0-59.7 MiB) | 57.0 MiB (56.6-58.7 MiB) |
+| cold per-package median | 364.875 us (362.583-391.125 us) | 397.417 us (394.791-406.583 us) |
+| cold total, 50 packages | 421.847 ms (415.091-446.631 ms) | 422.795 ms (416.799-429.418 ms) |
+| warm per-package median | 41.375 us (40.791-41.875 us) | 43.125 us (42.708-43.459 us) |
+| retained HeapInuse delta | 57.4 MiB (55.0-59.7 MiB) | 57.7 MiB (56.8-60.2 MiB) |
 | total allocation delta | 166.2 MiB (166.1-166.6 MiB) | 167.6 MiB (167.4-167.9 MiB) |
 
 The implementation fixture retained 200 source versions and 800 indexed
@@ -532,7 +546,7 @@ git worktree add --detach /tmp/gsx-lsp-baseline-task11 b915e57c
   GSX_PERF=1 go test ./gen -run TestPerfBaseline -count=5 -v) \
   | tee /tmp/gsx-lsp-perf-before.txt
 GSX_PERF=1 go test ./gen -run TestPerfBaseline -count=5 -v \
-  | tee /tmp/gsx-lsp-perf-after.txt
+  | tee /tmp/gsx-lsp-perf-after-87cf1ba5.txt
 git worktree remove -f /tmp/gsx-lsp-baseline-task11
 ```
 
@@ -543,13 +557,13 @@ columns were stable unless shown as a range.
 
 | Benchmark | time/op median (range) | B/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `BenchmarkModuleAnalyzeSourceIndex` | 143.694 us (142.535-145.210 us) | 129421-129472 | 2080 |
-| `BenchmarkSourceIndexLookup` | 41.28 ns (40.85-41.79 ns) | 0 | 0 |
-| `BenchmarkSemanticDefinition` | 136.3 ns (135.6-144.0 ns) | 0 | 0 |
-| `BenchmarkSemanticHover` | 433.1 ns (421.7-453.9 ns) | 464 | 7 |
-| `BenchmarkDocumentSymbols` | 758.3 ns (751.4-768.7 ns) | 1656 | 7 |
-| `BenchmarkCachedWorkspaceSymbols` | 10.584 us (10.530-11.114 us) | 2529-2531 | 25 |
-| `BenchmarkColdModuleWorkspaceSymbols` | 342.459 ms (332.380-367.170 ms) | 155489056-155656506 | 2857842-2858094 |
+| `BenchmarkModuleAnalyzeSourceIndex` | 144.613 us (143.391-145.549 us) | 129764-129824 | 2082 |
+| `BenchmarkSourceIndexLookup` | 42.005 ns (41.86-42.20 ns) | 0 | 0 |
+| `BenchmarkSemanticDefinition` | 137.5 ns (136.5-144.9 ns) | 0 | 0 |
+| `BenchmarkSemanticHover` | 472.7 ns (470.6-478.3 ns) | 560 | 9 |
+| `BenchmarkDocumentSymbols` | 741.8 ns (730.8-754.2 ns) | 1656 | 7 |
+| `BenchmarkCachedWorkspaceSymbols` | 11.176 us (11.078-11.313 us) | 2655-2658 | 27 |
+| `BenchmarkColdModuleWorkspaceSymbols` | 310.048 ms (308.194-312.701 ms) | 155492782-155569806 | 2857874-2857970 |
 
 The cold workspace benchmark intentionally creates a fresh analyzer/module
 inventory each iteration; cached workspace symbols retain one analyzer
@@ -560,7 +574,7 @@ are outside timed loops.
 ```sh
 go test ./internal/codegen ./internal/lsp ./gen -run '^$' \
   -bench 'SourceIndex|SemanticDefinition|SemanticHover|DocumentSymbols|WorkspaceSymbols' \
-  -benchmem -count=10 | tee /tmp/gsx-lsp-index-after.txt
+  -benchmem -count=10 | tee /tmp/gsx-lsp-index-after-87cf1ba5.txt
 go test ./internal/sourceintel ./internal/codegen ./internal/lsp ./gen -count=1
 make check
 make lint
