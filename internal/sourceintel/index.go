@@ -57,8 +57,24 @@ type MappedFile struct {
 	SourceVersion SourceVersion
 }
 
+type occurrenceIndex struct {
+	items []Occurrence
+	nodes []occurrenceNode
+	root  int
+}
+
+// occurrenceNode is a centered interval-tree node. The two orders let a point
+// query stop immediately after the center-crossing intervals that contain it.
+type occurrenceNode struct {
+	center  int
+	left    int
+	right   int
+	byStart []int
+	byEnd   []int
+}
+
 type Index struct {
-	occurrences  map[string][]Occurrence
+	occurrences  map[string]occurrenceIndex
 	definitions  map[types.Object]Span
 	declarations map[string][]Declaration
 	sources      map[string]SourceVersion
@@ -66,7 +82,7 @@ type Index struct {
 
 func BuildIndex(info *types.Info, files []MappedFile) *Index {
 	index := &Index{
-		occurrences:  make(map[string][]Occurrence),
+		occurrences:  make(map[string]occurrenceIndex),
 		definitions:  make(map[types.Object]Span),
 		declarations: make(map[string][]Declaration),
 		sources:      make(map[string]SourceVersion),
@@ -82,26 +98,8 @@ func BuildIndex(info *types.Info, files []MappedFile) *Index {
 		index.harvestOccurrences(info, file)
 		index.harvestDeclarations(info, file)
 	}
-	for path := range index.occurrences {
-		occurrences := index.occurrences[path]
-		sort.SliceStable(occurrences, func(a, b int) bool {
-			left, right := occurrences[a], occurrences[b]
-			if left.Span.Start != right.Span.Start {
-				return left.Span.Start < right.Span.Start
-			}
-			leftIdentifier := left.Kind != Expression
-			rightIdentifier := right.Kind != Expression
-			if leftIdentifier != rightIdentifier {
-				return leftIdentifier
-			}
-			leftLength := left.Span.End - left.Span.Start
-			rightLength := right.Span.End - right.Span.Start
-			if leftLength != rightLength {
-				return leftLength < rightLength
-			}
-			return left.Kind < right.Kind
-		})
-		index.occurrences[path] = occurrences
+	for path, occurrences := range index.occurrences {
+		index.occurrences[path] = newOccurrenceIndex(occurrences.items)
 	}
 	for path := range index.declarations {
 		declarations := index.declarations[path]
@@ -149,7 +147,7 @@ func (i *Index) harvestOccurrences(info *types.Info, file MappedFile) {
 		if !ok {
 			return true
 		}
-		i.occurrences[span.Path] = append(i.occurrences[span.Path], Occurrence{
+		i.addOccurrence(Occurrence{
 			Span:         span,
 			Kind:         Expression,
 			TypeAndValue: typeAndValue,
@@ -164,7 +162,7 @@ func (i *Index) addIdentifier(file MappedFile, ident *ast.Ident, kind Occurrence
 	if !ok {
 		return
 	}
-	i.occurrences[span.Path] = append(i.occurrences[span.Path], Occurrence{
+	i.addOccurrence(Occurrence{
 		Span:   span,
 		Kind:   kind,
 		Object: object,
@@ -172,6 +170,87 @@ func (i *Index) addIdentifier(file MappedFile, ident *ast.Ident, kind Occurrence
 	if kind == IdentifierDefinition {
 		i.definitions[Origin(object)] = span
 	}
+}
+
+func (i *Index) addOccurrence(occurrence Occurrence) {
+	index := i.occurrences[occurrence.Span.Path]
+	index.items = append(index.items, occurrence)
+	i.occurrences[occurrence.Span.Path] = index
+}
+
+func newOccurrenceIndex(occurrences []Occurrence) occurrenceIndex {
+	index := occurrenceIndex{root: -1}
+	for _, occurrence := range occurrences {
+		if occurrence.Span.End > occurrence.Span.Start {
+			index.items = append(index.items, occurrence)
+		}
+	}
+	sort.SliceStable(index.items, func(left, right int) bool {
+		return occurrenceLess(index.items[left], index.items[right])
+	})
+	indices := make([]int, len(index.items))
+	for item := range index.items {
+		indices[item] = item
+	}
+	index.root = index.build(indices)
+	return index
+}
+
+func occurrenceLess(left, right Occurrence) bool {
+	if left.Span.Start != right.Span.Start {
+		return left.Span.Start < right.Span.Start
+	}
+	leftIdentifier := left.Kind != Expression
+	rightIdentifier := right.Kind != Expression
+	if leftIdentifier != rightIdentifier {
+		return leftIdentifier
+	}
+	leftLength := left.Span.End - left.Span.Start
+	rightLength := right.Span.End - right.Span.Start
+	if leftLength != rightLength {
+		return leftLength < rightLength
+	}
+	return left.Kind < right.Kind
+}
+
+func (i *occurrenceIndex) build(indices []int) int {
+	if len(indices) == 0 {
+		return -1
+	}
+	center := i.items[indices[len(indices)/2]].Span.Start
+	left := make([]int, 0, len(indices)/2)
+	right := make([]int, 0, len(indices)/2)
+	overlaps := make([]int, 0, len(indices))
+	for _, item := range indices {
+		span := i.items[item].Span
+		switch {
+		case span.End <= center:
+			left = append(left, item)
+		case span.Start > center:
+			right = append(right, item)
+		default:
+			overlaps = append(overlaps, item)
+		}
+	}
+	nodeIndex := len(i.nodes)
+	i.nodes = append(i.nodes, occurrenceNode{
+		center:  center,
+		left:    -1,
+		right:   -1,
+		byStart: overlaps,
+		byEnd:   append([]int(nil), overlaps...),
+	})
+	sort.SliceStable(i.nodes[nodeIndex].byEnd, func(left, right int) bool {
+		leftOccurrence := i.items[i.nodes[nodeIndex].byEnd[left]]
+		rightOccurrence := i.items[i.nodes[nodeIndex].byEnd[right]]
+		if leftOccurrence.Span.End != rightOccurrence.Span.End {
+			return leftOccurrence.Span.End > rightOccurrence.Span.End
+		}
+		return occurrenceLess(leftOccurrence, rightOccurrence)
+	})
+	i.nodes[nodeIndex].left = i.build(left)
+	i.nodes[nodeIndex].right = i.build(right)
+	return nodeIndex
 }
 
 func (i *Index) harvestDeclarations(info *types.Info, file MappedFile) {
@@ -311,23 +390,64 @@ func Origin(object types.Object) types.Object {
 }
 
 func (i *Index) At(path string, offset int) (Occurrence, bool) {
-	occurrences := i.occurrences[path]
-	end := sort.Search(len(occurrences), func(index int) bool {
-		return occurrences[index].Span.Start > offset
-	})
+	occurrence, ok, _ := i.at(path, offset)
+	return occurrence, ok
+}
+
+func (i *Index) at(path string, offset int) (Occurrence, bool, int) {
+	index, ok := i.occurrences[path]
+	if !ok {
+		return Occurrence{}, false, 0
+	}
+	return index.at(offset)
+}
+
+func (i occurrenceIndex) at(offset int) (Occurrence, bool, int) {
 	var best Occurrence
 	found := false
-	for index := end - 1; index >= 0; index-- {
-		candidate := occurrences[index]
-		if offset < candidate.Span.Start || offset >= candidate.Span.End {
-			continue
-		}
-		if !found || occurrencePreferred(candidate, best) {
-			best = candidate
-			found = true
+	visits := 0
+	for nodeIndex := i.root; nodeIndex >= 0; {
+		node := i.nodes[nodeIndex]
+		switch {
+		case offset < node.center:
+			for _, item := range node.byStart {
+				visits++
+				candidate := i.items[item]
+				if candidate.Span.Start > offset {
+					break
+				}
+				if !found || occurrencePreferred(candidate, best) {
+					best = candidate
+					found = true
+				}
+			}
+			nodeIndex = node.left
+		case offset > node.center:
+			for _, item := range node.byEnd {
+				visits++
+				candidate := i.items[item]
+				if candidate.Span.End <= offset {
+					break
+				}
+				if !found || occurrencePreferred(candidate, best) {
+					best = candidate
+					found = true
+				}
+			}
+			nodeIndex = node.right
+		default:
+			for _, item := range node.byStart {
+				visits++
+				candidate := i.items[item]
+				if !found || occurrencePreferred(candidate, best) {
+					best = candidate
+					found = true
+				}
+			}
+			nodeIndex = -1
 		}
 	}
-	return best, found
+	return best, found, visits
 }
 
 func occurrencePreferred(candidate, current Occurrence) bool {

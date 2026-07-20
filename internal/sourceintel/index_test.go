@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"math/bits"
 	"reflect"
 	"strings"
 	"testing"
@@ -83,6 +84,46 @@ var glue = helper(2)
 	}
 	if _, ok := index.At("view.gsx", strings.Index(authored, "generated glue")); ok {
 		t.Fatal("At(unmapped authored placeholder) returned an occurrence")
+	}
+}
+
+func TestIndexAtUsesBoundedPointStabbingLookup(t *testing.T) {
+	const completedSiblings = 4096
+	const path = "view.gsx"
+	queryOffset := completedSiblings*2 + 100
+	outer := Occurrence{Span: Span{Path: path, Start: 0, End: queryOffset + 100}, Kind: Expression, HasTypeValue: true}
+	inner := Occurrence{Span: Span{Path: path, Start: queryOffset - 10, End: queryOffset + 10}, Kind: Expression, HasTypeValue: true}
+	identifier := Occurrence{Span: Span{Path: path, Start: queryOffset, End: queryOffset + 4}, Kind: IdentifierUse}
+	occurrences := make([]Occurrence, 0, completedSiblings+3)
+	occurrences = append(occurrences, outer)
+	for sibling := range completedSiblings {
+		start := 10 + sibling*2
+		occurrences = append(occurrences, Occurrence{
+			Span:         Span{Path: path, Start: start, End: start + 1},
+			Kind:         Expression,
+			HasTypeValue: true,
+		})
+	}
+	occurrences = append(occurrences, inner, identifier)
+	index := &Index{
+		occurrences: map[string]occurrenceIndex{
+			path: newOccurrenceIndex(occurrences),
+		},
+	}
+
+	if got, ok, _ := index.at(path, outer.Span.Start); !ok || got != outer {
+		t.Fatalf("at(outer start) = (%#v, %t), want outer occurrence", got, ok)
+	}
+	if got, ok, visits := index.at(path, queryOffset); !ok || got != identifier {
+		t.Fatalf("at(identifier start) = (%#v, %t, %d visits), want identifier", got, ok, visits)
+	} else if maxVisits := bits.Len(uint(len(occurrences))) + 3; visits > maxVisits {
+		t.Fatalf("at(pathological overlap) inspected %d intervals, want at most tree height plus 3 overlaps (%d); completed siblings: %d", visits, maxVisits, completedSiblings)
+	}
+	if got, ok, _ := index.at(path, identifier.Span.End); !ok || got != inner {
+		t.Fatalf("at(identifier end) = (%#v, %t), want half-open identifier exclusion and inner expression", got, ok)
+	}
+	if got, ok, _ := index.at(path, outer.Span.End); ok {
+		t.Fatalf("at(outer end) = (%#v, true), want half-open exclusion", got)
 	}
 }
 
@@ -271,7 +312,7 @@ func TestIndexDoesNotRetainASTOrSourceBytes(t *testing.T) {
 
 	indexValue := reflect.ValueOf(index).Elem()
 	allowedFields := map[string]reflect.Type{
-		"occurrences":  reflect.TypeFor[map[string][]Occurrence](),
+		"occurrences":  reflect.TypeFor[map[string]occurrenceIndex](),
 		"definitions":  reflect.TypeFor[map[types.Object]Span](),
 		"declarations": reflect.TypeFor[map[string][]Declaration](),
 		"sources":      reflect.TypeFor[map[string]SourceVersion](),
