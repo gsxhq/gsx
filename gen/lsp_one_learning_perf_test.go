@@ -2,6 +2,7 @@ package gen
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,10 +65,30 @@ func TestLSPManualOneLearningPerf(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertOneLearningPerfNoGeneratedGo(t, destination)
+	fixtureStats := inspectOneLearningPerfFixture(t, destination)
+	packageDirs, err := discoverDirs([]string{destination})
+	if err != nil {
+		t.Fatal(err)
+	}
 	badgePath := filepath.Join(destination, "ds", "badge", "badge.gsx")
 	badgeSource, err := os.ReadFile(badgePath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Initialize below the fixture-root go.work. That committed file includes
+	// absolute developer checkouts in addition to one-learning, which would make
+	// a root-workspace measurement machine-specific and would ask the current
+	// multi-root server to do more work than the single-root baseline supports.
+	// The nearest-module search still selects the complete one-learning module.
+	workspaceRoot := filepath.Dir(badgePath)
+	workspaceMode := os.Getenv("GSX_LSP_WORKSPACE_MODE")
+	switch workspaceMode {
+	case "", "module":
+		workspaceMode = "module"
+	case "repository":
+		workspaceRoot = destination
+	default:
+		t.Fatalf("GSX_LSP_WORKSPACE_MODE = %q, want module or repository", workspaceMode)
 	}
 	// The pre-workspace-root baseline server derives a no-document workspace from
 	// its process directory, while current servers consume rootUri. Running both
@@ -94,12 +117,13 @@ func TestLSPManualOneLearningPerf(t *testing.T) {
 
 	writePerfFrame(t, inputWriter, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "initialize",
-		"params": map[string]any{"rootUri": perfFileURI(destination), "capabilities": map[string]any{}},
+		"params": map[string]any{"rootUri": perfFileURI(workspaceRoot), "capabilities": map[string]any{}},
 	})
 	wire.waitResult(t, runResult, 1)
 	wire.reset()
 	initialized := readStableMemStats()
 
+	stopCPUProfile := startOneLearningPerfCPUProfile(t)
 	queryStart := time.Now()
 	writePerfFrame(t, inputWriter, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "workspace/symbol",
@@ -107,12 +131,14 @@ func TestLSPManualOneLearningPerf(t *testing.T) {
 	})
 	workspaceResult := wire.waitResult(t, runResult, 2)
 	coldWorkspaceLatency := time.Since(queryStart)
+	stopCPUProfile()
 	if bytes.Equal(workspaceResult, []byte("[]")) {
 		diagnoseOneLearningPerfPackages(t, analyzer, destination)
 	}
-	assertOneLearningPerfBadgeResult(t, workspaceResult, badgePath, badgeSource)
+	resultCount := assertOneLearningPerfBadgeResult(t, workspaceResult, badgePath, badgeSource)
 	wire.reset()
 	postQuery := readStableMemStats()
+	writeOneLearningPerfHeapProfile(t)
 
 	// Keep the measured state live through the post-query snapshot. The copied
 	// fixture itself lives on disk; transient copy buffers were collected before
@@ -137,6 +163,11 @@ func TestLSPManualOneLearningPerf(t *testing.T) {
 
 	t.Logf("fixture commit: %s", fixtureCommit)
 	t.Logf("gsx code commit: %s", codeCommit)
+	t.Logf("fixture tree: sha256=%x regular-files=%d gsx-files=%d bytes=%d package-dirs=%d",
+		fixtureStats.sha256, fixtureStats.regularFiles, fixtureStats.gsxFiles, fixtureStats.bytes, len(packageDirs))
+	t.Logf("workspace result: mode=%s query=Badge symbols=%d root=%s uri=%s", workspaceMode, resultCount, workspaceRoot, perfFileURI(badgePath))
+	t.Logf("server caches: %s", inspectOneLearningPerfServer(server))
+	t.Logf("analyzer caches: %s", inspectOneLearningPerfAnalyzer(analyzer))
 	t.Logf("cold workspace/symbol latency: %s", coldWorkspaceLatency)
 	logOneLearningPerfHeap(t, "fixture-ready", fixtureReady)
 	logOneLearningPerfHeap(t, "initialized", initialized)
@@ -147,6 +178,182 @@ func TestLSPManualOneLearningPerf(t *testing.T) {
 	t.Logf("post-query minus initialized: HeapAlloc=%d bytes (%.3f MiB) HeapInuse=%d bytes (%.3f MiB)",
 		int64(postQuery.HeapAlloc)-int64(initialized.HeapAlloc), bytesToMiB(int64(postQuery.HeapAlloc)-int64(initialized.HeapAlloc)),
 		int64(postQuery.HeapInuse)-int64(initialized.HeapInuse), bytesToMiB(int64(postQuery.HeapInuse)-int64(initialized.HeapInuse)))
+}
+
+type oneLearningPerfFixtureStats struct {
+	sha256       [sha256.Size]byte
+	regularFiles int
+	gsxFiles     int
+	bytes        int64
+}
+
+func inspectOneLearningPerfFixture(t *testing.T, root string) oneLearningPerfFixtureStats {
+	t.Helper()
+	hash := sha256.New()
+	stats := oneLearningPerfFixtureStats{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		contentHash := sha256.Sum256(contents)
+		if _, err := fmt.Fprintf(hash, "%q %o %d %x\n", filepath.ToSlash(relative), info.Mode().Perm(), len(contents), contentHash); err != nil {
+			return err
+		}
+		stats.regularFiles++
+		stats.bytes += int64(len(contents))
+		if strings.HasSuffix(entry.Name(), ".gsx") {
+			stats.gsxFiles++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(stats.sha256[:], hash.Sum(nil))
+	return stats
+}
+
+func startOneLearningPerfCPUProfile(t *testing.T) func() {
+	t.Helper()
+	path := os.Getenv("GSX_LSP_CPU_PROFILE")
+	if path == "" {
+		return func() {}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pprof.StartCPUProfile(file); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			pprof.StopCPUProfile()
+			if err := file.Close(); err != nil {
+				t.Errorf("close CPU profile: %v", err)
+			}
+		})
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
+func writeOneLearningPerfHeapProfile(t *testing.T) {
+	t.Helper()
+	path := os.Getenv("GSX_LSP_HEAP_PROFILE")
+	if path == "" {
+		return
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pprof.WriteHeapProfile(file); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func inspectOneLearningPerfServer(server *lsp.Server) string {
+	value := reflect.ValueOf(server).Elem()
+	parts := []string{"pkgs=" + strconv.Itoa(reflectCollectionLen(value, "pkgs"))}
+	moduleSymbols := value.FieldByName("moduleSyms")
+	switch moduleSymbols.Kind() {
+	case reflect.Slice:
+		parts = append(parts, "module-symbol-roots=1", "module-symbols="+strconv.Itoa(moduleSymbols.Len()))
+	case reflect.Map:
+		symbols := 0
+		iterator := moduleSymbols.MapRange()
+		for iterator.Next() {
+			cached := iterator.Value()
+			if cached.Kind() == reflect.Struct {
+				symbols += cached.FieldByName("symbols").Len()
+			}
+		}
+		parts = append(parts, "module-symbol-roots="+strconv.Itoa(moduleSymbols.Len()), "module-symbols="+strconv.Itoa(symbols))
+	}
+	for _, field := range []string{"workspaceRoots", "workspaceModules"} {
+		if count := reflectCollectionLen(value, field); count >= 0 {
+			parts = append(parts, field+"="+strconv.Itoa(count))
+		}
+	}
+	if modules := reflectStringSlice(value, "workspaceModules"); len(modules) != 0 {
+		parts = append(parts, "module-paths="+strings.Join(modules, ","))
+	}
+	return strings.Join(parts, " ")
+}
+
+func inspectOneLearningPerfAnalyzer(analyzer lspAnalyzer) string {
+	parts := []string{
+		"module-roots=" + strconv.Itoa(len(analyzer.mods.byRoot)),
+		"overrides=" + strconv.Itoa(len(analyzer.mods.overrideRoots)),
+	}
+	fieldTotals := map[string]int{}
+	for _, module := range analyzer.mods.byRoot {
+		value := reflect.ValueOf(module).Elem()
+		for _, field := range []string{"pkgResults", "pkgTypes", "targetDeclTypes", "configuredDeclTypes", "targetDeclProvenance", "sourcePackages", "sourceGsxDirs", "extPkgs"} {
+			if count := reflectCollectionLen(value, field); count >= 0 {
+				fieldTotals[field] += count
+			}
+		}
+		for _, field := range []string{"extLoads", "filterLoads", "sourceIndexBuildCount"} {
+			candidate := value.FieldByName(field)
+			if candidate.IsValid() && candidate.Kind() == reflect.Int {
+				fieldTotals[field] += int(candidate.Int())
+			}
+		}
+	}
+	for _, field := range []string{"pkgResults", "pkgTypes", "targetDeclTypes", "configuredDeclTypes", "targetDeclProvenance", "sourcePackages", "sourceGsxDirs", "extPkgs", "extLoads", "filterLoads", "sourceIndexBuildCount"} {
+		if count, ok := fieldTotals[field]; ok {
+			parts = append(parts, field+"="+strconv.Itoa(count))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func reflectCollectionLen(value reflect.Value, field string) int {
+	candidate := value.FieldByName(field)
+	if !candidate.IsValid() {
+		return -1
+	}
+	switch candidate.Kind() {
+	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.String:
+		return candidate.Len()
+	default:
+		return -1
+	}
+}
+
+func reflectStringSlice(value reflect.Value, field string) []string {
+	candidate := value.FieldByName(field)
+	if !candidate.IsValid() || candidate.Kind() != reflect.Slice || candidate.Type().Elem().Kind() != reflect.String {
+		return nil
+	}
+	result := make([]string, candidate.Len())
+	for index := range candidate.Len() {
+		result[index] = candidate.Index(index).String()
+	}
+	return result
 }
 
 func diagnoseOneLearningPerfPackages(t *testing.T, analyzer lspAnalyzer, root string) {
@@ -353,7 +560,7 @@ func (wire *perfResponseWire) result(id int) (json.RawMessage, bool) {
 	return nil, false
 }
 
-func assertOneLearningPerfBadgeResult(t *testing.T, raw json.RawMessage, badgePath string, badgeSource []byte) {
+func assertOneLearningPerfBadgeResult(t *testing.T, raw json.RawMessage, badgePath string, badgeSource []byte) int {
 	t.Helper()
 	type position struct {
 		Line      int `json:"line"`
@@ -388,9 +595,10 @@ func assertOneLearningPerfBadgeResult(t *testing.T, raw json.RawMessage, badgePa
 		if got.Kind != 12 || got.ContainerName != "badge" || got.Location.Range.Start != wantStart || got.Location.Range.End != wantEnd {
 			t.Fatalf("Badge workspace symbol = %+v, want exact function symbol badge %s:%+v-%+v", got, perfFileURI(badgePath), wantStart, wantEnd)
 		}
-		return
+		return len(symbols)
 	}
 	t.Fatalf("workspace Badge query has no exact Badge declaration: %s", raw)
+	return 0
 }
 
 func perfUTF16PositionAt(source string, offset int) struct {
