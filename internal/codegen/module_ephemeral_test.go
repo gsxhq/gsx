@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -18,20 +17,13 @@ import (
 func newEphemeralTestModule(t *testing.T) (m *Module, pkgDir string, pageGsxAbsPath string) {
 	t.Helper()
 	root := t.TempDir()
-	repoRoot, _ := filepath.Abs("..")
-	repoRoot = filepath.Dir(repoRoot) // internal/codegen -> repo root
-	must := func(p, c string) {
-		full := filepath.Join(root, p)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
 	}
-	must("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
-	must("page/types.go", "package page\n\ntype User struct{ Name string }\n")
-	must("page/other.gsx", "package page\n\ncomponent Other() {\n\t<div>ok</div>\n}\n")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, root, "page/types.go", "package page\n\ntype User struct{ Name string }\n")
+	writeFile(t, root, "page/other.gsx", "package page\n\ncomponent Other() {\n\t<div>ok</div>\n}\n")
 
 	mod, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
