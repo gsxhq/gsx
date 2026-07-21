@@ -428,6 +428,37 @@ func TestDirectHelperUsesFrozenManifestAndGoOverrides(t *testing.T) {
 	}
 }
 
+func TestDirectHelperFirstGsxOverrideUsesFrozenGoOnlyDirectory(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	dir := filepath.Join(root, "p")
+	writeFile(t, dir, "helper_test.go", "package p\nfunc _gsxrenderChild() {}\n")
+	manifest, err := sourceview.Build(sourceview.BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", SourceManifest: manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := filepath.Join(dir, "page.gsx")
+	module.SetOverride(page, []byte("package p\ncomponent Child() { <span/> }\ncomponent Parent() { <Child/> }\n"))
+	_, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate first GSX override: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance := module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild1" {
+		t.Fatalf("first GSX override provenance = %+v, want frozen Go-only collision suffix", provenance.direct)
+	}
+}
+
 func TestDirectHelperRestoresCapturedSavedAbsence(t *testing.T) {
 	root := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")

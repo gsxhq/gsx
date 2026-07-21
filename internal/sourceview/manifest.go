@@ -189,10 +189,11 @@ type Manifest struct {
 	helperGoFiles map[string]FileSnapshot
 }
 
-// Build constructs the complete owned GSX manifest once. It snapshots sibling
-// Go files in GSX package directories for generated-name allocation and cache
-// identity, but never selects them for compilation: packages.Load/cmd-go remain
-// the sole build-tag and cgo authority.
+// Build constructs the complete owned GSX manifest once. It snapshots owned Go
+// files module-wide so a later first GSX override can obtain its frozen sibling
+// declarations for generated-name allocation and cache identity. It never
+// selects those files for compilation: packages.Load/cmd-go remain the sole
+// build-tag and cgo authority.
 func Build(options BuildOptions) (*Manifest, error) {
 	if options.ModuleRoot == "" {
 		return nil, fmt.Errorf("sourceview: module root is empty")
@@ -300,18 +301,12 @@ func Build(options BuildOptions) (*Manifest, error) {
 		}
 		pairedPresent[paired] = present
 	}
-	helperGoFiles := make(map[string]FileSnapshot)
-	gsxDirs := make(map[string]bool)
-	for path := range sources {
-		gsxDirs[filepath.Dir(path)] = true
-	}
+	helperGoFiles := make(map[string]FileSnapshot, len(goPaths))
 	for path := range goPaths {
-		if gsxDirs[filepath.Dir(path)] {
-			helperGoFiles[path] = ReadFileSnapshot(path)
-		}
+		helperGoFiles[path] = ReadFileSnapshot(path)
 	}
 	for path, snapshot := range trackedFiles {
-		if strings.HasSuffix(path, ".go") && gsxDirs[filepath.Dir(path)] {
+		if strings.HasSuffix(path, ".go") {
 			helperGoFiles[path] = cloneFileSnapshot(snapshot)
 		}
 	}

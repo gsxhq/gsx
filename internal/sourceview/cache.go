@@ -356,30 +356,31 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([
 		inputs = append(inputs, inputFromBytes("package:"+metadata.ImportPath+":go:"+filepath.ToSlash(rel), logicalPath, data))
 	}
 	if mainOwned {
-		helperDir := projection.manifest.packageDirs[metadata.ImportPath]
-		for path, snapshot := range projection.manifest.HelperGoFiles(metadata.Dir) {
-			canonical := canonicalPath(path)
-			if paired[canonical] {
-				continue
-			}
-			rel, err := filepath.Rel(helperDir, path)
-			if err != nil {
-				return nil, err
-			}
-			if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return nil, fmt.Errorf("sourceview: helper-name Go file %s is outside manifest package dir %s", path, helperDir)
-			}
-			label := "package:" + metadata.ImportPath + ":helper-go:" + filepath.ToSlash(rel)
-			switch snapshot.State() {
-			case FilePresent:
-				source, _ := snapshot.Source()
-				inputs = append(inputs, inputFromBytes(label, path, source))
-			case FileAbsent:
-				inputs = append(inputs, cacheInput{label: label})
-			case FileUnreadable:
-				return nil, fmt.Errorf("sourceview: read helper-name Go source %s: %w", path, snapshot.Err())
-			default:
-				return nil, fmt.Errorf("sourceview: invalid helper-name Go source state %d for %s", snapshot.State(), path)
+		if helperDir, ownsGSX := projection.manifest.packageDirs[metadata.ImportPath]; ownsGSX {
+			for path, snapshot := range projection.manifest.HelperGoFiles(metadata.Dir) {
+				canonical := canonicalPath(path)
+				if paired[canonical] {
+					continue
+				}
+				rel, err := filepath.Rel(helperDir, path)
+				if err != nil {
+					return nil, err
+				}
+				if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					return nil, fmt.Errorf("sourceview: helper-name Go file %s is outside manifest package dir %s", path, helperDir)
+				}
+				label := "package:" + metadata.ImportPath + ":helper-go:" + filepath.ToSlash(rel)
+				switch snapshot.State() {
+				case FilePresent:
+					source, _ := snapshot.Source()
+					inputs = append(inputs, inputFromBytes(label, path, source))
+				case FileAbsent:
+					inputs = append(inputs, cacheInput{label: label})
+				case FileUnreadable:
+					return nil, fmt.Errorf("sourceview: read helper-name Go source %s: %w", path, snapshot.Err())
+				default:
+					return nil, fmt.Errorf("sourceview: invalid helper-name Go source state %d for %s", snapshot.State(), path)
+				}
 			}
 		}
 		for _, path := range projection.manifest.sourcePaths {
