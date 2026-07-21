@@ -39,8 +39,10 @@ func (s *Server) handleCompletion(f frame) error {
 	switch cc.kind {
 	case ctxGoExpr, ctxSigType:
 		return s.reply(f.ID, s.goContextCompletion(cc, path, text, off, r))
+	case ctxPipeStage:
+		return s.reply(f.ID, s.pipeStageCompletion(cc, path, text, off, r))
 	default:
-		// Other contexts (tag, attr, pipe, none) are filled by later tasks.
+		// Other contexts (tag, attr, none) are filled by later tasks.
 		return s.reply(f.ID, emptyCompletion())
 	}
 }

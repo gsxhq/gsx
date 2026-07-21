@@ -352,6 +352,74 @@ func TestGoMemberCompletionE2E(t *testing.T) {
 	})
 }
 
+// TestPipeStageCompletionE2E drives textDocument/completion for a cursor after
+// `|>` inside a pipeline end to end: `{ user.Name |> u }` (cursor right after
+// `u`) offers the resolved filter table — here, std's built-in filters, which
+// config{} registers by default (see TestAnalyzeEphemeralViaAnalyzer above),
+// so `upper` and `urlquery` are both present.
+func TestPipeStageCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) string {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	write("page/types.go", "package page\n\ntype User struct{ Name string }\n")
+	source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name |> u }</div>\n}\n"
+	pagePath := write("page/page.gsx", source)
+	uri := "file://" + pagePath
+
+	cursor := strings.Index(source, "|> u") + len("|> u") // right after the `u`
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+	}))
+	pos := lspUTF16PositionAt(source, cursor)
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+		},
+	}))
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+
+	got := completionLabels(t, output.String(), 2)
+	for _, name := range []string{"upper", "urlquery"} {
+		if !got[name] {
+			t.Errorf("pipe-stage completion missing filter %q; labels=%v", name, got)
+		}
+	}
+}
+
 // completionItems extracts the full CompletionItem slice from the completion
 // response with the given id.
 func completionItems(t *testing.T, output string, id int) []lsp.CompletionItem {
