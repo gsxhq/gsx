@@ -1,0 +1,17 @@
+Formatting a control-flow body must not change what it renders: interior
+whitespace around the hyphen is preserved, and reflow does not reintroduce the
+eaten-space bug.
+-- input.gsx --
+package ui
+
+component C(a, b string) {
+	<div>{ if true { {a} - {b} } }</div>
+}
+-- fmt.golden --
+package ui
+
+component C(a, b string) {
+	<div>
+		{ if true { { a } - { b } } }
+	</div>
+}
