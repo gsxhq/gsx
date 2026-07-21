@@ -166,6 +166,10 @@ type PackageResult struct {
 	// see MissingImport.
 	MissingImports map[string][]MissingImport
 
+	// Filters is the sorted list of pipeline-filter completion candidates from
+	// the package's resolved filter table.
+	Filters []FilterCandidate
+
 	// Types is the analyzed package's go/types.Package, retained for the LSP
 	// (e.g. hover's qualifier). nil when the package failed before type-checking.
 	Types *types.Package
@@ -192,4 +196,13 @@ type MissingImport struct {
 	Name   string
 	Symbol string
 	Pos    token.Position
+}
+
+// FilterCandidate is one pipeline-filter completion candidate, from the dir's
+// resolved filter table.
+type FilterCandidate struct {
+	Name     string // template name, e.g. "upper"
+	Pkg      string // winning package import path
+	Func     string // exported Go func name, e.g. "Upper"
+	WantsCtx bool
 }

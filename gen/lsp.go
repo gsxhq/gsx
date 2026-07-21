@@ -340,6 +340,10 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	for key, declarations := range pr.ComponentDecls {
 		componentDecls[lsp.ComponentDeclKey{PackagePath: key.PackagePath, ComponentKey: key.ComponentKey}] = append([]sourceintel.VersionedSpan(nil), declarations...)
 	}
+	filters := make([]lsp.FilterCandidate, len(pr.Filters))
+	for i, fc := range pr.Filters {
+		filters[i] = lsp.FilterCandidate{Name: fc.Name, Pkg: fc.Pkg, Func: fc.Func, WantsCtx: fc.WantsCtx}
+	}
 	return &lsp.Package{
 		Diags:          pr.Diags,
 		GSXFset:        pr.GSXFset,
@@ -357,6 +361,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		SigTypes:       sig,
 		UnusedImports:  unused,
 		MissingImports: missing,
+		Filters:        filters,
 	}
 }
 

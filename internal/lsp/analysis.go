@@ -162,6 +162,10 @@ type Package struct {
 	// Analyzer.ResolveImport, which may read export data and must stay off the
 	// analysis path.
 	MissingImports map[string][]MissingImport
+
+	// Filters is the sorted list of pipeline-filter completion candidates from
+	// the package's resolved filter table.
+	Filters []FilterCandidate
 }
 
 // MissingImport is a qualifier the file uses that resolves to nothing. Symbol is
@@ -170,4 +174,13 @@ type MissingImport struct {
 	Name   string
 	Symbol string
 	Pos    token.Position
+}
+
+// FilterCandidate is one pipeline-filter completion candidate, from the dir's
+// resolved filter table.
+type FilterCandidate struct {
+	Name     string // template name, e.g. "upper"
+	Pkg      string // winning package import path
+	Func     string // exported Go func name, e.g. "Upper"
+	WantsCtx bool
 }

@@ -1289,6 +1289,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 	}
 	res.Diags = a.bag.Sorted()
+	res.Filters = filterCandidates(a.table)
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
 	res.ComponentDecls = a.componentDecls

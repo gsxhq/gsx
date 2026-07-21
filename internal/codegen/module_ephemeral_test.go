@@ -58,3 +58,29 @@ func TestComponentDeclsSurviveTypeErrors(t *testing.T) {
 		t.Fatalf("type-error ComponentDecls = %d, want 2 (syntactic facts must survive type errors)", len(res.ComponentDecls))
 	}
 }
+
+func TestPackageResultFilters(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	m.SetOverride(pagePath, []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name |> upper }</div>\n}\n"))
+	res, err := m.Package(dir)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+	if len(res.Filters) == 0 {
+		t.Fatal("Filters empty; want std filters (upper, lower, trim, ...)")
+	}
+	names := map[string]FilterCandidate{}
+	for i, f := range res.Filters {
+		names[f.Name] = f
+		if i > 0 && res.Filters[i-1].Name >= f.Name {
+			t.Fatalf("Filters not sorted by Name at %d: %q >= %q", i, res.Filters[i-1].Name, f.Name)
+		}
+	}
+	up, ok := names["upper"]
+	if !ok {
+		t.Fatalf("std filter upper missing; got %v", res.Filters)
+	}
+	if up.Func != "Upper" || up.Pkg != "github.com/gsxhq/gsx/std" {
+		t.Fatalf("upper = %+v, want Func=Upper Pkg=github.com/gsxhq/gsx/std", up)
+	}
+}
