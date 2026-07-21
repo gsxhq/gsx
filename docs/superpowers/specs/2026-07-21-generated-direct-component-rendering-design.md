@@ -80,8 +80,8 @@ micro-optimisation from changing the runtime API.
 Add one narrow operation to `Writer`:
 
 ```go
-// NodeResult applies the result of a directly rendered generated child.
-// It has the same assignment semantics as Node's n.Render result.
+// NodeResult records the return from a directly rendered generated child.
+// Generated code calls it after the child's helper has used this Writer.
 func (gw *Writer) NodeResult(err error) {
 	gw.err = err
 }
@@ -90,12 +90,21 @@ func (gw *Writer) NodeResult(err error) {
 `NodeResult` intentionally assigns unconditionally, including `nil`. It is not
 a general first-error latch. The generated helper entry guard returns an
 already-present parent error unchanged, so calls after an earlier error still
-preserve that error. For a fresh call, unconditional assignment reproduces the
-observable boundary of:
+preserve that error. `Writer.Node` itself invokes a child and assigns its result
+only when the parent state was clear. For such a fresh call, unconditional
+post-helper assignment reproduces the observable external boundary of:
 
 ```go
-gw.err = n.Render(ctx, gw.w)
+if gw.err == nil && n != nil {
+	gw.err = n.Render(ctx, gw.w)
+}
 ```
+
+The generated helper differs internally because it writes through the parent's
+`Writer` instead of a child-local one. `NodeResult` therefore may replace or
+clear only the state produced in that shared writer during helper execution.
+The entry guard prevents it from replacing or clearing state that predated the
+generated call.
 
 This includes the unusual but existing cases where a raw `return sentinel`
 replaces a write error or a raw `return nil` clears it and permits later parent
@@ -107,9 +116,11 @@ adapter.
 
 Adding this exception also requires correcting the exported `Writer` and `Err`
 comments. Ordinary write helpers retain the first write error and no-op while
-it is present; `Node` and the generated-code `NodeResult` boundary may replace
-or clear the current state with a child render result. `Err` therefore reports
-the current render/write state, not an immutable first error.
+it is present. `Node` applies a child result only when the parent state is
+clear. After a generated helper uses the shared writer, generated code uses
+`NodeResult` to apply that helper's result, which may replace or clear state
+created during the helper. `Err` therefore reports the current render/write
+state, not an immutable first error.
 
 ## Generated Shape
 

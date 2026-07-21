@@ -190,17 +190,21 @@ Expected red state: `(*Writer).NodeResult` is undefined.
 
 First update the exported `Writer` and `Err` comments so they remain true. They
 must say that ordinary write helpers retain the first write error and no-op
-while it is present, while `Node` and generated-code `NodeResult` assign a child
-render result that may replace or clear the current state. `Err` reports that
-current render/write state; it is not documented as an immutable first error.
+while it is present. `Node` invokes and applies a child result only while the
+parent state is clear. A generated direct helper instead uses the shared writer;
+after it executes, generated-code `NodeResult` applies the helper return and may
+replace or clear state created during that helper. The helper entry guard keeps
+state that predated the call unchanged. `Err` reports the current render/write
+state; it is not documented as an immutable first error.
 
 Use comments with this contract:
 
 ```go
 // Writer streams HTML to an underlying io.Writer. Ordinary write helpers
-// retain the first error and no-op while it is set. Node and generated-code
-// NodeResult apply a child render result, which may replace or clear that
-// state. Read the current state via Err.
+// retain the first error and no-op while it is set. Node applies a child result
+// only when the parent state is clear. After a generated direct child uses this
+// Writer, generated code uses NodeResult to apply the child's return, which may
+// replace or clear state created during that child. Read current state via Err.
 type Writer struct { /* existing fields */ }
 
 // Err returns the current render or write error, or nil.
@@ -210,16 +214,18 @@ func (gw *Writer) Err() error { return gw.err }
 Then add beside `Writer.Node`:
 
 ```go
-// NodeResult applies the result of a directly rendered generated child.
-// It has the same assignment semantics as Node's n.Render result.
+// NodeResult records the return from a directly rendered generated child.
+// Generated code calls it after the child's helper has used this Writer.
 func (gw *Writer) NodeResult(err error) {
 	gw.err = err
 }
 ```
 
-Do not guard on `nil`, do not preserve an earlier error, and do not call it
-`Fail`. The generated helper guard—not this method—preserves a prior parent
-error.
+Do not guard on `nil` inside `NodeResult` and do not call it `Fail`. The method
+must replace or clear state produced during a fresh helper execution. The
+generated helper guard returns any error that predated the call unchanged, so
+the subsequent assignment restores that same parent error rather than clearing
+or replacing it.
 
 ### 2.3 Verify and commit
 
