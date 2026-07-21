@@ -1,7 +1,14 @@
-Element-body whitespace baseline. These renders are the oracle that control-flow
-bodies must match for INTERIOR whitespace (validated against React
-renderToStaticMarkup in dev; see plan). Element bodies already behave correctly;
-this pins the reference.
+Element-body whitespace baseline. These renders are the reference that
+control-flow bodies must match for INTERIOR whitespace. Element bodies already
+behave correctly; this pins the reference.
+
+Note: gsx's wsnorm collapses EVERY interior whitespace run to a single space
+(s4: `{a}   -   {b}` -> `x - y`). This is a deliberate, pre-existing gsx design
+(docs/superpowers/specs/2026-06-21-gsx-whitespace-model-design.md) that diverges
+from React/JSX, which preserves an intra-line multi-space run verbatim (`x   -   y`)
+and leaves collapsing to the browser. s1/s3 (single space) and newline-dropping
+DO match React; multi-space collapse is gsx-specific. The invariant THIS case
+pins is element-body behavior; control-flow bodies must match it exactly.
 -- input.gsx --
 package views
 

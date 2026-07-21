@@ -1,6 +1,8 @@
 Interior whitespace inside { if } / { else } bodies must match the element-body
-baseline: the space run between two holes is preserved/collapsed by the JSX rule.
-Multiline (nl) drops the newline-adjacent space, same as an element body.
+baseline: the space run between two holes is normalized by wsnorm exactly as in an
+element body (single space kept; a multi-space run collapsed to one — see
+element_baseline for the gsx-vs-React note). Multiline (nl) drops the
+newline-adjacent space, same as an element body.
 -- input.gsx --
 package views
 
