@@ -281,7 +281,6 @@ func (m *Module) assignDirectComponentDeclarations(
 	files map[string]*gsxast.File,
 	plan componentTargetPlan,
 	fset *token.FileSet,
-	bag *diag.Bag,
 	importer types.Importer,
 ) (componentTargetPlan, error) {
 	// Build the same exact component-signature files used by semantic analysis,
@@ -289,18 +288,27 @@ func (m *Module) assignDirectComponentDeclarations(
 	// in those files. A direct helper is referenced from generated component
 	// bodies, so package-level uniqueness alone is insufficient: a caller type
 	// parameter, generic receiver binding, or file import can shadow it.
-	signatureFiles, importPaths, err := buildComponentSignatureFiles(dir, files, plan, fset, bag)
-	if err != nil {
+	// This is a speculative optimization prepass, not the package's diagnostic
+	// authority. Build against an isolated bag so a declaration that ordinary
+	// generation can recover from does not suppress healthy sibling output or
+	// change diagnostic precedence. Discard every speculative diagnostic: the
+	// ordinary path owns all severities. This function deliberately receives no
+	// authoritative diagnostic bag, making speculative publication impossible.
+	prepassBag := diag.NewBag(fset)
+	signatureFiles, importPaths, err := buildComponentSignatureFiles(dir, files, plan, fset, prepassBag)
+	if err != nil || prepassBag.HasErrors() {
 		// Direct rendering is optional. A package on the unique-name fast path may
-		// contain malformed pass-through Go whose positioned diagnostic belongs to
-		// ordinary generation. If its exact signature files cannot be constructed,
-		// keep every call on the established Node path instead of changing that
-		// diagnostic into a package-level planning failure.
+		// contain a declaration ordinary generation diagnoses and recovers from. If
+		// its exact signature files cannot be constructed without an error, keep
+		// every call on the established Node path and leave diagnostic ownership to
+		// that ordinary path.
 		return plan, nil
 	}
 	lexicalNames, err := m.componentAnalysisOccupiedNames(signatureFiles, importer)
 	if err != nil {
-		return componentTargetPlan{}, err
+		// Name resolution is part of the same optional prepass. If exact lexical
+		// names cannot be constructed, fail closed to ordinary Node rendering.
+		return plan, nil
 	}
 	// The imported package identity participates in the same exact-target graph
 	// as signature checking, so changes to an implicit default-import name

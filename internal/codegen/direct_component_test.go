@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/sourceview"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -258,6 +259,54 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 	for component, emission := range plan.emissions {
 		if emission.direct != nil && second.emissions[component].direct.family.helperName != emission.direct.family.helperName {
 			t.Fatalf("repeated allocation changed %s helper from %s to %s", component.Name, emission.direct.family.helperName, second.emissions[component].direct.family.helperName)
+		}
+	}
+}
+
+func TestDirectHelperLexicalPrepassDoesNotPublishErrors(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "page.gsx")
+	module, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/virtual",
+		SourceOnly: true,
+		Bundle:     testBundle(targetTestImporter(), funcTables{}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	module.SetOverride(path, []byte(`package p
+component Broken[T]() { <span/> }
+component Child() { <span/> }
+component Parent() { <Child/> }
+`))
+	parsed, err := module.parsePackageWithFset(root, module.fset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, unique := publicPlanWhenComponentNamesAreUnique(parsed.files)
+	if !unique {
+		t.Fatal("fixture component names are not unique")
+	}
+	bag := diag.NewBag(module.fset)
+	bag.Add(diag.Diagnostic{Severity: diag.Warning, Code: "authoritative-warning", Message: "keep me once", Source: "test"})
+	typeEnvironment, err := module.typeCheckEnvironmentForDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := module.finalizedComponentTargetPlan(
+		root, "example.com/virtual", parsed.name, parsed.files, parsed.sources,
+		module.fset, bag, targetTestImporter(), typeEnvironment,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics := bag.Sorted(); len(diagnostics) != 1 || diagnostics[0].Code != "authoritative-warning" {
+		t.Fatalf("diagnostics after speculative lexical prepass = %+v, want the one pre-existing warning", diagnostics)
+	}
+	for component, emission := range got.emissions {
+		if emission.direct != nil {
+			t.Fatalf("%s direct metadata = %+v, want unchanged fallback plan", component.Name, emission.direct)
 		}
 	}
 }

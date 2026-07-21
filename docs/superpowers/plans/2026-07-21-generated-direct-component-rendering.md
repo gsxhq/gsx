@@ -728,6 +728,17 @@ when a dependency package clause changes to a helper spelling. Correct the
 benchmark scenario prose separately. Re-run performance only after this fix is
 committed and independently reviewed.
 
+The correction initially reused the package's authoritative diagnostic bag
+while reconstructing signature ASTs. Existing malformed-type-parameter and
+receiver recovery tests exposed that as a P1 regression: speculative errors
+changed precedence, duplicated diagnostics, and suppressed healthy sibling
+output. Keep the prepass on an isolated bag and publish no speculative
+diagnostics. Any construction error or error diagnostic returns the unchanged
+plan before occupied-name allocation or target-graph publication; ordinary
+generation owns all diagnostics. Pin this boundary directly, including that an
+already-authoritative warning survives exactly once, then rerun the established
+malformed-signature recovery matrix and lexical-shadow compile fixtures.
+
 ### 6.4 Keep or revert exactly
 
 Capture candidate tips before any decision:

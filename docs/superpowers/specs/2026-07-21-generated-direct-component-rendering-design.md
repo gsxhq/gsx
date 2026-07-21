@@ -264,6 +264,15 @@ the persistent cache projection before an old helper name can be restored.
 `SourceOnly` resolves the same identity only from its bundle and overrides and
 still never inspects host files.
 
+Collecting those signature ASTs and import identities is a speculative
+optimization prepass, not a diagnostic authority. It uses an isolated
+diagnostic bag and publishes none of its diagnostics. If exact signature files
+or occupied names cannot be constructed without an error, helper allocation
+returns the unchanged component plan before publishing dependency edges or
+direct metadata. Ordinary generation remains the sole owner of diagnostic
+precedence, warnings, and per-file recovery, so a malformed declaration cannot
+suppress a healthy sibling merely because direct rendering was considered.
+
 The Go-file inventory is part of the same authoritative source view used by
 generation and persistent-cache classification. Normal source-backed modules
 snapshot every owned `.go` input module-wide, including inactive build variants
