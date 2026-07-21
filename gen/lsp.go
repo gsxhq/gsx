@@ -590,11 +590,38 @@ func (a lspAnalyzer) Analyze(dir string, _ map[string][]byte) (*lsp.Package, err
 	return adaptPackageResult(pr), nil
 }
 
-// AnalyzeEphemeral is implemented in a later task (warm ephemeral analysis for
-// completion). It deliberately fails soft rather than mutating override
-// lifetime or caches.
+// AnalyzeEphemeral runs a one-shot, cursor-local analysis of content against the
+// warm Module for dir without mutating override lifetime or the persistent
+// per-dir cache — see codegen.Module.AnalyzeEphemeral for the exact contract
+// (path must be for an open/override-backed buffer; repairs are cursor-local).
+// It mirrors Analyze's module-resolution shape (resolve root -> warm Module ->
+// analyze -> adapt) so it shares the same warm type-cache Analyze uses.
 func (a lspAnalyzer) AnalyzeEphemeral(dir, path string, content []byte) (*lsp.Package, error) {
-	return nil, errors.New("not implemented")
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, _, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := m.AnalyzeEphemeral(abs, filepath.Clean(absPath), content)
+	if err != nil {
+		return nil, err
+	}
+	if pr == nil {
+		return &lsp.Package{}, nil
+	}
+	return adaptPackageResult(pr), nil
 }
 
 // AnalyzeModule analyzes every gsx package in the module containing dir and
