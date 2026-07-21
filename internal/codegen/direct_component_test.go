@@ -286,10 +286,17 @@ func TestDirectHelperCollisionFixturesCompile(t *testing.T) {
 			if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild1" {
 				t.Fatalf("direct provenance = %+v, want suffixed collision-free helper", provenance.direct)
 			}
+			foundHelper := false
 			for sourcePath, generated := range output {
+				if strings.Contains(string(generated), "func _gsxrenderChild1(") {
+					foundHelper = true
+				}
 				if err := os.WriteFile(strings.TrimSuffix(sourcePath, ".gsx")+".x.go", generated, 0o644); err != nil {
 					t.Fatal(err)
 				}
+			}
+			if !foundHelper {
+				t.Fatalf("generated output does not declare allocated helper _gsxrenderChild1: %v", output)
 			}
 			command := exec.Command("go", "test", "./...")
 			command.Dir = dir
@@ -555,10 +562,21 @@ func TestDirectComponentAlphaRenamedVariantsCompileBothSelections(t *testing.T) 
 	if hasError(generated.Diags) {
 		t.Fatalf("generation diagnostics = %+v", generated.Diags)
 	}
+	generatedText := ""
 	for sourcePath, output := range generated.Files {
+		generatedText += string(output)
 		outputPath := strings.TrimSuffix(sourcePath, ".gsx") + ".x.go"
 		if err := os.WriteFile(outputPath, output, 0o644); err != nil {
 			t.Fatal(err)
+		}
+	}
+	for _, want := range []string{
+		"func _gsxrenderChild[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value T) error",
+		"func _gsxrenderChild[U any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value U) error",
+		"_gsxgw.NodeResult(_gsxrenderChild[string](ctx, _gsxgw, \"x\"))",
+	} {
+		if !strings.Contains(generatedText, want) {
+			t.Errorf("generated variants do not contain %q:\n%s", want, generatedText)
 		}
 	}
 	for _, test := range []struct {
@@ -575,5 +593,212 @@ func TestDirectComponentAlphaRenamedVariantsCompileBothSelections(t *testing.T) 
 				t.Fatalf("go %v: %v\n%s", test.args, err, output)
 			}
 		})
+	}
+}
+
+func TestDirectComponentGeneratedShapeSharesOneBody(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"page.gsx": `package p
+component Child[T, U any](first T, second U, rest ...U) {
+	<span/>
+}
+component Empty() { <Child[string, int] first="x" second={ 1 }/> }
+`,
+	})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasError(diagnostics) || len(output) != 1 {
+		t.Fatalf("output = %v, diagnostics = %+v", output, diagnostics)
+	}
+	var generated string
+	for _, source := range output {
+		generated += string(source)
+	}
+	wants := []string{
+		"func Child[T, U any](first T, second U, rest ...U) _gsxrt.Node",
+		"return _gsxrenderChild[T, U](ctx, _gsxgw, first, second, rest...)",
+		"func _gsxrenderChild[T, U any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first T, second U, rest ...U) error",
+		"if _gsxerr := _gsxgw.Err(); _gsxerr != nil {",
+		"return _gsxgw.Err()",
+		"_gsxgw.NodeResult(_gsxrenderChild[string, int](ctx, _gsxgw, \"x\", 1))",
+	}
+	for _, want := range wants {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated output does not contain %q:\n%s", want, generated)
+		}
+	}
+	if got := strings.Count(generated, `_gsxgw.S("<span/>")`); got != 1 {
+		t.Errorf("component body emitted %d times, want exactly once:\n%s", got, generated)
+	}
+}
+
+func TestDirectComponentZeroArgumentCallHasNoDanglingComma(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"page.gsx": "package p\ncomponent Child() { <span/> }\ncomponent Parent() { <Child/> }\n",
+	})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	var generated string
+	for _, source := range output {
+		generated += string(source)
+	}
+	for _, want := range []string{
+		"return _gsxrenderChild(ctx, _gsxgw)",
+		"_gsxgw.NodeResult(_gsxrenderChild(ctx, _gsxgw))",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated output does not contain %q:\n%s", want, generated)
+		}
+	}
+	if strings.Contains(generated, "_gsxgw, )") {
+		t.Fatalf("generated dangling comma:\n%s", generated)
+	}
+}
+
+func TestDirectComponentForwardsSupportedSignatureShapes(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"page.gsx": `package p
+import "github.com/gsxhq/gsx"
+
+component ConstraintOnly[T interface{ ~string }]() { <i/> }
+component Variadic(prefix string, values ...int) { <b/> }
+component Attrs(attrs ...gsx.Attr) { <div { gsx.Attrs(attrs)... }/> }
+component Children(children ...gsx.Node) { <main>{ for _, child := range children { { child } } }</main> }
+
+component Parent() {
+	<ConstraintOnly[string]/>
+	<Variadic prefix="x"/>
+	<Attrs id="x"/>
+	<Children><span/><strong/></Children>
+}
+`,
+	})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	var generated string
+	for _, source := range output {
+		generated += string(source)
+	}
+	for _, want := range []string{
+		"return _gsxrenderConstraintOnly[T](ctx, _gsxgw)",
+		"func _gsxrenderConstraintOnly[T interface{ ~string }](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer) error",
+		"return _gsxrenderVariadic(ctx, _gsxgw, prefix, values...)",
+		"func _gsxrenderVariadic(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, prefix string, values ...int) error",
+		"return _gsxrenderAttrs(ctx, _gsxgw, attrs...)",
+		"func _gsxrenderAttrs(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs ...gsx.Attr) error",
+		"return _gsxrenderChildren(ctx, _gsxgw, children...)",
+		"func _gsxrenderChildren(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children ...gsx.Node) error",
+		"_gsxgw.NodeResult(_gsxrenderConstraintOnly[string](ctx, _gsxgw))",
+		"_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw, \"x\"))",
+		"_gsxgw.NodeResult(_gsxrenderAttrs(ctx, _gsxgw, _gsxrt.Attrs{{Key: \"id\", Value: \"x\"}}...))",
+		"_gsxgw.NodeResult(_gsxrenderChildren(ctx, _gsxgw, _gsxrt.Func(",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated output does not contain %q:\n%s", want, generated)
+		}
+	}
+}
+
+func TestDirectComponentHelperRequiresAProvenDirectCall(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"page.gsx": "package p\ncomponent Unused(value string) { <span>{ value }</span> }\ncomponent Page() { <main/> }\n",
+	})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	var generated string
+	for _, source := range output {
+		generated += string(source)
+	}
+	if strings.Contains(generated, "_gsxrenderUnused") {
+		t.Fatalf("uncalled component gained a direct helper:\n%s", generated)
+	}
+	if !strings.Contains(generated, "_gsxgw.S(\"<span>\")") {
+		t.Fatalf("uncalled component lost its ordinary body:\n%s", generated)
+	}
+}
+
+func TestDirectComponentCallKeepsTupleAdaptersAndSourceOrder(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"page.gsx": `package p
+import "github.com/gsxhq/gsx"
+
+type label string
+func (value label) String() string { return string(value) }
+func mark(value string) string { return value }
+func makeLabel() (label, error) { return "tuple", nil }
+
+component Badge(first string, label gsx.Node) { <span>{ first }{ label }</span> }
+component Page() { <Badge first={ mark("first") } label={ makeLabel() }/> }
+`,
+	})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	var generated string
+	for _, source := range output {
+		generated += string(source)
+	}
+	first := strings.Index(generated, `_gsxa0 := mark("first")`)
+	tuple := strings.Index(generated, `_gsxa1, _gsxerr := makeLabel()`)
+	call := strings.Index(generated, `_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, _gsxa0, _gsxrt.Val(_gsxa1)))`)
+	if first < 0 || tuple < first || call < tuple {
+		t.Fatalf("direct call changed source-order materialization, tuple unwrapping, or Node adapter:\n%s", generated)
+	}
+	if strings.Count(generated, "makeLabel()") != 2 {
+		// One occurrence is the authored function declaration; one is the call.
+		t.Fatalf("makeLabel call was duplicated:\n%s", generated)
+	}
+}
+
+func TestDirectComponentGeneratedFallbackMatrixUsesNode(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"factory.go": `package p
+import "github.com/gsxhq/gsx"
+func Plain(value string) gsx.Node { return gsx.Text(value) }
+var Variable = Plain
+type View struct{}
+`,
+		"page.gsx": `package p
+component Reserved[_gsxT any]() { <span/> }
+component (view View) Method(value string) { <b>{ value }</b> }
+component Page(view View) {
+	<Plain value="plain"/>
+	<Variable value="variable"/>
+	<view.Method value="method"/>
+	<Reserved[string]/>
+}
+`,
+	})
+	output, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	var generated string
+	for _, source := range output {
+		generated += string(source)
+	}
+	for _, want := range []string{
+		`_gsxgw.Node(ctx, Plain("plain"))`,
+		`_gsxgw.Node(ctx, Variable("variable"))`,
+		`_gsxgw.Node(ctx, view.Method("method"))`,
+		`_gsxgw.Node(ctx, Reserved[string]())`,
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated fallback output does not contain %q:\n%s", want, generated)
+		}
+	}
+	for _, absent := range []string{"_gsxrenderReserved", "_gsxrenderMethod", "_gsxrenderPlain", "_gsxrenderVariable"} {
+		if strings.Contains(generated, absent) {
+			t.Errorf("fallback target gained helper %q:\n%s", absent, generated)
+		}
 	}
 }

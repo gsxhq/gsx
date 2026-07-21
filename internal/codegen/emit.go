@@ -30,7 +30,7 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, positionalPlan componentPositionalPackagePlan) ([]byte, bool) {
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, componentPlan componentTargetPlan, positionalPlan componentPositionalPackagePlan) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -186,7 +186,7 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			// On failure, the diagnostic is already in bag — skip this component's
 			// output and continue to the next (report ALL components' errors).
 			var cbuf bytes.Buffer
-			if genComponent(&cbuf, v, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, bag, mergeExpr, positionalPlan) {
+			if genComponent(&cbuf, v, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, bag, mergeExpr, componentPlan, positionalPlan) {
 				body.Write(cbuf.Bytes())
 			} else {
 				ok = false
@@ -515,7 +515,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, rt rtImports, aliase
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, positionalPlan componentPositionalPackagePlan) bool {
+func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, componentPlan componentTargetPlan, positionalPlan componentPositionalPackagePlan) bool {
 	if _, err := normalizedTypeParams(c.TypeParams); err != nil {
 		// Validate type parameters before ordinary/reserved parameters and the
 		// receiver. Their types may refer to these declarations, so a malformed
@@ -586,23 +586,80 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	} else {
 		fmt.Fprintf(b, "func %s%s(%s) %s.Node {\n", c.Name, typeParamsDecl, strings.TrimSpace(c.Params), rt.rt())
 	}
+	direct := directComponentEmission(c, componentPlan, positionalPlan)
 	fmt.Fprintf(b, "\treturn %s.Func(func(ctx %s.Context, _gsxw %s.Writer) error {\n", rt.rt(), rt.ctx(), rt.io())
-	if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, hasAttrs, positionalPlan) {
-		return false
+	if direct == nil {
+		if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, hasAttrs, positionalPlan) {
+			return false
+		}
+	} else {
+		fmt.Fprintf(b, "\t\t_gsxgw := %s.W(_gsxw)\n", rt.rt())
+		fmt.Fprintf(b, "\t\treturn %s%s\n", direct.family.helperName, directComponentForwardingCall(*direct))
 	}
 	b.WriteString("\t})\n}\n\n")
+	if direct == nil {
+		return true
+	}
+
+	fmt.Fprintf(b, "func %s%s(ctx %s.Context, _gsxgw *%s.Writer", direct.family.helperName, typeParamsDecl, rt.ctx(), rt.rt())
+	if params := strings.TrimSpace(c.Params); params != "" {
+		fmt.Fprintf(b, ", %s", params)
+	}
+	b.WriteString(") error {\n")
+	b.WriteString("\tif _gsxerr := _gsxgw.Err(); _gsxerr != nil {\n\t\treturn _gsxerr\n\t}\n")
+	if !emitRenderedNodeBody(b, c.Body, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, hasAttrs, positionalPlan) {
+		return false
+	}
+	b.WriteString("}\n\n")
 	return true
 }
 
-// emitNodeFuncBody emits the common body of a gsx.Func render closure: bind
-// _gsxgw, declare the numeric scratch buffer if needed, emit each markup node
-// via genNode (the shared element/markup lowering — the SAME path a
-// component's child elements and an embedded Go-expression element both use),
-// then the trailing `return _gsxgw.Err()`. Shared by genComponent's two render
-// closures (byo and generated) and emitNodeValue's element/fragment-value
-// lowering so there is exactly one place that assembles this scaffolding.
+func directComponentEmission(c *ast.Component, componentPlan componentTargetPlan, positionalPlan componentPositionalPackagePlan) *directComponentDeclaration {
+	emission, ok := componentPlan.emission(c)
+	if !ok || emission.direct == nil {
+		return nil
+	}
+	for _, site := range positionalPlan.sites {
+		if site.directTarget != nil && site.directTarget.logicalKey == emission.direct.family.logicalKey && site.directTarget.helperName == emission.direct.family.helperName {
+			return emission.direct
+		}
+	}
+	return nil
+}
+
+func directComponentForwardingCall(direct directComponentDeclaration) string {
+	var call strings.Builder
+	if len(direct.typeParamNames) != 0 {
+		call.WriteByte('[')
+		call.WriteString(strings.Join(direct.typeParamNames, ", "))
+		call.WriteByte(']')
+	}
+	call.WriteString("(ctx, _gsxgw")
+	for index, name := range direct.paramNames {
+		call.WriteString(", ")
+		call.WriteString(name)
+		if direct.variadic && index == len(direct.paramNames)-1 {
+			call.WriteString("...")
+		}
+	}
+	call.WriteByte(')')
+	return call.String()
+}
+
+// emitNodeFuncBody binds the Writer used by a gsx.Func render closure, then
+// delegates all rendered-body lowering to emitRenderedNodeBody. Component
+// helpers already receive that Writer and enter the same lowerer after their
+// prior-error guard.
 func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, enclosingAttrsBound bool, positionalPlan componentPositionalPackagePlan) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw := %s.W(_gsxw)\n", rt.rt())
+	return emitRenderedNodeBody(b, nodes, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan)
+}
+
+// emitRenderedNodeBody is the single component/node body lowerer. Public Func
+// closures and direct helpers supply different writer scaffolds, then share
+// this exact path for scratch storage, markup lowering, source anchors, and the
+// final Writer error result.
+func emitRenderedNodeBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, enclosingAttrsBound bool, positionalPlan componentPositionalPackagePlan) bool {
 	emitNumScratch(b, nodes, resolved, table, cls)
 	for _, m := range nodes {
 		if !genNode(b, m, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan) {
