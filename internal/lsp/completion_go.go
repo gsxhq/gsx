@@ -182,14 +182,25 @@ func scopeCandidates(pkg *Package, scope *types.Scope, pos token.Pos) []scopedOb
 	return out
 }
 
-// goCompletionItems builds the completion list for a Go identifier-position
-// cursor whose enclosing lexical scope is scope and whose skeleton position is
-// pos (invalid for the GoChunk bridge). It enumerates every visible object via
-// scopeCandidates and, when statementCtx is set (GoBlock/GoChunk positions),
-// appends the Go statement keywords. Items replace the [start, end) token span
-// in text. skel/skelPos are unused by the identifier path but are the anchor a
-// later member-completion path (after a `.`) reads.
-func goCompletionItems(pkg *Package, scope *types.Scope, pos token.Pos, statementCtx bool, text string, start, end int, enc encoding) []CompletionItem {
+// goCompletionItems builds the completion list for a Go cursor. skel is the
+// bridged skeleton expression (nil for the GoBlock/GoChunk bridges — see the
+// member gap note below); pos is the cursor's skeleton position (invalid for the
+// GoChunk bridge). DISPATCH: when the cursor at pos sits on the Sel of a selector
+// `X.Sel` in skel, the member path enumerates X's members (fields/methods, or an
+// imported package's exported names); otherwise the scope path enumerates every
+// visible object via scopeCandidates and, when statementCtx is set
+// (GoBlock/GoChunk positions), appends the Go statement keywords. Items replace
+// the [start, end) token span in text.
+//
+// KNOWN GAP (v1): skel is non-nil only on the ExprMap and sigType bridges; the
+// GoBlock/CtrlMap and GoChunk bridges return nil skel, so a member cursor like
+// `{{ x.▮ }}` or a GoChunk `x.▮` cannot find its selector and falls through to
+// the scope path. Recovering the selector from Info.Types alone (by byte range)
+// was rejected as too loose to be sound with the facts these bridges retain.
+func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos token.Pos, statementCtx bool, text string, start, end int, enc encoding) []CompletionItem {
+	if items, ok := memberCompletionItems(pkg, skel, pos, text, start, end, enc); ok {
+		return items // member path: committed even when empty (no scope fallback)
+	}
 	qf := qualifierFor(pkg)
 	var items []CompletionItem
 	for _, cand := range scopeCandidates(pkg, scope, pos) {
@@ -203,6 +214,163 @@ func goCompletionItems(pkg *Package, scope *types.Scope, pos token.Pos, statemen
 		}
 	}
 	return items
+}
+
+// memberObject is one selectable member of a receiver type: the object plus the
+// embedding depth at which it was found (0 = direct field/method, larger = a
+// deeper promotion). The depth feeds the member sort tier so shallower members
+// sort ahead of deeply-promoted ones.
+type memberObject struct {
+	obj   types.Object
+	depth int // embedding depth, 0 = direct
+}
+
+// memberCandidates enumerates the selectable members of T: methods of T and *T
+// via types.NewMethodSet, plus fields found by a breadth-first embedded-field
+// walk with promotion (a shallower depth shadows a deeper same-name member).
+// Unexported members are offered only when their declaring package == samePkg.
+// Info.Selections is NOT consulted (the warm core never allocates it — probe
+// 2026-07-21); the type is walked directly instead.
+func memberCandidates(T types.Type, samePkg *types.Package) []memberObject {
+	if T == nil {
+		return nil
+	}
+	var out []memberObject
+	seen := map[string]bool{}
+	include := func(obj types.Object, depth int) {
+		if obj == nil || seen[obj.Name()] {
+			return
+		}
+		if !obj.Exported() && (obj.Pkg() == nil || samePkg == nil || obj.Pkg() != samePkg) {
+			return
+		}
+		seen[obj.Name()] = true
+		out = append(out, memberObject{obj, depth})
+	}
+	// Methods: NewMethodSet on *T sees both pointer and value methods. For a
+	// non-addressable T this over-offers pointer methods; acceptable for
+	// completion (the type checker flags real misuse; matches gopls behavior).
+	mset := types.NewMethodSet(types.NewPointer(T))
+	for sel := range mset.Methods() {
+		include(sel.Obj(), len(sel.Index())-1)
+	}
+	// Fields: BFS over embedded structs, depth-tracked, promotion shadowing.
+	// Methods are included first, so a field/method name collision keeps the
+	// method — Go forbids selecting either ambiguously, so offering the method is
+	// an acceptable resolution.
+	type queued struct {
+		t     types.Type
+		depth int
+	}
+	q := []queued{{T, 0}}
+	for len(q) > 0 {
+		cur := q[0]
+		q = q[1:]
+		t := cur.t
+		if p, ok := t.Underlying().(*types.Pointer); ok {
+			t = p.Elem()
+		}
+		st, ok := t.Underlying().(*types.Struct)
+		if !ok {
+			continue
+		}
+		for f := range st.Fields() {
+			include(f, cur.depth)
+			if f.Embedded() {
+				q = append(q, queued{f.Type(), cur.depth + 1})
+			}
+		}
+	}
+	return out
+}
+
+// enclosingSelector returns the *ast.SelectorExpr in root whose Sel is exactly
+// id, or nil when id is not a selector's Sel. That distinction is the member vs
+// scope dispatch: only a cursor ON the member half of `X.Sel` completes members;
+// a cursor on X (or a bare identifier) completes scope names.
+func enclosingSelector(root ast.Node, id *ast.Ident) *ast.SelectorExpr {
+	if root == nil || id == nil {
+		return nil
+	}
+	var found *ast.SelectorExpr
+	ast.Inspect(root, func(n ast.Node) bool {
+		if found != nil {
+			return false
+		}
+		if se, ok := n.(*ast.SelectorExpr); ok && se.Sel == id {
+			found = se
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// memberCompletionItems produces the member-position candidates when the bridged
+// cursor at pos sits on the Sel of a selector `X.Sel` in skel. It returns
+// ok=false only when there is NO enclosing selector (the identifier/scope path
+// applies); once a selector is found the member path is committed even if the
+// item list is empty (offering scope locals after a `.` would be wrong). When X
+// resolves to an imported package name the exported package members are offered
+// (tierImported); otherwise the type of X drives memberCandidates, tiered
+// tierMember+depth clamped below tierPackage.
+func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
+	if skel == nil || pkg == nil || pkg.Info == nil {
+		return nil, false
+	}
+	// innermostIdent uses a half-open [Pos, End) span, but a completion cursor
+	// sits AFTER the token it completes: for a typed prefix `user.N▮` the cursor
+	// is at `N`'s End and lands on no ident. Probe one byte back to land on the
+	// prefix's last char. (The empty-prefix trailing-dot case never needs this —
+	// the phantom `_` sits AT the cursor, so the first probe already lands on it;
+	// a back-probe there would hit the `.` and find nothing.)
+	id := innermostIdent(skel, pos)
+	if id == nil && pos > skel.Pos() {
+		id = innermostIdent(skel, pos-1)
+	}
+	if id == nil {
+		return nil, false
+	}
+	sel := enclosingSelector(skel, id)
+	if sel == nil {
+		return nil, false
+	}
+	qf := qualifierFor(pkg)
+
+	// Package member: X is an imported package name. Uses records the PkgName;
+	// Info.Types does not (a package name is not a value), so check Uses first.
+	if xid, ok := sel.X.(*ast.Ident); ok {
+		if pn, ok := pkg.Info.Uses[xid].(*types.PkgName); ok {
+			scope := pn.Imported().Scope()
+			var items []CompletionItem
+			for _, name := range scope.Names() {
+				obj := scope.Lookup(name)
+				if obj == nil || !obj.Exported() {
+					continue
+				}
+				kind, detail := goObjectPresentation(obj, qf)
+				items = append(items, newCompletionItem(text, start, end, enc, name, name, kind, tierImported, detail, nil))
+			}
+			return items, true
+		}
+	}
+
+	// Value member: the type of X drives the method set + field BFS.
+	tv, ok := pkg.Info.Types[sel.X]
+	if !ok || tv.Type == nil {
+		return nil, true // selector found but no type info: member path, empty
+	}
+	var items []CompletionItem
+	for _, m := range memberCandidates(tv.Type, pkg.Types) {
+		tier := tierMember + m.depth
+		if tier >= tierPackage {
+			tier = tierPackage - 1 // clamp to 29: member items never reach tierPackage
+		}
+		kind, detail := goObjectPresentation(m.obj, qf)
+		name := m.obj.Name()
+		items = append(items, newCompletionItem(text, start, end, enc, name, name, kind, tier, detail, nil))
+	}
+	return items, true
 }
 
 // goObjectPresentation maps a go/types object to its LSP completion kind and a

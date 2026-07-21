@@ -140,6 +140,135 @@ func g() {
 	}
 }
 
+// TestMemberCandidates exercises the method-set + embedded-field BFS over a
+// synthetic type, asserting promotion depth and the unexported-visibility gate.
+func TestMemberCandidates(t *testing.T) {
+	src := `package p
+
+type Base struct{ Shared, base int }
+type T struct {
+	Base
+	Name string
+	priv int
+}
+
+func (T) M()  {}
+func (*T) PM() {}
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+	tObj := pkg.Types.Scope().Lookup("T")
+	if tObj == nil {
+		t.Fatal("type T not found")
+	}
+	T := tObj.Type()
+
+	collect := func(samePkg *types.Package) map[string]int {
+		m := map[string]int{}
+		for _, c := range memberCandidates(T, samePkg) {
+			m[c.obj.Name()] = c.depth
+		}
+		return m
+	}
+
+	// Same package: every member is visible, including unexported ones.
+	same := collect(pkg.Types)
+	for _, name := range []string{"Name", "priv", "Base", "Shared", "base", "M", "PM"} {
+		if _, ok := same[name]; !ok {
+			t.Errorf("same-package member %q missing; got %v", name, same)
+		}
+	}
+	if same["Shared"] != 1 {
+		t.Errorf("Shared depth = %d, want 1", same["Shared"])
+	}
+	if same["base"] != 1 {
+		t.Errorf("base depth = %d, want 1", same["base"])
+	}
+	if same["Name"] != 0 {
+		t.Errorf("Name depth = %d, want 0", same["Name"])
+	}
+	if same["Base"] != 0 {
+		t.Errorf("Base depth = %d, want 0", same["Base"])
+	}
+
+	// Other package (samePkg=nil): unexported members are hidden.
+	other := collect(nil)
+	for _, name := range []string{"Name", "Base", "Shared", "M", "PM"} {
+		if _, ok := other[name]; !ok {
+			t.Errorf("other-package member %q missing; got %v", name, other)
+		}
+	}
+	for _, name := range []string{"priv", "base"} {
+		if _, ok := other[name]; ok {
+			t.Errorf("other-package member %q leaked (unexported); got %v", name, other)
+		}
+	}
+}
+
+// TestMemberCandidatesShadowing verifies a shallower field shadows a deeper
+// promoted field of the same name (BFS dedup by name).
+func TestMemberCandidatesShadowing(t *testing.T) {
+	src := `package p
+
+type Inner struct{ X int }
+type Outer struct {
+	Inner
+	X string
+}
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+	T := pkg.Types.Scope().Lookup("Outer").Type()
+	var xDepth = -1
+	var xCount int
+	for _, c := range memberCandidates(T, pkg.Types) {
+		if c.obj.Name() == "X" {
+			xCount++
+			xDepth = c.depth
+		}
+	}
+	if xCount != 1 {
+		t.Fatalf("expected exactly one X candidate (shallow shadows deep), got %d", xCount)
+	}
+	if xDepth != 0 {
+		t.Errorf("winning X depth = %d, want 0 (Outer's own field shadows Inner's)", xDepth)
+	}
+}
+
+// TestMemberDispatch asserts the dispatch decision: a cursor on the Sel of an
+// enclosing selector takes the member path (enclosingSelector finds it), while a
+// plain identifier takes the scope path (no enclosing selector).
+func TestMemberDispatch(t *testing.T) {
+	// Member position: `u.Na` — the cursor sits on `Na`, the Sel of the selector.
+	selExpr, err := parser.ParseExpr("u.Na")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := selExpr.(*ast.SelectorExpr)
+	id := innermostIdent(sel, sel.Sel.Pos())
+	if id != sel.Sel {
+		t.Fatalf("innermostIdent on selector Sel = %v, want the Sel ident", id)
+	}
+	if got := enclosingSelector(sel, id); got != sel {
+		t.Fatalf("enclosingSelector(sel, Sel) = %v, want the selector itself", got)
+	}
+
+	// Scope position: a bare identifier is not the Sel of any selector.
+	plain, err := parser.ParseExpr("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := plain.(*ast.Ident)
+	if got := enclosingSelector(plain, pid); got != nil {
+		t.Fatalf("enclosingSelector on a bare ident = %v, want nil (scope path)", got)
+	}
+
+	// The X of a selector is NOT its Sel: a cursor on `u` in `u.Na` completes as
+	// a scope identifier, not a member, so enclosingSelector must not match it.
+	xid := sel.X.(*ast.Ident)
+	if got := enclosingSelector(sel, xid); got != nil {
+		t.Fatalf("enclosingSelector on selector X = %v, want nil (X is a scope ident)", got)
+	}
+}
+
 func TestIsFileScope(t *testing.T) {
 	src := `package p
 

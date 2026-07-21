@@ -53,7 +53,25 @@ func (s *Server) handleCompletion(f frame) error {
 // unbridgeable cursor — yields an empty list, never an error: completion is
 // advisory and must fail soft.
 func (s *Server) goContextCompletion(cc completionContext, path, text string, off int, r repairResult) CompletionList {
-	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, r.src)
+	// PHANTOM SKELETON REPAIR — the SECOND completion patch site, distinct from
+	// Task 6's gsx-parse chooser in repairAtCursor (completion_repair.go). A
+	// trailing-dot member cursor like `{ user.▮ }` PARSES cleanly as gsx (the
+	// chooser picks the empty patch), but the generated SKELETON carries a broken
+	// selector `user.` that yields no member type info. Insert `_` at the cursor so
+	// the skeleton carries a valid `user._` selector whose `_` Sel is an
+	// empty-prefix member cursor. CROSS-TASK INVARIANT: this patches AT the cursor
+	// only — bytes before off (all import lines included) never move — so the
+	// bridge offsets computed against cc (over the original buffer) stay valid.
+	// Guarded by r.patch != "_" so a chooser `_` repair is never doubled.
+	src := r.src
+	if cc.kind == ctxGoExpr && off > 0 && off <= len(text) && text[off-1] == '.' && r.patch != "_" && off <= len(src) {
+		patched := make([]byte, 0, len(src)+1)
+		patched = append(patched, src[:off]...)
+		patched = append(patched, '_')
+		patched = append(patched, src[off:]...)
+		src = patched
+	}
+	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, src)
 	if err != nil || eph == nil || eph.Info == nil {
 		return emptyCompletion()
 	}
@@ -68,8 +86,7 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 		return emptyCompletion()
 	}
 	start, end := completionTokenSpan(text, off, false)
-	items := goCompletionItems(eph, scope, skelPos, statementCtx, text, start, end, s.enc)
-	_ = skel // reserved for the member-completion path (after a `.`)
+	items := goCompletionItems(eph, scope, skel, skelPos, statementCtx, text, start, end, s.enc)
 	if len(items) == 0 {
 		return emptyCompletion()
 	}

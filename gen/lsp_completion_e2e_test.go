@@ -198,6 +198,185 @@ func TestGoCompletionE2E(t *testing.T) {
 	}
 }
 
+// TestGoMemberCompletionE2E drives textDocument/completion after a `.` end to
+// end: the trailing-dot phantom skeleton repair (`{ user.▮ }`), a prefixed
+// member (`{ user.N▮ }`) with its token-scoped edit, imported-package members
+// (`{ strings.▮ }`), and the Task 9 scope gap that an imported package name
+// (`strings`) is offered at a plain-ident cursor with the tierImported sort
+// prefix. Each scenario opens its own tailored buffer so exactly one broken
+// selector exists per request (the phantom heals it; the rest stays valid).
+func TestGoMemberCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// run opens source as a buffer, sends one completion at cursor, returns items.
+	run := func(t *testing.T, source string, cursor int) []lsp.CompletionItem {
+		t.Helper()
+		root := t.TempDir()
+		write := func(name, content string) string {
+			path := filepath.Join(root, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}
+		write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+		write("page/types.go", "package page\n\ntype User struct {\n\tName string\n\tAge  int\n}\n")
+		pagePath := write("page/page.gsx", "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+		uri := "file://" + pagePath
+
+		frame := func(value any) string {
+			data, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+		}
+		var input strings.Builder
+		input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+		input.WriteString(frame(map[string]any{
+			"jsonrpc": "2.0", "method": "textDocument/didOpen",
+			"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+		}))
+		pos := lspUTF16PositionAt(source, cursor)
+		input.WriteString(frame(map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+			"params": map[string]any{
+				"textDocument": map[string]any{"uri": uri},
+				"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+			},
+		}))
+		input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+		var output, stderr bytes.Buffer
+		if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+			t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+		}
+		if strings.Contains(output.String(), ".x.go") {
+			t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
+		}
+		return completionItems(t, output.String(), 2)
+	}
+
+	labelsOf := func(items []lsp.CompletionItem) map[string]bool {
+		m := map[string]bool{}
+		for _, it := range items {
+			m[it.Label] = true
+		}
+		return m
+	}
+
+	// Scenario 1: trailing-dot phantom. `{ user. }` parses as gsx but the skeleton
+	// selector is broken; the phantom heals it to `user._` and enumerates fields.
+	t.Run("trailing-dot", func(t *testing.T) {
+		source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user. }</div>\n}\n"
+		cursor := strings.Index(source, "user.") + len("user.") // right after the dot
+		got := labelsOf(run(t, source, cursor))
+		for _, name := range []string{"Name", "Age"} {
+			if !got[name] {
+				t.Errorf("trailing-dot member %q missing; labels=%v", name, got)
+			}
+		}
+		if got["user"] {
+			t.Errorf("member position must not offer scope locals; got `user`: %v", got)
+		}
+	})
+
+	// Scenario 2: prefixed member `{ user.N }`. Name is offered and its edit
+	// replaces only the `N` token (not the receiver, not the dot).
+	t.Run("prefixed-member", func(t *testing.T) {
+		source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user.N }</div>\n}\n"
+		nOff := strings.Index(source, "user.N") + len("user.")
+		cursor := nOff + 1 // right after `N`
+		items := run(t, source, cursor)
+		var nameItem *lsp.CompletionItem
+		for i := range items {
+			if items[i].Label == "Name" {
+				nameItem = &items[i]
+			}
+		}
+		if nameItem == nil {
+			t.Fatalf("prefixed member `Name` missing; labels=%v", labelsOf(items))
+		}
+		if nameItem.TextEdit == nil {
+			t.Fatal("Name item has no TextEdit")
+		}
+		wantStart := lspUTF16PositionAt(source, nOff) // start of `N`
+		wantEnd := lspUTF16PositionAt(source, nOff+1) // after `N`
+		if nameItem.TextEdit.Range.Start != wantStart || nameItem.TextEdit.Range.End != wantEnd {
+			t.Errorf("Name edit range = %+v, want [%+v,%+v) (the `N` token only)",
+				nameItem.TextEdit.Range, wantStart, wantEnd)
+		}
+	})
+
+	// Scenario 3: imported-package members. `strings` is imported (and used in a
+	// sibling interp so it is not an unused import) and `{ strings. }` enumerates
+	// its exported names.
+	t.Run("package-member", func(t *testing.T) {
+		source := "package page\n\nimport \"strings\"\n\ncomponent Home(user User) {\n\t<div>{ strings. }</div>\n\t<span>{ strings.ToUpper(user.Name) }</span>\n}\n"
+		cursor := strings.Index(source, "{ strings. }") + len("{ strings.")
+		got := labelsOf(run(t, source, cursor))
+		for _, name := range []string{"ToUpper", "ToLower", "Contains"} {
+			if !got[name] {
+				t.Errorf("imported-package member %q missing; labels=%v", name, got)
+			}
+		}
+	})
+
+	// Scenario 4 (Task 9 scope gap): an imported package name completes at a plain
+	// identifier cursor and carries the tierImported (40) sort prefix.
+	t.Run("imported-name-in-scope", func(t *testing.T) {
+		source := "package page\n\nimport \"strings\"\n\ncomponent Home(user User) {\n\t<div>{ str }</div>\n\t<span>{ strings.ToUpper(user.Name) }</span>\n}\n"
+		cursor := strings.Index(source, "{ str }") + len("{ str")
+		var stringsItem *lsp.CompletionItem
+		items := run(t, source, cursor)
+		for i := range items {
+			if items[i].Label == "strings" {
+				stringsItem = &items[i]
+			}
+		}
+		if stringsItem == nil {
+			t.Fatalf("imported name `strings` missing from scope completion; labels=%v", labelsOf(items))
+		}
+		if !strings.HasPrefix(stringsItem.SortText, "40") {
+			t.Errorf("`strings` SortText = %q, want tierImported prefix \"40\"", stringsItem.SortText)
+		}
+	})
+}
+
+// completionItems extracts the full CompletionItem slice from the completion
+// response with the given id.
+func completionItems(t *testing.T, output string, id int) []lsp.CompletionItem {
+	t.Helper()
+	for part := range strings.SplitSeq(output, "Content-Length:") {
+		_, body, ok := strings.Cut(part, "\r\n\r\n")
+		if !ok {
+			continue
+		}
+		var response struct {
+			ID     int                 `json:"id"`
+			Result *lsp.CompletionList `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(body), &response); err != nil || response.ID != id {
+			continue
+		}
+		if response.Result == nil {
+			t.Fatalf("completion response id %d has null result:\n%s", id, output)
+		}
+		return response.Result.Items
+	}
+	t.Fatalf("no completion response for id %d in:\n%s", id, output)
+	return nil
+}
+
 // completionLabels extracts the set of item labels from the completion response
 // with the given id.
 func completionLabels(t *testing.T, output string, id int) map[string]bool {
