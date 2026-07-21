@@ -75,7 +75,7 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 func BenchmarkSpreadNoURLLarge(b *testing.B) {
 	b.ReportAllocs()
 	attrs := make(Attrs, 0, 70)
-	for i := 0; i < 70; i++ {
+	for i := range 70 {
 		attrs = append(attrs, Attr{
 			Key:   "data-field-" + strconv.Itoa(i),
 			Value: "value",
