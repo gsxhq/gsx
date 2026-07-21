@@ -48,6 +48,12 @@ txtar corpus, sibling `gsx-bench`, `gopls`, race/fuzz/profile tooling, and
   from authored source.
 - Raw benchmark output, diffs, test binaries, and profiles live under `/tmp`.
   No profiling command may leave a `*.test` binary in a repository.
+- Before/after processes are counterbalanced by pair: odd pairs run `AB` and
+  even pairs run `BA`. A fixed `AB` order is not accepted as interleaving.
+- An external benchmark's effective local module dependency is part of the
+  measured program. The harness must resolve it through `go list -m`, reject
+  untracked or unstaged dependency state, and fingerprint its commit plus
+  staged diff alongside the benchmark repository.
 - A failed command must fail its shell block. Evidence commands use checked
   redirection followed by `cat`; they never pipe a producer into `tee`.
 - Every shell block below is self-contained: it uses absolute `git -C`, an
@@ -87,7 +93,8 @@ Core candidate:
 Sibling prerequisite and generated candidate:
 
 - Create `scripts/benchcmp.sh` and `scripts/benchcmp_test.sh`.
-- Modify `README.md` with the interleaved command contract.
+- Modify `README.md` with the counterbalanced command and dependency-fingerprint
+  contract.
 - Regenerate `gsxr/*.x.go` and `tw/*.x.go`; `templr/*_templ.go` must not drift.
 
 Decision and documentation:
@@ -195,12 +202,19 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 tmp=$(mktemp -d /tmp/gsx-benchcmp-test.XXXXXX)
 cleanup() {
   rm -f "$tmp"/bin/go "$tmp"/bin/git "$tmp"/trace "$tmp"/fail-trace
-  rm -f "$tmp"/usage "$tmp"/untracked "$tmp"/unstaged
+  rm -f "$tmp"/usage "$tmp"/untracked "$tmp"/unstaged "$tmp"/dependency
   rm -f "$tmp"/out/* "$tmp"/out-fail/*
-  rmdir "$tmp"/out "$tmp"/out-fail "$tmp"/bin "$tmp"/before "$tmp"/after "$tmp" 2>/dev/null || true
+  rmdir "$tmp"/out "$tmp"/out-fail "$tmp"/bin \
+    "$tmp"/before/gsx-bench "$tmp"/before/gsx \
+    "$tmp"/after/gsx-bench "$tmp"/after/gsx \
+    "$tmp"/before "$tmp"/after "$tmp" 2>/dev/null || true
 }
 trap cleanup EXIT HUP INT TERM
-mkdir "$tmp/bin" "$tmp/before" "$tmp/after"
+before_bench="$tmp/before/gsx-bench"
+before_core="$tmp/before/gsx"
+after_bench="$tmp/after/gsx-bench"
+after_core="$tmp/after/gsx"
+mkdir -p "$tmp/bin" "$before_bench" "$before_core" "$after_bench" "$after_core"
 
 cat >"$tmp/bin/go" <<'EOF'
 #!/bin/sh
@@ -209,6 +223,22 @@ printf '%s|%s\n' "$PWD" "$*" >>"$TRACE"
 case "$1" in
 version)
   printf '%s\n' 'go version go1.26.1 darwin/arm64'
+  ;;
+list)
+  if [ "${FAKE_NO_DEPENDENCY:-}" = 1 ]; then
+    exit 0
+  fi
+  case "$PWD" in
+  "$TMP_ROOT/before/gsx-bench") printf '%s\n' "$TMP_ROOT/before/gsx" ;;
+  "$TMP_ROOT/after/gsx-bench")
+    if [ "${FAKE_SAME_DEPENDENCY:-}" = 1 ]; then
+      printf '%s\n' "$TMP_ROOT/before/gsx"
+    else
+      printf '%s\n' "$TMP_ROOT/after/gsx"
+    fi
+    ;;
+  *) exit 71 ;;
+  esac
   ;;
 test)
   printf '%s\n' \
@@ -234,10 +264,10 @@ cat >"$tmp/bin/git" <<'EOF'
 set -eu
 case "$*" in
 'ls-files --others --exclude-standard')
-  [ -z "${FAKE_UNTRACKED:-}" ] || printf '%s\n' "$FAKE_UNTRACKED"
+  [ "${FAKE_UNTRACKED_DIR:-}" != "$PWD" ] || printf '%s\n' 'probe.go'
   ;;
 'diff --quiet --')
-  [ -z "${FAKE_UNSTAGED:-}" ]
+  [ "${FAKE_UNSTAGED_DIR:-}" != "$PWD" ]
   ;;
 'diff --cached --binary HEAD')
   printf '%s\n' 'staged candidate diff'
@@ -253,20 +283,22 @@ esac
 EOF
 chmod +x "$tmp/bin/go" "$tmp/bin/git"
 
-TRACE="$tmp/trace" PATH="$tmp/bin:$PATH" "$repo/scripts/benchcmp.sh" \
-  "$tmp/before" "$tmp/after" '^BenchmarkProbe$' "$tmp/out" .
+TMP_ROOT="$tmp" TRACE="$tmp/trace" PATH="$tmp/bin:$PATH" \
+  "$repo/scripts/benchcmp.sh" \
+  "$before_bench" "$after_bench" '^BenchmarkProbe$' "$tmp/out" . \
+  github.com/gsxhq/gsx
 
 set +e
 TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" "$repo/scripts/benchcmp.sh" \
-  "$tmp/before" "$tmp/after" '^BenchmarkProbe$' > /dev/null 2>"$tmp/usage"
+  "$before_bench" "$after_bench" '^BenchmarkProbe$' > /dev/null 2>"$tmp/usage"
 status=$?
 set -e
 test "$status" -eq 64
 grep -q '^usage: benchcmp.sh ' "$tmp/usage"
 
 set +e
-FAKE_UNTRACKED=probe.go TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
-  "$repo/scripts/benchcmp.sh" "$tmp/before" "$tmp/after" \
+FAKE_UNTRACKED_DIR="$before_bench" TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
+  "$repo/scripts/benchcmp.sh" "$before_bench" "$after_bench" \
   '^BenchmarkProbe$' "$tmp/out-untracked" . > /dev/null 2>"$tmp/untracked"
 status=$?
 set -e
@@ -274,8 +306,8 @@ test "$status" -eq 66
 grep -q 'untracked files' "$tmp/untracked"
 
 set +e
-FAKE_UNSTAGED=1 TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
-  "$repo/scripts/benchcmp.sh" "$tmp/before" "$tmp/after" \
+FAKE_UNSTAGED_DIR="$after_bench" TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
+  "$repo/scripts/benchcmp.sh" "$before_bench" "$after_bench" \
   '^BenchmarkProbe$' "$tmp/out-unstaged" . > /dev/null 2>"$tmp/unstaged"
 status=$?
 set -e
@@ -283,19 +315,68 @@ test "$status" -eq 67
 grep -q 'unstaged changes' "$tmp/unstaged"
 
 set +e
+TMP_ROOT="$tmp" FAKE_UNTRACKED_DIR="$before_core" \
+  TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
+  "$repo/scripts/benchcmp.sh" "$before_bench" "$after_bench" \
+  '^BenchmarkProbe$' "$tmp/out-dependency-untracked" . \
+  github.com/gsxhq/gsx > /dev/null 2>"$tmp/untracked"
+status=$?
+set -e
+test "$status" -eq 66
+grep -q "$before_core" "$tmp/untracked"
+
+set +e
+TMP_ROOT="$tmp" FAKE_UNSTAGED_DIR="$after_core" \
+  TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
+  "$repo/scripts/benchcmp.sh" "$before_bench" "$after_bench" \
+  '^BenchmarkProbe$' "$tmp/out-dependency-unstaged" . \
+  github.com/gsxhq/gsx > /dev/null 2>"$tmp/unstaged"
+status=$?
+set -e
+test "$status" -eq 67
+grep -q "$after_core" "$tmp/unstaged"
+
+set +e
+TMP_ROOT="$tmp" FAKE_NO_DEPENDENCY=1 \
+  TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
+  "$repo/scripts/benchcmp.sh" "$before_bench" "$after_bench" \
+  '^BenchmarkProbe$' "$tmp/out-dependency-missing" . \
+  github.com/gsxhq/gsx > /dev/null 2>"$tmp/dependency"
+status=$?
+set -e
+test "$status" -eq 71
+grep -q 'did not resolve' "$tmp/dependency"
+
+set +e
+TMP_ROOT="$tmp" FAKE_SAME_DEPENDENCY=1 \
+  TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
+  "$repo/scripts/benchcmp.sh" "$before_bench" "$after_bench" \
+  '^BenchmarkProbe$' "$tmp/out-dependency-same" . \
+  github.com/gsxhq/gsx > /dev/null 2>"$tmp/dependency"
+status=$?
+set -e
+test "$status" -eq 71
+grep -q 'same directory' "$tmp/dependency"
+
+set +e
 FAIL_BENCHSTAT=1 TRACE="$tmp/fail-trace" PATH="$tmp/bin:$PATH" \
-  "$repo/scripts/benchcmp.sh" "$tmp/before" "$tmp/after" \
+  "$repo/scripts/benchcmp.sh" "$before_bench" "$after_bench" \
   '^BenchmarkProbe$' "$tmp/out-fail" . > /dev/null 2>&1
 status=$?
 set -e
 test "$status" -eq 72
 
-test "$(grep -c "$tmp/before|test" "$tmp/trace")" -eq 10
-test "$(grep -c "$tmp/after|test" "$tmp/trace")" -eq 10
+test "$(grep -c "$before_bench|test" "$tmp/trace")" -eq 10
+test "$(grep -c "$after_bench|test" "$tmp/trace")" -eq 10
 grep '|test' "$tmp/trace" >"$tmp/test-trace"
-awk -F'|' -v before="$tmp/before" -v after="$tmp/after" '
-  NR % 2 == 1 && $1 != before { exit 1 }
-  NR % 2 == 0 && $1 != after { exit 1 }
+awk -F'|' -v before="$before_bench" -v after="$after_bench" '
+  {
+    pair = int((NR - 1) / 2) + 1
+    first = (pair % 2 == 1) ? before : after
+    second = (pair % 2 == 1) ? after : before
+    want = (NR % 2 == 1) ? first : second
+    if ($1 != want) exit 1
+  }
   END { if (NR != 20) exit 1 }
 ' "$tmp/test-trace"
 rm -f "$tmp/test-trace"
@@ -303,10 +384,17 @@ test "$(grep -c '^BenchmarkProbe-32' "$tmp/out/before.txt")" -eq 10
 test "$(grep -c '^BenchmarkProbe-32' "$tmp/out/after.txt")" -eq 10
 test -s "$tmp/out/before.diff"
 test -s "$tmp/out/after.diff"
+test -s "$tmp/out/before-dependency.diff"
+test -s "$tmp/out/after-dependency.diff"
 test -s "$tmp/out/benchstat.txt"
 test -s "$tmp/out/environment.txt"
 grep -q '^before-commit=0123456789abcdef' "$tmp/out/environment.txt"
 grep -q '^after-diff-sha256=' "$tmp/out/environment.txt"
+grep -q '^schedule=odd:before-after,even:after-before$' "$tmp/out/environment.txt"
+grep -q '^dependency-module=github.com/gsxhq/gsx$' "$tmp/out/environment.txt"
+grep -Fqx "before-dependency-path=$before_core" "$tmp/out/environment.txt"
+grep -q '^after-dependency-commit=0123456789abcdef' "$tmp/out/environment.txt"
+grep -q '^after-dependency-diff-sha256=' "$tmp/out/environment.txt"
 ```
 
 Make it executable, run it, and observe failure because `benchcmp.sh` is absent:
@@ -318,7 +406,7 @@ chmod +x scripts/benchcmp_test.sh
 sh scripts/benchcmp_test.sh
 ```
 
-- [ ] **Step 4: Implement the exact interleaved harness**
+- [ ] **Step 4: Implement the exact counterbalanced harness**
 
 Create `scripts/benchcmp.sh` with this complete content:
 
@@ -326,16 +414,20 @@ Create `scripts/benchcmp.sh` with this complete content:
 #!/bin/sh
 set -eu
 
-if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
-  printf '%s\n' 'usage: benchcmp.sh BEFORE_DIR AFTER_DIR BENCH_REGEX OUTPUT_DIR [PACKAGE]' >&2
+case "$#" in
+4|5|6) ;;
+*)
+  printf '%s\n' 'usage: benchcmp.sh BEFORE_DIR AFTER_DIR BENCH_REGEX OUTPUT_DIR [PACKAGE [DEPENDENCY_MODULE]]' >&2
   exit 64
-fi
+  ;;
+esac
 
 before=$(CDPATH= cd -- "$1" && pwd -P)
 after=$(CDPATH= cd -- "$2" && pwd -P)
 regex=$3
 out_arg=$4
 pkg=${5:-.}
+dependency_module=${6:-}
 benchstat=golang.org/x/perf/cmd/benchstat@v0.0.0-20260709024250-82a0b07e230d
 
 if [ "$before" = "$after" ]; then
@@ -358,6 +450,40 @@ check_repo() {
 check_repo "$before"
 check_repo "$after"
 
+go_version=$(go version)
+case "$go_version" in
+'go version go1.26.1 '*) ;;
+*) printf 'benchcmp: need Go 1.26.1, got %s\n' "$go_version" >&2; exit 70 ;;
+esac
+
+before_dependency=
+after_dependency=
+if [ -n "$dependency_module" ]; then
+  resolve_dependency() {
+    from_repo=$1
+    if ! resolved=$(cd "$from_repo" && go list -m -f '{{.Dir}}' "$dependency_module"); then
+      printf 'benchcmp: cannot resolve dependency module %s from %s\n' \
+        "$dependency_module" "$from_repo" >&2
+      exit 71
+    fi
+    if [ -z "$resolved" ] || [ ! -d "$resolved" ]; then
+      printf 'benchcmp: dependency module %s did not resolve to a directory from %s\n' \
+        "$dependency_module" "$from_repo" >&2
+      exit 71
+    fi
+    CDPATH= cd -- "$resolved" && pwd -P
+  }
+  before_dependency=$(resolve_dependency "$before")
+  after_dependency=$(resolve_dependency "$after")
+  if [ "$before_dependency" = "$after_dependency" ]; then
+    printf 'benchcmp: before and after resolve dependency %s to the same directory: %s\n' \
+      "$dependency_module" "$before_dependency" >&2
+    exit 71
+  fi
+  check_repo "$before_dependency"
+  check_repo "$after_dependency"
+fi
+
 case "$out_arg" in
 /*) out=$out_arg ;;
 *) out=$PWD/$out_arg ;;
@@ -373,17 +499,19 @@ case "$out/" in
   exit 68
   ;;
 esac
+if [ -n "$dependency_module" ]; then
+  case "$out/" in
+  "$before_dependency/"*|"$after_dependency/"*)
+    printf '%s\n' 'benchcmp: output directory must be outside resolved dependencies' >&2
+    exit 68
+    ;;
+  esac
+fi
 if [ -e "$out" ]; then
   printf 'benchcmp: output path already exists: %s\n' "$out" >&2
   exit 69
 fi
 mkdir "$out"
-
-go_version=$(go version)
-case "$go_version" in
-'go version go1.26.1 '*) ;;
-*) printf 'benchcmp: need Go 1.26.1, got %s\n' "$go_version" >&2; exit 70 ;;
-esac
 
 (cd "$before" && git diff --cached --binary HEAD) >"$out/before.diff"
 (cd "$after" && git diff --cached --binary HEAD) >"$out/after.diff"
@@ -391,12 +519,23 @@ before_diff_sha=$(shasum -a 256 "$out/before.diff")
 before_diff_sha=${before_diff_sha%% *}
 after_diff_sha=$(shasum -a 256 "$out/after.diff")
 after_diff_sha=${after_diff_sha%% *}
+if [ -n "$dependency_module" ]; then
+  (cd "$before_dependency" && git diff --cached --binary HEAD) \
+    >"$out/before-dependency.diff"
+  (cd "$after_dependency" && git diff --cached --binary HEAD) \
+    >"$out/after-dependency.diff"
+  before_dependency_diff_sha=$(shasum -a 256 "$out/before-dependency.diff")
+  before_dependency_diff_sha=${before_dependency_diff_sha%% *}
+  after_dependency_diff_sha=$(shasum -a 256 "$out/after-dependency.diff")
+  after_dependency_diff_sha=${after_dependency_diff_sha%% *}
+fi
 
 {
   printf '%s\n' "$go_version"
   uname -m
   sysctl -n machdep.cpu.brand_string 2>/dev/null || true
   printf 'GOMAXPROCS=32\n'
+  printf 'schedule=odd:before-after,even:after-before\n'
   printf 'before-path=%s\n' "$before"
   printf 'after-path=%s\n' "$after"
   printf 'before-commit=%s\n' "$(cd "$before" && git rev-parse HEAD)"
@@ -405,24 +544,45 @@ after_diff_sha=${after_diff_sha%% *}
   printf 'after-status=%s\n' "$(cd "$after" && git status --short)"
   printf 'before-diff-sha256=%s\n' "$before_diff_sha"
   printf 'after-diff-sha256=%s\n' "$after_diff_sha"
+  if [ -n "$dependency_module" ]; then
+    printf 'dependency-module=%s\n' "$dependency_module"
+    printf 'before-dependency-path=%s\n' "$before_dependency"
+    printf 'after-dependency-path=%s\n' "$after_dependency"
+    printf 'before-dependency-commit=%s\n' \
+      "$(cd "$before_dependency" && git rev-parse HEAD)"
+    printf 'after-dependency-commit=%s\n' \
+      "$(cd "$after_dependency" && git rev-parse HEAD)"
+    printf 'before-dependency-status=%s\n' \
+      "$(cd "$before_dependency" && git status --short)"
+    printf 'after-dependency-status=%s\n' \
+      "$(cd "$after_dependency" && git status --short)"
+    printf 'before-dependency-diff-sha256=%s\n' "$before_dependency_diff_sha"
+    printf 'after-dependency-diff-sha256=%s\n' "$after_dependency_diff_sha"
+  fi
   printf 'regex=%s\n' "$regex"
   printf 'package=%s\n' "$pkg"
 } >"$out/environment.txt"
 
 : >"$out/before.txt"
 : >"$out/after.txt"
+run_sample() {
+  sample_label=$1
+  sample_repo=$2
+  (
+    cd "$sample_repo"
+    GOFLAGS= GOMAXPROCS=32 GOCACHE=/tmp/gsx-runtime-optimisations-cache \
+      go test -run '^$' -bench "$regex" -benchmem -count=1 "$pkg"
+  ) >>"$out/$sample_label.txt"
+}
 i=1
 while [ "$i" -le 10 ]; do
-  (
-    cd "$before"
-    GOFLAGS= GOMAXPROCS=32 GOCACHE=/tmp/gsx-runtime-optimisations-cache \
-      go test -run '^$' -bench "$regex" -benchmem -count=1 "$pkg"
-  ) >>"$out/before.txt"
-  (
-    cd "$after"
-    GOFLAGS= GOMAXPROCS=32 GOCACHE=/tmp/gsx-runtime-optimisations-cache \
-      go test -run '^$' -bench "$regex" -benchmem -count=1 "$pkg"
-  ) >>"$out/after.txt"
+  if [ $((i % 2)) -eq 1 ]; then
+    run_sample before "$before"
+    run_sample after "$after"
+  else
+    run_sample after "$after"
+    run_sample before "$before"
+  fi
   i=$((i + 1))
 done
 
@@ -440,13 +600,16 @@ chmod +x scripts/benchcmp.sh scripts/benchcmp_test.sh
 sh scripts/benchcmp_test.sh
 git diff --check
 git add scripts/benchcmp.sh scripts/benchcmp_test.sh README.md
-git commit -m 'test(perf): add interleaved benchmark comparisons'
+git commit -m 'test(perf): add counterbalanced benchmark comparisons'
 ```
 
 The README example must use an output directory under `/tmp` and state that the
-script runs ten distinct before/after process pairs at `GOMAXPROCS=32`, rejects
-untracked or unstaged inputs, records commits plus staged-diff hashes, and uses
-the pinned benchstat revision.
+script runs ten distinct process pairs at `GOMAXPROCS=32`, with odd pairs in
+before/after order and even pairs in after/before order. It must document the
+optional effective dependency-module argument, including that the script
+resolves that module independently from each measured worktree, rejects
+untracked or unstaged state in all measured repositories, records every commit
+plus staged-diff hash, and uses the pinned benchstat revision.
 
 - [ ] **Step 5: Record the exact post-prerequisite candidate bases**
 
@@ -1533,7 +1696,7 @@ scripts/benchcmp.sh \
   "$before_root/gsx-bench" \
   /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench \
   '^Benchmark(ForwardedAttrsGSX(Pooled|Discard)|FoldedAttrsGSX(Pooled|Discard))$' \
-  "$result_root/external" .
+  "$result_root/external" . github.com/gsxhq/gsx
 scripts/benchcmp.sh \
   "$before_root/gsx" \
   /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx \
@@ -1547,15 +1710,44 @@ before commits and candidate diffs explicitly:
 ```sh
 set -eu
 result_root=$(cat /tmp/gsx-runtime-optimisations/spread-policy.results-root)
+before_root=$(cat /tmp/gsx-runtime-optimisations/spread-policy.before-root)
 core_base=$(cat /tmp/gsx-runtime-optimisations/spread-policy.core-base)
 bench_base=$(cat /tmp/gsx-runtime-optimisations/spread-policy.bench-base)
 grep -q "^before-commit=$bench_base$" "$result_root/external/environment.txt"
+grep -q "^after-commit=$bench_base$" "$result_root/external/environment.txt"
+grep -q '^before-status=$' "$result_root/external/environment.txt"
+grep -q '^dependency-module=github.com/gsxhq/gsx$' \
+  "$result_root/external/environment.txt"
+grep -Fqx "before-dependency-path=$before_root/gsx" \
+  "$result_root/external/environment.txt"
+grep -Fqx 'after-dependency-path=/Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx' \
+  "$result_root/external/environment.txt"
+grep -q "^before-dependency-commit=$core_base$" \
+  "$result_root/external/environment.txt"
+grep -q "^after-dependency-commit=$core_base$" \
+  "$result_root/external/environment.txt"
+grep -q '^before-dependency-status=$' "$result_root/external/environment.txt"
+grep -q '^before-dependency-diff-sha256=' "$result_root/external/environment.txt"
+grep -q '^after-dependency-diff-sha256=' "$result_root/external/environment.txt"
 grep -q "^before-commit=$core_base$" "$result_root/core/environment.txt"
+grep -q "^after-commit=$core_base$" "$result_root/core/environment.txt"
+grep -q '^before-status=$' "$result_root/core/environment.txt"
+grep -q '^schedule=odd:before-after,even:after-before$' \
+  "$result_root/external/environment.txt"
+grep -q '^schedule=odd:before-after,even:after-before$' \
+  "$result_root/core/environment.txt"
+test ! -s "$result_root/external/before.diff"
 test -s "$result_root/external/after.diff"
+test -f "$result_root/external/before-dependency.diff"
+test ! -s "$result_root/external/before-dependency.diff"
+test -s "$result_root/external/after-dependency.diff"
+test ! -s "$result_root/core/before.diff"
 test -s "$result_root/core/after.diff"
 ```
 
 The SHA-256 values in each `environment.txt` are the exact candidate identities.
+For external runs, those identities cover both the generated benchmark module
+and the effective core module that `go list -m` resolved from each worktree.
 
 - [ ] **Step 3: Run the complete external regression screen**
 
@@ -1568,7 +1760,7 @@ scripts/benchcmp.sh \
   "$before_root/gsx-bench" \
   /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench \
   '^Benchmark.*GSX(Pooled|Discard|Builder|Parallel)$' \
-  "$result_root/full" .
+  "$result_root/full" . github.com/gsxhq/gsx
 ```
 
 - [ ] **Step 4: Apply the numeric keep/reject gate**
@@ -1652,7 +1844,9 @@ codegen, corpus, or generated-output commit.
 The audit-note experiment section must record:
 
 - prerequisite, candidate-base, and outcome commit IDs for both repositories;
-- Go version, `GOMAXPROCS`, machine, staged-diff hashes, and all raw paths;
+- Go version, `GOMAXPROCS`, machine, the counterbalanced `AB`/`BA` schedule,
+  benchmark and resolved-dependency commits/statuses/staged-diff hashes, and all
+  raw paths;
 - median before/after time, delta, p-value, bytes, and allocations for every
   focused benchmark;
 - every full-screen regression checked against its applicable 7% or 12% gate;
