@@ -7,9 +7,11 @@ import (
 	"strconv"
 )
 
-// Writer streams HTML to an underlying io.Writer, retaining the first write error
-// so generated code need not check every write. Once an error is set, every
-// helper is a no-op; read it once via Err.
+// Writer streams HTML to an underlying io.Writer. Ordinary write helpers
+// retain the first error and no-op while it is set. Node applies a child result
+// only when the parent state is clear. After a generated direct child uses this
+// Writer, generated code uses NodeResult to apply the child's return, which may
+// replace or clear state created during that child. Read current state via Err.
 type Writer struct {
 	w   io.Writer
 	err error
@@ -18,7 +20,7 @@ type Writer struct {
 // W wraps w. The returned *Writer is always usable.
 func W(w io.Writer) *Writer { return &Writer{w: w} }
 
-// Err returns the first write error encountered, or nil.
+// Err returns the current render or write error, or nil.
 func (gw *Writer) Err() error { return gw.err }
 
 // writeStr writes s verbatim, threading the first error.
@@ -189,6 +191,12 @@ func (gw *Writer) Node(ctx context.Context, n Node) {
 		return
 	}
 	gw.err = n.Render(ctx, gw.w)
+}
+
+// NodeResult records the return from a directly rendered generated child.
+// Generated code calls it after the child's helper has used this Writer.
+func (gw *Writer) NodeResult(err error) {
+	gw.err = err
 }
 
 // CSS writes s into a <style> raw-text context, value-filtered so it cannot

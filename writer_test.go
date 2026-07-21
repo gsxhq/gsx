@@ -48,6 +48,64 @@ func TestWriterNodeNilSafe(t *testing.T) {
 	}
 }
 
+func TestWriterNodeResultAssignment(t *testing.T) {
+	sentinelA := errors.New("sentinel A")
+	sentinelB := errors.New("sentinel B")
+
+	tests := []struct {
+		name     string
+		existing func(*Writer)
+		result   error
+		want     error
+	}{
+		{
+			name:     "clear state receives error",
+			existing: func(*Writer) {},
+			result:   sentinelA,
+			want:     sentinelA,
+		},
+		{
+			name:     "render error replaces render error",
+			existing: func(gw *Writer) { gw.err = sentinelA },
+			result:   sentinelB,
+			want:     sentinelB,
+		},
+		{
+			name:     "nil clears render error",
+			existing: func(gw *Writer) { gw.err = sentinelA },
+			result:   nil,
+			want:     nil,
+		},
+		{
+			name: "render error replaces destination write error",
+			existing: func(gw *Writer) {
+				gw.S("fail")
+			},
+			result: sentinelA,
+			want:   sentinelA,
+		},
+		{
+			name: "nil clears destination write error",
+			existing: func(gw *Writer) {
+				gw.S("fail")
+			},
+			result: nil,
+			want:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := W(&failingWriter{})
+			tt.existing(gw)
+			gw.NodeResult(tt.result)
+			if got := gw.Err(); got != tt.want {
+				t.Fatalf("Err() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // failingWriter fails on the Nth write.
 type failingWriter struct {
 	n int
