@@ -307,7 +307,7 @@ Two supplemental memory profiles close possible attribution mistakes:
   Those transforms are user-requested pipeline work, not pipeline dispatch or
   writer overhead.
 
-## Ranked Candidate 1
+## Candidate 1 Hypothesis
 
 ### Keep investigating: exact non-empty spread classification
 
@@ -446,14 +446,139 @@ equivalence; race tests; full corpus regeneration; `make ci`; and `make lint`.
   and 728 bytes relative to pooled/discard are destination capacity growth; the
   production-representative warm buffer is the deciding surface.
 
+## Candidate 1 Experiment: Rejected
+
+The immutable spread-policy experiment was run and removed. It did not improve
+the user-render paths that justified the change, so no runtime, codegen,
+corpus, or generated-output candidate commit exists.
+
+### Identity and raw evidence
+
+- Core prerequisite commits:
+  `1046a177693a8a1410028555da33f154d0b3cdfd` (70-entry workload) and
+  `5c62bf7760c7a8aae369197e3de2160354968c25` (effective-build-input audit).
+- Benchmark prerequisite commits:
+  `d43415a94e2699b8a07937561ad14d88321d917b` (counterbalanced harness) and
+  `8ca640ab42038917ae389177a239e467fa22816c` (effective-build-input audit).
+- Candidate bases and restored outcome: core `5c62bf7760c7a8aae369197e3de2160354968c25`;
+  benchmark `8ca640ab42038917ae389177a239e467fa22816c`.
+- The fresh authoritative lint gate subsequently required the setup-only
+  70-entry benchmark loop to use Go 1.22 range-over-integer syntax. Core commit
+  `da61c791469a16519d5e1317d8150cfa4ab09a8f` makes only that mechanical change;
+  it does not alter the measured loop body or any renderer. The benchmark
+  outcome remains `8ca640ab42038917ae389177a239e467fa22816c`.
+- Candidate staged-diff SHA-256: core
+  `528dca635612f0f958e7221d8892154cf6144ee20d718719934303651d235c9d`;
+  benchmark
+  `a6ef8f52d8e32f018fc1d5f9abe88c213a3ac451e66be2940f7342bf6a916f2e`.
+  Both before diffs were empty, with SHA-256
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+- Before statuses were clean. Candidate statuses contained only staged changes:
+  214 core runtime/codegen/test/generated paths and six benchmark-generated
+  paths, with no unstaged or untracked input. After rejection both active
+  worktrees returned to clean base commits.
+- Environment: 2026-07-21, Apple M3 Ultra (`darwin/arm64`), Go 1.26.1,
+  `GOMAXPROCS=32`; ten distinct process pairs, odd pairs before/after and even
+  pairs after/before.
+- Result root: `/private/tmp/gsx-runtime-spread-results.wn175d`.
+  Focused directories are `external` and `core`; the complete GSX screen is
+  `full`. The restored-base snapshot is `final-full-suite.txt` with its
+  `final-full-suite.benchstat.txt` summary. The detached before pair is
+  `/private/tmp/gsx-runtime-spread-before.QTG7T7`. The local classifier output
+  is `/tmp/gsx-runtime-optimisations/spread-classifier-local.txt`; the large-bag
+  prerequisite output is
+  `/tmp/gsx-runtime-optimisations/large-bag-prerequisite.txt`.
+- The external harness independently resolved `github.com/gsxhq/gsx` to the
+  corresponding sibling core worktree. Its before/after benchmark commits were
+  both the benchmark base; its dependency commits were both the core base. The
+  commit/status/staged-diff fingerprints above therefore identify the complete
+  measured programs rather than only generated benchmark files.
+
+### Focused result and decision
+
+Times are benchstat medians. Deltas are candidate versus base. Byte values are
+raw integer medians where the displayed KiB values would hide a one-byte move.
+
+| Benchmark | Before | Candidate | Delta | p | B/op before / after (p) | allocs/op before / after (p) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ForwardedAttrs GSX pooled | 12.71 us | 13.08 us | +2.95% | 0.000 | 2,916 / 2,916 (1.000) | 81 / 81 (1.000) |
+| ForwardedAttrs GSX discard | 11.96 us | 12.26 us | +2.46% | 0.000 | 2,912 / 2,912 (1.000) | 81 / 81 (1.000) |
+| FoldedAttrs GSX pooled | 16.89 us | 17.19 us | +1.74% | 0.000 | 11,810 / 11,811 (0.656) | 161 / 161 (1.000) |
+| FoldedAttrs GSX discard | 16.08 us | 16.40 us | +1.97% | 0.000 | 11,792 / 11,792 (1.000) | 161 / 161 (1.000) |
+| RootAttrMachineryEmpty | 7.448 ns | 5.593 ns | -24.90% | 0.000 | 0 / 0 (1.000) | 0 / 0 (1.000) |
+| ForwardingLeafNoURL | 324.9 ns | 312.1 ns | -3.92% | 0.000 | 16 / 16 (1.000) | 1 / 1 (1.000) |
+| SpreadNoURLLarge | 7.325 us | 7.895 us | +7.78% | 0.000 | 3,496 / 3,496 (1.000) | 3 / 3 (1.000) |
+
+The required ForwardedAttrs discard and ForwardingLeafNoURL improvements did
+not reach 7%; SpreadNoURLLarge instead regressed 7.78%. ForwardedAttrs pooled
+regressed rather than improving by the required 5%. The literal no-allocation-
+trade gate also failed because FoldedAttrs pooled's raw median moved from
+11,810 to 11,811 B/op, despite both rounded displays reading 11.53 KiB. Gates
+1, 2, and 3 therefore failed. FoldedAttrs stayed below its 7% regression cap,
+and the empty path improved while remaining zero-allocation, but neither result
+can waive a failed user-render gate.
+
+The local classifier result is explanatory only: the linear EqualFold
+reference was 34.36 ns/op versus 39.48 ns/op for the policy, both at zero bytes
+and zero allocations. It agrees with the end-to-end rejection but was not used
+as an acceptance criterion.
+
+### Complete regression screen
+
+Every non-parallel result was checked against the 7% significant-regression
+gate and the parallel result against 12%. None crossed its applicable gate.
+
+| Benchmark | Before | Candidate | Delta / significance |
+| --- | ---: | ---: | --- |
+| ForwardedAttrs GSX pooled | 12.69 us | 13.04 us | +2.77%, p=0.000 |
+| ForwardedAttrs GSX discard | 11.98 us | 12.26 us | +2.36%, p=0.000 |
+| FoldedAttrs GSX pooled | 16.87 us | 17.18 us | +1.87%, p=0.000 |
+| FoldedAttrs GSX discard | 15.97 us | 16.36 us | +2.48%, p=0.000 |
+| Page GSX parallel | 1.634 us | 1.603 us | -1.90%, p=0.003 |
+| Document GSX pooled | 268.5 ns | 268.4 ns | no significant change, p=0.811 |
+| Document GSX discard | 208.4 ns | 207.5 ns | no significant change, p=0.985 |
+| Document GSX builder | 428.9 ns | 431.7 ns | no significant change, p=0.494 |
+| Stats GSX pooled | 1.210 us | 1.204 us | no significant change, p=0.468 |
+| List GSX pooled | 1.455 us | 1.451 us | no significant change, p=0.725 |
+| Table GSX pooled | 2.210 us | 2.191 us | -0.86%, p=0.000 |
+| Piped GSX pooled | 1.809 us | 1.806 us | no significant change, p=0.323 |
+| Page GSX pooled | 4.667 us | 4.646 us | no significant change, p=0.448 |
+| Comments GSX pooled | 3.690 us | 3.704 us | no significant change, p=0.469 |
+| Buttons GSX pooled | 5.748 us | 5.717 us | no significant change, p=0.100 |
+
+The candidate's differential, collision, Unicode long-s, precedence, prefix,
+duplicate/order, `RawURL`, escaping, error-retention, generated corpus, and
+concurrent-read race proofs all passed before measurement. Restoring both saved
+bases removes the candidate rather than changing those existing runtime
+contracts. Fresh post-restore corpus, formatter-corpus, URL/image/srcset/spread,
+root race, `make ci`, and all three `make lint` targets also passed after the
+setup-only range-loop correction.
+
+### Restored-base profile and next decision
+
+Separate post-restore CPU-only and rate-1 memory-only profiles are under
+`/tmp/gsx-runtime-post-spread-profiles.IdCxNO`. Go 1.26.1 left its test binary
+in the benchmark checkout despite `-outputdir`; that generated binary was
+removed immediately, and every profile remains outside the repository.
+
+For FoldedAttrs, the non-overlapping flat allocation frames selected in the
+gate own 39.73% of objects: `ConcatAttrs` 26.49%, selected branch arm 6.62%,
+and other selected branch arm 6.62%. They own 86.67% of bytes: 81.25%, 2.71%,
+and 2.71%. These exceed the 30% object and 50% byte thresholds, so Candidate 2
+is eligible for the separate
+`2026-07-21-folded-element-attribute-materialisation.md` experiment plan.
+That plan received checksum-stable adversarial approval at SHA-256
+`120bea7c678955afbed44ab7717dba2656ec15fd50adaec726f7ce9c922d61da`.
+Candidate 3 remains deferred until Candidate 2 has a measured outcome.
+
 ## Recommended Optimisation Slices
 
-1. Add an exact URL/name-classifier differential benchmark and run the
-   single-variable immutable spread-policy experiment from Candidate 1. Keep or
-   remove it solely on repeated external results and full security equivalence.
-2. Add an allocation-regression benchmark for the exact external folded shape,
-   then implement the one-final-bag lowering from Candidate 2 without changing
-   leaf semantics.
+1. **Completed and rejected:** the immutable spread-policy experiment failed
+   its end-to-end keep gates and was restored. Do not revive it without a new
+   design and fresh evidence.
+2. **Planned, not implemented:** run the focused folded-element accumulator
+   experiment in `2026-07-21-folded-element-attribute-materialisation.md`,
+   without changing leaf semantics.
 3. Reprofile non-empty attributes after slices 1 and 2. If the 40 per-render
    `StyleMerged`/`splitDecls` allocations in ForwardedAttrs remain material, run
    a separate exact quote/parenthesis-aware single-contributor style-parser
