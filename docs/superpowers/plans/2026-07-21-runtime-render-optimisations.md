@@ -54,6 +54,10 @@ txtar corpus, sibling `gsx-bench`, `gopls`, race/fuzz/profile tooling, and
   measured program. The harness must resolve it through `go list -m`, reject
   untracked or unstaged dependency state, and fingerprint its commit plus
   staged diff alongside the benchmark repository.
+- Ignore rules are not a clean-state boundary. Before measuring, the harness
+  must consume `go list -deps -test -json` and verify that every effective Go,
+  Cgo, native, assembly, embed, and test input inside the benchmark repository
+  or resolved local dependency is tracked by the repository that owns it.
 - A failed command must fail its shell block. Evidence commands use checked
   redirection followed by `cat`; they never pipe a producer into `tee`.
 - Every shell block below is self-contained: it uses absolute `git -C`, an
@@ -93,6 +97,8 @@ Core candidate:
 Sibling prerequisite and generated candidate:
 
 - Create `scripts/benchcmp.sh` and `scripts/benchcmp_test.sh`.
+- Create `scripts/benchcmpinputs/main.go`, a standard-library-only build-input
+  auditor driven by authoritative Go package metadata.
 - Modify `README.md` with the counterbalanced command and dependency-fingerprint
   contract.
 - Regenerate `gsxr/*.x.go` and `tw/*.x.go`; `templr/*_templ.go` must not drift.
@@ -408,7 +414,8 @@ sh scripts/benchcmp_test.sh
 
 - [ ] **Step 4: Implement the exact counterbalanced harness**
 
-Create `scripts/benchcmp.sh` with this complete content:
+Create `scripts/benchcmp.sh` with this baseline content, then apply the
+build-input audit correction immediately below:
 
 ```sh
 #!/bin/sh
@@ -590,6 +597,27 @@ go run "$benchstat" "$out/before.txt" "$out/after.txt" >"$out/benchstat.txt"
 cat "$out/benchstat.txt"
 ```
 
+Review correction: clean Git status alone is insufficient because ignored Go
+files can still enter a build. Add a standard-library helper at
+`scripts/benchcmpinputs/main.go` that runs `go list -deps -test -json` for the
+measured package. For packages beneath the benchmark worktree or its resolved
+local dependency, collect `GoFiles`, `CgoFiles`, C/C++/Objective-C/Fortran and
+assembly inputs, Swig inputs, syso files, embed files, internal test inputs, and
+external test inputs. Compare their repository-relative paths against the
+owning repository's NUL-delimited `git ls-files -z` set. Inputs outside the
+measured repositories, such as Go's generated test-main file in the build
+cache, are out of scope. Any in-repository effective input missing from Git's
+tracked set must abort with exit 66 before results are created.
+
+Call this helper for both before and after after resolving the optional local
+dependency and before creating the result directory. Pass absolute `go` and
+`git` command paths into the helper so the shell regression can exercise the
+real helper against deterministic fake package metadata. Extend
+`scripts/benchcmp_test.sh` with ignored `injected.x.go` cases for both a
+benchmark worktree and a resolved dependency; both must be rejected while all
+existing counterbalancing, dirty-state, dependency, identity, and benchstat
+failure cases continue to pass.
+
 Run the smoke test, document the exact contract in `README.md`, verify, and
 commit the sibling prerequisite:
 
@@ -599,7 +627,7 @@ cd /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench
 chmod +x scripts/benchcmp.sh scripts/benchcmp_test.sh
 sh scripts/benchcmp_test.sh
 git diff --check
-git add scripts/benchcmp.sh scripts/benchcmp_test.sh README.md
+git add scripts/benchcmp.sh scripts/benchcmp_test.sh scripts/benchcmpinputs/main.go README.md
 git commit -m 'test(perf): add counterbalanced benchmark comparisons'
 ```
 
@@ -608,8 +636,9 @@ script runs ten distinct process pairs at `GOMAXPROCS=32`, with odd pairs in
 before/after order and even pairs in after/before order. It must document the
 optional effective dependency-module argument, including that the script
 resolves that module independently from each measured worktree, rejects
-untracked or unstaged state in all measured repositories, records every commit
-plus staged-diff hash, and uses the pinned benchstat revision.
+untracked or unstaged state in all measured repositories, rejects ignored but
+effective build inputs using authoritative Go package metadata, records every
+commit plus staged-diff hash, and uses the pinned benchstat revision.
 
 - [ ] **Step 5: Record the exact post-prerequisite candidate bases**
 
