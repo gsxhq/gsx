@@ -132,8 +132,8 @@ func (a Attrs) Has(key string) bool {
 	return false
 }
 
-// GetFold is Get with ASCII-case-insensitive key matching (last occurrence
-// wins). key must already be lowercase. Exported for any caller — hand-written
+// GetFold is Get with Unicode simple-fold key matching through strings.EqualFold
+// (last occurrence wins). key must already be lowercase. Exported for any caller — hand-written
 // bag manipulation, tests — that needs to look up a bag key the same
 // case-insensitive way a sanitizing sink does (a case-variant key like HREF
 // must not smuggle an unsanitized value past it); Spread itself
@@ -165,7 +165,7 @@ func (a Attrs) Without(keys ...string) Attrs {
 	return out
 }
 
-// WithoutFold is Without with ASCII-case-insensitive key matching: it drops any
+// WithoutFold is Without with Unicode simple-fold matching: it drops any
 // pair whose key case-folds to one of keys (which must already be lowercase),
 // preserving the order of the rest. No generated code calls it — a forwarding
 // element's URL-classified keys render in place via Spread rather
@@ -198,7 +198,7 @@ func (a Attrs) WithoutFunc(drop func(key string) bool) Attrs {
 	return out
 }
 
-// URLPrefixMatch reports whether key (ASCII-case-folded) begins with any of the
+// URLPrefixMatch reports whether key (Unicode-lowercased) begins with any of the
 // prefixes, which must already be lowercase. It is the single source of truth
 // for URL prefix-rule matching, used by Spread to route a prefix-matched
 // bag key through the strict navigational URL sink.
@@ -400,8 +400,8 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 	}
 }
 
-// attrNameExcluded reports whether key matches any name in excluded, comparing
-// ASCII-case-insensitively (HTML attribute names fold), so a force-owned name
+// attrNameExcluded reports whether key matches any name in excluded through
+// Unicode simple folding (strings.EqualFold), so a force-owned name
 // suppresses a case-variant bag key. Spread uses it both for the
 // excluded (force-owned) set and, via the same fold, for its URL-classified
 // name sets — the same fold semantics GetFold/WithoutFold expose publicly.

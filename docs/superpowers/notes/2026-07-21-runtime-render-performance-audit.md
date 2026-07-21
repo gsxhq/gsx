@@ -32,7 +32,13 @@ The paired repositories were clean before measurement:
   `/Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench`
 
 The external baseline is one ten-sample collection. Its reported values are the
-median and spread from the exact pinned benchstat version:
+median and spread from the exact pinned benchstat version. An independent
+review confirmed that Go emits `-count=10` samples grouped by benchmark rather
+than alternating benchmark names, so this baseline did not satisfy the
+design's interleaving requirement. It remains valid absolute baseline and
+allocation-ownership evidence, but it is not a before/after optimisation
+comparison; follow-up experiments must alternate separate before/after
+worktrees one sample at a time before running benchstat:
 
 ```sh
 mkdir -p /tmp/gsx-runtime-audit
@@ -183,7 +189,7 @@ the same pinned benchstat revision.
 | StyleMergedEmpty | 1.966 ns ±1% | 0 | 0 |
 | WithoutEmpty | 1.762 ns ±1% | 0 | 0 |
 | RootAttrMachineryEmpty | 7.419 ns ±2% | 0 | 0 |
-| ForwardingLeafNoURL | 310.7 ns ±1% | 16 | 1 |
+| ForwardingLeafNoURL (pre-review 11-name metadata) | 310.7 ns ±1% | 16 | 1 |
 | StyleMergedDedup | 350.9 ns ±1% | 136 | 4 |
 | WithoutAttrs | 10.54 ns ±1% | 0 | 0 |
 
@@ -195,6 +201,19 @@ alone, decides whether folded materialisation remains a candidate. Non-empty
 class/style work is real: a multi-token sole class allocates 16 B, an actual
 cross-source class merge allocates 208 B/6 objects, and style deduplication uses
 136 B/4 objects.
+
+An independent adversarial review found that the original
+`BenchmarkForwardingLeafNoURL` passed the generated navigation and image name
+sets but omitted the generated `[]string{"imagesrcset", "srcset"}` set. The
+review corrected the benchmark to the exact 13-name generated metadata shape.
+Its fresh ten-sample median is 378.7 ns ±5%, 16 B, and one allocation. This is a
+workload correction, not an optimisation comparison, so the old and corrected
+times are not treated as before/after evidence. The same review's direct
+`Spread` boundary probes measured zero allocations for eight plain attributes,
+456 B in three `lastValidAttrIndexes` allocations for nine, and 3,496 B in
+three allocations for 70. Those larger-bag results scope, but do not
+contradict, the allocation ownership of the audited six/eight-entry external
+workloads.
 
 ## CPU Profile Attribution
 
@@ -308,11 +327,14 @@ time is not mainly the pooled destination.
 
 The single-variable experiment is to change only the representation and lookup
 of codegen-known URL/name policy: replace the repeated linear scans of static
-name slices with one immutable, collision-safe ASCII-case-folded classifier
-shared by generated calls. Attribute order, last-valid-index handling, validity
-checks, overlap precedence (image before srcset before navigation), prefixes,
-value sinks, and writes stay unchanged. This must be an exact classifier, not a
-shortcut based on common names.
+name slices with one immutable, collision-safe classifier shared by generated
+calls. Its common ASCII path must not allocate, while any non-ASCII key or
+comparison name must fall back to `strings.EqualFold` so live Unicode
+simple-fold behavior remains byte-for-byte exact (for example, `ſrc` currently
+matches `src`). Attribute order, last-valid-index handling, validity checks,
+overlap precedence (image before srcset before navigation), prefixes, value
+sinks, and writes stay unchanged. This must be an exact two-path classifier,
+not a shortcut based on common names.
 
 The deciding benchmarks are `BenchmarkForwardedAttrsGSXPooled`, its discard
 variant, `BenchmarkFoldedAttrsGSXPooled`, and
@@ -383,7 +405,10 @@ equivalence; race tests; full corpus regeneration; `make ci`; and `make lint`.
 - Empty `StyleMerged`, `Without`, and complete empty root attribute machinery
   are 1.8 to 7.4 ns with zero allocations. Do not add nil-bag ABI complexity.
 - The generated static name slices and Spread's inlined last-index map are
-  stack-only. Candidate 1 targets repeated exact lookup time, not heap removal.
+  stack-only for the audited six/eight-entry ForwardedAttrs/FoldedAttrs bags.
+  A 70-entry adversarial bag allocates map buckets, so Candidate 1 targets
+  repeated exact lookup time—not heap removal—on the measured small-bag path;
+  fresh profiles must keep allocation ownership scoped to their bag size.
 - A lone static class token is 12.29 ns/0 allocations. Static markup and the
   inline List loop are already allocation-flat apart from the one writer per
   render.

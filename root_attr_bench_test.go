@@ -39,10 +39,10 @@ func BenchmarkRootAttrMachineryEmpty(b *testing.B) {
 
 // BenchmarkForwardingLeafNoURL measures the full leaf-forwarding shape codegen
 // now emits per forwarding element: ClassMerged/StyleMerged followed by a
-// single Spread call carrying the built-in nav/image URL name sets,
+// single Spread call carrying the built-in nav/image/srcset URL name sets,
 // on a 4-entry bag that carries NO URL-classified key (the common case).
 // Spread IS the extraction — one ordered walk that matches each key
-// against navNames/imageNames and writes plain attrs inline — there is no
+// against navNames/imageNames/srcsetNames and writes plain attrs inline — there is no
 // separate pre-scan or residual pass to warm up first (that unrolled
 // per-name-GetFold-then-WithoutFold shape predates issue #75's
 // universal-spread-sanitization pass and is no longer what codegen emits).
@@ -61,12 +61,13 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 	// generated.x.go.golden.
 	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
 	imageNames := []string{"background"}
+	srcsetNames := []string{"imagesrcset", "srcset"}
 	gw := W(io.Discard)
 	ctx := context.Background()
 	for b.Loop() {
 		gw.ClassMerged(DefaultClassMerge, a.Class())
 		gw.StyleMerged("", a.Style())
-		gw.Spread(ctx, a, navNames, imageNames, nil, nil, []string{"class", "style"})
+		gw.Spread(ctx, a, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
 	}
 }
 

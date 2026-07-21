@@ -4833,8 +4833,8 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 // expression (function literals are expressions; statements inside them are
 // legal in expression contexts, including the skeleton probe). The else
 // argument is the bare literal `nil` (not a thunk) when there is no else
-// branch. Nesting stays shallow — a CondAttr nested inside a branch is
-// unsupported.
+// branch. A nested CondAttr recursively builds another AttrsCond inside the
+// selected outer thunk, preserving laziness and the thunk-local error return.
 //
 // probeWrap=true (analyze skeleton) lowers each branch with probePipeWrap so a
 // mid/final (R, error) stage stays a single _gsxunwrap(...) expression instead
