@@ -1473,12 +1473,17 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 			bag.Add(diagnostic)
 		}
 	}
-	var localComponentProvenance map[string]componentTargetDeclarationProvenance
-	if !bag.HasErrors() && len(typeErrs) == 0 {
-		localComponentProvenance, err = componentTargetDeclarationProvenances(gsxFiles, parsed.sources, fset, componentPlan)
-		if err != nil {
-			return nil, err
+	// Component declaration provenances are syntactic facts (inputs: parsed files,
+	// sources, plan — nothing type-checked), so they are computed even when the
+	// package has bag or type errors: tag completion/hover/definition must keep
+	// working mid-edit. A provenance error is soft here on an errored package -
+	// the package is already failing loudly; on a clean package it stays fatal.
+	localComponentProvenance, provErr := componentTargetDeclarationProvenances(gsxFiles, parsed.sources, fset, componentPlan)
+	if provErr != nil {
+		if !bag.HasErrors() && len(typeErrs) == 0 {
+			return nil, provErr
 		}
+		localComponentProvenance = nil
 	}
 
 	// Cache the type-checked package so every entry point — Package, Generate, and
