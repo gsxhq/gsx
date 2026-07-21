@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"errors"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -31,6 +32,9 @@ type wsSymAnalyzer struct {
 
 func (a *wsSymAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
 func (a *wsSymAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+func (a *wsSymAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	return nil, errors.New("not implemented")
+}
 
 func (a *wsSymAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { return &Package{}, nil }
 func (a *wsSymAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {

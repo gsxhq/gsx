@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"errors"
 	"go/token"
 	"io"
 	"path/filepath"
@@ -61,6 +62,10 @@ func (a *overrideLifetimeAnalyzer) Analyze(string, map[string][]byte) (*Package,
 	return &Package{}, nil
 }
 
+func (a *overrideLifetimeAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (a *overrideLifetimeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
@@ -91,6 +96,9 @@ func (a *overrideLifetimeAnalyzer) source(path string) ([]byte, bool) {
 
 func (a *blockingAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
 func (a *blockingAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
+func (a *blockingAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	return nil, errors.New("not implemented")
+}
 
 func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil

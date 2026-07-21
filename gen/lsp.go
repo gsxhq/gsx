@@ -590,6 +590,13 @@ func (a lspAnalyzer) Analyze(dir string, _ map[string][]byte) (*lsp.Package, err
 	return adaptPackageResult(pr), nil
 }
 
+// AnalyzeEphemeral is implemented in a later task (warm ephemeral analysis for
+// completion). It deliberately fails soft rather than mutating override
+// lifetime or caches.
+func (a lspAnalyzer) AnalyzeEphemeral(dir, path string, content []byte) (*lsp.Package, error) {
+	return nil, errors.New("not implemented")
+}
+
 // AnalyzeModule analyzes every gsx package in the module containing dir and
 // returns a flat cross-reference list. It reuses the warm per-root Module
 // (same instance Analyze uses), so the warm type-cache is shared across

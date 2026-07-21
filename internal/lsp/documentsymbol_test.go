@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"errors"
 	"go/token"
 	"strings"
 	"testing"
@@ -36,6 +37,9 @@ func (symbolFileAnalyzer) Analyze(_ string, override map[string][]byte) (*Packag
 		}
 	}
 	return &Package{GSXFset: fset, Files: files}, nil
+}
+func (symbolFileAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	return nil, errors.New("not implemented")
 }
 func (symbolFileAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil

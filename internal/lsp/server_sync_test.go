@@ -3,6 +3,7 @@ package lsp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"go/token"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,10 @@ func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package,
 		Source:   "types",
 		Message:  "undefined: foo",
 	}}}, nil
+}
+
+func (a fakeAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (a fakeAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {

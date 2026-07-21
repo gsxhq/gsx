@@ -124,6 +124,7 @@ type serverCapabilities struct {
 	RenameProvider             *RenameOptions              `json:"renameProvider,omitempty"`
 	DocumentFormattingProvider bool                        `json:"documentFormattingProvider"`
 	HoverProvider              bool                        `json:"hoverProvider"`
+	CompletionProvider         *CompletionOptions          `json:"completionProvider,omitempty"`
 	DocumentSymbolProvider     bool                        `json:"documentSymbolProvider"`
 	WorkspaceSymbolProvider    bool                        `json:"workspaceSymbolProvider"`
 	CodeActionProvider         *CodeActionOptions          `json:"codeActionProvider,omitempty"`
@@ -313,3 +314,54 @@ type SymbolInformation struct {
 	ContainerName string   `json:"containerName,omitempty"`
 	Location      Location `json:"location"`
 }
+
+// CompletionOptions advertises completion support and the characters that
+// re-trigger it as the user types (beyond the client's default identifier
+// trigger).
+type CompletionOptions struct {
+	TriggerCharacters []string `json:"triggerCharacters,omitempty"`
+}
+
+type completionParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+}
+
+// CompletionList is the textDocument/completion result. Items is always a
+// non-nil slice: clients treat a JSON null items array differently from an
+// empty one.
+type CompletionList struct {
+	IsIncomplete bool             `json:"isIncomplete"`
+	Items        []CompletionItem `json:"items"`
+}
+
+// CompletionItem is one completion candidate.
+type CompletionItem struct {
+	Label         string         `json:"label"`
+	Kind          int            `json:"kind,omitempty"`
+	Detail        string         `json:"detail,omitempty"`
+	Documentation *MarkupContent `json:"documentation,omitempty"`
+	SortText      string         `json:"sortText,omitempty"`
+	FilterText    string         `json:"filterText,omitempty"`
+	TextEdit      *TextEdit      `json:"textEdit,omitempty"`
+}
+
+// LSP CompletionItemKind constants used across completion tasks.
+const (
+	ciKindText          = 1  // Text
+	ciKindMethod        = 2  // Method
+	ciKindFunction      = 3  // Function
+	ciKindConstructor   = 4  // Constructor
+	ciKindField         = 5  // Field
+	ciKindVariable      = 6  // Variable
+	ciKindClass         = 7  // Class
+	ciKindInterface     = 8  // Interface
+	ciKindModule        = 9  // Module
+	ciKindProperty      = 10 // Property
+	ciKindEnum          = 13 // Enum
+	ciKindKeyword       = 14 // Keyword
+	ciKindEnumMember    = 20 // EnumMember
+	ciKindConstant      = 21 // Constant
+	ciKindStruct        = 22 // Struct
+	ciKindTypeParameter = 25 // TypeParameter
+)
