@@ -188,7 +188,26 @@ Expected red state: `(*Writer).NodeResult` is undefined.
 
 ### 2.2 Implement only the exact assignment
 
-Add beside `Writer.Node`:
+First update the exported `Writer` and `Err` comments so they remain true. They
+must say that ordinary write helpers retain the first write error and no-op
+while it is present, while `Node` and generated-code `NodeResult` assign a child
+render result that may replace or clear the current state. `Err` reports that
+current render/write state; it is not documented as an immutable first error.
+
+Use comments with this contract:
+
+```go
+// Writer streams HTML to an underlying io.Writer. Ordinary write helpers
+// retain the first error and no-op while it is set. Node and generated-code
+// NodeResult apply a child render result, which may replace or clear that
+// state. Read the current state via Err.
+type Writer struct { /* existing fields */ }
+
+// Err returns the current render or write error, or nil.
+func (gw *Writer) Err() error { return gw.err }
+```
+
+Then add beside `Writer.Node`:
 
 ```go
 // NodeResult applies the result of a directly rendered generated child.
@@ -249,18 +268,29 @@ Write allocator tests for:
 - two GSX files calling one target;
 - `_gsxrenderChild` occupied in an authored GSX Go chunk;
 - `_gsxrenderChild` occupied in a handwritten `.go` file;
+- `_gsxrenderChild` occupied in a handwritten or orphaned `.x.go` file;
 - `_gsxrenderChild` occupied in a same-package `_test.go` file;
 - the same spelling in external `package p_test`, which must not occupy it;
+- the spelling in the exact generated output paired with the active `.gsx`,
+  which must be ignored so regeneration does not suffix its own helper;
 - mutually exclusive build variants sharing one logical component key;
 - repeated generation producing byte-identical helper names.
 
 Do not reuse `packageDeclNames` unchanged: its disk walk deliberately skips all
-`_test.go` files. Add a helper-name declaration collector that parses every
-handwritten sibling `.go` file except `.x.go`, retains files whose parsed
-package clause exactly matches the generated package (including same-package
-tests), excludes external test packages, and scans all build variants. Surface
-parse errors through the generator's normal diagnostic/error path; do not
-silently guess from text.
+`_test.go` files. Add a helper-name declaration collector that receives the
+exact owned output paths paired with the active GSX inputs and excludes only
+those paths. Parse every other sibling `.go` file, including handwritten and
+orphaned `.x.go`, retain files whose parsed package clause exactly matches the
+generated package (including same-package tests), exclude external test
+packages, and scan all build variants. Surface parse errors through the
+generator's normal diagnostic/error path; do not silently guess from text or
+exclude every `.x.go` by suffix.
+
+Back this with a generated temp-package test: place a non-owned
+`orphan.x.go` declaring `_gsxrenderChild`, generate the package, require the
+deterministic suffixed helper, and run `go test`. Separately regenerate a package
+whose exact paired output already contains the helper and require byte-identical
+output rather than a self-induced suffix.
 
 ### 3.3 Implement declaration-owned metadata
 
@@ -268,9 +298,13 @@ Extend the package plan/emission and
 `componentTargetDeclarationProvenance` with explicit fields equivalent to:
 
 ```go
-type directComponentTarget struct {
-	logicalKey     string
-	helperName     string
+type directComponentFamily struct {
+	logicalKey string
+	helperName string
+}
+
+type directComponentDeclaration struct {
+	family         directComponentFamily
 	typeParamNames []string
 	paramNames     []string
 	variadic       bool
@@ -280,13 +314,23 @@ type directComponentTarget struct {
 The concrete representation may differ, but these facts must be populated only
 while walking authoritative `*ast.Component` declarations. Parse grouped type
 parameter names through Go AST fields; do not split source strings. Determine
-forwardability once per declaration family. A valid variant family receives one
-helper name; every member emits that name in its own generated variant file.
+semantic eligibility once per declaration family. A valid family receives one
+helper name, but forwarding spellings remain attached to each declaration.
+Every member emits the family name in its own generated variant file using its
+own authored type/value parameter names and variadic fact.
+
+Add a compile-backed alpha-renaming fixture: two mutually exclusive build-tag
+variants declare equivalent `Child[T any]` and `Child[U any]`, while one common
+untagged parent calls `Child[string]`. Generate once, then run `go test` both
+without tags and with the alternate tag. Both selections must compile and the
+generated wrappers/helpers must use their local `T` or `U`, never a name copied
+from the other variant.
 
 Allocate names by sorted logical key from the union of:
 
 - GSX package declarations;
-- handwritten same-package Go declarations, including `_test.go`;
+- every non-owned same-package Go declaration, including handwritten/orphaned
+  `.x.go` and `_test.go` files;
 - names already allocated in this run.
 
 Use `_gsxrender<Name>`, then the first free deterministic numeric suffix.
@@ -350,7 +394,8 @@ if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 and to end with `return _gsxgw.Err()` on ordinary fallthrough. Pin generic
 explicit forwarding, grouped type parameters, constraint-only type parameters,
 ordinary variadics, attrs-only variadics, children, tuples, adapters, and
-source-order temporaries.
+source-order temporaries. Include the alpha-renamed build-variant/common-caller
+fixture from Task 3 and compile both tag selections.
 
 In the same test suite, require `_gsxgw.Node(ctx, ...)` for imported, method,
 package-variable, plain-Go, dynamic, blank-param, blank-type-param,
@@ -561,15 +606,15 @@ full=/tmp/gsx-runtime-direct-full-$(date +%s)
 test ! -e "$full"
 scripts/benchcmp.sh \
   "$pair/gsx-bench" "$bench" \
-  '^Benchmark.*GSX(Pooled|Discard|Parallel)$' \
+  '^Benchmark.*GSX(Pooled|Discard|Builder|Parallel)$' \
   "$full" . github.com/gsxhq/gsx
 cat "$full/benchstat.txt"
 ```
 
 Reject significant regressions at or above 7% for all non-Table serial paths,
-including ImportedBoundary, MethodBoundary, and DynamicBoundary. Page parallel
-uses a 12% threshold. Record all medians, sample counts, and p-values, including
-non-significant movements.
+including ImportedBoundary, MethodBoundary, DynamicBoundary, and every
+available Builder benchmark. Page parallel uses a 12% threshold. Record all
+medians, sample counts, and p-values, including non-significant movements.
 
 ## Task 6: Independent adversarial verification and keep/revert decision
 
@@ -628,8 +673,9 @@ under `/tmp`, not merely read the diff. It must probe:
 1. raw sentinel and raw nil returns after every failing child write boundary;
 2. prior-error argument evaluation and skipped child body;
 3. generic/grouped/constraint-only and variadic calls;
-4. same-package `_test.go`, external-test, multi-file, and build-variant name
-   collisions by actually running `go test`;
+4. same-package `_test.go`, external-test, non-owned `.x.go`, multi-file, and
+   build-variant name collisions by actually running `go test`, including
+   alpha-renamed generic variants through a common caller;
 5. imported, method, plain-Go, package-variable, and dynamic generated fallbacks;
 6. concurrent rendering with `-race`;
 7. exact output and escaping contexts;
@@ -662,16 +708,18 @@ git -C "$bench" rev-list "$bench_base..$bench_tip" | while read -r commit; do
   git -C "$bench" revert --no-edit "$commit"
 done
 
-git -C "$core" diff --exit-code "$core_base" -- \
-  writer.go internal/codegen internal/corpus docs/examples.json \
-  playground/server/examples.json docs/guide/syntax/_generated \
-  examples/tailwind-merge/views/card.x.go
-git -C "$bench" diff --exit-code "$bench_base" -- gsxr tw scenarios_test.go
+git -C "$core" diff --exit-code "$core_base"
+git -C "$bench" diff --exit-code "$bench_base"
+test -z "$(git -C "$core" status --porcelain=v1)"
+test -z "$(git -C "$bench" status --porcelain=v1)"
 ```
 
 This preserves the Task 1 benchmark-fixture commit because it is the saved bench
 base. It also preserves the documentation base; only candidate production,
-generated, and candidate-test commits are reverted.
+generated, and candidate-test commits are reverted. Whole-tree comparison plus
+clean status covers runtime tests, codegen tests, generated outputs, benchmark
+fallback tests, path-list omissions, and untracked leftovers; a selected
+path list is not an acceptable restoration proof.
 
 ### 6.5 Record evidence and clean detached worktrees
 

@@ -105,6 +105,12 @@ The method is exported only because generated external packages call the root
 runtime. It introduces no second `Node` representation and no compatibility
 adapter.
 
+Adding this exception also requires correcting the exported `Writer` and `Err`
+comments. Ordinary write helpers retain the first write error and no-op while
+it is present; `Node` and the generated-code `NodeResult` boundary may replace
+or clear the current state with a child render result. `Err` therefore reports
+the current render/write state, not an immutable first error.
+
 ## Generated Shape
 
 Only a plain-function GSX component targeted by at least one eligible local
@@ -185,6 +191,13 @@ An exact collision with a required generated alias or binding, such as
 must remain a positioned declaration diagnostic rather than being described as
 a successful fallback.
 
+Variant families share semantic identity and one helper name, but they do not
+share authored identifier spellings. For alpha-equivalent variants such as
+`Child[T any]` and `Child[U any]`, each declaration's wrapper and helper use its
+own `T` or `U`. Type-parameter names, value-parameter names, and variadic
+forwarding facts are stored per declaration; only eligibility and the allocated
+helper name are family-owned.
+
 ## Exact Eligibility
 
 A call is direct only when all of these are true:
@@ -211,19 +224,26 @@ tag presentation, or result type.
 Helper names live in the reserved `_gsx` namespace. A deterministic allocator:
 
 1. gathers package declarations from all authored GSX files;
-2. parses every handwritten sibling `.go` file except generated `.x.go` files;
-3. includes same-package `_test.go` declarations and excludes external
+2. identifies the exact generated output path paired with each active GSX input
+   and excludes only those owned outputs, preventing self-reservation on
+   regeneration;
+3. parses every other sibling `.go` file, including handwritten and orphaned
+   `.x.go` files that the Go compiler still sees;
+4. includes same-package `_test.go` declarations and excludes external
    `package name_test` files by their parsed package clause;
-4. groups component build variants by the finalized logical key;
-5. visits logical keys in sorted order;
-6. allocates `_gsxrender<Name>`, then the first free numeric suffix;
-7. reserves each output for the rest of the run.
+5. groups component build variants by the finalized logical key;
+6. visits logical keys in sorted order;
+7. allocates `_gsxrender<Name>`, then the first free numeric suffix;
+8. reserves each output for the rest of the run.
 
-Scanning all handwritten build variants is deliberately conservative and
+Scanning all non-owned Go build variants is deliberately conservative and
 build-oblivious: it prevents a helper generated under one build configuration
 from colliding under another. It uses Go/GSX syntax declarations, not a simple
 text heuristic. Multi-file GSX declarations, mutually exclusive variants,
-same-package tests, and sibling Go declarations therefore receive stable names.
+same-package tests, handwritten/orphan `.x.go` declarations, and other sibling
+Go declarations therefore receive stable names. Compile-backed tests prove both
+that an owned paired output is ignored on regeneration and that a non-owned
+`.x.go` collision receives a suffix and passes `go test`.
 
 ## Semantic Boundaries
 
@@ -270,8 +290,10 @@ Codegen tests pin:
 - grouped, constraint-only, blank, and `ctx` type parameters;
 - scalar/variadic children and attrs forwarding;
 - shared body emission and public wrapper behavior;
-- multi-file and variant-family naming;
-- handwritten Go and same-package `_test.go` helper-name collisions;
+- multi-file and variant-family naming, including alpha-renamed type parameters
+  compiled through a common caller under both build-tag selections;
+- handwritten Go, orphan/handwritten `.x.go`, and same-package `_test.go`
+  helper-name collisions with compile-backed fixtures;
 - imported, method, package-variable, plain-Go, and dynamic fallbacks;
 - generated source positions.
 
@@ -302,16 +324,17 @@ Retain only if every gate passes:
 3. Page pooled and ForwardedAttrs pooled/discard have no significant regression
    at or above 7%; Page parallel uses 12%.
 4. Document, List, Stats, Piped, Comments, Buttons, imported, method, and
-   dynamic paths have no significant regression at or above 7%.
+   dynamic paths have no significant regression at or above 7%, including
+   every available Builder destination.
 5. Correctness, corpus, race, `make ci`, `make lint`, fixed-point regeneration,
    and adversarial throwaway probes all pass.
 
 There is no waiver between Gates 1 and 2. A near miss rejects the candidate.
-On rejection, revert every post-base production/generated commit in both
-repositories, verify the resulting production/generated trees against the
-saved bases, then commit only the measured decision record. On retention, keep
-the real public `Node` factories; they remain the Go/external/value API rather
-than a compatibility shim.
+On rejection, revert every post-base candidate commit in both repositories,
+verify each complete working tree against its saved base and require clean
+status (including untracked files), then commit only the measured decision
+record. On retention, keep the real public `Node` factories; they remain the
+Go/external/value API rather than a compatibility shim.
 
 ## Non-goals
 
