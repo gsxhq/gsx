@@ -247,6 +247,23 @@ Helper names live in the reserved `_gsx` namespace. A deterministic allocator:
 7. allocates `_gsxrender<Name>`, then the first free numeric suffix;
 8. reserves each output for the rest of the run.
 
+Package declarations are not the complete collision surface. The allocator
+also consumes the existing exact component-signature ASTs and reserves every
+identifier visible in their lexical and file scopes. This includes caller type
+parameters, generic method receiver type-parameter bindings, value parameters,
+and explicit import aliases. For a default import it resolves the dependency's
+actual declared package name through the existing semantic importer/package
+identity; it never guesses from the import path's final segment. Consequently
+both `_gsxrenderChild` and any suffixed candidate are absent at every generated
+reference site, rather than merely unique at package scope.
+
+These semantic import identities use the existing source/bundle importer and
+exact-target dependency graph; helper allocation adds no `packages.Load` call.
+A local dependency package-clause change therefore invalidates warm state and
+the persistent cache projection before an old helper name can be restored.
+`SourceOnly` resolves the same identity only from its bundle and overrides and
+still never inspects host files.
+
 The Go-file inventory is part of the same authoritative source view used by
 generation and persistent-cache classification. Normal source-backed modules
 snapshot every owned `.go` input module-wide, including inactive build variants
@@ -319,6 +336,10 @@ Codegen tests pin:
 - shared body emission and public wrapper behavior;
 - multi-file and variant-family naming, including alpha-renamed type parameters
   compiled through a common caller under both build-tag selections;
+- unsuffixed and suffixed helper candidates shadowed by caller type parameters,
+  generic receiver type-parameter bindings, and default imports whose actual
+  declared package name differs from their path base, all compiled with
+  `go test`;
 - handwritten Go, orphan/handwritten `.x.go`, and same-package `_test.go`
   helper-name collisions with compile-backed fixtures;
 - imported, method, package-variable, plain-Go, and dynamic fallbacks;

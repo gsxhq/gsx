@@ -528,7 +528,7 @@ func (m *Module) finalizedComponentTargetPlan(
 	// component name. When names are globally unique there is nothing to fold,
 	// so the exact all-public result needs neither private names nor a checker.
 	if plan, unique := publicPlanWhenComponentNamesAreUnique(files); unique {
-		return m.assignDirectComponentDeclarations(dir, pkgName, files, plan)
+		return m.assignDirectComponentDeclarations(dir, pkgName, files, plan, fset, bag, importer)
 	}
 	provisional := privateComponentTargetPlan(files, nil)
 	provisionalFiles, _, err := buildComponentSignatureFiles(dir, files, provisional, fset, bag)
@@ -560,5 +560,5 @@ func (m *Module) finalizedComponentTargetPlan(
 	objects := variantFuncObjects(preflightFiles, info, privatePlan)
 	signatureErrors := componentVariantSignatureErrors(preflightFiles, privatePlan, typeErrs)
 	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, objects, signatureErrors, bag)
-	return m.assignDirectComponentDeclarations(dir, pkgName, files, plan)
+	return m.assignDirectComponentDeclarations(dir, pkgName, files, plan, fset, bag, importer)
 }

@@ -233,7 +233,7 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 	goFiles := map[string]sourceview.FileSnapshot{
 		filepath.Join(dir, "collision_test.go"): sourceview.ReadFileSnapshot(filepath.Join(dir, "collision_test.go")),
 	}
-	plan, err = assignDirectComponentDeclarationsFromView("p", files, plan, goFiles)
+	plan, err = assignDirectComponentDeclarationsFromView("p", files, plan, nil, goFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 		t.Fatalf("allocated metadata = %v, want one suffixed family carrying T and U declaration names", seen)
 	}
 
-	second, err := assignDirectComponentDeclarationsFromView("p", files, syntacticComponentTargetPlan(files), goFiles)
+	second, err := assignDirectComponentDeclarationsFromView("p", files, syntacticComponentTargetPlan(files), nil, goFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,6 +305,158 @@ func TestDirectHelperCollisionFixturesCompile(t *testing.T) {
 				t.Fatalf("go test: %v\n%s", err, commandOutput)
 			}
 		})
+	}
+}
+
+func TestDirectHelperAvoidsCallerLexicalBindings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		files      map[string]string
+		wantHelper string
+	}{
+		{
+			name: "caller type parameter shadows unsuffixed helper",
+			files: map[string]string{
+				"page.gsx": "package p\ncomponent Child() { <span/> }\ncomponent Parent[_gsxrenderChild any]() { <Child/> }\n",
+			},
+			wantHelper: "_gsxrenderChild1",
+		},
+		{
+			name: "caller type parameter shadows suffixed helper",
+			files: map[string]string{
+				"collision.go": "package p\nfunc _gsxrenderChild() {}\n",
+				"page.gsx":     "package p\ncomponent Child() { <span/> }\ncomponent Parent[_gsxrenderChild1 any]() { <Child/> }\n",
+			},
+			wantHelper: "_gsxrenderChild2",
+		},
+		{
+			name: "generic receiver type parameter shadows helper",
+			files: map[string]string{
+				"view.go":  "package p\ntype View[T any] struct{}\n",
+				"page.gsx": "package p\ncomponent Child() { <span/> }\ncomponent (v View[_gsxrenderChild]) Parent() { <Child/> }\n",
+			},
+			wantHelper: "_gsxrenderChild1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, dir, "go.mod", "module example.com/directlexical\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+			for name, source := range tt.files {
+				writeFile(t, dir, name, source)
+			}
+			result, generateErr := GenerateDirs(dir, []string{dir}, Options{}, nil)
+			if generateErr != nil {
+				t.Fatal(generateErr)
+			}
+			generated := result[dir]
+			if hasError(generated.Diags) {
+				t.Fatalf("generation diagnostics = %+v", generated.Diags)
+			}
+			foundHelper := false
+			for sourcePath, output := range generated.Files {
+				if strings.Contains(string(output), "func "+tt.wantHelper+"(") {
+					foundHelper = true
+				}
+				if err := os.WriteFile(strings.TrimSuffix(sourcePath, ".gsx")+".x.go", output, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !foundHelper {
+				t.Fatalf("generated output does not declare %s: %v", tt.wantHelper, generated.Files)
+			}
+			command := exec.Command("go", "test", "./...")
+			command.Dir = dir
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("go test: %v\n%s", err, output)
+			}
+		})
+	}
+}
+
+func TestDirectHelperAvoidsActualDefaultImportPackageName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/directimport\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, filepath.Join(root, "different-path"), "value.go", "package _gsxrenderChild\ntype Value struct{}\n")
+	writeFile(t, root, "page.gsx", `package p
+import "example.com/directimport/different-path"
+component Child() { <span/> }
+component Parent(value _gsxrenderChild.Value) { <Child/> }
+`)
+	result, err := GenerateDirs(root, []string{root}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := result[root]
+	if hasError(generated.Diags) {
+		t.Fatalf("generation diagnostics = %+v", generated.Diags)
+	}
+	foundHelper := false
+	for sourcePath, output := range generated.Files {
+		if strings.Contains(string(output), "func _gsxrenderChild1(") {
+			foundHelper = true
+		}
+		if err := os.WriteFile(strings.TrimSuffix(sourcePath, ".gsx")+".x.go", output, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !foundHelper {
+		t.Fatalf("generated output does not declare _gsxrenderChild1: %v", generated.Files)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("go test: %v\n%s", err, output)
+	}
+}
+
+func TestDirectHelperSourceOnlyUsesBundleDefaultImportPackageIdentity(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "page.gsx")
+	dependency := types.NewPackage("example.com/dependency/different-path", "_gsxrenderChild")
+	value := types.NewTypeName(token.NoPos, dependency, "Value", nil)
+	types.NewNamed(value, types.NewStruct(nil, nil), nil)
+	dependency.Scope().Insert(value)
+	dependency.MarkComplete()
+	imports := targetTestImporter().(mapImporter)
+	imports[dependency.Path()] = dependency
+	module, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/virtual",
+		SourceOnly: true,
+		Bundle:     testBundle(imports, funcTables{}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	module.SetOverride(path, []byte(`package p
+import "example.com/dependency/different-path"
+component Child() { <span/> }
+component Parent(value _gsxrenderChild.Value) { <Child/> }
+`))
+	output, diagnostics, err := module.Generate(root)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	if !strings.Contains(string(output[path]), "func _gsxrenderChild1(") {
+		t.Fatalf("SourceOnly output did not use bundle package identity for helper allocation:\n%s", output[path])
+	}
+	if got := module.externalLoads(); got != 0 {
+		t.Fatalf("SourceOnly bundle external loads = %d, want zero", got)
 	}
 }
 

@@ -172,6 +172,7 @@ components/direct_build_variants	diag gen render
 components/direct_escaping	diag gen render
 components/direct_fallbacks	diag gen render
 components/direct_helper_collision	diag gen render
+components/direct_helper_lexical_collision	diag gen render
 components/direct_order_error	diag gen render
 components/direct_signature_forwarding	diag gen render
 components/embedded_attr_cond_prop	diag gen render
@@ -921,4 +922,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 916 cases (render: 790, error: 88, gen-pinned: 532)
+TOTAL: 917 cases (render: 791, error: 88, gen-pinned: 533)

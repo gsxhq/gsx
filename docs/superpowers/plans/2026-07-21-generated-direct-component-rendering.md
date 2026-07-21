@@ -282,6 +282,13 @@ Write allocator tests for:
 - mutually exclusive build variants sharing one logical component key;
 - repeated generation producing byte-identical helper names.
 
+Also compile fixtures where `_gsxrenderChild` and a suffixed candidate are
+caller component type parameters, where the candidate is a generic method
+receiver type-parameter binding, and where a default import's actual declared
+package name equals the candidate despite a different import-path base. A
+package-level-only allocator is incorrect: every allocated helper must also be
+absent from lexical and file bindings at each generated reference site.
+
 Do not reuse `packageDeclNames` unchanged: its disk walk deliberately skips all
 `_test.go` files. Add a helper-name declaration collector that receives the
 exact owned output paths paired with the active GSX inputs and excludes only
@@ -708,6 +715,18 @@ under `/tmp`, not merely read the diff. It must probe:
 
 Resolve every P0/P1 finding and repeat measurements affected by the fix. Do not
 retain with an open correctness or measurement blocker.
+
+The independent review found a P1 compile-equivalence hole in the initial
+candidate: package-level allocation did not reserve caller type parameters,
+generic receiver type-parameter bindings, or actual default-import package
+names. Resolve it test-first by reusing `buildComponentSignatureFiles` and
+`componentAnalysisOccupiedNames`, unioning those semantic names with the
+source-view package declarations before deterministic allocation. Resolve
+default imports through the existing importer/package identities, add no
+`packages.Load`, and pin `SourceOnly` bundle behavior plus cache invalidation
+when a dependency package clause changes to a helper spelling. Correct the
+benchmark scenario prose separately. Re-run performance only after this fix is
+committed and independently reviewed.
 
 ### 6.4 Keep or revert exactly
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
@@ -206,10 +207,13 @@ func (m *Module) directHelperGoSourceView(dir string) (map[string]sourceview.Fil
 // component family membership has been finalized. Families are allocated in
 // logical-key order, making helper names independent of map and filesystem
 // iteration order.
-func assignDirectComponentDeclarationsFromView(packageName string, files map[string]*gsxast.File, plan componentTargetPlan, goFiles map[string]sourceview.FileSnapshot) (componentTargetPlan, error) {
+func assignDirectComponentDeclarationsFromView(packageName string, files map[string]*gsxast.File, plan componentTargetPlan, lexicalNames map[string]bool, goFiles map[string]sourceview.FileSnapshot) (componentTargetPlan, error) {
 	occupied, err := directHelperOccupiedNamesFromView(packageName, files, goFiles)
 	if err != nil {
 		return componentTargetPlan{}, err
+	}
+	for name := range lexicalNames {
+		occupied[name] = true
 	}
 	type member struct {
 		component   *gsxast.Component
@@ -272,12 +276,41 @@ func assignDirectComponentDeclarationsFromView(packageName string, files map[str
 	return plan, nil
 }
 
-func (m *Module) assignDirectComponentDeclarations(dir, packageName string, files map[string]*gsxast.File, plan componentTargetPlan) (componentTargetPlan, error) {
+func (m *Module) assignDirectComponentDeclarations(
+	dir, packageName string,
+	files map[string]*gsxast.File,
+	plan componentTargetPlan,
+	fset *token.FileSet,
+	bag *diag.Bag,
+	importer types.Importer,
+) (componentTargetPlan, error) {
+	// Build the same exact component-signature files used by semantic analysis,
+	// then reserve every identifier and implicit default-import binding visible
+	// in those files. A direct helper is referenced from generated component
+	// bodies, so package-level uniqueness alone is insufficient: a caller type
+	// parameter, generic receiver binding, or file import can shadow it.
+	signatureFiles, importPaths, err := buildComponentSignatureFiles(dir, files, plan, fset, bag)
+	if err != nil {
+		// Direct rendering is optional. A package on the unique-name fast path may
+		// contain malformed pass-through Go whose positioned diagnostic belongs to
+		// ordinary generation. If its exact signature files cannot be constructed,
+		// keep every call on the established Node path instead of changing that
+		// diagnostic into a package-level planning failure.
+		return plan, nil
+	}
+	lexicalNames, err := m.componentAnalysisOccupiedNames(signatureFiles, importer)
+	if err != nil {
+		return componentTargetPlan{}, err
+	}
+	// The imported package identity participates in the same exact-target graph
+	// as signature checking, so changes to an implicit default-import name
+	// invalidate both warm semantic state and the persistent source projection.
+	m.recordTargetImports(dir, importPaths)
 	goFiles, err := m.directHelperGoSourceView(dir)
 	if err != nil {
 		return componentTargetPlan{}, err
 	}
-	return assignDirectComponentDeclarationsFromView(packageName, files, plan, goFiles)
+	return assignDirectComponentDeclarationsFromView(packageName, files, plan, lexicalNames, goFiles)
 }
 
 // directComponentTarget admits only a same-package package function whose
