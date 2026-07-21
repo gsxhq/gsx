@@ -563,7 +563,7 @@ removed immediately, and every profile remains outside the repository.
 
 For FoldedAttrs, the non-overlapping flat allocation frames selected in the
 gate own 39.73% of objects: `ConcatAttrs` 26.49%, selected branch arm 6.62%,
-and other selected branch arm 6.62%. They own 86.67% of bytes: 81.25%, 2.71%,
+and other selected branch arm 6.62%. They own 86.66% of bytes: 81.25%, 2.71%,
 and 2.71%. These exceed the 30% object and 50% byte thresholds, so Candidate 2
 is eligible for the separate
 `2026-07-21-folded-element-attribute-materialisation.md` experiment plan.
@@ -698,13 +698,20 @@ parents are not added to their children.
 | `splitDecls` | 13.24% | 2.71% |
 | selected branch arm 1 | 6.62% | 2.71% |
 | selected branch arm 2 | 6.62% | 2.71% |
-| `W` | 0.66% | below 0.01% |
+| `W` | 0.66% | 0.27% |
 
 The rejected accumulator targeted the `ConcatAttrs` and two selected branch
-frames, which still account for 39.73% of objects and 86.67% of bytes after
+frames, which still account for 39.73% of objects and 86.66% of bytes after
 restore. Removing their allocations alone was not a win because the replacement
 bag's retained backing storage increased total bytes and did not reduce render
 time. Allocation count is not an end in itself.
+
+A `pprof -nodefraction=0 -alloc_space` proof accounts for all 400,300,872
+profiled bytes. `W` owns 1,084,064 bytes, or 0.2708%. The targeted
+`ConcatAttrs` and two branch frames own 325,219,200 + 10,840,640 + 10,840,640
+bytes, or 86.6599% of that total; both displayed percentages therefore round
+to 0.27% and 86.66%, respectively. The complete proof is
+`/private/tmp/gsx-runtime-post-folded-profiles.YoihHZ/FoldedAttrs.space.nodefraction0.top`.
 
 Candidate 3 remains deferred. This task does not authorise or prototype a
 component ABI change; any such work requires a separate measured plan based on
