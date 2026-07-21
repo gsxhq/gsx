@@ -246,9 +246,20 @@ func (p *parser) braceKeyword() string {
 // the first top-level '}'; a '}' inside a nested element's text or a `{…}`
 // construct is consumed by those sub-parsers, not seen here.
 func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
+	return p.parseMarkupUntilCloseWS(what, false)
+}
+
+// parseMarkupUntilCloseWS is parseMarkupUntilClose with control over inter-node
+// whitespace. When preserveWS is false (markup-attribute slots) leading
+// whitespace before each node is skipped, as before. When true (control-flow
+// bodies) whitespace falls into parseTextCtx and becomes a text node for wsnorm;
+// parseControlBody then trims the brace-interior edges via trimBodyEdges.
+func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
-		p.skipSpace()
+		if !preserveWS {
+			p.skipSpace()
+		}
 		if p.eof() {
 			return nil, p.errorf(p.pos(), "unterminated %s, expected `}`", what)
 		}
@@ -277,9 +288,39 @@ func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
 }
 
 // parseControlBody parses a control-flow body: markup until the matching '}'.
-// The cursor must be just past the opening '{'.
+// The cursor must be just past the opening '{'. Interior whitespace is preserved
+// for wsnorm; whitespace immediately inside the braces is trimmed.
 func (p *parser) parseControlBody() ([]ast.Markup, error) {
-	return p.parseMarkupUntilClose("control-flow body")
+	nodes, err := p.parseMarkupUntilCloseWS("control-flow body", true)
+	if err != nil {
+		return nil, err
+	}
+	return trimBodyEdges(nodes), nil
+}
+
+// trimBodyEdges strips whitespace immediately inside the control-flow body
+// braces: the leading whitespace of the first node and the trailing whitespace
+// of the last node, when those nodes are Text. This mirrors how gsx trims the
+// interior of `{ expr }` and `{{ code }}`. Interior whitespace between nodes is
+// left for wsnorm's JSX rule. An emptied edge Text node is dropped.
+func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
+	if len(nodes) > 0 {
+		if t, ok := nodes[0].(*ast.Text); ok {
+			t.Value = strings.TrimLeft(t.Value, " \t\r\n")
+			if t.Value == "" {
+				nodes = nodes[1:]
+			}
+		}
+	}
+	if len(nodes) > 0 {
+		if t, ok := nodes[len(nodes)-1].(*ast.Text); ok {
+			t.Value = strings.TrimRight(t.Value, " \t\r\n")
+			if t.Value == "" {
+				nodes = nodes[:len(nodes)-1]
+			}
+		}
+	}
+	return nodes
 }
 
 // parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has
@@ -472,13 +513,19 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
+		// Look past whitespace to detect a terminator without destroying interior
+		// whitespace: if the next token is a terminator, the skipped whitespace was
+		// the case body's trailing edge (trimmed by trimBodyEdges); otherwise
+		// restore so the whitespace becomes part of the following text node.
+		save := p.i
 		p.skipSpace()
 		if p.eof() {
 			return nil, p.errorf(p.pos(), "unterminated `case` body")
 		}
 		if p.peek() == '}' || p.atWord("case") || p.atWord("default") {
-			return nodes, nil
+			return trimBodyEdges(nodes), nil
 		}
+		p.i = save
 		switch {
 		case p.peek() == '<':
 			el, err := p.parseElement()
