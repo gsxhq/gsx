@@ -103,6 +103,21 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 			}
 		}
 
+		// Rule 2 (empty GoBlock): a `{{ }}` whose Code is empty has a zero-width
+		// nav span anchored at the closing brace (Code is "" and CodePos sits at
+		// `}}`), so the nodeNavSpans loop below cannot place a cursor sitting in
+		// the brace interior. Classify that interior as a Go statement context
+		// anchored at CodePos. Guarded to genuinely-empty blocks (no embedded
+		// literal, no unsupported markup) so a GoBlock carrying elements still
+		// routes its inner tags/attrs through the normal rules.
+		if gb, ok := n.(*gsxast.GoBlock); ok && gb.Code == "" && gb.Embedded == nil && gb.UnsupportedMarkup == nil && gb.CodePos.IsValid() {
+			inner0 := posOff(gb.Pos()) + len("{{")
+			inner1 := posOff(gb.End()) - len("}}")
+			if off >= inner0 && off <= inner1 {
+				goCtx = &completionContext{kind: ctxGoExpr, node: n, exprPos: gb.CodePos}
+			}
+		}
+
 		// Rule 3 (tag) + Rule 4 (BoolAttr name): element-level.
 		if el, ok := n.(*gsxast.Element); ok {
 			if el.TagPos.IsValid() && spanContainsForCompletion(posOff(el.TagPos), len(el.Tag), off) {

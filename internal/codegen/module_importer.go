@@ -51,6 +51,9 @@ func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.
 		Defs:      map[*goast.Ident]types.Object{},
 		Uses:      map[*goast.Ident]types.Object{},
 		Implicits: map[goast.Node]types.Object{},
+		// Scopes lets the LSP walk the lexical scope chain at a cursor for Go
+		// identifier-position completion (internal/lsp/completion_go.go).
+		Scopes: map[goast.Node]*types.Scope{},
 	}
 	var errs []types.Error
 	conf := types.Config{
