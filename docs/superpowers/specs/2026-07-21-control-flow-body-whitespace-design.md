@@ -158,6 +158,30 @@ Therefore the fix is scoped, not a blanket `skipSpace()` removal:
    }
    ```
 
+3. **Switch case bodies use a second parser function**, `parseCaseBody` (markup.go
+   ~472), not `parseControlBody` — it terminates at the *keywords* `case`/
+   `default` (or `}`), not just `}`. Dropping its `skipSpace` naively would let a
+   text run swallow the following keyword. Instead it uses a lookahead-restore:
+   save the cursor, `skipSpace`, and if the next token is a terminator return
+   `trimBodyEdges(nodes)` (the skipped whitespace was the trailing edge);
+   otherwise restore the cursor so the whitespace joins the next text node.
+
+   ```go
+   func (p *parser) parseCaseBody() ([]ast.Markup, error) {
+       var nodes []ast.Markup
+       for {
+           save := p.i
+           p.skipSpace()
+           if p.eof() { return nil, p.errorf(p.pos(), "unterminated `case` body") }
+           if p.peek() == '}' || p.atWord("case") || p.atWord("default") {
+               return trimBodyEdges(nodes), nil
+           }
+           p.i = save
+           switch { /* '<' element, '{' brace-node, default parseTextCtx(true) */ }
+       }
+   }
+   ```
+
 `wsnorm.Normalize(f)` still runs unconditionally after parse on both consumer
 paths (`internal/codegen/module_importer.go:1755`, `internal/gsxfmt/gsxfmt.go:95`)
 and handles the surviving interior text nodes; `wsnorm` needs no change.
@@ -259,3 +283,11 @@ control-flow bodies follow the same JSX whitespace rule as element bodies.
 - No changes to the JSX rule itself (`wsnorm` is already the faithful port).
 - No formatter behavior change (it is already semantics-preserving here).
 - No grammar/highlighting/sibling-repo changes.
+- **Pre-existing switch keyword-swallow limitation.** Today `parseCaseBody`
+  cannot detect a `case`/`default` keyword that immediately follows a plain text
+  run (e.g. `case "a": plain text\ncase "b": …` swallows the second arm into the
+  first's text), because `parseTextCtx` stops only at `<`/`{`/`}`, never at a
+  keyword. The lookahead-restore fix preserves interior whitespace **without**
+  fixing or worsening this; corpus switch cases avoid it by ending each arm with
+  an element/brace (or using a single `default`). Fixing keyword-terminator
+  detection is a separate follow-up.
