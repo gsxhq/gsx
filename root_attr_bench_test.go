@@ -3,6 +3,7 @@ package gsx
 import (
 	"context"
 	"io"
+	"strconv"
 	"testing"
 )
 
@@ -68,6 +69,25 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 		gw.ClassMerged(DefaultClassMerge, a.Class())
 		gw.StyleMerged("", a.Style())
 		gw.Spread(ctx, a, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
+	}
+}
+
+func BenchmarkSpreadNoURLLarge(b *testing.B) {
+	b.ReportAllocs()
+	attrs := make(Attrs, 0, 70)
+	for i := 0; i < 70; i++ {
+		attrs = append(attrs, Attr{
+			Key:   "data-field-" + strconv.Itoa(i),
+			Value: "value",
+		})
+	}
+	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
+	imageNames := []string{"background"}
+	srcsetNames := []string{"imagesrcset", "srcset"}
+	gw := W(io.Discard)
+	ctx := context.Background()
+	for b.Loop() {
+		gw.Spread(ctx, attrs, navNames, imageNames, srcsetNames, nil, nil)
 	}
 }
 
