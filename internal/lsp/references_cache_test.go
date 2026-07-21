@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"go/token"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,6 +26,7 @@ type moduleRefsAnalyzer struct {
 	moduleRefs  []CrossRef
 	moduleErr   error
 	pkg         *Package
+	overrides   []map[string][]byte
 }
 
 func (a *moduleRefsAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
@@ -36,8 +38,13 @@ func (a *moduleRefsAnalyzer) Analyze(string, map[string][]byte) (*Package, error
 	}
 	return &Package{}, nil
 }
-func (a *moduleRefsAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (a *moduleRefsAnalyzer) AnalyzeModule(_ string, overrides map[string][]byte) ([]CrossRef, error) {
 	a.moduleCalls++
+	captured := make(map[string][]byte, len(overrides))
+	for path, source := range overrides {
+		captured[path] = append([]byte(nil), source...)
+	}
+	a.overrides = append(a.overrides, captured)
 	return a.moduleRefs, a.moduleErr
 }
 func (a *moduleRefsAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
@@ -135,6 +142,28 @@ func TestReferencesCacheInvalidation(t *testing.T) {
 	drive(t, a2, frames2)
 	if a2.moduleCalls != 2 {
 		t.Fatalf("invalidated: want 2 AnalyzeModule calls, got %d", a2.moduleCalls)
+	}
+}
+
+func TestReferencesAnalysisUsesCapturedRequestOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "page.gsx")
+	uri := pathToURI(path)
+	const captured = "package page\ncomponent Card() {}\n"
+	const changed = "package page\ncomponent Changed() {}\n"
+	analyzer := &moduleRefsAnalyzer{}
+	server := &Server{analyzer: analyzer, docs: newDocStore()}
+	server.docs.open(uri, captured, 1)
+	sources := server.sourceSnapshot()
+
+	server.docs.update(uri, changed, 2)
+	server.refreshModuleReferences(sources, dir)
+
+	if len(analyzer.overrides) != 1 {
+		t.Fatalf("AnalyzeModule override calls = %d, want 1", len(analyzer.overrides))
+	}
+	if got := string(analyzer.overrides[0][path]); got != captured {
+		t.Fatalf("AnalyzeModule override = %q, want captured request source %q", got, captured)
 	}
 }
 

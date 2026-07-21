@@ -33,7 +33,23 @@ type publishDiagnosticsParams struct {
 }
 
 type initializeParams struct {
-	Capabilities clientCapabilities `json:"capabilities"`
+	Capabilities     clientCapabilities `json:"capabilities"`
+	RootURI          string             `json:"rootUri,omitempty"`
+	WorkspaceFolders []workspaceFolder  `json:"workspaceFolders,omitempty"`
+}
+
+type workspaceFolder struct {
+	URI  string `json:"uri"`
+	Name string `json:"name"`
+}
+
+type didChangeWorkspaceFoldersParams struct {
+	Event workspaceFoldersChangeEvent `json:"event"`
+}
+
+type workspaceFoldersChangeEvent struct {
+	Added   []workspaceFolder `json:"added"`
+	Removed []workspaceFolder `json:"removed"`
 }
 
 type clientCapabilities struct {
@@ -101,16 +117,26 @@ type initializeResult struct {
 }
 
 type serverCapabilities struct {
-	PositionEncoding           string             `json:"positionEncoding"`
-	TextDocumentSync           int                `json:"textDocumentSync"`
-	DefinitionProvider         bool               `json:"definitionProvider"`
-	ReferencesProvider         bool               `json:"referencesProvider"`
-	RenameProvider             *RenameOptions     `json:"renameProvider,omitempty"`
-	DocumentFormattingProvider bool               `json:"documentFormattingProvider"`
-	HoverProvider              bool               `json:"hoverProvider"`
-	DocumentSymbolProvider     bool               `json:"documentSymbolProvider"`
-	WorkspaceSymbolProvider    bool               `json:"workspaceSymbolProvider"`
-	CodeActionProvider         *CodeActionOptions `json:"codeActionProvider,omitempty"`
+	PositionEncoding           string                      `json:"positionEncoding"`
+	TextDocumentSync           int                         `json:"textDocumentSync"`
+	DefinitionProvider         bool                        `json:"definitionProvider"`
+	ReferencesProvider         bool                        `json:"referencesProvider"`
+	RenameProvider             *RenameOptions              `json:"renameProvider,omitempty"`
+	DocumentFormattingProvider bool                        `json:"documentFormattingProvider"`
+	HoverProvider              bool                        `json:"hoverProvider"`
+	DocumentSymbolProvider     bool                        `json:"documentSymbolProvider"`
+	WorkspaceSymbolProvider    bool                        `json:"workspaceSymbolProvider"`
+	CodeActionProvider         *CodeActionOptions          `json:"codeActionProvider,omitempty"`
+	Workspace                  workspaceServerCapabilities `json:"workspace"`
+}
+
+type workspaceServerCapabilities struct {
+	WorkspaceFolders workspaceFoldersServerCapabilities `json:"workspaceFolders"`
+}
+
+type workspaceFoldersServerCapabilities struct {
+	Supported           bool `json:"supported"`
+	ChangeNotifications bool `json:"changeNotifications"`
 }
 
 type RenameOptions struct {

@@ -67,6 +67,7 @@ type componentTargetFact struct {
 	selectionRecv types.Type
 
 	usesImportedQualifier bool
+	declaration           componentTargetDeclarationProvenance
 }
 
 func (f componentTargetFact) effectiveSignature() *types.Signature {
@@ -226,7 +227,7 @@ func (r *componentTargetMarkerRegistry) hasCandidate(element *gsxast.Element) bo
 	return r != nil && r.callSites != nil && r.callSites.hasCandidate(element)
 }
 
-func (r *componentTargetMarkerRegistry) emitBinding(sb *strings.Builder, element *gsxast.Element, fset *token.FileSet) error {
+func (r *componentTargetMarkerRegistry) emitBinding(sb skeletonWriter, element *gsxast.Element, fset *token.FileSet) error {
 	if r == nil || r.callSites == nil {
 		return fmt.Errorf("codegen: target binding emitted without a marker registry")
 	}

@@ -193,12 +193,20 @@ func (m *Module) targetDeclarationPackage(dir string, importer *componentTargetI
 	if err := typeErrorsAsSourceError(typeErrs); err != nil {
 		return nil, err
 	}
+	provenance, err := componentTargetDeclarationProvenances(gsxFiles, parsed.sources, m.fset, plan)
+	if err != nil {
+		return nil, err
+	}
 
 	m.mu.Lock()
 	if m.targetDeclTypes == nil {
 		m.targetDeclTypes = map[string]*types.Package{}
 	}
+	if m.targetDeclProvenance == nil {
+		m.targetDeclProvenance = componentTargetProvenanceCache{}
+	}
 	m.targetDeclTypes[dir] = pkg
+	m.targetDeclProvenance[dir] = provenance
 	m.mu.Unlock()
 	return pkg, nil
 }

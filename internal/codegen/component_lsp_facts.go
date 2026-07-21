@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 func componentParamDeclarationFacts(
@@ -556,10 +557,16 @@ func componentCallFacts(plan componentPositionalPackagePlan) map[*gsxast.Element
 			continue
 		}
 		call := ComponentCallFact{
-			Target:       site.target.object,
-			TargetOrigin: site.target.origin,
-			Signature:    site.signature.goSig,
-			Params:       make(map[gsxast.Attr]ComponentParamFact),
+			Target:             site.target.object,
+			TargetOrigin:       site.target.origin,
+			Signature:          site.signature.goSig,
+			Params:             make(map[gsxast.Attr]ComponentParamFact),
+			TargetDecls:        append([]sourceintel.VersionedSpan(nil), site.target.declaration.targetDecls...),
+			ParamDecls:         make(map[int][]sourceintel.VersionedSpan, len(site.target.declaration.paramDecls)),
+			TargetPresentation: site.target.declaration.presentation,
+		}
+		for ordinal, declarations := range site.target.declaration.paramDecls {
+			call.ParamDecls[ordinal] = append([]sourceintel.VersionedSpan(nil), declarations...)
 		}
 		identity := call.TargetOrigin
 		if identity == nil {

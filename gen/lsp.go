@@ -11,6 +11,7 @@ import (
 	"go/types"
 	"io"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -22,6 +23,8 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
+	"github.com/gsxhq/gsx/internal/sourceintel"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // lspAnalyzer is the concrete code analysis behind the language server: it
@@ -265,8 +268,9 @@ func lspSemanticConfigIdentity(cfg config) string {
 
 // adaptPackageResult converts a *codegen.PackageResult (the Module path's output)
 // into the *lsp.Package the server's read-intelligence features consume.
-// Every field mapping is preserved: Diags, GSXFset, Fset, Info, Types, ExprMap,
-// GSXFiles→Files, CrossIndex/NavIndex/CtrlMap/SigTypes conversions, UnusedImports conversion.
+// Every field mapping is preserved: Diags, GSXFset, Fset, Info, SourceIndex,
+// Types, ExprMap, GSXFiles→Files, CrossIndex/NavIndex/CtrlMap/SigTypes
+// conversions, UnusedImports conversion.
 func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	cross := make(map[string]lsp.CrossRef, len(pr.CrossIndex))
 	for k, v := range pr.CrossIndex {
@@ -316,14 +320,25 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 				Role:    lsp.ComponentParamRole(param.Role),
 			}
 		}
-		calls[element] = lsp.ComponentCallFact{
-			Target:        call.Target,
-			TargetOrigin:  call.TargetOrigin,
-			TargetPackage: call.TargetPackage,
-			TargetKey:     call.TargetKey,
-			Signature:     call.Signature,
-			Params:        params,
+		paramDecls := make(map[int][]sourceintel.VersionedSpan, len(call.ParamDecls))
+		for ordinal, declarations := range call.ParamDecls {
+			paramDecls[ordinal] = append([]sourceintel.VersionedSpan(nil), declarations...)
 		}
+		calls[element] = lsp.ComponentCallFact{
+			Target:             call.Target,
+			TargetOrigin:       call.TargetOrigin,
+			TargetPackage:      call.TargetPackage,
+			TargetKey:          call.TargetKey,
+			Signature:          call.Signature,
+			Params:             params,
+			TargetDecls:        append([]sourceintel.VersionedSpan(nil), call.TargetDecls...),
+			ParamDecls:         paramDecls,
+			TargetPresentation: call.TargetPresentation,
+		}
+	}
+	componentDecls := make(map[lsp.ComponentDeclKey][]sourceintel.VersionedSpan, len(pr.ComponentDecls))
+	for key, declarations := range pr.ComponentDecls {
+		componentDecls[lsp.ComponentDeclKey{PackagePath: key.PackagePath, ComponentKey: key.ComponentKey}] = append([]sourceintel.VersionedSpan(nil), declarations...)
 	}
 	return &lsp.Package{
 		Diags:          pr.Diags,
@@ -336,6 +351,8 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		CrossIndex:     cross,
 		NavIndex:       nav,
 		ComponentCalls: calls,
+		ComponentDecls: componentDecls,
+		SourceIndex:    pr.SourceIndex,
 		CtrlMap:        ctrl,
 		SigTypes:       sig,
 		UnusedImports:  unused,
@@ -668,6 +685,12 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 
 	// Phase 4b: route real Go references. Markup references are deliberately
 	// excluded here; they are owned exclusively by ComponentCalls above.
+	authoredGSX := make(map[string]bool)
+	for _, entry := range entries {
+		for path := range entry.pr.GSXFiles {
+			authoredGSX[filepath.Clean(path)] = true
+		}
+	}
 	for _, e := range entries {
 		if e.pr.Info == nil || e.pr.Types == nil {
 			continue
@@ -692,7 +715,8 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) ([]lsp.Cross
 				continue // not a tracked component (e.g. a plain Go func, not a gsx component)
 			}
 			p := e.pr.Fset.Position(id.Pos())
-			if !strings.HasSuffix(p.Filename, ".go") || strings.HasSuffix(p.Filename, ".x.go") {
+			pairedGSX, pairedCandidate := sourceview.PairedGSXPath(p.Filename)
+			if !strings.HasSuffix(p.Filename, ".go") || pairedCandidate && authoredGSX[pairedGSX] {
 				continue
 			}
 			cr := cross[ok2]
@@ -832,7 +856,7 @@ func sortTokenPositions(positions []token.Position) {
 // Module (same instance Analyze/AnalyzeModule use) and calls lsp.FileSymbols on
 // each package's parsed files. Un-analyzable dirs are skipped (partial results
 // tolerated). Serialized buffer transitions already updated the warm Module.
-func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbol, error) {
+func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]lsp.Symbol, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
@@ -841,6 +865,7 @@ func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbo
 	if err != nil {
 		return nil, err
 	}
+	dirs = moduleSymbolDirs(root, dirs, override)
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
 	m, _, err := a.module(root, modPath, merged)
 	if err != nil {
@@ -853,10 +878,39 @@ func (a lspAnalyzer) ModuleSymbols(dir string, _ map[string][]byte) ([]lsp.Symbo
 			continue
 		}
 		for path, file := range pr.GSXFiles {
-			syms = append(syms, lsp.FileSymbols(path, file, pr.GSXFset)...)
+			source, ok := override[path]
+			if !ok {
+				source, err = os.ReadFile(path)
+				if err != nil {
+					continue
+				}
+			}
+			syms = append(syms, lsp.FileSymbols(path, source, file, pr.GSXFset, pr.SourceIndex)...)
 		}
 	}
 	return syms, nil
+}
+
+// moduleSymbolDirs augments disk discovery with directories owned by exact
+// authored GSX overrides. Workspace partitioning normally supplies only this
+// module's open buffers; the lexical Rel check is a defensive ownership
+// boundary for direct Analyzer callers. It neither walks new roots nor infers
+// ownership from basename or string prefix.
+func moduleSymbolDirs(root string, discovered []string, override map[string][]byte) []string {
+	root = filepath.Clean(root)
+	dirs := append([]string(nil), discovered...)
+	for path := range override {
+		path = filepath.Clean(path)
+		if _, authored := sourceview.PairedGeneratedOutputPath(path); !authored {
+			continue
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		dirs = append(dirs, filepath.Dir(path))
+	}
+	return sortedUniqueDirs(dirs)
 }
 
 // crossRefKeyForFunc derives the component key for a *types.Func: ".Name" for

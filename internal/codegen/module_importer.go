@@ -17,6 +17,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/modpath"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -338,6 +339,7 @@ func (m *Module) invalidateConfiguredSourceStateLocked() {
 	m.classMergersErr, m.classMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.targetDeclTypes = map[string]*types.Package{}
+	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 }
@@ -354,6 +356,7 @@ func (m *Module) invalidateLocked(dirs []string) []string {
 	for d := range scope.dirs {
 		delete(m.pkgTypes, d)
 		delete(m.targetDeclTypes, d)
+		delete(m.targetDeclProvenance, d)
 		delete(m.configuredDeclTypes, d)
 		delete(m.pkgResults, d)
 	}
@@ -752,6 +755,14 @@ func (m *Module) isGsxPackage(dir string) bool {
 	return len(matches) > 0
 }
 
+type analysisPurpose uint8
+
+const (
+	analysisTypeOnly analysisPurpose = iota
+	analysisGeneration
+	analysisRetainedPackage
+)
+
 // typesPackage type-checks dir's skeletons (building a fresh importer rooted at
 // dir) and returns/caches the *types.Package. Entry point for external callers.
 func (m *Module) typesPackage(dir string) (*types.Package, error) {
@@ -787,7 +798,7 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 			return m.shippingGoPackageWith(dir, mi)
 		}
 	}
-	a, err := m.analyze(dir, mi)
+	a, err := m.analyze(dir, mi, analysisTypeOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -879,6 +890,7 @@ type analyzed struct {
 	targetFacts       map[callSiteID]componentTargetFact
 	targetExprFacts   map[gsxast.Node]expressionFact
 	targetPackage     *types.Package
+	componentDecls    map[ComponentDeclKey][]sourceintel.VersionedSpan
 	positionalPlan    componentPositionalPackagePlan
 	targetErrs        []types.Error     // target-phase-fatal type errors retained privately until exact call planning becomes authoritative
 	targetDiagnostics []diag.Diagnostic // target-phase-fatal source diagnostics retained on the same private boundary
@@ -896,6 +908,7 @@ type analyzed struct {
 	typeErrs          []types.Error                  // raw type errors from checkSkeletonPackage
 	unusedImports     map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
 	missingImports    map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
+	sourceIndex       *sourceintel.Index             // immutable authored semantic facts harvested from the full skeleton check
 
 }
 
@@ -1011,9 +1024,12 @@ func sortedGsxFilePaths(gsxFiles map[string]*gsxast.File) []string {
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
 // gsx package dir, threading the recursive importer mi, and returns the rich
-// analyzed result. It preserves Task 4's cycle behaviour: a cycle detected
-// during type-check is propagated (without caching) via mi.cycleErr.
-func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
+// analyzed result. purpose controls only whether that result retains authored
+// source-map facts; generation and recursively imported packages use the same
+// skeleton bytes without paying for an index they cannot publish. It preserves
+// Task 4's cycle behaviour: a cycle detected during type-check is propagated
+// (without caching) via mi.cycleErr.
+func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose) (*analyzed, error) {
 	mi.seen[dir] = true
 	defer delete(mi.seen, dir)
 
@@ -1104,6 +1120,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	var targetFacts map[callSiteID]componentTargetFact
 	var targetExprFacts map[gsxast.Node]expressionFact
 	var targetPackage *types.Package
+	var componentDecls map[ComponentDeclKey][]sourceintel.VersionedSpan
 	var targetRuntime runtimeContract
 	var targetPlanningReady bool
 	var positionalPlan componentPositionalPackagePlan
@@ -1114,7 +1131,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
 			m,
 			dir, pkgPath,
-			pkgName, gsxFiles, componentPlan, callSites, table,
+			pkgName, gsxFiles, parsed.sources, componentPlan, callSites, table,
 			fset, targetBag, targetImporter, typeEnvironment,
 		)
 		if targetErr != nil {
@@ -1156,6 +1173,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// Mutual wrapper cycles consume only final semantic stamps.
 	reportWrapperCycles(gsxFiles, bag)
 	var goFiles []*goast.File
+	var mappedFiles []sourceintel.MappedFile
 	compsByXGo := map[string][]*gsxast.Component{}
 	// gwMarkupsByXGo holds, per skeleton file, the GoWithElements-embedded
 	// values' markup lists in source order (buildSkeleton's gwMarkups). Each
@@ -1230,7 +1248,16 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 					"identifier %q is reserved (%s) — rename it", rb.name, reservedBodyMeaning(rb.name))
 			}
 		}
-		skel, comps, imps, ctrlOff, gwMarkups, berr := buildSkeleton(f, table, fset, bag, &componentPlan, skeletonFull)
+		var build skeletonBuild
+		var berr error
+		switch purpose {
+		case analysisRetainedPackage:
+			build, berr = buildMappedSkeleton(f, table, fset, bag, &componentPlan, skeletonFull, path, parsed.sources[path])
+		case analysisGeneration, analysisTypeOnly:
+			build.source, build.components, build.imports, build.ctrlStarts, build.markupGroups, berr = buildSkeleton(f, table, fset, bag, &componentPlan, skeletonFull)
+		default:
+			return nil, fmt.Errorf("codegen: invalid analysis purpose %d", purpose)
+		}
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -1247,6 +1274,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			skelErr = true
 			break
 		}
+		skel := build.source
+		comps := build.components
+		imps := build.imports
+		ctrlOff := build.ctrlStarts
+		gwMarkups := build.markupGroups
 		allImportSpecs = append(allImportSpecs, imps...)
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		absXpath := filepath.Join(dir, base+".x.go")
@@ -1255,6 +1287,17 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			return nil, skeletonParseError(perr)
 		}
 		goFiles = append(goFiles, gf)
+		if purpose == analysisRetainedPackage {
+			mappedFiles = append(mappedFiles, sourceintel.MappedFile{
+				AST:       gf,
+				TokenFile: fset.File(gf.Pos()),
+				SourceMap: build.sourceMap,
+				SourceVersion: sourceintel.SourceVersion{
+					Size:   len(parsed.sources[path]),
+					SHA256: build.sourceHash,
+				},
+			})
+		}
 		compsByXGo[absXpath] = comps
 		gwMarkupsByXGo[absXpath] = gwMarkups
 		ctrlOffByXGo[absXpath] = ctrlOff
@@ -1409,6 +1452,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// the error without caching so the caller receives it.
 		return nil, mi.cycleErr
 	}
+	var sourceIndex *sourceintel.Index
+	if purpose == analysisRetainedPackage {
+		sourceIndex = sourceintel.BuildIndex(info, mappedFiles)
+		m.mu.Lock()
+		m.sourceIndexBuildCount++
+		m.mu.Unlock()
+	}
 	if callSites != nil && targetPlanningReady {
 		var planningDiagnostics []diag.Diagnostic
 		positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{
@@ -1421,6 +1471,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		})
 		for _, diagnostic := range planningDiagnostics {
 			bag.Add(diagnostic)
+		}
+	}
+	var localComponentProvenance map[string]componentTargetDeclarationProvenance
+	if !bag.HasErrors() && len(typeErrs) == 0 {
+		localComponentProvenance, err = componentTargetDeclarationProvenances(gsxFiles, parsed.sources, fset, componentPlan)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -1437,6 +1494,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		m.pkgTypes = map[string]*types.Package{}
 	}
 	m.pkgTypes[dir] = pkg
+	if localComponentProvenance != nil {
+		if m.targetDeclProvenance == nil {
+			m.targetDeclProvenance = componentTargetProvenanceCache{}
+		}
+		m.targetDeclProvenance[dir] = localComponentProvenance
+	}
 	m.mu.Unlock()
 
 	// Record the project-internal import graph for this package. Only successful
@@ -1547,6 +1610,17 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// the type-error loop's quietSpans, above, is built from. See
 	// missingFromSkeletons' doc.
 	missingImports := missingFromSkeletons(skelByGsx, fset, info, spansByFile)
+	if localComponentProvenance != nil {
+		componentDecls = make(map[ComponentDeclKey][]sourceintel.VersionedSpan)
+		for key, provenance := range localComponentProvenance {
+			componentDecls[ComponentDeclKey{PackagePath: pkgPath, ComponentKey: key}] = append([]sourceintel.VersionedSpan(nil), provenance.targetDecls...)
+		}
+		for _, imported := range pkg.Imports() {
+			for key, provenance := range m.componentTargetPackageProvenance(imported.Path()) {
+				componentDecls[ComponentDeclKey{PackagePath: imported.Path(), ComponentKey: key}] = append([]sourceintel.VersionedSpan(nil), provenance.targetDecls...)
+			}
+		}
+	}
 
 	return &analyzed{
 		pkgName:           pkgName,
@@ -1562,6 +1636,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		targetFacts:       targetFacts,
 		targetExprFacts:   targetExprFacts,
 		targetPackage:     targetPackage,
+		componentDecls:    componentDecls,
 		positionalPlan:    positionalPlan,
 		targetErrs:        targetErrs,
 		targetDiagnostics: targetDiagnostics,
@@ -1579,6 +1654,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		typeErrs:          typeErrs,
 		unusedImports:     unusedImports,
 		missingImports:    missingImports,
+		sourceIndex:       sourceIndex,
 	}, nil
 }
 

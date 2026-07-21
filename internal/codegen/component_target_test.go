@@ -2169,7 +2169,7 @@ component Good() { <div/> }
 	if err != nil {
 		t.Fatal(err)
 	}
-	analyzed, err := module.analyze(dir, &moduleImporter{m: module, external: external, seen: map[string]bool{}})
+	analyzed, err := module.analyze(dir, &moduleImporter{m: module, external: external, seen: map[string]bool{}}, analysisTypeOnly)
 	if err != nil {
 		t.Fatal(err)
 	}

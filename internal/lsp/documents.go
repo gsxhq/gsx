@@ -1,7 +1,6 @@
 package lsp
 
 import (
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,24 +31,40 @@ func (d *docStore) byDirSnapshot() map[string]bool {
 func newDocStore() *docStore { return &docStore{docs: map[string]*document{}} }
 
 func (s *docStore) open(uri, text string, version int) {
+	uri, ok := canonicalDocumentURI(uri)
+	if !ok {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.docs[uri] = &document{text: text, version: version}
 }
 
 func (s *docStore) update(uri, text string, version int) {
+	uri, ok := canonicalDocumentURI(uri)
+	if !ok {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.docs[uri] = &document{text: text, version: version}
 }
 
 func (s *docStore) close(uri string) {
+	uri, ok := canonicalDocumentURI(uri)
+	if !ok {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.docs, uri)
 }
 
 func (s *docStore) text(uri string) (string, bool) {
+	uri, ok := canonicalDocumentURI(uri)
+	if !ok {
+		return "", false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d, ok := s.docs[uri]
@@ -96,19 +111,6 @@ func (s *docStore) snapshotDir(dir string) map[string]docSnap {
 	return out
 }
 
-// uriToPath converts a file:// URI to a local filesystem path, decoding percent
-// escapes. Non-file URIs are returned unchanged.
-func uriToPath(uri string) string {
-	rest, ok := strings.CutPrefix(uri, "file://")
-	if !ok {
-		return uri
-	}
-	if decoded, err := url.PathUnescape(rest); err == nil {
-		return decoded
-	}
-	return rest
-}
-
 // allOpenGSX returns abs-file-path -> bytes for every open .gsx document, for
 // whole-module analysis overrides (unsaved buffers across the module).
 func (s *docStore) allOpenGSX() map[string][]byte {
@@ -122,11 +124,4 @@ func (s *docStore) allOpenGSX() map[string][]byte {
 		}
 	}
 	return out
-}
-
-// pathToURI converts an absolute filesystem path to a file:// URI, percent-
-// escaping path segments.
-func pathToURI(path string) string {
-	u := &url.URL{Scheme: "file", Path: path}
-	return u.String()
 }

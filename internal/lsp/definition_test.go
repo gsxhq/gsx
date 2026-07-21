@@ -10,6 +10,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -119,19 +120,31 @@ func analyzedLSPModule(t *testing.T, files map[string]string, target string) (*P
 				Role:    ComponentParamRole(param.Role),
 			}
 		}
-		calls[element] = ComponentCallFact{
-			Target:        call.Target,
-			TargetOrigin:  call.TargetOrigin,
-			TargetPackage: call.TargetPackage,
-			TargetKey:     call.TargetKey,
-			Signature:     call.Signature,
-			Params:        params,
+		paramDecls := make(map[int][]sourceintel.VersionedSpan, len(call.ParamDecls))
+		for ordinal, declarations := range call.ParamDecls {
+			paramDecls[ordinal] = append([]sourceintel.VersionedSpan(nil), declarations...)
 		}
+		calls[element] = ComponentCallFact{
+			Target:             call.Target,
+			TargetOrigin:       call.TargetOrigin,
+			TargetPackage:      call.TargetPackage,
+			TargetKey:          call.TargetKey,
+			Signature:          call.Signature,
+			Params:             params,
+			TargetDecls:        append([]sourceintel.VersionedSpan(nil), call.TargetDecls...),
+			ParamDecls:         paramDecls,
+			TargetPresentation: call.TargetPresentation,
+		}
+	}
+	componentDecls := make(map[ComponentDeclKey][]sourceintel.VersionedSpan, len(pr.ComponentDecls))
+	for key, declarations := range pr.ComponentDecls {
+		componentDecls[ComponentDeclKey{PackagePath: key.PackagePath, ComponentKey: key.ComponentKey}] = append([]sourceintel.VersionedSpan(nil), declarations...)
 	}
 	return &Package{
 		GSXFset:        pr.GSXFset,
 		Fset:           pr.Fset,
 		Info:           pr.Info,
+		SourceIndex:    pr.SourceIndex,
 		Types:          pr.Types,
 		Files:          pr.GSXFiles,
 		ExprMap:        pr.ExprMap,
@@ -139,6 +152,7 @@ func analyzedLSPModule(t *testing.T, files map[string]string, target string) (*P
 		SigTypes:       sigTypes,
 		CrossIndex:     cross,
 		ComponentCalls: calls,
+		ComponentDecls: componentDecls,
 	}, gsxPath
 }
 

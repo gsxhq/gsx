@@ -1,0 +1,725 @@
+# LSP authored-source intelligence
+
+**Date:** 2026-07-19
+**Status:** approved design
+**Scope:** complete go-to-definition, hover, document-symbol, and
+workspace-symbol coverage across valid `.gsx` source; establish the exact
+source-mapping foundation for a later completion design
+
+## Goal
+
+Make read intelligence follow one rule:
+
+> If gsx type-checks an authored identifier, type, expression, or declaration,
+> the language server can locate it in the authoritative `.gsx` buffer and can
+> answer every applicable read request from the same semantic result.
+
+The implementation must cover every valid authored region, including ordinary
+component markup, component declarations and signatures, explicit component
+type arguments, top-level `GoChunk` source, and the Go text surrounding markup
+inside `GoWithElements`.
+
+This is an in-memory language-server feature. A physical generated `.x.go` file
+is neither an input nor a prerequisite. The LSP may parse an in-memory Go
+skeleton whose virtual filename ends in `.x.go`, because that name preserves Go
+tooling and diagnostic conventions, but it must not read or write the sibling
+generated file or let that file's existence/content affect semantic analysis.
+A source-inventory walk may observe the directory entry only to exclude it.
+Removing the file or replacing it with invalid bytes must not change an LSP
+answer.
+
+## Evidence and current gaps
+
+The current LSP has strong specialised coverage: exact component-call and
+attribute facts, component signature type spans, cross-package component
+navigation, and an expression/control-flow matrix covering markup, pipelines,
+embedded literals, and `{{ }}` blocks.
+
+The missing cases are whole source regions rather than isolated syntax bugs.
+Live requests against `one-learning-gsx` on 2026-07-19 confirmed:
+
+| Authored cursor | Current result |
+| --- | --- |
+| `time.Duration` and `d.Hours()` inside a top-level Go helper | null definition and hover |
+| the name in `component Badge(...)` | null definition and hover |
+| the declaration name in `variant Variant` | null definition and hover |
+| `pgtype.Bool` in `<form.EditCheckbox[pgtype.Bool] ...>` | null definition and hover |
+
+The symbol path has separate gaps:
+
+- `GoWithElements` declarations are intentionally skipped;
+- one parse error in a `GoChunk` drops every symbol in that chunk, even when
+  `go/parser` recovered intact declarations;
+- workspace-symbol locations encode columns from the saved file even when an
+  open override supplied the positions, causing UTF-16 drift;
+- result order depends on map iteration;
+- `workspace/symbol` derives its module from an arbitrary open document or the
+  process working directory instead of the workspace roots supplied by LSP.
+
+Historical roadmap text still lists some already-closed gaps (for example,
+dotted component-tag navigation) and removed syntax (attrs-only components).
+The roadmap must be corrected from executable evidence as part of this work.
+
+## Non-goals
+
+- Implement `textDocument/completion` in this change. The source map and
+  semantic index are prerequisites; completion needs a separate design for
+  invalid cursor-time syntax repair, candidate enumeration, edits, and ranking.
+- Proxy requests to gopls, import gopls internals, or require gopls to be
+  installed.
+- Write generated code from the LSP.
+- Replace exact GSX semantic facts such as `ComponentCalls`, variant families,
+  parameter binding, or imported component targets with spelling-based lookup.
+- Add fuzzy workspace-symbol ranking. Substring matching is an explicit search
+  policy, not a source-coverage defect; ranking can be designed independently.
+- Promise semantic answers for arbitrary invalid source. The server remains
+  best-effort under parse/type errors. Document symbols should retain genuine
+  declarations returned by Go's partial parser, but no fabricated declaration
+  or heuristic repair belongs in this read-intelligence change.
+
+## Design principles
+
+1. **Authored bytes are the source of truth.** Every mapping begins from an
+   exact `.gsx` byte span owned by the parser or skeleton emitter.
+2. **Generated glue has no read capability.** A token is navigable only when an
+   explicit mapping says it came from authored source.
+3. **One semantic answer, many handlers.** Definition, hover, and symbols
+   consume a shared retained index rather than recreating component or Go
+   semantics.
+4. **Specialised GSX semantics keep precedence.** Multi-variant component
+   declarations, exact component targets, and authored attribute binding remain
+   owned by their existing codegen facts.
+5. **No heuristic mapping.** Filename suffixes, nearby `//line` directives,
+   identifier spelling, and reconstructed callable shapes are not sufficient
+   evidence that generated syntax represents a user span.
+6. **The editor buffer is authoritative.** Position conversion consults an open
+   document before disk, consistently across all handlers.
+
+## Exact in-memory source map
+
+### Segment model
+
+`buildSkeleton` will return a compact source map alongside the skeleton string.
+It records each authored copy at the moment the copy is written:
+
+```go
+type sourceSegment struct {
+    sourcePath  string
+    sourceStart int // byte offset in the .gsx file
+    sourceEnd   int // half-open
+    skeletonStart int // byte offset in the in-memory skeleton
+    skeletonEnd   int // half-open
+    capabilities sourceCapabilities
+}
+
+type sourceCapabilities uint8
+
+const (
+    sourceDefinition sourceCapabilities = 1 << iota
+    sourceHover
+    sourceSymbol
+    sourceCompletion
+)
+```
+
+The concrete names may change during planning, but these invariants may not:
+
+- both sides are half-open byte ranges;
+- an authored segment maps bytes exactly, not merely lines;
+- generated text is absent from the map or has zero capabilities;
+- maps support multiple skeleton copies of one source span;
+- only one canonical semantic copy of a repeated probe is read-capable;
+- segments are immutable, sorted, non-overlapping on the skeleton side, and
+  binary-searchable;
+- a segment never crosses source files.
+
+`//line` directives continue to serve Go diagnostics and object positions. They
+are not the LSP reverse map. The explicit segments are the authority that tells
+the LSP whether a skeleton token is authored and how its exact range maps back.
+
+### Mapped skeleton writer
+
+Direct writes to the skeleton builder will be classified through a focused
+writer:
+
+- `writeGenerated(text)` emits glue with no authored capabilities;
+- `writeAuthored(source span, text, capabilities)` verifies byte identity and
+  records the segment;
+- a deliberate transformed-authored operation records subsegments explicitly
+  rather than claiming a non-identical region is byte-mapped.
+
+This writer is introduced at the shared `buildSkeleton` boundary. It covers:
+
+- hoisted imports and verbatim top-level `GoChunk` bodies;
+- every `GoText` part of `GoWithElements`;
+- component receiver, name, type-parameter, and parameter source;
+- explicit component invocation type arguments;
+- expression and control-flow text copied into native probes;
+- embedded literal holes and markup nested in Go expressions;
+- authored declarations surrounding generated element-value IIFEs.
+
+Several authored expressions currently appear in more than one probe. The
+emitter must mark the native, semantically representative copy read-capable and
+leave quiet/validation duplicates unmapped for read requests. This prevents two
+different skeleton objects from competing for the same cursor.
+
+All skeleton modes may share the writer, but only the full retained package
+analysis needs to publish read-intelligence segments. Generation-only and
+declaration-only paths must not pay to retain an unused map.
+
+### Mapping positions after parsing
+
+The skeleton is still parsed and type-checked in memory with the Module's shared
+`token.FileSet`. Once parsed, skeleton byte offsets are converted to `token.Pos`
+through that virtual file's `token.File`. Source offsets are converted through
+the already-parsed `.gsx` file's `token.File`.
+
+No mapping step opens `<name>.x.go`. The virtual skeleton bytes and its token
+file are sufficient.
+
+## Retained semantic index
+
+After type-checking, codegen harvests a read-only semantic index from the
+canonical source segments and `types.Info`.
+
+For authored identifiers it records:
+
+- exact `.gsx` span;
+- `types.Object` from `Info.Defs` or `Info.Uses`;
+- whether the occurrence is a declaration or use;
+- the exact authored declaration span when the defining object is owned by a
+  mapped `.gsx` declaration;
+- the ordinary `token.Position` for a declaration in a real `.go` dependency.
+
+For authored expressions it records:
+
+- exact `.gsx` span only when the whole expression is covered by compatible
+  authored segments;
+- `types.TypeAndValue` from `Info.Types`;
+- the smallest expression first when spans nest, matching cursor expectations.
+
+For top-level Go declarations it records:
+
+- name, declaration kind, receiver/container identity, name span, and complete
+  authored declaration range;
+- the declaration's source kind (`GoChunk` or `GoWithElements`) for testing and
+  diagnostics only, not handler branching.
+
+The index is grouped per source file and sorted by start offset, then by tighter
+span. Requests use binary search plus a short overlap scan, not a linear walk of
+the package's full `types.Info` maps.
+
+Objects already retained by `types.Info` are referenced, not cloned. The source
+map and index must be measured on one-learning before and after; they must not
+introduce a second retained Go AST or duplicate source buffers.
+
+`PackageResult` and `lsp.Package` expose the semantic index as immutable package
+facts. Invalidation follows the existing warm Module package-result lifecycle:
+an edit invalidates the same package/dependant closure, and no separate semantic
+cache can outlive its owning analysis snapshot.
+
+## Definition behavior
+
+The handler keeps a deliberate precedence order:
+
+1. exact component target and build-variant facts;
+2. exact authored component-attribute parameter binding;
+3. component tag family behavior, including multi-location variants;
+4. import-path package navigation;
+5. the general semantic index.
+
+The general path provides definition from both uses and declaration sites.
+Clicking an authored declaration name returns its own source location, matching
+Go editor behavior. A mapped use whose object is declared in `.gsx` resolves
+through the index's object-to-authored-declaration table; an object declared in
+a real `.go` file resolves through the shared `FileSet`.
+
+Generated helper declarations and virtual `.x.go` locations are never returned.
+A missing authored mapping returns null rather than guessing.
+
+This closes, uniformly:
+
+- names and uses inside top-level Go functions, types, vars, and consts;
+- Go surrounding markup in `GoWithElements`;
+- component declaration names;
+- receiver variable/type, type-parameter, and ordinary parameter declarations;
+- explicit type arguments on component invocations;
+- existing expression, control-flow, pipeline, and embedded-literal positions.
+
+## Hover behavior
+
+Hover uses the same precedence as definition for exact component semantics, then
+the semantic index:
+
+- an identifier renders `types.ObjectString` with the package-aware qualifier;
+- a non-identifier expression renders `types.TypeString` from the tightest
+  indexed `TypeAndValue`;
+- component declarations and invocations retain GSX-native `component ...`
+  presentation;
+- component parameter declarations and uses render their actual Go object;
+- explicit call-site type arguments render the resolved type/object;
+- generated helper names never appear.
+
+This spec does not add documentation text to hover. Documentation association
+for mixed Go/GSX comments is a separate presentation feature; semantic identity
+and exact ranges come first.
+
+## Document symbols
+
+Components continue to come from the GSX AST so their full declaration range
+and `Method`/`Function` presentation stay source-native.
+
+Top-level Go symbols come from the mapped, parsed skeleton declarations rather
+than independently reparsing each `GoChunk`. Only declaration names covered by
+`sourceSymbol` segments qualify, which excludes component probe functions and
+all helper declarations by construction. This covers ordinary `GoChunk`
+declarations and declarations whose bodies or initializers contain markup in
+`GoWithElements`.
+
+Symbols remain top-level. Struct fields, interface methods, component params,
+and local declarations are not Outline entries in this change.
+
+When full semantic analysis is unavailable during an incomplete edit,
+`FileSymbols` may fall back to the GSX AST plus a Go AST returned by
+`go/parser` with `parser.AllErrors`. It publishes only real declarations present
+in that partial AST. It does not insert placeholders or reconstruct a missing
+declaration. The last successful semantic snapshot is not mixed with current
+buffer positions.
+
+Document-symbol ranges are always encoded against the requested open buffer.
+
+## Workspace symbols and workspace ownership
+
+Initialization retains the protocol's workspace identity:
+
+- `workspaceFolders` when supplied;
+- otherwise `rootUri`;
+- otherwise an explicitly documented process-working-directory fallback for
+  minimal clients.
+
+Module symbol discovery runs for every configured workspace root and every gsx
+module owned by those roots. It is not anchored to an arbitrary open document.
+Ownership follows Go's real workspace model: a `go.work` root contributes its
+declared `use` modules (parsed with `x/mod/modfile`), while a module root
+contributes its `go.mod` module. The server does not recursively guess that every
+`go.mod` found somewhere below an arbitrary directory belongs to the workspace.
+An open `.gsx` document is also associated with its containing configured
+module, but it cannot silently add an unrelated module outside the initialized
+roots. `workspace/didChangeWorkspaceFolders` updates the root/module set and
+invalidates the module symbol cache.
+
+The current case-insensitive substring query stays unchanged. Results are
+sorted deterministically by:
+
+1. name;
+2. workspace-relative source path;
+3. source offset;
+4. symbol kind.
+
+Duplicate names retain a container that distinguishes their package; when a
+package name alone is ambiguous across modules, the module-relative package
+path is used.
+
+Every location conversion goes through one authoritative-source accessor:
+
+1. the open `docStore` snapshot for that path, when present;
+2. otherwise the saved file bytes;
+3. otherwise byte-column fallback only when the source is unavailable.
+
+The accessor is shared by definition, references, workspace symbols, and any
+future location-producing handler. This fixes unsaved UTF-8/UTF-16 drift instead
+of patching workspace symbols alone.
+
+## Relationship to completion
+
+The source map includes a reserved completion capability because completion
+must eventually translate a cursor and edits between `.gsx` and an in-memory Go
+view. This change does not advertise `completionProvider` and does not implement
+candidate generation.
+
+The follow-up completion design must answer three separate problems:
+
+1. classify the cursor's GSX context (Go expression, selector, component tag,
+   component attribute, type argument, pipeline stage, import, or markup);
+2. repair only the in-memory analysis form when cursor-time syntax is invalid;
+3. enumerate, rank, and map candidates/edits without exposing generated glue.
+
+The exact source map solves translation but deliberately does not pretend that
+valid-source `go/types` information solves partial-source completion.
+
+## No-physical-generated-file acceptance boundary
+
+Every end-to-end read-intelligence test runs with no generated file present.
+At least one adversarial fixture additionally places invalid or misleading bytes
+at the would-be `<name>.x.go` path and proves the answer is unchanged. The test
+must cover:
+
+- definition into `.gsx` and into a real `.go` dependency;
+- hover in a `GoChunk`, `GoWithElements`, component declaration, and explicit
+  type argument;
+- document and workspace symbols;
+- unsaved-buffer position conversion.
+
+The test should compare structured protocol results, not merely assert that no
+error occurred. It must also verify that the LSP did not rewrite the poisoned
+file.
+
+## Testing matrix
+
+### Source-map unit tests
+
+- exact round-trip for ASCII and multibyte UTF-8 source;
+- multiple skeleton copies with one canonical read-capable segment;
+- generated glue between two authored segments;
+- authored text at the beginning/end of a line and mid-expression;
+- a segment crossing a `GoWithElements` IIFE boundary is rejected;
+- binary-search containment and nested-expression ordering;
+- no segment points outside either source or skeleton buffer.
+
+### Definition and hover tests
+
+- top-level helper signature, body locals, selectors, return types, and imported
+  package qualifiers;
+- `GoWithElements` function params/locals plus identifiers inside and around the
+  embedded markup;
+- component name, receiver variable/type, type parameter name/constraint,
+  parameter name/type, and return-free signature boundary;
+- same-package and cross-package explicit component type arguments;
+- declaration-site definition returns self;
+- whole-expression hover in top-level Go;
+- existing tag/attribute/variant/pipeline/control-flow/embedded-literal matrices
+  remain byte-for-byte compatible;
+- generated helper and glue positions return null.
+
+### Symbol tests
+
+- ordinary `GoChunk` declarations and `GoWithElements` declarations;
+- no duplicate synthetic component function;
+- stable ordering across repeated runs;
+- partial `go/parser` AST retains intact declarations around an error;
+- document positions follow an unsaved multibyte buffer;
+- workspace positions follow unsaved buffers in multiple modules;
+- workspace-folder add/remove invalidates results;
+- identical package names receive unambiguous containers.
+
+### Real-consumer probes
+
+Against a disposable clone of `one-learning-gsx` at the exact GSX commit:
+
+- hover/definition inside `email/templates.gsx` top-level helpers;
+- hover/definition on a component declaration and parameter;
+- hover/definition on `pgtype.Bool` in an explicit `EditCheckbox` type argument;
+- document symbols for a large mixed helper/component file;
+- workspace symbol lookup before and after an unsaved multibyte prefix edit;
+- generated files absent, then poisoned, with identical structured answers.
+
+## Performance and retention
+
+The index is built during the existing package analysis after one type-check. It
+must not call `packages.Load`, parse the module again, or read generated output.
+
+Measurements report:
+
+- index build time per package;
+- retained segment/index bytes per package;
+- definition, hover, document-symbol, and cached workspace-symbol latency;
+- cold module workspace-symbol latency on one-learning;
+- before/after total retained heap for the existing 50-package perf fixture and
+  the realistic one-learning session.
+
+No arbitrary threshold is baked into production code. A regression large enough
+to make the LSP visibly slower or materially undo the warm-Module gains must be
+addressed before merge.
+
+## Delivery sequence
+
+1. Add the mapped skeleton writer, invariant tests, and retained source-map
+   facts without changing protocol behavior.
+2. Build the general semantic index and route definition/hover fallback through
+   it; close every valid source-region matrix row.
+3. Rebuild document/workspace symbols on the mapped declaration facts and fix
+   authoritative-buffer/workspace-root handling.
+4. Run adversarial no-`.x.go` probes, real one-learning probes, retention
+   measurements, and full repository gates.
+5. Correct roadmap/editor documentation from the verified final matrix.
+
+Each behavior slice starts with a failing protocol-level test. The final branch
+requires `make check`, `make lint`, the authoritative `make ci`, an exact-commit
+one-learning consumer gate, and an independent adversarial review that builds
+throwaway probe programs rather than reading only the diff.
+
+## Acceptance criteria
+
+- Every valid authored identifier/type region listed in this spec has definition
+  and hover coverage from one shared semantic index.
+- `GoChunk` and `GoWithElements` top-level declarations appear in document and
+  workspace symbols without generated duplicates.
+- Workspace locations are correct for unsaved UTF-8 and UTF-16 buffers and for
+  every initialized workspace root.
+- Existing specialised component behavior and all prior LSP matrices remain
+  unchanged.
+- No handler reads or requires a physical `.x.go`; absent and poisoned generated
+  files produce identical structured responses.
+- No new `packages.Load` call, no spelling heuristic, and no reconstructed
+  component binding is introduced.
+- Completion remains unadvertised until its own partial-source design is
+  approved.
+
+## Implementation evidence (2026-07-20)
+
+The approved design above is unchanged. This appendix records executable
+evidence gathered on Go 1.26.1 (`darwin/arm64`, Apple M3 Ultra) at the exact
+production code/test commit
+`87cf1ba517319aa833deb09b5ded8efe9f18ce12`. The realistic-session measurement
+harness was frozen separately at
+`562ae3c0d0a852fcbea8b28e88523e37bca6b5bb`; it changes only an opt-in test.
+The later evidence-only commit changes this appendix and no benchmarked code or
+measurement harness.
+
+### Generated-file independence and consumer probe
+
+`TestModuleSourceIndexIgnoresOnDiskXGo` performs fresh package analyses with a
+paired output absent, invalid, stale, and conflicting. Indexed occurrences,
+declarations, and package scope are identical, and poison bytes/modtimes are
+unchanged. `TestLSPStructuredAnswersIgnorePhysicalGeneratedFile` repeats the
+same four states through definition, hover, document symbols, and workspace
+symbols with a fresh production analyzer/server for each state. Its assertions
+are independently source-derived and exact for result URIs, UTF-16 ranges,
+hover signatures, document inventories, workspace order, poison bytes, and
+modtimes. `TestRequestSourceSnapshotFreezesExactPairedGeneratedOwnership`
+additionally proves one request cannot reclassify a paired output after a GSX
+sibling is removed or created. `TestWorkspaceSymbolsMultiModuleAuthoredSourceE2E`
+covers open-only GSX directories, disk/override deduplication, exact lexical
+module ownership, close invalidation, and unpaired authored `.x.go` targets.
+
+The manual consumer fixture was
+`/Users/jackieli/work/one-learning-gsx` at commit
+`ba0bc63096f5fa3d2b1464ab8eadf51673e61789`. The test copied it to a temporary
+module while excluding every `.x.go`, queried `time.Duration`, `Badge`,
+`variant`, `pgtype.Bool`, and `duration.Hours`, plus document inventories for
+the four named files and workspace `Badge` symbols. It then added conflicting
+poison at the four paired output paths and repeated with a fresh analyzer and
+server. Exact definition targets, substantive hover signatures and ranges,
+required document/workspace symbols, and deterministic workspace order were
+independently checked; absent and poisoned result bytes were identical, and
+poison bytes/modtimes were unchanged.
+
+```sh
+GSX_LSP_FIXTURE=/Users/jackieli/work/one-learning-gsx \
+  go test ./gen -run TestLSPManualOneLearning -count=1 -v
+```
+
+### Retention and comparable 50-package fixture
+
+The existing synthetic fixture contains 50 packages, 200 `.gsx` files, and 50
+`.go` files. Five independent runs were captured at baseline commit `b915e57c`
+and code commit `87cf1ba5`. The baseline remains compatible: the only
+`gen/perf_test.go` difference is after-side source-index reporting; fixture
+construction, workload, and existing metrics are unchanged. Values below are
+the median of each run's reported metric, followed by the five-run range. These
+are comparable fixture measurements, not a causal attribution to one
+individual implementation part.
+
+| Metric | `b915e57c` | `87cf1ba5` |
+| --- | ---: | ---: |
+| cold per-package median | 364.875 us (362.583-391.125 us) | 397.417 us (394.791-406.583 us) |
+| cold total, 50 packages | 421.847 ms (415.091-446.631 ms) | 422.795 ms (416.799-429.418 ms) |
+| warm per-package median | 41.375 us (40.791-41.875 us) | 43.125 us (42.708-43.459 us) |
+| retained HeapInuse delta | 57.4 MiB (55.0-59.7 MiB) | 57.7 MiB (56.8-60.2 MiB) |
+| total allocation delta | 166.2 MiB (166.1-166.6 MiB) | 167.6 MiB (167.4-167.9 MiB) |
+
+The implementation fixture retained 200 source versions and 800 indexed
+occurrences. Its `Index.Stats` shallow-storage lower bound was 126.6 KiB in
+each of five follow-up runs, about 0.2% of the measured retained heap. This
+number counts the `Index` value, logical map key/value storage, and slice
+backing arrays. It deliberately excludes map bucket/control overhead, string
+backing storage, allocator overhead, and referenced `go/types` graphs, so it is
+not a retained-heap or owned-byte estimate. The synthetic 50-package fixture
+has no authored Go declarations; the separate declaration-bearing structural
+test records one file, two occurrences, one definition, one declaration, and a
+560-byte shallow lower bound while exercising the same accounting path.
+`TestIndexDoesNotRetainASTOrSourceBytes` also proves that the index owns no
+AST, `token.File`, source map, or source byte slice. The warm LSP package test
+keeps external/filter load counts at one/zero across ten edited, index-bearing
+analyses.
+
+```sh
+git worktree add --detach /tmp/gsx-lsp-baseline-task11 b915e57c
+(cd /tmp/gsx-lsp-baseline-task11 && \
+  GSX_PERF=1 go test ./gen -run TestPerfBaseline -count=5 -v) \
+  | tee /tmp/gsx-lsp-perf-before.txt
+GSX_PERF=1 go test ./gen -run TestPerfBaseline -count=5 -v \
+  | tee /tmp/gsx-lsp-perf-after-87cf1ba5.txt
+git worktree remove -f /tmp/gsx-lsp-baseline-task11
+```
+
+### Controlled one-learning module and realistic repository workspace
+
+`TestLSPManualOneLearningPerf` copies the pinned one-learning fixture at
+`ba0bc63096f5fa3d2b1464ab8eadf51673e61789`, excluding every `.x.go`, then
+recursively asserts that none remains. The copied tree is identical in every
+run: SHA-256
+`513c7efc8351894c7d8987cbc6783284d93a1b76841f019edbd78ed5f6448527`,
+2,095 regular files, 116 `.gsx` files, and 330,310,058 bytes. A fresh production
+analyzer and JSON-RPC server are initialized without opening or prewarming a
+document. The timed operation is the first `workspace/symbol` request for
+`Badge`; all runs return 43 filtered results including the exact `Badge`
+function symbol URI, kind, container, and UTF-16 range.
+
+The fixture-ready, initialized, and post-query snapshots each force two garbage
+collections immediately before `runtime.ReadMemStats`. The post-query snapshot
+keeps the analyzer, server, response wire, and copied module live. `HeapAlloc`
+and `HeapInuse` are therefore total live process heap, not index-owned bytes or
+causal attribution. Fixture-ready deltas remove some harness/process state but
+preserve the same limitation.
+
+The fixture's committed `go.work` uses four roots: the one-learning module, its
+`cmd/sqlc-gen-custom` module, and absolute local `gsx` and `vite` checkouts. The
+baseline server predates workspace-root support and ignores initialize roots;
+a naive repository-root before/after therefore measures one baseline module
+against four current modules. That initial comparison was discarded as
+non-equivalent.
+
+The controlled comparison initializes both servers below the root `go.work`, at
+`ds/badge`. The baseline's legacy cwd-derived workspace and the current
+server's nearest-module resolution then select the same complete one-learning
+module. Both retain one module, 11 package results, 27 shipping type packages,
+25 target declaration packages, three configured declaration packages, 40
+source packages, 11 GSX source directories, 929 external packages, and one
+external load. Current code additionally retains 27 exact target-provenance
+families and 11 source indexes, and publishes 1,148 cached symbols rather than
+the baseline's 1,052 because authored top-level Go declarations are now part of
+workspace symbols.
+
+Controlled five-run summaries (median, range):
+
+| Metric | `b915e57c` | `562ae3c0` |
+| --- | ---: | ---: |
+| cold `workspace/symbol` latency | 2.898 s (2.612-2.951 s) | 2.959 s (2.673-2.997 s) |
+| post-query total `HeapAlloc` | 287.671 MiB (287.553-287.756 MiB) | 296.480 MiB (296.252-296.526 MiB) |
+| post-query total `HeapInuse` | 561.094 MiB (553.227-577.344 MiB) | 585.047 MiB (562.539-591.359 MiB) |
+| post-query minus fixture-ready `HeapAlloc` | 285.226 MiB (285.132-286.066 MiB) | 293.937 MiB (293.820-294.765 MiB) |
+| post-query minus fixture-ready `HeapInuse` | 554.898 MiB (547.102-571.789 MiB) | 578.656 MiB (560.070-585.594 MiB) |
+
+Median controlled cold latency is 2.1% higher and total `HeapAlloc` is 3.1%
+higher (8.8 MiB) while producing the expanded authored symbol inventory. A
+second sequence alternated five baseline and five current runs in separate test
+processes. It reproduced 2.627 s versus 2.694 s median latency (+2.6%) and
+287.596 versus 296.237 MiB total `HeapAlloc` (+3.0%), ruling out sequential
+revision order as the earlier apparent regression's cause. `HeapInuse` varies
+more because it reports allocator spans; its modest five-sample shift is not
+treated as object-attributed retention. The controlled result is not a material
+regression under this design, so no speculative production optimization or
+profile-driven representation change was made.
+
+The final current-head repository-workspace measurement separately records the
+absolute cost users get when opening the committed root `go.work`. It retains
+four module roots, 12 package results, 1,151 cached symbols, and two external
+loads. Five-run medians are 3.832 s cold latency (3.509-3.862 s), 365.403 MiB
+total `HeapAlloc` (365.200-365.446 MiB), and 685.391 MiB total `HeapInuse`
+(678.297-714.398 MiB). The fixture-ready deltas are 362.857 MiB `HeapAlloc`
+(362.773-363.707 MiB) and 679.055 MiB `HeapInuse` (675.938-707.883 MiB).
+This is an absolute four-root cost, not a baseline regression ratio.
+
+The exact committed harness was used at both revisions. At baseline a disposable
+untracked destination was added to the detached worktree and Go's `-overlay`
+mapped that destination to the harness, without modifying any tracked baseline
+file. Harness SHA-256 is
+`9f7a2c2a5bd7f8420761942a6f74f777b07526c36aa3ace8c033fef0eb9cde39`.
+
+Raw files and SHA-256 values:
+
+```text
+6dcb782dc51b3c0af88994193ee7cd056a7ca171ca03b175728924eb4050837b  /tmp/gsx-lsp-one-learning-controlled-before-b915e57c.txt
+f744f10d9af15bc675cee864ce6bd6e55f876536e8646e3edde21f2a54c523ab  /tmp/gsx-lsp-one-learning-controlled-after-562ae3c0.txt
+fc80a94005b2c88cbf4e7680015191356639885eaf77bb0e01de6624b48e3fe8  /tmp/gsx-lsp-one-learning-controlled-interleaved-562ae3c0.txt
+03ee5b4aa3d6aaa8165994b505e7e477326a6f8a0902ad2324769ff05118c78b  /tmp/gsx-lsp-one-learning-repository-after-562ae3c0.txt
+e56f27a1b4346fad249cf89555b876e7e836618736e425d71b733c3a9c3b375f  /tmp/gsx-lsp-one-learning-baseline-b915e57c-overlay.json
+```
+
+```bash
+set -eu
+
+repo=$(git rev-parse --show-toplevel)
+fixture=/Users/jackieli/work/one-learning-gsx
+harness=$repo/gen/lsp_one_learning_perf_test.go
+baseline=$(mktemp -d /tmp/gsx-lsp-one-learning-baseline-b915e57c.XXXXXX)
+rmdir "$baseline"
+overlay=$(mktemp /tmp/gsx-lsp-one-learning-overlay.XXXXXX)
+count=${COUNT:-5}
+before=${BEFORE_RAW:-/tmp/gsx-lsp-one-learning-controlled-before-b915e57c.txt}
+after=${AFTER_RAW:-/tmp/gsx-lsp-one-learning-controlled-after-562ae3c0.txt}
+repository=${REPOSITORY_RAW:-/tmp/gsx-lsp-one-learning-repository-after-562ae3c0.txt}
+
+cleanup() {
+  git -C "$repo" worktree remove -f "$baseline" >/dev/null 2>&1 || true
+  test ! -e "$overlay" || unlink "$overlay"
+}
+trap cleanup EXIT HUP INT TERM
+
+test "$(git -C "$fixture" rev-parse HEAD)" = ba0bc63096f5fa3d2b1464ab8eadf51673e61789
+test "$(git -C "$repo" log -1 --format=%H -- "$harness")" = 562ae3c0d0a852fcbea8b28e88523e37bca6b5bb
+test "$(shasum -a 256 "$harness" | awk '{print $1}')" = 9f7a2c2a5bd7f8420761942a6f74f777b07526c36aa3ace8c033fef0eb9cde39
+
+git -C "$repo" worktree add --detach "$baseline" b915e57c
+: >"$baseline/gen/lsp_one_learning_perf_test.go"
+cat >"$overlay" <<EOF
+{
+  "Replace": {
+    "$baseline/gen/lsp_one_learning_perf_test.go": "$harness"
+  }
+}
+EOF
+
+(
+  cd "$baseline"
+  GSX_PERF=1 GSX_LSP_FIXTURE="$fixture" \
+    go test -overlay="$overlay" ./gen \
+    -run '^TestLSPManualOneLearningPerf$' -count="$count" -v
+) >"$before" 2>&1
+(
+  cd "$repo"
+  GSX_PERF=1 GSX_LSP_FIXTURE="$fixture" \
+    go test ./gen -run '^TestLSPManualOneLearningPerf$' -count="$count" -v
+) >"$after" 2>&1
+(
+  cd "$repo"
+  GSX_PERF=1 GSX_LSP_FIXTURE="$fixture" GSX_LSP_WORKSPACE_MODE=repository \
+    go test ./gen -run '^TestLSPManualOneLearningPerf$' -count="$count" -v
+) >"$repository" 2>&1
+
+shasum -a 256 "$before" "$after" "$repository"
+trap - EXIT HUP INT TERM
+cleanup
+```
+
+### Absolute LSP/index costs
+
+Ten benchmark runs produced the following medians and ranges. Allocation
+columns were stable unless shown as a range.
+
+| Benchmark | time/op median (range) | B/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| `BenchmarkModuleAnalyzeSourceIndex` | 144.613 us (143.391-145.549 us) | 129764-129824 | 2082 |
+| `BenchmarkSourceIndexLookup` | 42.005 ns (41.86-42.20 ns) | 0 | 0 |
+| `BenchmarkSemanticDefinition` | 137.5 ns (136.5-144.9 ns) | 0 | 0 |
+| `BenchmarkSemanticHover` | 472.7 ns (470.6-478.3 ns) | 560 | 9 |
+| `BenchmarkDocumentSymbols` | 741.8 ns (730.8-754.2 ns) | 1656 | 7 |
+| `BenchmarkCachedWorkspaceSymbols` | 11.176 us (11.078-11.313 us) | 2655-2658 | 27 |
+| `BenchmarkColdModuleWorkspaceSymbols` | 310.048 ms (308.194-312.701 ms) | 155492782-155569806 | 2857874-2857970 |
+
+The cold workspace benchmark intentionally creates a fresh analyzer/module
+inventory each iteration; cached workspace symbols retain one analyzer
+inventory and measure request-time filtering, exact source validation, sorting,
+location conversion, and JSON-RPC encoding. Setup and non-empty-result checks
+are outside timed loops.
+
+```sh
+go test ./internal/codegen ./internal/lsp ./gen -run '^$' \
+  -bench 'SourceIndex|SemanticDefinition|SemanticHover|DocumentSymbols|WorkspaceSymbols' \
+  -benchmem -count=10 | tee /tmp/gsx-lsp-index-after-87cf1ba5.txt
+go test ./internal/sourceintel ./internal/codegen ./internal/lsp ./gen -count=1
+make check
+make lint
+make ci
+```

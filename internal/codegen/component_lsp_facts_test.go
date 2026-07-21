@@ -1,14 +1,180 @@
 package codegen
 
 import (
+	"crypto/sha256"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
+
+func TestComponentCallFactsRetainExactVariantAndParameterDeclarationSpans(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"card_a.gsx": `//go:build first
+
+package views
+
+component Card[T ~string](first, second T, rest ...T) { <div/> }
+`,
+		"card_b.gsx": `//go:build second
+
+package views
+
+component Card[U ~string](first, second U, rest ...U) { <span/> }
+`,
+		"page.gsx": `package views
+
+component Page() { <Card first="a" second="b"/> }
+`,
+	})
+
+	result, err := module.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(result.Diags) {
+		t.Fatalf("unexpected diagnostics: %v", result.Diags)
+	}
+	call := soleComponentCallFact(t, result)
+	if call.TargetPresentation != "component Card[T ~string](first, second T, rest ...T)" {
+		t.Fatalf("target presentation = %q, want deterministic first authored variant", call.TargetPresentation)
+	}
+	if len(call.TargetDecls) != 2 {
+		t.Fatalf("target declaration spans = %+v, want both variants", call.TargetDecls)
+	}
+	for ordinal, name := range []string{"first", "second", "rest"} {
+		declarations := call.ParamDecls[ordinal]
+		if len(declarations) != 2 {
+			t.Fatalf("parameter %d declaration spans = %+v, want both variants", ordinal, declarations)
+		}
+		for _, declaration := range declarations {
+			source, err := os.ReadFile(declaration.Span.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(source[declaration.Span.Start:declaration.Span.End]); got != name {
+				t.Errorf("parameter %d declaration text = %q, want %q", ordinal, got, name)
+			}
+			if declaration.SourceVersion.Size != len(source) || declaration.SourceVersion.SHA256 != sha256.Sum256(source) {
+				t.Errorf("parameter %d source version = %+v, want exact source", ordinal, declaration.SourceVersion)
+			}
+		}
+	}
+}
+
+func TestComponentCallFactsUseExactAliasedPackageWithDuplicateDeclaredNames(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	firstDir := filepath.Join(root, "first")
+	secondDir := filepath.Join(root, "second")
+	pagesDir := filepath.Join(root, "pages")
+	for _, dir := range []string{firstDir, secondDir, pagesDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstSource := "package widgets\ncomponent Card(value string) { <div/> }\n"
+	secondSource := "package widgets\n\n// second declaration\ncomponent Card(value string) { <span/> }\n"
+	writeFile(t, firstDir, "card.gsx", firstSource)
+	writeFile(t, secondDir, "card.gsx", secondSource)
+	writeFile(t, pagesDir, "page.gsx", `package pages
+
+import first "example.com/app/first"
+import second "example.com/app/second"
+
+component Page() { <first.Card value="one"/><second.Card value="two"/> }
+`)
+
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := module.Package(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(result.Diags) {
+		t.Fatalf("unexpected diagnostics: %v", result.Diags)
+	}
+	var second ComponentCallFact
+	for element, call := range result.ComponentCalls {
+		if element.Tag == "second.Card" {
+			second = call
+		}
+	}
+	if len(second.TargetDecls) != 1 {
+		t.Fatalf("second.Card target declarations = %+v, want one exact declaration", second.TargetDecls)
+	}
+	key := ComponentDeclKey{PackagePath: "example.com/app/second", ComponentKey: ".Card"}
+	if declarations := result.ComponentDecls[key]; len(declarations) != 1 || declarations[0] != second.TargetDecls[0] {
+		t.Fatalf("retained component declaration index = %+v, want exact second.Card declaration %+v", declarations, second.TargetDecls)
+	}
+	declaration := second.TargetDecls[0]
+	if declaration.Span.Path != filepath.Join(secondDir, "card.gsx") || declaration.Span.Start != strings.Index(secondSource, "Card") {
+		t.Fatalf("second.Card target declaration = %+v, want second package offset %d", declaration, strings.Index(secondSource, "Card"))
+	}
+}
+
+func TestComponentCallFactsRefreshDependencyProvenanceAfterOverride(t *testing.T) {
+	root, uiDir := writeTargetDeclarationTestModule(t)
+	pagesDir := filepath.Join(root, "pages")
+	if err := os.MkdirAll(pagesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pagesDir, "page.gsx", `package pages
+
+import cards "example.com/app/ui"
+
+component Page() { <cards.Card title="hello" count={1}/> }
+`)
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := module.Package(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialCall := soleComponentCallFact(t, initial)
+	if len(initialCall.TargetDecls) != 1 {
+		t.Fatalf("initial target declarations = %+v", initialCall.TargetDecls)
+	}
+
+	path := filepath.Join(uiDir, "card.gsx")
+	override := []byte("package ui\n\n/*😀*/ component Card(title string, count int) { <div/> }\n")
+	module.SetOverride(path, override)
+	refreshed, err := module.Package(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshedCall := soleComponentCallFact(t, refreshed)
+	if len(refreshedCall.TargetDecls) != 1 {
+		t.Fatalf("refreshed target declarations = %+v", refreshedCall.TargetDecls)
+	}
+	declaration := refreshedCall.TargetDecls[0]
+	if declaration.Span.Start != strings.Index(string(override), "Card") || declaration.SourceVersion.SHA256 != sha256.Sum256(override) {
+		t.Fatalf("refreshed target declaration = %+v, want override offset/version", declaration)
+	}
+}
+
+func soleComponentCallFact(t *testing.T, result *PackageResult) ComponentCallFact {
+	t.Helper()
+	if len(result.ComponentCalls) != 1 {
+		t.Fatalf("component calls = %d, want one", len(result.ComponentCalls))
+	}
+	for _, call := range result.ComponentCalls {
+		return call
+	}
+	return ComponentCallFact{}
+}
 
 func TestPackagePublishesExactComponentCallFacts(t *testing.T) {
 	dir, module := openTestModule(t, map[string]string{

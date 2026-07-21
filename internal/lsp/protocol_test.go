@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
@@ -28,12 +29,18 @@ func TestPublishDiagnosticsParamsJSON(t *testing.T) {
 }
 
 func TestInitializeParamsParse(t *testing.T) {
-	in := `{"capabilities":{"general":{"positionEncodings":["utf-8","utf-16"]}}}`
+	in := `{"capabilities":{"general":{"positionEncodings":["utf-8","utf-16"]}},"rootUri":"file:///fallback","workspaceFolders":[{"uri":"file:///workspace","name":"workspace"}]}`
 	var p initializeParams
 	if err := json.Unmarshal([]byte(in), &p); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.Capabilities.General.PositionEncodings) != 2 || p.Capabilities.General.PositionEncodings[0] != "utf-8" {
 		t.Fatalf("encodings = %v", p.Capabilities.General.PositionEncodings)
+	}
+	if p.RootURI != "file:///fallback" {
+		t.Fatalf("root URI = %q", p.RootURI)
+	}
+	if want := []workspaceFolder{{URI: "file:///workspace", Name: "workspace"}}; !slices.Equal(p.WorkspaceFolders, want) {
+		t.Fatalf("workspace folders = %+v, want %+v", p.WorkspaceFolders, want)
 	}
 }

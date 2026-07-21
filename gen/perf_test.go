@@ -130,9 +130,18 @@ func TestPerfBaseline(t *testing.T) {
 
 	// ---------- cross-index size ----------
 	totalCrossEntries := 0
+	totalSourceIndexFiles := 0
+	totalSourceIndexOccurrences := 0
+	totalSourceIndexDeclarations := 0
+	var totalSourceIndexShallowBytes int64
 	for _, pkg := range pkgs {
 		if pkg != nil {
 			totalCrossEntries += len(pkg.CrossIndex)
+			stats := pkg.SourceIndex.Stats()
+			totalSourceIndexFiles += stats.Files
+			totalSourceIndexOccurrences += stats.Occurrences
+			totalSourceIndexDeclarations += stats.Declarations
+			totalSourceIndexShallowBytes += stats.ShallowBytesLowerBound
 		}
 	}
 
@@ -212,6 +221,12 @@ func TestPerfBaseline(t *testing.T) {
 	t.Logf("  CrossRef struct sz = %d bytes", crossRefSize)
 	t.Logf("  slim index (est.)  = %s", fmtBytes(int64(slimIndexBytes)))
 	t.Logf("  slim vs heap delta = %.1f%%", 100*float64(slimIndexBytes)/float64(max(heapDelta, 1)))
+	t.Logf("=== authored source index (shallow lower bound) ===")
+	t.Logf("  indexed files       = %d", totalSourceIndexFiles)
+	t.Logf("  occurrences         = %d", totalSourceIndexOccurrences)
+	t.Logf("  declarations        = %d", totalSourceIndexDeclarations)
+	t.Logf("  shallow lower bound = %s", fmtBytes(totalSourceIndexShallowBytes))
+	t.Logf("  bound vs heap       = %.1f%%", 100*float64(totalSourceIndexShallowBytes)/float64(max(heapDelta, 1)))
 }
 
 func sumDurations(s []time.Duration) time.Duration {

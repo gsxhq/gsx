@@ -200,6 +200,7 @@ type Module struct {
 	fset                      *token.FileSet                      // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
 	pkgTypes                  map[string]*types.Package           // abs dir -> shipping-universe package cache, including retained Go-only intermediaries
 	targetDeclTypes           map[string]*types.Package           // abs dir -> exact-signature declarations; never aliases the shipping Props cache
+	targetDeclProvenance      componentTargetProvenanceCache      // abs dir -> logical component key -> exact authored declarations
 	configuredDeclTypes       map[string]*types.Package           // abs dir -> configured declaration-universe package cache
 	pkgResults                map[string]*PackageResult           // abs dir -> cached full analysis result (Package path only)
 	imports                   map[string][]string                 // dir -> authoritative module-local shipping dependencies (forward edges)
@@ -212,6 +213,7 @@ type Module struct {
 	fsetBaseline              int                                 // m.fset.Base() captured after the last packages.Load (growth measured since here)
 	fsetRebuildBytes          int                                 // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount              int                                 // count of fset rebuilds performed (observability; exposed via rebuilds())
+	sourceIndexBuildCount     int                                 // count of retained semantic index builds (observability; test hook)
 	gcImporter                types.Importer                      // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
 	mu                        sync.Mutex                          // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, and gcImporter publication
 	analysisMu                sync.Mutex                          // serializes Package/Generate/typesPackage (see concurrency contract)
@@ -301,6 +303,7 @@ func Open(opts Options) (*Module, error) {
 		rendererDirs:              map[string]bool{},
 		configuredSourceDirs:      map[string]bool{},
 		targetDeclTypes:           map[string]*types.Package{},
+		targetDeclProvenance:      componentTargetProvenanceCache{},
 		configuredDeclTypes:       map[string]*types.Package{},
 		sourcePackages:            map[string]projectSourcePackage{},
 		sourcePackageDirs:         map[string]string{},
@@ -1196,6 +1199,7 @@ func (m *Module) rebuildFset() {
 	m.classMergersErr, m.classMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.targetDeclTypes = map[string]*types.Package{}
+	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 	m.fsetBaseline = 0
@@ -1207,6 +1211,14 @@ func (m *Module) rebuilds() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.rebuildCount
+}
+
+// sourceIndexBuilds returns the number of retained semantic indexes built by
+// this Module (test hook).
+func (m *Module) sourceIndexBuilds() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sourceIndexBuildCount
 }
 
 // Package returns the full retained analysis for a single gsx package dir,
@@ -1231,7 +1243,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	a, err := m.analyze(dir, newModuleImporter(m, ext))
+	a, err := m.analyze(dir, newModuleImporter(m, ext), analysisRetainedPackage)
 	if err != nil {
 		if diags, ok := diagnosticsFromSourceError(err); ok {
 			return &PackageResult{Files: map[string][]byte{}, Diags: diags}, nil
@@ -1239,15 +1251,16 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		return nil, err
 	}
 	res := &PackageResult{
-		Files:    map[string][]byte{},
-		GSXFset:  a.gsxFset,
-		Fset:     a.skelFset,
-		Info:     a.info,
-		Types:    a.pkg,
-		GSXFiles: a.gsxFiles,
-		ExprMap:  a.exprMap,
-		CtrlMap:  a.ctrlMap,
-		SigTypes: a.sigTypes,
+		Files:       map[string][]byte{},
+		GSXFset:     a.gsxFset,
+		Fset:        a.skelFset,
+		Info:        a.info,
+		Types:       a.pkg,
+		GSXFiles:    a.gsxFiles,
+		ExprMap:     a.exprMap,
+		CtrlMap:     a.ctrlMap,
+		SigTypes:    a.sigTypes,
+		SourceIndex: a.sourceIndex,
 	}
 	// Run emit for side-effect diagnostics only (unknown filter, attr-error, etc.).
 	// Gated on len(a.typeErrs)==0, exactly like Generate: running generateFile on a
@@ -1276,8 +1289,9 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 	}
 	res.Diags = a.bag.Sorted()
-	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info)
+	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
+	res.ComponentDecls = a.componentDecls
 	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
 	if !a.bag.HasErrors() && len(a.typeErrs) == 0 {
 		res.ComponentParamDecls, err = componentParamDeclarationFacts(
@@ -1330,7 +1344,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	if err != nil {
 		return nil, nil, err
 	}
-	a, err := m.analyze(dir, newModuleImporter(m, ext))
+	a, err := m.analyze(dir, newModuleImporter(m, ext), analysisGeneration)
 	if err != nil {
 		if diags, ok := diagnosticsFromSourceError(err); ok {
 			return map[string][]byte{}, diags, nil
