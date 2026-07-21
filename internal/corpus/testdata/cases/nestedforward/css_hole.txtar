@@ -48,12 +48,19 @@ func strAttr(a gsx.Attrs, key string) string {
 func Widget(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.S("<div style=\"color:")
-		_gsxgw.AttrValue(_gsxrt.StyleValue(string(strAttr(attrs, "c"))))
-		_gsxgw.S("\">x</div>")
-		return _gsxgw.Err()
+		return _gsxrenderWidget(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderWidget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:12:2
+	_gsxgw.S("<div style=\"color:")
+	_gsxgw.AttrValue(_gsxrt.StyleValue(string(strAttr(attrs, "c"))))
+	_gsxgw.S("\">x</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:15:1
@@ -61,7 +68,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, Widget(_gsxrt.Attrs{{Key: "c", Value: "red"}}))
+		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxrt.Attrs{{Key: "c", Value: "red"}}))
 		return _gsxgw.Err()
 	})
 }

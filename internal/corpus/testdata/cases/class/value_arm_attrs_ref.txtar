@@ -35,17 +35,24 @@ import (
 func Widget(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<div")
-		var _gsxv0 string
-		if attrs.Has("on") {
-			_gsxv0 = "on"
-		}
-		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))
-		_gsxgw.S("\">x</div>")
-		return _gsxgw.Err()
+		return _gsxrenderWidget(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderWidget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<div")
+	var _gsxv0 string
+	if attrs.Has("on") {
+		_gsxv0 = "on"
+	}
+	_gsxgw.S(" class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))
+	_gsxgw.S("\">x</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -53,7 +60,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Widget(_gsxrt.Attrs{{Key: "on", Value: "1"}}))
+		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxrt.Attrs{{Key: "on", Value: "1"}}))
 		return _gsxgw.Err()
 	})
 }

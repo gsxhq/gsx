@@ -35,15 +35,22 @@ import (
 func C(extra g.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxv0 := extra
-		_gsxgw.S("<a")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">x</a>")
-		return _gsxgw.Err()
+		return _gsxrenderC(ctx, _gsxgw, extra)
 	})
+}
+
+func _gsxrenderC(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, extra g.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxv0 := extra
+	_gsxgw.S("<a")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+	_gsxgw.StyleMerged("", _gsxv0.Style())
+	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">x</a>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -51,7 +58,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, C(g.Attrs{{Key: "href", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderC(ctx, _gsxgw, g.Attrs{{Key: "href", Value: "javascript:alert(1)"}}))
 		return _gsxgw.Err()
 	})
 }

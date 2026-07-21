@@ -28,13 +28,20 @@ import (
 func Label(text string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:3:32
-		_gsxgw.S("<span>")
-//line input.gsx:3:38
-		_gsxgw.Text(string(text))
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderLabel(ctx, _gsxgw, text)
 	})
+}
+
+func _gsxrenderLabel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, text string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:3:32
+	_gsxgw.S("<span>")
+//line input.gsx:3:38
+	_gsxgw.Text(string(text))
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:5:1
@@ -42,7 +49,7 @@ func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:31
-		_gsxgw.Node(ctx, Label(_gsxstd.Upper((name))))
+		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxstd.Upper((name))))
 		return _gsxgw.Err()
 	})
 }

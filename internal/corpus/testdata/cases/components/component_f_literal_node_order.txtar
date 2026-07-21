@@ -41,13 +41,20 @@ import (
 func Slot(body gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:33
-		_gsxgw.S("<section>")
-//line input.gsx:5:42
-		_gsxgw.Node(ctx, body)
-		_gsxgw.S("</section>")
-		return _gsxgw.Err()
+		return _gsxrenderSlot(ctx, _gsxgw, body)
 	})
+}
+
+func _gsxrenderSlot(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, body gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:5:33
+	_gsxgw.S("<section>")
+//line input.gsx:5:42
+	_gsxgw.Node(ctx, body)
+	_gsxgw.S("</section>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -60,7 +67,7 @@ func Page(n int) _gsxrt.Node {
 			return _gsxerr
 		}
 		_gsxv1 := _gsxsc.FormatInt(int64(_gsxv0), 10)
-		_gsxgw.Node(ctx, Slot(_gsxrt.Text("<b>"+_gsxv1+"</b>")))
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, _gsxrt.Text("<b>"+_gsxv1+"</b>")))
 		return _gsxgw.Err()
 	})
 }

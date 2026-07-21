@@ -87,22 +87,29 @@ import (
 func Target(first string, formatted string, ordered gsx.Attrs, last string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(ordered, attrs)
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:6:35
-		_gsxgw.Text(string(first))
-//line input.gsx:6:42
-		_gsxgw.Text(string(formatted))
-//line input.gsx:6:53
-		_gsxgw.Text(string(last))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderTarget(ctx, _gsxgw, first, formatted, ordered, last, attrs)
 	})
+}
+
+func _gsxrenderTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first string, formatted string, ordered gsx.Attrs, last string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxv0 := _gsxrt.ConcatAttrs(ordered, attrs)
+	_gsxgw.S("<div")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+	_gsxgw.StyleMerged("", _gsxv0.Style())
+	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:6:35
+	_gsxgw.Text(string(first))
+//line input.gsx:6:42
+	_gsxgw.Text(string(formatted))
+//line input.gsx:6:53
+	_gsxgw.Text(string(last))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -120,7 +127,7 @@ func Page(fail bool) _gsxrt.Node {
 		_gsxa5 := _gsxrt.Attrs{{Key: "data-pair", Value: mark("pair", "P")}}
 		_gsxa6 := _gsxrt.Attrs{{Key: "data-bag", Value: mark("bag", "B")}}
 		_gsxa7 := mark("last", "Z")
-		_gsxgw.Node(ctx, Target(_gsxa3, _gsxa4, _gsxa5, _gsxa7, _gsxa6))
+		_gsxgw.NodeResult(_gsxrenderTarget(ctx, _gsxgw, _gsxa3, _gsxa4, _gsxa5, _gsxa7, _gsxa6))
 		return _gsxgw.Err()
 	})
 }

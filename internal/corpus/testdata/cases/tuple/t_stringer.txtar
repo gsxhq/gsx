@@ -40,13 +40,20 @@ func makeLabel(s string) (myLabel, error) { return myLabel{text: "[" + s + "]"},
 func Badge(icon gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:7:34
-		_gsxgw.S("<span>")
-//line input.gsx:7:40
-		_gsxgw.Node(ctx, icon)
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderBadge(ctx, _gsxgw, icon)
 	})
+}
+
+func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, icon gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:7:34
+	_gsxgw.S("<span>")
+//line input.gsx:7:40
+	_gsxgw.Node(ctx, icon)
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -58,7 +65,7 @@ func Page(s string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Badge(_gsxrt.Val(_gsxa0)))
+		_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, _gsxrt.Val(_gsxa0)))
 		return _gsxgw.Err()
 	})
 }

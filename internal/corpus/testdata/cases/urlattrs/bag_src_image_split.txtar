@@ -58,30 +58,44 @@ type anchorProps struct {
 func Img(p imgProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
-		_gsxv0 := p.Attrs
-		_gsxgw.S("<img")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S("/>")
-		return _gsxgw.Err()
+		return _gsxrenderImg(ctx, _gsxgw, p)
 	})
+}
+
+func _gsxrenderImg(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p imgProps) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:14:2
+	_gsxv0 := p.Attrs
+	_gsxgw.S("<img")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+	_gsxgw.StyleMerged("", _gsxv0.Style())
+	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S("/>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:17:1
 func Anchor(p anchorProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:18:2
-		_gsxv1 := p.Attrs
-		_gsxgw.S("<a")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
-		_gsxgw.StyleMerged("", _gsxv1.Style())
-		_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">x</a>")
-		return _gsxgw.Err()
+		return _gsxrenderAnchor(ctx, _gsxgw, p)
 	})
+}
+
+func _gsxrenderAnchor(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p anchorProps) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:18:2
+	_gsxv1 := p.Attrs
+	_gsxgw.S("<a")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
+	_gsxgw.StyleMerged("", _gsxv1.Style())
+	_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">x</a>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:21:1
@@ -91,9 +105,9 @@ func Page() _gsxrt.Node {
 //line input.gsx:22:2
 		_gsxgw.S("<div>")
 //line input.gsx:23:3
-		_gsxgw.Node(ctx, Img(imgProps{Attrs: gsx.Attrs{{Key: "src", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
+		_gsxgw.NodeResult(_gsxrenderImg(ctx, _gsxgw, imgProps{Attrs: gsx.Attrs{{Key: "src", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
 //line input.gsx:24:3
-		_gsxgw.Node(ctx, Anchor(anchorProps{Attrs: gsx.Attrs{{Key: "href", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
+		_gsxgw.NodeResult(_gsxrenderAnchor(ctx, _gsxgw, anchorProps{Attrs: gsx.Attrs{{Key: "href", Value: "data:image/png;base64,iVBORw0KGgo="}}}))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

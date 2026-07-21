@@ -33,14 +33,21 @@ import (
 func Button(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S("></div>")
-		return _gsxgw.Err()
+		return _gsxrenderButton(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderButton(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<div")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S("></div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -48,7 +55,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Button(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "full-width", Value: true}}, _gsxrt.Attrs{{Key: "aria-label", Value: "Close"}}, _gsxrt.Attrs{{Key: "data-id", Value: "7"}})))
+		_gsxgw.NodeResult(_gsxrenderButton(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "full-width", Value: true}}, _gsxrt.Attrs{{Key: "aria-label", Value: "Close"}}, _gsxrt.Attrs{{Key: "data-id", Value: "7"}})))
 		return _gsxgw.Err()
 	})
 }

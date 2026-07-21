@@ -42,22 +42,29 @@ func h(k string) (string, error) { return "h-" + k, nil }
 func Card(a string, bag gsx.Attrs, b string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.S("<div>")
-//line input.gsx:10:7
-		_gsxgw.Text(string(a))
-//line input.gsx:10:10
-		_gsxv0 := bag
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S("/>")
-//line input.gsx:10:28
-		_gsxgw.Text(string(b))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, a, bag, b)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, a string, bag gsx.Attrs, b string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.S("<div>")
+//line input.gsx:10:7
+	_gsxgw.Text(string(a))
+//line input.gsx:10:10
+	_gsxv0 := bag
+	_gsxgw.S("<span")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+	_gsxgw.StyleMerged("", _gsxv0.Style())
+	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S("/>")
+//line input.gsx:10:28
+	_gsxgw.Text(string(b))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
@@ -78,7 +85,7 @@ func Page(k string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(_gsxa2, _gsxa3, _gsxa4))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxa2, _gsxa3, _gsxa4))
 		return _gsxgw.Err()
 	})
 }

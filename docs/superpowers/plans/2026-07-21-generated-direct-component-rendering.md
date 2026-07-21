@@ -521,11 +521,11 @@ core_paths=(
   examples/tailwind-merge/views/card.x.go
 )
 hash_tree_paths() {
-	for path in "$@"; do
-		if [ -d "$path" ]; then
-			find "$path" -type f -print
-		elif [ -f "$path" ]; then
-			printf '%s\n' "$path"
+	for item in "$@"; do
+		if [ -d "$item" ]; then
+			find "$item" -type f -print
+		elif [ -f "$item" ]; then
+			printf '%s\n' "$item"
 		fi
 	done | LC_ALL=C sort | while IFS= read -r file; do
 		sha=$(shasum -a 256 "$file" | awk '{print $1}')

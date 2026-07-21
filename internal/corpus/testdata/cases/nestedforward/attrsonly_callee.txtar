@@ -70,10 +70,17 @@ var Dot = func(attrs gsx.Attrs) gsx.Node {
 func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:18:2
-		_gsxgw.Node(ctx, Dot(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5"}}, attrs)))
-		return _gsxgw.Err()
+		return _gsxrenderWrapper(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:18:2
+	_gsxgw.Node(ctx, Dot(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5"}}, attrs)))
+	return _gsxgw.Err()
 }
 
 //line input.gsx:21:1
@@ -81,7 +88,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:2
-		_gsxgw.Node(ctx, Wrapper(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "text-red"}}, _gsxrt.Attrs{{Key: "data-x", Value: "1"}})))
+		_gsxgw.NodeResult(_gsxrenderWrapper(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "text-red"}}, _gsxrt.Attrs{{Key: "data-x", Value: "1"}})))
 		return _gsxgw.Err()
 	})
 }

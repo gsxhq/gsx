@@ -28,15 +28,22 @@ import (
 func Button[T string | int](label T, size string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
-		_gsxgw.S("<button class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(size))
-		_gsxgw.S("\">")
-//line input.gsx:4:23
-		_gsxgw.TextAny(label)
-		_gsxgw.S("</button>")
-		return _gsxgw.Err()
+		return _gsxrenderButton[T](ctx, _gsxgw, label, size)
 	})
+}
+
+func _gsxrenderButton[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label T, size string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:4:2
+	_gsxgw.S("<button class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(size))
+	_gsxgw.S("\">")
+//line input.gsx:4:23
+	_gsxgw.TextAny(label)
+	_gsxgw.S("</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -44,7 +51,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Button[int](7, ""))
+		_gsxgw.NodeResult(_gsxrenderButton[int](ctx, _gsxgw, 7, ""))
 		return _gsxgw.Err()
 	})
 }

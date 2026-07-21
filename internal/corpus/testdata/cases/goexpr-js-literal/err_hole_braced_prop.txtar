@@ -49,12 +49,19 @@ import (
 func Wide(Handler gsx.RawJS) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<button onclick=\"")
-		_gsxgw.AttrValue(string(Handler))
-		_gsxgw.S("\">x</button>")
-		return _gsxgw.Err()
+		return _gsxrenderWide(ctx, _gsxgw, Handler)
 	})
+}
+
+func _gsxrenderWide(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, Handler gsx.RawJS) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<button onclick=\"")
+	_gsxgw.AttrValue(string(Handler))
+	_gsxgw.S("\">x</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -67,7 +74,7 @@ func Page(id string) _gsxrt.Node {
 			return _gsxerr
 		}
 		_gsxv1 := _gsxrt.EscapeJSVal(_gsxv0)
-		_gsxgw.Node(ctx, Wide(_gsxrt.RawJS("go("+_gsxv1+")")))
+		_gsxgw.NodeResult(_gsxrenderWide(ctx, _gsxgw, _gsxrt.RawJS("go("+_gsxv1+")")))
 		return _gsxgw.Err()
 	})
 }

@@ -39,15 +39,22 @@ func makeItems(n int) ([]gsx.Node, error) {
 func List(items []gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.S("<ul>")
-//line input.gsx:10:6
-		for _, _gsxn := range items {
-			_gsxgw.Node(ctx, _gsxn)
-		}
-		_gsxgw.S("</ul>")
-		return _gsxgw.Err()
+		return _gsxrenderList(ctx, _gsxgw, items)
 	})
+}
+
+func _gsxrenderList(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, items []gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.S("<ul>")
+//line input.gsx:10:6
+	for _, _gsxn := range items {
+		_gsxgw.Node(ctx, _gsxn)
+	}
+	_gsxgw.S("</ul>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
@@ -59,7 +66,7 @@ func Page(n int) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, List(_gsxa0))
+		_gsxgw.NodeResult(_gsxrenderList(ctx, _gsxgw, _gsxa0))
 		return _gsxgw.Err()
 	})
 }

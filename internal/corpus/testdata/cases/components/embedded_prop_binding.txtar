@@ -45,14 +45,21 @@ import (
 func Widget(Handler gsx.RawJS, Rule gsx.RawCSS) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(Handler))
-		_gsxgw.S("\" data-style=\"")
-		_gsxgw.AttrValue(string(Rule))
-		_gsxgw.S("\">Go</button>")
-		return _gsxgw.Err()
+		return _gsxrenderWidget(ctx, _gsxgw, Handler, Rule)
 	})
+}
+
+func _gsxrenderWidget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, Handler gsx.RawJS, Rule gsx.RawCSS) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<button @click=\"")
+	_gsxgw.AttrValue(string(Handler))
+	_gsxgw.S("\" data-style=\"")
+	_gsxgw.AttrValue(string(Rule))
+	_gsxgw.S("\">Go</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -63,7 +70,7 @@ func Page(id string, w string) _gsxrt.Node {
 		_gsxv0 := _gsxrt.EscapeJSVal(id)
 		_gsxa2 := _gsxrt.RawJS("open(" + _gsxv0 + ")")
 		_gsxv1 := _gsxrt.FilterCSS(string(w))
-		_gsxgw.Node(ctx, Widget(_gsxa2, _gsxrt.RawCSS("width:"+_gsxv1+"px")))
+		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxa2, _gsxrt.RawCSS("width:"+_gsxv1+"px")))
 		return _gsxgw.Err()
 	})
 }

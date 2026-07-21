@@ -32,20 +32,27 @@ import (
 func Chip(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<span")
-		if !attrs.Has("a") {
-			_gsxgw.S(" a=\"b\"")
-		}
-		if !attrs.Has("data-k") {
-			_gsxgw.S(" data-k=\"v\"")
-		}
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">x</span>")
-		return _gsxgw.Err()
+		return _gsxrenderChip(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderChip(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<span")
+	if !attrs.Has("a") {
+		_gsxgw.S(" a=\"b\"")
+	}
+	if !attrs.Has("data-k") {
+		_gsxgw.S(" data-k=\"v\"")
+	}
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">x</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -53,7 +60,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Chip(_gsxrt.Attrs{{Key: "a", Value: "c"}}))
+		_gsxgw.NodeResult(_gsxrenderChip(ctx, _gsxgw, _gsxrt.Attrs{{Key: "a", Value: "c"}}))
 		return _gsxgw.Err()
 	})
 }

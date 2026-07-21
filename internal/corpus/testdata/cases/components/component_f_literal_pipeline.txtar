@@ -55,26 +55,40 @@ import (
 func Generic[T any](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<p>")
-//line input.gsx:6:5
-		_gsxgw.Text(string(fmt.Sprint(value)))
-		_gsxgw.S("</p>")
-		return _gsxgw.Err()
+		return _gsxrenderGeneric[T](ctx, _gsxgw, value)
 	})
+}
+
+func _gsxrenderGeneric[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value T) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<p>")
+//line input.gsx:6:5
+	_gsxgw.Text(string(fmt.Sprint(value)))
+	_gsxgw.S("</p>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
 func Header(subtitle string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.S("<h1>")
-//line input.gsx:10:6
-		_gsxgw.Text(string(subtitle))
-		_gsxgw.S("</h1>")
-		return _gsxgw.Err()
+		return _gsxrenderHeader(ctx, _gsxgw, subtitle)
 	})
+}
+
+func _gsxrenderHeader(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, subtitle string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.S("<h1>")
+//line input.gsx:10:6
+	_gsxgw.Text(string(subtitle))
+	_gsxgw.S("</h1>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
@@ -82,17 +96,17 @@ func Page(n int, label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Generic[string]("item-"+_gsxsc.FormatInt(int64(n), 10)))
+		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "item-"+_gsxsc.FormatInt(int64(n), 10)))
 //line input.gsx:15:2
-		_gsxgw.Node(ctx, Header(string(_gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64(n), 10))))))
+		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, string(_gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64(n), 10))))))
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, Header("label-"+string(_gsxstd.Upper((label)))))
+		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, "label-"+string(_gsxstd.Upper((label)))))
 //line input.gsx:17:2
 		_gsxv0, _gsxerr := _gsxf0.Check(("checked-" + _gsxsc.FormatInt(int64(n), 10)))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Header(string(_gsxv0)))
+		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, string(_gsxv0)))
 		return _gsxgw.Err()
 	})
 }

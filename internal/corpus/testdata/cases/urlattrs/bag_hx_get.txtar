@@ -46,15 +46,22 @@ type ctrlProps struct {
 func Ctrl(p ctrlProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxv0 := p.Attrs
-		_gsxgw.S("<button")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">go</button>")
-		return _gsxgw.Err()
+		return _gsxrenderCtrl(ctx, _gsxgw, p)
 	})
+}
+
+func _gsxrenderCtrl(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p ctrlProps) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxv0 := p.Attrs
+	_gsxgw.S("<button")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+	_gsxgw.StyleMerged("", _gsxv0.Style())
+	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">go</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
@@ -62,7 +69,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Ctrl(ctrlProps{Attrs: gsx.Attrs{{Key: "hx-get", Value: "/path"}, {Key: "data-role", Value: "tab"}}}))
+		_gsxgw.NodeResult(_gsxrenderCtrl(ctx, _gsxgw, ctrlProps{Attrs: gsx.Attrs{{Key: "hx-get", Value: "/path"}, {Key: "data-role", Value: "tab"}}}))
 		return _gsxgw.Err()
 	})
 }

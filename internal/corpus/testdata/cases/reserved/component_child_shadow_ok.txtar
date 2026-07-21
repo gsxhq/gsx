@@ -42,13 +42,20 @@ import (
 func Wrap(children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<section>")
-//line input.gsx:6:11
-		_gsxgw.Node(ctx, children)
-		_gsxgw.S("</section>")
-		return _gsxgw.Err()
+		return _gsxrenderWrap(ctx, _gsxgw, children)
 	})
+}
+
+func _gsxrenderWrap(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<section>")
+//line input.gsx:6:11
+	_gsxgw.Node(ctx, children)
+	_gsxgw.S("</section>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -56,7 +63,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderWrap(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:3
 			attrs := gsx.Attrs{{Key: "id", Value: "x"}}

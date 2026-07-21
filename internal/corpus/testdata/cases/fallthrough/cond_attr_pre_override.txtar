@@ -33,22 +33,29 @@ import (
 func Box(active bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<button")
-		if active {
-			if !attrs.Has("id") {
-				_gsxgw.S(" id=\"mine\"")
-			}
-			if !attrs.Has("data-k") {
-				_gsxgw.S(" data-k=\"v\"")
-			}
-		}
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">x</button>")
-		return _gsxgw.Err()
+		return _gsxrenderBox(ctx, _gsxgw, active, attrs)
 	})
+}
+
+func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, active bool, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<button")
+	if active {
+		if !attrs.Has("id") {
+			_gsxgw.S(" id=\"mine\"")
+		}
+		if !attrs.Has("data-k") {
+			_gsxgw.S(" data-k=\"v\"")
+		}
+	}
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">x</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -56,7 +63,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Box(true, _gsxrt.Attrs{{Key: "id", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, true, _gsxrt.Attrs{{Key: "id", Value: "caller"}}))
 		return _gsxgw.Err()
 	})
 }

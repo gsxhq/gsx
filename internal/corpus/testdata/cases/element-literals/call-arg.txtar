@@ -43,16 +43,23 @@ import (
 func Foo() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
-		_gsxgw.S("<p>Foo body</p>")
-		return _gsxgw.Err()
+		return _gsxrenderFoo(ctx, _gsxgw)
 	})
+}
+
+func _gsxrenderFoo(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:4:2
+	_gsxgw.S("<p>Foo body</p>")
+	return _gsxgw.Err()
 }
 
 var wrapped = Wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:20
-	_gsxgw.Node(ctx, Foo())
+	_gsxgw.NodeResult(_gsxrenderFoo(ctx, _gsxgw))
 	return _gsxgw.Err()
 }))
 

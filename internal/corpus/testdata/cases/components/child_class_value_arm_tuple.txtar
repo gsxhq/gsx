@@ -31,18 +31,25 @@ import (
 func Card(title string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:49
-		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("card"), _gsxrt.Class(attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:5:78
-		_gsxgw.Text(string(title))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, title, attrs)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:5:49
+	_gsxgw.S("<div class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("card"), _gsxrt.Class(attrs.Class()))
+	_gsxgw.S("\"")
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:5:78
+	_gsxgw.Text(string(title))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -61,7 +68,7 @@ func Page(v int, flag bool) _gsxrt.Node {
 		} else {
 			_gsxv1 = "gray"
 		}
-		_gsxgw.Node(ctx, Card("Hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))}}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "Hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))}}))
 		return _gsxgw.Err()
 	})
 }

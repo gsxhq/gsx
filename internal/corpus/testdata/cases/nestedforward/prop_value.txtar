@@ -51,22 +51,36 @@ func strAttr(a gsx.Attrs, key string) string {
 func Icon(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.S("<span data-name=\"")
-		_gsxgw.AttrValue(string(name))
-		_gsxgw.S("\">i</span>")
-		return _gsxgw.Err()
+		return _gsxrenderIcon(ctx, _gsxgw, name)
 	})
+}
+
+func _gsxrenderIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, name string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:12:2
+	_gsxgw.S("<span data-name=\"")
+	_gsxgw.AttrValue(string(name))
+	_gsxgw.S("\">i</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:15:1
 func Wrapper(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:16:2
-		_gsxgw.Node(ctx, Icon(strAttr(attrs, "n")))
-		return _gsxgw.Err()
+		return _gsxrenderWrapper(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:16:2
+	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw, strAttr(attrs, "n")))
+	return _gsxgw.Err()
 }
 
 //line input.gsx:19:1
@@ -74,7 +88,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:2
-		_gsxgw.Node(ctx, Wrapper(_gsxrt.Attrs{{Key: "n", Value: "search"}}))
+		_gsxgw.NodeResult(_gsxrenderWrapper(ctx, _gsxgw, _gsxrt.Attrs{{Key: "n", Value: "search"}}))
 		return _gsxgw.Err()
 	})
 }

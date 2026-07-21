@@ -77,13 +77,20 @@ import (
 func Label(text string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
-		_gsxgw.S("<span>")
-//line input.gsx:4:8
-		_gsxgw.Text(string(text))
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderLabel(ctx, _gsxgw, text)
 	})
+}
+
+func _gsxrenderLabel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, text string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:4:2
+	_gsxgw.S("<span>")
+//line input.gsx:4:8
+	_gsxgw.Text(string(text))
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -98,7 +105,7 @@ func Page(fail bool) _gsxrt.Node {
 		}
 		_gsxv2 := string(_gsxv0)
 		_gsxv3 := string(value("third"))
-		_gsxgw.Node(ctx, Label(_gsxv1+" "+_gsxv2+" "+_gsxv3))
+		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxv1+" "+_gsxv2+" "+_gsxv3))
 		return _gsxgw.Err()
 	})
 }

@@ -37,18 +37,25 @@ import (
 func Greeting[V ~string, W any](v V, w W) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
-		_gsxgw.S("<p>")
-//line input.gsx:4:5
-		_gsxgw.Text(string(v))
-		_gsxgw.S("</p>")
-//line input.gsx:5:2
-		_gsxgw.S("<p>")
-//line input.gsx:5:5
-		_gsxgw.Text(string(_gsxstd.Printf((w), "%v")))
-		_gsxgw.S("</p>")
-		return _gsxgw.Err()
+		return _gsxrenderGreeting[V, W](ctx, _gsxgw, v, w)
 	})
+}
+
+func _gsxrenderGreeting[V ~string, W any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, v V, w W) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:4:2
+	_gsxgw.S("<p>")
+//line input.gsx:4:5
+	_gsxgw.Text(string(v))
+	_gsxgw.S("</p>")
+//line input.gsx:5:2
+	_gsxgw.S("<p>")
+//line input.gsx:5:5
+	_gsxgw.Text(string(_gsxstd.Printf((w), "%v")))
+	_gsxgw.S("</p>")
+	return _gsxgw.Err()
 }
 
 type MyByte byte
@@ -57,13 +64,20 @@ type MyByte byte
 func ByteBox[T []MyByte | string](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:2
-		_gsxgw.S("<p>")
-//line input.gsx:11:5
-		_gsxgw.Text(string(string(value)))
-		_gsxgw.S("</p>")
-		return _gsxgw.Err()
+		return _gsxrenderByteBox[T](ctx, _gsxgw, value)
 	})
+}
+
+func _gsxrenderByteBox[T []MyByte | string](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value T) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:11:2
+	_gsxgw.S("<p>")
+//line input.gsx:11:5
+	_gsxgw.Text(string(string(value)))
+	_gsxgw.S("</p>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:14:1
@@ -71,9 +85,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:15:2
-		_gsxgw.Node(ctx, Greeting[string, string]("hello", "world"))
+		_gsxgw.NodeResult(_gsxrenderGreeting[string, string](ctx, _gsxgw, "hello", "world"))
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, ByteBox[[]MyByte]([]MyByte{'x'}))
+		_gsxgw.NodeResult(_gsxrenderByteBox[[]MyByte](ctx, _gsxgw, []MyByte{'x'}))
 		return _gsxgw.Err()
 	})
 }

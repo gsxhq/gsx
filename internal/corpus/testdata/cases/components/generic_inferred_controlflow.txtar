@@ -29,13 +29,20 @@ import (
 func Box[T string | int](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
-		_gsxgw.S("<span>")
-//line input.gsx:4:8
-		_gsxgw.TextAny(value)
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderBox[T](ctx, _gsxgw, value)
 	})
+}
+
+func _gsxrenderBox[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value T) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:4:2
+	_gsxgw.S("<span>")
+//line input.gsx:4:8
+	_gsxgw.TextAny(value)
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -45,15 +52,15 @@ func Page() _gsxrt.Node {
 //line input.gsx:8:2
 		for _, x := range []int{1, 2} {
 //line input.gsx:8:36
-			_gsxgw.Node(ctx, Box[int](x))
+			_gsxgw.NodeResult(_gsxrenderBox[int](ctx, _gsxgw, x))
 		}
 //line input.gsx:9:2
 		if true {
 //line input.gsx:9:14
-			_gsxgw.Node(ctx, Box[string]("yes"))
+			_gsxgw.NodeResult(_gsxrenderBox[string](ctx, _gsxgw, "yes"))
 		} else {
 //line input.gsx:9:45
-			_gsxgw.Node(ctx, Box[string]("no"))
+			_gsxgw.NodeResult(_gsxrenderBox[string](ctx, _gsxgw, "no"))
 		}
 		return _gsxgw.Err()
 	})

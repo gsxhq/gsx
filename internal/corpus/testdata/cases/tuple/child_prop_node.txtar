@@ -32,13 +32,20 @@ func makeIcon(name string) (gsx.Node, error) { return gsx.Text("<" + name + ">")
 func Badge(icon gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:7:34
-		_gsxgw.S("<div class=\"badge\">")
-//line input.gsx:7:53
-		_gsxgw.Node(ctx, icon)
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderBadge(ctx, _gsxgw, icon)
 	})
+}
+
+func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, icon gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:7:34
+	_gsxgw.S("<div class=\"badge\">")
+//line input.gsx:7:53
+	_gsxgw.Node(ctx, icon)
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -50,7 +57,7 @@ func Page(name string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Badge(_gsxa0))
+		_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, _gsxa0))
 		return _gsxgw.Err()
 	})
 }

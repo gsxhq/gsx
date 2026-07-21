@@ -41,19 +41,26 @@ import (
 func Field(label string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:50
-		_gsxgw.S("<button")
-		if !attrs.Has("aria-label") {
-			_gsxgw.S(" aria-label=\"")
-			_gsxgw.AttrValue(string(label))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">x</button>")
-		return _gsxgw.Err()
+		return _gsxrenderField(ctx, _gsxgw, label, attrs)
 	})
+}
+
+func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:5:50
+	_gsxgw.S("<button")
+	if !attrs.Has("aria-label") {
+		_gsxgw.S(" aria-label=\"")
+		_gsxgw.AttrValue(string(label))
+		_gsxgw.S("\"")
+	}
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">x</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -61,7 +68,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Field("Go", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "@click", Value: _gsxrt.RawJS("toggle()")}}, _gsxrt.Attrs{{Key: "data-style", Value: _gsxrt.RawCSS("color:red")}})))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Go", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "@click", Value: _gsxrt.RawJS("toggle()")}}, _gsxrt.Attrs{{Key: "data-style", Value: _gsxrt.RawCSS("color:red")}})))
 		return _gsxgw.Err()
 	})
 }

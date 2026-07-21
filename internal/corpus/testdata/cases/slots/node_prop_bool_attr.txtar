@@ -31,13 +31,20 @@ import (
 func Box(flag gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<div>")
-//line input.gsx:6:7
-		_gsxgw.Node(ctx, flag)
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderBox(ctx, _gsxgw, flag)
 	})
+}
+
+func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, flag gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<div>")
+//line input.gsx:6:7
+	_gsxgw.Node(ctx, flag)
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -45,7 +52,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Box(_gsxrt.Val(true)))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Val(true)))
 		return _gsxgw.Err()
 	})
 }

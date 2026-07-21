@@ -35,19 +35,26 @@ import (
 func EchoLen(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-		var _gsxnum [32]byte
-//line input.gsx:6:2
-		v, _ := attrs.Get("a")
-		s, _ := v.(string)
-//line input.gsx:7:2
-		_gsxgw.S("<div data-n=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64(len(attrs)))
-		_gsxgw.S("\">")
-//line input.gsx:7:27
-		_gsxgw.Text(string(s))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderEchoLen(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderEchoLen(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+	var _gsxnum [32]byte
+//line input.gsx:6:2
+	v, _ := attrs.Get("a")
+	s, _ := v.(string)
+//line input.gsx:7:2
+	_gsxgw.S("<div data-n=\"")
+	_gsxgw.IntInto(_gsxnum[:], int64(len(attrs)))
+	_gsxgw.S("\">")
+//line input.gsx:7:27
+	_gsxgw.Text(string(s))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:10:1
@@ -55,7 +62,7 @@ func Page(extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
-		_gsxgw.Node(ctx, EchoLen(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "1"}}, extra)))
+		_gsxgw.NodeResult(_gsxrenderEchoLen(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "1"}}, extra)))
 		return _gsxgw.Err()
 	})
 }

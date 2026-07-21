@@ -167,6 +167,13 @@ components/component_spread_with_class	diag gen render
 components/cond_branch_embedded_hole	diag gen render
 components/cond_branch_embedded_hole_generic	diag render
 components/cond_branch_embedded_hole_tuple	diag render
+components/direct_basic_cross_file	diag gen render
+components/direct_build_variants	diag gen render
+components/direct_escaping	diag gen render
+components/direct_fallbacks	diag gen render
+components/direct_helper_collision	diag gen render
+components/direct_order_error	diag gen render
+components/direct_signature_forwarding	diag gen render
 components/embedded_attr_cond_prop	diag gen render
 components/embedded_attr_hole_forwarding	diag render
 components/embedded_attr_prop	diag gen render

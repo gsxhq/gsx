@@ -50,33 +50,54 @@ func wrap(n gsx.Node) gsx.Node { return n }
 func Inner() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.S("<i>in</i>")
-		return _gsxgw.Err()
+		return _gsxrenderInner(ctx, _gsxgw)
 	})
+}
+
+func _gsxrenderInner(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:8:2
+	_gsxgw.S("<i>in</i>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:11:1
 func card() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:2
-		_gsxgw.S("<em>c</em>")
-		return _gsxgw.Err()
+		return _gsxrendercard(ctx, _gsxgw)
 	})
+}
+
+func _gsxrendercard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:12:2
+	_gsxgw.S("<em>c</em>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:15:1
 func Outer(children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:16:2
-		_gsxgw.S("<b>")
-//line input.gsx:16:5
-		_gsxgw.Node(ctx, children)
-		_gsxgw.S("</b>")
-		return _gsxgw.Err()
+		return _gsxrenderOuter(ctx, _gsxgw, children)
 	})
+}
+
+func _gsxrenderOuter(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:16:2
+	_gsxgw.S("<b>")
+//line input.gsx:16:5
+	_gsxgw.Node(ctx, children)
+	_gsxgw.S("</b>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:19:1
@@ -89,12 +110,12 @@ func Page() _gsxrt.Node {
 		_gsxgw.Node(ctx, wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:14
-			_gsxgw.Node(ctx, Outer(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw.NodeResult(_gsxrenderOuter(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:21
-				_gsxgw.Node(ctx, Inner())
+				_gsxgw.NodeResult(_gsxrenderInner(ctx, _gsxgw))
 //line input.gsx:20:29
-				_gsxgw.Node(ctx, card())
+				_gsxgw.NodeResult(_gsxrendercard(ctx, _gsxgw))
 				return _gsxgw.Err()
 			})))
 			return _gsxgw.Err()

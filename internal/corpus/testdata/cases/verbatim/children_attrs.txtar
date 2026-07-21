@@ -57,49 +57,70 @@ import (
 func Panel(children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<section>")
-//line input.gsx:6:11
-		_gsxgw.Node(ctx, children)
-		_gsxgw.S("</section>")
-		return _gsxgw.Err()
+		return _gsxrenderPanel(ctx, _gsxgw, children)
 	})
+}
+
+func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<section>")
+//line input.gsx:6:11
+	_gsxgw.Node(ctx, children)
+	_gsxgw.S("</section>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
 func Tabs(children ...gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.S("<ul>")
-//line input.gsx:10:6
-		for _, c := range children {
-//line input.gsx:10:37
-			_gsxgw.S("<li>")
-//line input.gsx:10:41
-			_gsxgw.Node(ctx, c)
-			_gsxgw.S("</li>")
-		}
-		_gsxgw.S("</ul>")
-		return _gsxgw.Err()
+		return _gsxrenderTabs(ctx, _gsxgw, children...)
 	})
+}
+
+func _gsxrenderTabs(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children ...gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.S("<ul>")
+//line input.gsx:10:6
+	for _, c := range children {
+//line input.gsx:10:37
+		_gsxgw.S("<li>")
+//line input.gsx:10:41
+		_gsxgw.Node(ctx, c)
+		_gsxgw.S("</li>")
+	}
+	_gsxgw.S("</ul>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
 func Card(header gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:14:18
-		_gsxgw.Node(ctx, header)
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, header, attrs)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, header gsx.Node, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:14:2
+	_gsxgw.S("<div")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:14:18
+	_gsxgw.Node(ctx, header)
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:17:1
@@ -107,18 +128,18 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.Node(ctx, Panel(nil))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, nil))
 //line input.gsx:19:2
-		_gsxgw.Node(ctx, Panel(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:19:9
 			_gsxgw.S("<b>hi</b>")
 			return _gsxgw.Err()
 		})))
 //line input.gsx:20:2
-		_gsxgw.Node(ctx, Tabs())
+		_gsxgw.NodeResult(_gsxrenderTabs(ctx, _gsxgw))
 //line input.gsx:21:2
-		_gsxgw.Node(ctx, Tabs(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderTabs(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:21:8
 			_gsxgw.S("<span>a</span>")
@@ -130,7 +151,7 @@ func Page() _gsxrt.Node {
 			return _gsxgw.Err()
 		})))
 //line input.gsx:22:2
-		_gsxgw.Node(ctx, Card(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:16
 			_gsxgw.S("<h1>T</h1>")

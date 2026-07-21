@@ -39,17 +39,24 @@ import (
 func Kids(children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		hasKids := children != nil
-//line input.gsx:7:2
-		_gsxgw.S("<section data-has-kids=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(hasKids)))
-		_gsxgw.S("\">")
-//line input.gsx:7:35
-		_gsxgw.Node(ctx, children)
-		_gsxgw.S("</section>")
-		return _gsxgw.Err()
+		return _gsxrenderKids(ctx, _gsxgw, children)
 	})
+}
+
+func _gsxrenderKids(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	hasKids := children != nil
+//line input.gsx:7:2
+	_gsxgw.S("<section data-has-kids=\"")
+	_gsxgw.S(_gsxsc.FormatBool(bool(hasKids)))
+	_gsxgw.S("\">")
+//line input.gsx:7:35
+	_gsxgw.Node(ctx, children)
+	_gsxgw.S("</section>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:10:1
@@ -57,7 +64,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
-		_gsxgw.Node(ctx, Kids(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderKids(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("hi")
 			return _gsxgw.Err()

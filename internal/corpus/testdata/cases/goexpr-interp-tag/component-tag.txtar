@@ -41,14 +41,21 @@ func wrap(n gsx.Node) gsx.Node { return n }
 func Badge(count int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-		var _gsxnum [32]byte
-//line input.gsx:8:2
-		_gsxgw.S("<span>")
-//line input.gsx:8:8
-		_gsxgw.IntInto(_gsxnum[:], int64(count))
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderBadge(ctx, _gsxgw, count)
 	})
+}
+
+func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, count int) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+	var _gsxnum [32]byte
+//line input.gsx:8:2
+	_gsxgw.S("<span>")
+//line input.gsx:8:8
+	_gsxgw.IntInto(_gsxnum[:], int64(count))
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:11:1
@@ -61,7 +68,7 @@ func Uses(n int) _gsxrt.Node {
 		_gsxgw.Node(ctx, wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:14
-			_gsxgw.Node(ctx, Badge(n))
+			_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, n))
 			return _gsxgw.Err()
 		})))
 		_gsxgw.S("</div>")

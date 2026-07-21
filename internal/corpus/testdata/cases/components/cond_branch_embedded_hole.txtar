@@ -35,19 +35,26 @@ import (
 func Field(label string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:50
-		_gsxgw.S("<input")
-		if !attrs.Has("aria-label") {
-			_gsxgw.S(" aria-label=\"")
-			_gsxgw.AttrValue(string(label))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S("/>")
-		return _gsxgw.Err()
+		return _gsxrenderField(ctx, _gsxgw, label, attrs)
 	})
+}
+
+func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:5:50
+	_gsxgw.S("<input")
+	if !attrs.Has("aria-label") {
+		_gsxgw.S(" aria-label=\"")
+		_gsxgw.AttrValue(string(label))
+		_gsxgw.S("\"")
+	}
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S("/>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -61,7 +68,7 @@ func Page(edit bool, who string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Field("Category", _gsxv0))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Category", _gsxv0))
 		return _gsxgw.Err()
 	})
 }

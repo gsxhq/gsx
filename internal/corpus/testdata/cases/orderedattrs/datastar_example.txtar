@@ -30,18 +30,25 @@ import (
 func Counter(signals gsx.Attrs, children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxv0 := signals
-		_gsxgw.S("<button")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:6:25
-		_gsxgw.Node(ctx, children)
-		_gsxgw.S("</button>")
-		return _gsxgw.Err()
+		return _gsxrenderCounter(ctx, _gsxgw, signals, children)
 	})
+}
+
+func _gsxrenderCounter(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, signals gsx.Attrs, children gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxv0 := signals
+	_gsxgw.S("<button")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+	_gsxgw.StyleMerged("", _gsxv0.Style())
+	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:6:25
+	_gsxgw.Node(ctx, children)
+	_gsxgw.S("</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -49,7 +56,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Counter(_gsxrt.Attrs{{Key: "data-signals", Value: "{count:0}"}, {Key: "data-text", Value: "$count"}, {Key: "data-on-click", Value: "$count++"}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderCounter(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-signals", Value: "{count:0}"}, {Key: "data-text", Value: "$count"}, {Key: "data-on-click", Value: "$count++"}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("Count")
 			return _gsxgw.Err()

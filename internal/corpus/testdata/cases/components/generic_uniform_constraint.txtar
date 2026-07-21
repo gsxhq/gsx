@@ -34,13 +34,20 @@ type Slug string
 func Tag[T ~string](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<b>")
-//line input.gsx:6:5
-		_gsxgw.Text(string(value))
-		_gsxgw.S("</b>")
-		return _gsxgw.Err()
+		return _gsxrenderTag[T](ctx, _gsxgw, value)
 	})
+}
+
+func _gsxrenderTag[T ~string](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value T) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<b>")
+//line input.gsx:6:5
+	_gsxgw.Text(string(value))
+	_gsxgw.S("</b>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -48,7 +55,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Tag[Slug](Slug("go")))
+		_gsxgw.NodeResult(_gsxrenderTag[Slug](ctx, _gsxgw, Slug("go")))
 		return _gsxgw.Err()
 	})
 }

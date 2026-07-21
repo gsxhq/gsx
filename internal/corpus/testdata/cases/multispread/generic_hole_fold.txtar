@@ -32,20 +32,27 @@ import (
 func Field[T string | int](value T, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxv0 := a
-		_gsxv1, _gsxerr := _gsxrt.AttrString(value)
-		if _gsxerr != nil {
-			return _gsxerr
-		}
-		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "title", Value: "value=" + _gsxv1}}, b)
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
-		_gsxgw.StyleMerged("", _gsxv2.Style())
-		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">x</div>")
-		return _gsxgw.Err()
+		return _gsxrenderField[T](ctx, _gsxgw, value, a, b)
 	})
+}
+
+func _gsxrenderField[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value T, a gsx.Attrs, b gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxv0 := a
+	_gsxv1, _gsxerr := _gsxrt.AttrString(value)
+	if _gsxerr != nil {
+		return _gsxerr
+	}
+	_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "title", Value: "value=" + _gsxv1}}, b)
+	_gsxgw.S("<div")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
+	_gsxgw.StyleMerged("", _gsxv2.Style())
+	_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">x</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -53,9 +60,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Field[string]("a<b", nil, nil))
+		_gsxgw.NodeResult(_gsxrenderField[string](ctx, _gsxgw, "a<b", nil, nil))
 //line input.gsx:11:2
-		_gsxgw.Node(ctx, Field[int](7, nil, nil))
+		_gsxgw.NodeResult(_gsxrenderField[int](ctx, _gsxgw, 7, nil, nil))
 		return _gsxgw.Err()
 	})
 }

@@ -33,23 +33,30 @@ import (
 func Box(active bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<button")
-		_gsxv0 := []string{"class", "style"}
-		var _gsxv1 bool
-		if active {
-			_gsxv1 = true
-			_gsxv0 = append(_gsxv0, "id")
-		}
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, _gsxv0)
-		if _gsxv1 {
-			_gsxgw.S(" id=\"mine\"")
-		}
-		_gsxgw.S(">x</button>")
-		return _gsxgw.Err()
+		return _gsxrenderBox(ctx, _gsxgw, active, attrs)
 	})
+}
+
+func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, active bool, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<button")
+	_gsxv0 := []string{"class", "style"}
+	var _gsxv1 bool
+	if active {
+		_gsxv1 = true
+		_gsxv0 = append(_gsxv0, "id")
+	}
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, _gsxv0)
+	if _gsxv1 {
+		_gsxgw.S(" id=\"mine\"")
+	}
+	_gsxgw.S(">x</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -57,7 +64,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Box(true, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "id", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-x", Value: "1"}})))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, true, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "id", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-x", Value: "1"}})))
 		return _gsxgw.Err()
 	})
 }
