@@ -32,6 +32,7 @@ type componentTargetEmission struct {
 	splitBody         bool
 	bodyName          string
 	analysisPropsName string
+	direct            *directComponentDeclaration
 }
 
 type componentTargetPlan struct {

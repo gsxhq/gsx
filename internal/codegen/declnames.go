@@ -54,34 +54,13 @@ func parseHandwrittenGoFiles(dir string) []*goast.File {
 // build-oblivious syntactic behavior.
 func packageDeclNamesFromFiles(goFiles []*goast.File, files map[string]*gsxast.File) map[string]bool {
 	out := map[string]bool{}
-	collectGoDecls := func(f *goast.File) {
-		for _, decl := range f.Decls {
-			switch d := decl.(type) {
-			case *goast.FuncDecl:
-				if d.Recv == nil && d.Name != nil {
-					out[d.Name.Name] = true
-				}
-			case *goast.GenDecl:
-				for _, spec := range d.Specs {
-					switch s := spec.(type) {
-					case *goast.TypeSpec:
-						out[s.Name.Name] = true
-					case *goast.ValueSpec: // var + const
-						for _, n := range s.Names {
-							out[n.Name] = true
-						}
-					}
-				}
-			}
-		}
-	}
 	scanChunk := func(src string) {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, "", "package _gsxdecl\n"+src, 0)
 		if err != nil || f == nil {
 			return
 		}
-		collectGoDecls(f)
+		collectPackageLevelGoNames(out, f)
 	}
 	scanGoWithElements := func(g *gsxast.GoWithElements) {
 		reconstructed, err := reconstructGoWithElements(g)
@@ -93,7 +72,7 @@ func packageDeclNamesFromFiles(goFiles []*goast.File, files map[string]*gsxast.F
 		if err != nil || f == nil {
 			return
 		}
-		collectGoDecls(f)
+		collectPackageLevelGoNames(out, f)
 	}
 	for _, file := range files {
 		for _, d := range file.Decls {
@@ -110,7 +89,7 @@ func packageDeclNamesFromFiles(goFiles []*goast.File, files map[string]*gsxast.F
 		}
 	}
 	for _, file := range goFiles {
-		collectGoDecls(file)
+		collectPackageLevelGoNames(out, file)
 	}
 	return out
 }

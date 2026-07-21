@@ -15,6 +15,7 @@ type componentTargetDeclarationProvenance struct {
 	targetDecls  []sourceintel.VersionedSpan
 	paramDecls   map[int][]sourceintel.VersionedSpan
 	presentation string
+	direct       *directComponentFamily
 }
 
 type componentTargetProvenanceCache map[string]map[string]componentTargetDeclarationProvenance
@@ -48,6 +49,14 @@ func componentTargetDeclarationProvenances(
 			}
 			key := plan.logicalKey(component)
 			provenance := result[key]
+			emission, _ := plan.emission(component)
+			if emission.direct != nil {
+				family := emission.direct.family
+				if provenance.direct != nil && *provenance.direct != family {
+					return nil, fmt.Errorf("codegen: direct component family %s has inconsistent helper metadata", key)
+				}
+				provenance.direct = &family
+			}
 			if provenance.paramDecls == nil {
 				provenance.paramDecls = make(map[int][]sourceintel.VersionedSpan)
 			}
@@ -149,6 +158,11 @@ func cloneComponentTargetDeclarationProvenance(provenance componentTargetDeclara
 		targetDecls:  append([]sourceintel.VersionedSpan(nil), provenance.targetDecls...),
 		paramDecls:   make(map[int][]sourceintel.VersionedSpan, len(provenance.paramDecls)),
 		presentation: provenance.presentation,
+		direct:       nil,
+	}
+	if provenance.direct != nil {
+		direct := *provenance.direct
+		cloned.direct = &direct
 	}
 	for ordinal, declarations := range provenance.paramDecls {
 		cloned.paramDecls[ordinal] = append([]sourceintel.VersionedSpan(nil), declarations...)

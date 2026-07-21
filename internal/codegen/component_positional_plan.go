@@ -45,6 +45,7 @@ type componentPositionalSitePlan struct {
 	expressionFacts map[gsxast.Node]expressionFact
 	zeros           []componentZeroArgument
 	assembly        componentPositionalAssembly
+	directTarget    *directComponentFamily
 }
 
 type componentZeroArgument struct {
@@ -221,6 +222,7 @@ func planComponentPositionalCalls(input componentPositionalPlanningInput) (compo
 			expressionFacts: siteFacts,
 			zeros:           zeros,
 			assembly:        assembly,
+			directTarget:    directComponentTarget(fact, input.analysisPackage),
 		}
 		result.byElement[record.element] = record.id
 	}
