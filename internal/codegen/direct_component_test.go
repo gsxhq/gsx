@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceview"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -183,7 +184,12 @@ func TestDirectHelperOccupiedNamesIncludesEveryNonOwnedSamePackageGoFile(t *test
 func _gsxrenderChunk() {}
 component Child() { <span/> }
 `)}
-	got, err := directHelperOccupiedNames(dir, "p", files)
+	view := map[string]sourceview.FileSnapshot{}
+	for _, name := range []string{"hand.go", "orphan.x.go", "same_test.go", "external_test.go", "child.x.go"} {
+		path := filepath.Join(dir, name)
+		view[path] = sourceview.ReadFileSnapshot(path)
+	}
+	got, err := directHelperOccupiedNamesFromView("p", files, view)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +210,8 @@ func TestDirectHelperOccupiedNamesSurfacesParseErrors(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "broken.go"), []byte("package p\nfunc broken("), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := directHelperOccupiedNames(dir, "p", nil); err == nil {
+	path := filepath.Join(dir, "broken.go")
+	if _, err := directHelperOccupiedNamesFromView("p", nil, map[string]sourceview.FileSnapshot{path: sourceview.ReadFileSnapshot(path)}); err == nil {
 		t.Fatal("missing parse error")
 	}
 }
@@ -222,7 +229,10 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 	}
 	plan := syntacticComponentTargetPlan(files)
 	var err error
-	plan, err = assignDirectComponentDeclarations(dir, "p", files, plan)
+	goFiles := map[string]sourceview.FileSnapshot{
+		filepath.Join(dir, "collision_test.go"): sourceview.ReadFileSnapshot(filepath.Join(dir, "collision_test.go")),
+	}
+	plan, err = assignDirectComponentDeclarationsFromView("p", files, plan, goFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +250,7 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 		t.Fatalf("allocated metadata = %v, want one suffixed family carrying T and U declaration names", seen)
 	}
 
-	second, err := assignDirectComponentDeclarations(dir, "p", files, syntacticComponentTargetPlan(files))
+	second, err := assignDirectComponentDeclarationsFromView("p", files, syntacticComponentTargetPlan(files), goFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,6 +340,166 @@ func TestDirectHelperOwnedOutputDoesNotRenameOnRegeneration(t *testing.T) {
 		if got := second[path]; !bytes.Equal(got, want) {
 			t.Fatalf("regeneration changed %s\nfirst:\n%s\nsecond:\n%s", path, want, got)
 		}
+	}
+}
+
+func TestDirectHelperSourceOnlyIgnoresHostGoFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "host.go"), []byte("package p\nfunc _gsxrenderChild() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "page.gsx")
+	module, err := Open(Options{
+		ModuleRoot: dir,
+		ModulePath: "example.com/virtual",
+		SourceOnly: true,
+		Bundle:     testBundle(targetTestImporter(), funcTables{}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	module.SetOverride(path, []byte("package p\ncomponent Child() { <span/> }\ncomponent Parent() { <Child/> }\n"))
+	_, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance := module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild" {
+		t.Fatalf("SourceOnly direct provenance = %+v, want host-independent base helper", provenance.direct)
+	}
+}
+
+func TestDirectHelperUsesFrozenManifestAndGoOverrides(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	dir := filepath.Join(root, "p")
+	writeFile(t, dir, "page.gsx", "package p\ncomponent Child() { <span/> }\ncomponent Parent() { <Child/> }\n")
+	helper := filepath.Join(dir, "helper_test.go")
+	writeFile(t, dir, "helper_test.go", "package p\nfunc _gsxrenderChild() {}\n")
+	manifest, err := sourceview.Build(sourceview.BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(helper, []byte("package p\nfunc diskChanged() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", SourceManifest: manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate frozen manifest: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance := module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild1" {
+		t.Fatalf("frozen direct provenance = %+v, want saved collision suffix", provenance.direct)
+	}
+
+	module.SetOverride(helper, []byte("package p\nfunc overrideName() {}\n"))
+	_, diagnostics, err = module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate Go override: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance = module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild" {
+		t.Fatalf("override direct provenance = %+v, want override-controlled base helper", provenance.direct)
+	}
+	module.ClearOverride(helper)
+	_, diagnostics, err = module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate restored frozen helper: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance = module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild1" {
+		t.Fatalf("restored frozen provenance = %+v, want saved collision suffix", provenance.direct)
+	}
+}
+
+func TestDirectHelperRestoresCapturedSavedAbsence(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	dir := filepath.Join(root, "p")
+	writeFile(t, dir, "page.gsx", "package p\ncomponent Child() { <span/> }\ncomponent Parent() { <Child/> }\n")
+	helper := filepath.Join(dir, "helper_test.go")
+	manifest, err := sourceview.Build(sourceview.BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", SourceManifest: manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	module.SetOverride(helper, []byte("package p\nfunc _gsxrenderChild() {}\n"))
+	_, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate present override: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance := module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild1" {
+		t.Fatalf("present override provenance = %+v, want suffix", provenance.direct)
+	}
+	if err := os.WriteFile(helper, []byte("package p\nfunc _gsxrenderChild() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	module.ClearOverride(helper)
+	_, diagnostics, err = module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("Generate restored absence: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance = module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild" {
+		t.Fatalf("restored absence provenance = %+v, want captured-absence base helper", provenance.direct)
+	}
+}
+
+func TestDirectHelperRefreshPublishesNewInactiveGoMembership(t *testing.T) {
+	dir, module := openTestModule(t, map[string]string{
+		"page.gsx": "package p\ncomponent Child() { <span/> }\ncomponent Parent() { <Child/> }\n",
+	})
+	_, diagnostics, err := module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("initial Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance := module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild" {
+		t.Fatalf("initial provenance = %+v", provenance.direct)
+	}
+	writeFile(t, dir, "inactive.go", "//go:build helpervariant\n\npackage p\nfunc _gsxrenderChild() {}\n")
+	if _, err := module.RefreshDiskSourcesAndInvalidate(dir); err != nil {
+		t.Fatal(err)
+	}
+	_, diagnostics, err = module.Generate(dir)
+	if err != nil || hasError(diagnostics) {
+		t.Fatalf("refreshed Generate: err=%v diagnostics=%+v", err, diagnostics)
+	}
+	module.mu.Lock()
+	provenance = module.targetDeclProvenance[dir][".Child"]
+	module.mu.Unlock()
+	if provenance.direct == nil || provenance.direct.helperName != "_gsxrenderChild1" {
+		t.Fatalf("refreshed provenance = %+v, want new inactive collision suffix", provenance.direct)
 	}
 }
 

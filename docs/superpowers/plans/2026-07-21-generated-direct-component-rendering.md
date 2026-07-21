@@ -292,11 +292,26 @@ packages, and scan all build variants. Surface parse errors through the
 generator's normal diagnostic/error path; do not silently guess from text or
 exclude every `.x.go` by suffix.
 
+The collector must consume the `Module`'s authoritative effective source view,
+not perform an independent live-disk read. In normal mode that view is the
+saved manifest plus exact Go/GSX overrides and captured present/absent file
+states; its disk inventory includes inactive build variants and `_test.go`
+siblings. In `SourceOnly` mode the complete source is the bundle/override view,
+so helper allocation must not inspect host Go files. Extend the shared
+`sourceview.Manifest`/cache projection so every non-owned sibling Go path that
+can affect helper naming participates in the persistent key. Preserve exact
+paired-output exclusion in both generation and cache identity.
+
 Back this with a generated temp-package test: place a non-owned
 `orphan.x.go` declaring `_gsxrenderChild`, generate the package, require the
 deterministic suffixed helper, and run `go test`. Separately regenerate a package
 whose exact paired output already contains the helper and require byte-identical
 output rather than a self-induced suffix.
+
+Also pin that host-only declarations cannot affect `SourceOnly`, that Go
+present/absent overrides and frozen saved snapshots control helper allocation,
+and that edits to inactive variants and same-package `_test.go` files change the
+persistent cache key before a stale generated helper can be restored.
 
 ### 3.3 Implement declaration-owned metadata
 

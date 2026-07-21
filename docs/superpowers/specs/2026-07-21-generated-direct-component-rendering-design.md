@@ -247,6 +247,18 @@ Helper names live in the reserved `_gsx` namespace. A deterministic allocator:
 7. allocates `_gsxrender<Name>`, then the first free numeric suffix;
 8. reserves each output for the rest of the run.
 
+The Go-file inventory is part of the same authoritative source view used by
+generation and persistent-cache classification. Normal source-backed modules
+snapshot every sibling `.go` input in a GSX package directory, including
+inactive build variants and same-package tests; editor overrides and captured
+present/absent saved states replace that snapshot exactly. `SourceOnly` bundle
+generation has no host Go-file inventory and must never inspect the filesystem.
+The persistent source projection hashes every non-owned Go file whose bytes,
+membership, parse result, or package clause can affect helper allocation. This
+keeps a cache hit from restoring output named against an older inactive,
+test-only, handwritten, or orphaned declaration. Exact paired generated output
+paths remain excluded from both allocation and this helper-name cache identity.
+
 Scanning all non-owned Go build variants is deliberately conservative and
 build-oblivious: it prevents a helper generated under one build configuration
 from colliding under another. It uses Go/GSX syntax declarations, not a simple

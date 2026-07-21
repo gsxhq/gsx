@@ -315,7 +315,9 @@ component Card() {
 				path := filepath.Join(fixture.uiDir, "inactive_"+excludedGOOS+".go")
 				writeRealisticCacheFile(tb, path, fmt.Sprintf("//go:build %s\n\npackage ui\n\nconst inactivePlatform = %q\n", excludedGOOS, excludedGOOS+"-v2"))
 			},
-			wantKind: cacheDecisionHit,
+			// Build tags exclude this file from compilation, but generated helper
+			// allocation deliberately sees all same-package Go declarations.
+			wantKind: cacheDecisionMiss,
 		},
 		{
 			name: "replacement source",

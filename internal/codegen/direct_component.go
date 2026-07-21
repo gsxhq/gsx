@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // directComponentFamily is the package-wide identity of a generated direct
@@ -105,30 +106,33 @@ func collectPackageLevelGoNames(names map[string]bool, file *goast.File) {
 	}
 }
 
-// directHelperOccupiedNames collects the complete package declaration surface
-// relevant to generated helper names. Unlike packageDeclNames it intentionally
-// scans every Go build variant, same-package test, and orphaned .x.go. Only the
-// exact generated outputs owned by the active GSX inputs are excluded.
-func directHelperOccupiedNames(dir, packageName string, files map[string]*gsxast.File) (map[string]bool, error) {
+// directHelperOccupiedNamesFromView collects the complete package declaration
+// surface relevant to generated helper names from one immutable source view.
+// Unlike packageDeclNames it includes every Go build variant, same-package
+// test, and orphaned .x.go. Only exact outputs owned by active GSX inputs are
+// excluded.
+func directHelperOccupiedNamesFromView(packageName string, files map[string]*gsxast.File, goFiles map[string]sourceview.FileSnapshot) (map[string]bool, error) {
 	names := packageDeclNamesFromFiles(nil, files)
 	owned := pairedTargetOutputs(files)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) && len(files) != 0 {
-			return names, nil
-		}
-		return nil, err
+	paths := make([]string, 0, len(goFiles))
+	for path := range goFiles {
+		paths = append(paths, filepath.Clean(path))
 	}
+	sort.Strings(paths)
 	fset := token.NewFileSet()
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
-		path := filepath.Clean(filepath.Join(dir, entry.Name()))
+	for _, path := range paths {
 		if owned[path] {
 			continue
 		}
-		file, parseErr := parser.ParseFile(fset, path, nil, 0)
+		snapshot := goFiles[path]
+		source, present := snapshot.Source()
+		if !present {
+			if snapshot.State() == sourceview.FileUnreadable {
+				return nil, fmt.Errorf("codegen: read direct helper declarations in %s: %w", path, snapshot.Err())
+			}
+			continue
+		}
+		file, parseErr := parser.ParseFile(fset, path, source, 0)
 		if parseErr != nil {
 			return nil, fmt.Errorf("codegen: parse direct helper declarations in %s: %w", path, parseErr)
 		}
@@ -140,12 +144,70 @@ func directHelperOccupiedNames(dir, packageName string, files map[string]*gsxast
 	return names, nil
 }
 
+func (m *Module) directHelperGoSourceView(dir string) (map[string]sourceview.FileSnapshot, error) {
+	if m.opts.SourceOnly {
+		return map[string]sourceview.FileSnapshot{}, nil
+	}
+	if m.opts.Bundle == nil {
+		manifest, err := m.buildSourceInventoryManifest()
+		if err != nil {
+			return nil, err
+		}
+		return manifest.HelperGoFiles(dir), nil
+	}
+	m.mu.Lock()
+	overrides := make(map[string][]byte)
+	savedFiles := make(map[string]sourceview.FileSnapshot)
+	for path, source := range m.overrides {
+		if filepath.Dir(path) == dir && strings.HasSuffix(path, ".go") {
+			overrides[path] = append([]byte(nil), source...)
+		}
+	}
+	for path, snapshot := range m.savedFileSnapshots {
+		if filepath.Dir(path) == dir && strings.HasSuffix(path, ".go") {
+			savedFiles[path] = cloneSourceFileSnapshot(snapshot)
+		}
+	}
+	m.mu.Unlock()
+
+	paths := make(map[string]bool)
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
+			paths[filepath.Join(dir, entry.Name())] = true
+		}
+	}
+	for path := range overrides {
+		paths[path] = true
+	}
+	for path := range savedFiles {
+		paths[path] = true
+	}
+	view := make(map[string]sourceview.FileSnapshot, len(paths))
+	for path := range paths {
+		override, overridden := overrides[path]
+		saved, savedKnown := savedFiles[path]
+		switch {
+		case overridden:
+			view[path] = sourceview.PresentFile(override)
+		case savedKnown:
+			view[path] = cloneSourceFileSnapshot(saved)
+		default:
+			view[path] = sourceview.ReadFileSnapshot(path)
+		}
+	}
+	return view, nil
+}
+
 // assignDirectComponentDeclarations attaches forwarding metadata only after
 // component family membership has been finalized. Families are allocated in
 // logical-key order, making helper names independent of map and filesystem
 // iteration order.
-func assignDirectComponentDeclarations(dir, packageName string, files map[string]*gsxast.File, plan componentTargetPlan) (componentTargetPlan, error) {
-	occupied, err := directHelperOccupiedNames(dir, packageName, files)
+func assignDirectComponentDeclarationsFromView(packageName string, files map[string]*gsxast.File, plan componentTargetPlan, goFiles map[string]sourceview.FileSnapshot) (componentTargetPlan, error) {
+	occupied, err := directHelperOccupiedNamesFromView(packageName, files, goFiles)
 	if err != nil {
 		return componentTargetPlan{}, err
 	}
@@ -208,6 +270,14 @@ func assignDirectComponentDeclarations(dir, packageName string, files map[string
 		}
 	}
 	return plan, nil
+}
+
+func (m *Module) assignDirectComponentDeclarations(dir, packageName string, files map[string]*gsxast.File, plan componentTargetPlan) (componentTargetPlan, error) {
+	goFiles, err := m.directHelperGoSourceView(dir)
+	if err != nil {
+		return componentTargetPlan{}, err
+	}
+	return assignDirectComponentDeclarationsFromView(packageName, files, plan, goFiles)
 }
 
 // directComponentTarget admits only a same-package package function whose

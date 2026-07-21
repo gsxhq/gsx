@@ -865,11 +865,24 @@ func TestComputeKeyGsxOnlyDeps(t *testing.T) {
 		t.Fatal("removing paired generated output changed the cache key")
 	}
 
+	mk("ui/inactive.go", "//go:build helpervariant\n\npackage ui\nfunc _gsxrenderCard() {}\n")
+	_, _, inactiveProjection := snapshot()
+	helperKey := key(inactiveProjection)
+	if helperKey == k1 {
+		t.Fatal("adding an inactive helper-name input did not change the cache key")
+	}
+	mk("ui/helper_test.go", "package ui\nfunc _gsxrenderCard1() {}\n")
+	_, _, testProjection := snapshot()
+	testKey := key(testProjection)
+	if testKey == helperKey {
+		t.Fatal("adding a same-package test helper-name input did not change the cache key")
+	}
+
 	// Direct .gsx-only dep edit changes the key.
 	mk("ui/card.gsx", "package ui\n\nimport \"example.com/app/icons\"\n\ncomponent Card(variant string) {\n\t<icons.Dot/>\n}\n")
 	_, _, directProjection := snapshot()
 	k2 := key(directProjection)
-	if k1 == k2 {
+	if testKey == k2 {
 		t.Fatal("editing ui (direct .gsx-only dep) did not change pages' cache key")
 	}
 	// Transitive .gsx-only dep edit changes the key.

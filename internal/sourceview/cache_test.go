@@ -99,6 +99,7 @@ func TestCacheProjectionUsesManifestEdgesAndActiveGoSelection(t *testing.T) {
 	paired := writeTestFile(t, root, "ui/card.x.go", "package stale\nvar Poison = true\n")
 	active := writeTestFile(t, root, "ui/authored.x.go", "package ui\ntype Active string\n")
 	inactive := writeTestFile(t, root, "ui/inactive.go", "//go:build inactive\n\npackage ui\ntype Inactive string\n")
+	testOnly := writeTestFile(t, root, "ui/helper_test.go", "package ui\nfunc _gsxrenderCard() {}\n")
 	model := writeTestFile(t, root, "model/model.go", "package model\ntype Value string\n")
 
 	build := func() (*Manifest, *CacheProjection) {
@@ -145,7 +146,7 @@ func TestCacheProjectionUsesManifestEdgesAndActiveGoSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantLogical := []string{pageGSX, cardGSX, active, model, filepath.Join(root, "go.mod")}
+	wantLogical := []string{pageGSX, cardGSX, active, inactive, testOnly, model, filepath.Join(root, "go.mod")}
 	sort.Strings(wantLogical)
 	if !reflect.DeepEqual(logical, wantLogical) {
 		t.Fatalf("LogicalFiles() = %v, want %v", logical, wantLogical)
@@ -167,8 +168,18 @@ func TestCacheProjectionUsesManifestEdgesAndActiveGoSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inactiveDigest != digestBefore {
-		t.Fatal("build-excluded companion changed cache identity")
+	if inactiveDigest == digestBefore {
+		t.Fatal("build-excluded helper-name input did not change cache identity")
+	}
+
+	writeTestFile(t, root, "ui/helper_test.go", "package ui\nfunc _gsxrenderCard1() {}\n")
+	_, afterTestOnly := build()
+	testOnlyDigest, err := afterTestOnly.Digest(filepath.Join(root, "pages"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if testOnlyDigest == inactiveDigest {
+		t.Fatal("same-package test helper-name input did not change cache identity")
 	}
 
 	writeTestFile(t, root, "ui/authored.x.go", "package ui\ntype Active int\n")
@@ -177,11 +188,10 @@ func TestCacheProjectionUsesManifestEdgesAndActiveGoSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if activeDigest == digestBefore {
+	if activeDigest == testOnlyDigest {
 		t.Fatal("cmd/go-selected unpaired .x.go edit did not change cache identity")
 	}
 
-	_ = inactive
 }
 
 func TestCacheProjectionHashesReachableVersionlessReplacementProvenance(t *testing.T) {

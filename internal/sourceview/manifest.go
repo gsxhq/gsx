@@ -186,10 +186,13 @@ type Manifest struct {
 	sentinelByDir map[string]string
 	loadRoots     []string
 	trackedFiles  map[string]FileSnapshot
+	helperGoFiles map[string]FileSnapshot
 }
 
-// Build constructs the complete owned GSX manifest once. It never selects Go
-// files: packages.Load/cmd-go remain the sole build-tag and cgo authority.
+// Build constructs the complete owned GSX manifest once. It snapshots sibling
+// Go files in GSX package directories for generated-name allocation and cache
+// identity, but never selects them for compilation: packages.Load/cmd-go remain
+// the sole build-tag and cgo authority.
 func Build(options BuildOptions) (*Manifest, error) {
 	if options.ModuleRoot == "" {
 		return nil, fmt.Errorf("sourceview: module root is empty")
@@ -214,6 +217,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 	}
 
 	paths := make(map[string]bool)
+	goPaths := make(map[string]bool)
 	err = filepath.WalkDir(physicalRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -230,12 +234,17 @@ func Build(options BuildOptions) (*Manifest, error) {
 				return filepath.SkipDir
 			}
 		}
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".gsx") {
+		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".gsx") || strings.HasSuffix(entry.Name(), ".go")) {
 			rel, relErr := filepath.Rel(physicalRoot, path)
 			if relErr != nil {
 				return relErr
 			}
-			paths[filepath.Clean(filepath.Join(root, rel))] = true
+			logical := filepath.Clean(filepath.Join(root, rel))
+			if strings.HasSuffix(entry.Name(), ".gsx") {
+				paths[logical] = true
+			} else {
+				goPaths[logical] = true
+			}
 		}
 		return nil
 	})
@@ -291,10 +300,25 @@ func Build(options BuildOptions) (*Manifest, error) {
 		}
 		pairedPresent[paired] = present
 	}
-	return newManifest(root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles)
+	helperGoFiles := make(map[string]FileSnapshot)
+	gsxDirs := make(map[string]bool)
+	for path := range sources {
+		gsxDirs[filepath.Dir(path)] = true
+	}
+	for path := range goPaths {
+		if gsxDirs[filepath.Dir(path)] {
+			helperGoFiles[path] = ReadFileSnapshot(path)
+		}
+	}
+	for path, snapshot := range trackedFiles {
+		if strings.HasSuffix(path, ".go") && gsxDirs[filepath.Dir(path)] {
+			helperGoFiles[path] = cloneFileSnapshot(snapshot)
+		}
+	}
+	return newManifest(root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles)
 }
 
-func newManifest(moduleRoot, physicalRoot, modulePath string, sources map[string][]byte, pairedPresent map[string]bool, preferredSentinels map[string]string, trackedFiles map[string]FileSnapshot) (*Manifest, error) {
+func newManifest(moduleRoot, physicalRoot, modulePath string, sources map[string][]byte, pairedPresent map[string]bool, preferredSentinels map[string]string, trackedFiles, helperGoFiles map[string]FileSnapshot) (*Manifest, error) {
 	manifest := &Manifest{
 		moduleRoot:    moduleRoot,
 		physicalRoot:  physicalRoot,
@@ -308,6 +332,7 @@ func newManifest(moduleRoot, physicalRoot, modulePath string, sources map[string
 		overlay:       make(map[string][]byte),
 		sentinelByDir: make(map[string]string),
 		trackedFiles:  cloneFileSnapshots(trackedFiles),
+		helperGoFiles: cloneFileSnapshots(helperGoFiles),
 	}
 	for path, snapshot := range manifest.trackedFiles {
 		if strings.HasSuffix(path, ".go") {
@@ -431,6 +456,7 @@ func (manifest *Manifest) WithFileSnapshots(snapshots map[string]FileSnapshot) (
 	pairedPresent := maps.Clone(manifest.pairedPresent)
 	preferredSentinels := maps.Clone(manifest.sentinelByDir)
 	trackedFiles := cloneFileSnapshots(manifest.trackedFiles)
+	helperGoFiles := cloneFileSnapshots(manifest.helperGoFiles)
 	for path, snapshot := range snapshots {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
@@ -449,6 +475,7 @@ func (manifest *Manifest) WithFileSnapshots(snapshots map[string]FileSnapshot) (
 		}
 		if strings.HasSuffix(absPath, ".go") {
 			trackedFiles[absPath] = cloneFileSnapshot(snapshot)
+			helperGoFiles[absPath] = cloneFileSnapshot(snapshot)
 			continue
 		}
 
@@ -480,12 +507,13 @@ func (manifest *Manifest) WithFileSnapshots(snapshots map[string]FileSnapshot) (
 			return nil, fmt.Errorf("sourceview: invalid saved file state %d for %s", snapshot.state, absPath)
 		}
 	}
-	return newManifest(manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles)
+	return newManifest(manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
 }
 
 // RefreshDirs replaces the saved GSX membership, bytes, paired-output state,
-// and sentinel choice for the listed direct package directories. Sources in
-// every other directory remain byte-for-byte identical to this snapshot.
+// helper-name Go inventory, and sentinel choice for the listed direct package
+// directories. Sources in every other directory remain byte-for-byte identical
+// to this snapshot.
 func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 	if manifest == nil {
 		return nil, fmt.Errorf("sourceview: nil saved manifest")
@@ -510,6 +538,7 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 	pairedPresent := maps.Clone(manifest.pairedPresent)
 	preferredSentinels := maps.Clone(manifest.sentinelByDir)
 	trackedFiles := cloneFileSnapshots(manifest.trackedFiles)
+	helperGoFiles := cloneFileSnapshots(manifest.helperGoFiles)
 	for path := range sources {
 		if !dirSet[filepath.Dir(path)] {
 			continue
@@ -528,6 +557,11 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 		}
 		trackedFiles[path] = ReadFileSnapshot(path)
 	}
+	for path := range helperGoFiles {
+		if dirSet[filepath.Dir(path)] {
+			delete(helperGoFiles, path)
+		}
+	}
 	for dir := range dirSet {
 		delete(preferredSentinels, dir)
 	}
@@ -545,7 +579,7 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 			return nil, fmt.Errorf("sourceview: read refresh directory %s: %w", dir, err)
 		}
 		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gsx") {
+			if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".gsx") && !strings.HasSuffix(entry.Name(), ".go")) {
 				continue
 			}
 			path := filepath.Join(dir, entry.Name())
@@ -554,6 +588,10 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 				return nil, err
 			}
 			if !owned {
+				continue
+			}
+			if strings.HasSuffix(entry.Name(), ".go") {
+				helperGoFiles[path] = ReadFileSnapshot(path)
 				continue
 			}
 			source, err := os.ReadFile(path)
@@ -576,7 +614,7 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 			pairedPresent[paired] = present
 		}
 	}
-	return newManifest(manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles)
+	return newManifest(manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
 }
 
 func cloneSources(sources map[string][]byte) map[string][]byte {
@@ -677,8 +715,8 @@ func (manifest *Manifest) Source(path string) ([]byte, bool) {
 
 // FileSnapshot returns an explicitly retained saved-source state. GSX
 // membership is complete, so a missing owned .gsx path is known absent. Go
-// membership remains cmd/go-owned; a Go path is known only after an editor
-// transition explicitly snapshots it.
+// paths explicitly captured by editor transitions are returned here; the
+// separate HelperGoFiles inventory owns build-oblivious helper-name inputs.
 func (manifest *Manifest) FileSnapshot(path string) (FileSnapshot, bool) {
 	path = filepath.Clean(path)
 	if source, ok := manifest.sources[path]; ok {
@@ -687,10 +725,29 @@ func (manifest *Manifest) FileSnapshot(path string) (FileSnapshot, bool) {
 	if snapshot, ok := manifest.trackedFiles[path]; ok {
 		return cloneFileSnapshot(snapshot), true
 	}
+	if snapshot, ok := manifest.helperGoFiles[path]; ok {
+		return cloneFileSnapshot(snapshot), true
+	}
 	if strings.HasSuffix(path, ".gsx") && PathWithin(manifest.moduleRoot, path) {
 		return AbsentFile(), true
 	}
 	return FileSnapshot{}, false
+}
+
+// HelperGoFiles returns the immutable Go-file membership and bytes that can
+// affect generated helper declarations in one GSX package directory. The view
+// includes inactive build variants, tests, handwritten and orphaned .x.go
+// files, plus exact present/absent override states. It does not select files for
+// compilation and therefore remains separate from PackagesOverlay.
+func (manifest *Manifest) HelperGoFiles(dir string) map[string]FileSnapshot {
+	dir = canonicalPath(dir)
+	files := make(map[string]FileSnapshot)
+	for path, snapshot := range manifest.helperGoFiles {
+		if canonicalPath(filepath.Dir(path)) == dir {
+			files[path] = cloneFileSnapshot(snapshot)
+		}
+	}
+	return files
 }
 
 // CheckReadable fails deterministically when any unmasked saved source is
