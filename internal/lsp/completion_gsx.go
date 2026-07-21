@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"go/types"
 	"path/filepath"
 	"sort"
 )
@@ -106,10 +107,12 @@ func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
 // componentTagItems enumerates component candidates for a tag cursor.
 //
 // qualifier == "": current-package components, plus one qualifier item per
-// imported gsx package that declares any component (label = import name,
-// insert = "name.", kind ciKindModule).
+// imported gsx package that declares any component (label = the import's
+// LOCAL name — its alias when the import is aliased — insert = "name.",
+// kind ciKindModule).
 //
-// qualifier != "": components of the import whose package NAME == qualifier.
+// qualifier != "": components of the import whose LOCAL name == qualifier
+// (alias-aware; see importQualifierCandidates).
 //
 // A component's ComponentKey (codegen's componentKey/componentObjectKey) is
 // "."+Name for a plain function component — a LEADING dot, not a bare name —
@@ -127,10 +130,8 @@ func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, t
 		return nil
 	}
 	if qualifier != "" {
-		for _, imp := range pkg.Types.Imports() {
-			if imp.Name() == qualifier {
-				return componentNameItems(pkg, imp.Path(), text, start, end, enc)
-			}
+		if path, ok := importQualifierCandidates(pkg)[qualifier]; ok {
+			return componentNameItems(pkg, path, text, start, end, enc)
 		}
 		return nil
 	}
@@ -174,15 +175,15 @@ func plainComponentName(key string) (string, bool) {
 
 // importQualifierItems returns one item per imported package that declares at
 // least one component (any ComponentDeclKey.PackagePath == the import's
-// path), sorted by import name for a deterministic list.
+// path), sorted by the import's local name for a deterministic list.
 func importQualifierItems(pkg *Package, text string, start, end int, enc encoding) []CompletionItem {
 	type qualifier struct{ name, path string }
 	var quals []qualifier
-	for _, imp := range pkg.Types.Imports() {
-		if !packageHasComponentDecls(pkg, imp.Path()) {
+	for name, path := range importQualifierCandidates(pkg) {
+		if !packageHasComponentDecls(pkg, path) {
 			continue
 		}
-		quals = append(quals, qualifier{imp.Name(), imp.Path()})
+		quals = append(quals, qualifier{name, path})
 	}
 	sort.Slice(quals, func(i, j int) bool { return quals[i].name < quals[j].name })
 	items := make([]CompletionItem, 0, len(quals))
@@ -190,6 +191,42 @@ func importQualifierItems(pkg *Package, text string, start, end int, enc encodin
 		items = append(items, newCompletionItem(text, start, end, enc, q.name, q.name+".", ciKindModule, tierContext, q.path, nil))
 	}
 	return items
+}
+
+// importQualifierCandidates resolves the imports visible at a `<qualifier.`
+// cursor as local-name -> import-path, dedup'd by local name.
+//
+// When pkg.Info is available (the common analyzed-package case) resolution
+// walks the file scopes exactly as Go itself resolves a qualified identifier:
+// in go/types, Info.Scopes records one scope per *ast.File (see
+// fileScopeSet), and every import declaration — aliased or not — is bound in
+// that file's scope as a *types.PkgName whose Name() is the LOCAL name (the
+// alias when the import is aliased, the package's declared name otherwise)
+// and whose Imported() is the imported *types.Package. Reading
+// pkg.Types.Imports()[i].Name() instead (the package's DECLARED name) is
+// blind to aliases — `import myui "example.com/ui"` would resolve as "ui",
+// never "myui".
+//
+// When pkg.Info is nil (a shell / type-error package with no scope info to
+// walk) this falls back to pkg.Types.Imports(), which cannot see aliases —
+// a documented best-effort degradation; the alternative is offering nothing
+// at all for such a package.
+func importQualifierCandidates(pkg *Package) map[string]string {
+	out := map[string]string{}
+	if pkg.Info != nil {
+		for scope := range fileScopeSet(pkg) {
+			for _, name := range scope.Names() {
+				if pn, ok := scope.Lookup(name).(*types.PkgName); ok {
+					out[pn.Name()] = pn.Imported().Path()
+				}
+			}
+		}
+		return out
+	}
+	for _, imp := range pkg.Types.Imports() {
+		out[imp.Name()] = imp.Path()
+	}
+	return out
 }
 
 // packageHasComponentDecls reports whether pkg.ComponentDecls contains any

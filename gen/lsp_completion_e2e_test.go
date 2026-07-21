@@ -445,9 +445,10 @@ func TestTagCompletionE2E(t *testing.T) {
 		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
 	}
 
-	// run opens source as a buffer, sends one completion at cursor, returns the
-	// label set, and asserts the root files exist under a fresh temp module.
-	run := func(t *testing.T, files map[string]string, gsxPath, source string, cursor int) map[string]bool {
+	// runRaw opens source as a buffer, sends one completion at cursor, returns
+	// the raw LSP output, and asserts the root files exist under a fresh temp
+	// module.
+	runRaw := func(t *testing.T, files map[string]string, gsxPath, source string, cursor int) string {
 		t.Helper()
 		root := t.TempDir()
 		write := func(name, content string) string {
@@ -493,7 +494,14 @@ func TestTagCompletionE2E(t *testing.T) {
 		if strings.Contains(output.String(), ".x.go") {
 			t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
 		}
-		return completionLabels(t, output.String(), 2)
+		return output.String()
+	}
+
+	// run is runRaw plus label extraction, for subtests that only need the
+	// label set.
+	run := func(t *testing.T, files map[string]string, gsxPath, source string, cursor int) map[string]bool {
+		t.Helper()
+		return completionLabels(t, runRaw(t, files, gsxPath, source, cursor), 2)
 	}
 
 	t.Run("local component", func(t *testing.T) {
@@ -515,6 +523,46 @@ func TestTagCompletionE2E(t *testing.T) {
 		}, "page/page.gsx", source, cursor)
 		if !got["Button"] {
 			t.Errorf("qualified tag completion missing imported component `Button`; labels=%v", got)
+		}
+	})
+
+	// aliased import guards the qualifier-resolution bug fixed alongside this
+	// test: resolving a `<qualifier.` cursor via pkg.Types.Imports()[i].Name()
+	// (the package's DECLARED name) rather than the file-scope *types.PkgName
+	// object (the LOCAL name, alias-aware) meant `<myui.` returned zero
+	// completions and the bare-`<` qualifier item inserted the invalid "ui."
+	// instead of "myui.".
+	t.Run("aliased import", func(t *testing.T) {
+		uiSource := "package ui\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n"
+		source := "package page\n\nimport myui \"example.com/app/ui\"\n\ncomponent Home() {\n\t<myui.Button label=\"hi\"/>\n\t<myui./>\n}\n"
+		files := map[string]string{
+			"page/page.gsx": source,
+			"ui/ui.gsx":     uiSource,
+		}
+
+		qualifiedCursor := strings.LastIndex(source, "<myui./>") + len("<myui.")
+		got := run(t, files, "page/page.gsx", source, qualifiedCursor)
+		if !got["Button"] {
+			t.Errorf("aliased tag completion missing imported component `Button`; labels=%v", got)
+		}
+
+		bareCursor := strings.Index(source, "<myui.Button") + len("<")
+		items := completionItems(t, runRaw(t, files, "page/page.gsx", source, bareCursor), 2)
+		const lspCompletionItemKindModule = 9 // ciKindModule in internal/lsp (unexported)
+		var qualItem *lsp.CompletionItem
+		for i := range items {
+			if items[i].Kind == lspCompletionItemKindModule {
+				qualItem = &items[i]
+			}
+		}
+		if qualItem == nil {
+			t.Fatalf("bare-cursor items = %+v, want a qualifier item for the aliased import", items)
+		}
+		if qualItem.Label != "myui" {
+			t.Errorf("qualifier item Label = %q, want %q (the alias, not the declared name)", qualItem.Label, "myui")
+		}
+		if qualItem.TextEdit == nil || qualItem.TextEdit.NewText != "myui." {
+			t.Errorf("qualifier item TextEdit = %+v, want NewText %q", qualItem.TextEdit, "myui.")
 		}
 	})
 }

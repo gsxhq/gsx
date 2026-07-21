@@ -270,6 +270,56 @@ func TestComponentTagItemsNilTypesFailsSoft(t *testing.T) {
 	}
 }
 
+// TestComponentTagItemsAliasedImport checks that qualifier resolution goes
+// through file-scope *types.PkgName objects (see importQualifierCandidates),
+// not pkg.Types.Imports()[i].Name() — which returns a package's DECLARED
+// name and is blind to a local import alias. The fixture aliases the real
+// "strings" package as "myui" (buildSyntheticPackage type-checks plain Go
+// source, so Info.Scopes carries real PkgName objects; ComponentDecls is
+// then attached by hand, keyed on "strings" — the import PATH, not its local
+// name — exactly like a real gsx sibling package would be). A `<myui.`
+// cursor must resolve "strings"'s (fake) components, and the bare-cursor
+// qualifier item must insert "myui.", never the declared name "strings.".
+func TestComponentTagItemsAliasedImport(t *testing.T) {
+	src := `package p
+
+import myui "strings"
+
+var _ = myui.ToUpper
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+	pkg.ComponentDecls = map[ComponentDeclKey][]sourceintel.VersionedSpan{
+		{PackagePath: "strings", ComponentKey: ".Button"}: nil,
+	}
+
+	items := componentTagItems(pkg, "myui", false, "", 0, 0, encUTF8)
+	if len(items) != 1 || items[0].Label != "Button" {
+		t.Fatalf("qualifier=%q items = %+v, want exactly [Button]", "myui", items)
+	}
+
+	// The declared name ("strings") must NOT resolve — only the alias does.
+	if items := componentTagItems(pkg, "strings", false, "", 0, 0, encUTF8); len(items) != 0 {
+		t.Fatalf("qualifier=%q items = %+v, want empty (declared name is not the local name)", "strings", items)
+	}
+
+	bareItems := componentTagItems(pkg, "", false, "", 0, 0, encUTF8)
+	var qualItem *CompletionItem
+	for i := range bareItems {
+		if bareItems[i].Kind == ciKindModule {
+			qualItem = &bareItems[i]
+		}
+	}
+	if qualItem == nil {
+		t.Fatalf("bare-cursor items = %+v, want a qualifier item", bareItems)
+	}
+	if qualItem.Label != "myui" {
+		t.Errorf("qualifier item Label = %q, want %q (the alias)", qualItem.Label, "myui")
+	}
+	if qualItem.TextEdit == nil || qualItem.TextEdit.NewText != "myui." {
+		t.Errorf("qualifier item TextEdit = %+v, want NewText %q", qualItem.TextEdit, "myui.")
+	}
+}
+
 // tagCompletionAnalyzer is a fake Analyzer (embeds nilAnalyzer for the unused
 // methods) whose AnalyzeEphemeral and Analyze are scripted independently, so
 // tests can drive both the ephemeral path and the s.pkgs[dir] fallback path —
