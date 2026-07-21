@@ -162,6 +162,7 @@ type Module struct {
 	goContext                 *GoCommandContext                   // complete Open-time Go command provenance; validated around every cold load
 	bundleProjectImportChecks map[string]bundleProjectImportCheck // Bundle local-Go transitive GSX guard, versioned by source membership epoch
 	overrides                 map[string][]byte                   // abs .gsx path -> in-memory source
+	ephemeral                 map[string][]byte                   // one-shot source overlay for AnalyzeEphemeral; non-nil only while it runs (under analysisMu)
 	ext                       types.Importer                      // lazily built external importer (stdlib + third-party)
 	extPkgs                   map[string]*types.Package           // the types behind ext, kept for subprocess-free filter-table harvests
 	externalImportPaths       map[string]bool                     // exact path set published by ext; safe retained superset for later GSX import edits
@@ -565,6 +566,11 @@ func (m *Module) updateSourceReloadReasonLocked(path string, current gsxSourceIn
 // observation outside the lock.
 func (m *Module) currentSource(absPath string) ([]byte, bool) {
 	m.mu.Lock()
+	if e, ok := m.ephemeral[absPath]; ok {
+		e = bytes.Clone(e)
+		m.mu.Unlock()
+		return e, true
+	}
 	ov, ok := m.overrides[absPath]
 	ov = bytes.Clone(ov)
 	savedSnapshot, savedSnapshotKnown := m.savedFileSnapshots[absPath]
@@ -1318,6 +1324,105 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	m.mu.Lock()
 	m.pkgResults[dir] = res
 	m.mu.Unlock()
+	return res, nil
+}
+
+// AnalyzeEphemeral runs one warm analysis of dir with absPath's source replaced
+// by src, WITHOUT recording the result: pkgResults is never written, and the
+// pkgTypes/targetDeclProvenance entries analyze writes for dir are snapshotted
+// and restored afterward. Dependency packages analyzed (and cached) along the
+// way use their real sources — that warmth is shared and desirable. Serialized
+// under analysisMu like Package/Generate. Source-level breakage returns a
+// diagnostics-only PackageResult (nil Info/Types), mirroring Package's shell
+// semantics.
+//
+// Cache-write audit (analyze's full body, module_importer.go:1032+, and every
+// function it calls with the analyzed dir): the ONLY module caches keyed by dir
+// that analyze writes from the patched source are pkgTypes[dir] (line ~1501)
+// and targetDeclProvenance[dir] (line ~1506); both are snapshot/restored below.
+// targetDeclTypes[dir] is NOT written for the analyzed dir — analyze marks it
+// loading in the componentTargetImporter, so a recursive
+// targetDeclarationPackage(dir) cycle-errors before its write. The import-graph
+// writes for dir — recordImports (shipping) and recordTargetImports (exact
+// target, via discoverComponentTargets) — replace dir's forward edges and its
+// reverse edges with the SAME set the live buffer records: the repair only
+// patches bytes at the cursor, so the import specs are byte-identical and the
+// rewrite is idempotent, exactly as the shipping-graph reasoning already
+// accepts (recordImports' own doc: "the edited package always re-analyzes in
+// the same turn"). sourceIndexBuildCount++ is a monotonic observability
+// counter, not a per-dir correctness cache. All other dir-keyed writes
+// (dirFuncTbls, typeEnvironment, configuredDeclTypes, recordSourceDeclImports)
+// key on config/import-derived dirs whose real sources the overlay never
+// touches — shared warmth, not corruption.
+func (m *Module) AnalyzeEphemeral(dir, absPath string, src []byte) (*PackageResult, error) {
+	m.analysisMu.Lock()
+	defer m.analysisMu.Unlock()
+	m.maybeRebuildFset()
+	m.applyDirty()
+	if err := m.validateConfiguredMergers(); err != nil {
+		return nil, err
+	}
+	ext, err := m.externalImporter()
+	if err != nil {
+		return nil, err
+	}
+
+	// Install the one-shot overlay and snapshot the two cache entries analyze
+	// writes for dir (see the cache-write audit above).
+	m.mu.Lock()
+	m.ephemeral = map[string][]byte{absPath: src}
+	prevTypes, hadTypes := m.pkgTypes[dir]
+	var prevProv map[string]componentTargetDeclarationProvenance
+	var hadProv bool
+	if m.targetDeclProvenance != nil {
+		prevProv, hadProv = m.targetDeclProvenance[dir]
+	}
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		m.ephemeral = nil
+		if hadTypes {
+			m.pkgTypes[dir] = prevTypes
+		} else {
+			delete(m.pkgTypes, dir)
+		}
+		if m.targetDeclProvenance != nil {
+			if hadProv {
+				m.targetDeclProvenance[dir] = prevProv
+			} else {
+				delete(m.targetDeclProvenance, dir)
+			}
+		}
+		m.mu.Unlock()
+	}()
+
+	a, err := m.analyze(dir, newModuleImporter(m, ext), analysisRetainedPackage)
+	if err != nil {
+		if diags, ok := diagnosticsFromSourceError(err); ok {
+			return &PackageResult{Files: map[string][]byte{}, Diags: diags}, nil
+		}
+		return nil, err
+	}
+	res := &PackageResult{
+		Files:       map[string][]byte{},
+		GSXFset:     a.gsxFset,
+		Fset:        a.skelFset,
+		Info:        a.info,
+		Types:       a.pkg,
+		GSXFiles:    a.gsxFiles,
+		ExprMap:     a.exprMap,
+		CtrlMap:     a.ctrlMap,
+		SigTypes:    a.sigTypes,
+		SourceIndex: a.sourceIndex,
+	}
+	res.Diags = a.bag.Sorted()
+	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
+	res.ComponentCalls = componentCallFacts(a.positionalPlan)
+	res.ComponentDecls = a.componentDecls
+	res.Filters = filterCandidates(a.table)
+	// NOT stored in m.pkgResults, NOT running generateFile (emit-side
+	// diagnostics are irrelevant to completion), no param decl/ref facts
+	// (rename-only surface).
 	return res, nil
 }
 

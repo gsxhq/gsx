@@ -84,3 +84,72 @@ func TestPackageResultFilters(t *testing.T) {
 		t.Fatalf("upper = %+v, want Func=Upper Pkg=github.com/gsxhq/gsx/std", up)
 	}
 }
+
+func TestAnalyzeEphemeralBasics(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	live := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	m.SetOverride(pagePath, live)
+	base, err := m.Package(dir)
+	if err != nil || base.Info == nil {
+		t.Fatalf("baseline: %v info=%v", err, base.Info)
+	}
+
+	// Ephemeral: the phantom-repaired trailing-dot buffer. user._ typechecks
+	// with a type error but full Info (probe 2026-07-21).
+	patched := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user._ }</div>\n}\n")
+	eph, err := m.AnalyzeEphemeral(dir, pagePath, patched)
+	if err != nil {
+		t.Fatalf("AnalyzeEphemeral: %v", err)
+	}
+	if eph.Info == nil || eph.Types == nil {
+		t.Fatal("ephemeral result missing Info/Types")
+	}
+	if len(eph.ExprMap) == 0 {
+		t.Fatal("ephemeral ExprMap empty; want the user._ interp bridged")
+	}
+	if len(eph.Filters) == 0 {
+		t.Fatal("ephemeral result missing Filters")
+	}
+
+	// The persistent view is untouched: Package(dir) returns the SAME cached
+	// result pointer as before, and its facts reflect the live buffer.
+	after, err := m.Package(dir)
+	if err != nil {
+		t.Fatalf("Package after ephemeral: %v", err)
+	}
+	if after != base {
+		t.Fatal("AnalyzeEphemeral evicted the cached PackageResult; must not touch pkgResults")
+	}
+}
+
+func TestAnalyzeEphemeralShellOnBrokenElsewhere(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	// other.gsx is valid; break page.gsx structurally somewhere the repair
+	// didn't fix (an unclosed tag on a DIFFERENT line than the "cursor").
+	patched := []byte("package page\n\ncomponent Home(user User) {\n\t<div\n\t<span>{ user._ }</span>\n}\n")
+	m.SetOverride(pagePath, []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n"))
+	eph, err := m.AnalyzeEphemeral(dir, pagePath, patched)
+	if err != nil {
+		t.Fatalf("AnalyzeEphemeral must not hard-error on parse diags: %v", err)
+	}
+	if eph.Info != nil {
+		t.Fatal("want diagnostics-only shell for unrepaired parse error")
+	}
+	if len(eph.Diags) == 0 {
+		t.Fatal("shell result must carry the parse diagnostics")
+	}
+}
+
+func TestAnalyzeEphemeralDoesNotDirty(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	m.SetOverride(pagePath, []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n"))
+	if _, err := m.Package(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.AnalyzeEphemeral(dir, pagePath, []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user._ }</div>\n}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.dirtyDirs(); len(got) != 0 {
+		t.Fatalf("ephemeral analysis dirtied %v; must leave dirty tracking untouched", got)
+	}
+}
