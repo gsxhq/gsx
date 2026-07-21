@@ -61,12 +61,44 @@ The combined artifacts remain at the prescribed `Page.cpu`,
 `Table.cpu`, and corresponding paths. They are used for allocation call-tree
 ownership, not normal CPU-share claims.
 
+The exact prescribed combined-profile loop was:
+
+```sh
+cd /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench
+for name in Page Table ForwardedAttrs FoldedAttrs Comments; do
+  GOCACHE=/tmp/gsx-runtime-audit-cache go test -run '^$' -bench "^Benchmark${name}GSXPooled$" -benchtime=5s -cpuprofile "/tmp/gsx-runtime-audit/${name}.cpu" -memprofile "/tmp/gsx-runtime-audit/${name}.mem" -memprofilerate=1 .
+  go tool pprof -top -nodecount=30 "/tmp/gsx-runtime-audit/${name}.cpu" > "/tmp/gsx-runtime-audit/${name}.cpu.top"
+  go tool pprof -top -alloc_space -nodecount=30 "/tmp/gsx-runtime-audit/${name}.mem" > "/tmp/gsx-runtime-audit/${name}.mem.top"
+done
+```
+
 With explicit approval, a separate, non-replacing CPU-only set was collected
 with the same benchmark expressions and 5-second duration at
 `*CPUOnly.cpu`/`*CPUOnly.cpu.top`. Normal CPU attribution below comes from that
-set. Memory-only Stats and Piped profiles were also added to separate numeric
-scratch allocation from pipeline user work. The compiler and symbol traces
-were collected exactly as planned:
+set. Its distinct-filename loop was:
+
+```sh
+cd /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench
+for name in Page Table ForwardedAttrs FoldedAttrs Comments; do
+  GOCACHE=/tmp/gsx-runtime-audit-cache go test -run '^$' -bench "^Benchmark${name}GSXPooled$" -benchtime=5s -cpuprofile "/tmp/gsx-runtime-audit/${name}CPUOnly.cpu" .
+  go tool pprof -top -nodecount=30 "/tmp/gsx-runtime-audit/${name}CPUOnly.cpu" > "/tmp/gsx-runtime-audit/${name}CPUOnly.cpu.top"
+done
+```
+
+Memory-only Stats and Piped profiles were also added to separate numeric
+scratch allocation from pipeline user work. They used rate-1 sampling for 5
+seconds and retained both allocation-space and allocation-object reports:
+
+```sh
+cd /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench
+for name in Stats Piped; do
+  GOCACHE=/tmp/gsx-runtime-audit-cache go test -run '^$' -bench "^Benchmark${name}GSXPooled$" -benchtime=5s -memprofile "/tmp/gsx-runtime-audit/${name}.mem" -memprofilerate=1 .
+  go tool pprof -top -alloc_space -nodecount=30 "/tmp/gsx-runtime-audit/${name}.mem" > "/tmp/gsx-runtime-audit/${name}.mem.top"
+  go tool pprof -top -alloc_objects -nodecount=30 "/tmp/gsx-runtime-audit/${name}.mem" > "/tmp/gsx-runtime-audit/${name}.objects.top"
+done
+```
+
+The compiler and symbol traces were collected exactly as planned:
 
 ```sh
 GOCACHE=/tmp/gsx-runtime-audit-cache go test -run '^$' -gcflags='all=-m=2' . 2> /tmp/gsx-runtime-audit/escape.txt
@@ -128,9 +160,12 @@ allocations on pooled/discard to 784 B/8 allocations. That builder growth is
 destination work and is not ranked as runtime overhead.
 
 The parallel Page result is throughput context on 32 logical CPUs, not a
-single-request latency result. Its identical 62 allocations show that parallel
-execution did not introduce shared render state, but it is not compared to the
-serial value as an optimisation claim.
+single-request latency result. Its equal 62 allocations prove only that the
+measured per-operation allocation count is unchanged under the benchmark's
+parallel scheduling. Allocation equality does not prove an absence of shared
+state; concurrency safety must come from race tests and adversarial concurrent
+probes. The parallel time is not compared to the serial value as an
+optimisation claim.
 
 ## Core Microbenchmarks
 
@@ -170,8 +205,8 @@ for the ten-sample baseline medians.
 
 | Profile | Relevant normal-CPU attribution |
 | --- | --- |
-| ForwardedAttrs | `(*Writer).Spread` 30.56%; `attrNameExcluded` 9.64%; `strings.EqualFold` 7.35% flat; `lastValidAttrIndexes` 4.90%; `StyleMerged` 6.21%; `ClassMerged` 1.47% |
-| FoldedAttrs | `(*Writer).Spread` 26.88%; `attrNameExcluded` 8.19%; `strings.EqualFold` 6.55% flat; `lastValidAttrIndexes` 5.59%; `StyleMerged` 6.28%; `Attrs.Class` 4.37%; `ConcatAttrs` 2.73%; `ClassMerged` 2.32% |
+| ForwardedAttrs | `(*Writer).Spread` 30.56% broad cumulative; `attrNameExcluded` 9.64% cumulative, including `strings.EqualFold` 7.35% flat; duplicate-resolution `lastValidAttrIndexes` 4.90%; `StyleMerged` 6.21%; `ClassMerged` 1.47% |
+| FoldedAttrs | `(*Writer).Spread` 26.88% broad cumulative; `attrNameExcluded` 8.19% cumulative, including `strings.EqualFold` 6.55% flat; duplicate-resolution `lastValidAttrIndexes` 5.59%; `StyleMerged` 6.28%; `Attrs.Class` 4.37%; `ConcatAttrs` 2.73%; `ClassMerged` 2.32% |
 | Table | child `Card.func1` 34.25%; `(*Writer).Node` 34.66% including that child body; `Card` constructor 7.98%; `runtime.mallocgc` 7.36%; `Writer.Text` 12.99% |
 | Page | child `UserCard.func1` 44.27%; `Writer.Node` 44.94% including the child; user `Row.Href`/`fmt.Sprintf` 9.94%; `Writer.Class` 7.73%; `Writer.Text` 7.39%; `runtime.mallocgc` 8.41% |
 | Comments | `Writer.Text` 71.83%; `writeHTML` 70.63%; `strings.(*byteStringReplacer).WriteString` 69.87%; buffer `WriteString` 25.44% |
@@ -179,9 +214,13 @@ for the ten-sample baseline medians.
 `Writer.Node` includes the complete child render and therefore is not itself a
 34% to 45% removable dispatch cost. The constructor and allocation samples,
 plus the allocation profile, isolate the removable composition part. Likewise,
-`Spread` includes its writes and value sinks; the narrower repeated classifier
-subtree is the first variable to test, not a claim that the full cumulative
-share can disappear.
+`Spread` includes writes, value sinks, classification, and duplicate
+resolution. Its cumulative share is broader than the static URL/name
+classifier. The `attrNameExcluded` cumulative share already contains the flat
+`strings.EqualFold` share, so those percentages are not additive.
+`lastValidAttrIndexes` and its map operations implement separate duplicate
+resolution and would remain unchanged by a static URL/name-classifier
+experiment.
 
 Comments is an intentionally escape-heavy user workload. It confirms that the
 faithful HTML escaper and destination copying dominate that scenario; it does
@@ -257,11 +296,15 @@ The exact hot call shape is the generated
 `_gsxgw.Spread(ctx, attrs, navNames, imageNames, srcsetNames, prefixes,
 excluded)` in `ForwardedLink` and the corresponding call over `_gsxv2` in
 `FoldedTabs`. `Writer.Spread` is 30.56% of ForwardedAttrs and 26.88% of
-FoldedAttrs CPU-only samples. Within it, repeated exact name matching is visible
-in `attrNameExcluded`, `strings.EqualFold`, `lastValidAttrIndexes`, and map
-operations. It allocates nothing at these call sites, so this is a CPU candidate
-only. The 13.38 us ForwardedAttrs discard result proves the time is not mainly
-the pooled destination.
+FoldedAttrs CPU-only samples, but that is the broad cumulative function share,
+not removable classifier cost. Static URL/name membership appears in the
+`attrNameExcluded` cumulative subtree (9.64% and 8.19%), which already includes
+the flat `strings.EqualFold` samples (7.35% and 6.55%). In contrast,
+`lastValidAttrIndexes` and its map operations implement duplicate resolution;
+they are not changed by the proposed classifier representation. None of these
+shares may be summed. The path allocates nothing at these call sites, so this is
+a CPU candidate only. The 13.38 us ForwardedAttrs discard result proves the
+time is not mainly the pooled destination.
 
 The single-variable experiment is to change only the representation and lookup
 of codegen-known URL/name policy: replace the repeated linear scans of static
@@ -310,11 +353,13 @@ goldens, `make ci`, and `make lint`.
 
 ## Ranked Candidate 3
 
-### Conditional investigation: generated child direct-render boundary
+### Evidence for a separate follow-up plan: generated child boundary
 
-Decision: defer rather than reject. Reprofile after Candidates 1 and 2, then
-keep investigating only if composition remains a dominant representative
-allocation cost.
+Decision: this measurement task authorises no generated/runtime ABI experiment.
+Preserve the evidence for a separate follow-up optimisation plan. After
+Candidates 1 and 2, that plan may reprofile composition and explicitly decide
+whether to select a large direct-render experiment under the large-change gate.
+Until such a plan selects it, implementation is deferred.
 
 The exact generated call is `_gsxgw.Node(ctx, Card(r, nil))`, with the same
 shape for `UserCard` and `ForwardedLink`. Table measures 2.821 us, 1,955 B, and
@@ -324,23 +369,14 @@ allocations, and ForwardedAttrs repeats 20 `ForwardedLink` constructors within
 its 81. Escape analysis proves the closure-backed `Func` escapes at the `Node`
 interface boundary.
 
-This candidate is real but ranks after the smaller attribute experiments
-because it changes generated/runtime ABI. The only authorised single-variable
-experiment is a genuinely direct generated renderer entry point for statically
-resolved generated child calls, so the parent calls the child's render body
-without constructing a `Node` or crossing the interface. The public/external
-render path must delegate to the same single body; there must not be duplicated
-render logic. Writer error retention, child order, nil behavior where applicable,
-context propagation, method/imported components, and evaluation order remain
-unchanged.
-
-The deciding benchmarks are Table, Page, and ForwardedAttrs, plus an exact core
-direct-child benchmark added before the experiment. A large ABI change passes
-only with a clear double-digit affected end-to-end time win or a substantial
-representative allocation reduction with no material regression. Correctness
-gates include component call and tuple-error corpus cases, nested/imported/method
-components, render-error probes, output equivalence, race tests, full corpus
-regeneration, `make ci`, and `make lint`.
+The evidence rules out assuming that a different `Node` representation alone
+would remove the escapes. If a separate approved plan selects component
+composition for experimentation, it must define a genuinely direct ABI and its
+large-change acceptance and correctness gates. This note neither prescribes nor
+authorises that code change. The relevant evidence surfaces for such a future
+plan are Table, Page, and ForwardedAttrs; component call and tuple-error corpus
+cases; nested/imported/method components; render-error probes; output
+equivalence; race tests; full corpus regeneration; `make ci`; and `make lint`.
 
 ## Paths Already Fast or Inherent
 
@@ -369,8 +405,9 @@ regeneration, `make ci`, and `make lint`.
 
 - **Reject the old struct-backed Node experiment.** It retained per-child
   allocations at `Writer.Node(Node)` because the interface boundary, not merely
-  the closure representation, caused the escape. Candidate 3 is a distinct
-  direct-call experiment and must not reintroduce that struct design.
+  the closure representation, caused the escape. Any future approved plan must
+  not reintroduce that struct design; this note does not authorise an
+  alternative.
 - **Reject empty-bag and empty-style specialisation work.** The measured path is
   already zero-allocation and single-digit nanoseconds.
 - **Reject weakening HTML or URL handling to chase profile shares.** Escaping,
@@ -396,10 +433,11 @@ regeneration, `make ci`, and `make lint`.
    `StyleMerged`/`splitDecls` allocations in ForwardedAttrs remain material, run
    a separate exact quote/parenthesis-aware single-contributor style-parser
    experiment; do not use a delimiter shortcut.
-4. Only after those smaller slices, prototype Candidate 3's direct generated
-   child entry point. Apply the large-change acceptance gate and delete the
-   experiment cleanly if it removes allocations without a material
-   representative benefit.
+4. After those smaller slices and fresh profiles, carry Candidate 3's evidence
+   into a separate follow-up optimisation plan. That plan, not this baseline
+   task, must decide whether to authorise a large direct-render ABI experiment
+   and define its acceptance gate. Without that explicit selection, make no
+   component ABI change.
 
 Every slice starts from a focused correctness case and benchmark, changes one
 performance variable, collects interleaved ten-sample before/after data with
