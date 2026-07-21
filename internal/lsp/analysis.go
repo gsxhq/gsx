@@ -8,6 +8,7 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // CrossRef is one component's cross-boundary entry (see the .go->.gsx design):
@@ -55,12 +56,20 @@ type ComponentParamFact struct {
 // planned markup call. Params is keyed by the authored attribute node, so LSP
 // never needs to reproduce component binding rules.
 type ComponentCallFact struct {
-	Target        types.Object
-	TargetOrigin  types.Object
-	TargetPackage string
-	TargetKey     string
-	Signature     *types.Signature
-	Params        map[gsxast.Attr]ComponentParamFact
+	Target             types.Object
+	TargetOrigin       types.Object
+	TargetPackage      string
+	TargetKey          string
+	Signature          *types.Signature
+	Params             map[gsxast.Attr]ComponentParamFact
+	TargetDecls        []sourceintel.VersionedSpan
+	ParamDecls         map[int][]sourceintel.VersionedSpan
+	TargetPresentation string
+}
+
+type ComponentDeclKey struct {
+	PackagePath  string
+	ComponentKey string
 }
 
 // ComponentParamKey is the stable semantic identity of one callable parameter
@@ -113,10 +122,15 @@ type SigTypeRef struct {
 // *token.FileSet (the module-wide shared fset); callers must not assume they
 // are distinct objects.
 type Package struct {
-	Diags      []diag.Diagnostic
-	GSXFset    *token.FileSet
-	Fset       *token.FileSet
-	Info       *types.Info
+	Diags   []diag.Diagnostic
+	GSXFset *token.FileSet
+	Fset    *token.FileSet
+	Info    *types.Info
+
+	// SourceIndex is codegen's immutable authored-source semantic index. The
+	// adapter preserves its pointer and package-snapshot lifetime directly.
+	SourceIndex *sourceintel.Index
+
 	Types      *types.Package
 	ExprMap    map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
@@ -125,6 +139,7 @@ type Package struct {
 	// ComponentCalls maps authored elements to exact target and parameter facts.
 	// The package owns this immutable analysis snapshot and its nested maps.
 	ComponentCalls map[*gsxast.Element]ComponentCallFact
+	ComponentDecls map[ComponentDeclKey][]sourceintel.VersionedSpan
 
 	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock, and each
 	// value-form if condition's *ValueIf) to its

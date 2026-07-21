@@ -4,9 +4,12 @@ import (
 	goast "go/ast"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceintel"
+	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 // LSP SymbolKind numeric constants (subset gsx emits).
@@ -21,8 +24,8 @@ const (
 )
 
 // Symbol is one navigable declaration in a .gsx file: a component or a
-// top-level Go declaration inside a GoChunk. Positions are resolved against the
-// file's FileSet (byte columns, 1-based line/column).
+// top-level authored Go declaration. Positions are resolved against the file's
+// FileSet (byte columns, 1-based line/column).
 type Symbol struct {
 	Name      string
 	Kind      int            // LSP SymbolKind
@@ -32,23 +35,122 @@ type Symbol struct {
 	DeclEnd   token.Position // end of the whole declaration
 }
 
-// FileSymbols extracts the symbols declared in one parsed .gsx file. fset
-// resolves gsx node positions (the package's GSXFset or the module-shared fset).
-// A nil file yields no symbols.
-func FileSymbols(path string, file *gsxast.File, fset *token.FileSet) []Symbol {
-	if file == nil {
-		return nil
+// FileSymbols extracts the symbols declared in one parsed .gsx file. Components
+// are owned by the GSX AST. Top-level Go declarations come from the retained
+// semantic index when it describes these exact source bytes; otherwise a
+// focused partial-parser fallback recovers declarations from current authored
+// Go regions.
+func FileSymbols(path string, source []byte, file *gsxast.File, fset *token.FileSet, index *sourceintel.Index) []Symbol {
+	semantic := file != nil && fset != nil && index != nil && index.MatchesSource(path, source)
+	if !semantic {
+		fset = token.NewFileSet()
+		file, _ = gsxparser.ParseFileWithClassifier(fset, path, source, 0, nil)
+		if file == nil {
+			return nil
+		}
 	}
 	var out []Symbol
 	for _, d := range file.Decls {
 		switch decl := d.(type) {
 		case *gsxast.Component:
 			out = append(out, componentSymbol(file, fset, decl))
-		case *gsxast.GoChunk:
-			out = append(out, goChunkSymbols(file, fset, decl)...)
 		}
 	}
+	if semantic {
+		for _, declaration := range index.Declarations(path) {
+			if symbol, ok := semanticDeclarationSymbol(file, fset, declaration); ok {
+				out = append(out, symbol)
+			}
+		}
+	} else {
+		for _, d := range file.Decls {
+			switch declaration := d.(type) {
+			case *gsxast.GoChunk:
+				out = append(out, partialGoChunkSymbols(file, fset, source, declaration)...)
+			case *gsxast.GoWithElements:
+				out = append(out, partialGoWithElementsSymbols(file, fset, source, declaration)...)
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left, right := out[i], out[j]
+		if left.DeclStart.Offset != right.DeclStart.Offset {
+			return left.DeclStart.Offset < right.DeclStart.Offset
+		}
+		leftLength := left.DeclEnd.Offset - left.DeclStart.Offset
+		rightLength := right.DeclEnd.Offset - right.DeclStart.Offset
+		if leftLength != rightLength {
+			return leftLength < rightLength
+		}
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		return left.Name < right.Name
+	})
 	return out
+}
+
+func semanticDeclarationSymbol(file *gsxast.File, fset *token.FileSet, declaration sourceintel.Declaration) (Symbol, bool) {
+	kind, ok := semanticSymbolKind(declaration.Kind)
+	if !ok || declaration.NameSpan.Path != declaration.DeclSpan.Path {
+		return Symbol{}, false
+	}
+	namePos, ok := sourceOffsetPosition(file, fset, declaration.NameSpan.Start)
+	if !ok {
+		return Symbol{}, false
+	}
+	declStart, ok := sourceOffsetPosition(file, fset, declaration.DeclSpan.Start)
+	if !ok {
+		return Symbol{}, false
+	}
+	declEnd, ok := sourceOffsetPosition(file, fset, declaration.DeclSpan.End)
+	if !ok {
+		return Symbol{}, false
+	}
+	container := declaration.Container
+	if container == "" {
+		container = file.Package
+	}
+	return Symbol{
+		Name:      declaration.Name,
+		Kind:      kind,
+		Container: container,
+		NamePos:   namePos,
+		DeclStart: declStart,
+		DeclEnd:   declEnd,
+	}, true
+}
+
+func semanticSymbolKind(kind sourceintel.DeclarationKind) (int, bool) {
+	switch kind {
+	case sourceintel.DeclarationFunction:
+		return symKindFunction, true
+	case sourceintel.DeclarationMethod:
+		return symKindMethod, true
+	case sourceintel.DeclarationType:
+		return symKindClass, true
+	case sourceintel.DeclarationStruct:
+		return symKindStruct, true
+	case sourceintel.DeclarationInterface:
+		return symKindInterface, true
+	case sourceintel.DeclarationConstant:
+		return symKindConstant, true
+	case sourceintel.DeclarationVariable:
+		return symKindVariable, true
+	default:
+		return 0, false
+	}
+}
+
+func sourceOffsetPosition(file *gsxast.File, fset *token.FileSet, offset int) (token.Position, bool) {
+	if file == nil || fset == nil {
+		return token.Position{}, false
+	}
+	tokenFile := fset.File(file.Pos())
+	if tokenFile == nil || offset < 0 || offset > tokenFile.Size() {
+		return token.Position{}, false
+	}
+	return fset.Position(tokenFile.Pos(offset)), true
 }
 
 func componentSymbol(file *gsxast.File, fset *token.FileSet, c *gsxast.Component) Symbol {
@@ -68,56 +170,264 @@ func componentSymbol(file *gsxast.File, fset *token.FileSet, c *gsxast.Component
 	}
 }
 
-// goWrapPrefix wraps a GoChunk's verbatim source so go/parser accepts it as a
-// file. Its byte length is subtracted when mapping parsed offsets back into the
-// .gsx (the chunk's Src is the source verbatim, so offsets align 1:1).
-const goWrapPrefix = "package p\n"
+// partialGoWrapPrefix makes one reconstructed authored region a parseable file.
+// It has no source mapping and is removed before translating parser offsets.
+const partialGoWrapPrefix = "package p\n"
 
-// goChunkSymbols parses a GoChunk's verbatim Go source and returns a Symbol for
-// each top-level func/type/const/var declaration, with positions mapped back
-// into the .gsx file. A chunk whose Src does not parse yields no symbols.
-func goChunkSymbols(file *gsxast.File, fset *token.FileSet, gc *gsxast.GoChunk) []Symbol {
-	gfset := token.NewFileSet()
-	gf, err := parser.ParseFile(gfset, "chunk.go", goWrapPrefix+gc.Src, 0)
-	if err != nil {
-		return nil // incomplete fragment; skip (tolerant)
+type partialGoSegment struct {
+	parsedStart int
+	parsedEnd   int
+	sourceStart int
+	sourceEnd   int
+	linear      bool
+}
+
+type partialGoSource struct {
+	text     strings.Builder
+	segments []partialGoSegment
+}
+
+func (s *partialGoSource) appendAuthored(text string, sourceStart, sourceEnd int) bool {
+	if sourceEnd-sourceStart != len(text) || !s.canAppend(sourceStart) {
+		return false
 	}
-	tf := fset.File(gc.Pos())
-	if tf == nil {
+	parsedStart := s.text.Len()
+	s.text.WriteString(text)
+	s.segments = append(s.segments, partialGoSegment{
+		parsedStart: parsedStart,
+		parsedEnd:   s.text.Len(),
+		sourceStart: sourceStart,
+		sourceEnd:   sourceEnd,
+		linear:      true,
+	})
+	return true
+}
+
+func (s *partialGoSource) appendExpressionPlaceholder(source []byte, sourceStart, sourceEnd int) bool {
+	if sourceStart < 0 || sourceEnd-sourceStart < 2 || sourceEnd > len(source) || !s.canAppend(sourceStart) {
+		return false
+	}
+	placeholder := make([]byte, sourceEnd-sourceStart)
+	for i := range placeholder {
+		placeholder[i] = ' '
+	}
+	placeholder[0] = '`'
+	placeholder[len(placeholder)-1] = '`'
+	for i, b := range source[sourceStart:sourceEnd] {
+		// Preserve physical line breaks at their authored byte offsets, but leave
+		// CR as a same-width space. Go removes CR from raw literal token values;
+		// retaining it could make ast.BasicLit.End shorter than the physical
+		// placeholder and destroy the exact endpoint proof below.
+		if b == '\n' {
+			if i == 0 || i == len(placeholder)-1 {
+				return false
+			}
+			placeholder[i] = b
+		}
+	}
+	parsedStart := s.text.Len()
+	s.text.Write(placeholder)
+	s.segments = append(s.segments, partialGoSegment{
+		parsedStart: parsedStart,
+		parsedEnd:   s.text.Len(),
+		sourceStart: sourceStart,
+		sourceEnd:   sourceEnd,
+	})
+	return true
+}
+
+func (s *partialGoSource) canAppend(sourceStart int) bool {
+	if len(s.segments) == 0 {
+		return true
+	}
+	last := s.segments[len(s.segments)-1]
+	return last.parsedEnd == s.text.Len() && last.sourceEnd == sourceStart
+}
+
+func (s *partialGoSource) sourceOffset(parsedOffset int) (int, bool) {
+	for _, segment := range s.segments {
+		if parsedOffset < segment.parsedStart {
+			return 0, false
+		}
+		if parsedOffset > segment.parsedEnd {
+			continue
+		}
+		if segment.linear {
+			return segment.sourceStart + parsedOffset - segment.parsedStart, true
+		}
+		switch parsedOffset {
+		case segment.parsedStart:
+			return segment.sourceStart, true
+		case segment.parsedEnd:
+			return segment.sourceEnd, true
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func (s *partialGoSource) linearSourceSpan(parsedStart, parsedEnd int) (int, int, bool) {
+	if parsedEnd <= parsedStart {
+		return 0, 0, false
+	}
+	for _, segment := range s.segments {
+		if parsedStart < segment.parsedStart {
+			return 0, 0, false
+		}
+		if parsedStart > segment.parsedEnd || parsedEnd > segment.parsedEnd {
+			continue
+		}
+		if !segment.linear {
+			return 0, 0, false
+		}
+		sourceStart := segment.sourceStart + parsedStart - segment.parsedStart
+		sourceEnd := segment.sourceStart + parsedEnd - segment.parsedStart
+		return sourceStart, sourceEnd, true
+	}
+	return 0, 0, false
+}
+
+// partialGoChunkSymbols parses a GoChunk's verbatim source in recovery mode and
+// emits only declarations represented by the returned partial Go AST.
+func partialGoChunkSymbols(file *gsxast.File, fset *token.FileSet, source []byte, chunk *gsxast.GoChunk) []Symbol {
+	tokenFile := fset.File(chunk.Pos())
+	if tokenFile == nil || tokenFile.Size() != len(source) {
 		return nil
 	}
-	chunkOff := tf.Offset(gc.Pos())
+	start := tokenFile.Offset(chunk.Pos())
+	end := tokenFile.Offset(chunk.End())
+	if start < 0 || end < start || end > len(source) || chunk.Src != string(source[start:end]) {
+		return nil
+	}
+	var reconstructed partialGoSource
+	if !reconstructed.appendAuthored(chunk.Src, start, end) {
+		return nil
+	}
+	return partialGoSymbols(file.Package, fset, tokenFile, source, reconstructed)
+}
 
-	// mapPos converts a token.Pos in the wrapped parse to a resolved position in
-	// the .gsx file via exact byte arithmetic.
-	mapPos := func(p token.Pos) token.Position {
-		w := gfset.Position(p).Offset
-		gsxOff := chunkOff + (w - len(goWrapPrefix))
-		return fset.Position(tf.Pos(gsxOff))
+func partialGoWithElementsSymbols(file *gsxast.File, fset *token.FileSet, source []byte, declaration *gsxast.GoWithElements) []Symbol {
+	tokenFile := fset.File(declaration.Pos())
+	if tokenFile == nil || tokenFile.Size() != len(source) {
+		return nil
+	}
+	declarationStart := tokenFile.Offset(declaration.Pos())
+	declarationEnd := tokenFile.Offset(declaration.End())
+	if declarationStart < 0 || declarationEnd < declarationStart || declarationEnd > len(source) {
+		return nil
+	}
+	var reconstructed partialGoSource
+	cursor := declarationStart
+	for _, part := range declaration.Parts {
+		if fset.File(part.Pos()) != tokenFile || fset.File(part.End()) != tokenFile {
+			return nil
+		}
+		start := tokenFile.Offset(part.Pos())
+		end := tokenFile.Offset(part.End())
+		if start != cursor || end < start || end > declarationEnd {
+			return nil
+		}
+		switch part := part.(type) {
+		case gsxast.GoText:
+			if part.Src != string(source[start:end]) || !reconstructed.appendAuthored(part.Src, start, end) {
+				return nil
+			}
+		case *gsxast.Element, *gsxast.Fragment, *gsxast.EmbeddedInterp:
+			if !reconstructed.appendExpressionPlaceholder(source, start, end) {
+				return nil
+			}
+		default:
+			return nil
+		}
+		cursor = end
+	}
+	if cursor != declarationEnd || reconstructed.text.Len() != declarationEnd-declarationStart {
+		return nil
+	}
+	return partialGoSymbols(file.Package, fset, tokenFile, source, reconstructed)
+}
+
+func partialGoSymbols(packageName string, sourceFset *token.FileSet, sourceTokenFile *token.File, source []byte, reconstructed partialGoSource) []Symbol {
+	gfset := token.NewFileSet()
+	gf, _ := parser.ParseFile(gfset, "recovery.go", partialGoWrapPrefix+reconstructed.text.String(), parser.AllErrors|parser.SkipObjectResolution)
+	if gf == nil {
+		return nil
+	}
+	parsedTokenFile := gfset.File(gf.Pos())
+	if parsedTokenFile == nil {
+		return nil
 	}
 
+	mapPos := func(pos token.Pos) (token.Position, bool) {
+		parsedOffset := parsedTokenFile.Offset(pos) - len(partialGoWrapPrefix)
+		sourceOffset, ok := reconstructed.sourceOffset(parsedOffset)
+		if !ok || sourceOffset < 0 || sourceOffset > sourceTokenFile.Size() {
+			return token.Position{}, false
+		}
+		return sourceFset.Position(sourceTokenFile.Pos(sourceOffset)), true
+	}
+	// Parser recovery may synthesize identifiers. Prove the complete token came
+	// from one verbatim authored segment before publishing it as a symbol.
+	mapIdent := func(ident *goast.Ident) (token.Position, bool) {
+		if ident == nil || gfset.File(ident.Pos()) != parsedTokenFile || gfset.File(ident.End()) != parsedTokenFile {
+			return token.Position{}, false
+		}
+		parsedStart := parsedTokenFile.Offset(ident.Pos()) - len(partialGoWrapPrefix)
+		parsedEnd := parsedTokenFile.Offset(ident.End()) - len(partialGoWrapPrefix)
+		sourceStart, sourceEnd, ok := reconstructed.linearSourceSpan(parsedStart, parsedEnd)
+		if !ok || sourceStart < 0 || sourceEnd > len(source) || string(source[sourceStart:sourceEnd]) != ident.Name {
+			return token.Position{}, false
+		}
+		return sourceFset.Position(sourceTokenFile.Pos(sourceStart)), true
+	}
+	return partialGoASTSymbols(packageName, gf, mapPos, mapIdent)
+}
+
+func partialGoASTSymbols(packageName string, file *goast.File, mapPos func(token.Pos) (token.Position, bool), mapIdent func(*goast.Ident) (token.Position, bool)) []Symbol {
 	var out []Symbol
-	for _, d := range gf.Decls {
+	for _, d := range file.Decls {
 		switch decl := d.(type) {
 		case *goast.FuncDecl:
+			if decl.Name == nil {
+				continue
+			}
 			kind := symKindFunction
-			container := file.Package
+			container := packageName
 			if decl.Recv != nil && len(decl.Recv.List) > 0 {
 				kind = symKindMethod
 				container = exprTypeName(decl.Recv.List[0].Type)
 			}
+			namePos, nameOK := mapIdent(decl.Name)
+			declStart, startOK := mapPos(decl.Pos())
+			declEnd, endOK := mapPos(decl.End())
+			if !nameOK || !startOK || !endOK {
+				continue
+			}
 			out = append(out, Symbol{
 				Name: decl.Name.Name, Kind: kind, Container: container,
-				NamePos: mapPos(decl.Name.Pos()), DeclStart: mapPos(decl.Pos()), DeclEnd: mapPos(decl.End()),
+				NamePos: namePos, DeclStart: declStart, DeclEnd: declEnd,
 			})
 		case *goast.GenDecl:
+			declStart, startOK := mapPos(decl.Pos())
+			declEnd, endOK := mapPos(decl.End())
+			if !startOK || !endOK {
+				continue
+			}
 			switch decl.Tok {
 			case token.TYPE:
 				for _, sp := range decl.Specs {
-					ts := sp.(*goast.TypeSpec)
+					ts, ok := sp.(*goast.TypeSpec)
+					if !ok || ts.Name == nil {
+						continue
+					}
+					namePos, ok := mapIdent(ts.Name)
+					if !ok {
+						continue
+					}
 					out = append(out, Symbol{
-						Name: ts.Name.Name, Kind: typeSpecKind(ts), Container: file.Package,
-						NamePos: mapPos(ts.Name.Pos()), DeclStart: mapPos(ts.Pos()), DeclEnd: mapPos(ts.End()),
+						Name: ts.Name.Name, Kind: typeSpecKind(ts), Container: packageName,
+						NamePos: namePos, DeclStart: declStart, DeclEnd: declEnd,
 					})
 				}
 			case token.CONST, token.VAR:
@@ -126,14 +436,18 @@ func goChunkSymbols(file *gsxast.File, fset *token.FileSet, gc *gsxast.GoChunk) 
 					kind = symKindConstant
 				}
 				for _, sp := range decl.Specs {
-					vs := sp.(*goast.ValueSpec)
+					vs, ok := sp.(*goast.ValueSpec)
+					if !ok {
+						continue
+					}
 					for _, n := range vs.Names {
-						if n.Name == "_" {
+						namePos, ok := mapIdent(n)
+						if !ok || n.Name == "_" {
 							continue
 						}
 						out = append(out, Symbol{
-							Name: n.Name, Kind: kind, Container: file.Package,
-							NamePos: mapPos(n.Pos()), DeclStart: mapPos(vs.Pos()), DeclEnd: mapPos(vs.End()),
+							Name: n.Name, Kind: kind, Container: packageName,
+							NamePos: namePos, DeclStart: declStart, DeclEnd: declEnd,
 						})
 					}
 				}

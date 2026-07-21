@@ -2,7 +2,6 @@ package lsp
 
 import (
 	"encoding/json"
-	"go/token"
 	"path/filepath"
 )
 
@@ -28,33 +27,33 @@ func (s *Server) handleDocumentSymbol(f frame) error {
 	if file == nil {
 		return s.reply(f.ID, []DocumentSymbol{})
 	}
-	text, _ := s.docs.text(uri) // "" if not open; positions still map best-effort
-	lineAt := lineAtFunc(text)
+	sources := s.sourceSnapshot()
+	text, ok := sources.sourceText(path)
+	if !ok {
+		return s.reply(f.ID, []DocumentSymbol{})
+	}
 
-	syms := FileSymbols(path, file, pkg.GSXFset)
+	syms := FileSymbols(path, text, file, pkg.GSXFset, pkg.SourceIndex)
 	out := make([]DocumentSymbol, 0, len(syms))
 	for _, sym := range syms {
+		declarationRange, ok := sources.rangeForAuthoredPositions(sym.DeclStart, sym.DeclEnd)
+		if !ok {
+			continue
+		}
+		nameSpan, ok := authoredSpanForPosition(sym.NamePos, len(sym.Name))
+		if !ok {
+			continue
+		}
+		selectionRange, ok := sources.rangeForSpan(nameSpan)
+		if !ok {
+			continue
+		}
 		out = append(out, DocumentSymbol{
 			Name:           sym.Name,
 			Kind:           sym.Kind,
-			Range:          Range{Start: convertPos(sym.DeclStart, lineAt, s.enc), End: convertPos(sym.DeclEnd, lineAt, s.enc)},
-			SelectionRange: nameSelectionRange(sym, lineAt, s.enc),
+			Range:          declarationRange,
+			SelectionRange: selectionRange,
 		})
 	}
 	return s.reply(f.ID, out)
-}
-
-// nameSelectionRange builds the range covering just the symbol's name on its
-// declaration line.
-func nameSelectionRange(sym Symbol, lineAt func(int) string, enc encoding) Range {
-	start := convertPos(sym.NamePos, lineAt, enc)
-	endCol := sym.NamePos.Column + len(sym.Name)
-	end := convertPos(tokenPosAtColumn(sym.NamePos, endCol), lineAt, enc)
-	return Range{Start: start, End: end}
-}
-
-// tokenPosAtColumn returns a copy of p with the given 1-based byte column.
-func tokenPosAtColumn(p token.Position, col int) token.Position {
-	p.Column = col
-	return p
 }

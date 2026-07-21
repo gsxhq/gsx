@@ -6,6 +6,8 @@ import (
 	"errors"
 	"go/token"
 	"go/types"
+	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -15,6 +17,100 @@ import (
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
+
+type watchedWorkspaceSymbolAnalyzer struct {
+	*wsSymAnalyzer
+	refreshCalls    [][]string
+	refreshHook     func([]string)
+	refreshErr      error
+	refreshErrs     []error
+	refreshIndex    int
+	refreshAffected []string
+}
+
+func (a *watchedWorkspaceSymbolAnalyzer) RefreshDisk(paths []string) ([]string, error) {
+	a.refreshCalls = append(a.refreshCalls, slices.Clone(paths))
+	err := a.refreshErr
+	if a.refreshIndex < len(a.refreshErrs) {
+		err = a.refreshErrs[a.refreshIndex]
+		a.refreshIndex++
+	}
+	if err == nil && a.refreshHook != nil {
+		a.refreshHook(paths)
+	}
+	return slices.Clone(a.refreshAffected), err
+}
+
+type pendingMetadataFixture struct {
+	server       *Server
+	analyzer     *watchedWorkspaceSymbolAnalyzer
+	output       *bytes.Buffer
+	first        string
+	second       string
+	firstMod     string
+	secondMod    string
+	firstPath    string
+	secondPath   string
+	firstSource  string
+	secondSource string
+}
+
+func newPendingMetadataFixture(t *testing.T) *pendingMetadataFixture {
+	t.Helper()
+	root := t.TempDir()
+	first := writeWorkspaceSymbolModule(t, filepath.Join(root, "first"))
+	second := writeWorkspaceSymbolModule(t, filepath.Join(root, "second"))
+	firstPath := filepath.Join(first, "page.gsx")
+	secondPath := filepath.Join(second, "page.gsx")
+	firstSource := "package first\n\nvar Before = 1\nvar After = 2\n"
+	secondSource := "package second\n\nvar Stable = 1\n"
+	writeWorkspaceSymbolSource(t, firstPath, firstSource)
+	writeWorkspaceSymbolSource(t, secondPath, secondSource)
+	before := Symbol{Name: "Before", Kind: symKindVariable, Container: "first", NamePos: authoredTokenPosition(firstPath, firstSource, strings.Index(firstSource, "Before"))}
+	after := Symbol{Name: "After", Kind: symKindVariable, Container: "first", NamePos: authoredTokenPosition(firstPath, firstSource, strings.Index(firstSource, "After"))}
+	stable := Symbol{Name: "Stable", Kind: symKindVariable, Container: "second", NamePos: authoredTokenPosition(secondPath, secondSource, strings.Index(secondSource, "Stable"))}
+	base := &wsSymAnalyzer{symsByModule: map[string][]Symbol{first: {before}, second: {stable}}}
+	analyzer := &watchedWorkspaceSymbolAnalyzer{wsSymAnalyzer: base}
+	firstMod := filepath.Join(first, "go.mod")
+	analyzer.refreshHook = func(paths []string) {
+		if slices.Contains(paths, firstMod) {
+			base.symsByModule[first] = []Symbol{after}
+		}
+	}
+	var output bytes.Buffer
+	server := NewServer(nil, &output, analyzer)
+	if err := server.setWorkspaceFolders([]workspaceFolder{{URI: pathToURI(first)}, {URI: pathToURI(second)}}); err != nil {
+		t.Fatal(err)
+	}
+	return &pendingMetadataFixture{
+		server: server, analyzer: analyzer, output: &output,
+		first: first, second: second, firstMod: firstMod, secondMod: filepath.Join(second, "go.mod"),
+		firstPath: firstPath, secondPath: secondPath, firstSource: firstSource, secondSource: secondSource,
+	}
+}
+
+func (fixture *pendingMetadataFixture) symbols(t *testing.T, id int) []SymbolInformation {
+	t.Helper()
+	params, _ := json.Marshal(workspaceSymbolParams{})
+	if err := fixture.server.handleWorkspaceSymbol(frame{ID: json.RawMessage(strconv.Itoa(id)), Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	var result []SymbolInformation
+	decodeResult(t, fixture.output.String(), id, &result)
+	return result
+}
+
+func (fixture *pendingMetadataFixture) watch(t *testing.T, paths ...string) {
+	t.Helper()
+	changes := make([]fileEvent, len(paths))
+	for i, path := range paths {
+		changes[i] = fileEvent{URI: pathToURI(path), Type: fileChangeChanged}
+	}
+	params, _ := json.Marshal(didChangeWatchedFilesParams{Changes: changes})
+	if err := fixture.server.handleDidChangeWatchedFiles(frame{Params: params}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type watchedFilesAnalyzer struct {
 	nilAnalyzer
@@ -310,6 +406,420 @@ func TestDidChangeWatchedFilesRefreshesAllEventKindsAndOpenAffectedPackages(t *t
 	}
 	if got := analyzer.analyses; len(got) != 2 || got[0] != openDir || got[1] != openDir {
 		t.Fatalf("analyzed dirs = %v, want didOpen plus watched refresh of open affected package", got)
+	}
+}
+
+func TestDidChangeWatchedFilesRebuildsWorkspaceOwnershipAndRecovers(t *testing.T) {
+	workspace := t.TempDir()
+	first := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "first"))
+	second := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "second"))
+	third := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "third"))
+	goWorkPath := filepath.Join(workspace, "go.work")
+	writeWork := func(uses string) {
+		t.Helper()
+		writeWorkspaceSymbolSource(t, goWorkPath, "go 1.26.1\n\nuse (\n"+uses+")\n")
+	}
+	writeWork("\t./first\n\t./second\n")
+	type moduleSource struct {
+		root, path, source, name string
+	}
+	modules := []moduleSource{
+		{root: first, path: filepath.Join(first, "page.gsx"), source: "package page\n\nvar First = 1\n", name: "First"},
+		{root: second, path: filepath.Join(second, "page.gsx"), source: "package page\n\nvar Second = 1\n", name: "Second"},
+		{root: third, path: filepath.Join(third, "page.gsx"), source: "package page\n\nvar Third = 1\n", name: "Third"},
+	}
+	syms := make(map[string][]Symbol, len(modules))
+	for _, module := range modules {
+		writeWorkspaceSymbolSource(t, module.path, module.source)
+		syms[module.root] = []Symbol{{Name: module.name, Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(module.path, module.source, strings.Index(module.source, module.name))}}
+	}
+	analyzer := &watchedWorkspaceSymbolAnalyzer{wsSymAnalyzer: &wsSymAnalyzer{symsByModule: syms}}
+	var output bytes.Buffer
+	server := NewServer(nil, &output, analyzer)
+	if err := server.setWorkspaceFolders([]workspaceFolder{{URI: pathToURI(workspace), Name: "workspace"}}); err != nil {
+		t.Fatal(err)
+	}
+	requestSymbols := func(id int) []SymbolInformation {
+		t.Helper()
+		params, _ := json.Marshal(workspaceSymbolParams{})
+		if err := server.handleWorkspaceSymbol(frame{ID: json.RawMessage(strconv.Itoa(id)), Params: params}); err != nil {
+			t.Fatal(err)
+		}
+		var result []SymbolInformation
+		decodeResult(t, output.String(), id, &result)
+		return result
+	}
+	watch := func(path string) {
+		t.Helper()
+		params, _ := json.Marshal(didChangeWatchedFilesParams{Changes: []fileEvent{{URI: pathToURI(path), Type: fileChangeChanged}}})
+		if err := server.handleDidChangeWatchedFiles(frame{Params: params}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := func(symbols []SymbolInformation) []string {
+		result := make([]string, len(symbols))
+		for i, symbol := range symbols {
+			result[i] = symbol.Name
+		}
+		return result
+	}
+
+	if got := names(requestSymbols(10)); !slices.Equal(got, []string{"First", "Second"}) {
+		t.Fatalf("initial workspace symbols = %v, want First Second", got)
+	}
+	if err := os.WriteFile(goWorkPath, []byte("go not-a-version\nuse (\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch(goWorkPath)
+	if got := requestSymbols(11); len(got) != 0 {
+		t.Fatalf("malformed workspace symbols = %+v, want fail closed", got)
+	}
+	if !server.diskViewValid {
+		t.Fatal("malformed workspace metadata poisoned the permanent disk view")
+	}
+	if server.workspaceViewValid {
+		t.Fatal("malformed workspace metadata left workspace ownership valid")
+	}
+	if want := []string{first, second}; !slices.Equal(server.workspaceModules, want) || server.workspaceModulePaths[first] != "example.test/first" || server.workspaceModulePaths[second] != "example.test/second" {
+		t.Fatalf("malformed metadata partially replaced ownership: modules=%v paths=%v", server.workspaceModules, server.workspaceModulePaths)
+	}
+	if len(analyzer.refreshCalls) != 0 {
+		t.Fatalf("malformed ownership metadata reached analyzer RefreshDisk: %v", analyzer.refreshCalls)
+	}
+	watch(goWorkPath)
+	if got := requestSymbols(111); len(got) != 0 || server.workspaceViewValid {
+		t.Fatalf("repeated malformed event restored workspace ownership: symbols=%+v valid=%t", got, server.workspaceViewValid)
+	}
+	if got := strings.Count(output.String(), "refresh workspace ownership for"); got != 2 {
+		t.Fatalf("malformed ownership logs = %d, want exactly one per failed event", got)
+	}
+	if !strings.Contains(output.String(), goWorkPath) || !strings.Contains(output.String(), "parse workspace file") {
+		t.Fatalf("malformed ownership error was not surfaced actionably: %s", output.String())
+	}
+
+	writeWork("\t./first\n\t./third\n")
+	watch(goWorkPath)
+	if got := names(requestSymbols(12)); !slices.Equal(got, []string{"First", "Third"}) {
+		t.Fatalf("recovered workspace symbols = %v, want First Third", got)
+	}
+	if !server.workspaceViewValid {
+		t.Fatal("fixed workspace metadata did not restore ownership validity")
+	}
+	if want := []string{first, third}; !slices.Equal(server.workspaceModules, want) {
+		t.Fatalf("recovered workspace modules = %v, want %v", server.workspaceModules, want)
+	}
+	if _, retained := server.moduleSyms[second]; retained {
+		t.Fatalf("removed module cache retained: %+v", server.moduleSyms)
+	}
+	if server.workspaceModuleOwners[first] != workspace || server.workspaceModuleOwners[third] != workspace || server.workspaceModulePaths[third] != "example.test/third" {
+		t.Fatalf("recovered ownership metadata = owners %v paths %v", server.workspaceModuleOwners, server.workspaceModulePaths)
+	}
+	if len(analyzer.refreshCalls) != 1 || !slices.Equal(analyzer.refreshCalls[0], []string{goWorkPath}) {
+		t.Fatalf("recovered metadata refresh calls = %v, want fixed go.work once", analyzer.refreshCalls)
+	}
+	if analyzer.callsByModule[first] != 2 || analyzer.callsByModule[second] != 1 || analyzer.callsByModule[third] != 1 {
+		t.Fatalf("module symbol calls = %v, want first recovery refresh, removed second once, new third once", analyzer.callsByModule)
+	}
+}
+
+func TestDidChangeWatchedFilesRefreshesModuleDirectiveContainersAndRecovers(t *testing.T) {
+	workspace := t.TempDir()
+	first := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "first"))
+	second := writeWorkspaceSymbolModule(t, filepath.Join(workspace, "second"))
+	firstPath := filepath.Join(first, "page.gsx")
+	secondPath := filepath.Join(second, "page.gsx")
+	firstSource := "package page\n\nvar SharedFirst = 1\n"
+	secondSource := "package page\n\nvar SharedSecond = 1\n"
+	writeWorkspaceSymbolSource(t, firstPath, firstSource)
+	writeWorkspaceSymbolSource(t, secondPath, secondSource)
+	analyzer := &watchedWorkspaceSymbolAnalyzer{wsSymAnalyzer: &wsSymAnalyzer{symsByModule: map[string][]Symbol{
+		first:  {{Name: "SharedFirst", Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(firstPath, firstSource, strings.Index(firstSource, "SharedFirst"))}},
+		second: {{Name: "SharedSecond", Kind: symKindVariable, Container: "page", NamePos: authoredTokenPosition(secondPath, secondSource, strings.Index(secondSource, "SharedSecond"))}},
+	}}}
+	var output bytes.Buffer
+	server := NewServer(nil, &output, analyzer)
+	if err := server.setWorkspaceFolders([]workspaceFolder{{URI: pathToURI(first)}, {URI: pathToURI(second)}}); err != nil {
+		t.Fatal(err)
+	}
+	request := func(id int) []SymbolInformation {
+		params, _ := json.Marshal(workspaceSymbolParams{Query: "Shared"})
+		if err := server.handleWorkspaceSymbol(frame{ID: json.RawMessage(strconv.Itoa(id)), Params: params}); err != nil {
+			t.Fatal(err)
+		}
+		var result []SymbolInformation
+		decodeResult(t, output.String(), id, &result)
+		return result
+	}
+	watch := func() {
+		params, _ := json.Marshal(didChangeWatchedFilesParams{Changes: []fileEvent{{URI: pathToURI(filepath.Join(first, "go.mod")), Type: fileChangeChanged}}})
+		if err := server.handleDidChangeWatchedFiles(frame{Params: params}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := request(20); len(got) != 2 || got[0].ContainerName != "example.test/first" {
+		t.Fatalf("initial ambiguous containers = %+v", got)
+	}
+	if err := os.WriteFile(filepath.Join(first, "go.mod"), []byte("module\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch()
+	if got := request(21); len(got) != 0 {
+		t.Fatalf("malformed go.mod workspace symbols = %+v, want fail closed", got)
+	}
+	if !server.diskViewValid || len(analyzer.refreshCalls) != 0 {
+		t.Fatalf("malformed go.mod poisoned disk view or reached analyzer: valid=%t calls=%v", server.diskViewValid, analyzer.refreshCalls)
+	}
+	if server.workspaceViewValid {
+		t.Fatal("malformed go.mod left workspace ownership valid")
+	}
+	if server.workspaceModulePaths[first] != "example.test/first" {
+		t.Fatalf("malformed go.mod partially replaced module path: %v", server.workspaceModulePaths)
+	}
+	if !strings.Contains(output.String(), filepath.Join(first, "go.mod")) || !strings.Contains(output.String(), "parse module file") {
+		t.Fatalf("malformed go.mod ownership error was not surfaced: %s", output.String())
+	}
+	writeWorkspaceSymbolSource(t, filepath.Join(first, "go.mod"), "module example.test/renamed\n\ngo 1.26.1\n")
+	watch()
+	got := request(22)
+	if !server.workspaceViewValid {
+		t.Fatal("fixed go.mod did not restore workspace ownership validity")
+	}
+	if len(got) != 2 || got[0].ContainerName != "example.test/renamed" {
+		t.Fatalf("refreshed module directive containers = %+v, want example.test/renamed", got)
+	}
+	if len(analyzer.refreshCalls) != 1 || !slices.Equal(analyzer.refreshCalls[0], []string{filepath.Join(first, "go.mod")}) {
+		t.Fatalf("recovered go.mod refresh calls = %v, want fixed module metadata once", analyzer.refreshCalls)
+	}
+	writeWorkspaceSymbolSource(t, filepath.Join(first, "go.mod"), "module example.test/renamed\n\ngo 1.26.1\n// same module identity, changed build universe\n")
+	watch()
+	_ = request(23)
+	if analyzer.callsByModule[first] != 3 || analyzer.callsByModule[second] != 3 {
+		t.Fatalf("same-identity go.mod edit reused symbol caches: calls=%v, want both modules rebuilt", analyzer.callsByModule)
+	}
+}
+
+func TestDidChangeWatchedFilesReplaysAllWithheldMetadataBeforeRecovery(t *testing.T) {
+	fixture := newPendingMetadataFixture(t)
+	if got := fixture.symbols(t, 30); len(got) != 2 || got[0].Name != "Before" {
+		t.Fatalf("initial symbols = %+v, want Before and Stable", got)
+	}
+	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
+	if err := os.WriteFile(fixture.secondMod, []byte("module\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.watch(t, fixture.firstMod, fixture.secondMod)
+	if len(fixture.analyzer.refreshCalls) != 0 || len(fixture.symbols(t, 31)) != 0 {
+		t.Fatalf("failed batch refreshed metadata or served symbols: calls=%v", fixture.analyzer.refreshCalls)
+	}
+	if got := slices.Sorted(maps.Keys(fixture.server.pendingWorkspaceMetadata)); !slices.Equal(got, []string{fixture.firstMod, fixture.secondMod}) {
+		t.Fatalf("withheld metadata = %v, want exact normalized A+B paths", got)
+	}
+
+	writeWorkspaceSymbolSource(t, fixture.secondMod, "module example.test/second\n\ngo 1.26.1\n")
+	fixture.watch(t, fixture.secondMod)
+	wantReplay := []string{fixture.firstMod, fixture.secondMod}
+	slices.Sort(wantReplay)
+	if len(fixture.analyzer.refreshCalls) != 1 || !slices.Equal(fixture.analyzer.refreshCalls[0], wantReplay) {
+		t.Fatalf("recovery refresh = %v, want retained union %v", fixture.analyzer.refreshCalls, wantReplay)
+	}
+	if len(fixture.server.pendingWorkspaceMetadata) != 0 {
+		t.Fatalf("successful replay retained pending metadata: %v", fixture.server.pendingWorkspaceMetadata)
+	}
+	got := fixture.symbols(t, 32)
+	if len(got) != 2 || got[0].Name != "After" || got[1].Name != "Stable" {
+		t.Fatalf("recovered symbols = %+v, want refreshed After and Stable", got)
+	}
+}
+
+func TestWorkspaceFolderRemovalReplaysRetainedPendingMetadata(t *testing.T) {
+	fixture := newPendingMetadataFixture(t)
+	_ = fixture.symbols(t, 40)
+	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
+	if err := os.WriteFile(fixture.secondMod, []byte("module\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.watch(t, fixture.firstMod, fixture.secondMod)
+	if len(fixture.analyzer.refreshCalls) != 0 || len(fixture.symbols(t, 41)) != 0 {
+		t.Fatalf("failed batch refreshed metadata or served symbols: calls=%v", fixture.analyzer.refreshCalls)
+	}
+	if got := slices.Sorted(maps.Keys(fixture.server.pendingWorkspaceMetadata)); !slices.Equal(got, []string{fixture.firstMod, fixture.secondMod}) {
+		t.Fatalf("withheld metadata = %v, want exact normalized A+B paths", got)
+	}
+
+	params, _ := json.Marshal(didChangeWorkspaceFoldersParams{Event: workspaceFoldersChangeEvent{
+		Removed: []workspaceFolder{{URI: pathToURI(fixture.second), Name: "second"}},
+	}})
+	if err := fixture.server.handleDidChangeWorkspaceFolders(frame{Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.analyzer.refreshCalls) != 1 || !slices.Equal(fixture.analyzer.refreshCalls[0], []string{fixture.firstMod}) {
+		t.Fatalf("folder-removal recovery refresh = %v, want retained first go.mod only", fixture.analyzer.refreshCalls)
+	}
+	if len(fixture.server.pendingWorkspaceMetadata) != 0 {
+		t.Fatalf("folder recovery retained removed/replayed metadata: %v", fixture.server.pendingWorkspaceMetadata)
+	}
+	got := fixture.symbols(t, 42)
+	if len(got) != 1 || got[0].Name != "After" {
+		t.Fatalf("symbols after removing malformed module = %+v, want refreshed After only", got)
+	}
+}
+
+func TestDidChangeWatchedFilesKeepsPendingMetadataWhenAnalyzerReplayFails(t *testing.T) {
+	fixture := newPendingMetadataFixture(t)
+	if got := fixture.symbols(t, 50); len(got) != 2 || got[0].Name != "Before" || got[1].Name != "Stable" {
+		t.Fatalf("initial symbols = %+v, want Before and Stable", got)
+	}
+	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
+	if err := os.WriteFile(fixture.secondMod, []byte("module\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.watch(t, fixture.firstMod, fixture.secondMod)
+	writeWorkspaceSymbolSource(t, fixture.secondMod, "module example.test/second\n\ngo 1.26.1\n")
+	fixture.analyzer.refreshErr = errors.New("replay failed")
+	fixture.watch(t, fixture.secondMod)
+	if got := slices.Sorted(maps.Keys(fixture.server.pendingWorkspaceMetadata)); !slices.Equal(got, []string{fixture.firstMod, fixture.secondMod}) {
+		t.Fatalf("failed analyzer replay cleared pending metadata: %v", got)
+	}
+	if fixture.server.workspaceViewValid {
+		t.Fatal("failed analyzer replay restored workspace validity")
+	}
+	if !fixture.server.diskViewValid {
+		t.Fatal("recoverable metadata replay failure poisoned permanent disk view")
+	}
+	if logs := fixture.output.String(); !strings.Contains(logs, "replay workspace metadata") || !strings.Contains(logs, "relevant metadata event succeeds") || strings.Contains(logs, "language server restarts") {
+		t.Fatalf("recoverable metadata replay log blurred restart boundary: %s", logs)
+	}
+	if got := fixture.symbols(t, 51); len(got) != 0 {
+		t.Fatalf("failed metadata replay served workspace symbols: %+v", got)
+	}
+
+	fixture.analyzer.refreshErr = nil
+	fixture.watch(t, fixture.secondMod)
+	wantReplay := []string{fixture.firstMod, fixture.secondMod}
+	slices.Sort(wantReplay)
+	if len(fixture.analyzer.refreshCalls) != 2 || !slices.Equal(fixture.analyzer.refreshCalls[0], wantReplay) || !slices.Equal(fixture.analyzer.refreshCalls[1], wantReplay) {
+		t.Fatalf("metadata replay attempts = %v, want two exact A+B attempts %v", fixture.analyzer.refreshCalls, wantReplay)
+	}
+	if len(fixture.server.pendingWorkspaceMetadata) != 0 {
+		t.Fatalf("successful retry retained pending metadata: %v", fixture.server.pendingWorkspaceMetadata)
+	}
+	if !fixture.server.diskViewValid || !fixture.server.workspaceViewValid {
+		t.Fatalf("successful retry validity: disk=%t workspace=%t, want both true", fixture.server.diskViewValid, fixture.server.workspaceViewValid)
+	}
+	got := fixture.symbols(t, 52)
+	if len(got) != 2 || got[0].Name != "After" || got[1].Name != "Stable" {
+		t.Fatalf("retried symbols = %+v, want refreshed After and Stable", got)
+	}
+}
+
+func TestDidChangeWatchedFilesMetadataReplayFailureInvalidatesExactAffectedPackages(t *testing.T) {
+	fixture := newPendingMetadataFixture(t)
+	unaffectedDir := t.TempDir()
+	unaffectedPath := filepath.Join(unaffectedDir, "unaffected.gsx")
+	unaffectedSource := "package unaffected\ncomponent Unaffected() { <p/> }\n"
+	writeWorkspaceSymbolSource(t, unaffectedPath, unaffectedSource)
+	fixture.server.docs.open(pathToURI(fixture.firstPath), fixture.firstSource, 1)
+	fixture.server.docs.open(pathToURI(fixture.secondPath), fixture.secondSource, 1)
+	fixture.server.docs.open(pathToURI(unaffectedPath), unaffectedSource, 1)
+	firstPkg := &Package{}
+	secondPkg := &Package{}
+	unaffectedPkg, _ := parseOnlyPackage(t, unaffectedPath, unaffectedSource)
+	fixture.server.pkgs[fixture.first] = firstPkg
+	fixture.server.pkgs[fixture.second] = secondPkg
+	fixture.server.pkgs[unaffectedDir] = unaffectedPkg
+	fixture.server.epoch[fixture.first] = 7
+	fixture.server.gen[fixture.first] = 11
+	fixture.server.epoch[fixture.second] = 13
+	fixture.server.gen[fixture.second] = 17
+
+	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
+	fixture.analyzer.refreshAffected = []string{fixture.second, fixture.first, filepath.Join(fixture.first, ".")}
+	fixture.analyzer.refreshErr = errors.New("metadata replay partially transitioned")
+	fixture.watch(t, fixture.firstMod)
+
+	if fixture.server.pkgs[fixture.first] != nil || fixture.server.pkgs[fixture.second] != nil {
+		t.Fatalf("failed metadata replay retained affected package facts: first=%p second=%p", fixture.server.pkgs[fixture.first], fixture.server.pkgs[fixture.second])
+	}
+	if fixture.server.pkgs[unaffectedDir] != unaffectedPkg {
+		t.Fatal("failed metadata replay evicted unaffected package facts")
+	}
+	if fixture.server.epoch[fixture.first] != 8 || fixture.server.gen[fixture.first] != 12 || fixture.server.epoch[fixture.second] != 14 || fixture.server.gen[fixture.second] != 18 {
+		t.Fatalf("failed metadata replay mutations: first epoch/gen=%d/%d second=%d/%d, want one exact mutation each", fixture.server.epoch[fixture.first], fixture.server.gen[fixture.first], fixture.server.epoch[fixture.second], fixture.server.gen[fixture.second])
+	}
+	if fixture.server.epoch[unaffectedDir] != 0 || fixture.server.gen[unaffectedDir] != 0 {
+		t.Fatalf("failed metadata replay mutated unaffected package: epoch/gen=%d/%d", fixture.server.epoch[unaffectedDir], fixture.server.gen[unaffectedDir])
+	}
+	if !fixture.server.diskViewValid || fixture.server.workspaceViewValid {
+		t.Fatalf("failed metadata replay validity: disk=%t workspace=%t, want true/false", fixture.server.diskViewValid, fixture.server.workspaceViewValid)
+	}
+	if got := slices.Sorted(maps.Keys(fixture.server.pendingWorkspaceMetadata)); !slices.Equal(got, []string{fixture.firstMod}) {
+		t.Fatalf("failed metadata replay pending = %v, want first go.mod", got)
+	}
+	if output := fixture.output.String(); strings.Count(output, "textDocument/publishDiagnostics") != 2 || strings.Count(output, `"diagnostics":[]`) != 2 || strings.Contains(output, pathToURI(unaffectedPath)) {
+		t.Fatalf("failed metadata replay did not clear only affected open diagnostics: %s", output)
+	}
+
+	request := func(id int, method string, params any) json.RawMessage {
+		t.Helper()
+		raw, _ := json.Marshal(params)
+		if err := fixture.server.handle(frame{ID: json.RawMessage(strconv.Itoa(id)), Method: method, Params: raw}); err != nil {
+			t.Fatal(err)
+		}
+		return responseByID(t, fixture.output.String(), id)["result"]
+	}
+	position := textDocumentPositionParams{TextDocument: textDocumentIdentifier{URI: pathToURI(fixture.firstPath)}}
+	if got := string(request(54, "textDocument/definition", position)); got != "null" {
+		t.Fatalf("definition after partial metadata transition = %s, want null", got)
+	}
+	if got := string(request(55, "textDocument/hover", position)); got != "null" {
+		t.Fatalf("hover after partial metadata transition = %s, want null", got)
+	}
+	document := documentSymbolParams{TextDocument: textDocumentIdentifier{URI: pathToURI(fixture.firstPath)}}
+	if got := string(request(56, "textDocument/documentSymbol", document)); got != "[]" {
+		t.Fatalf("document symbols after partial metadata transition = %s, want []", got)
+	}
+	unaffectedDocument := documentSymbolParams{TextDocument: textDocumentIdentifier{URI: pathToURI(unaffectedPath)}}
+	if got := string(request(57, "textDocument/documentSymbol", unaffectedDocument)); !strings.Contains(got, `"name":"Unaffected"`) {
+		t.Fatalf("unaffected document symbols = %s, want retained package result", got)
+	}
+
+	fixture.analyzer.refreshErr = nil
+	fixture.analyzer.refreshAffected = []string{fixture.first, fixture.second}
+	fixture.watch(t, fixture.firstMod)
+	if fixture.server.pkgs[fixture.first] == nil || fixture.server.pkgs[fixture.second] == nil {
+		t.Fatalf("successful full replay did not rebuild open affected packages: first=%p second=%p", fixture.server.pkgs[fixture.first], fixture.server.pkgs[fixture.second])
+	}
+	if fixture.server.pkgs[unaffectedDir] != unaffectedPkg {
+		t.Fatal("successful full replay replaced unaffected package facts")
+	}
+}
+
+func TestDidChangeWatchedFilesSeparatesRecoverableMetadataFromOrdinaryRefresh(t *testing.T) {
+	fixture := newPendingMetadataFixture(t)
+	writeWorkspaceSymbolSource(t, fixture.firstMod, "module example.test/first\n\ngo 1.26.1\n// changed build universe\n")
+	fixture.analyzer.refreshErrs = []error{errors.New("metadata replay failed"), nil, nil}
+	fixture.watch(t, fixture.firstMod, fixture.firstPath)
+
+	if len(fixture.analyzer.refreshCalls) != 2 || !slices.Equal(fixture.analyzer.refreshCalls[0], []string{fixture.firstMod}) || !slices.Equal(fixture.analyzer.refreshCalls[1], []string{fixture.firstPath}) {
+		t.Fatalf("mixed refresh calls = %v, want separate metadata then source transactions", fixture.analyzer.refreshCalls)
+	}
+	if !fixture.server.diskViewValid || fixture.server.workspaceViewValid {
+		t.Fatalf("mixed transient metadata failure validity: disk=%t workspace=%t, want true/false", fixture.server.diskViewValid, fixture.server.workspaceViewValid)
+	}
+	if got := slices.Sorted(maps.Keys(fixture.server.pendingWorkspaceMetadata)); !slices.Equal(got, []string{fixture.firstMod}) {
+		t.Fatalf("mixed transient metadata failure pending = %v, want first go.mod", got)
+	}
+
+	fixture.watch(t, fixture.firstMod)
+	if len(fixture.analyzer.refreshCalls) != 3 || !slices.Equal(fixture.analyzer.refreshCalls[2], []string{fixture.firstMod}) {
+		t.Fatalf("metadata retry calls = %v, want exact pending replay", fixture.analyzer.refreshCalls)
+	}
+	if !fixture.server.diskViewValid || !fixture.server.workspaceViewValid || len(fixture.server.pendingWorkspaceMetadata) != 0 {
+		t.Fatalf("mixed-event recovery validity: disk=%t workspace=%t pending=%v", fixture.server.diskViewValid, fixture.server.workspaceViewValid, fixture.server.pendingWorkspaceMetadata)
+	}
+	got := fixture.symbols(t, 53)
+	if len(got) != 2 || got[0].Name != "After" || got[1].Name != "Stable" {
+		t.Fatalf("mixed-event retried symbols = %+v, want refreshed After and Stable", got)
 	}
 }
 

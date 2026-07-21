@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 func frameMsg(t *testing.T, v any) string {
@@ -77,5 +80,16 @@ func TestModuleSymbols(t *testing.T) {
 		if !names[want] {
 			t.Errorf("ModuleSymbols missing %q; got %+v", want, syms)
 		}
+	}
+}
+
+func TestAdaptPackageResultPreservesSourceIndex(t *testing.T) {
+	t.Parallel()
+	index := sourceintel.BuildIndex(nil, nil)
+
+	result := adaptPackageResult(&codegen.PackageResult{SourceIndex: index})
+
+	if result.SourceIndex != index {
+		t.Fatalf("adaptPackageResult SourceIndex = %p, want original pointer %p", result.SourceIndex, index)
 	}
 }

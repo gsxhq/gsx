@@ -7,6 +7,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // CrossRef is one component's cross-boundary entry: its name, its .gsx
@@ -65,12 +66,20 @@ type ComponentParamFact struct {
 // PackageResult owns this map and its nested maps; LSP consumers treat them as
 // immutable snapshots, like the retained go/types objects alongside them.
 type ComponentCallFact struct {
-	Target        types.Object
-	TargetOrigin  types.Object
-	TargetPackage string
-	TargetKey     string
-	Signature     *types.Signature
-	Params        map[gsxast.Attr]ComponentParamFact
+	Target             types.Object
+	TargetOrigin       types.Object
+	TargetPackage      string
+	TargetKey          string
+	Signature          *types.Signature
+	Params             map[gsxast.Attr]ComponentParamFact
+	TargetDecls        []sourceintel.VersionedSpan
+	ParamDecls         map[int][]sourceintel.VersionedSpan
+	TargetPresentation string
+}
+
+type ComponentDeclKey struct {
+	PackagePath  string
+	ComponentKey string
 }
 
 // ComponentParamDeclFact is one semantically validated GSX component
@@ -113,9 +122,14 @@ type PackageResult struct {
 	// Retained analysis for the language server (read-only; nil when the package
 	// failed before type-checking). The two FileSets are distinct: GSXFset is the
 	// gsx parse fset; Fset is the go/packages skeleton fset.
-	GSXFset    *token.FileSet
-	Fset       *token.FileSet
-	Info       *types.Info
+	GSXFset *token.FileSet
+	Fset    *token.FileSet
+	Info    *types.Info
+
+	// SourceIndex is the immutable authored-source semantic index harvested from
+	// Info. It shares PackageResult's snapshot lifetime and invalidation.
+	SourceIndex *sourceintel.Index
+
 	ExprMap    map[gsxast.Node]goast.Expr
 	GSXFiles   map[string]*gsxast.File
 	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
@@ -125,6 +139,7 @@ type PackageResult struct {
 	// definition/hover surface for markup calls; consumers must not reconstruct
 	// these facts from tag spelling or a reconstructed callable shape.
 	ComponentCalls      map[*gsxast.Element]ComponentCallFact
+	ComponentDecls      map[ComponentDeclKey][]sourceintel.VersionedSpan
 	ComponentParamDecls []ComponentParamDeclFact
 	ComponentParamRefs  []ComponentParamRefFact
 

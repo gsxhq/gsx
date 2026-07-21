@@ -217,3 +217,38 @@ func TestWarmRegenDoesNoGoListReloads(t *testing.T) {
 		t.Fatalf("after cross-package regen: externalLoads=%d filterTableLoads=%d; want 1,0", el, fl)
 	}
 }
+
+func TestWarmLSPSourceIndexDoesNoGoListReloads(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	comp := filepath.Join(root, "components")
+	card := filepath.Join(comp, "card.gsx")
+
+	result, err := m.Package(comp)
+	if err != nil {
+		t.Fatalf("cold Package: %v", err)
+	}
+	if result.SourceIndex == nil {
+		t.Fatal("cold Package retained no source index")
+	}
+	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 0 {
+		t.Fatalf("after cold Package: externalLoads=%d filterTableLoads=%d; want 1,0", el, fl)
+	}
+
+	for i := range 10 {
+		m.SetOverride(card, fmt.Appendf(nil,
+			"package components\n\nimport \"example.com/x/util\"\n\ncomponent X(title string) {\n\t<div>%d<util.Y label={ title }/></div>\n}\n", i))
+		result, err = m.Package(comp)
+		if err != nil {
+			t.Fatalf("warm Package #%d: %v", i, err)
+		}
+		if result.SourceIndex == nil {
+			t.Fatalf("warm Package #%d retained no source index", i)
+		}
+	}
+	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 0 {
+		t.Fatalf("after indexed warm Packages: externalLoads=%d filterTableLoads=%d; want 1,0", el, fl)
+	}
+}

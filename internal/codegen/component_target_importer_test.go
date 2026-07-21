@@ -889,7 +889,7 @@ component Page() { <bridge.Card title="hello"/> }
 	if err != nil {
 		t.Fatal(err)
 	}
-	analysis, err := module.analyze(pagesDir, &moduleImporter{m: module, external: external, seen: map[string]bool{}})
+	analysis, err := module.analyze(pagesDir, &moduleImporter{m: module, external: external, seen: map[string]bool{}}, analysisTypeOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1226,7 +1226,7 @@ func Card(CardProps) gsx.Node { return nil }
 	if err != nil {
 		t.Fatal(err)
 	}
-	analysis, err := module.analyze(pagesDir, &moduleImporter{m: module, external: bundle.importer(), seen: map[string]bool{}})
+	analysis, err := module.analyze(pagesDir, &moduleImporter{m: module, external: bundle.importer(), seen: map[string]bool{}}, analysisTypeOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
