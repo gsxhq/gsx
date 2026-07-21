@@ -6,9 +6,11 @@ Note: gsx's wsnorm collapses EVERY interior whitespace run to a single space
 (s4: `{a}   -   {b}` -> `x - y`). This is a deliberate, pre-existing gsx design
 (docs/superpowers/specs/2026-06-21-gsx-whitespace-model-design.md) that diverges
 from React/JSX, which preserves an intra-line multi-space run verbatim (`x   -   y`)
-and leaves collapsing to the browser. s1/s3 (single space) and newline-dropping
-DO match React; multi-space collapse is gsx-specific. The invariant THIS case
-pins is element-body behavior; control-flow bodies must match it exactly.
+and leaves collapsing to the browser. s1/s3 (single space) were oracle-checked
+against React and match; newline-adjacent whitespace dropping also follows JSX
+convention (not re-run through the oracle here). Multi-space run collapse is
+gsx-specific. The invariant THIS case pins is element-body behavior; control-flow
+bodies must match it exactly.
 -- input.gsx --
 package views
 
