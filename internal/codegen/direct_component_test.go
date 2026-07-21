@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -246,7 +247,7 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 		}
 		seen[emission.direct.family.helperName] = append(seen[emission.direct.family.helperName], emission.direct.typeParamNames...)
 	}
-	if got := seen["_gsxrenderChild1"]; len(got) != 2 || !((got[0] == "T" && got[1] == "U") || (got[0] == "U" && got[1] == "T")) {
+	if got := seen["_gsxrenderChild1"]; len(got) != 2 || !slices.Contains(got, "T") || !slices.Contains(got, "U") {
 		t.Fatalf("allocated metadata = %v, want one suffixed family carrying T and U declaration names", seen)
 	}
 
