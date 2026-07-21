@@ -567,6 +567,121 @@ func TestTagCompletionE2E(t *testing.T) {
 	})
 }
 
+// TestComponentAttrCompletionE2E drives textDocument/completion for a
+// ctxAttrName cursor on a planned component call end to end. Other declares
+// an `attrs gsx.Attrs` catch-all so an in-progress, not-yet-matching typed
+// attribute (e.g. a bare "t") is absorbed as an attrs-bag contributor instead
+// of failing the whole call's plan with a component-missing-attrs
+// diagnostic — codegen only publishes a ComponentCalls fact for a
+// SUCCESSFULLY planned call (see internal/codegen/results.go), so any
+// diagnostic on the call drops it from the map entirely; the attrs catch-all
+// is what keeps the fact alive while the user is mid-word.
+//
+// Subtest 1: `<Other t▮/>` offers both unbound params ("open", "count") —
+// drawn from Other's real signature via codegen's ComponentCalls fact,
+// bridged from the handler's own unstamped classification element into the
+// ephemeral analysis's element by elementAtTagOffset.
+//
+// Subtest 2: the cursor sits ON a half-typed name that already equals a real,
+// bound param. This needs a BOOL-typed param ("open"): a bare `<Other open`
+// parses as a BoolAttr, whose implied `true` value only type-checks (and
+// therefore only survives into a published ComponentCalls fact) against a
+// bool parameter — the same bare-word form against a STRING param (e.g.
+// "title") fails validateComponentOperands's component-prop-type check and
+// drops the whole call, so that combination can never reach this code path
+// and is not a scenario this test can exercise. With "open" bound, the
+// exclusion rule must not hide it while its own name is still being typed.
+func TestComponentAttrCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frame := func(t *testing.T, value any) string {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+
+	run := func(t *testing.T, source string, cursor int) map[string]bool {
+		t.Helper()
+		root := t.TempDir()
+		write := func(name, content string) string {
+			path := filepath.Join(root, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}
+		write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+		pagePath := write("page/page.gsx", source)
+		uri := "file://" + pagePath
+
+		var input strings.Builder
+		input.WriteString(frame(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+		input.WriteString(frame(t, map[string]any{
+			"jsonrpc": "2.0", "method": "textDocument/didOpen",
+			"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+		}))
+		pos := lspUTF16PositionAt(source, cursor)
+		input.WriteString(frame(t, map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+			"params": map[string]any{
+				"textDocument": map[string]any{"uri": uri},
+				"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+			},
+		}))
+		input.WriteString(frame(t, map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+		var output, stderr bytes.Buffer
+		if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+			t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+		}
+		if strings.Contains(output.String(), ".x.go") {
+			t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
+		}
+		return completionLabels(t, output.String(), 2)
+	}
+
+	t.Run("unbound param offered", func(t *testing.T) {
+		source := "package page\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Other(open bool, count int, attrs gsx.Attrs) {\n\t<div>{ count }</div>\n}\n\ncomponent Home() {\n\t<Other c/>\n}\n"
+		cursor := strings.LastIndex(source, "<Other c") + len("<Other c")
+		got := run(t, source, cursor)
+		if !got["open"] {
+			t.Errorf("component-attr completion missing unbound param `open`; labels=%v", got)
+		}
+		if !got["count"] {
+			t.Errorf("component-attr completion missing unbound param `count`; labels=%v", got)
+		}
+	})
+
+	t.Run("cursor on bound attr stays offered", func(t *testing.T) {
+		// "open" is typed in FULL as a bare bool-attribute (no value — its
+		// implied value is `true`) — the planner binds it to the real "open"
+		// bool parameter as soon as the name matches and type-checks. The
+		// cursor sits right after the "n" in "open", i.e. ON the attribute's
+		// own token, not past it. The exclusion rule must not hide "open" here.
+		source := "package page\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Other(open bool, count int, attrs gsx.Attrs) {\n\t<div>{ count }</div>\n}\n\ncomponent Home() {\n\t<Other open/>\n}\n"
+		cursor := strings.LastIndex(source, "<Other open") + len("<Other open")
+		got := run(t, source, cursor)
+		if !got["open"] {
+			t.Errorf("component-attr completion must keep `open` offered while its own name is mid-typed; labels=%v", got)
+		}
+		if !got["count"] {
+			t.Errorf("component-attr completion missing unbound param `count`; labels=%v", got)
+		}
+	})
+}
+
 // completionItems extracts the full CompletionItem slice from the completion
 // response with the given id.
 func completionItems(t *testing.T, output string, id int) []lsp.CompletionItem {

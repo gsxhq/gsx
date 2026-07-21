@@ -4,6 +4,8 @@ import (
 	"go/types"
 	"path/filepath"
 	"sort"
+
+	gsxast "github.com/gsxhq/gsx/ast"
 )
 
 // filterItems builds one CompletionItem per resolved filter candidate for a
@@ -241,4 +243,163 @@ func packageHasComponentDecls(pkg *Package, pkgPath string) bool {
 		}
 	}
 	return false
+}
+
+// attrNameCompletion answers a ctxAttrName cursor (inside an open tag, on an
+// attribute name, or in the whitespace before one): component-attribute
+// candidates when the enclosing element is a planned component call;
+// otherwise nothing yet (HTML attribute names are Task 15's to add — this
+// same branch point is where they land).
+//
+// cc.element belongs to r.parsed — repairAtCursor's own parse/FileSet, built
+// by Task 7's classifier — whose elements are NEVER stamped with IsComponent
+// (that stamp is codegen's, applied only to the elements inside an analyzed
+// Package's Files). Reading it here would always see the zero value. The
+// bridge is elementAtTagOffset: locate the SAME element, by TagPos byte-offset
+// equality, in one ephemeral analysis of the (possibly mid-edit) buffer — eph
+// and r.parsed are independent parses of the identical r.src bytes, so their
+// offsets always line up even though their node pointers never do (see
+// TestElementAtTagOffset).
+//
+// There is deliberately no retained-package (s.pkgs[dir]) fallback here,
+// unlike pipeFilters/componentDeclPackage: ComponentCalls is keyed by
+// *gsxast.Element pointer, and every parse produces distinct pointers over
+// the same bytes, so a stale retained Package could never key-match this
+// cursor's element even by coincidence — falling back to it would only ever
+// yield "no fact", never a stale-but-useful one. A shell ephemeral result
+// therefore answers empty, not stale; recorded as a follow-up in the task-13
+// report rather than worked around here.
+func (s *Server) attrNameCompletion(cc completionContext, path, text string, off int, r repairResult) CompletionList {
+	if cc.element == nil || r.fset == nil {
+		return emptyCompletion()
+	}
+	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, r.src)
+	if err != nil || eph == nil {
+		return emptyCompletion()
+	}
+	tagOff := r.fset.Position(cc.element.TagPos).Offset
+	ephEl := elementAtTagOffset(eph, path, tagOff)
+	if ephEl == nil || !ephEl.IsComponent {
+		// HTML tags land here too (ephEl != nil, IsComponent false) until Task 15
+		// adds the HTML attribute-name table.
+		return emptyCompletion()
+	}
+	start, end := completionTokenSpan(text, off, false)
+	items := componentAttrItems(eph, ephEl, text, start, end, s.enc)
+	if len(items) == 0 {
+		return emptyCompletion()
+	}
+	return CompletionList{IsIncomplete: false, Items: items}
+}
+
+// elementAtTagOffset locates, in eph.Files[path], the element whose TagPos
+// resolves (via eph.GSXFset) to the byte offset tagOff. It is the bridge
+// between a *gsxast.Element from one parse of a buffer and the semantically
+// equivalent element from an independent second parse of the identical
+// bytes — the two parses never share node pointers, but every offset
+// computed against unmoved source bytes is stable across them.
+func elementAtTagOffset(eph *Package, path string, tagOff int) *gsxast.Element {
+	if eph == nil || eph.GSXFset == nil || eph.Files[path] == nil {
+		return nil
+	}
+	var found *gsxast.Element
+	inspectWithEmbedded(eph.Files[path], func(n gsxast.Node) bool {
+		if found != nil {
+			return false
+		}
+		el, ok := n.(*gsxast.Element)
+		if !ok {
+			return true
+		}
+		if el.TagPos.IsValid() && eph.GSXFset.Position(el.TagPos).Offset == tagOff {
+			found = el
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// reservedComponentAttrName reports whether name is one of the three
+// component-parameter names that are never attribute candidates: the
+// ambient render context, the children slot, and the raw forwarded-attrs
+// bag (see the gsx reserved-identifiers rule — ctx/children/attrs share one
+// exclusion regardless of the syntax position asking).
+func reservedComponentAttrName(name string) bool {
+	switch name {
+	case "ctx", "children", "attrs":
+		return true
+	default:
+		return false
+	}
+}
+
+// componentAttrItems enumerates unbound signature parameters as
+// attribute-name candidates for a cursor on a planned component call's open
+// tag. el must already be bridged into pkg's own parse (see
+// elementAtTagOffset); pkg.ComponentCalls[el] is codegen's retained semantic
+// fact for that exact call.
+//
+// candidates = fact.Signature's parameters, MINUS the reserved names
+// (reservedComponentAttrName), MINUS every OTHER already-authored attribute's
+// bound parameter name (fact.Params values' .Name). "Other" matters: a bound
+// attribute whose OWN name span contains [start,end) — the cursor is
+// literally mid-typing that very attribute's name, e.g. `<Card title` with
+// the cursor right after "title", which the planner has already bound to the
+// "title" parameter — stays offered. Excluding it would hide the one
+// candidate the user is in the middle of accepting; see
+// TestComponentAttrItemsCursorOnBoundAttrStaysOffered.
+//
+// label = param name, kind = ciKindField, detail = the param's type via
+// qualifierFor, tier = tierContext. newText is the plain name — no `={}`
+// snippet in v1, per the task-13 spec.
+//
+// No fact for el (the call was never planned — a broken tag, an unresolved
+// target, ...) returns nil: fail-soft, never a guess.
+func componentAttrItems(pkg *Package, el *gsxast.Element, text string, start, end int, enc encoding) []CompletionItem {
+	if pkg == nil || el == nil {
+		return nil
+	}
+	fact, ok := pkg.ComponentCalls[el]
+	if !ok || fact.Signature == nil {
+		return nil
+	}
+
+	bound := map[string]bool{}
+	for attr, param := range fact.Params {
+		if attrNameSpanContains(pkg, attr, start, end) {
+			continue // cursor is on this very attribute's own token; keep it offered
+		}
+		bound[param.Name] = true
+	}
+
+	sig := fact.Signature
+	qf := qualifierFor(pkg)
+	items := make([]CompletionItem, 0, sig.Params().Len())
+	for p := range sig.Params().Variables() {
+		name := p.Name()
+		if reservedComponentAttrName(name) || bound[name] {
+			continue
+		}
+		detail := types.TypeString(p.Type(), qf)
+		items = append(items, newCompletionItem(text, start, end, enc, name, name, ciKindField, tierContext, detail, nil))
+	}
+	return items
+}
+
+// attrNameSpanContains reports whether attr's own name span — [pos,
+// pos+len(name)) in pkg.GSXFset coordinates — contains the completion token
+// span [start,end), i.e. the cursor sits on the very attribute being
+// inspected rather than on some other already-authored one.
+func attrNameSpanContains(pkg *Package, attr gsxast.Attr, start, end int) bool {
+	if pkg.GSXFset == nil || !attr.Pos().IsValid() {
+		return false
+	}
+	name, ok := attrName(attr)
+	if !ok {
+		return false
+	}
+	nameStart := pkg.GSXFset.Position(attr.Pos()).Offset
+	nameEnd := nameStart + len(name)
+	return nameStart <= start && end <= nameEnd
 }

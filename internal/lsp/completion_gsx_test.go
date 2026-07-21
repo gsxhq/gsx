@@ -3,11 +3,14 @@ package lsp
 import (
 	"encoding/json"
 	"errors"
+	"go/token"
 	"go/types"
 	"strings"
 	"testing"
 
+	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/sourceintel"
+	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 // TestFilterItems checks filterItems' shape: label = Name, detail =
@@ -411,5 +414,219 @@ func TestTagCompletionBothEmpty(t *testing.T) {
 	items := decodeCompletionItems(t, out, 2)
 	if len(items) != 0 {
 		t.Fatalf("tag completion items = %v, want empty", items)
+	}
+}
+
+// componentAttrFixture parses src (which must contain exactly one element
+// whose Tag == tag) and returns a *Package/element pair wired for
+// componentAttrItems: GSXFset resolves el's (and its attrs') real positions,
+// and ComponentCalls[el] carries a hand-synthesized Signature — (ctx
+// context.Context, title string, count int, children gsx.Node) — built via
+// types.NewSignatureType/types.NewVar (no real gsx types needed; only names
+// and reserved-ness matter to componentAttrItems). Every attr already present
+// on el is bound in fact.Params keyed by its own position (so
+// attrUnderCursor can find it), with ComponentParamFact.Name set from a
+// caller-supplied attr->param-name map.
+func componentAttrFixture(t *testing.T, src, tag string, bound map[string]string) (pkg *Package, el *gsxast.Element) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := gsxparser.ParseFile(fset, "page.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	gsxast.Inspect(f, func(n gsxast.Node) bool {
+		if e, ok := n.(*gsxast.Element); ok && e.Tag == tag {
+			el = e
+		}
+		return true
+	})
+	if el == nil {
+		t.Fatalf("no <%s> element found in source", tag)
+	}
+
+	ctxType := types.NewInterfaceType(nil, nil)
+	params := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "ctx", ctxType),
+		types.NewVar(token.NoPos, nil, "title", types.Typ[types.String]),
+		types.NewVar(token.NoPos, nil, "count", types.Typ[types.Int]),
+		types.NewVar(token.NoPos, nil, "children", ctxType),
+	)
+	sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
+
+	boundParams := map[gsxast.Attr]ComponentParamFact{}
+	for _, attr := range el.Attrs {
+		name, ok := attrName(attr)
+		if !ok {
+			continue
+		}
+		if paramName, ok := bound[name]; ok {
+			boundParams[attr] = ComponentParamFact{Name: paramName}
+		}
+	}
+
+	pkg = &Package{
+		GSXFset: fset,
+		Files:   map[string]*gsxast.File{"page.gsx": f},
+		ComponentCalls: map[*gsxast.Element]ComponentCallFact{
+			el: {Signature: sig, Params: boundParams},
+		},
+	}
+	return pkg, el
+}
+
+// TestComponentAttrItems checks the core candidate rule: signature params
+// minus reserved names (ctx, children — both excluded regardless of any
+// binding) minus the ALREADY-bound "title" (a real authored attr elsewhere on
+// the tag, cursor not on it) leaves exactly "count".
+func TestComponentAttrItems(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<Card title=\"x\"/>\n}\n"
+	pkg, el := componentAttrFixture(t, src, "Card", map[string]string{"title": "title"})
+
+	// Cursor position unrelated to the "title" attr's own span (e.g. right
+	// after the tag name, in the whitespace before "title").
+	cursor := strings.Index(src, "<Card") + len("<Card")
+	items := componentAttrItems(pkg, el, src, cursor, cursor, encUTF8)
+
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want exactly 1 (count)", items)
+	}
+	if items[0].Label != "count" {
+		t.Errorf("items[0].Label = %q, want %q", items[0].Label, "count")
+	}
+	if items[0].Kind != ciKindField {
+		t.Errorf("items[0].Kind = %d, want ciKindField", items[0].Kind)
+	}
+	if !strings.HasPrefix(items[0].SortText, "05") {
+		t.Errorf("items[0].SortText = %q, want tierContext (05) prefix", items[0].SortText)
+	}
+	if items[0].Detail != "int" {
+		t.Errorf("items[0].Detail = %q, want %q", items[0].Detail, "int")
+	}
+}
+
+// TestComponentAttrItemsCursorOnBoundAttrStaysOffered checks the phantom-heal
+// interaction called out in the task-13 brief: when the cursor sits ON the
+// authored token that the planner bound (e.g. `<Card title` cursor right
+// after "title", still mid-typing — no value attached yet), the exclusion
+// rule must NOT hide "title" — excluding it would hide the very candidate
+// the user is completing. "count" stays offered too (it was never bound).
+func TestComponentAttrItemsCursorOnBoundAttrStaysOffered(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<Card title/>\n}\n"
+	pkg, el := componentAttrFixture(t, src, "Card", map[string]string{"title": "title"})
+
+	nameStart := strings.Index(src, "title")
+	nameEnd := nameStart + len("title")
+	items := componentAttrItems(pkg, el, src, nameStart, nameEnd, encUTF8)
+
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	if !labels["title"] {
+		t.Errorf("labels = %v, want %q present (cursor is on its own token)", labels, "title")
+	}
+	if !labels["count"] {
+		t.Errorf("labels = %v, want %q present (never bound)", labels, "count")
+	}
+	if labels["ctx"] || labels["children"] {
+		t.Errorf("labels = %v, must exclude reserved names ctx/children", labels)
+	}
+}
+
+// TestComponentAttrItemsNoFact checks the fail-soft rule: an element with no
+// ComponentCalls entry (the call was never planned — a broken tag, an
+// unresolved target, ...) yields nil, not a panic or a guess.
+func TestComponentAttrItemsNoFact(t *testing.T) {
+	fset := token.NewFileSet()
+	src := "package page\n\ncomponent Home() {\n\t<Card title=\"x\"/>\n}\n"
+	f, err := gsxparser.ParseFile(fset, "page.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	var el *gsxast.Element
+	gsxast.Inspect(f, func(n gsxast.Node) bool {
+		if e, ok := n.(*gsxast.Element); ok && e.Tag == "Card" {
+			el = e
+		}
+		return true
+	})
+	pkg := &Package{GSXFset: fset, Files: map[string]*gsxast.File{"page.gsx": f}, ComponentCalls: map[*gsxast.Element]ComponentCallFact{}}
+	if items := componentAttrItems(pkg, el, src, 0, 0, encUTF8); items != nil {
+		t.Fatalf("items = %+v, want nil (no planned call fact)", items)
+	}
+}
+
+// TestComponentAttrItemsNilGuards checks that a nil pkg or nil el fails soft.
+func TestComponentAttrItemsNilGuards(t *testing.T) {
+	if items := componentAttrItems(nil, &gsxast.Element{}, "", 0, 0, encUTF8); items != nil {
+		t.Fatalf("items = %+v, want nil for nil pkg", items)
+	}
+	if items := componentAttrItems(&Package{}, nil, "", 0, 0, encUTF8); items != nil {
+		t.Fatalf("items = %+v, want nil for nil el", items)
+	}
+}
+
+// elementAtTagOffsetFixture parses src into a *Package (GSXFset + Files) with
+// no type info, for elementAtTagOffset tests — the function only needs
+// GSXFset/Files, never ComponentCalls or Types.
+func elementAtTagOffsetFixture(t *testing.T, src string) *Package {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := gsxparser.ParseFile(fset, "page.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	return &Package{GSXFset: fset, Files: map[string]*gsxast.File{"page.gsx": f}}
+}
+
+// TestElementAtTagOffset checks the byte-offset bridge: a tagOff computed
+// against one parse of src locates the element at that same tagOff in an
+// INDEPENDENT second parse of the identical bytes — pointer identity never
+// holds across the two parses, only the offset does.
+func TestElementAtTagOffset(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<div><Card title=\"x\"/></div>\n}\n"
+
+	// First parse: locate the "Card" element's TagPos offset, as
+	// classifyCompletionContext would from repairAtCursor's own FileSet.
+	first := elementAtTagOffsetFixture(t, src)
+	var firstCard *gsxast.Element
+	gsxast.Inspect(first.Files["page.gsx"], func(n gsxast.Node) bool {
+		if e, ok := n.(*gsxast.Element); ok && e.Tag == "Card" {
+			firstCard = e
+		}
+		return true
+	})
+	if firstCard == nil {
+		t.Fatal("no Card element in first parse")
+	}
+	tagOff := first.GSXFset.Position(firstCard.TagPos).Offset
+
+	// Second, independent parse (mirrors the ephemeral analysis's own parse of
+	// the same buffer bytes).
+	second := elementAtTagOffsetFixture(t, src)
+	got := elementAtTagOffset(second, "page.gsx", tagOff)
+	if got == nil {
+		t.Fatal("elementAtTagOffset returned nil, want the Card element from the second parse")
+	}
+	if got == firstCard {
+		t.Fatal("elementAtTagOffset returned the FIRST parse's pointer; pointer identity must never hold across independent parses")
+	}
+	if got.Tag != "Card" {
+		t.Errorf("got.Tag = %q, want %q", got.Tag, "Card")
+	}
+}
+
+// TestElementAtTagOffsetNoMatch checks that an offset matching nothing (and a
+// missing path) both fail soft to nil.
+func TestElementAtTagOffsetNoMatch(t *testing.T) {
+	pkg := elementAtTagOffsetFixture(t, "package page\n\ncomponent Home() {\n\t<div/>\n}\n")
+	if got := elementAtTagOffset(pkg, "page.gsx", -1); got != nil {
+		t.Fatalf("got = %+v, want nil for an unmatched offset", got)
+	}
+	if got := elementAtTagOffset(pkg, "missing.gsx", 0); got != nil {
+		t.Fatalf("got = %+v, want nil for a missing path", got)
+	}
+	if got := elementAtTagOffset(nil, "page.gsx", 0); got != nil {
+		t.Fatalf("got = %+v, want nil for a nil package", got)
 	}
 }
