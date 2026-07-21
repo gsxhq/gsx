@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -63,12 +64,16 @@ component X() { <div>{ if true { <span/> } }</div> }
 }
 
 // TestBlockBodyWhitespaceOnlyIsEmpty: a whitespace-only body trims to nothing.
+// The result must be nil, not a non-nil empty slice: a trimmed-to-empty body has
+// to be structurally identical to a literally-empty `{}` body (which parses to
+// nil), or AST-faithfulness comparisons — e.g. fmt idempotence — see a spurious
+// nil-vs-empty diff.
 func TestBlockBodyWhitespaceOnlyIsEmpty(t *testing.T) {
 	then := firstIfThen(t, `package p
 component X() { <div>{ if true {    } }</div> }
 `)
-	if len(then) != 0 {
-		t.Fatalf("Then has %d nodes, want 0: %#v", len(then), then)
+	if then != nil {
+		t.Fatalf("Then = %#v, want nil (structurally identical to an empty body)", then)
 	}
 }
 
@@ -141,16 +146,16 @@ component X(k string) { <div>{ switch k {
 func TestTrimBodyEdges(t *testing.T) {
 	span := &ast.Element{Tag: "span"}
 	sig := func(nodes []ast.Markup) string {
-		s := ""
+		var b strings.Builder
 		for _, n := range nodes {
 			switch v := n.(type) {
 			case *ast.Text:
-				s += "T(" + v.Value + ")"
+				b.WriteString("T(" + v.Value + ")")
 			case *ast.Element:
-				s += "<" + v.Tag + ">"
+				b.WriteString("<" + v.Tag + ">")
 			}
 		}
-		return s
+		return b.String()
 	}
 	cases := []struct {
 		name string

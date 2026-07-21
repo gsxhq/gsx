@@ -320,6 +320,14 @@ func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
 			}
 		}
 	}
+	// A body that trims down to nothing must be represented identically to a
+	// literally-empty `{}` body (nil), not a non-nil empty slice left over from
+	// reslicing — otherwise the two are only render-equivalent, not
+	// structurally equal, and AST-faithfulness comparisons (e.g. fmt idempotence)
+	// see a spurious diff.
+	if len(nodes) == 0 {
+		return nil
+	}
 	return nodes
 }
 
