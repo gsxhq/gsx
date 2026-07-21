@@ -569,16 +569,156 @@ is eligible for the separate
 `2026-07-21-folded-element-attribute-materialisation.md` experiment plan.
 That plan received checksum-stable adversarial approval at SHA-256
 `120bea7c678955afbed44ab7717dba2656ec15fd50adaec726f7ce9c922d61da`.
-Candidate 3 remains deferred until Candidate 2 has a measured outcome.
+Candidate 3 remained deferred until Candidate 2 had a measured outcome.
+
+## Candidate 2 Experiment: Rejected
+
+The direct folded-element accumulator was measured and removed. It reduced the
+two FoldedAttrs destinations from 161 to 141 allocations per render, but it did
+not improve end-to-end render time and increased allocated bytes by about 27%.
+The time and byte gates were deliberately no-waiver gates, so there is no
+runtime, codegen, corpus, or generated-output implementation commit.
+
+### Identity, schedule, and raw evidence
+
+- Candidate bases and restored outcome: core
+  `521d0a9f33d6959170618c057b16562ff195713a`; benchmark
+  `8ca640ab42038917ae389177a239e467fa22816c`. Both active worktrees were
+  restored exactly to those commits before the final snapshot and profiles.
+- Both before and candidate benchmark commits were the benchmark base; both
+  resolved `github.com/gsxhq/gsx` commits were the core base. The candidate was
+  identified by its staged diffs, not by an uncommitted change to either
+  commit identity.
+- Before staged-diff SHA-256 for both repositories:
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+  Candidate staged-diff SHA-256: core
+  `017f1b9c4fb72955a108d493719093ecdfcb6bdfedd4f6fa3999f8736b0be30a`;
+  benchmark
+  `43cfb0a155466d52afa857a2c4a3246908d33e7e77cda91d6308a7c24c7c0164`.
+- Environment: 2026-07-21, Apple M3 Ultra (`darwin/arm64`), Go 1.26.1,
+  `GOMAXPROCS=32`. The pinned benchstat revision was
+  `v0.0.0-20260709024250-82a0b07e230d`.
+- Schedule: ten distinct process pairs, odd pairs before/after and even pairs
+  after/before. Every focused benchmark and every one of the 15 full-screen
+  GSX benchmarks has ten samples on each side.
+- Result root: `/private/tmp/gsx-runtime-folded-results.VSlXYp`. Focused
+  before/after data, recorded identities, diffs, and benchstat output are under
+  `external`; the complete GSX regression screen is under `full`. The detached
+  before pair was `/private/tmp/gsx-runtime-folded-before.jNaDZI`.
+- The restored-base 29-benchmark, ten-sample snapshot is
+  `final-full-suite.txt` (SHA-256
+  `71d66c11f805d6fa7990eb4bc5017c143e581f6ab77b6884ff069930930ea431`)
+  and its pinned summary is `final-full-suite.benchstat.txt` (SHA-256
+  `94ae91a909beda005c76432bf14a831dbf5b5c6ad23986011661e69022d50dcf`).
+
+The plan originally used `git show "$bench_base:gsxr/attrs.x.go"`. In zsh the
+colon suffix is parsed as parameter-modifier syntax, so that command expands
+only the commit and displays the commit rather than the blob. The committed
+plan now uses the unambiguous
+`git show "${bench_base}:gsxr/attrs.x.go"`; the corrected form was the one used
+for the byte-identity proof. This documentation-only correction changes the
+plan's SHA-256 from the reviewed value above to
+`83ec87942c059f771ae9476be0bbfb7e69262d0937612cf55fd4ae2f403d19b3`;
+it does not change the experiment or its gates.
+
+### Focused result and no-waiver decision
+
+Times are pinned-benchstat medians. Percent deltas use the unrounded medians;
+the displayed `p < 0.001` values are benchstat's printed `p=0.000`, expressed
+without claiming a zero probability.
+
+| Benchmark | Metric | Before | Candidate | Delta | p |
+| --- | --- | ---: | ---: | ---: | ---: |
+| FoldedAttrs GSX pooled | time | 17,403.0 ns/op | 17,602.5 ns/op | +1.146354% | 0.684 |
+| FoldedAttrs GSX discard | time | 16,788.0 ns/op | 16,894.0 ns/op | +0.631403% | 0.853 |
+| FoldedAttrs GSX pooled | bytes | 11,810 B/op | 15,016 B/op | +27.146486% | <0.001 |
+| FoldedAttrs GSX discard | bytes | 11,792 B/op | 14,992 B/op | +27.137042% | <0.001 |
+| FoldedAttrs GSX pooled | allocations | 161 allocs/op | 141 allocs/op | -12.422360% | <0.001 |
+| FoldedAttrs GSX discard | allocations | 161 allocs/op | 141 allocs/op | -12.422360% | <0.001 |
+
+1. **Time improvement of at least 7%, `p < 0.05`: failed.** Pooled and
+   discard instead moved +1.146354% (`p=0.684`) and +0.631403% (`p=0.853`).
+2. **At least 20% fewer bytes and 12% fewer allocations, both significant:
+   failed.** Allocations passed at -12.422360%, but bytes significantly moved
+   in the wrong direction by +27.146486% and +27.137042%.
+3. **No significant full-screen regression at or above 7% non-parallel or 12%
+   parallel: passed.** The nearest non-parallel result was List at +6.671070%,
+   `p=0.002`; Page parallel was +0.967352%, `p=0.796`.
+4. **Semantic, race, CI, lint, and generated-output retain gate: not run.** It
+   is conditional on the numeric candidate passing. Earlier focused
+   source-order, laziness, error, URL/security, corpus render, fixed-point,
+   sibling-equivalence, and `gopls` checks passed, but cannot waive Gates 1 or
+   2. The required response to either numeric failure was immediate restore.
+
+### Complete GSX regression screen
+
+The table records every full-screen time median. `~` means benchstat did not
+find a significant difference at alpha 0.05.
+
+| Benchmark | Before | Candidate | Delta | p / significance |
+| --- | ---: | ---: | ---: | --- |
+| ForwardedAttrs GSX pooled | 13.1100 us | 13.2335 us | +0.942029% | 0.616, ~ |
+| ForwardedAttrs GSX discard | 12.3830 us | 12.3675 us | -0.125172% | 0.912, ~ |
+| FoldedAttrs GSX pooled | 17.0845 us | 17.1215 us | +0.216571% | 0.529, ~ |
+| FoldedAttrs GSX discard | 16.2830 us | 16.3835 us | +0.617208% | 0.853, ~ |
+| Page GSX parallel | 1.6540 us | 1.6700 us | +0.967352% | 0.796, ~ |
+| Document GSX pooled | 0.27945 us | 0.28050 us | +0.375738% | 0.343, ~ |
+| Document GSX discard | 0.21540 us | 0.21560 us | +0.092851% | 0.986, ~ |
+| Document GSX builder | 0.43680 us | 0.43875 us | +0.446429% | 0.896, ~ |
+| Stats GSX pooled | 1.2715 us | 1.3555 us | +6.606370% | 0.004 |
+| List GSX pooled | 1.5140 us | 1.6150 us | +6.671070% | 0.002 |
+| Table GSX pooled | 2.2645 us | 2.2700 us | +0.242879% | 0.436, ~ |
+| Piped GSX pooled | 1.8195 us | 1.9015 us | +4.506733% | 0.045 |
+| Page GSX pooled | 4.8310 us | 4.7750 us | -1.159180% | 0.579, ~ |
+| Comments GSX pooled | 3.8060 us | 3.8040 us | -0.052549% | 0.481, ~ |
+| Buttons GSX pooled | 5.8305 us | 5.8970 us | +1.140554% | 0.853, ~ |
+
+No byte or allocation metric outside FoldedAttrs changed significantly.
+Page parallel's non-significant median byte shift was 2,570.0 to 2,570.5 B/op
+(`p=0.517`), while allocations stayed at 62 (`p=1.000`). FoldedAttrs reproduced
+the focused +27.15%/+27.14% byte regressions and -12.42% allocation reductions.
+
+### Post-restore profile
+
+Separate five-second CPU-only and rate-1 memory-only FoldedAttrs profiles are
+under `/private/tmp/gsx-runtime-post-folded-profiles.YoihHZ`. Both generated
+test binaries were moved into that directory; no profile or binary remained in
+either repository. The CPU profile was collected separately to avoid the known
+sampling distortion from rate-1 allocation profiling.
+
+The memory tables below are flat, mutually non-overlapping frames. Cumulative
+parents are not added to their children.
+
+| Flat frame | objects | bytes |
+| --- | ---: | ---: |
+| `ConcatAttrs` | 26.49% | 81.24% |
+| `joinAttrStrings` | 19.87% | 4.74% |
+| `Writer.ClassMerged` | 13.24% | 2.71% |
+| `Writer.StyleMerged` | 13.24% | 2.71% |
+| `splitDecls` | 13.24% | 2.71% |
+| selected branch arm 1 | 6.62% | 2.71% |
+| selected branch arm 2 | 6.62% | 2.71% |
+| `W` | 0.66% | below 0.01% |
+
+The rejected accumulator targeted the `ConcatAttrs` and two selected branch
+frames, which still account for 39.73% of objects and 86.67% of bytes after
+restore. Removing their allocations alone was not a win because the replacement
+bag's retained backing storage increased total bytes and did not reduce render
+time. Allocation count is not an end in itself.
+
+Candidate 3 remains deferred. This task does not authorise or prototype a
+component ABI change; any such work requires a separate measured plan based on
+the retained runtime after the two rejected smaller experiments.
 
 ## Recommended Optimisation Slices
 
 1. **Completed and rejected:** the immutable spread-policy experiment failed
    its end-to-end keep gates and was restored. Do not revive it without a new
    design and fresh evidence.
-2. **Planned, not implemented:** run the focused folded-element accumulator
-   experiment in `2026-07-21-folded-element-attribute-materialisation.md`,
-   without changing leaf semantics.
+2. **Completed and rejected:** the folded-element accumulator reduced
+   allocation count but increased bytes by about 27% and did not improve
+   end-to-end render time. It was restored; do not revive it without a new
+   design and fresh evidence.
 3. Reprofile non-empty attributes after slices 1 and 2. If the 40 per-render
    `StyleMerged`/`splitDecls` allocations in ForwardedAttrs remain material, run
    a separate exact quote/parenthesis-aware single-contributor style-parser

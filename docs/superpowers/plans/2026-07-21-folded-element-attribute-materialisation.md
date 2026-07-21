@@ -410,7 +410,7 @@ byte-identical to the saved base. Prove that mechanically:
 set -eu
 bench_base=$(cat /tmp/gsx-runtime-folded-materialisation/bench-base)
 cd /Users/jackieli/personal/gsxhq/.worktrees/runtime-render-audit/gsx-bench
-git show "$bench_base:gsxr/attrs.x.go" > /tmp/gsx-runtime-folded-materialisation/attrs.before.x.go
+git show "${bench_base}:gsxr/attrs.x.go" > /tmp/gsx-runtime-folded-materialisation/attrs.before.x.go
 sed -n '/^func ForwardedLink/,/^}/p' /tmp/gsx-runtime-folded-materialisation/attrs.before.x.go \
   > /tmp/gsx-runtime-folded-materialisation/forwarded.before.txt
 sed -n '/^func ForwardedLink/,/^}/p' gsxr/attrs.x.go \
