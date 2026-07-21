@@ -1564,12 +1564,14 @@ func TestElementInlineChildrenStayInlineWhenAuthorInline(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
-func TestCfBodyAuthorNewlineButEdgeUnsafeStaysInline(t *testing.T) {
-	// Author broke the line after `{`, but the body's Text trails a significant
-	// space (edge-unsafe). The edge guard MUST win over the author-newline flag:
-	// breaking would absorb the trailing space and change the normalized AST.
+func TestCfBodyEdgesTrimmedThenBreaksOnAuthorNewline(t *testing.T) {
+	// The parser trims whitespace immediately inside a control-flow body's braces
+	// (trimBodyEdges), so a CF body can never be "edge-unsafe": the trailing "  "
+	// here is trimmed away. With no significant edge to protect, the author's
+	// newline after `{` correctly breaks the body to multi-line. Faithful: both
+	// the inline source and this broken form render "atextb".
 	src := "package p\ncomponent C(x bool) {\n\t<p>a{ if x {\n\ttext  } }b</p>\n}\n"
-	want := "package p\n\ncomponent C(x bool) {\n\t<p>\n\t\ta\n\t\t{ if x { text  } }\n\t\tb\n\t</p>\n}\n"
+	want := "package p\n\ncomponent C(x bool) {\n\t<p>\n\t\ta\n\t\t{ if x {\n\t\t\ttext\n\t\t} }\n\t\tb\n\t</p>\n}\n"
 	checkFormat(t, src, want)
 }
 

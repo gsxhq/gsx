@@ -31,3 +31,18 @@ An `if` can declare values before its condition. Those values remain in scope th
 <!--@include: ./_generated/control-flow/040-init-statement.md-->
 
 The same form works for map lookups, type assertions, and other expressions that return multiple values.
+
+## Whitespace in control-flow bodies
+
+Whitespace inside `{ if }`, `{ for }`, and `{ switch }` bodies follows the same
+whitespace rule as element bodies: whitespace *between* content is preserved (a
+run with a newline collapses away; an inline run collapses to one space).
+Whitespace *immediately inside* the control-flow braces is ignored, like the
+interior of `{ expr }`. To keep a separator space next to a conditional, put it
+in the surrounding markup rather than at the block's inner edge:
+
+::: v-pre
+```gsx
+<title>{ if !isProd { {env} - } } {page} - One Learning</title>
+```
+:::
