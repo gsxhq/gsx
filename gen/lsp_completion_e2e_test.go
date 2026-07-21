@@ -420,6 +420,105 @@ func TestPipeStageCompletionE2E(t *testing.T) {
 	}
 }
 
+// TestTagCompletionE2E drives textDocument/completion for a ctxTag cursor end
+// to end: a bare `<Ot▮` cursor offers the sibling local component ("Other"),
+// and a qualified `<ui.▮` cursor offers the imported gsx package's component
+// ("Button"). Each subtest builds its own temp module (the shared
+// newCompletionE2EFixture has no second local component or ui package, and
+// growing it is not cheap enough to be worth sharing across unrelated
+// scenarios in this file).
+func TestTagCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frame := func(t *testing.T, value any) string {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+
+	// run opens source as a buffer, sends one completion at cursor, returns the
+	// label set, and asserts the root files exist under a fresh temp module.
+	run := func(t *testing.T, files map[string]string, gsxPath, source string, cursor int) map[string]bool {
+		t.Helper()
+		root := t.TempDir()
+		write := func(name, content string) string {
+			path := filepath.Join(root, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}
+		write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+		var pagePath string
+		for name, content := range files {
+			p := write(name, content)
+			if name == gsxPath {
+				pagePath = p
+			}
+		}
+		uri := "file://" + pagePath
+
+		var input strings.Builder
+		input.WriteString(frame(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+		input.WriteString(frame(t, map[string]any{
+			"jsonrpc": "2.0", "method": "textDocument/didOpen",
+			"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+		}))
+		pos := lspUTF16PositionAt(source, cursor)
+		input.WriteString(frame(t, map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+			"params": map[string]any{
+				"textDocument": map[string]any{"uri": uri},
+				"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+			},
+		}))
+		input.WriteString(frame(t, map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+		var output, stderr bytes.Buffer
+		if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+			t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+		}
+		if strings.Contains(output.String(), ".x.go") {
+			t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
+		}
+		return completionLabels(t, output.String(), 2)
+	}
+
+	t.Run("local component", func(t *testing.T) {
+		source := "package page\n\ncomponent Other() {\n\t<div/>\n}\n\ncomponent Home() {\n\t<div><Ot</div>\n}\n"
+		cursor := strings.Index(source, "<Ot") + len("<Ot")
+		got := run(t, map[string]string{"page/page.gsx": source}, "page/page.gsx", source, cursor)
+		if !got["Other"] {
+			t.Errorf("tag completion missing local component `Other`; labels=%v", got)
+		}
+	})
+
+	t.Run("qualified import", func(t *testing.T) {
+		uiSource := "package ui\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n"
+		source := "package page\n\nimport \"example.com/app/ui\"\n\ncomponent Home() {\n\t<ui.Button label=\"hi\"/>\n\t<ui./>\n}\n"
+		cursor := strings.LastIndex(source, "<ui./>") + len("<ui.")
+		got := run(t, map[string]string{
+			"page/page.gsx": source,
+			"ui/ui.gsx":     uiSource,
+		}, "page/page.gsx", source, cursor)
+		if !got["Button"] {
+			t.Errorf("qualified tag completion missing imported component `Button`; labels=%v", got)
+		}
+	})
+}
+
 // completionItems extracts the full CompletionItem slice from the completion
 // response with the given id.
 func completionItems(t *testing.T, output string, id int) []lsp.CompletionItem {

@@ -51,6 +51,18 @@ func completionTokenSpan(text string, off int, allowDash bool) (start, end int) 
 	return start, off
 }
 
+// startsWithUpper reports whether s's first rune is an uppercase letter. Used
+// by ctxTag completion to classify the typed tag token (component names are
+// capitalized by convention); the result does not affect ranking until Task
+// 15 merges HTML tag names into the same completion list.
+func startsWithUpper(s string) bool {
+	if s == "" {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(s)
+	return unicode.IsUpper(r)
+}
+
 // newCompletionItem builds a CompletionItem whose TextEdit replaces [start,end)
 // in text with newText, expressed in ORIGINAL buffer coordinates via
 // rangeForSpan and the negotiated encoding enc. sortText is
