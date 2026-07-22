@@ -212,4 +212,11 @@ type FilterCandidate struct {
 	Pkg      string // winning package import path
 	Func     string // exported Go func name, e.g. "Upper"
 	WantsCtx bool
+	// Pos is the target func's ALREADY-RESOLVED declaration position (see
+	// filterEntry.pos for why a resolved Position, not a raw token.Pos, is
+	// what makes two independent harvests of the same filter comparable). The
+	// zero Position (Pos.IsValid() false) means no Fset was available at the
+	// harvest site that produced this candidate (e.g. the WASM/typebundle
+	// path): the LSP completion path (Module-backed) always has one.
+	Pos token.Position
 }

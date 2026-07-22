@@ -143,6 +143,11 @@ type Server struct {
 
 	moduleSyms map[string]moduleSymbolCache // normalized module root → lazy workspace-symbol index
 
+	// depDocs caches completionItem/resolve's dependency-file doc extraction
+	// (see completion_resolve.go): module-cache/GOROOT source files are
+	// immutable within a session, so entries never need invalidation.
+	depDocs *depDocCache
+
 	workspaceFolders         []workspaceFolder   // normalized initialized file workspace folders
 	workspaceRoots           []string            // normalized absolute folder paths
 	workspaceModules         []string            // sorted Go module roots owned by workspaceRoots
@@ -205,6 +210,7 @@ func NewServer(r io.Reader, w io.Writer, a Analyzer) *Server {
 		workspaceViewValid:       false,
 		pendingClientRequests:    map[string]func(frame) error{},
 		moduleSyms:               map[string]moduleSymbolCache{},
+		depDocs:                  newDepDocCache(),
 		workspaceModuleOwners:    map[string]string{},
 		workspaceModulePaths:     map[string]string{},
 		pendingWorkspaceMetadata: map[string]struct{}{},
@@ -332,6 +338,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleHover(f)
 	case "textDocument/completion":
 		return s.handleCompletion(f)
+	case "completionItem/resolve":
+		return s.handleCompletionResolve(f)
 	case "textDocument/formatting":
 		return s.handleFormatting(f)
 	case "textDocument/codeAction":
@@ -387,7 +395,7 @@ func (s *Server) handleInitialize(f frame) error {
 		RenameProvider:             nil,
 		DocumentFormattingProvider: true,
 		HoverProvider:              true,
-		CompletionProvider:         &CompletionOptions{TriggerCharacters: []string{".", "<", ">", "\"", "|"}},
+		CompletionProvider:         &CompletionOptions{TriggerCharacters: []string{".", "<", ">", "\"", "|"}, ResolveProvider: true},
 		DocumentSymbolProvider:     true,
 		WorkspaceSymbolProvider:    true,
 		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind, quickFixKind}},

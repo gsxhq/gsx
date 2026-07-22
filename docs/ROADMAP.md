@@ -632,12 +632,62 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   Complex (call/index) receivers resolve opportunistically through their
   Expression occurrence when one is recorded; fails soft to an empty member
   list otherwise, never wrong.
-  **Follow-ups:** auto-import completion (own design);
-  snippet placeholders;
-  `completionItem/resolve` for lazy docs; body-local value bindings as method-
-  component qualifiers (declared in a `{{ }}` block, a v1 gap); Go doc comments
-  on candidates (requires comment retention through the
-  skeleton); stale-snapshot fast path — largely subsumed by the non-blocking
+  **Go doc comments on candidates (T9+T10)** — DONE. Documentation is
+  doc-comment text only (Detail already carries the rendered signature).
+  Uniform rule (`completionDocFor`, completion_docs.go): an object whose OWN
+  package is the analyzed package (`obj.Pkg() == pkg.Types`) is "authored" and
+  gets EAGER Documentation, extracted synchronously from the already-parsed
+  .gsx source (`authoredDoc` reuses documentSymbol's byte-exact recovery
+  reconstruction, `reconstructGoChunk`/`reconstructGoWithElements` — refactored
+  out of symbols.go — so a GoWithElements decl, e.g. a package-level var
+  initialized to an embedded element, resolves correctly too); every other
+  candidate with a resolvable position — an imported dependency's
+  func/type/var/const/member, or a pipeline filter's target func — gets a
+  LAZY `CompletionItem.Data{file,line}` payload instead, resolved on demand via
+  the new `completionItem/resolve` request (`CompletionOptions.ResolveProvider
+  = true`). Same-package MEMBER items (fields/methods on a same-package
+  receiver type) follow the eager rule automatically — authored-ness is a
+  property of the object itself, checked once in `completionDocFor`, not of
+  which completion path found it. `chunkDocCache` memoizes the eager path per
+  (path, declaration-start-line), keyed additionally by the reconstructed
+  chunk's own text (content-validated, so an edit simply misses and
+  overwrites); caching a SINGLE line's answer per chunk was tried first and
+  is UNSOUND — a chunk holding more than one declaration (a struct type
+  immediately followed by a method on it, both merged into the same GoChunk)
+  let one declaration's cached doc leak onto its sibling's lookup — fixed by
+  caching the whole chunk's line→doc map in one pass. `depDocCache` (in
+  `completion_resolve.go`) caches real dependency-file parses by absolute
+  path, no invalidation (module-cache/GOROOT files are immutable within a
+  session). SECURITY: `completionItem/resolve`'s Data round-trips through the
+  CLIENT — a hostile/buggy client could send an arbitrary `{file,line}`, so
+  `resolvablePath` gates every resolve to a `.go` file under GOMODCACHE,
+  GOROOT (`go/build.Default.GOROOT`, not the deprecated `runtime.GOROOT()`),
+  or a negotiated workspace module root, computed fresh per request (a
+  bare env/in-memory lookup, no filesystem/subprocess cost) rather than
+  memoized, so it stays testable via `t.Setenv`. Filters resolve through the
+  SAME `{file,line}` mechanism: codegen's filter harvest
+  (`harvestFromTypes`/`filterEntry.pos`) now resolves each candidate's
+  declaration position immediately at harvest time via whatever `*token.
+  FileSet` the caller's `packages.Load`/Module used — resolving IMMEDIATELY
+  (not carrying a raw `token.Pos` forward) is what keeps two independent
+  harvests of the same filter (the go-list path and the types-based path
+  compared byte-for-byte in `filtertable_equiv_test.go`) agreeing: a raw
+  `token.Pos` is meaningless across two different `*token.FileSet` instances,
+  while the resolved `token.Position` is content-derived and so identical
+  either way — the equivalence test caught this the first time as a real
+  regression. Tests: unit (eager scope/member/GoWithElements, no-doc case,
+  chunk-cache reuse, resolve no-Data/malformed-Data/outside-allowed-roots/
+  GOMODCACHE/workspace-root) in internal/lsp; e2e (eager doc on a fixture
+  symbol, stdlib `strings.HasPrefix` resolve round trip, filter `upper`→
+  std.Upper resolve round trip) in gen/lsp_completion_docs_e2e_test.go.
+  **Follow-ups:** auto-import completion (own design); snippet placeholders;
+  body-local value bindings as method-component qualifiers (declared in a
+  `{{ }}` block, a v1 gap); `Component.Doc` — component-tag completion/hover
+  still show only the rendered signature (`renderComponentSig`), never a doc
+  comment: the parser attaches no leading comment to a `component` decl at
+  all (`ast.Component` has no `Doc` field), unlike a Go func/type/var/const.
+  Adding one is a small, self-contained parser+AST change (S), out of scope
+  for T9/T10; stale-snapshot fast path — largely subsumed by the non-blocking
   `TryAnalyzeEphemeral` work above, only worth revisiting if a benchmark still
   demands it.
 - [x] **emit.go `//line` for top-level Go body chunks** - DONE. `generateFile`

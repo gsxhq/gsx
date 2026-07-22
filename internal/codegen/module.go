@@ -1058,7 +1058,12 @@ func (m *Module) filterTableFromSource(pkgs []string) (filterTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil)
+	// configuredSourcePackages resolves every request (local or external)
+	// against the Module's own shared m.fset (see configuredSourceDeclResolver
+	// / externalImporter), the SAME Fset PackageResult.Fset publishes — so a
+	// filterEntry.pos captured here is directly usable, with no further
+	// resolution, by the LSP completion (T9/T10 lazy doc resolve).
+	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil, m.fset)
 	return table, err
 }
 

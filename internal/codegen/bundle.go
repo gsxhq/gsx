@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"go/token"
 	"go/types"
 	goversion "go/version"
 )
@@ -25,7 +26,11 @@ import (
 // which path ran.
 //
 // aliases maps each package path to its reserved import alias (filterAliases).
-func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, aliases map[string]string) (map[string][]filterEntry, error) {
+// fset resolves each harvested func's declaration Position immediately (see
+// filterEntry.pos) — pass nil when no real Fset is available at this call
+// site (e.g. the WASM/typebundle path), which simply leaves every entry's pos
+// at its zero value.
+func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, aliases map[string]string, fset *token.FileSet) (map[string][]filterEntry, error) {
 	harvested := map[string][]filterEntry{}
 	for _, path := range pkgPaths {
 		pkg, ok := byPath[path]
@@ -58,6 +63,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 				hasErr:   sig.Results().Len() == 2,
 				alias:    alias,
 				pkgPath:  path,
+				pos:      funcPosition(fn, fset),
 			})
 		}
 	}
@@ -94,6 +100,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 			hasErr:   sig.Results().Len() == 2,
 			alias:    aliases[a.PkgPath],
 			pkgPath:  a.PkgPath,
+			pos:      funcPosition(fn, fset),
 		})
 	}
 	return harvested, nil
@@ -105,7 +112,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 // shares its alias with a same-path filter package, and harvestRenderers runs
 // after harvestFromTypes to produce the rendererTable returned alongside the
 // filterTable.
-func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, renderers []RendererAlias) (filterTable, rendererTable, error) {
+func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, renderers []RendererAlias, fset *token.FileSet) (filterTable, rendererTable, error) {
 	if len(pkgPaths) == 0 && len(explicitAliases) == 0 && len(renderers) == 0 {
 		return filterTable{}, rendererTable{}, nil
 	}
@@ -117,7 +124,7 @@ func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []strin
 		aliasPaths = append(aliasPaths, r.PkgPath)
 	}
 	aliases := filterAliases(aliasPaths)
-	harvested, err := harvestFromTypes(byPath, pkgPaths, explicitAliases, aliases)
+	harvested, err := harvestFromTypes(byPath, pkgPaths, explicitAliases, aliases, fset)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -145,7 +152,10 @@ func NewCachedResolverFromTypes(pkgs map[string]*types.Package, sizes types.Size
 		return nil, fmt.Errorf("codegen: bundled resolver requires a valid Go language version, got %q", goVersion)
 	}
 	filterPkgs = dedupFilterPkgs(filterPkgs)
-	table, rt, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases, nil)
+	// No real Fset here: pkgs is reconstructed from an embedded typebundle
+	// (the WASM/no-toolchain path), which carries no source file positions at
+	// all — filterEntry.pos simply stays at its zero value for every entry.
+	table, rt, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases, nil, nil)
 	if err != nil {
 		return nil, err
 	}

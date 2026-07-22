@@ -3,6 +3,7 @@ package codegen
 import (
 	"errors"
 	"fmt"
+	"go/token"
 	"go/types"
 	"sort"
 	"strings"
@@ -102,6 +103,21 @@ type filterEntry struct {
 	hasErr   bool
 	alias    string
 	pkgPath  string
+	// pos is the target func's declaration position, RESOLVED (Fset.Position,
+	// not a raw Fset-instance-relative token.Pos) at harvest time from the
+	// types.Func object the harvest already found (see harvestFromTypes) and
+	// whatever Fset the caller's types.Package values were type-checked
+	// against. Resolving immediately — rather than carrying the raw token.Pos
+	// forward — is what makes two INDEPENDENT harvests of the same filter
+	// (e.g. the go-list path and the types-based path compared byte-for-byte
+	// in filtertable_equiv_test.go) agree: a raw token.Pos is meaningless
+	// across two different *token.FileSet instances (same file, arbitrary
+	// different integer offsets), while the resolved Position (filename,
+	// line, column) is content-derived and so identical either way. The zero
+	// Position (Pos.IsValid() false) means no Fset was available to resolve
+	// against (e.g. the WASM/typebundle harvest path, which has no real
+	// source files at all).
+	pos token.Position
 }
 
 // filterTable maps a template-level filter name to its harvested entry. The
@@ -291,7 +307,15 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 		}
 		typesByPath[r.PkgPath] = byPath[r.PkgPath].Types
 	}
-	harvested, err := harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases)
+	// packages.Load shares ONE FileSet across every *packages.Package in a
+	// single call (confirmed via *packages.Package.Fset, which "provides
+	// position information for Types, TypesInfo, and Syntax" regardless of
+	// whether NeedSyntax was requested), so any loaded package's Fset works.
+	var fset *token.FileSet
+	if len(pkgs) > 0 {
+		fset = pkgs[0].Fset
+	}
+	harvested, err := harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases, fset)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -498,8 +522,21 @@ func lowerFirst(s string) string {
 func filterCandidates(t funcTables) []FilterCandidate {
 	out := make([]FilterCandidate, 0, len(t.filters))
 	for name, e := range t.filters {
-		out = append(out, FilterCandidate{Name: name, Pkg: e.pkgPath, Func: e.funcName, WantsCtx: e.wantsCtx})
+		out = append(out, FilterCandidate{Name: name, Pkg: e.pkgPath, Func: e.funcName, WantsCtx: e.wantsCtx, Pos: e.pos})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// funcPosition resolves fn's declaration position against fset, or the zero
+// token.Position when fset is nil (no Fset available at this harvest site —
+// e.g. a WASM/typebundle load with no real source files) or fn/its Pos are
+// invalid. Shared by every harvestFromTypes call site so a filterEntry always
+// carries an ALREADY-RESOLVED Position rather than a raw, Fset-instance-only
+// token.Pos (see filterEntry.pos for why that distinction matters).
+func funcPosition(fn *types.Func, fset *token.FileSet) token.Position {
+	if fset == nil || fn == nil || !fn.Pos().IsValid() {
+		return token.Position{}
+	}
+	return fset.Position(fn.Pos())
 }

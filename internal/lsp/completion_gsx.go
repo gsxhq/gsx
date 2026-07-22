@@ -32,7 +32,17 @@ func filterItems(filters []FilterCandidate, text string, start, end int, enc enc
 		if f.WantsCtx {
 			detail += " (ctx)"
 		}
-		items = append(items, newCompletionItem(text, start, end, enc, f.Name, f.Name, ciKindOperator, tierContext, detail, nil))
+		item := newCompletionItem(text, start, end, enc, f.Name, f.Name, ciKindOperator, tierContext, detail, nil)
+		// Filter target funcs are always declared outside the analyzed
+		// package (the filter registry, not this file's own scope), so their
+		// doc — like any imported symbol's — is fetched lazily via
+		// completionItem/resolve; f.Pos was resolved once at analysis time
+		// (see codegen's filterEntry.pos / FilterCandidate.Pos), not
+		// re-looked-up per completion request.
+		if f.Pos.IsValid() && f.Pos.Filename != "" {
+			item.Data = &completionResolveData{File: f.Pos.Filename, Line: f.Pos.Line}
+		}
+		items = append(items, item)
 	}
 	return items
 }

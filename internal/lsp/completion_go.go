@@ -252,12 +252,19 @@ func scopeCandidates(pkg *Package, scope *types.Scope, pos token.Pos) []scopedOb
 // type-matching candidates ahead of the rest WITHIN their locality tier
 // (rankedSortText). expected == nil leaves every SortText byte-identical to the
 // historical tier-only form.
-func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos token.Pos, statementCtx bool, expected types.Type, text string, start, end int, enc encoding, path string) []CompletionItem {
-	if items, ok := memberCompletionItems(pkg, skel, pos, expected, text, start, end, enc); ok {
+//
+// source is the exact bytes pkg's Files were parsed from (T9/T10 doc
+// comments): a current-package candidate's eager Documentation is extracted
+// by reconstructing its owning GoChunk/GoWithElements against these bytes
+// (completionDocFor/authoredDoc), so source must be byte-identical to what
+// produced pkg — the ephemeral analysis's own (possibly phantom-patched)
+// buffer, never a stale/live buffer that may have since diverged.
+func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos token.Pos, statementCtx bool, expected types.Type, text string, start, end int, enc encoding, path string, source []byte) []CompletionItem {
+	if items, ok := memberCompletionItems(pkg, skel, pos, expected, text, start, end, enc, source); ok {
 		return items // member path: committed even when empty (no scope fallback)
 	}
 	if statementCtx {
-		if items, ok := statementMemberItems(pkg, path, text, start, end, enc); ok {
+		if items, ok := statementMemberItems(pkg, path, text, start, end, enc, source); ok {
 			return items // statement member path: committed even when empty
 		}
 	}
@@ -266,7 +273,9 @@ func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos toke
 	for _, cand := range scopeCandidates(pkg, scope, pos) {
 		kind, detail := goObjectPresentation(cand.obj, qf)
 		name := cand.obj.Name()
-		item := newCompletionItem(text, start, end, enc, name, name, kind, cand.tier, detail, nil)
+		doc, data := completionDocFor(pkg, cand.obj, source)
+		item := newCompletionItem(text, start, end, enc, name, name, kind, cand.tier, detail, doc)
+		item.Data = data
 		if expected != nil {
 			item.SortText = rankedSortText(cand.tier, name, expected, cand.obj.Type())
 		}
@@ -411,7 +420,7 @@ func enclosingSelector(root ast.Node, id *ast.Ident) *ast.SelectorExpr {
 // carries the match digit ranking type-matching members ahead within their
 // (member-depth) tier; nil leaves the SortText byte-identical to the tier-only
 // form.
-func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, expected types.Type, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
+func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, expected types.Type, text string, start, end int, enc encoding, source []byte) ([]CompletionItem, bool) {
 	if skel == nil || pkg == nil || pkg.Info == nil {
 		return nil, false
 	}
@@ -446,7 +455,7 @@ func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, expected 
 	if !ok || tv.Type == nil {
 		return nil, true // selector found but no type info: member path, empty
 	}
-	return valueMemberItems(pkg, tv.Type, expected, text, start, end, enc), true
+	return valueMemberItems(pkg, tv.Type, expected, text, start, end, enc, source), true
 }
 
 // packageMemberItems enumerates the exported names of an imported package pn as
@@ -464,7 +473,9 @@ func packageMemberItems(pkg *Package, pn *types.PkgName, expected types.Type, te
 			continue
 		}
 		kind, detail := goObjectPresentation(obj, qf)
-		item := newCompletionItem(text, start, end, enc, name, name, kind, tierImported, detail, nil)
+		doc, data := completionDocFor(pkg, obj, nil) // an imported package's own member is never authored in THIS package
+		item := newCompletionItem(text, start, end, enc, name, name, kind, tierImported, detail, doc)
+		item.Data = data
 		if expected != nil {
 			item.SortText = rankedSortText(tierImported, name, expected, obj.Type())
 		}
@@ -477,7 +488,12 @@ func packageMemberItems(pkg *Package, pn *types.PkgName, expected types.Type, te
 // (fields/methods via memberCandidates) as CompletionItems replacing [start,
 // end) in text, tiered tierMember+depth clamped below tierPackage. Shared by the
 // skeleton selector member path and the statement-position member path.
-func valueMemberItems(pkg *Package, recv types.Type, expected types.Type, text string, start, end int, enc encoding) []CompletionItem {
+// source is threaded to completionDocFor for the (decision #2) uniform rule: a
+// member whose OWN object is authored in this package (e.g. a receiver type
+// declared in this same .gsx) gets eager Documentation exactly like a
+// tierPackage candidate; every other member (an imported dependency's type)
+// gets a lazy Data payload instead.
+func valueMemberItems(pkg *Package, recv types.Type, expected types.Type, text string, start, end int, enc encoding, source []byte) []CompletionItem {
 	qf := qualifierFor(pkg)
 	var items []CompletionItem
 	for _, m := range memberCandidates(recv, pkg.Types) {
@@ -487,7 +503,9 @@ func valueMemberItems(pkg *Package, recv types.Type, expected types.Type, text s
 		}
 		kind, detail := goObjectPresentation(m.obj, qf)
 		name := m.obj.Name()
-		item := newCompletionItem(text, start, end, enc, name, name, kind, tier, detail, nil)
+		doc, data := completionDocFor(pkg, m.obj, source)
+		item := newCompletionItem(text, start, end, enc, name, name, kind, tier, detail, doc)
+		item.Data = data
 		if expected != nil {
 			item.SortText = rankedSortText(tier, name, expected, m.obj.Type())
 		}
@@ -531,7 +549,7 @@ func valueMemberItems(pkg *Package, recv types.Type, expected types.Type, text s
 // always nil: a member's expected type is not derivable across a statement
 // boundary (matches the existing skeleton member path's statement-context
 // behavior, which also passes nil).
-func statementMemberItems(pkg *Package, path, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
+func statementMemberItems(pkg *Package, path, text string, start, end int, enc encoding, source []byte) ([]CompletionItem, bool) {
 	if pkg == nil || pkg.SourceIndex == nil || start == 0 || start > len(text) || text[start-1] != '.' {
 		return nil, false
 	}
@@ -559,7 +577,7 @@ func statementMemberItems(pkg *Package, path, text string, start, end int, enc e
 	if recv == nil {
 		return nil, true
 	}
-	return valueMemberItems(pkg, recv, nil, text, start, end, enc), true
+	return valueMemberItems(pkg, recv, nil, text, start, end, enc, source), true
 }
 
 // isGoSpaceByte reports whether b is a Go-source whitespace byte (space, tab,

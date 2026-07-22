@@ -494,7 +494,7 @@ func TestMemberCompletionItemsDepthClampDeepChain(t *testing.T) {
 	if sel == nil {
 		t.Fatal("v.F0 selector not found in Info.Types")
 	}
-	items, ok := memberCompletionItems(pkg, sel, sel.Sel.Pos(), nil, src, 0, 0, encUTF8)
+	items, ok := memberCompletionItems(pkg, sel, sel.Sel.Pos(), nil, src, 0, 0, encUTF8, nil)
 	if !ok {
 		t.Fatal("memberCompletionItems did not take the member path")
 	}
@@ -638,7 +638,7 @@ component Home(user User) {
 	pkg, path := analyzedLSPPackage(t, src)
 	nameOff := strings.Index(src, "user.Name") + len("user.")
 
-	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8)
+	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8, nil)
 	if !ok {
 		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
 	}
@@ -677,7 +677,7 @@ component Home(user User) {
 	nameOff := strings.Index(src, "user.Name") + len("user.")
 	start, end := nameOff, nameOff+2 // simulated "Na" prefix
 
-	items, ok := statementMemberItems(pkg, path, src, start, end, encUTF8)
+	items, ok := statementMemberItems(pkg, path, src, start, end, encUTF8, nil)
 	if !ok {
 		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
 	}
@@ -724,7 +724,7 @@ component Home() {
 	pkg, path := analyzedLSPPackage(t, src)
 	nameOff := strings.Index(src, "u.Name") + len("u.")
 
-	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8)
+	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8, nil)
 	if !ok {
 		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
 	}
@@ -757,7 +757,7 @@ component Home() {
 	pkg, path := analyzedLSPPackage(t, src)
 	off := strings.Index(src, "strings.ToUpper") + len("strings.")
 
-	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8)
+	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8, nil)
 	if !ok {
 		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
 	}
@@ -802,7 +802,7 @@ component Home() {
 	pkg, path := analyzedLSPPackage(t, src)
 	off := strings.Index(src, "mk().Name") + len("mk().")
 
-	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8)
+	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8, nil)
 	if !ok {
 		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
 	}
@@ -831,7 +831,7 @@ component Home() {
 `
 	pkg, path := analyzedLSPPackage(t, src)
 	off := strings.Index(src, "x := 1") + len("x")
-	if _, ok := statementMemberItems(pkg, path, src, off, off, encUTF8); ok {
+	if _, ok := statementMemberItems(pkg, path, src, off, off, encUTF8, nil); ok {
 		t.Error("statementMemberItems ok=true at a non-`.` cursor")
 	}
 
@@ -839,11 +839,11 @@ component Home() {
 	if synth.SourceIndex != nil {
 		t.Fatal("synthetic package unexpectedly has a SourceIndex")
 	}
-	if _, ok := statementMemberItems(synth, "p.go", "x.Y", 2, 2, encUTF8); ok {
+	if _, ok := statementMemberItems(synth, "p.go", "x.Y", 2, 2, encUTF8, nil); ok {
 		t.Error("statementMemberItems ok=true with a nil SourceIndex")
 	}
 
-	if _, ok := statementMemberItems(nil, "p.go", "x.Y", 2, 2, encUTF8); ok {
+	if _, ok := statementMemberItems(nil, "p.go", "x.Y", 2, 2, encUTF8, nil); ok {
 		t.Error("statementMemberItems ok=true with a nil pkg")
 	}
 }
@@ -870,7 +870,7 @@ component Home(user User) {
 	pkg, path := analyzedLSPPackage(t, src)
 	nameOff := strings.Index(src, "user.Name") + len("user.")
 
-	items := goCompletionItems(pkg, pkg.Types.Scope(), nil, token.NoPos, true, nil, src, nameOff, nameOff, encUTF8, path)
+	items := goCompletionItems(pkg, pkg.Types.Scope(), nil, token.NoPos, true, nil, src, nameOff, nameOff, encUTF8, path, nil)
 	labels := map[string]bool{}
 	for _, it := range items {
 		labels[it.Label] = true

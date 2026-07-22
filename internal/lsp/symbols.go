@@ -288,61 +288,87 @@ func (s *partialGoSource) linearSourceSpan(parsedStart, parsedEnd int) (int, int
 	return 0, 0, false
 }
 
-// partialGoChunkSymbols parses a GoChunk's verbatim source in recovery mode and
-// emits only declarations represented by the returned partial Go AST.
-func partialGoChunkSymbols(file *gsxast.File, fset *token.FileSet, source []byte, chunk *gsxast.GoChunk) []Symbol {
+// reconstructGoChunk builds the byte-exact recovery reconstruction of a
+// GoChunk's verbatim source — the shared first half of partialGoChunkSymbols,
+// extracted so completion_docs.go's doc-comment extractor (which needs the
+// SAME proven byte-for-byte reconstruction, not a second hand-rolled one) can
+// call it without pulling in Symbol-specific parsing.
+func reconstructGoChunk(fset *token.FileSet, source []byte, chunk *gsxast.GoChunk) (partialGoSource, *token.File, bool) {
 	tokenFile := fset.File(chunk.Pos())
 	if tokenFile == nil || tokenFile.Size() != len(source) {
-		return nil
+		return partialGoSource{}, nil, false
 	}
 	start := tokenFile.Offset(chunk.Pos())
 	end := tokenFile.Offset(chunk.End())
 	if start < 0 || end < start || end > len(source) || chunk.Src != string(source[start:end]) {
-		return nil
+		return partialGoSource{}, nil, false
 	}
 	var reconstructed partialGoSource
 	if !reconstructed.appendAuthored(chunk.Src, start, end) {
+		return partialGoSource{}, nil, false
+	}
+	return reconstructed, tokenFile, true
+}
+
+// partialGoChunkSymbols parses a GoChunk's verbatim source in recovery mode and
+// emits only declarations represented by the returned partial Go AST.
+func partialGoChunkSymbols(file *gsxast.File, fset *token.FileSet, source []byte, chunk *gsxast.GoChunk) []Symbol {
+	reconstructed, tokenFile, ok := reconstructGoChunk(fset, source, chunk)
+	if !ok {
 		return nil
 	}
 	return partialGoSymbols(file.Package, fset, tokenFile, source, reconstructed)
 }
 
-func partialGoWithElementsSymbols(file *gsxast.File, fset *token.FileSet, source []byte, declaration *gsxast.GoWithElements) []Symbol {
+// reconstructGoWithElements builds the byte-exact recovery reconstruction of a
+// GoWithElements declaration (GoText parts verbatim, embedded element/fragment
+// parts as newline-preserving placeholders) — the shared first half of
+// partialGoWithElementsSymbols, extracted for the same reason as
+// reconstructGoChunk above.
+func reconstructGoWithElements(fset *token.FileSet, source []byte, declaration *gsxast.GoWithElements) (partialGoSource, *token.File, bool) {
 	tokenFile := fset.File(declaration.Pos())
 	if tokenFile == nil || tokenFile.Size() != len(source) {
-		return nil
+		return partialGoSource{}, nil, false
 	}
 	declarationStart := tokenFile.Offset(declaration.Pos())
 	declarationEnd := tokenFile.Offset(declaration.End())
 	if declarationStart < 0 || declarationEnd < declarationStart || declarationEnd > len(source) {
-		return nil
+		return partialGoSource{}, nil, false
 	}
 	var reconstructed partialGoSource
 	cursor := declarationStart
 	for _, part := range declaration.Parts {
 		if fset.File(part.Pos()) != tokenFile || fset.File(part.End()) != tokenFile {
-			return nil
+			return partialGoSource{}, nil, false
 		}
 		start := tokenFile.Offset(part.Pos())
 		end := tokenFile.Offset(part.End())
 		if start != cursor || end < start || end > declarationEnd {
-			return nil
+			return partialGoSource{}, nil, false
 		}
 		switch part := part.(type) {
 		case gsxast.GoText:
 			if part.Src != string(source[start:end]) || !reconstructed.appendAuthored(part.Src, start, end) {
-				return nil
+				return partialGoSource{}, nil, false
 			}
 		case *gsxast.Element, *gsxast.Fragment, *gsxast.EmbeddedInterp:
 			if !reconstructed.appendExpressionPlaceholder(source, start, end) {
-				return nil
+				return partialGoSource{}, nil, false
 			}
 		default:
-			return nil
+			return partialGoSource{}, nil, false
 		}
 		cursor = end
 	}
 	if cursor != declarationEnd || reconstructed.text.Len() != declarationEnd-declarationStart {
+		return partialGoSource{}, nil, false
+	}
+	return reconstructed, tokenFile, true
+}
+
+func partialGoWithElementsSymbols(file *gsxast.File, fset *token.FileSet, source []byte, declaration *gsxast.GoWithElements) []Symbol {
+	reconstructed, tokenFile, ok := reconstructGoWithElements(fset, source, declaration)
+	if !ok {
 		return nil
 	}
 	return partialGoSymbols(file.Package, fset, tokenFile, source, reconstructed)
