@@ -413,6 +413,15 @@ func TestMemberDispatch(t *testing.T) {
 	}
 }
 
+// isFileScope reports whether s is a file scope of the analyzed package. It
+// has no production caller (production code goes through fileScopeSet
+// directly, e.g. completion_gsx.go's importQualifierCandidates) — kept here,
+// test-local, purely to give TestIsFileScope's fileScopeSet coverage a named
+// single-scope assertion.
+func isFileScope(pkg *Package, s *types.Scope) bool {
+	return fileScopeSet(pkg)[s]
+}
+
 func TestIsFileScope(t *testing.T) {
 	src := `package p
 

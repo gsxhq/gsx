@@ -190,3 +190,31 @@ func TestClassifyCompletionContextFields(t *testing.T) {
 		}
 	})
 }
+
+// TestOpenTagEndSkipsComments pins skipBraced's comment handling: a `}` or
+// `>` inside a `//` or `/* */` comment nested in an ExprAttr's {expr} value
+// must not be mistaken for the value's closing brace or the open tag's
+// closing '>'. Without comment-aware skipping, the comment's own '}' closes
+// the brace early and a stray '>' still inside the comment text then
+// terminates the tag scan early too — both cases below regress to that wrong,
+// earlier '>' if skipBraced stops recognizing comments.
+func TestOpenTagEndSkipsComments(t *testing.T) {
+	cases := []struct {
+		name, src string
+	}{
+		{"block comment with brace and angle bracket", `<div title={ /* } > */ x }>`},
+		{"line comment with brace and angle bracket", "<div title={ // } >\n\tx }>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(tc.src)
+			want := strings.LastIndexByte(tc.src, '>')
+			if want < 0 {
+				t.Fatal("fixture has no '>'")
+			}
+			if got := openTagEnd(src, 0); got != want {
+				t.Fatalf("openTagEnd = %d, want %d (the tag's real closing '>'); src=%q", got, want, tc.src)
+			}
+		})
+	}
+}

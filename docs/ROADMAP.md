@@ -581,7 +581,10 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   **Follow-ups:** auto-import completion (own design); expected-type ranking;
   snippet placeholders; typed pipe-filter compatibility filtering;
   `completionItem/resolve` for lazy docs; method-component (`<recv.Name>`)
-  tags.
+  tags; Go doc comments on candidates (requires comment retention through the
+  skeleton); stale-snapshot fast path — largely subsumed by the non-blocking
+  `TryAnalyzeEphemeral` work above, only worth revisiting if a benchmark still
+  demands it.
 - [ ] **emit.go `//line` for top-level Go body chunks** - shipped `.x.go`
   emits no `//line` for plain GoChunk text or GoWithElements GoText, so a
   cross-module dep loaded from its published `.x.go` resolves value positions

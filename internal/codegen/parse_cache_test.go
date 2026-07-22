@@ -2,7 +2,9 @@ package codegen
 
 import (
 	"bytes"
+	"go/token"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,4 +80,38 @@ func TestParseCacheServesIndependentASTs(t *testing.T) {
 	if f1 == f2 {
 		t.Fatal("two independent analyses shared the same *ast.File pointer; parse-cache clone-on-use is not isolating trees")
 	}
+}
+
+// TestParsedGSXFileRejectsForeignFset pins parsedGSXFile's precondition: fset
+// must be m.fset. A cache hit returns entry.file's clone without ever touching
+// the fset argument, so a caller passing any other *token.FileSet would
+// silently get back positions minted against m.fset while believing it used
+// its own — the assertion converts that latent corruption into an immediate,
+// loud panic instead.
+func TestParsedGSXFileRejectsForeignFset(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, root, "page/page.gsx", "package page\n\ncomponent Home() {\n\t<div>ok</div>\n}\n")
+
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("parsedGSXFile did not panic on a foreign fset")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "fset != m.fset") {
+			t.Fatalf("panic = %v, want a message naming the fset != m.fset precondition", r)
+		}
+	}()
+	foreign := token.NewFileSet()
+	_, _ = m.parsedGSXFile(filepath.Join(root, "page", "page.gsx"), []byte("package page\n"), nil, foreign)
 }

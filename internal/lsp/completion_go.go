@@ -55,11 +55,6 @@ func fileScopeSet(pkg *Package) map[*types.Scope]bool {
 	return set
 }
 
-// isFileScope reports whether s is a file scope of the analyzed package.
-func isFileScope(pkg *Package, s *types.Scope) bool {
-	return fileScopeSet(pkg)[s]
-}
-
 // innermostScopeAt returns the smallest go/types scope containing pos, then
 // descends to the innermost scope at pos within it (Scope.Innermost). It reads
 // only Info.Scopes, whose positions live in skeleton (pkg.Fset) coordinates —
