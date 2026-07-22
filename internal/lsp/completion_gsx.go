@@ -44,9 +44,23 @@ func filterItems(filters []FilterCandidate, text string, start, end int, enc enc
 // (not r.src), so an empty stage naturally yields a zero-width [off,off) span
 // with nothing typed to filter on or leak into the edit.
 func (s *Server) pipeStageCompletion(cc completionContext, path, text string, off int, r repairResult) CompletionList {
-	filters := s.pipeFilters(filepath.Dir(path), path, r.src)
-	if len(filters) == 0 {
+	pkg := s.pipeFilterPackage(filepath.Dir(path), path, r.src)
+	if pkg == nil || len(pkg.Filters) == 0 {
 		return emptyCompletion()
+	}
+	filters := pkg.Filters
+	// Typed narrowing: keep only filters whose subject parameter accepts the
+	// type flowing into this pipeline stage. compatiblePipeFilters fails OPEN —
+	// returns ok=false — whenever that type (or the cursor's pipeline node)
+	// cannot be resolved, so an uncertain analysis offers the full list rather
+	// than hiding candidates. cc.exprPos is the seed span in the repair parse's
+	// coordinates; the seed sits before the cursor's repair insertion, so its
+	// byte offset bridges unchanged into the ephemeral analysis package.
+	if r.fset != nil && cc.exprPos.IsValid() {
+		seedOff := r.fset.Position(cc.exprPos).Offset
+		if narrowed, ok := compatiblePipeFilters(pkg, path, seedOff, off, filters); ok {
+			filters = narrowed
+		}
 	}
 	start, end := completionTokenSpan(text, off, false)
 	items := filterItems(filters, text, start, end, s.enc)
@@ -56,26 +70,28 @@ func (s *Server) pipeStageCompletion(cc completionContext, path, text string, of
 	return CompletionList{IsIncomplete: false, Items: items}
 }
 
-// pipeFilters resolves the pipe-filter table for dir. It prefers one
-// ephemeral analysis of the (possibly mid-edit) buffer src, so a filter
-// registered by an edit still only in the buffer completes immediately. When
-// that comes back a shell — the analyzer errored, or returned a
-// diagnostics-only Package with both Info and Filters empty (parse/analyze
-// failure) — it falls back to the retained s.pkgs[dir] snapshot: filter NAMES
-// are position-independent, so serving a stale retained list under staleness
-// is safe. Both empty (or absent) yields nil, and pipeStageCompletion turns
-// that into an empty list — fail soft, never an error.
-func (s *Server) pipeFilters(dir, path string, src []byte) []FilterCandidate {
+// pipeFilterPackage resolves the analyzed package backing a pipe-stage cursor.
+// It prefers one ephemeral analysis of the (possibly mid-edit) buffer src, so a
+// filter registered by an edit still only in the buffer completes immediately,
+// AND so the package carries the live Info/Types/ExprMap that typed narrowing
+// (compatiblePipeFilters) reads. When that comes back a shell — the analyzer
+// errored, or returned a diagnostics-only Package with both Info and Filters
+// empty (parse/analyze failure) — it falls back to the retained s.pkgs[dir]
+// snapshot: filter NAMES are position-independent, so serving a stale retained
+// list is safe (typed narrowing simply fails open against a stale package's
+// facts). Both empty (or absent) yields nil, and pipeStageCompletion turns that
+// into an empty list — fail soft, never an error.
+func (s *Server) pipeFilterPackage(dir, path string, src []byte) *Package {
 	// Non-blocking (see goContextCompletion): under contention acquired=false
 	// (eph nil) falls through to the retained snapshot below — filter NAMES are
 	// position-independent, so a stale list is a safe, instant answer rather than
 	// a whole-server stall.
 	eph, acquired, err := s.analyzer.AnalyzeEphemeralNonBlocking(dir, path, src)
 	if acquired && err == nil && eph != nil && (eph.Info != nil || len(eph.Filters) > 0) {
-		return eph.Filters
+		return eph
 	}
 	if pkg := s.pkgs[dir]; pkg != nil {
-		return pkg.Filters
+		return pkg
 	}
 	return nil
 }

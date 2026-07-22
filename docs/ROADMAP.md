@@ -583,8 +583,21 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   package-scope var — resolved via the enclosing component's generated-func scope
   seeded from `SigTypes`, not authored-offset alignment) offers that type's
   method components; a value binding shadows a same-named import per Go scoping.
+  Pipe-filter completion is TYPE-NARROWED: `{ x |> ▮ }` offers only filters whose
+  subject parameter accepts the stage's incoming type (the seed's type at stage 0,
+  the preceding filter's result type after — an `(R, error)` filter chains its R;
+  a ctx-taking filter's subject is parameter 1). Filter signatures are resolved in
+  the ephemeral skeleton's own type universe (the same universe the incoming type
+  comes from, so `types.AssignableTo` is sound); a generic (type-parameter) subject
+  and an `any`/interface subject always match. Narrowing is a refinement, never a
+  gate: it fails OPEN — offering the full list — whenever the incoming type can't be
+  determined (broken seed, or a preceding filter whose package is not imported into
+  the skeleton because no successfully-lowered pipe referenced it), and per-candidate
+  when a candidate's own package is likewise absent. Known limitation: a preceding
+  stage that carries ARGS followed by an unknown/empty stage currently yields an
+  empty analysis (a codegen edge), which routes to the full-list fail-open.
   **Follow-ups:** auto-import completion (own design); expected-type ranking;
-  snippet placeholders; typed pipe-filter compatibility filtering;
+  snippet placeholders;
   `completionItem/resolve` for lazy docs; body-local value bindings as method-
   component qualifiers (declared in a `{{ }}` block, a v1 gap); Go doc comments
   on candidates (requires comment retention through the

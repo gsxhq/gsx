@@ -612,6 +612,35 @@ func TestPipeStageEmptyCompletionE2E(t *testing.T) {
 	}
 }
 
+// TestPipeStageTypedNarrowingE2E drives the typed pipe-filter compatibility
+// filtering end to end: at `{ user.Age |> ▮ }` the incoming type is int, so
+// string-subject filters (upper) are withheld while the any-subject printf and
+// generic default are offered. A companion `{ user.Name |> lower }` pipe imports
+// std into the skeleton universe so the candidate signatures resolve (a filter
+// whose package is not imported fails open — offered — per the design's
+// per-candidate fail-open rule).
+func TestPipeStageTypedNarrowingE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	extra := map[string]string{"page/types.go": "package page\n\ntype User struct{ Name string; Age int }\n"}
+	source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name |> lower }{ user.Age |> u }</div>\n}\n"
+	cursor := strings.Index(source, "|> u") + len("|> u")
+	items := runHTMLCompletionE2E(t, extra, source, cursor)
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"printf", "default"} {
+		if !labels[name] {
+			t.Errorf("int-seed pipe completion missing any/generic filter %q; labels=%v", name, labels)
+		}
+	}
+	if labels["upper"] {
+		t.Errorf("int-seed pipe completion offered string-subject filter %q; labels=%v", "upper", labels)
+	}
+}
+
 // TestTagCompletionE2E drives textDocument/completion for a ctxTag cursor end
 // to end: a bare `<Ot▮` cursor offers the sibling local component ("Other"),
 // and a qualified `<ui.▮` cursor offers the imported gsx package's component
