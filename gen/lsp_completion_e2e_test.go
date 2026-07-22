@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/gsxhq/gsx/internal/lsp"
 )
@@ -70,6 +71,60 @@ func TestAnalyzeEphemeralViaAnalyzer(t *testing.T) {
 	generated := filepath.Join(dir, "page.x.go")
 	if _, err := os.Stat(generated); !os.IsNotExist(err) {
 		t.Fatalf("physical generated file exists: %s", generated)
+	}
+}
+
+// BenchmarkAnalyzeEphemeralWarm measures the per-keystroke completion latency
+// floor: one warm AnalyzeEphemeral call over the `{ user._ }` phantom-repaired
+// buffer, against a fixture whose Module cache was already primed by one
+// Analyze call (the same warm per-root codegen.Module — see lspAnalyzer.module
+// — that a live LSP session's completion handler reuses across requests). Step
+// 3 of the Task 16 brief: there is no pass/fail bar here, only the measured
+// baseline the spec wants recorded before any tuning discussion.
+func BenchmarkAnalyzeEphemeralWarm(b *testing.B) {
+	root := b.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		b.Fatal(err)
+	}
+	write := func(name, content string) string {
+		b.Helper()
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	write("page/types.go", "package page\n\ntype User struct{ Name string }\n")
+	live := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	pagePath := write("page/page.gsx", string(live))
+	dir := filepath.Dir(pagePath)
+
+	a := newLSPAnalyzer(config{}, io.Discard)
+	if _, err := a.SetOverride(pagePath, live); err != nil {
+		b.Fatalf("SetOverride: %v", err)
+	}
+	// Pre-warm: one Package() call via the analyzer's own Analyze method, same
+	// as the LSP server does on first open — this is what fills the warm
+	// per-root Module's type cache that AnalyzeEphemeral below reuses.
+	if _, err := a.Analyze(dir, nil); err != nil {
+		b.Fatalf("warm Analyze: %v", err)
+	}
+
+	patched := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user._ }</div>\n}\n")
+	b.ReportAllocs()
+	for b.Loop() {
+		pkg, err := a.AnalyzeEphemeral(dir, pagePath, patched)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if pkg == nil || pkg.Info == nil {
+			b.Fatal("AnalyzeEphemeral returned no Info")
+		}
 	}
 }
 
@@ -161,6 +216,36 @@ func TestGoCompletionE2E(t *testing.T) {
 	exprItems := completionLabels(t, output.String(), 2)
 	if !exprItems["user"] {
 		t.Errorf("expression completion missing local `user`; labels=%v", exprItems)
+	}
+	// Case 3 (Task 16 brief): the package-scope sibling component `Block` is
+	// ALSO offered at the same plain-ident cursor (package scope is
+	// order-independent — scopeCandidates never applies the declared-after
+	// filter to it), and locals sort ahead of package scope: tierLocal's "05"
+	// SortText prefix orders before tierPackage's "30" (completion_items.go).
+	exprFullItems := completionItems(t, output.String(), 2)
+	var userItem, blockItem *lsp.CompletionItem
+	for i := range exprFullItems {
+		switch exprFullItems[i].Label {
+		case "user":
+			userItem = &exprFullItems[i]
+		case "Block":
+			blockItem = &exprFullItems[i]
+		}
+	}
+	if userItem == nil {
+		t.Fatalf("expression completion missing local `user` item; labels=%v", exprItems)
+	}
+	if blockItem == nil {
+		t.Fatalf("expression completion missing package-scope component `Block`; labels=%v", exprItems)
+	}
+	if !strings.HasPrefix(userItem.SortText, "05") {
+		t.Errorf("`user` SortText = %q, want tierLocal prefix \"05\"", userItem.SortText)
+	}
+	if !strings.HasPrefix(blockItem.SortText, "30") {
+		t.Errorf("`Block` SortText = %q, want tierPackage prefix \"30\"", blockItem.SortText)
+	}
+	if userItem.SortText >= blockItem.SortText {
+		t.Errorf("local `user` (SortText %q) must sort before package-scope `Block` (SortText %q)", userItem.SortText, blockItem.SortText)
 	}
 
 	blockItems := completionLabels(t, output.String(), 3)
@@ -317,16 +402,61 @@ func TestGoMemberCompletionE2E(t *testing.T) {
 		}
 	})
 
+	// Scenario 2b (Task 16 brief case 15): a UTF-16 surrogate-pair rune (an
+	// astral-plane character, U+1D518, needing TWO UTF-16 code units) sits in
+	// the HTML text content earlier on the SAME line as a prefixed member
+	// cursor. The response's TextEdit range must be expressed in UTF-16
+	// code-unit coordinates that account for the surrogate pair — comparing
+	// against lspUTF16PositionAt (itself unicode/utf16-based, same as the
+	// "prefixed-member" scenario above) pins that the production position
+	// conversion counts code units, not runes or bytes.
+	t.Run("utf16-surrogate-pair", func(t *testing.T) {
+		source := "package page\n\ncomponent Home(user User) {\n\t<div>𝔘{ user.N }</div>\n}\n"
+		nOff := strings.Index(source, "user.N") + len("user.")
+		cursor := nOff + 1 // right after `N`
+		items := run(t, source, cursor)
+		var nameItem *lsp.CompletionItem
+		for i := range items {
+			if items[i].Label == "Name" {
+				nameItem = &items[i]
+			}
+		}
+		if nameItem == nil {
+			t.Fatalf("utf16 prefixed member `Name` missing; labels=%v", labelsOf(items))
+		}
+		if nameItem.TextEdit == nil {
+			t.Fatal("Name item has no TextEdit")
+		}
+		wantStart := lspUTF16PositionAt(source, nOff)
+		wantEnd := lspUTF16PositionAt(source, nOff+1)
+		if nameItem.TextEdit.Range.Start != wantStart || nameItem.TextEdit.Range.End != wantEnd {
+			t.Errorf("Name edit range = %+v, want [%+v,%+v) accounting for the preceding UTF-16 surrogate pair",
+				nameItem.TextEdit.Range, wantStart, wantEnd)
+		}
+	})
+
 	// Scenario 3: imported-package members. `strings` is imported (and used in a
 	// sibling interp so it is not an unused import) and `{ strings. }` enumerates
 	// its exported names.
 	t.Run("package-member", func(t *testing.T) {
 		source := "package page\n\nimport \"strings\"\n\ncomponent Home(user User) {\n\t<div>{ strings. }</div>\n\t<span>{ strings.ToUpper(user.Name) }</span>\n}\n"
 		cursor := strings.Index(source, "{ strings. }") + len("{ strings.")
-		got := labelsOf(run(t, source, cursor))
+		items := run(t, source, cursor)
+		got := labelsOf(items)
 		for _, name := range []string{"ToUpper", "ToLower", "Contains"} {
 			if !got[name] {
 				t.Errorf("imported-package member %q missing; labels=%v", name, got)
+			}
+		}
+		// Case 4 (Task 16 brief): unexported members are never offered.
+		// memberCompletionItems' package-member branch filters on
+		// obj.Exported(), so every candidate name here must start uppercase.
+		for _, it := range items {
+			if it.Label == "" {
+				continue
+			}
+			if r := []rune(it.Label)[0]; unicode.IsLower(r) {
+				t.Errorf("imported-package member completion leaked unexported name %q", it.Label)
 			}
 		}
 	})
@@ -416,6 +546,36 @@ func TestPipeStageCompletionE2E(t *testing.T) {
 	for _, name := range []string{"upper", "urlquery"} {
 		if !got[name] {
 			t.Errorf("pipe-stage completion missing filter %q; labels=%v", name, got)
+		}
+	}
+}
+
+// TestPipeStageEmptyCompletionE2E drives textDocument/completion for a cursor
+// at an EMPTY pipe stage end to end — case 6 of the Task 16 brief:
+// `{ user.Name |>  }` (cursor between the two spaces after `|>`, nothing typed
+// yet) still offers the full filter table. Task 7's phantom-stage repair heals
+// the empty stage into a valid selector; completionTokenSpan then computes a
+// zero-width span at the cursor over the ORIGINAL text (see
+// pipeStageCompletion's doc comment), so nothing is typed to filter on and
+// nothing leaks into the edit.
+func TestPipeStageEmptyCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	extra := map[string]string{"page/types.go": "package page\n\ntype User struct{ Name string }\n"}
+	source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name |>  }</div>\n}\n"
+	cursor := strings.Index(source, "|> ") + len("|> ")
+	items := runHTMLCompletionE2E(t, extra, source, cursor)
+	if len(items) == 0 {
+		t.Fatal("empty pipe-stage completion returned zero items")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"upper", "urlquery"} {
+		if !labels[name] {
+			t.Errorf("empty pipe-stage completion missing filter %q; labels=%v", name, labels)
 		}
 	}
 }
@@ -510,6 +670,43 @@ func TestTagCompletionE2E(t *testing.T) {
 		got := run(t, map[string]string{"page/page.gsx": source}, "page/page.gsx", source, cursor)
 		if !got["Other"] {
 			t.Errorf("tag completion missing local component `Other`; labels=%v", got)
+		}
+	})
+
+	t.Run("local plus qualifier", func(t *testing.T) {
+		// Case 7 (Task 16 brief): at a PREFIXED bare cursor `<Ot`, both the
+		// matching local sibling component (`Other`) and an unrelated imported
+		// package's qualifier item (`ui`) are offered together — the server
+		// returns the full candidate set unfiltered by the typed prefix
+		// (componentTagItems' doc comment: "the client matches against
+		// label/filterText as the user types").
+		uiSource := "package ui\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n"
+		// `<ui.Button/>` keeps the import used (an unused import is a compile
+		// error that would sink the whole package to a shell — same gotcha the
+		// "qualified import"/"aliased import" scenarios below guard against).
+		source := "package page\n\nimport \"example.com/app/ui\"\n\ncomponent Other() {\n\t<div/>\n}\n\ncomponent Home() {\n\t<ui.Button label=\"hi\"/>\n\t<div><Ot</div>\n}\n"
+		cursor := strings.LastIndex(source, "<Ot") + len("<Ot")
+		files := map[string]string{
+			"page/page.gsx": source,
+			"ui/ui.gsx":     uiSource,
+		}
+		items := completionItems(t, runRaw(t, files, "page/page.gsx", source, cursor), 2)
+		got := map[string]bool{}
+		var qualItem *lsp.CompletionItem
+		for i := range items {
+			got[items[i].Label] = true
+			if items[i].Label == "ui" {
+				qualItem = &items[i]
+			}
+		}
+		if !got["Other"] {
+			t.Errorf("tag completion missing local component `Other`; labels=%v", got)
+		}
+		if qualItem == nil {
+			t.Fatalf("tag completion missing `ui` qualifier item alongside local component; labels=%v", got)
+		}
+		if qualItem.TextEdit == nil || qualItem.TextEdit.NewText != "ui." {
+			t.Errorf("`ui` qualifier item TextEdit = %+v, want NewText \"ui.\"", qualItem.TextEdit)
 		}
 	})
 
@@ -678,6 +875,28 @@ func TestComponentAttrCompletionE2E(t *testing.T) {
 		}
 		if !got["count"] {
 			t.Errorf("component-attr completion missing unbound param `count`; labels=%v", got)
+		}
+	})
+
+	t.Run("brief fixture: title offered, ctx/children absent", func(t *testing.T) {
+		// Case 9 of the Task 16 brief, using the brief's own Other(title string)
+		// shape: `title` is offered, and the reserved component-parameter names
+		// `ctx`/`children` (reservedComponentAttrName in completion_gsx.go) are
+		// never candidates. Other needs the same `attrs gsx.Attrs` catch-all as
+		// the scenarios above — without it, the in-progress bare "t" attribute
+		// (matching no real param yet) fails the whole call's plan and
+		// componentAttrItems has no ComponentCalls fact to read.
+		source := "package page\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Other(title string, attrs gsx.Attrs) {\n\t<div>{ title }</div>\n}\n\ncomponent Home() {\n\t<Other t/>\n}\n"
+		cursor := strings.LastIndex(source, "<Other t") + len("<Other t")
+		got := run(t, source, cursor)
+		if !got["title"] {
+			t.Errorf("component-attr completion missing `title`; labels=%v", got)
+		}
+		if got["ctx"] {
+			t.Errorf("component-attr completion must not offer reserved `ctx`; labels=%v", got)
+		}
+		if got["children"] {
+			t.Errorf("component-attr completion must not offer reserved `children`; labels=%v", got)
 		}
 	})
 }
@@ -854,6 +1073,198 @@ func TestHTMXAttrCompletionE2E(t *testing.T) {
 	}
 }
 
+// TestCompletionFailSoftE2E drives textDocument/completion end to end for two
+// source-state failure modes that must yield an ordinary EMPTY completion
+// reply — never a JSON-RPC error (handleCompletion's doc comment: "completion
+// is advisory and must fail soft") — cases 13 and 14 of the Task 16 brief.
+func TestCompletionFailSoftE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frame := func(t *testing.T, value any) string {
+		t.Helper()
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+
+	// run writes go.mod plus the given files, opens gsxPath's own content as a
+	// live buffer via didOpen, sends one completion at cursor, and returns the
+	// raw LSP output (not just the parsed items — assertEmptyCompletionNoError
+	// needs the full JSON-RPC envelope to confirm no "error" field rode along).
+	run := func(t *testing.T, files map[string]string, gsxPath, source string, cursor int) string {
+		t.Helper()
+		root := t.TempDir()
+		write := func(name, content string) string {
+			path := filepath.Join(root, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}
+		write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+		var pagePath string
+		for name, content := range files {
+			p := write(name, content)
+			if name == gsxPath {
+				pagePath = p
+			}
+		}
+		uri := "file://" + pagePath
+
+		var input strings.Builder
+		input.WriteString(frame(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+		input.WriteString(frame(t, map[string]any{
+			"jsonrpc": "2.0", "method": "textDocument/didOpen",
+			"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+		}))
+		pos := lspUTF16PositionAt(source, cursor)
+		input.WriteString(frame(t, map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+			"params": map[string]any{
+				"textDocument": map[string]any{"uri": uri},
+				"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+			},
+		}))
+		input.WriteString(frame(t, map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+		var output, stderr bytes.Buffer
+		if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+			t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+		}
+		return output.String()
+	}
+
+	t.Run("other-file broken", func(t *testing.T) {
+		// page/other.gsx is structurally broken (an unclosed tag); page.gsx
+		// carries a clean `{ user. }` member cursor. Both live in the SAME
+		// package, so the whole-package compile AnalyzeEphemeral runs for
+		// page.gsx's buffer comes back a diagnostics-only shell (Info nil) — see
+		// TestAnalyzeEphemeralShellOnBrokenElsewhere in
+		// internal/codegen/module_ephemeral_test.go for the same mechanism
+		// pinned at the analyzer layer. Completion must still answer empty, not
+		// error.
+		source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user. }</div>\n}\n"
+		cursor := strings.Index(source, "user.") + len("user.")
+		files := map[string]string{
+			"page/types.go":  "package page\n\ntype User struct{ Name string }\n",
+			"page/other.gsx": "package page\n\ncomponent Other(title string) {\n\t<div\n\t<span>{ title }</span>\n}\n",
+			"page/page.gsx":  source,
+		}
+		output := run(t, files, "page/page.gsx", source, cursor)
+		assertEmptyCompletionNoError(t, output, 2)
+	})
+
+	t.Run("package-clause mismatch", func(t *testing.T) {
+		// page.gsx declares `package pag` while its sibling types.go declares
+		// `package page` — a genuine multi-file package-name conflict ("found
+		// packages ... in DIR"). Completion must answer empty, not error.
+		source := "package pag\n\ncomponent Home(user User) {\n\t<div>{ user. }</div>\n}\n"
+		cursor := strings.Index(source, "user.") + len("user.")
+		files := map[string]string{
+			"page/types.go": "package page\n\ntype User struct{ Name string }\n",
+			"page/page.gsx": source,
+		}
+		output := run(t, files, "page/page.gsx", source, cursor)
+		assertEmptyCompletionNoError(t, output, 2)
+	})
+}
+
+// TestGoFileCompletionE2E drives textDocument/completion on a `.go` URI end to
+// end — case 16 of the Task 16 brief: gopls, not gsx, owns Go-file completion
+// (handleCompletion's doc comment), so the server must reply with a literal
+// JSON null result — never gsx's own item list, and never an error.
+func TestGoFileCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) string {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	goPath := write("page/types.go", "package page\n\ntype User struct{ Name string }\n")
+	uri := "file://" + goPath
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": 2, "character": 5},
+		},
+	}))
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+	result, hasErr := completionResponseRaw(t, output.String(), 2)
+	if hasErr {
+		t.Fatalf("completion on a .go URI returned a JSON-RPC error; want a null reply:\n%s", output.String())
+	}
+	if string(result) != "null" {
+		t.Errorf("completion on a .go URI = %s, want JSON null (gopls owns .go completion)", result)
+	}
+}
+
+// TestGoBlockDeclaredAfterCursorE2E pins Task 9's declared-after-cursor
+// exclusion (scopeCandidates in completion_go.go) specifically at the `{{ }}`
+// GoBlock bridge's coordinate mapping — case 17 of the Task 16 brief. A local
+// declared BEFORE the cursor inside the same block is offered; one declared
+// AFTER is not (Go's declaration-order rule for function-local scopes),
+// distinct from package/import scope which stays order-independent (case 3
+// above).
+func TestGoBlockDeclaredAfterCursorE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	extra := map[string]string{"page/types.go": "package page\n\ntype User struct{ Name string }\n"}
+	source := "package page\n\ncomponent Block(item User) {\n\t{{\n\t\tearly := item.Name\n\t\t_ = early\n\t\t_ = ea\n\t\tlate := item.Name\n\t\t_ = late\n\t}}\n}\n"
+	cursor := strings.LastIndex(source, "_ = ea") + len("_ = ea")
+	items := runHTMLCompletionE2E(t, extra, source, cursor)
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	if !labels["early"] {
+		t.Errorf("GoBlock completion missing local `early` declared before the cursor; labels=%v", labels)
+	}
+	if labels["late"] {
+		t.Errorf("GoBlock completion must exclude `late`, declared AFTER the cursor in the same block; labels=%v", labels)
+	}
+}
+
 // completionItems extracts the full CompletionItem slice from the completion
 // response with the given id.
 func completionItems(t *testing.T, output string, id int) []lsp.CompletionItem {
@@ -906,4 +1317,52 @@ func completionLabels(t *testing.T, output string, id int) map[string]bool {
 	}
 	t.Fatalf("no completion response for id %d in:\n%s", id, output)
 	return nil
+}
+
+// completionResponseRaw extracts the raw "result" bytes and whether an
+// "error" field is present in the JSON-RPC response with the given id. Used
+// by the fail-soft (empty-list) and .go-file (null) assertions, which must
+// distinguish "answered normally with an empty/null result" from "the server
+// replied with a protocol-level error" — a distinction completionItems/
+// completionLabels intentionally collapse (both treat a null result as a test
+// failure) but that these callers need to keep apart.
+func completionResponseRaw(t *testing.T, output string, id int) (result json.RawMessage, hasError bool) {
+	t.Helper()
+	for part := range strings.SplitSeq(output, "Content-Length:") {
+		_, body, ok := strings.Cut(part, "\r\n\r\n")
+		if !ok {
+			continue
+		}
+		var response struct {
+			ID     int             `json:"id"`
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(body), &response); err != nil || response.ID != id {
+			continue
+		}
+		return response.Result, len(response.Error) != 0
+	}
+	t.Fatalf("no completion response for id %d in:\n%s", id, output)
+	return nil, false
+}
+
+// assertEmptyCompletionNoError asserts the completion response with the given
+// id is a normal (non-error) reply carrying zero items — the fail-soft
+// contract for source-state problems (mid-edit breakage elsewhere in the
+// package, package-clause mismatch): completion must never surface these as a
+// JSON-RPC error (handleCompletion's doc comment).
+func assertEmptyCompletionNoError(t *testing.T, output string, id int) {
+	t.Helper()
+	result, hasErr := completionResponseRaw(t, output, id)
+	if hasErr {
+		t.Fatalf("completion id %d returned a JSON-RPC error; want a normal empty reply:\n%s", id, output)
+	}
+	var list lsp.CompletionList
+	if err := json.Unmarshal(result, &list); err != nil {
+		t.Fatalf("completion id %d result did not decode as CompletionList: %v\nraw=%s", id, err, result)
+	}
+	if len(list.Items) != 0 {
+		t.Fatalf("completion id %d = %d items, want 0 (fail-soft empty): %+v", id, len(list.Items), list.Items)
+	}
 }
