@@ -30,7 +30,16 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, componentPlan componentTargetPlan, positionalPlan componentPositionalPackagePlan) ([]byte, bool) {
+//
+// diagnosticsOnly is set by Package's LSP diagnostics pass (module.go), which
+// runs this function purely to harvest bag side-effects (unknown filter,
+// attr-error, etc.) from the component/body walk and always discards the
+// returned bytes. When true, generateFile returns as soon as that walk
+// completes ok, skipping every remaining stage below — import-region
+// assembly, coalesceStaticWrites, and format.Source — because they exist
+// solely to shape output nobody reads. See the diagnosticsOnly branch below
+// for the one diagnostic class this intentionally forgoes.
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, componentPlan componentTargetPlan, positionalPlan componentPositionalPackagePlan, diagnosticsOnly bool) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -286,6 +295,36 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 
 	if !ok {
 		return nil, false
+	}
+
+	if diagnosticsOnly {
+		// Every diagnostic this pass exists to harvest (component/attr errors,
+		// unknown filters, etc.) was already added to bag during the walk above —
+		// bag.Add/bag.Errorf fire inline as each component/GoWithElements decl is
+		// visited, not deferred to the assembly below. Everything past this point
+		// (the class-merger/filter-alias bookkeeping, writeImports, and the
+		// coalesceStaticWrites + format.Source tail) exists only to shape the
+		// FINAL BYTES — which the caller (Package's diagnostics-only emit,
+		// module.go) always discards. Skipping it is the P2 perf fix: that tail
+		// measured 33% of Package's warm background re-analysis wall time and
+		// coalesceStaticWrites was the #2 allocator (~425 MB/run), all for bytes
+		// nobody reads.
+		//
+		// TRADE-OFF (deliberate, not silently dropped): format.Source's own
+		// failure path below adds a "format generated source" diagnostic — the
+		// ONE diagnostic this skip forgoes. That diag class only fires when
+		// codegen's own component/body walk produced Go the formatter can't
+		// parse despite a clean bag and a clean type-check (see module.go's
+		// Package/Generate gates, both `len(a.typeErrs) == 0 &&
+		// !a.bag.HasErrors()`) — i.e. it signals an internal codegen bug, never
+		// a user-source error. It still surfaces from `gsx generate`'s real
+		// emit (Module.Generate's generateFile call, diagnosticsOnly=false,
+		// which always runs this tail). No corpus or unit test pins this
+		// diagnostic on the Package/LSP path — the corpus drives GenerateDirs
+		// (the real-emit path) exclusively — so accepting that it's
+		// generate-only is option (a), not a regression against any pinned
+		// behavior.
+		return nil, true
 	}
 
 	// The class merger package (if configured) is registered here under its
