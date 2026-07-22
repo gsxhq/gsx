@@ -707,7 +707,7 @@ func TestComponentAttrItems(t *testing.T) {
 	// Cursor position unrelated to the "title" attr's own span (e.g. right
 	// after the tag name, in the whitespace before "title").
 	cursor := strings.Index(src, "<Card") + len("<Card")
-	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8, false)
 
 	if len(items) != 1 {
 		t.Fatalf("items = %+v, want exactly 1 (count)", items)
@@ -783,7 +783,7 @@ func TestComponentAttrItemsExcludesGoOnlyVariadic(t *testing.T) {
 	}
 
 	cursor := strings.Index(src, "<Card") + len("<Card")
-	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8, false)
 
 	if len(items) != 1 {
 		t.Fatalf("items = %+v, want exactly 1 (count)", items)
@@ -805,7 +805,7 @@ func TestComponentAttrItemsCursorOnBoundAttrStaysOffered(t *testing.T) {
 
 	nameStart := strings.Index(src, "title")
 	nameEnd := nameStart + len("title")
-	items := componentAttrItems(pkg, el, false, src, nameStart, nameEnd, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, nameStart, nameEnd, encUTF8, false)
 
 	labels := map[string]bool{}
 	for _, it := range items {
@@ -840,17 +840,17 @@ func TestComponentAttrItemsNoFact(t *testing.T) {
 		return true
 	})
 	pkg := &Package{GSXFset: fset, Files: map[string]*gsxast.File{"page.gsx": f}, ComponentCalls: map[*gsxast.Element]ComponentCallFact{}}
-	if items := componentAttrItems(pkg, el, false, src, 0, 0, encUTF8); items != nil {
+	if items := componentAttrItems(pkg, el, false, src, 0, 0, encUTF8, false); items != nil {
 		t.Fatalf("items = %+v, want nil (no planned call fact)", items)
 	}
 }
 
 // TestComponentAttrItemsNilGuards checks that a nil pkg or nil el fails soft.
 func TestComponentAttrItemsNilGuards(t *testing.T) {
-	if items := componentAttrItems(nil, &gsxast.Element{}, false, "", 0, 0, encUTF8); items != nil {
+	if items := componentAttrItems(nil, &gsxast.Element{}, false, "", 0, 0, encUTF8, false); items != nil {
 		t.Fatalf("items = %+v, want nil for nil pkg", items)
 	}
-	if items := componentAttrItems(&Package{}, nil, false, "", 0, 0, encUTF8); items != nil {
+	if items := componentAttrItems(&Package{}, nil, false, "", 0, 0, encUTF8, false); items != nil {
 		t.Fatalf("items = %+v, want nil for nil el", items)
 	}
 }
@@ -917,7 +917,7 @@ func TestComponentAttrItemsAttrsCatchAllOffersHTMLGlobals(t *testing.T) {
 	pkg, el := componentAttrsCatchAllFixture(t, src, "icon.Bell", sig, nil)
 
 	cursor := strings.Index(src, "<icon.Bell") + len("<icon.Bell")
-	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8, false)
 
 	byLabel := map[string]CompletionItem{}
 	for _, it := range items {
@@ -952,6 +952,55 @@ func TestComponentAttrItemsAttrsCatchAllOffersHTMLGlobals(t *testing.T) {
 	}
 }
 
+// TestComponentAttrItemsAttrsCatchAllSnippetThreadsThrough checks that
+// snippet=true reaches the forwarded HTML-globals branch (threaded through to
+// the nested htmlAttrItems call): the value global `class` inserts
+// `class="$1"` with InsertTextFormat = Snippet, same as the plain-HTML path.
+// A NAMED component parameter, by contrast, is never a quote-value insert
+// (per the task-13 "no `={}` snippet" rule for named params) and must stay a
+// bare-name insert with InsertTextFormat unset even under snippet support —
+// this is the one deliberate place componentAttrItems does NOT apply the
+// gate, so pin it here alongside the branch that does.
+func TestComponentAttrItemsAttrsCatchAllSnippetThreadsThrough(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<icon.Bell/>\n}\n"
+	params := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "title", types.Typ[types.String]),
+		types.NewVar(token.NoPos, nil, "attrs", types.NewSlice(types.Typ[types.Int])),
+	)
+	sig := types.NewSignatureType(nil, nil, nil, params, nil, true)
+	pkg, el := componentAttrsCatchAllFixture(t, src, "icon.Bell", sig, nil)
+
+	cursor := strings.Index(src, "<icon.Bell") + len("<icon.Bell")
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8, true)
+
+	byLabel := map[string]CompletionItem{}
+	for _, it := range items {
+		byLabel[it.Label] = it
+	}
+
+	class, ok := byLabel["class"]
+	if !ok {
+		t.Fatalf("labels = %v, want forwarded global %q offered", byLabel, "class")
+	}
+	if class.TextEdit == nil || class.TextEdit.NewText != `class="$1"` {
+		t.Errorf("class.TextEdit = %+v, want NewText %q", class.TextEdit, `class="$1"`)
+	}
+	if class.InsertTextFormat != insertTextFormatSnippet {
+		t.Errorf("class.InsertTextFormat = %d, want insertTextFormatSnippet (2)", class.InsertTextFormat)
+	}
+
+	title, ok := byLabel["title"]
+	if !ok {
+		t.Fatalf("labels = %v, want named param %q offered", byLabel, "title")
+	}
+	if title.TextEdit == nil || title.TextEdit.NewText != "title" {
+		t.Errorf("title.TextEdit = %+v, want bare NewText %q (named params never snippet)", title.TextEdit, "title")
+	}
+	if title.InsertTextFormat != 0 {
+		t.Errorf("title.InsertTextFormat = %d, want 0 (named params never snippet)", title.InsertTextFormat)
+	}
+}
+
 // TestComponentAttrItemsNoAttrsCatchAllNoHTMLGlobals checks the negative
 // case: a plain-props signature with no "attrs" catch-all offers only the
 // named params — no HTML globals leak in (an unknown attribute would be
@@ -966,7 +1015,7 @@ func TestComponentAttrItemsNoAttrsCatchAllNoHTMLGlobals(t *testing.T) {
 	pkg, el := componentAttrsCatchAllFixture(t, src, "Card", sig, nil)
 
 	cursor := strings.Index(src, "<Card") + len("<Card")
-	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8, false)
 
 	labels := map[string]bool{}
 	for _, it := range items {
@@ -999,7 +1048,7 @@ func TestComponentAttrItemsAttrsCatchAllPresentAttrExcluded(t *testing.T) {
 	// Cursor elsewhere (right after the tag name): "class" already present,
 	// must be excluded.
 	elsewhere := strings.Index(src, "<icon.Bell") + len("<icon.Bell")
-	items := componentAttrItems(pkg, el, false, src, elsewhere, elsewhere, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, elsewhere, elsewhere, encUTF8, false)
 	for _, it := range items {
 		if it.Label == "class" {
 			t.Fatalf("items = %+v, must exclude already-present %q", items, "class")
@@ -1009,7 +1058,7 @@ func TestComponentAttrItemsAttrsCatchAllPresentAttrExcluded(t *testing.T) {
 	// Cursor ON the "class" token itself: carve-out keeps it offered.
 	nameStart := strings.Index(src, "class")
 	nameEnd := nameStart + len("class")
-	onToken := componentAttrItems(pkg, el, false, src, nameStart, nameEnd, encUTF8)
+	onToken := componentAttrItems(pkg, el, false, src, nameStart, nameEnd, encUTF8, false)
 	found := false
 	for _, it := range onToken {
 		if it.Label == "class" {
@@ -1033,14 +1082,14 @@ func TestComponentAttrItemsAttrsCatchAllHTMXGated(t *testing.T) {
 	pkg, el := componentAttrsCatchAllFixture(t, src, "icon.Bell", sig, nil)
 	cursor := strings.Index(src, "<icon.Bell") + len("<icon.Bell")
 
-	off := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+	off := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8, false)
 	for _, it := range off {
 		if strings.HasPrefix(it.Label, "hx-") {
 			t.Fatalf("items = %+v, must NOT offer hx-* when htmxEnabled=false", off)
 		}
 	}
 
-	on := componentAttrItems(pkg, el, true, src, cursor, cursor, encUTF8)
+	on := componentAttrItems(pkg, el, true, src, cursor, cursor, encUTF8, false)
 	foundHx := false
 	for _, it := range on {
 		if strings.HasPrefix(it.Label, "hx-") {

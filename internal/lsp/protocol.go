@@ -59,12 +59,26 @@ type clientCapabilities struct {
 }
 
 type textDocumentCapabilities struct {
-	Rename renameClientCapabilities `json:"rename"`
+	Rename     renameClientCapabilities     `json:"rename"`
+	Completion completionClientCapabilities `json:"completion"`
 }
 
 type renameClientCapabilities struct {
 	DynamicRegistration bool `json:"dynamicRegistration"`
 	PrepareSupport      bool `json:"prepareSupport"`
+}
+
+type completionClientCapabilities struct {
+	CompletionItem completionItemClientCapabilities `json:"completionItem"`
+}
+
+// completionItemClientCapabilities carries the one completion-item capability
+// gsx currently reads: whether the client can render a snippet's `$1`
+// tabstops and place the cursor accordingly. Gated on this rather than
+// assumed, per the LSP spec — a client that never sets it would otherwise see
+// a literal `$1` typed into the buffer.
+type completionItemClientCapabilities struct {
+	SnippetSupport bool `json:"snippetSupport"`
 }
 
 type generalCapabilities struct {
@@ -344,7 +358,26 @@ type CompletionItem struct {
 	SortText      string         `json:"sortText,omitempty"`
 	FilterText    string         `json:"filterText,omitempty"`
 	TextEdit      *TextEdit      `json:"textEdit,omitempty"`
+	// InsertTextFormat selects how the client interprets TextEdit.NewText:
+	// insertTextFormatPlainText (the default; omitted so the field disappears
+	// entirely for every item that does not opt in) or insertTextFormatSnippet,
+	// which lets NewText carry `$1`/`$0` tabstops. Only ever set to the snippet
+	// value, and only when the negotiated client capability
+	// (textDocument.completion.completionItem.snippetSupport) says the client
+	// can render one — see Server.snippetSupport.
+	InsertTextFormat int `json:"insertTextFormat,omitempty"`
 }
+
+// LSP InsertTextFormat constants (textDocument/completion).
+const (
+	insertTextFormatPlainText = 1 // PlainText: NewText is inserted verbatim.
+	// insertTextFormatSnippet marks NewText as an LSP snippet: `$1`, `$2`, ...
+	// are tabstops the client cycles through, an unnumbered `$0` (or the
+	// implicit end of the snippet when no `$0` appears) is the final cursor
+	// position. gsx only ever emits a single `$1` tabstop, so there is no `$0`
+	// to place and no risk of tabstop-ordering ambiguity.
+	insertTextFormatSnippet = 2
+)
 
 // LSP CompletionItemKind constants used across completion tasks.
 const (

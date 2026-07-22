@@ -125,9 +125,15 @@ type Server struct {
 	renameDynamicRegistration bool
 	renamePrepareSupport      bool
 	renameRegistrationActive  bool
-	diskViewValid             bool
-	workspaceViewValid        bool
-	pendingClientRequests     map[string]func(frame) error
+	// snippetSupport mirrors the client's textDocument.completion.completionItem
+	// .snippetSupport capability, captured once at initialize. When true, value-
+	// taking attribute completions insert a `$1` tabstop inside the quotes
+	// (InsertTextFormat = Snippet) instead of the plain `name=""` insert — see
+	// htmlAttrItem.
+	snippetSupport        bool
+	diskViewValid         bool
+	workspaceViewValid    bool
+	pendingClientRequests map[string]func(frame) error
 
 	moduleRefs        []CrossRef                 // whole-module cross-reference index (lazy; find-references)
 	moduleRefsValid   bool                       // false ⇒ rebuild on next references request
@@ -356,6 +362,7 @@ func (s *Server) handleInitialize(f frame) error {
 	s.watchDynamicRegistration = p.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
 	s.renameDynamicRegistration = p.Capabilities.TextDocument.Rename.DynamicRegistration
 	s.renamePrepareSupport = p.Capabilities.TextDocument.Rename.PrepareSupport
+	s.snippetSupport = p.Capabilities.TextDocument.Completion.CompletionItem.SnippetSupport
 	var folders []workspaceFolder
 	switch {
 	case p.WorkspaceFolders != nil:

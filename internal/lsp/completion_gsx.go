@@ -568,7 +568,7 @@ func (s *Server) attrNameCompletion(cc completionContext, path, text string, off
 	htmxEnabled := slices.Contains(s.dirURLPresets(dir, eph), "htmx")
 
 	if ephEl != nil && ephEl.IsComponent {
-		items := componentAttrItems(eph, ephEl, htmxEnabled, text, start, end, s.enc)
+		items := componentAttrItems(eph, ephEl, htmxEnabled, text, start, end, s.enc, s.snippetSupport)
 		if len(items) == 0 {
 			return emptyCompletion()
 		}
@@ -578,7 +578,7 @@ func (s *Server) attrNameCompletion(cc completionContext, path, text string, off
 	// HTML element (confirmed non-component, or analysis is a shell): offer HTML
 	// attribute names computed purely from the classification element — no codegen
 	// facts needed, so this works even when the ephemeral analysis failed.
-	items := htmlAttrItems(cc.element, cc.element.Tag, htmxEnabled, tierContext, text, start, end, s.enc)
+	items := htmlAttrItems(cc.element, cc.element.Tag, htmxEnabled, tierContext, text, start, end, s.enc, s.snippetSupport)
 	if len(items) == 0 {
 		return emptyCompletion()
 	}
@@ -690,7 +690,9 @@ func reservedComponentAttrName(name string) bool {
 //
 // label = param name, kind = ciKindField, detail = the param's type via
 // qualifierFor, tier = tierContext. newText is the plain name — no `={}`
-// snippet in v1, per the task-13 spec.
+// snippet in v1, per the task-13 spec — and this stays true regardless of
+// snippet: a component's own named params are never quote-value inserts, so
+// there is no cursor-inside-quotes position to gate on.
 //
 // When the signature also declares an "attrs" catch-all parameter
 // (signatureHasAttrsCatchAll — component_signature.go's roleAttrs, e.g.
@@ -698,15 +700,17 @@ func reservedComponentAttrName(name string) bool {
 // attributes to whatever element it ultimately renders, so the candidate set
 // is extended with the HTML GLOBAL attribute set (htmldata.GlobalAttributes,
 // plus hx-* when htmxEnabled) via htmlAttrItems — the SAME boolean/insert/
-// present-attr/own-token logic the plain-HTML attrTagName path uses, single-
-// sourced rather than reimplemented here. There is no per-tag contribution:
-// which concrete element receives the forwarded bag is unknowable from the
-// call site (tagName ""), so only globals are offered — see htmlAttrItems'
-// doc for how an unmatched tagName collapses to globals-only. Forwarded items
-// sort at tierSecondary so the component's own named params (tierContext)
-// lead; a name collision with an already-offered named param (e.g. a
-// component that happens to declare a "class" prop) is skipped so the same
-// label never appears twice with two different insert behaviors.
+// present-attr/own-token/snippet logic the plain-HTML attrTagName path uses,
+// single-sourced rather than reimplemented here (snippet threads straight
+// through so `name="$1"` applies here too, gated on the same client
+// capability). There is no per-tag contribution: which concrete element
+// receives the forwarded bag is unknowable from the call site (tagName ""),
+// so only globals are offered — see htmlAttrItems' doc for how an unmatched
+// tagName collapses to globals-only. Forwarded items sort at tierSecondary so
+// the component's own named params (tierContext) lead; a name collision with
+// an already-offered named param (e.g. a component that happens to declare a
+// "class" prop) is skipped so the same label never appears twice with two
+// different insert behaviors.
 //
 // No signature-with-attrs → unchanged: named params only. An unknown attr
 // would be rejected by the planner at build time, so offering HTML attrs
@@ -714,7 +718,7 @@ func reservedComponentAttrName(name string) bool {
 //
 // No fact for el (the call was never planned — a broken tag, an unresolved
 // target, ...) returns nil: fail-soft, never a guess.
-func componentAttrItems(pkg *Package, el *gsxast.Element, htmxEnabled bool, text string, start, end int, enc encoding) []CompletionItem {
+func componentAttrItems(pkg *Package, el *gsxast.Element, htmxEnabled bool, text string, start, end int, enc encoding, snippet bool) []CompletionItem {
 	if pkg == nil || el == nil {
 		return nil
 	}
@@ -761,7 +765,7 @@ func componentAttrItems(pkg *Package, el *gsxast.Element, htmxEnabled bool, text
 
 	if signatureHasAttrsCatchAll(sig) {
 		named := offeredNames(items)
-		for _, g := range htmlAttrItems(el, "", htmxEnabled, tierSecondary, text, start, end, enc) {
+		for _, g := range htmlAttrItems(el, "", htmxEnabled, tierSecondary, text, start, end, enc, snippet) {
 			if named[g.Label] {
 				continue
 			}

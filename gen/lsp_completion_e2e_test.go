@@ -1099,6 +1099,74 @@ func runHTMLCompletionE2E(t *testing.T, extra map[string]string, source string, 
 	return completionItems(t, output.String(), 2)
 }
 
+// runHTMLCompletionE2ESnippet mirrors runHTMLCompletionE2E exactly, except the
+// initialize params advertise textDocument.completion.completionItem
+// .snippetSupport=true, so the response is expected to carry `$1`-tabstop
+// snippet inserts for value attributes instead of the plain `name=""` form.
+// Kept as a separate helper (rather than a parameter added to
+// runHTMLCompletionE2E) so every existing call site — and therefore every
+// existing e2e assertion pinning the no-capability behavior — stays untouched.
+func runHTMLCompletionE2ESnippet(t *testing.T, source string, cursor int) []lsp.CompletionItem {
+	t.Helper()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	write := func(name, content string) string {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pagePath := write("page/page.gsx", source)
+	uri := "file://" + pagePath
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "initialize",
+		"params": map[string]any{"capabilities": map[string]any{
+			"textDocument": map[string]any{"completion": map[string]any{
+				"completionItem": map[string]any{"snippetSupport": true},
+			}},
+		}},
+	}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+	}))
+	pos := lspUTF16PositionAt(source, cursor)
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+		},
+	}))
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(output.String(), ".x.go") {
+		t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
+	}
+	return completionItems(t, output.String(), 2)
+}
+
 // TestHTMLCompletionE2E drives the HTML tag/attr/value completion paths through
 // the full JSON-RPC server against a real temp module: a `<di▮` tag cursor
 // offers `div` (kind Property, doc non-empty); a `<div ▮>` attr-name cursor
@@ -1176,6 +1244,32 @@ func TestHTMLCompletionE2E(t *testing.T) {
 		items := runHTMLCompletionE2E(t, nil, source, cursor)
 		if !labelsOf(items)["submit"] {
 			t.Fatalf("attr-value completion missing `submit`; labels=%v", labelsOf(items))
+		}
+	})
+
+	t.Run("html attr snippet capability", func(t *testing.T) {
+		// Same cursor as "html attr" above, but the client advertises
+		// snippetSupport this time: `class` must insert `class="$1"` with
+		// insertTextFormat=2 (Snippet) so the cursor lands INSIDE the quotes,
+		// while `hidden` — no quotes to place a tabstop inside — is unaffected.
+		source := "package page\n\ncomponent Home() {\n\t<div ></div>\n}\n"
+		cursor := strings.Index(source, "<div ") + len("<div ")
+		items := runHTMLCompletionE2ESnippet(t, source, cursor)
+
+		class := itemOf(items, "class")
+		if class == nil || class.TextEdit == nil || class.TextEdit.NewText != `class="$1"` {
+			t.Fatalf("`class` must insert `class=\"$1\"` under snippetSupport; got %+v", class)
+		}
+		if class.InsertTextFormat != 2 {
+			t.Errorf("class.InsertTextFormat = %d, want 2 (Snippet)", class.InsertTextFormat)
+		}
+
+		hidden := itemOf(items, "hidden")
+		if hidden == nil || hidden.TextEdit == nil || hidden.TextEdit.NewText != "hidden" {
+			t.Errorf("`hidden` must still insert the bare name under snippetSupport; got %+v", hidden)
+		}
+		if hidden.InsertTextFormat != 0 {
+			t.Errorf("hidden.InsertTextFormat = %d, want 0 (no quotes to tabstop into)", hidden.InsertTextFormat)
 		}
 	})
 }
