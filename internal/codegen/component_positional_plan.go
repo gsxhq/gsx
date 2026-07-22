@@ -432,9 +432,12 @@ func positionalSignatureDiagnostic(node gsxast.Node, fset *token.FileSet, err er
 // 2026-07-22). The base map is the whole-package `expressionFacts` harvested
 // once per package (harvestComponentTargetExpressionFacts) and is NEVER mutated
 // after construction — every per-call addition or override lands in the overlay.
+// expressionFactSet layers a per-call overlay over a shared base of expression facts.
+// The zero value is invalid; always construct via newExpressionFactSet or derive.
+// The overlay must not be nil when set or derive are called.
 type expressionFactSet struct {
 	base    map[gsxast.Node]expressionFact // shared, immutable
-	overlay map[gsxast.Node]expressionFact // per-call additions/overrides
+	overlay map[gsxast.Node]expressionFact // per-call additions/overrides; must not be nil
 }
 
 // newExpressionFactSet layers an eagerly-allocated per-call overlay over the
