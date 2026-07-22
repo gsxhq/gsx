@@ -612,3 +612,277 @@ var global = 1
 		t.Error("package scope wrongly classified as a file scope")
 	}
 }
+
+// TestStatementMemberItemsGoBlockTrailingDot drives statementMemberItems
+// directly against a REAL analyzed package (analyzedLSPPackage, real
+// SourceIndex from the codegen pipeline) at a member cursor sitting inside a
+// `{{ }}` GoBlock statement. The underlying source is fully valid Go
+// (`user.Name`, not a broken prefix — analyzedLSPPackage demands zero
+// diagnostics), and the "trailing dot, nothing typed yet" cursor is SIMULATED
+// by choosing start=end=the byte right after the dot: statementMemberItems
+// only reads text[start-1] and walks backward from there, so it never looks at
+// what (if anything) text carries at/after start, matching how a real
+// trailing-dot cursor is a zero-width completionTokenSpan over live text.
+func TestStatementMemberItemsGoBlockTrailingDot(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+component Home(user User) {
+	{{ _ = user.Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "user.Name") + len("user.")
+
+	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("GoBlock trailing-dot member %q missing; labels=%v", name, labels)
+		}
+	}
+	if labels["user"] {
+		t.Errorf("member position must not offer scope locals; got `user`: %v", labels)
+	}
+}
+
+// TestStatementMemberItemsGoBlockPrefixed drives the typed-prefix variant
+// (`user.Na▮`, simulated the same way — start/end pick out "Na" while the
+// underlying valid source still carries the full "Name") and asserts the
+// returned item's TextEdit replaces ONLY the simulated [start,end) token span,
+// never the receiver or the dot.
+func TestStatementMemberItemsGoBlockPrefixed(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+component Home(user User) {
+	{{ _ = user.Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "user.Name") + len("user.")
+	start, end := nameOff, nameOff+2 // simulated "Na" prefix
+
+	items, ok := statementMemberItems(pkg, path, src, start, end, encUTF8)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	var nameItem *CompletionItem
+	for i := range items {
+		if items[i].Label == "Name" {
+			nameItem = &items[i]
+		}
+	}
+	if nameItem == nil {
+		t.Fatalf("prefixed member `Name` missing; items=%+v", items)
+	}
+	if nameItem.TextEdit == nil {
+		t.Fatal("Name item has no TextEdit")
+	}
+	wantStart := rangeForSpan(src, start, end, encUTF8).Start
+	wantEnd := rangeForSpan(src, start, end, encUTF8).End
+	if nameItem.TextEdit.Range.Start != wantStart || nameItem.TextEdit.Range.End != wantEnd {
+		t.Errorf("Name edit range = %+v, want [%+v,%+v) (the simulated prefix span only)",
+			nameItem.TextEdit.Range, wantStart, wantEnd)
+	}
+}
+
+// TestStatementMemberItemsGoChunk mirrors the GoBlock trailing-dot test but at
+// a member cursor inside a top-level GoChunk function body — the OTHER
+// statement bridge with no skeleton selector (GoBlock/CtrlMap and GoChunk both
+// return nil skel from goCompletionBridge).
+func TestStatementMemberItemsGoChunk(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+func greet(u User) string {
+	return u.Name
+}
+
+component Home() {
+	<div></div>
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "u.Name") + len("u.")
+
+	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("GoChunk member %q missing; labels=%v", name, labels)
+		}
+	}
+}
+
+// TestStatementMemberItemsPackageReceiver drives an imported-package receiver
+// (`strings.▮`) through statementMemberItems inside a GoBlock: the receiver's
+// SourceIndex occurrence resolves to a *types.PkgName, taking the
+// packageMemberItems branch (tierImported), the same branch memberCompletionItems
+// takes for the skeleton selector path.
+func TestStatementMemberItemsPackageReceiver(t *testing.T) {
+	const src = `package page
+
+import "strings"
+
+component Home() {
+	{{ x := strings.ToUpper("a") }}
+	<div>{x}</div>
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	off := strings.Index(src, "strings.ToUpper") + len("strings.")
+
+	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]string{}
+	for _, it := range items {
+		labels[it.Label] = it.SortText
+	}
+	for _, name := range []string{"ToUpper", "ToLower", "Contains"} {
+		sortText, ok := labels[name]
+		if !ok {
+			t.Errorf("imported-package member %q missing; got %v", name, labels)
+			continue
+		}
+		if !strings.HasPrefix(sortText, "40") {
+			t.Errorf("%q SortText = %q, want tierImported prefix \"40\"", name, sortText)
+		}
+	}
+}
+
+// TestStatementMemberItemsCallReceiver pins the OBSERVED behavior of a
+// non-identifier (call-expression) receiver, per the design's "opportunistic,
+// fail-soft" treatment: SourceIndex records an Expression occurrence for every
+// ast.Expr with recorded type info, so `mk().▮` resolves through that
+// occurrence's TypeAndValue exactly like an identifier receiver would — there
+// is no dedicated carve-out, and this test pins that the mechanism used
+// (occ.HasTypeValue, no occ.Object) actually fires for a call receiver rather
+// than silently degrading to an empty list.
+func TestStatementMemberItemsCallReceiver(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+func mk() User { return User{} }
+
+component Home() {
+	{{ _ = mk().Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	off := strings.Index(src, "mk().Name") + len("mk().")
+
+	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("call-receiver member %q missing (observed opportunistic resolution failed); labels=%v", name, labels)
+		}
+	}
+}
+
+// TestStatementMemberItemsNotMemberPosition pins the ok=false fallthrough: no
+// `.` immediately before start (a plain scope-identifier cursor), a nil
+// SourceIndex (a package with no built index), and a nil pkg all decline the
+// statement member path so the caller's scope fallback applies.
+func TestStatementMemberItemsNotMemberPosition(t *testing.T) {
+	const src = `package page
+
+component Home() {
+	{{ x := 1 }}
+	<div>{x}</div>
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	off := strings.Index(src, "x := 1") + len("x")
+	if _, ok := statementMemberItems(pkg, path, src, off, off, encUTF8); ok {
+		t.Error("statementMemberItems ok=true at a non-`.` cursor")
+	}
+
+	synth, _ := buildSyntheticPackage(t, "package p\n\nvar x = 1\n")
+	if synth.SourceIndex != nil {
+		t.Fatal("synthetic package unexpectedly has a SourceIndex")
+	}
+	if _, ok := statementMemberItems(synth, "p.go", "x.Y", 2, 2, encUTF8); ok {
+		t.Error("statementMemberItems ok=true with a nil SourceIndex")
+	}
+
+	if _, ok := statementMemberItems(nil, "p.go", "x.Y", 2, 2, encUTF8); ok {
+		t.Error("statementMemberItems ok=true with a nil pkg")
+	}
+}
+
+// TestGoCompletionItemsStatementMemberDispatch drives goCompletionItems itself
+// (not statementMemberItems directly) to pin the WIRING: with skel=nil and
+// statementCtx=true at a `.`-cursor, the statement member path is tried after
+// the (no-op, skel-nil) skeleton member path and BEFORE the scope+keyword
+// fallback — the returned items are members only, never scope locals or Go
+// keywords, exactly like the skeleton member path's existing "committed even
+// when empty, no scope fallback" contract.
+func TestGoCompletionItemsStatementMemberDispatch(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+component Home(user User) {
+	{{ _ = user.Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "user.Name") + len("user.")
+
+	items := goCompletionItems(pkg, pkg.Types.Scope(), nil, token.NoPos, true, nil, src, nameOff, nameOff, encUTF8, path)
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("goCompletionItems statement-member dispatch missing %q; labels=%v", name, labels)
+		}
+	}
+	for _, unwanted := range []string{"user", "return", "if", "for"} {
+		if labels[unwanted] {
+			t.Errorf("goCompletionItems statement-member dispatch leaked scope/keyword item %q; labels=%v", unwanted, labels)
+		}
+	}
+}

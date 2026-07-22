@@ -380,7 +380,7 @@ func f() {
 	scope := innermostScopeAt(pkg, pos)
 
 	str := types.Typ[types.String]
-	items := goCompletionItems(pkg, scope, nil, pos, false, str, src, off, off, encUTF8)
+	items := goCompletionItems(pkg, scope, nil, pos, false, str, src, off, off, encUTF8, "")
 	sort := map[string]string{}
 	for _, it := range items {
 		sort[it.Label] = it.SortText
@@ -410,7 +410,7 @@ func f() {
 	}
 
 	// No-expected-type: byte-identical to the historical tier-only form.
-	plain := goCompletionItems(pkg, scope, nil, pos, false, nil, src, off, off, encUTF8)
+	plain := goCompletionItems(pkg, scope, nil, pos, false, nil, src, off, off, encUTF8, "")
 	for _, it := range plain {
 		if it.Label == "sLocal" && it.SortText != "05sLocal" {
 			t.Errorf("no-expected sLocal SortText = %q, want byte-identical \"05sLocal\"", it.SortText)

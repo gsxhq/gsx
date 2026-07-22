@@ -235,28 +235,31 @@ func scopeCandidates(pkg *Package, scope *types.Scope, pos token.Pos) []scopedOb
 }
 
 // goCompletionItems builds the completion list for a Go cursor. skel is the
-// bridged skeleton expression (nil for the GoBlock/GoChunk bridges — see the
-// member gap note below); pos is the cursor's skeleton position (invalid for the
-// GoChunk bridge). DISPATCH: when the cursor at pos sits on the Sel of a selector
-// `X.Sel` in skel, the member path enumerates X's members (fields/methods, or an
-// imported package's exported names); otherwise the scope path enumerates every
-// visible object via scopeCandidates and, when statementCtx is set
-// (GoBlock/GoChunk positions), appends the Go statement keywords. Items replace
-// the [start, end) token span in text.
+// bridged skeleton expression (nil for the GoBlock/GoChunk bridges, which have
+// no skeleton selector to walk — see statementMemberItems below); pos is the
+// cursor's skeleton position (invalid for the GoChunk bridge). DISPATCH: when
+// the cursor at pos sits on the Sel of a selector `X.Sel` in skel, the member
+// path enumerates X's members (fields/methods, or an imported package's
+// exported names); when skel is nil and statementCtx is set, the AUTHORED-text
+// member path (statementMemberItems) takes over for a `.`-cursor; otherwise the
+// scope path enumerates every visible object via scopeCandidates and, when
+// statementCtx is set (GoBlock/GoChunk positions), appends the Go statement
+// keywords. Items replace the [start, end) token span in text. path is the
+// authored .gsx path, needed by statementMemberItems to key pkg.SourceIndex.
 //
-// KNOWN GAP (v1): skel is non-nil only on the ExprMap and sigType bridges; the
-// GoBlock/CtrlMap and GoChunk bridges return nil skel, so a member cursor like
-// `{{ x.▮ }}` or a GoChunk `x.▮` cannot find its selector and falls through to
-// the scope path. Recovering the selector from Info.Types alone (by byte range)
-// was rejected as too loose to be sound with the facts these bridges retain.
 // expected is the type the cursor is expected to produce (see expectedTypeAt);
 // when non-nil every item's SortText carries a match digit that ranks
 // type-matching candidates ahead of the rest WITHIN their locality tier
 // (rankedSortText). expected == nil leaves every SortText byte-identical to the
 // historical tier-only form.
-func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos token.Pos, statementCtx bool, expected types.Type, text string, start, end int, enc encoding) []CompletionItem {
+func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos token.Pos, statementCtx bool, expected types.Type, text string, start, end int, enc encoding, path string) []CompletionItem {
 	if items, ok := memberCompletionItems(pkg, skel, pos, expected, text, start, end, enc); ok {
 		return items // member path: committed even when empty (no scope fallback)
+	}
+	if statementCtx {
+		if items, ok := statementMemberItems(pkg, path, text, start, end, enc); ok {
+			return items // statement member path: committed even when empty
+		}
 	}
 	qf := qualifierFor(pkg)
 	var items []CompletionItem
@@ -429,27 +432,12 @@ func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, expected 
 	if sel == nil {
 		return nil, false
 	}
-	qf := qualifierFor(pkg)
 
 	// Package member: X is an imported package name. Uses records the PkgName;
 	// Info.Types does not (a package name is not a value), so check Uses first.
 	if xid, ok := sel.X.(*ast.Ident); ok {
 		if pn, ok := pkg.Info.Uses[xid].(*types.PkgName); ok {
-			scope := pn.Imported().Scope()
-			var items []CompletionItem
-			for _, name := range scope.Names() {
-				obj := scope.Lookup(name)
-				if obj == nil || !obj.Exported() || isReservedGsxInternal(name) {
-					continue
-				}
-				kind, detail := goObjectPresentation(obj, qf)
-				item := newCompletionItem(text, start, end, enc, name, name, kind, tierImported, detail, nil)
-				if expected != nil {
-					item.SortText = rankedSortText(tierImported, name, expected, obj.Type())
-				}
-				items = append(items, item)
-			}
-			return items, true
+			return packageMemberItems(pkg, pn, expected, text, start, end, enc), true
 		}
 	}
 
@@ -458,8 +446,41 @@ func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, expected 
 	if !ok || tv.Type == nil {
 		return nil, true // selector found but no type info: member path, empty
 	}
+	return valueMemberItems(pkg, tv.Type, expected, text, start, end, enc), true
+}
+
+// packageMemberItems enumerates the exported names of an imported package pn as
+// CompletionItems replacing [start, end) in text, tiered tierImported. Shared by
+// the skeleton selector member path (memberCompletionItems) and the
+// statement-position member path (statementMemberItems), since both resolve to
+// the same *types.PkgName receiver shape once the receiver is identified.
+func packageMemberItems(pkg *Package, pn *types.PkgName, expected types.Type, text string, start, end int, enc encoding) []CompletionItem {
+	qf := qualifierFor(pkg)
+	scope := pn.Imported().Scope()
 	var items []CompletionItem
-	for _, m := range memberCandidates(tv.Type, pkg.Types) {
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		if obj == nil || !obj.Exported() || isReservedGsxInternal(name) {
+			continue
+		}
+		kind, detail := goObjectPresentation(obj, qf)
+		item := newCompletionItem(text, start, end, enc, name, name, kind, tierImported, detail, nil)
+		if expected != nil {
+			item.SortText = rankedSortText(tierImported, name, expected, obj.Type())
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// valueMemberItems enumerates the selectable members of receiver type recv
+// (fields/methods via memberCandidates) as CompletionItems replacing [start,
+// end) in text, tiered tierMember+depth clamped below tierPackage. Shared by the
+// skeleton selector member path and the statement-position member path.
+func valueMemberItems(pkg *Package, recv types.Type, expected types.Type, text string, start, end int, enc encoding) []CompletionItem {
+	qf := qualifierFor(pkg)
+	var items []CompletionItem
+	for _, m := range memberCandidates(recv, pkg.Types) {
 		tier := tierMember + m.depth
 		if tier >= tierPackage {
 			tier = tierPackage - 1 // clamp to 29: member items never reach tierPackage
@@ -472,7 +493,85 @@ func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, expected 
 		}
 		items = append(items, item)
 	}
-	return items, true
+	return items
+}
+
+// statementMemberItems resolves a member cursor in a GoBlock/GoChunk STATEMENT
+// position — a context with no skeleton selector for memberCompletionItems to
+// walk. It detects the member position directly from AUTHORED text:
+// text[start-1] == '.' (start is the completion token's start from
+// completionTokenSpan, which never includes the dot itself). The receiver's
+// type is then resolved via pkg.SourceIndex.At, the SAME offset-keyed,
+// innermost-preferred lookup hover and go-to-definition already trust, at the
+// receiver's last byte (recEnd: the byte immediately before the dot, walked
+// back over any whitespace between the receiver expression and the dot).
+//
+// occ.Object.(*types.PkgName) is a package receiver (`strings.▮`); otherwise
+// occ.Object.Type() is an identifier receiver's type, and — when there is no
+// Object at all — occ.HasTypeValue's TypeAndValue.Type is an expression
+// receiver's type (a call, index, or selector-chain result, resolved via its
+// recorded Expression occurrence). Complex receivers are therefore handled
+// opportunistically: when no occurrence covers recEnd, or it carries neither an
+// Object nor a recorded type, the member path is still committed but empty
+// (fail-soft, never wrong).
+//
+// The EPHEMERAL pkg.SourceIndex is used directly, WITHOUT the MatchesSource
+// gate hover/definition apply against a RETAINED package's index and a
+// possibly-since-changed buffer. Here pkg is the fresh ephemeral analysis of
+// THIS request's (possibly phantom-patched) buffer, built from src — and the
+// phantom patch (goContextCompletion) only ever inserts a byte AT the cursor.
+// recEnd is strictly before start, which is at or before the cursor, so every
+// byte the lookup can land on is identical between the original text (used
+// here to compute recEnd) and the patched buffer the index was built from: the
+// index is sound for this lookup by construction, and gating on MatchesSource
+// would wrongly reject the patched buffer for the trailing-dot case.
+//
+// Returns ok=true (member path committed, possibly empty) once text[start-1] is
+// a '.'; ok=false otherwise, so the statement scope path applies. expected is
+// always nil: a member's expected type is not derivable across a statement
+// boundary (matches the existing skeleton member path's statement-context
+// behavior, which also passes nil).
+func statementMemberItems(pkg *Package, path, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
+	if pkg == nil || pkg.SourceIndex == nil || start == 0 || start > len(text) || text[start-1] != '.' {
+		return nil, false
+	}
+	recEnd := start - 2 // the byte immediately before the dot
+	for recEnd >= 0 && isGoSpaceByte(text[recEnd]) {
+		recEnd--
+	}
+	if recEnd < 0 {
+		return nil, true // member path committed; no receiver byte to resolve
+	}
+	occ, ok := pkg.SourceIndex.At(path, recEnd)
+	if !ok {
+		return nil, true
+	}
+	if pn, ok := occ.Object.(*types.PkgName); ok {
+		return packageMemberItems(pkg, pn, nil, text, start, end, enc), true
+	}
+	var recv types.Type
+	switch {
+	case occ.Object != nil:
+		recv = occ.Object.Type()
+	case occ.HasTypeValue:
+		recv = occ.TypeAndValue.Type
+	}
+	if recv == nil {
+		return nil, true
+	}
+	return valueMemberItems(pkg, recv, nil, text, start, end, enc), true
+}
+
+// isGoSpaceByte reports whether b is a Go-source whitespace byte (space, tab,
+// CR, LF). statementMemberItems uses it to walk back over whitespace sitting
+// between a receiver expression and the dot when computing recEnd.
+func isGoSpaceByte(b byte) bool {
+	switch b {
+	case ' ', '\t', '\r', '\n':
+		return true
+	default:
+		return false
+	}
 }
 
 // goObjectPresentation maps a go/types object to its LSP completion kind and a

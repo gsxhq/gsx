@@ -1582,6 +1582,77 @@ func TestGoBlockDeclaredAfterCursorE2E(t *testing.T) {
 	}
 }
 
+// TestGoMemberStatementCompletionE2E drives textDocument/completion end to end
+// at a member (`.`) cursor sitting in a GoBlock/GoChunk STATEMENT position —
+// the gap statementMemberItems closes (internal/lsp/completion_go.go). Unlike
+// the ExprMap-bridged member cursors TestGoMemberCompletionE2E covers, these
+// bridges (CtrlMap/GoBlock and the bare GoChunk) have no skeleton selector for
+// the original member path to walk; statementMemberItems resolves the receiver
+// directly from AUTHORED text via pkg.SourceIndex.At instead. Each subtest
+// hits the SAME phantom trailing-dot repair (goContextCompletion) that heals
+// `{ user. }`'s broken skeleton selector, since GoBlock/GoChunk both classify
+// as ctxGoExpr (completion_context.go) exactly like the ExprMap bridge does.
+func TestGoMemberStatementCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	labelsOf := func(items []lsp.CompletionItem) map[string]bool {
+		m := map[string]bool{}
+		for _, it := range items {
+			m[it.Label] = true
+		}
+		return m
+	}
+
+	// GoBlock member: `{{ user. }}` — a CtrlMap-bridged statement cursor with a
+	// value (struct) receiver.
+	t.Run("goblock value receiver", func(t *testing.T) {
+		extra := map[string]string{"page/types.go": "package page\n\ntype User struct {\n\tName string\n\tAge  int\n}\n"}
+		source := "package page\n\ncomponent Home(user User) {\n\t{{ user. }}\n}\n"
+		cursor := strings.Index(source, "user.") + len("user.")
+		got := labelsOf(runHTMLCompletionE2E(t, extra, source, cursor))
+		for _, name := range []string{"Name", "Age"} {
+			if !got[name] {
+				t.Errorf("GoBlock statement member %q missing; labels=%v", name, got)
+			}
+		}
+		if got["user"] {
+			t.Errorf("member position must not offer scope locals; got `user`: %v", got)
+		}
+	})
+
+	// GoChunk member: `return u.` inside a top-level func body — a bare verbatim
+	// Go span with no ExprMap/CtrlMap entry at all.
+	t.Run("gochunk value receiver", func(t *testing.T) {
+		source := "package page\n\ntype User struct {\n\tName string\n\tAge  int\n}\n\n" +
+			"func greet(u User) string {\n\treturn u.\n}\n\n" +
+			"component Home() {\n\t<div></div>\n}\n"
+		cursor := strings.Index(source, "return u.") + len("return u.")
+		got := labelsOf(runHTMLCompletionE2E(t, nil, source, cursor))
+		for _, name := range []string{"Name", "Age"} {
+			if !got[name] {
+				t.Errorf("GoChunk statement member %q missing; labels=%v", name, got)
+			}
+		}
+		if got["greet"] || got["u"] {
+			t.Errorf("member position must not offer scope names; labels=%v", got)
+		}
+	})
+
+	// GoBlock package receiver: `{{ strings. }}` — the *types.PkgName branch of
+	// statementMemberItems, exercised at a statement (not expression) cursor.
+	t.Run("goblock package receiver", func(t *testing.T) {
+		source := "package page\n\nimport \"strings\"\n\ncomponent Home() {\n\t{{ x := strings.\n\t_ = x }}\n\t<div></div>\n}\n"
+		cursor := strings.Index(source, "strings.") + len("strings.")
+		got := labelsOf(runHTMLCompletionE2E(t, nil, source, cursor))
+		for _, name := range []string{"ToUpper", "ToLower", "Contains"} {
+			if !got[name] {
+				t.Errorf("GoBlock package-receiver member %q missing; labels=%v", name, got)
+			}
+		}
+	})
+}
+
 // assertNoGsxInternalLeak fails if any completion item, in ANY completion
 // response carried by output, has a label with the reserved `_gsx` prefix — the
 // generated-code internals (_gsxuse/_gsxcompsig/_gsxrt/_gsxbody/...) the

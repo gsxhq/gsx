@@ -612,6 +612,26 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   only the hole's own skeleton expr, not its enclosing statement — as is the
   top-level render hole `{ ▮ }` ("renderable", too broad). No expected type = every
   SortText byte-identical to the tier-only form (the no-regression contract).
+  MEMBER COMPLETION IN STATEMENT POSITIONS: a member cursor inside a `{{ }}`
+  GoBlock or a bare GoChunk (`{{ x.▮ }}`, a top-level `u.▮`) now completes —
+  closing the v1 "KNOWN GAP" these two bridges left (they carry no skeleton
+  selector for the ExprMap member path to walk). `statementMemberItems`
+  (completion_go.go) resolves the receiver directly from AUTHORED text instead
+  of a skeleton selector: `pkg.SourceIndex.At(path, recEnd)` — the same
+  offset-keyed occurrence lookup hover/go-to-definition trust — at the byte
+  before the dot. A `*types.PkgName` object is a package receiver; otherwise
+  the object's type, or (no object — a call/index/selector-chain receiver) the
+  occurrence's recorded Expression `TypeAndValue`, drives the member list.
+  Package/value item construction is shared with the skeleton path via two
+  extracted builders, `packageMemberItems`/`valueMemberItems`. The lookup uses
+  the ephemeral package's SourceIndex directly, without the `MatchesSource`
+  staleness gate hover/definition apply to a RETAINED package: the ephemeral
+  index is built from this exact request's buffer, so no retained/live
+  divergence is possible. Expected-type ranking does not apply here (nil,
+  matching the skeleton member path's existing statement-context behavior).
+  Complex (call/index) receivers resolve opportunistically through their
+  Expression occurrence when one is recorded; fails soft to an empty member
+  list otherwise, never wrong.
   **Follow-ups:** auto-import completion (own design);
   snippet placeholders;
   `completionItem/resolve` for lazy docs; body-local value bindings as method-
