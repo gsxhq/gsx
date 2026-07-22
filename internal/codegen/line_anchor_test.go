@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	goast "go/ast"
+	goparser "go/parser"
 	"go/token"
 
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -192,6 +194,167 @@ func TestComponentFuncNameColumnAnchorSkeleton(t *testing.T) {
 
 	for _, name := range []string{"First", "Page", "Last"} {
 		assertFuncNameAnchorColumn(t, skel, lineAnchorSrc, name)
+	}
+}
+
+// topLevelGoChunkSrc puts a top-level var block AFTER a component so the
+// GoChunk's own //line anchor (not the component's) is what's under test.
+// Before the T2 fix, this var block carried no //line at all — emit.go wrote
+// GoChunk body text VERBATIM — so a cross-module gd/compiler error on a symbol
+// declared here resolved to whatever line the type-checker's raw (unmapped)
+// position happened to report, drifting within the .gsx.
+const topLevelGoChunkSrc = `package views
+
+component First() {
+	<p>hi</p>
+}
+
+var (
+	Label = "x"
+	Other = "y"
+)
+`
+
+// lineOf returns the 1-based source line whose trimmed text starts with prefix.
+func lineOf(t *testing.T, src, prefix string) int {
+	t.Helper()
+	for i, l := range strings.Split(src, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), prefix) {
+			return i + 1
+		}
+	}
+	t.Fatalf("line with prefix %q not found in src", prefix)
+	return 0
+}
+
+// TestTopLevelGoChunkLineAnchorCodegen verifies the GENERATED .x.go anchors a
+// plain top-level Go var block (an *ast.GoChunk with no embedded elements) to
+// its authored .gsx line via a //line directive — the T2 gap.
+func TestTopLevelGoChunkLineAnchorCodegen(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxb\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "views")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pkgDir, "views.gsx", topLevelGoChunkSrc)
+
+	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	dr := res[pkgDir]
+	if hasDiagErrors(dr.Diags) {
+		t.Fatalf("generate: unexpected errors: %v", dr.Diags)
+	}
+	var gen strings.Builder
+	for _, b := range dr.Files {
+		gen.WriteString(string(b))
+	}
+
+	wantLine := lineOf(t, topLevelGoChunkSrc, "var (")
+	wantMarker := fmt.Sprintf("//line views.gsx:%d:1", wantLine)
+	if !strings.Contains(gen.String(), wantMarker) {
+		t.Fatalf("generated output missing %q anchor for the top-level var block:\n%s", wantMarker, gen.String())
+	}
+}
+
+// goWithElementsTrailingVarSrc mirrors gen's crossPkgValueDep e2e fixture: a
+// top-level func whose body embeds a decorative-paren-wrapped gsx element,
+// followed by a top-level var block sharing the SAME *ast.GoWithElements
+// region as the func's trailing GoText. This is the exact shape the f0f590e8
+// fix's anchoring recipe (part.Pos()+start after leading-paren-strip) targets
+// — an anchor that doesn't account for the stripped paren's bytes drifts the
+// var block's mapped line by however many source lines the paren wrap spans.
+const goWithElementsTrailingVarSrc = `package widget
+
+import "github.com/gsxhq/gsx"
+
+func icon(name string) func(attrs ...gsx.Attr) gsx.Node {
+	return func(attrs ...gsx.Attr) gsx.Node {
+		return (
+			<svg
+				width="24"
+				{ attrs... }
+			>
+				<title>{ name }</title>
+			</svg>
+		)
+	}
+}
+
+var (
+	Check = icon("check")
+	X     = icon("x")
+)
+`
+
+// TestGoWithElementsTrailingVarLineAnchorCodegen verifies the GENERATED .x.go
+// anchors a top-level var block that trails a decorative-paren-wrapped
+// embedded element — in the SAME *ast.GoWithElements region — to its exact
+// authored .gsx line. Codegen-level counterpart to gen's
+// TestDefinitionCrossModuleValueSourcesPresent e2e, which pins the same shape
+// end-to-end through cross-module go-to-definition.
+func TestGoWithElementsTrailingVarLineAnchorCodegen(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxc\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "widget")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pkgDir, "named.gsx", goWithElementsTrailingVarSrc)
+
+	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	dr := res[pkgDir]
+	if hasDiagErrors(dr.Diags) {
+		t.Fatalf("generate: unexpected errors: %v", dr.Diags)
+	}
+	var gen strings.Builder
+	for _, b := range dr.Files {
+		gen.WriteString(string(b))
+	}
+
+	// Parse the generated .x.go the same way go/types (and so the LSP's
+	// go-to-definition) does: the standard go/scanner processes //line and
+	// block-form /*line*/ directives while tokenizing, so ast node positions
+	// resolved through THIS fset are already directive-mapped back to the
+	// .gsx — exactly the mechanism TestDefinitionCrossModuleValueSourcesPresent
+	// (gen/definition_crosspkg_value_e2e_test.go) exercises end-to-end via a
+	// published .x.go loaded from a separate module. There need be no fresh
+	// //line directive immediately before `var (`: a single anchor earlier in
+	// this same trailing GoText part maps every following line by newline
+	// counting, which is exactly what's under test here.
+	stdFset := token.NewFileSet()
+	stdFile, err := goparser.ParseFile(stdFset, "named.x.go", gen.String(), goparser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse generated output as plain Go: %v\n%s", err, gen.String())
+	}
+	xPos := token.NoPos
+	goast.Inspect(stdFile, func(n goast.Node) bool {
+		if vs, ok := n.(*goast.ValueSpec); ok {
+			for _, name := range vs.Names {
+				if name.Name == "X" {
+					xPos = name.Pos()
+				}
+			}
+		}
+		return true
+	})
+	if xPos == token.NoPos {
+		t.Fatalf("`X` value spec not found in generated output:\n%s", gen.String())
+	}
+	p := stdFset.Position(xPos)
+	wantLine := lineOf(t, goWithElementsTrailingVarSrc, "X     = icon")
+	if p.Filename != "named.gsx" || p.Line != wantLine {
+		t.Fatalf("X resolved to %s:%d, want named.gsx:%d (the authored var-block line) — directive:\n%s",
+			p.Filename, p.Line, wantLine, gen.String())
 	}
 }
 

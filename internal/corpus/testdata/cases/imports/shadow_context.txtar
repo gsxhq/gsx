@@ -24,6 +24,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 var context = "shadowed"
 
 //line input.gsx:5:1

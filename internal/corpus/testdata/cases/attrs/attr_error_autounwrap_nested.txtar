@@ -28,6 +28,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 func href(id string) (string, error)  { return "/u/" + id, nil }
 func label(id string) (string, error) { return "user " + id, nil }
 

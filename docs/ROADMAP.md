@@ -585,13 +585,16 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   skeleton); stale-snapshot fast path — largely subsumed by the non-blocking
   `TryAnalyzeEphemeral` work above, only worth revisiting if a benchmark still
   demands it.
-- [ ] **emit.go `//line` for top-level Go body chunks** - shipped `.x.go`
-  emits no `//line` for plain GoChunk text or GoWithElements GoText, so a
-  cross-module dep loaded from its published `.x.go` resolves value positions
-  (gd on component values, compiler errors in top-level var blocks) up to a
-  few lines off within the correct `.gsx`. Same-module is exact (in-memory
-  skeleton anchors correctly since the `part.Pos()+start` fix). Emit `//line`
-  for these chunks like components/elements already get.
+- [x] **emit.go `//line` for top-level Go body chunks** - DONE. `generateFile`
+  now anchors plain `*ast.GoChunk` bodies with `emitLine` (newline form, at
+  `splitChunk`'s `bodyOff`) and each `*ast.GoWithElements` GoText part with a
+  new `emitBlockLine` (block form, at `p.Pos()+start` after decorative-paren
+  stripping — mirrors the skeleton builders' f0f590e8 anchoring recipe, but
+  base-names the filename like `emitLine` does, unlike the skeleton's
+  `emitSkeletonBlockLine`). Cross-module gd on a component value now lands on
+  the exact `.gsx` line (`gen.TestDefinitionCrossModuleValueSourcesPresent`
+  upgraded from file-only to exact-line); corpus goldens regenerated
+  (directive-only churn, spot-checked).
 - **Deferred:** external/non-project references; references cover project
   components discovered during module analysis.
 

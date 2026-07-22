@@ -84,6 +84,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type chipProps struct{ Attrs gsx.Attrs }
 
 //line input.gsx:7:1
@@ -101,6 +102,7 @@ func renderChip(p chipProps) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:9:1
 func Chip(attrs ...gsx.Attr) gsx.Node {
 	return renderChip(chipProps{Attrs: gsx.Attrs(attrs)})
 }

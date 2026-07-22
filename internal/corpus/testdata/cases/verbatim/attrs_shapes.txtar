@@ -117,6 +117,7 @@ func _gsxrenderShell(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs
 	return _gsxgw.Err()
 }
 
+//line input.gsx:13:1
 type LocalAttrs []gsx.Attr
 
 //line input.gsx:15:1
@@ -163,6 +164,7 @@ func _gsxrenderVariadic(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs ...gsx
 	return _gsxgw.Err()
 }
 
+//line input.gsx:23:1
 func computedBag() gsx.Attrs {
 	return gsx.Attrs{{Key: "data-k", Value: "v"}}
 }

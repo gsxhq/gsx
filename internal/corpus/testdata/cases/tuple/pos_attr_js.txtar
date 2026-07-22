@@ -24,6 +24,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 func handler(action string) (string, error) { return "doThing('" + action + "')", nil }
 
 //line input.gsx:5:1

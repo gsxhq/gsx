@@ -27,6 +27,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 var calls int
 
 //line input.gsx:5:1
@@ -52,6 +53,7 @@ func C(label string) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:9:1
 func setState() string {
 	calls++
 	return "display: block"

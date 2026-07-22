@@ -30,6 +30,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func f(k string) (string, error) { return "f-" + k, nil }
 func g(k string) (string, error) { return "g-" + k, nil }
 

@@ -28,7 +28,9 @@ import (
 	_gsxio "io"
 )
 
-var h = _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal("x") + ")")
+/*line input.gsx:1:13*/
+
+var h = _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal("x") + ")") /*line input.gsx:3:25*/
 
 //line input.gsx:5:1
 func Page() _gsxrt.Node {

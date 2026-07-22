@@ -39,7 +39,10 @@ import (
 	_gsxio "io"
 )
 
-func mk(v string) gsx.RawJS { return _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(_gsxf0.Shout((v))) + ")") }
+/*line input.gsx:5:1*/
+func mk(v string) gsx.RawJS {
+	return _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(_gsxf0.Shout((v))) + ")") /*line input.gsx:5:58*/
+}
 
 //line input.gsx:7:1
 func Page(v string) _gsxrt.Node {

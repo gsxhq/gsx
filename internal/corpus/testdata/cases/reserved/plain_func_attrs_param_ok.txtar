@@ -37,6 +37,7 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func Icon(attrs ...gsx.Attr) gsx.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -48,7 +49,7 @@ func Icon(attrs ...gsx.Attr) gsx.Node {
 		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">x</svg>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:8:3*/
 }
 
 //line input.gsx:11:1

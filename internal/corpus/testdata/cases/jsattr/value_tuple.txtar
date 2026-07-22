@@ -30,6 +30,7 @@ func Page() _gsxrt.Node {
 	})
 }
 
+//line input.gsx:7:1
 func load() (string, error) { return "</script>\"", nil }
 -- render.golden --
 <div x-data="{ d: @{ load() } }">x</div>

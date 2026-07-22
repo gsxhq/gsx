@@ -43,6 +43,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type dotProps struct {
 	Attrs gsx.Attrs
 }
@@ -62,6 +63,7 @@ func renderDot(p dotProps) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:13:1
 var Dot = func(attrs gsx.Attrs) gsx.Node {
 	return renderDot(dotProps{Attrs: attrs})
 }

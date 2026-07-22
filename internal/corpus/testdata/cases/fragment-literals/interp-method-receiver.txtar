@@ -51,6 +51,8 @@ func Noop() _gsxrt.Node {
 	})
 }
 
+/*line input.gsx:7:2*/
+
 type Card struct {
 	Title string
 }
@@ -64,7 +66,7 @@ func (c Card) View() gsx.Node {
 		_gsxgw.Text(string(c.Title))
 		_gsxgw.S("</h2>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:14:34*/
 }
 
 //line input.gsx:17:1

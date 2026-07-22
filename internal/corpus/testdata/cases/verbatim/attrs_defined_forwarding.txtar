@@ -32,6 +32,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type LocalAttrs []gsx.Attr
 
 func bag(id string) LocalAttrs {

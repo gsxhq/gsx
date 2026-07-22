@@ -24,6 +24,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 func firstName(id string) (string, error) { return "First-" + id, nil }
 func lastName(id string) (string, error)  { return "Last-" + id, nil }
 

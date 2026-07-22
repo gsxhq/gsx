@@ -48,6 +48,8 @@ func Noop() _gsxrt.Node {
 	})
 }
 
+/*line input.gsx:7:2*/
+
 func Greeting(name string) gsx.Node {
 	greeting := "Hi, " + name
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
@@ -61,5 +63,5 @@ func Greeting(name string) gsx.Node {
 		_gsxgw.Text(string(name))
 		_gsxgw.S(")</div>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:11:43*/
 }

@@ -27,6 +27,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func wrap(n g.Node) g.Node { return n }
 
 //line input.gsx:7:1

@@ -96,6 +96,7 @@ func Page(csv string) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:9:1
 func shout() string { return "hi" }
 -- render.golden --
 <span>adahi</span>

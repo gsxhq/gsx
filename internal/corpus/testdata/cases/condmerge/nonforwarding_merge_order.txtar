@@ -32,6 +32,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 var trace string
 
 func mark(label, value string) string {

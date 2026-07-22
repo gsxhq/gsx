@@ -67,6 +67,7 @@ func Page[_gsxrenderChild2 any](value _gsxrenderChild.Value) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:11:1
 func Invoke() gsx.Node { return Page[struct{}](lexicalValue()) }
 -- render.golden --
 <span>lexical</span>

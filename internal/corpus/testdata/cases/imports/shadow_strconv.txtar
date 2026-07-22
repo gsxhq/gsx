@@ -27,6 +27,7 @@ import (
 	_gsxsc "strconv"
 )
 
+//line input.gsx:3:1
 var strconv = "shadowed"
 
 //line input.gsx:5:1

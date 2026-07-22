@@ -25,6 +25,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 func greet(name string) (string, error) { return "Hello " + name, nil }
 
 //line input.gsx:5:1

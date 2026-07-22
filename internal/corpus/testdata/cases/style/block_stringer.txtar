@@ -28,6 +28,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type Color struct{ R, G, B int }
 
 func (c Color) String() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }

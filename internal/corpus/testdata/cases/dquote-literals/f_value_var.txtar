@@ -28,9 +28,11 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var n = "x1"
 
-var g = "id-`" + string(n) + "`"
+var g = "id-`" + string(n) + "`" /*line input.gsx:5:21*/
 
 //line input.gsx:7:1
 func Uses() _gsxrt.Node {

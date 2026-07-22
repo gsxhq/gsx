@@ -43,6 +43,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func take(j gsx.RawJS) gsx.Node { return gsx.Raw(string(j)) }
 
 //line input.gsx:7:1

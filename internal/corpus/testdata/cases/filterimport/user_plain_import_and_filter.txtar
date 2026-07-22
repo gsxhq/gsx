@@ -44,6 +44,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 var label = filters.Label
 
 //line input.gsx:7:1

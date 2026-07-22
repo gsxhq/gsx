@@ -40,4 +40,5 @@ func C() _gsxrt.Node {
 	})
 }
 
+//line input.gsx:7:1
 func theme() (string, error) { return "x", nil }

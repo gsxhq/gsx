@@ -30,9 +30,11 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var name = "world"
 
-var greeting = "hello " + string(name)
+var greeting = "hello " + string(name) /*line input.gsx:5:32*/
 
 //line input.gsx:7:1
 func Uses() _gsxrt.Node {

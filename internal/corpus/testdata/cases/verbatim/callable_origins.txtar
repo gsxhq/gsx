@@ -67,6 +67,7 @@ func Line(label string) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:9:1
 func Free(label string) gsx.Node { return Line(label) }
 
 type rowFunc = func(label string) gsx.Node

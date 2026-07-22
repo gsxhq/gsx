@@ -29,6 +29,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func sig(name string) (string, error) { return "{" + name + ":0}", nil }
 
 //line input.gsx:7:1

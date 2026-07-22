@@ -90,15 +90,16 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:8:1*/
 func mkJSVal(s string, valid bool) pg.JSVal   { return pg.JSVal{String: s, Valid: valid} }
 func mkCSSVal(s string, valid bool) pg.CSSVal { return pg.CSSVal{String: s, Valid: valid} }
 
 func mkClick(val pg.JSVal) gsx.RawJS {
-	return _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(_gsxf0.PgJS((val)))) + "')")
+	return _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(_gsxf0.PgJS((val)))) + "')") /*line input.gsx:12:29*/
 }
 
 func mkColor(val pg.CSSVal) gsx.RawCSS {
-	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor((val)))))
+	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor((val))))) /*line input.gsx:16:28*/
 }
 
 //line input.gsx:19:1

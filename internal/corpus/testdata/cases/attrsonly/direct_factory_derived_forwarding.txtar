@@ -42,6 +42,7 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func drop(attrs []gsx.Attr, key string) []gsx.Attr {
 	var out []gsx.Attr
 	for _, a := range attrs {
@@ -72,7 +73,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 			_gsxgw.Text(string(name))
 			_gsxgw.S("</svg>")
 			return _gsxgw.Err()
-		})
+		}) /*line input.gsx:17:86*/
 	}
 }
 

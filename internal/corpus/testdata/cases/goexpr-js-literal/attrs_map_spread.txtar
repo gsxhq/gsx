@@ -37,10 +37,11 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func mkAttrs(id string) gsx.Attrs {
 	return gsx.Attrs{
-		{Key: "@click", Value: _gsxrt.RawJS("select(" + _gsxrt.EscapeJSVal(id) + ")")},
-		{Key: "x-data", Value: _gsxrt.RawJS("dialog(" + _gsxrt.EscapeJSVal(id) + ")")},
+		{Key: "@click", Value: _gsxrt.RawJS("select(" + _gsxrt.EscapeJSVal(id) + ")") /*line input.gsx:7:43*/},
+		{Key: "x-data", Value: _gsxrt.RawJS("dialog(" + _gsxrt.EscapeJSVal(id) + ")") /*line input.gsx:8:43*/},
 	}
 }
 

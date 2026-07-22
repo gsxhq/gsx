@@ -34,8 +34,9 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func mk(id string) gsx.RawJS {
-	return _gsxrt.RawJS("open(" + _gsxrt.EscapeJSVal(id) + ")")
+	return _gsxrt.RawJS("open(" + _gsxrt.EscapeJSVal(id) + ")") /*line input.gsx:6:24*/
 }
 
 //line input.gsx:9:1

@@ -31,8 +31,10 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 func makeGreeting(who string) string {
-	return "hi " + string(who)
+	return "hi " + string(who) /*line input.gsx:4:21*/
 }
 
 //line input.gsx:7:1

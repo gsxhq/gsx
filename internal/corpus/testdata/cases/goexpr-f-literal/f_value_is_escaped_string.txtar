@@ -26,7 +26,9 @@ import (
 	_gsxio "io"
 )
 
-func markup(x string) string { return "<b>" + string(x) + "</b>" }
+/*line input.gsx:1:14*/
+
+func markup(x string) string { return "<b>" + string(x) + "</b>" /*line input.gsx:3:53*/ }
 
 //line input.gsx:5:1
 func Host(x string) _gsxrt.Node {

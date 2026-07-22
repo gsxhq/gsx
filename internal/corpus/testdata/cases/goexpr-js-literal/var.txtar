@@ -30,9 +30,11 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var id = "abc"
 
-var handler = _gsxrt.RawJS("save(" + _gsxrt.EscapeJSVal(id) + ")")
+var handler = _gsxrt.RawJS("save(" + _gsxrt.EscapeJSVal(id) + ")") /*line input.gsx:5:30*/
 
 //line input.gsx:7:1
 func Page() _gsxrt.Node {

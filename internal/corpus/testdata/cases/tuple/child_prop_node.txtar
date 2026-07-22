@@ -26,6 +26,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func makeIcon(name string) (gsx.Node, error) { return gsx.Text("<" + name + ">"), nil }
 
 //line input.gsx:7:1
