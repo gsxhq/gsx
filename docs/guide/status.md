@@ -12,12 +12,12 @@ before a stable release.
   forwarding.
 - Render escaped HTML, URLs, CSS, and JavaScript values, with explicit trust
   boundaries where automatic encoding is not enough.
-- Use diagnostics, go-to-definition, hover, references, symbols, and formatting
-  through the [language server](./editor.md).
+- Use diagnostics, go-to-definition, hover, references, symbols, formatting,
+  and completion through the [language server](./editor.md). Completion
+  analysis runs in about 140µs warm per request.
 
 ## Current limits
 
-- LSP completion is not implemented.
 - Find-references covers project components, not external or non-project
   references.
 - Composable `style={...}` works on elements, but not on component invocations;
