@@ -507,7 +507,11 @@ func objectSourceLocation(sources *requestSourceSnapshot, pkg *Package, object t
 }
 
 // handleDefinition answers textDocument/definition for D1: a Go symbol under the
-// cursor that resolves to a definition in a real .go file.
+// cursor that resolves to a definition in a real .go file. When the retained
+// package answers nothing — most often because the live buffer is mid-edit and
+// unparseable, so analysis fell back to a diagnostics-only shell — it retries the
+// same resolver cascade against one ephemeral analysis of the completion-repaired
+// buffer (definitionFallback), healing go-to-definition on a half-typed tag.
 func (s *Server) handleDefinition(f frame) error {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
@@ -526,25 +530,44 @@ func (s *Server) handleDefinition(f frame) error {
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
-	pkg := s.pkgs[filepath.Dir(path)]
-	if pkg == nil || pkg.Info == nil {
-		return s.reply(f.ID, nil)
-	}
-
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
+
+	pkg := s.pkgs[filepath.Dir(path)]
+	if result, answered := s.definitionAnswerFromPkg(pkg, path, []byte(text), off, sources); answered {
+		return s.reply(f.ID, result)
+	}
+	if result, answered := s.definitionFallback(path, text, off, sources); answered {
+		return s.reply(f.ID, result)
+	}
+	return s.reply(f.ID, nil)
+}
+
+// definitionAnswerFromPkg runs the go-to-definition resolver cascade against one
+// package. It is the shared body called first with the retained package (exactly
+// the prior handler behavior, including every fail-closed guard) and again with
+// an ephemeral package on a total miss. answered=true means a cursor branch
+// matched and result is the reply to send (possibly nil when the branch matched
+// but resolved nothing); answered=false means no branch matched, so the caller
+// may try the fallback. source is the exact bytes pkg was analyzed from — live
+// buffer for the retained pass, the repaired buffer for the ephemeral pass — so
+// the SourceIndex staleness guards compare against the right text.
+func (s *Server) definitionAnswerFromPkg(pkg *Package, path string, source []byte, off int, sources *requestSourceSnapshot) (any, bool) {
+	if pkg == nil || pkg.Info == nil {
+		return nil, false
+	}
 
 	// D2: exact call-target identity from codegen. For a GSX build-variant
 	// family, retain the existing multi-location picker after the exact target
 	// establishes that this authored element is a component call.
 	if cursor, ok := componentTargetAtOffset(pkg, path, off); ok {
 		if result, valid := versionedDefinitionResult(sources, cursor.fact.TargetDecls); valid {
-			return s.reply(f.ID, result)
+			return result, true
 		}
 		location, ok := objectSourceLocation(sources, pkg, componentTargetObject(cursor.fact))
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
-		return s.reply(f.ID, location)
+		return location, true
 	}
 
 	// D2: cursor on a component tag name in a .gsx file → jump to the component
@@ -559,9 +582,9 @@ func (s *Server) handleDefinition(f frame) error {
 		if len(decls) == 1 {
 			location, ok := sources.locationForAuthoredPosition(decls[0], nameLength)
 			if !ok {
-				return s.reply(f.ID, nil)
+				return nil, true
 			}
-			return s.reply(f.ID, location)
+			return location, true
 		}
 		locs := make([]Location, 0, len(decls))
 		for _, d := range decls {
@@ -570,16 +593,16 @@ func (s *Server) handleDefinition(f frame) error {
 			}
 		}
 		if len(locs) == 0 {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
-		return s.reply(f.ID, locs)
+		return locs, true
 	}
 
 	// A/C: cursor on a component-invocation attribute name → the matching component
 	// parameter (same-package function components and cross-package dotted tags).
 	if cursor, ok := componentAttrAtOffset(pkg, path, off); ok {
 		if result, valid := versionedDefinitionResult(sources, cursor.fact.ParamDecls[cursor.param.Ordinal]); valid {
-			return s.reply(f.ID, result)
+			return result, true
 		}
 		param := cursor.param.Origin
 		if param == nil {
@@ -587,9 +610,9 @@ func (s *Server) handleDefinition(f frame) error {
 		}
 		location, ok := objectSourceLocation(sources, pkg, param)
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
-		return s.reply(f.ID, location)
+		return location, true
 	}
 
 	// E: cursor on an identifier inside a component-signature parameter TYPE
@@ -599,13 +622,13 @@ func (s *Server) handleDefinition(f frame) error {
 	// gopls-style). A cursor on a signature type that does not resolve replies
 	// null rather than falling through to expression resolution.
 	if obj, _, _, ok := signatureTypeIdentAt(pkg, path, off); ok {
-		return s.reply(f.ID, signatureTypeDefinition(sources, pkg, obj))
+		return signatureTypeDefinition(sources, pkg, obj), true
 	}
 
 	// F: cursor on an import statement in the .gsx → into the imported package
 	// (its files' `package` clauses), the same picker as a type qualifier.
 	if res, ok := importDefAt(sources, pkg, path, off); ok {
-		return s.reply(f.ID, res)
+		return res, true
 	}
 
 	if target, ok := exprDefinitionTargetAt(pkg, path, off); ok {
@@ -614,24 +637,47 @@ func (s *Server) handleDefinition(f frame) error {
 			result, ok = sources.locationForResolvedPosition(target.position, 0)
 		}
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
-		return s.reply(f.ID, result)
+		return result, true
 	}
-	if target, ok := semanticDefinitionFromSnapshot(pkg, path, []byte(text), off, sources); ok {
+	if target, ok := semanticDefinitionFromSnapshot(pkg, path, source, off, sources); ok {
 		if target.Authored.Path != "" {
 			if location, ok := sources.locationForSpan(target.Authored); ok {
-				return s.reply(f.ID, location)
+				return location, true
 			}
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
 		location, ok := sources.locationForExistingFile(target.Go, 0)
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
-		return s.reply(f.ID, location)
+		return location, true
 	}
-	return s.reply(f.ID, nil)
+	return nil, false
+}
+
+// definitionFallback answers go-to-definition from a completion-repaired,
+// ephemerally analyzed buffer when the retained package matched nothing. It
+// repairs the (mid-edit) buffer at the cursor with the same closed patch set
+// completion uses, runs one warm uncached analysis, and re-runs the resolver
+// cascade against it. Current-file byte spans the cascade returns are in repaired
+// coordinates, so the snapshot is armed to map them back to the live buffer
+// (setRepair). answered=false — reply null as before — whenever the buffer is
+// unrepairable, analysis errors, or the result is a shell with neither type info
+// nor a parse.
+func (s *Server) definitionFallback(path, text string, off int, sources *requestSourceSnapshot) (any, bool) {
+	r, insertOff, queryOff, ok := navRepair(path, text, off)
+	if !ok {
+		return nil, false
+	}
+	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, r.src)
+	if err != nil || eph == nil || (eph.Info == nil && eph.Files == nil) {
+		return nil, false
+	}
+	sources.setRepair(path, insertOff, len(r.patch))
+	defer sources.clearRepair()
+	return s.definitionAnswerFromPkg(eph, path, r.src, queryOff, sources)
 }
 
 type resolvedDefinitionTarget struct {

@@ -2,6 +2,8 @@ package lsp
 
 import (
 	"go/token"
+	"unicode"
+	"unicode/utf8"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -63,4 +65,46 @@ func repairAtCursor(fset *token.FileSet, path string, text string, off int) repa
 		}
 	}
 	return repairResult{src: []byte(text), patch: ""}
+}
+
+// navRepair repairs a mid-edit buffer for the go-to-definition / hover fallback.
+// Completion's cursor is the edit point, so it repairs AT the cursor; a nav
+// cursor, by contrast, may sit inside — or just after — the identifier or tag
+// name it is resolving, and a patch inserted at the cursor would split that token
+// (`<icon.Be▮ll` + `/>` → `<icon.Be/>ll`, the wrong tag). navRepair instead
+// finds the identifier/tag token under the cursor and inserts the repair patch at
+// its END, keeping the token whole, and returns a query offset strictly inside
+// the token for the resolver cascade (the shared half-open [start,start+len)
+// span check never matches a cursor exactly at a token's end). insertOff is also
+// the pivot for repaired→live coordinate mapping. ok=false when the buffer is
+// unrepairable even after moving the insertion to the token boundary.
+func navRepair(path, text string, off int) (r repairResult, insertOff, queryOff int, ok bool) {
+	if off < 0 {
+		off = 0
+	}
+	if off > len(text) {
+		off = len(text)
+	}
+	tokStart, _ := completionTokenSpan(text, off, true)
+	tokEnd := off
+	for tokEnd < len(text) {
+		rn, size := utf8.DecodeRuneInString(text[tokEnd:])
+		if rn == '_' || rn == '-' || unicode.IsLetter(rn) || unicode.IsDigit(rn) {
+			tokEnd += size
+			continue
+		}
+		break
+	}
+	insertOff, queryOff = off, off
+	if tokEnd > tokStart { // the cursor is on, or immediately after, a token
+		insertOff = tokEnd
+		if queryOff >= tokEnd {
+			queryOff = tokEnd - 1 // step inside so the span check can match
+		}
+	}
+	r = repairAtCursor(token.NewFileSet(), path, text, insertOff)
+	if r.parsed == nil {
+		return repairResult{}, 0, 0, false
+	}
+	return r, insertOff, queryOff, true
 }
