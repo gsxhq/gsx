@@ -383,7 +383,8 @@ func TestPlanComponentPositionalCallsDerivesSyntaxDefinedOrdinaryPropFacts(t *te
 	}
 	wantTypes := []types.Type{types.Typ[types.UntypedString], types.Typ[types.UntypedBool], fx.runtime.node, fx.runtime.attrs, types.Typ[types.String]}
 	for i, want := range wantTypes {
-		if gotType := site.expressionFacts[site.call.values[i].node].tv.Type; !types.Identical(gotType, want) {
+		fact, _ := site.expressionFacts.get(site.call.values[i].node)
+		if gotType := fact.tv.Type; !types.Identical(gotType, want) {
 			t.Errorf("value %d fact type = %v, want %v", i, gotType, want)
 		}
 	}
@@ -456,7 +457,7 @@ func TestPlanComponentPositionalCallsDerivesNestedClassAndStyleFactsForSiblings(
 			t.Errorf("site %d missing", id)
 			continue
 		}
-		fact, ok := site.expressionFacts[attr]
+		fact, ok := site.expressionFacts.get(attr)
 		if !ok || !types.Identical(fact.tv.Type, types.Typ[types.String]) || !fact.hasOrderedOperation {
 			t.Errorf("site %d class fact = %+v, want ordered string", id, fact)
 		}
@@ -468,15 +469,15 @@ func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
 		part := &gsxast.ClassPart{Expr: "label"}
 		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{*part}}
 		part = &root.Parts[0]
-		if _, complete := aggregateNestedComponentFacts(root, nil); complete {
+		if _, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(nil)); complete {
 			t.Fatal("plain part without its authoritative fact reported complete")
 		}
-		if _, complete := aggregateNestedComponentFacts(root, map[gsxast.Node]expressionFact{part: {}}); complete {
+		if _, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(map[gsxast.Node]expressionFact{part: {}})); complete {
 			t.Fatal("plain part with an incomplete authoritative fact reported complete")
 		}
-		ordered, complete := aggregateNestedComponentFacts(root, map[gsxast.Node]expressionFact{
+		ordered, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(map[gsxast.Node]expressionFact{
 			part: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
-		})
+		}))
 		if !complete || !ordered {
 			t.Fatalf("plain part aggregate = ordered %v complete %v", ordered, complete)
 		}
@@ -490,12 +491,12 @@ func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
 			thenArm: {tv: types.TypeAndValue{Type: types.Typ[types.String]}},
 			elseArm: {tv: types.TypeAndValue{Type: types.Typ[types.UntypedString]}},
 		}
-		ordered, complete := aggregateNestedComponentFacts(root, facts)
+		ordered, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(facts))
 		if !complete || !ordered {
 			t.Fatalf("control-flow aggregate = ordered %v complete %v", ordered, complete)
 		}
 		delete(facts, elseArm)
-		if _, complete := aggregateNestedComponentFacts(root, facts); complete {
+		if _, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(facts)); complete {
 			t.Fatal("control flow with a missing arm fact reported complete")
 		}
 	})
@@ -503,16 +504,16 @@ func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
 	t.Run("CSS literal delegates to embedded values", func(t *testing.T) {
 		value := &gsxast.Interp{Expr: "tone()"}
 		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{{CSSSegments: []gsxast.Markup{&gsxast.Text{Value: "color:"}, value}}}}
-		ordered, complete := aggregateNestedComponentFacts(root, map[gsxast.Node]expressionFact{
+		ordered, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(map[gsxast.Node]expressionFact{
 			value: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, tuple: types.NewTuple(
 				types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),
 				types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type()),
 			)},
-		})
+		}))
 		if !complete || !ordered {
 			t.Fatalf("CSS aggregate = ordered %v complete %v", ordered, complete)
 		}
-		if _, complete := aggregateNestedComponentFacts(root, nil); complete {
+		if _, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(nil)); complete {
 			t.Fatal("CSS literal with a missing embedded-value fact reported complete")
 		}
 	})
@@ -688,8 +689,8 @@ func TestPlanComponentPositionalCallsPinsConditionalAttrsAtAuthoredOrder(t *test
 	if len(materialization.values) != 2 || materialization.values[0].temp == "" || materialization.values[1].temp == "" {
 		t.Fatalf("crossing ordered values must both be pinned: %+v", materialization.values)
 	}
-	if !site.expressionFacts[el.Attrs[1]].hasOrderedOperation {
-		t.Fatalf("conditional attrs fact = %+v", site.expressionFacts[el.Attrs[1]])
+	if fact, _ := site.expressionFacts.get(el.Attrs[1]); !fact.hasOrderedOperation {
+		t.Fatalf("conditional attrs fact = %+v", fact)
 	}
 }
 
@@ -716,14 +717,14 @@ func TestPositionalMaterializationFactsLeaveTupleOwnershipWithCompoundLowering(t
 		pair:     {tv: types.TypeAndValue{Type: tuple}, tuple: tuple},
 	}
 
-	materializationFacts := positionalMaterializationFacts(plan, facts, fx.runtime)
-	if got := materializationFacts[embedded]; got.tuple != nil || !types.Identical(got.tv.Type, types.Typ[types.String]) || !got.hasOrderedOperation {
+	materializationFacts := positionalMaterializationFacts(plan, newExpressionFactSet(facts), fx.runtime)
+	if got, _ := materializationFacts.get(embedded); got.tuple != nil || !types.Identical(got.tv.Type, types.Typ[types.String]) || !got.hasOrderedOperation {
 		t.Fatalf("embedded lowering fact = %+v, want ordered string without outer tuple", got)
 	}
-	if got := materializationFacts[pair]; got.tuple != nil || !types.Identical(got.tv.Type, fx.runtime.attrs) || !got.hasOrderedOperation {
+	if got, _ := materializationFacts.get(pair); got.tuple != nil || !types.Identical(got.tv.Type, fx.runtime.attrs) || !got.hasOrderedOperation {
 		t.Fatalf("attrs-pair lowering fact = %+v, want ordered attrs without outer tuple", got)
 	}
-	if got := materializationFacts[plain]; got.tuple == nil {
+	if got, _ := materializationFacts.get(plain); got.tuple == nil {
 		t.Fatalf("plain expression tuple ownership moved away from outer materializer: %+v", got)
 	}
 }

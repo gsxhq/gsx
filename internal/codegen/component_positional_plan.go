@@ -42,7 +42,7 @@ type componentPositionalSitePlan struct {
 	typeArgs        []types.Type
 	typeArgExprs    []string
 	operands        []suppliedOperand
-	expressionFacts map[gsxast.Node]expressionFact
+	expressionFacts expressionFactSet
 	zeros           []componentZeroArgument
 	assembly        componentPositionalAssembly
 	directTarget    *directComponentFamily
@@ -424,11 +424,52 @@ func positionalSignatureDiagnostic(node gsxast.Node, fset *token.FileSet, err er
 	return positionalDiagnostic(node, fset, code, message)
 }
 
-func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast.Node]expressionFact, runtime runtimeContract, fset *token.FileSet) (map[gsxast.Node]expressionFact, []diag.Diagnostic) {
-	facts := maps.Clone(discovered)
-	if facts == nil {
-		facts = make(map[gsxast.Node]expressionFact)
+// expressionFactSet is a two-layer view of expression facts: a shared,
+// immutable package-wide base map plus a small per-call overlay consulted
+// first. It replaces per-call maps.Clone of the whole-package facts map, which
+// was O(component-calls × package-facts) transient allocation (measured as 67%
+// of all allocation churn on a 105-file package; see the perf investigation
+// 2026-07-22). The base map is the whole-package `expressionFacts` harvested
+// once per package (harvestComponentTargetExpressionFacts) and is NEVER mutated
+// after construction — every per-call addition or override lands in the overlay.
+type expressionFactSet struct {
+	base    map[gsxast.Node]expressionFact // shared, immutable
+	overlay map[gsxast.Node]expressionFact // per-call additions/overrides
+}
+
+// newExpressionFactSet layers an eagerly-allocated per-call overlay over the
+// shared base. The overlay is allocated up front so the struct may be passed by
+// value while still sharing one overlay map (set writes are visible to every
+// copy). The base is shared, not cloned.
+func newExpressionFactSet(base map[gsxast.Node]expressionFact) expressionFactSet {
+	return expressionFactSet{base: base, overlay: make(map[gsxast.Node]expressionFact)}
+}
+
+// get consults the overlay first (so a per-call override wins) then the base.
+func (s expressionFactSet) get(node gsxast.Node) (expressionFact, bool) {
+	if fact, ok := s.overlay[node]; ok {
+		return fact, true
 	}
+	fact, ok := s.base[node]
+	return fact, ok
+}
+
+// set records a per-call addition or override in the overlay, never touching
+// the shared base.
+func (s expressionFactSet) set(node gsxast.Node, fact expressionFact) {
+	s.overlay[node] = fact
+}
+
+// derive returns an independent set sharing the same base but with a fresh
+// overlay seeded from this set's overlay. Mutations to the result never leak
+// back to the parent. The clone is O(per-call overlay entries) — a handful —
+// not O(package facts), which is the whole point.
+func (s expressionFactSet) derive() expressionFactSet {
+	return expressionFactSet{base: s.base, overlay: maps.Clone(s.overlay)}
+}
+
+func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast.Node]expressionFact, runtime runtimeContract, fset *token.FileSet) (expressionFactSet, []diag.Diagnostic) {
+	facts := newExpressionFactSet(discovered)
 	var diagnostics []diag.Diagnostic
 
 	var completeNode func(gsxast.Node) bool
@@ -436,14 +477,14 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 		if node == nil {
 			return false
 		}
-		if _, ok := facts[node]; ok {
+		if _, ok := facts.get(node); ok {
 			return true
 		}
 		fact, ok := syntaxDefinedComponentFact(node, facts, runtime)
 		if !ok {
 			return false
 		}
-		facts[node] = fact
+		facts.set(node, fact)
 		return true
 	}
 	var completeAttrsTree func(componentAttrsStreamNode)
@@ -455,8 +496,8 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 			for _, child := range node.otherwise {
 				completeAttrsTree(child)
 			}
-			if _, exists := facts[node.attr]; !exists {
-				facts[node.attr] = expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true}
+			if _, exists := facts.get(node.attr); !exists {
+				facts.set(node.attr, expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true})
 			}
 			return
 		}
@@ -468,7 +509,7 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 			completeAttrsTree(*value.attrsNode)
 		}
 		if value.kind == componentInputBody {
-			facts[value.node] = expressionFact{tv: types.TypeAndValue{Type: runtime.node}}
+			facts.set(value.node, expressionFact{tv: types.TypeAndValue{Type: runtime.node}})
 		}
 		if !completeNode(value.node) {
 			diagnostics = append(diagnostics, positionalDiagnostic(value.node, fset, "component-operand-fact", fmt.Sprintf("component input %T has no exact syntax-derived or go/types operand fact", value.node)))
@@ -478,7 +519,7 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 	return facts, diagnostics
 }
 
-func syntaxDefinedComponentFact(node gsxast.Node, nested map[gsxast.Node]expressionFact, runtime runtimeContract) (expressionFact, bool) {
+func syntaxDefinedComponentFact(node gsxast.Node, nested expressionFactSet, runtime runtimeContract) (expressionFact, bool) {
 	switch node := node.(type) {
 	case *gsxast.StaticAttr:
 		return expressionFact{tv: types.TypeAndValue{Type: types.Typ[types.UntypedString], Value: constant.MakeString(node.Value)}}, true
@@ -521,7 +562,7 @@ func syntaxDefinedComponentFact(node gsxast.Node, nested map[gsxast.Node]express
 	return expressionFact{}, false
 }
 
-func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expressionFact) (ordered, complete bool) {
+func aggregateNestedComponentFacts(root gsxast.Node, facts expressionFactSet) (ordered, complete bool) {
 	complete = true
 	seenValue := false
 	gsxast.Inspect(root, func(node gsxast.Node) bool {
@@ -530,7 +571,7 @@ func aggregateNestedComponentFacts(root gsxast.Node, facts map[gsxast.Node]expre
 		}
 		if nestedComponentFactBearingNode(node) {
 			seenValue = true
-			fact, ok := facts[node]
+			fact, ok := facts.get(node)
 			if !ok || fact.tv.Type == nil {
 				complete = false
 				return true
@@ -589,13 +630,13 @@ func runtimePackageType(runtime runtimeContract, name string) types.Type {
 // own nested (T, error) operations while assembling that final expression.
 // The outer positional materializer must still treat that work as ordered, but
 // must not try to unwrap the already-consumed tuple a second time.
-func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) map[gsxast.Node]expressionFact {
-	result := maps.Clone(facts)
+func positionalMaterializationFacts(plan componentCallPlan, facts expressionFactSet, runtime runtimeContract) expressionFactSet {
+	result := facts.derive()
 	for _, value := range plan.values {
 		if !positionalLoweringOwnsTuple(value) {
 			continue
 		}
-		fact, ok := result[value.node]
+		fact, ok := result.get(value.node)
 		if !ok || fact.tuple == nil {
 			continue
 		}
@@ -608,7 +649,7 @@ func positionalMaterializationFacts(plan componentCallPlan, facts map[gsxast.Nod
 		} else if lowered, ok := syntaxDefinedComponentFact(value.node, facts, runtime); ok {
 			fact.tv.Type = lowered.tv.Type
 		}
-		result[value.node] = fact
+		result.set(value.node, fact)
 	}
 	return result
 }
@@ -634,7 +675,7 @@ func positionalLoweringOwnsTuple(value componentInputValue) bool {
 	}
 }
 
-func validateRecursiveAttrsOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) []diag.Diagnostic {
+func validateRecursiveAttrsOperands(plan componentCallPlan, facts expressionFactSet, runtime runtimeContract) []diag.Diagnostic {
 	var diagnostics []diag.Diagnostic
 	var visit func(componentAttrsStreamNode)
 	visit = func(node componentAttrsStreamNode) {
@@ -669,7 +710,7 @@ func validateRecursiveAttrsOperands(plan componentCallPlan, facts map[gsxast.Nod
 	return diagnostics
 }
 
-func validateRequiredAttrsFacts(plan componentCallPlan, facts map[gsxast.Node]expressionFact, fset *token.FileSet) []diag.Diagnostic {
+func validateRequiredAttrsFacts(plan componentCallPlan, facts expressionFactSet, fset *token.FileSet) []diag.Diagnostic {
 	var diagnostics []diag.Diagnostic
 	var visit func(componentAttrsStreamNode)
 	visit = func(node componentAttrsStreamNode) {
@@ -685,7 +726,7 @@ func validateRequiredAttrsFacts(plan componentCallPlan, facts map[gsxast.Node]ex
 		if node.kind != componentAttrsStreamSpread && node.kind != componentAttrsStreamContributor {
 			return
 		}
-		fact, ok := facts[node.attr]
+		fact, ok := facts.get(node.attr)
 		if !ok || fact.tv.Type == nil {
 			diagnostics = append(diagnostics, positionalDiagnostic(node.attr, fset, "component-operand-fact", "attrs contributor has no authoritative go/types operand fact"))
 		}
@@ -698,14 +739,14 @@ func validateRequiredAttrsFacts(plan componentCallPlan, facts map[gsxast.Node]ex
 	return diagnostics
 }
 
-func positionalSuppliedOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract, fset *token.FileSet) ([]suppliedOperand, []diag.Diagnostic) {
+func positionalSuppliedOperands(plan componentCallPlan, facts expressionFactSet, runtime runtimeContract, fset *token.FileSet) ([]suppliedOperand, []diag.Diagnostic) {
 	var operands []suppliedOperand
 	var diagnostics []diag.Diagnostic
 	for valueIndex, value := range plan.values {
 		if value.kind != componentInputProp {
 			continue
 		}
-		fact, ok := facts[value.node]
+		fact, ok := facts.get(value.node)
 		if !ok || fact.tv.Type == nil {
 			diagnostics = append(diagnostics, positionalDiagnostic(value.node, fset, "component-operand-fact", "component prop has no authoritative go/types operand fact"))
 			continue

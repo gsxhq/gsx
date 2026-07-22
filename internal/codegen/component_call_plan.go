@@ -386,7 +386,7 @@ func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSi
 // tuple-returning value must be (T, error) so it can be consumed as one value
 // before positional assembly. The plan is returned unchanged on success; the
 // diagnostics are positioned at the offending authored node.
-func validateComponentOperands(plan componentCallPlan, facts map[gsxast.Node]expressionFact, runtime runtimeContract) (componentCallPlan, []diag.Diagnostic) {
+func validateComponentOperands(plan componentCallPlan, facts expressionFactSet, runtime runtimeContract) (componentCallPlan, []diag.Diagnostic) {
 	var diagnostics []diag.Diagnostic
 	report := func(node gsxast.Node, code, message string) {
 		d := diag.Diagnostic{Severity: diag.Error, Code: code, Message: message, Source: "codegen"}
@@ -400,7 +400,7 @@ func validateComponentOperands(plan componentCallPlan, facts map[gsxast.Node]exp
 	}
 
 	for _, value := range plan.values {
-		fact, ok := facts[value.node]
+		fact, ok := facts.get(value.node)
 		if !ok {
 			continue
 		}

@@ -27,7 +27,7 @@ func TestNormalizePositionalAttrsContributor(t *testing.T) {
 	t.Run("canonical bag stays direct", func(t *testing.T) {
 		plan := componentPositionalSitePlan{
 			runtime:         fx.runtime,
-			expressionFacts: map[gsxast.Node]expressionFact{attr: {tv: types.TypeAndValue{Type: fx.runtime.attrs}}},
+			expressionFacts: newExpressionFactSet(map[gsxast.Node]expressionFact{attr: {tv: types.TypeAndValue{Type: fx.runtime.attrs}}}),
 		}
 		got := normalizePositionalAttrsContributor("bag", value, plan, positionalEmitContext{rt: rtImports{}})
 		if got != "bag" {
@@ -44,7 +44,7 @@ func TestNormalizePositionalAttrsContributor(t *testing.T) {
 		)
 		plan := componentPositionalSitePlan{
 			runtime:         fx.runtime,
-			expressionFacts: map[gsxast.Node]expressionFact{attr: {tv: types.TypeAndValue{Type: defined}}},
+			expressionFacts: newExpressionFactSet(map[gsxast.Node]expressionFact{attr: {tv: types.TypeAndValue{Type: defined}}}),
 		}
 		got := normalizePositionalAttrsContributor("bag", value, plan, positionalEmitContext{rt: rtImports{}})
 		if got != "_gsxrt.Attrs(bag)" {
@@ -217,7 +217,7 @@ func TestPositionalValueLoweringOwnsFailureOutcome(t *testing.T) {
 			types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),
 		)
 		got := positionalValueExpr(&bytes.Buffer{}, componentInputValue{node: attr}, componentPositionalSitePlan{
-			expressionFacts: map[gsxast.Node]expressionFact{&attr.Pairs[0]: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}},
+			expressionFacts: newExpressionFactSet(map[gsxast.Node]expressionFact{&attr.Pairs[0]: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}),
 		}, positionalEmitContext{bag: bag, interpTemp: &counter})
 		if got.outcome != positionalLoweringDiagnosed {
 			t.Fatalf("outcome = %d, want diagnosed", got.outcome)

@@ -394,7 +394,7 @@ func TestPlanComponentMaterialization(t *testing.T) {
 			first:  {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
 			second: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
 		}
-		got := planComponentMaterialization(plan, facts)
+		got := planComponentMaterialization(plan, newExpressionFactSet(facts))
 		if len(got.values) != 2 || got.values[0].temp == "" || got.values[1].temp == "" {
 			t.Fatalf("both reordered calls must materialize, got %+v", got.values)
 		}
@@ -411,7 +411,7 @@ func TestPlanComponentMaterialization(t *testing.T) {
 		facts := map[gsxast.Node]expressionFact{
 			n: {tv: types.TypeAndValue{Type: types.Typ[types.UntypedInt], Value: constant.MakeInt64(1)}},
 		}
-		got := planComponentMaterialization(plan, facts)
+		got := planComponentMaterialization(plan, newExpressionFactSet(facts))
 		if len(got.values) != 1 || !got.values[0].inline || got.values[0].temp != "" {
 			t.Fatalf("constant must stay inline, got %+v", got.values)
 		}
@@ -429,7 +429,7 @@ func TestPlanComponentMaterialization(t *testing.T) {
 		facts := map[gsxast.Node]expressionFact{
 			n: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple, hasOrderedOperation: true},
 		}
-		got := planComponentMaterialization(plan, facts)
+		got := planComponentMaterialization(plan, newExpressionFactSet(facts))
 		if len(got.values) != 1 || !got.values[0].unwrapTuple || got.values[0].temp == "" {
 			t.Fatalf("tuple value must unwrap to a temp, got %+v", got.values)
 		}
@@ -450,7 +450,7 @@ func TestPlanComponentMaterialization(t *testing.T) {
 			x:    {tv: types.TypeAndValue{Type: types.Typ[types.String]}},
 			sink: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
 		}
-		got := planComponentMaterialization(plan, facts)
+		got := planComponentMaterialization(plan, newExpressionFactSet(facts))
 		// out.values are in authored order: x first, sink second.
 		if got.values[0].inline || got.values[0].temp == "" {
 			t.Fatalf("x crosses a side effect and must be materialized, got %+v", got.values[0])
@@ -468,7 +468,7 @@ func TestPlanComponentMaterialization(t *testing.T) {
 		facts := map[gsxast.Node]expressionFact{
 			n: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
 		}
-		got := planComponentMaterialization(plan, facts)
+		got := planComponentMaterialization(plan, newExpressionFactSet(facts))
 		if !got.values[0].inline || got.values[0].temp != "" {
 			t.Fatalf("a lone ordered value needs no temp, got %+v", got.values)
 		}
@@ -488,7 +488,7 @@ func TestPlanComponentMaterialization(t *testing.T) {
 			middle: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
 			last:   {tv: types.TypeAndValue{Type: types.Typ[types.String]}, hasOrderedOperation: true},
 		}
-		got := planComponentMaterialization(plan, facts)
+		got := planComponentMaterialization(plan, newExpressionFactSet(facts))
 		if len(got.values) != 3 || got.values[0].temp == "" || got.values[1].temp == "" || got.values[2].temp == "" {
 			t.Fatalf("a later eager temp must not overtake an earlier call: %+v", got.values)
 		}

@@ -134,9 +134,9 @@ func emitPositionalComponentCall(
 			continue
 		}
 		value := plan.call.values[valueIndex]
-		fact := materializationFacts[value.node]
+		fact, _ := materializationFacts.get(value.node)
 		fact.emitsStatements = true
-		materializationFacts[value.node] = fact
+		materializationFacts.set(value.node, fact)
 	}
 	materialization := planComponentMaterialization(plan.call, materializationFacts)
 	materialized := make(map[int]materializedValue, len(materialization.values))
@@ -249,7 +249,7 @@ func normalizePositionalAttrsContributor(expr string, value componentInputValue,
 	if value.attrsNode == nil || (value.attrsNode.kind != componentAttrsStreamSpread && value.attrsNode.kind != componentAttrsStreamContributor) {
 		return expr
 	}
-	fact, ok := plan.expressionFacts[value.node]
+	fact, ok := plan.expressionFacts.get(value.node)
 	if !ok || fact.tv.Type == nil {
 		return expr // planning already owns the missing-fact diagnostic
 	}
@@ -524,7 +524,7 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 	for i := range attr.Pairs {
 		pair := &attr.Pairs[i]
 		expr := strings.TrimSpace(pair.Value)
-		fact, hasFact := plan.expressionFacts[pair]
+		fact, hasFact := plan.expressionFacts.get(pair)
 		// The pair value's semantic type drives renderer application below. A
 		// (T, error) authored value is unwrapped first (matching every other
 		// emit site), leaving the renderer to act on the unwrapped T.
