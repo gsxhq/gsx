@@ -219,6 +219,7 @@ type Module struct {
 	targetDeclProvenance      componentTargetProvenanceCache      // abs dir -> logical component key -> exact authored declarations
 	configuredDeclTypes       map[string]*types.Package           // abs dir -> configured declaration-universe package cache
 	pkgResults                map[string]*PackageResult           // abs dir -> cached full analysis result (Package path only)
+	parseCache                map[string]parseCacheEntry          // abs .gsx path -> pristine per-file parse; served via ast.CloneFile so unchanged files skip re-parse. Flushed by rebuildFset (its token.Pos values live in m.fset).
 	imports                   map[string][]string                 // dir -> authoritative module-local shipping dependencies (forward edges)
 	importedBy                map[string]map[string]bool          // dep dir -> set of importer dirs (reverse edges)
 	targetImports             map[string][]string                 // exact-target declaration graph forward edges
@@ -332,6 +333,7 @@ func Open(opts Options) (*Module, error) {
 		externalImportPaths:       map[string]bool{},
 		externalBackedges:         map[string][]string{},
 		pkgResults:                map[string]*PackageResult{},
+		parseCache:                map[string]parseCacheEntry{},
 		imports:                   map[string][]string{},
 		importedBy:                map[string]map[string]bool{},
 		targetImports:             map[string][]string{},
@@ -1241,6 +1243,10 @@ func (m *Module) rebuildFset() {
 	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
+	// The parse cache's token.Pos values reference token.File entries in the old
+	// fset; a fresh fset orphans them, so it must be flushed in the same critical
+	// section that replaces the fset.
+	m.parseCache = map[string]parseCacheEntry{}
 	m.fsetBaseline = 0
 	m.rebuildCount++
 }
