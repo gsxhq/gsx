@@ -45,8 +45,10 @@ func (s *Server) handleCompletion(f frame) error {
 		return s.reply(f.ID, s.tagCompletion(cc, path, text, off, r))
 	case ctxAttrName:
 		return s.reply(f.ID, s.attrNameCompletion(cc, path, text, off, r))
+	case ctxAttrValue:
+		return s.reply(f.ID, s.attrValueCompletion(cc, text, off))
 	default:
-		// Other contexts (attr value, none) are filled by later tasks.
+		// Remaining contexts (ctxNone) offer nothing.
 		return s.reply(f.ID, emptyCompletion())
 	}
 }

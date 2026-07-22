@@ -187,6 +187,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 		Renderers:   merged.renderers,
 		Classifier:  merged.classifier(),
 		ClassMerger: merged.classMerger,
+		URLPresets:  merged.urlPresets,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -362,6 +363,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		UnusedImports:  unused,
 		MissingImports: missing,
 		Filters:        filters,
+		URLPresets:     pr.URLPresets,
 	}
 }
 

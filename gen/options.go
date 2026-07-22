@@ -336,6 +336,7 @@ func WithURLPreset(names ...string) Option {
 				continue
 			}
 			cfg.urlRules = append(cfg.urlRules, rules.URL...)
+			cfg.urlPresets = append(cfg.urlPresets, name)
 		}
 	}
 }

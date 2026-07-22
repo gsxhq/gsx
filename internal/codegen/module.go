@@ -34,6 +34,13 @@ type DirOptions struct {
 	FilterPkgs  []string              // nil = inherit Options.FilterPkgs
 	ClassMerger *ClassMergerRef       // nil = inherit Options.ClassMerger
 	Classifier  *attrclass.Classifier // nil = inherit Options.Classifier
+	// URLPresets names the url-attribute presets in effect for this dir (nil =
+	// inherit Options.URLPresets). It is the string-identity companion to
+	// Classifier: the Classifier carries the EXPANDED rules a preset contributes,
+	// but the preset NAMES (e.g. "htmx") are retained separately here so a consumer
+	// like the LSP can answer "is the htmx preset on?" without reverse-engineering
+	// it from rule contents. See Module.urlPresetsFor.
+	URLPresets []string
 }
 
 // Options configures a Module. ModuleRoot is the absolute module root (dir
@@ -79,6 +86,12 @@ type Options struct {
 	// registered renderer applies module-wide.
 	Renderers  []RendererAlias
 	Classifier *attrclass.Classifier
+	// URLPresets names the module-wide url-attribute presets in effect (e.g.
+	// "htmx"). It is the string-identity companion to Classifier: Classifier
+	// carries the expanded rules; URLPresets retains the names so a consumer can
+	// tell WHICH presets are on (see Module.urlPresetsFor / PackageResult.URLPresets).
+	// A PerDir entry with non-nil URLPresets overrides this for that dir.
+	URLPresets []string
 	CSSMin     func(string) (string, error) // custom static-CSS minifier (nil = built-in when CSSMinify)
 	JSMin      func(string) (string, error) // custom static-JS minifier (nil = built-in when JSMinify)
 	// JSONMin minifies a JSON-shaped body (a data-island <script> and a
@@ -935,6 +948,20 @@ func (m *Module) classifierFor(dir string) *attrclass.Classifier {
 	return m.opts.Classifier
 }
 
+// urlPresetsFor returns the url-attribute preset NAMES that apply to dir,
+// mirroring classifierFor exactly: a PerDir entry with a non-nil URLPresets
+// overrides Options.URLPresets for that dir only; every other dir keeps the
+// module-wide default. This is the string-identity companion to classifierFor
+// — the same effective configuration, but the preset names rather than the
+// expanded classifier rules — so a consumer (the LSP) can answer "is the htmx
+// preset on for this dir?" without inferring it from rule contents.
+func (m *Module) urlPresetsFor(dir string) []string {
+	if d, ok := m.dirOptionsFor(dir); ok && d.URLPresets != nil {
+		return d.URLPresets
+	}
+	return m.opts.URLPresets
+}
+
 // filterTableFor returns the filter+renderer tables that apply to dir.
 //
 // withExt says whether the caller is on a path that loads the external importer.
@@ -1296,6 +1323,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	}
 	res.Diags = a.bag.Sorted()
 	res.Filters = filterCandidates(a.table)
+	res.URLPresets = m.urlPresetsFor(dir)
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
 	res.ComponentDecls = a.componentDecls
@@ -1420,6 +1448,7 @@ func (m *Module) AnalyzeEphemeral(dir, absPath string, src []byte) (*PackageResu
 	res.ComponentCalls = componentCallFacts(a.positionalPlan)
 	res.ComponentDecls = a.componentDecls
 	res.Filters = filterCandidates(a.table)
+	res.URLPresets = m.urlPresetsFor(dir)
 	// NOT stored in m.pkgResults, NOT running generateFile (emit-side
 	// diagnostics are irrelevant to completion), no param decl/ref facts
 	// (rename-only surface).

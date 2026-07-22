@@ -43,14 +43,17 @@ func TestInitializeAdvertisesCompletionTriggerCharacters(t *testing.T) {
 	}
 }
 
-// TestCompletionOnOpenGSXBufferRepliesEmptyList exercises the stub handler:
-// completion is now a live request path, but returns a non-null empty list
-// until a later task fills it in.
-func TestCompletionOnOpenGSXBufferRepliesEmptyList(t *testing.T) {
+// TestCompletionOnNoCandidateContextRepliesEmptyList checks that a cursor in a
+// context with no candidates (here, inside plain markup text — ctxNone) still
+// answers a well-formed, non-null EMPTY list rather than null or an error.
+// (Tag/attr/value positions are now live; a text-content cursor is not.)
+func TestCompletionOnNoCandidateContextRepliesEmptyList(t *testing.T) {
 	uri := "file:///m/a.gsx"
-	text := "package x\n\ncomponent Card() {\n\t<div/>\n}\n"
+	text := "package x\n\ncomponent Card() {\n\t<div>hi</div>\n}\n"
+	// Line 3 "\t<div>hi</div>": tab + "<div>" = 6 columns, so char 7 sits between
+	// the "h" and "i" of the text child — plain markup text, ctxNone.
 	out := drive(t, nilAnalyzer{}, initFrame()+didOpenFrame(uri, text)+
-		completionFrame(2, uri, Position{Line: 3, Character: 2})+exitFrame())
+		completionFrame(2, uri, Position{Line: 3, Character: 7})+exitFrame())
 	result := responseByID(t, out, 2)["result"]
 	if got := strings.TrimSpace(string(result)); got != `{"isIncomplete":false,"items":[]}` {
 		t.Fatalf("completion result = %s, want {\"isIncomplete\":false,\"items\":[]}", got)

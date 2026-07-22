@@ -170,6 +170,13 @@ type PackageResult struct {
 	// the package's resolved filter table.
 	Filters []FilterCandidate
 
+	// URLPresets names the url-attribute presets in effect for this package's
+	// dir (e.g. "htmx"). It carries the preset NAMES (not the expanded classifier
+	// rules) so the LSP can offer preset-specific attribute completions — the
+	// htmx hx-* attributes when "htmx" is present — without inferring the preset
+	// from classifier rule contents. See Module.urlPresetsFor.
+	URLPresets []string
+
 	// Types is the analyzed package's go/types.Package, retained for the LSP
 	// (e.g. hover's qualifier). nil when the package failed before type-checking.
 	Types *types.Package

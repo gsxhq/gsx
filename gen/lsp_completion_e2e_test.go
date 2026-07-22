@@ -682,6 +682,161 @@ func TestComponentAttrCompletionE2E(t *testing.T) {
 	})
 }
 
+// runHTMLCompletionE2E writes a temp module (with the given extra files, e.g. a
+// gsx.toml), opens gsxPath's source as a buffer, sends one completion at cursor,
+// and returns the response items. Mirrors the other e2e runners but parameterizes
+// the extra files so an htmx gsx.toml fixture can drive the preset path.
+func runHTMLCompletionE2E(t *testing.T, extra map[string]string, source string, cursor int) []lsp.CompletionItem {
+	t.Helper()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	write := func(name, content string) string {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	for name, content := range extra {
+		write(name, content)
+	}
+	pagePath := write("page/page.gsx", source)
+	uri := "file://" + pagePath
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+	}))
+	pos := lspUTF16PositionAt(source, cursor)
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+		},
+	}))
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(output.String(), ".x.go") {
+		t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
+	}
+	return completionItems(t, output.String(), 2)
+}
+
+// TestHTMLCompletionE2E drives the HTML tag/attr/value completion paths through
+// the full JSON-RPC server against a real temp module: a `<di▮` tag cursor
+// offers `div` (kind Property, doc non-empty); a `<div ▮>` attr-name cursor
+// offers `class` (value insert) and `hidden` (bare boolean); an
+// `<input type="▮"/>` value cursor offers the enumerated `submit`.
+func TestHTMLCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	labelsOf := func(items []lsp.CompletionItem) map[string]bool {
+		m := map[string]bool{}
+		for _, it := range items {
+			m[it.Label] = true
+		}
+		return m
+	}
+	itemOf := func(items []lsp.CompletionItem, label string) *lsp.CompletionItem {
+		for i := range items {
+			if items[i].Label == label {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+
+	t.Run("html tag", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t<div><di</div>\n}\n"
+		cursor := strings.LastIndex(source, "<di") + len("<di")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		div := itemOf(items, "div")
+		if div == nil {
+			t.Fatalf("HTML tag completion missing `div`; labels=%v", labelsOf(items))
+		}
+		if div.Documentation == nil || div.Documentation.Value == "" {
+			t.Errorf("`div` tag has empty documentation: %+v", div)
+		}
+	})
+
+	t.Run("html attr", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t<div ></div>\n}\n"
+		cursor := strings.Index(source, "<div ") + len("<div ")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		labels := labelsOf(items)
+		if !labels["class"] || !labels["hidden"] {
+			t.Fatalf("HTML attr completion labels missing class/hidden: %v", labels)
+		}
+		if hidden := itemOf(items, "hidden"); hidden == nil || hidden.TextEdit == nil || hidden.TextEdit.NewText != "hidden" {
+			t.Errorf("`hidden` must insert the bare name; got %+v", hidden)
+		}
+		if class := itemOf(items, "class"); class == nil || class.TextEdit == nil || class.TextEdit.NewText != `class=""` {
+			t.Errorf("`class` must insert class=\"\"; got %+v", class)
+		}
+	})
+
+	t.Run("attr value", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t<input type=\"\"/>\n}\n"
+		cursor := strings.Index(source, `type="`) + len(`type="`)
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		if !labelsOf(items)["submit"] {
+			t.Fatalf("attr-value completion missing `submit`; labels=%v", labelsOf(items))
+		}
+	})
+}
+
+// TestHTMXAttrCompletionE2E drives HTML attribute-name completion with the htmx
+// url preset enabled via a gsx.toml (`url_presets = ["htmx"]`) — the same
+// effective config the classifier consults — and checks the hx-* attributes join
+// the candidate list only then. A control run with no gsx.toml must NOT offer
+// them, proving the gate is the retained preset name, not a hardcoded list.
+func TestHTMXAttrCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	labelsOf := func(items []lsp.CompletionItem) map[string]bool {
+		m := map[string]bool{}
+		for _, it := range items {
+			m[it.Label] = true
+		}
+		return m
+	}
+	source := "package page\n\ncomponent Home() {\n\t<div ></div>\n}\n"
+	cursor := strings.Index(source, "<div ") + len("<div ")
+
+	off := runHTMLCompletionE2E(t, nil, source, cursor)
+	if labelsOf(off)["hx-get"] {
+		t.Errorf("hx-get offered without the htmx preset; labels=%v", labelsOf(off))
+	}
+
+	on := runHTMLCompletionE2E(t, map[string]string{"gsx.toml": "url_presets = [\"htmx\"]\n"}, source, cursor)
+	if !labelsOf(on)["hx-get"] {
+		t.Fatalf("hx-get NOT offered with url_presets=[\"htmx\"]; labels=%v", labelsOf(on))
+	}
+}
+
 // completionItems extracts the full CompletionItem slice from the completion
 // response with the given id.
 func completionItems(t *testing.T, output string, id int) []lsp.CompletionItem {

@@ -398,9 +398,11 @@ func TestTagCompletionFallsBackToRetainedPackage(t *testing.T) {
 	}
 }
 
-// TestTagCompletionBothEmpty checks that when both the ephemeral and the
-// retained package are shells/absent, the handler answers an empty list,
-// never an error.
+// TestTagCompletionBothEmpty checks the fail-soft merge floor: when BOTH the
+// ephemeral and retained component sources are shells/absent, the COMPONENT half
+// contributes nothing, but the HTML tag list — a static dataset fact needing no
+// codegen — must still be offered. So a bare tag cursor never comes back empty
+// just because analysis failed.
 func TestTagCompletionBothEmpty(t *testing.T) {
 	uri := "file:///m/a.gsx"
 	text := "package p\n\ncomponent C() {\n\t<div><Ca</div>\n}\n"
@@ -412,8 +414,16 @@ func TestTagCompletionBothEmpty(t *testing.T) {
 	out := drive(t, a, initFrame()+didOpenFrame(uri, text)+
 		completionFrame(2, uri, pos)+exitFrame())
 	items := decodeCompletionItems(t, out, 2)
-	if len(items) != 0 {
-		t.Fatalf("tag completion items = %v, want empty", items)
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	// HTML tags survive a shell analysis; components do not.
+	if !labels["div"] {
+		t.Fatalf("tag completion labels = %v, want HTML tag `div` present despite shell analysis", labels)
+	}
+	if labels["Card"] {
+		t.Fatalf("tag completion labels = %v, must NOT offer components when both sources are shells", labels)
 	}
 }
 

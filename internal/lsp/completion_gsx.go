@@ -3,6 +3,7 @@ package lsp
 import (
 	"go/types"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -66,19 +67,33 @@ func (s *Server) pipeFilters(dir, path string, src []byte) []FilterCandidate {
 	return nil
 }
 
-// tagCompletion answers a ctxTag cursor (`<▮` or `<qualifier.▮`): component
-// candidates drawn from ComponentDecls, local and imported. See
-// componentDeclPackage for the resolution fallback and componentTagItems for
-// the candidate list itself. HTML tag names are not offered yet (Task 15
-// merges them in); until then this list is components only.
+// tagCompletion answers a ctxTag cursor (`<▮` or `<qualifier.▮`): the merged
+// component + HTML tag list. Components come from ComponentDecls (local and
+// imported — see componentDeclPackage for the ephemeral→retained fallback and
+// componentTagItems for the list); HTML tag names come from the vendored
+// dataset (htmlTagItems).
+//
+// Merge rule: components always sort at tierContext; HTML tags sort at
+// tierContext for a lowercase/empty prefix but at tierSecondary for a
+// capitalized prefix (a capitalized prefix means the user is reaching for a
+// PascalCase component, so HTML falls below). Only htmlTagItems' tier varies —
+// hence componentTagItems is left at its hardcoded tierContext.
+//
+// HTML tags are dataset facts, not codegen facts, so they are offered even when
+// componentDeclPackage comes back nil (analysis is a shell): only the COMPONENT
+// half depends on the package. A qualified `<pkg.▮` cursor is component-only —
+// HTML tags have no qualifier — so htmlTagItems is skipped there.
 func (s *Server) tagCompletion(cc completionContext, path, text string, off int, r repairResult) CompletionList {
-	pkg := s.componentDeclPackage(filepath.Dir(path), path, r.src)
-	if pkg == nil {
-		return emptyCompletion()
-	}
 	start, end := completionTokenSpan(text, off, false)
 	capitalizedPrefix := startsWithUpper(text[start:end])
-	items := componentTagItems(pkg, cc.qualifier, capitalizedPrefix, text, start, end, s.enc)
+
+	var items []CompletionItem
+	if pkg := s.componentDeclPackage(filepath.Dir(path), path, r.src); pkg != nil {
+		items = componentTagItems(pkg, cc.qualifier, capitalizedPrefix, text, start, end, s.enc)
+	}
+	if cc.qualifier == "" {
+		items = append(items, htmlTagItems(capitalizedPrefix, text, start, end, s.enc)...)
+	}
 	if len(items) == 0 {
 		return emptyCompletion()
 	}
@@ -124,9 +139,13 @@ func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
 // receiver expression before the tag can resolve and are excluded from v1
 // (spec follow-up).
 //
-// capitalizedPrefix does not affect ranking yet — every item here is
-// tierContext; it starts mattering once Task 15 merges HTML tag names into
-// this same list (capitalization flips which list gets tierSecondary).
+// capitalizedPrefix does not affect the tier of component items — every
+// candidate here is tierContext regardless. Per the tag-merge rule (see
+// tagCompletion), components always lead at tierContext; only the merged-in HTML
+// tag list's tier flips with capitalization, and that decision lives in the
+// caller / htmlTagItems, not here. The parameter is retained so the signature
+// documents the merge contract and the tests pin that components stay tierContext
+// either way.
 func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, text string, start, end int, enc encoding) []CompletionItem {
 	if pkg == nil || pkg.Types == nil {
 		return nil
@@ -270,22 +289,87 @@ func packageHasComponentDecls(pkg *Package, pkgPath string) bool {
 // therefore answers empty, not stale; recorded as a follow-up in the task-13
 // report rather than worked around here.
 func (s *Server) attrNameCompletion(cc completionContext, path, text string, off int, r repairResult) CompletionList {
-	if cc.element == nil || r.fset == nil {
+	if cc.element == nil {
 		return emptyCompletion()
 	}
-	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, r.src)
-	if err != nil || eph == nil {
+	dir := filepath.Dir(path)
+	// Best-effort ephemeral bridge. It serves two roles, both optional: (a)
+	// confirming el is a planned COMPONENT call — the IsComponent stamp lives only
+	// on codegen's own parse, never on the classification parse cc.element belongs
+	// to — and (b) reading the dir's url-presets. A shell result (analyzer error,
+	// or no matching element) simply routes to the HTML path, which needs neither.
+	eph, err := s.analyzer.AnalyzeEphemeral(dir, path, r.src)
+	if err != nil {
+		eph = nil
+	}
+	var ephEl *gsxast.Element
+	if eph != nil && r.fset != nil && cc.element.TagPos.IsValid() {
+		tagOff := r.fset.Position(cc.element.TagPos).Offset
+		ephEl = elementAtTagOffset(eph, path, tagOff)
+	}
+
+	// allowDash=true: hx-*, data-*, and aria-* attribute names carry '-', so the
+	// token span must include it or the completion would replace only the tail
+	// after the last dash. Component parameter names are Go identifiers with no
+	// dash, so this is a no-op for the component path.
+	start, end := completionTokenSpan(text, off, true)
+
+	if ephEl != nil && ephEl.IsComponent {
+		items := componentAttrItems(eph, ephEl, text, start, end, s.enc)
+		if len(items) == 0 {
+			return emptyCompletion()
+		}
+		return CompletionList{IsIncomplete: false, Items: items}
+	}
+
+	// HTML element (confirmed non-component, or analysis is a shell): offer HTML
+	// attribute names computed purely from the classification element — no codegen
+	// facts needed, so this works even when the ephemeral analysis failed.
+	htmxEnabled := slices.Contains(s.dirURLPresets(dir, eph), "htmx")
+	items := htmlAttrItems(cc.element, cc.element.Tag, htmxEnabled, text, start, end, s.enc)
+	if len(items) == 0 {
 		return emptyCompletion()
 	}
-	tagOff := r.fset.Position(cc.element.TagPos).Offset
-	ephEl := elementAtTagOffset(eph, path, tagOff)
-	if ephEl == nil || !ephEl.IsComponent {
-		// HTML tags land here too (ephEl != nil, IsComponent false) until Task 15
-		// adds the HTML attribute-name table.
+	return CompletionList{IsIncomplete: false, Items: items}
+}
+
+// dirURLPresets resolves the url-attribute preset names in effect for dir. It
+// prefers the already-computed ephemeral analysis (its URLPresets reflect the
+// buffer's live config), falling back to the retained s.pkgs[dir] snapshot when
+// the ephemeral came back a shell — preset names are a position-independent,
+// package-wide config fact, so a stale retained list is a safe fallback. Both
+// absent yields nil (htmx off).
+func (s *Server) dirURLPresets(dir string, eph *Package) []string {
+	if eph != nil && (eph.Info != nil || len(eph.URLPresets) > 0) {
+		return eph.URLPresets
+	}
+	if pkg := s.pkgs[dir]; pkg != nil {
+		return pkg.URLPresets
+	}
+	return nil
+}
+
+// attrValueCompletion answers a ctxAttrValue cursor (inside a StaticAttr's
+// string value): the enumerated values allowed for this (tag, attribute) pair
+// from the vendored dataset. This is a pure dataset lookup keyed on the
+// classification element's tag and the attribute's name — no analyzer, no
+// codegen facts — so it always works and always fails soft. A freeform
+// attribute (no enumerated value set) yields an empty list.
+//
+// The Task 7 phantom heals (a `class=` empty value, an unclosed `"/>` patch)
+// both surface as an empty Value with the cursor at the value start;
+// completionTokenSpan then returns a zero-width span, so nothing is typed to
+// filter on and every enumerated value is offered.
+func (s *Server) attrValueCompletion(cc completionContext, text string, off int) CompletionList {
+	if cc.element == nil || cc.attr == nil {
 		return emptyCompletion()
 	}
-	start, end := completionTokenSpan(text, off, false)
-	items := componentAttrItems(eph, ephEl, text, start, end, s.enc)
+	name, ok := attrName(cc.attr)
+	if !ok {
+		return emptyCompletion()
+	}
+	start, end := completionTokenSpan(text, off, true)
+	items := htmlValueItems(cc.element.Tag, name, text, start, end, s.enc)
 	if len(items) == 0 {
 		return emptyCompletion()
 	}

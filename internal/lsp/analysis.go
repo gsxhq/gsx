@@ -166,6 +166,12 @@ type Package struct {
 	// Filters is the sorted list of pipeline-filter completion candidates from
 	// the package's resolved filter table.
 	Filters []FilterCandidate
+
+	// URLPresets names the url-attribute presets in effect for this package's dir
+	// (e.g. "htmx"). HTML attribute-name completion consults it: when "htmx" is
+	// present the htmx hx-* attributes join the candidate list. Position-independent
+	// (a package-wide config fact), so a stale retained snapshot is a safe fallback.
+	URLPresets []string
 }
 
 // MissingImport is a qualifier the file uses that resolves to nothing. Symbol is
