@@ -49,6 +49,36 @@ with its pinned benchstat summary at
 | **gsx** | **5.574 us ±1%** | **2,563 B** | **62** |
 | templ | 8.119 us ±13% | 4,976 B | 204 |
 
+## Post-snapshot GSX-only direct-component update
+
+The all-engine snapshot above remains the 2026-07-21 comparison at its pinned
+commits; it has not been silently refreshed. A later GSX-only before/after run
+measured one code-generation change: a proven same-package plain GSX child now
+renders through a private helper into the parent writer. Public component
+factories still return `gsx.Node`, and imported, method, plain-Go,
+package-variable, and dynamic calls keep the normal `Writer.Node` path.
+
+For example, the authored component call is unchanged. The generated call for
+an eligible child is now equivalent to:
+
+```go
+_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, row, nil))
+```
+
+`Table` renders 20 such `Card` children. Ten counterbalanced process pairs on
+the same machine and Go version measured:
+
+| destination | before | direct | time | bytes | allocations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| pooled buffer | 2.212 us | 1.895 us | **-14.33%** | 1,955 to 32 (**-98.36%**) | 21 to 1 (**-95.24%**) |
+| discard | 1.877 us | 1.543 us | **-17.80%** | 1,952 to 32 (**-98.36%**) | 21 to 1 (**-95.24%**) |
+
+All six improvements had `p < 0.001`. The wider GSX-only screen also measured
+Page pooled at -5.89%, Page parallel at -53.86%, ForwardedAttrs pooled at
+-2.36%, and Buttons pooled at -9.16%. Unaffected fallback allocation counts
+were unchanged. These numbers compare GSX before and after the direct-component
+change; they are not a new GSX-versus-templ snapshot.
+
 ## Escaping-heavy content
 
 `Comments` renders 20 hostile text strings through the HTML escaper.

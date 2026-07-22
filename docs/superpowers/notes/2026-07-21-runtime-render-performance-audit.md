@@ -1,9 +1,9 @@
 # Runtime Render Performance Audit
 
-This note records the measurement-only baseline for the runtime/codegen audit.
-No runtime, code generator, generated benchmark output, or benchmark input was
-changed while collecting it. Raw benchmark output and profiles live under
-`/tmp/gsx-runtime-audit` and are intentionally not committed.
+This note records the measurement-only baseline and the measured optimisation
+experiments that followed it. The baseline itself changed no runtime, code
+generator, generated benchmark output, or benchmark input. Raw benchmark
+output and profiles live under `/tmp` and are intentionally not committed.
 
 ## Environment
 
@@ -375,13 +375,14 @@ goldens, `make ci`, and `make lint`.
 
 ## Ranked Candidate 3
 
-### Evidence for a separate follow-up plan: generated child boundary
+### Selected and retained: generated child boundary
 
-Decision: this measurement task authorises no generated/runtime ABI experiment.
-Preserve the evidence for a separate follow-up optimisation plan. After
-Candidates 1 and 2, that plan may reprofile composition and explicitly decide
-whether to select a large direct-render experiment under the large-change gate.
-Until such a plan selects it, implementation is deferred.
+Candidates 1 and 2 failed their no-waiver gates and were restored. A separate
+reviewed design and implementation plan then selected the generated child
+boundary under the large-change gate. The generated implementation passed its
+numeric, semantic, code-generation, and fallback gates and is retained. The
+complete decision and evidence are recorded below under “Candidate 3
+Experiment: Retained.”
 
 The exact generated call is `_gsxgw.Node(ctx, Card(r, nil))`, with the same
 shape for `UserCard` and `ForwardedLink`. Table measures 2.821 us, 1,955 B, and
@@ -391,14 +392,11 @@ allocations, and ForwardedAttrs repeats 20 `ForwardedLink` constructors within
 its 81. Escape analysis proves the closure-backed `Func` escapes at the `Node`
 interface boundary.
 
-The evidence rules out assuming that a different `Node` representation alone
-would remove the escapes. If a separate approved plan selects component
-composition for experimentation, it must define a genuinely direct ABI and its
-large-change acceptance and correctness gates. This note neither prescribes nor
-authorises that code change. The relevant evidence surfaces for such a future
-plan are Table, Page, and ForwardedAttrs; component call and tuple-error corpus
-cases; nested/imported/method components; render-error probes; output
-equivalence; race tests; full corpus regeneration; `make ci`; and `make lint`.
+The evidence ruled out assuming that a different `Node` representation alone
+would remove the escapes. The selected implementation instead keeps the public
+`Node` factory and generates a private direct body helper only for semantically
+proven same-package plain GSX function targets. Imported, method, plain-Go,
+package-variable, and dynamic targets retain the public `Writer.Node` boundary.
 
 ## Paths Already Fast or Inherent
 
@@ -430,9 +428,9 @@ equivalence; race tests; full corpus regeneration; `make ci`; and `make lint`.
 
 - **Reject the old struct-backed Node experiment.** It retained per-child
   allocations at `Writer.Node(Node)` because the interface boundary, not merely
-  the closure representation, caused the escape. Any future approved plan must
-  not reintroduce that struct design; this note does not authorise an
-  alternative.
+  the closure representation, caused the escape. The retained direct-helper
+  implementation removes that boundary for proven targets; it does not
+  reintroduce the rejected struct design.
 - **Reject empty-bag and empty-style specialisation work.** The measured path is
   already zero-allocation and single-digit nanoseconds.
 - **Reject weakening HTML or URL handling to chase profile shares.** Escaping,
@@ -713,9 +711,223 @@ bytes, or 86.6599% of that total; both displayed percentages therefore round
 to 0.27% and 86.66%, respectively. The complete proof is
 `/private/tmp/gsx-runtime-post-folded-profiles.YoihHZ/FoldedAttrs.space.nodefraction0.top`.
 
-Candidate 3 remains deferred. This task does not authorise or prototype a
-component ABI change; any such work requires a separate measured plan based on
-the retained runtime after the two rejected smaller experiments.
+Candidate 3 was subsequently selected by the separate generated-direct-
+component plan and retained after the measured result below.
+
+## Candidate 3 Experiment: Retained
+
+The generated direct-component implementation is retained. It removes the
+closure/interface boundary only when semantic analysis proves a same-package
+plain-function GSX target. The public component factory remains available and
+all unproved targets retain `Writer.Node`; this is a generated fast path, not a
+second public component model.
+
+### Identity and retained commits
+
+- Saved bases: core
+  `d1f1f0c9340d20e576c01709eb2cc880c7719197`; benchmark
+  `e7947f3bb20c4131036568f374dff0dfb41e7d3d`.
+- Measured tips: core
+  `c85b38de0cc48cbba50e47b7eaf741fff425fef3`; benchmark
+  `d889ed1a744f552667ac6b9e79124981f16f2445`. Both comparison worktrees were
+  clean and both staged diffs were empty.
+- Final retained tips before this note: core
+  `871c059e4839d6b4e78fdaee36fb4d89208c7d32`; benchmark
+  `d889ed1a744f552667ac6b9e79124981f16f2445`. The final core commit changes
+  generation internals only and restores the warm-generation budget; it does
+  not change generated benchmark output or runtime rendering.
+- Runtime and implementation commits are `0c120b0c` (`NodeResult`),
+  `73782621`, `ef267911`, `e29a7a25` (semantic provenance, exact helper names,
+  and source-view inputs), and `04484f7c` (shared body plus direct calls).
+  Semantic/fixed-point coverage is `32eaba23`; review corrections are
+  `622b51c5`, `a968da69`, and `c85b38de`; warm-generation recovery is
+  `871c059e`. Benchmark fixture and generated commits are `e7947f3b`,
+  `6f61925`, and `d889ed1`.
+- Environment: 2026-07-21, Apple M3 Ultra (`darwin/arm64`), Go 1.26.1,
+  `GOMAXPROCS=32`; ten distinct process pairs with odd pairs before/after and
+  even pairs after/before. The benchmark module resolved
+  `github.com/gsxhq/gsx` to the corresponding sibling core worktree.
+
+### Hard Table gate
+
+The authoritative generated-code comparison is
+`/private/tmp/gsx-runtime-direct-final-table.BQMHjK`. Times are benchstat
+medians; every row has ten samples on each side. The environment and benchstat
+files have SHA-256
+`5a8668a8915902d6d59016b6cb3a82c09e9fef1d58a922190e76b43ba98bb377`
+and `3897012a0b21a5254aeb1419bd17bd5ef3cbd94db56c546acdb8a351ff4fb585`.
+
+| Destination | Metric | Before | Direct | Delta | p |
+| --- | --- | ---: | ---: | ---: | ---: |
+| pooled | time | 2.212 us | 1.895 us | -14.33% | <0.001 |
+| discard | time | 1.877 us | 1.543 us | -17.80% | <0.001 |
+| pooled | bytes | 1,955 B | 32 B | -98.36% | <0.001 |
+| discard | bytes | 1,952 B | 32 B | -98.36% | <0.001 |
+| pooled | allocations | 21 | 1 | -95.24% | <0.001 |
+| discard | allocations | 21 | 1 | -95.24% | <0.001 |
+
+Both destinations clear the independent 10% time and 90% byte/allocation
+retention gates. The result also confirms the throwaway probe without using it
+as acceptance evidence.
+
+### Complete GSX screen
+
+The full counterbalanced screen is
+`/private/tmp/gsx-runtime-direct-final-full.ftkRCq`. All rows have ten samples
+per side. Its environment and benchstat SHA-256 values are
+`45b87d7afb0ef58eeade6746b50ac439981f2850b6f0537319a152609ddedf89`
+and `3e9d4b33c38b7b51349bb78b2863ab2a8d334a14c1cb8f4da3ad980397c05efe`.
+`~` means benchstat found no significant difference at alpha 0.05.
+
+| Benchmark | Before | Direct | Delta | p / significance |
+| --- | ---: | ---: | ---: | --- |
+| ForwardedAttrs pooled | 12.81 us | 12.51 us | -2.36% | 0.002 |
+| ForwardedAttrs discard | 12.10 us | 11.67 us | -3.58% | 0.002 |
+| FoldedAttrs pooled | 16.90 us | 16.93 us | ~ | 0.796 |
+| FoldedAttrs discard | 16.10 us | 16.20 us | ~ | 0.579 |
+| Page parallel | 1.625 us | 0.7498 us | -53.86% | <0.001 |
+| Document pooled | 276.4 ns | 277.3 ns | ~ | 0.325 |
+| Document discard | 210.6 ns | 211.4 ns | ~ | 0.796 |
+| Document builder | 433.5 ns | 433.6 ns | ~ | 0.579 |
+| Stats pooled | 1.227 us | 1.236 us | ~ | 0.137 |
+| List pooled | 1.487 us | 1.483 us | ~ | 1.000 |
+| Table pooled | 2.226 us | 1.886 us | -15.29% | <0.001 |
+| Table discard | 1.732 us | 1.368 us | -21.02% | <0.001 |
+| ImportedBoundary pooled | 2.160 us | 2.252 us | +4.26% | <0.001 |
+| ImportedBoundary discard | 1.885 us | 1.955 us | +3.74% | <0.001 |
+| MethodBoundary pooled | 1.606 us | 1.609 us | ~ | 0.517 |
+| MethodBoundary discard | 1.270 us | 1.275 us | ~ | 0.401 |
+| DynamicBoundary pooled | 1.605 us | 1.612 us | +0.47% | 0.022 |
+| DynamicBoundary discard | 1.265 us | 1.270 us | ~ | 0.182 |
+| Piped pooled | 1.805 us | 1.806 us | ~ | 0.725 |
+| Page pooled | 4.707 us | 4.430 us | -5.89% | <0.001 |
+| Comments pooled | 3.749 us | 3.772 us | ~ | 0.225 |
+| Buttons pooled | 5.740 us | 5.214 us | -9.16% | <0.001 |
+
+No non-Table serial path reached the 7% regression threshold and Page parallel
+did not approach its 12% regression threshold. The direct-child workloads also
+removed 20 allocations in ForwardedAttrs and Page, and 40 in Buttons. Bytes
+fell 65.9%, 75.2%, and 27.6%, respectively. Imported, method, and dynamic
+fallback allocation/byte counts were unchanged, as were every unaffected
+Document, Stats, List, FoldedAttrs, Piped, and Comments count.
+
+### Generation cost, profile, and review findings
+
+The first correct implementation rebuilt source inventory and component
+signatures on every warm `Generate`. It was rejected before retention because
+the initial full codegen comparison at
+`/private/tmp/gsx-runtime-direct-final-codegen.IXk1fj` showed 19-36% warm time
+and 20-24% byte/allocation regressions. The retained architecture publishes an
+immutable helper-file manifest with the cold source view and reuses the full
+skeleton's parsed declarations and occupied names.
+
+The final ten-pair warm comparison is
+`/private/tmp/c3warm-counterbalanced-final`. Same-package time moved +4.83%,
+imported was not significant, embedded moved +2.92%, and attrs-stream and
+variadic-children were not significant. Every bytes and allocation movement
+was within the 5% gate (largest: +2.44% bytes, +3.78% allocations). The final
+cold matrix is `/private/tmp/c3cold-final.txt` with summary
+`/private/tmp/c3cold-final-benchstat.txt`; time was not significantly different
+and bytes/allocations moved by at most 0.01% in that recorded comparison. The
+warm environment/benchstat SHA-256 values are
+`11724bd0c1c28463f27256547905a12166a42f24f441f0b62b0f6f264848cb15`
+and `dff4bebfeae9b3320e0395eb1e221cd185ad2ee97dfd15b97c3a31af2fabfb25`;
+the cold raw/summary values are
+`e2550472c9461547b53819fd8667a6ec0e88ab667e50184c166965729f1686ae`
+and `a2c72a6eb1151b437858f19e1066f45c6f6b80d60d45e94c2cb7a28eaf16d6a5`.
+
+The retained Table allocation profile is
+`/private/tmp/gsx-runtime-direct-profiles-1784667060`. It attributes essentially
+all measured allocation objects and space to the one `gsx.W` per render; no
+per-Card closure remains. The profiled `bench.test` and a fresh binary built
+from final core `871c059e` and benchmark `d889ed1` are byte-for-byte identical,
+both SHA-256
+`f029462b8b3121436287b16ab1a1afcd712d31bbdd38471f2c563001d1fa8560`.
+The memory profile, object report, space report, and escape report SHA-256
+values are `cb27d788f51d140a1002256eff8e8d10262de0732401b148d8f21570cee0cfd7`,
+`b582e65b225517b319e9d36290d4400ace5ba9da43205b931dbe7b152939889c`,
+`fb8b8bdc09584a37713a07f8702f214370716bf6ced155eb3a81881f4fcd9088`,
+and `7b6946bf98c15116f0bcd9c00d562024d1e640275939793c3224e7be2781a22a`.
+
+Independent adversarial review built throwaway compile and render probes. Its
+P1 findings were resolved before the final measurement:
+
+- helper allocation now reserves caller type parameters, generic receiver
+  bindings, real default-import package names, same-package `_test.go`
+  declarations, non-owned `.x.go` files, and build variants;
+- speculative signature reconstruction uses an isolated diagnostic bag, so a
+  malformed sibling cannot reorder, duplicate, or suppress authoritative
+  diagnostics;
+- lexical helper shadowing and helper-only diagnostics are isolated from the
+  public factory; and
+- the repeated inventory/signature work was removed from the warm generation
+  path.
+
+The final probes covered raw sentinel and nil returns at every failing child
+write, prior-parent-error argument evaluation with child-body skipping,
+generics, grouped and constraint-only parameters, variadics, exact escaping,
+name collisions, build variants, imported/method/plain-Go/package-variable/
+dynamic fallbacks, and concurrent rendering. Core and benchmark generation
+were regenerated to byte-stable fixed points before measurement. `gopls check`
+on changed Go files and the relevant `gopls references` queries reported no
+new issue.
+
+### Final persisted gates and timeout history
+
+Final acceptance logs and their SHA-256 manifest live under
+`/private/tmp/gsx-runtime-direct-final-gates-aULWbB`. On exact final code, core
+`make ci` and `make lint` passed; benchmark `make generate-gsx` reported every
+file up to date, `make test` passed, and its full race suite passed. The core
+full race passed with bounded concurrency:
+
+```sh
+go test -race -p=1 -parallel=4 -timeout=30m ./... -count=1
+```
+
+`-p=1 -parallel=4` changes only scheduling: it keeps every package and test
+under the race detector while preventing the test suite's nested toolchain
+subprocesses from overwhelming each other. `gen` passed in 240.083 seconds,
+`internal/codegen` in 474.992 seconds, corpus in 76.202 seconds, LSP in 43.698
+seconds, and every other package passed. The log is
+`core-race-authoritative.log`.
+
+The evidence root's `checksums.txt` hashes every persisted finalization file.
+Selected SHA-256 values are:
+
+- core `make ci`: `2aa911f4a56ac77605b19b70c9d32a05a34933f89b535ab3c188fdd7cf16d017`;
+- core `make lint`: `350befa7745374698f9cbb91d09595a122f57660e14d283b4a3e456fc76c02f2`;
+- authoritative core race: `883772d836a08247faed39296cfd7dc7a1dd6e4884039d5eb8b00d8f07eab03a`;
+- benchmark generation/test/race: `35cdd12c52e709a86a838bddc6b1728cf8264d241a1c50c4c5d676c7f9f09553`,
+  `f46810d4a3d611a7c3e56c2a85682a454862169ffdc3a89296a250c95b8ab303`,
+  and `54eeb7ea0a667e8dde9e4db21dabe33d7a8aa9b0403654e2ae4e2969a1cf5b18`;
+- VitePress docs build: `a989eb9d99fb276d2c9275516564b7ac371e3c77914b8d023d65fa54e9f1a0ef`;
+  and
+- final pre-doc-commit state proof: `b4397af34b731fa173dfe0d73a88c0280ab57fc33ace828e9c5c2d3081f503c3`.
+
+That state proof records no non-documentation core diff, a clean benchmark
+repository, and removal of the detached comparison pair. The docs job was also
+reproduced in a disposable checkout of `gsxhq.github.io`; VitePress completed
+successfully against this exact GSX docs source.
+
+Before these persisted gates, one post-lint full-race attempt reported
+`gen.TestRunWatch_RearmsExplicitExcludedRootAfterRecreation` timing out after
+one minute and a separate `internal/codegen` package hitting Go's ten-minute
+timeout. That exact transcript was not preserved, so it is report-only and not
+acceptance evidence. The focused watch race rerun passed three of three times
+(1.14 s, 1.16 s, 1.22 s), and a later full race was reported passing but also
+lacked a preserved transcript. Separately, the final reviewer accidentally
+launched a malformed probe pipeline which started an unintended core race; it
+was terminated and explicitly excluded. Only the fresh persisted final gates
+in the evidence root are acceptance evidence.
+
+For completeness, the finalization's first default-concurrency run reproduced
+the ten-minute `internal/codegen` timeout without a race finding; its preserved
+log is `core-race.log`. A subsequent 30-minute-timeout run allowed 32-way test
+and package concurrency to create nested helper-process thrash. It was
+terminated after sampling the active processes and is neither a pass nor a
+failure; its log and `gen-child.sample.txt`/`codegen-child.sample.txt` stacks
+are retained. The bounded-concurrency command above is the authoritative full
+race gate.
 
 ## Recommended Optimisation Slices
 
@@ -726,15 +938,14 @@ the retained runtime after the two rejected smaller experiments.
    allocation count but increased bytes by about 27% and did not improve
    end-to-end render time. It was restored; do not revive it without a new
    design and fresh evidence.
-3. Reprofile non-empty attributes after slices 1 and 2. If the 40 per-render
+3. **Completed and retained:** direct rendering for proven same-package plain
+   GSX child functions improved Table by 14.33-17.80% and removed 95.24% of its
+   allocations. Keep the exact semantic provenance and fallback boundary; do
+   not broaden it through textual target recognition.
+4. Reprofile non-empty attributes after these results. If the 40 per-render
    `StyleMerged`/`splitDecls` allocations in ForwardedAttrs remain material, run
    a separate exact quote/parenthesis-aware single-contributor style-parser
    experiment; do not use a delimiter shortcut.
-4. After those smaller slices and fresh profiles, carry Candidate 3's evidence
-   into a separate follow-up optimisation plan. That plan, not this baseline
-   task, must decide whether to authorise a large direct-render ABI experiment
-   and define its acceptance gate. Without that explicit selection, make no
-   component ABI change.
 
 Every slice starts from a focused correctness case and benchmark, changes one
 performance variable, collects interleaved ten-sample before/after data with
