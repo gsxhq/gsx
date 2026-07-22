@@ -30,6 +30,10 @@ func (a *countingAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, e
 	return nil, errors.New("not implemented")
 }
 
+func (a *countingAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
+	return nil, true, errors.New("not implemented")
+}
+
 // SetOverride returns the edited directory as invalidated, per the Analyzer
 // contract: a content-bearing change invalidates that package view, so the
 // server schedules a fresh analysis instead of republishing the retained

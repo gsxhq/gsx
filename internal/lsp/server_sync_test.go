@@ -47,6 +47,10 @@ func (a fakeAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error)
 	return nil, errors.New("not implemented")
 }
 
+func (a fakeAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
+	return nil, true, errors.New("not implemented")
+}
+
 func (a fakeAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
 	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
 }

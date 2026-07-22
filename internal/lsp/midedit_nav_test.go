@@ -98,6 +98,14 @@ func (a ephemeralCountingAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Pa
 	return nil, nil
 }
 
+// AnalyzeEphemeralNonBlocking is the variant the nav handlers now call. It
+// always acquires (uncontended) and delegates to AnalyzeEphemeral, so the
+// ephCount assertions in the fallback-gate tests are unchanged.
+func (a ephemeralCountingAnalyzer) AnalyzeEphemeralNonBlocking(dir, path string, content []byte) (*Package, bool, error) {
+	pkg, err := a.AnalyzeEphemeral(dir, path, content)
+	return pkg, true, err
+}
+
 // tagAnsweringPackage hand-builds a Package whose retained facts answer
 // go-to-definition on a same-package component tag (`<Row/>`) via CrossIndex —
 // no ephemeral analysis required.
@@ -147,6 +155,66 @@ func TestDefinitionFallbackNotConsultedWhenPrimaryAnswers(t *testing.T) {
 	result := responseByID(t, out, 2)["result"]
 	if strings.TrimSpace(string(result)) == "null" {
 		t.Fatalf("primary go-to-definition returned null; want the Row declaration Location")
+	}
+}
+
+// contendedNavAnalyzer models the P4 contention case: the retained package
+// answers primary nav, but the non-blocking ephemeral reports acquired=false.
+// ephBlocking is what a *successful* ephemeral would return (must never be
+// consulted); nbCalls/blkCalls count the two entry points so a test can prove
+// the blocking body was skipped.
+type contendedNavAnalyzer struct {
+	nilAnalyzer
+	analyzed    *Package
+	ephBlocking *Package
+	nbCalls     *int
+	blkCalls    *int
+}
+
+func (a contendedNavAnalyzer) Analyze(string, map[string][]byte) (*Package, error) {
+	return a.analyzed, nil
+}
+
+func (a contendedNavAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	*a.blkCalls++
+	return a.ephBlocking, nil
+}
+
+func (a contendedNavAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
+	*a.nbCalls++
+	return nil, false, nil
+}
+
+// TestNavFallbackSkippedWhenContended pins the P4 nav policy: on a primary miss
+// the fallback IS consulted (nbCalls >= 1), but under contention it skips the
+// ephemeral pass entirely (blkCalls == 0 — the resolving ephBlocking package is
+// never used) and replies null, exactly the pre-mid-edit-nav behavior. This is
+// what turns the worst-case ~1.5 s dispatch-loop stall into an instant null.
+func TestNavFallbackSkippedWhenContended(t *testing.T) {
+	uri := "file:///m/a.gsx"
+	path := "/m/a.gsx"
+	nb, blk := 0, 0
+	a := contendedNavAnalyzer{
+		analyzed:    tagAnsweringPackage(t, path, midEditNavPage),
+		ephBlocking: tagAnsweringPackage(t, path, midEditNavPage), // would resolve if consulted
+		nbCalls:     &nb,
+		blkCalls:    &blk,
+	}
+
+	// Cursor on the "hi" plain text (line 7) — primary misses, fallback runs.
+	textOff := strings.Index(midEditNavPage, ">hi<") + 1
+	pos := positionForByteOffset(midEditNavPage, textOff, encUTF16)
+	out := drive(t, a, initFrame()+didOpenFrame(uri, midEditNavPage)+
+		definitionFrame(2, uri, pos)+exitFrame())
+
+	if nb == 0 {
+		t.Fatal("non-blocking ephemeral never called; the fallback was not consulted")
+	}
+	if blk != 0 {
+		t.Fatalf("blocking AnalyzeEphemeral called %d times under contention; the ephemeral body must be skipped", blk)
+	}
+	if r := strings.TrimSpace(string(responseByID(t, out, 2)["result"])); r != "null" {
+		t.Fatalf("contended nav fallback result = %s, want null", r)
 	}
 }
 

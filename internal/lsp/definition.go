@@ -671,8 +671,12 @@ func (s *Server) definitionFallback(path, text string, off int, sources *request
 	if !ok {
 		return nil, false
 	}
-	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, r.src)
-	if err != nil || eph == nil || (eph.Info == nil && eph.Files == nil) {
+	// Non-blocking: this fallback runs inline on the dispatch goroutine after the
+	// retained-snapshot primary missed. Under contention (acquired=false) just
+	// skip the ephemeral pass and reply null (answered=false), the pre-mid-edit-nav
+	// behavior — never block the whole server behind a background analysis.
+	eph, acquired, err := s.analyzer.AnalyzeEphemeralNonBlocking(filepath.Dir(path), path, r.src)
+	if !acquired || err != nil || eph == nil || (eph.Info == nil && eph.Files == nil) {
 		return nil, false
 	}
 	sources.setRepair(path, insertOff, len(r.patch))

@@ -66,6 +66,10 @@ func (a *overrideLifetimeAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Pa
 	return nil, errors.New("not implemented")
 }
 
+func (a *overrideLifetimeAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
+	return nil, true, errors.New("not implemented")
+}
+
 func (a *overrideLifetimeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
@@ -98,6 +102,10 @@ func (a *blockingAnalyzer) ClearOverride(string) ([]string, error)       { retur
 func (a *blockingAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
 func (a *blockingAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (a *blockingAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
+	return nil, true, errors.New("not implemented")
 }
 
 func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {

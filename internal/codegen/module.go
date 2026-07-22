@@ -134,6 +134,11 @@ type Options struct {
 // NOT acquire analysisMu — those functions run within a held analysisMu and
 // re-acquiring would deadlock. True fine-grained concurrent analysis (multiple
 // roots in parallel or partial invalidation) is deferred to Phase 2.
+// TryAnalyzeEphemeral is a non-blocking variant of the AnalyzeEphemeral entry
+// point: it acquires analysisMu via TryLock and returns acquired=false rather
+// than waiting when another entry point holds it. It composes with this
+// contract — the lock still serializes every entry point and stays
+// non-reentrant; TryLock only changes wait-vs-decline, never the invariant.
 //
 // Cache invalidation: SetOverride and ClearOverride compare against the frozen
 // saved-source state beneath the buffer and return the exact sorted affected
@@ -1418,6 +1423,39 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 func (m *Module) AnalyzeEphemeral(dir, absPath string, src []byte) (*PackageResult, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
+	return m.analyzeEphemeralLocked(dir, absPath, src)
+}
+
+// TryAnalyzeEphemeral is the non-blocking sibling of AnalyzeEphemeral. It
+// attempts analysisMu.TryLock; if the lock is already held by an in-flight
+// top-level entry point (a background Package/Generate, or another ephemeral
+// run) it returns (nil, false, nil) immediately instead of blocking. On
+// acquisition (acquired == true) it runs the identical body as
+// AnalyzeEphemeral and returns the same (result, err) pair — when the Module
+// is uncontended TryLock succeeds at once, so the caller sees no difference.
+//
+// This is the insurance the LSP completion/nav handlers use unconditionally:
+// they run inline on the single dispatch goroutine, so blocking on analysisMu
+// behind a ~1 s background Package would stall the whole server. TryLock lets
+// them fall back to a retained-snapshot answer (or reply empty/null) instead.
+// TryLock composes cleanly with the concurrency contract above: analysisMu
+// still serializes every top-level entry point and is still non-reentrant —
+// TryAnalyzeEphemeral simply declines to enter rather than waiting, and the
+// not-acquired path touches no analysisMu-guarded state at all.
+func (m *Module) TryAnalyzeEphemeral(dir, absPath string, src []byte) (*PackageResult, bool, error) {
+	if !m.analysisMu.TryLock() {
+		return nil, false, nil
+	}
+	defer m.analysisMu.Unlock()
+	res, err := m.analyzeEphemeralLocked(dir, absPath, src)
+	return res, true, err
+}
+
+// analyzeEphemeralLocked is the shared body of AnalyzeEphemeral and
+// TryAnalyzeEphemeral. It assumes analysisMu is already held by the caller
+// (non-reentrant, per the concurrency contract) and does not acquire or
+// release it.
+func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*PackageResult, error) {
 	m.maybeRebuildFset()
 	m.applyDirty()
 	if err := m.validateConfiguredMergers(); err != nil {

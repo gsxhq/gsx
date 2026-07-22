@@ -41,9 +41,20 @@ type Analyzer interface {
 	Analyze(dir string, override map[string][]byte) (*Package, error)
 	// AnalyzeEphemeral runs one synchronous warm analysis of dir with path's
 	// source replaced by content, WITHOUT touching override lifetime, caches, or
-	// dirty tracking. Used by completion on the (possibly repaired) live buffer.
-	// Fails soft: source-level breakage returns a diagnostics-only Package.
+	// dirty tracking. Fails soft: source-level breakage returns a
+	// diagnostics-only Package. Kept for e2e/tooling callers that want the
+	// blocking guarantee; the completion/nav handlers use the non-blocking
+	// variant below.
 	AnalyzeEphemeral(dir, path string, content []byte) (*Package, error)
+	// AnalyzeEphemeralNonBlocking is AnalyzeEphemeral that never blocks on the
+	// warm Module's analysis lock: acquired=false (with a nil Package) means an
+	// in-flight background analysis held the lock and this request declined to
+	// wait. The completion/nav handlers run inline on the single dispatch
+	// goroutine, so they call this unconditionally — when uncontended it acquires
+	// at once and is identical to AnalyzeEphemeral; when contended they serve a
+	// retained-snapshot fallback (or reply empty/null) rather than stall the whole
+	// server behind a ~1 s background Package. Fails soft like AnalyzeEphemeral.
+	AnalyzeEphemeralNonBlocking(dir, path string, content []byte) (*Package, bool, error)
 	// ClearOverride ends the authoritative lifetime of one editor buffer. The
 	// analyzer must restore the path to saved-disk or absent-source semantics;
 	// omitting a path from a later Analyze override map is not that transition,
