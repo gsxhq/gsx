@@ -1,0 +1,462 @@
+{
+  "version": 1.1,
+  "tags": [],
+  "globalAttributes": [
+    {
+      "name": "hx-get",
+      "description": {
+        "kind": "markdown",
+        "value": "issues a `GET` to the specified URL"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-get/"
+        }
+      ]
+    },
+    {
+      "name": "hx-post",
+      "description": {
+        "kind": "markdown",
+        "value": "issues a `POST` to the specified URL"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-post/"
+        }
+      ]
+    },
+    {
+      "name": "hx-on",
+      "description": {
+        "kind": "markdown",
+        "value": "handle events with inline scripts on elements"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-on/"
+        }
+      ]
+    },
+    {
+      "name": "hx-push-url",
+      "description": {
+        "kind": "markdown",
+        "value": "push a URL into the browser location bar to create history"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-push-url/"
+        }
+      ]
+    },
+    {
+      "name": "hx-select",
+      "description": {
+        "kind": "markdown",
+        "value": "select content to swap in from a response"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-select/"
+        }
+      ]
+    },
+    {
+      "name": "hx-select-oob",
+      "description": {
+        "kind": "markdown",
+        "value": "select content to swap in from a response, somewhere other than the target (out of band)"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-select-oob/"
+        }
+      ]
+    },
+    {
+      "name": "hx-swap",
+      "description": {
+        "kind": "markdown",
+        "value": "controls how content will swap in (`outerHTML`, `beforeend`, `afterend`, \u2026)"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-swap/"
+        }
+      ]
+    },
+    {
+      "name": "hx-swap-oob",
+      "description": {
+        "kind": "markdown",
+        "value": "mark element to swap in from a response (out of band)"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-swap-oob/"
+        }
+      ]
+    },
+    {
+      "name": "hx-target",
+      "description": {
+        "kind": "markdown",
+        "value": "specifies the target element to be swapped"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-target/"
+        }
+      ]
+    },
+    {
+      "name": "hx-trigger",
+      "description": {
+        "kind": "markdown",
+        "value": "specifies the event that triggers the request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-trigger/"
+        }
+      ]
+    },
+    {
+      "name": "hx-vals",
+      "description": {
+        "kind": "markdown",
+        "value": "add values to submit with the request (JSON format)"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-vals/"
+        }
+      ]
+    },
+    {
+      "name": "hx-boost",
+      "description": {
+        "kind": "markdown",
+        "value": "add progressive enhancement for links and forms"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-boost/"
+        }
+      ]
+    },
+    {
+      "name": "hx-confirm",
+      "description": {
+        "kind": "markdown",
+        "value": "shows a `confirm()` dialog before issuing a request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-confirm/"
+        }
+      ]
+    },
+    {
+      "name": "hx-delete",
+      "description": {
+        "kind": "markdown",
+        "value": "issues a `DELETE` to the specified URL"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-delete/"
+        }
+      ]
+    },
+    {
+      "name": "hx-disable",
+      "description": {
+        "kind": "markdown",
+        "value": "disables htmx processing for the given node and any children nodes"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-disable/"
+        }
+      ]
+    },
+    {
+      "name": "hx-disabled-elt",
+      "description": {
+        "kind": "markdown",
+        "value": "adds the `disabled` attribute to the specified elements while a request is in flight"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-disabled-elt/"
+        }
+      ]
+    },
+    {
+      "name": "hx-disinherit",
+      "description": {
+        "kind": "markdown",
+        "value": "control and disable automatic attribute inheritance for child nodes"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-disinherit/"
+        }
+      ]
+    },
+    {
+      "name": "hx-encoding",
+      "description": {
+        "kind": "markdown",
+        "value": "changes the request encoding type"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-encoding/"
+        }
+      ]
+    },
+    {
+      "name": "hx-ext",
+      "description": {
+        "kind": "markdown",
+        "value": "extensions to use for this element"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-ext/"
+        }
+      ]
+    },
+    {
+      "name": "hx-headers",
+      "description": {
+        "kind": "markdown",
+        "value": "adds to the headers that will be submitted with the request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-headers/"
+        }
+      ]
+    },
+    {
+      "name": "hx-history",
+      "description": {
+        "kind": "markdown",
+        "value": "prevent sensitive data being saved to the history cache"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-history/"
+        }
+      ]
+    },
+    {
+      "name": "hx-history-elt",
+      "description": {
+        "kind": "markdown",
+        "value": "the element to snapshot and restore during history navigation"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-history-elt/"
+        }
+      ]
+    },
+    {
+      "name": "hx-include",
+      "description": {
+        "kind": "markdown",
+        "value": "include additional data in requests"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-include/"
+        }
+      ]
+    },
+    {
+      "name": "hx-indicator",
+      "description": {
+        "kind": "markdown",
+        "value": "the element to put the `htmx-request` class on during the request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-indicator/"
+        }
+      ]
+    },
+    {
+      "name": "hx-inherit",
+      "description": {
+        "kind": "markdown",
+        "value": "control and enable automatic attribute inheritance for child nodes if it has been disabled by default"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-inherit/"
+        }
+      ]
+    },
+    {
+      "name": "hx-params",
+      "description": {
+        "kind": "markdown",
+        "value": "filters the parameters that will be submitted with a request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-params/"
+        }
+      ]
+    },
+    {
+      "name": "hx-patch",
+      "description": {
+        "kind": "markdown",
+        "value": "issues a `PATCH` to the specified URL"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-patch/"
+        }
+      ]
+    },
+    {
+      "name": "hx-preserve",
+      "description": {
+        "kind": "markdown",
+        "value": "specifies elements to keep unchanged between requests"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-preserve/"
+        }
+      ]
+    },
+    {
+      "name": "hx-prompt",
+      "description": {
+        "kind": "markdown",
+        "value": "shows a `prompt()` before submitting a request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-prompt/"
+        }
+      ]
+    },
+    {
+      "name": "hx-put",
+      "description": {
+        "kind": "markdown",
+        "value": "issues a `PUT` to the specified URL"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-put/"
+        }
+      ]
+    },
+    {
+      "name": "hx-replace-url",
+      "description": {
+        "kind": "markdown",
+        "value": "replace the URL in the browser location bar"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-replace-url/"
+        }
+      ]
+    },
+    {
+      "name": "hx-request",
+      "description": {
+        "kind": "markdown",
+        "value": "configures various aspects of the request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-request/"
+        }
+      ]
+    },
+    {
+      "name": "hx-sync",
+      "description": {
+        "kind": "markdown",
+        "value": "control how requests made by different elements are synchronized"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-sync/"
+        }
+      ]
+    },
+    {
+      "name": "hx-validate",
+      "description": {
+        "kind": "markdown",
+        "value": "force elements to validate themselves before a request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-validate/"
+        }
+      ]
+    },
+    {
+      "name": "hx-vars",
+      "description": {
+        "kind": "markdown",
+        "value": "adds values dynamically to the parameters to submit with the request (deprecated, please use `hx-vals`)"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://htmx.org/attributes/hx-vars/"
+        }
+      ]
+    }
+  ],
+  "valueSets": []
+}
