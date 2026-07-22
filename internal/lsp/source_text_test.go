@@ -3,6 +3,7 @@ package lsp
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -418,6 +419,9 @@ func (a *authoritativeLocationAnalyzer) SetOverride(string, []byte) ([]string, e
 	return nil, nil
 }
 func (a *authoritativeLocationAnalyzer) ClearOverride(string) ([]string, error) { return nil, nil }
+func (a *authoritativeLocationAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	return nil, errors.New("not implemented")
+}
 func (a *authoritativeLocationAnalyzer) Analyze(string, map[string][]byte) (*Package, error) {
 	if a.pkg != nil {
 		return a.pkg, nil

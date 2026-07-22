@@ -187,6 +187,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 		Renderers:   merged.renderers,
 		Classifier:  merged.classifier(),
 		ClassMerger: merged.classMerger,
+		URLPresets:  merged.urlPresets,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -340,6 +341,10 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	for key, declarations := range pr.ComponentDecls {
 		componentDecls[lsp.ComponentDeclKey{PackagePath: key.PackagePath, ComponentKey: key.ComponentKey}] = append([]sourceintel.VersionedSpan(nil), declarations...)
 	}
+	filters := make([]lsp.FilterCandidate, len(pr.Filters))
+	for i, fc := range pr.Filters {
+		filters[i] = lsp.FilterCandidate{Name: fc.Name, Pkg: fc.Pkg, Func: fc.Func, WantsCtx: fc.WantsCtx}
+	}
 	return &lsp.Package{
 		Diags:          pr.Diags,
 		GSXFset:        pr.GSXFset,
@@ -357,6 +362,8 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		SigTypes:       sig,
 		UnusedImports:  unused,
 		MissingImports: missing,
+		Filters:        filters,
+		URLPresets:     pr.URLPresets,
 	}
 }
 
@@ -576,6 +583,40 @@ func (a lspAnalyzer) Analyze(dir string, _ map[string][]byte) (*lsp.Package, err
 		return nil, err
 	}
 	pr, err := m.Package(abs)
+	if err != nil {
+		return nil, err
+	}
+	if pr == nil {
+		return &lsp.Package{}, nil
+	}
+	return adaptPackageResult(pr), nil
+}
+
+// AnalyzeEphemeral runs a one-shot, cursor-local analysis of content against the
+// warm Module for dir without mutating override lifetime or the persistent
+// per-dir cache — see codegen.Module.AnalyzeEphemeral for the exact contract
+// (path must be for an open/override-backed buffer; repairs are cursor-local).
+// It mirrors Analyze's module-resolution shape (resolve root -> warm Module ->
+// analyze -> adapt) so it shares the same warm type-cache Analyze uses.
+func (a lspAnalyzer) AnalyzeEphemeral(dir, path string, content []byte) (*lsp.Package, error) {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, _, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := m.AnalyzeEphemeral(abs, filepath.Clean(absPath), content)
 	if err != nil {
 		return nil, err
 	}

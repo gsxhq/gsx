@@ -34,6 +34,11 @@ type Analyzer interface {
 	// against the analyzer's fail-closed state.
 	SetOverride(path string, source []byte) (affected []string, err error)
 	Analyze(dir string, override map[string][]byte) (*Package, error)
+	// AnalyzeEphemeral runs one synchronous warm analysis of dir with path's
+	// source replaced by content, WITHOUT touching override lifetime, caches, or
+	// dirty tracking. Used by completion on the (possibly repaired) live buffer.
+	// Fails soft: source-level breakage returns a diagnostics-only Package.
+	AnalyzeEphemeral(dir, path string, content []byte) (*Package, error)
 	// ClearOverride ends the authoritative lifetime of one editor buffer. The
 	// analyzer must restore the path to saved-disk or absent-source semantics;
 	// omitting a path from a later Analyze override map is not that transition,
@@ -303,6 +308,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleRename(f)
 	case "textDocument/hover":
 		return s.handleHover(f)
+	case "textDocument/completion":
+		return s.handleCompletion(f)
 	case "textDocument/formatting":
 		return s.handleFormatting(f)
 	case "textDocument/codeAction":
@@ -357,6 +364,7 @@ func (s *Server) handleInitialize(f frame) error {
 		RenameProvider:             nil,
 		DocumentFormattingProvider: true,
 		HoverProvider:              true,
+		CompletionProvider:         &CompletionOptions{TriggerCharacters: []string{".", "<", ">", "\"", "|"}},
 		DocumentSymbolProvider:     true,
 		WorkspaceSymbolProvider:    true,
 		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind, quickFixKind}},

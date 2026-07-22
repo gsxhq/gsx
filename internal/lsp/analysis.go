@@ -162,6 +162,16 @@ type Package struct {
 	// Analyzer.ResolveImport, which may read export data and must stay off the
 	// analysis path.
 	MissingImports map[string][]MissingImport
+
+	// Filters is the sorted list of pipeline-filter completion candidates from
+	// the package's resolved filter table.
+	Filters []FilterCandidate
+
+	// URLPresets names the url-attribute presets in effect for this package's dir
+	// (e.g. "htmx"). HTML attribute-name completion consults it: when "htmx" is
+	// present the htmx hx-* attributes join the candidate list. Position-independent
+	// (a package-wide config fact), so a stale retained snapshot is a safe fallback.
+	URLPresets []string
 }
 
 // MissingImport is a qualifier the file uses that resolves to nothing. Symbol is
@@ -170,4 +180,13 @@ type MissingImport struct {
 	Name   string
 	Symbol string
 	Pos    token.Position
+}
+
+// FilterCandidate is one pipeline-filter completion candidate, from the dir's
+// resolved filter table.
+type FilterCandidate struct {
+	Name     string // template name, e.g. "upper"
+	Pkg      string // winning package import path
+	Func     string // exported Go func name, e.g. "Upper"
+	WantsCtx bool
 }

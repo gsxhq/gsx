@@ -50,6 +50,7 @@ type config struct {
 	cssFmt         rawfmt.Formatter
 	jsFmt          rawfmt.Formatter
 	urlRules       []attrclass.Rule
+	urlPresets     []string // names of enabled url-attribute presets (e.g. "htmx"); retained ALONGSIDE their expansion into urlRules so the LSP can tell which presets are on
 	errs           []error
 	printWidth     int                     // gsx.toml [formatter] print_width; 0 means "unset" → pretty.DefaultPrintWidth at use
 	tabWidth       int                     // gsx.toml [formatter] tab_width; 0 means "unset" → pretty.DefaultTabWidth at use

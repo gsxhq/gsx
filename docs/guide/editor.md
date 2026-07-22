@@ -79,9 +79,11 @@ supports tree-sitter.
 | Document symbols | File components and top-level Go declarations. |
 | Workspace symbols | Module components and top-level Go declarations. |
 | Code actions | Organize imports and choose missing imports. |
+| Completion | Go identifiers and members, pipe filters, component tags and attributes, HTML tags/attributes/values, and `hx-*` attributes when htmx is enabled. |
 
-Completion is not available yet, and references do not include external
-packages. See [Status](./status.md) for the current limits.
+Completion returns plain text edits, not snippets, and does not add imports
+yet; use the missing-import quick fix for that. References do not include
+external packages. See [Status](./status.md) for the current limits.
 
 ## Organize imports {#organize-imports-on-save}
 

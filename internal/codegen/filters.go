@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/types"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -489,4 +490,16 @@ func lowerFirst(s string) string {
 	}
 	r, size := utf8.DecodeRuneInString(s)
 	return string(unicode.ToLower(r)) + s[size:]
+}
+
+// filterCandidates flattens the resolved per-dir filter table into a sorted
+// completion-candidate list. The table holds last-wins winners only, so there
+// is no shadow information here (ResolveFilters reports shadows for gsx info).
+func filterCandidates(t funcTables) []FilterCandidate {
+	out := make([]FilterCandidate, 0, len(t.filters))
+	for name, e := range t.filters {
+		out = append(out, FilterCandidate{Name: name, Pkg: e.pkgPath, Func: e.funcName, WantsCtx: e.wantsCtx})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }

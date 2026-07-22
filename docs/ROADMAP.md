@@ -563,9 +563,18 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   positions there), paren-unwrapped spread pipelines (`{ (x |> f)... }` seed),
   and ctrl spans inside COMPONENT-tag attributes (`<Kid { if c { … } }/>` -
   the liveness walk that records ctrl offsets only runs for plain elements).
-- [ ] **Completion design** (`textDocument/completion`) - design cursor-time
-  invalid-syntax handling, candidate enumeration, exact text edits, and ranking
-  as a separate capability built on the authored source map/index.
+- [x] **Completion** (`textDocument/completion`) - Go identifiers/members,
+  pipe-filter names, component tags (local + imported + qualified,
+  alias-aware), component attributes from planned call signatures, and HTML
+  tags/attributes/enumerated values (vendored `@vscode/web-custom-data`, with
+  docs + MDN links); `hx-*` attributes when the module's htmx preset is
+  enabled. Plain text edits, no snippets. Warm per-request analysis measured
+  at ~140µs (`BenchmarkAnalyzeEphemeralWarm`, Apple M3 Ultra). Spec
+  `2026-07-21-lsp-completion-design.md`.
+  **Follow-ups:** auto-import completion (own design); expected-type ranking;
+  snippet placeholders; typed pipe-filter compatibility filtering;
+  `completionItem/resolve` for lazy docs; method-component (`<recv.Name>`)
+  tags.
 - **Deferred:** external/non-project references; references cover project
   components discovered during module analysis.
 

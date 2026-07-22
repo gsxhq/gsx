@@ -217,6 +217,7 @@ func loadConfig(path string) (config, error) {
 			return config{}, fmt.Errorf("%s: url_presets: unknown preset %q (known: %s)", path, name, strings.Join(attrclass.PresetNames(), ", "))
 		}
 		cfg.urlRules = append(cfg.urlRules, rules.URL...)
+		cfg.urlPresets = append(cfg.urlPresets, name)
 	}
 	if tc.Minify != nil {
 		if tc.Minify.CSS != "" {
@@ -285,6 +286,7 @@ func mergeConfig(base, opts config) config {
 	merged.renderers = append(merged.renderers, opts.renderers...)
 
 	merged.urlRules = append(append(merged.urlRules, base.urlRules...), opts.urlRules...)
+	merged.urlPresets = append(append(merged.urlPresets, base.urlPresets...), opts.urlPresets...)
 
 	merged.cssMin = base.cssMin
 	if opts.cssMin != nil {

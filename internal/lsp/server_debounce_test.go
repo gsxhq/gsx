@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"errors"
 	"go/token"
 	"io"
 	"path/filepath"
@@ -25,6 +26,9 @@ type countingAnalyzer struct {
 }
 
 func (a *countingAnalyzer) ClearOverride(string) ([]string, error) { return nil, nil }
+func (a *countingAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
+	return nil, errors.New("not implemented")
+}
 
 // SetOverride returns the edited directory as invalidated, per the Analyzer
 // contract: a content-bearing change invalidates that package view, so the
