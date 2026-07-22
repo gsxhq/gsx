@@ -212,6 +212,7 @@ func TestGoCompletionE2E(t *testing.T) {
 	if strings.Contains(output.String(), ".x.go") {
 		t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
 	}
+	assertNoGsxInternalLeak(t, output.String())
 
 	exprItems := completionLabels(t, output.String(), 2)
 	if !exprItems["user"] {
@@ -348,6 +349,7 @@ func TestGoMemberCompletionE2E(t *testing.T) {
 		if strings.Contains(output.String(), ".x.go") {
 			t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
 		}
+		assertNoGsxInternalLeak(t, output.String())
 		return completionItems(t, output.String(), 2)
 	}
 
@@ -1142,6 +1144,10 @@ func TestCompletionFailSoftE2E(t *testing.T) {
 		if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
 			t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
 		}
+		if strings.Contains(output.String(), ".x.go") {
+			t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
+		}
+		assertNoGsxInternalLeak(t, output.String())
 		return output.String()
 	}
 
@@ -1262,6 +1268,33 @@ func TestGoBlockDeclaredAfterCursorE2E(t *testing.T) {
 	}
 	if labels["late"] {
 		t.Errorf("GoBlock completion must exclude `late`, declared AFTER the cursor in the same block; labels=%v", labels)
+	}
+}
+
+// assertNoGsxInternalLeak fails if any completion item, in ANY completion
+// response carried by output, has a label with the reserved `_gsx` prefix — the
+// generated-code internals (_gsxuse/_gsxcompsig/_gsxrt/_gsxbody/...) the
+// skeleton declares in package/file/body scopes. Accepting one would insert a
+// reserved identifier that poisons the file. Applied inside the Go-completion
+// runners so every scenario inherits it, mirroring the `.x.go` output guard.
+func assertNoGsxInternalLeak(t *testing.T, output string) {
+	t.Helper()
+	for part := range strings.SplitSeq(output, "Content-Length:") {
+		_, body, ok := strings.Cut(part, "\r\n\r\n")
+		if !ok {
+			continue
+		}
+		var response struct {
+			Result *lsp.CompletionList `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(body), &response); err != nil || response.Result == nil {
+			continue
+		}
+		for _, item := range response.Result.Items {
+			if strings.HasPrefix(item.Label, "_gsx") {
+				t.Fatalf("completion response leaked reserved internal label %q:\n%s", item.Label, output)
+			}
+		}
 	}
 }
 

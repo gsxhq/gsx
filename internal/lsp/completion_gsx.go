@@ -237,6 +237,12 @@ func importQualifierCandidates(pkg *Package) map[string]string {
 	if pkg.Info != nil {
 		for scope := range fileScopeSet(pkg) {
 			for _, name := range scope.Names() {
+				// Skip the generated runtime imports (_gsxrt/_gsxctx): they are
+				// bound in the file scope as PkgNames but are reserved internals,
+				// never author-visible qualifiers (see isReservedGsxInternal).
+				if isReservedGsxInternal(name) {
+					continue
+				}
 				if pn, ok := scope.Lookup(name).(*types.PkgName); ok {
 					out[pn.Name()] = pn.Imported().Path()
 				}
@@ -245,6 +251,9 @@ func importQualifierCandidates(pkg *Package) map[string]string {
 		return out
 	}
 	for _, imp := range pkg.Types.Imports() {
+		if isReservedGsxInternal(imp.Name()) {
+			continue
+		}
 		out[imp.Name()] = imp.Path()
 	}
 	return out

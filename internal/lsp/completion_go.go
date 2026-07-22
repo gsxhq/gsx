@@ -4,9 +4,22 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
+
+// isReservedGsxInternal reports whether name is a gsx-generated internal that
+// must never be offered as a completion candidate. The `_gsx` prefix is
+// reserved repo-wide for generated code: the skeleton package scope declares
+// _gsxuse/_gsxuseq/_gsxusen/_gsxcompsig/_gsxunwrap/_gsxstr/_gsxelem, file
+// scopes bind the _gsxrt/_gsxctx runtime imports as PkgNames, and body
+// closures declare _gsxbody. Accepting any of them inserts a reserved
+// identifier that poisons the file's own analysis, so every enumeration path
+// (scope walk, import qualifiers, type members) filters on this prefix.
+func isReservedGsxInternal(name string) bool {
+	return strings.HasPrefix(name, "_gsx")
+}
 
 // scopedObject is one visible go/types object at a cursor, tagged with the sort
 // tier its declaring scope earns (see completion_items.go).
@@ -156,7 +169,7 @@ func scopeCandidates(pkg *Package, scope *types.Scope, pos token.Pos) []scopedOb
 		fileScope := fileScopes[s]
 		local := s != types.Universe && s != pkgScope && !fileScope
 		for _, name := range s.Names() {
-			if seen[name] || name == "_" {
+			if seen[name] || name == "_" || isReservedGsxInternal(name) {
 				continue
 			}
 			obj := s.Lookup(name)
@@ -238,7 +251,7 @@ func memberCandidates(T types.Type, samePkg *types.Package) []memberObject {
 	var out []memberObject
 	seen := map[string]bool{}
 	include := func(obj types.Object, depth int) {
-		if obj == nil || seen[obj.Name()] {
+		if obj == nil || seen[obj.Name()] || isReservedGsxInternal(obj.Name()) {
 			return
 		}
 		if !obj.Exported() && (obj.Pkg() == nil || samePkg == nil || obj.Pkg() != samePkg) {
@@ -258,6 +271,19 @@ func memberCandidates(T types.Type, samePkg *types.Package) []memberObject {
 	// Methods are included first, so a field/method name collision keeps the
 	// method — Go forbids selecting either ambiguously, so offering the method is
 	// an acceptable resolution.
+	//
+	// visited guards against embedding CYCLES (`type Rec struct{ *Rec; Label
+	// string }`, or mutual A-embeds-B / B-embeds-A). The `include` name-dedup
+	// alone does NOT stop the walk: a self-embedded field re-enqueues its own
+	// type forever while `include` silently drops the duplicate name — an
+	// infinite loop. The key is the identity of the pointer-DEREFERENCED type:
+	// go/types interns named types, so the same *types.Named backs every
+	// `*Rec` embedded field regardless of how many distinct *types.Pointer
+	// wrappers present it, and dereferencing consistently before keying makes
+	// the pointer-identity comparison sound. BFS visits the shallowest
+	// occurrence first, so skipping a later (deeper) revisit preserves
+	// promotion shadowing.
+	visited := map[types.Type]bool{}
 	type queued struct {
 		t     types.Type
 		depth int
@@ -266,10 +292,22 @@ func memberCandidates(T types.Type, samePkg *types.Package) []memberObject {
 	for len(q) > 0 {
 		cur := q[0]
 		q = q[1:]
+		// Defensive depth cap. memberCompletionItems clamps every depth at or
+		// above tierPackage-tierMember into one sort tier (depths past ~19 are
+		// already indistinguishable in the UI), so 20 is a hard stop no
+		// legitimate embedding chain reaches; it guarantees termination even if
+		// the identity dedup below ever failed to catch a cycle.
+		if cur.depth > 20 {
+			continue
+		}
 		t := cur.t
 		if p, ok := t.Underlying().(*types.Pointer); ok {
 			t = p.Elem()
 		}
+		if visited[t] {
+			continue
+		}
+		visited[t] = true
 		st, ok := t.Underlying().(*types.Struct)
 		if !ok {
 			continue
@@ -345,7 +383,7 @@ func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, text stri
 			var items []CompletionItem
 			for _, name := range scope.Names() {
 				obj := scope.Lookup(name)
-				if obj == nil || !obj.Exported() {
+				if obj == nil || !obj.Exported() || isReservedGsxInternal(name) {
 					continue
 				}
 				kind, detail := goObjectPresentation(obj, qf)

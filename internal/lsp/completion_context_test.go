@@ -31,6 +31,19 @@ func TestClassifyCompletionContext(t *testing.T) {
 		{"sig params", "package p\n\ncomponent C(u Us§) {\n\t<div/>\n}\n", ctxSigType},
 		{"markup text none", "package p\n\ncomponent C() {\n\t<div>hel§lo</div>\n}\n", ctxNone},
 		{"dotted tag qualifier", "package p\n\nimport \"example.com/app/ui\"\n\ncomponent C() {\n\t<ui.§/>\n}\n", ctxTag},
+		// Empty-element body: the cursor sits AFTER the open tag's `>`, inside a
+		// childless body — must be ctxNone, not an attribute-name popup (the
+		// openTagEnd bound; regression for the End()-fallback over-match).
+		{"empty element body none", "package p\n\ncomponent C() {\n\t<div>§</div>\n}\n", ctxNone},
+		// The whitespace attr-name rule still fires with the cursor tucked against
+		// the closing bracket, whether the element has children, is self-closing,
+		// or has an empty body.
+		{"attr name before close with child", "package p\n\ncomponent C() {\n\t<div §>x</div>\n}\n", ctxAttrName},
+		{"attr name before selfclose", "package p\n\ncomponent C() {\n\t<div §/>\n}\n", ctxAttrName},
+		{"attr name before close empty body", "package p\n\ncomponent C() {\n\t<div §></div>\n}\n", ctxAttrName},
+		// A `>` inside a quoted attribute value does not end the tag, so a cursor
+		// past it is still an attribute-name position.
+		{"attr name after quoted gt", "package p\n\ncomponent C() {\n\t<div title=\"a>b\" §/>\n}\n", ctxAttrName},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

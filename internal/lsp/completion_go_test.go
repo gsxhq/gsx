@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"fmt"
 	"go/ast"
 	"go/importer"
 	"go/parser"
@@ -230,6 +231,149 @@ type Outer struct {
 	}
 	if xDepth != 0 {
 		t.Errorf("winning X depth = %d, want 0 (Outer's own field shadows Inner's)", xDepth)
+	}
+}
+
+// TestMemberCandidatesRecursiveEmbedding pins that a struct embedding a pointer
+// to itself terminates (the visited-type guard) and still offers its named
+// fields exactly once — before the guard this looped forever, hanging the
+// dispatch goroutine.
+func TestMemberCandidatesRecursiveEmbedding(t *testing.T) {
+	src := `package p
+
+type Rec struct {
+	*Rec
+	Label string
+}
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+	T := pkg.Types.Scope().Lookup("Rec").Type()
+
+	// A hard failure here (rather than a hang) means the guard regressed; the
+	// test process would otherwise never return. count tracks duplicates.
+	count := map[string]int{}
+	for _, c := range memberCandidates(T, pkg.Types) {
+		count[c.obj.Name()]++
+	}
+	if count["Label"] != 1 {
+		t.Errorf("Label offered %d times, want exactly 1; got %v", count["Label"], count)
+	}
+	if count["Rec"] != 1 {
+		t.Errorf("embedded field Rec offered %d times, want exactly 1; got %v", count["Rec"], count)
+	}
+	for name, n := range count {
+		if n != 1 {
+			t.Errorf("member %q duplicated (%d times)", name, n)
+		}
+	}
+}
+
+// TestMemberCandidatesMutualRecursion pins the same termination guard for a
+// mutual-embedding cycle (A embeds *B, B embeds *A): the BFS visits each type
+// once and returns instead of ping-ponging forever.
+func TestMemberCandidatesMutualRecursion(t *testing.T) {
+	src := `package p
+
+type A struct {
+	*B
+	AName string
+}
+
+type B struct {
+	*A
+	BName string
+}
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+	T := pkg.Types.Scope().Lookup("A").Type()
+
+	count := map[string]int{}
+	for _, c := range memberCandidates(T, pkg.Types) {
+		count[c.obj.Name()]++
+	}
+	for _, name := range []string{"AName", "BName", "A", "B"} {
+		if count[name] != 1 {
+			t.Errorf("member %q offered %d times, want exactly 1; got %v", name, count[name], count)
+		}
+	}
+}
+
+// TestMemberCompletionItemsDepthClampDeepChain drives a deep linear embedding
+// chain through memberCompletionItems and asserts the depth-driven sort tier is
+// clamped below tierPackage: no member ever earns the "30" (tierPackage) sort
+// prefix, and the deepest field clamps to "29".
+func TestMemberCompletionItemsDepthClampDeepChain(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package p\n\n")
+	const n = 25
+	for i := range n {
+		if i < n-1 {
+			fmt.Fprintf(&b, "type Level%d struct {\n\tLevel%d\n\tF%d int\n}\n", i, i+1, i)
+		} else {
+			fmt.Fprintf(&b, "type Level%d struct {\n\tF%d int\n}\n", i, i)
+		}
+	}
+	b.WriteString("\nvar v Level0\nvar _ = v.F0\n")
+	src := b.String()
+	pkg, _ := buildSyntheticPackage(t, src)
+
+	// The `v.F0` selector recorded during type-checking has X of type Level0, so
+	// memberCompletionItems walks the whole embedding chain and tiers every
+	// promoted member by depth.
+	var sel *ast.SelectorExpr
+	for expr := range pkg.Info.Types {
+		if se, ok := expr.(*ast.SelectorExpr); ok && se.Sel.Name == "F0" {
+			sel = se
+		}
+	}
+	if sel == nil {
+		t.Fatal("v.F0 selector not found in Info.Types")
+	}
+	items, ok := memberCompletionItems(pkg, sel, sel.Sel.Pos(), src, 0, 0, encUTF8)
+	if !ok {
+		t.Fatal("memberCompletionItems did not take the member path")
+	}
+	byLabel := map[string]CompletionItem{}
+	for _, it := range items {
+		byLabel[it.Label] = it
+		if strings.HasPrefix(it.SortText, "30") {
+			t.Errorf("member %q reached tierPackage sort prefix %q; depth clamp failed", it.Label, it.SortText)
+		}
+	}
+	// F20 is promoted from embedding depth 20, whose raw tier (tierMember+20 =
+	// 30) equals tierPackage and must clamp to 29. (The BFS depth cap stops the
+	// walk past depth 20, so F21..F24 are intentionally not offered.)
+	deep := "F20"
+	it, ok := byLabel[deep]
+	if !ok {
+		t.Fatalf("depth-20 field %q missing from members; got %v", deep, byLabel)
+	}
+	if !strings.HasPrefix(it.SortText, "29") {
+		t.Errorf("field %q SortText = %q, want clamped tier prefix \"29\"", deep, it.SortText)
+	}
+}
+
+// TestScopeCandidatesSkipsGsxInternals pins that scopeCandidates never offers a
+// reserved `_gsx*` skeleton internal — accepting one would insert a generated
+// identifier that poisons the file's analysis.
+func TestScopeCandidatesSkipsGsxInternals(t *testing.T) {
+	src := `package p
+
+var _gsxuse = 1
+var _gsxcompsig = 2
+var _gsxbody = 3
+var real = 4
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+	names := map[string]bool{}
+	for _, c := range scopeCandidates(pkg, pkg.Types.Scope(), token.NoPos) {
+		names[c.obj.Name()] = true
+		if isReservedGsxInternal(c.obj.Name()) {
+			t.Errorf("scopeCandidates leaked reserved internal %q", c.obj.Name())
+		}
+	}
+	if !names["real"] {
+		t.Errorf("scopeCandidates dropped the ordinary declaration `real`; got %v", names)
 	}
 }
 

@@ -173,17 +173,25 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 	})
 
 	// Rule 4 (whitespace attr-name): cursor inside the enclosing element's open
-	// tag, after the tag name, before the first child / close, and not inside any
-	// StaticAttr value span. Only when no BoolAttr name already matched. A cursor
-	// in an ExprAttr expression is caught by the higher-priority Go rule below, so
-	// it need not be excluded here.
+	// tag, after the tag name, before the tag's closing `>`/`/>`, and not inside
+	// any StaticAttr value span. Only when no BoolAttr name already matched. A
+	// cursor in an ExprAttr expression is caught by the higher-priority Go rule
+	// below, so it need not be excluded here.
+	//
+	// openEnd is the byte offset of the open tag's own `>` (openTagEnd scans the
+	// source), NOT innerEl.End(): an empty element `<div>▮</div>` has no children,
+	// so an End()-based bound would stretch the attr-name region across the whole
+	// (childless) body and misclassify a body cursor as an attribute name.
+	//
+	// The upper bound is INCLUSIVE (off <= openEnd): a completion cursor sits in
+	// the gap BEFORE its byte offset, so a cursor tucked right against the closing
+	// bracket (`<div ▮>`, `<div ▮></div>`, `<div ▮/>`) has off == openEnd yet still
+	// wants attribute completion. A body cursor `<div>▮</div>` has off == openEnd+1
+	// (one past the `>`) and is correctly excluded.
 	if nameCtx == nil && innerEl != nil {
 		tagEnd := posOff(innerEl.TagPos) + len(innerEl.Tag)
-		openEnd := posOff(innerEl.End())
-		if len(innerEl.Children) > 0 {
-			openEnd = posOff(innerEl.Children[0].Pos())
-		}
-		if off > tagEnd && off < openEnd && !offInStaticValue(innerEl, off, posOff) {
+		openEnd := openTagEnd(r.src, tagEnd)
+		if off > tagEnd && off <= openEnd && !offInStaticValue(innerEl, off, posOff) {
 			nameCtx = &completionContext{kind: ctxAttrName, node: innerEl, element: innerEl}
 		}
 	}
@@ -203,6 +211,87 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 		}
 	}
 	return completionContext{kind: ctxNone}
+}
+
+// openTagEnd returns the byte offset, in src, of the `>` that closes an open
+// tag whose name ends at from — the first '>' reached scanning forward while
+// respecting the regions where a '>' is not a tag terminator: HTML single/
+// double-quoted attribute values, and braced {expr} values (whose interior Go
+// string/rune/raw-string literals are skipped so a '>' or '}' inside them does
+// not end the tag or unbalance the brace count). Deterministic tokenization,
+// consistent with the repo's blob-scan rules. When no closing '>' exists (an
+// unclosed open tag mid-edit) it returns len(src), leaving the rule's upper
+// bound open rather than fabricating one.
+func openTagEnd(src []byte, from int) int {
+	i := max(from, 0)
+	for i < len(src) {
+		switch src[i] {
+		case '>':
+			return i
+		case '"', '\'':
+			// HTML-quoted attribute value: terminated by the matching quote.
+			q := src[i]
+			i++
+			for i < len(src) && src[i] != q {
+				i++
+			}
+			if i < len(src) {
+				i++ // consume the closing quote
+			}
+		case '{':
+			i = skipBraced(src, i)
+		default:
+			i++
+		}
+	}
+	return len(src)
+}
+
+// skipBraced returns the byte offset just past the balanced {expr} value that
+// begins at src[i] (src[i] is the opening '{'). Nested braces are balanced and
+// interior Go string/rune/raw-string literals are skipped so a '}' inside a
+// literal does not close the value early. Runs to len(src) on an unbalanced
+// value.
+func skipBraced(src []byte, i int) int {
+	depth := 0
+	for i < len(src) {
+		switch src[i] {
+		case '{':
+			depth++
+			i++
+		case '}':
+			depth--
+			i++
+			if depth == 0 {
+				return i
+			}
+		case '"', '\'', '`':
+			i = skipGoString(src, i)
+		default:
+			i++
+		}
+	}
+	return i
+}
+
+// skipGoString returns the byte offset just past the Go string, rune, or raw
+// string literal that begins at src[i] (src[i] is the opening quote). Raw
+// strings (backtick) take no escapes; interpreted strings and runes honor a
+// backslash escape. Runs to len(src) on an unterminated literal.
+func skipGoString(src []byte, i int) int {
+	q := src[i]
+	i++
+	for i < len(src) {
+		if q != '`' && src[i] == '\\' {
+			i += 2
+			continue
+		}
+		if src[i] == q {
+			return i + 1
+		}
+		i++
+	}
+	return i
 }
 
 // offInStaticValue reports whether off falls within any StaticAttr value span of

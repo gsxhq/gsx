@@ -67,9 +67,14 @@ func startsWithUpper(s string) bool {
 // in text with newText, expressed in ORIGINAL buffer coordinates via
 // rangeForSpan and the negotiated encoding enc. sortText is
 // fmt.Sprintf("%02d%s", tier, label) so every tier merges into one
-// client-side sort order. FilterText is set to newText only when it differs
-// from label (e.g. an attribute insert of `name=""`), so the client keeps
-// matching against what the user actually typed.
+// client-side sort order.
+//
+// FilterText is set to newText whenever it differs from label, so the client
+// filters this item against the full insertion string (e.g. an attribute item
+// whose newText is `name=""` is matched on `name=""`). This is the OPPOSITE of
+// htmlAttrItem, which sets FilterText back to the bare name so a `name=""`
+// insert still filters on `name`; the two paths deliberately differ, so keep
+// them in sync when changing either.
 func newCompletionItem(text string, start, end int, enc encoding, label, newText string, kind, tier int, detail string, doc *MarkupContent) CompletionItem {
 	item := CompletionItem{
 		Label:         label,

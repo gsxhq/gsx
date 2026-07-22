@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	goast "go/ast"
 	"path/filepath"
 	"testing"
 )
@@ -137,6 +138,63 @@ func TestAnalyzeEphemeralShellOnBrokenElsewhere(t *testing.T) {
 	}
 	if len(eph.Diags) == 0 {
 		t.Fatal("shell result must carry the parse diagnostics")
+	}
+}
+
+// TestAnalyzeEphemeralColdReanalyzeReflectsLiveBuffer proves cache restore: an
+// AnalyzeEphemeral over the phantom-repaired `user._` buffer must not poison a
+// later COLD re-analysis. After dropping the cached PackageResult (and the
+// snapshot-restored pkgTypes) for the dir, Package(dir) re-type-checks from the
+// retained LIVE buffer, and its facts must reflect `user.Name` (a resolved
+// string selector) — never the ephemeral `user._`.
+func TestAnalyzeEphemeralColdReanalyzeReflectsLiveBuffer(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	live := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	m.SetOverride(pagePath, live)
+	base, err := m.Package(dir)
+	if err != nil || base.Info == nil {
+		t.Fatalf("baseline: %v info=%v", err, base.Info)
+	}
+
+	patched := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user._ }</div>\n}\n")
+	if _, err := m.AnalyzeEphemeral(dir, pagePath, patched); err != nil {
+		t.Fatalf("AnalyzeEphemeral: %v", err)
+	}
+
+	// Force a cold re-analysis: Invalidate drops pkgResults[dir] and pkgTypes[dir]
+	// so Package re-runs analysis from retained source instead of a cache hit.
+	m.Invalidate(dir)
+	res, err := m.Package(dir)
+	if err != nil || res.Info == nil {
+		t.Fatalf("cold re-analyze: %v info=%v", err, res.Info)
+	}
+	if res == base {
+		t.Fatal("Invalidate did not drop the cached PackageResult; cold re-analysis did not run")
+	}
+
+	// Every bridged interp expression must reflect the live buffer: a `._` blank
+	// selector would mean the ephemeral buffer leaked into the retained facts; a
+	// `.Name` selector resolving to string confirms the live buffer.
+	var foundLive bool
+	for _, expr := range res.ExprMap {
+		goast.Inspect(expr, func(nd goast.Node) bool {
+			se, ok := nd.(*goast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if se.Sel.Name == "_" {
+				t.Fatalf("cold re-analysis bridged a blank `._` selector; ephemeral buffer leaked")
+			}
+			if se.Sel.Name == "Name" {
+				if tv, ok := res.Info.Types[se]; ok && tv.Type != nil && tv.Type.String() == "string" {
+					foundLive = true
+				}
+			}
+			return true
+		})
+	}
+	if !foundLive {
+		t.Fatal("cold re-analysis missing a resolved live `user.Name` selector; facts do not reflect the live buffer")
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 // repairResult is the buffer completion analyzes, plus what was done to it.
 type repairResult struct {
 	src    []byte         // patched bytes (== live buffer when patch == "")
-	patch  string         // inserted at off: "", "_", "/>", "\"/>", "}\"/>"...
+	patch  string         // inserted at off (see completionPatches): "", "_", "/>", "\"/>", "\"\"/>", "}/>"
 	parsed *gsxast.File   // parse of src (nil only when unrepairable)
 	fset   *token.FileSet // resolves parsed's positions
 }
