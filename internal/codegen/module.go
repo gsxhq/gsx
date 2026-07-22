@@ -1289,6 +1289,27 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 		return nil, err
 	}
+	// Retention policy (P3, perf-hunt #2): this result is about to be cached in
+	// m.pkgResults and held for the life of the LSP session. checkSkeletonPackage
+	// populates Info.Scopes with one *types.Scope per func/block/if/for/switch,
+	// but the only retained-package consumer (importQualifierCandidates, via
+	// componentDeclPackage's ephemeral-then-retained fallback) reads only the
+	// *ast.File-keyed entries — prune to that subset before caching.
+	//
+	// MEASURED: this frees only the Info.Scopes index entries themselves (~1 MB
+	// on one-learning ui/), not the *types.Scope objects they point to — those
+	// remain fully reachable regardless, via res.Types.Scope()'s parent/children
+	// tree (go/types.NewScope unconditionally links every scope into that tree,
+	// independent of whether a Checker's Info records it — see scope.go). Types
+	// is retained for unrelated reasons (hover's qualifier, import resolution),
+	// so the ~96 MB the perf-hunt report attributed to "Info.Scopes" was actually
+	// pinned by Types all along; this policy narrows the supported/observable
+	// surface (and the small index overhead) without claiming a heap win it
+	// cannot deliver. See perf-hunt-2-report.md "P3 pass" for the measurement.
+	//
+	// AnalyzeEphemeral does NOT call this: its result is never cached, and the
+	// Go-completion scope walk (innermostScopeAt et al.) needs the full index.
+	retainFileScopesOnly(a.info)
 	res := &PackageResult{
 		Files:       map[string][]byte{},
 		GSXFset:     a.gsxFset,

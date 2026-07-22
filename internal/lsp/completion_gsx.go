@@ -434,6 +434,14 @@ func importQualifierItems(pkg *Package, text string, start, end int, enc encodin
 // blind to aliases — `import myui "example.com/ui"` would resolve as "ui",
 // never "myui".
 //
+// A RETAINED package (s.pkgs[dir], codegen's Package result) carries only the
+// *ast.File-keyed entries of Info.Scopes — codegen's retainFileScopesOnly
+// prunes every func/block/if/for/switch scope before caching it, since this
+// is the only retained-package reader of Info.Scopes. That is exactly the
+// subset fileScopeSet needs, so this walk is unaffected; an EPHEMERAL package
+// (AnalyzeEphemeral, the common case reaching this function) keeps every
+// scope, used in full by the Go-completion scope walk elsewhere.
+//
 // When pkg.Info is nil (a shell / type-error package with no scope info to
 // walk) this falls back to pkg.Types.Imports(), which cannot see aliases —
 // a documented best-effort degradation; the alternative is offering nothing

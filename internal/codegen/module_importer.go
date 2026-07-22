@@ -72,6 +72,40 @@ func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.
 	return pkg, info, errs
 }
 
+// retainFileScopesOnly prunes info.Scopes down to its *ast.File-keyed entries,
+// discarding every func/block/if/for/switch scope go/types recorded during
+// the check. Call this ONLY on a PackageResult.Info that is about to be
+// cached in Module.pkgResults (Package's retained result) — never on an
+// AnalyzeEphemeral result, which the LSP's Go-completion scope walk
+// (internal/lsp/completion_go.go innermostScopeAt/innermostScopeAtAuthored)
+// needs in full.
+//
+// The only retained-package consumer of Info.Scopes is
+// internal/lsp/completion_gsx.go's importQualifierCandidates, reached through
+// componentDeclPackage's ephemeral-then-retained fallback (a shell ephemeral
+// analysis + a `<qualifier.` cursor + an aliased import — narrow but real).
+// It reads exactly the file scopes via fileScopeSet (filters Info.Scopes for
+// *ast.File keys), so pruning to that subset changes nothing observable while
+// dropping the vast majority of the map's ENTRIES: a package has one scope
+// per func/block/if/for/switch (thousands, in a large package) but only one
+// scope per FILE (a handful).
+//
+// This does NOT free the pruned *types.Scope objects themselves — they stay
+// alive via the retained *types.Package's own scope tree regardless (see the
+// MEASURED note at this function's one call site, module.go's Package). Only
+// the map's own entries (~1 MB on one-learning ui/) are reclaimed. See
+// .superpowers/sdd/perf-hunt-2-report.md "P3 pass" for the measurement.
+func retainFileScopesOnly(info *types.Info) {
+	if info == nil {
+		return
+	}
+	for node := range info.Scopes {
+		if _, ok := node.(*goast.File); !ok {
+			delete(info.Scopes, node)
+		}
+	}
+}
+
 // moduleImporter owns one coherent shipping declaration universe for every
 // authoritative module-local package. GSX directories are rebuilt from shipping
 // skeletons; Go-only directories are rebuilt from the retained compiled syntax

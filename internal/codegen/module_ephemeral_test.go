@@ -211,3 +211,48 @@ func TestAnalyzeEphemeralDoesNotDirty(t *testing.T) {
 		t.Fatalf("ephemeral analysis dirtied %v; must leave dirty tracking untouched", got)
 	}
 }
+
+// TestPackageRetainsFileScopesOnly pins the P3 retention policy (perf-hunt
+// #2): a cached Package() result's Info.Scopes must contain ONLY *ast.File
+// keys (retainFileScopesOnly, called before m.pkgResults[dir] is populated) —
+// exactly the subset internal/lsp/completion_gsx.go's importQualifierCandidates
+// needs via fileScopeSet, and the only retained-package reader of Scopes. An
+// AnalyzeEphemeral result, never cached and consumed by the Go-completion
+// scope walk (innermostScopeAt/innermostScopeAtAuthored), must keep every
+// scope go/types recorded (func/block scopes included).
+func TestPackageRetainsFileScopesOnly(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	src := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	m.SetOverride(pagePath, src)
+
+	res, err := m.Package(dir)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+	if res.Info == nil || len(res.Info.Scopes) == 0 {
+		t.Fatalf("Package result Info.Scopes empty; want file scopes retained (Info=%v)", res.Info)
+	}
+	for node := range res.Info.Scopes {
+		if _, ok := node.(*goast.File); !ok {
+			t.Fatalf("Package result Info.Scopes has a non-file entry %T; want only *ast.File keys after retainFileScopesOnly", node)
+		}
+	}
+
+	eph, err := m.AnalyzeEphemeral(dir, pagePath, src)
+	if err != nil {
+		t.Fatalf("AnalyzeEphemeral: %v", err)
+	}
+	if eph.Info == nil {
+		t.Fatal("AnalyzeEphemeral result Info is nil")
+	}
+	var sawNonFileScope bool
+	for node := range eph.Info.Scopes {
+		if _, ok := node.(*goast.File); !ok {
+			sawNonFileScope = true
+			break
+		}
+	}
+	if !sawNonFileScope {
+		t.Fatal("AnalyzeEphemeral result Info.Scopes has no func/block scopes; the Go-completion scope walk needs the full chain")
+	}
+}
