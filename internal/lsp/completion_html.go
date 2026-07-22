@@ -52,7 +52,16 @@ func htmlTagItems(prefixCapitalized bool, text string, start, end int, enc encod
 // bridge: presence exclusion reads only el.Attrs' names, which are a pure parse
 // fact of the same bytes — no codegen semantics required — so this path works
 // even when analysis is a shell.
-func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, text string, start, end int, enc encoding) []CompletionItem {
+//
+// tagName == "" (no dataset tag matches) yields tag-specific attributes as an
+// empty contribution, so the candidate set collapses to GlobalAttributes (plus
+// hx-* when htmxEnabled) — the "globals only" shape componentAttrItems reuses
+// for a component's forwarded-attrs catch-all, where no concrete receiving
+// element is known. tier is threaded into every item's SortText so callers can
+// rank this list against sibling candidates: tierContext for the direct HTML
+// path, tierSecondary for the forwarded-globals path so real component params
+// sort first.
+func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, tier int, text string, start, end int, enc encoding) []CompletionItem {
 	// typed is the attribute-name token the cursor sits on. When a present
 	// attribute's lowercase name exact-matches it, that attribute must stay
 	// offered rather than be excluded as "already present" — the cursor is
@@ -93,12 +102,12 @@ func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, text st
 		seen[lower] = true
 		if attr.Boolean() || gsx.IsBooleanAttr(attr.Name) {
 			// Presence-only: insert the bare name.
-			items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name, ciKindField, markdownDoc(attr.Doc)))
+			items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name, ciKindField, tier, markdownDoc(attr.Doc)))
 			continue
 		}
 		// Value attribute: insert `name=""`, but keep FilterText = name so the
 		// client matches against the typed name, not the `=""` suffix.
-		items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name+`=""`, ciKindField, markdownDoc(attr.Doc)))
+		items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name+`=""`, ciKindField, tier, markdownDoc(attr.Doc)))
 	}
 	return items
 }
@@ -163,12 +172,12 @@ func valueSetFor(tagName, attrName string) string {
 // user's typed prefix against the name, not the `=""` insertion. newText == the
 // name for a boolean attribute, in which case FilterText is left unset (the
 // client falls back to the label).
-func htmlAttrItem(text string, start, end int, enc encoding, name, newText string, kind int, doc *MarkupContent) CompletionItem {
+func htmlAttrItem(text string, start, end int, enc encoding, name, newText string, kind int, tier int, doc *MarkupContent) CompletionItem {
 	item := CompletionItem{
 		Label:         name,
 		Kind:          kind,
 		Documentation: doc,
-		SortText:      fmt.Sprintf("%02d%s", tierContext, name),
+		SortText:      fmt.Sprintf("%02d%s", tier, name),
 		TextEdit: &TextEdit{
 			Range:   rangeForSpan(text, start, end, enc),
 			NewText: newText,

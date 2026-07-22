@@ -88,7 +88,7 @@ func TestHTMLTagItems(t *testing.T) {
 // attributes remain offered.
 func TestHTMLAttrItemsExcludesPresent(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div class=\"x\"/>\n}\n", "div")
-	items := htmlAttrItems(el, "div", false, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
 	labels := labelSet(items)
 	if labels["class"] {
 		t.Errorf("attr list still offers already-present `class`: %v", labels)
@@ -111,7 +111,7 @@ func TestHTMLAttrItemsCursorOnPresentAttrStaysOffered(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div class=\"x\" id=\"y\"/>\n}\n", "div")
 
 	text := "class"
-	items := htmlAttrItems(el, "div", false, text, 0, len(text), encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, text, 0, len(text), encUTF8)
 	labels := labelSet(items)
 	if !labels["class"] {
 		t.Errorf("labels = %v, want `class` offered (cursor is on its own token)", labels)
@@ -125,7 +125,7 @@ func TestHTMLAttrItemsCursorOnPresentAttrStaysOffered(t *testing.T) {
 	}
 
 	for _, typed := range []string{"cl", ""} {
-		items := htmlAttrItems(el, "div", false, typed, 0, len(typed), encUTF8)
+		items := htmlAttrItems(el, "div", false, tierContext, typed, 0, len(typed), encUTF8)
 		labels := labelSet(items)
 		if labels["class"] {
 			t.Errorf("typed %q: labels = %v, want `class` excluded (not an exact match)", typed, labels)
@@ -140,7 +140,7 @@ func TestHTMLAttrItemsCursorOnPresentAttrStaysOffered(t *testing.T) {
 // dataset valueSet "v") inserts the bare name with no `=""` and no FilterText.
 func TestHTMLAttrItemsBooleanBareName(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div/>\n}\n", "div")
-	items := htmlAttrItems(el, "div", false, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
 	hidden := itemByLabel(items, "hidden")
 	if hidden == nil {
 		t.Fatal("attr list missing boolean `hidden`")
@@ -158,7 +158,7 @@ func TestHTMLAttrItemsBooleanBareName(t *testing.T) {
 // the client keeps matching against the typed name, not the `=""` suffix.
 func TestHTMLAttrItemsValueInsertsEquals(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div/>\n}\n", "div")
-	items := htmlAttrItems(el, "div", false, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
 	class := itemByLabel(items, "class")
 	if class == nil {
 		t.Fatal("attr list missing value attr `class`")
@@ -175,7 +175,7 @@ func TestHTMLAttrItemsValueInsertsEquals(t *testing.T) {
 // <input> is an enumerated (non-boolean) attribute, so it inserts `type=""`.
 func TestHTMLAttrItemsInputType(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<input/>\n}\n", "input")
-	items := htmlAttrItems(el, "input", false, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "input", false, tierContext, "", 0, 0, encUTF8)
 	typ := itemByLabel(items, "type")
 	if typ == nil {
 		t.Fatal("input attr list missing `type`")
@@ -190,12 +190,12 @@ func TestHTMLAttrItemsInputType(t *testing.T) {
 func TestHTMLAttrItemsHTMXGated(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div/>\n}\n", "div")
 
-	off := htmlAttrItems(el, "div", false, "", 0, 0, encUTF8)
+	off := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
 	if labelSet(off)["hx-get"] {
 		t.Errorf("hx-get offered with htmx disabled")
 	}
 
-	on := htmlAttrItems(el, "div", true, "", 0, 0, encUTF8)
+	on := htmlAttrItems(el, "div", true, tierContext, "", 0, 0, encUTF8)
 	hxGet := itemByLabel(on, "hx-get")
 	if hxGet == nil {
 		t.Fatalf("hx-get NOT offered with htmx enabled")

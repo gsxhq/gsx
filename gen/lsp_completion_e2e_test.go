@@ -968,6 +968,76 @@ func TestComponentAttrCompletionE2E(t *testing.T) {
 	})
 }
 
+// TestComponentAttrForwardedGlobalsE2E drives the new forwarded-attrs-globals
+// rule end to end: a component whose signature declares the reserved "attrs"
+// catch-all forwards arbitrary attributes to whatever element it renders, so
+// an attr-name cursor on its call site now also offers the HTML GLOBAL
+// attribute set (in addition to any named params) — icon.Bell's real shape,
+// `func(attrs ...gsx.Attr) gsx.Node`, is a component VALUE (a plain package-
+// scope Go func, no `component`-keyword decl) in a sibling package, so this
+// also exercises the componentValueNameItems/tag-callable-value resolution
+// path, not just a `component`-keyword decl. A sibling component with no
+// attrs catch-all must NOT offer the HTML globals — an unknown attribute
+// there would be rejected by the planner.
+func TestComponentAttrForwardedGlobalsE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	labelsOf := func(items []lsp.CompletionItem) map[string]bool {
+		m := map[string]bool{}
+		for _, it := range items {
+			m[it.Label] = true
+		}
+		return m
+	}
+	itemOf := func(items []lsp.CompletionItem, label string) *lsp.CompletionItem {
+		for i := range items {
+			if items[i].Label == label {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+	iconFile := "package icon\n\nimport \"github.com/gsxhq/gsx\"\n\nfunc Bell(attrs ...gsx.Attr) gsx.Node {\n\treturn nil\n}\n"
+
+	t.Run("value-component with attrs catch-all offers HTML globals", func(t *testing.T) {
+		source := "package page\n\nimport \"example.com/app/icon\"\n\ncomponent Home() {\n\t<icon.Bell />\n}\n"
+		cursor := strings.Index(source, "<icon.Bell ") + len("<icon.Bell ")
+		items := runHTMLCompletionE2E(t, map[string]string{"icon/icon.go": iconFile}, source, cursor)
+		labels := labelsOf(items)
+		if !labels["hidden"] {
+			t.Fatalf("forwarded-globals completion missing boolean global `hidden`; labels=%v", labels)
+		}
+		if !labels["class"] {
+			t.Fatalf("forwarded-globals completion missing value global `class`; labels=%v", labels)
+		}
+		if hidden := itemOf(items, "hidden"); hidden == nil || hidden.TextEdit == nil || hidden.TextEdit.NewText != "hidden" {
+			t.Errorf("`hidden` must insert the bare name; got %+v", hidden)
+		}
+		if class := itemOf(items, "class"); class == nil || class.TextEdit == nil || class.TextEdit.NewText != `class=""` {
+			t.Errorf("`class` must insert class=\"\"; got %+v", class)
+		}
+		if labels["attrs"] {
+			t.Errorf("forwarded-globals completion must not offer the reserved `attrs` name itself; labels=%v", labels)
+		}
+	})
+
+	t.Run("component-keyword decl without attrs catch-all offers no HTML globals", func(t *testing.T) {
+		source := "package page\n\ncomponent Plain(title string) {\n\t<div>{ title }</div>\n}\n\ncomponent Home() {\n\t<Plain />\n}\n"
+		cursor := strings.Index(source, "<Plain ") + len("<Plain ")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		labels := labelsOf(items)
+		if !labels["title"] {
+			t.Fatalf("component-attr completion missing named param `title`; labels=%v", labels)
+		}
+		for _, global := range []string{"class", "hidden", "id", "style"} {
+			if labels[global] {
+				t.Errorf("component without attrs catch-all must NOT offer HTML global %q; labels=%v", global, labels)
+			}
+		}
+	})
+}
+
 // runHTMLCompletionE2E writes a temp module (with the given extra files, e.g. a
 // gsx.toml), opens gsxPath's source as a buffer, sends one completion at cursor,
 // and returns the response items. Mirrors the other e2e runners but parameterizes

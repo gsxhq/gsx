@@ -542,8 +542,13 @@ func (s *Server) attrNameCompletion(cc completionContext, path, text string, off
 	// dash, so this is a no-op for the component path.
 	start, end := completionTokenSpan(text, off, true)
 
+	// Computed up front: both branches below need it — the component branch
+	// to gate the forwarded-attrs-catch-all's hx-* candidates the same way
+	// the plain HTML branch gates its own.
+	htmxEnabled := slices.Contains(s.dirURLPresets(dir, eph), "htmx")
+
 	if ephEl != nil && ephEl.IsComponent {
-		items := componentAttrItems(eph, ephEl, text, start, end, s.enc)
+		items := componentAttrItems(eph, ephEl, htmxEnabled, text, start, end, s.enc)
 		if len(items) == 0 {
 			return emptyCompletion()
 		}
@@ -553,8 +558,7 @@ func (s *Server) attrNameCompletion(cc completionContext, path, text string, off
 	// HTML element (confirmed non-component, or analysis is a shell): offer HTML
 	// attribute names computed purely from the classification element — no codegen
 	// facts needed, so this works even when the ephemeral analysis failed.
-	htmxEnabled := slices.Contains(s.dirURLPresets(dir, eph), "htmx")
-	items := htmlAttrItems(cc.element, cc.element.Tag, htmxEnabled, text, start, end, s.enc)
+	items := htmlAttrItems(cc.element, cc.element.Tag, htmxEnabled, tierContext, text, start, end, s.enc)
 	if len(items) == 0 {
 		return emptyCompletion()
 	}
@@ -668,9 +672,29 @@ func reservedComponentAttrName(name string) bool {
 // qualifierFor, tier = tierContext. newText is the plain name — no `={}`
 // snippet in v1, per the task-13 spec.
 //
+// When the signature also declares an "attrs" catch-all parameter
+// (signatureHasAttrsCatchAll — component_signature.go's roleAttrs, e.g.
+// `func(attrs ...gsx.Attr) gsx.Node`), the component forwards arbitrary
+// attributes to whatever element it ultimately renders, so the candidate set
+// is extended with the HTML GLOBAL attribute set (htmldata.GlobalAttributes,
+// plus hx-* when htmxEnabled) via htmlAttrItems — the SAME boolean/insert/
+// present-attr/own-token logic the plain-HTML attrTagName path uses, single-
+// sourced rather than reimplemented here. There is no per-tag contribution:
+// which concrete element receives the forwarded bag is unknowable from the
+// call site (tagName ""), so only globals are offered — see htmlAttrItems'
+// doc for how an unmatched tagName collapses to globals-only. Forwarded items
+// sort at tierSecondary so the component's own named params (tierContext)
+// lead; a name collision with an already-offered named param (e.g. a
+// component that happens to declare a "class" prop) is skipped so the same
+// label never appears twice with two different insert behaviors.
+//
+// No signature-with-attrs → unchanged: named params only. An unknown attr
+// would be rejected by the planner at build time, so offering HTML attrs
+// there would suggest invalid input.
+//
 // No fact for el (the call was never planned — a broken tag, an unresolved
 // target, ...) returns nil: fail-soft, never a guess.
-func componentAttrItems(pkg *Package, el *gsxast.Element, text string, start, end int, enc encoding) []CompletionItem {
+func componentAttrItems(pkg *Package, el *gsxast.Element, htmxEnabled bool, text string, start, end int, enc encoding) []CompletionItem {
 	if pkg == nil || el == nil {
 		return nil
 	}
@@ -714,7 +738,36 @@ func componentAttrItems(pkg *Package, el *gsxast.Element, text string, start, en
 		detail := types.TypeString(p.Type(), qf)
 		items = append(items, newCompletionItem(text, start, end, enc, name, name, ciKindField, tierContext, detail, nil))
 	}
+
+	if signatureHasAttrsCatchAll(sig) {
+		named := offeredNames(items)
+		for _, g := range htmlAttrItems(el, "", htmxEnabled, tierSecondary, text, start, end, enc) {
+			if named[g.Label] {
+				continue
+			}
+			items = append(items, g)
+		}
+	}
 	return items
+}
+
+// signatureHasAttrsCatchAll reports whether sig declares a parameter named
+// "attrs" — codegen's reserved forwarded-attrs-bag role
+// (component_signature.go's roleAttrs). ComponentCalls only ever holds
+// successfully PLANNED calls, so any signature reaching componentAttrItems
+// already passed classifyAttrsParam's shape check (variadic `...gsx.Attr`,
+// or a non-variadic `[]gsx.Attr`/defined-slice-of-Attr parameter — codegen's
+// "underlying []gsx.Attr" structural rule); completion does not need to
+// re-verify the type, only detect the reserved name, exactly as
+// reservedComponentAttrName already treats "attrs" as reserved without
+// inspecting its type.
+func signatureHasAttrsCatchAll(sig *types.Signature) bool {
+	for param := range sig.Params().Variables() {
+		if param.Name() == "attrs" {
+			return true
+		}
+	}
+	return false
 }
 
 // attrNameSpanContains reports whether attr's own name span — [pos,
