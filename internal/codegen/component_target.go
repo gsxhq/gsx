@@ -18,6 +18,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
+	"github.com/gsxhq/gsx/internal/tagcallable"
 )
 
 type componentTargetProvenance uint8
@@ -459,16 +460,11 @@ func componentTargetShapeOf(expr goast.Expr) (componentTargetShape, bool) {
 	return shape, true
 }
 
+// targetCallableSignature delegates to tagcallable.Signature, the
+// single-sourced signature-unwrap rule shared with internal/lsp's mirrored
+// tag-value scan (see tagcallable's package doc).
 func targetCallableSignature(typ types.Type) *types.Signature {
-	if typ == nil {
-		return nil
-	}
-	unaliased := types.Unalias(typ)
-	if signature, ok := unaliased.(*types.Signature); ok {
-		return signature
-	}
-	signature, _ := unaliased.Underlying().(*types.Signature)
-	return signature
+	return tagcallable.Signature(typ)
 }
 
 func targetDeclaredReceiverIsInterface(fn *types.Func) bool {

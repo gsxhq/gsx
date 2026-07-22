@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/tagcallable"
 )
 
 // filterItems builds one CompletionItem per resolved filter candidate for a
@@ -148,14 +149,16 @@ func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
 // Both branches additionally scan for component VALUES — package-scope
 // vars/funcs (like `var X = named("x")` in a plain Go sibling package) that
 // are never a `component`-keyword decl and so never appear in ComponentDecls,
-// but are still a legal tag target: codegen's "callable universe" rule
-// (internal/codegen/component_target.go, harvestComponentTargetFacts) accepts
-// ANY package-scope types.Func or function-valued types.Var whose signature
-// has one result implementing gsx.Node and every parameter named — that is
-// the SAME predicate componentValueNameItems applies here, reimplemented as a
-// package-scope scan (there is no enumerable table for it; codegen only
-// probes a specific already-authored call site). Without this, a pure-Go
-// design-system package (icons, wrapped factories, ...) with zero
+// but are still a legal tag target: codegen's callable-universe shape — any
+// package-scope types.Func or function-valued types.Var whose signature has
+// one result assignable to gsx.Node, see internal/tagcallable's package doc —
+// is the SAME predicate componentValueNameItems applies here, reimplemented
+// as a package-scope scan (there is no enumerable table for it; codegen only
+// probes a specific already-authored call site, via
+// component_identity.go's componentResultType). componentValueNameItems
+// additionally requires every parameter named, a completion-only exclusion
+// layered on top — see tagCallableValueNames' doc for why. Without this scan,
+// a pure-Go design-system package (icons, wrapped factories, ...) with zero
 // `component`-keyword declarations completes to nothing at its tag/qualifier
 // cursor even though its values compile fine as tags.
 //
@@ -232,13 +235,29 @@ func componentValueNameItems(target *types.Package, skip map[string]bool, export
 // tagCallableValueNames returns target's package-scope identifiers — sorted,
 // minus skip — that satisfy codegen's callable-universe tag shape: a
 // types.Func or function-valued types.Var whose signature has one result
-// implementing gsx.Node and every parameter named (see
-// internal/codegen/component_target.go's harvestComponentTargetFacts, the
-// authoritative acceptance rule this mirrors). exportedOnly gates on
-// obj.Exported() — required when target is a DIFFERENT package than the one
-// completion is running in (Go visibility), and false for target's own
-// package (every package-scope identifier, exported or not, is a legal
-// same-package tag).
+// assignable to gsx.Node (single-sourced from internal/tagcallable — see its
+// package doc) AND every parameter named.
+//
+// The named-parameter half is NOT part of the shared tagcallable predicate:
+// it is a deliberate, conservative choice specific to offering completion
+// candidates, not a copy of some single codegen acceptance function. codegen
+// itself only requires named parameters at the point it plans how markup
+// attributes bind to a resolved call target — component_signature.go's
+// analyzeComponentSignature (the "component-parameter-name" check), reached
+// from component_positional_plan.go's operand planning
+// (planComponentPositionalCalls) — which runs on one already-authored,
+// already-resolved call site, never on a package-scope scan like this one.
+// An unnamed parameter could never receive a markup attribute that way, so
+// completion excludes it up front rather than offering a candidate codegen
+// would reject at the call site; but nothing stops a future codegen change
+// from accepting unnamed parameters through some other binding path this
+// scan does not know about, without this file needing to track it — hence
+// "deliberate choice", not "mirrored rule".
+//
+// exportedOnly gates on obj.Exported() — required when target is a DIFFERENT
+// package than the one completion is running in (Go visibility), and false
+// for target's own package (every package-scope identifier, exported or
+// not, is a legal same-package tag).
 //
 // gsxNodeInterface resolving to nil (target does not import gsx.Node at all,
 // directly or — for the tests' synthetic packages — because it has no
@@ -264,7 +283,7 @@ func tagCallableValueNames(target *types.Package, skip map[string]bool, exported
 		case *types.Func:
 			sig, _ = o.Type().(*types.Signature)
 		case *types.Var:
-			sig = callableSignature(o.Type())
+			sig = tagcallable.Signature(o.Type())
 		default:
 			continue
 		}
@@ -277,31 +296,14 @@ func tagCallableValueNames(target *types.Package, skip map[string]bool, exported
 	return names
 }
 
-// callableSignature returns typ's *types.Signature — unwrapping a defined
-// (named) function type's underlying type, mirroring
-// internal/codegen/component_target.go's targetCallableSignature exactly (the
-// same unwrap is needed for a `type Factory func(...) gsx.Node`-shaped
-// package var, not just a bare `func(...) gsx.Node` one) — or nil when typ is
-// not callable at all.
-func callableSignature(typ types.Type) *types.Signature {
-	if typ == nil {
-		return nil
-	}
-	unaliased := types.Unalias(typ)
-	if sig, ok := unaliased.(*types.Signature); ok {
-		return sig
-	}
-	sig, _ := unaliased.Underlying().(*types.Signature)
-	return sig
-}
-
 // isTagCallableSignature reports whether sig matches codegen's
-// callable-universe shape: exactly one result implementing the gsx.Node
-// interface, and every parameter named (an unnamed parameter can never be
-// bound to a markup attribute, so codegen never treats such a signature as
-// tag-callable either).
+// callable-universe shape — tagcallable.IsResult, single-sourced with
+// codegen's component_identity.go — AND every parameter is named. See
+// tagCallableValueNames' doc for why the named-parameter half stays a
+// completion-local, deliberately conservative addition rather than part of
+// the shared predicate.
 func isTagCallableSignature(sig *types.Signature, node *types.Interface) bool {
-	if sig.Results().Len() != 1 || !types.Implements(sig.Results().At(0).Type(), node) {
+	if !tagcallable.IsResult(sig, node) {
 		return false
 	}
 	for param := range sig.Params().Variables() {
@@ -321,6 +323,21 @@ func isTagCallableSignature(sig *types.Signature, node *types.Interface) bool {
 // package, per the go/types identity rule that every *types.Package in one
 // checked build shares one canonical object per imported package). Returns
 // nil (fail-soft) when target does not import gsx at all.
+//
+// This duplicates a lookup codegen also performs — component_signature.go's
+// runtimeContractFromAnalysisPackage is the authority there, and its
+// runtimeContract.node is exactly this same gsx.Node identity — but that
+// helper is not reachable from here without either a layering violation
+// (internal/lsp importing internal/codegen) or pulling in invariants this
+// scan does not need: runtimeContractFromAnalysisPackage resolves Node,
+// Attr, AND Attrs together for one fixed "the analysis package" and errors
+// if any is missing or inconsistent, whereas this needs only Node, resolved
+// against an arbitrary imported target package that is never itself "the
+// analysis package". Folding the two would mean either exporting a
+// narrower, Node-only codegen entry point (not part of this pass; a
+// follow-up if the duplication proves troublesome) or accepting the
+// unrelated Attr/Attrs requirement here. Kept local for now, with codegen's
+// runtimeContract as the documented authority for the identity this mirrors.
 func gsxNodeInterface(target *types.Package) *types.Interface {
 	if target == nil {
 		return nil

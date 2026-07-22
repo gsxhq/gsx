@@ -125,6 +125,10 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 		// Rule 3 (tag) + Rule 4 (BoolAttr name): element-level.
 		if el, ok := n.(*gsxast.Element); ok {
 			if el.TagPos.IsValid() && spanContainsForCompletion(posOff(el.TagPos), len(el.Tag), off) {
+				// phantom is recorded here for classification symmetry with the
+				// other ctx*/phantom* pairs above (pipe stage, attr value); it is
+				// currently unread by tagCompletion, which serves the same
+				// candidate list whether or not the tag token is repair-injected.
 				tagCtx = &completionContext{kind: ctxTag, node: el, element: el, phantom: phantomTag}
 				if i := strings.Index(el.Tag, "."); i >= 0 && off > posOff(el.TagPos)+i {
 					tagCtx.qualifier = el.Tag[:i]
