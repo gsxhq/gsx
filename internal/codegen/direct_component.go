@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
-	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
@@ -35,6 +34,11 @@ type directComponentDeclaration struct {
 	variadic       bool
 }
 
+type helperGoView struct {
+	manifest *sourceview.Manifest
+	files    map[string]sourceview.FileSnapshot
+}
+
 // directComponentDeclarationFor decides whether a declaration can forward its
 // public factory arguments exactly to a generated body helper. Target locality
 // and GSX provenance are semantic call-site facts and are checked separately by
@@ -43,41 +47,35 @@ func directComponentDeclarationFor(component *gsxast.Component) (directComponent
 	if component == nil {
 		return directComponentDeclaration{}, false, fmt.Errorf("codegen: nil direct component declaration")
 	}
+	declaration, err := componentDeclarationFor(component)
+	if err != nil {
+		return directComponentDeclaration{}, false, err
+	}
+	return directComponentDeclarationFromParsed(component, declaration)
+}
+
+func directComponentDeclarationFromParsed(component *gsxast.Component, parsed componentDeclaration) (directComponentDeclaration, bool, error) {
+	if component == nil {
+		return directComponentDeclaration{}, false, fmt.Errorf("codegen: nil direct component declaration")
+	}
 	if component.Recv != "" {
 		return directComponentDeclaration{}, false, nil
 	}
-
-	typeParams, _, err := parseTypeParamFieldList(component.TypeParams)
-	if err != nil {
-		return directComponentDeclaration{}, false, err
-	}
 	declaration := directComponentDeclaration{}
-	if typeParams != nil {
-		for _, field := range typeParams.List {
-			if len(field.Names) == 0 {
-				return directComponentDeclaration{}, false, nil
-			}
-			for _, name := range field.Names {
-				if name == nil || name.Name == "" || name.Name == "_" || name.Name == "ctx" || strings.HasPrefix(name.Name, reservedPrefix) {
-					return directComponentDeclaration{}, false, nil
-				}
-				declaration.typeParamNames = append(declaration.typeParamNames, name.Name)
-			}
+	for _, name := range parsed.typeParamNames {
+		if name == "" || name == "_" || name == "ctx" || strings.HasPrefix(name, reservedPrefix) {
+			return directComponentDeclaration{}, false, nil
 		}
+		declaration.typeParamNames = append(declaration.typeParamNames, name)
 	}
-
-	params, err := parseComponentParamDecls(component.Params)
-	if err != nil {
-		return directComponentDeclaration{}, false, err
-	}
-	for _, parameter := range params {
+	for _, parameter := range parsed.params {
 		if parameter.name == "" || parameter.name == "_" {
 			return directComponentDeclaration{}, false, nil
 		}
 		declaration.paramNames = append(declaration.paramNames, parameter.name)
 	}
-	if len(params) != 0 {
-		declaration.variadic = params[len(params)-1].variadic
+	if len(parsed.params) != 0 {
+		declaration.variadic = parsed.params[len(parsed.params)-1].variadic
 	}
 	return declaration, true, nil
 }
@@ -107,13 +105,12 @@ func collectPackageLevelGoNames(names map[string]bool, file *goast.File) {
 	}
 }
 
-// directHelperOccupiedNamesFromView collects the complete package declaration
-// surface relevant to generated helper names from one immutable source view.
-// Unlike packageDeclNames it includes every Go build variant, same-package
-// test, and orphaned .x.go. Only exact outputs owned by active GSX inputs are
-// excluded.
+// directHelperOccupiedNamesFromView adds the build-oblivious Go declaration
+// surface to names collected from the already-built full GSX skeletons. It
+// includes inactive variants, same-package tests, and orphaned .x.go files.
+// Only exact outputs owned by active GSX inputs are excluded.
 func directHelperOccupiedNamesFromView(packageName string, files map[string]*gsxast.File, goFiles map[string]sourceview.FileSnapshot) (map[string]bool, error) {
-	names := packageDeclNamesFromFiles(nil, files)
+	names := map[string]bool{}
 	owned := pairedTargetOutputs(files)
 	paths := make([]string, 0, len(goFiles))
 	for path := range goFiles {
@@ -150,11 +147,21 @@ func (m *Module) directHelperGoSourceView(dir string) (map[string]sourceview.Fil
 		return map[string]sourceview.FileSnapshot{}, nil
 	}
 	if m.opts.Bundle == nil {
-		manifest, err := m.buildSourceInventoryManifest()
-		if err != nil {
-			return nil, err
+		m.mu.Lock()
+		manifest := m.helperGoSourceManifest
+		cached := m.directHelperGoViews[dir]
+		m.mu.Unlock()
+		if manifest == nil {
+			return nil, fmt.Errorf("codegen: authoritative helper Go source view is unavailable")
 		}
-		return manifest.HelperGoFiles(dir), nil
+		if cached.manifest == manifest {
+			return cached.files, nil
+		}
+		files := manifest.HelperGoFiles(dir)
+		m.mu.Lock()
+		m.directHelperGoViews[dir] = helperGoView{manifest: manifest, files: files}
+		m.mu.Unlock()
+		return files, nil
 	}
 	m.mu.Lock()
 	overrides := make(map[string][]byte)
@@ -203,18 +210,34 @@ func (m *Module) directHelperGoSourceView(dir string) (map[string]sourceview.Fil
 	return view, nil
 }
 
-// assignDirectComponentDeclarations attaches forwarding metadata only after
-// component family membership has been finalized. Families are allocated in
-// logical-key order, making helper names independent of map and filesystem
-// iteration order.
-func assignDirectComponentDeclarationsFromView(packageName string, files map[string]*gsxast.File, plan componentTargetPlan, lexicalNames map[string]bool, goFiles map[string]sourceview.FileSnapshot) (componentTargetPlan, error) {
-	occupied, err := directHelperOccupiedNamesFromView(packageName, files, goFiles)
-	if err != nil {
-		return componentTargetPlan{}, err
+// prepareDirectComponentFamilies attaches only the semantic family identity
+// needed by target discovery. Forwarding metadata comes later from the exact
+// declarations already parsed by the ordinary full skeleton build.
+func prepareDirectComponentFamilies(files map[string]*gsxast.File, plan componentTargetPlan) componentTargetPlan {
+	for _, path := range sortedGsxFilePaths(files) {
+		for _, authored := range files[path].Decls {
+			component, ok := authored.(*gsxast.Component)
+			if !ok || component.Recv != "" {
+				continue
+			}
+			emission, ok := plan.emission(component)
+			if !ok {
+				continue
+			}
+			declaration := directComponentDeclaration{family: directComponentFamily{logicalKey: plan.logicalKey(component)}}
+			emission.direct = &declaration
+			plan.emissions[component] = emission
+		}
 	}
-	for name := range lexicalNames {
-		occupied[name] = true
-	}
+	plan.directPrepared = true
+	return plan
+}
+
+// finalizePreparedDirectComponentDeclarations replaces preparation markers
+// with forwarding metadata derived from the declarations parsed by the full
+// skeleton build. A variant family is direct only when every member is valid
+// and forwardable.
+func finalizePreparedDirectComponentDeclarations(files map[string]*gsxast.File, plan componentTargetPlan) componentTargetPlan {
 	type member struct {
 		component   *gsxast.Component
 		declaration directComponentDeclaration
@@ -224,48 +247,38 @@ func assignDirectComponentDeclarationsFromView(packageName string, files map[str
 	for _, path := range sortedGsxFilePaths(files) {
 		for _, authored := range files[path].Decls {
 			component, ok := authored.(*gsxast.Component)
-			if !ok {
+			if !ok || component.Recv != "" {
 				continue
 			}
 			key := plan.logicalKey(component)
-			declaration, eligible, declarationErr := directComponentDeclarationFor(component)
-			if declarationErr != nil {
-				// Signature parsing and its positioned diagnostic remain owned by the
-				// existing skeleton/emission path. Direct rendering is an optional
-				// lowering and must fail closed without changing that precedence.
+			emission, exists := plan.emission(component)
+			if !exists || !emission.declarationParsed {
 				rejected[key] = true
 				continue
 			}
-			if !eligible {
+			direct, eligible, err := directComponentDeclarationFromParsed(component, emission.parsedDeclaration)
+			if err != nil || !eligible {
 				rejected[key] = true
 				continue
 			}
-			byKey[key] = append(byKey[key], member{component: component, declaration: declaration})
+			byKey[key] = append(byKey[key], member{component: component, declaration: direct})
 		}
 	}
-	keys := make([]string, 0, len(byKey))
-	for key := range byKey {
-		if !rejected[key] {
-			keys = append(keys, key)
+	for component, emission := range plan.emissions {
+		if emission.direct != nil {
+			emission.direct = nil
+			plan.emissions[component] = emission
 		}
 	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		members := byKey[key]
-		if len(members) == 0 {
+	for key, members := range byKey {
+		if rejected[key] {
 			continue
 		}
-		base := "_gsxrender" + members[0].component.Name
-		helper := base
-		for suffix := 1; occupied[helper]; suffix++ {
-			helper = base + strconv.Itoa(suffix)
-		}
-		occupied[helper] = true
-		family := directComponentFamily{logicalKey: key, helperName: helper}
+		family := directComponentFamily{logicalKey: key}
 		for _, member := range members {
 			emission, ok := plan.emission(member.component)
 			if !ok {
-				return componentTargetPlan{}, fmt.Errorf("codegen: direct component %s is absent from the finalized plan", member.component.Name)
+				continue
 			}
 			declaration := member.declaration
 			declaration.family = family
@@ -273,52 +286,134 @@ func assignDirectComponentDeclarationsFromView(packageName string, files map[str
 			plan.emissions[member.component] = emission
 		}
 	}
+	return plan
+}
+
+// assignDirectComponentDeclarationsFromView allocates final helper names from
+// the ordinary full-skeleton lexical surface plus the build-oblivious Go view.
+// Families are allocated in logical-key order.
+func assignDirectComponentDeclarationsFromView(packageName string, files map[string]*gsxast.File, plan componentTargetPlan, lexicalNames map[string]bool, goFiles map[string]sourceview.FileSnapshot) (componentTargetPlan, error) {
+	if !plan.directPrepared {
+		plan = prepareDirectComponentFamilies(files, plan)
+	}
+	occupied, err := directHelperOccupiedNamesFromView(packageName, files, goFiles)
+	if err != nil {
+		return componentTargetPlan{}, err
+	}
+	for name := range lexicalNames {
+		occupied[name] = true
+	}
+	byKey := make(map[string][]*gsxast.Component)
+	for _, path := range sortedGsxFilePaths(files) {
+		for _, authored := range files[path].Decls {
+			component, ok := authored.(*gsxast.Component)
+			if !ok {
+				continue
+			}
+			emission, ok := plan.emission(component)
+			if !ok || emission.direct == nil {
+				continue
+			}
+			key := emission.direct.family.logicalKey
+			byKey[key] = append(byKey[key], component)
+		}
+	}
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		members := byKey[key]
+		if len(members) == 0 {
+			continue
+		}
+		base := "_gsxrender" + members[0].Name
+		helper := base
+		for suffix := 1; occupied[helper]; suffix++ {
+			helper = base + strconv.Itoa(suffix)
+		}
+		occupied[helper] = true
+		family := directComponentFamily{logicalKey: key, helperName: helper}
+		for _, component := range members {
+			emission, ok := plan.emission(component)
+			if !ok {
+				return componentTargetPlan{}, fmt.Errorf("codegen: direct component %s is absent from the finalized plan", component.Name)
+			}
+			declaration := *emission.direct
+			declaration.family = family
+			emission.direct = &declaration
+			plan.emissions[component] = emission
+		}
+	}
 	return plan, nil
 }
 
-func (m *Module) assignDirectComponentDeclarations(
-	dir, packageName string,
-	files map[string]*gsxast.File,
-	plan componentTargetPlan,
-	fset *token.FileSet,
-	importer types.Importer,
-) (componentTargetPlan, error) {
-	// Build the same exact component-signature files used by semantic analysis,
-	// then reserve every identifier and implicit default-import binding visible
-	// in those files. A direct helper is referenced from generated component
-	// bodies, so package-level uniqueness alone is insufficient: a caller type
-	// parameter, generic receiver binding, or file import can shadow it.
-	// This is a speculative optimization prepass, not the package's diagnostic
-	// authority. Build against an isolated bag so a declaration that ordinary
-	// generation can recover from does not suppress healthy sibling output or
-	// change diagnostic precedence. Discard every speculative diagnostic: the
-	// ordinary path owns all severities. This function deliberately receives no
-	// authoritative diagnostic bag, making speculative publication impossible.
-	prepassBag := diag.NewBag(fset)
-	signatureFiles, importPaths, err := buildComponentSignatureFiles(dir, files, plan, fset, prepassBag)
-	if err != nil || prepassBag.HasErrors() {
-		// Direct rendering is optional. A package on the unique-name fast path may
-		// contain a declaration ordinary generation diagnoses and recovers from. If
-		// its exact signature files cannot be constructed without an error, keep
-		// every call on the established Node path and leave diagnostic ownership to
-		// that ordinary path.
-		return plan, nil
-	}
-	lexicalNames, err := m.componentAnalysisOccupiedNames(signatureFiles, importer)
-	if err != nil {
-		// Name resolution is part of the same optional prepass. If exact lexical
-		// names cannot be constructed, fail closed to ordinary Node rendering.
-		return plan, nil
-	}
-	// The imported package identity participates in the same exact-target graph
-	// as signature checking, so changes to an implicit default-import name
-	// invalidate both warm semantic state and the persistent source projection.
-	m.recordTargetImports(dir, importPaths)
+func (m *Module) allocateDirectComponentHelpers(dir, packageName string, files map[string]*gsxast.File, plan componentTargetPlan, lexicalNames map[string]bool) (componentTargetPlan, error) {
 	goFiles, err := m.directHelperGoSourceView(dir)
 	if err != nil {
 		return componentTargetPlan{}, err
 	}
 	return assignDirectComponentDeclarationsFromView(packageName, files, plan, lexicalNames, goFiles)
+}
+
+func hasPreparedDirectComponents(plan componentTargetPlan) bool {
+	for _, emission := range plan.emissions {
+		if emission.direct != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLocalPreparedDirectTarget(facts map[callSiteID]componentTargetFact, analysisPackage *types.Package, plan componentTargetPlan) bool {
+	if analysisPackage == nil {
+		return false
+	}
+	eligible := make(map[string]bool)
+	for _, emission := range plan.emissions {
+		if emission.direct != nil {
+			eligible[emission.direct.family.logicalKey] = true
+		}
+	}
+	for _, fact := range facts {
+		identity := fact.origin
+		if identity == nil {
+			identity = fact.object
+		}
+		if fact.declaration.direct != nil && eligible[fact.declaration.direct.logicalKey] && identity != nil && identity.Pkg() != nil && identity.Pkg().Path() == analysisPackage.Path() {
+			return true
+		}
+	}
+	return false
+}
+
+// refreshLocalDirectTargetFacts replaces the preparation-time family marker
+// copied into root target facts with the final late-allocated helper identity.
+// Imported facts already carry names allocated by their dependency analysis.
+func refreshLocalDirectTargetFacts(facts map[callSiteID]componentTargetFact, analysisPackage *types.Package, plan componentTargetPlan) {
+	if analysisPackage == nil {
+		return
+	}
+	byKey := make(map[string]*directComponentFamily)
+	for _, emission := range plan.emissions {
+		if emission.direct == nil || emission.direct.family.helperName == "" {
+			continue
+		}
+		family := emission.direct.family
+		byKey[family.logicalKey] = &family
+	}
+	for site, fact := range facts {
+		identity := fact.origin
+		if identity == nil {
+			identity = fact.object
+		}
+		if identity == nil || identity.Pkg() == nil || identity.Pkg().Path() != analysisPackage.Path() || fact.declaration.direct == nil {
+			continue
+		}
+		fact.declaration.direct = byKey[fact.declaration.direct.logicalKey]
+		facts[site] = fact
+	}
 }
 
 // directComponentTarget admits only a same-package package function whose

@@ -357,7 +357,11 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 				return "", nil, nil, nil, nil, fmt.Errorf("codegen: component %s is absent from the package component plan", c.Name)
 			}
 		}
-		if err := emitComponentSkeleton(compBuf, c, table, usedFilters, fset, ctrlOff, &gwMarkups, bag, mode, emission); err != nil {
+		declaration, err := componentDeclarationFor(c)
+		if err != nil {
+			continue
+		}
+		if err := emitComponentSkeleton(compBuf, c, declaration, table, usedFilters, fset, ctrlOff, &gwMarkups, bag, mode, emission); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
@@ -366,6 +370,11 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 			return "", nil, nil, nil, nil, err
 		}
 		validComps = append(validComps, c)
+		if plan != nil {
+			emission.parsedDeclaration = declaration
+			emission.declarationParsed = true
+			plan.emissions[c] = emission
+		}
 	}
 	comps = validComps
 
@@ -829,29 +838,26 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature plus probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb skeletonWriter, c *gsxast.Component, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode, emission componentTargetEmission) error {
+func emitComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declaration componentDeclaration, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode, emission componentTargetEmission) error {
 	if !emission.splitBody {
 		if !emission.public {
 			return fmt.Errorf("codegen: unsplit component %s has no public skeleton declaration", c.Name)
 		}
-		return emitNamedComponentSkeleton(sb, c, c.Name, true, table, usedFilters, fset, ctrlOff, gw, bag, mode)
+		return emitNamedComponentSkeleton(sb, c, declaration, c.Name, true, table, usedFilters, fset, ctrlOff, gw, bag, mode)
 	}
 	if emission.bodyName == "" {
 		return fmt.Errorf("codegen: split component %s has no analysis body name", c.Name)
 	}
 	if emission.public {
-		if err := emitNamedComponentSkeleton(sb, c, c.Name, false, table, usedFilters, fset, ctrlOff, gw, bag, mode); err != nil {
+		if err := emitNamedComponentSkeleton(sb, c, declaration, c.Name, false, table, usedFilters, fset, ctrlOff, gw, bag, mode); err != nil {
 			return err
 		}
 	}
-	return emitNamedComponentSkeleton(sb, c, emission.bodyName, true, table, usedFilters, fset, ctrlOff, gw, bag, mode)
+	return emitNamedComponentSkeleton(sb, c, declaration, emission.bodyName, true, table, usedFilters, fset, ctrlOff, gw, bag, mode)
 }
 
-func emitNamedComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declarationName string, probeBody bool, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode) error {
-	declaration, err := componentDeclarationFor(c)
-	if err != nil {
-		return errSkipComponent
-	}
+func emitNamedComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declaration componentDeclaration, declarationName string, probeBody bool, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode) error {
+	var err error
 	var recvVar, recvTypeName string
 	if c.Recv != "" {
 		recvVar, _, recvTypeName, err = parseRecv(c.Recv)

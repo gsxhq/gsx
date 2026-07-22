@@ -126,10 +126,14 @@ func (m *Module) loadedPackageName(importPath string) (string, bool) {
 // otherwise-undefined `_gsxtarget...` use therefore forces allocation of a
 // different private name and remains an ordinary positioned Go error.
 func (m *Module) componentAnalysisOccupiedNames(files []*goast.File, importer types.Importer) (map[string]bool, error) {
+	return m.componentAnalysisOccupiedNamesMatching(files, importer, nil)
+}
+
+func (m *Module) componentAnalysisOccupiedNamesMatching(files []*goast.File, importer types.Importer, include func(string) bool) (map[string]bool, error) {
 	occupied := map[string]bool{}
 	for _, file := range files {
 		goast.Inspect(file, func(node goast.Node) bool {
-			if identifier, ok := node.(*goast.Ident); ok {
+			if identifier, ok := node.(*goast.Ident); ok && (include == nil || include(identifier.Name)) {
 				occupied[identifier.Name] = true
 			}
 			return true
@@ -157,7 +161,9 @@ func (m *Module) componentAnalysisOccupiedNames(files []*goast.File, importer ty
 				// be accepted from an unresolved receiver below.
 				continue
 			}
-			occupied[name] = true
+			if include == nil || include(name) {
+				occupied[name] = true
+			}
 		}
 	}
 	return occupied, nil
@@ -520,15 +526,16 @@ func (m *Module) finalizedComponentTargetPlan(
 ) (componentTargetPlan, error) {
 	if len(files) == 0 {
 		return componentTargetPlan{
-			emissions:   map[*gsxast.Component]componentTargetEmission{},
-			logicalKeys: map[*gsxast.Component]string{},
+			emissions:      map[*gsxast.Component]componentTargetEmission{},
+			logicalKeys:    map[*gsxast.Component]string{},
+			directPrepared: true,
 		}, nil
 	}
 	// A semantic family can only contain declarations with the same authored
 	// component name. When names are globally unique there is nothing to fold,
 	// so the exact all-public result needs neither private names nor a checker.
 	if plan, unique := publicPlanWhenComponentNamesAreUnique(files); unique {
-		return m.assignDirectComponentDeclarations(dir, pkgName, files, plan, fset, importer)
+		return prepareDirectComponentFamilies(files, plan), nil
 	}
 	provisional := privateComponentTargetPlan(files, nil)
 	provisionalFiles, _, err := buildComponentSignatureFiles(dir, files, provisional, fset, bag)
@@ -560,5 +567,5 @@ func (m *Module) finalizedComponentTargetPlan(
 	objects := variantFuncObjects(preflightFiles, info, privatePlan)
 	signatureErrors := componentVariantSignatureErrors(preflightFiles, privatePlan, typeErrs)
 	plan := finalizedPlanFromSemanticReceivers(files, sources, privatePlan, objects, signatureErrors, bag)
-	return m.assignDirectComponentDeclarations(dir, pkgName, files, plan, fset, importer)
+	return prepareDirectComponentFamilies(files, plan), nil
 }

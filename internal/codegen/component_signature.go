@@ -121,9 +121,10 @@ func parseComponentParamDecls(src string) ([]componentParamDecl, error) {
 // componentDeclaration is the syntax-only component contract used to compare
 // mutually exclusive source variants before semantic type information exists.
 type componentDeclaration struct {
-	recvType   string
-	typeParams string
-	params     []componentParamDecl
+	recvType       string
+	typeParams     string
+	typeParamNames []string
+	params         []componentParamDecl
 }
 
 func componentDeclarationFor(c *gsxast.Component) (componentDeclaration, error) {
@@ -135,11 +136,12 @@ func componentDeclarationFor(c *gsxast.Component) (componentDeclaration, error) 
 		}
 		d.recvType = recvType
 	}
-	typeParams, err := normalizedTypeParams(c.TypeParams)
+	typeParams, typeParamNames, err := normalizedTypeParamsAndNames(c.TypeParams)
 	if err != nil {
 		return componentDeclaration{}, err
 	}
 	d.typeParams = typeParams
+	d.typeParamNames = typeParamNames
 	d.params, err = parseComponentParamDecls(c.Params)
 	if err != nil {
 		return componentDeclaration{}, err
@@ -148,27 +150,34 @@ func componentDeclarationFor(c *gsxast.Component) (componentDeclaration, error) 
 }
 
 func normalizedTypeParams(src string) (string, error) {
+	normalized, _, err := normalizedTypeParamsAndNames(src)
+	return normalized, err
+}
+
+func normalizedTypeParamsAndNames(src string) (string, []string, error) {
 	list, fset, err := parseTypeParamFieldList(src)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if list == nil {
-		return "", nil
+		return "", nil, nil
 	}
 	var params []string
+	var names []string
 	for _, field := range list.List {
 		if len(field.Names) == 0 {
-			return "", fmt.Errorf("codegen: parse type params %q: unnamed type parameter", strings.TrimSpace(src))
+			return "", nil, fmt.Errorf("codegen: parse type params %q: unnamed type parameter", strings.TrimSpace(src))
 		}
 		var constraint strings.Builder
 		if err := printer.Fprint(&constraint, fset, field.Type); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		for _, name := range field.Names {
 			params = append(params, name.Name+" "+constraint.String())
+			names = append(names, name.Name)
 		}
 	}
-	return strings.Join(params, ", "), nil
+	return strings.Join(params, ", "), names, nil
 }
 
 func appendCanonicalField(b *strings.Builder, value string) {

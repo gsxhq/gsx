@@ -34,6 +34,28 @@ func directTestComponent(t *testing.T, declaration string) *gsxast.Component {
 	return nil
 }
 
+func directTestFinalizedPlan(t *testing.T, files map[string]*gsxast.File) componentTargetPlan {
+	t.Helper()
+	plan := prepareDirectComponentFamilies(files, syntacticComponentTargetPlan(files))
+	for _, file := range files {
+		for _, authored := range file.Decls {
+			component, ok := authored.(*gsxast.Component)
+			if !ok {
+				continue
+			}
+			declaration, err := componentDeclarationFor(component)
+			if err != nil {
+				t.Fatal(err)
+			}
+			emission := plan.emissions[component]
+			emission.parsedDeclaration = declaration
+			emission.declarationParsed = true
+			plan.emissions[component] = emission
+		}
+	}
+	return finalizePreparedDirectComponentDeclarations(files, plan)
+}
+
 func TestDirectComponentDeclarationEligibility(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -98,6 +120,39 @@ func TestDirectComponentTargetRequiresLocalGSXPackageFunction(t *testing.T) {
 				t.Fatalf("direct target = %+v, want present %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRefreshLocalDirectTargetFactsPublishesOnlyFinalEligibleFamilies(t *testing.T) {
+	local := types.NewPackage("example.com/p", "p")
+	foreign := types.NewPackage("example.com/q", "q")
+	signature := types.NewSignatureType(nil, nil, nil, nil, nil, false)
+	localEligible := types.NewFunc(token.NoPos, local, "Child", signature)
+	localRejected := types.NewFunc(token.NoPos, local, "Rejected", signature)
+	foreignTarget := types.NewFunc(token.NoPos, foreign, "Child", signature)
+	preparedChild := &directComponentFamily{logicalKey: "Child"}
+	preparedRejected := &directComponentFamily{logicalKey: "Rejected"}
+	foreignFamily := &directComponentFamily{logicalKey: "Child", helperName: "_gsxrenderForeignChild"}
+	facts := map[callSiteID]componentTargetFact{
+		1: {origin: localEligible, declaration: componentTargetDeclarationProvenance{direct: preparedChild}},
+		2: {origin: localRejected, declaration: componentTargetDeclarationProvenance{direct: preparedRejected}},
+		3: {origin: foreignTarget, declaration: componentTargetDeclarationProvenance{direct: foreignFamily}},
+	}
+	component := directTestComponent(t, "component Child()")
+	plan := componentTargetPlan{emissions: map[*gsxast.Component]componentTargetEmission{
+		component: {direct: &directComponentDeclaration{family: directComponentFamily{logicalKey: "Child", helperName: "_gsxrenderChild"}}},
+	}}
+
+	refreshLocalDirectTargetFacts(facts, local, plan)
+
+	if got := facts[1].declaration.direct; got == nil || got.helperName != "_gsxrenderChild" {
+		t.Fatalf("eligible local target = %+v, want finalized helper", got)
+	}
+	if got := facts[2].declaration.direct; got != nil {
+		t.Fatalf("rejected local target retained preparation marker %+v", got)
+	}
+	if got := facts[3].declaration.direct; got != foreignFamily {
+		t.Fatalf("foreign target = %+v, want unchanged %+v", got, foreignFamily)
 	}
 }
 
@@ -195,7 +250,7 @@ component Child() { <span/> }
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"_gsxrenderHand", "_gsxrenderOther", "_gsxrenderThird", "_gsxrenderChunk"} {
+	for _, want := range []string{"_gsxrenderHand", "_gsxrenderOther", "_gsxrenderThird"} {
 		if !got[want] {
 			t.Errorf("missing occupied name %q", want)
 		}
@@ -229,7 +284,7 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 		filepath.Join(dir, "parent.gsx"):  parseGSXForTest(t, "package p\ncomponent Parent() { <Child[string] value=\"x\"/> }\n"),
 		filepath.Join(dir, "other.gsx"):   parseGSXForTest(t, "package p\ncomponent Other() { <Child[string] value=\"y\"/> }\n"),
 	}
-	plan := syntacticComponentTargetPlan(files)
+	plan := directTestFinalizedPlan(t, files)
 	var err error
 	goFiles := map[string]sourceview.FileSnapshot{
 		filepath.Join(dir, "collision_test.go"): sourceview.ReadFileSnapshot(filepath.Join(dir, "collision_test.go")),
@@ -252,7 +307,7 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 		t.Fatalf("allocated metadata = %v, want one suffixed family carrying T and U declaration names", seen)
 	}
 
-	second, err := assignDirectComponentDeclarationsFromView("p", files, syntacticComponentTargetPlan(files), nil, goFiles)
+	second, err := assignDirectComponentDeclarationsFromView("p", files, directTestFinalizedPlan(t, files), nil, goFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +318,7 @@ func TestAssignDirectComponentDeclarationsUsesOneDeterministicFamilyName(t *test
 	}
 }
 
-func TestDirectHelperLexicalPrepassDoesNotPublishErrors(t *testing.T) {
+func TestDirectPreparationDoesNotPublishErrorsOrAllocateNames(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "page.gsx")
 	module, err := Open(Options{
@@ -305,8 +360,8 @@ component Parent() { <Child/> }
 		t.Fatalf("diagnostics after speculative lexical prepass = %+v, want the one pre-existing warning", diagnostics)
 	}
 	for component, emission := range got.emissions {
-		if emission.direct != nil {
-			t.Fatalf("%s direct metadata = %+v, want unchanged fallback plan", component.Name, emission.direct)
+		if emission.direct != nil && emission.direct.family.helperName != "" {
+			t.Fatalf("%s helper = %+v, want preparation-time logical marker only", component.Name, emission.direct)
 		}
 	}
 }

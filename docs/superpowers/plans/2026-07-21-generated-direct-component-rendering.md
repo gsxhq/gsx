@@ -307,10 +307,12 @@ inactive build variants and `_test.go` files, so a first unsaved `.gsx`
 override in a formerly Go-only directory still receives the frozen sibling
 declarations. Those snapshots remain helper-name inputs rather than cmd/go
 file selection. In `SourceOnly` mode the complete source is the bundle/override
-view, so helper allocation must not inspect host Go files. Extend the shared
-`sourceview.Manifest`/cache projection so every non-owned sibling Go path that
-can affect helper naming participates in the persistent key. Preserve exact
-paired-output exclusion in both generation and cache identity.
+view, so helper allocation must not inspect host Go files. Publish a dedicated
+immutable helper-Go manifest from the same authoritative snapshot and reuse its
+exact per-directory view while that manifest identity is current. A disk
+refresh must replace the helper manifest even when only an inactive or test Go
+file changed and the active build selection remains warm. Preserve exact
+paired-output exclusion during allocation.
 
 Back this with a generated temp-package test: place a non-owned
 `orphan.x.go` declaring `_gsxrenderChild`, generate the package, require the
@@ -322,7 +324,8 @@ Also pin that host-only declarations cannot affect `SourceOnly`, that Go
 present/absent overrides and frozen saved snapshots control helper allocation,
 that a first `.gsx` override in a saved Go-only directory sees its frozen
 siblings, and that edits to inactive variants and same-package `_test.go` files
-change the persistent cache key before a stale generated helper can be restored.
+replace the helper manifest/view identity before a stale generated helper can
+be restored.
 
 ### 3.3 Implement declaration-owned metadata
 
@@ -738,6 +741,33 @@ plan before occupied-name allocation or target-graph publication; ordinary
 generation owns all diagnostics. Pin this boundary directly, including that an
 already-authoritative warning survives exactly once, then rerun the established
 malformed-signature recovery matrix and lexical-shadow compile fixtures.
+
+The first corrected candidate still regressed warm generation by 19-36% in
+time and 20-24% in bytes and allocations because it rebuilt a build-oblivious
+source inventory and reparsed component signatures during every `Generate`.
+Do not retain that architecture. Publish an immutable helper-Go manifest with
+the cold source inventory, replace its identity on every disk refresh, and
+cache only its exact per-directory file view. Keep bundle views uncached and
+`SourceOnly` host-empty.
+
+Make direct preparation position-free and allocation-free apart from the
+logical family marker used by target discovery. The ordinary full skeleton
+must parse each `componentDeclaration` once and retain that value in the
+component plan. After successful checking, derive forwarding metadata and
+helper names from that retained declaration and the already-parsed full
+skeleton AST, refresh only local target facts, and clear every rejected local
+marker before positional planning. Late provenance must reuse the same parsed
+parameter declarations instead of parsing them again.
+
+Before retention, compare
+`^BenchmarkModuleGenerateComponentWarm$` against the saved core base with ten
+counterbalanced process pairs. Every same-package, imported, embedded,
+attrs-stream, and variadic-children scenario must be within 5% for bytes and
+allocations. Reject a reproducible time regression above 5%; do not infer a
+time result from a sequential run whose later scenarios are thermally biased.
+Record the raw output, environment, staged diff hash, and pinned `benchstat`
+result. Run the cold matrix once after the final code shape and require no
+meaningful movement.
 
 ### 6.4 Keep or revert exactly
 

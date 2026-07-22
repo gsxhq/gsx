@@ -247,31 +247,36 @@ Helper names live in the reserved `_gsx` namespace. A deterministic allocator:
 7. allocates `_gsxrender<Name>`, then the first free numeric suffix;
 8. reserves each output for the rest of the run.
 
-Package declarations are not the complete collision surface. The allocator
-also consumes the existing exact component-signature ASTs and reserves every
-identifier visible in their lexical and file scopes. This includes caller type
+Package declarations are not the complete collision surface. After the
+ordinary full skeleton has been parsed and checked, the allocator scans that
+already-existing AST and reserves every identifier in the `_gsxrender`
+namespace visible in lexical or file scope. This includes caller type
 parameters, generic method receiver type-parameter bindings, value parameters,
 and explicit import aliases. For a default import it resolves the dependency's
 actual declared package name through the existing semantic importer/package
 identity; it never guesses from the import path's final segment. Consequently
 both `_gsxrenderChild` and any suffixed candidate are absent at every generated
-reference site, rather than merely unique at package scope.
+reference site, rather than merely unique at package scope. Restricting the set
+to the generated-helper namespace is exact: no helper can have another prefix,
+and unrelated identifiers cannot collide with one.
 
 These semantic import identities use the existing source/bundle importer and
 exact-target dependency graph; helper allocation adds no `packages.Load` call.
-A local dependency package-clause change therefore invalidates warm state and
-the persistent cache projection before an old helper name can be restored.
-`SourceOnly` resolves the same identity only from its bundle and overrides and
-still never inspects host files.
+A local dependency package-clause change therefore invalidates warm state
+before an old helper name can be restored. `SourceOnly` resolves the same
+identity only from its bundle and overrides and still never inspects host
+files.
 
-Collecting those signature ASTs and import identities is a speculative
-optimization prepass, not a diagnostic authority. It uses an isolated
-diagnostic bag and publishes none of its diagnostics. If exact signature files
-or occupied names cannot be constructed without an error, helper allocation
-returns the unchanged component plan before publishing dependency edges or
-direct metadata. Ordinary generation remains the sole owner of diagnostic
-precedence, warnings, and per-file recovery, so a malformed declaration cannot
-suppress a healthy sibling merely because direct rendering was considered.
+Target discovery publishes only a position-free logical-family marker. It does
+not parse the component signature again, allocate a helper, or publish a new
+diagnostic. The ordinary full skeleton remains the sole diagnostic authority
+and records its already-parsed `componentDeclaration` in the finalized plan.
+Only after successful full-package checking does late allocation derive exact
+forwarding metadata from that declaration, scan the checked AST's lexical
+surface, and publish the helper name back to local target facts. Rejected
+markers are always cleared before positional planning. Imported facts are not
+rewritten. This ordering preserves diagnostic precedence and per-file recovery
+without a speculative signature package or a second component-signature parse.
 
 The Go-file inventory is part of the same authoritative source view used by
 generation and persistent-cache classification. Normal source-backed modules
@@ -283,11 +288,15 @@ directory into a GSX package; it does not select or activate those Go files for
 compilation. Editor overrides and captured present/absent saved states replace
 that snapshot exactly. `SourceOnly` bundle generation has no host Go-file
 inventory and must never inspect the filesystem.
-The persistent source projection hashes every non-owned Go file whose bytes,
-membership, parse result, or package clause can affect helper allocation. This
-keeps a cache hit from restoring output named against an older inactive,
-test-only, handwritten, or orphaned declaration. Exact paired generated output
-paths remain excluded from both allocation and this helper-name cache identity.
+Normal modules publish a separate immutable helper-Go manifest alongside the
+cold source manifest. Warm generation reuses the exact manifest identity and a
+directory view derived from it; `RefreshDiskSources` replaces that identity
+even for inactive or `_test.go` changes that do not alter active build facts.
+This keeps inactive, test-only, handwritten, and orphaned declarations current
+without rebuilding or walking the source inventory on every warm `Generate`.
+Exact paired generated output paths remain excluded during allocation. Bundle
+overrides retain their exact uncached view, and `SourceOnly` retains an empty
+host view.
 
 Scanning all non-owned Go build variants is deliberately conservative and
 build-oblivious: it prevents a helper generated under one build configuration
@@ -297,6 +306,22 @@ same-package tests, handwritten/orphan `.x.go` declarations, and other sibling
 Go declarations therefore receive stable names. Compile-backed tests prove both
 that an owned paired output is ignored on regeneration and that a non-owned
 `.x.go` collision receives a suffix and passes `go test`.
+
+## Warm Generation Constraint
+
+Direct rendering must not buy user render speed by materially degrading the
+edit/regenerate loop. The saved pre-candidate codegen benchmark is therefore a
+retention gate: every warm scenario must remain within 5% of baseline for
+bytes and allocations, and a counterbalanced ten-process comparison must show
+no reproducible time regression above 5%. Cold generation must remain
+unchanged within noise.
+
+The implementation satisfies the resource gate by reusing three authoritative
+products instead of reconstructing projections: the published helper-Go
+manifest, the full skeleton's parsed `componentDeclaration`, and that same
+declaration's parameter spans during late provenance construction. No cache of
+AST pointers, inferred source identity, or helper names crosses an override or
+refresh boundary.
 
 ## Semantic Boundaries
 

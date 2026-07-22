@@ -1257,7 +1257,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		case analysisRetainedPackage:
 			build, berr = buildMappedSkeleton(f, table, fset, bag, &componentPlan, skeletonFull, path, parsed.sources[path])
 		case analysisGeneration, analysisTypeOnly:
-			build.source, build.components, build.imports, build.ctrlStarts, build.markupGroups, berr = buildSkeleton(f, table, fset, bag, &componentPlan, skeletonFull)
+			build, berr = buildSkeletonResult(f, table, fset, bag, &componentPlan, skeletonFull, newUnmappedSkeletonSourceWriter())
 		default:
 			return nil, fmt.Errorf("codegen: invalid analysis purpose %d", purpose)
 		}
@@ -1455,6 +1455,35 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		// the error without caching so the caller receives it.
 		return nil, mi.cycleErr
 	}
+	// Direct helper allocation consumes the ordinary full skeleton ASTs instead
+	// of synthesizing and parsing a second signature-only package. At this point
+	// every authored lexical binding and actual default-import identity is already
+	// present in goFiles. The build-oblivious helper view adds inactive variants,
+	// same-package tests, and orphaned generated files before names are finalized.
+	// Root target discovery copied the preparation-time logical family marker, so
+	// refresh those facts before positional planning consumes the helper name.
+	componentPlan = finalizePreparedDirectComponentDeclarations(gsxFiles, componentPlan)
+	if !bag.HasErrors() && len(typeErrs) == 0 && hasPreparedDirectComponents(componentPlan) && hasLocalPreparedDirectTarget(targetFacts, targetPackage, componentPlan) {
+		// Direct helpers can collide only with identifiers in their reserved
+		// namespace. Preserve every matching lexical binding (including locals,
+		// type parameters, and default imports) without copying unrelated names
+		// from the already-parsed full skeletons into a second large set.
+		lexicalNames, lexicalErr := m.componentAnalysisOccupiedNamesMatching(goFiles, targetImporter, func(name string) bool {
+			return strings.HasPrefix(name, "_gsxrender")
+		})
+		if lexicalErr != nil {
+			return nil, lexicalErr
+		}
+		componentPlan, err = m.allocateDirectComponentHelpers(dir, pkgName, gsxFiles, componentPlan, lexicalNames)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Finalization can reject a preparation-time candidate (for example, an
+	// unnamed or reserved forwarding parameter). Always replace local discovery
+	// markers, even when no eligible target required helper allocation, so a
+	// rejected marker cannot leak into positional emission.
+	refreshLocalDirectTargetFacts(targetFacts, targetPackage, componentPlan)
 	var sourceIndex *sourceintel.Index
 	if purpose == analysisRetainedPackage {
 		sourceIndex = sourceintel.BuildIndex(info, mappedFiles)
