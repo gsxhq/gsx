@@ -37,7 +37,7 @@ import (
 //     unreachable without retaining whole skeleton files.
 //   - Interp render position `{ ▮ }` top-level: expected = "renderable", too broad
 //     to rank on — skipped (spec 1c).
-func expectedTypeAt(eph *Package, cc completionContext, skel ast.Expr, skelPos token.Pos, exprStartOff int) types.Type {
+func expectedTypeAt(eph *Package, cc completionContext, skel ast.Expr, skelPos token.Pos, exprStartOff int, path string) types.Type {
 	if eph == nil || eph.Info == nil {
 		return nil
 	}
@@ -47,7 +47,7 @@ func expectedTypeAt(eph *Package, cc completionContext, skel ast.Expr, skelPos t
 	}
 	// Component attr value hole: the bound parameter's declared type.
 	if _, ok := cc.node.(*gsxast.ExprAttr); ok {
-		if t := componentAttrExpectedType(eph, exprStartOff); t != nil {
+		if t := componentAttrExpectedType(eph, exprStartOff, path); t != nil {
 			return t
 		}
 	}
@@ -56,13 +56,21 @@ func expectedTypeAt(eph *Package, cc completionContext, skel ast.Expr, skelPos t
 
 // componentAttrExpectedType returns the declared type of the component parameter
 // bound to the ExprAttr whose value expression starts at byte offset
-// exprStartOff, or nil when no planned component call binds such an attribute.
-// The ComponentCalls facts are keyed by authored *gsxast.Element and their
-// Params by the exact authored *gsxast.ExprAttr, so matching the attribute's
-// value-expression start offset (stable across the classifier's and the
-// ephemeral analysis's independent parses of identical bytes) pins the binding.
-func componentAttrExpectedType(eph *Package, exprStartOff int) types.Type {
-	if eph == nil || eph.GSXFset == nil || eph.ComponentCalls == nil {
+// exprStartOff IN THE FILE at path, or nil when no planned component call
+// binds such an attribute. The ComponentCalls facts are keyed by authored
+// *gsxast.Element and their Params by the exact authored *gsxast.ExprAttr, so
+// matching the attribute's value-expression start offset (stable across the
+// classifier's and the ephemeral analysis's independent parses of identical
+// bytes) pins the binding WITHIN a file. But ComponentCalls is package-wide —
+// AnalyzeEphemeral analyzes the whole directory, substituting only path's
+// bytes — so every sibling .gsx file's facts share the same map. Two sibling
+// files can have attr-value holes landing at the same in-file byte offset
+// (plausible given shared boilerplate prefixes), so the offset alone is not a
+// unique key: it must be paired with a check that the attr's own file is
+// path, or the match is nondeterministic across ComponentCalls' (randomized)
+// map iteration order.
+func componentAttrExpectedType(eph *Package, exprStartOff int, path string) types.Type {
+	if eph == nil || eph.GSXFset == nil || eph.ComponentCalls == nil || path == "" {
 		return nil
 	}
 	for _, fact := range eph.ComponentCalls {
@@ -71,7 +79,8 @@ func componentAttrExpectedType(eph *Package, exprStartOff int) types.Type {
 			if !ok || !ea.ExprPos.IsValid() || param.Var == nil {
 				continue
 			}
-			if eph.GSXFset.Position(ea.ExprPos).Offset == exprStartOff {
+			pos := eph.GSXFset.Position(ea.ExprPos)
+			if pos.Offset == exprStartOff && samePath(pos.Filename, path) {
 				return param.Var.Type()
 			}
 		}
@@ -115,6 +124,18 @@ func innerCallArgExpectedType(info *types.Info, root ast.Expr, pos token.Pos) ty
 	}
 	tv, ok := info.Types[best.Fun]
 	if !ok || tv.Type == nil {
+		return nil
+	}
+	// A type conversion T(x) records its callee as a TYPE in go/types.Info
+	// (tv.IsType() true), never as a value — even when T's underlying type is
+	// itself a function signature (e.g. `type Handler func(int) string`, the
+	// http.HandlerFunc idiom). The structural Underlying()-is-*Signature check
+	// below can't distinguish that from a real call, so it must be gated on
+	// IsType() first: a conversion's "signature" belongs to the target type,
+	// not to a callable being invoked, and boosting on it would derive the
+	// named type's own first parameter as the expected type — wrong. Decline
+	// the boost for any conversion; only a genuine call reaches paramTypeAt.
+	if tv.IsType() {
 		return nil
 	}
 	sig, ok := tv.Type.Underlying().(*types.Signature)

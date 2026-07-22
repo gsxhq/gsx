@@ -102,7 +102,7 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 	// Expected-type ranking (never filtering): a candidate whose type matches the
 	// type expected at the cursor sorts ahead of the rest within its locality
 	// tier. Fails silent (nil, no boost) outside the derivable subset.
-	expected := expectedTypeAt(eph, cc, skel, skelPos, exprStartOff)
+	expected := expectedTypeAt(eph, cc, skel, skelPos, exprStartOff, path)
 	items := goCompletionItems(eph, scope, skel, skelPos, statementCtx, expected, text, start, end, s.enc)
 	if len(items) == 0 {
 		return emptyCompletion()

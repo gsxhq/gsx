@@ -124,6 +124,97 @@ var _ = v.M("a")
 	}
 }
 
+// TestInnerCallArgExpectedTypeConversionExcluded is the regression test for
+// the reviewed type-conversion misclassification: T(x) where T's underlying
+// type is itself a function signature (the http.HandlerFunc idiom) must NOT
+// be treated as a call. Before the fix, the structural
+// Underlying()-is-*Signature check alone couldn't distinguish a conversion's
+// callee from a real call's, so `Handler(mk(▮))` derived Handler's own first
+// parameter type (int) instead of correctly deriving nothing.
+func TestInnerCallArgExpectedTypeConversionExcluded(t *testing.T) {
+	src := `package p
+
+type Handler func(int) string
+
+func mk(n int) Handler { return nil }
+
+var h = Handler(mk(3))
+`
+	pkg, tf := buildSyntheticPackage(t, src)
+	// Cursor inside mk's argument list — mk is a genuine call, so this must
+	// still resolve to mk's own parameter type (int), unaffected by the fix.
+	mkOff := strings.Index(src, "mk(3)") + len("mk(")
+	got := innerCallArgExpectedType(pkg.Info, callConversionRootAt(t, pkg), tf.Pos(mkOff))
+	if got == nil || got.String() != "int" {
+		t.Errorf("plain call mk(▮) expected type = %v, want int (unaffected by the conversion fix)", got)
+	}
+
+	// Cursor inside the OUTER conversion Handler(...)'s argument list, but
+	// past mk(3)'s own closing paren would be ambiguous; instead assert the
+	// conversion itself, isolated, derives no expected type.
+	convSrc := `package p
+
+type Handler func(int) string
+
+func mk() Handler { return nil }
+
+var h = Handler(mk())
+`
+	pkg2, tf2 := buildSyntheticPackage(t, convSrc)
+	convOff := strings.Index(convSrc, "Handler(mk())") + len("Handler(")
+	if got := innerCallArgExpectedType(pkg2.Info, callConversionRootAt(t, pkg2), tf2.Pos(convOff)); got != nil {
+		t.Errorf("conversion Handler(▮) expected type = %v, want nil (conversions are excluded)", got)
+	}
+}
+
+// callConversionRootAt returns the outermost *ast.CallExpr recorded in
+// pkg.Info.Types — the bridged hole root that ast.Inspect walks to find the
+// innermost enclosing call. Fixtures above have exactly one top-level
+// expression statement (`var h = ...`), so the outermost CallExpr by Lparen
+// position is the correct root to hand innerCallArgExpectedType (mirroring
+// how the real bridge hands the whole hole expression, not a pre-selected
+// inner call).
+func callConversionRootAt(t *testing.T, pkg *Package) ast.Expr {
+	t.Helper()
+	var outer *ast.CallExpr
+	for expr := range pkg.Info.Types {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			continue
+		}
+		if outer == nil || call.Lparen < outer.Lparen {
+			outer = call
+		}
+	}
+	if outer == nil {
+		t.Fatal("no CallExpr in Info.Types")
+	}
+	return outer
+}
+
+// TestTypeMatchesNAryFuncResult pins the n-ary func-result-match design
+// decision explicitly (previously only a niladic func was covered): a func
+// candidate's own arity is irrelevant to the match — only its single result's
+// assignability matters, mirroring IDEs suggesting e.g. strconv.Itoa at an
+// int-argument, string-expected position.
+func TestTypeMatchesNAryFuncResult(t *testing.T) {
+	str := types.Typ[types.String]
+	i := types.Typ[types.Int]
+	b := types.Typ[types.Bool]
+	// func(int, bool) string — n-ary (arity 2), single string result.
+	nAryFunc := types.NewSignatureType(nil, nil, nil, types.NewTuple(
+		types.NewVar(token.NoPos, nil, "", i),
+		types.NewVar(token.NoPos, nil, "", b),
+	), types.NewTuple(types.NewVar(token.NoPos, nil, "", str)), false)
+
+	if !typeMatches(nAryFunc, str) {
+		t.Errorf("n-ary func(int, bool) string must match string-expected position (arity irrelevant to result-match)")
+	}
+	if typeMatches(nAryFunc, i) {
+		t.Errorf("n-ary func(int, bool) string must NOT match int-expected position")
+	}
+}
+
 // callRootAt returns the *ast.CallExpr recorded in pkg.Info.Types (there is
 // exactly one in the fixtures above) as the bridged hole root.
 func callRootAt(t *testing.T, pkg *Package) ast.Expr {
@@ -174,13 +265,93 @@ func TestComponentAttrExpectedType(t *testing.T) {
 		},
 	}
 	exprStartOff := fset.Position(ea.ExprPos).Offset
-	got := componentAttrExpectedType(pkg, exprStartOff)
+	got := componentAttrExpectedType(pkg, exprStartOff, "page.gsx")
 	if got == nil || got.String() != "string" {
 		t.Errorf("componentAttrExpectedType = %v, want string", got)
 	}
 	// A non-matching offset derives nothing.
-	if got := componentAttrExpectedType(pkg, exprStartOff+999); got != nil {
+	if got := componentAttrExpectedType(pkg, exprStartOff+999, "page.gsx"); got != nil {
 		t.Errorf("componentAttrExpectedType at wrong offset = %v, want nil", got)
+	}
+	// A matching offset but wrong file derives nothing either.
+	if got := componentAttrExpectedType(pkg, exprStartOff, "other.gsx"); got != nil {
+		t.Errorf("componentAttrExpectedType at right offset, wrong file = %v, want nil", got)
+	}
+}
+
+// TestComponentAttrExpectedTypeCrossFileOffsetCollision is the regression test
+// for the reviewed cross-file offset-collision bug: two sibling .gsx files in
+// the same package (ComponentCalls is package-wide, not per-file) each have a
+// component attr value hole whose in-file byte offset coincides. Before the
+// fix, componentAttrExpectedType matched by offset alone, so which file's
+// bound-parameter type came back depended on Go's randomized map iteration
+// order over ComponentCalls — nondeterministically wrong on some runs. With
+// the file-identity check, the match must be deterministic and correct for
+// both files on every run (run with -count=10 to catch map-order flakes).
+func TestComponentAttrExpectedTypeCrossFileOffsetCollision(t *testing.T) {
+	// Identical prefix length up to the hole in both files so the ExprAttr's
+	// value-expression start offset coincides across files: same tag (`<Card `,
+	// 6 bytes) followed by an equal-length attr name (`title=` / `xtitl=`, both
+	// 6 bytes).
+	srcA := "package page\n\ncomponent A() {\n\t<Card title={x}/>\n}\n"
+	srcB := "package page\n\ncomponent B() {\n\t<Card xtitl={x}/>\n}\n"
+
+	fset := token.NewFileSet()
+	fA, err := gsxparser.ParseFile(fset, "a.gsx", []byte(srcA), 0)
+	if err != nil {
+		t.Fatalf("ParseFile a.gsx: %v", err)
+	}
+	fB, err := gsxparser.ParseFile(fset, "b.gsx", []byte(srcB), 0)
+	if err != nil {
+		t.Fatalf("ParseFile b.gsx: %v", err)
+	}
+
+	findAttr := func(f *gsxast.File) (*gsxast.Element, *gsxast.ExprAttr) {
+		var el *gsxast.Element
+		var ea *gsxast.ExprAttr
+		gsxast.Inspect(f, func(n gsxast.Node) bool {
+			switch v := n.(type) {
+			case *gsxast.Element:
+				el = v
+			case *gsxast.ExprAttr:
+				ea = v
+			}
+			return true
+		})
+		return el, ea
+	}
+	elA, eaA := findAttr(fA)
+	elB, eaB := findAttr(fB)
+	if elA == nil || eaA == nil || elB == nil || eaB == nil {
+		t.Fatalf("element/ExprAttr not found (elA=%v eaA=%v elB=%v eaB=%v)", elA, eaA, elB, eaB)
+	}
+	offA := fset.Position(eaA.ExprPos).Offset
+	offB := fset.Position(eaB.ExprPos).Offset
+	if offA != offB {
+		t.Fatalf("fixture invariant broken: offA=%d offB=%d must coincide", offA, offB)
+	}
+
+	strVar := types.NewVar(token.NoPos, nil, "title", types.Typ[types.String])
+	intVar := types.NewVar(token.NoPos, nil, "xtitl", types.Typ[types.Int])
+	pkg := &Package{
+		GSXFset: fset,
+		Files:   map[string]*gsxast.File{"a.gsx": fA, "b.gsx": fB},
+		Info:    &types.Info{},
+		ComponentCalls: map[*gsxast.Element]ComponentCallFact{
+			elA: {Params: map[gsxast.Attr]ComponentParamFact{eaA: {Name: "title", Var: strVar}}},
+			elB: {Params: map[gsxast.Attr]ComponentParamFact{eaB: {Name: "xtitl", Var: intVar}}},
+		},
+	}
+
+	for i := range 50 {
+		gotA := componentAttrExpectedType(pkg, offA, "a.gsx")
+		if gotA == nil || gotA.String() != "string" {
+			t.Fatalf("iteration %d: file a.gsx at offset %d = %v, want string", i, offA, gotA)
+		}
+		gotB := componentAttrExpectedType(pkg, offB, "b.gsx")
+		if gotB == nil || gotB.String() != "int" {
+			t.Fatalf("iteration %d: file b.gsx at offset %d = %v, want int", i, offB, gotB)
+		}
 	}
 }
 
