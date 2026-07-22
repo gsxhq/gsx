@@ -797,6 +797,23 @@ func TestHTMLCompletionE2E(t *testing.T) {
 		}
 	})
 
+	t.Run("html attr cursor on own exact-match token", func(t *testing.T) {
+		// `<div class▮` — the cursor sits right after the already-parsed
+		// `class` attribute's own name, mid-typing it. This must stay offered
+		// (parity with the component-attr path's cursor-on-bound-attr
+		// carve-out), not vanish as "already present".
+		source := "package page\n\ncomponent Home() {\n\t<div class></div>\n}\n"
+		cursor := strings.Index(source, "<div class") + len("<div class")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		class := itemOf(items, "class")
+		if class == nil {
+			t.Fatalf("HTML attr completion excludes `class` at exact-name cursor; labels=%v", labelsOf(items))
+		}
+		if class.TextEdit == nil || class.TextEdit.NewText != `class=""` {
+			t.Errorf("`class` must insert class=\"\"; got %+v", class)
+		}
+	})
+
 	t.Run("attr value", func(t *testing.T) {
 		source := "package page\n\ncomponent Home() {\n\t<input type=\"\"/>\n}\n"
 		cursor := strings.Index(source, `type="`) + len(`type="`)

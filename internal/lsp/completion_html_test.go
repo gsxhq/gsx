@@ -98,6 +98,44 @@ func TestHTMLAttrItemsExcludesPresent(t *testing.T) {
 	}
 }
 
+// TestHTMLAttrItemsCursorOnPresentAttrStaysOffered checks the parity carve-out
+// with componentAttrItems (see
+// TestComponentAttrItemsCursorOnBoundAttrStaysOffered): when the cursor sits
+// on the exact token of an already-present attribute — `<div class` with the
+// cursor right after "class" — that attribute must stay offered rather than
+// be excluded as a duplicate, since the user is still mid-typing it. A
+// different present attribute (`id`) stays excluded regardless of what token
+// is typed, and `class` itself goes back to excluded once the typed token no
+// longer exact-matches it (a shorter prefix, or none at all).
+func TestHTMLAttrItemsCursorOnPresentAttrStaysOffered(t *testing.T) {
+	el := parseElement(t, "package p\ncomponent C() {\n\t<div class=\"x\" id=\"y\"/>\n}\n", "div")
+
+	text := "class"
+	items := htmlAttrItems(el, "div", false, text, 0, len(text), encUTF8)
+	labels := labelSet(items)
+	if !labels["class"] {
+		t.Errorf("labels = %v, want `class` offered (cursor is on its own token)", labels)
+	}
+	if labels["id"] {
+		t.Errorf("labels = %v, want `id` still excluded (present, cursor not on it)", labels)
+	}
+	class := itemByLabel(items, "class")
+	if class == nil || class.TextEdit == nil || class.TextEdit.NewText != `class=""` {
+		t.Errorf("class item = %+v, want NewText %q", class, `class=""`)
+	}
+
+	for _, typed := range []string{"cl", ""} {
+		items := htmlAttrItems(el, "div", false, typed, 0, len(typed), encUTF8)
+		labels := labelSet(items)
+		if labels["class"] {
+			t.Errorf("typed %q: labels = %v, want `class` excluded (not an exact match)", typed, labels)
+		}
+		if labels["id"] {
+			t.Errorf("typed %q: labels = %v, want `id` excluded", typed, labels)
+		}
+	}
+}
+
 // TestHTMLAttrItemsBooleanBareName checks a presence-only attribute (`hidden`,
 // dataset valueSet "v") inserts the bare name with no `=""` and no FilterText.
 func TestHTMLAttrItemsBooleanBareName(t *testing.T) {

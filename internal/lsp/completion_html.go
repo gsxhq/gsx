@@ -36,7 +36,10 @@ func htmlTagItems(prefixCapitalized bool, text string, start, end int, enc encod
 // element's tag-specific attributes (from the vendored per-tag table) plus the
 // global attributes, plus — when htmxEnabled — the htmx hx-* attributes. Every
 // attribute already present on el is excluded by lowercase name (HTML attribute
-// names fold), so a second `class` is never offered.
+// names fold), so a second `class` is never offered — EXCEPT the one whose name
+// exact-matches the typed token [start,end): the cursor is mid-typing that very
+// attribute (`<div class§`), not authoring a duplicate, so it stays offered.
+// This mirrors componentAttrItems' cursor-on-bound-attr carve-out.
 //
 // Boolean attributes — those the dataset marks presence-only (.Boolean()) OR
 // that gsx.IsBooleanAttr classifies as boolean — insert the bare name (`hidden`):
@@ -50,11 +53,25 @@ func htmlTagItems(prefixCapitalized bool, text string, start, end int, enc encod
 // fact of the same bytes — no codegen semantics required — so this path works
 // even when analysis is a shell.
 func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, text string, start, end int, enc encoding) []CompletionItem {
+	// typed is the attribute-name token the cursor sits on. When a present
+	// attribute's lowercase name exact-matches it, that attribute must stay
+	// offered rather than be excluded as "already present" — the cursor is
+	// mid-typing that very attribute (e.g. `<div class§`), not authoring a
+	// duplicate. This mirrors componentAttrItems' cursor-on-bound-attr
+	// carve-out (attrNameSpanContains in completion_gsx.go) but stays
+	// fset-free: [start,end) into text is already the right coordinate space
+	// here, so no ephemeral-analysis bridge is needed.
+	typed := strings.ToLower(text[start:end])
+
 	present := map[string]bool{}
 	if el != nil {
 		for _, a := range el.Attrs {
 			if name, ok := attrName(a); ok {
-				present[strings.ToLower(name)] = true
+				lower := strings.ToLower(name)
+				if lower == typed {
+					continue // cursor is on this very attribute's own token; keep it offered
+				}
+				present[lower] = true
 			}
 		}
 	}
