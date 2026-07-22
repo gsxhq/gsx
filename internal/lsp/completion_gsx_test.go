@@ -14,9 +14,10 @@ import (
 )
 
 // TestFilterItems checks filterItems' shape: label = Name, detail =
-// "Pkg.Func" (with a " (ctx)" suffix when WantsCtx), kind = ciKindFunction,
-// tier = tierContext, and every item's TextEdit replaces the given [start,end)
-// span. Order is preserved verbatim (filters arrives pre-sorted from
+// "Pkg.Func" (with a " (ctx)" suffix when WantsCtx), kind = ciKindOperator
+// (not Function — accepting a bare filter must not auto-append "()"), tier =
+// tierContext, and every item's TextEdit replaces the given [start,end) span.
+// Order is preserved verbatim (filters arrives pre-sorted from
 // Package.Filters).
 func TestFilterItems(t *testing.T) {
 	fs := []FilterCandidate{
@@ -48,8 +49,8 @@ func TestFilterItems(t *testing.T) {
 	}
 
 	for i, it := range items {
-		if it.Kind != ciKindFunction {
-			t.Errorf("items[%d].Kind = %d, want ciKindFunction", i, it.Kind)
+		if it.Kind != ciKindOperator {
+			t.Errorf("items[%d].Kind = %d, want ciKindOperator", i, it.Kind)
 		}
 		if !strings.HasPrefix(it.SortText, "05") {
 			t.Errorf("items[%d].SortText = %q, want tierContext (05) prefix", i, it.SortText)
@@ -217,8 +218,8 @@ func TestComponentTagItemsBareCursor(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("len(items) = %d, want 2: %+v", len(items), items)
 	}
-	if items[0].Label != "Card" || items[0].Kind != ciKindFunction {
-		t.Errorf("items[0] = %+v, want label Card kind ciKindFunction", items[0])
+	if items[0].Label != "Card" || items[0].Kind != ciKindClass {
+		t.Errorf("items[0] = %+v, want label Card kind ciKindClass", items[0])
 	}
 	if items[0].TextEdit == nil || items[0].TextEdit.NewText != "Card" {
 		t.Errorf("items[0].TextEdit = %+v, want NewText %q", items[0].TextEdit, "Card")
@@ -244,8 +245,8 @@ func TestComponentTagItemsQualified(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1: %+v", len(items), items)
 	}
-	if items[0].Label != "Button" || items[0].Kind != ciKindFunction {
-		t.Errorf("items[0] = %+v, want label Button kind ciKindFunction", items[0])
+	if items[0].Label != "Button" || items[0].Kind != ciKindClass {
+		t.Errorf("items[0] = %+v, want label Button kind ciKindClass", items[0])
 	}
 	if items[0].TextEdit == nil || items[0].TextEdit.NewText != "Button" {
 		t.Errorf("items[0].TextEdit = %+v, want NewText %q", items[0].TextEdit, "Button")
@@ -320,6 +321,156 @@ var _ = myui.ToUpper
 	}
 	if qualItem.TextEdit == nil || qualItem.TextEdit.NewText != "myui." {
 		t.Errorf("qualifier item TextEdit = %+v, want NewText %q", qualItem.TextEdit, "myui.")
+	}
+}
+
+// buildIconValueComponentFixture constructs, entirely via the go/types object
+// API (types.NewPackage/NewVar/NewFunc/NewSignatureType — no source parsed, no
+// real import resolution needed, mirroring componentTagFixturePackage's
+// approach), a three-package graph that reproduces the real-world gap this
+// fixture is named after: a "github.com/gsxhq/gsx" package declaring the Node
+// interface, a pure-Go "icon" sibling package (no `component`-keyword decls
+// at all — see internal/lsp/completion_gsx.go's componentTagItems doc
+// comment) with candidates spanning every shape tagCallableValueNames must
+// discriminate, and a "page" package importing "icon" plus declaring one
+// local value-component of its own.
+//
+// icon's package-scope names:
+//   - X: exported var, func(name string) Node — the common shape (`var X =
+//     named("x")`); must be offered.
+//   - DirectFunc: exported FUNC (not var) of the same shape; must be offered.
+//   - BadParam: exported var, func(string) Node with an UNNAMED parameter;
+//     never offered (an unnamed parameter can never bind to a markup
+//     attribute).
+//   - WrongResult: exported var, func(name string) int — result does not
+//     implement Node; never offered.
+//   - unexp: unexported var of the X shape; never offered when scanned as an
+//     IMPORTED package (Go visibility — only reachable via qualifier!="").
+//
+// page's package-scope names:
+//   - LocalIcon: unexported var of the X shape, declared directly in page —
+//     must be offered at a BARE (qualifier=="") cursor, proving the
+//     exportedOnly=false same-package rule (contrast icon's "unexp").
+func buildIconValueComponentFixture() *Package {
+	gsxPkg := types.NewPackage("github.com/gsxhq/gsx", "gsx")
+	nodeMethod := types.NewFunc(token.NoPos, gsxPkg, "isNode", types.NewSignatureType(nil, nil, nil, nil, nil, false))
+	nodeIface := types.NewInterfaceType([]*types.Func{nodeMethod}, nil)
+	nodeIface.Complete()
+	nodeName := types.NewTypeName(token.NoPos, gsxPkg, "Node", nil)
+	nodeNamed := types.NewNamed(nodeName, nodeIface, nil)
+	gsxPkg.Scope().Insert(nodeName)
+	gsxPkg.MarkComplete()
+
+	nodeResult := func() *types.Tuple {
+		return types.NewTuple(types.NewVar(token.NoPos, nil, "", nodeNamed))
+	}
+	namedParams := func() *types.Tuple {
+		return types.NewTuple(types.NewVar(token.NoPos, nil, "name", types.Typ[types.String]))
+	}
+
+	iconPkg := types.NewPackage("github.com/tespkg/one-learning/ds/icon", "icon")
+	iconPkg.SetImports([]*types.Package{gsxPkg})
+
+	xSig := types.NewSignatureType(nil, nil, nil, namedParams(), nodeResult(), false)
+	iconPkg.Scope().Insert(types.NewVar(token.NoPos, iconPkg, "X", xSig))
+	iconPkg.Scope().Insert(types.NewFunc(token.NoPos, iconPkg, "DirectFunc", types.NewSignatureType(nil, nil, nil, namedParams(), nodeResult(), false)))
+
+	unnamedParams := types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String]))
+	badSig := types.NewSignatureType(nil, nil, nil, unnamedParams, nodeResult(), false)
+	iconPkg.Scope().Insert(types.NewVar(token.NoPos, iconPkg, "BadParam", badSig))
+
+	intResult := types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.Int]))
+	wrongSig := types.NewSignatureType(nil, nil, nil, namedParams(), intResult, false)
+	iconPkg.Scope().Insert(types.NewVar(token.NoPos, iconPkg, "WrongResult", wrongSig))
+
+	iconPkg.Scope().Insert(types.NewVar(token.NoPos, iconPkg, "unexp", xSig))
+	iconPkg.MarkComplete()
+
+	pagePkg := types.NewPackage("example.com/app/page", "page")
+	pagePkg.SetImports([]*types.Package{gsxPkg, iconPkg})
+	localSig := types.NewSignatureType(nil, nil, nil, namedParams(), nodeResult(), false)
+	pagePkg.Scope().Insert(types.NewVar(token.NoPos, pagePkg, "LocalIcon", localSig))
+	pagePkg.MarkComplete()
+
+	return &Package{Types: pagePkg}
+}
+
+// TestComponentValueNameItemsQualified checks the qualifier!="" scan against
+// the imported "icon" package: X and DirectFunc are offered (kind
+// ciKindClass), BadParam/WrongResult/unexp are not.
+func TestComponentValueNameItemsQualified(t *testing.T) {
+	pkg := buildIconValueComponentFixture()
+	items := componentTagItems(pkg, "icon", false, "", 0, 0, encUTF8)
+	got := map[string]CompletionItem{}
+	for _, it := range items {
+		got[it.Label] = it
+	}
+	for _, name := range []string{"X", "DirectFunc"} {
+		it, ok := got[name]
+		if !ok {
+			t.Fatalf("items = %+v, want %q offered", items, name)
+		}
+		if it.Kind != ciKindClass {
+			t.Errorf("%s.Kind = %d, want ciKindClass", name, it.Kind)
+		}
+	}
+	for _, name := range []string{"BadParam", "WrongResult", "unexp"} {
+		if _, ok := got[name]; ok {
+			t.Errorf("items = %+v, must NOT offer %q", items, name)
+		}
+	}
+}
+
+// TestComponentValueNameItemsBareCursorLocal checks the qualifier=="" scan
+// against page's OWN scope: the unexported LocalIcon value-component is
+// offered (same-package visibility has no exported-only gate), and the
+// bare-cursor candidate list also carries the "icon" import qualifier item —
+// packageHasTagCallableValue must recognize icon as qualifier-worthy even
+// though it has zero ComponentDecls entries.
+func TestComponentValueNameItemsBareCursorLocal(t *testing.T) {
+	pkg := buildIconValueComponentFixture()
+	items := componentTagItems(pkg, "", false, "", 0, 0, encUTF8)
+	var local, qual *CompletionItem
+	for i := range items {
+		switch items[i].Label {
+		case "LocalIcon":
+			local = &items[i]
+		case "icon":
+			qual = &items[i]
+		}
+	}
+	if local == nil {
+		t.Fatalf("items = %+v, want local value-component LocalIcon offered", items)
+	}
+	if local.Kind != ciKindClass {
+		t.Errorf("LocalIcon.Kind = %d, want ciKindClass", local.Kind)
+	}
+	if qual == nil {
+		t.Fatalf("items = %+v, want qualifier item \"icon\" (zero ComponentDecls, but has tag-callable values)", items)
+	}
+	if qual.TextEdit == nil || qual.TextEdit.NewText != "icon." {
+		t.Errorf("icon qualifier TextEdit = %+v, want NewText %q", qual.TextEdit, "icon.")
+	}
+}
+
+// TestComponentValueNameItemsDedup checks that a name present in BOTH
+// pkg.ComponentDecls (a `component`-keyword decl) and the value-component
+// scan (its own underlying Go func trivially satisfies the same signature
+// shape) is offered exactly once.
+func TestComponentValueNameItemsDedup(t *testing.T) {
+	pkg := buildIconValueComponentFixture()
+	pkg.ComponentDecls = map[ComponentDeclKey][]sourceintel.VersionedSpan{
+		{PackagePath: "github.com/tespkg/one-learning/ds/icon", ComponentKey: ".X"}: nil,
+	}
+	items := componentTagItems(pkg, "icon", false, "", 0, 0, encUTF8)
+	count := 0
+	for _, it := range items {
+		if it.Label == "X" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("label \"X\" appeared %d times, want exactly 1: %+v", count, items)
 	}
 }
 
@@ -495,7 +646,7 @@ func TestComponentAttrItems(t *testing.T) {
 	// Cursor position unrelated to the "title" attr's own span (e.g. right
 	// after the tag name, in the whitespace before "title").
 	cursor := strings.Index(src, "<Card") + len("<Card")
-	items := componentAttrItems(pkg, el, src, cursor, cursor, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
 
 	if len(items) != 1 {
 		t.Fatalf("items = %+v, want exactly 1 (count)", items)
@@ -571,7 +722,7 @@ func TestComponentAttrItemsExcludesGoOnlyVariadic(t *testing.T) {
 	}
 
 	cursor := strings.Index(src, "<Card") + len("<Card")
-	items := componentAttrItems(pkg, el, src, cursor, cursor, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
 
 	if len(items) != 1 {
 		t.Fatalf("items = %+v, want exactly 1 (count)", items)
@@ -593,7 +744,7 @@ func TestComponentAttrItemsCursorOnBoundAttrStaysOffered(t *testing.T) {
 
 	nameStart := strings.Index(src, "title")
 	nameEnd := nameStart + len("title")
-	items := componentAttrItems(pkg, el, src, nameStart, nameEnd, encUTF8)
+	items := componentAttrItems(pkg, el, false, src, nameStart, nameEnd, encUTF8)
 
 	labels := map[string]bool{}
 	for _, it := range items {
@@ -628,18 +779,215 @@ func TestComponentAttrItemsNoFact(t *testing.T) {
 		return true
 	})
 	pkg := &Package{GSXFset: fset, Files: map[string]*gsxast.File{"page.gsx": f}, ComponentCalls: map[*gsxast.Element]ComponentCallFact{}}
-	if items := componentAttrItems(pkg, el, src, 0, 0, encUTF8); items != nil {
+	if items := componentAttrItems(pkg, el, false, src, 0, 0, encUTF8); items != nil {
 		t.Fatalf("items = %+v, want nil (no planned call fact)", items)
 	}
 }
 
 // TestComponentAttrItemsNilGuards checks that a nil pkg or nil el fails soft.
 func TestComponentAttrItemsNilGuards(t *testing.T) {
-	if items := componentAttrItems(nil, &gsxast.Element{}, "", 0, 0, encUTF8); items != nil {
+	if items := componentAttrItems(nil, &gsxast.Element{}, false, "", 0, 0, encUTF8); items != nil {
 		t.Fatalf("items = %+v, want nil for nil pkg", items)
 	}
-	if items := componentAttrItems(&Package{}, nil, "", 0, 0, encUTF8); items != nil {
+	if items := componentAttrItems(&Package{}, nil, false, "", 0, 0, encUTF8); items != nil {
 		t.Fatalf("items = %+v, want nil for nil el", items)
+	}
+}
+
+// componentAttrsCatchAllFixture parses src (which must contain exactly one
+// element whose Tag == tag) and wires a *Package/element pair for
+// componentAttrItems whose ComponentCalls[el].Signature is caller-supplied —
+// unlike componentAttrFixture's fixed (ctx, title, count, children) shape,
+// these tests need to vary whether an "attrs" catch-all parameter is present.
+// Every attr already present on el is bound in fact.Params keyed by its own
+// position, from a caller-supplied attr->param-name map (mirrors
+// componentAttrFixture).
+func componentAttrsCatchAllFixture(t *testing.T, src, tag string, sig *types.Signature, bound map[string]string) (pkg *Package, el *gsxast.Element) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := gsxparser.ParseFile(fset, "page.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	gsxast.Inspect(f, func(n gsxast.Node) bool {
+		if e, ok := n.(*gsxast.Element); ok && e.Tag == tag {
+			el = e
+		}
+		return true
+	})
+	if el == nil {
+		t.Fatalf("no <%s> element found in source", tag)
+	}
+
+	boundParams := map[gsxast.Attr]ComponentParamFact{}
+	for _, attr := range el.Attrs {
+		name, ok := attrName(attr)
+		if !ok {
+			continue
+		}
+		if paramName, ok := bound[name]; ok {
+			boundParams[attr] = ComponentParamFact{Name: paramName}
+		}
+	}
+
+	pkg = &Package{
+		GSXFset: fset,
+		Files:   map[string]*gsxast.File{"page.gsx": f},
+		ComponentCalls: map[*gsxast.Element]ComponentCallFact{
+			el: {Signature: sig, Params: boundParams},
+		},
+	}
+	return pkg, el
+}
+
+// TestComponentAttrItemsAttrsCatchAllOffersHTMLGlobals checks the core new
+// rule: a component signature declaring a variadic "attrs" catch-all
+// (`func(attrs ...gsx.Attr) gsx.Node` — icon.Bell's real shape) offers the
+// HTML GLOBAL attribute set in addition to (here, absent) named params —
+// boolean globals inserting the bare name (hidden), value globals inserting
+// `name=""` (class), all sorted at tierSecondary (20) so real component
+// params would lead.
+func TestComponentAttrItemsAttrsCatchAllOffersHTMLGlobals(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<icon.Bell/>\n}\n"
+	params := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "attrs", types.NewSlice(types.Typ[types.Int])),
+	)
+	sig := types.NewSignatureType(nil, nil, nil, params, nil, true)
+	pkg, el := componentAttrsCatchAllFixture(t, src, "icon.Bell", sig, nil)
+
+	cursor := strings.Index(src, "<icon.Bell") + len("<icon.Bell")
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+
+	byLabel := map[string]CompletionItem{}
+	for _, it := range items {
+		byLabel[it.Label] = it
+	}
+
+	hidden, ok := byLabel["hidden"]
+	if !ok {
+		t.Fatalf("labels = %v, want boolean global %q offered", byLabel, "hidden")
+	}
+	if hidden.TextEdit == nil || hidden.TextEdit.NewText != "hidden" {
+		t.Errorf("hidden.TextEdit = %+v, want bare-name insert %q", hidden.TextEdit, "hidden")
+	}
+	if !strings.HasPrefix(hidden.SortText, "20") {
+		t.Errorf("hidden.SortText = %q, want tierSecondary (20) prefix", hidden.SortText)
+	}
+
+	class, ok := byLabel["class"]
+	if !ok {
+		t.Fatalf("labels = %v, want value global %q offered", byLabel, "class")
+	}
+	if class.TextEdit == nil || class.TextEdit.NewText != `class=""` {
+		t.Errorf("class.TextEdit = %+v, want %q insert", class.TextEdit, `class=""`)
+	}
+	if !strings.HasPrefix(class.SortText, "20") {
+		t.Errorf("class.SortText = %q, want tierSecondary (20) prefix", class.SortText)
+	}
+
+	// The reserved "attrs" name itself is never offered as an attribute.
+	if byLabel["attrs"].Label != "" {
+		t.Errorf("labels = %v, must not offer reserved %q", byLabel, "attrs")
+	}
+}
+
+// TestComponentAttrItemsNoAttrsCatchAllNoHTMLGlobals checks the negative
+// case: a plain-props signature with no "attrs" catch-all offers only the
+// named params — no HTML globals leak in (an unknown attribute would be
+// rejected by the planner, so suggesting one would invite invalid input).
+func TestComponentAttrItemsNoAttrsCatchAllNoHTMLGlobals(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<Card/>\n}\n"
+	params := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "title", types.Typ[types.String]),
+		types.NewVar(token.NoPos, nil, "count", types.Typ[types.Int]),
+	)
+	sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
+	pkg, el := componentAttrsCatchAllFixture(t, src, "Card", sig, nil)
+
+	cursor := strings.Index(src, "<Card") + len("<Card")
+	items := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	if len(labels) != 2 || !labels["title"] || !labels["count"] {
+		t.Fatalf("labels = %v, want exactly {title, count}", labels)
+	}
+	for _, global := range []string{"class", "hidden", "id", "style"} {
+		if labels[global] {
+			t.Errorf("labels = %v, must NOT offer HTML global %q (no attrs catch-all)", labels, global)
+		}
+	}
+}
+
+// TestComponentAttrItemsAttrsCatchAllPresentAttrExcluded checks that the
+// forwarded-globals list applies the same present-attr exclusion and
+// cursor-on-own-token carve-out as the plain HTML path (htmlAttrItems),
+// reused rather than reimplemented: an already-authored "class" attribute
+// elsewhere on the tag is excluded, but stays offered when the cursor sits
+// on that very attribute's own token.
+func TestComponentAttrItemsAttrsCatchAllPresentAttrExcluded(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<icon.Bell class=\"x\"/>\n}\n"
+	params := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "attrs", types.NewSlice(types.Typ[types.Int])),
+	)
+	sig := types.NewSignatureType(nil, nil, nil, params, nil, true)
+	pkg, el := componentAttrsCatchAllFixture(t, src, "icon.Bell", sig, nil)
+
+	// Cursor elsewhere (right after the tag name): "class" already present,
+	// must be excluded.
+	elsewhere := strings.Index(src, "<icon.Bell") + len("<icon.Bell")
+	items := componentAttrItems(pkg, el, false, src, elsewhere, elsewhere, encUTF8)
+	for _, it := range items {
+		if it.Label == "class" {
+			t.Fatalf("items = %+v, must exclude already-present %q", items, "class")
+		}
+	}
+
+	// Cursor ON the "class" token itself: carve-out keeps it offered.
+	nameStart := strings.Index(src, "class")
+	nameEnd := nameStart + len("class")
+	onToken := componentAttrItems(pkg, el, false, src, nameStart, nameEnd, encUTF8)
+	found := false
+	for _, it := range onToken {
+		if it.Label == "class" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("items = %+v, want %q offered (cursor is on its own token)", onToken, "class")
+	}
+}
+
+// TestComponentAttrItemsAttrsCatchAllHTMXGated checks that hx-* forwarded
+// candidates only appear when htmxEnabled — the same gate htmlAttrItems
+// applies on the plain HTML path.
+func TestComponentAttrItemsAttrsCatchAllHTMXGated(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<icon.Bell/>\n}\n"
+	params := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "attrs", types.NewSlice(types.Typ[types.Int])),
+	)
+	sig := types.NewSignatureType(nil, nil, nil, params, nil, true)
+	pkg, el := componentAttrsCatchAllFixture(t, src, "icon.Bell", sig, nil)
+	cursor := strings.Index(src, "<icon.Bell") + len("<icon.Bell")
+
+	off := componentAttrItems(pkg, el, false, src, cursor, cursor, encUTF8)
+	for _, it := range off {
+		if strings.HasPrefix(it.Label, "hx-") {
+			t.Fatalf("items = %+v, must NOT offer hx-* when htmxEnabled=false", off)
+		}
+	}
+
+	on := componentAttrItems(pkg, el, true, src, cursor, cursor, encUTF8)
+	foundHx := false
+	for _, it := range on {
+		if strings.HasPrefix(it.Label, "hx-") {
+			foundHx = true
+		}
+	}
+	if !foundHx {
+		t.Fatalf("items = %+v, want at least one hx-* candidate when htmxEnabled=true", on)
 	}
 }
 

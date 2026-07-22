@@ -570,11 +570,25 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   docs + MDN links); `hx-*` attributes when the module's htmx preset is
   enabled. Plain text edits, no snippets. Warm per-request analysis measured
   at ~140µs (`BenchmarkAnalyzeEphemeralWarm`, Apple M3 Ultra). Spec
-  `2026-07-21-lsp-completion-design.md`.
+  `2026-07-21-lsp-completion-design.md`. The same repair + ephemeral-analysis
+  machinery now also backs go-to-definition and hover on mid-edit buffers: when
+  the primary cascade answers nothing (an unclosed tag drops the package to a
+  shell), nav repairs the token under the cursor, runs one ephemeral analysis,
+  and re-runs the cascade — so gd/hover on a half-typed `<icon.Bell` resolve.
+  Fallback-only (zero change to answerable cases); returned current-file spans
+  map repaired→live coordinates. Cursor-local, so it heals breakage at the
+  cursor, not on an unrelated line.
   **Follow-ups:** auto-import completion (own design); expected-type ranking;
   snippet placeholders; typed pipe-filter compatibility filtering;
   `completionItem/resolve` for lazy docs; method-component (`<recv.Name>`)
   tags.
+- [ ] **emit.go `//line` for top-level Go body chunks** - shipped `.x.go`
+  emits no `//line` for plain GoChunk text or GoWithElements GoText, so a
+  cross-module dep loaded from its published `.x.go` resolves value positions
+  (gd on component values, compiler errors in top-level var blocks) up to a
+  few lines off within the correct `.gsx`. Same-module is exact (in-memory
+  skeleton anchors correctly since the `part.Pos()+start` fix). Emit `//line`
+  for these chunks like components/elements already get.
 - **Deferred:** external/non-project references; references cover project
   components discovered during module analysis.
 

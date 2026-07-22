@@ -35,6 +35,59 @@ type requestSourceSnapshot struct {
 	ownershipMu sync.Mutex
 	openGSX     map[string]struct{}
 	ownership   map[string]pairedGeneratedOwnership
+
+	// Repair-coordinate mapping, set only for the ephemeral go-to-definition /
+	// hover fallback pass (see setRepair). The ephemeral package was analyzed from
+	// a repaired buffer that inserted repairPatchLen bytes at repairOff into the
+	// file at repairPath; any current-file byte span it yields is therefore in
+	// repaired coordinates and must be mapped back to the live buffer before
+	// conversion. Zero-valued (repairPath == "") for every ordinary request, so
+	// all other handlers are unaffected.
+	repairPath     string
+	repairOff      int
+	repairPatchLen int
+}
+
+// setRepair arms repaired→live coordinate mapping for current-file (path) byte
+// spans, for the duration of one ephemeral fallback cascade. patchLen bytes were
+// inserted at off; clearRepair disarms it. Single-goroutine per request, so the
+// set/clear pair needs no synchronization.
+func (snapshot *requestSourceSnapshot) setRepair(path string, off, patchLen int) {
+	snapshot.repairPath = sourcePath(path)
+	snapshot.repairOff = off
+	snapshot.repairPatchLen = patchLen
+}
+
+func (snapshot *requestSourceSnapshot) clearRepair() {
+	snapshot.repairPath = ""
+	snapshot.repairOff = 0
+	snapshot.repairPatchLen = 0
+}
+
+// adjustRepairedOffset maps one byte offset from repaired-buffer coordinates back
+// to live-buffer coordinates. The repair inserted patchLen bytes at off, so an
+// offset at or before off names the same live byte, an offset at or beyond the
+// end of the inserted patch shifts left by patchLen, and an offset strictly
+// inside the patch names no live byte and clamps to the insertion point.
+func adjustRepairedOffset(o, off, patchLen int) int {
+	switch {
+	case o <= off:
+		return o
+	case o >= off+patchLen:
+		return o - patchLen
+	default:
+		return off
+	}
+}
+
+// adjustRepairedSpan maps a [start,end) byte span from repaired-buffer
+// coordinates to live-buffer coordinates. A span entirely before off is
+// unchanged; a span entirely at or beyond the patch shifts left by patchLen; a
+// span that starts before off but ends past the inserted patch keeps its start
+// and pulls its end back by patchLen (the "identifier the patch landed inside"
+// case).
+func adjustRepairedSpan(start, end, off, patchLen int) (int, int) {
+	return adjustRepairedOffset(start, off, patchLen), adjustRepairedOffset(end, off, patchLen)
 }
 
 type pairedGeneratedOwnership uint8
@@ -197,6 +250,20 @@ func (s *Server) position(path string, offset int) (Position, bool) {
 }
 
 func (snapshot *requestSourceSnapshot) rangeForSpan(span sourceintel.Span) (Range, bool) {
+	// A current-file span produced by the ephemeral fallback pass is in repaired
+	// coordinates; map it back to the live buffer before conversion. Spans for
+	// other files, and every span when the mapping is disarmed, pass through.
+	if snapshot.repairPath != "" && sourcePath(span.Path) == snapshot.repairPath {
+		span.Start, span.End = adjustRepairedSpan(span.Start, span.End, snapshot.repairOff, snapshot.repairPatchLen)
+	}
+	return snapshot.rangeForSpanRaw(span)
+}
+
+// rangeForSpanRaw converts a byte span to a Range with NO repaired→live mapping.
+// Callers that already hold live-buffer offsets (e.g. locationForExistingFile,
+// which derives them from the target file's own Line/Column) use this to avoid a
+// spurious second adjustment when the repair mapping is armed.
+func (snapshot *requestSourceSnapshot) rangeForSpanRaw(span sourceintel.Span) (Range, bool) {
 	text, ok := snapshot.sourceString(span.Path)
 	if !ok || span.Start < 0 || span.End < span.Start || span.End > len(text) {
 		return Range{}, false
@@ -280,6 +347,54 @@ func authoredSpanForPosition(pos token.Position, length int) (sourceintel.Span, 
 	return sourceintel.Span{Path: sourcePath(pos.Filename), Start: pos.Offset, End: pos.Offset + length}, true
 }
 
+// isNavigableTargetFile reports whether a Go-fileset position naming filename
+// may be published as a navigation target: a real .go source file, or an
+// authored .gsx (a Go-chunk position that go/types //line-mapped back to its
+// .gsx — e.g. a component VALUE declared in another package's .gsx var block).
+// Generated paired .x.go outputs end in .go and pass this suffix test, so
+// callers still gate them out with isPairedGeneratedOutput.
+func isNavigableTargetFile(filename string) bool {
+	return strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, ".gsx")
+}
+
+// locationForExistingFile resolves a Go-fileset token.Position — a real .go file
+// or an authored .gsx that go/types //line-mapped to — to a Location by
+// Line/Column against the target's on-disk or open-buffer content (its Offset is
+// the generated skeleton's, not the target file's). Unlike locationForGoPosition
+// it REQUIRES the target file to be readable: a //line-reconstructed .gsx path
+// that no longer exists (an external dependency shipping only its generated
+// .x.go) yields false so callers can fall back to the physical generated file. A
+// paired generated .x.go whose authored .gsx exists is rejected, so navigation
+// never lands in generated code while the source is available.
+func (snapshot *requestSourceSnapshot) locationForExistingFile(pos token.Position, length int) (Location, bool) {
+	if pos.Filename == "" || length < 0 || !isNavigableTargetFile(pos.Filename) || snapshot.isPairedGeneratedOutput(pos.Filename) {
+		return Location{}, false
+	}
+	text, ok := snapshot.sourceText(pos.Filename)
+	if !ok {
+		return Location{}, false
+	}
+	start, ok := offsetForTokenPosition(text, pos)
+	if !ok || start+length > len(text) {
+		return Location{}, false
+	}
+	// start is already a live-buffer offset (derived from the target file's own
+	// Line/Column), so bypass the repaired→live mapping to avoid double-adjusting.
+	rng, ok := snapshot.rangeForSpanRaw(sourceintel.Span{
+		Path: sourcePath(pos.Filename), Start: start, End: start + length,
+	})
+	if !ok {
+		return Location{}, false
+	}
+	return Location{URI: pathToURI(sourcePath(pos.Filename)), Range: rng}, true
+}
+
+// locationForGoPosition resolves a Go-fileset token.Position naming a real .go
+// file to a navigation target, by Line/Column against its content (falling back
+// to the raw line/column when the file is unavailable). Generated paired .x.go
+// outputs are rejected. Authored-.gsx and physical-generated targets go through
+// objectSourceLocation → locationForExistingFile instead, which is existence-
+// aware; this stays .go-only for its package-clause and same-package Go callers.
 func (snapshot *requestSourceSnapshot) locationForGoPosition(pos token.Position, length int) (Location, bool) {
 	if pos.Filename == "" || length < 0 || !strings.HasSuffix(pos.Filename, ".go") || snapshot.isPairedGeneratedOutput(pos.Filename) {
 		return Location{}, false

@@ -221,7 +221,17 @@ func emitTargetGoWithElements(
 	for index, part := range decl.Parts {
 		switch part := part.(type) {
 		case gsxast.GoText:
-			emitSkeletonBlockLine(builder, fset, part.Pos())
+			// A stripped leading decorative paren advances the emitted text past one
+			// or more source lines, so the //line directive must anchor at the
+			// post-strip position, not part.Pos(): otherwise every following line —
+			// including a trailing top-level var/func chunk sharing this region —
+			// maps one line too early, landing cross-package go-to-definition on the
+			// wrong declaration line. Mirrors buildSkeletonWithRecorder's GoText case.
+			start := 0
+			if index > 0 && parenWrappable(decl.Parts[index-1], shapes, index-1) {
+				start = len(part.Src) - len(goexprshape.StripLeadingParen(part.Src))
+			}
+			emitSkeletonBlockLine(builder, fset, part.Pos()+token.Pos(start))
 			builder.WriteString(targetGoWithElementsText(decl, shapes, index, part))
 		case *gsxast.Element:
 			builder.WriteString("func() _gsxrt.Node {\n")

@@ -39,7 +39,7 @@ func semanticHoverOccurrenceFromSources(pkg *Package, path string, source []byte
 					return Hover{}, sourceintel.Span{}, false
 				}
 				position := pkg.Fset.Position(object.Pos())
-				if position.Filename == "" || !strings.HasSuffix(position.Filename, ".go") || sources.isPairedGeneratedOutput(position.Filename) {
+				if position.Filename == "" || !isNavigableTargetFile(position.Filename) || sources.isPairedGeneratedOutput(position.Filename) {
 					return Hover{}, sourceintel.Span{}, false
 				}
 			}
@@ -54,7 +54,10 @@ func semanticHoverOccurrenceFromSources(pkg *Package, path string, source []byte
 
 // handleHover answers textDocument/hover for a .gsx file: it shows the Go
 // type/signature of the symbol or expression under the cursor. .go files are
-// gopls's to hover (null).
+// gopls's to hover (null). When the retained package answers nothing — most
+// often a mid-edit unparseable buffer analyzed down to a diagnostics-only shell —
+// it retries the same cascade against one ephemeral analysis of the
+// completion-repaired buffer (hoverFallback).
 func (s *Server) handleHover(f frame) error {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
@@ -72,11 +75,28 @@ func (s *Server) handleHover(f frame) error {
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
-	pkg := s.pkgs[filepath.Dir(path)]
-	if pkg == nil {
-		return s.reply(f.ID, nil)
-	}
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
+
+	pkg := s.pkgs[filepath.Dir(path)]
+	if result, answered := s.hoverAnswerFromPkg(pkg, path, []byte(text), off, sources); answered {
+		return s.reply(f.ID, result)
+	}
+	if result, answered := s.hoverFallback(path, text, off, sources); answered {
+		return s.reply(f.ID, result)
+	}
+	return s.reply(f.ID, nil)
+}
+
+// hoverAnswerFromPkg runs the hover resolver cascade against one package. Like
+// definitionAnswerFromPkg it is the shared body invoked first with the retained
+// package (prior handler behavior, guards intact) and again with an ephemeral
+// package on a total miss. answered=true means a branch matched and result is the
+// reply (possibly nil); answered=false means the caller may try the fallback.
+// source is the exact bytes pkg was analyzed from, for the SourceIndex guards.
+func (s *Server) hoverAnswerFromPkg(pkg *Package, path string, source []byte, off int, sources *requestSourceSnapshot) (any, bool) {
+	if pkg == nil {
+		return nil, false
+	}
 	rangeAt := func(start, end int) (Range, bool) {
 		return sources.rangeForSpan(sourceintel.Span{Path: path, Start: start, End: end})
 	}
@@ -87,16 +107,16 @@ func (s *Server) handleHover(f frame) error {
 	if cursor, ok := componentTargetAtOffset(pkg, path, off); ok {
 		rng, ok := rangeAt(cursor.start, cursor.start+cursor.length)
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
 		if len(cursor.fact.TargetDecls) != 0 {
 			if _, valid := versionedDefinitionResult(sources, cursor.fact.TargetDecls); !valid || cursor.fact.TargetPresentation == "" {
-				return s.reply(f.ID, nil)
+				return nil, true
 			}
-			return s.reply(f.ID, Hover{Contents: markdownGo(cursor.fact.TargetPresentation), Range: &rng})
+			return Hover{Contents: markdownGo(cursor.fact.TargetPresentation), Range: &rng}, true
 		}
 		if obj := componentTargetObject(cursor.fact); obj != nil {
-			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+			return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
 		}
 	}
 
@@ -106,16 +126,16 @@ func (s *Server) handleHover(f frame) error {
 	if c, nameStart, nameLen, ok := componentAtTag(pkg, path, off); ok {
 		rng, ok := rangeAt(nameStart, nameStart+nameLen)
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
-		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
+		return Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng}, true
 	}
 	if c, nameStart, ok := componentDeclarationAtOffset(pkg, path, off); ok {
 		rng, ok := rangeAt(nameStart, nameStart+len(c.Name))
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
-		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
+		return Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng}, true
 	}
 
 	// H1: a component-invocation attribute name → codegen's exact bound
@@ -130,9 +150,9 @@ func (s *Server) handleHover(f frame) error {
 			decl := cursor.param.Name + " " + types.TypeString(param.Type(), qualifierFor(pkg))
 			rng, ok := rangeAt(cursor.start, cursor.start+len(cursor.name))
 			if !ok {
-				return s.reply(f.ID, nil)
+				return nil, true
 			}
-			return s.reply(f.ID, Hover{Contents: markdownGo(decl), Range: &rng})
+			return Hover{Contents: markdownGo(decl), Range: &rng}, true
 		}
 	}
 
@@ -143,9 +163,9 @@ func (s *Server) handleHover(f frame) error {
 		if obj, idStart, idLen, ok := signatureTypeIdentAt(pkg, path, off); ok {
 			rng, ok := rangeAt(idStart, idStart+idLen)
 			if !ok {
-				return s.reply(f.ID, nil)
+				return nil, true
 			}
-			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+			return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
 		}
 
 		node, exprPos := exprNodeAtOffset(pkg, path, off)
@@ -159,20 +179,20 @@ func (s *Server) handleHover(f frame) error {
 				if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
 					rng, ok := rangeAt(idStart, idStart+idLen)
 					if !ok {
-						return s.reply(f.ID, nil)
+						return nil, true
 					}
-					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+					return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
 				}
-				return s.reply(f.ID, nil)
+				return nil, true
 			} else if hasPipeStages(node) {
 				if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
 					rng, ok := rangeAt(span[0], span[1])
 					if !ok {
-						return s.reply(f.ID, nil)
+						return nil, true
 					}
-					return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+					return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
 				}
-				return s.reply(f.ID, nil)
+				return nil, true
 			} else if skel := pkg.ExprMap[node]; skel != nil {
 				exprStart := pkg.GSXFset.Position(exprPos).Offset
 				skelPos := skel.Pos() + token.Pos(off-exprStart)
@@ -188,31 +208,51 @@ func (s *Server) handleHover(f frame) error {
 						identStart := exprStart + int(id.Pos()-skel.Pos())
 						rng, ok := rangeAt(identStart, identStart+len(id.Name))
 						if !ok {
-							return s.reply(f.ID, nil)
+							return nil, true
 						}
-						return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qf)), Range: &rng})
+						return Hover{Contents: markdownGo(types.ObjectString(obj, qf)), Range: &rng}, true
 					}
 				}
 				// Otherwise → the whole expression's type.
 				if tv, ok := pkg.Info.Types[skel]; ok && tv.Type != nil {
 					rng, ok := rangeAt(exprStart, exprStart+len(exprText(node)))
 					if !ok {
-						return s.reply(f.ID, nil)
+						return nil, true
 					}
-					return s.reply(f.ID, Hover{Contents: markdownGo(types.TypeString(tv.Type, qf)), Range: &rng})
+					return Hover{Contents: markdownGo(types.TypeString(tv.Type, qf)), Range: &rng}, true
 				}
 			}
 		}
 	}
-	if hover, span, ok := semanticHoverOccurrenceFromSources(pkg, path, []byte(text), off, sources); ok {
+	if hover, span, ok := semanticHoverOccurrenceFromSources(pkg, path, source, off, sources); ok {
 		rng, ok := sources.rangeForSpan(span)
 		if !ok {
-			return s.reply(f.ID, nil)
+			return nil, true
 		}
 		hover.Range = &rng
-		return s.reply(f.ID, hover)
+		return hover, true
 	}
-	return s.reply(f.ID, nil)
+	return nil, false
+}
+
+// hoverFallback answers hover from a completion-repaired, ephemerally analyzed
+// buffer when the retained package matched nothing — the hover mirror of
+// definitionFallback. A shell with neither type info nor a parse yields
+// answered=false (reply null as before); note the shell gate keeps a
+// parse-but-no-typecheck result, since the component-tag hover path answers from
+// the AST alone.
+func (s *Server) hoverFallback(path, text string, off int, sources *requestSourceSnapshot) (any, bool) {
+	r, insertOff, queryOff, ok := navRepair(path, text, off)
+	if !ok {
+		return nil, false
+	}
+	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, r.src)
+	if err != nil || eph == nil || (eph.Info == nil && eph.Files == nil) {
+		return nil, false
+	}
+	sources.setRepair(path, insertOff, len(r.patch))
+	defer sources.clearRepair()
+	return s.hoverAnswerFromPkg(eph, path, r.src, queryOff, sources)
 }
 
 // qualifierFor renders the analyzed package's own types unqualified and imported
