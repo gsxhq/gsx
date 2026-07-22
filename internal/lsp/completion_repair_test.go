@@ -17,6 +17,13 @@ func TestRepairAtCursor(t *testing.T) {
 		{"empty pipe stage", "package p\n\ncomponent C() {\n\t<div>{ x |> § }</div>\n}\n", "_", true},
 		{"half-typed component tag", "package p\n\ncomponent C() {\n\t<div><Ca§</div>\n}\n", "/>", true},
 		{"half-typed attr name", "package p\n\ncomponent C() {\n\t<div cl§\n}\n", "/>", true},
+		{"bare tag trigger", "package p\n\ncomponent C() {\n\t<§\n}\n", "_/>", true},
+		// Observed: unlike a bare `<`, the parser accepts a qualified tag with
+		// a trailing dot and no member token (`<icon./>` parses clean, same as
+		// the standalone "trailing dot parses as gsx" Go-expr case above), so
+		// the plain `/>` patch already heals it and wins before `_/>` is ever
+		// tried — the healed Tag stays "icon." (no injected "_").
+		{"qualified tag trailing dot", "package p\n\ncomponent C() {\n\t<icon.§\n}\n", "/>", true},
 		{"unclosed attr string", "package p\n\ncomponent C() {\n\t<div class=\"x§\n}\n", "\"/>", true},
 		// Observed: `class=` demands a value; only `""/>` (an empty quoted
 		// value + self-close) heals it with zero parser errors. The brief's

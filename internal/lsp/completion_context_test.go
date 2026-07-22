@@ -139,6 +139,45 @@ func TestClassifyCompletionContextFields(t *testing.T) {
 		}
 	})
 
+	t.Run("bare tag phantom flag set", func(t *testing.T) {
+		// A completely untyped `<` heals via the last-tried "_/>" patch
+		// (completion_repair.go); the injected "_" standing in for the
+		// tag name is not authored, so phantom must be true.
+		got, _ := classify("package p\n\ncomponent C() {\n\t<§\n}\n")
+		if got.kind != ctxTag {
+			t.Fatalf("kind = %v, want ctxTag", got.kind)
+		}
+		if !got.phantom {
+			t.Fatal("phantom = false, want true (injected _ tag name)")
+		}
+		if got.qualifier != "" {
+			t.Fatalf("qualifier = %q, want empty", got.qualifier)
+		}
+	})
+
+	t.Run("qualified tag trailing dot via repair", func(t *testing.T) {
+		// `<icon.` with nothing typed after the dot has no self-close either,
+		// so it needs repair too — but unlike a bare `<`, the parser accepts a
+		// qualified tag with a trailing dot and no member token, so the plain
+		// "/>" patch heals it (see TestRepairAtCursor/qualified_tag_trailing_dot)
+		// and the healed Tag stays "icon." verbatim — not phantom. The empty
+		// member token after the dot must still classify as ctxTag with
+		// qualifier "icon".
+		got, _ := classify("package p\n\ncomponent C() {\n\t<icon.§\n}\n")
+		if got.kind != ctxTag {
+			t.Fatalf("kind = %v, want ctxTag", got.kind)
+		}
+		if got.qualifier != "icon" {
+			t.Fatalf("qualifier = %q, want %q", got.qualifier, "icon")
+		}
+		if got.phantom {
+			t.Fatal("phantom = true, want false (\"/>\" heals it — no injected tag/member name)")
+		}
+		if got.element == nil || got.element.Tag != "icon." {
+			t.Fatalf("element = %+v, want tag \"icon.\"", got.element)
+		}
+	})
+
 	t.Run("unrepairable is ctxNone", func(t *testing.T) {
 		text := "package p\n\ncomponent C() {\n\t<<<%%\n}\n"
 		r := repairAtCursor(token.NewFileSet(), "/tmp/x.gsx", text, len("package p\n\ncomponent C() {\n\t<"))

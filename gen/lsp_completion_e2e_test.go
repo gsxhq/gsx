@@ -764,6 +764,71 @@ func TestTagCompletionE2E(t *testing.T) {
 			t.Errorf("qualifier item TextEdit = %+v, want NewText %q", qualItem.TextEdit, "myui.")
 		}
 	})
+
+	// bare cursor mid-edit: a completely untyped `<` with nothing after it —
+	// not even a self-close — fails to parse on its own; repairAtCursor's
+	// last-tried "_/>" phantom patch heals it (a placeholder tag name plus a
+	// self-close). The merged tag list must still surface all three
+	// candidate families at once: the local sibling component, a vendored
+	// HTML tag, and the imported package's qualifier item. The local
+	// component's Kind is asserted ciKindClass (not Function): these items
+	// are offered in TAG position, and editors (blink.cmp observed)
+	// auto-append "()" on accepting a Function/Method-kind item, which is
+	// wrong for a tag.
+	t.Run("bare cursor mid-edit", func(t *testing.T) {
+		uiSource := "package ui\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n"
+		source := "package page\n\nimport \"example.com/app/ui\"\n\ncomponent Other() {\n\t<div/>\n}\n\ncomponent Home() {\n\t<ui.Button label=\"hi\"/>\n\t<\n}\n"
+		cursor := strings.LastIndex(source, "<") + len("<")
+		files := map[string]string{
+			"page/page.gsx": source,
+			"ui/ui.gsx":     uiSource,
+		}
+		items := completionItems(t, runRaw(t, files, "page/page.gsx", source, cursor), 2)
+		const lspCompletionItemKindClass = 7 // ciKindClass in internal/lsp (unexported)
+		var other, div, qual *lsp.CompletionItem
+		for i := range items {
+			switch items[i].Label {
+			case "Other":
+				other = &items[i]
+			case "div":
+				div = &items[i]
+			case "ui":
+				qual = &items[i]
+			}
+		}
+		if other == nil {
+			t.Fatalf("bare-cursor tag completion missing local component `Other`; items=%+v", items)
+		}
+		if other.Kind != lspCompletionItemKindClass {
+			t.Errorf("`Other` Kind = %d, want ciKindClass (%d) — tag position must not trigger editor auto-brackets", other.Kind, lspCompletionItemKindClass)
+		}
+		if div == nil {
+			t.Fatalf("bare-cursor tag completion missing HTML tag `div`; items=%+v", items)
+		}
+		if qual == nil {
+			t.Fatalf("bare-cursor tag completion missing import qualifier item `ui`; items=%+v", items)
+		}
+	})
+
+	// qualified trailing dot mid-edit: `<ui.` with nothing typed after the dot
+	// and no self-close. Unlike a bare `<`, the parser accepts a qualified tag
+	// with a trailing dot and no member token (`<ui./>` parses clean — see
+	// TestRepairAtCursor/qualified_tag_trailing_dot in internal/lsp), so the
+	// plain `/>` patch heals it before the phantom `_/>` patch is ever tried.
+	// The qualifier "ui" extracted from the healed Tag ("ui.") still resolves
+	// the import and lists every one of its components.
+	t.Run("qualified trailing dot mid-edit", func(t *testing.T) {
+		uiSource := "package ui\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n"
+		source := "package page\n\nimport \"example.com/app/ui\"\n\ncomponent Home() {\n\t<ui.Button label=\"hi\"/>\n\t<ui.\n}\n"
+		cursor := strings.LastIndex(source, "<ui.") + len("<ui.")
+		got := run(t, map[string]string{
+			"page/page.gsx": source,
+			"ui/ui.gsx":     uiSource,
+		}, "page/page.gsx", source, cursor)
+		if !got["Button"] {
+			t.Errorf("qualified trailing-dot tag completion missing imported component `Button`; labels=%v", got)
+		}
+	})
 }
 
 // TestComponentAttrCompletionE2E drives textDocument/completion for a

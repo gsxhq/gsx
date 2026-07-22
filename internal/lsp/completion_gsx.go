@@ -16,6 +16,12 @@ import (
 // matches against label/filterText as the user types). Detail renders as
 // "Pkg.Func", with a " (ctx)" suffix when the filter's leading argument is a
 // context.Context (WantsCtx).
+//
+// kind is ciKindOperator, not ciKindFunction: editors (blink.cmp observed)
+// auto-append "()" on accepting a Function/Method-kind item, but a bare pipe
+// stage (`f`) and a parameterized one (`f()`) are different stages with
+// different semantics — auto-inserting "()" the user did not ask for silently
+// changes which stage gets authored.
 func filterItems(filters []FilterCandidate, text string, start, end int, enc encoding) []CompletionItem {
 	items := make([]CompletionItem, 0, len(filters))
 	for _, f := range filters {
@@ -23,7 +29,7 @@ func filterItems(filters []FilterCandidate, text string, start, end int, enc enc
 		if f.WantsCtx {
 			detail += " (ctx)"
 		}
-		items = append(items, newCompletionItem(text, start, end, enc, f.Name, f.Name, ciKindFunction, tierContext, detail, nil))
+		items = append(items, newCompletionItem(text, start, end, enc, f.Name, f.Name, ciKindOperator, tierContext, detail, nil))
 	}
 	return items
 }
@@ -139,6 +145,20 @@ func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
 // receiver expression before the tag can resolve and are excluded from v1
 // (spec follow-up).
 //
+// Both branches additionally scan for component VALUES — package-scope
+// vars/funcs (like `var X = named("x")` in a plain Go sibling package) that
+// are never a `component`-keyword decl and so never appear in ComponentDecls,
+// but are still a legal tag target: codegen's "callable universe" rule
+// (internal/codegen/component_target.go, harvestComponentTargetFacts) accepts
+// ANY package-scope types.Func or function-valued types.Var whose signature
+// has one result implementing gsx.Node and every parameter named — that is
+// the SAME predicate componentValueNameItems applies here, reimplemented as a
+// package-scope scan (there is no enumerable table for it; codegen only
+// probes a specific already-authored call site). Without this, a pure-Go
+// design-system package (icons, wrapped factories, ...) with zero
+// `component`-keyword declarations completes to nothing at its tag/qualifier
+// cursor even though its values compile fine as tags.
+//
 // capitalizedPrefix does not affect the tier of component items — every
 // candidate here is tierContext regardless. Per the tag-merge rule (see
 // tagCompletion), components always lead at tierContext; only the merged-in HTML
@@ -151,19 +171,185 @@ func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, t
 		return nil
 	}
 	if qualifier != "" {
-		if path, ok := importQualifierCandidates(pkg)[qualifier]; ok {
-			return componentNameItems(pkg, path, text, start, end, enc)
+		path, ok := importQualifierCandidates(pkg)[qualifier]
+		if !ok {
+			return nil
 		}
-		return nil
+		items := componentNameItems(pkg, path, text, start, end, enc)
+		if target := importedPackageAt(pkg, path); target != nil {
+			items = append(items, componentValueNameItems(target, offeredNames(items), true, text, start, end, enc)...)
+		}
+		return items
 	}
 	items := componentNameItems(pkg, pkg.Types.Path(), text, start, end, enc)
+	items = append(items, componentValueNameItems(pkg.Types, offeredNames(items), false, text, start, end, enc)...)
 	items = append(items, importQualifierItems(pkg, text, start, end, enc)...)
 	return items
+}
+
+// offeredNames extracts the label set already produced by componentNameItems,
+// so componentValueNameItems can skip a name it would otherwise duplicate — a
+// `component`-keyword decl's underlying Go func trivially also satisfies the
+// callable-universe signature shape, so without this every such component
+// would be offered twice.
+func offeredNames(items []CompletionItem) map[string]bool {
+	names := make(map[string]bool, len(items))
+	for _, it := range items {
+		names[it.Label] = true
+	}
+	return names
+}
+
+// importedPackageAt resolves the *types.Package object for one of pkg.Types'
+// direct imports whose Path() == path. pkg.Types.Imports() only ever needs a
+// linear scan (a file's import list is small), and — unlike
+// importQualifierCandidates, which resolves local-name -> path — this needs
+// the resolved package OBJECT to scan its Scope() below.
+func importedPackageAt(pkg *Package, path string) *types.Package {
+	if pkg.Types == nil {
+		return nil
+	}
+	for _, imp := range pkg.Types.Imports() {
+		if imp.Path() == path {
+			return imp
+		}
+	}
+	return nil
+}
+
+// componentValueNameItems enumerates target's package-scope identifiers that
+// satisfy codegen's callable-universe tag shape (see componentTagItems' doc
+// comment) and are not already in skip, as completion items.
+func componentValueNameItems(target *types.Package, skip map[string]bool, exportedOnly bool, text string, start, end int, enc encoding) []CompletionItem {
+	names := tagCallableValueNames(target, skip, exportedOnly)
+	items := make([]CompletionItem, 0, len(names))
+	for _, name := range names {
+		items = append(items, newCompletionItem(text, start, end, enc, name, name, ciKindClass, tierContext, "", nil))
+	}
+	return items
+}
+
+// tagCallableValueNames returns target's package-scope identifiers — sorted,
+// minus skip — that satisfy codegen's callable-universe tag shape: a
+// types.Func or function-valued types.Var whose signature has one result
+// implementing gsx.Node and every parameter named (see
+// internal/codegen/component_target.go's harvestComponentTargetFacts, the
+// authoritative acceptance rule this mirrors). exportedOnly gates on
+// obj.Exported() — required when target is a DIFFERENT package than the one
+// completion is running in (Go visibility), and false for target's own
+// package (every package-scope identifier, exported or not, is a legal
+// same-package tag).
+//
+// gsxNodeInterface resolving to nil (target does not import gsx.Node at all,
+// directly or — for the tests' synthetic packages — because it has no
+// imports set up) is a silent, fail-soft "no value candidates", not an error:
+// most packages never define a component-shaped value.
+func tagCallableValueNames(target *types.Package, skip map[string]bool, exportedOnly bool) []string {
+	iface := gsxNodeInterface(target)
+	if iface == nil {
+		return nil
+	}
+	scope := target.Scope()
+	var names []string
+	for _, name := range scope.Names() {
+		if skip[name] {
+			continue
+		}
+		obj := scope.Lookup(name)
+		if exportedOnly && !obj.Exported() {
+			continue
+		}
+		var sig *types.Signature
+		switch o := obj.(type) {
+		case *types.Func:
+			sig, _ = o.Type().(*types.Signature)
+		case *types.Var:
+			sig = callableSignature(o.Type())
+		default:
+			continue
+		}
+		if sig == nil || !isTagCallableSignature(sig, iface) {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// callableSignature returns typ's *types.Signature — unwrapping a defined
+// (named) function type's underlying type, mirroring
+// internal/codegen/component_target.go's targetCallableSignature exactly (the
+// same unwrap is needed for a `type Factory func(...) gsx.Node`-shaped
+// package var, not just a bare `func(...) gsx.Node` one) — or nil when typ is
+// not callable at all.
+func callableSignature(typ types.Type) *types.Signature {
+	if typ == nil {
+		return nil
+	}
+	unaliased := types.Unalias(typ)
+	if sig, ok := unaliased.(*types.Signature); ok {
+		return sig
+	}
+	sig, _ := unaliased.Underlying().(*types.Signature)
+	return sig
+}
+
+// isTagCallableSignature reports whether sig matches codegen's
+// callable-universe shape: exactly one result implementing the gsx.Node
+// interface, and every parameter named (an unnamed parameter can never be
+// bound to a markup attribute, so codegen never treats such a signature as
+// tag-callable either).
+func isTagCallableSignature(sig *types.Signature, node *types.Interface) bool {
+	if sig.Results().Len() != 1 || !types.Implements(sig.Results().At(0).Type(), node) {
+		return false
+	}
+	for param := range sig.Params().Variables() {
+		if param.Name() == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// gsxNodeInterface locates the gsx.Node interface type within target's OWN
+// direct imports. target must import "github.com/gsxhq/gsx" itself for any
+// of its declarations to type-check against gsx.Node in the first place, so
+// this never needs to search transitively or reach into a different
+// package's import graph (in particular, the LSP's own analyzed root
+// package's imports are irrelevant — target is scanned as an independent
+// package, per the go/types identity rule that every *types.Package in one
+// checked build shares one canonical object per imported package). Returns
+// nil (fail-soft) when target does not import gsx at all.
+func gsxNodeInterface(target *types.Package) *types.Interface {
+	if target == nil {
+		return nil
+	}
+	for _, imp := range target.Imports() {
+		if imp.Path() != "github.com/gsxhq/gsx" {
+			continue
+		}
+		tn, ok := imp.Scope().Lookup("Node").(*types.TypeName)
+		if !ok {
+			return nil
+		}
+		iface, ok := types.Unalias(tn.Type()).Underlying().(*types.Interface)
+		if !ok {
+			return nil
+		}
+		return iface
+	}
+	return nil
 }
 
 // componentNameItems returns one item per plain (non-receiver) component
 // declared in pkgPath, sorted by name for a deterministic list (ComponentDecls
 // is a map; iteration order is not).
+//
+// kind is ciKindClass, not ciKindFunction: these items are offered in TAG
+// position (`<▮`), read by the author as a tag/type name, not a call — and
+// editors (blink.cmp observed) auto-append "()" on accepting a Function-kind
+// item, which is wrong for a tag (`<Card()` is not valid markup).
 func componentNameItems(pkg *Package, pkgPath string, text string, start, end int, enc encoding) []CompletionItem {
 	var names []string
 	for key := range pkg.ComponentDecls {
@@ -177,7 +363,7 @@ func componentNameItems(pkg *Package, pkgPath string, text string, start, end in
 	sort.Strings(names)
 	items := make([]CompletionItem, 0, len(names))
 	for _, name := range names {
-		items = append(items, newCompletionItem(text, start, end, enc, name, name, ciKindFunction, tierContext, "", nil))
+		items = append(items, newCompletionItem(text, start, end, enc, name, name, ciKindClass, tierContext, "", nil))
 	}
 	return items
 }
@@ -195,13 +381,16 @@ func plainComponentName(key string) (string, bool) {
 }
 
 // importQualifierItems returns one item per imported package that declares at
-// least one component (any ComponentDeclKey.PackagePath == the import's
-// path), sorted by the import's local name for a deterministic list.
+// least one component (any ComponentDeclKey.PackagePath == the import's path)
+// OR at least one tag-callable component VALUE (tagCallableValueNames — a
+// pure-Go sibling package like an icon set, with zero `component`-keyword
+// decls, still deserves a qualifier item), sorted by the import's local name
+// for a deterministic list.
 func importQualifierItems(pkg *Package, text string, start, end int, enc encoding) []CompletionItem {
 	type qualifier struct{ name, path string }
 	var quals []qualifier
 	for name, path := range importQualifierCandidates(pkg) {
-		if !packageHasComponentDecls(pkg, path) {
+		if !packageHasComponentDecls(pkg, path) && !packageHasTagCallableValue(pkg, path) {
 			continue
 		}
 		quals = append(quals, qualifier{name, path})
@@ -271,6 +460,19 @@ func packageHasComponentDecls(pkg *Package, pkgPath string) bool {
 		}
 	}
 	return false
+}
+
+// packageHasTagCallableValue reports whether the import at pkgPath exports at
+// least one package-scope identifier matching codegen's callable-universe tag
+// shape (tagCallableValueNames) — the value-component counterpart of
+// packageHasComponentDecls, for a pure-Go sibling package with zero
+// `component`-keyword decls.
+func packageHasTagCallableValue(pkg *Package, pkgPath string) bool {
+	target := importedPackageAt(pkg, pkgPath)
+	if target == nil {
+		return false
+	}
+	return len(tagCallableValueNames(target, nil, true)) > 0
 }
 
 // attrNameCompletion answers a ctxAttrName cursor (inside an open tag, on an

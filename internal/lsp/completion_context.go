@@ -30,7 +30,7 @@ type completionContext struct {
 	element   *gsxast.Element // tag/attr-name/attr-value contexts: the enclosing element
 	attr      gsxast.Attr     // attr-value context: the StaticAttr under the cursor
 	qualifier string          // tag context: "pkg" when completing <pkg.▮; "" otherwise
-	phantom   bool            // a repair phantom sits at the cursor (`_` pipe stage, or the injected `""` attr value)
+	phantom   bool            // a repair phantom sits at the cursor (`_` pipe stage, the injected `""` attr value, or the injected `_` tag/member name)
 }
 
 // spanContainsForCompletion reports whether off lies within [start, start+length]
@@ -62,9 +62,13 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 
 	// phantomStage: the `_` patch healed an empty `|> ` stage — the `_` at the
 	// cursor is a repair token, not authored. phantomValue: the `""/>` patch
-	// healed a dangling `attr=` — the empty string value is injected, not typed.
+	// healed a dangling `attr=` — the empty string value is injected, not
+	// typed. phantomTag: the `_/>` patch healed a bare `<▮` or a qualified
+	// `<pkg.▮` with nothing after the dot — the `_` standing in for the
+	// tag/member name is injected, not typed.
 	phantomStage := r.patch == "_"
 	phantomValue := r.patch == "\"\"/>"
+	phantomTag := r.patch == "_/>"
 
 	var pipeCtx, goCtx, tagCtx, nameCtx, valueCtx, sigCtx *completionContext
 
@@ -121,7 +125,7 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 		// Rule 3 (tag) + Rule 4 (BoolAttr name): element-level.
 		if el, ok := n.(*gsxast.Element); ok {
 			if el.TagPos.IsValid() && spanContainsForCompletion(posOff(el.TagPos), len(el.Tag), off) {
-				tagCtx = &completionContext{kind: ctxTag, node: el, element: el}
+				tagCtx = &completionContext{kind: ctxTag, node: el, element: el, phantom: phantomTag}
 				if i := strings.Index(el.Tag, "."); i >= 0 && off > posOff(el.TagPos)+i {
 					tagCtx.qualifier = el.Tag[:i]
 				}

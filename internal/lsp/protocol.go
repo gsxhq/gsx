@@ -348,20 +348,25 @@ type CompletionItem struct {
 
 // LSP CompletionItemKind constants used across completion tasks.
 const (
-	ciKindText          = 1  // Text
-	ciKindMethod        = 2  // Method
-	ciKindFunction      = 3  // Function
-	ciKindConstructor   = 4  // Constructor
-	ciKindField         = 5  // Field
-	ciKindVariable      = 6  // Variable
-	ciKindClass         = 7  // Class
-	ciKindInterface     = 8  // Interface
-	ciKindModule        = 9  // Module
-	ciKindProperty      = 10 // Property
-	ciKindEnum          = 13 // Enum
-	ciKindKeyword       = 14 // Keyword
-	ciKindEnumMember    = 20 // EnumMember
-	ciKindConstant      = 21 // Constant
-	ciKindStruct        = 22 // Struct
+	ciKindText        = 1  // Text
+	ciKindMethod      = 2  // Method
+	ciKindFunction    = 3  // Function
+	ciKindConstructor = 4  // Constructor
+	ciKindField       = 5  // Field
+	ciKindVariable    = 6  // Variable
+	ciKindClass       = 7  // Class
+	ciKindInterface   = 8  // Interface
+	ciKindModule      = 9  // Module
+	ciKindProperty    = 10 // Property
+	ciKindEnum        = 13 // Enum
+	ciKindKeyword     = 14 // Keyword
+	ciKindEnumMember  = 20 // EnumMember
+	ciKindConstant    = 21 // Constant
+	ciKindStruct      = 22 // Struct
+	// ciKindOperator marks pipe filter items: a bare filter name (`f`) and a
+	// parameterized call (`f()`) are distinct, semantically different pipe
+	// stages, so accepting the item must never auto-append `()` the way
+	// editors do for Function/Method kinds.
+	ciKindOperator      = 24 // Operator
 	ciKindTypeParameter = 25 // TypeParameter
 )
