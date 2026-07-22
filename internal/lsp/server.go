@@ -16,8 +16,13 @@ import (
 )
 
 // defaultDebounce is how long the server waits for typing to settle before
-// re-analyzing a changed package. Matches gopls's diagnosticsDelay default.
-const defaultDebounce = 250 * time.Millisecond
+// re-analyzing a changed package. Matches modern gopls's diagnosticsDelay
+// default (1s; raised from 250ms years ago). It also reduces analysisMu
+// collisions between a background re-analysis worker and completion's ephemeral
+// analysis: a whole-package warm re-analyze is ~1.3s and blocks completion on
+// analysisMu until it finishes, so re-analyzing less eagerly keeps completion at
+// its floor during active typing (see perf investigation 2026-07-22).
+const defaultDebounce = time.Second
 
 // Analyzer computes diagnostics for the package in dir. Analysis override maps
 // are immutable invocation snapshots for stateless implementations; they must
