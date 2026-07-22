@@ -164,10 +164,13 @@ func TestGoCompletionE2E(t *testing.T) {
 	pagePath := write("page/page.gsx", "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
 	uri := "file://" + pagePath
 
-	// Buffer under edit: a top-level GoChunk func body, an expression cursor after
+	// Buffer under edit: a top-level GoChunk with two adjacent funcs (a bare
+	// cursor sits in the blank line BETWEEN them), an expression cursor after
 	// `us`, and a statement-context `{{ }}` GoBlock inside a second component.
 	source := "package page\n\n" +
+		"import \"strings\"\n\n" +
 		"func helper() User {\n\treturn Us\n}\n\n" +
+		"func greet() string {\n\treturn strings.ToUpper(\"x\")\n}\n\n" +
 		"component Home(user User) {\n\t<div>{ us }</div>\n}\n\n" +
 		"component Block(item User) {\n\t{{  }}\n\t<span>{ item.Name }</span>\n}\n"
 
@@ -175,6 +178,10 @@ func TestGoCompletionE2E(t *testing.T) {
 	exprCursor := strings.Index(source, "{ us }") + len("{ us")           // right after `us`
 	blockCursor := strings.Index(source, "{{  }}") + len("{{ ")           // between the two spaces
 	sigCursor := strings.Index(source, "(user User)") + len("(user User") // on the signature type `User`
+	// A bare GoChunk cursor in the blank line between the two top-level funcs
+	// (helper's `}` and `func greet`): no enclosing func body, only the file
+	// scope — where imported package names live.
+	betweenCursor := strings.Index(source, "}\n\nfunc greet") + len("}\n")
 
 	frame := func(value any) string {
 		data, err := json.Marshal(value)
@@ -203,6 +210,7 @@ func TestGoCompletionE2E(t *testing.T) {
 	req(3, blockCursor)
 	req(4, chunkCursor)
 	req(5, sigCursor)
+	req(6, betweenCursor)
 	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 
 	var output, stderr bytes.Buffer
@@ -281,6 +289,28 @@ func TestGoCompletionE2E(t *testing.T) {
 	}
 	if sigItems["return"] {
 		t.Errorf("signature-type completion should not offer statement keywords; labels=%v", sigItems)
+	}
+
+	// Bare GoChunk position between two top-level funcs (T4): the enclosing file
+	// scope resolves, so the imported package name `strings` completes
+	// (tierImported), alongside package-scope decls and statement keywords.
+	betweenItems := completionLabels(t, output.String(), 6)
+	if !betweenItems["strings"] {
+		t.Errorf("bare GoChunk completion missing imported package `strings`; labels=%v", betweenItems)
+	}
+	for _, name := range []string{"helper", "greet", "Home"} {
+		if !betweenItems[name] {
+			t.Errorf("bare GoChunk completion missing package-scope %q; labels=%v", name, betweenItems)
+		}
+	}
+	if !betweenItems["func"] {
+		t.Errorf("bare GoChunk completion missing keyword `func`; labels=%v", betweenItems)
+	}
+	// The `strings` item carries the tierImported (40) sort prefix.
+	for _, it := range completionItems(t, output.String(), 6) {
+		if it.Label == "strings" && !strings.HasPrefix(it.SortText, "40") {
+			t.Errorf("imported `strings` SortText = %q, want tierImported prefix \"40\"", it.SortText)
+		}
 	}
 }
 

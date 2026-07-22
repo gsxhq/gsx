@@ -89,10 +89,19 @@ func innermostScopeAt(pkg *Package, pos token.Pos) *types.Scope {
 // offset to. Instead it matches each recorded scope's start position — mapped
 // back to the .gsx through the skeleton's //line directives (pkg.Fset.Position)
 // — against the authored path and offset, and keeps the smallest span that
-// contains off. Falls back to the package scope when nothing maps back (a
-// top-level position between declarations, whose enclosing scope is the file
-// scope, is not //line-mapped to the .gsx and so is not matched here — a known
-// v1 limitation: imported names do not complete inside a bare GoChunk position).
+// contains off.
+//
+// A cursor sitting BETWEEN top-level declarations (whitespace inside a GoChunk,
+// not inside any func body) is contained by no func/block scope: only the file
+// scope encloses it, and the file scope's Pos/End span the package clause and
+// EOF, which are NOT //line-mapped to the .gsx (they lie in the skeleton's
+// unmapped prologue), so the span match above misses it. When that happens the
+// fallback finds the skeleton file scope whose GoChunk-derived decls //line-map
+// to the authored path (fileScopeForAuthoredPath) — the file scope parents to
+// the package scope and contributes the file's imported package names, so a
+// bare GoChunk position completes imports (tierImported), package decls, and
+// (via statementCtx) the Go keywords. Package-scope fallback only when no file
+// maps back at all.
 func innermostScopeAtAuthored(pkg *Package, path string, off int) *types.Scope {
 	if pkg == nil || pkg.Info == nil || pkg.Fset == nil {
 		if pkg != nil && pkg.Types != nil {
@@ -120,9 +129,44 @@ func innermostScopeAtAuthored(pkg *Package, path string, off int) *types.Scope {
 		}
 	}
 	if best == nil {
+		if fs := fileScopeForAuthoredPath(pkg, path); fs != nil {
+			return fs
+		}
 		return pkg.Types.Scope()
 	}
 	return best
+}
+
+// fileScopeForAuthoredPath returns the go/types file scope of the skeleton
+// *ast.File that lowers the authored .gsx at path, or nil when none is found.
+// The mapping uses the //line directives the skeleton already carries: each
+// top-level GoChunk body (a user helper func/type/var) is emitted under a
+// //line directive to its .gsx position (codegen's splitFileGoSource +
+// emitSkeletonLine), so the decls parsed from it report the authored path via
+// pkg.Fset.Position. A file scope is keyed in Info.Scopes by its *ast.File; the
+// file whose first .gsx-mapped decl matches path owns that authored source.
+// (Component-generated funcs sit on unmapped skeleton signature lines and so do
+// not match — only genuine GoChunk decls do, which is exactly the population a
+// bare GoChunk position lives among.)
+func fileScopeForAuthoredPath(pkg *Package, path string) *types.Scope {
+	if pkg == nil || pkg.Info == nil || pkg.Fset == nil {
+		return nil
+	}
+	for node, scope := range pkg.Info.Scopes {
+		f, ok := node.(*ast.File)
+		if !ok {
+			continue
+		}
+		for _, d := range f.Decls {
+			if !d.Pos().IsValid() {
+				continue
+			}
+			if samePath(pkg.Fset.Position(d.Pos()).Filename, path) {
+				return scope
+			}
+		}
+	}
+	return nil
 }
 
 // samePath compares two filesystem paths for scope-authored matching. The

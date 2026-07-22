@@ -141,6 +141,66 @@ func g() {
 	}
 }
 
+// TestInnermostScopeAtAuthoredBetweenDecls pins that a cursor sitting BETWEEN
+// top-level declarations (not inside any func body) resolves to the file scope,
+// so imported package names, package-scope decls, and keywords all complete
+// there. The //line directive reproduces the production geometry a real GoChunk
+// has: the file scope's package clause stays on the skeleton path ("p.go")
+// while the GoChunk-derived decl maps back to the authored .gsx — so the file
+// scope's own span is filtered out of the direct match and only the
+// fileScopeForAuthoredPath fallback can recover it.
+func TestInnermostScopeAtAuthoredBetweenDecls(t *testing.T) {
+	src := `package p
+
+import "strings"
+
+//line home.gsx:5:1
+func helper() string { return "a" }
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+
+	// off is an authored-coordinate position that lies in no func/block span
+	// (before helper's mapped body), forcing the between-decls fallback.
+	scope := innermostScopeAtAuthored(pkg, "home.gsx", 1)
+	if scope == nil {
+		t.Fatal("innermostScopeAtAuthored returned nil")
+	}
+	// It must be the file scope, not the package scope: fileScopeSet recognizes
+	// it, so imported names earn tierImported.
+	if !fileScopeSet(pkg)[scope] {
+		t.Fatalf("scope between decls is not the file scope (got package scope? %v)", scope == pkg.Types.Scope())
+	}
+
+	tier := map[string]int{}
+	for _, c := range scopeCandidates(pkg, scope, token.NoPos) {
+		tier[c.obj.Name()] = c.tier
+	}
+	if got, ok := tier["strings"]; !ok || got != tierImported {
+		t.Errorf("imported name `strings` tier = %d (present=%v), want tierImported (%d)", got, ok, tierImported)
+	}
+	if got, ok := tier["helper"]; !ok || got != tierPackage {
+		t.Errorf("package decl `helper` tier = %d (present=%v), want tierPackage (%d)", got, ok, tierPackage)
+	}
+	// Universe names remain visible (keywords are added by goCompletionItems, not
+	// scopeCandidates, and are exercised in the e2e test).
+	if _, ok := tier["error"]; !ok {
+		t.Error("universe name `error` missing from bare GoChunk scope")
+	}
+}
+
+// TestFileScopeForAuthoredPathUnknownPath pins the fallback boundary: a path
+// that no skeleton file maps to yields nil, so innermostScopeAtAuthored can
+// fall through to the package scope rather than mis-attributing a file scope.
+func TestFileScopeForAuthoredPathUnknownPath(t *testing.T) {
+	pkg, _ := buildSyntheticPackage(t, "package p\n\nimport \"strings\"\n\nvar _ = strings.Title\n")
+	if fs := fileScopeForAuthoredPath(pkg, "nonexistent.gsx"); fs != nil {
+		t.Errorf("fileScopeForAuthoredPath returned a scope for an unmapped path: %v", fs)
+	}
+	if got := innermostScopeAtAuthored(pkg, "nonexistent.gsx", 0); got != pkg.Types.Scope() {
+		t.Errorf("innermostScopeAtAuthored for unmapped path = %v, want package scope", got)
+	}
+}
+
 // TestMemberCandidates exercises the method-set + embedded-field BFS over a
 // synthetic type, asserting promotion depth and the unexported-visibility gate.
 func TestMemberCandidates(t *testing.T) {
