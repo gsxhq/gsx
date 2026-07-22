@@ -628,7 +628,7 @@ func TestValidateComponentOperands(t *testing.T) {
 			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamSpread},
 		})
 		facts := map[gsxast.Node]expressionFact{spread: {tv: types.TypeAndValue{Type: fx.runtime.attrs}}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 0 {
 			t.Fatalf("gsx.Attrs spread must validate, got %+v", diags)
 		}
@@ -642,7 +642,7 @@ func TestValidateComponentOperands(t *testing.T) {
 			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamSpread},
 		})
 		facts := map[gsxast.Node]expressionFact{spread: {tv: types.TypeAndValue{Type: types.NewSlice(fx.runtime.attr)}}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 0 {
 			t.Fatalf("[]gsx.Attr spread must validate, got %+v", diags)
 		}
@@ -658,7 +658,7 @@ func TestValidateComponentOperands(t *testing.T) {
 			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamSpread},
 		})
 		facts := map[gsxast.Node]expressionFact{spread: {tv: types.TypeAndValue{Type: props}}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 1 || diags[0].Code != "component-attrs-spread-type" {
 			t.Fatalf("struct splat must be rejected, got %+v", diags)
 		}
@@ -672,7 +672,7 @@ func TestValidateComponentOperands(t *testing.T) {
 			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamContributor},
 		})
 		facts := map[gsxast.Node]expressionFact{contributor: {tv: types.TypeAndValue{Type: types.Typ[types.String]}}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 1 || diags[0].Code != "component-attrs-spread-type" {
 			t.Fatalf("non-bag attrs contributor must be rejected, got %+v", diags)
 		}
@@ -690,7 +690,7 @@ func TestValidateComponentOperands(t *testing.T) {
 			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamContributor},
 		})
 		facts := map[gsxast.Node]expressionFact{contributor: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 1 || diags[0].Code != "component-attrs-spread-type" {
 			t.Fatalf("(int, error) attrs contributor must be rejected as a non-bag, got %+v", diags)
 		}
@@ -708,7 +708,7 @@ func TestValidateComponentOperands(t *testing.T) {
 			attrsNode: &componentAttrsStreamNode{kind: componentAttrsStreamContributor},
 		})
 		facts := map[gsxast.Node]expressionFact{contributor: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 0 {
 			t.Fatalf("(gsx.Attrs, error) attrs contributor must validate, got %+v", diags)
 		}
@@ -722,7 +722,7 @@ func TestValidateComponentOperands(t *testing.T) {
 		)
 		plan := newPlan(componentInputValue{kind: componentInputProp, node: prop})
 		facts := map[gsxast.Node]expressionFact{prop: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 0 {
 			t.Fatalf("(T, error) prop must validate, got %+v", diags)
 		}
@@ -736,7 +736,7 @@ func TestValidateComponentOperands(t *testing.T) {
 		)
 		plan := newPlan(componentInputValue{kind: componentInputProp, node: prop})
 		facts := map[gsxast.Node]expressionFact{prop: {tv: types.TypeAndValue{Type: tuple}, tuple: tuple}}
-		_, diags := validateComponentOperands(plan, facts, fx.runtime)
+		_, diags := validateComponentOperands(plan, newExpressionFactSet(facts), fx.runtime)
 		if len(diags) != 1 || diags[0].Code != "invalid-tuple" {
 			t.Fatalf("non-(T,error) tuple must be rejected, got %+v", diags)
 		}

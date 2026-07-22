@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,99 @@ func setupComponentBenchmarkFixture(b *testing.B, kind string) componentBenchmar
 	}
 	write(overrideRel, string(fixture.variants[0]))
 	return fixture
+}
+
+// setupManyComponentCallsFixture builds one flat package with many component
+// definitions and a page that calls them hundreds of times. Every call site
+// drives planComponentPositionalCalls, whose per-call cost historically included
+// a maps.Clone of the WHOLE-PACKAGE expression-fact map — O(calls × facts). With
+// many calls contributing facts, the package fact map is large and cloned once
+// per call, so this fixture makes that quadratic allocation dominate. Warm
+// regeneration isolates the analyze/plan cost from packages.Load.
+func setupManyComponentCallsFixture(b *testing.B, components, calls int) componentBenchmarkFixture {
+	b.Helper()
+	root := b.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		b.Fatal(err)
+	}
+	write := func(path, contents string) {
+		b.Helper()
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/componentbench\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	var defs strings.Builder
+	defs.WriteString("package app\n\n")
+	for i := range components {
+		fmt.Fprintf(&defs, "component Comp%d(title string, subtitle string, count int) {\n\t<article><h1>{ title }</h1><p>{ subtitle }</p><span>{ count }</span></article>\n}\n\n", i)
+	}
+	write("app/components.gsx", defs.String())
+
+	page := func(marker string) []byte {
+		var b strings.Builder
+		fmt.Fprintf(&b, "package app\n\n// warm variant %s\ncomponent Page(label string, n int) {\n\t<main>\n", marker)
+		for i := range calls {
+			fmt.Fprintf(&b, "\t\t<Comp%d title={ label } subtitle={ label } count={ n + %d }/>\n", i%components, i)
+		}
+		b.WriteString("\t</main>\n}\n")
+		return []byte(b.String())
+	}
+
+	fixture := componentBenchmarkFixture{
+		opts: Options{
+			ModuleRoot: root,
+			ModulePath: "example.com/componentbench",
+			FilterPkgs: []string{StdImportPath},
+		},
+		targetDir:    filepath.Join(root, "app"),
+		overridePath: filepath.Join(root, "app", "page.gsx"),
+		variants:     [2][]byte{page("a"), page("b")},
+	}
+	write("app/page.gsx", string(fixture.variants[0]))
+	return fixture
+}
+
+func BenchmarkModuleGenerateManyComponentCalls(b *testing.B) {
+	fixture := setupManyComponentCallsFixture(b, 50, 200)
+	m, err := Open(fixture.opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	out, diags, err := m.Generate(fixture.targetDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if len(diags) != 0 {
+		b.Fatalf("prime Generate diagnostics: %v", diags)
+	}
+	if len(out) == 0 {
+		b.Fatal("prime Generate produced no component output")
+	}
+	componentBenchmarkOutput = out
+	b.ReportAllocs()
+	for i := range b.N {
+		m.SetOverride(fixture.overridePath, fixture.variants[(i+1)%len(fixture.variants)])
+		b.StartTimer()
+		out, diags, err := m.Generate(fixture.targetDir)
+		b.StopTimer()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(diags) != 0 {
+			b.Fatalf("Generate diagnostics: %v", diags)
+		}
+		if len(out) == 0 {
+			b.Fatal("Generate produced no component output")
+		}
+		componentBenchmarkOutput = out
+	}
 }
 
 func BenchmarkModuleGenerateComponentCold(b *testing.B) {

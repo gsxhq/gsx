@@ -764,7 +764,7 @@ type materializationPlan struct {
 // (unwrap + error check) and is always a temp. Two side-effect-free reads that
 // merely swap relative to each other cross no ordered work and stay inline —
 // reordering them is unobservable.
-func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]expressionFact) materializationPlan {
+func planComponentMaterialization(plan componentCallPlan, facts expressionFactSet) materializationPlan {
 	type entry struct {
 		valueIndex int
 		value      componentInputValue
@@ -780,7 +780,7 @@ func planComponentMaterialization(plan componentCallPlan, facts map[gsxast.Node]
 		if v.kind == componentInputBody {
 			continue
 		}
-		fact, ok := facts[v.node]
+		fact, ok := facts.get(v.node)
 		entries = append(entries, entry{
 			valueIndex: i,
 			value:      v,
