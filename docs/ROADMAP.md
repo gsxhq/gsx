@@ -596,7 +596,23 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   when a candidate's own package is likewise absent. Known limitation: a preceding
   stage that carries ARGS followed by an unknown/empty stage currently yields an
   empty analysis (a codegen edge), which routes to the full-list fail-open.
-  **Follow-ups:** auto-import completion (own design); expected-type ranking;
+  EXPECTED-TYPE RANKING (never filtering): in a Go-context cursor a candidate
+  whose type matches the type expected at the position sorts ahead of the rest
+  WITHIN its locality tier — a single match digit inserted after the tier digits
+  and before the label (`05` → `050`/`051`), so locality still dominates (a
+  matched package-scope item never outranks an unmatched local) and matching only
+  refines ties. Match = `AssignableTo`, plus a func candidate whose single result
+  is assignable (calling it satisfies the position). Derivation subset (cheaply
+  sound, else no boost): the innermost enclosing call argument `{ f(▮) }` /
+  `title={ f(▮) }` (callee param type at the cursor's arg index, variadic tail
+  resolved; selector receivers excluded — before the `(`), and a component attr
+  value hole `title={ ▮ }` (the bound parameter's type, from the ComponentCalls
+  fact). Cross-statement positions (assignment RHS, return result, binary operand,
+  top-level arg where the hole IS the argument) are skipped — the bridge retains
+  only the hole's own skeleton expr, not its enclosing statement — as is the
+  top-level render hole `{ ▮ }` ("renderable", too broad). No expected type = every
+  SortText byte-identical to the tier-only form (the no-regression contract).
+  **Follow-ups:** auto-import completion (own design);
   snippet placeholders;
   `completionItem/resolve` for lazy docs; body-local value bindings as method-
   component qualifiers (declared in a `{{ }}` block, a v1 gap); Go doc comments

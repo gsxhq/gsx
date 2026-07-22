@@ -249,8 +249,13 @@ func scopeCandidates(pkg *Package, scope *types.Scope, pos token.Pos) []scopedOb
 // `{{ x.▮ }}` or a GoChunk `x.▮` cannot find its selector and falls through to
 // the scope path. Recovering the selector from Info.Types alone (by byte range)
 // was rejected as too loose to be sound with the facts these bridges retain.
-func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos token.Pos, statementCtx bool, text string, start, end int, enc encoding) []CompletionItem {
-	if items, ok := memberCompletionItems(pkg, skel, pos, text, start, end, enc); ok {
+// expected is the type the cursor is expected to produce (see expectedTypeAt);
+// when non-nil every item's SortText carries a match digit that ranks
+// type-matching candidates ahead of the rest WITHIN their locality tier
+// (rankedSortText). expected == nil leaves every SortText byte-identical to the
+// historical tier-only form.
+func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos token.Pos, statementCtx bool, expected types.Type, text string, start, end int, enc encoding) []CompletionItem {
+	if items, ok := memberCompletionItems(pkg, skel, pos, expected, text, start, end, enc); ok {
 		return items // member path: committed even when empty (no scope fallback)
 	}
 	qf := qualifierFor(pkg)
@@ -258,11 +263,19 @@ func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos toke
 	for _, cand := range scopeCandidates(pkg, scope, pos) {
 		kind, detail := goObjectPresentation(cand.obj, qf)
 		name := cand.obj.Name()
-		items = append(items, newCompletionItem(text, start, end, enc, name, name, kind, cand.tier, detail, nil))
+		item := newCompletionItem(text, start, end, enc, name, name, kind, cand.tier, detail, nil)
+		if expected != nil {
+			item.SortText = rankedSortText(cand.tier, name, expected, cand.obj.Type())
+		}
+		items = append(items, item)
 	}
 	if statementCtx {
 		for _, kw := range goKeywords {
-			items = append(items, newCompletionItem(text, start, end, enc, kw, kw, ciKindKeyword, tierKeyword, "keyword", nil))
+			item := newCompletionItem(text, start, end, enc, kw, kw, ciKindKeyword, tierKeyword, "keyword", nil)
+			if expected != nil {
+				item.SortText = rankedSortText(tierKeyword, kw, expected, nil) // a keyword has no type: never a match
+			}
+			items = append(items, item)
 		}
 	}
 	return items
@@ -391,7 +404,11 @@ func enclosingSelector(root ast.Node, id *ast.Ident) *ast.SelectorExpr {
 // resolves to an imported package name the exported package members are offered
 // (tierImported); otherwise the type of X drives memberCandidates, tiered
 // tierMember+depth clamped below tierPackage.
-func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
+// expected mirrors goCompletionItems: when non-nil each member item's SortText
+// carries the match digit ranking type-matching members ahead within their
+// (member-depth) tier; nil leaves the SortText byte-identical to the tier-only
+// form.
+func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, expected types.Type, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
 	if skel == nil || pkg == nil || pkg.Info == nil {
 		return nil, false
 	}
@@ -426,7 +443,11 @@ func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, text stri
 					continue
 				}
 				kind, detail := goObjectPresentation(obj, qf)
-				items = append(items, newCompletionItem(text, start, end, enc, name, name, kind, tierImported, detail, nil))
+				item := newCompletionItem(text, start, end, enc, name, name, kind, tierImported, detail, nil)
+				if expected != nil {
+					item.SortText = rankedSortText(tierImported, name, expected, obj.Type())
+				}
+				items = append(items, item)
 			}
 			return items, true
 		}
@@ -445,7 +466,11 @@ func memberCompletionItems(pkg *Package, skel ast.Expr, pos token.Pos, text stri
 		}
 		kind, detail := goObjectPresentation(m.obj, qf)
 		name := m.obj.Name()
-		items = append(items, newCompletionItem(text, start, end, enc, name, name, kind, tier, detail, nil))
+		item := newCompletionItem(text, start, end, enc, name, name, kind, tier, detail, nil)
+		if expected != nil {
+			item.SortText = rankedSortText(tier, name, expected, m.obj.Type())
+		}
+		items = append(items, item)
 	}
 	return items, true
 }

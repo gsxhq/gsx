@@ -99,7 +99,11 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 		return emptyCompletion()
 	}
 	start, end := completionTokenSpan(text, off, false)
-	items := goCompletionItems(eph, scope, skel, skelPos, statementCtx, text, start, end, s.enc)
+	// Expected-type ranking (never filtering): a candidate whose type matches the
+	// type expected at the cursor sorts ahead of the rest within its locality
+	// tier. Fails silent (nil, no boost) outside the derivable subset.
+	expected := expectedTypeAt(eph, cc, skel, skelPos, exprStartOff)
+	items := goCompletionItems(eph, scope, skel, skelPos, statementCtx, expected, text, start, end, s.enc)
 	if len(items) == 0 {
 		return emptyCompletion()
 	}

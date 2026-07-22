@@ -1609,6 +1609,95 @@ func assertNoGsxInternalLeak(t *testing.T, output string) {
 	}
 }
 
+// TestExpectedTypeRankingE2E drives expected-type ranking end to end: in a
+// component attr value hole `<Card title={ s }/>` whose parameter is `title
+// string`, the string-typed local `s` sorts ahead of the int-typed local `n`
+// (both stay in tierLocal — ranking never filters, only refines within a tier).
+func TestExpectedTypeRankingE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	write := func(name, content string) string {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	source := "package page\n\n" +
+		"component Card(title string) {\n\t<div>{ title }</div>\n}\n\n" +
+		"component Home(s string, n int) {\n\t<Card title={ s }/>\n}\n"
+	pagePath := write("page/page.gsx", source)
+	uri := "file://" + pagePath
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	// Cursor right after `s` inside the component attr value hole.
+	cursor := strings.Index(source, "title={ s") + len("title={ s")
+	pos := lspUTF16PositionAt(source, cursor)
+
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+	}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+		},
+	}))
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+
+	var sItem, nItem *lsp.CompletionItem
+	items := completionItems(t, output.String(), 2)
+	for i := range items {
+		switch items[i].Label {
+		case "s":
+			sItem = &items[i]
+		case "n":
+			nItem = &items[i]
+		}
+	}
+	if sItem == nil || nItem == nil {
+		t.Fatalf("component-attr value hole missing locals (s=%v n=%v); items=%v", sItem, nItem, items)
+	}
+	// Ranking never filters: both stay in tierLocal ("05"). The string-typed `s`
+	// matches the `title string` parameter and sorts ahead of the int-typed `n`.
+	if !strings.HasPrefix(sItem.SortText, "05") {
+		t.Errorf("`s` SortText = %q, want tierLocal prefix \"05\"", sItem.SortText)
+	}
+	if !strings.HasPrefix(nItem.SortText, "05") {
+		t.Errorf("`n` SortText = %q, want tierLocal prefix \"05\" (mismatch is ranked, never filtered)", nItem.SortText)
+	}
+	if sItem.SortText >= nItem.SortText {
+		t.Errorf("type-matching `s` (SortText %q) must sort before mismatching `n` (SortText %q)", sItem.SortText, nItem.SortText)
+	}
+}
+
 // completionItems extracts the full CompletionItem slice from the completion
 // response with the given id.
 func completionItems(t *testing.T, output string, id int) []lsp.CompletionItem {

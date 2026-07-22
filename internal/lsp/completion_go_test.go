@@ -494,7 +494,7 @@ func TestMemberCompletionItemsDepthClampDeepChain(t *testing.T) {
 	if sel == nil {
 		t.Fatal("v.F0 selector not found in Info.Types")
 	}
-	items, ok := memberCompletionItems(pkg, sel, sel.Sel.Pos(), src, 0, 0, encUTF8)
+	items, ok := memberCompletionItems(pkg, sel, sel.Sel.Pos(), nil, src, 0, 0, encUTF8)
 	if !ok {
 		t.Fatal("memberCompletionItems did not take the member path")
 	}
