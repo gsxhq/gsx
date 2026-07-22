@@ -1,10 +1,12 @@
 package lsp
 
 import (
+	"go/token"
 	"go/types"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/tagcallable"
@@ -100,7 +102,7 @@ func (s *Server) tagCompletion(cc completionContext, path, text string, off int,
 
 	var items []CompletionItem
 	if pkg := s.componentDeclPackage(filepath.Dir(path), path, r.src); pkg != nil {
-		items = componentTagItems(pkg, cc.qualifier, capitalizedPrefix, text, start, end, s.enc)
+		items = componentTagItems(pkg, cc.qualifier, capitalizedPrefix, path, off, text, start, end, s.enc)
 	}
 	if cc.qualifier == "" {
 		items = append(items, htmlTagItems(capitalizedPrefix, text, start, end, s.enc)...)
@@ -150,9 +152,19 @@ func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
 // "."+Name for a plain function component — a LEADING dot, not a bare name —
 // and RecvType+"."+Name for a receiver/method component. Every key therefore
 // contains a dot; componentNameItems' exclusion rule keys off the dot's
-// POSITION (index 0), not off dot-presence. Receiver components need a
-// receiver expression before the tag can resolve and are excluded from v1
-// (spec follow-up).
+// POSITION (index 0), not off dot-presence.
+//
+// A method component is offered at a QUALIFIED cursor `<recv.▮` when the
+// qualifier resolves to an in-scope VALUE binding (the receiver var, a
+// parameter, or a package-scope var) whose type has method components —
+// receiverVarComponentItems. That resolution runs FIRST, before import-
+// qualifier resolution, mirroring Go's own scoping: an in-scope value binding
+// shadows a same-named import, so `<Q.▮` refers to the binding's methods, never
+// the package's components, whenever Q resolves to a var (even if that var's
+// type declares no method components). Only when Q does NOT resolve to a value
+// binding does the import-qualifier path below run. Method components are NOT
+// enumerated at a BARE `<▮` cursor (that would require offering every in-scope
+// receiver/param var as a qualifier — a scope explosion deferred past v1).
 //
 // Both branches additionally scan for component VALUES — package-scope
 // vars/funcs (like `var X = named("x")` in a plain Go sibling package) that
@@ -177,17 +189,25 @@ func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
 // caller / htmlTagItems, not here. The parameter is retained so the signature
 // documents the merge contract and the tests pin that components stay tierContext
 // either way.
-func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, text string, start, end int, enc encoding) []CompletionItem {
+func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, path string, off int, text string, start, end int, enc encoding) []CompletionItem {
 	if pkg == nil || pkg.Types == nil {
 		return nil
 	}
 	if qualifier != "" {
-		path, ok := importQualifierCandidates(pkg)[qualifier]
+		// Go-scoping precedence: a value binding named qualifier shadows a
+		// same-named import, so try receiver/param/var resolution first. resolved
+		// == true means qualifier IS an in-scope value binding — stop here even
+		// when its type declares no method components (the binding still shadows
+		// any import, per Go).
+		if items, resolved := receiverVarComponentItems(pkg, qualifier, path, off, text, start, end, enc); resolved {
+			return items
+		}
+		impPath, ok := importQualifierCandidates(pkg)[qualifier]
 		if !ok {
 			return nil
 		}
-		items := componentNameItems(pkg, path, text, start, end, enc)
-		if target := importedPackageAt(pkg, path); target != nil {
+		items := componentNameItems(pkg, impPath, text, start, end, enc)
+		if target := importedPackageAt(pkg, impPath); target != nil {
 			items = append(items, componentValueNameItems(target, offeredNames(items), true, text, start, end, enc)...)
 		}
 		return items
@@ -195,6 +215,156 @@ func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, t
 	items := componentNameItems(pkg, pkg.Types.Path(), text, start, end, enc)
 	items = append(items, componentValueNameItems(pkg.Types, offeredNames(items), false, text, start, end, enc)...)
 	items = append(items, importQualifierItems(pkg, text, start, end, enc)...)
+	return items
+}
+
+// receiverVarComponentItems resolves a qualified tag cursor `<qualifier.▮`
+// against the in-scope VALUE bindings visible from the enclosing component,
+// and offers the method components declared on the binding's type. It returns
+// (items, resolved): resolved reports whether qualifier named an in-scope value
+// binding (a *types.Var — receiver, parameter, or package-scope var). When
+// resolved is true the caller must NOT fall through to import-qualifier
+// resolution, even if items is empty: a value binding shadows a same-named
+// import (Go scoping), so `<qualifier.▮` can only mean that binding's methods.
+// When resolved is false (qualifier is an import PkgName, or resolves to
+// nothing) the caller proceeds to the import-qualifier path.
+//
+// The scope is the enclosing component's generated-func scope, located WITHOUT
+// relying on authored-offset↔skeleton-offset alignment (which does not hold —
+// pkg.Fset.Position offsets are skeleton offsets, not authored ones, so
+// innermostScopeAtAuthored's containment branch never fires for a markup
+// cursor). Instead: find the enclosing *gsxast.Component by authored span
+// (pkg.GSXFset), then seed innermostScopeAt with the skeleton position of any
+// of that component's signature-type spans (pkg.SigTypes) — every param/receiver
+// type sits inside the one generated FuncType scope that binds the receiver var
+// and parameters. LookupParent from there walks up to package/file scope, so a
+// package-scope var also resolves. A component with no signature types (no
+// receiver, no params) falls back to the package scope, which still resolves a
+// package-scope var. Body-LOCAL bindings (a var declared in a `{{ }}` GoBlock
+// inside the body) live in a nested block scope not on this ancestry chain and
+// are a documented v1 gap — receiver and parameter bindings, the method-
+// component idiom, are covered.
+func receiverVarComponentItems(pkg *Package, qualifier, path string, off int, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
+	if pkg.Info == nil {
+		return nil, false
+	}
+	scope := componentBodyScope(pkg, path, off)
+	if scope == nil {
+		return nil, false
+	}
+	_, obj := scope.LookupParent(qualifier, token.NoPos)
+	v, ok := obj.(*types.Var)
+	if !ok {
+		return nil, false
+	}
+	typeName, pkgPath, ok := namedTypeOf(v.Type())
+	if !ok {
+		// qualifier IS a value binding (it shadows any import), but its type is
+		// not a named type that can carry method components: resolved, no items.
+		return nil, true
+	}
+	return methodComponentItems(pkg, pkgPath, typeName, text, start, end, enc), true
+}
+
+// componentBodyScope returns the go/types scope of the generated func for the
+// component enclosing the authored cursor (path, off), or the package scope when
+// no enclosing component signature can seed it. See receiverVarComponentItems.
+func componentBodyScope(pkg *Package, path string, off int) *types.Scope {
+	c := enclosingComponentAt(pkg, path, off)
+	if c != nil {
+		for _, st := range pkg.SigTypes[c] {
+			if st.SkelTyp != nil && st.SkelTyp.Pos().IsValid() {
+				return innermostScopeAt(pkg, st.SkelTyp.Pos())
+			}
+		}
+	}
+	if pkg.Types != nil {
+		return pkg.Types.Scope()
+	}
+	return nil
+}
+
+// enclosingComponentAt returns the *gsxast.Component in the analysis AST for
+// path whose authored span (pkg.GSXFset coordinates) contains off, or nil. Top-
+// level components never nest, so the smallest-span tie-break is only defensive.
+func enclosingComponentAt(pkg *Package, path string, off int) *gsxast.Component {
+	if pkg.GSXFset == nil {
+		return nil
+	}
+	f := pkg.Files[path]
+	if f == nil {
+		for p, ff := range pkg.Files {
+			if samePath(p, path) {
+				f = ff
+				break
+			}
+		}
+	}
+	if f == nil {
+		return nil
+	}
+	var best *gsxast.Component
+	bestSpan := 1 << 30
+	for _, d := range f.Decls {
+		c, ok := d.(*gsxast.Component)
+		if !ok {
+			continue
+		}
+		lo := pkg.GSXFset.Position(c.Pos()).Offset
+		hi := pkg.GSXFset.Position(c.End()).Offset
+		if off < lo || off > hi {
+			continue
+		}
+		if span := hi - lo; span < bestSpan {
+			best = c
+			bestSpan = span
+		}
+	}
+	return best
+}
+
+// namedTypeOf reduces a value's type to the bare name and package path of the
+// named type that carries its methods: a pointer is dereferenced (a `*T`
+// receiver var still names method components keyed on `T` — codegen's parseRecv
+// strips the leading `*`), and an alias is unwrapped. Returns ok == false for a
+// non-named type or one with no package (a builtin), which can carry no method
+// components.
+func namedTypeOf(t types.Type) (typeName, pkgPath string, ok bool) {
+	if ptr, isPtr := types.Unalias(t).(*types.Pointer); isPtr {
+		t = ptr.Elem()
+	}
+	named, isNamed := types.Unalias(t).(*types.Named)
+	if !isNamed {
+		return "", "", false
+	}
+	tn := named.Obj()
+	if tn == nil || tn.Pkg() == nil {
+		return "", "", false
+	}
+	return tn.Name(), tn.Pkg().Path(), true
+}
+
+// methodComponentItems offers one item per method component declared on the type
+// named typeName in pkgPath — ComponentDecls keys of the form typeName+"."+Name.
+// pkgPath matches cross-package too: method components on an imported type are
+// keyed by their declaring (== the type's) package path. kind is ciKindClass and
+// tier tierContext, consistent with componentNameItems (a tag, not a call).
+func methodComponentItems(pkg *Package, pkgPath, typeName string, text string, start, end int, enc encoding) []CompletionItem {
+	prefix := typeName + "."
+	var names []string
+	for key := range pkg.ComponentDecls {
+		if key.PackagePath != pkgPath {
+			continue
+		}
+		if name, ok := strings.CutPrefix(key.ComponentKey, prefix); ok && name != "" && !strings.Contains(name, ".") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	items := make([]CompletionItem, 0, len(names))
+	for _, name := range names {
+		items = append(items, newCompletionItem(text, start, end, enc, name, name, ciKindClass, tierContext, "", nil))
+	}
 	return items
 }
 

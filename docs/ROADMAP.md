@@ -578,10 +578,16 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   Fallback-only (zero change to answerable cases); returned current-file spans
   map repaired→live coordinates. Cursor-local, so it heals breakage at the
   cursor, not on an unrelated line.
+  Method-component (`<recv.Name>`) tags complete: a qualified `<recv.▮` cursor
+  whose qualifier resolves to an in-scope value binding (receiver, parameter, or
+  package-scope var — resolved via the enclosing component's generated-func scope
+  seeded from `SigTypes`, not authored-offset alignment) offers that type's
+  method components; a value binding shadows a same-named import per Go scoping.
   **Follow-ups:** auto-import completion (own design); expected-type ranking;
   snippet placeholders; typed pipe-filter compatibility filtering;
-  `completionItem/resolve` for lazy docs; method-component (`<recv.Name>`)
-  tags; Go doc comments on candidates (requires comment retention through the
+  `completionItem/resolve` for lazy docs; body-local value bindings as method-
+  component qualifiers (declared in a `{{ }}` block, a v1 gap); Go doc comments
+  on candidates (requires comment retention through the
   skeleton); stale-snapshot fast path — largely subsumed by the non-blocking
   `TryAnalyzeEphemeral` work above, only worth revisiting if a benchmark still
   demands it.

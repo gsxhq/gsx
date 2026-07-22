@@ -859,6 +859,29 @@ func TestTagCompletionE2E(t *testing.T) {
 			t.Errorf("qualified trailing-dot tag completion missing imported component `Button`; labels=%v", got)
 		}
 	})
+
+	// method component: a `<recv.▮` cursor where `recv` is the enclosing method
+	// component's RECEIVER var (not an import) resolves the receiver type's method
+	// components. `Page` is a method on UsersPage; its body invokes a sibling
+	// method component `<p.Row/>` on the same receiver `p`. A trailing-dot cursor
+	// `<p.` heals through the same `/>` repair as the qualified-import case and
+	// classifies with qualifier "p"; receiverVarComponentItems resolves `p` to the
+	// UsersPage receiver var and offers its methods (Row, Page), never HTML tags
+	// (a qualified cursor is component-only) or the plain sibling component.
+	t.Run("method component receiver var", func(t *testing.T) {
+		source := "package page\n\ntype UsersPage struct {\n\tTitle string\n}\n\ncomponent (p UsersPage) Row(x string) {\n\t<span>{x}-{p.Title}</span>\n}\n\ncomponent (p UsersPage) Page() {\n\t<div><p.Row x=\"a\"/>\n\t<p.\n\t</div>\n}\n"
+		cursor := strings.LastIndex(source, "<p.") + len("<p.")
+		got := run(t, map[string]string{"page/page.gsx": source}, "page/page.gsx", source, cursor)
+		if !got["Row"] {
+			t.Errorf("method-component tag completion missing receiver method `Row`; labels=%v", got)
+		}
+		if !got["Page"] {
+			t.Errorf("method-component tag completion missing receiver method `Page`; labels=%v", got)
+		}
+		if got["div"] {
+			t.Errorf("qualified `<p.` cursor offered an HTML tag `div`; labels=%v", got)
+		}
+	})
 }
 
 // TestComponentAttrCompletionE2E drives textDocument/completion for a

@@ -270,7 +270,7 @@ func componentTagFixturePackage() *Package {
 // qualifiers (sorted) — deterministic despite ComponentDecls being a map.
 func TestComponentTagItemsBareCursor(t *testing.T) {
 	pkg := componentTagFixturePackage()
-	items := componentTagItems(pkg, "", false, "", 0, 0, encUTF8)
+	items := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
 	if len(items) != 2 {
 		t.Fatalf("len(items) = %d, want 2: %+v", len(items), items)
 	}
@@ -297,7 +297,7 @@ func TestComponentTagItemsBareCursor(t *testing.T) {
 // package's plain component ("Button"), dot-free.
 func TestComponentTagItemsQualified(t *testing.T) {
 	pkg := componentTagFixturePackage()
-	items := componentTagItems(pkg, "ui", false, "", 0, 0, encUTF8)
+	items := componentTagItems(pkg, "ui", false, "", 0, "", 0, 0, encUTF8)
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1: %+v", len(items), items)
 	}
@@ -313,7 +313,7 @@ func TestComponentTagItemsQualified(t *testing.T) {
 // matching no import's Name() yields an empty list, not a panic.
 func TestComponentTagItemsQualifiedUnknownImport(t *testing.T) {
 	pkg := componentTagFixturePackage()
-	if items := componentTagItems(pkg, "nope", false, "", 0, 0, encUTF8); len(items) != 0 {
+	if items := componentTagItems(pkg, "nope", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("items = %+v, want empty for an unresolvable qualifier", items)
 	}
 }
@@ -325,7 +325,7 @@ func TestComponentTagItemsNilTypesFailsSoft(t *testing.T) {
 	pkg := &Package{ComponentDecls: map[ComponentDeclKey][]sourceintel.VersionedSpan{
 		{PackagePath: "example.com/app/page", ComponentKey: ".Card"}: nil,
 	}}
-	if items := componentTagItems(pkg, "", false, "", 0, 0, encUTF8); len(items) != 0 {
+	if items := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("items = %+v, want empty when pkg.Types is nil", items)
 	}
 }
@@ -352,17 +352,17 @@ var _ = myui.ToUpper
 		{PackagePath: "strings", ComponentKey: ".Button"}: nil,
 	}
 
-	items := componentTagItems(pkg, "myui", false, "", 0, 0, encUTF8)
+	items := componentTagItems(pkg, "myui", false, "", 0, "", 0, 0, encUTF8)
 	if len(items) != 1 || items[0].Label != "Button" {
 		t.Fatalf("qualifier=%q items = %+v, want exactly [Button]", "myui", items)
 	}
 
 	// The declared name ("strings") must NOT resolve — only the alias does.
-	if items := componentTagItems(pkg, "strings", false, "", 0, 0, encUTF8); len(items) != 0 {
+	if items := componentTagItems(pkg, "strings", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("qualifier=%q items = %+v, want empty (declared name is not the local name)", "strings", items)
 	}
 
-	bareItems := componentTagItems(pkg, "", false, "", 0, 0, encUTF8)
+	bareItems := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
 	var qualItem *CompletionItem
 	for i := range bareItems {
 		if bareItems[i].Kind == ciKindModule {
@@ -456,7 +456,7 @@ func buildIconValueComponentFixture() *Package {
 // ciKindClass), BadParam/WrongResult/unexp are not.
 func TestComponentValueNameItemsQualified(t *testing.T) {
 	pkg := buildIconValueComponentFixture()
-	items := componentTagItems(pkg, "icon", false, "", 0, 0, encUTF8)
+	items := componentTagItems(pkg, "icon", false, "", 0, "", 0, 0, encUTF8)
 	got := map[string]CompletionItem{}
 	for _, it := range items {
 		got[it.Label] = it
@@ -485,7 +485,7 @@ func TestComponentValueNameItemsQualified(t *testing.T) {
 // though it has zero ComponentDecls entries.
 func TestComponentValueNameItemsBareCursorLocal(t *testing.T) {
 	pkg := buildIconValueComponentFixture()
-	items := componentTagItems(pkg, "", false, "", 0, 0, encUTF8)
+	items := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
 	var local, qual *CompletionItem
 	for i := range items {
 		switch items[i].Label {
@@ -518,7 +518,7 @@ func TestComponentValueNameItemsDedup(t *testing.T) {
 	pkg.ComponentDecls = map[ComponentDeclKey][]sourceintel.VersionedSpan{
 		{PackagePath: "github.com/tespkg/one-learning/ds/icon", ComponentKey: ".X"}: nil,
 	}
-	items := componentTagItems(pkg, "icon", false, "", 0, 0, encUTF8)
+	items := componentTagItems(pkg, "icon", false, "", 0, "", 0, 0, encUTF8)
 	count := 0
 	for _, it := range items {
 		if it.Label == "X" {
