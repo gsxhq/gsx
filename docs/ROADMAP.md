@@ -574,7 +574,16 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   **Follow-ups:** auto-import completion (own design); expected-type ranking;
   snippet placeholders; typed pipe-filter compatibility filtering;
   `completionItem/resolve` for lazy docs; method-component (`<recv.Name>`)
-  tags.
+  tags; extend the repair + ephemeral-analysis machinery to
+  definition/hover on mid-edit buffers (an unclosed tag currently drops the
+  package to a shell and nav reads the stale retained snapshot).
+- [ ] **emit.go `//line` for top-level Go body chunks** - shipped `.x.go`
+  emits no `//line` for plain GoChunk text or GoWithElements GoText, so a
+  cross-module dep loaded from its published `.x.go` resolves value positions
+  (gd on component values, compiler errors in top-level var blocks) up to a
+  few lines off within the correct `.gsx`. Same-module is exact (in-memory
+  skeleton anchors correctly since the `part.Pos()+start` fix). Emit `//line`
+  for these chunks like components/elements already get.
 - **Deferred:** external/non-project references; references cover project
   components discovered during module analysis.
 
