@@ -64,8 +64,12 @@ func (s *Server) pipeStageCompletion(cc completionContext, path, text string, of
 // is safe. Both empty (or absent) yields nil, and pipeStageCompletion turns
 // that into an empty list — fail soft, never an error.
 func (s *Server) pipeFilters(dir, path string, src []byte) []FilterCandidate {
-	eph, err := s.analyzer.AnalyzeEphemeral(dir, path, src)
-	if err == nil && eph != nil && (eph.Info != nil || len(eph.Filters) > 0) {
+	// Non-blocking (see goContextCompletion): under contention acquired=false
+	// (eph nil) falls through to the retained snapshot below — filter NAMES are
+	// position-independent, so a stale list is a safe, instant answer rather than
+	// a whole-server stall.
+	eph, acquired, err := s.analyzer.AnalyzeEphemeralNonBlocking(dir, path, src)
+	if acquired && err == nil && eph != nil && (eph.Info != nil || len(eph.Filters) > 0) {
 		return eph.Filters
 	}
 	if pkg := s.pkgs[dir]; pkg != nil {
@@ -118,8 +122,12 @@ func (s *Server) tagCompletion(cc completionContext, path, text string, off int,
 // safe fallback. Both absent/empty yields nil, and tagCompletion turns that
 // into an empty list — fail soft, never an error.
 func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
-	eph, err := s.analyzer.AnalyzeEphemeral(dir, path, src)
-	if err == nil && eph != nil && (eph.Info != nil || len(eph.ComponentDecls) > 0) {
+	// Non-blocking (see goContextCompletion): under contention acquired=false
+	// (eph nil) falls through to the retained snapshot below — component
+	// identities are position-independent, so a stale package answers instantly
+	// rather than stalling the dispatch loop.
+	eph, acquired, err := s.analyzer.AnalyzeEphemeralNonBlocking(dir, path, src)
+	if acquired && err == nil && eph != nil && (eph.Info != nil || len(eph.ComponentDecls) > 0) {
 		return eph
 	}
 	if pkg := s.pkgs[dir]; pkg != nil {
@@ -434,6 +442,14 @@ func importQualifierItems(pkg *Package, text string, start, end int, enc encodin
 // blind to aliases — `import myui "example.com/ui"` would resolve as "ui",
 // never "myui".
 //
+// A RETAINED package (s.pkgs[dir], codegen's Package result) carries only the
+// *ast.File-keyed entries of Info.Scopes — codegen's retainFileScopesOnly
+// prunes every func/block/if/for/switch scope before caching it, since this
+// is the only retained-package reader of Info.Scopes. That is exactly the
+// subset fileScopeSet needs, so this walk is unaffected; an EPHEMERAL package
+// (AnalyzeEphemeral, the common case reaching this function) keeps every
+// scope, used in full by the Go-completion scope walk elsewhere.
+//
 // When pkg.Info is nil (a shell / type-error package with no scope info to
 // walk) this falls back to pkg.Types.Imports(), which cannot see aliases —
 // a documented best-effort degradation; the alternative is offering nothing
@@ -526,8 +542,12 @@ func (s *Server) attrNameCompletion(cc completionContext, path, text string, off
 	// on codegen's own parse, never on the classification parse cc.element belongs
 	// to — and (b) reading the dir's url-presets. A shell result (analyzer error,
 	// or no matching element) simply routes to the HTML path, which needs neither.
-	eph, err := s.analyzer.AnalyzeEphemeral(dir, path, r.src)
-	if err != nil {
+	// Non-blocking (see goContextCompletion): a not-acquired (contention) or error
+	// result leaves eph nil, routing to the HTML attribute path below, which needs
+	// no analysis — and dirURLPresets falls back to the retained snapshot. So a
+	// contended request still answers HTML attrs instantly instead of stalling.
+	eph, acquired, err := s.analyzer.AnalyzeEphemeralNonBlocking(dir, path, r.src)
+	if !acquired || err != nil {
 		eph = nil
 	}
 	var ephEl *gsxast.Element

@@ -246,8 +246,11 @@ func (s *Server) hoverFallback(path, text string, off int, sources *requestSourc
 	if !ok {
 		return nil, false
 	}
-	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, r.src)
-	if err != nil || eph == nil || (eph.Info == nil && eph.Files == nil) {
+	// Non-blocking (see definitionFallback): under contention skip the ephemeral
+	// pass and reply null rather than stall the dispatch loop behind a background
+	// analysis.
+	eph, acquired, err := s.analyzer.AnalyzeEphemeralNonBlocking(filepath.Dir(path), path, r.src)
+	if !acquired || err != nil || eph == nil || (eph.Info == nil && eph.Files == nil) {
 		return nil, false
 	}
 	sources.setRepair(path, insertOff, len(r.patch))

@@ -41,6 +41,9 @@ func (a *moduleRefsAnalyzer) Analyze(string, map[string][]byte) (*Package, error
 func (a *moduleRefsAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
 	return nil, errFake
 }
+func (a *moduleRefsAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
+	return nil, true, errFake
+}
 func (a *moduleRefsAnalyzer) AnalyzeModule(_ string, overrides map[string][]byte) ([]CrossRef, error) {
 	a.moduleCalls++
 	captured := make(map[string][]byte, len(overrides))

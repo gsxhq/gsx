@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	goast "go/ast"
@@ -70,6 +71,40 @@ func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.
 	chk := types.NewChecker(&conf, fset, pkg, info)
 	_ = chk.Files(files)
 	return pkg, info, errs
+}
+
+// retainFileScopesOnly prunes info.Scopes down to its *ast.File-keyed entries,
+// discarding every func/block/if/for/switch scope go/types recorded during
+// the check. Call this ONLY on a PackageResult.Info that is about to be
+// cached in Module.pkgResults (Package's retained result) — never on an
+// AnalyzeEphemeral result, which the LSP's Go-completion scope walk
+// (internal/lsp/completion_go.go innermostScopeAt/innermostScopeAtAuthored)
+// needs in full.
+//
+// The only retained-package consumer of Info.Scopes is
+// internal/lsp/completion_gsx.go's importQualifierCandidates, reached through
+// componentDeclPackage's ephemeral-then-retained fallback (a shell ephemeral
+// analysis + a `<qualifier.` cursor + an aliased import — narrow but real).
+// It reads exactly the file scopes via fileScopeSet (filters Info.Scopes for
+// *ast.File keys), so pruning to that subset changes nothing observable while
+// dropping the vast majority of the map's ENTRIES: a package has one scope
+// per func/block/if/for/switch (thousands, in a large package) but only one
+// scope per FILE (a handful).
+//
+// This does NOT free the pruned *types.Scope objects themselves — they stay
+// alive via the retained *types.Package's own scope tree regardless (see the
+// MEASURED note at this function's one call site, module.go's Package). Only
+// the map's own entries (~1 MB on one-learning ui/) are reclaimed. See
+// .superpowers/sdd/perf-hunt-2-report.md "P3 pass" for the measurement.
+func retainFileScopesOnly(info *types.Info) {
+	if info == nil {
+		return
+	}
+	for node := range info.Scopes {
+		if _, ok := node.(*goast.File); !ok {
+			delete(info.Scopes, node)
+		}
+	}
 }
 
 // moduleImporter owns one coherent shipping declaration universe for every
@@ -1727,6 +1762,64 @@ func harvestProbeSpans(f *goast.File) []posSpan {
 	return spans
 }
 
+// parseCacheEntry is a pristine, per-file gsx parse kept so unchanged files skip
+// re-parsing on every analysis. file is the parsed + wsnorm-normalized tree; it
+// is NEVER handed out — parsedGSXFile serves ast.CloneFile(file) so the codegen
+// mutation passes (which populate Interp/GoBlock.Embedded, minify js/css into
+// node values, rebase RawJS, and stamp Element.IsComponent) never contaminate
+// the cached tree. hash pins the source bytes, classifier pins the per-dir
+// attrclass.Classifier identity the parse used. The cached token.Pos values
+// reference the token.File m.fset minted at parse time; re-serving them keeps
+// fset growth at zero for unchanged files (the entry stays alive until
+// rebuildFset, which flushes the whole cache in the same critical section).
+type parseCacheEntry struct {
+	hash       [sha256.Size]byte
+	classifier *attrclass.Classifier
+	file       *gsxast.File
+}
+
+// parsedGSXFile returns a fresh, safe-to-mutate gsx AST for path. It serves a
+// clone of a cached pristine tree when the source bytes and classifier are
+// unchanged, and otherwise parses (into fset), normalizes, and caches a new
+// pristine tree before returning its clone. A parse error is returned as a
+// sourceDiagnosticsError and is never cached.
+func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Classifier, fset *token.FileSet) (*gsxast.File, error) {
+	hash := sha256.Sum256(src)
+	m.mu.Lock()
+	entry, ok := m.parseCache[path]
+	m.mu.Unlock()
+	if ok && entry.hash == hash && entry.classifier == classifier {
+		return gsxast.CloneFile(entry.file), nil
+	}
+	f, perrs := gsxparser.ParseFileWithClassifier(fset, path, src, 0, classifier)
+	if len(perrs) > 0 {
+		diags := make([]diag.Diagnostic, 0, len(perrs))
+		for _, perr := range perrs {
+			pos := fset.Position(perr.Pos)
+			end := pos
+			if perr.End.IsValid() {
+				end = fset.Position(perr.End)
+			}
+			diags = append(diags, diag.Diagnostic{
+				Start:    pos,
+				End:      end,
+				Severity: diag.Error,
+				Code:     "parse-error",
+				Message:  perr.Msg,
+				Source:   "parser",
+			})
+		}
+		return nil, sourceDiagnosticsError{diags: diags}
+	}
+	// Normalize the pristine tree ONCE (wsnorm is idempotent and deterministic);
+	// clones inherit the normalized structure.
+	wsnorm.Normalize(f)
+	m.mu.Lock()
+	m.parseCache[path] = parseCacheEntry{hash: hash, classifier: classifier, file: f}
+	m.mu.Unlock()
+	return gsxast.CloneFile(f), nil
+}
+
 // parsePackageWithFset parses every .gsx in dir into the provided fset and
 // returns the private package owner for the one preprocessing transition. The
 // shared FileSet remains required for valid skeleton //line directives.
@@ -1769,27 +1862,10 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 		if !ok {
 			continue
 		}
-		f, perrs := gsxparser.ParseFileWithClassifier(fset, p, src, 0, classifier)
-		if len(perrs) > 0 {
-			diags := make([]diag.Diagnostic, 0, len(perrs))
-			for _, perr := range perrs {
-				pos := fset.Position(perr.Pos)
-				end := pos
-				if perr.End.IsValid() {
-					end = fset.Position(perr.End)
-				}
-				diags = append(diags, diag.Diagnostic{
-					Start:    pos,
-					End:      end,
-					Severity: diag.Error,
-					Code:     "parse-error",
-					Message:  perr.Msg,
-					Source:   "parser",
-				})
-			}
-			return nil, sourceDiagnosticsError{diags: diags}
+		f, err := m.parsedGSXFile(p, src, classifier, fset)
+		if err != nil {
+			return nil, err
 		}
-		wsnorm.Normalize(f)
 		if pkgName != "" && f.Package != pkgName {
 			return nil, fmt.Errorf(
 				"codegen: GSX package %s contains different package clauses: %s declares %q; %s declares %q",

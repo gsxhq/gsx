@@ -4,6 +4,7 @@ import (
 	goast "go/ast"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // newEphemeralTestModule creates a temporary module with a single "page"
@@ -123,6 +124,84 @@ func TestAnalyzeEphemeralBasics(t *testing.T) {
 	}
 }
 
+// TestTryAnalyzeEphemeralUncontended proves the fast path: on a free Module,
+// TryAnalyzeEphemeral acquires (acquired=true) and returns a result with the
+// same facts AnalyzeEphemeral produces over the identical buffer. This is the
+// justification for the LSP handlers switching to the non-blocking variant
+// unconditionally — when uncontended it is indistinguishable from the blocking
+// call.
+func TestTryAnalyzeEphemeralUncontended(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	live := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	m.SetOverride(pagePath, live)
+	if _, err := m.Package(dir); err != nil {
+		t.Fatalf("baseline Package: %v", err)
+	}
+	patched := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user._ }</div>\n}\n")
+
+	blocking, err := m.AnalyzeEphemeral(dir, pagePath, patched)
+	if err != nil {
+		t.Fatalf("AnalyzeEphemeral: %v", err)
+	}
+	tryRes, acquired, err := m.TryAnalyzeEphemeral(dir, pagePath, patched)
+	if err != nil {
+		t.Fatalf("TryAnalyzeEphemeral: %v", err)
+	}
+	if !acquired {
+		t.Fatal("uncontended TryAnalyzeEphemeral did not acquire the lock")
+	}
+	if tryRes == nil || tryRes.Info == nil || tryRes.Types == nil {
+		t.Fatalf("TryAnalyzeEphemeral result missing Info/Types: %+v", tryRes)
+	}
+	if len(tryRes.ExprMap) == 0 {
+		t.Fatal("TryAnalyzeEphemeral result ExprMap empty; want the user._ interp bridged")
+	}
+	// Same facts as the blocking variant over the identical buffer.
+	if len(tryRes.Filters) != len(blocking.Filters) {
+		t.Fatalf("Filters len = %d, want %d (identical to AnalyzeEphemeral)", len(tryRes.Filters), len(blocking.Filters))
+	}
+	if len(tryRes.ComponentDecls) != len(blocking.ComponentDecls) {
+		t.Fatalf("ComponentDecls len = %d, want %d (identical to AnalyzeEphemeral)", len(tryRes.ComponentDecls), len(blocking.ComponentDecls))
+	}
+	if len(tryRes.ExprMap) != len(blocking.ExprMap) {
+		t.Fatalf("ExprMap len = %d, want %d (identical to AnalyzeEphemeral)", len(tryRes.ExprMap), len(blocking.ExprMap))
+	}
+}
+
+// TestTryAnalyzeEphemeralContended proves the insurance: while analysisMu is
+// held (modeling an in-flight background Package/Generate), TryAnalyzeEphemeral
+// declines rather than blocks — acquired=false, nil result, no error, and it
+// returns promptly. The test holds the real analysisMu directly (same-package
+// access, no export needed and no sleep-based synchronization).
+func TestTryAnalyzeEphemeralContended(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	src := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	m.SetOverride(pagePath, src)
+	if _, err := m.Package(dir); err != nil {
+		t.Fatalf("baseline Package: %v", err)
+	}
+
+	// Hold the same lock every top-level entry point takes.
+	m.analysisMu.Lock()
+	start := time.Now()
+	res, acquired, err := m.TryAnalyzeEphemeral(dir, pagePath, src)
+	elapsed := time.Since(start)
+	m.analysisMu.Unlock()
+
+	if acquired {
+		t.Fatal("TryAnalyzeEphemeral acquired the lock while it was held; want acquired=false")
+	}
+	if res != nil {
+		t.Fatalf("not-acquired result must be nil, got %+v", res)
+	}
+	if err != nil {
+		t.Fatalf("not-acquired must not error, got %v", err)
+	}
+	if elapsed > 10*time.Millisecond {
+		t.Fatalf("TryAnalyzeEphemeral blocked %v under contention; must return promptly", elapsed)
+	}
+}
+
 func TestAnalyzeEphemeralShellOnBrokenElsewhere(t *testing.T) {
 	m, dir, pagePath := newEphemeralTestModule(t)
 	// other.gsx is valid; break page.gsx structurally somewhere the repair
@@ -209,5 +288,50 @@ func TestAnalyzeEphemeralDoesNotDirty(t *testing.T) {
 	}
 	if got := m.dirtyDirs(); len(got) != 0 {
 		t.Fatalf("ephemeral analysis dirtied %v; must leave dirty tracking untouched", got)
+	}
+}
+
+// TestPackageRetainsFileScopesOnly pins the P3 retention policy (perf-hunt
+// #2): a cached Package() result's Info.Scopes must contain ONLY *ast.File
+// keys (retainFileScopesOnly, called before m.pkgResults[dir] is populated) —
+// exactly the subset internal/lsp/completion_gsx.go's importQualifierCandidates
+// needs via fileScopeSet, and the only retained-package reader of Scopes. An
+// AnalyzeEphemeral result, never cached and consumed by the Go-completion
+// scope walk (innermostScopeAt/innermostScopeAtAuthored), must keep every
+// scope go/types recorded (func/block scopes included).
+func TestPackageRetainsFileScopesOnly(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	src := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	m.SetOverride(pagePath, src)
+
+	res, err := m.Package(dir)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+	if res.Info == nil || len(res.Info.Scopes) == 0 {
+		t.Fatalf("Package result Info.Scopes empty; want file scopes retained (Info=%v)", res.Info)
+	}
+	for node := range res.Info.Scopes {
+		if _, ok := node.(*goast.File); !ok {
+			t.Fatalf("Package result Info.Scopes has a non-file entry %T; want only *ast.File keys after retainFileScopesOnly", node)
+		}
+	}
+
+	eph, err := m.AnalyzeEphemeral(dir, pagePath, src)
+	if err != nil {
+		t.Fatalf("AnalyzeEphemeral: %v", err)
+	}
+	if eph.Info == nil {
+		t.Fatal("AnalyzeEphemeral result Info is nil")
+	}
+	var sawNonFileScope bool
+	for node := range eph.Info.Scopes {
+		if _, ok := node.(*goast.File); !ok {
+			sawNonFileScope = true
+			break
+		}
+	}
+	if !sawNonFileScope {
+		t.Fatal("AnalyzeEphemeral result Info.Scopes has no func/block scopes; the Go-completion scope walk needs the full chain")
 	}
 }

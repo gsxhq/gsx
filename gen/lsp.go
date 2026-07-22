@@ -626,6 +626,47 @@ func (a lspAnalyzer) AnalyzeEphemeral(dir, path string, content []byte) (*lsp.Pa
 	return adaptPackageResult(pr), nil
 }
 
+// AnalyzeEphemeralNonBlocking is the non-blocking variant of AnalyzeEphemeral
+// (see codegen.Module.TryAnalyzeEphemeral). It returns acquired=false without
+// analyzing when the warm Module's analysis lock is already held by an
+// in-flight background Package/Generate — the LSP dispatch loop uses it so a
+// completion or nav request never stalls behind that background work. On
+// acquired=true the (*lsp.Package, error) pair is identical to
+// AnalyzeEphemeral's; on acquired=false the package is nil and the handler
+// serves a retained-snapshot fallback (or replies empty/null) instead. A
+// module-resolution error (root/config/warm-Module setup) is returned with
+// acquired=false since no analysis was attempted.
+func (a lspAnalyzer) AnalyzeEphemeralNonBlocking(dir, path string, content []byte) (*lsp.Package, bool, error) {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, _, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, false, err
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, false, err
+	}
+	pr, acquired, err := m.TryAnalyzeEphemeral(abs, filepath.Clean(absPath), content)
+	if !acquired {
+		return nil, false, err
+	}
+	if err != nil {
+		return nil, true, err
+	}
+	if pr == nil {
+		return &lsp.Package{}, true, nil
+	}
+	return adaptPackageResult(pr), true, nil
+}
+
 // AnalyzeModule analyzes every gsx package in the module containing dir and
 // returns a flat cross-reference list. It reuses the warm per-root Module
 // (same instance Analyze uses), so the warm type-cache is shared across

@@ -79,13 +79,25 @@ func TestFilterItemsEmpty(t *testing.T) {
 // tests can drive both the ephemeral path and the s.pkgs[dir] fallback path.
 type pipeFilterAnalyzer struct {
 	nilAnalyzer
-	ephPkg   *Package
-	ephErr   error
-	analyzed *Package // returned by Analyze, populates s.pkgs[dir] via didOpen
+	ephPkg         *Package
+	ephErr         error
+	ephNotAcquired bool     // when true, the non-blocking variant reports acquired=false (contention)
+	analyzed       *Package // returned by Analyze, populates s.pkgs[dir] via didOpen
 }
 
 func (a pipeFilterAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
 	return a.ephPkg, a.ephErr
+}
+
+// AnalyzeEphemeralNonBlocking scripts contention: when ephNotAcquired it
+// reports acquired=false (nil Package) so the handler must serve the retained
+// snapshot; otherwise it acquires and delegates to AnalyzeEphemeral.
+func (a pipeFilterAnalyzer) AnalyzeEphemeralNonBlocking(dir, path string, content []byte) (*Package, bool, error) {
+	if a.ephNotAcquired {
+		return nil, false, nil
+	}
+	pkg, err := a.AnalyzeEphemeral(dir, path, content)
+	return pkg, true, err
 }
 
 func (a pipeFilterAnalyzer) Analyze(string, map[string][]byte) (*Package, error) {
@@ -162,6 +174,50 @@ func TestPipeStageCompletionBothEmpty(t *testing.T) {
 	items := decodeCompletionItems(t, out, 2)
 	if len(items) != 0 {
 		t.Fatalf("pipe-stage items = %v, want empty", items)
+	}
+}
+
+// TestPipeStageCompletionServesRetainedWhenContended pins the P4 insurance
+// policy: when the non-blocking ephemeral analysis reports acquired=false (a
+// background analysis holds the lock), pipe-stage completion serves the
+// retained s.pkgs[dir] snapshot's Filters instead of stalling — and never
+// consults the ephemeral package (ephPkg here carries a bogus filter that must
+// NOT appear, proving the contended path skipped it).
+func TestPipeStageCompletionServesRetainedWhenContended(t *testing.T) {
+	uri := "file:///m/a.gsx"
+	text := "package p\n\ncomponent C(x string) {\n\t<div>{ x |> up }</div>\n}\n"
+	off := strings.Index(text, "|> up") + len("|> up")
+	pos := positionForByteOffset(text, off, encUTF16)
+
+	a := pipeFilterAnalyzer{
+		ephNotAcquired: true,
+		ephPkg:         &Package{Filters: []FilterCandidate{{Name: "shouldNotAppear", Pkg: "x", Func: "X"}}},
+		analyzed:       &Package{Filters: []FilterCandidate{{Name: "lower", Pkg: "github.com/gsxhq/gsx/std", Func: "Lower"}}},
+	}
+
+	out := drive(t, a, initFrame()+didOpenFrame(uri, text)+
+		completionFrame(2, uri, pos)+exitFrame())
+	items := decodeCompletionItems(t, out, 2)
+	if len(items) != 1 || items[0].Label != "lower" {
+		t.Fatalf("contended pipe-stage items = %v, want exactly [lower] from the retained snapshot", items)
+	}
+}
+
+// TestGoContextCompletionEmptyWhenContended pins the P4 policy for Go-identifier
+// cursors: under contention (acquired=false) there is no safe retained fallback
+// — a stale scope chain would list objects the live buffer may no longer have —
+// so the handler answers an empty (non-nil) list, never an error and never a
+// stall. Exercised directly since the empty answer is returned at the
+// not-acquired guard, before any type-info bridging a fake could not supply.
+func TestGoContextCompletionEmptyWhenContended(t *testing.T) {
+	s := &Server{analyzer: pipeFilterAnalyzer{ephNotAcquired: true}, enc: encUTF16}
+	text := "{ x }"
+	got := s.goContextCompletion(completionContext{kind: ctxGoExpr}, "/m/a.gsx", text, 3, repairResult{src: []byte(text)})
+	if got.Items == nil {
+		t.Fatal("Go-context contended completion returned nil Items; want an empty non-nil list")
+	}
+	if len(got.Items) != 0 {
+		t.Fatalf("Go-context contended completion returned %d items; want 0 (fail soft, not stale)", len(got.Items))
 	}
 }
 
@@ -487,6 +543,11 @@ type tagCompletionAnalyzer struct {
 
 func (a tagCompletionAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
 	return a.ephPkg, a.ephErr
+}
+
+func (a tagCompletionAnalyzer) AnalyzeEphemeralNonBlocking(dir, path string, content []byte) (*Package, bool, error) {
+	pkg, err := a.AnalyzeEphemeral(dir, path, content)
+	return pkg, true, err
 }
 
 func (a tagCompletionAnalyzer) Analyze(string, map[string][]byte) (*Package, error) {

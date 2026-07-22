@@ -79,8 +79,13 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 		patched = append(patched, src[off:]...)
 		src = patched
 	}
-	eph, err := s.analyzer.AnalyzeEphemeral(filepath.Dir(path), path, src)
-	if err != nil || eph == nil || eph.Info == nil {
+	// Non-blocking: this runs inline on the dispatch goroutine, so it must never
+	// stall behind an in-flight background analysis. On not-acquired (contention)
+	// a Go identifier cursor has no retained fallback worth serving — a stale
+	// scope-chain would list objects the current buffer may no longer have — so
+	// fail soft to an empty list, exactly as a shell/error result already does.
+	eph, acquired, err := s.analyzer.AnalyzeEphemeralNonBlocking(filepath.Dir(path), path, src)
+	if !acquired || err != nil || eph == nil || eph.Info == nil {
 		return emptyCompletion()
 	}
 	// The classifier's fragment start in buffer-byte coordinates; the cursor's

@@ -25,6 +25,9 @@ func (nilAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { return
 func (nilAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
 	return nil, errors.New("not implemented")
 }
+func (nilAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
+	return nil, true, errors.New("not implemented")
+}
 func (nilAnalyzer) ClearOverride(string) ([]string, error) { return nil, nil }
 func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil

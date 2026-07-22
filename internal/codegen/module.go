@@ -134,6 +134,11 @@ type Options struct {
 // NOT acquire analysisMu — those functions run within a held analysisMu and
 // re-acquiring would deadlock. True fine-grained concurrent analysis (multiple
 // roots in parallel or partial invalidation) is deferred to Phase 2.
+// TryAnalyzeEphemeral is a non-blocking variant of the AnalyzeEphemeral entry
+// point: it acquires analysisMu via TryLock and returns acquired=false rather
+// than waiting when another entry point holds it. It composes with this
+// contract — the lock still serializes every entry point and stays
+// non-reentrant; TryLock only changes wait-vs-decline, never the invariant.
 //
 // Cache invalidation: SetOverride and ClearOverride compare against the frozen
 // saved-source state beneath the buffer and return the exact sorted affected
@@ -219,6 +224,7 @@ type Module struct {
 	targetDeclProvenance      componentTargetProvenanceCache      // abs dir -> logical component key -> exact authored declarations
 	configuredDeclTypes       map[string]*types.Package           // abs dir -> configured declaration-universe package cache
 	pkgResults                map[string]*PackageResult           // abs dir -> cached full analysis result (Package path only)
+	parseCache                map[string]parseCacheEntry          // abs .gsx path -> pristine per-file parse; served via ast.CloneFile so unchanged files skip re-parse. Flushed by rebuildFset (its token.Pos values live in m.fset).
 	imports                   map[string][]string                 // dir -> authoritative module-local shipping dependencies (forward edges)
 	importedBy                map[string]map[string]bool          // dep dir -> set of importer dirs (reverse edges)
 	targetImports             map[string][]string                 // exact-target declaration graph forward edges
@@ -332,6 +338,7 @@ func Open(opts Options) (*Module, error) {
 		externalImportPaths:       map[string]bool{},
 		externalBackedges:         map[string][]string{},
 		pkgResults:                map[string]*PackageResult{},
+		parseCache:                map[string]parseCacheEntry{},
 		imports:                   map[string][]string{},
 		importedBy:                map[string]map[string]bool{},
 		targetImports:             map[string][]string{},
@@ -1241,6 +1248,10 @@ func (m *Module) rebuildFset() {
 	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
+	// The parse cache's token.Pos values reference token.File entries in the old
+	// fset; a fresh fset orphans them, so it must be flushed in the same critical
+	// section that replaces the fset.
+	m.parseCache = map[string]parseCacheEntry{}
 	m.fsetBaseline = 0
 	m.rebuildCount++
 }
@@ -1289,6 +1300,27 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 		return nil, err
 	}
+	// Retention policy (P3, perf-hunt #2): this result is about to be cached in
+	// m.pkgResults and held for the life of the LSP session. checkSkeletonPackage
+	// populates Info.Scopes with one *types.Scope per func/block/if/for/switch,
+	// but the only retained-package consumer (importQualifierCandidates, via
+	// componentDeclPackage's ephemeral-then-retained fallback) reads only the
+	// *ast.File-keyed entries — prune to that subset before caching.
+	//
+	// MEASURED: this frees only the Info.Scopes index entries themselves (~1 MB
+	// on one-learning ui/), not the *types.Scope objects they point to — those
+	// remain fully reachable regardless, via res.Types.Scope()'s parent/children
+	// tree (go/types.NewScope unconditionally links every scope into that tree,
+	// independent of whether a Checker's Info records it — see scope.go). Types
+	// is retained for unrelated reasons (hover's qualifier, import resolution),
+	// so the ~96 MB the perf-hunt report attributed to "Info.Scopes" was actually
+	// pinned by Types all along; this policy narrows the supported/observable
+	// surface (and the small index overhead) without claiming a heap win it
+	// cannot deliver. See perf-hunt-2-report.md "P3 pass" for the measurement.
+	//
+	// AnalyzeEphemeral does NOT call this: its result is never cached, and the
+	// Go-completion scope walk (innermostScopeAt et al.) needs the full index.
+	retainFileScopesOnly(a.info)
 	res := &PackageResult{
 		Files:       map[string][]byte{},
 		GSXFset:     a.gsxFset,
@@ -1324,7 +1356,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 && !a.bag.HasErrors() {
 		for _, f := range a.gsxFiles {
-			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, a.merger, a.componentPlan, a.positionalPlan)
+			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, a.merger, a.componentPlan, a.positionalPlan, true)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -1391,6 +1423,39 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 func (m *Module) AnalyzeEphemeral(dir, absPath string, src []byte) (*PackageResult, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
+	return m.analyzeEphemeralLocked(dir, absPath, src)
+}
+
+// TryAnalyzeEphemeral is the non-blocking sibling of AnalyzeEphemeral. It
+// attempts analysisMu.TryLock; if the lock is already held by an in-flight
+// top-level entry point (a background Package/Generate, or another ephemeral
+// run) it returns (nil, false, nil) immediately instead of blocking. On
+// acquisition (acquired == true) it runs the identical body as
+// AnalyzeEphemeral and returns the same (result, err) pair — when the Module
+// is uncontended TryLock succeeds at once, so the caller sees no difference.
+//
+// This is the insurance the LSP completion/nav handlers use unconditionally:
+// they run inline on the single dispatch goroutine, so blocking on analysisMu
+// behind a ~1 s background Package would stall the whole server. TryLock lets
+// them fall back to a retained-snapshot answer (or reply empty/null) instead.
+// TryLock composes cleanly with the concurrency contract above: analysisMu
+// still serializes every top-level entry point and is still non-reentrant —
+// TryAnalyzeEphemeral simply declines to enter rather than waiting, and the
+// not-acquired path touches no analysisMu-guarded state at all.
+func (m *Module) TryAnalyzeEphemeral(dir, absPath string, src []byte) (*PackageResult, bool, error) {
+	if !m.analysisMu.TryLock() {
+		return nil, false, nil
+	}
+	defer m.analysisMu.Unlock()
+	res, err := m.analyzeEphemeralLocked(dir, absPath, src)
+	return res, true, err
+}
+
+// analyzeEphemeralLocked is the shared body of AnalyzeEphemeral and
+// TryAnalyzeEphemeral. It assumes analysisMu is already held by the caller
+// (non-reentrant, per the concurrency contract) and does not acquire or
+// release it.
+func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*PackageResult, error) {
 	m.maybeRebuildFset()
 	m.applyDirty()
 	if err := m.validateConfiguredMergers(); err != nil {
@@ -1504,7 +1569,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// matching gate/comment in Package above.
 	if len(a.typeErrs) == 0 && !bag.HasErrors() {
 		for path, f := range a.gsxFiles {
-			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.componentPlan, a.positionalPlan)
+			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.componentPlan, a.positionalPlan, false)
 			if !ok {
 				continue
 			}
