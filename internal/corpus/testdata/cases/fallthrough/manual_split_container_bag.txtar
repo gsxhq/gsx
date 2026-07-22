@@ -60,28 +60,35 @@ import (
 func Field(label string, containerAttrs gsx.Attrs, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxv0 := containerAttrs
-		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field"), _gsxrt.Class(_gsxv0.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:7:3
-		_gsxgw.S("<label>")
-//line input.gsx:7:10
-		_gsxgw.Text(string(label))
-		_gsxgw.S("</label>")
-//line input.gsx:8:3
-		_gsxgw.S("<input class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field-input"), _gsxrt.Class(attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S("/></div>")
-		return _gsxgw.Err()
+		return _gsxrenderField(ctx, _gsxgw, label, containerAttrs, attrs)
 	})
+}
+
+func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, containerAttrs gsx.Attrs, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxv0 := containerAttrs
+	_gsxgw.S("<div class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field"), _gsxrt.Class(_gsxv0.Class()))
+	_gsxgw.S("\"")
+	_gsxgw.StyleMerged("", _gsxv0.Style())
+	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:7:3
+	_gsxgw.S("<label>")
+//line input.gsx:7:10
+	_gsxgw.Text(string(label))
+	_gsxgw.S("</label>")
+//line input.gsx:8:3
+	_gsxgw.S("<input class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field-input"), _gsxrt.Class(attrs.Class()))
+	_gsxgw.S("\"")
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S("/></div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:12:1
@@ -89,7 +96,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.Node(ctx, Field("Email", gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: true}})))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Email", gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: true}})))
 		return _gsxgw.Err()
 	})
 }

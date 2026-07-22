@@ -187,6 +187,8 @@ type Module struct {
 	savedSourceManifest       *sourceview.Manifest                // immutable explicitly-refreshed saved bytes/membership beneath overrides
 	savedFileSnapshots        map[string]sourceview.FileSnapshot  // exact pre-manifest saved states captured when buffer authority begins
 	sourceManifest            *sourceview.Manifest                // immutable facts published by the last successful cold source selection
+	helperGoSourceManifest    *sourceview.Manifest                // latest authoritative immutable helper-name Go view; refreshed even when build selection stays warm
+	directHelperGoViews       map[string]helperGoView             // abs dir -> immutable helper Go view keyed by its manifest identity
 	sourceInventoryFacts      map[string]gsxSourceInventoryFact   // current per-GSX package/import facts, including unpublished overrides/disk refreshes
 	sourceReloadReasons       map[string]sourceview.ReloadReason  // current path -> exact reason it differs incompatibly from sourceManifest
 	sourceSnapshotEpoch       uint64                              // increments for every effective transition and first buffer-authority capture; guards coherent snapshot publication
@@ -326,6 +328,7 @@ func Open(opts Options) (*Module, error) {
 		savedFileSnapshots:        map[string]sourceview.FileSnapshot{},
 		sourceInventoryFacts:      map[string]gsxSourceInventoryFact{},
 		sourceReloadReasons:       map[string]sourceview.ReloadReason{},
+		directHelperGoViews:       map[string]helperGoView{},
 		externalImportPaths:       map[string]bool{},
 		externalBackedges:         map[string][]string{},
 		pkgResults:                map[string]*PackageResult{},
@@ -795,6 +798,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		m.sourcePackageDirs = sourcePackageDirs
 		m.savedSourceManifest = savedManifest
 		m.sourceManifest = manifest
+		m.helperGoSourceManifest = manifest
 		m.sourceGsxDirs = manifest.GSXDirs()
 		m.sourceInventoryFacts = manifest.Facts()
 		m.sourceReloadReasons = map[string]sourceview.ReloadReason{}
@@ -1219,6 +1223,8 @@ func (m *Module) rebuildFset() {
 	m.sourcePackageDirs = map[string]string{}
 	m.sourceGsxDirs = map[string]bool{}
 	m.sourceManifest = nil
+	m.helperGoSourceManifest = nil
+	m.directHelperGoViews = map[string]helperGoView{}
 	m.sourceInventoryFacts = map[string]gsxSourceInventoryFact{}
 	m.sourceReloadReasons = map[string]sourceview.ReloadReason{}
 	m.sourceInventoryReady = false
@@ -1318,7 +1324,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 && !a.bag.HasErrors() {
 		for _, f := range a.gsxFiles {
-			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, a.merger, a.positionalPlan)
+			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, a.merger, a.componentPlan, a.positionalPlan)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -1498,7 +1504,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// matching gate/comment in Package above.
 	if len(a.typeErrs) == 0 && !bag.HasErrors() {
 		for path, f := range a.gsxFiles {
-			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.positionalPlan)
+			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.componentPlan, a.positionalPlan)
 			if !ok {
 				continue
 			}

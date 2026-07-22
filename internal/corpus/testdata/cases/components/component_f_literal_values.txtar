@@ -44,51 +44,72 @@ import (
 func PageHeader(title string, subtitle string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<header>")
-//line input.gsx:6:10
-		_gsxgw.S("<h1>")
-//line input.gsx:6:14
-		_gsxgw.Text(string(title))
-		_gsxgw.S("</h1>")
-//line input.gsx:6:26
-		_gsxgw.S("<p>")
-//line input.gsx:6:29
-		_gsxgw.Text(string(subtitle))
-		_gsxgw.S("</p></header>")
-		return _gsxgw.Err()
+		return _gsxrenderPageHeader(ctx, _gsxgw, title, subtitle)
 	})
+}
+
+func _gsxrenderPageHeader(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, subtitle string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<header>")
+//line input.gsx:6:10
+	_gsxgw.S("<h1>")
+//line input.gsx:6:14
+	_gsxgw.Text(string(title))
+	_gsxgw.S("</h1>")
+//line input.gsx:6:26
+	_gsxgw.S("<p>")
+//line input.gsx:6:29
+	_gsxgw.Text(string(subtitle))
+	_gsxgw.S("</p></header>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
 func Field(label string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.S("<label>")
-//line input.gsx:10:9
-		_gsxgw.Text(string(label))
-//line input.gsx:10:16
-		_gsxgw.S("<input")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S("/></label>")
-		return _gsxgw.Err()
+		return _gsxrenderField(ctx, _gsxgw, label, attrs)
 	})
+}
+
+func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.S("<label>")
+//line input.gsx:10:9
+	_gsxgw.Text(string(label))
+//line input.gsx:10:16
+	_gsxgw.S("<input")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S("/></label>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
 func Slot(body gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
-		_gsxgw.S("<section>")
-//line input.gsx:14:11
-		_gsxgw.Node(ctx, body)
-		_gsxgw.S("</section>")
-		return _gsxgw.Err()
+		return _gsxrenderSlot(ctx, _gsxgw, body)
 	})
+}
+
+func _gsxrenderSlot(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, body gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:14:2
+	_gsxgw.S("<section>")
+//line input.gsx:14:11
+	_gsxgw.Node(ctx, body)
+	_gsxgw.S("</section>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:17:1
@@ -97,11 +118,11 @@ func Page(count int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:18:2
-		_gsxgw.Node(ctx, PageHeader("Tickets", _gsxsc.FormatInt(int64(count), 10)+" tickets"))
+		_gsxgw.NodeResult(_gsxrenderPageHeader(ctx, _gsxgw, "Tickets", _gsxsc.FormatInt(int64(count), 10)+" tickets"))
 //line input.gsx:19:2
-		_gsxgw.Node(ctx, Field("Ticket", _gsxrt.Attrs{{Key: "data-ticket", Value: "ticket-" + _gsxsc.FormatInt(int64(count), 10)}}))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Ticket", _gsxrt.Attrs{{Key: "data-ticket", Value: "ticket-" + _gsxsc.FormatInt(int64(count), 10)}}))
 //line input.gsx:20:2
-		_gsxgw.Node(ctx, Slot(_gsxrt.Text(_gsxsc.FormatInt(int64(count), 10)+" open")))
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, _gsxrt.Text(_gsxsc.FormatInt(int64(count), 10)+" open")))
 //line input.gsx:21:2
 		_gsxgw.S("<div data-count=\"")
 		_gsxgw.IntInto(_gsxnum[:], int64(count))

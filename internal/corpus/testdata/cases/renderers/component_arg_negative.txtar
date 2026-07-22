@@ -62,13 +62,20 @@ func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: val
 func Child(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.S("<span>")
-//line input.gsx:8:8
-		_gsxgw.Text(string(val.String))
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderChild(ctx, _gsxgw, val)
 	})
+}
+
+func _gsxrenderChild(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, val pg.Text) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:8:2
+	_gsxgw.S("<span>")
+//line input.gsx:8:8
+	_gsxgw.Text(string(val.String))
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:11:1
@@ -76,7 +83,7 @@ func Parent(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.Node(ctx, Child(val))
+		_gsxgw.NodeResult(_gsxrenderChild(ctx, _gsxgw, val))
 		return _gsxgw.Err()
 	})
 }

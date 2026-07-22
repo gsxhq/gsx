@@ -47,38 +47,59 @@ import (
 func C(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("c-root"), _gsxrt.Class(attrs.Class()))
-		_gsxgw.S("\"")
-		if !attrs.Has("data-scalar") {
-			_gsxgw.S(" data-scalar=\"c-default\"")
-		}
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">leaf</div>")
-		return _gsxgw.Err()
+		return _gsxrenderC(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderC(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<div class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("c-root"), _gsxrt.Class(attrs.Class()))
+	_gsxgw.S("\"")
+	if !attrs.Has("data-scalar") {
+		_gsxgw.S(" data-scalar=\"c-default\"")
+	}
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">leaf</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
 func B(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.Node(ctx, C(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "b-add"}}, attrs)))
-		return _gsxgw.Err()
+		return _gsxrenderB(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderB(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.NodeResult(_gsxrenderC(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "b-add"}}, attrs)))
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
 func A(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
-		_gsxgw.Node(ctx, B(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "a-add"}}, attrs)))
-		return _gsxgw.Err()
+		return _gsxrenderA(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderA(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:14:2
+	_gsxgw.NodeResult(_gsxrenderB(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "a-add"}}, attrs)))
+	return _gsxgw.Err()
 }
 
 //line input.gsx:17:1
@@ -86,7 +107,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.Node(ctx, A(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "page-cls"}}, _gsxrt.Attrs{{Key: "data-scalar", Value: "page-value"}})))
+		_gsxgw.NodeResult(_gsxrenderA(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "page-cls"}}, _gsxrt.Attrs{{Key: "data-scalar", Value: "page-value"}})))
 		return _gsxgw.Err()
 	})
 }

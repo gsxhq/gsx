@@ -194,6 +194,13 @@ func (m *Module) refreshDiskSources(dirs ...string) error {
 		}
 		maps.Copy(m.sourceInventoryFacts, newFacts)
 		m.savedSourceManifest = refreshed
+		// Helper-name collision analysis is build-oblivious: inactive files,
+		// same-package tests, and orphaned generated files all participate even
+		// when their appearance does not change the active packages.Load graph.
+		// Publish the exact refreshed effective snapshot independently of the cold
+		// sourceManifest so a helper-only disk event can stay warm without leaving
+		// direct generation on stale names.
+		m.helperGoSourceManifest = effective
 		for path := range m.savedFileSnapshots {
 			if dirSet[filepath.Dir(path)] {
 				delete(m.savedFileSnapshots, path)

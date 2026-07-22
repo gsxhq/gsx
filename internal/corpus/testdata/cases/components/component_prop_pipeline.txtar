@@ -32,13 +32,20 @@ import (
 func Card(title gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:34
-		_gsxgw.S("<div class=\"card\">")
-//line input.gsx:5:52
-		_gsxgw.Node(ctx, title)
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, title)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:5:34
+	_gsxgw.S("<div class=\"card\">")
+//line input.gsx:5:52
+	_gsxgw.Node(ctx, title)
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -46,7 +53,7 @@ func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(_gsxrt.Val(_gsxstd.Upper((name)))))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Val(_gsxstd.Upper((name)))))
 		return _gsxgw.Err()
 	})
 }

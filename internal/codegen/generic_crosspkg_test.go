@@ -165,8 +165,8 @@ func TestGenericInferredTagSkipsNonGenericTags(t *testing.T) {
 		root = string(src)
 	}
 	for _, want := range []string{
-		`Card("x")`,
-		"Button[int](7)",
+		`_gsxrenderCard(ctx, _gsxgw, "x")`,
+		"_gsxrenderButton[int](ctx, _gsxgw, 7)",
 	} {
 		if !strings.Contains(root, want) {
 			t.Fatalf("generated source missing %q:\n%s", want, root)

@@ -31,17 +31,24 @@ import (
 func Panel(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<section")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:6:24
-		_gsxgw.Node(ctx, children)
-		_gsxgw.S("</section>")
-		return _gsxgw.Err()
+		return _gsxrenderPanel(ctx, _gsxgw, children, attrs)
 	})
+}
+
+func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Node, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<section")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:6:24
+	_gsxgw.Node(ctx, children)
+	_gsxgw.S("</section>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -49,7 +56,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Panel(nil, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "1"}}, _gsxrt.Attrs{{Key: "b", Value: "2"}})))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, nil, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "1"}}, _gsxrt.Attrs{{Key: "b", Value: "2"}})))
 		return _gsxgw.Err()
 	})
 }

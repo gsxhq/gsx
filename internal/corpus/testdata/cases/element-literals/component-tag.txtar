@@ -35,20 +35,27 @@ import (
 func Badge(count int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-		var _gsxnum [32]byte
-//line input.gsx:4:2
-		_gsxgw.S("<span class=\"badge\">")
-//line input.gsx:4:22
-		_gsxgw.IntInto(_gsxnum[:], int64(count))
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderBadge(ctx, _gsxgw, count)
 	})
+}
+
+func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, count int) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+	var _gsxnum [32]byte
+//line input.gsx:4:2
+	_gsxgw.S("<span class=\"badge\">")
+//line input.gsx:4:22
+	_gsxgw.IntInto(_gsxnum[:], int64(count))
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 var badge = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:13
-	_gsxgw.Node(ctx, Badge(12))
+	_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, 12))
 	return _gsxgw.Err()
 })
 

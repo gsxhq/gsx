@@ -29,17 +29,24 @@ func greeting(name string) (string, error) { return "Hello " + name, nil }
 func Card(msg string, count int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-		var _gsxnum [32]byte
-//line input.gsx:5:41
-		_gsxgw.S("<div>")
-//line input.gsx:5:46
-		_gsxgw.Text(string(msg))
-		_gsxgw.S(" x")
-//line input.gsx:5:53
-		_gsxgw.IntInto(_gsxnum[:], int64(count))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, msg, count)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, msg string, count int) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+	var _gsxnum [32]byte
+//line input.gsx:5:41
+	_gsxgw.S("<div>")
+//line input.gsx:5:46
+	_gsxgw.Text(string(msg))
+	_gsxgw.S(" x")
+//line input.gsx:5:53
+	_gsxgw.IntInto(_gsxnum[:], int64(count))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -51,7 +58,7 @@ func Page(name string, n int) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(_gsxa0, n))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxa0, n))
 		return _gsxgw.Err()
 	})
 }

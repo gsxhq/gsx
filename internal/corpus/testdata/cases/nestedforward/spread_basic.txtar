@@ -39,30 +39,44 @@ import (
 func Icon(name string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<span class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("icon"), _gsxrt.Class(attrs.Class()))
-		_gsxgw.S("\"")
-		if !attrs.Has("data-name") {
-			_gsxgw.S(" data-name=\"")
-			_gsxgw.AttrValue(string(name))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">i</span>")
-		return _gsxgw.Err()
+		return _gsxrenderIcon(ctx, _gsxgw, name, attrs)
 	})
+}
+
+func _gsxrenderIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, name string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<span class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("icon"), _gsxrt.Class(attrs.Class()))
+	_gsxgw.S("\"")
+	if !attrs.Has("data-name") {
+		_gsxgw.S(" data-name=\"")
+		_gsxgw.AttrValue(string(name))
+		_gsxgw.S("\"")
+	}
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">i</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
 func SearchIcon(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.Node(ctx, Icon("search", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5 h-5"}}, attrs)))
-		return _gsxgw.Err()
+		return _gsxrenderSearchIcon(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderSearchIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw, "search", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5 h-5"}}, attrs)))
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
@@ -70,7 +84,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, SearchIcon(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "text-red"}}, _gsxrt.Attrs{{Key: "aria-label", Value: "Search"}})))
+		_gsxgw.NodeResult(_gsxrenderSearchIcon(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "text-red"}}, _gsxrt.Attrs{{Key: "aria-label", Value: "Search"}})))
 		return _gsxgw.Err()
 	})
 }

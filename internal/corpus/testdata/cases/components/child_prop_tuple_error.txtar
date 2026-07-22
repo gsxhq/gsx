@@ -29,13 +29,20 @@ func lookup(s string) (string, error) { return s, nil }
 func Card(title string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:32
-		_gsxgw.S("<div>")
-//line input.gsx:5:37
-		_gsxgw.Text(string(title))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, title)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:5:32
+	_gsxgw.S("<div>")
+//line input.gsx:5:37
+	_gsxgw.Text(string(title))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -47,7 +54,7 @@ func Page(t string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(_gsxa0))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxa0))
 		return _gsxgw.Err()
 	})
 }

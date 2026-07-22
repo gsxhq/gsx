@@ -58,13 +58,20 @@ type Home struct{}
 func Card(d cardData) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
-		_gsxgw.S("<div>")
-//line input.gsx:14:7
-		_gsxgw.Text(string(d.Title))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, d)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, d cardData) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:14:2
+	_gsxgw.S("<div>")
+//line input.gsx:14:7
+	_gsxgw.Text(string(d.Title))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:17:1
@@ -72,7 +79,7 @@ func Page(d pageData) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.Node(ctx, Card(cardData{Title: d.Heading}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, cardData{Title: d.Heading}))
 		return _gsxgw.Err()
 	})
 }

@@ -32,6 +32,9 @@ type componentTargetEmission struct {
 	splitBody         bool
 	bodyName          string
 	analysisPropsName string
+	direct            *directComponentDeclaration
+	parsedDeclaration componentDeclaration
+	declarationParsed bool
 }
 
 type componentTargetPlan struct {
@@ -39,6 +42,7 @@ type componentTargetPlan struct {
 	logicalKeys       map[*gsxast.Component]string
 	families          []componentVariantFamily
 	invalidMembership bool
+	directPrepared    bool
 }
 
 func (p componentTargetPlan) emission(component *gsxast.Component) (componentTargetEmission, bool) {

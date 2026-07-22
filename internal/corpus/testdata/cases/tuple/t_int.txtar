@@ -30,14 +30,21 @@ func count(n int) (int, error) { return n * 2, nil }
 func Counter(val int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-		var _gsxnum [32]byte
-//line input.gsx:5:30
-		_gsxgw.S("<span>")
-//line input.gsx:5:36
-		_gsxgw.IntInto(_gsxnum[:], int64(val))
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderCounter(ctx, _gsxgw, val)
 	})
+}
+
+func _gsxrenderCounter(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, val int) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+	var _gsxnum [32]byte
+//line input.gsx:5:30
+	_gsxgw.S("<span>")
+//line input.gsx:5:36
+	_gsxgw.IntInto(_gsxnum[:], int64(val))
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -49,7 +56,7 @@ func Page(n int) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Counter(_gsxa0))
+		_gsxgw.NodeResult(_gsxrenderCounter(ctx, _gsxgw, _gsxa0))
 		return _gsxgw.Err()
 	})
 }

@@ -31,16 +31,23 @@ func lastName(id string) (string, error)  { return "Last-" + id, nil }
 func Name(first string, last string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:45
-		_gsxgw.S("<div>")
-//line input.gsx:6:50
-		_gsxgw.Text(string(first))
-		_gsxgw.S(" ")
-//line input.gsx:6:58
-		_gsxgw.Text(string(last))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderName(ctx, _gsxgw, first, last)
 	})
+}
+
+func _gsxrenderName(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first string, last string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:45
+	_gsxgw.S("<div>")
+//line input.gsx:6:50
+	_gsxgw.Text(string(first))
+	_gsxgw.S(" ")
+//line input.gsx:6:58
+	_gsxgw.Text(string(last))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:8:1
@@ -56,7 +63,7 @@ func Page(id string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Name(_gsxa0, _gsxa1))
+		_gsxgw.NodeResult(_gsxrenderName(ctx, _gsxgw, _gsxa0, _gsxa1))
 		return _gsxgw.Err()
 	})
 }

@@ -51,43 +51,64 @@ type Props struct {
 func Greeting(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.S("<p>Hi ")
-//line input.gsx:8:8
-		_gsxgw.Text(string(name))
-		_gsxgw.S("</p>")
-		return _gsxgw.Err()
+		return _gsxrenderGreeting(ctx, _gsxgw, name)
 	})
+}
+
+func _gsxrenderGreeting(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, name string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:8:2
+	_gsxgw.S("<p>Hi ")
+//line input.gsx:8:8
+	_gsxgw.Text(string(name))
+	_gsxgw.S("</p>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:11:1
 func Card(title string, n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-		var _gsxnum [32]byte
-//line input.gsx:12:2
-		_gsxgw.S("<div>")
-//line input.gsx:12:7
-		_gsxgw.Text(string(title))
-		_gsxgw.S(": ")
-//line input.gsx:12:18
-		_gsxgw.IntInto(_gsxnum[:], int64(n))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderCard(ctx, _gsxgw, title, n)
 	})
+}
+
+func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, n int) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+	var _gsxnum [32]byte
+//line input.gsx:12:2
+	_gsxgw.S("<div>")
+//line input.gsx:12:7
+	_gsxgw.Text(string(title))
+	_gsxgw.S(": ")
+//line input.gsx:12:18
+	_gsxgw.IntInto(_gsxnum[:], int64(n))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:15:1
 func Panel(p Props) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:16:2
-		_gsxgw.S("<section>")
-//line input.gsx:16:11
-		_gsxgw.Text(string(p.Title))
-		_gsxgw.S("</section>")
-		return _gsxgw.Err()
+		return _gsxrenderPanel(ctx, _gsxgw, p)
 	})
+}
+
+func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p Props) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:16:2
+	_gsxgw.S("<section>")
+//line input.gsx:16:11
+	_gsxgw.Text(string(p.Title))
+	_gsxgw.S("</section>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:19:1
@@ -95,11 +116,11 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:21:3
-		_gsxgw.Node(ctx, Greeting("Ann"))
+		_gsxgw.NodeResult(_gsxrenderGreeting(ctx, _gsxgw, "Ann"))
 //line input.gsx:22:3
-		_gsxgw.Node(ctx, Card("T", 2))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "T", 2))
 //line input.gsx:23:3
-		_gsxgw.Node(ctx, Panel(Props{Title: "P"}))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, Props{Title: "P"}))
 		return _gsxgw.Err()
 	})
 }

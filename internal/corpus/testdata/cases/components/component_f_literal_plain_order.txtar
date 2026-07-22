@@ -61,19 +61,26 @@ import (
 func Target(first string, last string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:6:20
-		_gsxgw.Text(string(first))
-//line input.gsx:6:27
-		_gsxgw.Text(string(last))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderTarget(ctx, _gsxgw, first, last, attrs)
 	})
+}
+
+func _gsxrenderTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first string, last string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<div")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:6:20
+	_gsxgw.Text(string(first))
+//line input.gsx:6:27
+	_gsxgw.Text(string(last))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -84,7 +91,7 @@ func Page() _gsxrt.Node {
 		_gsxa0 := mark("plain-first", "A")
 		_gsxa1 := _gsxrt.Attrs{{Key: "data-mid", Value: string(mark("plain-mid", "M"))}}
 		_gsxa2 := mark("plain-last", "Z")
-		_gsxgw.Node(ctx, Target(_gsxa0, _gsxa2, _gsxa1))
+		_gsxgw.NodeResult(_gsxrenderTarget(ctx, _gsxgw, _gsxa0, _gsxa2, _gsxa1))
 		return _gsxgw.Err()
 	})
 }

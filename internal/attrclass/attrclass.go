@@ -157,10 +157,9 @@ func (c *Classifier) Fingerprint() string {
 
 // URLExactNames returns every exact-name URL-classified attribute — the
 // built-in set unioned with the user's exact-Name URL rules — lowercased,
-// deduplicated, and sorted. Codegen enumerates these into per-name
-// Get-extraction blocks at forwarding elements so a URL attribute smuggled
-// through a fallthrough bag is sanitized at the leaf; the deterministic sort
-// keeps generated code stable.
+// deduplicated, and sorted. Codegen groups these names by sink for every
+// element spread so a URL attribute entering through any bag is sanitized at
+// the leaf; the deterministic sort keeps generated code stable.
 func (c *Classifier) URLExactNames() []string {
 	set := make(map[string]bool, len(builtinURL))
 	for n := range builtinURL {

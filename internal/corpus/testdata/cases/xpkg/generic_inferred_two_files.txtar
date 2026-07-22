@@ -45,7 +45,7 @@ func A() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line a.gsx:3:17
-		_gsxgw.Node(ctx, Box[int](1))
+		_gsxgw.NodeResult(_gsxrenderBox[int](ctx, _gsxgw, 1))
 		return _gsxgw.Err()
 	})
 }
@@ -64,7 +64,7 @@ func B() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line b.gsx:3:17
-		_gsxgw.Node(ctx, Box[string]("hi"))
+		_gsxgw.NodeResult(_gsxrenderBox[string](ctx, _gsxgw, "hi"))
 		return _gsxgw.Err()
 	})
 }
@@ -82,11 +82,18 @@ import (
 func Box[T string | int](value T) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line box.gsx:3:42
-		_gsxgw.S("<span>")
-//line box.gsx:3:48
-		_gsxgw.TextAny(value)
-		_gsxgw.S("</span>")
-		return _gsxgw.Err()
+		return _gsxrenderBox[T](ctx, _gsxgw, value)
 	})
+}
+
+func _gsxrenderBox[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value T) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line box.gsx:3:42
+	_gsxgw.S("<span>")
+//line box.gsx:3:48
+	_gsxgw.TextAny(value)
+	_gsxgw.S("</span>")
+	return _gsxgw.Err()
 }

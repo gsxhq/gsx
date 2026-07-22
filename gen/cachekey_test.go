@@ -786,7 +786,7 @@ func TestComputeKeyGsxOnlyDeps(t *testing.T) {
 	mk("icons/icon.gsx", "package icons\n\ncomponent Dot() {\n\t<i/>\n}\n")
 	mk("ui/card.gsx", "package ui\n\nimport \"example.com/app/icons\"\n\ncomponent Card() {\n\t<icons.Dot/>\n}\n")
 	mk("ui/card.x.go", "package poison\nfunc (\n")
-	mk("pages/home.gsx", "package pages\n\nimport \"example.com/app/ui\"\n\ncomponent Home() {\n\t<ui.Card/>\n}\n")
+	mk("pages/home.gsx", "package pages\n\nimport \"example.com/app/ui\"\n\ncomponent Child() {\n\t<span/>\n}\n\ncomponent Home() {\n\t<ui.Card/>\n\t<Child/>\n}\n")
 
 	pagesDir := filepath.Join(root, "pages")
 	snapshot := func() (*sourceview.Manifest, sourceview.Graph, *sourceview.CacheProjection) {
@@ -865,11 +865,24 @@ func TestComputeKeyGsxOnlyDeps(t *testing.T) {
 		t.Fatal("removing paired generated output changed the cache key")
 	}
 
+	mk("ui/inactive.go", "//go:build helpervariant\n\npackage ui\nfunc _gsxrenderCard() {}\n")
+	_, _, inactiveProjection := snapshot()
+	helperKey := key(inactiveProjection)
+	if helperKey == k1 {
+		t.Fatal("adding an inactive helper-name input did not change the cache key")
+	}
+	mk("ui/helper_test.go", "package ui\nfunc _gsxrenderCard1() {}\n")
+	_, _, testProjection := snapshot()
+	testKey := key(testProjection)
+	if testKey == helperKey {
+		t.Fatal("adding a same-package test helper-name input did not change the cache key")
+	}
+
 	// Direct .gsx-only dep edit changes the key.
 	mk("ui/card.gsx", "package ui\n\nimport \"example.com/app/icons\"\n\ncomponent Card(variant string) {\n\t<icons.Dot/>\n}\n")
 	_, _, directProjection := snapshot()
 	k2 := key(directProjection)
-	if k1 == k2 {
+	if testKey == k2 {
 		t.Fatal("editing ui (direct .gsx-only dep) did not change pages' cache key")
 	}
 	// Transitive .gsx-only dep edit changes the key.
@@ -878,6 +891,18 @@ func TestComputeKeyGsxOnlyDeps(t *testing.T) {
 	k3 := key(transitiveProjection)
 	if k2 == k3 {
 		t.Fatal("editing icons (transitive .gsx-only dep) did not change pages' cache key")
+	}
+
+	// A default import's binding is its dependency's declared package name.
+	// Direct-helper allocation consumes that exact identity, so changing only
+	// the dependency package clause to a helper spelling must invalidate the
+	// caller key before a cached unsuffixed helper can be restored.
+	mk("ui/card.gsx", "package _gsxrenderChild\n\nimport \"example.com/app/icons\"\n\ncomponent Card(variant string) {\n\t<icons.Dot/>\n}\n")
+	mk("ui/inactive.go", "//go:build helpervariant\n\npackage _gsxrenderChild\nfunc _gsxrenderCard() {}\n")
+	mk("ui/helper_test.go", "package _gsxrenderChild\nfunc _gsxrenderCard1() {}\n")
+	_, _, packageNameProjection := snapshot()
+	if got := key(packageNameProjection); got == k3 {
+		t.Fatal("changing a default imported dependency's declared package name to a helper spelling did not change the cache key")
 	}
 }
 

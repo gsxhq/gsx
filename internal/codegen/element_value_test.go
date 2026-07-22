@@ -122,7 +122,7 @@ func TestElementValueInterpCapturesOuterScope(t *testing.T) {
 		interp: types.Typ[types.String],
 	}
 	bag := diag.NewBag(fset)
-	out, ok := generateFile(file, nil, resolved, funcTables{}, fset, nil, bag, nil, nil, nil, false, false, nil, componentPositionalPackagePlan{})
+	out, ok := generateFile(file, nil, resolved, funcTables{}, fset, nil, bag, nil, nil, nil, false, false, nil, componentTargetPlan{}, componentPositionalPackagePlan{})
 	if !ok {
 		t.Fatalf("generateFile failed: %v", bag.Sorted())
 	}

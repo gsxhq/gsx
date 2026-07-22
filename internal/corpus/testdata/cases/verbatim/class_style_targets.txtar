@@ -47,28 +47,42 @@ import (
 func Badge(class string, style string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<span class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(class))
-		_gsxgw.S("\" style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(style)))
-		_gsxgw.S("\">x</span>")
-		return _gsxgw.Err()
+		return _gsxrenderBadge(ctx, _gsxgw, class, style)
 	})
+}
+
+func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, class string, style string) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<span class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(class))
+	_gsxgw.S("\" style=\"")
+	_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(style)))
+	_gsxgw.S("\">x</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
 func Plain(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:2
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">y</span>")
-		return _gsxgw.Err()
+		return _gsxrenderPlain(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderPlain(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:10:2
+	_gsxgw.S("<span")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">y</span>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
@@ -76,11 +90,11 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Badge("a b", "color: red"))
+		_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, "a b", "color: red"))
 //line input.gsx:15:2
-		_gsxgw.Node(ctx, Badge(_gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.ClassIf("b", true)), _gsxrt.StyleString(_gsxrt.Class("color: blue"))))
+		_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, _gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.ClassIf("b", true)), _gsxrt.StyleString(_gsxrt.Class("color: blue"))))
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, Plain(_gsxrt.Attrs{{Key: "class", Value: "c"}}))
+		_gsxgw.NodeResult(_gsxrenderPlain(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: "c"}}))
 		return _gsxgw.Err()
 	})
 }

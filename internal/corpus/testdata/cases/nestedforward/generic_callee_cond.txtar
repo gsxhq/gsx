@@ -46,41 +46,55 @@ import (
 func List[T any](items []T, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<ul class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("list"), _gsxrt.Class(attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:7:3
-		for _, it := range items {
-//line input.gsx:8:4
-			_gsxgw.S("<li>")
-//line input.gsx:8:8
-			_gsxgw.Text(string(_gsxstd.Printf((it), "%v")))
-			_gsxgw.S("</li>")
-		}
-		_gsxgw.S("</ul>")
-		return _gsxgw.Err()
+		return _gsxrenderList[T](ctx, _gsxgw, items, attrs)
 	})
+}
+
+func _gsxrenderList[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, items []T, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<ul class=\"")
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("list"), _gsxrt.Class(attrs.Class()))
+	_gsxgw.S("\"")
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:7:3
+	for _, it := range items {
+//line input.gsx:8:4
+		_gsxgw.S("<li>")
+//line input.gsx:8:8
+		_gsxgw.Text(string(_gsxstd.Printf((it), "%v")))
+		_gsxgw.S("</li>")
+	}
+	_gsxgw.S("</ul>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:13:1
 func Wrap(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
-		_gsxa1 := []string{"a"}
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(attrs.Has("hot"), func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "data-hot", Value: "1"}}, nil
-		}, nil)
-		if _gsxerr != nil {
-			return _gsxerr
-		}
-		_gsxgw.Node(ctx, List[string](_gsxa1, _gsxv0))
-		return _gsxgw.Err()
+		return _gsxrenderWrap(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderWrap(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:14:2
+	_gsxa1 := []string{"a"}
+	_gsxv0, _gsxerr := _gsxrt.AttrsCond(attrs.Has("hot"), func() (_gsxrt.Attrs, error) {
+		return _gsxrt.Attrs{{Key: "data-hot", Value: "1"}}, nil
+	}, nil)
+	if _gsxerr != nil {
+		return _gsxerr
+	}
+	_gsxgw.NodeResult(_gsxrenderList[string](ctx, _gsxgw, _gsxa1, _gsxv0))
+	return _gsxgw.Err()
 }
 
 //line input.gsx:17:1
@@ -88,7 +102,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.Node(ctx, Wrap(_gsxrt.Attrs{{Key: "hot", Value: "x"}}))
+		_gsxgw.NodeResult(_gsxrenderWrap(ctx, _gsxgw, _gsxrt.Attrs{{Key: "hot", Value: "x"}}))
 		return _gsxgw.Err()
 	})
 }

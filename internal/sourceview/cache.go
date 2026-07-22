@@ -80,7 +80,8 @@ type moduleProjection struct {
 }
 
 // CacheProjection is an immutable source-identity projection of one Manifest
-// enriched by cmd/go's active Go-file and dependency selection.
+// enriched by cmd/go's active Go-file and dependency selection plus the
+// build-oblivious Go inputs used for generated helper naming.
 type CacheProjection struct {
 	manifest          *Manifest
 	graph             Graph
@@ -180,7 +181,7 @@ func (projection *CacheProjection) Digest(dir string, extraRoots []string) (stri
 		return "", err
 	}
 	hash := sha256.New()
-	hash.Write([]byte("gsx-sourceview-cache-v1\x00"))
+	hash.Write([]byte("gsx-sourceview-cache-v2\x00"))
 	for _, input := range inputs {
 		fmt.Fprintf(hash, "%d:%s\x00", len(input.label), input.label)
 		if input.present {
@@ -355,6 +356,33 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([
 		inputs = append(inputs, inputFromBytes("package:"+metadata.ImportPath+":go:"+filepath.ToSlash(rel), logicalPath, data))
 	}
 	if mainOwned {
+		if helperDir, ownsGSX := projection.manifest.packageDirs[metadata.ImportPath]; ownsGSX {
+			for path, snapshot := range projection.manifest.HelperGoFiles(metadata.Dir) {
+				canonical := canonicalPath(path)
+				if paired[canonical] {
+					continue
+				}
+				rel, err := filepath.Rel(helperDir, path)
+				if err != nil {
+					return nil, err
+				}
+				if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					return nil, fmt.Errorf("sourceview: helper-name Go file %s is outside manifest package dir %s", path, helperDir)
+				}
+				label := "package:" + metadata.ImportPath + ":helper-go:" + filepath.ToSlash(rel)
+				switch snapshot.State() {
+				case FilePresent:
+					source, _ := snapshot.Source()
+					inputs = append(inputs, inputFromBytes(label, path, source))
+				case FileAbsent:
+					inputs = append(inputs, cacheInput{label: label})
+				case FileUnreadable:
+					return nil, fmt.Errorf("sourceview: read helper-name Go source %s: %w", path, snapshot.Err())
+				default:
+					return nil, fmt.Errorf("sourceview: invalid helper-name Go source state %d for %s", snapshot.State(), path)
+				}
+			}
+		}
 		for _, path := range projection.manifest.sourcePaths {
 			if canonicalPath(filepath.Dir(path)) != canonicalPath(metadata.Dir) {
 				continue

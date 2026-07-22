@@ -220,6 +220,14 @@ func emitPositionalComponentCall(
 	if len(plan.typeArgExprs) != 0 {
 		typeArgs = "[" + strings.Join(plan.typeArgExprs, ", ") + "]"
 	}
+	if plan.directTarget != nil {
+		arguments := "ctx, _gsxgw"
+		if len(args) != 0 {
+			arguments += ", " + strings.Join(args, ", ")
+		}
+		fmt.Fprintf(b, "_gsxgw.NodeResult(%s%s(%s))\n", plan.directTarget.helperName, typeArgs, arguments)
+		return true
+	}
 	fmt.Fprintf(b, "_gsxgw.Node(ctx, %s%s(%s))\n", el.Tag, typeArgs, strings.Join(args, ", "))
 	return true
 }

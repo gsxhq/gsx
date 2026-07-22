@@ -27,8 +27,10 @@ type reservedDecl struct {
 // checkReservedDecls reports every identifier a .gsx file writes in Go position
 // whose name begins reservedPrefix — a name that could shadow, or collide with,
 // one the generator emits into the same scope. Exact component signature
-// validation checks parameters and method receiver vars separately; this covers
-// everything else: top-level declarations,
+// validation checks parameters and method receiver vars separately. Type
+// parameters may use a non-colliding `_gsx` spelling; this pass checks the
+// package aliases required by every wrapper individually. The fragment scan
+// covers everything else: top-level declarations,
 // function-body locals, `{{ }}` GoBlock statements, and every Go fragment
 // embedded in the markup tree (interpolations, `{ if/for/switch }` clauses,
 // attribute and class/style expressions, pipe stages).
@@ -87,6 +89,24 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 
 	gsxast.Inspect(file, func(n gsxast.Node) bool {
 		switch x := n.(type) {
+		case *gsxast.Component:
+			// Type parameters live in the function scope and may legally use most
+			// of the generated prefix when the ordinary public wrapper does not
+			// reference that spelling. The three package aliases required by every
+			// wrapper are different: shadowing one makes the generated signature or
+			// render closure invalid. Report those exact declarations at source.
+			list, typeFset, err := parseTypeParamFieldList(x.TypeParams)
+			if err == nil && list != nil && x.TypeParamsPos.IsValid() {
+				for _, field := range list.List {
+					for _, name := range field.Names {
+						switch name.Name {
+						case rtAlias, ctxAlias, ioAlias:
+							offset := typeFset.Position(name.Pos()).Offset - len(typeParamSynthPrefix)
+							emit(name.Name, x.TypeParamsPos+token.Pos(offset))
+						}
+					}
+				}
+			}
 		case *gsxast.GoChunk:
 			scan(x.Src, x.Pos())
 		case gsxast.GoText:

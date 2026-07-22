@@ -38,13 +38,20 @@ func makeTitle(s string) (string, error) { return "-- " + s + " --", nil }
 func Panel(header gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxgw.S("<div class=\"panel\">")
-//line input.gsx:8:21
-		_gsxgw.Node(ctx, header)
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderPanel(ctx, _gsxgw, header)
 	})
+}
+
+func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, header gsx.Node) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:8:2
+	_gsxgw.S("<div class=\"panel\">")
+//line input.gsx:8:21
+	_gsxgw.Node(ctx, header)
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:11:1
@@ -52,7 +59,7 @@ func Page(title string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.Node(ctx, Panel(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:18
 			_gsxgw.S("<h2>")

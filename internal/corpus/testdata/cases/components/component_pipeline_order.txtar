@@ -81,19 +81,26 @@ import (
 func PipelineTarget(first string, after string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		_gsxgw.S(">")
-//line input.gsx:6:20
-		_gsxgw.Text(string(first))
-//line input.gsx:6:27
-		_gsxgw.Text(string(after))
-		_gsxgw.S("</div>")
-		return _gsxgw.Err()
+		return _gsxrenderPipelineTarget(ctx, _gsxgw, first, after, attrs)
 	})
+}
+
+func _gsxrenderPipelineTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first string, after string, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<div")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.S(">")
+//line input.gsx:6:20
+	_gsxgw.Text(string(first))
+//line input.gsx:6:27
+	_gsxgw.Text(string(after))
+	_gsxgw.S("</div>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -107,7 +114,7 @@ func Page() _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, PipelineTarget(_gsxa1, _gsxa2, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv0)}}))
+		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa1, _gsxa2, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv0)}}))
 //line input.gsx:15:2
 		_gsxa4 := markPipeline("pipe-first-2", "B")
 		_gsxa5 := markPipeline("pipe-after-2", "Y")
@@ -115,7 +122,7 @@ func Page() _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, PipelineTarget(_gsxa4, _gsxa5, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv3)}}))
+		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa4, _gsxa5, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv3)}}))
 		return _gsxgw.Err()
 	})
 }

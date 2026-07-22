@@ -40,31 +40,38 @@ import (
 func Btn(a bool, b bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<button")
-		_gsxv0 := []string{"class", "style"}
-		var _gsxv1 bool
-		if a {
-			_gsxv1 = true
-			_gsxv0 = append(_gsxv0, "formaction")
-		}
-		var _gsxv2 bool
-		if b {
-			_gsxv2 = true
-			_gsxv0 = append(_gsxv0, "formaction")
-		}
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, _gsxv0)
-		if _gsxv1 {
-			_gsxgw.S(" formaction=\"/x\"")
-		}
-		if _gsxv2 {
-			_gsxgw.S(" formaction=\"/y\"")
-		}
-		_gsxgw.S(">x</button>")
-		return _gsxgw.Err()
+		return _gsxrenderBtn(ctx, _gsxgw, a, b, attrs)
 	})
+}
+
+func _gsxrenderBtn(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, a bool, b bool, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:6:2
+	_gsxgw.S("<button")
+	_gsxv0 := []string{"class", "style"}
+	var _gsxv1 bool
+	if a {
+		_gsxv1 = true
+		_gsxv0 = append(_gsxv0, "formaction")
+	}
+	var _gsxv2 bool
+	if b {
+		_gsxv2 = true
+		_gsxv0 = append(_gsxv0, "formaction")
+	}
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, _gsxv0)
+	if _gsxv1 {
+		_gsxgw.S(" formaction=\"/x\"")
+	}
+	if _gsxv2 {
+		_gsxgw.S(" formaction=\"/y\"")
+	}
+	_gsxgw.S(">x</button>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:9:1
@@ -72,11 +79,11 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Btn(true, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw, true, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
 //line input.gsx:11:2
-		_gsxgw.Node(ctx, Btn(false, true, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw, false, true, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
 //line input.gsx:12:2
-		_gsxgw.Node(ctx, Btn(false, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw, false, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
 		return _gsxgw.Err()
 	})
 }

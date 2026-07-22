@@ -47,14 +47,21 @@ import (
 func Link(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:35
-		_gsxgw.S("<a")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
-		_gsxgw.S(">component</a>")
-		return _gsxgw.Err()
+		return _gsxrenderLink(ctx, _gsxgw, attrs)
 	})
+}
+
+func _gsxrenderLink(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) error {
+	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
+		return _gsxerr
+	}
+//line input.gsx:5:35
+	_gsxgw.S("<a")
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+	_gsxgw.StyleMerged("", attrs.Style())
+	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+	_gsxgw.S(">component</a>")
+	return _gsxgw.Err()
 }
 
 //line input.gsx:7:1
@@ -180,7 +187,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Link(_gsxv24))
+		_gsxgw.NodeResult(_gsxrenderLink(ctx, _gsxgw, _gsxv24))
 		return _gsxgw.Err()
 	})
 }

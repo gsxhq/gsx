@@ -15,6 +15,7 @@ type componentTargetDeclarationProvenance struct {
 	targetDecls  []sourceintel.VersionedSpan
 	paramDecls   map[int][]sourceintel.VersionedSpan
 	presentation string
+	direct       *directComponentFamily
 }
 
 type componentTargetProvenanceCache map[string]map[string]componentTargetDeclarationProvenance
@@ -43,11 +44,19 @@ func componentTargetDeclarationProvenances(
 			if !ok {
 				continue
 			}
-			if _, ok := plan.emission(component); !ok {
+			emission, ok := plan.emission(component)
+			if !ok {
 				return nil, fmt.Errorf("codegen: exact target provenance component %s is absent from the finalized plan", component.Name)
 			}
 			key := plan.logicalKey(component)
 			provenance := result[key]
+			if emission.direct != nil {
+				family := emission.direct.family
+				if provenance.direct != nil && *provenance.direct != family {
+					return nil, fmt.Errorf("codegen: direct component family %s has inconsistent helper metadata", key)
+				}
+				provenance.direct = &family
+			}
 			if provenance.paramDecls == nil {
 				provenance.paramDecls = make(map[int][]sourceintel.VersionedSpan)
 			}
@@ -59,9 +68,12 @@ func componentTargetDeclarationProvenances(
 			if provenance.presentation == "" {
 				provenance.presentation = componentAuthoredPresentation(component)
 			}
-			params, err := parseComponentParamDecls(component.Params)
-			if err != nil {
-				return nil, err
+			params := emission.parsedDeclaration.params
+			if !emission.declarationParsed {
+				params, err = parseComponentParamDecls(component.Params)
+				if err != nil {
+					return nil, err
+				}
 			}
 			for ordinal, parameter := range params {
 				if parameter.name == "" || parameter.nameOff < 0 || !component.ParamsPos.IsValid() {
@@ -149,6 +161,11 @@ func cloneComponentTargetDeclarationProvenance(provenance componentTargetDeclara
 		targetDecls:  append([]sourceintel.VersionedSpan(nil), provenance.targetDecls...),
 		paramDecls:   make(map[int][]sourceintel.VersionedSpan, len(provenance.paramDecls)),
 		presentation: provenance.presentation,
+		direct:       nil,
+	}
+	if provenance.direct != nil {
+		direct := *provenance.direct
+		cloned.direct = &direct
 	}
 	for ordinal, declarations := range provenance.paramDecls {
 		cloned.paramDecls[ordinal] = append([]sourceintel.VersionedSpan(nil), declarations...)
