@@ -341,8 +341,10 @@ func reservedComponentAttrName(name string) bool {
 // fact for that exact call.
 //
 // candidates = fact.Signature's parameters, MINUS the reserved names
-// (reservedComponentAttrName), MINUS every OTHER already-authored attribute's
-// bound parameter name (fact.Params values' .Name). "Other" matters: a bound
+// (reservedComponentAttrName), MINUS the Go-only variadic last parameter (if
+// the signature is variadic — see the loop below), MINUS every OTHER
+// already-authored attribute's bound parameter name (fact.Params values'
+// .Name). "Other" matters: a bound
 // attribute whose OWN name span contains [start,end) — the cursor is
 // literally mid-typing that very attribute's name, e.g. `<Card title` with
 // the cursor right after "title", which the planner has already bound to the
@@ -375,10 +377,26 @@ func componentAttrItems(pkg *Package, el *gsxast.Element, text string, start, en
 
 	sig := fact.Signature
 	qf := qualifierFor(pkg)
-	items := make([]CompletionItem, 0, sig.Params().Len())
-	for p := range sig.Params().Variables() {
+	n := sig.Params().Len()
+	items := make([]CompletionItem, 0, n)
+	for i := range n {
+		p := sig.Params().At(i)
 		name := p.Name()
 		if reservedComponentAttrName(name) || bound[name] {
+			continue
+		}
+		// A variadic signature's last parameter is never markup-bindable.
+		// Per analyzeComponentSignature in component_signature.go
+		// (~L346-366), a variadic component param has exactly one of three
+		// roles: attrs (reserved exact name "attrs"), children (reserved
+		// exact name "children"), or Go-only variadic — everything else.
+		// reservedComponentAttrName above already excludes "attrs" and
+		// "children", so any variadic last param that survives to here is
+		// necessarily Go-only, and the planner rejects markup binding to it
+		// (component_positional_plan.go ~L303-304: "Go-only variadic
+		// parameter %d was populated from markup"). Skip it rather than
+		// offer a candidate guaranteed to break the call.
+		if sig.Variadic() && i == n-1 {
 			continue
 		}
 		detail := types.TypeString(p.Type(), qf)

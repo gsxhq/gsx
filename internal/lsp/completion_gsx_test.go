@@ -425,7 +425,7 @@ func TestTagCompletionBothEmpty(t *testing.T) {
 // types.NewSignatureType/types.NewVar (no real gsx types needed; only names
 // and reserved-ness matter to componentAttrItems). Every attr already present
 // on el is bound in fact.Params keyed by its own position (so
-// attrUnderCursor can find it), with ComponentParamFact.Name set from a
+// attrNameSpanContains can find it), with ComponentParamFact.Name set from a
 // caller-supplied attr->param-name map.
 func componentAttrFixture(t *testing.T, src, tag string, bound map[string]string) (pkg *Package, el *gsxast.Element) {
 	t.Helper()
@@ -501,6 +501,73 @@ func TestComponentAttrItems(t *testing.T) {
 	}
 	if items[0].Detail != "int" {
 		t.Errorf("items[0].Detail = %q, want %q", items[0].Detail, "int")
+	}
+}
+
+// TestComponentAttrItemsExcludesGoOnlyVariadic checks that a signature ending
+// in a Go-only variadic parameter (name other than the reserved "attrs"/
+// "children") never offers that parameter as a candidate: the planner
+// rejects any markup binding to a Go-only variadic param
+// (component_positional_plan.go ~L303-304, "Go-only variadic parameter %d
+// was populated from markup"), so surfacing it as completable is guaranteed
+// to break the call. An ordinary unbound param ahead of the variadic tail
+// ("count") stays offered.
+func TestComponentAttrItemsExcludesGoOnlyVariadic(t *testing.T) {
+	src := "package page\n\ncomponent Home() {\n\t<Card title=\"x\"/>\n}\n"
+	fset := token.NewFileSet()
+	f, err := gsxparser.ParseFile(fset, "page.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	var el *gsxast.Element
+	gsxast.Inspect(f, func(n gsxast.Node) bool {
+		if e, ok := n.(*gsxast.Element); ok && e.Tag == "Card" {
+			el = e
+		}
+		return true
+	})
+	if el == nil {
+		t.Fatalf("no <Card> element found in source")
+	}
+
+	// (title string, count int, nums ...int) — nums is the variadic last
+	// param, sliced-typed, with a name that is neither "attrs" nor
+	// "children", so analyzeComponentSignature would classify it
+	// roleGoOnlyVariadic.
+	params := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "title", types.Typ[types.String]),
+		types.NewVar(token.NoPos, nil, "count", types.Typ[types.Int]),
+		types.NewVar(token.NoPos, nil, "nums", types.NewSlice(types.Typ[types.Int])),
+	)
+	sig := types.NewSignatureType(nil, nil, nil, params, nil, true)
+
+	boundParams := map[gsxast.Attr]ComponentParamFact{}
+	for _, attr := range el.Attrs {
+		name, ok := attrName(attr)
+		if !ok {
+			continue
+		}
+		if name == "title" {
+			boundParams[attr] = ComponentParamFact{Name: "title"}
+		}
+	}
+
+	pkg := &Package{
+		GSXFset: fset,
+		Files:   map[string]*gsxast.File{"page.gsx": f},
+		ComponentCalls: map[*gsxast.Element]ComponentCallFact{
+			el: {Signature: sig, Params: boundParams},
+		},
+	}
+
+	cursor := strings.Index(src, "<Card") + len("<Card")
+	items := componentAttrItems(pkg, el, src, cursor, cursor, encUTF8)
+
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want exactly 1 (count)", items)
+	}
+	if items[0].Label != "count" {
+		t.Errorf("items[0].Label = %q, want %q", items[0].Label, "count")
 	}
 }
 
