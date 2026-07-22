@@ -474,15 +474,15 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 		for i, part := range we.Parts {
 			switch p := part.(type) {
 			case gsxast.GoText:
-				// Block-form directive (no newline) so an element mid-expression
-				// (`Wrap(<Foo/>)`) keeps its trailing `)` attached to the IIFE's
-				// `}()` — a `//line` newline there would trip ASI.
-				emitSkeletonBlockLine(goWithElementsBuf, fset, p.Pos())
 				emitted := targetGoWithElementsText(we, shapes, i, p)
-				if mode == skeletonDeclarations {
-					writeSkeletonGenerated(goWithElementsBuf, emitted)
-					continue
-				}
+				// A decorative leading paren stripped off this GoText (the `)` of a
+				// fmt `( <el/> )` wrap) advances `start` past one or more source lines.
+				// The emitted bytes therefore begin at p.Pos()+start, not p.Pos() —
+				// so the //line directive MUST anchor there too. Anchoring at p.Pos()
+				// maps every following line one line too early, and because
+				// consecutive top-level Go (a trailing `var (…)`/`func …` chunk) shares
+				// this same GoWithElements region as trailing GoText, that drift lands
+				// cross-package go-to-definition on the wrong declaration line.
 				start := 0
 				end := len(p.Src)
 				if i > 0 && parenWrappable(we.Parts[i-1], shapes, i-1) {
@@ -492,6 +492,14 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 				if i < len(we.Parts)-1 && parenWrappable(we.Parts[i+1], shapes, i+1) {
 					stripped := goexprshape.StripTrailingParen(p.Src[start:end])
 					end = start + len(stripped)
+				}
+				// Block-form directive (no newline) so an element mid-expression
+				// (`Wrap(<Foo/>)`) keeps its trailing `)` attached to the IIFE's
+				// `}()` — a `//line` newline there would trip ASI.
+				emitSkeletonBlockLine(goWithElementsBuf, fset, p.Pos()+token.Pos(start))
+				if mode == skeletonDeclarations {
+					writeSkeletonGenerated(goWithElementsBuf, emitted)
+					continue
 				}
 				if p.Src[start:end] != emitted {
 					return "", nil, nil, nil, nil, fmt.Errorf("codegen: Go-with-elements text transform did not preserve an exact authored subspan")

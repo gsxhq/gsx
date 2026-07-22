@@ -39,7 +39,7 @@ func semanticHoverOccurrenceFromSources(pkg *Package, path string, source []byte
 					return Hover{}, sourceintel.Span{}, false
 				}
 				position := pkg.Fset.Position(object.Pos())
-				if position.Filename == "" || !strings.HasSuffix(position.Filename, ".go") || sources.isPairedGeneratedOutput(position.Filename) {
+				if position.Filename == "" || !isNavigableTargetFile(position.Filename) || sources.isPairedGeneratedOutput(position.Filename) {
 					return Hover{}, sourceintel.Span{}, false
 				}
 			}

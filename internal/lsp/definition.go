@@ -43,7 +43,7 @@ func semanticDefinitionFromSnapshot(pkg *Package, path string, source []byte, of
 		return semanticDefinitionTarget{}, false
 	}
 	goPosition := pkg.Fset.Position(object.Pos())
-	if goPosition.Filename == "" || !strings.HasSuffix(goPosition.Filename, ".go") {
+	if goPosition.Filename == "" || !isNavigableTargetFile(goPosition.Filename) {
 		return semanticDefinitionTarget{}, false
 	}
 	if sources == nil || sources.isPairedGeneratedOutput(goPosition.Filename) {
@@ -255,21 +255,22 @@ func objectDefinitionResult(sources *requestSourceSnapshot, pkg *Package, obj ty
 	}
 	if object.Pkg() != nil {
 		key := ComponentDeclKey{PackagePath: object.Pkg().Path(), ComponentKey: componentObjectKey(object)}
-		if result, ok := versionedDefinitionResult(sources, pkg.ComponentDecls[key]); ok {
-			return result, true
+		if decls := pkg.ComponentDecls[key]; len(decls) > 0 {
+			// This object is a component with tracked declaration spans; those
+			// versioned spans are the authoritative, stale-validated answer. Return
+			// them (failing closed when they no longer match the current buffer)
+			// rather than falling through to resolve the raw object position against
+			// possibly-stale source.
+			return versionedDefinitionResult(sources, decls)
 		}
 	}
-	if !object.Pos().IsValid() {
-		return nil, false
+	// A plain package-level value/symbol (a component VALUE like `icon.X`, or a Go
+	// helper) has no tracked component spans: resolve its declaring position —
+	// authored .gsx when present, else the physical generated file.
+	if location, ok := objectSourceLocation(sources, pkg, object); ok {
+		return location, true
 	}
-	if pkg.Fset == nil {
-		return nil, false
-	}
-	dp := pkg.Fset.Position(object.Pos())
-	if dp.Filename == "" {
-		return nil, false
-	}
-	return sources.locationForGoPosition(dp, len(object.Name()))
+	return nil, false
 }
 
 func componentObjectKey(object types.Object) string {
@@ -474,15 +475,35 @@ func versionedDefinitionResult(sources *requestSourceSnapshot, spans []sourceint
 	return locations, true
 }
 
-func genuineGoObjectLocation(sources *requestSourceSnapshot, pkg *Package, object types.Object) (Location, bool) {
+// objectSourceLocation resolves a go/types object's declaring position to a
+// navigation target under the authored-first policy:
+//
+//   - The //line-adjusted position (pkg.Fset.Position) points at an authored .gsx
+//     when the object is a component VALUE (or any top-level Go symbol) declared
+//     in a Go chunk of a .gsx analyzed from sources — its own package, or a
+//     dependency whose .gsx ships beside its generated .x.go (same module, a
+//     nested module, or a module cache with sources). When that .gsx exists, jump
+//     there.
+//   - Otherwise fall back to the PHYSICAL position (Fset.PositionFor without
+//     //line adjustment): the real .go / .x.go the object was type-checked from.
+//     This covers an external dependency shipping only its generated .x.go (the
+//     authored .gsx absent), where a generated-file location beats null.
+//
+// locationForExistingFile still rejects a paired generated .x.go while its
+// authored .gsx exists, so navigation never lands in generated code when the
+// source is available. Same-package authored objects are resolved by callers via
+// SourceIndex before reaching here.
+func objectSourceLocation(sources *requestSourceSnapshot, pkg *Package, object types.Object) (Location, bool) {
 	if pkg == nil || pkg.Fset == nil || object == nil || !object.Pos().IsValid() {
 		return Location{}, false
 	}
-	position := pkg.Fset.Position(object.Pos())
-	if !strings.HasSuffix(position.Filename, ".go") {
-		return Location{}, false
+	if adjusted := pkg.Fset.Position(object.Pos()); strings.HasSuffix(adjusted.Filename, ".gsx") {
+		if location, ok := sources.locationForExistingFile(adjusted, len(object.Name())); ok {
+			return location, true
+		}
 	}
-	return sources.locationForGoPosition(position, len(object.Name()))
+	physical := pkg.Fset.PositionFor(object.Pos(), false)
+	return sources.locationForExistingFile(physical, len(object.Name()))
 }
 
 // handleDefinition answers textDocument/definition for D1: a Go symbol under the
@@ -519,7 +540,7 @@ func (s *Server) handleDefinition(f frame) error {
 		if result, valid := versionedDefinitionResult(sources, cursor.fact.TargetDecls); valid {
 			return s.reply(f.ID, result)
 		}
-		location, ok := genuineGoObjectLocation(sources, pkg, componentTargetObject(cursor.fact))
+		location, ok := objectSourceLocation(sources, pkg, componentTargetObject(cursor.fact))
 		if !ok {
 			return s.reply(f.ID, nil)
 		}
@@ -564,7 +585,7 @@ func (s *Server) handleDefinition(f frame) error {
 		if param == nil {
 			param = cursor.param.Var
 		}
-		location, ok := genuineGoObjectLocation(sources, pkg, param)
+		location, ok := objectSourceLocation(sources, pkg, param)
 		if !ok {
 			return s.reply(f.ID, nil)
 		}
@@ -604,7 +625,7 @@ func (s *Server) handleDefinition(f frame) error {
 			}
 			return s.reply(f.ID, nil)
 		}
-		location, ok := sources.locationForGoPosition(target.Go, 0)
+		location, ok := sources.locationForExistingFile(target.Go, 0)
 		if !ok {
 			return s.reply(f.ID, nil)
 		}

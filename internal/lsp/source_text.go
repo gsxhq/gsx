@@ -280,6 +280,48 @@ func authoredSpanForPosition(pos token.Position, length int) (sourceintel.Span, 
 	return sourceintel.Span{Path: sourcePath(pos.Filename), Start: pos.Offset, End: pos.Offset + length}, true
 }
 
+// isNavigableTargetFile reports whether a Go-fileset position naming filename
+// may be published as a navigation target: a real .go source file, or an
+// authored .gsx (a Go-chunk position that go/types //line-mapped back to its
+// .gsx — e.g. a component VALUE declared in another package's .gsx var block).
+// Generated paired .x.go outputs end in .go and pass this suffix test, so
+// callers still gate them out with isPairedGeneratedOutput.
+func isNavigableTargetFile(filename string) bool {
+	return strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, ".gsx")
+}
+
+// locationForExistingFile resolves a Go-fileset token.Position — a real .go file
+// or an authored .gsx that go/types //line-mapped to — to a Location by
+// Line/Column against the target's on-disk or open-buffer content (its Offset is
+// the generated skeleton's, not the target file's). Unlike locationForGoPosition
+// it REQUIRES the target file to be readable: a //line-reconstructed .gsx path
+// that no longer exists (an external dependency shipping only its generated
+// .x.go) yields false so callers can fall back to the physical generated file. A
+// paired generated .x.go whose authored .gsx exists is rejected, so navigation
+// never lands in generated code while the source is available.
+func (snapshot *requestSourceSnapshot) locationForExistingFile(pos token.Position, length int) (Location, bool) {
+	if pos.Filename == "" || length < 0 || !isNavigableTargetFile(pos.Filename) || snapshot.isPairedGeneratedOutput(pos.Filename) {
+		return Location{}, false
+	}
+	text, ok := snapshot.sourceText(pos.Filename)
+	if !ok {
+		return Location{}, false
+	}
+	start, ok := offsetForTokenPosition(text, pos)
+	if !ok || start+length > len(text) {
+		return Location{}, false
+	}
+	return snapshot.locationForSpan(sourceintel.Span{
+		Path: sourcePath(pos.Filename), Start: start, End: start + length,
+	})
+}
+
+// locationForGoPosition resolves a Go-fileset token.Position naming a real .go
+// file to a navigation target, by Line/Column against its content (falling back
+// to the raw line/column when the file is unavailable). Generated paired .x.go
+// outputs are rejected. Authored-.gsx and physical-generated targets go through
+// objectSourceLocation → locationForExistingFile instead, which is existence-
+// aware; this stays .go-only for its package-clause and same-package Go callers.
 func (snapshot *requestSourceSnapshot) locationForGoPosition(pos token.Position, length int) (Location, bool) {
 	if pos.Filename == "" || length < 0 || !strings.HasSuffix(pos.Filename, ".go") || snapshot.isPairedGeneratedOutput(pos.Filename) {
 		return Location{}, false
