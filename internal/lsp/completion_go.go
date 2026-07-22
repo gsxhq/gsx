@@ -144,7 +144,7 @@ func innermostScopeAtAuthored(pkg *Package, path string, off int) *types.Scope {
 // //line directive to its .gsx position (codegen's splitFileGoSource +
 // emitSkeletonLine), so the decls parsed from it report the authored path via
 // pkg.Fset.Position. A file scope is keyed in Info.Scopes by its *ast.File; the
-// file whose first .gsx-mapped decl matches path owns that authored source.
+// file whose decls //line-map to path owns that authored source.
 // (Component-generated funcs sit on unmapped skeleton signature lines and so do
 // not match — only genuine GoChunk decls do, which is exactly the population a
 // bare GoChunk position lives among.)

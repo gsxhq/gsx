@@ -201,6 +201,111 @@ func TestFileScopeForAuthoredPathUnknownPath(t *testing.T) {
 	}
 }
 
+// buildSyntheticTwoFilePackage type-checks TWO plain Go sources together as one
+// package (mirroring a real two-.gsx-file package: distinct skeleton files that
+// share one types.Check call), each carrying its own //line directive so its
+// decls report a distinct authored path via pkg.Fset.Position — exactly the
+// production geometry buildMappedSkeleton/splitFileGoSource produce per .gsx
+// file (see fileScopeForAuthoredPath's doc comment).
+func buildSyntheticTwoFilePackage(t *testing.T, srcA, srcB string) *Package {
+	t.Helper()
+	fset := token.NewFileSet()
+	fileA, err := parser.ParseFile(fset, "pA.go", srcA, 0)
+	if err != nil {
+		t.Fatalf("parse A: %v", err)
+	}
+	fileB, err := parser.ParseFile(fset, "pB.go", srcB, 0)
+	if err != nil {
+		t.Fatalf("parse B: %v", err)
+	}
+	info := &types.Info{
+		Types:  map[ast.Expr]types.TypeAndValue{},
+		Defs:   map[*ast.Ident]types.Object{},
+		Uses:   map[*ast.Ident]types.Object{},
+		Scopes: map[ast.Node]*types.Scope{},
+	}
+	conf := types.Config{Importer: importer.Default(), Error: func(error) {}}
+	tpkg, _ := conf.Check("p", fset, []*ast.File{fileA, fileB}, info)
+	return &Package{Types: tpkg, Info: info, Fset: fset}
+}
+
+// TestFileScopeForAuthoredPathTwoFiles pins the regression class the T4 review
+// (.superpowers/sdd/batch2-t4-report.md, finding (e)) flagged as UNCOVERED:
+// with two .gsx files in one package carrying DIFFERENT imports, the
+// fileScopeForAuthoredPath fallback must return the file whose OWN decls map to
+// the requested path — never the sibling file's scope, which would leak the
+// wrong file's imported package names into completion. Before this test,
+// nothing in the committed suite would fail if fileScopeForAuthoredPath ever
+// returned the wrong file's scope in a multi-file package (buildSyntheticPackage
+// only ever builds a single *ast.File); this promotes the reviewer's throwaway
+// two-file probe into a permanent pin, covering both the direct helper and its
+// innermostScopeAtAuthored caller (the actual completion entry point).
+func TestFileScopeForAuthoredPathTwoFiles(t *testing.T) {
+	srcA := `package p
+
+import "strings"
+
+//line a.gsx:1:1
+func helperA() string { return "a" }
+`
+	srcB := `package p
+
+import "os"
+
+//line b.gsx:1:1
+func helperB() string { return "b" }
+`
+	pkg := buildSyntheticTwoFilePackage(t, srcA, srcB)
+
+	scopeA := fileScopeForAuthoredPath(pkg, "a.gsx")
+	scopeB := fileScopeForAuthoredPath(pkg, "b.gsx")
+	if scopeA == nil {
+		t.Fatal("fileScopeForAuthoredPath(a.gsx) returned nil")
+	}
+	if scopeB == nil {
+		t.Fatal("fileScopeForAuthoredPath(b.gsx) returned nil")
+	}
+	if scopeA == scopeB {
+		t.Fatal("fileScopeForAuthoredPath returned the SAME scope for two different authored paths")
+	}
+
+	namesOf := func(scope *types.Scope) map[string]bool {
+		names := map[string]bool{}
+		for _, c := range scopeCandidates(pkg, scope, token.NoPos) {
+			names[c.obj.Name()] = true
+		}
+		return names
+	}
+	namesA := namesOf(scopeA)
+	namesB := namesOf(scopeB)
+
+	if !namesA["strings"] {
+		t.Errorf("a.gsx scope missing its own import `strings`; got %v", namesA)
+	}
+	if namesA["os"] {
+		t.Errorf("a.gsx scope offers `os` — the WRONG file's scope leaked b.gsx's import; got %v", namesA)
+	}
+	if !namesB["os"] {
+		t.Errorf("b.gsx scope missing its own import `os`; got %v", namesB)
+	}
+	if namesB["strings"] {
+		t.Errorf("b.gsx scope offers `strings` — the WRONG file's scope leaked a.gsx's import; got %v", namesB)
+	}
+
+	// innermostScopeAtAuthored is the actual completion entry point: a
+	// between-decls cursor (off=0, before either file's mapped func body) has no
+	// enclosing func/block scope, so it must reach the same per-file scope
+	// through the fallback — not the package scope, and not the other file's.
+	authoredA := innermostScopeAtAuthored(pkg, "a.gsx", 0)
+	authoredB := innermostScopeAtAuthored(pkg, "b.gsx", 0)
+	if authoredA != scopeA {
+		t.Errorf("innermostScopeAtAuthored(a.gsx, 0) = %v, want the direct fileScopeForAuthoredPath(a.gsx) result %v", authoredA, scopeA)
+	}
+	if authoredB != scopeB {
+		t.Errorf("innermostScopeAtAuthored(b.gsx, 0) = %v, want the direct fileScopeForAuthoredPath(b.gsx) result %v", authoredB, scopeB)
+	}
+}
+
 // TestMemberCandidates exercises the method-set + embedded-field BFS over a
 // synthetic type, asserting promotion depth and the unexported-visibility gate.
 func TestMemberCandidates(t *testing.T) {
