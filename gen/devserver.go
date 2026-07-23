@@ -119,40 +119,63 @@ func envLookup(env []string, key string) (string, bool) {
 // envValue is envPort by another name for non-port keys (VITE_DEV_URL).
 func envValue(env []string, key, def string) string { return envPort(env, key, def) }
 
-func resolveViteDevEnv(env []string, host string) ([]string, string, error) {
-	// When [dev].host is unset, honor the hostname from an existing VITE_DEV_URL
-	// (typically a gitignored .env) so a per-machine dev hostname needs no
-	// committed config. Only the host is taken — the port still comes from
-	// VITE_PORT or the auto-picker, so a stale URL never pins a busy port.
-	if host == "" {
-		if raw := envValue(env, "VITE_DEV_URL", ""); raw != "" {
-			if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+// resolveViteDevEnv resolves the Vite dev server's host:port and folds it
+// back into env as VITE_PORT/VITE_DEV_URL for the spawned front door and Go
+// server to agree on.
+//
+// Precedence: VITE_PORT > VITE_DEV_URL's port > auto-pick from 5173. An
+// explicit port — either form — fails loudly (hard error) if it's already
+// bound; only a truly port-less configuration (no VITE_PORT, and no port on
+// VITE_DEV_URL) auto-picks. When [dev].host is unset, the hostname from an
+// existing VITE_DEV_URL (typically a gitignored .env) is honored too, so a
+// per-machine dev hostname needs no committed config; that lookup is
+// independent of the port precedence above. If VITE_PORT and VITE_DEV_URL's
+// port disagree, VITE_PORT wins and the non-empty warning return names the
+// override — the caller should print it once.
+func resolveViteDevEnv(env []string, host string) ([]string, string, string, error) {
+	var urlPort string
+	if raw := envValue(env, "VITE_DEV_URL", ""); raw != "" {
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+			if host == "" {
 				host = u.Hostname()
 			}
+			urlPort = u.Port()
 		}
 	}
-	port, ok := envLookup(env, "VITE_PORT")
+
+	var warning string
+	port, hasVitePort := envLookup(env, "VITE_PORT")
 	var err error
-	if ok {
-		if _, err := strconv.Atoi(port); err != nil {
-			return nil, "", fmt.Errorf("invalid VITE_PORT %q", port)
+	switch {
+	case hasVitePort:
+		if _, convErr := strconv.Atoi(port); convErr != nil {
+			return nil, "", "", fmt.Errorf("invalid VITE_PORT %q", port)
+		}
+		if urlPort != "" && urlPort != port {
+			warning = fmt.Sprintf("VITE_PORT=%s overrides VITE_DEV_URL's :%s", port, urlPort)
 		}
 		if !portAvailable(port) {
-			return nil, "", fmt.Errorf("VITE_PORT %s is already in use", port)
+			return nil, "", "", fmt.Errorf("VITE_PORT %s is already in use", port)
 		}
-	} else {
+	case urlPort != "":
+		if !portAvailable(urlPort) {
+			return nil, "", "", fmt.Errorf("VITE_DEV_URL port %s is already in use", urlPort)
+		}
+		port = urlPort
+	default:
 		port, err = nextAvailablePort("5173")
+		if err != nil {
+			return nil, "", "", err
+		}
 	}
-	if err != nil {
-		return nil, "", err
-	}
+
 	if host == "" {
 		host = "localhost"
 	}
 	viteURL := "http://" + host + ":" + port
 	env = setEnvValue(env, "VITE_PORT", port)
 	env = setEnvValue(env, "VITE_DEV_URL", viteURL)
-	return env, viteURL, nil
+	return env, viteURL, warning, nil
 }
 
 func nextAvailablePort(start string) (string, error) {
