@@ -1,0 +1,28 @@
+Whitespace preservation covers the entire <pre> subtree, not just direct
+children: a nested element's children glue verbatim, and the printer never
+injects line breaks (significant whitespace) anywhere under the preserve root.
+The whole file is already canonical — fmt must be a byte-for-byte no-op.
+-- input.gsx --
+package p
+
+const snippet = `go install example.com/tool@latest
+tool init`
+
+component C() {
+	<pre class="snippet"><code>{ snippet }</code></pre>
+	<pre><code>
+  <span>one</span> two
+</code></pre>
+}
+-- fmt.golden --
+package p
+
+const snippet = `go install example.com/tool@latest
+tool init`
+
+component C() {
+	<pre class="snippet"><code>{ snippet }</code></pre>
+	<pre><code>
+  <span>one</span> two
+</code></pre>
+}

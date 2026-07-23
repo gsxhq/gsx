@@ -1,0 +1,24 @@
+A <pre> whose opening tag overflows the width budget may break its ATTRIBUTE
+list (intra-tag whitespace is syntax, not content), but its subtree must stay
+glued verbatim — width overflow never justifies a break inside preserved
+content.
+-- input.gsx --
+package p
+
+const snippet = `go install example.com/tool@latest
+tool init`
+
+component C() {
+	<pre class="overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm"><code>{ snippet }</code></pre>
+}
+-- fmt.golden --
+package p
+
+const snippet = `go install example.com/tool@latest
+tool init`
+
+component C() {
+	<pre
+		class="overflow-x-auto rounded-lg border border-border bg-card p-4 text-sm"
+	><code>{ snippet }</code></pre>
+}

@@ -1,0 +1,59 @@
+Control flow inside a <pre> subtree: the body EDGES are syntax (the parser
+trims whitespace immediately inside control-flow braces even under preserve),
+so the construct keeps its block layout — but INTERIOR body whitespace is
+content and the nodes glue verbatim, with no injected breaks between them.
+Interior text lands at column zero on purpose: those bytes render.
+-- input.gsx --
+package p
+
+component C(lines []string) {
+	<pre>{ if len(lines) > 0 {
+		<b>{ lines[0] }</b>
+	} }</pre>
+	<pre>{ if len(lines) > 1 {
+		<b>a</b>
+mid
+<b>b</b>
+	} }</pre>
+	<pre>{ for _, l := range lines {
+		<span>{ l }</span>
+	} }</pre>
+	<pre>{ switch len(lines) {
+		case 0:
+			<i>empty</i>
+		default:
+			<i>a</i>
+raw
+<i>b</i>
+	} }</pre>
+	<pre><><span>x</span>
+between
+<span>y</span></></pre>
+}
+-- fmt.golden --
+package p
+
+component C(lines []string) {
+	<pre>{ if len(lines) > 0 {
+		<b>{ lines[0] }</b>
+	} }</pre>
+	<pre>{ if len(lines) > 1 {
+		<b>a</b>
+mid
+<b>b</b>
+	} }</pre>
+	<pre>{ for _, l := range lines {
+		<span>{ l }</span>
+	} }</pre>
+	<pre>{ switch len(lines) {
+		case 0:
+			<i>empty</i>
+		default:
+			<i>a</i>
+raw
+<i>b</i>
+	} }</pre>
+	<pre><><span>x</span>
+between
+<span>y</span></></pre>
+}
