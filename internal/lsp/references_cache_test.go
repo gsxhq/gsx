@@ -66,6 +66,8 @@ func (a *moduleRefsAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
 func (a *moduleRefsAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (a *moduleRefsAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (a *moduleRefsAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 // drive runs the given pre-framed messages through a fresh server over the
 // analyzer and returns the raw output. Helper mirrors the existing

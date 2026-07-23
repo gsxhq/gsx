@@ -24,6 +24,10 @@ const (
 	tierKeyword   = 60
 	tierContext   = 5  // context-native items: filters, components, attrs
 	tierSecondary = 20 // e.g. HTML tags merged under a capitalized prefix
+	// tierUnimported ranks auto-import package-name items (Option 2) strictly
+	// below every in-scope name, member, and keyword: they are the last resort,
+	// offered only after the client has exhausted names the file already has.
+	tierUnimported = 70
 )
 
 // completionTokenSpan scans identifier bytes backward from off in text and

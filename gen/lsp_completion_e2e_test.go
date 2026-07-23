@@ -3,6 +3,7 @@ package gen
 import (
 	"bytes"
 	"encoding/json"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+
+	gsxparser "github.com/gsxhq/gsx/parser"
 
 	"github.com/gsxhq/gsx/internal/lsp"
 )
@@ -1869,4 +1872,195 @@ func assertEmptyCompletionNoError(t *testing.T, output string, id int) {
 	if len(list.Items) != 0 {
 		t.Fatalf("completion id %d = %d items, want 0 (fail-soft empty): %+v", id, len(list.Items), list.Items)
 	}
+}
+
+// posToByteOffsetASCII converts an LSP (line, character) to a byte offset for an
+// ASCII buffer (the auto-import fixtures are ASCII, so a UTF-16 code unit is one
+// byte). Used to apply completion edits and reparse.
+func posToByteOffsetASCII(src string, line, character int) int {
+	off := 0
+	for range line {
+		nl := strings.IndexByte(src[off:], '\n')
+		if nl < 0 {
+			return len(src)
+		}
+		off += nl + 1
+	}
+	return off + character
+}
+
+// applyLSPEdits applies non-overlapping LSP TextEdits to src (rightmost first).
+func applyLSPEdits(src string, edits []lsp.TextEdit) string {
+	type off struct {
+		start, end int
+		text       string
+	}
+	os := make([]off, len(edits))
+	for i, e := range edits {
+		os[i] = off{
+			start: posToByteOffsetASCII(src, e.Range.Start.Line, e.Range.Start.Character),
+			end:   posToByteOffsetASCII(src, e.Range.End.Line, e.Range.End.Character),
+			text:  e.NewText,
+		}
+	}
+	for i := 1; i < len(os); i++ {
+		for j := i; j > 0 && os[j].start > os[j-1].start; j-- {
+			os[j], os[j-1] = os[j-1], os[j]
+		}
+	}
+	out := src
+	for _, o := range os {
+		out = out[:o.start] + o.text + out[o.end:]
+	}
+	return out
+}
+
+// TestAutoImportCompletionE2E drives auto-import completion end to end through
+// the JSON-RPC server: an unimported qualifier's symbols (Option 1) and
+// unimported package names (Option 2), each carrying an import
+// additionalTextEdit that — applied together with the main edit — yields a
+// document that reparses cleanly with the import present.
+func TestAutoImportCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+
+	// Option 1: `{ strings. }` where strings is unimported → ToUpper offered with
+	// an import edit.
+	t.Run("unimported qualifier symbols", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t<div>{ strings. }</div>\n}\n"
+		cursor := strings.Index(source, "strings.") + len("strings.")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		var up *lsp.CompletionItem
+		for i := range items {
+			if items[i].Label == "ToUpper" {
+				up = &items[i]
+			}
+		}
+		if up == nil {
+			labels := map[string]bool{}
+			for _, it := range items {
+				labels[it.Label] = true
+			}
+			t.Fatalf("unimported `strings.` did not offer ToUpper; labels=%v", labels)
+		}
+		if len(up.AdditionalTextEdits) != 1 {
+			t.Fatalf("ToUpper AdditionalTextEdits = %d, want 1 (the import)", len(up.AdditionalTextEdits))
+		}
+		// Apply the symbol edit + import edit and reparse: the import must land and
+		// the whole document must parse.
+		all := append([]lsp.TextEdit{*up.TextEdit}, up.AdditionalTextEdits...)
+		got := applyLSPEdits(source, all)
+		if !strings.Contains(got, "import \"strings\"") {
+			t.Errorf("applied doc missing import \"strings\":\n%s", got)
+		}
+		if !strings.Contains(got, "strings.ToUpper") {
+			t.Errorf("applied doc missing strings.ToUpper:\n%s", got)
+		}
+		fset := token.NewFileSet()
+		if f, err := gsxparser.ParseFile(fset, "page.gsx", got, 0); f == nil || err != nil {
+			t.Errorf("applied doc does not reparse: err=%v\n%s", err, got)
+		}
+		// Without labelDetails capability (runHTMLCompletionE2E negotiates none),
+		// the import path is carried in the detail string.
+		if up.Detail != "strings" {
+			t.Errorf("ToUpper detail = %q, want import path \"strings\" (labelDetails fallback)", up.Detail)
+		}
+	})
+
+	// Option 1, statement position: `{{ strings. }}` (a GoBlock, not an Interp)
+	// where strings is unimported → ToUpper offered with an import edit, exactly
+	// as the expression-position `{ strings. }` case above. Auto-import's
+	// text-level qualifier/edit machinery is node-kind-agnostic, but the
+	// classifier routes GoBlock through a different rule (nodeNavSpans, not the
+	// Interp rule) — exercise it directly rather than relying on the expression
+	// case as a stand-in for every Go-expr context.
+	t.Run("statement position unimported qualifier", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t{{ strings. }}\n}\n"
+		cursor := strings.Index(source, "strings.") + len("strings.")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		var up *lsp.CompletionItem
+		for i := range items {
+			if items[i].Label == "ToUpper" {
+				up = &items[i]
+			}
+		}
+		if up == nil {
+			labels := map[string]bool{}
+			for _, it := range items {
+				labels[it.Label] = true
+			}
+			t.Fatalf("unimported statement-position `strings.` did not offer ToUpper; labels=%v", labels)
+		}
+		if len(up.AdditionalTextEdits) != 1 {
+			t.Fatalf("ToUpper AdditionalTextEdits = %d, want 1 (the import)", len(up.AdditionalTextEdits))
+		}
+		all := append([]lsp.TextEdit{*up.TextEdit}, up.AdditionalTextEdits...)
+		got := applyLSPEdits(source, all)
+		if !strings.Contains(got, "import \"strings\"") {
+			t.Errorf("applied doc missing import \"strings\":\n%s", got)
+		}
+		if !strings.Contains(got, "strings.ToUpper") {
+			t.Errorf("applied doc missing strings.ToUpper:\n%s", got)
+		}
+		fset := token.NewFileSet()
+		if f, err := gsxparser.ParseFile(fset, "page.gsx", got, 0); f == nil || err != nil {
+			t.Errorf("applied doc does not reparse: err=%v\n%s", err, got)
+		}
+	})
+
+	// Option 2: bare `{ fm }` offers the package name `fmt` at the bottom tier
+	// with an import edit.
+	t.Run("unimported package name", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t<div>{ fm }</div>\n}\n"
+		cursor := strings.Index(source, "{ fm }") + len("{ fm")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		var fm *lsp.CompletionItem
+		for i := range items {
+			if items[i].Label == "fmt" {
+				fm = &items[i]
+			}
+		}
+		if fm == nil {
+			t.Fatalf("bare `fm` did not offer package name fmt; got %d items", len(items))
+		}
+		if fm.Kind != 9 { // ciKindModule
+			t.Errorf("fmt kind = %d, want Module(9)", fm.Kind)
+		}
+		if !strings.HasPrefix(fm.SortText, "70") {
+			t.Errorf("fmt SortText = %q, want tierUnimported prefix \"70\"", fm.SortText)
+		}
+		if len(fm.AdditionalTextEdits) != 1 {
+			t.Fatalf("fmt AdditionalTextEdits = %d, want 1", len(fm.AdditionalTextEdits))
+		}
+		got := applyLSPEdits(source, append([]lsp.TextEdit{*fm.TextEdit}, fm.AdditionalTextEdits...))
+		if !strings.Contains(got, "import \"fmt\"") || !strings.Contains(got, "{ fmt }") {
+			t.Errorf("applied package-name doc wrong:\n%s", got)
+		}
+		fset := token.NewFileSet()
+		if f, err := gsxparser.ParseFile(fset, "page.gsx", got, 0); f == nil || err != nil {
+			t.Errorf("applied doc does not reparse: err=%v\n%s", err, got)
+		}
+	})
+
+	// Precedence: an already-imported package is unaffected — `strings.` offers
+	// real members with NO import edit (the import qualifier resolves; auto-import
+	// never fires).
+	t.Run("imported package unaffected", func(t *testing.T) {
+		source := "package page\n\nimport \"strings\"\n\ncomponent Home() {\n\t<div>{ strings. }</div>\n\t<span>{ strings.ToLower(\"x\") }</span>\n}\n"
+		cursor := strings.Index(source, "{ strings. }") + len("{ strings.")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		var up *lsp.CompletionItem
+		for i := range items {
+			if items[i].Label == "ToUpper" {
+				up = &items[i]
+			}
+		}
+		if up == nil {
+			t.Fatalf("imported `strings.` did not offer ToUpper")
+		}
+		if len(up.AdditionalTextEdits) != 0 {
+			t.Errorf("imported member ToUpper carries an import edit %v, want none (already imported)", up.AdditionalTextEdits)
+		}
+	})
 }
