@@ -1063,6 +1063,73 @@ func (a lspAnalyzer) ResolveImport(dir, name, symbol string) []string {
 	return m.ResolveImportCandidates(dir, name, symbol)
 }
 
+// ExportedSymbols returns the exported top-level symbols of the package at
+// importPath, for auto-import completion of an unimported qualifier. Best-effort
+// like ResolveImport: a module that cannot be opened yields nothing.
+func (a lspAnalyzer) ExportedSymbols(dir, importPath string) []lsp.ImportSymbol {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, _, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil
+	}
+	syms := m.PackageExportedSymbols(importPath)
+	if len(syms) == 0 {
+		return nil
+	}
+	out := make([]lsp.ImportSymbol, len(syms))
+	for i, sym := range syms {
+		out[i] = lsp.ImportSymbol{Name: sym.Name, Kind: importSymbolKind(sym.Kind), Detail: sym.Detail}
+	}
+	return out
+}
+
+// ImportablePackages returns every package dir could import (name + path), for
+// auto-import package-name completion. Best-effort like ExportedSymbols.
+func (a lspAnalyzer) ImportablePackages(dir string) []lsp.ImportablePackage {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, _, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil
+	}
+	pkgs := m.ImportablePackageNames(dir)
+	if len(pkgs) == 0 {
+		return nil
+	}
+	out := make([]lsp.ImportablePackage, len(pkgs))
+	for i, pkg := range pkgs {
+		out[i] = lsp.ImportablePackage{Name: pkg.Name, Path: pkg.Path}
+	}
+	return out
+}
+
+// importSymbolKind adapts codegen's coarse SymbolKind to the LSP's mirror enum.
+// The two enums are parallel by design (each package owns its own so neither
+// depends on the other); this explicit switch is the single translation seam.
+func importSymbolKind(k codegen.SymbolKind) lsp.SymbolKind {
+	switch k {
+	case codegen.SymbolFunc:
+		return lsp.SymbolFunc
+	case codegen.SymbolVar:
+		return lsp.SymbolVar
+	case codegen.SymbolConst:
+		return lsp.SymbolConst
+	case codegen.SymbolTypeStruct:
+		return lsp.SymbolTypeStruct
+	case codegen.SymbolTypeInterface:
+		return lsp.SymbolTypeInterface
+	default:
+		return lsp.SymbolTypeOther
+	}
+}
+
 // resolveConfigBestEffort resolves the LSP's effective config: it discovers a
 // gsx.toml from dir (walking up, bounded by .git/module root) and merges it under
 // optCfg — exactly as resolveConfig does for generate/info — but for the LSP it

@@ -41,6 +41,8 @@ func (nilAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
 }
 func (nilAnalyzer) ImportsMode(string) gsxfmt.ImportsMode         { return gsxfmt.ImportsGoimports }
 func (nilAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (nilAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (nilAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {

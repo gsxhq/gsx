@@ -73,6 +73,8 @@ func (a *wsSymAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
 func (a *wsSymAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (a *wsSymAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (a *wsSymAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 func TestWorkspaceSymbolQueryAndCache(t *testing.T) {
 	module := writeWorkspaceSymbolModule(t, filepath.Join(t.TempDir(), "module"))

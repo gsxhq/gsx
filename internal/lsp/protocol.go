@@ -72,13 +72,19 @@ type completionClientCapabilities struct {
 	CompletionItem completionItemClientCapabilities `json:"completionItem"`
 }
 
-// completionItemClientCapabilities carries the one completion-item capability
-// gsx currently reads: whether the client can render a snippet's `$1`
-// tabstops and place the cursor accordingly. Gated on this rather than
-// assumed, per the LSP spec — a client that never sets it would otherwise see
-// a literal `$1` typed into the buffer.
+// completionItemClientCapabilities carries the completion-item capabilities gsx
+// reads:
+//   - SnippetSupport: whether the client can render a snippet's `$1` tabstops
+//     and place the cursor accordingly. Gated rather than assumed, per the LSP
+//     spec — a client that never sets it would otherwise see a literal `$1`
+//     typed into the buffer.
+//   - LabelDetailsSupport: whether the client renders CompletionItem.labelDetails
+//     (the modern label-adjacent detail/description fields). When set,
+//     auto-import items put the import path in labelDetails.description; when
+//     unset they fall back to the plain detail string.
 type completionItemClientCapabilities struct {
-	SnippetSupport bool `json:"snippetSupport"`
+	SnippetSupport      bool `json:"snippetSupport"`
+	LabelDetailsSupport bool `json:"labelDetailsSupport"`
 }
 
 type generalCapabilities struct {
@@ -375,15 +381,30 @@ type CompletionList struct {
 	Items        []CompletionItem `json:"items"`
 }
 
+// CompletionItemLabelDetails is the LSP labelDetails field: label-adjacent
+// annotations a capable client renders next to (Detail) and after (Description)
+// the label. gsx uses Description to carry an auto-import candidate's import
+// path. Emitted only when the client advertises labelDetailsSupport.
+type CompletionItemLabelDetails struct {
+	Detail      string `json:"detail,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // CompletionItem is one completion candidate.
 type CompletionItem struct {
-	Label         string         `json:"label"`
-	Kind          int            `json:"kind,omitempty"`
-	Detail        string         `json:"detail,omitempty"`
-	Documentation *MarkupContent `json:"documentation,omitempty"`
-	SortText      string         `json:"sortText,omitempty"`
-	FilterText    string         `json:"filterText,omitempty"`
-	TextEdit      *TextEdit      `json:"textEdit,omitempty"`
+	Label         string                      `json:"label"`
+	LabelDetails  *CompletionItemLabelDetails `json:"labelDetails,omitempty"`
+	Kind          int                         `json:"kind,omitempty"`
+	Detail        string                      `json:"detail,omitempty"`
+	Documentation *MarkupContent              `json:"documentation,omitempty"`
+	SortText      string                      `json:"sortText,omitempty"`
+	FilterText    string                      `json:"filterText,omitempty"`
+	TextEdit      *TextEdit                   `json:"textEdit,omitempty"`
+	// AdditionalTextEdits are edits applied together with TextEdit on accept,
+	// used by auto-import completion to insert the package import. LSP requires
+	// they not overlap TextEdit; importEditFor enforces this (the import region
+	// is above the cursor). nil for every ordinary item.
+	AdditionalTextEdits []TextEdit `json:"additionalTextEdits,omitempty"`
 	// Data carries a lazy-doc lookup payload (see completionResolveData) that
 	// the client returns unchanged with a completionItem/resolve request. nil
 	// for every item whose Documentation (if any) was already filled in eagerly.

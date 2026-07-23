@@ -680,7 +680,36 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   GOMODCACHE/workspace-root) in internal/lsp; e2e (eager doc on a fixture
   symbol, stdlib `strings.HasPrefix` resolve round trip, filter `upper`→
   std.Upper resolve round trip) in gen/lsp_completion_docs_e2e_test.go.
-  **Follow-ups:** auto-import completion (own design); snippet placeholders;
+  **Auto-import completion** — DONE (design `batch3-autoimport-design.md`).
+  Option 1: an unimported qualifier in member position (`fmt.▮`, `strings.ToUp▮`)
+  — the last fallback after the ordinary member dispatch resolves nothing —
+  resolves the qualifier to import path(s) via `ResolveImportCandidates` (~100µs
+  warm) and offers that package's exported symbols, each with an eager
+  `additionalTextEdits` that adds the import on accept. Option 2: a bare
+  identifier also offers unimported package NAMES (kind Module) whose name has
+  the typed prefix, ranked at a new bottom tier (`tierUnimported` = 70, below
+  every in-scope name and keyword), each with its own import edit; a name that
+  already names an in-scope item is suppressed (no shadowing `os/user` over a
+  local `user`). Precedence: in-scope binding > import qualifier > unimported
+  (`undefinedQualifier` gates on a total `SourceIndex.At` miss). The import edit
+  is a NARROW import-region `TextEdit` in original-doc coordinates (common-prefix/
+  suffix diff of the target chunk via `importEditFor` + gsxfmt's exported
+  `AddChunkImports`/`ChunkHasImports`), NOT the whole-document code-action edit
+  which would illegally overlap the completion edit; it refuses rather than emit
+  an overlapping edit. `labelDetails` is capability-gated: the import path goes in
+  `labelDetails.description` when the client supports it, else the detail string.
+  New codegen seam (serialized on `analysisMu`, off the `Package()` hot path like
+  `ResolveImportCandidates`): `Module.PackageExportedSymbols(path)` →
+  name/kind/type-string tuples from the loaded dep graph (or gc export data for a
+  graph-absent std package), and `Module.ImportablePackageNames(dir)` → the
+  internal-visibility-filtered name universe. Surfaced through
+  `Analyzer.ExportedSymbols`/`ImportablePackages`. Tests: unit (import-edit exact
+  bytes for no-block/existing-block/leading-chunk + already-imported no-op +
+  overlap refusal, qualifier extraction, per-path ambiguity, labelDetails both
+  ways, tier + prefix cap) in internal/lsp + internal/codegen; e2e (unimported
+  `strings.▮` → ToUpper with an import edit that reparses cleanly, bare
+  package-name item, imported-package precedence) in gen.
+  **Follow-ups:** snippet placeholders;
   body-local value bindings as method-component qualifiers (declared in a
   `{{ }}` block, a v1 gap); `Component.Doc` — component-tag completion/hover
   still show only the rendered signature (`renderComponentSig`), never a doc

@@ -58,6 +58,8 @@ func (a fakeAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
 func (a fakeAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (a fakeAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (a fakeAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 func TestDidOpenPublishesDiagnostics(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "page.gsx")
