@@ -13,4 +13,4 @@ component Icon(svgB64 string) {
 Icon("PHN2Zy8+")
 -- diagnostics.golden --
 -- render.golden --
-<img src="data:image/svg+xml;base64,PHN2Zy8+" alt="i"/>
+<img src="data:image/svg+xml;base64,PHN2Zy8+" alt="i">

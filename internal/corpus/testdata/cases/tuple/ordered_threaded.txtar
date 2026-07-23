@@ -54,7 +54,7 @@ func _gsxrenderInner(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, bag gsx.Attrs) 
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
 	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-	_gsxgw.S("/>")
+	_gsxgw.S("></span>")
 	return _gsxgw.Err()
 }
 
@@ -89,4 +89,4 @@ func Page(t string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<span data-signals="{n:0}"/>
+<span data-signals="{n:0}"></span>

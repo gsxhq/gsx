@@ -1,0 +1,15 @@
+# Context: element literal in Go-expression position — the expansion applies
+# to expression-position elements exactly as to component-body children.
+-- input.gsx --
+package demo
+
+var sep = <div role="separator"/>
+
+component Uses() {
+	<section>{ sep }<p>after</p></section>
+}
+-- invoke --
+Uses()
+-- diagnostics.golden --
+-- render.golden --
+<section><div role="separator"></div><p>after</p></section>

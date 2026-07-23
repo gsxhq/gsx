@@ -8,4 +8,4 @@ component Field(on bool) {
 Field(false)
 -- diagnostics.golden --
 -- render.golden --
-<input type="text" class="form-control" required/>
+<input type="text" class="form-control" required>

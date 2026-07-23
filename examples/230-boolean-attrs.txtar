@@ -13,4 +13,4 @@ component Field(on bool) {
 -- invoke --
 Field(true)
 -- render.golden --
-<input type="text" class="form-control" required disabled/>
+<input type="text" class="form-control" required disabled>

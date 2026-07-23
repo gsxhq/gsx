@@ -12,4 +12,4 @@ component Danger(bytes []byte) {
 Danger([]byte("<script>alert(1)</script>"))
 -- diagnostics.golden --
 -- render.golden --
-<img src="about:invalid#gsx" alt="x"/>
+<img src="about:invalid#gsx" alt="x">

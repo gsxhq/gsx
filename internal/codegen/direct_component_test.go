@@ -886,7 +886,7 @@ component Empty() { <Child[string, int] first="x" second={ 1 }/> }
 			t.Errorf("generated output does not contain %q:\n%s", want, generated)
 		}
 	}
-	if got := strings.Count(generated, `_gsxgw.S("<span/>")`); got != 1 {
+	if got := strings.Count(generated, `_gsxgw.S("<span></span>")`); got != 1 {
 		t.Errorf("component body emitted %d times, want exactly once:\n%s", got, generated)
 	}
 }

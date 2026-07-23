@@ -63,7 +63,7 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:6:17
 		if false {
 //line input.gsx:6:30
-			_gsxgw.S("<span/>")
+			_gsxgw.S("<span></span>")
 		} else {
 //line input.gsx:6:47
 			_gsxgw.Text(string(a))

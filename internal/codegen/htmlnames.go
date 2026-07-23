@@ -38,3 +38,16 @@ var htmlElementNames = map[string]bool{
 	"tr": true, "track": true, "u": true, "ul": true, "var": true,
 	"video": true, "wbr": true,
 }
+
+// voidElementNames is the WHATWG void-element set
+// (https://html.spec.whatwg.org/multipage/syntax.html#void-elements): elements
+// that have no end tag. Unlike htmlElementNames above (diagnostic-only), this
+// table IS consulted by emit: it drives canonical tag serialization
+// (emitOpenTagEnd) and the void-children diagnostic. Exact-match lowercase —
+// gsx HTML tags are written lowercase (an uppercase first letter is a
+// component tag).
+var voidElementNames = map[string]bool{
+	"area": true, "base": true, "br": true, "col": true, "embed": true,
+	"hr": true, "img": true, "input": true, "link": true, "meta": true,
+	"param": true, "source": true, "track": true, "wbr": true,
+}

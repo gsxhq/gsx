@@ -87,7 +87,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, c
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", attrs.Style())
 	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-	_gsxgw.S("/></div>")
+	_gsxgw.S("></div>")
 	return _gsxgw.Err()
 }
 
@@ -101,4 +101,4 @@ func Page() _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div class="field" data-testid="email-field"><label>Email</label><input class="field-input" type="email" placeholder="you@co" required/></div>
+<div class="field" data-testid="email-field"><label>Email</label><input class="field-input" type="email" placeholder="you@co" required></div>

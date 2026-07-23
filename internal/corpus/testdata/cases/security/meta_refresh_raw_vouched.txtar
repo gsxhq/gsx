@@ -11,5 +11,5 @@ component VouchedRefresh(u gsx.RawURL) {
 VouchedRefresh("0;url=app://home")
 
 -- render.golden --
-<meta http-equiv="refresh" content="0;url=app://home"/>
+<meta http-equiv="refresh" content="0;url=app://home">
 -- diagnostics.golden --

@@ -1283,6 +1283,35 @@ func hasAttrsMethodSet(t types.Type) bool {
 		lookupMethod(t, "Style") != nil
 }
 
+// emitOpenTagEnd finishes el's open tag and reports whether the element is
+// complete (nothing after the open tag — the caller skips children and the
+// close tag). Canonical mode (default) emits spec-canonical shapes: a void
+// element closes with a bare `>` and never gets an end tag (authored `<br/>`
+// and `<br></br>` both serialize as `<br>`); every other element — self-closed
+// or not — is followed by the caller's children+`</tag>` path, so `<div/>`
+// expands to `<div></div>` (#144: browsers ignore the slash on non-void
+// elements). Verbatim mode reproduces the authored shape byte-for-byte.
+func emitOpenTagEnd(b *bytes.Buffer, el *ast.Element, verbatim bool, bag *diag.Bag) (complete, ok bool) {
+	if voidElementNames[el.Tag] {
+		if verbatim {
+			if el.Void {
+				emitS(b, "/>")
+				return true, true
+			}
+			emitS(b, ">") // authored close pair: caller writes </tag>
+			return false, true
+		}
+		emitS(b, ">")
+		return true, true
+	}
+	if verbatim && el.Void {
+		emitS(b, "/>")
+		return true, true
+	}
+	emitS(b, ">")
+	return false, true
+}
+
 // emitManualSpreadElement emits a non-component element that carries the author's
 // `{ attrs... }` bag spread (MANUAL fallthrough), applying positional precedence:
 // root attrs before the spread are caller-overridable, attrs after are forced
@@ -1326,11 +1355,13 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 		return false
 	}
 	ni.emitGuard(b)
-	if el.Void {
-		emitS(b, "/>")
+	complete, ok := emitOpenTagEnd(b, el, table.verbatimTags, bag)
+	if !ok {
+		return false
+	}
+	if complete {
 		return true
 	}
-	emitS(b, ">")
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
 			if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
@@ -1901,11 +1932,13 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 			}
 		}
 		ni.emitGuard(b)
-		if t.Void {
-			emitS(b, "/>")
+		complete, ok := emitOpenTagEnd(b, t, table.verbatimTags, bag)
+		if !ok {
+			return false
+		}
+		if complete {
 			return true
 		}
-		emitS(b, ">")
 		if strings.EqualFold(t.Tag, "style") {
 			for _, c := range t.Children {
 				if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {

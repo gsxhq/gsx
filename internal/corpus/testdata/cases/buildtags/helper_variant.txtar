@@ -22,4 +22,4 @@ component IconNever() {
 Icon()
 -- diagnostics.golden --
 -- render.golden --
-<img src="/active.svg"/>
+<img src="/active.svg">

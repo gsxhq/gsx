@@ -16,4 +16,4 @@ component (p Pg) Page() {
 (Pg{}).Page()
 -- diagnostics.golden --
 -- render.golden --
-<div class="outer"><span data-test="x"/></div>
+<div class="outer"><span data-test="x"></span></div>
