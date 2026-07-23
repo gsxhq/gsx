@@ -252,6 +252,11 @@ func TestResolveViteDevEnvHonorsURLPortWhenBusy(t *testing.T) {
 	if !strings.Contains(err.Error(), port) || !strings.Contains(err.Error(), "already in use") {
 		t.Fatalf("error = %q, want a port-in-use message naming %s", err, port)
 	}
+	// The message must attribute the pin to its source: a URL-derived pin
+	// reported as a VITE_PORT problem would send the user to the wrong line.
+	if !strings.Contains(err.Error(), "VITE_DEV_URL") {
+		t.Fatalf("error = %q, want the pin attributed to VITE_DEV_URL", err)
+	}
 }
 
 func TestResolveViteDevEnvVitePortAgreesWithURLNoWarning(t *testing.T) {
