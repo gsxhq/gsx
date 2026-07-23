@@ -372,16 +372,20 @@ func TestDevStopsPostingAfterWebExit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Wait until gsx dev itself has observed the front-door exit, then let the
-	// startup posts' retry window drain: a push issued while the front door was
-	// still alive may legitimately be delivered a few seconds later (postBest
-	// retries + client timeout), and must not be counted against the gate.
-	deadline = time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) && !strings.Contains(stdout.String(), "front door exited") {
+	// Wait until gsx dev's front door has given up: the "sleep 1" front door
+	// exits every ~1s, so each respawn (an equally short-lived "sleep 1" that
+	// never answers /__gsx/cmd) fails to verify, and after 3 rapid restart
+	// attempts the frontDoor manager gives up for good — the gate then stays
+	// permanently shut. Then let the startup posts' retry window drain: a push
+	// issued while the front door was still alive may legitimately be delivered
+	// a few seconds later (postBest retries + client timeout), and must not be
+	// counted against the gate.
+	deadline = time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(stdout.String(), "giving up after repeated failures") {
 		time.Sleep(100 * time.Millisecond)
 	}
-	if !strings.Contains(stdout.String(), "front door exited") {
-		t.Fatalf("gsx dev never logged the front-door exit; stdout=%q", stdout.String())
+	if !strings.Contains(stdout.String(), "giving up after repeated failures") {
+		t.Fatalf("gsx dev's front door never gave up; stdout=%q", stdout.String())
 	}
 	time.Sleep(4 * time.Second)
 
