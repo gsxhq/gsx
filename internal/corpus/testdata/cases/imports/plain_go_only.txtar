@@ -17,4 +17,5 @@ import (
 	"fmt"
 )
 
+//line input.gsx:5:1
 func Helper() string { return fmt.Sprintf("x%d", 1) }

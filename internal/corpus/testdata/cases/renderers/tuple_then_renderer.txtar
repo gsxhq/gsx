@@ -71,6 +71,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:9:1
 func load(s string, valid bool) (pg.Text, error) {
 	if s == "" {
 		return pg.Text{}, errors.New("load: empty input")

@@ -27,6 +27,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 var state bool
 
 //line input.gsx:5:1
@@ -51,6 +52,7 @@ func C() _gsxrt.Node {
 	})
 }
 
+//line input.gsx:9:1
 func setState() string {
 	state = true
 	return "base"

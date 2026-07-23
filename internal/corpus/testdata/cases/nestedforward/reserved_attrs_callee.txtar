@@ -40,6 +40,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func strAttr(a gsx.Attrs, key string) string {
 	v, _ := a.Get(key)
 	s, _ := v.(string)

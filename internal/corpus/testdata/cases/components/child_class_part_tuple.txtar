@@ -67,6 +67,7 @@ func Page(v int) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:11:1
 func cls(v int) (string, error) { return "green", nil }
 -- render.golden --
 <div class="card base green">Hi</div>

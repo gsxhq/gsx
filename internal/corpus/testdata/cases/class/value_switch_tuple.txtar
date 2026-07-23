@@ -50,5 +50,6 @@ func Badge(variant int) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:10:1
 func cls(v int) (string, error) { return "green", nil }
 -- diagnostics.golden --

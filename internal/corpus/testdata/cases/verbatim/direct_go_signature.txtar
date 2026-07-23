@@ -35,6 +35,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type History struct{ Label string }
 
 //line input.gsx:7:1
@@ -50,4 +51,5 @@ func Page(h History) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:11:1
 var _ func(History) gsx.Node = Page

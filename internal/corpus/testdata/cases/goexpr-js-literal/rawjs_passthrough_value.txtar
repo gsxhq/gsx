@@ -32,9 +32,10 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 var h = gsx.RawJS("inner()")
 
-var handler = _gsxrt.RawJS("wrap(" + _gsxrt.EscapeJSVal(h) + ")")
+var handler = _gsxrt.RawJS("wrap(" + _gsxrt.EscapeJSVal(h) + ")") /*line input.gsx:7:29*/
 
 //line input.gsx:9:1
 func Page() _gsxrt.Node {

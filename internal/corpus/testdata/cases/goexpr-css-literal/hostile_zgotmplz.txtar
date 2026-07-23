@@ -32,8 +32,9 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func mk(color string) gsx.RawCSS {
-	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(color)))
+	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(color))) /*line input.gsx:6:28*/
 }
 
 //line input.gsx:9:1

@@ -27,6 +27,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 type Count int
 
 type Toggle bool

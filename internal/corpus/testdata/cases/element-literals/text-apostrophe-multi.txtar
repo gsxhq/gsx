@@ -30,18 +30,20 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var a = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:9
 	_gsxgw.S("<p>it's here</p>")
 	return _gsxgw.Err()
-})
+}) /*line input.gsx:3:25*/
 var b = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:9
 	_gsxgw.S("<b>bold</b>")
 	return _gsxgw.Err()
-})
+}) /*line input.gsx:4:20*/
 
 //line input.gsx:6:1
 func Uses() _gsxrt.Node {

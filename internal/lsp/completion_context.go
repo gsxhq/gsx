@@ -257,9 +257,9 @@ func openTagEnd(src []byte, from int) int {
 
 // skipBraced returns the byte offset just past the balanced {expr} value that
 // begins at src[i] (src[i] is the opening '{'). Nested braces are balanced and
-// interior Go string/rune/raw-string literals are skipped so a '}' inside a
-// literal does not close the value early. Runs to len(src) on an unbalanced
-// value.
+// interior Go string/rune/raw-string literals and `//`/`/* */` comments are
+// skipped so a '}' inside a literal or comment does not close the value early.
+// Runs to len(src) on an unbalanced value.
 func skipBraced(src []byte, i int) int {
 	depth := 0
 	for i < len(src) {
@@ -275,11 +275,44 @@ func skipBraced(src []byte, i int) int {
 			}
 		case '"', '\'', '`':
 			i = skipGoString(src, i)
+		case '/':
+			switch {
+			case i+1 < len(src) && src[i+1] == '/':
+				i = skipLineComment(src, i)
+			case i+1 < len(src) && src[i+1] == '*':
+				i = skipBlockComment(src, i)
+			default:
+				i++
+			}
 		default:
 			i++
 		}
 	}
 	return i
+}
+
+// skipLineComment returns the byte offset just past the `//` line comment
+// that begins at src[i] (src[i] is the first '/') — the offset of the
+// terminating newline, or len(src) if the comment runs to EOF.
+func skipLineComment(src []byte, i int) int {
+	for i < len(src) && src[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+// skipBlockComment returns the byte offset just past the `/* … */` comment
+// that begins at src[i] (src[i] is the '/'). Runs to len(src) on an
+// unterminated comment.
+func skipBlockComment(src []byte, i int) int {
+	i += 2 // consume "/*"
+	for i < len(src) {
+		if src[i] == '*' && i+1 < len(src) && src[i+1] == '/' {
+			return i + 2
+		}
+		i++
+	}
+	return len(src)
 }
 
 // skipGoString returns the byte offset just past the Go string, rune, or raw

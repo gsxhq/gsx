@@ -34,6 +34,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type props struct {
 	A gsx.Attrs
 	B gsx.Attrs

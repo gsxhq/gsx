@@ -34,6 +34,7 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
@@ -49,7 +50,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 			_gsxgw.Text(string(name))
 			_gsxgw.S("</svg>")
 			return _gsxgw.Err()
-		})
+		}) /*line input.gsx:7:103*/
 	}
 }
 

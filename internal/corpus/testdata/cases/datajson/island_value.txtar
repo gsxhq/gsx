@@ -25,6 +25,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 type Cfg struct {
 	Env  string
 	Beta bool

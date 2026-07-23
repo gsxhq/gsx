@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"go/token"
 	"go/types"
 	goversion "go/version"
 	"os"
@@ -89,12 +90,18 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 	}
 	m := map[string]*types.Package{}
 	var sizes types.Sizes
+	var fset *token.FileSet
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
 		if p.Types != nil {
 			m[p.PkgPath] = p.Types
 		}
 		if sizes == nil && p.TypesSizes != nil {
 			sizes = p.TypesSizes
+		}
+		// packages.Load shares ONE FileSet across the whole load, so any
+		// visited package's Fset is the same instance.
+		if fset == nil {
+			fset = p.Fset
 		}
 	})
 	if sizes == nil {
@@ -103,7 +110,7 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 	if goVersion == "" {
 		return nil, fmt.Errorf("codegen: cached resolver load returned no Go language version for %s", moduleDir)
 	}
-	table, rt, err := loadFilterTableFromTypes(m, filterPkgs, aliases, nil)
+	table, rt, err := loadFilterTableFromTypes(m, filterPkgs, aliases, nil, fset)
 	if err != nil {
 		return nil, err
 	}

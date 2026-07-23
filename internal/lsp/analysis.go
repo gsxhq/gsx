@@ -189,4 +189,11 @@ type FilterCandidate struct {
 	Pkg      string // winning package import path
 	Func     string // exported Go func name, e.g. "Upper"
 	WantsCtx bool
+	// Pos is the filter target func's declaration position (its Fset-resolved
+	// go/token.Position, computed once at analysis time from the SAME shared
+	// Fset every other completion/nav feature trusts — see codegen's
+	// filterEntry.pos), used to fetch its doc comment lazily via
+	// completionItem/resolve (filterItems). The zero Position (Pos.IsValid()
+	// false) means no position was resolved — filterItems then omits Data.
+	Pos token.Position
 }

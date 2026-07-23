@@ -31,8 +31,9 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func mk(v string) gsx.RawJS {
-	return _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(v) + ", '" + _gsxrt.EscapeJSStr(string(v)) + "', `" + _gsxrt.EscapeJSTmpl(string(v)) + "`, /" + _gsxrt.EscapeJSRegexp(string(v)) + "/)")
+	return _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(v) + ", '" + _gsxrt.EscapeJSStr(string(v)) + "', `" + _gsxrt.EscapeJSTmpl(string(v)) + "`, /" + _gsxrt.EscapeJSRegexp(string(v)) + "/)") /*line input.gsx:6:46*/
 }
 
 //line input.gsx:9:1

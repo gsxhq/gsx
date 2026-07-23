@@ -43,6 +43,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 var trace []string
 
 //line input.gsx:5:1
@@ -64,6 +65,7 @@ func C() _gsxrt.Node {
 	})
 }
 
+//line input.gsx:9:1
 func first() string {
 	trace = append(trace, "first")
 	return "first"

@@ -23,6 +23,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 func lookup(s string) (string, error) { return s, nil }
 
 //line input.gsx:5:1

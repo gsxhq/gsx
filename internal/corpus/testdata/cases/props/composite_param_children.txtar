@@ -33,6 +33,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type Props struct {
 	Variant string
 }

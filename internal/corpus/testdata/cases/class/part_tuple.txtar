@@ -40,4 +40,5 @@ func C(v int) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:7:1
 func cls(v int) (string, error) { return "green", nil }

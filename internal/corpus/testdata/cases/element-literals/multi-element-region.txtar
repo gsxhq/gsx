@@ -53,13 +53,15 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var listing = []any{
 	_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span>a</span>")
 		return _gsxgw.Err()
-	}),
+	}), /*line input.gsx:4:16*/
 }
 
 var item = NavItem{Label: "Home", Icon: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
@@ -69,7 +71,7 @@ var item = NavItem{Label: "Home", Icon: _gsxrt.Func(func(ctx _gsxctx.Context, _g
 //line input.gsx:9:3
 	_gsxgw.S("<path d=\"M0 0\"/></svg>")
 	return _gsxgw.Err()
-})}
+}) /*line input.gsx:11:2*/}
 
 //line input.gsx:13:1
 func Uses() _gsxrt.Node {

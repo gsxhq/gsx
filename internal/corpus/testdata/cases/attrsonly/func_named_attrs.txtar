@@ -41,6 +41,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type pillProps struct {
 	Attrs gsx.Attrs
 }
@@ -60,6 +61,7 @@ func renderPill(p pillProps) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:13:1
 func Pill(attrs gsx.Attrs) gsx.Node {
 	return renderPill(pillProps{Attrs: attrs})
 }

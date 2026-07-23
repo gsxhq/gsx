@@ -164,7 +164,7 @@ func harvestFixtureFromTypes(t *testing.T, source string) filterTable {
 		}
 	})
 
-	table, _, err := loadFilterTableFromTypes(byPath, []string{pkgPath}, nil, nil)
+	table, _, err := loadFilterTableFromTypes(byPath, []string{pkgPath}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableFromTypes: %v", err)
 	}

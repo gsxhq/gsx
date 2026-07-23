@@ -290,11 +290,15 @@ func TestDefinitionCrossModuleValueSourcesPresent(t *testing.T) {
 	}
 	// The line is resolved from the dependency's published .x.go //line directives
 	// (a separate module is loaded from its generated Go, not re-analyzed in
-	// memory). emit.go does not //line-stamp top-level Go var chunks, so the line
-	// can drift within the .gsx — the exact-line guarantee holds for SAME-module
-	// deps (analyzed via the in-memory skeleton), pinned by the value tests above.
-	// This case pins the refined policy's contract: authored .gsx present → the
-	// Location lands in that .gsx (never the .x.go), non-null.
+	// memory): emit.go now //line-stamps the top-level Go var chunk that declares
+	// X, so this cross-MODULE resolution lands on the exact declaration line, the
+	// same guarantee the in-memory same-module skeleton already gave the value
+	// tests above.
+	wantLine, wantCol := wantXLocation(t)
+	if loc.Range.Start.Line != wantLine || loc.Range.Start.Character != wantCol {
+		t.Fatalf("cross-module tag gd landed at L%d:C%d, want L%d:C%d (the X value decl)",
+			loc.Range.Start.Line, loc.Range.Start.Character, wantLine, wantCol)
+	}
 	if hov == nil {
 		t.Fatal("hover was null; want non-null signature")
 	}

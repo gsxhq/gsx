@@ -47,6 +47,7 @@ func Label() _gsxrt.Node {
 	})
 }
 
+//line input.gsx:7:1
 func ready() bool { return true }
 -- render.golden --
 <span class="base on">y</span>

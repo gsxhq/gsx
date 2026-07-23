@@ -17,6 +17,27 @@ func completionFrame(id int, uri string, position Position) string {
 	})
 }
 
+// snippetInitFrame builds an initialize frame that explicitly opts into
+// textDocument.completion.completionItem.snippetSupport, mirroring
+// dynamicRenameInitializeFrame's per-capability pattern (watched_files_test.go)
+// for the completion capability. Tests that want the plain `name=""` behavior
+// keep using the bare initFrame() (no capabilities at all), which is also how
+// every pre-existing completion test proves the no-regression case: the
+// capability defaults to false when never advertised.
+func snippetInitFrame() string {
+	return jsonFrame(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{
+			"capabilities": map[string]any{
+				"textDocument": map[string]any{
+					"completion": map[string]any{
+						"completionItem": map[string]any{"snippetSupport": true},
+					},
+				},
+			},
+		},
+	})
+}
+
 // TestInitializeAdvertisesCompletionTriggerCharacters checks the initialize
 // result advertises completionProvider with the exact trigger character set,
 // in order: element/attribute-name dot, tag open/close, string-attribute

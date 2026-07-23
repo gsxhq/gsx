@@ -35,6 +35,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 // No class attribute anywhere — _gsxcm import must be omitted even though
 // class_merger is configured in gsx.toml.
 

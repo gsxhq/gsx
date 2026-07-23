@@ -58,6 +58,7 @@ func _gsxrenderGreeting[V ~string, W any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Wr
 	return _gsxgw.Err()
 }
 
+//line input.gsx:8:1
 type MyByte byte
 
 //line input.gsx:10:1

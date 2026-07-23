@@ -38,6 +38,45 @@ func TestModulePackageSurfacesTypeErrors(t *testing.T) {
 	}
 }
 
+// TestModulePackageSurfacesWalkTimeDiagnostics is the P2 perf-hunt regression
+// test: Package's diagnostics-only generateFile call (module.go, gated on
+// len(a.typeErrs)==0 && !a.bag.HasErrors()) now passes diagnosticsOnly=true,
+// returning right after the component/decl walk instead of running the full
+// emit (import assembly, coalesceStaticWrites, format.Source). An unknown
+// pipe filter is a WALK-time diagnostic (filters.go's lowerPipe, added to bag
+// during that same walk, well before the skipped output-shaping stages) —
+// exactly the class of diagnostic diagnosticsOnly's early return must still
+// surface. The source here type-checks cleanly (bogusFilter is undefined only
+// as a FILTER, not a Go identifier — `x` alone is a valid string expression),
+// so this exercises the diagnosticsOnly branch, not the type-error branch
+// TestModulePackageSurfacesTypeErrors already covers.
+func TestModulePackageSurfacesWalkTimeDiagnostics(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pkgDir, "page.gsx", "package page\n\ncomponent Home(x string) {\n\t<div>{ x |> bogusFilter }</div>\n}\n")
+
+	m, _ := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	pr, err := m.Package(pkgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range pr.Diags {
+		if strings.Contains(d.Message, "unknown filter") && strings.Contains(d.Message, "bogusFilter") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an 'unknown filter \"bogusFilter\"' diagnostic on the Package path; got %+v", pr.Diags)
+	}
+}
+
 // TestPackageOmitsSecondaryDiagsOnTypeError proves Package surfaces ONLY the
 // type-error diagnostic for a package that fails to type-check — not the spurious
 // secondary "could not resolve type of interpolation" diagnostics that running
@@ -255,5 +294,64 @@ func TestModuleInvalidateKeepsExternalWarm(t *testing.T) {
 	// ext importer must still be non-nil (warm, not cleared by Invalidate)
 	if m.ext == nil {
 		t.Fatalf("Invalidate wrongly cleared the external importer")
+	}
+}
+
+// TestStripGsxProbeWrappers pins the textual sanitization stripGsxunwrap's
+// treatment is extended to: the skeleton's harvest-probe wrapper calls
+// (_gsxuse/_gsxusen/_gsxuseq) must never appear verbatim in a message that
+// reaches stripGsxProbeWrappers, mirroring how stripGsxunwrap already handles
+// _gsxunwrap. "_gsxuse(" must not falsely match inside "_gsxusen("/
+// "_gsxuseq(" text (they share the "_gsxuse" prefix but continue with a
+// different character, never "(").
+func TestStripGsxProbeWrappers(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"_gsxuse(x) (no value) used as value", "x (no value) used as value"},
+		// _gsxusen is variadic (a keep-alive over several identifiers at once);
+		// stripping keeps every argument, not just one.
+		{"cannot use _gsxusen(a, b) (value of type int)", "cannot use a, b (value of type int)"},
+		{"invalid operation: _gsxuseq(a.b) is not addressable", "invalid operation: a.b is not addressable"},
+		{"two sibling wrappers: _gsxuse(a) vs _gsxuse(b)", "two sibling wrappers: a vs b"},
+		{"no wrapper here", "no wrapper here"},
+	}
+	for _, tc := range cases {
+		if got := stripGsxProbeWrappers(tc.in); got != tc.want {
+			t.Errorf("stripGsxProbeWrappers(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestModulePackageSanitizesGsxUseDiagLeak is the T11 fix from the LSP
+// completion design's probe (docs/superpowers/specs/2026-07-21-lsp-completion-design.md,
+// "Incidental (not fixed here, noted)"): `{{ x := }}` — a short var decl with
+// no RHS — produces a raw go/types error whose message quotes the skeleton's
+// internal _gsxuse(...) harvest-probe wrapper verbatim
+// (`_gsxuse(x) (no value) used as value`), because the error's POSITION falls
+// outside the probe span analyze's quietSpans suppression keys on, even though
+// its MESSAGE still names the probe. Package's surfaced diagnostics must never
+// expose that internal helper name to a user.
+func TestModulePackageSanitizesGsxUseDiagLeak(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pkgDir, "page.gsx", "package page\n\ncomponent Home() {\n\t{{ x := }}\n\t<div>{ x }</div>\n}\n")
+
+	m, _ := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	pr, err := m.Package(pkgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pr.Diags) == 0 {
+		t.Fatal("expected diagnostics for `{{ x := }}` (short var decl with no RHS); got none")
+	}
+	for _, d := range pr.Diags {
+		if strings.Contains(d.Message, "_gsxuse") {
+			t.Fatalf("diagnostic leaks the internal _gsxuse probe wrapper name: %q", d.Message)
+		}
 	}
 }

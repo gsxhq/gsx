@@ -48,6 +48,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type iconProps struct {
 	Attrs gsx.Attrs
 }

@@ -11,4 +11,6 @@ var S = f"hello world"
 
 package demo
 
-var S = "hello world"
+/*line input.gsx:1:13*/
+
+var S = "hello world" /*line input.gsx:3:23*/

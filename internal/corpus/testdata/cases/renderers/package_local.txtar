@@ -43,6 +43,7 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:8:1*/
 func Timestamptz(v pg.Timestamptz) gsx.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -52,7 +53,7 @@ func Timestamptz(v pg.Timestamptz) gsx.Node {
 		_gsxgw.Text(string(v.Label))
 		_gsxgw.S("</time>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:9:31*/
 }
 
 func sample(label string) pg.Timestamptz { return pg.Timestamptz{Label: label} }

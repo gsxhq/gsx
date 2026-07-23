@@ -164,10 +164,13 @@ func TestGoCompletionE2E(t *testing.T) {
 	pagePath := write("page/page.gsx", "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
 	uri := "file://" + pagePath
 
-	// Buffer under edit: a top-level GoChunk func body, an expression cursor after
+	// Buffer under edit: a top-level GoChunk with two adjacent funcs (a bare
+	// cursor sits in the blank line BETWEEN them), an expression cursor after
 	// `us`, and a statement-context `{{ }}` GoBlock inside a second component.
 	source := "package page\n\n" +
+		"import \"strings\"\n\n" +
 		"func helper() User {\n\treturn Us\n}\n\n" +
+		"func greet() string {\n\treturn strings.ToUpper(\"x\")\n}\n\n" +
 		"component Home(user User) {\n\t<div>{ us }</div>\n}\n\n" +
 		"component Block(item User) {\n\t{{  }}\n\t<span>{ item.Name }</span>\n}\n"
 
@@ -175,6 +178,10 @@ func TestGoCompletionE2E(t *testing.T) {
 	exprCursor := strings.Index(source, "{ us }") + len("{ us")           // right after `us`
 	blockCursor := strings.Index(source, "{{  }}") + len("{{ ")           // between the two spaces
 	sigCursor := strings.Index(source, "(user User)") + len("(user User") // on the signature type `User`
+	// A bare GoChunk cursor in the blank line between the two top-level funcs
+	// (helper's `}` and `func greet`): no enclosing func body, only the file
+	// scope — where imported package names live.
+	betweenCursor := strings.Index(source, "}\n\nfunc greet") + len("}\n")
 
 	frame := func(value any) string {
 		data, err := json.Marshal(value)
@@ -203,6 +210,7 @@ func TestGoCompletionE2E(t *testing.T) {
 	req(3, blockCursor)
 	req(4, chunkCursor)
 	req(5, sigCursor)
+	req(6, betweenCursor)
 	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
 
 	var output, stderr bytes.Buffer
@@ -281,6 +289,28 @@ func TestGoCompletionE2E(t *testing.T) {
 	}
 	if sigItems["return"] {
 		t.Errorf("signature-type completion should not offer statement keywords; labels=%v", sigItems)
+	}
+
+	// Bare GoChunk position between two top-level funcs (T4): the enclosing file
+	// scope resolves, so the imported package name `strings` completes
+	// (tierImported), alongside package-scope decls and statement keywords.
+	betweenItems := completionLabels(t, output.String(), 6)
+	if !betweenItems["strings"] {
+		t.Errorf("bare GoChunk completion missing imported package `strings`; labels=%v", betweenItems)
+	}
+	for _, name := range []string{"helper", "greet", "Home"} {
+		if !betweenItems[name] {
+			t.Errorf("bare GoChunk completion missing package-scope %q; labels=%v", name, betweenItems)
+		}
+	}
+	if !betweenItems["func"] {
+		t.Errorf("bare GoChunk completion missing keyword `func`; labels=%v", betweenItems)
+	}
+	// The `strings` item carries the tierImported (40) sort prefix.
+	for _, it := range completionItems(t, output.String(), 6) {
+		if it.Label == "strings" && !strings.HasPrefix(it.SortText, "40") {
+			t.Errorf("imported `strings` SortText = %q, want tierImported prefix \"40\"", it.SortText)
+		}
 	}
 }
 
@@ -582,6 +612,35 @@ func TestPipeStageEmptyCompletionE2E(t *testing.T) {
 	}
 }
 
+// TestPipeStageTypedNarrowingE2E drives the typed pipe-filter compatibility
+// filtering end to end: at `{ user.Age |> ▮ }` the incoming type is int, so
+// string-subject filters (upper) are withheld while the any-subject printf and
+// generic default are offered. A companion `{ user.Name |> lower }` pipe imports
+// std into the skeleton universe so the candidate signatures resolve (a filter
+// whose package is not imported fails open — offered — per the design's
+// per-candidate fail-open rule).
+func TestPipeStageTypedNarrowingE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	extra := map[string]string{"page/types.go": "package page\n\ntype User struct{ Name string; Age int }\n"}
+	source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name |> lower }{ user.Age |> u }</div>\n}\n"
+	cursor := strings.Index(source, "|> u") + len("|> u")
+	items := runHTMLCompletionE2E(t, extra, source, cursor)
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"printf", "default"} {
+		if !labels[name] {
+			t.Errorf("int-seed pipe completion missing any/generic filter %q; labels=%v", name, labels)
+		}
+	}
+	if labels["upper"] {
+		t.Errorf("int-seed pipe completion offered string-subject filter %q; labels=%v", "upper", labels)
+	}
+}
+
 // TestTagCompletionE2E drives textDocument/completion for a ctxTag cursor end
 // to end: a bare `<Ot▮` cursor offers the sibling local component ("Other"),
 // and a qualified `<ui.▮` cursor offers the imported gsx package's component
@@ -827,6 +886,29 @@ func TestTagCompletionE2E(t *testing.T) {
 		}, "page/page.gsx", source, cursor)
 		if !got["Button"] {
 			t.Errorf("qualified trailing-dot tag completion missing imported component `Button`; labels=%v", got)
+		}
+	})
+
+	// method component: a `<recv.▮` cursor where `recv` is the enclosing method
+	// component's RECEIVER var (not an import) resolves the receiver type's method
+	// components. `Page` is a method on UsersPage; its body invokes a sibling
+	// method component `<p.Row/>` on the same receiver `p`. A trailing-dot cursor
+	// `<p.` heals through the same `/>` repair as the qualified-import case and
+	// classifies with qualifier "p"; receiverVarComponentItems resolves `p` to the
+	// UsersPage receiver var and offers its methods (Row, Page), never HTML tags
+	// (a qualified cursor is component-only) or the plain sibling component.
+	t.Run("method component receiver var", func(t *testing.T) {
+		source := "package page\n\ntype UsersPage struct {\n\tTitle string\n}\n\ncomponent (p UsersPage) Row(x string) {\n\t<span>{x}-{p.Title}</span>\n}\n\ncomponent (p UsersPage) Page() {\n\t<div><p.Row x=\"a\"/>\n\t<p.\n\t</div>\n}\n"
+		cursor := strings.LastIndex(source, "<p.") + len("<p.")
+		got := run(t, map[string]string{"page/page.gsx": source}, "page/page.gsx", source, cursor)
+		if !got["Row"] {
+			t.Errorf("method-component tag completion missing receiver method `Row`; labels=%v", got)
+		}
+		if !got["Page"] {
+			t.Errorf("method-component tag completion missing receiver method `Page`; labels=%v", got)
+		}
+		if got["div"] {
+			t.Errorf("qualified `<p.` cursor offered an HTML tag `div`; labels=%v", got)
 		}
 	})
 }
@@ -1099,6 +1181,74 @@ func runHTMLCompletionE2E(t *testing.T, extra map[string]string, source string, 
 	return completionItems(t, output.String(), 2)
 }
 
+// runHTMLCompletionE2ESnippet mirrors runHTMLCompletionE2E exactly, except the
+// initialize params advertise textDocument.completion.completionItem
+// .snippetSupport=true, so the response is expected to carry `$1`-tabstop
+// snippet inserts for value attributes instead of the plain `name=""` form.
+// Kept as a separate helper (rather than a parameter added to
+// runHTMLCompletionE2E) so every existing call site — and therefore every
+// existing e2e assertion pinning the no-capability behavior — stays untouched.
+func runHTMLCompletionE2ESnippet(t *testing.T, source string, cursor int) []lsp.CompletionItem {
+	t.Helper()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	write := func(name, content string) string {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pagePath := write("page/page.gsx", source)
+	uri := "file://" + pagePath
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "initialize",
+		"params": map[string]any{"capabilities": map[string]any{
+			"textDocument": map[string]any{"completion": map[string]any{
+				"completionItem": map[string]any{"snippetSupport": true},
+			}},
+		}},
+	}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+	}))
+	pos := lspUTF16PositionAt(source, cursor)
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+		},
+	}))
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(output.String(), ".x.go") {
+		t.Fatalf("completion response exposed virtual generated Go:\n%s", output.String())
+	}
+	return completionItems(t, output.String(), 2)
+}
+
 // TestHTMLCompletionE2E drives the HTML tag/attr/value completion paths through
 // the full JSON-RPC server against a real temp module: a `<di▮` tag cursor
 // offers `div` (kind Property, doc non-empty); a `<div ▮>` attr-name cursor
@@ -1176,6 +1326,32 @@ func TestHTMLCompletionE2E(t *testing.T) {
 		items := runHTMLCompletionE2E(t, nil, source, cursor)
 		if !labelsOf(items)["submit"] {
 			t.Fatalf("attr-value completion missing `submit`; labels=%v", labelsOf(items))
+		}
+	})
+
+	t.Run("html attr snippet capability", func(t *testing.T) {
+		// Same cursor as "html attr" above, but the client advertises
+		// snippetSupport this time: `class` must insert `class="$1"` with
+		// insertTextFormat=2 (Snippet) so the cursor lands INSIDE the quotes,
+		// while `hidden` — no quotes to place a tabstop inside — is unaffected.
+		source := "package page\n\ncomponent Home() {\n\t<div ></div>\n}\n"
+		cursor := strings.Index(source, "<div ") + len("<div ")
+		items := runHTMLCompletionE2ESnippet(t, source, cursor)
+
+		class := itemOf(items, "class")
+		if class == nil || class.TextEdit == nil || class.TextEdit.NewText != `class="$1"` {
+			t.Fatalf("`class` must insert `class=\"$1\"` under snippetSupport; got %+v", class)
+		}
+		if class.InsertTextFormat != 2 {
+			t.Errorf("class.InsertTextFormat = %d, want 2 (Snippet)", class.InsertTextFormat)
+		}
+
+		hidden := itemOf(items, "hidden")
+		if hidden == nil || hidden.TextEdit == nil || hidden.TextEdit.NewText != "hidden" {
+			t.Errorf("`hidden` must still insert the bare name under snippetSupport; got %+v", hidden)
+		}
+		if hidden.InsertTextFormat != 0 {
+			t.Errorf("hidden.InsertTextFormat = %d, want 0 (no quotes to tabstop into)", hidden.InsertTextFormat)
 		}
 	})
 }
@@ -1406,6 +1582,77 @@ func TestGoBlockDeclaredAfterCursorE2E(t *testing.T) {
 	}
 }
 
+// TestGoMemberStatementCompletionE2E drives textDocument/completion end to end
+// at a member (`.`) cursor sitting in a GoBlock/GoChunk STATEMENT position —
+// the gap statementMemberItems closes (internal/lsp/completion_go.go). Unlike
+// the ExprMap-bridged member cursors TestGoMemberCompletionE2E covers, these
+// bridges (CtrlMap/GoBlock and the bare GoChunk) have no skeleton selector for
+// the original member path to walk; statementMemberItems resolves the receiver
+// directly from AUTHORED text via pkg.SourceIndex.At instead. Each subtest
+// hits the SAME phantom trailing-dot repair (goContextCompletion) that heals
+// `{ user. }`'s broken skeleton selector, since GoBlock/GoChunk both classify
+// as ctxGoExpr (completion_context.go) exactly like the ExprMap bridge does.
+func TestGoMemberStatementCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	labelsOf := func(items []lsp.CompletionItem) map[string]bool {
+		m := map[string]bool{}
+		for _, it := range items {
+			m[it.Label] = true
+		}
+		return m
+	}
+
+	// GoBlock member: `{{ user. }}` — a CtrlMap-bridged statement cursor with a
+	// value (struct) receiver.
+	t.Run("goblock value receiver", func(t *testing.T) {
+		extra := map[string]string{"page/types.go": "package page\n\ntype User struct {\n\tName string\n\tAge  int\n}\n"}
+		source := "package page\n\ncomponent Home(user User) {\n\t{{ user. }}\n}\n"
+		cursor := strings.Index(source, "user.") + len("user.")
+		got := labelsOf(runHTMLCompletionE2E(t, extra, source, cursor))
+		for _, name := range []string{"Name", "Age"} {
+			if !got[name] {
+				t.Errorf("GoBlock statement member %q missing; labels=%v", name, got)
+			}
+		}
+		if got["user"] {
+			t.Errorf("member position must not offer scope locals; got `user`: %v", got)
+		}
+	})
+
+	// GoChunk member: `return u.` inside a top-level func body — a bare verbatim
+	// Go span with no ExprMap/CtrlMap entry at all.
+	t.Run("gochunk value receiver", func(t *testing.T) {
+		source := "package page\n\ntype User struct {\n\tName string\n\tAge  int\n}\n\n" +
+			"func greet(u User) string {\n\treturn u.\n}\n\n" +
+			"component Home() {\n\t<div></div>\n}\n"
+		cursor := strings.Index(source, "return u.") + len("return u.")
+		got := labelsOf(runHTMLCompletionE2E(t, nil, source, cursor))
+		for _, name := range []string{"Name", "Age"} {
+			if !got[name] {
+				t.Errorf("GoChunk statement member %q missing; labels=%v", name, got)
+			}
+		}
+		if got["greet"] || got["u"] {
+			t.Errorf("member position must not offer scope names; labels=%v", got)
+		}
+	})
+
+	// GoBlock package receiver: `{{ strings. }}` — the *types.PkgName branch of
+	// statementMemberItems, exercised at a statement (not expression) cursor.
+	t.Run("goblock package receiver", func(t *testing.T) {
+		source := "package page\n\nimport \"strings\"\n\ncomponent Home() {\n\t{{ x := strings.\n\t_ = x }}\n\t<div></div>\n}\n"
+		cursor := strings.Index(source, "strings.") + len("strings.")
+		got := labelsOf(runHTMLCompletionE2E(t, nil, source, cursor))
+		for _, name := range []string{"ToUpper", "ToLower", "Contains"} {
+			if !got[name] {
+				t.Errorf("GoBlock package-receiver member %q missing; labels=%v", name, got)
+			}
+		}
+	})
+}
+
 // assertNoGsxInternalLeak fails if any completion item, in ANY completion
 // response carried by output, has a label with the reserved `_gsx` prefix — the
 // generated-code internals (_gsxuse/_gsxcompsig/_gsxrt/_gsxbody/...) the
@@ -1430,6 +1677,95 @@ func assertNoGsxInternalLeak(t *testing.T, output string) {
 				t.Fatalf("completion response leaked reserved internal label %q:\n%s", item.Label, output)
 			}
 		}
+	}
+}
+
+// TestExpectedTypeRankingE2E drives expected-type ranking end to end: in a
+// component attr value hole `<Card title={ s }/>` whose parameter is `title
+// string`, the string-typed local `s` sorts ahead of the int-typed local `n`
+// (both stay in tierLocal — ranking never filters, only refines within a tier).
+func TestExpectedTypeRankingE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	write := func(name, content string) string {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	source := "package page\n\n" +
+		"component Card(title string) {\n\t<div>{ title }</div>\n}\n\n" +
+		"component Home(s string, n int) {\n\t<Card title={ s }/>\n}\n"
+	pagePath := write("page/page.gsx", source)
+	uri := "file://" + pagePath
+
+	frame := func(value any) string {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "Content-Length: " + strconv.Itoa(len(data)) + "\r\n\r\n" + string(data)
+	}
+	// Cursor right after `s` inside the component attr value hole.
+	cursor := strings.Index(source, "title={ s") + len("title={ s")
+	pos := lspUTF16PositionAt(source, cursor)
+
+	var input strings.Builder
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": source}},
+	}))
+	input.WriteString(frame(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": pos.Line, "character": pos.Character},
+		},
+	}))
+	input.WriteString(frame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+
+	var output, stderr bytes.Buffer
+	if code := runLSP(strings.NewReader(input.String()), &output, &stderr, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, stderr.String())
+	}
+
+	var sItem, nItem *lsp.CompletionItem
+	items := completionItems(t, output.String(), 2)
+	for i := range items {
+		switch items[i].Label {
+		case "s":
+			sItem = &items[i]
+		case "n":
+			nItem = &items[i]
+		}
+	}
+	if sItem == nil || nItem == nil {
+		t.Fatalf("component-attr value hole missing locals (s=%v n=%v); items=%v", sItem, nItem, items)
+	}
+	// Ranking never filters: both stay in tierLocal ("05"). The string-typed `s`
+	// matches the `title string` parameter and sorts ahead of the int-typed `n`.
+	if !strings.HasPrefix(sItem.SortText, "05") {
+		t.Errorf("`s` SortText = %q, want tierLocal prefix \"05\"", sItem.SortText)
+	}
+	if !strings.HasPrefix(nItem.SortText, "05") {
+		t.Errorf("`n` SortText = %q, want tierLocal prefix \"05\" (mismatch is ranked, never filtered)", nItem.SortText)
+	}
+	if sItem.SortText >= nItem.SortText {
+		t.Errorf("type-matching `s` (SortText %q) must sort before mismatching `n` (SortText %q)", sItem.SortText, nItem.SortText)
 	}
 }
 

@@ -277,6 +277,81 @@ func TestAnalyzeEphemeralColdReanalyzeReflectsLiveBuffer(t *testing.T) {
 	}
 }
 
+// TestAnalyzeEphemeralRestoresPkgTypesCache exercises the snapshot/restore
+// path itself, which TestAnalyzeEphemeralColdReanalyzeReflectsLiveBuffer does
+// NOT: that test calls Invalidate before re-Package, and Invalidate itself
+// drops pkgTypes[dir] — so a restore bug (analyzeEphemeralLocked's defer in
+// module.go leaving the ephemeral-patched *types.Package cached instead of
+// putting prevTypes back) would go completely unobserved there.
+//
+// The baseline warm-up goes through Package(dir), like every sibling ephemeral
+// test — NOT typesPackage(dir) directly: typesPackage never calls applyDirty,
+// so the dirty flag SetOverride sets would still be live when AnalyzeEphemeral
+// runs its own applyDirty() and evict pkgTypes[dir] before the snapshot is
+// even taken, producing a false "restored to nothing" reading that has
+// nothing to do with the restore logic under test. Package(dir) clears that
+// dirty flag up front, so the pre-ephemeral snapshot genuinely captures the
+// live *types.Package.
+//
+// After that, this test never calls Invalidate/SetOverride/ClearOverride: it
+// reads m.pkgTypes[dir] directly (a direct typesPackage-cache consumer,
+// in-package so the unexported cache is reachable) and separately through the
+// public typesPackage(dir) entry point, both with no intervening
+// cache-dropping transition. The only mechanism that can make either see the
+// live package again is the defer in analyzeEphemeralLocked restoring
+// m.pkgTypes[dir] to its pre-call snapshot.
+func TestAnalyzeEphemeralRestoresPkgTypesCache(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModule(t)
+	live := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	m.SetOverride(pagePath, live)
+
+	if _, err := m.Package(dir); err != nil {
+		t.Fatalf("baseline Package: %v", err)
+	}
+	m.mu.Lock()
+	liveTypes := m.pkgTypes[dir]
+	m.mu.Unlock()
+	if liveTypes == nil {
+		t.Fatal("baseline Package did not populate pkgTypes[dir]; fixture broken")
+	}
+	if liveTypes.Scope().Lookup("Home") == nil {
+		t.Fatal("baseline pkgTypes missing the Home component; fixture broken")
+	}
+
+	// The ephemeral patch renames the component so a leaked or corrupted cache
+	// entry is trivially observable: "Home" would be gone, "HomePatched" present.
+	patched := []byte("package page\n\ncomponent HomePatched(user User) {\n\t<div>{ user.Name }</div>\n}\n")
+	if _, err := m.AnalyzeEphemeral(dir, pagePath, patched); err != nil {
+		t.Fatalf("AnalyzeEphemeral: %v", err)
+	}
+
+	// Direct cache read: no Invalidate/dirty transition happened above, so this
+	// can only be liveTypes if analyzeEphemeralLocked's defer actually restored
+	// it.
+	m.mu.Lock()
+	restored := m.pkgTypes[dir]
+	m.mu.Unlock()
+	if restored != liveTypes {
+		t.Fatal("pkgTypes[dir] is not the live *types.Package after AnalyzeEphemeral returned; the snapshot/restore left a different (likely ephemeral-patched, or evicted) package cached")
+	}
+	if restored.Scope().Lookup("Home") == nil {
+		t.Fatal("restored pkgTypes missing Home; cache holds the ephemeral-patched package, not the live buffer")
+	}
+	if restored.Scope().Lookup("HomePatched") != nil {
+		t.Fatal("restored pkgTypes contains HomePatched; the ephemeral buffer leaked into the persistent cache")
+	}
+
+	// Same story through the public entry point, still with no Invalidate call
+	// anywhere in this test.
+	again, err := m.typesPackage(dir)
+	if err != nil {
+		t.Fatalf("typesPackage after ephemeral: %v", err)
+	}
+	if again != liveTypes {
+		t.Fatal("typesPackage(dir) after AnalyzeEphemeral returned a package other than the pre-ephemeral live one")
+	}
+}
+
 func TestAnalyzeEphemeralDoesNotDirty(t *testing.T) {
 	m, dir, pagePath := newEphemeralTestModule(t)
 	m.SetOverride(pagePath, []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n"))

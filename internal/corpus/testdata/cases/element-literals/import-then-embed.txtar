@@ -38,13 +38,14 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 func render() gsx.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:9
 		_gsxgw.S("<div>inline JSX</div>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:6:30*/
 }
 
 //line input.gsx:9:1

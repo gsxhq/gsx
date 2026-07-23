@@ -45,6 +45,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 type pageData struct {
 	Title   string
 	Heading string

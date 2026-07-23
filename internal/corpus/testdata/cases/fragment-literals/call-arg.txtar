@@ -42,12 +42,14 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:14*/
+
 var wrapped = wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:22
 	_gsxgw.S("<b>x</b>")
 	return _gsxgw.Err()
-}))
+}) /*line input.gsx:3:33*/)
 
 //line input.gsx:5:1
 func Uses() _gsxrt.Node {

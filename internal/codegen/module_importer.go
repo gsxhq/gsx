@@ -1475,10 +1475,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		if strings.HasSuffix(p.Filename, ".x.go") {
 			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
-		msg := stripGsxunwrap(e.Msg)
+		msg := stripGsxProbeWrappers(stripGsxunwrap(e.Msg))
 		// Exact positional planning owns component inference diagnostics. Every
 		// retained skeleton error is therefore a native Go error and passes through
-		// verbatim after internal unwrap names are removed.
+		// verbatim after internal unwrap/probe wrapper names are removed.
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
 		reportableFullTypeErrs = append(reportableFullTypeErrs, e)
 	}
@@ -1783,7 +1783,20 @@ type parseCacheEntry struct {
 // unchanged, and otherwise parses (into fset), normalizes, and caches a new
 // pristine tree before returning its clone. A parse error is returned as a
 // sourceDiagnosticsError and is never cached.
+//
+// Precondition: fset must be m.fset. A cache hit returns entry.file's clone
+// without touching fset at all — its token.Pos values were minted against
+// whichever fset was live at the ORIGINAL parse (always m.fset, per every
+// current caller; see parsePackageWithFset's callers). Every position the
+// Module hands out is required to resolve against the single Module-wide
+// m.fset (see Module's "FileSet" doc), so a caller passing a different fset
+// here would silently get back positions in the wrong FileSet on a cache hit
+// while appearing to work on a cache miss — the asymmetry this assertion
+// exists to catch immediately instead of downstream as corrupted positions.
 func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Classifier, fset *token.FileSet) (*gsxast.File, error) {
+	if fset != m.fset {
+		panic("codegen: parsedGSXFile called with fset != m.fset; the per-file parse cache is keyed on m.fset-relative positions and a cache hit would silently return positions in the wrong FileSet")
+	}
 	hash := sha256.Sum256(src)
 	m.mu.Lock()
 	entry, ok := m.parseCache[path]
@@ -1823,6 +1836,8 @@ func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Cl
 // parsePackageWithFset parses every .gsx in dir into the provided fset and
 // returns the private package owner for the one preprocessing transition. The
 // shared FileSet remains required for valid skeleton //line directives.
+// Precondition: fset must be m.fset — it is threaded straight through to
+// parsedGSXFile per file, which asserts this itself (see its doc).
 func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedGSXPackage, error) {
 	paths := map[string]struct{}{}
 	m.mu.Lock()
@@ -1887,7 +1902,39 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 // type-checker do not expose the internal _gsxunwrap helper name to users.
 // Nested parentheses inside the argument are handled via bracket counting.
 func stripGsxunwrap(s string) string {
-	const prefix = "_gsxunwrap("
+	return stripGsxWrapperCall(s, "_gsxunwrap(")
+}
+
+// gsxProbeWrapperPrefixes are the skeleton's harvest-probe call names
+// (writeSkeletonCanonicalProbe et al. in analyze.go) that can leak into a raw
+// go/types error message the same way _gsxunwrap does. Ordinarily a type
+// error positioned inside one of these calls is suppressed entirely (analyze:
+// quietSpans, harvestProbeSpans) because the native operand context reports
+// the equivalent error — but a malformed statement immediately around a probe
+// (e.g. `{{ x := }}`, a short var decl with no RHS) can produce an error whose
+// POSITION falls outside the probe span while its MESSAGE still quotes the
+// probe call verbatim (`_gsxuse(x) (no value) used as value`), so position-based
+// suppression alone does not catch it. "_gsxuse(" is checked before the other
+// two so it does not need to special-case matching inside "_gsxusen("/
+// "_gsxuseq(" — those share the "_gsxuse" prefix but continue with 'n'/'q', not
+// '(', so "_gsxuse(" never matches inside them.
+var gsxProbeWrapperPrefixes = []string{"_gsxuse(", "_gsxusen(", "_gsxuseq("}
+
+// stripGsxProbeWrappers removes all occurrences of every gsxProbeWrapperPrefixes
+// call in s, replacing each with its argument — the same treatment
+// stripGsxunwrap gives _gsxunwrap, for the skeleton's other internal-only
+// wrapper names.
+func stripGsxProbeWrappers(s string) string {
+	for _, prefix := range gsxProbeWrapperPrefixes {
+		s = stripGsxWrapperCall(s, prefix)
+	}
+	return s
+}
+
+// stripGsxWrapperCall removes all occurrences of prefix+"...)" in s, replacing
+// each with its argument (the "..." content) via bracket counting over nested
+// parentheses. prefix must end in "(".
+func stripGsxWrapperCall(s, prefix string) string {
 	if !strings.Contains(s, prefix) {
 		return s
 	}
@@ -1910,7 +1957,7 @@ func stripGsxunwrap(s string) string {
 			}
 			j++
 		}
-		// s[i+len(prefix) : j-1] is the content inside _gsxunwrap(...)
+		// s[i+len(prefix) : j-1] is the content inside prefix(...)
 		b.WriteString(s[i+len(prefix) : j-1])
 		s = s[j:]
 	}

@@ -48,6 +48,8 @@ func Noop() _gsxrt.Node {
 	})
 }
 
+/*line input.gsx:7:2*/
+
 type Person struct {
 	Name string
 }
@@ -61,5 +63,5 @@ func (p Person) Greeting() gsx.Node {
 		_gsxgw.Text(string(p.Name))
 		_gsxgw.S("!</div>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:14:38*/
 }

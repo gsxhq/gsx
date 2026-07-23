@@ -25,6 +25,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 func load(id string) (string, error) { return "loaded:" + id, nil }
 
 //line input.gsx:5:1

@@ -157,7 +157,7 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 	for _, d := range file.Decls {
 		switch v := d.(type) {
 		case *ast.GoChunk:
-			specs, rest, _, err := splitChunk(v.Src)
+			specs, rest, bodyOff, err := splitChunk(v.Src)
 			if err != nil {
 				bag.Errorf(v.Pos(), v.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return nil, false
@@ -187,6 +187,13 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 				}
 			}
 			if rest != "" {
+				// Anchor at the body's own first byte (bodyOff into v.Src, past any
+				// hoisted imports), not v.Pos(): mirrors splitFileGoSource/
+				// buildSkeletonWithRecorder's skeleton-side `gc.Pos() +
+				// token.Pos(bodyOff)` anchor so a cross-module gd on a top-level
+				// var/func/type declared here resolves to its exact .gsx line
+				// instead of drifting by the size of the hoisted import block.
+				emitLine(&body, fset, v.Pos()+token.Pos(bodyOff))
 				body.WriteString(rest)
 				body.WriteString("\n\n")
 			}
@@ -245,12 +252,28 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 				switch p := part.(type) {
 				case ast.GoText:
 					src := p.Src
+					// start tracks how many leading bytes a stripped decorative paren
+					// removes from this part's authored text. The //line directive
+					// MUST anchor at p.Pos()+start, not p.Pos(): the stripped bytes
+					// (and any source lines they span) never reach the output, so
+					// anchoring at the unstripped position would map every following
+					// line — including a trailing top-level var/func chunk sharing
+					// this same GoWithElements region — one or more lines too early.
+					// Mirrors buildSkeletonWithRecorder's/emitTargetGoWithElements's
+					// identical GoText case (analyze.go, component_target_skeleton.go).
+					start := 0
 					if i > 0 && parenWrappable(v.Parts[i-1], shapes, i-1) {
-						src = goexprshape.StripLeadingParen(src)
+						start = len(src) - len(goexprshape.StripLeadingParen(src))
+						src = src[start:]
 					}
 					if i < len(v.Parts)-1 && parenWrappable(v.Parts[i+1], shapes, i+1) {
 						src = goexprshape.StripTrailingParen(src)
 					}
+					// Block-form directive (no newline): this GoText may attach
+					// directly to a preceding element/fragment's closing `}()` (the
+					// trailing `)` of a paren-wrapped `Wrap(<Foo/>)`) — a `//line`
+					// newline there would trip Go's automatic semicolon insertion.
+					emitBlockLine(&wbuf, fset, p.Pos()+token.Pos(start))
 					wbuf.WriteString(src)
 				case *ast.Element:
 					// A top-level Go-expression element literal has NO enclosing gsx
@@ -723,10 +746,11 @@ func emitRenderedNodeBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types
 //
 // No emitLine here (unlike genComponent's declaration line): this wrapper
 // carries no user-authored token of its own — it's pure generator
-// boilerplate, same as a GoChunk's own raw body text, which also emits no
-// //line of its own (see generateFile's *ast.GoChunk case). genNode's OWN
-// emitLine call fires immediately below and maps the actual markup/
-// interpolation content, which is what matters.
+// boilerplate, unlike a GoChunk's or GoWithElements GoText's own raw body
+// text, which DOES carry a //line of its own (see generateFile's *ast.GoChunk
+// and *ast.GoWithElements cases). genNode's OWN emitLine call fires
+// immediately below and maps the actual markup/interpolation content, which
+// is what matters.
 //
 // Unlike a component's render closure, this one has NO surrounding component:
 // recvVar/recvTypeName are passed "" (no method-receiver dotted-tag
@@ -2439,6 +2463,23 @@ func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr f
 func emitLine(b *bytes.Buffer, fset *token.FileSet, pos token.Pos) {
 	p := fset.Position(pos)
 	fmt.Fprintf(b, "//line %s:%d:%d\n", filepath.Base(p.Filename), p.Line, p.Column)
+}
+
+// emitBlockLine writes a BLOCK-form `/*line file:line:col*/` directive (no
+// trailing newline) mapping subsequent output to the gsx node's source
+// position — the shipped-emit counterpart of emitLine, for splice points that
+// are not at the start of a line. Unlike the `//line` form (which spans to
+// end of line and needs its own line), the block form is valid mid-expression,
+// so it does not force a newline that would trip Go's automatic semicolon
+// insertion when the directive is spliced directly against a preceding
+// element/fragment closure's trailing `}()` (e.g. the `)` of a paren-wrapped
+// `Wrap(<Foo/>)`). Mirrors emitSkeletonBlockLine (analyze.go), but — like
+// emitLine above and unlike the skeleton helper — base-names the filename:
+// this is shipped .x.go output, which must be byte-identical across machines
+// and temp-dir layouts, never carrying an absolute build-time path.
+func emitBlockLine(b *bytes.Buffer, fset *token.FileSet, pos token.Pos) {
+	p := fset.Position(pos)
+	fmt.Fprintf(b, "/*line %s:%d:%d*/", filepath.Base(p.Filename), p.Line, p.Column)
 }
 
 // emitRender writes the type-aware writer call for a single renderable value

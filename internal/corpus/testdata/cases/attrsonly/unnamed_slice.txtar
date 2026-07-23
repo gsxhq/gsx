@@ -43,6 +43,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type badgeProps struct {
 	Attrs gsx.Attrs
 }
@@ -62,6 +63,7 @@ func renderBadge(p badgeProps) _gsxrt.Node {
 	})
 }
 
+//line input.gsx:13:1
 func Badge(attrs []gsx.Attr) gsx.Node {
 	return renderBadge(badgeProps{Attrs: gsx.Attrs(attrs)})
 }

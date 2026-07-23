@@ -67,6 +67,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:9:1
 type Level int
 type Letter rune
 

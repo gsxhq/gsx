@@ -44,11 +44,13 @@ func Noop() _gsxrt.Node {
 	})
 }
 
+/*line input.gsx:7:2*/
+
 func Help() gsx.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:9
 		_gsxgw.S("<div>hi</div>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:10:22*/
 }

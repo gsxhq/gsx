@@ -33,6 +33,8 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var cls = "text-lg"
 var label = "Home"
 
@@ -46,7 +48,7 @@ var help = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw.Text(string(label))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
-})
+}) /*line input.gsx:6:48*/
 
 //line input.gsx:8:1
 func Uses() _gsxrt.Node {

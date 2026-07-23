@@ -37,6 +37,8 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var n int
 
 func next() int {
@@ -44,7 +46,7 @@ func next() int {
 	return n
 }
 
-var handler = _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(next()) + ", " + _gsxrt.EscapeJSVal(next()) + ")")
+var handler = _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(next()) + ", " + _gsxrt.EscapeJSVal(next()) + ")") /*line input.gsx:10:42*/
 
 //line input.gsx:12:1
 func Page() _gsxrt.Node {

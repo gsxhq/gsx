@@ -147,6 +147,7 @@ import (
 	_gsxsc "strconv"
 )
 
+//line input.gsx:9:1
 type Flag bool
 
 var anyFalse any = false

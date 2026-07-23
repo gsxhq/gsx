@@ -53,6 +53,8 @@ func Noop() _gsxrt.Node {
 	})
 }
 
+/*line input.gsx:7:2*/
+
 func Panel() gsx.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -61,7 +63,7 @@ func Panel() gsx.Node {
 //line input.gsx:10:25
 		_gsxgw.S("<p>Body</p>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:10:39*/
 }
 
 //line input.gsx:13:1

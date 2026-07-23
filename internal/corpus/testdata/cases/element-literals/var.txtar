@@ -25,12 +25,14 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var help = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:12
 	_gsxgw.S("<a href=\"/help\" class=\"text-blue-600\">?</a>")
 	return _gsxgw.Err()
-})
+}) /*line input.gsx:3:55*/
 
 //line input.gsx:5:1
 func Uses() _gsxrt.Node {

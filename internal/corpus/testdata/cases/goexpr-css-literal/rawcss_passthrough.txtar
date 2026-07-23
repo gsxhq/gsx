@@ -30,9 +30,10 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 var accent gsx.RawCSS = "color:red"
 
-var Combined = _gsxrt.RawCSS("base;" + string(accent))
+var Combined = _gsxrt.RawCSS("base;" + string(accent)) /*line input.gsx:7:35*/
 
 //line input.gsx:9:1
 func Page() _gsxrt.Node {

@@ -343,7 +343,11 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	}
 	filters := make([]lsp.FilterCandidate, len(pr.Filters))
 	for i, fc := range pr.Filters {
-		filters[i] = lsp.FilterCandidate{Name: fc.Name, Pkg: fc.Pkg, Func: fc.Func, WantsCtx: fc.WantsCtx}
+		// fc.Pos is already a resolved token.Position (see codegen's
+		// filterEntry.pos) — a straight copy becomes the exact same
+		// {file,line} shape completionItem/resolve already serves for every
+		// other lazy-doc candidate (T9/T10).
+		filters[i] = lsp.FilterCandidate{Name: fc.Name, Pkg: fc.Pkg, Func: fc.Func, WantsCtx: fc.WantsCtx, Pos: fc.Pos}
 	}
 	return &lsp.Package{
 		Diags:          pr.Diags,

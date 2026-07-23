@@ -38,6 +38,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func bags() []gsx.Attrs {
 	return []gsx.Attrs{
 		{{Key: "class", Value: "a"}},

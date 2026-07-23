@@ -32,6 +32,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func makeText(tag string) (string, error) { return "[" + tag + "]", nil }
 
 //line input.gsx:7:1

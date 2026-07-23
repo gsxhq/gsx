@@ -48,7 +48,7 @@ func (m *Module) resolveFunctions() ([]FilterInfo, []RendererInfo, error) {
 	for _, r := range finalRendererAliases(m.opts.Renderers) {
 		aliasPaths = append(aliasPaths, r.PkgPath)
 	}
-	harvested, err := harvestFromTypes(functionPkgs, filterPkgs, m.opts.Aliases, filterAliases(aliasPaths))
+	harvested, err := harvestFromTypes(functionPkgs, filterPkgs, m.opts.Aliases, filterAliases(aliasPaths), m.fset)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -66,6 +66,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:7:1
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
 //line input.gsx:9:1

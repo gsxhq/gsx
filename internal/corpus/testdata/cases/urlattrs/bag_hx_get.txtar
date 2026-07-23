@@ -38,6 +38,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 type ctrlProps struct {
 	Attrs gsx.Attrs
 }

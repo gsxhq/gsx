@@ -578,17 +578,128 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   Fallback-only (zero change to answerable cases); returned current-file spans
   map repaired→live coordinates. Cursor-local, so it heals breakage at the
   cursor, not on an unrelated line.
-  **Follow-ups:** auto-import completion (own design); expected-type ranking;
-  snippet placeholders; typed pipe-filter compatibility filtering;
-  `completionItem/resolve` for lazy docs; method-component (`<recv.Name>`)
-  tags.
-- [ ] **emit.go `//line` for top-level Go body chunks** - shipped `.x.go`
-  emits no `//line` for plain GoChunk text or GoWithElements GoText, so a
-  cross-module dep loaded from its published `.x.go` resolves value positions
-  (gd on component values, compiler errors in top-level var blocks) up to a
-  few lines off within the correct `.gsx`. Same-module is exact (in-memory
-  skeleton anchors correctly since the `part.Pos()+start` fix). Emit `//line`
-  for these chunks like components/elements already get.
+  Method-component (`<recv.Name>`) tags complete: a qualified `<recv.▮` cursor
+  whose qualifier resolves to an in-scope value binding (receiver, parameter, or
+  package-scope var — resolved via the enclosing component's generated-func scope
+  seeded from `SigTypes`, not authored-offset alignment) offers that type's
+  method components; a value binding shadows a same-named import per Go scoping.
+  Pipe-filter completion is TYPE-NARROWED: `{ x |> ▮ }` offers only filters whose
+  subject parameter accepts the stage's incoming type (the seed's type at stage 0,
+  the preceding filter's result type after — an `(R, error)` filter chains its R;
+  a ctx-taking filter's subject is parameter 1). Filter signatures are resolved in
+  the ephemeral skeleton's own type universe (the same universe the incoming type
+  comes from, so `types.AssignableTo` is sound); a generic (type-parameter) subject
+  and an `any`/interface subject always match. Narrowing is a refinement, never a
+  gate: it fails OPEN — offering the full list — whenever the incoming type can't be
+  determined (broken seed, or a preceding filter whose package is not imported into
+  the skeleton because no successfully-lowered pipe referenced it), and per-candidate
+  when a candidate's own package is likewise absent. Known limitation: a preceding
+  stage that carries ARGS followed by an unknown/empty stage currently yields an
+  empty analysis (a codegen edge), which routes to the full-list fail-open.
+  EXPECTED-TYPE RANKING (never filtering): in a Go-context cursor a candidate
+  whose type matches the type expected at the position sorts ahead of the rest
+  WITHIN its locality tier — a single match digit inserted after the tier digits
+  and before the label (`05` → `050`/`051`), so locality still dominates (a
+  matched package-scope item never outranks an unmatched local) and matching only
+  refines ties. Match = `AssignableTo`, plus a func candidate whose single result
+  is assignable (calling it satisfies the position). Derivation subset (cheaply
+  sound, else no boost): the innermost enclosing call argument `{ f(▮) }` /
+  `title={ f(▮) }` (callee param type at the cursor's arg index, variadic tail
+  resolved; selector receivers excluded — before the `(`), and a component attr
+  value hole `title={ ▮ }` (the bound parameter's type, from the ComponentCalls
+  fact). Cross-statement positions (assignment RHS, return result, binary operand,
+  top-level arg where the hole IS the argument) are skipped — the bridge retains
+  only the hole's own skeleton expr, not its enclosing statement — as is the
+  top-level render hole `{ ▮ }` ("renderable", too broad). No expected type = every
+  SortText byte-identical to the tier-only form (the no-regression contract).
+  MEMBER COMPLETION IN STATEMENT POSITIONS: a member cursor inside a `{{ }}`
+  GoBlock or a bare GoChunk (`{{ x.▮ }}`, a top-level `u.▮`) now completes —
+  closing the v1 "KNOWN GAP" these two bridges left (they carry no skeleton
+  selector for the ExprMap member path to walk). `statementMemberItems`
+  (completion_go.go) resolves the receiver directly from AUTHORED text instead
+  of a skeleton selector: `pkg.SourceIndex.At(path, recEnd)` — the same
+  offset-keyed occurrence lookup hover/go-to-definition trust — at the byte
+  before the dot. A `*types.PkgName` object is a package receiver; otherwise
+  the object's type, or (no object — a call/index/selector-chain receiver) the
+  occurrence's recorded Expression `TypeAndValue`, drives the member list.
+  Package/value item construction is shared with the skeleton path via two
+  extracted builders, `packageMemberItems`/`valueMemberItems`. The lookup uses
+  the ephemeral package's SourceIndex directly, without the `MatchesSource`
+  staleness gate hover/definition apply to a RETAINED package: the ephemeral
+  index is built from this exact request's buffer, so no retained/live
+  divergence is possible. Expected-type ranking does not apply here (nil,
+  matching the skeleton member path's existing statement-context behavior).
+  Complex (call/index) receivers resolve opportunistically through their
+  Expression occurrence when one is recorded; fails soft to an empty member
+  list otherwise, never wrong.
+  **Go doc comments on candidates (T9+T10)** — DONE. Documentation is
+  doc-comment text only (Detail already carries the rendered signature).
+  Uniform rule (`completionDocFor`, completion_docs.go): an object whose OWN
+  package is the analyzed package (`obj.Pkg() == pkg.Types`) is "authored" and
+  gets EAGER Documentation, extracted synchronously from the already-parsed
+  .gsx source (`authoredDoc` reuses documentSymbol's byte-exact recovery
+  reconstruction, `reconstructGoChunk`/`reconstructGoWithElements` — refactored
+  out of symbols.go — so a GoWithElements decl, e.g. a package-level var
+  initialized to an embedded element, resolves correctly too); every other
+  candidate with a resolvable position — an imported dependency's
+  func/type/var/const/member, or a pipeline filter's target func — gets a
+  LAZY `CompletionItem.Data{file,line}` payload instead, resolved on demand via
+  the new `completionItem/resolve` request (`CompletionOptions.ResolveProvider
+  = true`). Same-package MEMBER items (fields/methods on a same-package
+  receiver type) follow the eager rule automatically — authored-ness is a
+  property of the object itself, checked once in `completionDocFor`, not of
+  which completion path found it. `chunkDocCache` memoizes the eager path per
+  (path, declaration-start-line), keyed additionally by the reconstructed
+  chunk's own text (content-validated, so an edit simply misses and
+  overwrites); caching a SINGLE line's answer per chunk was tried first and
+  is UNSOUND — a chunk holding more than one declaration (a struct type
+  immediately followed by a method on it, both merged into the same GoChunk)
+  let one declaration's cached doc leak onto its sibling's lookup — fixed by
+  caching the whole chunk's line→doc map in one pass. `depDocCache` (in
+  `completion_resolve.go`) caches real dependency-file parses by absolute
+  path, no invalidation (module-cache/GOROOT files are immutable within a
+  session). SECURITY: `completionItem/resolve`'s Data round-trips through the
+  CLIENT — a hostile/buggy client could send an arbitrary `{file,line}`, so
+  `resolvablePath` gates every resolve to a `.go` file under GOMODCACHE,
+  GOROOT (`go/build.Default.GOROOT`, not the deprecated `runtime.GOROOT()`),
+  or a negotiated workspace module root, computed fresh per request (a
+  bare env/in-memory lookup, no filesystem/subprocess cost) rather than
+  memoized, so it stays testable via `t.Setenv`. Filters resolve through the
+  SAME `{file,line}` mechanism: codegen's filter harvest
+  (`harvestFromTypes`/`filterEntry.pos`) now resolves each candidate's
+  declaration position immediately at harvest time via whatever `*token.
+  FileSet` the caller's `packages.Load`/Module used — resolving IMMEDIATELY
+  (not carrying a raw `token.Pos` forward) is what keeps two independent
+  harvests of the same filter (the go-list path and the types-based path
+  compared byte-for-byte in `filtertable_equiv_test.go`) agreeing: a raw
+  `token.Pos` is meaningless across two different `*token.FileSet` instances,
+  while the resolved `token.Position` is content-derived and so identical
+  either way — the equivalence test caught this the first time as a real
+  regression. Tests: unit (eager scope/member/GoWithElements, no-doc case,
+  chunk-cache reuse, resolve no-Data/malformed-Data/outside-allowed-roots/
+  GOMODCACHE/workspace-root) in internal/lsp; e2e (eager doc on a fixture
+  symbol, stdlib `strings.HasPrefix` resolve round trip, filter `upper`→
+  std.Upper resolve round trip) in gen/lsp_completion_docs_e2e_test.go.
+  **Follow-ups:** auto-import completion (own design); snippet placeholders;
+  body-local value bindings as method-component qualifiers (declared in a
+  `{{ }}` block, a v1 gap); `Component.Doc` — component-tag completion/hover
+  still show only the rendered signature (`renderComponentSig`), never a doc
+  comment: the parser attaches no leading comment to a `component` decl at
+  all (`ast.Component` has no `Doc` field), unlike a Go func/type/var/const.
+  Adding one is a small, self-contained parser+AST change (S), out of scope
+  for T9/T10; stale-snapshot fast path — largely subsumed by the non-blocking
+  `TryAnalyzeEphemeral` work above, only worth revisiting if a benchmark still
+  demands it.
+- [x] **emit.go `//line` for top-level Go body chunks** - DONE. `generateFile`
+  now anchors plain `*ast.GoChunk` bodies with `emitLine` (newline form, at
+  `splitChunk`'s `bodyOff`) and each `*ast.GoWithElements` GoText part with a
+  new `emitBlockLine` (block form, at `p.Pos()+start` after decorative-paren
+  stripping — mirrors the skeleton builders' f0f590e8 anchoring recipe, but
+  base-names the filename like `emitLine` does, unlike the skeleton's
+  `emitSkeletonBlockLine`). Cross-module gd on a component value now lands on
+  the exact `.gsx` line (`gen.TestDefinitionCrossModuleValueSourcesPresent`
+  upgraded from file-only to exact-line); corpus goldens regenerated
+  (directive-only churn, spot-checked).
 - **Deferred:** external/non-project references; references cover project
   components discovered during module analysis.
 

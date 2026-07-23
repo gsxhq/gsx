@@ -41,6 +41,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:5:1
 func getAttrs() gsx.Attrs {
 	return gsx.Attrs{{Key: "data-g", Value: "g"}}
 }

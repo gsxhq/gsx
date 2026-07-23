@@ -134,6 +134,7 @@ type Options struct {
 // NOT acquire analysisMu — those functions run within a held analysisMu and
 // re-acquiring would deadlock. True fine-grained concurrent analysis (multiple
 // roots in parallel or partial invalidation) is deferred to Phase 2.
+//
 // TryAnalyzeEphemeral is a non-blocking variant of the AnalyzeEphemeral entry
 // point: it acquires analysisMu via TryLock and returns acquired=false rather
 // than waiting when another entry point holds it. It composes with this
@@ -1057,7 +1058,12 @@ func (m *Module) filterTableFromSource(pkgs []string) (filterTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil)
+	// configuredSourcePackages resolves every request (local or external)
+	// against the Module's own shared m.fset (see configuredSourceDeclResolver
+	// / externalImporter), the SAME Fset PackageResult.Fset publishes — so a
+	// filterEntry.pos captured here is directly usable, with no further
+	// resolution, by the LSP completion (T9/T10 lazy doc resolve).
+	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil, m.fset)
 	return table, err
 }
 
@@ -1300,27 +1306,6 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 		return nil, err
 	}
-	// Retention policy (P3, perf-hunt #2): this result is about to be cached in
-	// m.pkgResults and held for the life of the LSP session. checkSkeletonPackage
-	// populates Info.Scopes with one *types.Scope per func/block/if/for/switch,
-	// but the only retained-package consumer (importQualifierCandidates, via
-	// componentDeclPackage's ephemeral-then-retained fallback) reads only the
-	// *ast.File-keyed entries — prune to that subset before caching.
-	//
-	// MEASURED: this frees only the Info.Scopes index entries themselves (~1 MB
-	// on one-learning ui/), not the *types.Scope objects they point to — those
-	// remain fully reachable regardless, via res.Types.Scope()'s parent/children
-	// tree (go/types.NewScope unconditionally links every scope into that tree,
-	// independent of whether a Checker's Info records it — see scope.go). Types
-	// is retained for unrelated reasons (hover's qualifier, import resolution),
-	// so the ~96 MB the perf-hunt report attributed to "Info.Scopes" was actually
-	// pinned by Types all along; this policy narrows the supported/observable
-	// surface (and the small index overhead) without claiming a heap win it
-	// cannot deliver. See perf-hunt-2-report.md "P3 pass" for the measurement.
-	//
-	// AnalyzeEphemeral does NOT call this: its result is never cached, and the
-	// Go-completion scope walk (innermostScopeAt et al.) needs the full index.
-	retainFileScopesOnly(a.info)
 	res := &PackageResult{
 		Files:       map[string][]byte{},
 		GSXFset:     a.gsxFset,
@@ -1387,6 +1372,34 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// unused-import classification above (missingFromSkeletons). See
 	// MissingImport's doc for why the Name is left unresolved to an import path.
 	res.MissingImports = a.missingImports
+	// Retention policy (P3, perf-hunt #2): this result is about to be cached in
+	// m.pkgResults and held for the life of the LSP session. checkSkeletonPackage
+	// populates Info.Scopes with one *types.Scope per func/block/if/for/switch,
+	// but the only retained-package consumer (importQualifierCandidates, via
+	// componentDeclPackage's ephemeral-then-retained fallback) reads only the
+	// *ast.File-keyed entries — prune to that subset before caching.
+	//
+	// Called here, immediately before the cache write, rather than right after
+	// analyze returns: every other a.info consumer above (buildCrossNav,
+	// componentParamDeclarationFacts, componentParamBodyReferenceFacts) runs
+	// first, so none of them ever observes a pruned Info.Scopes. Positioning the
+	// prune any earlier would be a silent trap for a future consumer inserted
+	// between analyze and this line.
+	//
+	// MEASURED: this frees only the Info.Scopes index entries themselves (~1 MB
+	// on one-learning ui/), not the *types.Scope objects they point to — those
+	// remain fully reachable regardless, via res.Types.Scope()'s parent/children
+	// tree (go/types.NewScope unconditionally links every scope into that tree,
+	// independent of whether a Checker's Info records it — see scope.go). Types
+	// is retained for unrelated reasons (hover's qualifier, import resolution),
+	// so the ~96 MB the perf-hunt report attributed to "Info.Scopes" was actually
+	// pinned by Types all along; this policy narrows the supported/observable
+	// surface (and the small index overhead) without claiming a heap win it
+	// cannot deliver. See perf-hunt-2-report.md "P3 pass" for the measurement.
+	//
+	// AnalyzeEphemeral does NOT call this: its result is never cached, and the
+	// Go-completion scope walk (innermostScopeAt et al.) needs the full index.
+	retainFileScopesOnly(a.info)
 	m.mu.Lock()
 	m.pkgResults[dir] = res
 	m.mu.Unlock()

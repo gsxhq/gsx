@@ -45,7 +45,11 @@ func htmlTagItems(prefixCapitalized bool, text string, start, end int, enc encod
 // that gsx.IsBooleanAttr classifies as boolean — insert the bare name (`hidden`):
 // their presence alone is the value. Every other attribute inserts `name=""`
 // with FilterText = name, so the client keeps matching against the name the user
-// typed while the edit drops the cursor inside the quotes' worth of text.
+// typed while the edit drops the cursor inside the quotes' worth of text — or,
+// when snippet is true (the client advertised snippetSupport), `name="$1"`
+// with InsertTextFormat = Snippet, so the cursor lands INSIDE the quotes
+// instead of after them. Boolean attributes are unaffected either way: there
+// are no quotes for a cursor to land inside.
 //
 // el is the CLASSIFICATION-parse element (repairAtCursor's own parse of the
 // cursor buffer). Unlike the component path this needs no ephemeral-analysis
@@ -61,7 +65,7 @@ func htmlTagItems(prefixCapitalized bool, text string, start, end int, enc encod
 // rank this list against sibling candidates: tierContext for the direct HTML
 // path, tierSecondary for the forwarded-globals path so real component params
 // sort first.
-func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, tier int, text string, start, end int, enc encoding) []CompletionItem {
+func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, tier int, text string, start, end int, enc encoding, snippet bool) []CompletionItem {
 	// typed is the attribute-name token the cursor sits on. When a present
 	// attribute's lowercase name exact-matches it, that attribute must stay
 	// offered rather than be excluded as "already present" — the cursor is
@@ -102,12 +106,23 @@ func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, tier in
 		seen[lower] = true
 		if attr.Boolean() || gsx.IsBooleanAttr(attr.Name) {
 			// Presence-only: insert the bare name.
-			items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name, ciKindField, tier, markdownDoc(attr.Doc)))
+			items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name, ciKindField, tier, markdownDoc(attr.Doc), insertTextFormatPlainText))
 			continue
 		}
-		// Value attribute: insert `name=""`, but keep FilterText = name so the
-		// client matches against the typed name, not the `=""` suffix.
-		items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name+`=""`, ciKindField, tier, markdownDoc(attr.Doc)))
+		// Value attribute: insert `name=""` (or `name="$1"` under snippet
+		// support), but keep FilterText = name so the client matches against
+		// the typed name, not the inserted suffix. attr.Name is a dataset
+		// attribute name (letters/digits/dash only, never `$`), so there is no
+		// literal-`$` escaping concern in the snippet body here — an
+		// interpolated VALUE would need `$`→`\$` escaping, but no caller ever
+		// puts one in this position.
+		newText := attr.Name + `=""`
+		format := insertTextFormatPlainText
+		if snippet {
+			newText = attr.Name + `="$1"`
+			format = insertTextFormatSnippet
+		}
+		items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, newText, ciKindField, tier, markdownDoc(attr.Doc), format))
 	}
 	return items
 }
@@ -168,11 +183,18 @@ func valueSetFor(tagName, attrName string) string {
 
 // htmlAttrItem builds an attribute-name completion item. It differs from
 // newCompletionItem in one way that matters: for a value attribute newText is
-// `name=""` but FilterText must stay the bare name so the client matches the
-// user's typed prefix against the name, not the `=""` insertion. newText == the
-// name for a boolean attribute, in which case FilterText is left unset (the
-// client falls back to the label).
-func htmlAttrItem(text string, start, end int, enc encoding, name, newText string, kind int, tier int, doc *MarkupContent) CompletionItem {
+// `name=""` (or `name="$1"`) but FilterText must stay the bare name so the
+// client matches the user's typed prefix against the name, not the inserted
+// suffix. newText == the name for a boolean attribute, in which case
+// FilterText is left unset (the client falls back to the label).
+//
+// insertTextFormat is insertTextFormatPlainText for every caller except a
+// snippet-support value-attribute insert, which passes insertTextFormatSnippet.
+// PlainText is the LSP-assumed default, so it is deliberately left off the
+// wire (CompletionItem.InsertTextFormat's zero value, elided by omitempty)
+// rather than sent as an explicit `"insertTextFormat":1` on every single
+// item — only a Snippet insert ever needs the field at all.
+func htmlAttrItem(text string, start, end int, enc encoding, name, newText string, kind int, tier int, doc *MarkupContent, insertTextFormat int) CompletionItem {
 	item := CompletionItem{
 		Label:         name,
 		Kind:          kind,
@@ -182,6 +204,9 @@ func htmlAttrItem(text string, start, end int, enc encoding, name, newText strin
 			Range:   rangeForSpan(text, start, end, enc),
 			NewText: newText,
 		},
+	}
+	if insertTextFormat != insertTextFormatPlainText {
+		item.InsertTextFormat = insertTextFormat
 	}
 	if newText != name {
 		item.FilterText = name

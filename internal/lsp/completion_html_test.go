@@ -88,7 +88,7 @@ func TestHTMLTagItems(t *testing.T) {
 // attributes remain offered.
 func TestHTMLAttrItemsExcludesPresent(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div class=\"x\"/>\n}\n", "div")
-	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8, false)
 	labels := labelSet(items)
 	if labels["class"] {
 		t.Errorf("attr list still offers already-present `class`: %v", labels)
@@ -111,7 +111,7 @@ func TestHTMLAttrItemsCursorOnPresentAttrStaysOffered(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div class=\"x\" id=\"y\"/>\n}\n", "div")
 
 	text := "class"
-	items := htmlAttrItems(el, "div", false, tierContext, text, 0, len(text), encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, text, 0, len(text), encUTF8, false)
 	labels := labelSet(items)
 	if !labels["class"] {
 		t.Errorf("labels = %v, want `class` offered (cursor is on its own token)", labels)
@@ -125,7 +125,7 @@ func TestHTMLAttrItemsCursorOnPresentAttrStaysOffered(t *testing.T) {
 	}
 
 	for _, typed := range []string{"cl", ""} {
-		items := htmlAttrItems(el, "div", false, tierContext, typed, 0, len(typed), encUTF8)
+		items := htmlAttrItems(el, "div", false, tierContext, typed, 0, len(typed), encUTF8, false)
 		labels := labelSet(items)
 		if labels["class"] {
 			t.Errorf("typed %q: labels = %v, want `class` excluded (not an exact match)", typed, labels)
@@ -140,7 +140,7 @@ func TestHTMLAttrItemsCursorOnPresentAttrStaysOffered(t *testing.T) {
 // dataset valueSet "v") inserts the bare name with no `=""` and no FilterText.
 func TestHTMLAttrItemsBooleanBareName(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div/>\n}\n", "div")
-	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8, false)
 	hidden := itemByLabel(items, "hidden")
 	if hidden == nil {
 		t.Fatal("attr list missing boolean `hidden`")
@@ -158,7 +158,7 @@ func TestHTMLAttrItemsBooleanBareName(t *testing.T) {
 // the client keeps matching against the typed name, not the `=""` suffix.
 func TestHTMLAttrItemsValueInsertsEquals(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div/>\n}\n", "div")
-	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8, false)
 	class := itemByLabel(items, "class")
 	if class == nil {
 		t.Fatal("attr list missing value attr `class`")
@@ -171,11 +171,50 @@ func TestHTMLAttrItemsValueInsertsEquals(t *testing.T) {
 	}
 }
 
+// TestHTMLAttrItemsSnippetInsertsTabstop checks the snippet-gated path: with
+// snippet=true, a value attribute (`class`) inserts `class="$1"` with
+// InsertTextFormat = Snippet (so the cursor lands inside the quotes) and
+// FilterText UNCHANGED (still the bare name, matching the non-snippet case) —
+// while a boolean attribute (`hidden`) stays a bare, unformatted insert:
+// there are no quotes for a snippet tabstop to land inside.
+func TestHTMLAttrItemsSnippetInsertsTabstop(t *testing.T) {
+	el := parseElement(t, "package p\ncomponent C() {\n\t<div/>\n}\n", "div")
+	items := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8, true)
+
+	class := itemByLabel(items, "class")
+	if class == nil {
+		t.Fatal("attr list missing value attr `class`")
+	}
+	if class.TextEdit == nil || class.TextEdit.NewText != `class="$1"` {
+		t.Errorf("class.TextEdit = %+v, want NewText %q", class.TextEdit, `class="$1"`)
+	}
+	if class.InsertTextFormat != insertTextFormatSnippet {
+		t.Errorf("class.InsertTextFormat = %d, want insertTextFormatSnippet (2)", class.InsertTextFormat)
+	}
+	if class.FilterText != "class" {
+		t.Errorf("class.FilterText = %q, want %q (unchanged by snippet)", class.FilterText, "class")
+	}
+
+	hidden := itemByLabel(items, "hidden")
+	if hidden == nil {
+		t.Fatal("attr list missing boolean `hidden`")
+	}
+	if hidden.TextEdit == nil || hidden.TextEdit.NewText != "hidden" {
+		t.Errorf("hidden.TextEdit = %+v, want bare NewText %q even with snippet support", hidden.TextEdit, "hidden")
+	}
+	if hidden.InsertTextFormat != 0 {
+		t.Errorf("hidden.InsertTextFormat = %d, want 0 (PlainText/omitted; no quotes to tabstop into)", hidden.InsertTextFormat)
+	}
+	if hidden.FilterText != "" {
+		t.Errorf("hidden.FilterText = %q, want empty (bare name == label)", hidden.FilterText)
+	}
+}
+
 // TestHTMLAttrItemsInputType checks the per-tag attribute path: `type` on
 // <input> is an enumerated (non-boolean) attribute, so it inserts `type=""`.
 func TestHTMLAttrItemsInputType(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<input/>\n}\n", "input")
-	items := htmlAttrItems(el, "input", false, tierContext, "", 0, 0, encUTF8)
+	items := htmlAttrItems(el, "input", false, tierContext, "", 0, 0, encUTF8, false)
 	typ := itemByLabel(items, "type")
 	if typ == nil {
 		t.Fatal("input attr list missing `type`")
@@ -190,12 +229,12 @@ func TestHTMLAttrItemsInputType(t *testing.T) {
 func TestHTMLAttrItemsHTMXGated(t *testing.T) {
 	el := parseElement(t, "package p\ncomponent C() {\n\t<div/>\n}\n", "div")
 
-	off := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8)
+	off := htmlAttrItems(el, "div", false, tierContext, "", 0, 0, encUTF8, false)
 	if labelSet(off)["hx-get"] {
 		t.Errorf("hx-get offered with htmx disabled")
 	}
 
-	on := htmlAttrItems(el, "div", true, tierContext, "", 0, 0, encUTF8)
+	on := htmlAttrItems(el, "div", true, tierContext, "", 0, 0, encUTF8, false)
 	hxGet := itemByLabel(on, "hx-get")
 	if hxGet == nil {
 		t.Fatalf("hx-get NOT offered with htmx enabled")
@@ -303,6 +342,41 @@ func TestAttrNameCompletionHTMLPath(t *testing.T) {
 	}
 	if class := itemByLabel(items, "class"); class == nil || class.TextEdit.NewText != `class=""` {
 		t.Errorf("class must insert `class=\"\"`; got %+v", class)
+	}
+}
+
+// TestAttrNameCompletionHTMLPathSnippet drives the same HTML attribute-name
+// position as TestAttrNameCompletionHTMLPath, but through an initialize frame
+// that advertises snippetSupport (snippetInitFrame). The end-to-end wiring
+// under test: handleInitialize captures the capability onto s.snippetSupport,
+// which reaches htmlAttrItems via attrNameCompletion — so `class` now inserts
+// `class="$1"` with InsertTextFormat = Snippet, while `hidden` (no quotes to
+// place a cursor inside) is unaffected.
+func TestAttrNameCompletionHTMLPathSnippet(t *testing.T) {
+	uri := "file:///m/a.gsx"
+	text := "package p\n\ncomponent C() {\n\t<div ></div>\n}\n"
+	off := strings.Index(text, "<div ") + len("<div ")
+	pos := positionForByteOffset(text, off, encUTF16)
+
+	a := tagCompletionAnalyzer{ephPkg: &Package{}}
+	out := drive(t, a, snippetInitFrame()+didOpenFrame(uri, text)+
+		completionFrame(2, uri, pos)+exitFrame())
+	items := decodeCompletionItems(t, out, 2)
+
+	class := itemByLabel(items, "class")
+	if class == nil || class.TextEdit == nil || class.TextEdit.NewText != `class="$1"` {
+		t.Fatalf("class must insert `class=\"$1\"` under snippetSupport; got %+v", class)
+	}
+	if class.InsertTextFormat != insertTextFormatSnippet {
+		t.Errorf("class.InsertTextFormat = %d, want insertTextFormatSnippet (2)", class.InsertTextFormat)
+	}
+
+	hidden := itemByLabel(items, "hidden")
+	if hidden == nil || hidden.TextEdit == nil || hidden.TextEdit.NewText != "hidden" {
+		t.Errorf("hidden must still insert the bare name under snippetSupport; got %+v", hidden)
+	}
+	if hidden.InsertTextFormat != 0 {
+		t.Errorf("hidden.InsertTextFormat = %d, want 0 (no quotes to tabstop into)", hidden.InsertTextFormat)
 	}
 }
 

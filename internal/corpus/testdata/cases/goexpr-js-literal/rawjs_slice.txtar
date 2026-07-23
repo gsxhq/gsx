@@ -33,9 +33,10 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 var name = "world"
 
-var vs = []gsx.RawJS{_gsxrt.RawJS("first()"), _gsxrt.RawJS("second(" + _gsxrt.EscapeJSVal(name) + ")")}
+var vs = []gsx.RawJS{_gsxrt.RawJS("first()") /*line input.gsx:7:33*/, _gsxrt.RawJS("second(" + _gsxrt.EscapeJSVal(name) + ")") /*line input.gsx:7:54*/}
 
 //line input.gsx:9:1
 func Uses() _gsxrt.Node {

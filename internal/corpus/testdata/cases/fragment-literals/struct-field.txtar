@@ -36,12 +36,14 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:14*/
+
 var s = slot{Body: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:22
 	_gsxgw.S("<i>hi</i>")
 	return _gsxgw.Err()
-})}
+}) /*line input.gsx:3:34*/}
 
 //line input.gsx:5:1
 func Uses() _gsxrt.Node {

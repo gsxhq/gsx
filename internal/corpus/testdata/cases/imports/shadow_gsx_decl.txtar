@@ -25,6 +25,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:3:1
 var gsx = 7
 
 //line input.gsx:5:1

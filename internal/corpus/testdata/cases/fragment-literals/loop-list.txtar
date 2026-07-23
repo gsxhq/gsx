@@ -52,6 +52,8 @@ func Noop() _gsxrt.Node {
 	})
 }
 
+/*line input.gsx:7:2*/
+
 func Items(xs []string) gsx.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -64,7 +66,7 @@ func Items(xs []string) gsx.Node {
 			_gsxgw.S("</li>")
 		}
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:16:3*/
 }
 
 //line input.gsx:19:1

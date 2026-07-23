@@ -18,6 +18,8 @@ import (
 	_gsxrt "github.com/gsxhq/gsx"
 )
 
+/*line input.gsx:1:13*/
+
 var name = "world"
 
-var H = _gsxrt.RawJS("greet(" + _gsxrt.EscapeJSVal(name) + ")")
+var H = _gsxrt.RawJS("greet(" + _gsxrt.EscapeJSVal(name) + ")") /*line input.gsx:5:27*/

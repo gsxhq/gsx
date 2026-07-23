@@ -141,6 +141,171 @@ func g() {
 	}
 }
 
+// TestInnermostScopeAtAuthoredBetweenDecls pins that a cursor sitting BETWEEN
+// top-level declarations (not inside any func body) resolves to the file scope,
+// so imported package names, package-scope decls, and keywords all complete
+// there. The //line directive reproduces the production geometry a real GoChunk
+// has: the file scope's package clause stays on the skeleton path ("p.go")
+// while the GoChunk-derived decl maps back to the authored .gsx — so the file
+// scope's own span is filtered out of the direct match and only the
+// fileScopeForAuthoredPath fallback can recover it.
+func TestInnermostScopeAtAuthoredBetweenDecls(t *testing.T) {
+	src := `package p
+
+import "strings"
+
+//line home.gsx:5:1
+func helper() string { return "a" }
+`
+	pkg, _ := buildSyntheticPackage(t, src)
+
+	// off is an authored-coordinate position that lies in no func/block span
+	// (before helper's mapped body), forcing the between-decls fallback.
+	scope := innermostScopeAtAuthored(pkg, "home.gsx", 1)
+	if scope == nil {
+		t.Fatal("innermostScopeAtAuthored returned nil")
+	}
+	// It must be the file scope, not the package scope: fileScopeSet recognizes
+	// it, so imported names earn tierImported.
+	if !fileScopeSet(pkg)[scope] {
+		t.Fatalf("scope between decls is not the file scope (got package scope? %v)", scope == pkg.Types.Scope())
+	}
+
+	tier := map[string]int{}
+	for _, c := range scopeCandidates(pkg, scope, token.NoPos) {
+		tier[c.obj.Name()] = c.tier
+	}
+	if got, ok := tier["strings"]; !ok || got != tierImported {
+		t.Errorf("imported name `strings` tier = %d (present=%v), want tierImported (%d)", got, ok, tierImported)
+	}
+	if got, ok := tier["helper"]; !ok || got != tierPackage {
+		t.Errorf("package decl `helper` tier = %d (present=%v), want tierPackage (%d)", got, ok, tierPackage)
+	}
+	// Universe names remain visible (keywords are added by goCompletionItems, not
+	// scopeCandidates, and are exercised in the e2e test).
+	if _, ok := tier["error"]; !ok {
+		t.Error("universe name `error` missing from bare GoChunk scope")
+	}
+}
+
+// TestFileScopeForAuthoredPathUnknownPath pins the fallback boundary: a path
+// that no skeleton file maps to yields nil, so innermostScopeAtAuthored can
+// fall through to the package scope rather than mis-attributing a file scope.
+func TestFileScopeForAuthoredPathUnknownPath(t *testing.T) {
+	pkg, _ := buildSyntheticPackage(t, "package p\n\nimport \"strings\"\n\nvar _ = strings.Title\n")
+	if fs := fileScopeForAuthoredPath(pkg, "nonexistent.gsx"); fs != nil {
+		t.Errorf("fileScopeForAuthoredPath returned a scope for an unmapped path: %v", fs)
+	}
+	if got := innermostScopeAtAuthored(pkg, "nonexistent.gsx", 0); got != pkg.Types.Scope() {
+		t.Errorf("innermostScopeAtAuthored for unmapped path = %v, want package scope", got)
+	}
+}
+
+// buildSyntheticTwoFilePackage type-checks TWO plain Go sources together as one
+// package (mirroring a real two-.gsx-file package: distinct skeleton files that
+// share one types.Check call), each carrying its own //line directive so its
+// decls report a distinct authored path via pkg.Fset.Position — exactly the
+// production geometry buildMappedSkeleton/splitFileGoSource produce per .gsx
+// file (see fileScopeForAuthoredPath's doc comment).
+func buildSyntheticTwoFilePackage(t *testing.T, srcA, srcB string) *Package {
+	t.Helper()
+	fset := token.NewFileSet()
+	fileA, err := parser.ParseFile(fset, "pA.go", srcA, 0)
+	if err != nil {
+		t.Fatalf("parse A: %v", err)
+	}
+	fileB, err := parser.ParseFile(fset, "pB.go", srcB, 0)
+	if err != nil {
+		t.Fatalf("parse B: %v", err)
+	}
+	info := &types.Info{
+		Types:  map[ast.Expr]types.TypeAndValue{},
+		Defs:   map[*ast.Ident]types.Object{},
+		Uses:   map[*ast.Ident]types.Object{},
+		Scopes: map[ast.Node]*types.Scope{},
+	}
+	conf := types.Config{Importer: importer.Default(), Error: func(error) {}}
+	tpkg, _ := conf.Check("p", fset, []*ast.File{fileA, fileB}, info)
+	return &Package{Types: tpkg, Info: info, Fset: fset}
+}
+
+// TestFileScopeForAuthoredPathTwoFiles pins the regression class the T4 review
+// (.superpowers/sdd/batch2-t4-report.md, finding (e)) flagged as UNCOVERED:
+// with two .gsx files in one package carrying DIFFERENT imports, the
+// fileScopeForAuthoredPath fallback must return the file whose OWN decls map to
+// the requested path — never the sibling file's scope, which would leak the
+// wrong file's imported package names into completion. Before this test,
+// nothing in the committed suite would fail if fileScopeForAuthoredPath ever
+// returned the wrong file's scope in a multi-file package (buildSyntheticPackage
+// only ever builds a single *ast.File); this promotes the reviewer's throwaway
+// two-file probe into a permanent pin, covering both the direct helper and its
+// innermostScopeAtAuthored caller (the actual completion entry point).
+func TestFileScopeForAuthoredPathTwoFiles(t *testing.T) {
+	srcA := `package p
+
+import "strings"
+
+//line a.gsx:1:1
+func helperA() string { return "a" }
+`
+	srcB := `package p
+
+import "os"
+
+//line b.gsx:1:1
+func helperB() string { return "b" }
+`
+	pkg := buildSyntheticTwoFilePackage(t, srcA, srcB)
+
+	scopeA := fileScopeForAuthoredPath(pkg, "a.gsx")
+	scopeB := fileScopeForAuthoredPath(pkg, "b.gsx")
+	if scopeA == nil {
+		t.Fatal("fileScopeForAuthoredPath(a.gsx) returned nil")
+	}
+	if scopeB == nil {
+		t.Fatal("fileScopeForAuthoredPath(b.gsx) returned nil")
+	}
+	if scopeA == scopeB {
+		t.Fatal("fileScopeForAuthoredPath returned the SAME scope for two different authored paths")
+	}
+
+	namesOf := func(scope *types.Scope) map[string]bool {
+		names := map[string]bool{}
+		for _, c := range scopeCandidates(pkg, scope, token.NoPos) {
+			names[c.obj.Name()] = true
+		}
+		return names
+	}
+	namesA := namesOf(scopeA)
+	namesB := namesOf(scopeB)
+
+	if !namesA["strings"] {
+		t.Errorf("a.gsx scope missing its own import `strings`; got %v", namesA)
+	}
+	if namesA["os"] {
+		t.Errorf("a.gsx scope offers `os` — the WRONG file's scope leaked b.gsx's import; got %v", namesA)
+	}
+	if !namesB["os"] {
+		t.Errorf("b.gsx scope missing its own import `os`; got %v", namesB)
+	}
+	if namesB["strings"] {
+		t.Errorf("b.gsx scope offers `strings` — the WRONG file's scope leaked a.gsx's import; got %v", namesB)
+	}
+
+	// innermostScopeAtAuthored is the actual completion entry point: a
+	// between-decls cursor (off=0, before either file's mapped func body) has no
+	// enclosing func/block scope, so it must reach the same per-file scope
+	// through the fallback — not the package scope, and not the other file's.
+	authoredA := innermostScopeAtAuthored(pkg, "a.gsx", 0)
+	authoredB := innermostScopeAtAuthored(pkg, "b.gsx", 0)
+	if authoredA != scopeA {
+		t.Errorf("innermostScopeAtAuthored(a.gsx, 0) = %v, want the direct fileScopeForAuthoredPath(a.gsx) result %v", authoredA, scopeA)
+	}
+	if authoredB != scopeB {
+		t.Errorf("innermostScopeAtAuthored(b.gsx, 0) = %v, want the direct fileScopeForAuthoredPath(b.gsx) result %v", authoredB, scopeB)
+	}
+}
+
 // TestMemberCandidates exercises the method-set + embedded-field BFS over a
 // synthetic type, asserting promotion depth and the unexported-visibility gate.
 func TestMemberCandidates(t *testing.T) {
@@ -329,7 +494,7 @@ func TestMemberCompletionItemsDepthClampDeepChain(t *testing.T) {
 	if sel == nil {
 		t.Fatal("v.F0 selector not found in Info.Types")
 	}
-	items, ok := memberCompletionItems(pkg, sel, sel.Sel.Pos(), src, 0, 0, encUTF8)
+	items, ok := memberCompletionItems(pkg, sel, sel.Sel.Pos(), nil, src, 0, 0, encUTF8, nil)
 	if !ok {
 		t.Fatal("memberCompletionItems did not take the member path")
 	}
@@ -413,6 +578,15 @@ func TestMemberDispatch(t *testing.T) {
 	}
 }
 
+// isFileScope reports whether s is a file scope of the analyzed package. It
+// has no production caller (production code goes through fileScopeSet
+// directly, e.g. completion_gsx.go's importQualifierCandidates) — kept here,
+// test-local, purely to give TestIsFileScope's fileScopeSet coverage a named
+// single-scope assertion.
+func isFileScope(pkg *Package, s *types.Scope) bool {
+	return fileScopeSet(pkg)[s]
+}
+
 func TestIsFileScope(t *testing.T) {
 	src := `package p
 
@@ -436,5 +610,279 @@ var global = 1
 	// The package scope is not a file scope.
 	if isFileScope(pkg, pkg.Types.Scope()) {
 		t.Error("package scope wrongly classified as a file scope")
+	}
+}
+
+// TestStatementMemberItemsGoBlockTrailingDot drives statementMemberItems
+// directly against a REAL analyzed package (analyzedLSPPackage, real
+// SourceIndex from the codegen pipeline) at a member cursor sitting inside a
+// `{{ }}` GoBlock statement. The underlying source is fully valid Go
+// (`user.Name`, not a broken prefix — analyzedLSPPackage demands zero
+// diagnostics), and the "trailing dot, nothing typed yet" cursor is SIMULATED
+// by choosing start=end=the byte right after the dot: statementMemberItems
+// only reads text[start-1] and walks backward from there, so it never looks at
+// what (if anything) text carries at/after start, matching how a real
+// trailing-dot cursor is a zero-width completionTokenSpan over live text.
+func TestStatementMemberItemsGoBlockTrailingDot(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+component Home(user User) {
+	{{ _ = user.Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "user.Name") + len("user.")
+
+	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8, nil)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("GoBlock trailing-dot member %q missing; labels=%v", name, labels)
+		}
+	}
+	if labels["user"] {
+		t.Errorf("member position must not offer scope locals; got `user`: %v", labels)
+	}
+}
+
+// TestStatementMemberItemsGoBlockPrefixed drives the typed-prefix variant
+// (`user.Na▮`, simulated the same way — start/end pick out "Na" while the
+// underlying valid source still carries the full "Name") and asserts the
+// returned item's TextEdit replaces ONLY the simulated [start,end) token span,
+// never the receiver or the dot.
+func TestStatementMemberItemsGoBlockPrefixed(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+component Home(user User) {
+	{{ _ = user.Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "user.Name") + len("user.")
+	start, end := nameOff, nameOff+2 // simulated "Na" prefix
+
+	items, ok := statementMemberItems(pkg, path, src, start, end, encUTF8, nil)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	var nameItem *CompletionItem
+	for i := range items {
+		if items[i].Label == "Name" {
+			nameItem = &items[i]
+		}
+	}
+	if nameItem == nil {
+		t.Fatalf("prefixed member `Name` missing; items=%+v", items)
+	}
+	if nameItem.TextEdit == nil {
+		t.Fatal("Name item has no TextEdit")
+	}
+	wantStart := rangeForSpan(src, start, end, encUTF8).Start
+	wantEnd := rangeForSpan(src, start, end, encUTF8).End
+	if nameItem.TextEdit.Range.Start != wantStart || nameItem.TextEdit.Range.End != wantEnd {
+		t.Errorf("Name edit range = %+v, want [%+v,%+v) (the simulated prefix span only)",
+			nameItem.TextEdit.Range, wantStart, wantEnd)
+	}
+}
+
+// TestStatementMemberItemsGoChunk mirrors the GoBlock trailing-dot test but at
+// a member cursor inside a top-level GoChunk function body — the OTHER
+// statement bridge with no skeleton selector (GoBlock/CtrlMap and GoChunk both
+// return nil skel from goCompletionBridge).
+func TestStatementMemberItemsGoChunk(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+func greet(u User) string {
+	return u.Name
+}
+
+component Home() {
+	<div></div>
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "u.Name") + len("u.")
+
+	items, ok := statementMemberItems(pkg, path, src, nameOff, nameOff, encUTF8, nil)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("GoChunk member %q missing; labels=%v", name, labels)
+		}
+	}
+}
+
+// TestStatementMemberItemsPackageReceiver drives an imported-package receiver
+// (`strings.▮`) through statementMemberItems inside a GoBlock: the receiver's
+// SourceIndex occurrence resolves to a *types.PkgName, taking the
+// packageMemberItems branch (tierImported), the same branch memberCompletionItems
+// takes for the skeleton selector path.
+func TestStatementMemberItemsPackageReceiver(t *testing.T) {
+	const src = `package page
+
+import "strings"
+
+component Home() {
+	{{ x := strings.ToUpper("a") }}
+	<div>{x}</div>
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	off := strings.Index(src, "strings.ToUpper") + len("strings.")
+
+	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8, nil)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]string{}
+	for _, it := range items {
+		labels[it.Label] = it.SortText
+	}
+	for _, name := range []string{"ToUpper", "ToLower", "Contains"} {
+		sortText, ok := labels[name]
+		if !ok {
+			t.Errorf("imported-package member %q missing; got %v", name, labels)
+			continue
+		}
+		if !strings.HasPrefix(sortText, "40") {
+			t.Errorf("%q SortText = %q, want tierImported prefix \"40\"", name, sortText)
+		}
+	}
+}
+
+// TestStatementMemberItemsCallReceiver pins the OBSERVED behavior of a
+// non-identifier (call-expression) receiver, per the design's "opportunistic,
+// fail-soft" treatment: SourceIndex records an Expression occurrence for every
+// ast.Expr with recorded type info, so `mk().▮` resolves through that
+// occurrence's TypeAndValue exactly like an identifier receiver would — there
+// is no dedicated carve-out, and this test pins that the mechanism used
+// (occ.HasTypeValue, no occ.Object) actually fires for a call receiver rather
+// than silently degrading to an empty list.
+func TestStatementMemberItemsCallReceiver(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+func mk() User { return User{} }
+
+component Home() {
+	{{ _ = mk().Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	off := strings.Index(src, "mk().Name") + len("mk().")
+
+	items, ok := statementMemberItems(pkg, path, src, off, off, encUTF8, nil)
+	if !ok {
+		t.Fatal("statementMemberItems returned ok=false at a `.`-cursor")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("call-receiver member %q missing (observed opportunistic resolution failed); labels=%v", name, labels)
+		}
+	}
+}
+
+// TestStatementMemberItemsNotMemberPosition pins the ok=false fallthrough: no
+// `.` immediately before start (a plain scope-identifier cursor), a nil
+// SourceIndex (a package with no built index), and a nil pkg all decline the
+// statement member path so the caller's scope fallback applies.
+func TestStatementMemberItemsNotMemberPosition(t *testing.T) {
+	const src = `package page
+
+component Home() {
+	{{ x := 1 }}
+	<div>{x}</div>
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	off := strings.Index(src, "x := 1") + len("x")
+	if _, ok := statementMemberItems(pkg, path, src, off, off, encUTF8, nil); ok {
+		t.Error("statementMemberItems ok=true at a non-`.` cursor")
+	}
+
+	synth, _ := buildSyntheticPackage(t, "package p\n\nvar x = 1\n")
+	if synth.SourceIndex != nil {
+		t.Fatal("synthetic package unexpectedly has a SourceIndex")
+	}
+	if _, ok := statementMemberItems(synth, "p.go", "x.Y", 2, 2, encUTF8, nil); ok {
+		t.Error("statementMemberItems ok=true with a nil SourceIndex")
+	}
+
+	if _, ok := statementMemberItems(nil, "p.go", "x.Y", 2, 2, encUTF8, nil); ok {
+		t.Error("statementMemberItems ok=true with a nil pkg")
+	}
+}
+
+// TestGoCompletionItemsStatementMemberDispatch drives goCompletionItems itself
+// (not statementMemberItems directly) to pin the WIRING: with skel=nil and
+// statementCtx=true at a `.`-cursor, the statement member path is tried after
+// the (no-op, skel-nil) skeleton member path and BEFORE the scope+keyword
+// fallback — the returned items are members only, never scope locals or Go
+// keywords, exactly like the skeleton member path's existing "committed even
+// when empty, no scope fallback" contract.
+func TestGoCompletionItemsStatementMemberDispatch(t *testing.T) {
+	const src = `package page
+
+type User struct {
+	Name string
+	Age  int
+}
+
+component Home(user User) {
+	{{ _ = user.Name }}
+}
+`
+	pkg, path := analyzedLSPPackage(t, src)
+	nameOff := strings.Index(src, "user.Name") + len("user.")
+
+	items := goCompletionItems(pkg, pkg.Types.Scope(), nil, token.NoPos, true, nil, src, nameOff, nameOff, encUTF8, path, nil)
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("goCompletionItems statement-member dispatch missing %q; labels=%v", name, labels)
+		}
+	}
+	for _, unwanted := range []string{"user", "return", "if", "for"} {
+		if labels[unwanted] {
+			t.Errorf("goCompletionItems statement-member dispatch leaked scope/keyword item %q; labels=%v", unwanted, labels)
+		}
 	}
 }

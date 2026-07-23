@@ -43,6 +43,7 @@ import (
 	_gsxio "io"
 )
 
+//line input.gsx:9:1
 func pick(c string) (string, error) {
 	if c == "" {
 		return "", errors.New("pick: empty input")

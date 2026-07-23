@@ -44,6 +44,7 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:5:1*/
 var X = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
@@ -53,7 +54,7 @@ var X = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 //line input.gsx:8:3
 	_gsxgw.S("<p>This is a test component.</p></div>")
 	return _gsxgw.Err()
-})
+}) /*line input.gsx:10:2*/
 
 func local() gsx.Node {
 	n := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
@@ -61,7 +62,7 @@ func local() gsx.Node {
 //line input.gsx:13:7
 		_gsxgw.S("<em>another component</em>")
 		return _gsxgw.Err()
-	})
+	}) /*line input.gsx:13:33*/
 	return n
 }
 

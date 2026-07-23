@@ -38,6 +38,7 @@ func Page() _gsxrt.Node {
 	})
 }
 
+//line input.gsx:7:1
 func load() (string, error) { return "</script>", nil }
 -- render.golden --
 <script>const d = "\u003c/script\u003e";</script>

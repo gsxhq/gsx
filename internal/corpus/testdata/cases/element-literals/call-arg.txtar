@@ -56,12 +56,14 @@ func _gsxrenderFoo(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer) error {
 	return _gsxgw.Err()
 }
 
+/*line input.gsx:5:2*/
+
 var wrapped = Wrap(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:20
 	_gsxgw.NodeResult(_gsxrenderFoo(ctx, _gsxgw))
 	return _gsxgw.Err()
-}))
+}) /*line input.gsx:7:26*/)
 
 //line input.gsx:9:1
 func Uses() _gsxrt.Node {

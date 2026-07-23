@@ -23,6 +23,8 @@ import (
 	_gsxio "io"
 )
 
+/*line input.gsx:1:13*/
+
 var X = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
@@ -30,6 +32,6 @@ var X = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 //line input.gsx:5:3
 	_gsxgw.S("<b>hi</b></div>")
 	return _gsxgw.Err()
-})
+}) /*line input.gsx:7:2*/
 
 var _ = X
