@@ -135,30 +135,53 @@ func undefinedQualifier(eph *Package, path string, nameEnd int) bool {
 	return !resolved
 }
 
-// importEditFor builds a NARROW TextEdit that adds importPath to text's import
-// region, in ORIGINAL-document coordinates, for a completion item's
+// importEditPrep is the buffer-level state a candidate import path's edit is
+// built from: the parse and the import-chunk region depend only on text, not
+// on which path is being added. prepareImportEdit computes it ONCE per
+// completion request; apply then does the cheap per-path work
+// (AddChunkImports + the prefix/suffix diff) for each candidate, so a request
+// offering N unimported packages/paths re-parses the buffer once instead of N
+// times.
+type importEditPrep struct {
+	text       string
+	chunkStart int
+	oldSrc     string
+	enc        encoding
+}
+
+// prepareImportEdit parses text and locates its import-chunk region — see
+// importEditFor's doc for the overall contract this feeds. ok=false means no
+// candidate path in the caller's loop can produce an edit (the buffer does not
+// parse, or there is no place to put imports), so the loop can be skipped
+// entirely.
+func prepareImportEdit(text string, enc encoding) (importEditPrep, bool) {
+	fset := token.NewFileSet()
+	file, err := gsxparser.ParseFile(fset, "buffer.gsx", text, 0)
+	if file == nil || err != nil {
+		return importEditPrep{}, false
+	}
+	chunkStart, oldSrc, ok := importChunkRegion(file, fset, text)
+	if !ok {
+		return importEditPrep{}, false
+	}
+	return importEditPrep{text: text, chunkStart: chunkStart, oldSrc: oldSrc, enc: enc}, true
+}
+
+// apply builds importPath's NARROW TextEdit against the state prepareImportEdit
+// already computed, in ORIGINAL-document coordinates, for a completion item's
 // AdditionalTextEdits. It reuses the gsxfmt import primitives (importTargetChunk
 // + addChunkImports) but — unlike the whole-document code-action edit, which
 // would illegally overlap the completion's own textEdit — emits only the minimal
 // changed byte range (a common-prefix/suffix diff of the target chunk), which
 // always lies at or above the import region and strictly before the cursor.
 //
-// ok=false means no edit is needed or possible: the path is already imported
-// (addChunkImports is a no-op), the buffer does not parse, there is no place to
-// put imports, or the computed edit would reach at or past cursorStart (a
-// safety net against overlapping the completion edit — never expected, since the
-// import region is above the cursor, but enforced rather than assumed).
-func importEditFor(text, importPath string, cursorStart int, enc encoding) (TextEdit, bool) {
-	fset := token.NewFileSet()
-	file, err := gsxparser.ParseFile(fset, "buffer.gsx", text, 0)
-	if file == nil || err != nil {
-		return TextEdit{}, false
-	}
-	chunkStart, oldSrc, ok := importChunkRegion(file, fset, text)
-	if !ok {
-		return TextEdit{}, false
-	}
-	newSrc, changed := gsxfmt.AddChunkImports(oldSrc, importPath)
+// ok=false means no edit is needed or possible: importPath is already imported
+// (AddChunkImports is a no-op), or the computed edit would reach at or past
+// cursorStart (a safety net against overlapping the completion edit — never
+// expected, since the import region is above the cursor, but enforced rather
+// than assumed).
+func (p importEditPrep) apply(importPath string, cursorStart int) (TextEdit, bool) {
+	newSrc, changed := gsxfmt.AddChunkImports(p.oldSrc, importPath)
 	if !changed {
 		return TextEdit{}, false
 	}
@@ -167,20 +190,32 @@ func importEditFor(text, importPath string, cursorStart int, enc encoding) (Text
 	// re-adds it from a blank-before flag in the normal formatter flow — a step
 	// this direct call bypasses). Restore the chunk's original leading whitespace
 	// so the common-prefix diff below keeps the package-clause separator intact.
-	newSrc = restoreLeadingWhitespace(oldSrc, newSrc)
+	newSrc = restoreLeadingWhitespace(p.oldSrc, newSrc)
 	// Narrow to the minimal changed span: shared prefix/suffix bytes are
 	// untouched, so the edit replaces only the differing middle.
-	p := commonPrefixLen(oldSrc, newSrc)
-	s := commonSuffixLen(oldSrc[p:], newSrc[p:])
-	editStart := chunkStart + p
-	editEnd := chunkStart + len(oldSrc) - s
+	pfx := commonPrefixLen(p.oldSrc, newSrc)
+	sfx := commonSuffixLen(p.oldSrc[pfx:], newSrc[pfx:])
+	editStart := p.chunkStart + pfx
+	editEnd := p.chunkStart + len(p.oldSrc) - sfx
 	if editEnd > cursorStart {
 		return TextEdit{}, false // would overlap the completion edit; refuse
 	}
 	return TextEdit{
-		Range:   rangeForSpan(text, editStart, editEnd, enc),
-		NewText: newSrc[p : len(newSrc)-s],
+		Range:   rangeForSpan(p.text, editStart, editEnd, p.enc),
+		NewText: newSrc[pfx : len(newSrc)-sfx],
 	}, true
+}
+
+// importEditFor is the single-path convenience wrapper over
+// prepareImportEdit+apply: parse once, apply once. Candidate LOOPS (Option
+// 1's per-path paths, Option 2's per-package paths) call prepareImportEdit
+// once and apply per candidate instead, so the parse is not repeated.
+func importEditFor(text, importPath string, cursorStart int, enc encoding) (TextEdit, bool) {
+	p, ok := prepareImportEdit(text, enc)
+	if !ok {
+		return TextEdit{}, false
+	}
+	return p.apply(importPath, cursorStart)
 }
 
 // importChunkRegion locates the byte region of text that holds (or should hold)
@@ -272,9 +307,16 @@ func (s *Server) unimportedQualifierItems(dir, path, text, qualifier string, sta
 	if len(paths) == 0 {
 		return nil
 	}
+	// Hoisted: the parse + import-chunk lookup don't depend on which path is
+	// being added, so they run ONCE for the whole candidate loop below instead
+	// of once per path.
+	prep, ok := prepareImportEdit(text, s.enc)
+	if !ok {
+		return nil
+	}
 	var items []CompletionItem
 	for _, importPath := range paths {
-		edit, ok := importEditFor(text, importPath, start, s.enc)
+		edit, ok := prep.apply(importPath, start)
 		if !ok {
 			continue
 		}
@@ -305,12 +347,20 @@ func (s *Server) packageNameItems(dir, text, prefix string, start, end int) []Co
 	if prefix == "" {
 		return nil
 	}
+	// Hoisted: the parse + import-chunk lookup don't depend on which package is
+	// being added, so they run ONCE for the whole candidate loop below instead
+	// of once per package (the loop can range over ~1000 std packages before
+	// the prefix filter narrows it).
+	prep, ok := prepareImportEdit(text, s.enc)
+	if !ok {
+		return nil
+	}
 	var items []CompletionItem
 	for _, pkg := range s.analyzer.ImportablePackages(dir) {
 		if !strings.HasPrefix(pkg.Name, prefix) {
 			continue
 		}
-		edit, ok := importEditFor(text, pkg.Path, start, s.enc)
+		edit, ok := prep.apply(pkg.Path, start)
 		if !ok {
 			continue
 		}

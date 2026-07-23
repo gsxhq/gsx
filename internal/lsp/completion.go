@@ -129,22 +129,34 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 	// same identifier the file already has is redundant and would shadow it (e.g.
 	// os/user's `user` over a local `user`).
 	if start == 0 || text[start-1] != '.' {
-		existing := make(map[string]bool, len(items))
-		for _, it := range items {
-			existing[it.Label] = true
-		}
-		for _, pk := range s.packageNameItems(dir, text, text[start:end], start, end) {
-			if existing[pk.Label] {
-				continue
-			}
-			items = append(items, pk)
-		}
+		items = mergePackageNameItems(items, s.packageNameItems(dir, text, text[start:end], start, end))
 	}
 
 	if len(items) == 0 {
 		return emptyCompletion()
 	}
 	return CompletionList{IsIncomplete: false, Items: items}
+}
+
+// mergePackageNameItems appends pkgItems (unimported package-name candidates,
+// Option 2) to items (the in-scope names/members/keywords already offered),
+// skipping any candidate whose Label collides with one already present. A
+// package whose name already names an in-scope item (a local, a package-scope
+// decl, an imported package) is skipped: offering an import that produces the
+// same identifier the file already has is redundant and would shadow it (e.g.
+// os/user's package name `user` over a local `user`).
+func mergePackageNameItems(items, pkgItems []CompletionItem) []CompletionItem {
+	existing := make(map[string]bool, len(items))
+	for _, it := range items {
+		existing[it.Label] = true
+	}
+	for _, pk := range pkgItems {
+		if existing[pk.Label] {
+			continue
+		}
+		items = append(items, pk)
+	}
+	return items
 }
 
 func emptyCompletion() CompletionList {
