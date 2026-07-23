@@ -615,6 +615,104 @@ func TestPipeStageEmptyCompletionE2E(t *testing.T) {
 	}
 }
 
+// TestPipeStageUnclosedCompletionE2E is TestPipeStageEmptyCompletionE2E's
+// no-autopair sibling: `{ user.Name |> ▮` with NO closing `}` at all (the
+// real editing flow when the client does not autopair braces — see the probe
+// that found this gap on the real one-learning project). Before the "_}"
+// repair patch this returned zero items outright (repairAtCursor found
+// nothing in its patch list that could close a bare body interpolation);
+// with it, the same filter table as the closed-buffer case is offered.
+func TestPipeStageUnclosedCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	extra := map[string]string{"page/types.go": "package page\n\ntype User struct{ Name string }\n"}
+	source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name |> \n</div>\n}\n"
+	cursor := strings.Index(source, "|> ") + len("|> ")
+	items := runHTMLCompletionE2E(t, extra, source, cursor)
+	if len(items) == 0 {
+		t.Fatal("unclosed empty pipe-stage completion returned zero items")
+	}
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"upper", "urlquery"} {
+		if !labels[name] {
+			t.Errorf("unclosed pipe-stage completion missing filter %q; labels=%v", name, labels)
+		}
+	}
+}
+
+// TestGoMemberCompletionUnclosedE2E is TestGoMemberCompletionE2E's
+// no-autopair sibling: `{ user.▮` with NO closing `}` — the real typing flow
+// this bugfix targets. Before the "}" repair patch, repairAtCursor's patch
+// list had no closer for a bare body interpolation, so repair failed
+// outright and completion returned zero items regardless of what followed
+// the dot. With the patch, the buffer heals exactly like the already-closed
+// `{ user.▮ }` case (TestGoMemberCompletionE2E's "trailing-dot" scenario).
+func TestGoMemberCompletionUnclosedE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	extra := map[string]string{"page/types.go": "package page\n\ntype User struct {\n\tName string\n\tAge  int\n}\n"}
+	source := "package page\n\ncomponent Home(user User) {\n\t<div>{ user.\n</div>\n}\n"
+	cursor := strings.Index(source, "user.") + len("user.")
+	items := runHTMLCompletionE2E(t, extra, source, cursor)
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, name := range []string{"Name", "Age"} {
+		if !labels[name] {
+			t.Errorf("unclosed trailing-dot member %q missing; labels=%v", name, labels)
+		}
+	}
+	if labels["user"] {
+		t.Errorf("member position must not offer scope locals; got `user`: %v", labels)
+	}
+}
+
+// TestAutoImportCompletionUnclosedE2E is TestAutoImportCompletionE2E's
+// no-autopair sibling: `{ strconv.▮` with NO closing `}`, strconv unimported.
+// This is the exact probe-confirmed scenario from the real one-learning
+// project (badge.gsx) that motivated this fix. Before the "}" repair patch
+// this returned zero items; with it, the unimported-qualifier auto-import
+// path fires exactly as it does for the closed-buffer case, offering
+// strconv's exported symbols with an import edit.
+func TestAutoImportCompletionUnclosedE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	source := "package page\n\ncomponent Home() {\n\t<div>{ strconv.\n</div>\n}\n"
+	cursor := strings.Index(source, "strconv.") + len("strconv.")
+	items := runHTMLCompletionE2E(t, nil, source, cursor)
+	var itoa *lsp.CompletionItem
+	for i := range items {
+		if items[i].Label == "Itoa" {
+			itoa = &items[i]
+		}
+	}
+	if itoa == nil {
+		labels := map[string]bool{}
+		for _, it := range items {
+			labels[it.Label] = true
+		}
+		t.Fatalf("unclosed unimported `strconv.` did not offer Itoa; labels=%v (%d items)", labels, len(items))
+	}
+	if len(itoa.AdditionalTextEdits) != 1 {
+		t.Fatalf("Itoa AdditionalTextEdits = %d, want 1 (the import)", len(itoa.AdditionalTextEdits))
+	}
+	all := append([]lsp.TextEdit{*itoa.TextEdit}, itoa.AdditionalTextEdits...)
+	got := applyLSPEdits(source, all)
+	if !strings.Contains(got, "import \"strconv\"") {
+		t.Errorf("applied doc missing import \"strconv\":\n%s", got)
+	}
+	if !strings.Contains(got, "strconv.Itoa") {
+		t.Errorf("applied doc missing strconv.Itoa:\n%s", got)
+	}
+}
+
 // TestPipeStageTypedNarrowingE2E drives the typed pipe-filter compatibility
 // filtering end to end: at `{ user.Age |> ▮ }` the incoming type is int, so
 // string-subject filters (upper) are withheld while the any-subject printf and

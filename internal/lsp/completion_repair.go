@@ -12,7 +12,7 @@ import (
 // repairResult is the buffer completion analyzes, plus what was done to it.
 type repairResult struct {
 	src    []byte         // patched bytes (== live buffer when patch == "")
-	patch  string         // inserted at off (see completionPatches): "", "_", "/>", "\"/>", "\"\"/>", "}/>", "_/>"
+	patch  string         // inserted at off (see completionPatches): "", "_", "}", "_}", "/>", "\"/>", "\"\"/>", "}/>", "_/>"
 	parsed *gsxast.File   // parse of src (nil only when unrepairable)
 	fset   *token.FileSet // resolves parsed's positions
 }
@@ -20,6 +20,28 @@ type repairResult struct {
 // completionPatches is the closed, ordered repair set. Each is tried by
 // inserting at the cursor and reparsing; the first parse wins. Bytes before
 // the cursor are never modified, so every client-visible offset survives.
+//
+// "}" closes an UNCLOSED body interpolation with no autopaired brace — a
+// trailing-member cursor (`{ strconv.▮`, `{ user.▮`) or a bare/prefixed ident
+// (`{ us▮`) with nothing after it. Both shapes parse as gsx once the brace
+// closes (a trailing-dot selector is itself a valid, if incomplete, Go
+// expression to the gsx grammar; completion.go's separate trailing-dot
+// phantom then heals the resulting skeleton's broken selector, same as the
+// already-closed case). It sits right after "_" — before any of the
+// tag/attr-value closers — because it is purely a body-interp heal: inside an
+// open tag (an ExprAttr value, `class={x▮`) a lone `}` still leaves the tag
+// itself unclosed and fails to parse (verified), so it never preempts the
+// "}/>" case below regardless of order; ordering it early just keeps the
+// common body-interp path short.
+//
+// "_}" closes an UNCLOSED empty pipe stage (`{ x |> ▮`, no autopaired brace):
+// a bare `}` right after `|> ` is rejected as an empty pipeline stage, so a
+// placeholder identifier is required, exactly as the tag-closer reasoning
+// below. It must come after "}" (a plain `}` never falsely wins here — the
+// empty-stage error keeps it from parsing at all) and it also independently
+// heals the same trailing-member/bare-ident shapes "}" already heals, so its
+// position relative to "}" only matters for the pipe case; putting it right
+// after "}" keeps both single-purpose-brace patches adjacent.
 //
 // "_/>" is last: a phantom tag-name closer for a bare `<▮` or a qualified
 // `<pkg.▮` with nothing typed after the dot — neither has any typed text a
@@ -34,7 +56,7 @@ type repairResult struct {
 // simpler `/>` patch alone — `<div cl` + "_/>" would parse too (as attribute
 // `cl_`), but that muddies the present-attr-name reasoning downstream, so the
 // plain `/>` heal (attribute `cl`) must keep winning.
-var completionPatches = []string{"", "_", "/>", "\"/>", "\"\"/>", "}/>", "_/>"}
+var completionPatches = []string{"", "_", "}", "_}", "/>", "\"/>", "\"\"/>", "}/>", "_/>"}
 
 // repairAtCursor parses text; on failure tries a closed, ordered patch list
 // inserted at off, first parse wins. Deterministic; never touches bytes before

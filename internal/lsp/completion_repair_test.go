@@ -31,6 +31,19 @@ func TestRepairAtCursor(t *testing.T) {
 		// value (`x/>`) is also rejected by gsx.
 		{"dangling equals", "package p\n\ncomponent C() {\n\t<div class=§\n}\n", "\"\"/>", true},
 		{"unclosed expr attr", "package p\n\ncomponent C() {\n\t<div class={x§\n}\n", "}/>", true},
+		// Unclosed body interpolations: the no-autopair typing flow (no
+		// closing `}` at all yet). "}" closes the brace; the trailing-dot
+		// selector (an incomplete but valid Go expression to the gsx grammar)
+		// and the bare/prefixed identifier both parse clean once the brace
+		// closes — same shape as the already-closed cases above, just without
+		// their trailing " }".
+		{"unclosed member trailing dot", "package p\n\ncomponent C() {\n\t<div>{ strconv.§\n</div>\n}\n", "}", true},
+		{"unclosed member trailing dot (local)", "package p\n\ncomponent C() {\n\t<div>{ user.§\n</div>\n}\n", "}", true},
+		{"unclosed plain ident prefix", "package p\n\ncomponent C() {\n\t<div>{ us§\n</div>\n}\n", "}", true},
+		// Unclosed empty pipe stage: a lone "}" right after `|> ` is rejected
+		// as an empty pipeline stage, so the placeholder-identifier "_}" patch
+		// is required (mirrors the closed-buffer "_" case above).
+		{"unclosed empty pipe stage", "package p\n\ncomponent C() {\n\t<div>{ x |> §\n</div>\n}\n", "_}", true},
 		{"unrepairable", "package p\n\ncomponent C() {\n\t<§<<%%\n}\n", "", false},
 	}
 	for _, tc := range cases {
