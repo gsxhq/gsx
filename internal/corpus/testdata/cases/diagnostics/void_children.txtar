@@ -1,0 +1,12 @@
+# A void element with children has no valid HTML meaning in ANY serialization
+# mode: content can't live inside <br>, and silently relocating or dropping it
+# would hide an authoring mistake. Hard error. (An EMPTY close pair <br></br>
+# is NOT an error — canonical mode collapses it; see elements/void_canonical.)
+-- input.gsx --
+package views
+
+component Bad() {
+	<p><br>text</br></p>
+}
+-- diagnostics.golden --
+4:5: void element <br> cannot have children

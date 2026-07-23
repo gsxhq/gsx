@@ -1,0 +1,11 @@
+# Same diagnostic through the manual-spread tail (emitManualSpreadElement).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Bad(attrs gsx.Attrs) {
+	<img { attrs... }>caption</img>
+}
+-- diagnostics.golden --
+6:2: void element <img> cannot have children

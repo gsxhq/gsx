@@ -1293,6 +1293,11 @@ func hasAttrsMethodSet(t types.Type) bool {
 // elements). Verbatim mode reproduces the authored shape byte-for-byte.
 func emitOpenTagEnd(b *bytes.Buffer, el *ast.Element, verbatim bool, bag *diag.Bag) (complete, ok bool) {
 	if voidElementNames[el.Tag] {
+		if len(el.Children) > 0 {
+			bag.Errorf(el.Pos(), el.End(), "void-children",
+				"void element <%s> cannot have children", el.Tag)
+			return false, false
+		}
 		if verbatim {
 			if el.Void {
 				emitS(b, "/>")
