@@ -2,6 +2,8 @@ package gen
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,6 +23,19 @@ import (
 
 	"github.com/gsxhq/gsx/internal/diag"
 )
+
+// genDevToken returns a random 16-byte value hex-encoded (32 chars). runDev
+// generates one per process and passes it to its managed vite child via
+// GSX_DEV_TOKEN so front-door respawn verification (see verifyFrontDoor) can
+// tell "our vite" apart from another gsx project's vite racing onto the same
+// freed port during backoff.
+func genDevToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating dev token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
 
 // runDev owns the dev loop: it generates (warm Module), builds+runs the Go
 // server, supervises Vite, watches sources + .env, and drives the browser. It
@@ -120,15 +136,27 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	reportHardErrors(gsxOut, publishedStartup)
 
 	// --- Vite (front door), unless --no-web ---
+	// devToken pairs gsx dev with the vite it spawns: only the vite child's
+	// env carries it (the Go server's env/srv.env is untouched — it has no
+	// use for it, keeping the separation tidy). --no-web / externally-run
+	// vite never receives it, so pollCommands sending the header below is
+	// harmless there too (an untokened plugin ignores the request header and
+	// keeps stamping "1").
+	devToken, err := genDevToken()
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+		return 1
+	}
 	fdCh := make(chan frontStat, 8)
 	if dc.web != nil {
 		spawn := func() (*exec.Cmd, error) {
 			c := exec.Command(dc.web[0], dc.web[1:]...)
-			c.Dir, c.Env, c.Stdout, c.Stderr = workDir, env, mkWriter("vite"), mkWriter("vite")
+			c.Dir, c.Stdout, c.Stderr = workDir, mkWriter("vite"), mkWriter("vite")
+			c.Env = append(slices.Clone(env), "GSX_DEV_TOKEN="+devToken)
 			setProcGroup(c)
 			return c, c.Start()
 		}
-		fd = newFrontDoor(spawn, viteURL, func(s frontStat) {
+		fd = newFrontDoor(spawn, viteURL, devToken, func(s frontStat) {
 			select {
 			case fdCh <- s:
 			default: // never block the monitor on a full channel
@@ -141,7 +169,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 
 	cmds := make(chan string, 8)
-	go pollCommands(ctx, viteURL, webUp, cmds)
+	go pollCommands(ctx, viteURL, devToken, webUp, cmds)
 
 	// --- Go server: initial build + run ---
 	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}

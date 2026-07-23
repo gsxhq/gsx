@@ -81,8 +81,10 @@ import "virtual:gsx-devpanel";
 `vite.config.ts`: `gsx({ devPanel: false })` or
 `gsx({ devPanel: { key: "k" } })`.
 
-If Vite crashes, `gsx dev` restarts it automatically — refresh any tabs that
-were already open.
+If Vite crashes, `gsx dev` restarts it automatically and pairs with the new
+process before trusting it again (needs a plugin new enough to echo that
+pairing back — older plugins just suspend reload/overlay pushes instead) —
+refresh any tabs that were already open.
 
 ## Customize the commands
 

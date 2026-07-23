@@ -13,7 +13,13 @@ import (
 // out. up gates polling exactly like browser pushes: while the front door is
 // down/unverified, no requests are made. Transport errors back off 1s→2s→5s
 // (reset on success). Returns when ctx is done.
-func pollCommands(ctx context.Context, base string, up func() bool, out chan<- string) {
+//
+// token is sent as the x-gsx-token request header on every attempt. When the
+// front door's plugin has a GSX_DEV_TOKEN configured it requires this header
+// to match before releasing anything from the mailbox (else 403, without
+// draining it); when unconfigured (externally-run vite, --no-web) the plugin
+// ignores the header entirely, so sending it is always safe.
+func pollCommands(ctx context.Context, base, token string, up func() bool, out chan<- string) {
 	if strings.HasPrefix(base, "/") || base == "" {
 		return
 	}
@@ -38,6 +44,7 @@ func pollCommands(ctx context.Context, base string, up func() bool, out chan<- s
 		if err != nil {
 			return
 		}
+		req.Header.Set("x-gsx-token", token)
 		resp, err := client.Do(req)
 		if err != nil {
 			if !sleep(backoff) {

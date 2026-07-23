@@ -11,13 +11,15 @@ import (
 )
 
 // frontDoor owns the managed vite child: it monitors exits, respawns with
-// backoff, verifies a respawn is really our plugin (x-gsx header) before
-// reopening the push/poll gate, and gives up on a crash loop. The first
-// instance opens the gate immediately (its port was vetted by portAvailable;
-// postBest retries cover the cold start).
+// backoff, verifies a respawn is really OUR vite (x-gsx echoes our token)
+// before reopening the push/poll gate, and gives up on a crash loop. The
+// first instance opens the gate immediately (its port was vetted by
+// portAvailable; postBest retries cover the cold start) — only respawns onto
+// a possibly-stolen port are re-verified.
 type frontDoor struct {
 	spawn     func() (*exec.Cmd, error)
 	verifyURL string
+	token     string // GSX_DEV_TOKEN passed to the spawned vite child; see verifyFrontDoor
 	onState   func(frontStat)
 	logw      io.Writer
 
@@ -52,26 +54,37 @@ func restartPolicy(rapidExits int) (time.Duration, bool) {
 	return 0, true
 }
 
-// verifyFrontDoor reports whether url is served by OUR vite plugin: the
-// /__gsx/cmd endpoint stamps x-gsx: 1 on every response. A foreign listener
-// (or vite's SPA fallback answering 200 for unknown paths) lacks it.
-func verifyFrontDoor(ctx context.Context, url string) bool {
+// verifyFrontDoor reports whether url is served by the vite THIS gsx dev
+// spawned. gsx dev passes a random per-process token to its vite child via
+// GSX_DEV_TOKEN; the plugin's /__gsx/cmd endpoint then stamps x-gsx with that
+// token instead of the plain "1" it uses when no token is configured (see
+// panel.ts). A respawn only verifies when the response's x-gsx header EQUALS
+// our token — merely being present isn't enough, since another gsx project's
+// vite could have raced onto the just-freed port during our backoff window
+// and would answer with ITS OWN token (or the untokened "1"), never ours.
+//
+// Compat: a managed front door running a plugin predating GSX_DEV_TOKEN
+// always echoes "1" and so never verifies here; gsx dev then degrades to the
+// pre-auto-restart suspend behavior for that respawn (see frontDoor's
+// give-up path) until the plugin is upgraded.
+func verifyFrontDoor(ctx context.Context, url, token string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/__gsx/cmd?wait=0", nil)
 	if err != nil {
 		return false
 	}
+	req.Header.Set("x-gsx-token", token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false
 	}
 	resp.Body.Close()
-	return resp.Header.Get("x-gsx") == "1"
+	return resp.Header.Get("x-gsx") == token
 }
 
-func newFrontDoor(spawn func() (*exec.Cmd, error), verifyURL string, onState func(frontStat), logw io.Writer) *frontDoor {
-	return &frontDoor{spawn: spawn, verifyURL: verifyURL, onState: onState, logw: logw, shutdownC: make(chan struct{})}
+func newFrontDoor(spawn func() (*exec.Cmd, error), verifyURL, token string, onState func(frontStat), logw io.Writer) *frontDoor {
+	return &frontDoor{spawn: spawn, verifyURL: verifyURL, token: token, onState: onState, logw: logw, shutdownC: make(chan struct{})}
 }
 
 // start launches the first instance and its supervisor. The gate opens
@@ -178,7 +191,7 @@ func (f *frontDoor) run(exited chan struct{}, started time.Time) {
 		} else {
 			// Never verified (foreign port owner, drifted port, or died during
 			// the window): kill it; the loop's <-exited counts it as rapid.
-			fmt.Fprintln(f.logw, "gsx dev: restarted front door did not verify (no x-gsx endpoint at its URL) — killing it")
+			fmt.Fprintln(f.logw, "gsx dev: restarted front door did not verify (no x-gsx echo of our token at its URL) — killing it")
 			f.mu.Lock()
 			cur, curExited := f.cmd, f.exited
 			f.mu.Unlock()
@@ -228,7 +241,7 @@ func (f *frontDoor) verifyRespawn(exited <-chan struct{}) bool {
 			return false
 		default:
 		}
-		if verifyFrontDoor(context.Background(), f.verifyURL) {
+		if verifyFrontDoor(context.Background(), f.verifyURL, f.token) {
 			return true
 		}
 		time.Sleep(250 * time.Millisecond)
