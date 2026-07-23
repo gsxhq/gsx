@@ -88,8 +88,11 @@ argument. Keep `build` and `run` pointed at the same binary.
 | `no_web` | `false` | Disable the front-end command. |
 | `host` | from `VITE_DEV_URL`, otherwise `localhost` | Hostname used in `VITE_DEV_URL`. |
 
-An existing `VITE_DEV_URL` can supply the hostname when `host` is unset. The
-port still comes from `VITE_PORT` or automatic selection.
+An existing `VITE_DEV_URL` can supply the hostname when `host` is unset. Port
+precedence: `VITE_PORT` wins, then a port in `VITE_DEV_URL`, then automatic
+selection. Either explicit form (`VITE_PORT` or a port in `VITE_DEV_URL`)
+fails loudly if already in use; only a fully port-less config auto-picks. If
+both are set and disagree, `VITE_PORT` wins and `gsx dev` logs a warning.
 
 Command-line flags override `[dev]`; `[dev]` overrides the defaults. See
 [`gsx dev`](./cli.md#gsx-dev) for one-off overrides.

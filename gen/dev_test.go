@@ -101,7 +101,7 @@ func TestDevTeardownAndRestart(t *testing.T) {
 	cmd.Env = devTestEnv(
 		"BROWSER=none",
 		"GO_PORT=7799",
-		"VITE_DEV_URL=http://127.0.0.1:1",
+		"VITE_DEV_URL=http://127.0.0.1",
 		"GOFLAGS=-mod=mod",
 	)
 	// gsx dev must run in its own process group so the group-SIGINT below only
@@ -218,7 +218,7 @@ func TestDevEnvPrecedence(t *testing.T) {
 	cmd.Env = devTestEnv(
 		"BROWSER=none",
 		"GO_PORT="+portB,
-		"VITE_DEV_URL=http://127.0.0.1:1",
+		"VITE_DEV_URL=http://127.0.0.1",
 		"GOFLAGS=-mod=mod",
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -414,7 +414,7 @@ func TestDevStopsPostingAfterWebExit(t *testing.T) {
 	cmd.Env = devTestEnv(
 		"BROWSER=none",
 		"GO_PORT=7811",
-		"VITE_DEV_URL=http://127.0.0.1:1",
+		"VITE_DEV_URL=http://127.0.0.1",
 		"GOFLAGS=-mod=mod",
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -545,12 +545,13 @@ func (b *lockedBuffer) String() string {
 // posts) and asserts restart-server restarts the Go server and status events
 // arrive.
 //
-// gsx dev resolves its own front-door URL (host from VITE_DEV_URL if given,
-// but the PORT always comes from VITE_PORT or its own auto-picker — a stale
-// VITE_DEV_URL must never pin a busy port, see resolveViteDevEnv). So the fake
-// plugin can't pre-bind an arbitrary port and pass it via VITE_DEV_URL: it
-// must learn the real resolved URL from gsx dev's own "watching … — open
-// <url>" banner and bind there, exactly like TestDevStopsPostingAfterWebExit.
+// gsx dev resolves its own front-door URL (host from VITE_DEV_URL if given;
+// the port from VITE_PORT, else VITE_DEV_URL's own port, else its
+// auto-picker — see resolveViteDevEnv). The env here deliberately gives
+// VITE_DEV_URL no port, so the fake plugin still can't pre-bind an arbitrary
+// port that way: it must learn the real resolved URL from gsx dev's own
+// "watching … — open <url>" banner and bind there, exactly like
+// TestDevStopsPostingAfterWebExit.
 func TestDevPanelCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test: requires building gsx and a live Go server")
@@ -583,7 +584,7 @@ func TestDevPanelCommands(t *testing.T) {
 	cmd.Env = devTestEnv(
 		"BROWSER=none",
 		"GO_PORT=7813",
-		"VITE_DEV_URL=http://127.0.0.1:1",
+		"VITE_DEV_URL=http://127.0.0.1",
 		"GOFLAGS=-mod=mod",
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -725,7 +726,7 @@ func TestDevPanelRebuildCommand(t *testing.T) {
 	cmd.Env = devTestEnv(
 		"BROWSER=none",
 		"GO_PORT=7825",
-		"VITE_DEV_URL=http://127.0.0.1:1",
+		"VITE_DEV_URL=http://127.0.0.1",
 		"GOFLAGS=-mod=mod",
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

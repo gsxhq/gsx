@@ -63,10 +63,13 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	// --- env + ports ---
 	env := mergeDotEnv(os.Environ(), loadDotEnv(workDir))
-	env, viteURL, err := resolveViteDevEnv(env, dc.host)
+	env, viteURL, warning, err := resolveViteDevEnv(env, dc.host)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
+	}
+	if warning != "" {
+		fmt.Fprintf(stderr, "gsx dev: %s\n", warning)
 	}
 	goPort := envPort(env, "GO_PORT", "7777")
 	healthURL := "http://localhost:" + goPort + "/healthz"
@@ -370,11 +373,15 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				envDirty = false
 				env = mergeDotEnv(os.Environ(), loadDotEnv(workDir))
 				var envErr error
-				env, viteURL, envErr = resolveViteDevEnv(env, dc.host)
+				var envWarning string
+				env, viteURL, envWarning, envErr = resolveViteDevEnv(env, dc.host)
 				if envErr != nil {
 					fmt.Fprintf(stderr, "gsx dev: %v\n", envErr)
 					overlayUp = true
 					continue
+				}
+				if envWarning != "" {
+					fmt.Fprintf(stderr, "gsx dev: %s\n", envWarning)
 				}
 				// Vite reads .env itself (loadEnv + native .env watch), so only the Go server is restarted here.
 				srv.env = env
