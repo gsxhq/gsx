@@ -1,16 +1,20 @@
 # serialization = "verbatim" restores authored-shape emission: a self-closed
-# non-void element ships as authored (the author owns the bytes and the
-# consequences — #144's default fix is the canonical mode).
+# non-void element ships as authored. NOTE the corpus compares renders
+# structurally (htmlStructuralDiff DOM-parses both sides), so this case pins
+# the mode via the #144 quirk itself: under verbatim, `<span/><b>` parses with
+# <b> nested INSIDE the span (browsers ignore the slash), while canonical
+# emission (`<span></span><b>`) keeps them siblings — different DOMs, so a
+# broken or dropped VerbatimTags wiring fails this case.
 -- gsx.toml --
 serialization = "verbatim"
 -- input.gsx --
 package views
 
 component Sep() {
-	<div><span role="separator"/></div>
+	<div><span role="separator"/><b>after</b></div>
 }
 -- invoke --
 Sep()
 -- diagnostics.golden --
 -- render.golden --
-<div><span role="separator"/></div>
+<div><span role="separator"/><b>after</b></div>
