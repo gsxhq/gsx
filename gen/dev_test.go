@@ -107,8 +107,9 @@ func TestDevTeardownAndRestart(t *testing.T) {
 	// gsx dev must run in its own process group so the group-SIGINT below only
 	// reaches gsx dev itself — not the test harness.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// Drain gsx dev output so its pipe never blocks.
-	cmd.Stdout = devNullWriter{}
+	// Capture stdout (asserted on below); drain stderr so its pipe never blocks.
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = devNullWriter{}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("gsx dev start: %v", err)
@@ -152,6 +153,12 @@ func TestDevTeardownAndRestart(t *testing.T) {
 		if !portListening("7799") {
 			// Port is free; reap gsx dev to avoid a zombie.
 			_ = cmd.Wait()
+			// The front-door-exit notice is for an UNEXPECTED exit (pushes get
+			// suspended); vite exiting because shutdown killed it is expected
+			// and must not print it.
+			if strings.Contains(stdout.String(), "front door exited") {
+				t.Errorf("intentional shutdown printed the front-door-exit notice\nstdout:\n%s", stdout.String())
+			}
 			return // clean teardown ✓
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -242,6 +249,35 @@ func TestKillProcGroupOwnedReapsViaExternalWaiter(t *testing.T) {
 	case <-done:
 	default:
 		t.Fatal("child not reaped after killProcGroupOwned returned")
+	}
+}
+
+// Once the owning monitor has reaped the child (done closed), its pid may have
+// been recycled by the OS to an unrelated process — killProcGroupOwned must not
+// signal it. The victim process group stands in for whoever received the
+// recycled pid: a Cmd whose recorded Process.Pid now belongs to the victim.
+func TestKillProcGroupOwnedSkipsReapedChild(t *testing.T) {
+	victim := exec.Command("sleep", "60")
+	setProcGroup(victim)
+	if err := victim.Start(); err != nil {
+		t.Fatal(err)
+	}
+	victimExited := make(chan struct{})
+	go func() { _ = victim.Wait(); close(victimExited) }()
+	defer func() {
+		_ = syscall.Kill(-victim.Process.Pid, syscall.SIGKILL)
+		<-victimExited
+	}()
+
+	reaped := &exec.Cmd{Process: &os.Process{Pid: victim.Process.Pid}}
+	done := make(chan struct{})
+	close(done)
+	killProcGroupOwned(reaped, done, 5*time.Second)
+
+	select {
+	case <-victimExited:
+		t.Fatal("killProcGroupOwned signaled a reaped child's pid: the unrelated process group holding the recycled pid was killed")
+	case <-time.After(500 * time.Millisecond):
 	}
 }
 

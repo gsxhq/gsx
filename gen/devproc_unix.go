@@ -33,6 +33,13 @@ func killProcGroupOwned(c *exec.Cmd, done <-chan struct{}, timeout time.Duration
 	if c == nil || c.Process == nil {
 		return
 	}
+	select {
+	case <-done:
+		// Already exited and reaped by the owning monitor: the pid may have
+		// been recycled to an unrelated process — do not signal it.
+		return
+	default:
+	}
 	pgid := c.Process.Pid // Setpgid made the child the group leader (pgid == pid)
 	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 	t := time.NewTimer(timeout)

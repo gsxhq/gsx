@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -106,6 +107,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// front door's Wait monitor; with --no-web the front door is externally
 	// managed, the channel never closes, and pushes always go out.
 	webExited := make(chan struct{})
+	var shuttingDown atomic.Bool // set before shutdown kills the front door
 	webUp := func() bool {
 		select {
 		case <-webExited:
@@ -131,11 +133,15 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			fmt.Fprintf(stderr, "gsx dev: starting front door: %v\n", err)
 			return 1
 		}
-		// Sole owner of vite.Wait (shutdown uses killProcGroupOwned).
+		// Sole owner of vite.Wait (shutdown uses killProcGroupOwned). Close the
+		// gate first so pushes stop the instant the exit is observed; the
+		// notice is for an unexpected exit only, not shutdown killing vite.
 		go func() {
 			_ = vite.Wait()
-			fmt.Fprintln(stdout, "gsx dev: front door exited — suspending browser reload/overlay pushes")
 			close(webExited)
+			if !shuttingDown.Load() {
+				fmt.Fprintln(stdout, "gsx dev: front door exited — suspending browser reload/overlay pushes")
+			}
 		}()
 	}
 
@@ -170,6 +176,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		fmt.Fprintf(stdout, "gsx dev: managing Go side only (no front door) — watching %s\n", workDir)
 	}
 	shutdownProcesses := func() {
+		shuttingDown.Store(true)
 		srv.stop()
 		if vite != nil {
 			killProcGroupOwned(vite, webExited, 5*time.Second)
