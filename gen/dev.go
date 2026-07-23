@@ -17,6 +17,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // runDev owns the dev loop: it generates (warm Module), builds+runs the Go
@@ -107,6 +109,12 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	post := func(body []byte) { postEvent(viteURL, body, webUp) }
 	reload := func() { postReload(viteURL, webUp) }
 
+	status := devStatus{Phase: "idle", Server: serverStat{Port: goPort}, FrontDoor: frontStat{State: "external"}}
+	if dc.web != nil {
+		status.FrontDoor.State = "up"
+	}
+	postStatus := func() { post(statusEvent(status)) }
+
 	publishedStartup := publishableStartupResults(startup)
 	post(aggregateEvent(publishedStartup))
 	reportHardErrors(gsxOut, publishedStartup)
@@ -132,6 +140,9 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		}
 	}
 
+	cmds := make(chan string, 8)
+	go pollCommands(ctx, viteURL, webUp, cmds)
+
 	// --- Go server: initial build + run ---
 	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
 	startOK := true
@@ -147,9 +158,12 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			post(buildErrorEvent(buildFailureMessage(out, err)))
 			startOK = false
 		} else if waitHealthy(ctx, healthURL, 10*time.Second) {
+			status.Server.Healthy = true
 			reload()
 		}
 	}
+	status.LastCycle = &cycleStat{OK: startOK, At: time.Now()}
+	postStatus()
 	// overlayUp: an error overlay is currently shown in the browser. A later
 	// successful cycle must reload to clear it even when nothing was written —
 	// still needed for build-error and .env recovery paths.
@@ -186,6 +200,80 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		})
 	}
 
+	// cycle runs one generate→build→reload pass over the current dirty set.
+	// force (set by the panel's "rebuild" command) rebuilds+reloads even when
+	// nothing is dirty on disk. Every exit path threads status/postStatus so
+	// the panel always reflects the outcome of the cycle it triggered.
+	cycle := func(force bool) {
+		if len(dirty.dirs) == 0 && !dirty.depDirty {
+			return
+		}
+		status.Phase = "generating"
+		results, goChanged, rerr := dirty.regenerate(sess.regenPending)
+		if rerr != nil {
+			fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
+			post(buildErrorEvent("regen failed: " + rerr.Error()))
+			overlayUp = true
+			status.Phase = "idle"
+			status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now()}
+			postStatus()
+			return // retained dirty state is retried on the next relevant event
+		}
+		// Overlay state from this cycle.
+		post(aggregateEvent(results))
+		reportHardErrors(gsxOut, results)
+		ok := true
+		wrote := false
+		errs := 0
+		for _, r := range results {
+			ok = ok && r.OK
+			wrote = wrote || len(r.Written) > 0 || len(r.Removed) > 0
+			for _, d := range r.Diags {
+				if d.Severity == diag.Error {
+					errs++
+				}
+			}
+		}
+		if !ok {
+			overlayUp = true
+			status.Phase = "idle"
+			status.LastCycle = &cycleStat{OK: false, Errors: errs, At: time.Now()}
+			postStatus()
+			return // keep last-good server up; overlay shows the error
+		}
+		// Successful cycle. Rebuild when code changed (or the panel forced it);
+		// reload the browser if we rebuilt OR we're recovering from a shown
+		// error overlay — the latter must clear even when nothing was written
+		// (fixed .gsx → identical .x.go).
+		doReload := overlayUp || force
+		if goChanged || wrote || force {
+			status.Phase = "building"
+			if out, err := srv.rebuild(ctx); err != nil {
+				post(buildErrorEvent(buildFailureMessage(out, err)))
+				overlayUp = true
+				status.Phase = "idle"
+				status.Server.Healthy = false
+				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now()}
+				postStatus()
+				return
+			}
+			status.Phase = "starting"
+			if waitHealthy(ctx, healthURL, 10*time.Second) {
+				doReload = true
+				status.Server.Healthy = true
+			} else {
+				status.Server.Healthy = false
+			}
+		}
+		if doReload {
+			reload()
+		}
+		overlayUp = false
+		status.Phase = "idle"
+		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now()}
+		postStatus()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -196,7 +284,31 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			shutdownProcesses()
 			return 0
 
-		case <-fdCh: // consumed for real in the status task
+		case c := <-cmds:
+			switch c {
+			case "rebuild":
+				fmt.Fprintln(stdout, "gsx dev: panel: rebuild")
+				dirty.depDirty = true
+				cycle(true)
+			case "restart-server":
+				fmt.Fprintln(stdout, "gsx dev: panel: restart-server")
+				status.Phase = "starting"
+				postStatus()
+				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
+					status.Server.Healthy = true
+					reload()
+				} else {
+					status.Server.Healthy = false
+				}
+				status.Phase = "idle"
+				postStatus()
+			default:
+				fmt.Fprintf(stderr, "gsx dev: unknown panel command %q\n", c)
+			}
+
+		case fs := <-fdCh:
+			status.FrontDoor = fs
+			postStatus()
 
 		case ev, ok := <-w.Events:
 			if !ok {
@@ -239,6 +351,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				// Vite reads .env itself (loadEnv + native .env watch), so only the Go server is restarted here.
 				srv.env = env
 				goPort = envPort(env, "GO_PORT", "7777")
+				status.Server.Port = goPort
 				healthURL = "http://localhost:" + goPort + "/healthz"
 				srv.healthURL = healthURL
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
@@ -247,46 +360,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				}
 				// fall through: an .env-only fire has no source dirtiness.
 			}
-			if len(dirty.dirs) == 0 && !dirty.depDirty {
-				continue
-			}
-			results, goChanged, rerr := dirty.regenerate(sess.regenPending)
-			if rerr != nil {
-				fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
-				post(buildErrorEvent("regen failed: " + rerr.Error()))
-				overlayUp = true
-				continue // retained dirty state is retried on the next relevant event
-			}
-			// Overlay state from this cycle.
-			post(aggregateEvent(results))
-			reportHardErrors(gsxOut, results)
-			ok := true
-			wrote := false
-			for _, r := range results {
-				ok = ok && r.OK
-				wrote = wrote || len(r.Written) > 0 || len(r.Removed) > 0
-			}
-			if !ok {
-				overlayUp = true
-				continue // keep last-good server up; overlay shows the error
-			}
-			// Successful cycle. Rebuild when code changed; reload the browser if we
-			// rebuilt OR we're recovering from a shown error overlay — the latter
-			// must clear even when nothing was written (fixed .gsx → identical .x.go).
-			doReload := overlayUp
-			if goChanged || wrote {
-				if out, err := srv.rebuild(ctx); err != nil {
-					post(buildErrorEvent(buildFailureMessage(out, err)))
-					overlayUp = true
-					continue
-				} else if waitHealthy(ctx, healthURL, 10*time.Second) {
-					doReload = true
-				}
-			}
-			if doReload {
-				reload()
-			}
-			overlayUp = false
+			cycle(false)
 
 		case werr, ok := <-w.Errors:
 			if !ok || errors.Is(werr, fsnotify.ErrClosed) {
