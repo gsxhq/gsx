@@ -1754,6 +1754,106 @@ func TestGoMemberStatementCompletionE2E(t *testing.T) {
 	})
 }
 
+// TestGoBlockUnclosedCompletionE2E is TestGoCompletionE2E/TestGoMemberStatementCompletionE2E's
+// no-autopair sibling for a `{{ }}` GoBlock: a completely UNCLOSED block, no
+// trailing `}}` at all — the real typing flow this bugfix targets (the user
+// report: `{{ user := Get▮`, package-local `GetUserInfoFromContext` offered).
+// Before the "_}}" repair patch (completion_repair.go) none of these healed:
+// repairAtCursor had no closer for a doubled `{{` brace, so completion
+// returned zero items across all three shapes below regardless of what
+// followed the cursor.
+func TestGoBlockUnclosedCompletionE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	extra := map[string]string{"page/types.go": "package page\n\ntype UserInfo struct {\n\tName  string\n\tEmail string\n}\n\n// GetUserInfoFromContext looks up the caller's UserInfo.\nfunc GetUserInfoFromContext(ctx int) UserInfo { return UserInfo{} }\n"}
+
+	// Shape 1 (the exact user report): a package-local function name typed as
+	// the RHS of a `:=`, no closing `}}` yet. Resolves via the ordinary scope
+	// path (goCompletionItems' scopeCandidates branch) at tierPackage (sort
+	// prefix "30"), same tier a closed-buffer `{{ user := Get }}` would use —
+	// pinning that the repair produces no different a result than the already-
+	// working closed shape.
+	t.Run("assignment rhs ident suffix", func(t *testing.T) {
+		source := "package page\n\ncomponent Home(cid int) {\n\t{{ user := Get\n}\n"
+		cursor := strings.Index(source, "Get") + len("Get")
+		items := runHTMLCompletionE2E(t, extra, source, cursor)
+		var got *lsp.CompletionItem
+		labels := map[string]bool{}
+		for i := range items {
+			labels[items[i].Label] = true
+			if items[i].Label == "GetUserInfoFromContext" {
+				got = &items[i]
+			}
+		}
+		if got == nil {
+			t.Fatalf("unclosed GoBlock completion missing package-local `GetUserInfoFromContext`; labels=%v", labels)
+		}
+		if !strings.HasPrefix(got.SortText, "30") {
+			t.Errorf("`GetUserInfoFromContext` SortText = %q, want tierPackage prefix \"30\"", got.SortText)
+		}
+		for _, kw := range []string{"if", "for", "return"} {
+			if !labels[kw] {
+				t.Errorf("unclosed GoBlock completion missing statement keyword %q; labels=%v", kw, labels)
+			}
+		}
+	})
+
+	// Shape 2: nothing at all follows `:=` yet — the ONE shape that needs the
+	// "_}}" patch's placeholder for a reason beyond convenience: a bare "}}"
+	// heal would leave the embedded statement `x := ` with no RHS, a Go SYNTAX
+	// error (not the merely-undefined-identifier kind shape 1 tolerates), so
+	// the ephemeral analysis would fail to resolve any scope at all without
+	// the placeholder.
+	t.Run("assignment rhs bare", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t{{ x := \n}\n"
+		cursor := strings.Index(source, "x := ") + len("x := ")
+		items := runHTMLCompletionE2E(t, extra, source, cursor)
+		if len(items) == 0 {
+			t.Fatal("unclosed bare-RHS GoBlock completion returned zero items")
+		}
+		labels := map[string]bool{}
+		for _, it := range items {
+			labels[it.Label] = true
+		}
+		if !labels["x"] {
+			t.Errorf("unclosed bare-RHS GoBlock completion missing local `x`; labels=%v", labels)
+		}
+		if !labels["if"] {
+			t.Errorf("unclosed bare-RHS GoBlock completion missing statement keyword `if`; labels=%v", labels)
+		}
+	})
+
+	// Shape 3 (the user's actual target flow): a two-statement block, first
+	// line complete and already bound (`user := GetUserInfoFromContext(cid)`),
+	// cursor on the SECOND line at a member position (`user.▮`), the whole
+	// block still unclosed. Resolves through statementMemberItems' SourceIndex
+	// path (completion_go.go) — the ephemeral analysis type-checks the WHOLE
+	// healed block as one statement list, so the first line's binding is live
+	// for the second line's member lookup exactly as real Go scoping requires.
+	// (The component parameter is named `cid`, not `ctx`: `ctx` is a gsx
+	// reserved identifier — completion_gsx.go's reserved-name check — and using
+	// it as a declared param name sinks the whole package to diagnostics-only,
+	// which was caught here as an initial false failure on this exact test.)
+	t.Run("two-line member after bound var", func(t *testing.T) {
+		source := "package page\n\ncomponent Home(cid int) {\n\t{{ user := GetUserInfoFromContext(cid)\n\tuser.\n}\n"
+		cursor := strings.LastIndex(source, "user.") + len("user.")
+		items := runHTMLCompletionE2E(t, extra, source, cursor)
+		labels := map[string]bool{}
+		for _, it := range items {
+			labels[it.Label] = true
+		}
+		for _, name := range []string{"Name", "Email"} {
+			if !labels[name] {
+				t.Errorf("two-line unclosed GoBlock member completion missing %q; labels=%v", name, labels)
+			}
+		}
+		if labels["user"] {
+			t.Errorf("member position must not offer scope locals; got `user`: %v", labels)
+		}
+	})
+}
+
 // assertNoGsxInternalLeak fails if any completion item, in ANY completion
 // response carried by output, has a label with the reserved `_gsx` prefix — the
 // generated-code internals (_gsxuse/_gsxcompsig/_gsxrt/_gsxbody/...) the

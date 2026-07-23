@@ -12,7 +12,7 @@ import (
 // repairResult is the buffer completion analyzes, plus what was done to it.
 type repairResult struct {
 	src    []byte         // patched bytes (== live buffer when patch == "")
-	patch  string         // inserted at off (see completionPatches): "", "_", "}", "_}", "/>", "\"/>", "\"\"/>", "}/>", "_/>"
+	patch  string         // inserted at off (see completionPatches): "", "_", "}", "_}", "_}}", "/>", "\"/>", "\"\"/>", "}/>", "_/>"
 	parsed *gsxast.File   // parse of src (nil only when unrepairable)
 	fset   *token.FileSet // resolves parsed's positions
 }
@@ -43,6 +43,69 @@ type repairResult struct {
 // position relative to "}" only matters for the pipe case; putting it right
 // after "}" keeps both single-purpose-brace patches adjacent.
 //
+// "_}}" closes an UNCLOSED `{{ }}` GoBlock — the no-autopair sibling of the
+// "}"/"_}" body-interp closers above, for a STATEMENT-position construct
+// instead of an expression one: `{{ user := Get▮` (no closing `}}` yet) parses
+// as gsx once the doubled brace closes, but the GoBlock's Code text feeds a
+// STATEMENT into the ephemeral skeleton (goCompletionBridge's CtrlMap/GoBlock
+// branch), which go/parser must accept as syntactically valid Go before any
+// scope resolves at all — an expression fragment tolerates a dangling
+// selector or a bare/prefixed identifier same as before, but a short variable
+// declaration with nothing after `:=` (`{{ x := ▮` closed bare as `x := }}`)
+// is a Go SYNTAX error, not the "undefined identifier" SEMANTIC error a
+// dangling `Get` produces — the parse of the embedded statement fails
+// outright and no scope is ever reached. "_}}" inserts a placeholder so the
+// statement always has a syntactically complete tail (`x := _`), which
+// go/types accepts as a value-less expression it can still error on
+// (semantically, `_` is not a legal operand — same "non-fatal" class of error
+// as an undefined identifier) while still resolving the scope at that
+// position.
+//
+// Only ONE new patch is needed, not a plain "}}" alongside it: parseGoBlock's
+// own pre-check (markup.go) is a brace/string-balance scan over the Code
+// text, never a Go-syntax check, so inserting the extra leading "_" ahead of
+// "}}" can only ever ADD an ordinary identifier byte — it can never turn a
+// gsx-parseable buffer unparseable, nor vice versa. "_}}" therefore parses at
+// the gsx level in EVERY case a bare "}}" would (verified empirically across
+// every shape below), which means a bare "}}" patch could never win the
+// first-clean-parse race against "_}}" if both were in the list — whichever
+// sorts first always wins, unconditionally, for every shape, making the
+// other dead. Adding "_}}" alone sidesteps that non-choice entirely: it is
+// simultaneously correct for the identifier-suffix shape above (the extra
+// trailing "_" merges into the typed prefix, e.g. `Get` becomes `Get_` in the
+// EMBEDDED skeleton statement only — harmless, since the scope-enumeration
+// path lists every visible object regardless of what the statement's own RHS
+// identifier resolves to; the completion token span itself is still computed
+// against the ORIGINAL, unpatched text) and for the bare-declaration shape
+// that needs the placeholder to parse as Go at all.
+//
+// It also heals a trailing-member GoBlock statement cursor (`{{ x.▮`,
+// `{{ user := GetUserInfoFromContext(ctx)\n\tuser.▮`): the SAME construct as
+// the closed-buffer trailing-dot case, just in statement position. Composes
+// with goContextCompletion's separate dot-phantom insertion (completion.go),
+// which fires independently on `text[off-1] == '.'` regardless of node kind
+// — traced: for `x.▮` the winning "_}}" patch already places `x._}}` at
+// repair time (Code becomes `x._`), then the dot-phantom's own `_` insertion
+// (guarded only on `r.patch != "_"`, which "_}}" is not) inserts a SECOND `_`
+// ahead of the first, landing on `x.__}}` (Code `x.__`) — a syntactically
+// valid double-underscore selector. This is redundant, not wrong: the
+// statement member path (statementMemberItems) resolves the receiver from
+// pkg.SourceIndex keyed on the AUTHORED byte immediately before the dot, not
+// from the Sel identifier's spelling, so neither insertion's exact text
+// matters, only that SOME valid selector name follows the dot so the
+// embedded statement parses. Left uncorrected deliberately — excluding "_}}"
+// from the dot-phantom guard would be an unforced, unverified special case
+// for a compose that is already proven harmless (TestGoMemberStatementCompletionE2E
+// et al. pass either way), and this codebase's stated principle is to not
+// add heuristics beyond what correctness requires.
+//
+// It sits right after "_}" (the last of the "closed"-style body-interp
+// closers) and before the tag/attr-value family: like "}"/"_}", it never
+// competes with them (a `{{ }}` GoBlock and a `<tag`/`attr=` region are
+// disjoint constructs), so its exact position relative to them is
+// immaterial; grouping it with the other statement/expression closers keeps
+// the list's ordering story simple to state.
+//
 // "_/>" is last: a phantom tag-name closer for a bare `<▮` or a qualified
 // `<pkg.▮` with nothing typed after the dot — neither has any typed text a
 // simple `/>` self-close can attach to (`</>`  and `<pkg./>` both still fail
@@ -56,7 +119,7 @@ type repairResult struct {
 // simpler `/>` patch alone — `<div cl` + "_/>" would parse too (as attribute
 // `cl_`), but that muddies the present-attr-name reasoning downstream, so the
 // plain `/>` heal (attribute `cl`) must keep winning.
-var completionPatches = []string{"", "_", "}", "_}", "/>", "\"/>", "\"\"/>", "}/>", "_/>"}
+var completionPatches = []string{"", "_", "}", "_}", "_}}", "/>", "\"/>", "\"\"/>", "}/>", "_/>"}
 
 // repairAtCursor parses text; on failure tries a closed, ordered patch list
 // inserted at off, first parse wins. Deterministic; never touches bytes before

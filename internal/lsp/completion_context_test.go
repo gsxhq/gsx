@@ -50,6 +50,14 @@ func TestClassifyCompletionContext(t *testing.T) {
 		{"unclosed interp trailing dot", "package p\n\ncomponent C(u U) {\n\t<div>{ u.§\n</div>\n}\n", ctxGoExpr},
 		{"unclosed interp plain ident", "package p\n\ncomponent C(x string) {\n\t<div>{ x§\n</div>\n}\n", ctxGoExpr},
 		{"unclosed pipe stage empty", "package p\n\ncomponent C(x string) {\n\t<div>{ x |> §\n</div>\n}\n", ctxPipeStage},
+		// Unclosed `{{ }}` GoBlocks (no autopaired closing brace, healed via the
+		// new "_}}" repair patch): a statement-position sibling of the unclosed
+		// interp cases above, still classifying ctxGoExpr through the CtrlMap/
+		// GoBlock nodeNavSpans span (completion_context.go's Rule 1+2 loop), same
+		// as the already-closed "goblock" case.
+		{"unclosed goblock ident suffix", "package p\n\ncomponent C() {\n\t{{ user := Get§\n}\n", ctxGoExpr},
+		{"unclosed goblock bare rhs", "package p\n\ncomponent C() {\n\t{{ x := §\n}\n", ctxGoExpr},
+		{"unclosed goblock member dot", "package p\n\ncomponent C() {\n\t{{ x.§\n}\n", ctxGoExpr},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
