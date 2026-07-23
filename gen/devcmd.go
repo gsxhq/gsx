@@ -46,18 +46,34 @@ func pollCommands(ctx context.Context, base string, up func() bool, out chan<- s
 			backoff = min(backoff*2, 5*time.Second)
 			continue
 		}
-		backoff = time.Second
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 		resp.Body.Close()
+		if resp.StatusCode == http.StatusNoContent {
+			backoff = time.Second
+			continue // idle long-poll: immediately re-poll
+		}
 		if resp.StatusCode != http.StatusOK {
-			continue // 204 idle poll (or transient non-200): immediately re-poll
+			// Any other non-200 (500, 404, ...) is a failure, not an idle
+			// poll: back off exactly like a transport error so an erroring
+			// server can't be busy-spun against.
+			if !sleep(backoff) {
+				return
+			}
+			backoff = min(backoff*2, 5*time.Second)
+			continue
 		}
 		var payload struct {
 			Cmds []string `json:"cmds"`
 		}
 		if json.Unmarshal(body, &payload) != nil {
+			// Malformed body on a 200: same backoff treatment as a failure.
+			if !sleep(backoff) {
+				return
+			}
+			backoff = min(backoff*2, 5*time.Second)
 			continue
 		}
+		backoff = time.Second
 		for _, c := range payload.Cmds {
 			select {
 			case out <- c:

@@ -76,16 +76,77 @@ func TestPollCommandsSuspendedWhileGateDown(t *testing.T) {
 
 func TestPollCommandsSurvivesServerDown(t *testing.T) {
 	// Nothing listens at base: pollCommands must keep retrying with backoff,
-	// not exit; and honor ctx cancellation promptly.
+	// not exit, and must return promptly on ctx cancellation even while
+	// blocked inside a backoff sleep. Sleeping 2.5s lets the backoff climb
+	// past the 1s tier into the 2s tier (1s -> 2s escalation) before we
+	// cancel, so this pins ctx-aware sleeping: a naive time.Sleep(backoff)
+	// implementation (ignoring ctx) would still be blocked well past the
+	// 500ms deadline below.
 	ctx, cancel := context.WithCancel(context.Background())
 	out := make(chan string, 1)
 	done := make(chan struct{})
 	go func() { pollCommands(ctx, "http://127.0.0.1:1", func() bool { return true }, out); close(done) }()
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(2500 * time.Millisecond)
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("pollCommands did not return after ctx cancel")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("pollCommands did not return within 500ms of ctx cancel (stuck in a non-ctx-aware backoff sleep?)")
+	}
+}
+
+// TestPollCommandsBackoffOnErrorResponses proves pollCommands throttles on
+// every kind of non-204 failure: HTTP error statuses (e.g. 500) and a 200
+// whose body isn't valid JSON. Neither must busy-spin; both must escalate
+// backoff exactly like a transport error.
+func TestPollCommandsBackoffOnErrorResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{
+			name: "500 status",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+		},
+		{
+			name: "200 with malformed JSON body",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("not json"))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				tc.handler(w, r)
+			}))
+			defer srv.Close()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			out := make(chan string, 1)
+			done := make(chan struct{})
+			go func() { pollCommands(ctx, srv.URL, func() bool { return true }, out); close(done) }()
+
+			time.Sleep(1200 * time.Millisecond)
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("pollCommands did not return after ctx cancel")
+			}
+
+			// Correct backoff (1s, then 2s, ...) yields roughly 2-3 requests
+			// in 1.2s: one immediately, one after the first 1s sleep. A
+			// busy-spinning implementation makes thousands.
+			if n := calls.Load(); n > 4 {
+				t.Errorf("polled %d times in 1.2s against a %s server; want <= 4 (busy-spin, no backoff applied)", n, tc.name)
+			}
+		})
 	}
 }
