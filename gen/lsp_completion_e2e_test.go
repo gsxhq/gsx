@@ -1968,6 +1968,47 @@ func TestAutoImportCompletionE2E(t *testing.T) {
 		}
 	})
 
+	// Option 1, statement position: `{{ strings. }}` (a GoBlock, not an Interp)
+	// where strings is unimported → ToUpper offered with an import edit, exactly
+	// as the expression-position `{ strings. }` case above. Auto-import's
+	// text-level qualifier/edit machinery is node-kind-agnostic, but the
+	// classifier routes GoBlock through a different rule (nodeNavSpans, not the
+	// Interp rule) — exercise it directly rather than relying on the expression
+	// case as a stand-in for every Go-expr context.
+	t.Run("statement position unimported qualifier", func(t *testing.T) {
+		source := "package page\n\ncomponent Home() {\n\t{{ strings. }}\n}\n"
+		cursor := strings.Index(source, "strings.") + len("strings.")
+		items := runHTMLCompletionE2E(t, nil, source, cursor)
+		var up *lsp.CompletionItem
+		for i := range items {
+			if items[i].Label == "ToUpper" {
+				up = &items[i]
+			}
+		}
+		if up == nil {
+			labels := map[string]bool{}
+			for _, it := range items {
+				labels[it.Label] = true
+			}
+			t.Fatalf("unimported statement-position `strings.` did not offer ToUpper; labels=%v", labels)
+		}
+		if len(up.AdditionalTextEdits) != 1 {
+			t.Fatalf("ToUpper AdditionalTextEdits = %d, want 1 (the import)", len(up.AdditionalTextEdits))
+		}
+		all := append([]lsp.TextEdit{*up.TextEdit}, up.AdditionalTextEdits...)
+		got := applyLSPEdits(source, all)
+		if !strings.Contains(got, "import \"strings\"") {
+			t.Errorf("applied doc missing import \"strings\":\n%s", got)
+		}
+		if !strings.Contains(got, "strings.ToUpper") {
+			t.Errorf("applied doc missing strings.ToUpper:\n%s", got)
+		}
+		fset := token.NewFileSet()
+		if f, err := gsxparser.ParseFile(fset, "page.gsx", got, 0); f == nil || err != nil {
+			t.Errorf("applied doc does not reparse: err=%v\n%s", err, got)
+		}
+	})
+
 	// Option 2: bare `{ fm }` offers the package name `fmt` at the bottom tier
 	// with an import edit.
 	t.Run("unimported package name", func(t *testing.T) {

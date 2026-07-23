@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -302,5 +303,93 @@ func TestPackageNameItemsEmptyPrefixSuppressed(t *testing.T) {
 	s := &Server{analyzer: a, enc: encUTF8}
 	if items := s.packageNameItems("dir", text, "", 40, 40); len(items) != 0 {
 		t.Errorf("empty prefix offered %d package names, want 0 (noise cap)", len(items))
+	}
+}
+
+// TestMergePackageNameItemsSuppressesShadow pins completion.go's shadow-
+// suppression path (goContextCompletion, ~131-142): a package whose declared
+// name collides with an identifier already in scope must NOT be offered as an
+// import candidate, since accepting it would produce the exact identifier the
+// file already has, silently shadowing the existing binding rather than
+// introducing a new one. os/user is the paradigm case — its package name is
+// `user`, a common local/parameter identifier.
+func TestMergePackageNameItemsSuppressesShadow(t *testing.T) {
+	text := "package page\n\ncomponent Home(user User) {\n\t<div>{ us }</div>\n}\n"
+	start := strings.Index(text, "{ us }") + len("{ ")
+	end := start + len("us")
+
+	a := autoImportAnalyzer{
+		packages: []ImportablePackage{
+			{Name: "user", Path: "os/user"},    // shadows the in-scope `user` param
+			{Name: "usage", Path: "pkg/usage"}, // distinct name: not a shadow
+		},
+	}
+	s := &Server{analyzer: a, enc: encUTF8}
+
+	// Sanity: os/user surfaces as a raw candidate from packageNameItems alone —
+	// the suppression is the CALLER's job (mergePackageNameItems), not
+	// packageNameItems'.
+	pkgItems := s.packageNameItems("dir", text, "us", start, end)
+	pkgByLabel := itemsByLabel(pkgItems)
+	if _, ok := pkgByLabel["user"]; !ok {
+		t.Fatalf("packageNameItems did not offer raw os/user candidate; got %v", pkgByLabel)
+	}
+	if _, ok := pkgByLabel["usage"]; !ok {
+		t.Fatalf("packageNameItems did not offer pkg/usage candidate; got %v", pkgByLabel)
+	}
+
+	// The in-scope scope-chain already offered `user` as a plain identifier (no
+	// import edit) — this simulates goCompletionItems' output for the component
+	// parameter before the Option 2 merge runs.
+	scopeItems := []CompletionItem{{Label: "user", Kind: ciKindVariable}}
+
+	got := mergePackageNameItems(scopeItems, pkgItems)
+
+	var userCount int
+	var sawUsage bool
+	for _, it := range got {
+		if it.Label == "user" {
+			userCount++
+			if len(it.AdditionalTextEdits) != 0 {
+				t.Errorf("merged `user` item carries an import edit %v, want the scope item preserved untouched (os/user suppressed)", it.AdditionalTextEdits)
+			}
+		}
+		if it.Label == "usage" {
+			sawUsage = true
+		}
+	}
+	if userCount != 1 {
+		t.Errorf("merged items contain %d `user` labels, want 1 (os/user suppressed as a shadow)", userCount)
+	}
+	if !sawUsage {
+		t.Errorf("merged items missing `usage` (a non-colliding package must still be offered); got %v", got)
+	}
+}
+
+// BenchmarkPackageNameItems measures packageNameItems' cost with a large
+// candidate set (100 unimported packages all matching the typed prefix), the
+// hot path importEditFor's per-candidate re-parse made expensive: before the
+// prepareImportEdit hoist, each candidate re-parsed the whole buffer
+// (gsxparser.ParseFile) independently of the import path; after, the buffer is
+// parsed once per completion request and each candidate only runs
+// AddChunkImports + the prefix/suffix diff.
+func BenchmarkPackageNameItems(b *testing.B) {
+	text := "package page\n\nimport \"strings\"\n\ncomponent Home() {\n\t<div>{ fm }</div>\n}\n"
+	start := strings.Index(text, "{ fm }") + len("{ ")
+	end := start + len("fm")
+
+	pkgs := make([]ImportablePackage, 100)
+	for i := range pkgs {
+		pkgs[i] = ImportablePackage{Name: fmt.Sprintf("fmt%d", i), Path: fmt.Sprintf("pkg/fmt%d", i)}
+	}
+	a := autoImportAnalyzer{packages: pkgs}
+	s := &Server{analyzer: a, enc: encUTF8}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		items := s.packageNameItems("dir", text, "fmt", start, end)
+		if len(items) != 100 {
+			b.Fatalf("got %d items, want 100", len(items))
+		}
 	}
 }
