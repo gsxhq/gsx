@@ -118,3 +118,15 @@ resolved upstream's URL port (empty when the upstream has none), never from
   absence keeps current behavior.
 - scaffold: generated project boots with no `GO_PORT` anywhere and a
   `[dev] upstream` line, panel shows the right origin.
+
+## Direction (user-endorsed): config ownership model
+
+`gsx.toml` + `.env` author dev-loop facts; env injection is the bus;
+`vite.config` consumes. This spec applies the model to the backend upstream;
+the front-door address already follows it (`VITE_PORT`/`VITE_DEV_URL`
+injection). Future pass in the same direction: the plugin defaults more of
+`vite.config` from injected env (`server.port` from `VITE_PORT`, proxy target
+from `GSX_DEV_UPSTREAM`, possibly `base` via a `GSX_DEV_BASE` injection to
+single-source the three-way base agreement with the Go `vite` helper),
+shrinking the scaffold `vite.config` toward `plugins: [gsx()]` + proxy route
+patterns — the routes being the one genuinely vite-native, app-owned fact.
