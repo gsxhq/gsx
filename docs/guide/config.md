@@ -320,7 +320,7 @@ custom binary overrides the environment.
 Custom CSS or JavaScript minifier functions remain a Go extension; see
 [Extensions](./extensions.md#minify-level).
 
-## Tag serialization
+## Tag serialization `serialization`
 
 `"canonical"` (default) or `"verbatim"`. Canonical emits spec-canonical tag
 shapes (`<div/>` → `<div></div>`, `<br/>` → `<br>`); verbatim emits tags as
