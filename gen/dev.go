@@ -71,8 +71,15 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	if warning != "" {
 		fmt.Fprintf(stderr, "gsx dev: %s\n", warning)
 	}
-	goPort := envPort(env, "GO_PORT", "7777")
-	healthURL := "http://localhost:" + goPort + "/healthz"
+	var tdUpstream, tdHealth string
+	if td != nil {
+		tdUpstream, tdHealth = td.Upstream, td.Health
+	}
+	origin, healthURL, goPort, err := resolveUpstream(tdUpstream, tdHealth, env)
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+		return 1
+	}
 
 	var termMu sync.Mutex
 	mkWriter := func(name string) io.Writer { return &prefixWriter{name: name, w: stdout, mu: &termMu} }
@@ -128,7 +135,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	post := func(body []byte) { postEvent(viteURL, body, webUp) }
 	reload := func() { postReload(viteURL, webUp) }
 
-	status := devStatus{Phase: "idle", Server: serverStat{Port: goPort}, FrontDoor: frontStat{State: "external"}}
+	status := devStatus{Phase: "idle", Server: serverStat{Port: goPort, Upstream: origin}, FrontDoor: frontStat{State: "external"}}
 	if dc.web != nil {
 		status.FrontDoor.State = "up"
 	}
@@ -155,7 +162,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		spawn := func() (*exec.Cmd, error) {
 			c := exec.Command(dc.web[0], dc.web[1:]...)
 			c.Dir, c.Stdout, c.Stderr = workDir, mkWriter("vite"), mkWriter("vite")
-			c.Env = append(slices.Clone(env), "GSX_DEV_TOKEN="+devToken)
+			c.Env = append(slices.Clone(env), "GSX_DEV_TOKEN="+devToken, "GSX_DEV_UPSTREAM="+origin)
 			setProcGroup(c)
 			return c, c.Start()
 		}
@@ -383,11 +390,24 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				if envWarning != "" {
 					fmt.Fprintf(stderr, "gsx dev: %s\n", envWarning)
 				}
+				newOrigin, newHealthURL, newPort, upErr := resolveUpstream(tdUpstream, tdHealth, env)
+				if upErr != nil {
+					// A broken [dev].upstream (e.g. a now-unset ${VAR}, or an
+					// env edit that produces a bare trailing ":") must not crash
+					// a running dev loop or corrupt the last-known-good probe
+					// target: log + overlay it and keep everything (server env,
+					// healthURL, status) exactly as it was — mirrors the
+					// envErr handling just above.
+					fmt.Fprintf(stderr, "gsx dev: %v\n", upErr)
+					post(buildErrorEvent(upErr.Error()))
+					overlayUp = true
+					continue
+				}
+				origin, healthURL, goPort = newOrigin, newHealthURL, newPort
 				// Vite reads .env itself (loadEnv + native .env watch), so only the Go server is restarted here.
 				srv.env = env
-				goPort = envPort(env, "GO_PORT", "7777")
 				status.Server.Port = goPort
-				healthURL = "http://localhost:" + goPort + "/healthz"
+				status.Server.Upstream = origin
 				srv.healthURL = healthURL
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					reload()

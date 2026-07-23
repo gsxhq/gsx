@@ -182,6 +182,13 @@ func resolveUpstream(upstream, health string, env []string) (origin, healthURL, 
 
 	if upstream == "" {
 		port = envPort(env, "GO_PORT", "7777")
+		if port == "" {
+			// GO_PORT is SET but empty (distinct from absent, which envPort
+			// would have defaulted to "7777"): "http://localhost:" + "" round-trips
+			// verbatim past url.Parse (Host "localhost:", Port() "") and Go's http
+			// client then silently dials port 80 — an undiagnosable "server down".
+			return "", "", "", fmt.Errorf("GO_PORT is set but empty — unset it or give it a port number")
+		}
 		origin = "http://localhost:" + port
 		return origin, origin + health, port, nil
 	}
@@ -203,6 +210,15 @@ func resolveUpstream(upstream, health string, env []string) (origin, healthURL, 
 	}
 	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return "", "", "", fmt.Errorf("[dev].upstream %q: must be an origin only (no path/query/fragment)", expanded)
+	}
+	if strings.HasSuffix(u.Host, ":") && u.Port() == "" {
+		// A present-but-empty env var expanding into a literal ":" in the
+		// template (e.g. "http://localhost:${ADDR}" with ADDR="") round-trips
+		// through url.Parse unnoticed (Host "localhost:", Port() ""), and Go's
+		// http client then silently dials port 80 — an undiagnosable "server
+		// down". Reject it, naming the template and its expansion so the
+		// empty env var is obvious.
+		return "", "", "", fmt.Errorf("[dev].upstream %q expands to %q: host %q has an empty port (bare trailing \":\") — check the referenced env var(s) aren't empty", upstream, expanded, u.Host)
 	}
 
 	origin = u.Scheme + "://" + u.Host

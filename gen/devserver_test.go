@@ -236,6 +236,23 @@ func TestResolveUpstream(t *testing.T) {
 			wantHealthURL: "http://localhost:8890/live",
 			wantPort:      "8890",
 		},
+		{
+			// A present-but-empty env var expanding into a literal ":" in the
+			// template produces "http://localhost:" — url.Parse accepts it
+			// silently (Host "localhost:", Port ""), and Go's http client would
+			// then dial port 80 without complaint, giving an undiagnosable
+			// "server down". This must be a resolution error naming the value.
+			name:          "explicit upstream with present-but-empty var yields bare trailing colon errors",
+			upstream:      "http://localhost:${ADDR}",
+			env:           []string{"ADDR="},
+			wantErrSubstr: "empty port",
+		},
+		{
+			name:          "default upstream with GO_PORT present but empty errors",
+			upstream:      "",
+			env:           []string{"GO_PORT="},
+			wantErrSubstr: "GO_PORT",
+		},
 	}
 
 	for _, tc := range cases {
