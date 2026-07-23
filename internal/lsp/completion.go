@@ -75,6 +75,22 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 	// Guarded by r.patch != "_" so a chooser `_` repair is never doubled (the
 	// chooser's "}"/"_}" repairs are unaffected by the guard: "}" always wins
 	// over "_}" for a trailing-dot cursor, so `_}` is never the live patch here).
+	//
+	// The same insertion fires unconditionally for a GoBlock STATEMENT-position
+	// dot cursor too (`{{ x.▮`, unclosed, chooser patch "_}}") — there is no
+	// ExprMap skeleton selector for a GoBlock (goCompletionBridge's CtrlMap
+	// branch returns skel == nil), so "the skeleton carries a valid selector"
+	// does not literally apply, but the insertion still matters for a more
+	// basic reason: the embedded Go statement `x.` is not syntactically valid
+	// Go on its own (a trailing dot needs a selector name) and would fail to
+	// parse in the ephemeral analysis regardless of statementMemberItems. Since
+	// the guard only excludes r.patch == "_", not "_}}", this composes with the
+	// chooser's own leading "_" (part of "_}}") into a double-underscore
+	// selector (`x.__`) — traced in completion_repair.go's "_}}" doc comment;
+	// verified harmless because statementMemberItems resolves the receiver from
+	// pkg.SourceIndex keyed on the AUTHORED byte before the dot, never from the
+	// Sel identifier's spelling, so which placeholder name ends up there does
+	// not matter, only that the statement parses.
 	src := r.src
 	if cc.kind == ctxGoExpr && off > 0 && off <= len(text) && text[off-1] == '.' && r.patch != "_" && off <= len(src) {
 		patched := make([]byte, 0, len(src)+1)

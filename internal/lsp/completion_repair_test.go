@@ -44,6 +44,23 @@ func TestRepairAtCursor(t *testing.T) {
 		// as an empty pipeline stage, so the placeholder-identifier "_}" patch
 		// is required (mirrors the closed-buffer "_" case above).
 		{"unclosed empty pipe stage", "package p\n\ncomponent C() {\n\t<div>{ x |> §\n</div>\n}\n", "_}", true},
+		// Unclosed `{{ }}` GoBlocks (no autopaired closing brace): the
+		// statement-position sibling of the body-interp closers above. "}"
+		// and "_}" never win here — a lone `}` (single brace) is never
+		// enough to close a doubled `{{`, it only unbalances further — so
+		// "_}}" is the first of the list that closes the block at all. It
+		// wins over a hypothetical bare "}}" for every shape (not just
+		// this one) because parseGoBlock's pre-check is a brace/string
+		// balance scan, never a Go-syntax check — see the "_}}" doc
+		// comment on completionPatches above for the full argument.
+		{"unclosed GoBlock ident suffix", "package p\n\ncomponent C() {\n\t{{ user := Get§\n}\n", "_}}", true},
+		// The bare-declaration shape: nothing follows `:=` at all, so
+		// unlike the ident-suffix case above, the placeholder is load-
+		// bearing for the EMBEDDED Go to parse, not just cosmetic — `x :=
+		// }}` (bare "}}", hypothetically) is a Go syntax error (short var
+		// decl with no RHS), which "_}}"'s placeholder avoids.
+		{"unclosed GoBlock bare RHS", "package p\n\ncomponent C() {\n\t{{ x := §\n}\n", "_}}", true},
+		{"unclosed GoBlock member dot", "package p\n\ncomponent C() {\n\t{{ x.§\n}\n", "_}}", true},
 		{"unrepairable", "package p\n\ncomponent C() {\n\t<§<<%%\n}\n", "", false},
 	}
 	for _, tc := range cases {
