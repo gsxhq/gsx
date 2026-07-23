@@ -959,6 +959,20 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **Skeleton-parse caching** - the one surviving item from the 2026-07-23
+  analysis-architecture probe: cache the target + shipping skeleton parses per
+  unchanged file (as the pristine gsx parse cache already does), reclaiming
+  part of targetDiscovery's ~150ms and removing the residual ~3.6MB/run fset
+  growth (the ~2.5s rebuild cliff every ~74 completions).
+- **DECLINED - double-typecheck unification** (2026-07-23, measured): the
+  target-discovery and shipping checks are data-flow independent with
+  different skeletons; unification's ceiling is ~80-110ms at the highest
+  miscompile risk in the codebase (the discarded-targetBag/diagnostic
+  seam) with zero heap benefit. Probe: `analysis-architecture` design doc.
+- **DECLINED - cached-Types slimming/eviction** (2026-07-23, measured): the
+  "~300MB/package" attribution was the shared eviction-immune external
+  importer (~224MB paid once); live heap all-open is ~311MB (below gopls),
+  evictable remainder ~14MB. Drop/slim breaks warm find-refs/rename.
 - [ ] **External flat formatters miss the multi-line-token-interior fix** - the
   built-in `gsx fmt` path re-indents `<script>`/`<style>` bodies and `` js`/css` ``
   attribute values via LINE formatters, so a multi-line token (template literal,
