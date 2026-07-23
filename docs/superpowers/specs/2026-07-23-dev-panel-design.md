@@ -68,11 +68,26 @@ the error-overlay replay), broadcasts `gsx:status` on change.
 
 ## vite-plugin-gsx
 
-- `src/client.ts`: custom element, shadow DOM (vite's overlay technique),
-  injected in serve mode via virtual module + `transformIndexHtml`.
+- `src/client.ts`: custom element, shadow DOM (vite's overlay technique).
   Cmd-D/Ctrl-D toggles (`preventDefault`; ignored when focus is in
   input/textarea/contenteditable). Buttons disable while a command is in
-  flight, re-arm on the next status event.
+  flight, re-arm on the next status event — and stay disabled until the FIRST
+  status event arrives ("waiting for gsx dev…"), so the panel degrades
+  honestly in daemon/standalone-vite mode where nothing consumes commands.
+- **Delivery — explicit entry import** (gsx apps have no vite `index.html`;
+  their HTML streams from the Go server, so `transformIndexHtml` can never
+  fire; and a raw-served script would lack vite's HMR transform). The app's
+  client entry imports `virtual:gsx-devpanel`; the `gsx init` template ships
+  the line, existing apps add it (documented in the dev-loop guide). `gsx()`
+  returns a plugin array: the serve-only main plugin, plus a tiny
+  always-applied resolver that maps the virtual id to the built panel client
+  in dev (transformed by vite → real `import.meta.hot`) and to an empty
+  module in prod builds (the main plugin is `apply: "serve"`, so without the
+  resolver a `vite build` of the entry import would fail). The
+  `github.com/gsxhq/vite` Go helper is deliberately untouched — no coupling
+  from the URL-resolver lib to this plugin. (Monkey-patching the served
+  `@vite/client` was considered and rejected: vite-internal seam, also loads
+  in web workers; see vitejs/vite#17644.)
 - Server side: `/__gsx/cmd` long-poll middleware + mailbox,
   `server.ws.on('gsx:cmd')` intake, status cache + broadcast. All `/__gsx/cmd`
   responses (200 and 204) carry the `x-gsx: 1` header — the respawn
