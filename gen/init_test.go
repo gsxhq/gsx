@@ -340,6 +340,21 @@ func TestInitScaffoldHasDevCommand(t *testing.T) {
 	}
 }
 
+func TestInitScaffoldImportsDevPanel(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if code, _, errb := initNI(t, "--module", "devpaneldemo", dir); code != 0 {
+		t.Fatalf("init failed: %d %s", code, errb)
+	}
+	mainJS, err := os.ReadFile(filepath.Join(dir, "web", "main.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainJS), `import "virtual:gsx-devpanel";`) {
+		t.Errorf("web/main.js should import the gsx dev panel: %s", mainJS)
+	}
+}
+
 func TestInitScaffoldCompiles(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

@@ -206,6 +206,7 @@ const devTestMainGo = `package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -219,6 +220,9 @@ func main() {
 		port = "7777"
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/pid", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, "%d", os.Getpid())
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -372,16 +376,20 @@ func TestDevStopsPostingAfterWebExit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Wait until gsx dev itself has observed the front-door exit, then let the
-	// startup posts' retry window drain: a push issued while the front door was
-	// still alive may legitimately be delivered a few seconds later (postBest
-	// retries + client timeout), and must not be counted against the gate.
-	deadline = time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) && !strings.Contains(stdout.String(), "front door exited") {
+	// Wait until gsx dev's front door has given up: the "sleep 1" front door
+	// exits every ~1s, so each respawn (an equally short-lived "sleep 1" that
+	// never answers /__gsx/cmd) fails to verify, and after 3 rapid restart
+	// attempts the frontDoor manager gives up for good — the gate then stays
+	// permanently shut. Then let the startup posts' retry window drain: a push
+	// issued while the front door was still alive may legitimately be delivered
+	// a few seconds later (postBest retries + client timeout), and must not be
+	// counted against the gate.
+	deadline = time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(stdout.String(), "giving up after repeated failures") {
 		time.Sleep(100 * time.Millisecond)
 	}
-	if !strings.Contains(stdout.String(), "front door exited") {
-		t.Fatalf("gsx dev never logged the front-door exit; stdout=%q", stdout.String())
+	if !strings.Contains(stdout.String(), "giving up after repeated failures") {
+		t.Fatalf("gsx dev's front door never gave up; stdout=%q", stdout.String())
 	}
 	time.Sleep(4 * time.Second)
 
@@ -458,4 +466,152 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// TestDevPanelCommands drives gsx dev through the command channel: the test
+// plays the vite plugin (serves /__gsx/cmd from a queue, records /__gsx/event
+// posts) and asserts restart-server restarts the Go server and status events
+// arrive.
+//
+// gsx dev resolves its own front-door URL (host from VITE_DEV_URL if given,
+// but the PORT always comes from VITE_PORT or its own auto-picker — a stale
+// VITE_DEV_URL must never pin a busy port, see resolveViteDevEnv). So the fake
+// plugin can't pre-bind an arbitrary port and pass it via VITE_DEV_URL: it
+// must learn the real resolved URL from gsx dev's own "watching … — open
+// <url>" banner and bind there, exactly like TestDevStopsPostingAfterWebExit.
+func TestDevPanelCommands(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	if portListening("7813") {
+		t.Fatal("port 7813 already in use (leaked scaffold server?)")
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT=7813",
+		"VITE_DEV_URL=http://127.0.0.1:1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:7813/healthz", 120*time.Second) {
+		t.Fatalf("server never came up; output:\n%s", stdout.String())
+	}
+
+	// Learn the resolved front-door URL from the "watching … — open <url>" line.
+	var viteURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := regexp.MustCompile(`open (http://\S+)`).FindStringSubmatch(stdout.String()); m != nil {
+			viteURL = m[1]
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if viteURL == "" {
+		t.Fatalf("front-door URL not printed; stdout=%q", stdout.String())
+	}
+	u, err := url.Parse(viteURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fake vite plugin bound at the resolved front-door address: long-poll
+	// queue + event recorder, x-gsx stamped.
+	cmdQ := make(chan string, 4)
+	var statusEvents lockedBuffer
+	fake := &http.Server{
+		Addr: net.JoinHostPort(u.Hostname(), u.Port()),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/cmd":
+				select {
+				case c := <-cmdQ:
+					fmt.Fprintf(w, `{"cmds":[%q]}`, c)
+				case <-time.After(2 * time.Second):
+					w.WriteHeader(204)
+				}
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				if strings.Contains(string(body), `"event":"status"`) {
+					statusEvents.Write(append(body, '\n'))
+				}
+				w.WriteHeader(204)
+			default:
+				w.WriteHeader(204)
+			}
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	pidOf := func() string {
+		resp, err := http.Get("http://localhost:7813/pid")
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	before := pidOf()
+	if before == "" {
+		t.Fatal("could not read /pid")
+	}
+
+	cmdQ <- "restart-server"
+	restartDeadline := time.Now().Add(60 * time.Second)
+	restarted := false
+	for time.Now().Before(restartDeadline) {
+		if p := pidOf(); p != "" && p != before {
+			restarted = true
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !restarted {
+		t.Errorf("restart-server did not restart the Go server (pid stayed %s)\noutput:\n%s", before, stdout.String())
+	}
+
+	// Status events observed (startup + restart transitions at minimum).
+	if !strings.Contains(statusEvents.String(), `"event":"status"`) {
+		t.Errorf("no status events posted; output:\n%s", stdout.String())
+	}
+	if !strings.Contains(statusEvents.String(), `"healthy":true`) {
+		t.Errorf("no healthy status observed; status log:\n%s", statusEvents.String())
+	}
 }

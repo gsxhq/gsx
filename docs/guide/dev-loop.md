@@ -63,6 +63,27 @@ remains active. Fix the error and save again to build and reload the new version
 Before the first successful build, there is no last working server. Keep
 `gsx dev` running, fix the startup error, and save again.
 
+## Dev panel
+
+Press **Cmd-D** (macOS) or **Ctrl-D** to toggle a status overlay with two
+buttons:
+
+- **Rebuild** — full regenerate → build → restart → reload.
+- **Restart server** — restart the Go server only.
+
+Scaffolds ship it; existing apps add one line to their Vite client entry:
+
+```js
+import "virtual:gsx-devpanel";
+```
+
+(requires `@gsxhq/vite-plugin-gsx` ≥ 0.5.0). Disable it or rebind the key in
+`vite.config.ts`: `gsx({ devPanel: false })` or
+`gsx({ devPanel: { key: "k" } })`.
+
+If Vite crashes, `gsx dev` restarts it automatically — refresh any tabs that
+were already open.
+
 ## Customize the commands
 
 Use the [`gsx dev` flags](./cli.md#gsx-dev) for one-off changes to the front
