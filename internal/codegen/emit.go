@@ -39,10 +39,11 @@ import (
 // assembly, coalesceStaticWrites, and format.Source — because they exist
 // solely to shape output nobody reads. See the diagnosticsOnly branch below
 // for the one diagnostic class this intentionally forgoes.
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, componentPlan componentTargetPlan, positionalPlan componentPositionalPackagePlan, diagnosticsOnly bool) ([]byte, bool) {
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify, verbatimTags bool, merger *ClassMergerRef, componentPlan componentTargetPlan, positionalPlan componentPositionalPackagePlan, diagnosticsOnly bool) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
+	table.verbatimTags = verbatimTags
 	interpTemp := 0
 	// Minify the static CSS of <style> blocks. cssMin is nil for the built-in
 	// safe minifier, or a custom override (e.g. tdewolff) threaded from

@@ -21,22 +21,23 @@ import (
 // watchConfig carries everything runWatch needs, mirroring runGenerate's
 // configured options so watch honors the same filters/classifier/minifiers.
 type watchConfig struct {
-	paths       []string
-	format      string // "" (human) or "ndjson"
-	stdout      io.Writer
-	stderr      io.Writer
-	quiet       bool
-	verbose     bool
-	filterPkgs  []string
-	aliases     []codegen.FilterAlias
-	renderers   []codegen.RendererAlias
-	cls         *attrclass.Classifier
-	cssMin      func(string) (string, error)
-	jsMin       func(string) (string, error)
-	jsonMin     func(string) (string, error)
-	cssMinify   bool
-	jsMinify    bool
-	classMerger *codegen.ClassMergerRef
+	paths        []string
+	format       string // "" (human) or "ndjson"
+	stdout       io.Writer
+	stderr       io.Writer
+	quiet        bool
+	verbose      bool
+	filterPkgs   []string
+	aliases      []codegen.FilterAlias
+	renderers    []codegen.RendererAlias
+	cls          *attrclass.Classifier
+	cssMin       func(string) (string, error)
+	jsMin        func(string) (string, error)
+	jsonMin      func(string) (string, error)
+	cssMinify    bool
+	jsMinify     bool
+	verbatimTags bool
+	classMerger  *codegen.ClassMergerRef
 }
 
 func runWatch(cfg watchConfig) int { return runWatchWithStop(cfg, nil) }

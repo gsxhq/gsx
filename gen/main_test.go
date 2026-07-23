@@ -143,7 +143,7 @@ func TestRunGenerateStoreFailureIsVerboseOnly(t *testing.T) {
 	}
 	t.Setenv("GSXCACHE", badCache)
 
-	result, report, err := generateCachedWithReport([]string{pkgDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, false, false, nil)
+	result, report, err := generateCachedWithReport([]string{pkgDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, false, false, false, nil)
 	if err != nil || len(result.Errs) != 0 {
 		t.Fatalf("store failure generation = (%+v, %v)", result, err)
 	}

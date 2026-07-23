@@ -473,7 +473,7 @@ func TestCacheCorruptEntryRegeneratesAndReplaces(t *testing.T) {
 	t.Setenv("GSXCACHE", cacheRoot)
 
 	generate := func() (Result, cacheReport, error) {
-		return generateCachedWithReport([]string{pkgDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, false, false, nil)
+		return generateCachedWithReport([]string{pkgDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, false, false, false, nil)
 	}
 	if result, _, err := generate(); err != nil || len(result.Errs) != 0 {
 		t.Fatalf("seed generation = (%+v, %v)", result, err)

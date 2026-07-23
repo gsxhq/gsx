@@ -355,6 +355,16 @@ func WithMinifyLevel(css, js MinifyLevel) Option {
 	}
 }
 
+// WithSerialization pins the tag-shape serialization mode, overriding the
+// gsx.toml `serialization` key (code is the more deliberate layer). The
+// default is SerializationCanonical.
+func WithSerialization(s Serialization) Option {
+	return func(cfg *config) {
+		cfg.serialization = s
+		cfg.serializationSet = true
+	}
+}
+
 // appendValidRules validates each rule in add, recording errors for invalid
 // rules onto cfg.errs, and appends the valid ones to dst.
 func appendValidRules(cfg *config, who string, dst, add []Rule) []Rule {

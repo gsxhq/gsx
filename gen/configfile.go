@@ -41,6 +41,9 @@ type tomlConfig struct {
 	Minify         *tomlMinify       `toml:"minify"`
 	ClassMerger    string            `toml:"class_merger"`
 	Dev            *tomlDev          `toml:"dev"`
+	// Serialization selects the tag-shape serialization mode: "canonical"
+	// (default, key absent) or "verbatim". See gen.Serialization.
+	Serialization string `toml:"serialization"`
 }
 
 // tomlFormatter is the [formatter] table: knobs for `gsx fmt` and LSP
@@ -235,6 +238,10 @@ func loadConfig(path string) (config, error) {
 			cfg.jsMinLevel = lvl
 		}
 	}
+	cfg.serialization, err = parseSerialization(tc.Serialization)
+	if err != nil {
+		return config{}, fmt.Errorf("%s: %w", path, err)
+	}
 	if tc.Formatter != nil {
 		cfg.printWidth = tc.Formatter.PrintWidth
 		cfg.tabWidth = tc.Formatter.TabWidth
@@ -335,6 +342,17 @@ func mergeConfig(base, opts config) config {
 		merged.cssMinLevel = opts.cssMinLevel
 		merged.jsMinLevel = opts.jsMinLevel
 		merged.minifyLevelSet = true
+	}
+
+	// Serialization uses serializationSet as the sentinel so opts.SerializationCanonical
+	// (zero) can be distinguished from "not set by caller" — mirrors minifyLevelSet
+	// above. When opts explicitly sets it (WithSerialization) it wins; otherwise the
+	// base (file) value is preserved.
+	merged.serialization = base.serialization
+	merged.serializationSet = base.serializationSet
+	if opts.serializationSet {
+		merged.serialization = opts.serialization
+		merged.serializationSet = true
 	}
 
 	return merged

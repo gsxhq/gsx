@@ -41,6 +41,9 @@ type DirOptions struct {
 	// like the LSP can answer "is the htmx preset on?" without reverse-engineering
 	// it from rule contents. See Module.urlPresetsFor.
 	URLPresets []string
+	// VerbatimTags, when non-nil, overrides Options.VerbatimTags for this dir's
+	// tag-shape serialization (nil = inherit Options.VerbatimTags).
+	VerbatimTags *bool
 }
 
 // Options configures a Module. ModuleRoot is the absolute module root (dir
@@ -102,6 +105,9 @@ type Options struct {
 	JSONMin   func(string) (string, error)
 	CSSMinify bool // minify static <style> CSS
 	JSMinify  bool // minify static <script> JS
+	// VerbatimTags emits authored tag shapes verbatim instead of canonical
+	// serialization; gsx.toml `serialization = "verbatim"`.
+	VerbatimTags bool
 	// Bundle, when non-nil, supplies the external importer and filter table
 	// directly (a prebuilt Bundle) so the Module type-checks skeletons
 	// with NO packages.Load / `go list` — the mode a WASM build uses. The Module
@@ -974,6 +980,15 @@ func (m *Module) urlPresetsFor(dir string) []string {
 	return m.opts.URLPresets
 }
 
+// verbatimTagsFor resolves the tag-serialization mode for dir: a DirOptions
+// override wins, else the module-wide Options value.
+func (m *Module) verbatimTagsFor(dir string) bool {
+	if d, ok := m.dirOptionsFor(dir); ok && d.VerbatimTags != nil {
+		return *d.VerbatimTags
+	}
+	return m.opts.VerbatimTags
+}
+
 // filterTableFor returns the filter+renderer tables that apply to dir.
 //
 // withExt says whether the caller is on a path that loads the external importer.
@@ -1341,7 +1356,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 && !a.bag.HasErrors() {
 		for _, f := range a.gsxFiles {
-			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, a.merger, a.componentPlan, a.positionalPlan, true)
+			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, false, a.merger, a.componentPlan, a.positionalPlan, true)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -1582,7 +1597,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// matching gate/comment in Package above.
 	if len(a.typeErrs) == 0 && !bag.HasErrors() {
 		for path, f := range a.gsxFiles {
-			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.componentPlan, a.positionalPlan, false)
+			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, m.verbatimTagsFor(dir), a.merger, a.componentPlan, a.positionalPlan, false)
 			if !ok {
 				continue
 			}
