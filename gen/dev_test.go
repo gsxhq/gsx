@@ -166,6 +166,78 @@ func TestDevTeardownAndRestart(t *testing.T) {
 	t.Error("GO_PORT=7799 still held 15s after group-SIGINT (teardown leaked; server not killed)")
 }
 
+// TestDevEnvPrecedence pins shell-wins-over-.env for the dev loop: the
+// project .env sets GO_PORT to one port, the gsx dev child's own environment
+// (as the shell would export it) sets GO_PORT to a different port. Before
+// mergeDotEnv, dev.go's `append(os.Environ(), loadDotEnv(workDir)...)` put the
+// .env value LAST, so the spawned Go server (whose runtime env map is built
+// last-entry-wins) bound the .env port while gsx dev's own envPort scan
+// (first-match) health-checked the shell's port — the two disagreed and gsx
+// dev could report the server down forever. This asserts the server actually
+// comes up on the shell's port and the .env port never answers.
+func TestDevEnvPrecedence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	const portA = "7821" // set by the project .env
+	const portB = "7823" // set by the gsx dev child's own environment (shell)
+
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	writeFile(t, proj, ".env", "GO_PORT="+portA+"\n")
+
+	if portListening(portA) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", portA)
+	}
+	if portListening(portB) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", portB)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 60")
+	cmd.Dir = proj
+	// devTestEnv scrubs VITE_PORT/VITE_DEV_URL from the ambient shell env but
+	// deliberately NOT GO_PORT — GO_PORT=portB here stands in for the shell's
+	// own export, distinct from the .env's portA.
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT="+portB,
+		"VITE_DEV_URL=http://127.0.0.1:1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("gsx dev start: %v", err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+portB+"/healthz", 120*time.Second) {
+		t.Fatalf("Go server never came up on shell GO_PORT=%s (shell should win over .env's %s); output:\n%s", portB, portA, stdout.String())
+	}
+	if portListening(portA) {
+		t.Errorf(".env's GO_PORT=%s is listening — .env overrode the shell's GO_PORT=%s", portA, portB)
+	}
+}
+
 // stopDevGracefully tears down a gsx dev child: SIGINT first so gsx dev kills
 // its OWN children (they live in separate process groups — a bare SIGKILL to
 // gsx dev's group would leak the scaffold Go server, which then shadows the
@@ -613,5 +685,133 @@ func TestDevPanelCommands(t *testing.T) {
 	}
 	if !strings.Contains(statusEvents.String(), `"healthy":true`) {
 		t.Errorf("no healthy status observed; status log:\n%s", statusEvents.String())
+	}
+}
+
+// TestDevPanelRebuildCommand drives gsx dev's panel "rebuild" command through
+// the same fake-vite pattern as TestDevPanelCommands: it asserts the log
+// gains "gsx dev: panel: rebuild" AND the Go server actually restarts (pid
+// change via /pid) even though nothing on disk changed — rebuild forces
+// dirty.depDirty so cycle(true) always rebuilds+restarts.
+func TestDevPanelRebuildCommand(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	if portListening("7825") {
+		t.Fatal("port 7825 already in use (leaked scaffold server?)")
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT=7825",
+		"VITE_DEV_URL=http://127.0.0.1:1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:7825/healthz", 120*time.Second) {
+		t.Fatalf("server never came up; output:\n%s", stdout.String())
+	}
+
+	// Learn the resolved front-door URL from the "watching … — open <url>" line.
+	var viteURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := regexp.MustCompile(`open (http://\S+)`).FindStringSubmatch(stdout.String()); m != nil {
+			viteURL = m[1]
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if viteURL == "" {
+		t.Fatalf("front-door URL not printed; stdout=%q", stdout.String())
+	}
+	u, err := url.Parse(viteURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmdQ := make(chan string, 4)
+	fake := &http.Server{
+		Addr: net.JoinHostPort(u.Hostname(), u.Port()),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/cmd":
+				select {
+				case c := <-cmdQ:
+					fmt.Fprintf(w, `{"cmds":[%q]}`, c)
+				case <-time.After(2 * time.Second):
+					w.WriteHeader(204)
+				}
+			default:
+				w.WriteHeader(204)
+			}
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	pidOf := func() string {
+		resp, err := http.Get("http://localhost:7825/pid")
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	before := pidOf()
+	if before == "" {
+		t.Fatal("could not read /pid")
+	}
+
+	cmdQ <- "rebuild"
+	restartDeadline := time.Now().Add(60 * time.Second)
+	restarted := false
+	for time.Now().Before(restartDeadline) {
+		if p := pidOf(); p != "" && p != before {
+			restarted = true
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !restarted {
+		t.Errorf("rebuild did not restart the Go server (pid stayed %s)\noutput:\n%s", before, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "gsx dev: panel: rebuild") {
+		t.Errorf("log missing %q; output:\n%s", "gsx dev: panel: rebuild", stdout.String())
 	}
 }

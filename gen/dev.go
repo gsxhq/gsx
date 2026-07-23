@@ -46,7 +46,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	dc := resolveDevConfig(workDir, td, devFlagsFromValues(webFlag, buildFlag, runFlag, logFileFlag, logFlag, noWeb, noLog))
 
 	// --- env + ports ---
-	env := append(os.Environ(), loadDotEnv(workDir)...)
+	env := mergeDotEnv(os.Environ(), loadDotEnv(workDir))
 	env, viteURL, err := resolveViteDevEnv(env, dc.host)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
@@ -340,7 +340,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			// .env change → restart server with fresh env (no rebuild) + reload.
 			if envDirty {
 				envDirty = false
-				env = append(os.Environ(), loadDotEnv(workDir)...)
+				env = mergeDotEnv(os.Environ(), loadDotEnv(workDir))
 				var envErr error
 				env, viteURL, envErr = resolveViteDevEnv(env, dc.host)
 				if envErr != nil {
