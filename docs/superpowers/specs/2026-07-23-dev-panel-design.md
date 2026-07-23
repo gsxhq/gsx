@@ -50,11 +50,21 @@ the error-overlay replay), broadcasts `gsx:status` on change.
   - `restart-server`: stop + restart current binary (no rebuild), then reload.
 - **Status struct** maintained in the loop, posted via the existing `post()`.
 - **Front-door auto-restart**: on unexpected exit (not `shuttingDown`) the
-  monitor respawns vite with backoff 500ms → 2s → 5s. Three exits within ~30s
-  = crash-looping: give up, log, fall back to suspend-pushes.
-  - Refactor: `webExited` becomes per-instance; push/poll gate reads an atomic
-    pointer to the current instance's channel; shutdown kills the current
-    instance.
+  monitor respawns vite with backoff 500ms → 2s → 5s. Three failed restart
+  attempts (every instance lived < 30s) = crash-looping: give up, log, fall
+  back to suspend-pushes.
+  - Refactor: `webExited` becomes per-instance; push/poll gate reads the
+    current instance's state; shutdown kills the current instance.
+  - **Respawn verification**: a respawned vite can fail to bind (port taken by
+    a foreign process → posting would recreate the original incident) or
+    drift to port+1 (vite auto-increments without `strictPort`, making the
+    startup-resolved URL stale). After a respawn the push/poll gate therefore
+    stays shut until a probe of `GET {viteURL}/__gsx/cmd?wait=0` returns the
+    `x-gsx: 1` response header (stamped by our plugin; a foreign listener or
+    SPA fallback lacks it). An instance that never verifies within ~5s is
+    killed and counted as a rapid exit. The first instance keeps today's
+    gate-open-from-start semantics (`portAvailable` vetted its port;
+    `postBest` retries cover the cold start).
 
 ## vite-plugin-gsx
 
@@ -64,7 +74,9 @@ the error-overlay replay), broadcasts `gsx:status` on change.
   input/textarea/contenteditable). Buttons disable while a command is in
   flight, re-arm on the next status event.
 - Server side: `/__gsx/cmd` long-poll middleware + mailbox,
-  `server.ws.on('gsx:cmd')` intake, status cache + broadcast.
+  `server.ws.on('gsx:cmd')` intake, status cache + broadcast. All `/__gsx/cmd`
+  responses (200 and 204) carry the `x-gsx: 1` header — the respawn
+  verification handshake.
 - `--no-web`: an externally-run vite loads the plugin, so panel and mailbox
   work identically; auto-restart is N/A (front door reported `external`).
 
