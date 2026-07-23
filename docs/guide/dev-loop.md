@@ -82,7 +82,9 @@ The front door (Vite) auto-restarts if it exits unexpectedly, backing off
 500ms/2s/5s; three failed attempts and `gsx dev` gives up and suspends browser
 pushes until you restart it. A respawned front door must answer with `gsx
 dev`'s own `x-gsx` header before pushes resume, so a reconnect never targets
-some other process that grabbed the port.
+some other process that grabbed the port. Tabs that were already open predate
+the new Vite instance's websocket token — refresh them once after a front-door
+restart.
 
 Under `--no-web` the panel still works against an externally run Vite; the
 front-door row reads `external` since `gsx dev` isn't managing that process.
