@@ -119,6 +119,46 @@ func envLookup(env []string, key string) (string, bool) {
 // envValue is envPort by another name for non-port keys (VITE_DEV_URL).
 func envValue(env []string, key, def string) string { return envPort(env, key, def) }
 
+// expandEnvRefs replaces every ${NAME} reference in s with NAME's value
+// looked up in env (a KEY=VALUE slice, e.g. the merged shell+.env env
+// resolveViteDevEnv works from). Expansion is a single pass: an expanded
+// value is never itself re-scanned for further ${...} references. A bare $
+// or $VAR with no braces is left untouched — only ${...} is special, and
+// there is no escape mechanism.
+//
+// An unset variable, an empty name (${}), or an unterminated ${ (no closing
+// }) is a startup error rather than a silent empty string; the error names
+// the offending reference/variable so a bad gsx.toml [dev].upstream fails
+// loudly.
+func expandEnvRefs(s string, env []string) (string, error) {
+	var b strings.Builder
+	rest := s
+	for {
+		i := strings.Index(rest, "${")
+		if i < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:i])
+		after := rest[i+2:]
+		j := strings.IndexByte(after, '}')
+		if j < 0 {
+			return "", fmt.Errorf("unterminated %q in %q", rest[i:], s)
+		}
+		name := after[:j]
+		if name == "" {
+			return "", fmt.Errorf("empty %q reference in %q", "${}", s)
+		}
+		v, ok := envLookup(env, name)
+		if !ok {
+			return "", fmt.Errorf("unset env var %q referenced in %q", name, s)
+		}
+		b.WriteString(v)
+		rest = after[j+1:]
+	}
+	return b.String(), nil
+}
+
 // resolveViteDevEnv resolves the Vite dev server's host:port and folds it
 // back into env as VITE_PORT/VITE_DEV_URL for the spawned front door and Go
 // server to agree on.

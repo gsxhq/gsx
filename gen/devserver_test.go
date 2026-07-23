@@ -124,6 +124,49 @@ func TestMergeDotEnv(t *testing.T) {
 	})
 }
 
+// TestExpandEnvRefs pins ${VAR} expansion semantics for [dev].upstream: single
+// pass (no re-expansion of expanded values), bare $/$VAR left untouched, and
+// unset/malformed references are startup errors naming the offending var.
+func TestExpandEnvRefs(t *testing.T) {
+	env := []string{"ADDR=:8890", "SCHEME=http", "P=9000"}
+
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr string // substring expected in error, "" means no error
+	}{
+		{name: "single var concatenation", in: "http://localhost${ADDR}", want: "http://localhost:8890"},
+		{name: "multi var", in: "${SCHEME}://x:${P}", want: "http://x:9000"},
+		{name: "unset var errors naming it", in: "${NOPE}", wantErr: "NOPE"},
+		{name: "bare dollar sign untouched", in: "$ADDR literal", want: "$ADDR literal"},
+		{name: "empty braces error", in: "${}", wantErr: "${}"},
+		{name: "unterminated brace errors", in: "${X", wantErr: "${X"},
+		{name: "no refs unchanged", in: "http://localhost:7777", want: "http://localhost:7777"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := expandEnvRefs(tc.in, env)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expandEnvRefs(%q) = %q, nil; want error containing %q", tc.in, got, tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("expandEnvRefs(%q) error = %q, want substring %q", tc.in, err.Error(), tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expandEnvRefs(%q) unexpected error: %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("expandEnvRefs(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // freePort binds an ephemeral port, reads back the port the OS assigned, and
 // releases it immediately. The window between release and the caller's own
 // use is a theoretical race (acceptable here, same tolerance as the other
