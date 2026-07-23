@@ -44,6 +44,12 @@ func TestClassifyCompletionContext(t *testing.T) {
 		// A `>` inside a quoted attribute value does not end the tag, so a cursor
 		// past it is still an attribute-name position.
 		{"attr name after quoted gt", "package p\n\ncomponent C() {\n\t<div title=\"a>b\" §/>\n}\n", ctxAttrName},
+		// Unclosed body interpolations (no autopaired closing `}`): healed via
+		// the new "}"/"_}" repair patches, these classify exactly like their
+		// already-closed counterparts above.
+		{"unclosed interp trailing dot", "package p\n\ncomponent C(u U) {\n\t<div>{ u.§\n</div>\n}\n", ctxGoExpr},
+		{"unclosed interp plain ident", "package p\n\ncomponent C(x string) {\n\t<div>{ x§\n</div>\n}\n", ctxGoExpr},
+		{"unclosed pipe stage empty", "package p\n\ncomponent C(x string) {\n\t<div>{ x |> §\n</div>\n}\n", ctxPipeStage},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -129,6 +135,19 @@ func TestClassifyCompletionContextFields(t *testing.T) {
 		}
 		if !got.phantom {
 			t.Fatal("phantom = false, want true (injected _ stage)")
+		}
+	})
+
+	t.Run("unclosed pipe stage phantom flag set", func(t *testing.T) {
+		// No autopaired closing `}` — healed via the "_}" repair patch, not
+		// the closed-buffer "_" patch, but the injected `_` is just as much a
+		// repair token as the closed case above.
+		got, _ := classify("package p\n\ncomponent C(x string) {\n\t<div>{ x |> §\n</div>\n}\n")
+		if got.kind != ctxPipeStage {
+			t.Fatalf("kind = %v, want ctxPipeStage", got.kind)
+		}
+		if !got.phantom {
+			t.Fatal("phantom = false, want true (injected _ stage via \"_}\" patch)")
 		}
 	})
 

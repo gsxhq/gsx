@@ -64,13 +64,17 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 	// PHANTOM SKELETON REPAIR — the SECOND completion patch site, distinct from
 	// Task 6's gsx-parse chooser in repairAtCursor (completion_repair.go). A
 	// trailing-dot member cursor like `{ user.▮ }` PARSES cleanly as gsx (the
-	// chooser picks the empty patch), but the generated SKELETON carries a broken
+	// chooser picks the empty patch); an UNCLOSED one like `{ user.▮` (no
+	// autopaired brace) parses clean too, once the chooser's "}" patch closes
+	// the body interp. Either way the generated SKELETON carries a broken
 	// selector `user.` that yields no member type info. Insert `_` at the cursor so
 	// the skeleton carries a valid `user._` selector whose `_` Sel is an
 	// empty-prefix member cursor. CROSS-TASK INVARIANT: this patches AT the cursor
 	// only — bytes before off (all import lines included) never move — so the
 	// bridge offsets computed against cc (over the original buffer) stay valid.
-	// Guarded by r.patch != "_" so a chooser `_` repair is never doubled.
+	// Guarded by r.patch != "_" so a chooser `_` repair is never doubled (the
+	// chooser's "}"/"_}" repairs are unaffected by the guard: "}" always wins
+	// over "_}" for a trailing-dot cursor, so `_}` is never the live patch here).
 	src := r.src
 	if cc.kind == ctxGoExpr && off > 0 && off <= len(text) && text[off-1] == '.' && r.patch != "_" && off <= len(src) {
 		patched := make([]byte, 0, len(src)+1)
@@ -113,9 +117,23 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 	// resolved-but-memberless receiver (`x.` where x is an int) or any local
 	// shadow never gets clobbered: precedence is in-scope binding > import
 	// qualifier > unimported.
+	//
+	// unimportedQualifierItems/packageNameItems parse their `text` argument to
+	// locate the import-chunk region (prepareImportEdit). A mid-edit buffer
+	// that only parses THANKS TO a repair patch (e.g. an unclosed `{ strconv.▮`
+	// body interp, healed by the "}" patch) still fails to parse in its
+	// ORIGINAL, unrepaired form — so `text` itself must not be passed here.
+	// `src` is repair-patched into a parseable buffer, and every edit these two
+	// calls compute (the import-chunk region, and the item's own [start,end)
+	// edit, since end == off always) lies strictly before `off` — the single
+	// point where src and text diverge (repair patches only ever insert AT/
+	// after the cursor) — so parsing src instead of text is both necessary and
+	// safe: every byte offset the resulting edits reference is identical in
+	// both buffers.
+	srcText := string(src)
 	if len(items) == 0 {
 		if name, nameEnd, ok := qualifierBeforeDot(text, start); ok && undefinedQualifier(eph, path, nameEnd) {
-			extra := s.unimportedQualifierItems(dir, path, text, name, start, end)
+			extra := s.unimportedQualifierItems(dir, path, srcText, name, start, end)
 			if len(extra) == 0 {
 				return emptyCompletion()
 			}
@@ -129,7 +147,7 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 	// same identifier the file already has is redundant and would shadow it (e.g.
 	// os/user's `user` over a local `user`).
 	if start == 0 || text[start-1] != '.' {
-		items = mergePackageNameItems(items, s.packageNameItems(dir, text, text[start:end], start, end))
+		items = mergePackageNameItems(items, s.packageNameItems(dir, srcText, text[start:end], start, end))
 	}
 
 	if len(items) == 0 {

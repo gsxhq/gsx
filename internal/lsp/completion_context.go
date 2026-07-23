@@ -60,13 +60,15 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 	fset := r.fset
 	posOff := func(p token.Pos) int { return fset.Position(p).Offset }
 
-	// phantomStage: the `_` patch healed an empty `|> ` stage — the `_` at the
-	// cursor is a repair token, not authored. phantomValue: the `""/>` patch
-	// healed a dangling `attr=` — the empty string value is injected, not
-	// typed. phantomTag: the `_/>` patch healed a bare `<▮` or a qualified
-	// `<pkg.▮` with nothing after the dot — the `_` standing in for the
-	// tag/member name is injected, not typed.
-	phantomStage := r.patch == "_"
+	// phantomStage: the `_` patch healed an empty `|> ` stage (closed buffer)
+	// or the `_}` patch healed an UNCLOSED empty stage (`{ x |> ▮`, no
+	// autopaired brace) — either way the `_` at the cursor is a repair token,
+	// not authored. phantomValue: the `""/>` patch healed a dangling `attr=`
+	// — the empty string value is injected, not typed. phantomTag: the `_/>`
+	// patch healed a bare `<▮` or a qualified `<pkg.▮` with nothing after the
+	// dot — the `_` standing in for the tag/member name is injected, not
+	// typed.
+	phantomStage := r.patch == "_" || r.patch == "_}"
 	phantomValue := r.patch == "\"\"/>"
 	phantomTag := r.patch == "_/>"
 
