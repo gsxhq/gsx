@@ -44,8 +44,7 @@ func TestPollCommandsDeliversAndRepolls(t *testing.T) {
 		func(w http.ResponseWriter) { w.WriteHeader(204) },
 		respondCmds("restart-server", "rebuild"),
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	out := make(chan string, 8)
 	go pollCommands(ctx, srv.URL, func() bool { return true }, out)
 
@@ -64,8 +63,7 @@ func TestPollCommandsDeliversAndRepolls(t *testing.T) {
 
 func TestPollCommandsSuspendedWhileGateDown(t *testing.T) {
 	srv, calls := cmdServer(t, respondCmds("rebuild"))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	out := make(chan string, 1)
 	go pollCommands(ctx, srv.URL, func() bool { return false }, out)
 	time.Sleep(600 * time.Millisecond)
