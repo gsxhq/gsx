@@ -65,32 +65,24 @@ Before the first successful build, there is no last working server. Keep
 
 ## Dev panel
 
-Press **Cmd-D** (macOS) or **Ctrl-D** to toggle a browser overlay showing live
-dev-loop status: phase, Go server health + port, last cycle result, and
-front-door state. The toggle is suppressed while focus is in an input,
-textarea, or contenteditable element.
+Press **Cmd-D** (macOS) or **Ctrl-D** to toggle a status overlay with two
+buttons:
 
-Existing apps (scaffolds already have it) add `import "virtual:gsx-devpanel";` to their Vite client entry.
+- **Rebuild** — full regenerate → build → restart → reload.
+- **Restart server** — restart the Go server only.
 
-Two buttons:
+Scaffolds ship it; existing apps add one line to their Vite client entry:
 
-- **Rebuild** - forces a full regenerate → build → restart → reload, skipping
-  the warm incremental path.
-- **Restart server** - restarts the Go server only; no rebuild.
+```js
+import "virtual:gsx-devpanel";
+```
 
-The front door (Vite) auto-restarts if it exits unexpectedly, backing off
-500ms/2s/5s; three failed attempts and `gsx dev` gives up and suspends browser
-pushes until you restart it. A respawned front door must answer with `gsx
-dev`'s own `x-gsx` header before pushes resume, so a reconnect never targets
-some other process that grabbed the port. Tabs that were already open predate
-the new Vite instance's websocket token — refresh them once after a front-door
-restart.
+(requires `@gsxhq/vite-plugin-gsx` ≥ 0.5.0). Disable it or rebind the key in
+`vite.config.ts`: `gsx({ devPanel: false })` or
+`gsx({ devPanel: { key: "k" } })`.
 
-Under `--no-web` the panel still works against an externally run Vite; the
-front-door row reads `external` since `gsx dev` isn't managing that process.
-
-The panel can be disabled or its toggle key rebound via the plugin's
-`devPanel` option (`gsx({ devPanel: false })` / `gsx({ devPanel: { key: "k" } })`).
+If Vite crashes, `gsx dev` restarts it automatically — refresh any tabs that
+were already open.
 
 ## Customize the commands
 
