@@ -90,6 +90,8 @@ func (a *overrideLifetimeAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 }
 
 func (a *overrideLifetimeAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (a *overrideLifetimeAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (a *overrideLifetimeAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 func (a *overrideLifetimeAnalyzer) source(path string) ([]byte, bool) {
 	a.mu.Lock()
@@ -141,6 +143,8 @@ func (a *blockingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
 func (a *blockingAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (a *blockingAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (a *blockingAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 // TestAnalysisIsAsyncAndSupersededResultsDiscarded proves two Phase-2 properties
 // deterministically (no sleeps): (1) the Run loop answers requests while an

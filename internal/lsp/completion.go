@@ -104,6 +104,43 @@ func (s *Server) goContextCompletion(cc completionContext, path, text string, of
 	// tier. Fails silent (nil, no boost) outside the derivable subset.
 	expected := expectedTypeAt(eph, cc, skel, skelPos, exprStartOff, path)
 	items := goCompletionItems(eph, scope, skel, skelPos, statementCtx, expected, text, start, end, s.enc, path, src)
+
+	dir := filepath.Dir(path)
+	// Auto-import Option 1: the ordinary member dispatch found nothing for a
+	// member cursor whose qualifier resolves to no in-scope binding and no
+	// imported package — the last fallback. Offer the unimported package's
+	// symbols with an eager import edit. Gated on an EMPTY member list so a
+	// resolved-but-memberless receiver (`x.` where x is an int) or any local
+	// shadow never gets clobbered: precedence is in-scope binding > import
+	// qualifier > unimported.
+	if len(items) == 0 {
+		if name, nameEnd, ok := qualifierBeforeDot(text, start); ok && undefinedQualifier(eph, path, nameEnd) {
+			extra := s.unimportedQualifierItems(dir, path, text, name, start, end)
+			if len(extra) == 0 {
+				return emptyCompletion()
+			}
+			return CompletionList{IsIncomplete: false, Items: extra}
+		}
+	}
+	// Auto-import Option 2: at a bare-identifier position (not a member cursor),
+	// append unimported package names below every in-scope name and keyword. A
+	// package whose name already names an in-scope item (a local, a package-scope
+	// decl, an imported package) is skipped: offering an import that produces the
+	// same identifier the file already has is redundant and would shadow it (e.g.
+	// os/user's `user` over a local `user`).
+	if start == 0 || text[start-1] != '.' {
+		existing := make(map[string]bool, len(items))
+		for _, it := range items {
+			existing[it.Label] = true
+		}
+		for _, pk := range s.packageNameItems(dir, text, text[start:end], start, end) {
+			if existing[pk.Label] {
+				continue
+			}
+			items = append(items, pk)
+		}
+	}
+
 	if len(items) == 0 {
 		return emptyCompletion()
 	}

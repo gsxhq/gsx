@@ -244,6 +244,25 @@ func addChunkImports(src string, add []ImportRef) (string, bool) {
 	return preserveTrailing(src, stripped), true
 }
 
+// ChunkHasImports reports whether a Go chunk's source declares at least one
+// import. Exported for the LSP's auto-import completion, which locates the
+// import-holding chunk directly (for a narrow import-region edit) instead of
+// going through the whole-file formatter.
+func ChunkHasImports(src string) bool { return chunkHasImports(src) }
+
+// AddChunkImports adds a single default import of path to a Go chunk's source,
+// returning the rewritten source and whether it changed (false when path is
+// already imported, or src is not standalone-valid Go). It is the narrow
+// primitive behind auto-import completion's import edit.
+//
+// HARD CONTRACT: the import binds the package's OWN name — never an alias. An
+// aliased import synthesized here could collide with a name already bound to a
+// different path and emit invalid Go, the same contract the code-action path
+// documents.
+func AddChunkImports(src, path string) (string, bool) {
+	return addChunkImports(src, []ImportRef{{Path: path}})
+}
+
 // reorderImports rewrites the imports of every GoChunk in f, in place, to
 // goimports' canonical form. Non-GoChunk decls are skipped: imports never live
 // in a GoWithElements region, because the parser peels a leading import run into

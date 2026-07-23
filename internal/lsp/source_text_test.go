@@ -447,6 +447,8 @@ func (*authoritativeLocationAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
 func (*authoritativeLocationAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (*authoritativeLocationAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (*authoritativeLocationAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 func TestDefinitionUsesUnsavedUTF16Target(t *testing.T) {
 	dir := t.TempDir()

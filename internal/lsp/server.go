@@ -88,6 +88,17 @@ type Analyzer interface {
 	// quickfix; none means we offer nothing. It may read package export data, so it
 	// is called ONLY from user-triggered code-action handlers, never during analysis.
 	ResolveImport(dir, name, symbol string) []string
+	// ExportedSymbols returns the exported top-level symbols of the package at
+	// importPath, for auto-import completion of an unimported qualifier (`fmt.▮`).
+	// dir locates the owning module. Like ResolveImport it may read export data
+	// and is called only from the (user-triggered) completion handler, never
+	// during analysis. An unknown/unloadable path yields nil.
+	ExportedSymbols(dir, importPath string) []ImportSymbol
+	// ImportablePackages returns every package dir could import (name + path),
+	// for auto-import package-name completion. Internal-visibility filtered for
+	// dir; excludes dir's own package. All in-memory lookups; the result may be
+	// large and the caller prefix-filters. User-triggered completion path only.
+	ImportablePackages(dir string) []ImportablePackage
 }
 
 // diskRefresher is the saved-source transition paired with Analyzer. Keeping it
@@ -130,7 +141,13 @@ type Server struct {
 	// taking attribute completions insert a `$1` tabstop inside the quotes
 	// (InsertTextFormat = Snippet) instead of the plain `name=""` insert — see
 	// htmlAttrItem.
-	snippetSupport        bool
+	snippetSupport bool
+	// labelDetailsSupport mirrors the client's
+	// textDocument.completion.completionItem.labelDetailsSupport capability,
+	// captured once at initialize. When true, auto-import items carry the import
+	// path in labelDetails.description; when false they fall back to the plain
+	// detail string. See ImportSymbol item building in completion_go.go.
+	labelDetailsSupport   bool
 	diskViewValid         bool
 	workspaceViewValid    bool
 	pendingClientRequests map[string]func(frame) error
@@ -371,6 +388,7 @@ func (s *Server) handleInitialize(f frame) error {
 	s.renameDynamicRegistration = p.Capabilities.TextDocument.Rename.DynamicRegistration
 	s.renamePrepareSupport = p.Capabilities.TextDocument.Rename.PrepareSupport
 	s.snippetSupport = p.Capabilities.TextDocument.Completion.CompletionItem.SnippetSupport
+	s.labelDetailsSupport = p.Capabilities.TextDocument.Completion.CompletionItem.LabelDetailsSupport
 	var folders []workspaceFolder
 	switch {
 	case p.WorkspaceFolders != nil:

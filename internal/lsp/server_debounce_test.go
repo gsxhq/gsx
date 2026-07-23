@@ -75,6 +75,8 @@ func (a *countingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
 func (a *countingAnalyzer) ResolveImport(string, string, string) []string { return nil }
+func (a *countingAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
+func (a *countingAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
 func (a *countingAnalyzer) calls() int {
 	a.mu.Lock()
