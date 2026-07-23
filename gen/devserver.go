@@ -74,6 +74,30 @@ func loadDotEnv(dir string) []string {
 	return out
 }
 
+// mergeDotEnv appends dotenv entries onto base, skipping any whose KEY
+// already appears in base. This gives the shell precedence over the
+// project .env: gsx dev's linear envPort/envLookup scan (effectively
+// first-match) and the spawned Go server's runtime env map (Go builds it
+// last-entry-wins) would disagree on the merge produced by a plain
+// append(base, dotenv...) whenever a key is duplicated — the two readers
+// must never see a duplicate key to begin with. Malformed dotenv entries
+// (no '=') are skipped; they can't be evaluated for a KEY and would carry
+// through as-is otherwise.
+func mergeDotEnv(base, dotenv []string) []string {
+	out := base
+	for _, e := range dotenv {
+		key, _, ok := strings.Cut(e, "=")
+		if !ok {
+			continue
+		}
+		if _, present := envLookup(out, key); present {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // envPort reads KEY's value from a KEY=VALUE env slice, returning def if absent.
 func envPort(env []string, key, def string) string {
 	if v, ok := envLookup(env, key); ok {

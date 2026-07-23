@@ -70,6 +70,60 @@ func TestLoadDotEnv(t *testing.T) {
 	}
 }
 
+// TestMergeDotEnv pins the shell-wins-over-.env precedence: mergeDotEnv only
+// appends dotenv entries whose KEY is absent from base, so a duplicate KEY=
+// pair (shell env map wins last-entry-wins; gsx dev's linear scan wins
+// first-match) never occurs in the merged slice — both readers then agree.
+func TestMergeDotEnv(t *testing.T) {
+	t.Run("dotenv-only key is added", func(t *testing.T) {
+		got := mergeDotEnv([]string{"PATH=/bin"}, []string{"GO_PORT=7777"})
+		if envPort(got, "GO_PORT", "") != "7777" {
+			t.Errorf("GO_PORT not merged in: %v", got)
+		}
+	})
+
+	t.Run("shell-present key is not overridden", func(t *testing.T) {
+		got := mergeDotEnv([]string{"GO_PORT=9000"}, []string{"GO_PORT=7777"})
+		if envPort(got, "GO_PORT", "") != "9000" {
+			t.Errorf("shell GO_PORT was overridden by .env: %v", got)
+		}
+		n := 0
+		for _, e := range got {
+			if strings.HasPrefix(e, "GO_PORT=") {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("expected exactly one GO_PORT= entry, got %d: %v", n, got)
+		}
+	})
+
+	t.Run("malformed entries without '=' are skipped", func(t *testing.T) {
+		got := mergeDotEnv([]string{"PATH=/bin"}, []string{"NOTANASSIGNMENT", "GO_PORT=7777"})
+		if envPort(got, "GO_PORT", "") != "7777" {
+			t.Errorf("well-formed entry not merged: %v", got)
+		}
+		for _, e := range got {
+			if e == "NOTANASSIGNMENT" {
+				t.Errorf("malformed entry leaked into merged env: %v", got)
+			}
+		}
+	})
+
+	t.Run("empty dotenv returns base unchanged", func(t *testing.T) {
+		base := []string{"PATH=/bin", "GO_PORT=9000"}
+		got := mergeDotEnv(base, nil)
+		if len(got) != len(base) {
+			t.Fatalf("got %v, want unchanged %v", got, base)
+		}
+		for i, e := range got {
+			if e != base[i] {
+				t.Errorf("got[%d]=%q, want %q", i, e, base[i])
+			}
+		}
+	})
+}
+
 func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:5173")
 	if err != nil {

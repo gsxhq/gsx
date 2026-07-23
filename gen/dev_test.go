@@ -166,6 +166,78 @@ func TestDevTeardownAndRestart(t *testing.T) {
 	t.Error("GO_PORT=7799 still held 15s after group-SIGINT (teardown leaked; server not killed)")
 }
 
+// TestDevEnvPrecedence pins shell-wins-over-.env for the dev loop: the
+// project .env sets GO_PORT to one port, the gsx dev child's own environment
+// (as the shell would export it) sets GO_PORT to a different port. Before
+// mergeDotEnv, dev.go's `append(os.Environ(), loadDotEnv(workDir)...)` put the
+// .env value LAST, so the spawned Go server (whose runtime env map is built
+// last-entry-wins) bound the .env port while gsx dev's own envPort scan
+// (first-match) health-checked the shell's port — the two disagreed and gsx
+// dev could report the server down forever. This asserts the server actually
+// comes up on the shell's port and the .env port never answers.
+func TestDevEnvPrecedence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	const portA = "7821" // set by the project .env
+	const portB = "7823" // set by the gsx dev child's own environment (shell)
+
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	writeFile(t, proj, ".env", "GO_PORT="+portA+"\n")
+
+	if portListening(portA) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", portA)
+	}
+	if portListening(portB) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", portB)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 60")
+	cmd.Dir = proj
+	// devTestEnv scrubs VITE_PORT/VITE_DEV_URL from the ambient shell env but
+	// deliberately NOT GO_PORT — GO_PORT=portB here stands in for the shell's
+	// own export, distinct from the .env's portA.
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT="+portB,
+		"VITE_DEV_URL=http://127.0.0.1:1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("gsx dev start: %v", err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+portB+"/healthz", 120*time.Second) {
+		t.Fatalf("Go server never came up on shell GO_PORT=%s (shell should win over .env's %s); output:\n%s", portB, portA, stdout.String())
+	}
+	if portListening(portA) {
+		t.Errorf(".env's GO_PORT=%s is listening — .env overrode the shell's GO_PORT=%s", portA, portB)
+	}
+}
+
 // stopDevGracefully tears down a gsx dev child: SIGINT first so gsx dev kills
 // its OWN children (they live in separate process groups — a bare SIGKILL to
 // gsx dev's group would leak the scaffold Go server, which then shadows the
