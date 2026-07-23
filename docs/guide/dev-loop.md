@@ -70,6 +70,8 @@ dev-loop status: phase, Go server health + port, last cycle result, and
 front-door state. The toggle is suppressed while focus is in an input,
 textarea, or contenteditable element.
 
+Existing apps (scaffolds already have it) add `import "virtual:gsx-devpanel";` to their Vite client entry.
+
 Two buttons:
 
 - **Rebuild** - forces a full regenerate → build → restart → reload, skipping
