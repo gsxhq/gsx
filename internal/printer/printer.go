@@ -97,6 +97,13 @@ type printer struct {
 	jsLineFmt  rawfmt.LineFormatter
 	width      int // print width fmtGoChunk/fmtGoExprParts measure Go fragments against
 	tabWidth   int
+	// preserve is true while printing the subtree of a whitespace-significant
+	// element (pre/textarea). It mirrors wsnorm's preserve propagation: children
+	// lists glue verbatim at every depth (no injected breaks — a break's
+	// newline+indent would be significant content there), while control-flow
+	// body EDGES stay breakable because the parser trims brace-interior edge
+	// whitespace unconditionally (see parser.trimBodyEdges), preserve or not.
+	preserve bool
 }
 
 func (p *printer) fail(format string, args ...any) pretty.Doc {
@@ -495,7 +502,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 		}
 		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
-	if isPreserveTag(e.Tag) {
+	if p.preserve || isPreserveTag(e.Tag) {
 		return pretty.Concat(openTag, p.childrenPreserve(e.Children), close)
 	}
 
@@ -678,8 +685,14 @@ func (p *printer) condAttrListDoc(attrs []ast.Attr) pretty.Doc {
 	return pretty.Concat(pretty.Indent(pretty.Concat(inner...)), pretty.HardLine)
 }
 
-// childrenPreserve emits pre/textarea bodies verbatim (no added indentation).
+// childrenPreserve emits a preserve-subtree children list verbatim: nodes glue
+// with no added separators, and p.preserve is set for the duration so every
+// nested children list (elements, fragments, control-flow bodies) glues the
+// same way, mirroring wsnorm's preserve propagation.
 func (p *printer) childrenPreserve(nodes []ast.Markup) pretty.Doc {
+	prev := p.preserve
+	p.preserve = true
+	defer func() { p.preserve = prev }()
 	parts := make([]pretty.Doc, 0, len(nodes))
 	for _, n := range nodes {
 		parts = append(parts, p.markup(n))
@@ -726,6 +739,12 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 }
 
 func (p *printer) fragment(f *ast.Fragment) pretty.Doc {
+	if p.preserve {
+		// A fragment has no wrapper tag; inside a preserve subtree its children
+		// are the parent's content and glue verbatim (fragment edges are NOT
+		// parser-trimmed, unlike control-flow body edges).
+		return pretty.Concat(pretty.Text("<>"), p.childrenPreserve(f.Children), pretty.Text("</>"))
+	}
 	inner, breakable := p.childrenInner(f.Children)
 	if !breakable {
 		return pretty.Concat(pretty.Text("<>"), inner, pretty.Text("</>"))
@@ -1087,7 +1106,7 @@ func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
-	inner, _ := p.childrenInner(nodes)
+	inner := p.cfBodyInner(nodes)
 	// A break inserts newline+indent right after `{` and before `}`. If the
 	// body's first child leads with a significant space, or its last child
 	// trails with one, that break would absorb the space and change the
@@ -1106,6 +1125,20 @@ func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 		return pretty.Concat(pretty.BreakParent, body)
 	}
 	return body
+}
+
+// cfBodyInner builds a control-flow body's (or switch arm's) content. In a
+// preserve subtree the nodes glue verbatim — interior whitespace is content, so
+// childrenInner's segment boundaries (calibrated for wsnorm-collapsed text)
+// must not inject breaks there. The body's outer edges remain the caller's to
+// lay out: the parser trims brace-interior edge whitespace unconditionally, so
+// a break at the edge is syntax, not content, even under preserve.
+func (p *printer) cfBodyInner(nodes []ast.Markup) pretty.Doc {
+	if p.preserve {
+		return p.childrenPreserve(nodes)
+	}
+	inner, _ := p.childrenInner(nodes)
+	return inner
 }
 
 // switchMarkup always breaks (cases on their own lines) via HardLine, unless
@@ -1164,6 +1197,15 @@ func switchHasEdgeUnsafeArm(s *ast.SwitchMarkup) bool {
 func (p *printer) caseBody(nodes []ast.Markup) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
+	}
+	if p.preserve {
+		// Arm edges are parser-trimmed like control-flow body edges, so the
+		// block layout's own newlines are safe; the interior glues verbatim.
+		inner := p.childrenPreserve(nodes)
+		if !hasBlockChild(nodes) {
+			return inner
+		}
+		return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
 	}
 	inner, edgeSafe := p.childrenInner(nodes)
 	// A switch arm with a block-level child takes its own indented line(s); an
