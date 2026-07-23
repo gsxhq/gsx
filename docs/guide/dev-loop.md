@@ -89,6 +89,9 @@ restart.
 Under `--no-web` the panel still works against an externally run Vite; the
 front-door row reads `external` since `gsx dev` isn't managing that process.
 
+The panel can be disabled or its toggle key rebound via the plugin's
+`devPanel` option (`gsx({ devPanel: false })` / `gsx({ devPanel: { key: "k" } })`).
+
 ## Customize the commands
 
 Use the [`gsx dev` flags](./cli.md#gsx-dev) for one-off changes to the front
