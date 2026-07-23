@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -352,6 +353,44 @@ func TestInitScaffoldImportsDevPanel(t *testing.T) {
 	}
 	if !strings.Contains(string(mainJS), `import "virtual:gsx-devpanel";`) {
 		t.Errorf("web/main.js should import the gsx dev panel: %s", mainJS)
+	}
+}
+
+// TestInitScaffoldViteConfigHasExplicitUpstreamTarget guards against C1 from
+// the dev-upstream final review: a zero-arg devFallback() throws whenever
+// neither opts.target nor GSX_DEV_UPSTREAM is set — which happens for
+// `vite build` (the scaffold's own documented production flow) and standalone
+// `vite` (no `gsx dev`), per the spec's "fallback keeps standalone vite
+// working" pin. The template must compute the upstream once and pass it
+// explicitly to devFallback AND the proxy target so evaluation never depends
+// on GSX_DEV_UPSTREAM being present.
+//
+// This is a byte-level guard; the actual evaluation-order fix was verified by
+// running the real template through vite's loadConfigFromFile — see
+// .superpowers/sdd/final-review.md's "Fix round 1" section for the probe
+// transcript (build/no-env, serve/no-env, serve/env-injected — all resolve;
+// none throw).
+func TestInitScaffoldViteConfigHasExplicitUpstreamTarget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if code, _, errb := initNI(t, "--module", "upstreamdemo", dir); code != 0 {
+		t.Fatalf("init failed: %d %s", code, errb)
+	}
+	cfg, err := os.ReadFile(filepath.Join(dir, "vite.config.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(cfg)
+
+	zeroArg := regexp.MustCompile(`devFallback\(\s*\)`)
+	if zeroArg.MatchString(s) {
+		t.Errorf("vite.config.ts calls devFallback() with no args — throws under `vite build`/standalone vite when GSX_DEV_UPSTREAM is unset:\n%s", s)
+	}
+	if !strings.Contains(s, "devFallback({ target: upstream })") {
+		t.Errorf("vite.config.ts should pass an explicit computed target to devFallback: %s", s)
+	}
+	if !strings.Contains(s, "target: upstream,") {
+		t.Errorf("vite.config.ts proxy should use the same computed upstream as devFallback's target: %s", s)
 	}
 }
 

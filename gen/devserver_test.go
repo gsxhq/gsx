@@ -126,9 +126,14 @@ func TestMergeDotEnv(t *testing.T) {
 
 // TestExpandEnvRefs pins ${VAR} expansion semantics for [dev].upstream: single
 // pass (no re-expansion of expanded values), bare $/$VAR left untouched, and
-// unset/malformed references are startup errors naming the offending var.
+// unset/malformed/set-but-empty references are startup errors naming the
+// offending var. Set-but-empty is an error (not a silent ""): the guard exists
+// so e.g. ADDR="" doesn't quietly collapse "http://localhost${ADDR}" to
+// "http://localhost" (port 80, no diagnostic) — see TestResolveUpstream's
+// "set-but-empty var referenced with no literal colon" case for the
+// end-to-end shape this was found in.
 func TestExpandEnvRefs(t *testing.T) {
-	env := []string{"ADDR=:8890", "SCHEME=http", "P=9000"}
+	env := []string{"ADDR=:8890", "SCHEME=http", "P=9000", "EMPTY="}
 
 	cases := []struct {
 		name    string
@@ -139,6 +144,7 @@ func TestExpandEnvRefs(t *testing.T) {
 		{name: "single var concatenation", in: "http://localhost${ADDR}", want: "http://localhost:8890"},
 		{name: "multi var", in: "${SCHEME}://x:${P}", want: "http://x:9000"},
 		{name: "unset var errors naming it", in: "${NOPE}", wantErr: "NOPE"},
+		{name: "set-but-empty var errors naming it", in: "http://localhost${EMPTY}", wantErr: "EMPTY"},
 		{name: "bare dollar sign untouched", in: "$ADDR literal", want: "$ADDR literal"},
 		{name: "empty braces error", in: "${}", wantErr: "${}"},
 		{name: "unterminated brace errors", in: "${X", wantErr: "${X"},
@@ -237,14 +243,36 @@ func TestResolveUpstream(t *testing.T) {
 			wantPort:      "8890",
 		},
 		{
-			// A present-but-empty env var expanding into a literal ":" in the
-			// template produces "http://localhost:" — url.Parse accepts it
-			// silently (Host "localhost:", Port ""), and Go's http client would
-			// then dial port 80 without complaint, giving an undiagnosable
-			// "server down". This must be a resolution error naming the value.
-			name:          "explicit upstream with present-but-empty var yields bare trailing colon errors",
+			// A present-but-empty env var referenced in the template is now
+			// rejected by expandEnvRefs itself (I1 fix), naming the var, before
+			// resolveUpstream's own bare-trailing-colon guard would ever see the
+			// expansion. Was "empty port" (the bare-colon guard's message) before
+			// this fix; now the earlier, more general expandEnvRefs error fires
+			// for every shape that references the empty var, not just this one.
+			name:          "explicit upstream with present-but-empty var errors naming it",
 			upstream:      "http://localhost:${ADDR}",
 			env:           []string{"ADDR="},
+			wantErrSubstr: "ADDR",
+		},
+		{
+			// The documented canonical shape (docs/guide/config.md's
+			// upstream = "http://localhost${ADDR}") with ADDR set but empty: no
+			// literal colon is left behind by the template itself, so the
+			// bare-trailing-colon guard alone would never catch this — before the
+			// I1 fix this resolved silently to "http://localhost" (port 80, no
+			// diagnostic). Now caught at expandEnvRefs.
+			name:          "documented ADDR shape with present-but-empty var errors naming it",
+			upstream:      "http://localhost${ADDR}",
+			env:           []string{"ADDR="},
+			wantErrSubstr: "ADDR",
+		},
+		{
+			// No ${} reference at all — a hardcoded literal trailing colon in
+			// [dev].upstream. expandEnvRefs has nothing to expand (no set-but-empty
+			// var to name), so this exercises the bare-trailing-colon guard that
+			// I1 explicitly keeps for literal-":"-concat shapes.
+			name:          "literal trailing colon with no var reference still errors via bare-colon guard",
+			upstream:      "http://localhost:",
 			wantErrSubstr: "empty port",
 		},
 		{

@@ -1021,3 +1021,155 @@ func TestDevPanelRebuildCommand(t *testing.T) {
 		t.Errorf("log missing %q; output:\n%s", "gsx dev: panel: rebuild", stdout.String())
 	}
 }
+
+// TestDevEnvErrorPostsOverlay is the final-review fix-round-1 regression test
+// for the envErr branch of the .env-fire path (gen/dev.go): a resolveViteDevEnv
+// failure (e.g. an .env edit that sets VITE_PORT to a port already in use)
+// must post an error event to the browser overlay, exactly like the sibling
+// resolveUpstream (upErr) branch just below it — before this fix, envErr only
+// logged to the terminal.
+//
+// It also guards a bug the naive fix would otherwise reintroduce: the .env-fire
+// code assigns resolveViteDevEnv's four return values directly into the
+// function-scoped env/viteURL variables (`env, viteURL, envWarning, envErr =
+// resolveViteDevEnv(...)`); on error those returns are the zero values, so a
+// naive "just add post()" would clobber viteURL to "" first — and post()'s
+// underlying postBest() treats an empty base URL as a same-origin path and
+// no-ops, silently defeating the fix it was meant to implement. This test
+// pins that the overlay post actually reaches the front door AND that a
+// subsequent, successful .env edit still reaches it too (proving env/viteURL
+// survive an intervening error untouched).
+func TestDevEnvErrorPostsOverlay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+
+	goPort := freePort(t)
+	vitePort := freePort(t)
+	// Held for the whole test so VITE_PORT=blockedPort deterministically fails
+	// resolveViteDevEnv's portAvailable check — this is the "already in use"
+	// .env edit under test, not a transient race.
+	blockedPort := freePort(t)
+	bl, err := net.Listen("tcp", "127.0.0.1:"+blockedPort)
+	if err != nil {
+		t.Fatalf("hold blocked port %s: %v", blockedPort, err)
+	}
+	defer bl.Close()
+
+	goodEnv := "GO_PORT=" + goPort + "\nVITE_PORT=" + vitePort + "\n"
+	writeFile(t, proj, ".env", goodEnv)
+
+	if portListening(goPort) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", goPort)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	// No VITE_DEV_URL/VITE_PORT in the shell env: VITE_PORT is pinned via .env
+	// alone so every env recompute (startup and every later .env fire) resolves
+	// to the SAME port deterministically — no auto-pick variance to guard against.
+	cmd.Env = devTestEnv("BROWSER=none", "GOFLAGS=-mod=mod")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("server never came up; output:\n%s", stdout.String())
+	}
+
+	wantViteURL := "http://localhost:" + vitePort
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(stdout.String(), "open "+wantViteURL) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(stdout.String(), "open "+wantViteURL) {
+		t.Fatalf("front-door URL %q not printed (VITE_PORT pinning failed?); output:\n%s", wantViteURL, stdout.String())
+	}
+
+	// Fake vite plugin bound at the pinned front-door address: records every
+	// /__gsx/event POST body and every /__reload hit.
+	var events lockedBuffer
+	var reloads atomic.Int32
+	fake := &http.Server{
+		Addr: net.JoinHostPort("localhost", vitePort),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				events.Write(append(body, '\n'))
+			case "/__reload":
+				reloads.Add(1)
+			case "/__gsx/cmd":
+				time.Sleep(50 * time.Millisecond)
+			}
+			w.WriteHeader(204)
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	// The .env edit under test: VITE_PORT now points at the held blockedPort —
+	// resolveViteDevEnv must fail with "already in use", and the failure must
+	// be posted to the browser overlay (not just logged).
+	writeFile(t, proj, ".env", "GO_PORT="+goPort+"\nVITE_PORT="+blockedPort+"\n")
+
+	wantErrFrag := "VITE_PORT " + blockedPort + " is already in use"
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(events.String(), wantErrFrag) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(events.String(), wantErrFrag) {
+		t.Fatalf("no error event posted for the broken VITE_PORT edit (want %q); events:\n%s\nstdout:\n%s",
+			wantErrFrag, events.String(), stdout.String())
+	}
+	if !strings.Contains(events.String(), `"ok":false`) {
+		t.Errorf("posted error event should be ok:false (buildErrorEvent shape); events:\n%s", events.String())
+	}
+
+	// Recovery: revert .env to the original, valid VITE_PORT. If envErr's
+	// failed resolveViteDevEnv had clobbered the shared env/viteURL variables,
+	// this cycle's reload() would silently target an empty/wrong base URL and
+	// the fake listener (still bound at the ORIGINAL vitePort) would never see
+	// it — proving env/viteURL survived the intervening error untouched.
+	writeFile(t, proj, ".env", goodEnv)
+
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && reloads.Load() == 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if reloads.Load() == 0 {
+		t.Fatalf("no /__reload after reverting .env to a valid VITE_PORT — env/viteURL likely corrupted by the prior error; stdout:\n%s", stdout.String())
+	}
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
+		t.Fatalf("server not healthy after recovery; output:\n%s", stdout.String())
+	}
+}

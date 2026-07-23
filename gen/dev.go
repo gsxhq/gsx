@@ -378,15 +378,28 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			// .env change → restart server with fresh env (no rebuild) + reload.
 			if envDirty {
 				envDirty = false
-				env = mergeDotEnv(os.Environ(), loadDotEnv(workDir))
-				var envErr error
-				var envWarning string
-				env, viteURL, envWarning, envErr = resolveViteDevEnv(env, dc.host)
+				newEnv := mergeDotEnv(os.Environ(), loadDotEnv(workDir))
+				resolvedEnv, newViteURL, envWarning, envErr := resolveViteDevEnv(newEnv, dc.host)
 				if envErr != nil {
+					// A broken .env edit (e.g. an explicit VITE_PORT that's now
+					// in use) must not crash a running dev loop OR corrupt
+					// env/viteURL: resolveViteDevEnv's failure return is the
+					// zero value for both, and env/viteURL are read by every
+					// later post()/reload()/pollCommands call in this
+					// function — assigning them here would silently and
+					// permanently break every future post (postBest treats an
+					// empty base URL as a same-origin path and no-ops). Keep
+					// both exactly as they were, log + overlay the error
+					// (mirrors the upErr handling just below: both are
+					// resolution failures from the same .env-fire path, and
+					// the browser should learn of either from the overlay,
+					// not just the terminal), and let the developer retry.
 					fmt.Fprintf(stderr, "gsx dev: %v\n", envErr)
+					post(buildErrorEvent(envErr.Error()))
 					overlayUp = true
 					continue
 				}
+				env, viteURL = resolvedEnv, newViteURL
 				if envWarning != "" {
 					fmt.Fprintf(stderr, "gsx dev: %s\n", envWarning)
 				}

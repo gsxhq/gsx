@@ -5,9 +5,17 @@ export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const goPort = env.GO_PORT || "7777";
   const vitePort = parseInt(env.VITE_PORT || "5173", 10);
+  // Single-computed upstream: `gsx dev` injects GSX_DEV_UPSTREAM into the real
+  // process env (not .env, so loadEnv above won't see it); everything else
+  // (standalone `vite`, `vite build`) falls back to GO_PORT. Passed explicitly
+  // to devFallback AND the proxy below so evaluation order can't matter — a
+  // no-args devFallback call throws when neither is set, which would break
+  // `vite build` (devFallback is inert there, but the zero-arg constructor
+  // still throws) and standalone `vite serve`.
+  const upstream = process.env.GSX_DEV_UPSTREAM ?? `http://localhost:${goPort}`;
   // Serve a self-recovering interstitial while the Go server is down/restarting
   // (instead of a raw proxy error).
-  const fallback = devFallback();
+  const fallback = devFallback({ target: upstream });
 
   // While the Go server is down/restarting, the dev-fallback interstitial already
   // shows it — so drop Vite's redundant "http proxy error … ECONNREFUSED" spam.
@@ -53,7 +61,7 @@ export default defineConfig(({ command, mode }) => {
         // No `ws: true` — the Go server has no WebSocket; proxying ws would
         // capture Vite's HMR socket.
         "^(?!/__vite/|/__dev).*": {
-          target: process.env.GSX_DEV_UPSTREAM ?? `http://localhost:${goPort}`,
+          target: upstream,
           changeOrigin: true,
           configure: fallback.configureProxy,
         },

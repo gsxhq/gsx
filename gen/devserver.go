@@ -126,10 +126,14 @@ func envValue(env []string, key, def string) string { return envPort(env, key, d
 // or $VAR with no braces is left untouched — only ${...} is special, and
 // there is no escape mechanism.
 //
-// An unset variable, an empty name (${}), or an unterminated ${ (no closing
-// }) is a startup error rather than a silent empty string; the error names
-// the offending reference/variable so a bad gsx.toml [dev].upstream fails
-// loudly.
+// An unset variable, a variable that is SET BUT EMPTY, an empty name (${}),
+// or an unterminated ${ (no closing }) is a startup error rather than a
+// silent empty string; the error names the offending reference/variable so a
+// bad gsx.toml [dev].upstream fails loudly. Set-but-empty gets the same
+// treatment as unset: e.g. ADDR="" in .env would otherwise silently collapse
+// "http://localhost${ADDR}" to "http://localhost" — a valid origin (port 80)
+// with no diagnostic, exactly the undiagnosable "server down" this function
+// exists to prevent.
 func expandEnvRefs(s string, env []string) (string, error) {
 	var b strings.Builder
 	rest := s
@@ -152,6 +156,9 @@ func expandEnvRefs(s string, env []string) (string, error) {
 		v, ok := envLookup(env, name)
 		if !ok {
 			return "", fmt.Errorf("unset env var %q referenced in %q", name, s)
+		}
+		if v == "" {
+			return "", fmt.Errorf("env var %q referenced in %q is set but empty", name, s)
 		}
 		b.WriteString(v)
 		rest = after[j+1:]
@@ -212,12 +219,15 @@ func resolveUpstream(upstream, health string, env []string) (origin, healthURL, 
 		return "", "", "", fmt.Errorf("[dev].upstream %q: must be an origin only (no path/query/fragment)", expanded)
 	}
 	if strings.HasSuffix(u.Host, ":") && u.Port() == "" {
-		// A present-but-empty env var expanding into a literal ":" in the
-		// template (e.g. "http://localhost:${ADDR}" with ADDR="") round-trips
-		// through url.Parse unnoticed (Host "localhost:", Port() ""), and Go's
-		// http client then silently dials port 80 — an undiagnosable "server
-		// down". Reject it, naming the template and its expansion so the
-		// empty env var is obvious.
+		// A literal trailing ":" already in [dev].upstream itself (no ${...}
+		// reference at all, e.g. a hardcoded "http://localhost:" in gsx.toml)
+		// round-trips through url.Parse unnoticed (Host "localhost:", Port()
+		// ""), and Go's http client then silently dials port 80 — an
+		// undiagnosable "server down". Reject it, naming the template and its
+		// expansion. Set-but-empty ${VAR} references (e.g.
+		// "http://localhost:${ADDR}" with ADDR="") are now caught earlier, by
+		// expandEnvRefs itself, naming the variable — this guard only remains
+		// reachable for a literal, var-free trailing colon.
 		return "", "", "", fmt.Errorf("[dev].upstream %q expands to %q: host %q has an empty port (bare trailing \":\") — check the referenced env var(s) aren't empty", upstream, expanded, u.Host)
 	}
 
