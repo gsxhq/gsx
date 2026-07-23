@@ -159,6 +159,56 @@ func expandEnvRefs(s string, env []string) (string, error) {
 	return b.String(), nil
 }
 
+// resolveUpstream resolves [dev].upstream/health into the origin gsx dev
+// probes and reports, and the healthURL it probes — the single source of
+// truth also injected into the vite child as GSX_DEV_UPSTREAM (origin only,
+// no path) so the plugin's devFallback() and gsx dev's panel/probe never
+// drift from independently-guessed env vars.
+//
+// upstream is observational only: it never changes where the app listens.
+// Empty upstream defaults to http://localhost:${GO_PORT|7777} — exactly
+// today's behavior, zero migration. A non-empty upstream is ${VAR}-expanded
+// (expandEnvRefs) against env, then parsed as an absolute http/https URL; a
+// non-empty path/query/fragment is rejected since upstream must be an origin.
+// health defaults to "/healthz" and must be an absolute path; healthURL is
+// origin+health. port is u.Port() (may be empty when the URL carries none).
+func resolveUpstream(upstream, health string, env []string) (origin, healthURL, port string, err error) {
+	if health == "" {
+		health = "/healthz"
+	}
+	if !strings.HasPrefix(health, "/") {
+		return "", "", "", fmt.Errorf("[dev].health %q must start with \"/\"", health)
+	}
+
+	if upstream == "" {
+		port = envPort(env, "GO_PORT", "7777")
+		origin = "http://localhost:" + port
+		return origin, origin + health, port, nil
+	}
+
+	expanded, err := expandEnvRefs(upstream, env)
+	if err != nil {
+		return "", "", "", fmt.Errorf("[dev].upstream: %w", err)
+	}
+
+	u, err := url.Parse(expanded)
+	if err != nil {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: invalid URL: %w", expanded, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: scheme must be http or https", expanded)
+	}
+	if u.Host == "" {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: missing host", expanded)
+	}
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: must be an origin only (no path/query/fragment)", expanded)
+	}
+
+	origin = u.Scheme + "://" + u.Host
+	return origin, origin + health, u.Port(), nil
+}
+
 // resolveViteDevEnv resolves the Vite dev server's host:port and folds it
 // back into env as VITE_PORT/VITE_DEV_URL for the spawned front door and Go
 // server to agree on.

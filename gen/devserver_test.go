@@ -167,6 +167,107 @@ func TestExpandEnvRefs(t *testing.T) {
 	}
 }
 
+// TestResolveUpstream pins [dev].upstream/health resolution: empty upstream
+// falls back to today's http://localhost:${GO_PORT|7777} behavior; a
+// non-empty upstream is ${VAR}-expanded, parsed, and must be an origin only
+// (http/https, host, no path/query/fragment).
+func TestResolveUpstream(t *testing.T) {
+	cases := []struct {
+		name          string
+		upstream      string
+		health        string
+		env           []string
+		wantOrigin    string
+		wantHealthURL string
+		wantPort      string
+		wantErrSubstr string
+	}{
+		{
+			name:          "absent upstream no GO_PORT defaults to 7777",
+			upstream:      "",
+			env:           nil,
+			wantOrigin:    "http://localhost:7777",
+			wantHealthURL: "http://localhost:7777/healthz",
+			wantPort:      "7777",
+		},
+		{
+			name:          "absent upstream honors GO_PORT",
+			upstream:      "",
+			env:           []string{"GO_PORT=8081"},
+			wantOrigin:    "http://localhost:8081",
+			wantHealthURL: "http://localhost:8081/healthz",
+			wantPort:      "8081",
+		},
+		{
+			name:          "upstream expands ADDR",
+			upstream:      "http://localhost${ADDR}",
+			env:           []string{"ADDR=:8890"},
+			wantOrigin:    "http://localhost:8890",
+			wantHealthURL: "http://localhost:8890/healthz",
+			wantPort:      "8890",
+		},
+		{
+			name:          "explicit upstream with no port",
+			upstream:      "http://mstudio",
+			wantOrigin:    "http://mstudio",
+			wantHealthURL: "http://mstudio/healthz",
+			wantPort:      "",
+		},
+		{
+			name:          "path in upstream errors",
+			upstream:      "http://localhost:8890/foo",
+			wantErrSubstr: "path",
+		},
+		{
+			name:          "non-http scheme errors",
+			upstream:      "ftp://localhost:8890",
+			wantErrSubstr: "scheme",
+		},
+		{
+			name:          "unset var in upstream errors",
+			upstream:      "http://localhost${NOPE}",
+			wantErrSubstr: "NOPE",
+		},
+		{
+			name:          "custom health path suffixes healthURL",
+			upstream:      "http://localhost:8890",
+			health:        "/live",
+			wantOrigin:    "http://localhost:8890",
+			wantHealthURL: "http://localhost:8890/live",
+			wantPort:      "8890",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			origin, healthURL, port, err := resolveUpstream(tc.upstream, tc.health, tc.env)
+			if tc.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatalf("resolveUpstream(%q, %q) = (%q, %q, %q), nil; want error containing %q",
+						tc.upstream, tc.health, origin, healthURL, port, tc.wantErrSubstr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSubstr) {
+					t.Errorf("resolveUpstream(%q, %q) error = %q, want substring %q",
+						tc.upstream, tc.health, err.Error(), tc.wantErrSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveUpstream(%q, %q) unexpected error: %v", tc.upstream, tc.health, err)
+			}
+			if origin != tc.wantOrigin {
+				t.Errorf("origin = %q, want %q", origin, tc.wantOrigin)
+			}
+			if healthURL != tc.wantHealthURL {
+				t.Errorf("healthURL = %q, want %q", healthURL, tc.wantHealthURL)
+			}
+			if port != tc.wantPort {
+				t.Errorf("port = %q, want %q", port, tc.wantPort)
+			}
+		})
+	}
+}
+
 // freePort binds an ephemeral port, reads back the port the OS assigned, and
 // releases it immediately. The window between release and the caller's own
 // use is a theoretical race (acceptable here, same tolerance as the other
