@@ -1,6 +1,6 @@
 -- doc --
 name: Void elements
-summary: Void elements like <br/>, <img/>, and <input/> are self-closing — they render without a closing tag.
+summary: Void elements like <br/>, <img/>, and <input/> need no closing tag — gsx serializes them canonically, without the trailing slash.
 category: Elements
 page: elements
 pageOrder: 20

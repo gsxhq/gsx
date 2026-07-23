@@ -320,6 +320,12 @@ custom binary overrides the environment.
 Custom CSS or JavaScript minifier functions remain a Go extension; see
 [Extensions](./extensions.md#minify-level).
 
+### `serialization`
+
+`"canonical"` (default) or `"verbatim"`. Canonical emits spec-canonical tag
+shapes (`<div/>` → `<div></div>`, `<br/>` → `<br>`); verbatim emits tags as
+authored. Programmatic override: `gen.WithSerialization`.
+
 ## Class merging `class_merger` {#class_merger-tailwind-aware-class-merge-strategy}
 
 Use `class_merger` when exact-token deduplication is not enough, such as when

@@ -25,6 +25,21 @@ HTML void elements have no children. Write them with `/>`; they render without a
 
 <!--@include: ./_generated/elements/020-void-elements.md-->
 
+## Tag serialization
+
+gsx generates canonical HTML tag shapes regardless of how you write them:
+
+- `<div/>` (any non-void element, including SVG) renders as `<div></div>` —
+  browsers ignore the `/` on non-void elements and would treat `<div/>` as an
+  unclosed open tag.
+- `<br/>` and `<br></br>` both render as `<br>`.
+- A void element with children (`<br>text</br>`) is a compile error.
+
+Set `serialization = "verbatim"` in `gsx.toml` to emit authored shapes
+unchanged.
+
+<!--@include: ./_generated/elements/021-self-closing-non-void-elements.md-->
+
 ## Raw-text elements
 
 The bodies of `<script>` and `<style>` are literal text, so `<` is not treated as a nested tag. Use `@{ expression }` for dynamic values inside them.
