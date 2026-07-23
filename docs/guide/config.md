@@ -108,7 +108,7 @@ health = "/healthz"
 ```
 
 `${VAR}` in `upstream` expands against the merged shell + `.env` environment
-(shell wins); an unset variable is a startup error. The default, when
+(shell wins); an unset or empty variable is a startup error. The default, when
 `upstream` is unset, is `http://localhost:${GO_PORT}` with `GO_PORT` defaulting
 to `7777`. `health` is the path probed on `upstream` and defaults to
 `/healthz`. `upstream` is observational only — it retargets the health probe

@@ -6,7 +6,7 @@ export default defineConfig(({ command, mode }) => {
   const goPort = env.GO_PORT || "7777";
   const vitePort = parseInt(env.VITE_PORT || "5173", 10);
   // Single-computed upstream: `gsx dev` injects GSX_DEV_UPSTREAM into the real
-  // process env (not .env, so loadEnv above won't see it); everything else
+  // process env, injected by gsx dev at spawn; everything else
   // (standalone `vite`, `vite build`) falls back to GO_PORT. Passed explicitly
   // to devFallback AND the proxy below so evaluation order can't matter — a
   // no-args devFallback call throws when neither is set, which would break
