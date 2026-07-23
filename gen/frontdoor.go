@@ -68,6 +68,11 @@ func restartPolicy(rapidExits int) (time.Duration, bool) {
 // pre-auto-restart suspend behavior for that respawn (see frontDoor's
 // give-up path) until the plugin is upgraded.
 func verifyFrontDoor(ctx context.Context, url, token string) bool {
+	if token == "" {
+		// A header-less response echoes "" via Header.Get and would match.
+		// runDev never passes an empty token; defend the callee anyway.
+		return false
+	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/__gsx/cmd?wait=0", nil)

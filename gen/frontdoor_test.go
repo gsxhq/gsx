@@ -89,6 +89,9 @@ func TestVerifyFrontDoor(t *testing.T) {
 	if !verifyFrontDoor(context.Background(), tokened.URL, token) {
 		t.Error("plugin echoing our exact token must verify")
 	}
+	if verifyFrontDoor(context.Background(), foreign.URL, "") {
+		t.Error("an empty token must never verify — a header-less response echoes \"\" and would match")
+	}
 	if verifyFrontDoor(context.Background(), oldPlugin.URL, token) {
 		t.Error("older plugin always echoing \"1\" must NOT verify against a real token")
 	}
