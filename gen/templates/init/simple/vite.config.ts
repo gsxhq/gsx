@@ -7,7 +7,7 @@ export default defineConfig(({ command, mode }) => {
   const vitePort = parseInt(env.VITE_PORT || "5173", 10);
   // Serve a self-recovering interstitial while the Go server is down/restarting
   // (instead of a raw proxy error).
-  const fallback = devFallback({ target: `http://localhost:${goPort}` });
+  const fallback = devFallback();
 
   // While the Go server is down/restarting, the dev-fallback interstitial already
   // shows it — so drop Vite's redundant "http proxy error … ECONNREFUSED" spam.
@@ -53,7 +53,7 @@ export default defineConfig(({ command, mode }) => {
         // No `ws: true` — the Go server has no WebSocket; proxying ws would
         // capture Vite's HMR socket.
         "^(?!/__vite/|/__dev).*": {
-          target: `http://localhost:${goPort}`,
+          target: process.env.GSX_DEV_UPSTREAM ?? `http://localhost:${goPort}`,
           changeOrigin: true,
           configure: fallback.configureProxy,
         },
