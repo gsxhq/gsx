@@ -46,7 +46,7 @@ func TestPollCommandsDeliversAndRepolls(t *testing.T) {
 	)
 	ctx := t.Context()
 	out := make(chan string, 8)
-	go pollCommands(ctx, srv.URL, func() bool { return true }, out)
+	go pollCommands(ctx, srv.URL, "tok", func() bool { return true }, out)
 
 	want := []string{"rebuild", "restart-server", "rebuild"}
 	for i, w := range want {
@@ -65,7 +65,7 @@ func TestPollCommandsSuspendedWhileGateDown(t *testing.T) {
 	srv, calls := cmdServer(t, respondCmds("rebuild"))
 	ctx := t.Context()
 	out := make(chan string, 1)
-	go pollCommands(ctx, srv.URL, func() bool { return false }, out)
+	go pollCommands(ctx, srv.URL, "tok", func() bool { return false }, out)
 	time.Sleep(600 * time.Millisecond)
 	if calls.Load() != 0 {
 		t.Errorf("polled %d times while gate down; want 0", calls.Load())
@@ -83,13 +83,48 @@ func TestPollCommandsSurvivesServerDown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	out := make(chan string, 1)
 	done := make(chan struct{})
-	go func() { pollCommands(ctx, "http://127.0.0.1:1", func() bool { return true }, out); close(done) }()
+	go func() { pollCommands(ctx, "http://127.0.0.1:1", "tok", func() bool { return true }, out); close(done) }()
 	time.Sleep(2500 * time.Millisecond)
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("pollCommands did not return within 500ms of ctx cancel (stuck in a non-ctx-aware backoff sleep?)")
+	}
+}
+
+// TestPollCommandsSendsTokenHeader proves every request — the initial poll
+// and subsequent re-polls — carries x-gsx-token: <token>, so a tokened
+// front-door plugin can authenticate the mailbox drain.
+func TestPollCommandsSendsTokenHeader(t *testing.T) {
+	var seen atomic.Int32
+	var mismatched atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.Add(1)
+		if r.Header.Get("x-gsx-token") != "secret-token" {
+			mismatched.Store(true)
+		}
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	out := make(chan string, 1)
+	done := make(chan struct{})
+	go func() { pollCommands(ctx, srv.URL, "secret-token", func() bool { return true }, out); close(done) }()
+	time.Sleep(400 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pollCommands did not return after ctx cancel")
+	}
+
+	if seen.Load() == 0 {
+		t.Fatal("server never received a request")
+	}
+	if mismatched.Load() {
+		t.Error("at least one request was missing x-gsx-token or had the wrong value")
 	}
 }
 
@@ -129,7 +164,7 @@ func TestPollCommandsBackoffOnErrorResponses(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			out := make(chan string, 1)
 			done := make(chan struct{})
-			go func() { pollCommands(ctx, srv.URL, func() bool { return true }, out); close(done) }()
+			go func() { pollCommands(ctx, srv.URL, "tok", func() bool { return true }, out); close(done) }()
 
 			time.Sleep(1200 * time.Millisecond)
 			cancel()

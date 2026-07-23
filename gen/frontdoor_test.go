@@ -13,6 +13,30 @@ import (
 	"time"
 )
 
+// TestGenDevTokenFormatAndUniqueness pins the shape runDev relies on: a
+// 16-byte value hex-encoded (32 lowercase hex chars), fresh each call.
+func TestGenDevTokenFormatAndUniqueness(t *testing.T) {
+	a, err := genDevToken()
+	if err != nil {
+		t.Fatalf("genDevToken: %v", err)
+	}
+	if len(a) != 32 {
+		t.Errorf("len(token) = %d, want 32 (16 bytes hex-encoded)", len(a))
+	}
+	for _, r := range a {
+		if !strings.Contains("0123456789abcdef", string(r)) {
+			t.Fatalf("token %q has non-hex-lowercase rune %q", a, r)
+		}
+	}
+	b, err := genDevToken()
+	if err != nil {
+		t.Fatalf("genDevToken: %v", err)
+	}
+	if a == b {
+		t.Error("two calls to genDevToken produced the same token")
+	}
+}
+
 func TestRestartPolicy(t *testing.T) {
 	cases := []struct {
 		rapid  int
@@ -27,23 +51,57 @@ func TestRestartPolicy(t *testing.T) {
 	}
 }
 
+// TestVerifyFrontDoor pins the x-gsx-token pairing contract: verifyFrontDoor
+// sends the request header x-gsx-token and requires the response's x-gsx
+// header to EQUAL the token — not just be present. A tokened plugin echoes
+// the token only when it saw the matching request header; an older plugin
+// (predating GSX_DEV_TOKEN) always echoes the literal "1" and must therefore
+// fail verification against any real token (that mismatch is exactly how a
+// foreign gsx dev's respawn verification correctly fails against our front
+// door, and vice versa — see the compat note in frontdoor.go).
 func TestVerifyFrontDoor(t *testing.T) {
-	ours := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("x-gsx", "1")
+	const token = "abc123deadbeef"
+
+	tokened := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-gsx-token") == token {
+			w.Header().Set("x-gsx", token)
+		} else {
+			w.Header().Set("x-gsx", "1") // no/wrong request token: untokened-plugin fallback
+		}
 		w.WriteHeader(204)
 	}))
-	defer ours.Close()
+	defer tokened.Close()
+	oldPlugin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-gsx", "1") // pre-token plugin: always "1", ignores request headers
+		w.WriteHeader(204)
+	}))
+	defer oldPlugin.Close()
+	wrongToken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-gsx", "some-other-processes-token")
+		w.WriteHeader(204)
+	}))
+	defer wrongToken.Close()
 	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200) // SPA fallback: 200 without the header
 	}))
 	defer foreign.Close()
-	if !verifyFrontDoor(context.Background(), ours.URL) {
-		t.Error("our plugin endpoint must verify")
+
+	if !verifyFrontDoor(context.Background(), tokened.URL, token) {
+		t.Error("plugin echoing our exact token must verify")
 	}
-	if verifyFrontDoor(context.Background(), foreign.URL) {
+	if verifyFrontDoor(context.Background(), foreign.URL, "") {
+		t.Error("an empty token must never verify — a header-less response echoes \"\" and would match")
+	}
+	if verifyFrontDoor(context.Background(), oldPlugin.URL, token) {
+		t.Error("older plugin always echoing \"1\" must NOT verify against a real token")
+	}
+	if verifyFrontDoor(context.Background(), wrongToken.URL, token) {
+		t.Error("a different process's token must NOT verify")
+	}
+	if verifyFrontDoor(context.Background(), foreign.URL, token) {
 		t.Error("foreign 200 without x-gsx must NOT verify")
 	}
-	if verifyFrontDoor(context.Background(), "http://127.0.0.1:1") {
+	if verifyFrontDoor(context.Background(), "http://127.0.0.1:1", token) {
 		t.Error("connection refused must NOT verify")
 	}
 }
@@ -81,8 +139,13 @@ func (r *stateRecorder) waitFor(t *testing.T, state string, timeout time.Duratio
 // TestFrontDoorRestartsAndVerifies: the child exits once, the respawn stays up
 // and the verify URL answers with x-gsx — the gate must reopen.
 func TestFrontDoorRestartsAndVerifies(t *testing.T) {
+	const token = "restart-verify-token"
 	verify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("x-gsx", "1")
+		if r.Header.Get("x-gsx-token") == token {
+			w.Header().Set("x-gsx", token)
+		} else {
+			w.Header().Set("x-gsx", "1")
+		}
 		w.WriteHeader(204)
 	}))
 	defer verify.Close()
@@ -96,7 +159,7 @@ func TestFrontDoorRestartsAndVerifies(t *testing.T) {
 		c := exec.Command("sh", "-c", script)
 		setProcGroup(c)
 		return c, c.Start()
-	}, verify.URL, rec.record, os.Stderr)
+	}, verify.URL, token, rec.record, os.Stderr)
 	if err := fd.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +202,7 @@ func TestFrontDoorGivesUpOnCrashLoop(t *testing.T) {
 		c := exec.Command("sh", "-c", "exit 0")
 		setProcGroup(c)
 		return c, c.Start()
-	}, "http://127.0.0.1:1", rec.record, os.Stderr)
+	}, "http://127.0.0.1:1", "crash-loop-token", rec.record, os.Stderr)
 	if err := fd.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +221,7 @@ func TestFrontDoorShutdownSilent(t *testing.T) {
 		c := exec.Command("sleep", "60")
 		setProcGroup(c)
 		return c, c.Start()
-	}, "http://127.0.0.1:1", rec.record, os.Stderr)
+	}, "http://127.0.0.1:1", "shutdown-silent-token", rec.record, os.Stderr)
 	if err := fd.start(); err != nil {
 		t.Fatal(err)
 	}
