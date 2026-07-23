@@ -45,11 +45,14 @@ Lives beside the existing HTML name table in
 
 ## Config
 
-`serialization = "canonical" | "verbatim"`, default `canonical`. Standard three
-layers, most deliberate wins: `gen.WithSerialization(...)` option >
-`GSX_SERIALIZATION` env > gsx.toml top-level `serialization` key (mirrors the
-minify pattern). Unknown values are a config error. The mode changes generated
-output, so it **folds into computeKey**.
+`serialization = "canonical" | "verbatim"`, default `canonical`. Two layers,
+most deliberate wins: `gen.WithSerialization(...)` option > gsx.toml top-level
+`serialization` key (option pinning mirrors `minifyLevelSet`). **No env var**:
+`gen/envconfig.go` deliberately restricts env overrides to knobs that
+legitimately vary dev↔prod, and serialization is a project-wide semantic
+choice — an env override would let output differ between machines. Unknown
+values are a config error. The mode changes generated output, so it **folds
+into computeKey**.
 
 ## Implementation shape
 
