@@ -19,3 +19,11 @@ func killProcGroup(c *exec.Cmd, _ time.Duration) {
 	_ = c.Process.Kill()
 	_ = c.Wait()
 }
+
+func killProcGroupOwned(c *exec.Cmd, done <-chan struct{}, _ time.Duration) {
+	if c == nil || c.Process == nil {
+		return
+	}
+	_ = c.Process.Kill()
+	<-done
+}

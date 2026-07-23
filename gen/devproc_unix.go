@@ -21,10 +21,20 @@ func killProcGroup(c *exec.Cmd, timeout time.Duration) {
 	if c == nil || c.Process == nil {
 		return
 	}
-	pgid := c.Process.Pid // Setpgid made the child the group leader (pgid == pid)
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() { _ = c.Wait(); close(done) }()
+	killProcGroupOwned(c, done, timeout)
+}
+
+// killProcGroupOwned is killProcGroup for a child whose Wait is owned by an
+// external monitor goroutine: done must be closed once that Wait has returned.
+// It never calls c.Wait itself.
+func killProcGroupOwned(c *exec.Cmd, done <-chan struct{}, timeout time.Duration) {
+	if c == nil || c.Process == nil {
+		return
+	}
+	pgid := c.Process.Pid // Setpgid made the child the group leader (pgid == pid)
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 	t := time.NewTimer(timeout)
 	defer t.Stop()
 	select {

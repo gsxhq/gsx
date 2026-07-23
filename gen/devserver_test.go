@@ -307,7 +307,7 @@ func TestPostEventReachesServer(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	postEvent(srv.URL, []byte(`{"event":"generated","ok":true}`))
+	postEvent(srv.URL, []byte(`{"event":"generated","ok":true}`), nil)
 	select {
 	case b := <-got:
 		if !strings.Contains(b, "generated") {
@@ -315,5 +315,38 @@ func TestPostEventReachesServer(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("postEvent did not reach server")
+	}
+}
+
+func TestPortAvailableDetectsWildcardListener(t *testing.T) {
+	// A dev server (vite binds *:PORT) must make the port unavailable. The
+	// specific-address probes alone miss this on macOS: SO_REUSEADDR (set by
+	// net.Listen) permits binding 127.0.0.1:PORT / [::1]:PORT alongside an
+	// existing wildcard listener.
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	_, port, err := net.SplitHostPort(l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if portAvailable(port) {
+		t.Errorf("portAvailable(%s) = true while a wildcard listener holds the port", port)
+	}
+}
+
+func TestBuildFailureMessagePrefersCompilerOutput(t *testing.T) {
+	out := "# devdemo\nmain.go:3:1: undefined: x\n"
+	if got := buildFailureMessage(out, errors.New("exit status 1")); got != out {
+		t.Errorf("buildFailureMessage = %q, want compiler output %q", got, out)
+	}
+}
+
+func TestBuildFailureMessageFallsBackToError(t *testing.T) {
+	err := errors.New("fork/exec tmp/server: no such file or directory")
+	if got := buildFailureMessage("  \n", err); got != err.Error() {
+		t.Errorf("buildFailureMessage = %q, want %q", got, err.Error())
 	}
 }

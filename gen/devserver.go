@@ -146,7 +146,11 @@ func nextAvailablePort(start string) (string, error) {
 }
 
 func portAvailable(port string) bool {
-	for _, addr := range []string{"127.0.0.1:" + port, "[::1]:" + port} {
+	// The wildcard probe catches listeners bound to *:port (e.g. a running
+	// vite): with SO_REUSEADDR (set by net.Listen) the specific-address probes
+	// can succeed alongside a wildcard listener on at least macOS. The specific
+	// probes in turn catch listeners the wildcard probe may coexist with.
+	for _, addr := range []string{":" + port, "127.0.0.1:" + port, "[::1]:" + port} {
 		l, err := net.Listen("tcp", addr)
 		if err == nil {
 			l.Close()
@@ -249,20 +253,28 @@ func reportHardErrors(w io.Writer, results []cycleResult) {
 }
 
 // postEvent best-effort POSTs body to base+/__gsx/event (overlay state).
-func postEvent(base string, body []byte) { postBest(base+"/__gsx/event", body) }
+func postEvent(base string, body []byte, gate func() bool) {
+	postBest(base+"/__gsx/event", body, gate)
+}
 
 // postReload best-effort POSTs to base+/__reload (browser full-reload).
-func postReload(base string) { postBest(base+"/__reload", nil) }
+func postReload(base string, gate func() bool) { postBest(base+"/__reload", nil, gate) }
 
 // postBest POSTs with a few short retries so a not-yet-up Vite isn't fatal
 // (mirrors vite.NotifyReload's cold-start handling). dev-only; base "" no-ops.
-func postBest(url string, body []byte) {
+// gate, when non-nil, is re-checked before every attempt: the retry window can
+// straddle the managed front door's exit, after which the port may belong to a
+// stranger and the push must not be delivered.
+func postBest(url string, body []byte, gate func() bool) {
 	if strings.HasPrefix(url, "/") || url == "" {
 		return
 	}
 	go func() {
 		client := &http.Client{Timeout: 2 * time.Second}
 		for range 10 {
+			if gate != nil && !gate() {
+				return
+			}
 			resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 			if err == nil {
 				resp.Body.Close()
@@ -308,6 +320,20 @@ func (d *devServer) effectiveBuildOut() io.Writer {
 		return d.buildOut
 	}
 	return d.out
+}
+
+// buildFailureMessage is the overlay counterpart of writeBuildFailure: the
+// compiler output when there is any, otherwise the error itself. Operational
+// failures (exec errors, a failed server start) produce no compiler output,
+// and posting buildErrorEvent(output) alone would show an empty overlay.
+func buildFailureMessage(output string, err error) string {
+	if strings.TrimSpace(output) != "" {
+		return output
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func writeBuildFailure(w io.Writer, output string, err error) {
