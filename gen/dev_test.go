@@ -24,7 +24,12 @@ func TestDevExitsWhenExplicitVitePortIsInUse(t *testing.T) {
 	defer l.Close()
 
 	proj := t.TempDir()
+	writeFile(t, proj, "go.mod", "module devdemo\n\ngo 1.24\n")
 	writeFile(t, proj, ".env", "VITE_PORT=5173\n")
+	// runDev resolves env from os.Environ() before the project .env, so an
+	// ambient VITE_PORT (e.g. exported by the developer's shell for another
+	// project) would silently override the pinned port under test.
+	t.Setenv("VITE_PORT", "5173")
 
 	var stdout, stderr bytes.Buffer
 	code := runDev(nil, &stdout, &stderr, config{}, nil, proj)
