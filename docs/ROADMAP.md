@@ -37,7 +37,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + find-references + formatting ship; completion and external/non-project references deferred. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
-| Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.4.5) + `github.com/gsxhq/vite` (v0.2.0). |
+| Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.5.0) + `github.com/gsxhq/vite` (v0.2.0) + browser dev panel + front-door auto-restart. |
 
 ## Done
 
@@ -770,6 +770,18 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   CSS dedup), `Entry(name) Bundle`, `StaticHandler()`, `NotifyReload(devURL)`, and
   context helpers (`NewContext`/`FromContext`/`Middleware`) for request-scoped
   instance threading.
+- [x] **Dev panel + front-door resilience** (2026-07-23,
+  `2026-07-23-dev-panel-design.md`) - a Cmd-D/Ctrl-D browser overlay (served by
+  `@gsxhq/vite-plugin-gsx` v0.5.0) with **Rebuild** (forced full
+  regenerate→build→restart→reload) and **Restart server** (Go-only restart)
+  buttons, plus a live status view (phase, Go server health/port, last cycle,
+  front-door state). Commands ride a FIFO mailbox drained by `gsx dev` via
+  long-poll (`GET /__gsx/cmd`); status rides the existing `/__gsx/event` POST.
+  Works under `--no-web` (front door reports `external`). Separately, `gsx dev`
+  now auto-restarts a managed front door that exits unexpectedly (backoff
+  500ms/2s/5s; three failed attempts gives up and suspends pushes), verifying
+  a respawn is really our plugin via the `x-gsx` response header on
+  `/__gsx/cmd` before resuming pushes. Docs: `guide/dev-loop.md` §Dev panel.
 
 ## Security - safe by default
 

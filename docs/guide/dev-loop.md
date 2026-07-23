@@ -63,6 +63,28 @@ remains active. Fix the error and save again to build and reload the new version
 Before the first successful build, there is no last working server. Keep
 `gsx dev` running, fix the startup error, and save again.
 
+## Dev panel
+
+Press **Cmd-D** (macOS) or **Ctrl-D** to toggle a browser overlay showing live
+dev-loop status: phase, Go server health + port, last cycle result, and
+front-door state. The toggle is suppressed while focus is in an input,
+textarea, or contenteditable element.
+
+Two buttons:
+
+- **Rebuild** - forces a full regenerate → build → restart → reload, skipping
+  the warm incremental path.
+- **Restart server** - restarts the Go server only; no rebuild.
+
+The front door (Vite) auto-restarts if it exits unexpectedly, backing off
+500ms/2s/5s; three failed attempts and `gsx dev` gives up and suspends browser
+pushes until you restart it. A respawned front door must answer with `gsx
+dev`'s own `x-gsx` header before pushes resume, so a reconnect never targets
+some other process that grabbed the port.
+
+Under `--no-web` the panel still works against an externally run Vite; the
+front-door row reads `external` since `gsx dev` isn't managing that process.
+
 ## Customize the commands
 
 Use the [`gsx dev` flags](./cli.md#gsx-dev) for one-off changes to the front
