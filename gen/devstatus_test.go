@@ -1,4 +1,3 @@
-// gen/devstatus_test.go
 package gen
 
 import (

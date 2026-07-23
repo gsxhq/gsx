@@ -97,10 +97,13 @@ the error-overlay replay), broadcasts `gsx:status` on change.
 
 ## Security
 
-Dev-only, localhost. Foreign origins can POST but cannot read cross-origin
-responses, so the mailbox cannot be drained by a hostile page; vite's ws has
-token protection; both commands are non-destructive. No own token in v1 —
-revisit if commands grow teeth (e.g. anything that writes files).
+Dev-only, localhost. Foreign origins cannot read cross-origin responses, but a
+hostile local page CAN fire no-cors GETs at `/__gsx/cmd`, displacing gsx dev's
+long-poll and eating queued commands — a dev-only denial-of-service nuisance,
+no data exposure; both commands are non-destructive. Accepted for v1. The
+planned follow-up (per-session token in the front door's child env, echoed as
+the `x-gsx` header value) closes both this and the gsx-vs-gsx respawn
+verification gap.
 
 ## Testing
 

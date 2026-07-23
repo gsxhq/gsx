@@ -1,4 +1,3 @@
-// gen/frontdoor.go
 package gen
 
 import (
