@@ -789,6 +789,9 @@ security/meta_refresh_url	diag gen render
 security/url_blocked	diag render
 security/url_raw_vouched	diag render
 security/xss	diag render
+serialization/verbatim_selfclose	diag render
+serialization/verbatim_void	diag render
+serialization/verbatim_void_children_error	diag(error)
 slots/node_prop_bool_attr	diag gen render
 slots/node_prop_escaping	diag render
 slots/node_prop_promotion	diag gen render
@@ -931,4 +934,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 933 cases (render: 805, error: 90, gen-pinned: 541)
+TOTAL: 936 cases (render: 807, error: 91, gen-pinned: 541)

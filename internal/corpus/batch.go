@@ -228,7 +228,7 @@ func batchCodegenPartition(repoRoot string, candidates []*caseDoc) (map[string]*
 		// every candidate case's registrations fold into the ONE shared list
 		// regardless of whether it also needs a DirOptions entry below.
 		renderers = append(renderers, cs.c.renderers...)
-		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 && cs.c.classifier == nil {
+		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 && cs.c.classifier == nil && cs.c.verbatimTags == nil {
 			continue
 		}
 		var filters []string
@@ -251,9 +251,10 @@ func batchCodegenPartition(repoRoot string, candidates []*caseDoc) (map[string]*
 		// entirely in-process from the case's own toml rules.
 		for _, d := range cs.pkgDirs {
 			perDir[filepath.Clean(d)] = codegen.DirOptions{
-				FilterPkgs:  filters, // nil ⇒ inherit the std-only default
-				ClassMerger: cs.c.classMerger,
-				Classifier:  cs.c.classifier,
+				FilterPkgs:   filters, // nil ⇒ inherit the std-only default
+				ClassMerger:  cs.c.classMerger,
+				Classifier:   cs.c.classifier,
+				VerbatimTags: cs.c.verbatimTags,
 			}
 		}
 	}

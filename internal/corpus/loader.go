@@ -15,19 +15,20 @@ import (
 )
 
 type caseDoc struct {
-	name        string
-	dir         string
-	archive     *txtar.Archive
-	files       map[string][]byte
-	invoke      []byte
-	doc         []byte
-	goldens     map[string][]byte
-	multiPkg    bool
-	modulePath  string
-	classMerger *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
-	filterPkgs  []string                // resolved import paths from gsx.toml filter_packages; "./x" entries resolve against the case import root
-	classifier  *attrclass.Classifier   // set when case has a gsx.toml with [[url_attrs]] rules
-	renderers   []codegen.RendererAlias // resolved from gsx.toml [renderers]; "./x" package parts (on either side) resolve against the case import root; sorted by TypeKey
+	name         string
+	dir          string
+	archive      *txtar.Archive
+	files        map[string][]byte
+	invoke       []byte
+	doc          []byte
+	goldens      map[string][]byte
+	multiPkg     bool
+	modulePath   string
+	classMerger  *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
+	filterPkgs   []string                // resolved import paths from gsx.toml filter_packages; "./x" entries resolve against the case import root
+	classifier   *attrclass.Classifier   // set when case has a gsx.toml with [[url_attrs]] rules
+	renderers    []codegen.RendererAlias // resolved from gsx.toml [renderers]; "./x" package parts (on either side) resolve against the case import root; sorted by TypeKey
+	verbatimTags *bool                   // set when case has a gsx.toml with serialization = "canonical" | "verbatim"; nil = inherit the corpus-wide default
 }
 
 // caseToml holds the subset of gsx.toml fields the corpus harness reads.
@@ -42,6 +43,10 @@ type caseToml struct {
 	// EITHER side resolves against the case's own import root
 	// (caseImportRoot), mirroring FilterPackages — see resolveRendererAlias.
 	Renderers map[string]string `toml:"renderers"`
+	// Serialization selects the tag-shape mode for the case's dir(s): "canonical"
+	// or "verbatim" (see codegen.DirOptions.VerbatimTags). Empty = inherit the
+	// corpus-wide default.
+	Serialization string `toml:"serialization"`
 }
 
 // caseURLRule mirrors attrclass.Rule's toml shape for a case's [[url_attrs]]
@@ -163,6 +168,18 @@ func loadCase(path string) (*caseDoc, error) {
 			}
 			if len(rules) > 0 {
 				c.classifier = attrclass.New(attrclass.Rules{URL: rules}, nil)
+			}
+			if tc.Serialization != "" {
+				switch tc.Serialization {
+				case "canonical":
+					v := false
+					c.verbatimTags = &v
+				case "verbatim":
+					v := true
+					c.verbatimTags = &v
+				default:
+					return nil, fmt.Errorf("gsx.toml: serialization: %q: want \"canonical\" or \"verbatim\"", tc.Serialization)
+				}
 			}
 		default:
 			c.files[f.Name] = f.Data

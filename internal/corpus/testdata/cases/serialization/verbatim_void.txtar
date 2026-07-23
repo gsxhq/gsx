@@ -1,0 +1,15 @@
+# Verbatim keeps authored void shapes: the slash stays, an authored close pair
+# stays.
+-- gsx.toml --
+serialization = "verbatim"
+-- input.gsx --
+package views
+
+component Voids() {
+	<div><br/><br></br><img src="/a.png" alt="a"/></div>
+}
+-- invoke --
+Voids()
+-- diagnostics.golden --
+-- render.golden --
+<div><br/><br></br><img src="/a.png" alt="a"/></div>

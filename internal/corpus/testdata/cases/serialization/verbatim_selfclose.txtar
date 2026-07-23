@@ -1,0 +1,16 @@
+# serialization = "verbatim" restores authored-shape emission: a self-closed
+# non-void element ships as authored (the author owns the bytes and the
+# consequences — #144's default fix is the canonical mode).
+-- gsx.toml --
+serialization = "verbatim"
+-- input.gsx --
+package views
+
+component Sep() {
+	<div><span role="separator"/></div>
+}
+-- invoke --
+Sep()
+-- diagnostics.golden --
+-- render.golden --
+<div><span role="separator"/></div>

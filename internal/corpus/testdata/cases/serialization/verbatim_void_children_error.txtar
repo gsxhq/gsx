@@ -1,0 +1,12 @@
+# The void-children error is mode-independent: verbatim mode is about tag
+# SHAPES, not about admitting meaningless markup.
+-- gsx.toml --
+serialization = "verbatim"
+-- input.gsx --
+package views
+
+component Bad() {
+	<p><br>text</br></p>
+}
+-- diagnostics.golden --
+4:5: void element <br> cannot have children
