@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -99,8 +100,27 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// Drive the overlay from the cold generate (e.g. a pre-existing codegen
 	// error). A mixed operational failure has not committed its filesystem
 	// transaction, so only its errors/diagnostics are publishable at this point.
+	// post/reload gate every browser push on the managed front door still
+	// running: once it exits, its resolved port may be re-bound by any other
+	// process (typically another project's vite dev server), and posting there
+	// would drive a stranger's browser session. webExited is closed by the
+	// front door's Wait monitor; with --no-web the front door is externally
+	// managed, the channel never closes, and pushes always go out.
+	webExited := make(chan struct{})
+	var shuttingDown atomic.Bool // set before shutdown kills the front door
+	webUp := func() bool {
+		select {
+		case <-webExited:
+			return false
+		default:
+			return true
+		}
+	}
+	post := func(body []byte) { postEvent(viteURL, body, webUp) }
+	reload := func() { postReload(viteURL, webUp) }
+
 	publishedStartup := publishableStartupResults(startup)
-	postEvent(viteURL, aggregateEvent(publishedStartup))
+	post(aggregateEvent(publishedStartup))
 	reportHardErrors(gsxOut, publishedStartup)
 
 	// --- Vite (front door), unless --no-web ---
@@ -113,6 +133,16 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			fmt.Fprintf(stderr, "gsx dev: starting front door: %v\n", err)
 			return 1
 		}
+		// Sole owner of vite.Wait (shutdown uses killProcGroupOwned). Close the
+		// gate first so pushes stop the instant the exit is observed; the
+		// notice is for an unexpected exit only, not shutdown killing vite.
+		go func() {
+			_ = vite.Wait()
+			close(webExited)
+			if !shuttingDown.Load() {
+				fmt.Fprintln(stdout, "gsx dev: front door exited — suspending browser reload/overlay pushes")
+			}
+		}()
 	}
 
 	// --- Go server: initial build + run ---
@@ -127,10 +157,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// starts the server (poison→good always changes bytes, so `wrote` fires).
 	if startOK {
 		if out, err := srv.rebuild(ctx); err != nil {
-			postEvent(viteURL, buildErrorEvent(out))
+			post(buildErrorEvent(buildFailureMessage(out, err)))
 			startOK = false
 		} else if waitHealthy(ctx, healthURL, 10*time.Second) {
-			postReload(viteURL)
+			reload()
 		}
 	}
 	// overlayUp: an error overlay is currently shown in the browser. A later
@@ -146,9 +176,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		fmt.Fprintf(stdout, "gsx dev: managing Go side only (no front door) — watching %s\n", workDir)
 	}
 	shutdownProcesses := func() {
+		shuttingDown.Store(true)
 		srv.stop()
 		if vite != nil {
-			killProcGroup(vite, 5*time.Second)
+			killProcGroupOwned(vite, webExited, 5*time.Second)
 		}
 	}
 
@@ -223,7 +254,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				healthURL = "http://localhost:" + goPort + "/healthz"
 				srv.healthURL = healthURL
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
-					postReload(viteURL)
+					reload()
 					overlayUp = false
 				}
 				// fall through: an .env-only fire has no source dirtiness.
@@ -234,12 +265,12 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			results, goChanged, rerr := dirty.regenerate(sess.regenPending)
 			if rerr != nil {
 				fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
-				postEvent(viteURL, buildErrorEvent("regen failed: "+rerr.Error()))
+				post(buildErrorEvent("regen failed: " + rerr.Error()))
 				overlayUp = true
 				continue // retained dirty state is retried on the next relevant event
 			}
 			// Overlay state from this cycle.
-			postEvent(viteURL, aggregateEvent(results))
+			post(aggregateEvent(results))
 			reportHardErrors(gsxOut, results)
 			ok := true
 			wrote := false
@@ -254,18 +285,18 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			// Successful cycle. Rebuild when code changed; reload the browser if we
 			// rebuilt OR we're recovering from a shown error overlay — the latter
 			// must clear even when nothing was written (fixed .gsx → identical .x.go).
-			reload := overlayUp
+			doReload := overlayUp
 			if goChanged || wrote {
 				if out, err := srv.rebuild(ctx); err != nil {
-					postEvent(viteURL, buildErrorEvent(out))
+					post(buildErrorEvent(buildFailureMessage(out, err)))
 					overlayUp = true
 					continue
 				} else if waitHealthy(ctx, healthURL, 10*time.Second) {
-					reload = true
+					doReload = true
 				}
 			}
-			if reload {
-				postReload(viteURL)
+			if doReload {
+				reload()
 			}
 			overlayUp = false
 

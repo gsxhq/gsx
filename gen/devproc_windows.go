@@ -23,10 +23,27 @@ func killProcGroup(c *exec.Cmd, timeout time.Duration) {
 	if c == nil || c.Process == nil {
 		return
 	}
-	pid := strconv.Itoa(c.Process.Pid)
-	_ = exec.Command("taskkill", "/T", "/PID", pid).Run()
 	done := make(chan struct{})
 	go func() { _ = c.Wait(); close(done) }()
+	killProcGroupOwned(c, done, timeout)
+}
+
+// killProcGroupOwned is killProcGroup for a child whose Wait is owned by an
+// external monitor goroutine: done must be closed once that Wait has returned.
+// It never calls c.Wait itself.
+func killProcGroupOwned(c *exec.Cmd, done <-chan struct{}, timeout time.Duration) {
+	if c == nil || c.Process == nil {
+		return
+	}
+	select {
+	case <-done:
+		// Already exited and reaped by the owning monitor: the pid may have
+		// been recycled to an unrelated process — do not signal it.
+		return
+	default:
+	}
+	pid := strconv.Itoa(c.Process.Pid)
+	_ = exec.Command("taskkill", "/T", "/PID", pid).Run()
 	t := time.NewTimer(timeout)
 	defer t.Stop()
 	select {
