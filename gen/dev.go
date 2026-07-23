@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -100,22 +99,11 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// Drive the overlay from the cold generate (e.g. a pre-existing codegen
 	// error). A mixed operational failure has not committed its filesystem
 	// transaction, so only its errors/diagnostics are publishable at this point.
-	// post/reload gate every browser push on the managed front door still
-	// running: once it exits, its resolved port may be re-bound by any other
-	// process (typically another project's vite dev server), and posting there
-	// would drive a stranger's browser session. webExited is closed by the
-	// front door's Wait monitor; with --no-web the front door is externally
-	// managed, the channel never closes, and pushes always go out.
-	webExited := make(chan struct{})
-	var shuttingDown atomic.Bool // set before shutdown kills the front door
-	webUp := func() bool {
-		select {
-		case <-webExited:
-			return false
-		default:
-			return true
-		}
-	}
+	// post/reload gate every browser push on the managed front door being up
+	// (see frontDoor). With --no-web the front door is externally managed and
+	// pushes always go out.
+	var fd *frontDoor
+	webUp := func() bool { return fd == nil || fd.up() }
 	post := func(body []byte) { postEvent(viteURL, body, webUp) }
 	reload := func() { postReload(viteURL, webUp) }
 
@@ -124,25 +112,24 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	reportHardErrors(gsxOut, publishedStartup)
 
 	// --- Vite (front door), unless --no-web ---
-	var vite *exec.Cmd
+	fdCh := make(chan frontStat, 8)
 	if dc.web != nil {
-		vite = exec.Command(dc.web[0], dc.web[1:]...)
-		vite.Dir, vite.Env, vite.Stdout, vite.Stderr = workDir, env, mkWriter("vite"), mkWriter("vite")
-		setProcGroup(vite)
-		if err := vite.Start(); err != nil {
+		spawn := func() (*exec.Cmd, error) {
+			c := exec.Command(dc.web[0], dc.web[1:]...)
+			c.Dir, c.Env, c.Stdout, c.Stderr = workDir, env, mkWriter("vite"), mkWriter("vite")
+			setProcGroup(c)
+			return c, c.Start()
+		}
+		fd = newFrontDoor(spawn, viteURL, func(s frontStat) {
+			select {
+			case fdCh <- s:
+			default: // never block the monitor on a full channel
+			}
+		}, stdout)
+		if err := fd.start(); err != nil {
 			fmt.Fprintf(stderr, "gsx dev: starting front door: %v\n", err)
 			return 1
 		}
-		// Sole owner of vite.Wait (shutdown uses killProcGroupOwned). Close the
-		// gate first so pushes stop the instant the exit is observed; the
-		// notice is for an unexpected exit only, not shutdown killing vite.
-		go func() {
-			_ = vite.Wait()
-			close(webExited)
-			if !shuttingDown.Load() {
-				fmt.Fprintln(stdout, "gsx dev: front door exited — suspending browser reload/overlay pushes")
-			}
-		}()
 	}
 
 	// --- Go server: initial build + run ---
@@ -176,10 +163,9 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		fmt.Fprintf(stdout, "gsx dev: managing Go side only (no front door) — watching %s\n", workDir)
 	}
 	shutdownProcesses := func() {
-		shuttingDown.Store(true)
 		srv.stop()
-		if vite != nil {
-			killProcGroupOwned(vite, webExited, 5*time.Second)
+		if fd != nil {
+			fd.shutdown(5 * time.Second)
 		}
 	}
 
@@ -209,6 +195,8 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			}
 			shutdownProcesses()
 			return 0
+
+		case <-fdCh: // consumed for real in the status task
 
 		case ev, ok := <-w.Events:
 			if !ok {
