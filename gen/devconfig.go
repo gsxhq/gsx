@@ -75,6 +75,20 @@ func resolveDevConfig(workDir string, td *tomlDev, fl devFlags) devConfig {
 		}
 		if td.Log != "" {
 			dc.logPath = td.Log
+			// [dev].log is a config value: a relative path means "relative to
+			// the gsx.toml project directory" (workDir), not whatever
+			// directory the gsx process happens to be started from — running
+			// `gsx dev ./proj` from outside proj must still write under
+			// proj/tmp/dev.log. The CLI --log-file flag below keeps the
+			// opposite, cwd-anchored meaning: a path typed at a shell means
+			// the shell's cwd, matching every other path flag gsx accepts.
+			// There is no env-var INPUT for this key — GSX_DEV_LOG (set
+			// further down in dev.go) is an OUTPUT derived from dc.logPath via
+			// filepath.Abs, never a second, independently-anchored input — so
+			// no third anchoring choice applies here.
+			if !filepath.IsAbs(dc.logPath) {
+				dc.logPath = filepath.Join(workDir, dc.logPath)
+			}
 		}
 		if td.Host != "" {
 			dc.host = td.Host
@@ -99,7 +113,7 @@ func resolveDevConfig(workDir string, td *tomlDev, fl devFlags) devConfig {
 		case fl.noLog:
 			dc.logPath = ""
 		case len(fl.log) > 0:
-			dc.logPath = fl.log[0]
+			dc.logPath = fl.log[0] // --log-file: cwd-anchored, see the [dev] layer comment above.
 		default: // bare --log → cache-dir dev.log
 			dc.logPath = filepath.Join(devCacheDir(workDir), "dev.log")
 		}

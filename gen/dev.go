@@ -165,8 +165,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		// never guesses paths relative to a cwd it doesn't share. Absent when
 		// logging is off — the plugin treats that as "no log to read".
 		// filepath.Abs matches os.Create's resolution of the same value at
-		// startup (both against this process's cwd), so the env always names
-		// the file actually being written.
+		// startup: a [dev].log config value already arrives workDir-anchored
+		// (see resolveDevConfig), so Abs is a no-op there; a --log-file/default
+		// value is still resolved against this process's cwd, same as os.Create
+		// — either way the env names the file actually being written.
 		childEnv := append(slices.Clone(env), "GSX_DEV_TOKEN="+devToken, "GSX_DEV_UPSTREAM="+origin)
 		if dc.logPath != "" {
 			if abs, aerr := filepath.Abs(dc.logPath); aerr == nil {

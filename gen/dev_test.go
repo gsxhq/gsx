@@ -50,6 +50,47 @@ func TestDevExitsWhenExplicitVitePortIsInUse(t *testing.T) {
 	}
 }
 
+// TestDevWritesConfigLogUnderWorkDirNotCwd is the cheapest honest end-to-end
+// proof (no gsx binary build, no vite, no server) that a relative [dev].log
+// lands under workDir — not the gsx process's cwd — reproducing the
+// `gsx dev ./proj` shape from a different directory. proj deliberately has no
+// go.mod, so armWatchSession fails fast right after the backend-log block
+// (dev.go creates the log file before arming the watch session), giving a
+// quick, deterministic exit without needing a live project.
+//
+// Before the fix, dc.logPath ("tmp/dev.log") flowed unanchored to os.Create,
+// which resolves it against the test binary's actual cwd (this package's
+// source directory) — not proj — so the file at proj/tmp/dev.log never
+// existed.
+func TestDevWritesConfigLogUnderWorkDirNotCwd(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj := t.TempDir() // workDir: deliberately NOT cwd and has no go.mod.
+	if proj == cwd {
+		t.Fatalf("proj accidentally equals process cwd %q; test would not catch cwd-anchoring", proj)
+	}
+	td := &tomlDev{Log: "tmp/dev.log"}
+
+	var stdout, stderr bytes.Buffer
+	code := runDev(nil, &stdout, &stderr, config{}, td, proj)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 (no go.mod under proj); stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "no go.mod found above") {
+		t.Fatalf("stderr = %q, want the armWatchSession no-go.mod error (proves we reached the log-file block)", stderr.String())
+	}
+
+	want := filepath.Join(proj, "tmp", "dev.log")
+	if _, statErr := os.Stat(want); statErr != nil {
+		t.Errorf("log file not found at workDir-anchored path %q: %v", want, statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(cwd, "tmp", "dev.log")); statErr == nil {
+		t.Errorf("log file also (or instead) written under process cwd %q — should only exist under workDir", cwd)
+	}
+}
+
 // TestDevTeardownAndRestart is a full-stack integration test for `gsx dev`:
 //   - builds the gsx binary
 //   - scaffolds a minimal go project with a .gsx file and a /healthz endpoint
