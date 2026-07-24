@@ -120,8 +120,9 @@ func firstSwitchCaseBody(t *testing.T, src string) []ast.Markup {
 }
 
 // TestSwitchCaseBodyPreservesInteriorWhitespace: interior whitespace in a switch
-// case body survives (fixed via parseCaseBody lookahead-restore). Default-only
-// avoids the pre-existing keyword-swallow limitation.
+// case body survives (fixed via parseCaseBody lookahead-restore). Default-only;
+// see TestSwitchCaseBodyTextDoesNotSwallowLabel (markup_test.go) for the
+// multi-arm text-before-label case, fixed 2026-07-25.
 func TestSwitchCaseBodyPreservesInteriorWhitespace(t *testing.T) {
 	body := firstSwitchCaseBody(t, `package p
 component X(k string) { <div>{ switch k {

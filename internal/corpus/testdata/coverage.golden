@@ -237,6 +237,10 @@ control_flow/if_pos	diag render
 control_flow/if_zero	diag render
 control_flow/switch_default	diag render
 control_flow/switch_err	diag render
+control_flow/switch_label_after_element_text	diag gen render
+control_flow/switch_label_after_text	diag gen render
+control_flow/switch_label_after_text_default	diag gen render
+control_flow/switch_prose_default_stays_text	diag gen render
 control_flow/switch_warn	diag gen render
 control_flow/value_form_guard_rejected	diag(error)
 control_flow/value_form_trailing_rejected	diag(error)
@@ -945,4 +949,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 947 cases (render: 817, error: 92, gen-pinned: 544)
+TOTAL: 951 cases (render: 821, error: 92, gen-pinned: 548)

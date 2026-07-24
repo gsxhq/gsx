@@ -1,0 +1,31 @@
+A case body that ends in bare text (no trailing element) followed by a real
+`default:` label formats and round-trips (2026-07-25 parser fix: the label is
+no longer swallowed as text, so the formatter sees — and re-emits — both
+arms).
+
+-- input.gsx --
+package p
+
+component TailThenLabel(kind string) {
+	<div>
+		{ switch kind {
+			case "a":
+				tail
+			default:
+				<b>y</b>
+		} }
+	</div>
+}
+-- fmt.golden --
+package p
+
+component TailThenLabel(kind string) {
+	<div>
+		{ switch kind {
+		case "a":
+			tail
+		default:
+			<b>y</b>
+		} }
+	</div>
+}

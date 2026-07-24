@@ -699,6 +699,125 @@ func TestParseSwitchTagless(t *testing.T) {
 	}
 }
 
+// TestSwitchCaseBodyTextDoesNotSwallowLabel covers the line-start label rule
+// (2026-07-25 design doc): a case body's bare text must stop at a following
+// case/default label rather than consuming it as literal text.
+func TestSwitchCaseBodyTextDoesNotSwallowLabel(t *testing.T) {
+	parseSwitch := func(t *testing.T, src string) *ast.SwitchMarkup {
+		t.Helper()
+		p := testParser(src)
+		node, _, err := p.parseBraceNode()
+		if err != nil {
+			t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
+		}
+		n, ok := node.(*ast.SwitchMarkup)
+		if !ok {
+			t.Fatalf("got %T, want *ast.SwitchMarkup", node)
+		}
+		return n
+	}
+	textSig := func(nodes []ast.Markup) string {
+		var b strings.Builder
+		for _, n := range nodes {
+			switch v := n.(type) {
+			case *ast.Text:
+				b.WriteString("T(" + v.Value + ")")
+			case *ast.Element:
+				b.WriteString("<" + v.Tag + ">")
+			default:
+				b.WriteString("?")
+			}
+		}
+		return b.String()
+	}
+
+	t.Run("label after text-only arm", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\ttail\ndefault:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail)" {
+			t.Fatalf("case0 body = %s, want T(tail)", got)
+		}
+		if !n.Cases[1].Default {
+			t.Fatalf("case1 = %#v, want default", n.Cases[1])
+		}
+	})
+
+	t.Run("label after element-then-text arm", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\t<b>x</b> tail\ndefault:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "<b>T( tail)" {
+			t.Fatalf("case0 body = %s, want <b>T( tail)", got)
+		}
+		if !n.Cases[1].Default {
+			t.Fatalf("case1 = %#v, want default", n.Cases[1])
+		}
+	})
+
+	t.Run("case label with colon inside string literal", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\ttail\ncase \"a:b\":\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if n.Cases[1].List != `"a:b"` {
+			t.Fatalf("case1 List = %q, want \"a:b\"", n.Cases[1].List)
+		}
+	})
+
+	t.Run("label indented with tabs", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\ttail\n\t\tdefault:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail)" {
+			t.Fatalf("case0 body = %s, want T(tail)", got)
+		}
+	})
+
+	t.Run("label indented with spaces", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n    tail\n    default:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail)" {
+			t.Fatalf("case0 body = %s, want T(tail)", got)
+		}
+	})
+
+	t.Run("mid-line prose containing default: stays text", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ndefault:\n\tthe default: value is 5\n} }")
+		if len(n.Cases) != 1 {
+			t.Fatalf("got %d cases, want 1 (no false label split): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(the default: value is 5)" {
+			t.Fatalf("case0 body = %s, want T(the default: value is 5)", got)
+		}
+	})
+
+	t.Run("line-start default with no colon stays text", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ndefault:\n\ttail\ndefault\nmore\n} }")
+		if len(n.Cases) != 1 {
+			t.Fatalf("got %d cases, want 1 (no colon => not a label): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail\ndefault\nmore)" {
+			t.Fatalf("case0 body = %q, want T(tail\\ndefault\\nmore)", got)
+		}
+	})
+
+	t.Run("line-start defaults: (not a whole word) stays text", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ndefault:\n\ttail\ndefaults:\nmore\n} }")
+		if len(n.Cases) != 1 {
+			t.Fatalf("got %d cases, want 1 (defaults: is not the keyword): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail\ndefaults:\nmore)" {
+			t.Fatalf("case0 body = %q, want T(tail\\ndefaults:\\nmore)", got)
+		}
+	})
+}
+
 func TestParseCondAttr(t *testing.T) {
 	// One-off conditional attribute on a tag.
 	p := testParser(`<input { if id != "" { id={id} } }/>`)
