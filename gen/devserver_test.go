@@ -540,6 +540,53 @@ func TestWaitHealthy(t *testing.T) {
 	}
 }
 
+// The dev loop's HTTP helpers chatter with the Vite dev server (Node). A
+// pooled keep-alive connection left idle there is torn down by Node's
+// keepAliveTimeout, and the teardown can emit an unsolicited
+// "HTTP/1.1 400 Bad Request" that Go's transport logs to the terminal
+// ("Unsolicited response received on idle HTTP channel ...") — alarming noise
+// in every gsx dev session. Each helper must therefore close its connection
+// per request (Connection: close) so no idle socket is ever parked in a pool.
+func TestDevHTTPHelpersCloseConnections(t *testing.T) {
+	got := make(chan bool, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case got <- r.Close:
+		default: // pollCommands re-polls in a loop; drop extras
+		}
+		if r.URL.Path == "/__gsx/cmd" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	recv := func(name string) {
+		t.Helper()
+		select {
+		case closed := <-got:
+			if !closed {
+				t.Errorf("%s: request left connection open (want Connection: close)", name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: no request received", name)
+		}
+	}
+
+	waitHealthy(context.Background(), srv.URL+"/healthz", 2*time.Second)
+	recv("waitHealthy")
+
+	postEvent(srv.URL, []byte(`{}`), nil)
+	recv("postEvent")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	out := make(chan string, 1)
+	go pollCommands(ctx, srv.URL, "tok", func() bool { return true }, out)
+	recv("pollCommands")
+	cancel()
+}
+
 func TestAggregateEvent(t *testing.T) {
 	results := []cycleResult{
 		{Dir: "a", Written: []string{"/x/a.x.go"}, OK: true, DurMs: 2},
