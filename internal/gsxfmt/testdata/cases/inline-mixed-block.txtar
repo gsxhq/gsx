@@ -1,0 +1,45 @@
+A block-level element (not in the inline set, so not an atom) glued into
+prose by a significant space keeps its segment together — that segment's own
+Fill still wraps the surrounding prose at word gaps. An edge-unsafe list
+(leading or trailing significant space) stays fully inline exactly as before,
+even with a block child in it — the edge guard, not atom status, decides. A
+`<pre>` subtree containing an inline-tag element must stay verbatim: preserve
+tags disqualify every element beneath them from atom status, since preserved
+text may hold significant newlines an atom's flat rendering would eat.
+
+-- input.gsx --
+package p
+
+component BlockGluedIntoProse() {
+	<div>
+		Some long lead-in prose that talks about the widget below and keeps going for a while before the block starts <div class="callout">Note: read the docs.</div> and then some trailing prose continues right after the block, glued to it by a literal space so it has to share the block's segment.
+	</div>
+}
+
+component EdgeUnsafeListStaysFlat() {
+	<p> lead <div>inside</div> trail </p>
+}
+
+component PreWithInlineChild() {
+	<pre><code>fn <em>highlight</em> stays verbatim here, never folded into an atom's flat line</code></pre>
+}
+-- fmt.golden --
+package p
+
+component BlockGluedIntoProse() {
+	<div>
+		Some long lead-in prose that talks about the widget below and keeps going
+		for a while before the block
+		starts <div class="callout">Note: read the docs.</div> and then some
+		trailing prose continues right after the block, glued to it by a literal
+		space so it has to share the block's segment.
+	</div>
+}
+
+component EdgeUnsafeListStaysFlat() {
+	<p> lead <div>inside</div> trail </p>
+}
+
+component PreWithInlineChild() {
+	<pre><code>fn <em>highlight</em> stays verbatim here, never folded into an atom's flat line</code></pre>
+}

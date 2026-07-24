@@ -1,0 +1,62 @@
+Canonical fill re-wraps prose greedily at the width budget, one layout
+regardless of how the author broke their lines — author word-gap break points
+are not preserved, only structural breaks (ChildrenMultiline) are. A cluster
+bonded together by a significant space touching a non-word leaf (word+atom)
+cannot be split at that joint, so a bonded cluster wider than the budget stays
+on one long line rather than being forced open.
+
+-- input.gsx --
+package p
+
+component LongProseWraps() {
+	<p>Formatting decisions like this one are meant to read naturally: paragraphs of documentation prose should wrap at a sensible column width instead of overflowing off the right edge of the screen, and the formatter should do that work automatically so authors never have to think about where to break a line by hand.</p>
+}
+
+component AuthorWrapReflows() {
+	<p>
+		Hand-wrapped
+		prose at an
+		arbitrary short
+		column count does
+		not survive formatting: the printer discards every one of these
+		author break points and re-wraps the whole paragraph at its own
+		eighty column budget instead, exactly as if the source had been
+		written on one long line to begin with.
+	</p>
+}
+
+component BondClusterStaysLong() {
+	<p>
+		This sentence sits before a <code>reallyLongIdentifierNameThatByItselfAlreadyExceedsTheEightyColumnPrintWidthBudgetEntirely</code> and continues after it with more prose that wraps normally at the word gaps that follow.
+	</p>
+}
+-- fmt.golden --
+package p
+
+component LongProseWraps() {
+	<p>
+		Formatting decisions like this one are meant to read naturally: paragraphs
+		of documentation prose should wrap at a sensible column width instead of
+		overflowing off the right edge of the screen, and the formatter should do
+		that work automatically so authors never have to think about where to break
+		a line by hand.
+	</p>
+}
+
+component AuthorWrapReflows() {
+	<p>
+		Hand-wrapped prose at an arbitrary short column count does not survive
+		formatting: the printer discards every one of these author break points and
+		re-wraps the whole paragraph at its own eighty column budget instead,
+		exactly as if the source had been written on one long line to begin with.
+	</p>
+}
+
+component BondClusterStaysLong() {
+	<p>
+		This sentence sits before
+		a <code>reallyLongIdentifierNameThatByItselfAlreadyExceedsTheEightyColumnPrintWidthBudgetEntirely</code> and
+		continues after it with more prose that wraps normally at the word gaps that
+		follow.
+	</p>
+}

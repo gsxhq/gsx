@@ -1,0 +1,67 @@
+Inline atoms (phrasing-content tags: a, code, em, span, ...) never break open
+under width pressure, and an all-inline children list no longer forces its
+parent onto multiple lines. Author-multiline children still outrank atom
+status (a `<code>` the author wrote multi-line renders multi-line, as a block
+child), and the preserve tags (`textarea`, `script`) are never atoms regardless
+of tag membership.
+
+-- input.gsx --
+package p
+
+component GettingStarted() {
+	<p class="text-muted-foreground">
+		gsxui components are copy-in: the CLI vendors real <code>.gsx</code> source into your own
+		module, so what you build against is code you own and can edit — not a package you import
+		and can't touch.
+	</p>
+}
+
+component OneLiner() {
+	<p>vendors real <code>.gsx</code> source.</p>
+}
+
+component AuthorMultilineFallsBack() {
+	<p>
+		see
+		<code>
+			.gsx
+		</code>
+		file
+	</p>
+}
+
+component NeverAtoms() {
+	<textarea>hello world</textarea>
+	<script>const x = 1;</script>
+}
+-- fmt.golden --
+package p
+
+component GettingStarted() {
+	<p class="text-muted-foreground">
+		gsxui components are copy-in: the CLI vendors real <code>.gsx</code> source
+		into your own module, so what you build against is code you own and can edit
+		— not a package you import and can't touch.
+	</p>
+}
+
+component OneLiner() {
+	<p>vendors real <code>.gsx</code> source.</p>
+}
+
+component AuthorMultilineFallsBack() {
+	<p>
+		see
+		<code>
+			.gsx
+		</code>
+		file
+	</p>
+}
+
+component NeverAtoms() {
+	<textarea>hello world</textarea>
+	<script>
+		const x = 1;
+	</script>
+}
