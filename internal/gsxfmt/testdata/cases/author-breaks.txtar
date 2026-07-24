@@ -88,8 +88,8 @@ component SwitchArmsStayPerLine(kind string) {
 component SwitchArmsStayInline(kind string) {
 	<span>
 		{ switch kind {
-		case "warn":<b>warning</b>
-		default:<b>info</b>
+		case "warn": <b>warning</b>
+		default: <b>info</b>
 		} }
 	</span>
 }

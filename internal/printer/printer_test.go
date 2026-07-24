@@ -1698,8 +1698,8 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-		case "warn":<b>w</b>
-		case "info":<i>i</i>
+		case "warn": <b>w</b>
+		case "info": <i>i</i>
 		} }
 	</div>
 }
@@ -1833,6 +1833,6 @@ component C(kind string) {
 // counterpart: siblings written on the same line as the colon, with no break
 // between them either, all stay glued on the arm's one line.
 func TestCaseArmInteriorSiblingStaysInlineWhenAuthorInline(t *testing.T) {
-	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\":<b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
+	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\": <b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, src)
 }

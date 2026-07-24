@@ -1235,6 +1235,14 @@ func (p *printer) caseBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if edgeSafe && (p.hasBlockChild(nodes) || multiline) {
 		return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
 	}
+	// An inline arm reads `case "a": <b>w</b>`, not `case "a":<b>w</b>`. The
+	// space is layout, not content: the parser strips a body's leading
+	// brace-interior whitespace (trimBodyEdges), so it never reaches the AST and
+	// re-parsing this output yields the same body. An arm whose body genuinely
+	// leads with a significant space supplies its own and must not be doubled.
+	if !leadsWithSpace(nodes[0]) {
+		return pretty.Concat(pretty.Text(" "), inner)
+	}
 	return inner
 }
 
