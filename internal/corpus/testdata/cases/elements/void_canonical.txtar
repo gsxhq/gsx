@@ -1,0 +1,21 @@
+# Canonical serialization of VOID elements: the authored trailing slash is
+# dropped (<br/> → <br>; WHATWG: the slash "has no effect" and the spec's own
+# serializer omits it), and an authored empty close pair collapses
+# (<br></br> → <br> — browsers discard the invalid </br> anyway).
+-- input.gsx --
+package views
+
+component Voids() {
+	<div>
+		<br/>
+		<br></br>
+		<img src="/a.png" alt="a"/>
+		<input type="text" required/>
+		<hr/>
+	</div>
+}
+-- invoke --
+Voids()
+-- diagnostics.golden --
+-- render.golden --
+<div><br><br><img src="/a.png" alt="a"><input type="text" required><hr></div>

@@ -176,6 +176,7 @@ type cacheKeyConfig struct {
 	classifierFingerprint string
 	cssMinify             bool
 	jsMinify              bool
+	verbatimTags          bool
 	classMerger           *codegen.ClassMergerRef
 }
 
@@ -225,7 +226,7 @@ func computeKey(dir string, projection *sourceview.CacheProjection, config cache
 	// gsx binary hash, so it supersedes a bare Version() pin: any emit/lowering
 	// change auto-invalidates even when the constant is not bumped.
 	fmt.Fprintf(h, "gsxcache-v3\x00%s\x00%s\x00source=%s\x00", config.codegenIdentity, config.buildContext, sourceIdentity)
-	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00renderers=%s\x00cls=%s\x00minify=css:%d,js:%d\x00%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), strings.Join(rendererPins, "\x00"), config.classifierFingerprint, b2i(config.cssMinify), b2i(config.jsMinify), cm)
+	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00renderers=%s\x00cls=%s\x00minify=css:%d,js:%d\x00serial=%d\x00%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), strings.Join(rendererPins, "\x00"), config.classifierFingerprint, b2i(config.cssMinify), b2i(config.jsMinify), b2i(config.verbatimTags), cm)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 

@@ -179,7 +179,7 @@ func TestRealisticCacheColdWarm(t *testing.T) {
 		return generateCachedWithReport(
 			[]string{fixture.pagesDir}, nil, nil, nil,
 			attrclass.Builtin(), true,
-			nil, nil, nil, true, true, nil,
+			nil, nil, nil, true, true, false, nil,
 		)
 	}
 
@@ -385,7 +385,7 @@ component Card() {
 				return generateCachedWithReport(
 					[]string{fixture.pagesDir}, nil, nil, nil,
 					attrclass.Builtin(), true,
-					nil, nil, nil, true, true, nil,
+					nil, nil, nil, true, true, false, nil,
 				)
 			}
 			if _, report, err := generate(); err != nil {
@@ -463,7 +463,7 @@ func BenchmarkGenerateCachedNoop(b *testing.B) {
 		return generateCachedWithReport(
 			[]string{fixture.pagesDir}, nil, nil, nil,
 			attrclass.Builtin(), true,
-			nil, nil, nil, true, true, nil,
+			nil, nil, nil, true, true, false, nil,
 		)
 	}
 	if _, _, err := generate(); err != nil {

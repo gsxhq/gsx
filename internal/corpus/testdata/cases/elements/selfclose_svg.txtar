@@ -1,0 +1,17 @@
+# Foreign-content (SVG) names expand uniformly: <path/> → <path></path> is
+# equally valid in SVG, so canonical mode needs no foreign-name table and no
+# ancestor tracking (spec decision: uniform expansion).
+-- input.gsx --
+package views
+
+component Icon() {
+	<svg viewBox="0 0 24 24">
+		<path d="M0 0h24v24H0z"/>
+		<circle cx="12" cy="12" r="10"/>
+	</svg>
+}
+-- invoke --
+Icon()
+-- diagnostics.golden --
+-- render.golden --
+<svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"></path><circle cx="12" cy="12" r="10"></circle></svg>

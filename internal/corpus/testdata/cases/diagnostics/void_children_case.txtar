@@ -1,0 +1,10 @@
+# Case-insensitive void classification also gates the children diagnostic:
+# <bR>text</bR> is <br> with children regardless of tag-name case.
+-- input.gsx --
+package views
+
+component Bad() {
+	<p><bR>text</bR></p>
+}
+-- diagnostics.golden --
+4:5: void element <bR> cannot have children

@@ -57,18 +57,19 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 		return nil, err
 	}
 	return codegen.Open(codegen.Options{
-		ModuleRoot:  root,
-		ModulePath:  modPath,
-		FilterPkgs:  s.cfg.filterPkgs,
-		Aliases:     s.cfg.aliases,
-		Renderers:   s.cfg.renderers,
-		Classifier:  s.cfg.cls,
-		CSSMin:      s.cfg.cssMin,
-		JSMin:       s.cfg.jsMin,
-		JSONMin:     s.cfg.jsonMin,
-		CSSMinify:   s.cfg.cssMinify,
-		JSMinify:    s.cfg.jsMinify,
-		ClassMerger: s.cfg.classMerger,
+		ModuleRoot:   root,
+		ModulePath:   modPath,
+		FilterPkgs:   s.cfg.filterPkgs,
+		Aliases:      s.cfg.aliases,
+		Renderers:    s.cfg.renderers,
+		Classifier:   s.cfg.cls,
+		CSSMin:       s.cfg.cssMin,
+		JSMin:        s.cfg.jsMin,
+		JSONMin:      s.cfg.jsonMin,
+		CSSMinify:    s.cfg.cssMinify,
+		JSMinify:     s.cfg.jsMinify,
+		VerbatimTags: s.cfg.verbatimTags,
+		ClassMerger:  s.cfg.classMerger,
 	})
 }
 

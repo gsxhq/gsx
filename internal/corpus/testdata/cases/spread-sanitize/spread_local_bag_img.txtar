@@ -14,4 +14,4 @@ component Pic(userSrc string) {
 Pic("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
-<img src="about:invalid#gsx"/>
+<img src="about:invalid#gsx">

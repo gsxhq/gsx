@@ -17,4 +17,4 @@ component Toggle(name string) {
 -- invoke --
 Toggle("agree")
 -- render.golden --
-<input type="checkbox" id="agree"/>
+<input type="checkbox" id="agree">

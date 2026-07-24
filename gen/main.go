@@ -59,6 +59,9 @@ type config struct {
 	jsMinLevel     MinifyLevel             // <script> minification level (zero = MinifyNone)
 	minifyLevelSet bool                    // true once an option (WithMinifyLevel) pinned the levels
 	classMerger    *codegen.ClassMergerRef // configured class merger (option or toml); nil = default
+
+	serialization    Serialization // tag-shape serialization; zero = canonical
+	serializationSet bool          // true once WithSerialization pinned it
 }
 
 // effectivePrintWidth returns the configured print width, defaulting to
@@ -223,7 +226,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.hasCustomMinifier(), merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.hasCustomMinifier(), merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.serialization == SerializationVerbatim, merged.classMerger, workDir)
 	case "dev":
 		devWorkDir := workDir
 		if len(cmdArgs) > 0 && !strings.HasPrefix(cmdArgs[0], "-") {
@@ -376,7 +379,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // registered renderer's package now joins the module's ONE packages.Load and
 // its rendererTable is harvested, but nothing yet CONSULTS that table at a
 // render boundary — that consumer lands in a later slice.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache, customMinifier bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache, customMinifier bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify, verbatimTags bool, classMerger *codegen.ClassMergerRef, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -418,13 +421,14 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
 			filterPkgs: filterPkgs, aliases: aliases, renderers: renderers, cls: cls,
 			cssMin: cssMin, jsMin: jsMin, jsonMin: jsonMin, cssMinify: cssMinify, jsMinify: jsMinify,
-			classMerger: classMerger,
+			verbatimTags: verbatimTags,
+			classMerger:  classMerger,
 		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: user funcs are not hashable, unlike built-in full minifiers.
 	useCache := !nocacheFlag && !customMinifier
-	res, report, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
+	res, report, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, verbatimTags, classMerger)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.

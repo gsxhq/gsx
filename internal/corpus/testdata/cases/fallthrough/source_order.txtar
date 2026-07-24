@@ -18,4 +18,4 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<input type="email" placeholder="you@co" name="email"/>
+<input type="email" placeholder="you@co" name="email">

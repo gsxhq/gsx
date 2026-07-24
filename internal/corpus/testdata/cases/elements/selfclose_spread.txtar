@@ -1,0 +1,15 @@
+# The manual-spread tail (single top-level spread) must expand a self-closed
+# non-void element too — this is the exact gsxui Separator shape from #144.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Separator(attrs gsx.Attrs) {
+	<div role="separator" { attrs... }/>
+}
+-- invoke --
+Separator(gsx.Attrs{{Key: "class", Value: "h-px"}})
+-- diagnostics.golden --
+-- render.golden --
+<div role="separator" class="h-px"></div>

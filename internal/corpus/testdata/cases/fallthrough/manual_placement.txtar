@@ -14,4 +14,4 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<div class="wrap"><input id="email" data-test="x" placeholder="you@co"/></div>
+<div class="wrap"><input id="email" data-test="x" placeholder="you@co"></div>

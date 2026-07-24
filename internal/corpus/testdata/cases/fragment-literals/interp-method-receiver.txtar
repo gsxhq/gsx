@@ -46,7 +46,7 @@ func Noop() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<span/>")
+		_gsxgw.S("<span></span>")
 		return _gsxgw.Err()
 	})
 }

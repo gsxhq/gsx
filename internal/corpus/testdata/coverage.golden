@@ -261,6 +261,9 @@ diagnostics/reserved_param_stub_masking_attrs	diag(error)
 diagnostics/shallow_interp_column	diag(error)
 diagnostics/undefined_interp	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
+diagnostics/void_children	diag(error)
+diagnostics/void_children_case	diag(error)
+diagnostics/void_children_spread	diag(error)
 doctype/render	diag render
 dquote-literals/css_attr_backtick_content	diag gen render
 dquote-literals/f_attr_backtick_content	diag gen render
@@ -276,6 +279,7 @@ element-literals/interp-outer-scope	diag gen render
 element-literals/method-receiver	diag gen render
 element-literals/multi-element-region	diag gen render
 element-literals/return	diag gen render
+element-literals/selfclose-value	diag render
 element-literals/stray-import-after-func	diag(error)
 element-literals/struct-field	diag gen render
 element-literals/text-apostrophe-multi	diag gen render
@@ -287,8 +291,13 @@ elements/html_comment_breakout	diag(error)
 elements/html_comment_fragment	diag render
 elements/named_scalar_types	diag render
 elements/node_slice	diag render
+elements/selfclose_nonvoid	diag render
+elements/selfclose_spread	diag render
+elements/selfclose_svg	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
+elements/void_canonical	diag render
+elements/void_case_insensitive	diag render
 fallthrough/call_site_button	diag(error)
 fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
@@ -529,6 +538,7 @@ multispread/jscss_holes_hostile	diag render
 multispread/nonce_script_two_spreads	diag gen render
 multispread/probe_expr_before_cond	diag render
 multispread/renderer_evaluation_order	diag render
+multispread/selfclose_fold	diag render
 multispread/style_cond_lone_spread	diag gen render
 multispread/style_cond_two_spreads	diag gen render
 multispread/three_spreads	diag gen render
@@ -781,6 +791,9 @@ security/meta_refresh_url	diag gen render
 security/url_blocked	diag render
 security/url_raw_vouched	diag render
 security/xss	diag render
+serialization/verbatim_selfclose	diag render
+serialization/verbatim_void	diag render
+serialization/verbatim_void_children_error	diag(error)
 slots/node_prop_bool_attr	diag gen render
 slots/node_prop_escaping	diag render
 slots/node_prop_promotion	diag gen render
@@ -923,4 +936,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 925 cases (render: 799, error: 88, gen-pinned: 541)
+TOTAL: 938 cases (render: 808, error: 92, gen-pinned: 541)

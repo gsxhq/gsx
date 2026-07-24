@@ -11,17 +11,18 @@ import (
 )
 
 type moduleGenerateConfig struct {
-	filterPkgs  []string
-	aliases     []codegen.FilterAlias
-	renderers   []codegen.RendererAlias
-	classifier  *attrclass.Classifier
-	useCache    bool
-	cssMin      func(string) (string, error)
-	jsMin       func(string) (string, error)
-	jsonMin     func(string) (string, error)
-	cssMinify   bool
-	jsMinify    bool
-	classMerger *codegen.ClassMergerRef
+	filterPkgs   []string
+	aliases      []codegen.FilterAlias
+	renderers    []codegen.RendererAlias
+	classifier   *attrclass.Classifier
+	useCache     bool
+	cssMin       func(string) (string, error)
+	jsMin        func(string) (string, error)
+	jsonMin      func(string) (string, error)
+	cssMinify    bool
+	jsMinify     bool
+	verbatimTags bool
+	classMerger  *codegen.ClassMergerRef
 }
 
 type cachePreparation struct {
@@ -110,6 +111,7 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 		JSONMin:          config.jsonMin,
 		CSSMinify:        config.cssMinify,
 		JSMinify:         config.jsMinify,
+		VerbatimTags:     config.verbatimTags,
 		ClassMerger:      config.classMerger,
 	}
 
@@ -139,6 +141,7 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 		classifierFingerprint: config.classifier.Fingerprint(),
 		cssMinify:             config.cssMinify,
 		jsMinify:              config.jsMinify,
+		verbatimTags:          config.verbatimTags,
 		classMerger:           config.classMerger,
 	}
 	graphRoots := []string{"github.com/gsxhq/gsx"}

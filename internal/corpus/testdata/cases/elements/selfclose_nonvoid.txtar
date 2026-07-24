@@ -1,0 +1,19 @@
+# Issue #144: a self-closed NON-VOID element must expand to an explicit
+# open+close pair in canonical (default) serialization — browsers ignore the
+# trailing slash on non-void elements and would treat <div/> as an open tag,
+# swallowing every following sibling.
+-- input.gsx --
+package views
+
+component Separator() {
+	<section>
+		<div role="separator"/>
+		<span/>
+		<p>after</p>
+	</section>
+}
+-- invoke --
+Separator()
+-- diagnostics.golden --
+-- render.golden --
+<section><div role="separator"></div><span></span><p>after</p></section>

@@ -24,6 +24,12 @@
     "invoke": "Tracker()"
   },
   {
+    "name": "Self-closing non-void elements",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Divider() {\n\t<section>\n\t\t<div role=\"separator\"/>\n\t\t<p>Content after the divider stays outside it.</p>\n\t</section>\n}\n",
+    "invoke": "Divider()"
+  },
+  {
     "name": "HTML comments",
     "category": "Elements",
     "source": "package views\n\ncomponent Layout(name string) {\n\t<div>\n\t\t<!-- header -->\n\t\t<h1>{ name }</h1>\n\t\t<!-- a < b -->\n\t</div>\n}\n",

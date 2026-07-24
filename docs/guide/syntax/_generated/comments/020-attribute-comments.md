@@ -15,7 +15,7 @@ component Toggle(name string) {
 Renders:
 
 ```html
-<input type="checkbox" id="agree"/>
+<input type="checkbox" id="agree">
 ```
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgVG9nZ2xlKG5hbWUgc3RyaW5nKSB7XG5cdFx1MDAzY2lucHV0XG5cdFx0dHlwZT1cImNoZWNrYm94XCJcblx0XHQvLyBzb3VyY2Utb25seSBub3RlLCBuZXZlciByZW5kZXJlZFxuXHRcdGlkPXtuYW1lfVxuXHQvXHUwMDNlXG59XG4iLCJpIjoiVG9nZ2xlKFwiYWdyZWVcIikifQ==)

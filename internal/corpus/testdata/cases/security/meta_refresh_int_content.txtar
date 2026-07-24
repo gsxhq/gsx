@@ -9,5 +9,5 @@ component Reload(secs int) {
 Reload(5)
 
 -- render.golden --
-<meta http-equiv="refresh" content="5"/>
+<meta http-equiv="refresh" content="5">
 -- diagnostics.golden --

@@ -939,3 +939,48 @@ func TestGraphQueryPatternsUseRelativePathsOnlyForManifestPackages(t *testing.T)
 		t.Fatalf("graph query patterns = %v, want %v", got, want)
 	}
 }
+
+// keyWithSerialization computes a cache key for a tiny synthetic graph
+// differing only in the verbatimTags boolean; everything else is held
+// constant. Mirrors keyWith in cachekey_minify_test.go.
+func keyWithSerialization(t *testing.T, verbatimTags bool) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/x\n\ngo 1.26.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.go"), []byte("package view\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.gsx"), []byte("package view\ncomponent View() { <p/> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	graph := loadGraphMust(t, root)
+	k, err := computeTestKey(t, dir, root, graph, cacheKeyConfig{
+		buildContext:          "bctx",
+		codegenIdentity:       "codegenid",
+		classifierFingerprint: "clsfp",
+		verbatimTags:          verbatimTags,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+func TestComputeKey_SerializationChangesKey(t *testing.T) {
+	t.Parallel()
+	canonical := keyWithSerialization(t, false)
+	verbatim := keyWithSerialization(t, true)
+	if canonical == verbatim {
+		t.Fatal("verbatimTags change must change the cache key")
+	}
+	// Stable: same inputs → same key.
+	if canonical != keyWithSerialization(t, false) {
+		t.Fatal("same inputs must yield the same key")
+	}
+}

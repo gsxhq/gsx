@@ -516,6 +516,36 @@ func TestLoadConfigClassMergerBadValue(t *testing.T) {
 	}
 }
 
+// TestLoadConfigSerialization proves the top-level serialization key decodes
+// into cfg.serialization, and an invalid spelling errors naming the key and
+// both valid values.
+func TestLoadConfigSerialization(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, `serialization = "verbatim"`)
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.serialization != SerializationVerbatim {
+		t.Fatalf("serialization = %v, want SerializationVerbatim", cfg.serialization)
+	}
+}
+
+// TestLoadConfigSerializationBadValue proves an unrecognized spelling is
+// rejected, naming the key and both valid values.
+func TestLoadConfigSerializationBadValue(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, `serialization = "bogus"`)
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "serialization") || !strings.Contains(err.Error(), "canonical") || !strings.Contains(err.Error(), "verbatim") {
+		t.Fatalf("loadConfig err = %v, want error naming serialization + canonical + verbatim", err)
+	}
+}
+
 // TestConfigImportsMode: [formatter] imports selects the mode.
 func TestConfigImportsMode(t *testing.T) {
 	for _, tc := range []struct {

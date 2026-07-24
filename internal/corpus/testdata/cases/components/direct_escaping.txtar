@@ -59,7 +59,7 @@ func _gsxrenderEscaped(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, text, attr, n
 //line input.gsx:6:2
 	_gsxgw.S("<img srcset=\"")
 	_gsxgw.Srcset(string(candidates))
-	_gsxgw.S("\"/>")
+	_gsxgw.S("\">")
 //line input.gsx:7:2
 	_gsxgw.S("<button onclick=\"show(")
 	_gsxgw.JSValAttr(scriptValue)
@@ -79,4 +79,4 @@ func Page() _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div title="&#34;&amp;">&lt;b&gt;&amp;</div><a href="about:invalid#gsx">nav</a><img srcset="about:invalid#gsx, /ok.png 2x"/><button onclick="show(&#34;&#39;\u003c/script\u003e&#34;)" style="content:ZgotmplZ">go</button>
+<div title="&#34;&amp;">&lt;b&gt;&amp;</div><a href="about:invalid#gsx">nav</a><img srcset="about:invalid#gsx, /ok.png 2x"><button onclick="show(&#34;&#39;\u003c/script\u003e&#34;)" style="content:ZgotmplZ">go</button>

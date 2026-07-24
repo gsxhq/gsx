@@ -15,4 +15,4 @@ component C(on bool) {
 C(true)
 -- diagnostics.golden --
 -- render.golden --
-<input checked/>
+<input checked>

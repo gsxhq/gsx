@@ -1,0 +1,16 @@
+# Fold path (>=2 spreads) on a self-closed non-void element: foldElementSpreads
+# re-enters emitManualSpreadElement with a synthetic single spread while keeping
+# el.Void — the expansion must still apply there.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Two(p gsx.Attrs, q gsx.Attrs) {
+	<div { p... } { q... }/>
+}
+-- invoke --
+Two(gsx.Attrs{{Key: "id", Value: "d"}}, gsx.Attrs{{Key: "data-x", Value: "1"}})
+-- diagnostics.golden --
+-- render.golden --
+<div id="d" data-x="1"></div>

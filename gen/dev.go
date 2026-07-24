@@ -99,7 +99,8 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		cls:    merged.classifier(),
 		cssMin: merged.effectiveCSSMin(), jsMin: merged.effectiveJSMin(), jsonMin: merged.effectiveJSONMin(),
 		cssMinify: merged.cssMinLevel.enabled(), jsMinify: merged.jsMinLevel.enabled(),
-		classMerger: merged.classMerger,
+		verbatimTags: merged.serialization == SerializationVerbatim,
+		classMerger:  merged.classMerger,
 	}
 	armed, err := armWatchSession(wcfg)
 	if err != nil {

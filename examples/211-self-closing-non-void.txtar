@@ -1,0 +1,19 @@
+-- doc --
+name: Self-closing non-void elements
+summary: <div/> is JSX-style shorthand — gsx expands non-void self-closed elements to an explicit open+close pair in the HTML it generates.
+category: Elements
+page: elements
+pageOrder: 21
+-- input.gsx --
+package views
+
+component Divider() {
+	<section>
+		<div role="separator"/>
+		<p>Content after the divider stays outside it.</p>
+	</section>
+}
+-- invoke --
+Divider()
+-- render.golden --
+<section><div role="separator"></div><p>Content after the divider stays outside it.</p></section>

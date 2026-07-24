@@ -9,5 +9,5 @@ component ExprRefresh(to string) {
 ExprRefresh("javascript:alert(1)")
 
 -- render.golden --
-<meta http-equiv="refresh" content="0;url=about:invalid#gsx"/>
+<meta http-equiv="refresh" content="0;url=about:invalid#gsx">
 -- diagnostics.golden --

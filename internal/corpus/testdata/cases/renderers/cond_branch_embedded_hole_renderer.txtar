@@ -68,4 +68,4 @@ component Page(edit bool, val pg.Text) {
 gsx.Fragment(Page(true, mkText("there", true)), checkedErrorPage())
 -- diagnostics.golden --
 -- render.golden --
-<input aria-label="c" title="Hi there"/>
+<input aria-label="c" title="Hi there">

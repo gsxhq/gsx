@@ -22,4 +22,4 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<input aria-label="c" title="Hi a&lt;b"/><input aria-label="c" title="Hi 7"/>
+<input aria-label="c" title="Hi a&lt;b"><input aria-label="c" title="Hi 7">

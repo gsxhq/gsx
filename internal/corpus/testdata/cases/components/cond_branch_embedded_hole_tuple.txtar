@@ -48,4 +48,4 @@ component FailPage(edit bool) {
 gsx.Fragment(Page(true), checkedErrorPage())
 -- diagnostics.golden --
 -- render.golden --
-<input aria-label="c" title="Hi there"/>
+<input aria-label="c" title="Hi there">

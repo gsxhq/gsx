@@ -18,4 +18,4 @@ component EntityFilter(entityType string, opts map[string]string) {
 -- invoke --
 EntityFilter("opportunity", map[string]string{"page": "1"})
 -- render.golden --
-<input type="checkbox" hx-post="/filter" hx-vals="{&#34;entity_type&#34;: &#34;opportunity&#34;, &#34;opts&#34;: {&#34;page&#34;:&#34;1&#34;}}"/>
+<input type="checkbox" hx-post="/filter" hx-vals="{&#34;entity_type&#34;: &#34;opportunity&#34;, &#34;opts&#34;: {&#34;page&#34;:&#34;1&#34;}}">

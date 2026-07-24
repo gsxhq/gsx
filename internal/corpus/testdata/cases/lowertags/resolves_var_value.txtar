@@ -12,4 +12,4 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<chip/>
+<chip></chip>

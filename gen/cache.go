@@ -14,12 +14,12 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
-func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, error) {
-	result, _, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, classMerger)
+func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify, verbatimTags bool, classMerger *codegen.ClassMergerRef) (Result, error) {
+	result, _, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, verbatimTags, classMerger)
 	return result, err
 }
 
-func generateCachedWithReport(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, cacheReport, error) {
+func generateCachedWithReport(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify, verbatimTags bool, classMerger *codegen.ClassMergerRef) (Result, cacheReport, error) {
 	var res Result
 	var report cacheReport
 	dirs, err := discoverDirs(paths)
@@ -56,17 +56,18 @@ func generateCachedWithReport(paths, filterPkgs []string, aliases []codegen.Filt
 		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
 	config := moduleGenerateConfig{
-		filterPkgs:  filterPkgs,
-		aliases:     aliases,
-		renderers:   renderers,
-		classifier:  cls,
-		useCache:    useCache,
-		cssMin:      cssMin,
-		jsMin:       jsMin,
-		jsonMin:     jsonMin,
-		cssMinify:   cssMinify,
-		jsMinify:    jsMinify,
-		classMerger: classMerger,
+		filterPkgs:   filterPkgs,
+		aliases:      aliases,
+		renderers:    renderers,
+		classifier:   cls,
+		useCache:     useCache,
+		cssMin:       cssMin,
+		jsMin:        jsMin,
+		jsonMin:      jsonMin,
+		cssMinify:    cssMinify,
+		jsMinify:     jsMinify,
+		verbatimTags: verbatimTags,
+		classMerger:  classMerger,
 	}
 	for _, g := range groups {
 		report.Modules = append(report.Modules, generateModule(g, config, &res))

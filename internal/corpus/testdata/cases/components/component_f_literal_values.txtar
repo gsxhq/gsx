@@ -88,7 +88,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, a
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
 	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-	_gsxgw.S("/></label>")
+	_gsxgw.S("></label>")
 	return _gsxgw.Err()
 }
 
@@ -132,4 +132,4 @@ func Page(count int) _gsxrt.Node {
 }
 -- diagnostics.golden --
 -- render.golden --
-<header><h1>Tickets</h1><p>3 tickets</p></header><label>Ticket<input data-ticket="ticket-3"/></label><section>3 open</section><div data-count="3 direct"></div>
+<header><h1>Tickets</h1><p>3 tickets</p></header><label>Ticket<input data-ticket="ticket-3"></label><section>3 open</section><div data-count="3 direct"></div>

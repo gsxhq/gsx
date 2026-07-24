@@ -149,6 +149,12 @@ func (t filterTable) lookup(name string) (filterEntry, bool) {
 type funcTables struct {
 	filters   filterTable
 	renderers rendererTable
+	// verbatimTags selects authored-shape tag serialization (gsx.toml
+	// `serialization = "verbatim"`). It rides funcTables because the tables are
+	// already threaded to every element emit site; the zero value is the
+	// canonical default. Stamped per generateFile call (see generateFile), so
+	// funcTables construction/caching sites never carry it.
+	verbatimTags bool
 }
 
 // stdImportPath is the gsx built-in filter package. It is always available
