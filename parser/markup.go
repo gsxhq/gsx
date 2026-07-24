@@ -506,6 +506,10 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 	default:
 		return nil, p.errorf(p.pos(), "expected `case` or `default` in `switch`")
 	}
+	// BodyMultiline records that the source placed a line break immediately
+	// after the colon, mirroring how IfMarkup/ForMarkup record it after their
+	// body's opening `{` (newlineFollows).
+	cc.BodyMultiline = newlineFollows(p.src, p.i)
 	body, err := p.parseCaseBody()
 	if err != nil {
 		return nil, err
@@ -945,6 +949,22 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
+// stampLeadingBreak sets n's LeadingBreak field to lb when n is one of the node
+// kinds that carry the fact (*ast.Element, *ast.Interp, *ast.EmbeddedInterp —
+// the formatter's inline-fill leaves); a no-op for any other Markup (e.g. the
+// always-block-level *ast.Fragment/*ast.IfMarkup/*ast.ForMarkup/*ast.SwitchMarkup,
+// which never sit at a fill's safe-gap joint).
+func stampLeadingBreak(n ast.Markup, lb bool) {
+	switch v := n.(type) {
+	case *ast.Element:
+		v.LeadingBreak = lb
+	case *ast.Interp:
+		v.LeadingBreak = lb
+	case *ast.EmbeddedInterp:
+		v.LeadingBreak = lb
+	}
+}
+
 // parseChildren parses markup children up to the matching `</closeTag>` (which it
 // consumes). It returns the children, the position of the first char of the name
 // in the closing tag (token.NoPos when closeTag is empty — a `</>` fragment — or
@@ -977,14 +997,17 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error)
 			return nodes, closeNamePos, nil
 		}
 		if p.peek() == '<' {
+			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, token.NoPos, err
 			}
+			stampLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 			continue
 		}
 		if p.peek() == '{' {
+			leadingBreak := newlineBefore(p.src, p.i)
 			node, skipped, err := p.parseBraceNode()
 			if err != nil {
 				return nil, token.NoPos, err
@@ -992,6 +1015,7 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error)
 			if skipped {
 				continue
 			}
+			stampLeadingBreak(node, leadingBreak)
 			nodes = append(nodes, node)
 			continue
 		}

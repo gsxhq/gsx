@@ -78,6 +78,25 @@ func isSpacingInterp(n ast.Markup) bool {
 	return strings.Trim(v, " ") == ""
 }
 
+// leadingBreak reports whether n — a non-Text markup leaf — carries a
+// LeadingBreak fact: the source placed a line break in the whitespace
+// immediately before it in its children list (see
+// ast.Element/Interp/EmbeddedInterp.LeadingBreak). Any other Markup kind
+// (Fragment, IfMarkup, …) is always block-level and never reaches fillParts'
+// leaf-joint check, so it has no fact to report.
+func leadingBreak(n ast.Markup) bool {
+	switch v := n.(type) {
+	case *ast.Element:
+		return v.LeadingBreak
+	case *ast.Interp:
+		return v.LeadingBreak
+	case *ast.EmbeddedInterp:
+		return v.LeadingBreak
+	default:
+		return false
+	}
+}
+
 func leadsWithSpace(n ast.Markup) bool {
 	t, ok := n.(*ast.Text)
 	return ok && strings.HasPrefix(t.Value, " ")
@@ -172,7 +191,15 @@ func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
 		case i == 0:
 		case trailsWithSpace(nodes[i-1]) || isSpacingInterp(n):
 			// bonded: the previous Text's trailing space is already in cur,
-			// or the {" "} idiom glues to its left neighbor.
+			// or the {" "} idiom glues to its left neighbor. Never affected by
+			// LeadingBreak — a significant space adjacent to a tag never
+			// coexists with a surviving newline (wsnorm drops newline-bearing
+			// edge runs), so this joint has no fact to honor.
+		case leadingBreak(n):
+			// safe gap where the source placed a line break immediately before
+			// n: preserve it as a hard break instead of a reflowable one. This
+			// also forces the enclosing group open via containsForcedBreak.
+			gap(pretty.HardLine)
 		default:
 			gap(pretty.SoftLine)
 		}

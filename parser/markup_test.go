@@ -1605,3 +1605,149 @@ func TestAuthorLineBreakFlags(t *testing.T) {
 		t.Error("AttrsMultiline: want false for zero-attribute element")
 	}
 }
+
+// TestCaseClauseBodyMultiline checks that the parser records a line break
+// placed immediately after a `case …:`/`default:` colon (amendment
+// 2026-07-24b), mirroring IfMarkup.ThenMultiline for switch arms.
+func TestCaseClauseBodyMultiline(t *testing.T) {
+	caseNode := func(src string, wantDefault bool) *ast.CaseClause {
+		f := parseStringT(t, src)
+		var found *ast.CaseClause
+		for _, d := range f.Decls {
+			c, ok := d.(*ast.Component)
+			if !ok {
+				continue
+			}
+			for _, m := range c.Body {
+				ast.Inspect(m, func(n ast.Node) bool {
+					if found != nil {
+						return false
+					}
+					if cc, ok := n.(*ast.CaseClause); ok && cc.Default == wantDefault {
+						found = cc
+					}
+					return found == nil
+				})
+			}
+		}
+		if found == nil {
+			t.Fatalf("no matching CaseClause (default=%v) in:\n%s", wantDefault, src)
+		}
+		return found
+	}
+
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tcase \"warn\":\n\t\t<b>warning</b>\n\t} }\n}\n", false); !got.BodyMultiline {
+		t.Error("BodyMultiline: want true for author-broken case body")
+	}
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tcase \"warn\": <b>w</b>\n\t} }\n}\n", false); got.BodyMultiline {
+		t.Error("BodyMultiline: want false for inline case body")
+	}
+	// default: arm follows the same rule.
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tdefault:\n\t\t<b>d</b>\n\t} }\n}\n", true); !got.BodyMultiline {
+		t.Error("BodyMultiline: want true for author-broken default body")
+	}
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tdefault: <b>d</b>\n\t} }\n}\n", true); got.BodyMultiline {
+		t.Error("BodyMultiline: want false for inline default body")
+	}
+	// CRLF line break after the colon still counts.
+	if got := caseNode("package p\r\ncomponent C(kind string) {\r\n\t{ switch kind {\r\n\tcase \"warn\":\r\n\t\t<b>w</b>\r\n\t} }\r\n}\r\n", false); !got.BodyMultiline {
+		t.Error("BodyMultiline: want true for CRLF-broken case body")
+	}
+}
+
+// TestLeadingBreakFlag checks that the parser records a line break placed in
+// the whitespace immediately before a non-Text markup leaf (Element, Interp)
+// in its children list (amendment 2026-07-24b).
+func TestLeadingBreakFlag(t *testing.T) {
+	allElems := func(f *ast.File, tag string) []*ast.Element {
+		var found []*ast.Element
+		for _, d := range f.Decls {
+			c, ok := d.(*ast.Component)
+			if !ok {
+				continue
+			}
+			for _, m := range c.Body {
+				ast.Inspect(m, func(n ast.Node) bool {
+					if e, ok := n.(*ast.Element); ok && e.Tag == tag {
+						found = append(found, e)
+					}
+					return true
+				})
+			}
+		}
+		return found
+	}
+	allInterps := func(f *ast.File) []*ast.Interp {
+		var found []*ast.Interp
+		for _, d := range f.Decls {
+			c, ok := d.(*ast.Component)
+			if !ok {
+				continue
+			}
+			for _, m := range c.Body {
+				ast.Inspect(m, func(n ast.Node) bool {
+					if in, ok := n.(*ast.Interp); ok {
+						found = append(found, in)
+					}
+					return true
+				})
+			}
+		}
+		return found
+	}
+
+	// second sibling after a newline: LeadingBreak true.
+	f := parseStringT(t, "package p\ncomponent C() {\n\t<div><em>a</em>\n\t<i>b</i></div>\n}\n")
+	is := allElems(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for sibling after author newline")
+	}
+
+	// second sibling on the same line: LeadingBreak false.
+	f = parseStringT(t, "package p\ncomponent C() {\n\t<div><em>a</em><i>b</i></div>\n}\n")
+	is = allElems(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for sibling on the same line")
+	}
+
+	// first child: no previous sibling, no leading break even though `>` is
+	// immediately followed by the element (ChildrenMultiline governs the
+	// opening-tag boundary, not this fact).
+	f = parseStringT(t, "package p\ncomponent C() {\n\t<div><em>a</em></div>\n}\n")
+	is = allElems(f, "em")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <em>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for the first child")
+	}
+
+	// Interp sibling after a newline: LeadingBreak true.
+	f = parseStringT(t, "package p\ncomponent C(a, b string) {\n\t<div>{ a }\n\t{ b }</div>\n}\n")
+	interps := allInterps(f)
+	if len(interps) != 2 {
+		t.Fatalf("want exactly two interps, got %d", len(interps))
+	}
+	if interps[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for the first interp")
+	}
+	if !interps[1].LeadingBreak {
+		t.Error("LeadingBreak: want true for interp sibling after author newline")
+	}
+
+	// Interp sibling on the same line: LeadingBreak false.
+	f = parseStringT(t, "package p\ncomponent C(a, b string) {\n\t<div>{ a }{ b }</div>\n}\n")
+	interps = allInterps(f)
+	if len(interps) != 2 {
+		t.Fatalf("want exactly two interps, got %d", len(interps))
+	}
+	if interps[1].LeadingBreak {
+		t.Error("LeadingBreak: want false for interp sibling on the same line")
+	}
+}

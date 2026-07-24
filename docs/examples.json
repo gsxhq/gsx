@@ -14,7 +14,7 @@
   {
     "name": "Void elements",
     "category": "Elements",
-    "source": "package views\n\ncomponent AvatarField(src string, alt string, disabled bool) {\n\t<div>\n\t\t<img src={src} alt={alt}/><br/><input type=\"text\" required disabled={disabled}/>\n\t</div>\n}\n",
+    "source": "package views\n\ncomponent AvatarField(src string, alt string, disabled bool) {\n\t<div>\n\t\t<img src={src} alt={alt}/>\n\t\t<br/>\n\t\t<input type=\"text\" required disabled={disabled}/>\n\t</div>\n}\n",
     "invoke": "AvatarField(\"/avatar.png\", \"User\", true)"
   },
   {
@@ -200,7 +200,7 @@
   {
     "name": "Switch",
     "category": "Control flow",
-    "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":<b>warning</b>\n\t\t\tcase \"err\":<b>error</b>\n\t\t\tdefault:<b>info</b>\n\t\t} }\n\t</span>\n}\n",
+    "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":\n\t\t\t\t<b>warning</b>\n\t\t\tcase \"err\":\n\t\t\t\t<b>error</b>\n\t\t\tdefault:\n\t\t\t\t<b>info</b>\n\t\t} }\n\t</span>\n}\n",
     "invoke": "Badge(\"warn\")"
   },
   {

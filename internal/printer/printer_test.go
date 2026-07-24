@@ -1606,3 +1606,118 @@ func TestSpacingInterpGlue(t *testing.T) {
 		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a href=\"/docs/theming\" class=\"underline underline-offset-4\">Theming</a>)\n\t</p>\n}\n",
 		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a href=\"/docs/theming\" class=\"underline underline-offset-4\">Theming</a>)\n\t</p>\n}\n")
 }
+
+// TestSwitchArmBodyPreservesAuthorLineBreak is the amendment 2026-07-24b
+// regression this fixes: <b>/<i> are inline atoms (not block-level), so
+// hasBlockChild(body) is false for either arm. Before CaseClause.BodyMultiline,
+// caseBody had no other signal and collapsed each arm onto its `case` line
+// even though the author put the body on its own line. BodyMultiline restores
+// that preserved vertical layout, same as cfBody honors ThenMultiline.
+func TestSwitchArmBodyPreservesAuthorLineBreak(t *testing.T) {
+	src := `package p
+component C(kind string) {
+	<div>
+		{ switch kind {
+		case "warn":
+			<b>warning</b>
+		case "info":
+			<i>info</i>
+		} }
+	</div>
+}`
+	want := `package p
+
+component C(kind string) {
+	<div>
+		{ switch kind {
+			case "warn":
+				<b>warning</b>
+			case "info":
+				<i>info</i>
+		} }
+	</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+// TestSwitchArmBodyStaysInlineWhenAuthorInline is the inline counterpart: a
+// case body written after the colon on the same line stays inline (only
+// author line breaks are honored, matching the *Multiline convention
+// elsewhere). The leading space after `:` is trimmed like any control-flow
+// body's brace-interior edge (trimBodyEdges) — same as today.
+func TestSwitchArmBodyStaysInlineWhenAuthorInline(t *testing.T) {
+	src := `package p
+component C(kind string) {
+	<div>
+		{ switch kind {
+		case "warn": <b>w</b>
+		case "info": <i>i</i>
+		} }
+	</div>
+}`
+	want := `package p
+
+component C(kind string) {
+	<div>
+		{ switch kind {
+			case "warn":<b>w</b>
+			case "info":<i>i</i>
+		} }
+	</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+// TestSiblingLeavesPreserveAuthorLineBreak is the sibling-leaf half of the
+// amendment 2026-07-24b regression: void elements are atoms, so the joint
+// between them is a safe gap and the Fill was free to pack them onto one
+// line even though the author placed each on its own. Element.LeadingBreak
+// preserves the author's break at that safe-gap joint (and forces the <div>
+// open via containsForcedBreak, same as any other HardLine).
+func TestSiblingLeavesPreserveAuthorLineBreak(t *testing.T) {
+	src := `package p
+component C() {
+	<div>
+		<img src="/a.png" alt="a"/>
+		<br/>
+		<input type="text"/>
+	</div>
+}`
+	want := `package p
+
+component C() {
+	<div>
+		<img src="/a.png" alt="a"/>
+		<br/>
+		<input type="text"/>
+	</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+// TestSiblingOneLinerStaysOneLine is the inline counterpart: siblings authored
+// on one line with no intervening line break carry no LeadingBreak fact, so
+// the safe gap between them stays soft and the whole thing fits on one line.
+func TestSiblingOneLinerStaysOneLine(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<div><em>a</em><em>b</em></div>\n}\n"
+	checkFormat(t, src, src)
+}
+
+// TestMixedProseReflowsAroundLeadingBreakFact checks that ordinary prose
+// reflow is untouched by the LeadingBreak fact: <code> here has no line break
+// immediately before it in the source (it follows "with " on the same line),
+// so its joint stays a plain word-adjacent safe gap and the paragraph still
+// canonically fills at the print width — it does NOT keep the author's
+// original wrap point. Width 80, <p> children indent 2 tabs (4 cols): "This is
+// a long paragraph that explains something important about the code" measures
+// 4+68=72 ≤ 80; the next word "and" would make 76, still ≤ 80; "how" pushes to
+// 80, still fits; "it" would overflow 80 → the greedy fill breaks one word
+// later than the author's own wrap (which broke after "and").
+func TestMixedProseReflowsAroundLeadingBreakFact(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<p>\n\t\tThis is a long paragraph that explains something important about the code and\n\t\thow it works in practice with <code>example</code> shown inline for readers.\n\t</p>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<p>\n\t\tThis is a long paragraph that explains something important about the code\n\t\tand how it works in practice with <code>example</code> shown inline for\n\t\treaders.\n\t</p>\n}\n"
+	checkFormat(t, src, want)
+}

@@ -1170,7 +1170,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 			if !c.Default {
 				label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
 			}
-			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body)))
+			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 		}
 		return pretty.Concat(
 			pretty.Concat(head...),
@@ -1184,7 +1184,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		if !c.Default {
 			label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
 		}
-		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body)))
+		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}
 	return pretty.Concat(
 		pretty.Concat(head...),
@@ -1204,8 +1204,12 @@ func switchHasEdgeUnsafeArm(s *ast.SwitchMarkup) bool {
 }
 
 // caseBody renders a switch arm. Block → each segment on its own line (one
-// deeper than the `case`); inline → follows the colon.
-func (p *printer) caseBody(nodes []ast.Markup) pretty.Doc {
+// deeper than the `case`); inline → follows the colon. multiline is
+// CaseClause.BodyMultiline — the source placed a line break right after the
+// arm's colon — honored exactly like cfBody honors ThenMultiline/BodyMultiline:
+// it forces the block form even for an inline-only body (e.g. a single atom
+// child), so an author break next to markup is never silently joined.
+func (p *printer) caseBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
@@ -1213,18 +1217,19 @@ func (p *printer) caseBody(nodes []ast.Markup) pretty.Doc {
 		// Arm edges are parser-trimmed like control-flow body edges, so the
 		// block layout's own newlines are safe; the interior glues verbatim.
 		inner := p.childrenPreserve(nodes)
-		if !p.hasBlockChild(nodes) {
-			return inner
+		if p.hasBlockChild(nodes) || multiline {
+			return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
 		}
-		return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
-	}
-	inner, edgeSafe := p.childrenInner(nodes)
-	// A switch arm with a block-level child takes its own indented line(s); an
-	// inline-only (or edge-unsafe) arm follows the colon on the same line.
-	if !edgeSafe || !p.hasBlockChild(nodes) {
 		return inner
 	}
-	return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
+	inner, edgeSafe := p.childrenInner(nodes)
+	// A switch arm with a block-level child (or an author line break after the
+	// colon) takes its own indented line(s); an inline-only, inline-authored (or
+	// edge-unsafe) arm follows the colon on the same line.
+	if edgeSafe && (p.hasBlockChild(nodes) || multiline) {
+		return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
+	}
+	return inner
 }
 
 // multiline turns a possibly multi-line Go fragment into a Doc: lines are
