@@ -101,7 +101,9 @@ position is unchanged (bare `//` already works there).
   is unchanged.
 - The adjacency check runs where the sibling list is complete and reports
   through the normal diagnostics bag, so corpus `diagnostics.golden` pins it.
-- LSP: semantic-token coverage for the new comment position.
+- LSP: diagnostics surface automatically via the shared analyze path; there
+  is no semantic-tokens feature, so editor comment coloring comes from the
+  sibling grammars (TextMate / tree-sitter / CodeMirror).
 
 ## Formatter
 
