@@ -782,6 +782,18 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   500ms/2s/5s; three failed attempts gives up and suspends pushes), verifying
   a respawn is really our plugin via the `x-gsx` response header on
   `/__gsx/cmd` before resuming pushes. Docs: `guide/dev-loop.md` §Dev panel.
+- [ ] **Edits during an in-flight rebuild** (2026-07-24,
+  `2026-07-24-dev-edits-during-rebuild-design.md`) - the 100/120ms debounce
+  covers save bursts, but `cycle()` runs generate→build→health-wait
+  synchronously on the event loop, so saves made during a ~20s build are
+  neither folded into it nor able to cancel it: the doomed build completes and
+  reloads the browser with stale output, then a second full cycle runs (~2×
+  build time to see an edit). Direction: (1) run the cycle off the event loop
+  so events keep draining - suppress the known-stale reload and chain straight
+  into the next cycle; (2) per-cycle cancellable generate+build (not the
+  server-swap phase). Also fixes a latent `fire`-token leak - `schedule()`
+  stops the timer but never drains the capacity-1 channel, so a token from a
+  timer that fired mid-cycle can trigger an extra partial cycle.
 
 ## Security - safe by default
 
