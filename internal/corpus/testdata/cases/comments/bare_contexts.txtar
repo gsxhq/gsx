@@ -1,0 +1,115 @@
+# Bare line-start // is legal in every child-content context the parser walks
+# for the touches-text check (see checkBareComments): component body root,
+# fragment children, {if} body, {for} body, switch case body, a child-prop
+# markup attribute, an element literal in Go-expr position, and next to a
+# hole/HTML-comment/braced-comment neighbor (none of those are *ast.Text, so
+# they never trip the touches-text rule). Every render is byte-identical to
+# deleting the comment lines.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component RootBody() {
+	<span>a</span>
+	// component body root note
+	<span>b</span>
+}
+
+component FragChildren() {
+	<>
+		<span>a</span>
+		// fragment children note
+		<span>b</span>
+	</>
+}
+
+component IfBody(n int) {
+	<p>{ if n > 0 {
+		<span>a</span>
+		// if body note
+		<span>b</span>
+	} }</p>
+}
+
+component ForBody(items []string) {
+	<ul>{ for _, it := range items {
+		<li>{it}</li>
+		// for body note
+	} }</ul>
+}
+
+component CaseBody(kind string) {
+	<span>{ switch kind {
+	case "a":
+		<b>x</b>
+		// switch case body note
+		<b>y</b>
+	default:
+		<b>z</b>
+	} }</span>
+}
+
+component Slot(header gsx.Node) {
+	<div>{header}</div>
+}
+
+component ChildProp() {
+	<Slot header={
+		<div>
+			<span>a</span>
+			// child-prop note
+			<span>b</span>
+		</div>
+	}/>
+}
+
+var elementLit = (
+	<div>
+		<span>a</span>
+		// element-literal note
+		<span>b</span>
+	</div>
+)
+
+component ElementLitUser() {
+	<p>{ elementLit }</p>
+}
+
+component HoleNeighbor(name string) {
+	<p>
+		{name}
+		// hole-neighbor note
+	</p>
+}
+
+component HTMLCommentNeighbor() {
+	<p>
+		<!-- kept -->
+		// html-comment-neighbor note
+		<!-- kept2 -->
+	</p>
+}
+
+component BracedCommentNeighbor() {
+	<p>
+		{/* block */}
+		// braced-comment-neighbor note
+	</p>
+}
+-- invoke --
+gsx.Fragment(
+	RootBody(),
+	FragChildren(),
+	IfBody(1),
+	ForBody([]string{"x", "y"}),
+	CaseBody("a"),
+	ChildProp(),
+	ElementLitUser(),
+	HoleNeighbor("N"),
+	HTMLCommentNeighbor(),
+	BracedCommentNeighbor(),
+)
+-- diagnostics.golden --
+-- render.golden --
+<span>a</span><span>b</span><span>a</span><span>b</span><p><span>a</span><span>b</span></p><ul><li>x</li><li>y</li></ul><span><b>x</b><b>y</b></span><div><div><span>a</span><span>b</span></div></div><p><div><span>a</span><span>b</span></div></p><p>N</p><p><!-- kept --><!-- kept2 --></p><p></p>

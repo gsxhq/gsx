@@ -1,0 +1,24 @@
+# Inside pre/textarea subtrees a line-start // is verbatim display content —
+# never a comment, never an error — including nested elements (<pre><code>).
+-- input.gsx --
+package views
+
+component C() {
+	<pre><code>
+// rendered verbatim
+x := 1
+</code></pre>
+	<textarea>
+// also verbatim
+</textarea>
+}
+-- invoke --
+C()
+-- diagnostics.golden --
+-- render.golden --
+<pre><code>
+// rendered verbatim
+x := 1
+</code></pre><textarea>
+// also verbatim
+</textarea>

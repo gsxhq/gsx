@@ -1,0 +1,15 @@
+# Mid-line // (not at the start of a line) is never a comment, however it sits
+# next to a tag: trailing after text, or leading right after an opening tag on
+# the same line. Both stay literal text.
+-- input.gsx --
+package views
+
+component C() {
+	<p>text // literal slashes</p>
+	<p>// hi</p>
+}
+-- invoke --
+C()
+-- diagnostics.golden --
+-- render.golden --
+<p>text // literal slashes</p><p>// hi</p>

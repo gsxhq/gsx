@@ -1,6 +1,7 @@
 # Content-position comments {/* */} (block) and {// } (line) between child nodes
-# are retained in the AST but drop out of the rendered HTML. A bare // in text
-# content is NOT a comment — it renders literally (see the trailing text).
+# are retained in the AST but drop out of the rendered HTML. A mid-line bare //
+# (not at the start of a line) is NOT a comment — it renders literally (see the
+# trailing text).
 -- input.gsx --
 package views
 

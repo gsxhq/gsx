@@ -115,6 +115,11 @@ codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
 comments/attr_comment	diag render
+comments/bare_between_tags	diag render
+comments/bare_contexts	diag render
+comments/bare_midline_text	diag render
+comments/bare_preserve_exempt	diag render
+comments/bare_touches_text_err	diag(error)
 comments/cond_attr_comment	diag render
 comments/content_comment	diag render
 comments/parse_snapshot	ast diag
@@ -944,4 +949,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 946 cases (render: 816, error: 92, gen-pinned: 543)
+TOTAL: 951 cases (render: 820, error: 93, gen-pinned: 543)
