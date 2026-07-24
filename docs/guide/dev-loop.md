@@ -81,6 +81,14 @@ import "virtual:gsx-devpanel";
 `vite.config.ts`: `gsx({ devPanel: false })` or
 `gsx({ devPanel: { key: "k" } })`.
 
+The panel also auto-appears on its own once a cycle runs past about 3
+seconds, so a slow rebuild surfaces without reaching for Cmd-D — tune the
+delay or turn it off with `gsx({ devPanel: { autoShow: 5000 } })` or
+`{ autoShow: false }`. While it's up, it shows the running phase with
+elapsed time and the last cycle's duration, and — when `[dev].log` is set —
+tails the backend log so you can watch build and server output without
+leaving the browser.
+
 If Vite crashes, `gsx dev` restarts it automatically and pairs with the new
 process before trusting it again (plugin ≥ 0.7.0 — older plugins just suspend
 reload/overlay pushes instead) — refresh any tabs that were already open.
