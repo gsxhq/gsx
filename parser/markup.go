@@ -773,6 +773,11 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return p.parseBang(start, startPos)
 	}
 
+	// `<?…`: a processing instruction (fixed marker/start/end vocabulary).
+	if p.peek() == '?' {
+		return p.parsePI(start, startPos)
+	}
+
 	// Fragment: <>…</>
 	if p.peek() == '>' {
 		p.i++ // past '>'
@@ -860,6 +865,74 @@ func isRawTextTag(tag string) bool {
 		return true
 	}
 	return false
+}
+
+// Processing-instruction targets gsx accepts. The HTML tokenizer allows any
+// target matching [A-Za-z_][A-Za-z0-9_-]* (whatwg/html#12118), but only these
+// three carry defined semantics (declarative partial updates), so gsx rejects
+// everything else rather than emit markup whose meaning it cannot describe.
+const (
+	piMarker = "marker"
+	piStart  = "start"
+	piEnd    = "end"
+)
+
+// parsePI parses a processing instruction. The cursor is at the '?' following
+// '<'; start is the byte offset of that '<' and startPos describes it. `<?end>`
+// is only meaningful as a MarkerRegion terminator, so it is an error here —
+// parseChildrenTerm consumes the legitimate ones.
+func (p *parser) parsePI(start int, startPos token.Pos) (ast.Markup, error) {
+	p.i++ // past '?'
+	targetStart := p.i
+	p.i = scanTagName(p.src, p.i)
+	target := p.src[targetStart:p.i]
+	switch target {
+	case piMarker:
+		name, err := p.parsePIName(target, startPos)
+		if err != nil {
+			return nil, err
+		}
+		m := &ast.Marker{Name: name}
+		ast.SetSpan(m, startPos, p.posAt(p.i))
+		return m, nil
+	case piEnd:
+		return nil, p.errorf(startPos, "`<?end>` without a matching `<?start`")
+	}
+	return nil, p.errorf(startPos, "unknown processing-instruction target %q, expected `marker`, `start`, or `end`", target)
+}
+
+// parsePIName parses the required `name=…` of a marker/start PI and consumes the
+// closing '>'. It returns the name attribute, which is a *ast.StaticAttr or
+// *ast.ExprAttr.
+func (p *parser) parsePIName(target string, startPos token.Pos) (ast.Attr, error) {
+	attrs, _, err := p.parseAttrsUntil(func() bool { return p.peek() == '>' || p.at("?>") })
+	if err != nil {
+		return nil, err
+	}
+	if p.at("?>") {
+		return nil, p.errorf(p.pos(), "`?>` does not close a gsx processing instruction; use `>`")
+	}
+	if len(attrs) == 0 {
+		return nil, p.errorf(startPos, "`<?%s` requires a `name` attribute", target)
+	}
+	if len(attrs) > 1 {
+		return nil, p.errorf(startPos, "`<?%s` takes only a `name` attribute", target)
+	}
+	name := attrs[0]
+	switch a := name.(type) {
+	case *ast.StaticAttr:
+		if a.Name != "name" {
+			return nil, p.errorf(a.Pos(), "`<?%s` requires a `name` attribute, got %q", target, a.Name)
+		}
+	case *ast.ExprAttr:
+		if a.Name != "name" {
+			return nil, p.errorf(a.Pos(), "`<?%s` requires a `name` attribute, got %q", target, a.Name)
+		}
+	default:
+		return nil, p.errorf(name.Pos(), "`<?%s` requires a `name=\"…\"` or `name={…}` attribute", target)
+	}
+	p.i++ // past '>'
+	return name, nil
 }
 
 // parseBang parses a `<!…` construct after the leading `<!` `!` byte: either an

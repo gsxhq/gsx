@@ -92,13 +92,14 @@ func tagNameRuneAt(src string, at int) bool {
 }
 
 // startsTagAt reports whether src[at:] begins a Go-style identifier tag, a
-// fragment close, or an element close. The tag scanner retains GSX's existing
-// '-' and '.' continuation extensions after this initial rune.
+// fragment close, an element close, or a processing instruction (`<?`). The
+// tag scanner retains GSX's existing '-' and '.' continuation extensions
+// after this initial rune.
 func startsTagAt(src string, at int) bool {
 	if at < 0 || at >= len(src) {
 		return false
 	}
-	if src[at] == '>' || src[at] == '/' {
+	if src[at] == '>' || src[at] == '/' || src[at] == '?' {
 		return true
 	}
 	r, _, ok := validRuneAt(src, at)

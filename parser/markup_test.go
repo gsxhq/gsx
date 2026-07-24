@@ -1605,3 +1605,51 @@ func TestAuthorLineBreakFlags(t *testing.T) {
 		t.Error("AttrsMultiline: want false for zero-attribute element")
 	}
 }
+
+func TestParseMarkerStatic(t *testing.T) {
+	p := testParser(`<?marker name="results">`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := n.(*ast.Marker)
+	if !ok {
+		t.Fatalf("got %T, want *ast.Marker", n)
+	}
+	a, ok := m.Name.(*ast.StaticAttr)
+	if !ok || a.Name != "name" || a.Value != "results" {
+		t.Fatalf("name = %#v", m.Name)
+	}
+}
+
+func TestParseMarkerExpr(t *testing.T) {
+	p := testParser(`<?marker name={item.ID}>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := n.(*ast.Marker)
+	a, ok := m.Name.(*ast.ExprAttr)
+	if !ok || a.Expr != "item.ID" {
+		t.Fatalf("name = %#v", m.Name)
+	}
+}
+
+func TestParseMarkerErrors(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{`<?nope name="x">`, "unknown processing-instruction target"},
+		{`<?marker>`, "requires a `name`"},
+		{`<?marker name="x"?>`, "use `>`"},
+		{`<?marker name="x" id="y">`, "only a `name`"},
+		{`<?end>`, "without a matching"},
+	} {
+		p := testParser(tc.src)
+		_, err := p.parseElement()
+		if err == nil {
+			t.Fatalf("%s: want error", tc.src)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: err = %v, want containing %q", tc.src, err, tc.want)
+		}
+	}
+}
