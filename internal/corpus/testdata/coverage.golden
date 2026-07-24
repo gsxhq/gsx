@@ -629,6 +629,8 @@ parser/recover_broken_then_valid	diag(error)
 parser/recover_two_broken_components	diag(error)
 patterns/flush	diag gen render
 patterns/render_once	diag render
+pi/marker_expr	diag gen render
+pi/marker_static	diag gen render
 pipeerr/attr_mid_stage	diag gen render
 pipeerr/child_prop_mid_stage	diag gen render
 pipeerr/class_cf_arm_mid_stage	diag gen render
@@ -945,4 +947,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 947 cases (render: 817, error: 92, gen-pinned: 544)
+TOTAL: 949 cases (render: 819, error: 92, gen-pinned: 546)
