@@ -1213,10 +1213,16 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		}
 		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}
-	return pretty.Concat(
+	// Wrap in a Group like ifMarkup/forMarkup do: the HardLines make it forced,
+	// so the switch establishes its own break mode. Without this, a switch placed
+	// as the sole element of a parent Fill inherits modeFlat (the Fill's fits()
+	// check short-circuits at the first HardLine), which would collapse the soft
+	// gaps between a case body's segments — e.g. packing a bare `//` comment onto
+	// a sibling's line, where it reparses as text.
+	return pretty.Group(pretty.Concat(
 		pretty.Concat(head...),
 		pretty.Indent(pretty.Concat(caseParts...)),
-		pretty.HardLine, pretty.Text("} }"))
+		pretty.HardLine, pretty.Text("} }")))
 }
 
 // switchHasEdgeUnsafeArm reports whether any arm body would lose a significant

@@ -81,8 +81,7 @@ component Empty() {
 
 component Braced() {
 	<div>
-		<span>a</span>
-		{// stays braced
+		<span>a</span>{// stays braced
 		}
 		<span>b</span>
 	</div>
