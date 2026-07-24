@@ -348,11 +348,11 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if out, err := srv.rebuild(ctx); err != nil {
 				post(buildErrorEvent(buildFailureMessage(out, err)))
 				overlayUp = true
-				// setPhase("idle") posts once; Server.Healthy and LastCycle
-				// (both below) change after it, so the explicit postStatus()
-				// carrying them is kept, not redundant.
-				setPhase("idle")
+				// Healthy settles BEFORE the phase post, like every other
+				// branch — postBest goroutines are unordered, so an interim
+				// post must never carry a value a later post has to correct.
 				status.Server.Healthy = false
+				setPhase("idle")
 				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
 				postStatus()
 				return
