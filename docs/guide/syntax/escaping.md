@@ -51,9 +51,10 @@ Those positions accept `data:` URLs for `image/png`, `image/jpeg`, `image/gif`,
 `image/webp`, `image/avif`, and `image/svg+xml`, in either encoding:
 
 - base64: `data:image/png;base64,…`
-- percent-encoded: `data:image/svg+xml,%3Csvg…%3E`, optionally with a
-  `;charset=utf-8` parameter. Every payload byte must be printable ASCII, and
-  every `%` must start a two-hex-digit escape.
+- plain-text: `data:image/svg+xml,%3Csvg…%3E`, optionally with a
+  `;charset=utf-8` parameter. Every payload byte must be printable ASCII, with
+  `%` allowed only as a two-hex-digit escape — percent-encoding is optional
+  for other characters, so `data:image/svg+xml,<svg/>` is also accepted.
 
 Other MIME types, other parameters, and payloads that fail these checks are
 blocked. Navigation and active-content positions, such as `<a href>`,

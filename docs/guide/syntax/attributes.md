@@ -155,7 +155,7 @@ URL scheme check.
 <img src={"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"}/>
 ```
 
-Image sinks accept both base64 and strictly percent-encoded payloads. A
+Image sinks accept both base64 and strictly validated plain-text payloads. A
 `data:` literal is rejected on strict navigation sinks such as `href`, and a
 constant value that its sink always blocks warns at generate time. See
 [Escaping](./escaping.md) for image and navigation sink rules.

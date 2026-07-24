@@ -110,10 +110,12 @@ func isImageDataURL(s string) bool {
 	return false
 }
 
-// isPercentSafePayload reports whether p is a strictly valid percent-encoded
-// data: URL payload: every byte is printable ASCII (0x20–0x7E) and every '%'
-// begins a well-formed two-hex-digit escape. Stray '%', control bytes, and raw
-// non-ASCII bytes reject (non-ASCII content must be percent-encoded).
+// isPercentSafePayload reports whether p is a strictly valid plain-text data:
+// URL payload: every byte is printable ASCII (0x20–0x7E) and every '%' begins
+// a well-formed two-hex-digit escape. Percent-encoding is optional for other
+// bytes — any printable ASCII byte may appear literally. Stray '%', control
+// bytes, and raw non-ASCII bytes reject (non-ASCII content must be
+// percent-encoded).
 func isPercentSafePayload(p string) bool {
 	for i := 0; i < len(p); i++ {
 		c := p[i]
