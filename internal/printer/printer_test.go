@@ -613,10 +613,10 @@ component C() {
 component C() {
 	<div>
 		{ switch kind {
-			case "a":
-				<p>A</p>
-			default:
-				<p>D</p>
+		case "a":
+			<p>A</p>
+		default:
+			<p>D</p>
 		} }
 	</div>
 }
@@ -1634,15 +1634,48 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-			case "warn":
-				<b>warning</b>
-			case "info":
-				<i>info</i>
+		case "warn":
+			<b>warning</b>
+		case "info":
+			<i>info</i>
 		} }
 	</div>
 }
 `
 	checkFormat(t, src, want)
+}
+
+// TestSwitchCaseAlignsWithSwitch pins the gofmt-style arm alignment: `case`/
+// `default` labels sit at the `{ switch` line's level, bodies one deeper.
+// Markup switch is Go syntax with Go case expressions, so it indents like the
+// same switch written in an attribute expression (which gofmt aligns) rather
+// than like a JavaScript switch (which prettier, and our brace-depth reindent
+// of js`/<script> bodies, put one level deeper).
+func TestSwitchCaseAlignsWithSwitch(t *testing.T) {
+	src := `package p
+component C(kind string) {
+	<div>
+		{ switch kind {
+		case "warn":
+			<b>warning</b>
+		default:
+			<i>info</i>
+		} }
+	</div>
+}`
+	checkFormat(t, src, `package p
+
+component C(kind string) {
+	<div>
+		{ switch kind {
+		case "warn":
+			<b>warning</b>
+		default:
+			<i>info</i>
+		} }
+	</div>
+}
+`)
 }
 
 // TestSwitchArmBodyStaysInlineWhenAuthorInline is the inline counterpart: a
@@ -1665,8 +1698,8 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-			case "warn":<b>w</b>
-			case "info":<i>i</i>
+		case "warn":<b>w</b>
+		case "info":<i>i</i>
 		} }
 	</div>
 }
@@ -1792,7 +1825,7 @@ component C(kind string) {
 		} }
 	</div>
 }`
-	want := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":\n\t\t\t\t<b>w</b>\n\t\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\":\n\t\t\t<b>w</b>\n\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1800,6 +1833,6 @@ component C(kind string) {
 // counterpart: siblings written on the same line as the colon, with no break
 // between them either, all stay glued on the arm's one line.
 func TestCaseArmInteriorSiblingStaysInlineWhenAuthorInline(t *testing.T) {
-	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":<b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
+	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\":<b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, src)
 }

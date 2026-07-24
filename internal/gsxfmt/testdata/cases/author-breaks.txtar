@@ -74,13 +74,13 @@ component SiblingsStayInline() {
 component SwitchArmsStayPerLine(kind string) {
 	<span>
 		{ switch kind {
-			case "warn":
-				<b>warning</b>
-				<br/>
-			case "err":
-				<b>error</b>
-			default:
-				<b>info</b>
+		case "warn":
+			<b>warning</b>
+			<br/>
+		case "err":
+			<b>error</b>
+		default:
+			<b>info</b>
 		} }
 	</span>
 }
@@ -88,8 +88,8 @@ component SwitchArmsStayPerLine(kind string) {
 component SwitchArmsStayInline(kind string) {
 	<span>
 		{ switch kind {
-			case "warn":<b>warning</b>
-			default:<b>info</b>
+		case "warn":<b>warning</b>
+		default:<b>info</b>
 		} }
 	</span>
 }

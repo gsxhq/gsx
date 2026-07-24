@@ -1186,9 +1186,15 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		}
 		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}
+	// Case labels sit at the `{ switch` line's own level — gofmt alignment, not
+	// prettier's one-deeper JS style. A markup switch is Go syntax with Go case
+	// expressions, so it must indent like the same switch written in an
+	// attribute expression (gofmt aligns those); js`/<script> bodies keep the
+	// deeper form because their brace-depth reindent has no case-label concept.
+	// caseBody supplies the body's own extra level under the label.
 	return pretty.Concat(
 		pretty.Concat(head...),
-		pretty.Indent(pretty.Concat(caseParts...)),
+		pretty.Concat(caseParts...),
 		pretty.HardLine, pretty.Text("} }"))
 }
 
