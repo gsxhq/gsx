@@ -54,7 +54,34 @@ The rule is closed under our own formatter, which always emits labels at line
 start, so formatted output re-parses to the same AST (idempotence preserved).
 
 **Escape hatch** (documented): to render line-leading literal `default:` text,
-write it as an interpolation `{"default: 5"}` or wrap it in an element.
+write it as an interpolation `{"default: 5"}` or wrap it in an element. The
+same applies to a line-leading `case <expr>:` — `case 1: nope` at line start
+becomes an arm, and unlike a stray `default:` it compiles clean, so it changes
+the render silently.
+
+### Amendment 2026-07-25b (from adversarial review)
+
+Two corrections, both found by probing rather than reading:
+
+1. **Colon must be on the keyword's own line.** The speculative validity scan
+   is bounded to the label's physical line. Unbounded `scanToCaseColon`
+   lookahead tokenized to EOF per candidate — an ~800× quadratic parse blowup
+   on `case`-leading prose (4000 lines: 2.3ms → 1.84s), and it captured colons
+   across arms and even across a sibling switch. A markup arm label is always
+   single-line (the formatter emits it that way), so bounding it costs nothing
+   real. The committed node-boundary path (`parseCaseClause`) keeps its
+   existing unbounded scan — it is not speculative.
+
+2. **The formatter must not create labels.** Closure under the formatter does
+   NOT follow from "the formatter emits labels at line start": the word-gap
+   fill can wrap PROSE so that a mid-line `default:`/`case 1:` becomes the
+   first word on a line, which this rule then reads as a label. Proven
+   end-to-end: a valid file's render changed after `gsx fmt`, with no
+   diagnostic at any stage. Therefore, inside a case body, **a break candidate
+   immediately before a `case`/`default` word is a bond** (never breakable) —
+   in the fill's joints and at segment boundaries alike. The formatter then
+   cannot move such a word to line start, and the only labels are the
+   author's.
 
 ## Non-goals
 
