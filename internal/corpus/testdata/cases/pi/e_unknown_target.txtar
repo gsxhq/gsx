@@ -1,0 +1,10 @@
+# Only `marker`/`start`/`end` are valid PI targets — the HTML tokenizer grammar
+# for a processing-instruction target is much wider ([A-Za-z_][A-Za-z0-9_-]*,
+# whatwg/html#12118), but gsx rejects every other target rather than emit
+# markup whose meaning it can't describe.
+-- input.gsx --
+package p
+
+component X() { <?foo name="a"> }
+-- diagnostics.golden --
+3:17: unknown processing-instruction target "foo", expected `marker`, `start`, or `end`

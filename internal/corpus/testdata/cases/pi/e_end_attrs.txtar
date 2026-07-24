@@ -1,0 +1,11 @@
+# `<?end>` closes a MarkerRegion and takes no attributes of its own — unlike
+# `<?marker>`/`<?start>`, it carries no `name`.
+-- input.gsx --
+package p
+
+component X() {
+	<?start name="a">
+	<?end foo="1">
+}
+-- diagnostics.golden --
+5:2: `<?end>` takes no attributes
