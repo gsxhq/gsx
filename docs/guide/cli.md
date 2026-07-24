@@ -238,10 +238,7 @@ breaks their children open to meet the width budget. If a line has no other
 legal break point, it stays over budget rather than exploding an inline
 element.
 
-Long prose wraps between words instead. A newline between two words collapses
-to a single space at render, but a newline directly against a tag would drop
-a significant space — so the formatter only ever breaks at word gaps, and the
-wrapped output renders identically to the unwrapped source.
+Long prose wraps between words instead: a newline between two words collapses back to a single space, a newline where two pieces of markup touch adds nothing, but a newline against a space next to a tag would delete that space — so the formatter only ever breaks where no space can be lost.
 
 `{" "}` sticks to the word before it and never starts a line.
 
