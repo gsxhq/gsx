@@ -9,10 +9,16 @@ import (
 // {"event":"status"} payload on /__gsx/event. Field names are the wire
 // contract with vite-plugin-gsx.
 type devStatus struct {
-	Phase     string     `json:"phase"` // idle | generating | building | starting
-	Server    serverStat `json:"server"`
-	LastCycle *cycleStat `json:"lastCycle,omitempty"`
-	FrontDoor frontStat  `json:"frontDoor"`
+	Phase string `json:"phase"` // idle | generating | building | starting
+	// PhaseSince is when the current Phase started (set by setPhase in
+	// runDev, alongside every Phase transition). Always present — never the
+	// zero value once runDev's initial status literal has run — so the
+	// panel can render elapsed time ("building… started 42s ago") without
+	// additional polling.
+	PhaseSince time.Time  `json:"phaseSince"`
+	Server     serverStat `json:"server"`
+	LastCycle  *cycleStat `json:"lastCycle,omitempty"`
+	FrontDoor  frontStat  `json:"frontDoor"`
 }
 
 type serverStat struct {
@@ -33,6 +39,10 @@ type cycleStat struct {
 	OK     bool      `json:"ok"`
 	Errors int       `json:"errors"`
 	At     time.Time `json:"at"`
+	// DurationMs is how long this cycle took end to end (from cycle()'s
+	// recorded start, or the initial-build path's own start, to this
+	// terminal post), for the panel's "last: 2m10s" expectation-setting.
+	DurationMs int64 `json:"durationMs"`
 }
 
 type frontStat struct {

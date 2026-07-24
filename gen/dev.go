@@ -136,11 +136,24 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	post := func(body []byte) { postEvent(viteURL, body, webUp) }
 	reload := func() { postReload(viteURL, webUp) }
 
-	status := devStatus{Phase: "idle", Server: serverStat{Port: goPort, Upstream: origin}, FrontDoor: frontStat{State: "external"}}
+	status := devStatus{Phase: "idle", PhaseSince: time.Now(), Server: serverStat{Port: goPort, Upstream: origin}, FrontDoor: frontStat{State: "external"}}
 	if dc.web != nil {
 		status.FrontDoor.State = "up"
 	}
 	postStatus := func() { post(statusEvent(status)) }
+	// setPhase transitions status.Phase and stamps PhaseSince to now, then
+	// posts immediately — every transition (save → generating → building →
+	// starting → idle) is observable by an open panel, not just cycle ends.
+	// Call sites that mutate other status fields (LastCycle, Server.Healthy)
+	// AFTER the phase settles keep their own trailing postStatus() so that
+	// final data reaches the panel too; setPhase's own post is not redundant
+	// there; where nothing changes after, the trailing postStatus() is
+	// dropped as it would just repeat the same payload.
+	setPhase := func(phase string) {
+		status.Phase = phase
+		status.PhaseSince = time.Now()
+		postStatus()
+	}
 
 	publishedStartup := publishableStartupResults(startup)
 	post(aggregateEvent(publishedStartup))
@@ -222,16 +235,26 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// its buildErrorEvent would replace the rich gsx overlay already posted
 	// above. Skip the initial build; the first successful cycle rebuilds and
 	// starts the server (poison→good always changes bytes, so `wrote` fires).
+	initCycleStart := time.Now()
 	if startOK {
+		setPhase("building")
 		if out, err := srv.rebuild(ctx); err != nil {
 			post(buildErrorEvent(buildFailureMessage(out, err)))
 			startOK = false
-		} else if waitHealthy(ctx, healthURL, 10*time.Second) {
-			status.Server.Healthy = true
-			reload()
+		} else {
+			setPhase("starting")
+			if waitHealthy(ctx, healthURL, 10*time.Second) {
+				status.Server.Healthy = true
+				reload()
+			}
 		}
 	}
-	status.LastCycle = &cycleStat{OK: startOK, At: time.Now()}
+	// setPhase("idle") posts once with the phase settled; Server.Healthy (set
+	// above, before this point) and LastCycle (set below, after) both change
+	// around it, so the explicit postStatus() below carrying LastCycle is
+	// kept — it is the one the panel needs, not a redundant repeat.
+	setPhase("idle")
+	status.LastCycle = &cycleStat{OK: startOK, At: time.Now(), DurationMs: time.Since(initCycleStart).Milliseconds()}
 	postStatus()
 	// overlayUp: an error overlay is currently shown in the browser. A later
 	// successful cycle must reload to clear it even when nothing was written —
@@ -277,14 +300,17 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		if len(dirty.dirs) == 0 && !dirty.depDirty {
 			return
 		}
-		status.Phase = "generating"
+		cycleStart := time.Now()
+		setPhase("generating")
 		results, goChanged, rerr := dirty.regenerate(sess.regenPending)
 		if rerr != nil {
 			fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
 			post(buildErrorEvent("regen failed: " + rerr.Error()))
 			overlayUp = true
-			status.Phase = "idle"
-			status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now()}
+			// setPhase("idle") posts once; LastCycle (below) changes after it,
+			// so the explicit postStatus() carrying it is kept, not redundant.
+			setPhase("idle")
+			status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
 			postStatus()
 			return // retained dirty state is retried on the next relevant event
 		}
@@ -305,8 +331,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		}
 		if !ok {
 			overlayUp = true
-			status.Phase = "idle"
-			status.LastCycle = &cycleStat{OK: false, Errors: errs, At: time.Now()}
+			// setPhase("idle") posts once; LastCycle (below) changes after it,
+			// so the explicit postStatus() carrying it is kept, not redundant.
+			setPhase("idle")
+			status.LastCycle = &cycleStat{OK: false, Errors: errs, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
 			postStatus()
 			return // keep last-good server up; overlay shows the error
 		}
@@ -316,17 +344,20 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		// (fixed .gsx → identical .x.go).
 		doReload := overlayUp || force
 		if goChanged || wrote || force {
-			status.Phase = "building"
+			setPhase("building")
 			if out, err := srv.rebuild(ctx); err != nil {
 				post(buildErrorEvent(buildFailureMessage(out, err)))
 				overlayUp = true
-				status.Phase = "idle"
+				// setPhase("idle") posts once; Server.Healthy and LastCycle
+				// (both below) change after it, so the explicit postStatus()
+				// carrying them is kept, not redundant.
+				setPhase("idle")
 				status.Server.Healthy = false
-				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now()}
+				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
 				postStatus()
 				return
 			}
-			status.Phase = "starting"
+			setPhase("starting")
 			if waitHealthy(ctx, healthURL, 10*time.Second) {
 				doReload = true
 				status.Server.Healthy = true
@@ -338,8 +369,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			reload()
 		}
 		overlayUp = false
-		status.Phase = "idle"
-		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now()}
+		// setPhase("idle") posts once; LastCycle (below) changes after it, so
+		// the explicit postStatus() carrying it is kept, not redundant.
+		setPhase("idle")
+		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
 		postStatus()
 	}
 
@@ -361,16 +394,19 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				cycle(true)
 			case "restart-server":
 				fmt.Fprintln(stdout, "gsx dev: panel: restart-server")
-				status.Phase = "starting"
-				postStatus()
+				// setPhase posts on its own; Server.Healthy settles fully
+				// BEFORE the trailing setPhase("idle"), so that second
+				// setPhase's own post already carries it — no separate
+				// trailing postStatus() needed here, unlike cycle()'s
+				// terminal paths where LastCycle changes after the phase set.
+				setPhase("starting")
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					status.Server.Healthy = true
 					reload()
 				} else {
 					status.Server.Healthy = false
 				}
-				status.Phase = "idle"
-				postStatus()
+				setPhase("idle")
 			default:
 				fmt.Fprintf(stderr, "gsx dev: unknown panel command %q\n", c)
 			}

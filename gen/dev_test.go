@@ -5,6 +5,7 @@ package gen
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -1227,6 +1228,217 @@ func TestDevRepostsStatusOnFirstFrontDoorContact(t *testing.T) {
 	}
 	if !strings.Contains(statusEvents.String(), `"healthy":true`) {
 		t.Errorf("no healthy status observed; status log:\n%s", statusEvents.String())
+	}
+}
+
+// TestDevPostsBuildingPhaseMidCycle pins the phase-transition-posts feature
+// (dev-panel build progress, gsx side): a rebuild cycle must post its
+// "building" phase to the panel WHILE the build is running, not just the
+// terminal "idle" once it's done — an open panel showing stale "idle" all the
+// way through a slow rebuild is exactly the gap this feature closes.
+//
+// The fixture's [dev].build deliberately sleeps 2s before compiling (via
+// `sh -c`), so:
+//   - a mid-cycle "building" status is wide open to observe, not a race, and
+//   - the terminal idle status's lastCycle.durationMs is provably >= 2000,
+//     pinning that cycle() timed itself rather than reporting a zero/bogus
+//     duration.
+//
+// "generating" is the discriminator that makes this test robust against the
+// cold-start cycle's OWN building/starting/idle posts (added by this same
+// feature) landing on the same recorder, possibly interleaved by network
+// retry timing: only cycle() (never the initial-build path) ever posts phase
+// "generating", so anchoring the search on the first generating event and
+// only accepting later building/idle events guarantees they belong to the
+// write-triggered cycle under test, not the cold-start one.
+func TestDevPostsBuildingPhaseMidCycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	// [dev].build sleeps 2s before compiling — both the cold start and the
+	// write-triggered cycle under test go through this slow path, which is
+	// exactly what makes the mid-cycle "building" status observable instead
+	// of racing a near-instant `go build`. run points at the same relative
+	// path build writes to (resolved against devServer's cmd.Dir = proj).
+	writeFile(t, proj, "gsx.toml", "[dev]\nbuild = [\"sh\", \"-c\", \"sleep 2 && go build -o tmp/srv .\"]\nrun = [\"tmp/srv\"]\n")
+
+	goPort := freePort(t)
+	if portListening(goPort) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", goPort)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT="+goPort,
+		"VITE_DEV_URL=http://127.0.0.1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("gsx dev start: %v", err)
+	}
+	defer stopDevGracefully(cmd)
+
+	// The cold start goes through the same slow [dev].build; allow a
+	// generous timeout.
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("Go server on GO_PORT=%s never came up after gsx dev start; output:\n%s", goPort, stdout.String())
+	}
+
+	// Learn the resolved front-door URL from the "watching … — open <url>" line.
+	var viteURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := regexp.MustCompile(`open (http://\S+)`).FindStringSubmatch(stdout.String()); m != nil {
+			viteURL = m[1]
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if viteURL == "" {
+		t.Fatalf("front-door URL not printed; stdout=%q", stdout.String())
+	}
+	u, err := url.Parse(viteURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fake vite plugin: records every {"event":"status"} POST body, decoded,
+	// in arrival order.
+	var mu sync.Mutex
+	var statusEvents []map[string]any
+	fake := &http.Server{
+		Addr: net.JoinHostPort(u.Hostname(), u.Port()),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/cmd":
+				w.WriteHeader(204)
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				var ev map[string]any
+				if json.Unmarshal(body, &ev) == nil && ev["event"] == "status" {
+					mu.Lock()
+					statusEvents = append(statusEvents, ev)
+					mu.Unlock()
+				}
+				w.WriteHeader(204)
+			default:
+				w.WriteHeader(204)
+			}
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	// Touch a .go file to trigger the dep-dirty rebuild path: generating →
+	// building (slow: sleep 2 + go build) → starting → idle.
+	trig := filepath.Join(proj, "zz_trigger.go")
+	if err := os.WriteFile(trig, []byte("package main\n\nvar _devtrigger = 1\n"), 0o644); err != nil {
+		t.Fatalf("write trigger: %v", err)
+	}
+
+	// Poll until the write-triggered cycle's full transition sequence has
+	// been recorded: a "generating" event, a later "building" event, and a
+	// later still terminal "idle" event whose lastCycle.durationMs >= 2000
+	// (the fixture's build always sleeps 2s, so this pins it to a REAL
+	// cycle() timing, not a zero/placeholder value).
+	var generatingEvent, buildingEvent, idleEvent map[string]any
+	deadline = time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		events := append([]map[string]any(nil), statusEvents...)
+		mu.Unlock()
+
+		generatingEvent, buildingEvent, idleEvent = nil, nil, nil
+		for _, ev := range events {
+			phase, _ := ev["phase"].(string)
+			switch {
+			case phase == "generating" && generatingEvent == nil:
+				generatingEvent = ev
+			case phase == "building" && generatingEvent != nil && buildingEvent == nil:
+				buildingEvent = ev
+			case phase == "idle" && buildingEvent != nil && idleEvent == nil:
+				if lc, ok := ev["lastCycle"].(map[string]any); ok {
+					if d, ok := lc["durationMs"].(float64); ok && d >= 2000 {
+						idleEvent = ev
+					}
+				}
+			}
+		}
+		if idleEvent != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if generatingEvent == nil {
+		mu.Lock()
+		snap := statusEvents
+		mu.Unlock()
+		t.Fatalf("no %q status observed; events:\n%v\nstdout:\n%s", "generating", snap, stdout.String())
+	}
+	if buildingEvent == nil {
+		mu.Lock()
+		snap := statusEvents
+		mu.Unlock()
+		t.Fatalf("no %q status observed after %q (mid-cycle posts missing — this is the bug this test pins); events:\n%v\nstdout:\n%s", "building", "generating", snap, stdout.String())
+	}
+	if idleEvent == nil {
+		mu.Lock()
+		snap := statusEvents
+		mu.Unlock()
+		t.Fatalf("no terminal %q status (lastCycle.durationMs >= 2000) observed after %q; events:\n%v\nstdout:\n%s", "idle", "building", snap, stdout.String())
+	}
+
+	genSinceRaw, _ := generatingEvent["phaseSince"].(string)
+	buildSinceRaw, _ := buildingEvent["phaseSince"].(string)
+	genSince, err := time.Parse(time.RFC3339, genSinceRaw)
+	if err != nil {
+		t.Fatalf("generating phaseSince = %q, not RFC3339: %v", genSinceRaw, err)
+	}
+	buildSince, err := time.Parse(time.RFC3339, buildSinceRaw)
+	if err != nil {
+		t.Fatalf("building phaseSince = %q, not RFC3339: %v", buildSinceRaw, err)
+	}
+	if !buildSince.After(genSince) {
+		t.Errorf("building phaseSince (%s) is not after generating phaseSince (%s) — not monotonic", buildSince, genSince)
+	}
+
+	lc := idleEvent["lastCycle"].(map[string]any)
+	if d, _ := lc["durationMs"].(float64); d < 2000 {
+		t.Errorf("terminal idle lastCycle.durationMs = %v, want >= 2000 (fixture build sleeps 2s)", lc["durationMs"])
 	}
 }
 
