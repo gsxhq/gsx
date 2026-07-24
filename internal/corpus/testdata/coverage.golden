@@ -931,6 +931,7 @@ whitespace/interior_switch	diag gen render
 whitespace/layout_title	diag gen render
 whitespace/pre_nested	diag gen render
 whitespace/switch_two_arm	diag gen render
+whitespace/unicode_space_text	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inferred_import	diag render
@@ -949,4 +950,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 951 cases (render: 820, error: 93, gen-pinned: 543)
+TOTAL: 952 cases (render: 821, error: 93, gen-pinned: 544)

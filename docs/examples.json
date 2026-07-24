@@ -218,7 +218,7 @@
   {
     "name": "Children",
     "category": "Components & composition",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(title string, children gsx.Node) {\n\t<article class=\"card\">\n\t\t<h3>{ title }</h3>\n\t\t<div class=\"card__body\">{ children }</div>\n\t</article>\n}\n\ncomponent Page() {\n\t<Card title=\"Hello\">\n\t\t<em>composed</em>\n\t</Card>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(title string, children gsx.Node) {\n\t<article class=\"card\">\n\t\t<h3>{ title }</h3>\n\t\t<div class=\"card__body\">{ children }</div>\n\t</article>\n}\n\ncomponent Page() {\n\t<Card title=\"Hello\"><em>composed</em></Card>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -284,7 +284,7 @@
   {
     "name": "Forms",
     "category": "Interactive & whole-page",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Field(label string, attrs gsx.Attrs) {\n\t<div class=\"field\">\n\t\t<label>{ label }</label>\n\t\t<input class=\"control\" { attrs... }/>\n\t</div>\n}\n\ncomponent LoginForm() {\n\t<form method=\"post\" action=\"/login\">\n\t\t<Field label=\"Email\" type=\"email\" name=\"email\" required/>\n\t\t<Field label=\"Password\" type=\"password\" name=\"password\" required/>\n\t\t<button type=\"submit\">Sign in</button>\n\t</form>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Field(label string, attrs gsx.Attrs) {\n\t<div class=\"field\"><label>{ label }</label><input class=\"control\" { attrs... }/></div>\n}\n\ncomponent LoginForm() {\n\t<form method=\"post\" action=\"/login\">\n\t\t<Field label=\"Email\" type=\"email\" name=\"email\" required/>\n\t\t<Field label=\"Password\" type=\"password\" name=\"password\" required/>\n\t\t<button type=\"submit\">Sign in</button>\n\t</form>\n}\n",
     "invoke": "LoginForm()"
   },
   {

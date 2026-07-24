@@ -407,28 +407,39 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 	return pretty.Concat(pretty.Concat(head...), body, pretty.HardLine, pretty.Text("}"), pretty.HardLine)
 }
 
-// childrenInner builds the inline content of a children list (the segments,
-// joined by SoftLine at safe boundaries when breakable) and reports whether the
-// list is breakable. For preserved subtrees use childrenPreserve instead.
+// childrenInner builds the inline content of a children list and reports
+// whether the list is breakable. Inline-only lists become one Fill (greedy
+// word-gap wrapping; safe gaps between former segments are SoftLine
+// separators inside the Fill). Lists with a block child keep the structural
+// one-segment-per-line layout — the SoftLines between segments break under
+// the caller's forced group — with a Fill inside each segment so prose next
+// to a block element still wraps at word gaps. Edge-unsafe lists keep the
+// old flat form. For preserved subtrees use childrenPreserve instead.
 func (p *printer) childrenInner(nodes []ast.Markup) (doc pretty.Doc, breakable bool) {
 	segs, breakable := segmentChildren(nodes)
+	if !breakable {
+		parts := make([]pretty.Doc, 0, len(segs)*2)
+		for i, s := range segs {
+			if i > 0 {
+				parts = append(parts, pretty.SoftLine)
+			}
+			for _, n := range s.nodes {
+				parts = append(parts, p.markup(n))
+			}
+		}
+		return pretty.Concat(parts...), false
+	}
+	if !p.hasBlockChild(nodes) {
+		return pretty.Fill(p.fillParts(nodes)...), true
+	}
 	parts := make([]pretty.Doc, 0, len(segs)*2)
 	for i, s := range segs {
 		if i > 0 {
 			parts = append(parts, pretty.SoftLine)
 		}
-		parts = append(parts, p.segment(s))
+		parts = append(parts, pretty.Fill(p.fillParts(s.nodes)...))
 	}
-	return pretty.Concat(parts...), breakable
-}
-
-// segment renders one glued run on a single (flat) line.
-func (p *printer) segment(s segment) pretty.Doc {
-	parts := make([]pretty.Doc, 0, len(s.nodes))
-	for _, n := range s.nodes {
-		parts = append(parts, p.markup(n))
-	}
-	return pretty.Concat(parts...)
+	return pretty.Concat(parts...), true
 }
 
 // element renders <tag attrs>children</tag>.
@@ -523,7 +534,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	// independently, so short attributes stay inline even when children break,
 	// and a CondAttr's BreakParent inside the tag also forces the children open.
 	force := pretty.Text("")
-	if hasBlockChild(e.Children) || e.ChildrenMultiline {
+	if p.hasBlockChild(e.Children) || e.ChildrenMultiline {
 		force = pretty.BreakParent
 	}
 	return pretty.Group(pretty.Concat(
@@ -1148,7 +1159,7 @@ func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	// `{ for … { <Card/> } }` shows its hierarchy. An author line break after `{`
 	// is likewise preserved. An inline-only body the author kept inline stays on
 	// one line and breaks only if it overflows the width.
-	if hasBlockChild(nodes) || multiline {
+	if p.hasBlockChild(nodes) || multiline {
 		return pretty.Concat(pretty.BreakParent, body)
 	}
 	return body
@@ -1186,7 +1197,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 			if !c.Default {
 				label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
 			}
-			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body)))
+			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 		}
 		return pretty.Concat(
 			pretty.Concat(head...),
@@ -1200,7 +1211,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		if !c.Default {
 			label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
 		}
-		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body)))
+		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}
 	return pretty.Concat(
 		pretty.Concat(head...),
@@ -1220,8 +1231,12 @@ func switchHasEdgeUnsafeArm(s *ast.SwitchMarkup) bool {
 }
 
 // caseBody renders a switch arm. Block → each segment on its own line (one
-// deeper than the `case`); inline → follows the colon.
-func (p *printer) caseBody(nodes []ast.Markup) pretty.Doc {
+// deeper than the `case`); inline → follows the colon. multiline is
+// CaseClause.BodyMultiline — the source placed a line break right after the
+// arm's colon — honored exactly like cfBody honors ThenMultiline/BodyMultiline:
+// it forces the block form even for an inline-only body (e.g. a single atom
+// child), so an author break next to markup is never silently joined.
+func (p *printer) caseBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
@@ -1229,18 +1244,19 @@ func (p *printer) caseBody(nodes []ast.Markup) pretty.Doc {
 		// Arm edges are parser-trimmed like control-flow body edges, so the
 		// block layout's own newlines are safe; the interior glues verbatim.
 		inner := p.childrenPreserve(nodes)
-		if !hasBlockChild(nodes) {
-			return inner
+		if p.hasBlockChild(nodes) || multiline {
+			return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
 		}
-		return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
-	}
-	inner, edgeSafe := p.childrenInner(nodes)
-	// A switch arm with a block-level child takes its own indented line(s); an
-	// inline-only (or edge-unsafe) arm follows the colon on the same line.
-	if !edgeSafe || !hasBlockChild(nodes) {
 		return inner
 	}
-	return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
+	inner, edgeSafe := p.childrenInner(nodes)
+	// A switch arm with a block-level child (or an author line break after the
+	// colon) takes its own indented line(s); an inline-only, inline-authored (or
+	// edge-unsafe) arm follows the colon on the same line.
+	if edgeSafe && (p.hasBlockChild(nodes) || multiline) {
+		return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
+	}
+	return inner
 }
 
 // multiline turns a possibly multi-line Go fragment into a Doc: lines are

@@ -97,6 +97,29 @@ Flat output is byte-identical to the normalized one-line form; broken output
 only inserts newline+indent at gaps, which wsnorm collapses back — render
 faithfulness and idempotence hold by construction.
 
+### Author breaks at markup boundaries (amendment 2026-07-24b)
+
+Canonical fill reflows **prose** — but it must never join a break the author
+placed **next to markup**. Historically that preservation held by accident
+(every element was block-level, so siblings and case arms always got their
+own lines); atoms removed the accident, so the facts are now recorded
+explicitly, extending the existing layout-fact mechanism:
+
+- `CaseClause.BodyMultiline` — the source placed a line break after the
+  `case …:`/`default:` colon; `caseBody` honors it exactly as `cfBody`
+  honors `ThenMultiline` (a case body written inline stays inline).
+- **Leading-break fact** on non-Text markup leaves (Element, Interp,
+  EmbeddedInterp): the source placed a line break in the whitespace
+  immediately before this child. The fill honors it where the joint is a
+  safe gap — the separator becomes a preserved (hard) break, which also
+  correctly forces the enclosing element open. Bonds are unaffected (a
+  significant space adjacent to a tag never coexists with a surviving
+  newline: wsnorm drops newline-bearing edge runs). Breaks before **Text**
+  nodes carry no fact — prose keeps reflowing canonically.
+
+Net rule: the formatter reflows prose, and never joins an author's break
+adjacent to markup. One-liners stay one-liners (no fact → no break).
+
 ### List layout
 
 - **Inline-only list** (every child Text/Interp/atom): one Fill. Fits → one
@@ -115,10 +138,14 @@ faithfulness and idempotence hold by construction.
 
 ## Non-goals
 
-No wrapping inside atoms. No `{" "}` insertion/materialization by the
-formatter. No attr-value wrapping changes. No syntax change (tree-sitter,
-vscode-gsx, CodeMirror unaffected). No codegen change (semantic corpus goldens
-unaffected).
+No wrapping inside atoms — and "inside" includes the opening tag: an atom
+renders fully flat, attribute list included, so a solo inline element with a
+long dynamic attr stays on one long line (this is decision 1's "fully atomic"
+applied consistently; it also matches the motivating complaint, where
+breaking an `<a>`'s attrs mid-prose was the problem). Attr-value wrapping for
+non-atom elements is unchanged. No `{" "}` insertion/materialization by the
+formatter. No syntax change (tree-sitter, vscode-gsx, CodeMirror unaffected).
+No codegen change (semantic corpus goldens unaffected).
 
 ## Testing
 

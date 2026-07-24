@@ -33,7 +33,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Parser + AST | [x] Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | [x] done |
 | Codegen | [~] interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional, explicit JS/CSS attr literals `` js`...` `` / `` css`...` `` + URL attr classification) + pipeline `\|>` + verbatim component signatures with declared `children`/`attrs` roles + method components + named slots + attribute fallthrough + node-input promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
-| Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
+| Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. `gsx fmt` treats inline elements as atoms (never break open) and wraps long prose at word gaps (`internal/printer` fill layout, `2026-07-24-fmt-inline-atoms-word-gap-fill-design.md`). |
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + find-references + formatting ship; completion and external/non-project references deferred. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
@@ -782,6 +782,18 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   500ms/2s/5s; three failed attempts gives up and suspends pushes), verifying
   a respawn is really our plugin via the `x-gsx` response header on
   `/__gsx/cmd` before resuming pushes. Docs: `guide/dev-loop.md` §Dev panel.
+- [ ] **Edits during an in-flight rebuild** (2026-07-24,
+  `2026-07-24-dev-edits-during-rebuild-design.md`) - the 100/120ms debounce
+  covers save bursts, but `cycle()` runs generate→build→health-wait
+  synchronously on the event loop, so saves made during a ~20s build are
+  neither folded into it nor able to cancel it: the doomed build completes and
+  reloads the browser with stale output, then a second full cycle runs (~2×
+  build time to see an edit). Direction: (1) run the cycle off the event loop
+  so events keep draining - suppress the known-stale reload and chain straight
+  into the next cycle; (2) per-cycle cancellable generate+build (not the
+  server-swap phase). Also fixes a latent `fire`-token leak - `schedule()`
+  stops the timer but never drains the capacity-1 channel, so a token from a
+  timer that fired mid-cycle can trigger an extra partial cycle.
 
 ## Security - safe by default
 
