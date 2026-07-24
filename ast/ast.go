@@ -278,14 +278,15 @@ type HTMLComment struct {
 
 func (*HTMLComment) markupNode() {}
 
-// Comment is a source-only content comment: `{/* text */}` or `{// text }`
-// between child nodes. Unlike HTMLComment it is NOT rendered — codegen drops it,
-// the formatter preserves it. (A bare `//` in text content is literal Text, not
-// a comment; only the braced forms are comments in content position.)
+// Comment is a source-only content comment between child nodes: braced
+// `{/* text */}` / `{// text }`, or a bare line-start `// text` (Bare=true).
+// Unlike HTMLComment it is NOT rendered — codegen drops it, the formatter
+// preserves it and never converts between the braced and bare spellings.
 type Comment struct {
 	span
 	Text  string
 	Block bool // true = /* */, false = //
+	Bare  bool // true = bare line-start `//` (no braces); implies Block=false
 }
 
 func (*Comment) markupNode() {}

@@ -720,6 +720,13 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 	case *ast.HTMLComment:
 		return pretty.Concat(pretty.Text("<!--"), pretty.Text(v.Text), pretty.Text("-->"))
 	case *ast.Comment:
+		if v.Bare {
+			// Bare `//` line comment: must own its source line — printed
+			// mid-line it would reparse as text. BreakParent forces the
+			// enclosing children group to break so the line joiner puts it
+			// (and the following sibling) on fresh lines.
+			return pretty.Concat(pretty.Text("// "), pretty.Text(v.Text), pretty.BreakParent)
+		}
 		// Source-only content comment; canonical braced form. The `{// text }`
 		// line form is safe on one line here — the printer controls layout, so
 		// nothing after `}` is on the comment's line to be swallowed.

@@ -25,6 +25,10 @@ type parser struct {
 	i          int // byte cursor within src
 	classifier *attrclass.Classifier
 	errs       []Error
+
+	// preserveDepth counts enclosing pre/textarea elements; >0 suppresses bare
+	// `//` content-comment recognition (their text is verbatim display content).
+	preserveDepth int
 }
 
 // errorf records a positioned error and returns an error whose Error() returns

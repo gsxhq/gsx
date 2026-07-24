@@ -27,7 +27,7 @@ File package=p
       CommentAttr block=true trailing=false text="block note"
       CommentAttr block=true trailing=false text="braced note"
     Element tag=p void=false
-      Comment block=true text="block"
+      Comment block=true bare=false text="block"
       Text value="Visible"
-      Comment block=false text="line"
+      Comment block=false bare=false text="line"
       Text value="text // literal"

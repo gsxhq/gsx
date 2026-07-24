@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
 // parseInterp parses `{ expr }` or `{ expr? }`. Cursor must be at '{'.
@@ -49,7 +50,8 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 
 // parseTextCtx consumes literal text up to the next '<' or '{' (or EOF). When
 // inBlock is true (inside a control-flow body) it also stops at '}', which
-// terminates the enclosing block.
+// terminates the enclosing block. It also stops at a line-start `//` content
+// comment, leaving it for the caller to parse as a separate Comment node.
 func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 	start := p.i
 	startPos := p.posAt(start)
@@ -58,10 +60,47 @@ func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 		if b == '<' || b == '{' || (inBlock && b == '}') {
 			break
 		}
+		if b == '/' && p.atBareContentComment() {
+			break
+		}
 		p.i++
 	}
 	n := &ast.Text{Value: p.src[start:p.i]}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n
+}
+
+// atBareContentComment reports whether the cursor sits at a line-start `//` in
+// child content: the next two bytes are slashes and every byte between the
+// previous newline (or file start) and the cursor is space, tab, or CR.
+// Suppressed inside pre/textarea subtrees, whose text is verbatim.
+func (p *parser) atBareContentComment() bool {
+	if p.preserveDepth > 0 || !p.at("//") {
+		return false
+	}
+	for j := p.i - 1; j >= 0; j-- {
+		switch p.src[j] {
+		case ' ', '\t', '\r':
+		case '\n':
+			return true
+		default:
+			return false
+		}
+	}
+	return true // file start counts as line start
+}
+
+// parseBareComment consumes a bare `//` line comment to end of line (the '\n'
+// is left for the following text node / skipSpace). Cursor must satisfy
+// atBareContentComment.
+func (p *parser) parseBareComment() *ast.Comment {
+	start := p.i
+	p.i += 2 // past '//'
+	for !p.eof() && p.src[p.i] != '\n' {
+		p.i++
+	}
+	n := &ast.Comment{Text: strings.TrimSpace(p.src[start+2 : p.i]), Bare: true}
+	ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
 	return n
 }
 
@@ -281,6 +320,8 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 			if !skipped {
 				nodes = append(nodes, node)
 			}
+		case p.atBareContentComment():
+			nodes = append(nodes, p.parseBareComment())
 		default:
 			nodes = append(nodes, p.parseTextCtx(true))
 		}
@@ -549,6 +590,8 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 			if !skipped {
 				nodes = append(nodes, node)
 			}
+		case p.atBareContentComment():
+			nodes = append(nodes, p.parseBareComment())
 		default:
 			nodes = append(nodes, p.parseTextCtx(true))
 		}
@@ -837,7 +880,13 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return el, nil
 	}
 
+	if wsnorm.IsPreserveTag(tag) {
+		p.preserveDepth++
+	}
 	children, closeNamePos, err := p.parseChildren(tag)
+	if wsnorm.IsPreserveTag(tag) {
+		p.preserveDepth--
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -993,6 +1042,10 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error)
 				continue
 			}
 			nodes = append(nodes, node)
+			continue
+		}
+		if p.atBareContentComment() {
+			nodes = append(nodes, p.parseBareComment())
 			continue
 		}
 		nodes = append(nodes, p.parseText())
