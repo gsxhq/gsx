@@ -5,6 +5,12 @@ coverage, not safety.
 
 Indentation is emitted as tabs either way. tab_width changes only the measure.
 
+Uses <div>, not <span>: since the fill-layout work, an inline atom (a
+phrasing tag whose children are Text/Interp/atom, no forced break) renders
+fully flat via atomDoc regardless of width — <span> here would no longer be
+tab-width-sensitive. <div> is never an atom, so its own attr/children Group
+still wraps under width pressure and the pair keeps pinning tabWidth's effect.
+
 -- tab_width --
 4
 -- input.gsx --
@@ -13,7 +19,7 @@ package ui
 component C() {
 	<div>
 		<section>
-			<span class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</span>
+			<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</div>
 		</section>
 	</div>
 }
@@ -23,9 +29,9 @@ package ui
 component C() {
 	<div>
 		<section>
-			<span class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">
+			<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">
 				x
-			</span>
+			</div>
 		</section>
 	</div>
 }

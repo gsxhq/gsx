@@ -125,8 +125,10 @@ component C() {
 }
 
 func TestElementInlineTextAndElement(t *testing.T) {
-	// Text + element child: the segment is glued (edge-safe) and breaks to show
-	// the block child; all nodes stay on one indented line together.
+	// Text + element child: <b> is now an inline atom (not block-level), so an
+	// all-inline children list no longer forces the parent open — it stays on
+	// one line since it fits (render-free: same bytes, one joint's line break
+	// removed).
 	src := `package p
 component C() {
 	<p>a <b>x</b> b</p>
@@ -134,9 +136,7 @@ component C() {
 	want := `package p
 
 component C() {
-	<p>
-		a <b>x</b> b
-	</p>
+	<p>a <b>x</b> b</p>
 }
 `
 	checkFormat(t, src, want)
@@ -151,11 +151,12 @@ component C() {
 	want := `package p
 
 component C() {
-	<br/>
-	<img src="x.png"/>
+	<br/><img src="x.png"/>
 }
 `
-	// The outer body has two void elements (block-level, no Text) → block.
+	// Void inline tags with no children are atoms (per spec); direct adjacency
+	// between them is a safe gap (no significant space in the source), so the
+	// Fill packs them onto one line — render-free (no bytes added or dropped).
 	checkFormat(t, src, want)
 }
 
@@ -755,7 +756,8 @@ func TestTextareaVerbatim(t *testing.T) {
 
 func TestNestedBlockInline(t *testing.T) {
 	// Outer block has block-level children (two <p> elements) → always breaks.
-	// Inner <p> with text+element glued segment also breaks to show its hierarchy.
+	// Inner <p>'s text+atom children are inline-only, so it no longer forces
+	// open — it stays on one line since it fits (render-free).
 	src := `package p
 component C() {
 	<div>
@@ -767,9 +769,7 @@ component C() {
 
 component C() {
 	<div>
-		<p>
-			a <b>x</b> b
-		</p>
+		<p>a <b>x</b> b</p>
 		<p>plain</p>
 	</div>
 }
@@ -822,7 +822,11 @@ func TestBlockBreaksMixedTextControlFlow(t *testing.T) {
 	// The reported bug: a long <p> with text + interp + an if must break at the
 	// safe boundary (Interp|IfMarkup), keeping "· <a>…</a>" glued by its space.
 	// Canonical output: interp content gains spaces ({ expr }), ExprAttr has none
-	// ({expr}), and the if-body breaks because the flat rendering exceeds 80 cols.
+	// ({expr}). <a> now qualifies as an inline atom (tag "a", single Interp
+	// child, no forced break in its attrs) — atoms are fully atomic (per
+	// atomDoc/TestAtomDoc, already merged) and render flat even though the
+	// assembled line is 114 cols, well over the 80 budget; render-free (no
+	// bytes change, only which line the content sits on).
 	src := `package p
 component C() {
 	<p class="text-sm text-slate-500">
@@ -838,12 +842,7 @@ component C() {
 	<p class="text-sm text-slate-500">
 		by { props.Author.Username }
 		{ if props.Category.Slug != "" {
-			· <a
-				class="hover:underline"
-				href={categoryPage{} |> url("slug", props.Category.Slug)}
-			>
-				{ props.Category.Name }
-			</a>
+			· <a class="hover:underline" href={categoryPage{} |> url("slug", props.Category.Slug)}>{ props.Category.Name }</a>
 		} }
 	</p>
 }
@@ -898,9 +897,12 @@ component C() {
 }
 
 func TestAttrWrapOnConditionalAttr(t *testing.T) {
-	// A CondAttr forces the opening tag to break, one attr per line, > alone;
-	// the forced tag-break also forces breakable children onto their own lines.
-	// Two Interp children (no space between) form two segments → breakable.
+	// A CondAttr forces the opening tag to break, one attr per line, > alone.
+	// The two Interp children are joined by a safe gap (direct adjacency, no
+	// space between); the children Fill packs them greedily by width — it does
+	// not inherit the ancestor's forced break — so they stay on one line since
+	// they fit (render-free: same bytes as separate lines, per the design's
+	// "Fill inside still packs greedily" rule).
 	src := `package p
 component C(p Props) {
 	<a { if p.ID != "" { id={ p.ID } } } href={ p.Href } class={ buttonClass(p) } { p.Attributes... }>{ children }{ name }</a>
@@ -916,8 +918,7 @@ component C(p Props) {
 		class={ buttonClass(p) }
 		{ p.Attributes... }
 	>
-		{ children }
-		{ name }
+		{ children }{ name }
 	</a>
 }
 `
@@ -1304,8 +1305,12 @@ component Page() {
 }
 
 func TestClassMapWraps(t *testing.T) {
-	// A composed class map wider than 80 cols must break one entry per line,
-	// not weld every entry onto one indented line.
+	// <span> with a bare-Text child and no forced break anywhere qualifies as
+	// an inline atom (per atomDoc, already merged): atomDoc's Flat() gate
+	// unwraps the class map's own Group to its one-line form unconditionally
+	// (TestAtomDoc pins this exact shape at width 10), so the whole element —
+	// attrs included — renders flat regardless of width. Render-free: the
+	// class map's entries are unchanged, only the line-break placement is.
 	src := `package p
 component C(v int) {
 	<span class={ "base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1, "gray-cccccccccccccccccccccccc": v != 1 }>x</span>
@@ -1313,21 +1318,16 @@ component C(v int) {
 	want := `package p
 
 component C(v int) {
-	<span
-		class={
-			"base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1,
-			"gray-cccccccccccccccccccccccc": v != 1
-		}
-	>
-		x
-	</span>
+	<span class={ "base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1, "gray-cccccccccccccccccccccccc": v != 1 }>x</span>
 }
 `
 	assertFormat(t, src, want)
 }
 
 func TestValueFormSwitchLayout(t *testing.T) {
+	// Same atom-flattening as TestClassMapWraps: <span>'s switch-valued class
+	// attr has no forced break (Go switch syntax is one-line-legal), so
+	// atomDoc's Flat() collapses it too.
 	src := `package p
 component C(v int) {
 	<span class={ "base", switch v { case 1: "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" default: "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } }>x</span>
@@ -1335,19 +1335,7 @@ component C(v int) {
 	want := `package p
 
 component C(v int) {
-	<span
-		class={
-			"base",
-			switch v {
-			case 1:
-				"green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			default:
-				"gray-bbbbbbbbbbbbbbbbbbbbbbbb"
-			}
-		}
-	>
-		x
-	</span>
+	<span class={ "base", switch v { case 1: "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" default: "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } }>x</span>
 }
 `
 	assertFormat(t, src, want)
@@ -1497,9 +1485,12 @@ func TestFmtContentBlockComment(t *testing.T) {
 
 func TestFmtContentLineComment(t *testing.T) {
 	// The {// } line form must print with } on its own line (a one-line
-	// {// text } would let the // swallow the closing brace on reparse).
+	// {// text } would let the // swallow the closing brace on reparse). The
+	// comment-Interp and "Visible" are joined by a safe gap (direct adjacency,
+	// no space in source); the Fill packs "Visible" right after the "}" since
+	// it fits there — render-free (safe gap, flat="").
 	src := "package p\ncomponent C() {\n\t<p>{// hidden\n\t}Visible</p>\n}\n"
-	want := "package p\n\ncomponent C() {\n\t<p>\n\t\t{// hidden\n\t\t}\n\t\tVisible\n\t</p>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<p>\n\t\t{// hidden\n\t\t}Visible\n\t</p>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1576,10 +1567,42 @@ func TestCfBodyEdgesTrimmedThenBreaksOnAuthorNewline(t *testing.T) {
 }
 
 func TestFragmentInlineChildrenPreserveAuthorLineBreak(t *testing.T) {
-	// Once the author line break after `<>` forces the fragment open, its two
-	// adjacent interps (safe-boundary segments) each take their own line — the
-	// normal layout of any broken children list.
+	// The author line break after `<>` still forces the fragment open
+	// (ChildrenMultiline), but its two adjacent interps are joined by a safe
+	// gap (direct adjacency) inside a Fill, which packs greedily by width
+	// regardless of the outer forced break — per the design's "ChildrenMultiline
+	// forces the block form... but the Fill inside still packs greedily" rule.
+	// Render-free: both fit on one line, same bytes as two lines.
 	src := "package p\ncomponent C(a, b string) {\n\t<>\n\t\t{ a }{ b }\n\t</>\n}\n"
-	want := "package p\n\ncomponent C(a, b string) {\n\t<>\n\t\t{ a }\n\t\t{ b }\n\t</>\n}\n"
+	want := "package p\n\ncomponent C(a, b string) {\n\t<>\n\t\t{ a }{ b }\n\t</>\n}\n"
 	checkFormat(t, src, want)
+}
+
+func TestInlineAtomsStayInline(t *testing.T) {
+	// The paragraph that motivated this work: <code> must not explode even
+	// though the glued tail overflows; long prose wraps at word gaps.
+	checkFormat(t,
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tthe CLI vendors real <code>.gsx</code> source into your own module, so what you build against is code you own\n\t</p>\n}\n",
+		// Width 80, children indent 2 tabs (4 cols): "the CLI vendors real
+		// <code>.gsx</code> source into your own module, so what" measures
+		// 4+75=79 ≤ 80; adding " you" overflows → break before "you".
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tthe CLI vendors real <code>.gsx</code> source into your own module, so what\n\t\tyou build against is code you own\n\t</p>\n}\n")
+}
+
+func TestInlineOnlyOneLinerStays(t *testing.T) {
+	// An all-inline children list no longer forces the parent open.
+	src := "package p\n\ncomponent C() {\n\t<p>vendors real <code>.gsx</code> source.</p>\n}\n"
+	checkFormat(t, src, src)
+}
+
+func TestBlockChildStillForces(t *testing.T) {
+	checkFormat(t,
+		"package p\n\ncomponent C() {\n\t<div><span>a</span> <div>b</div></div>\n}\n",
+		"package p\n\ncomponent C() {\n\t<div>\n\t\t<span>a</span> <div>b</div>\n\t</div>\n}\n")
+}
+
+func TestSpacingInterpGlue(t *testing.T) {
+	checkFormat(t,
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a href=\"/docs/theming\" class=\"underline underline-offset-4\">Theming</a>)\n\t</p>\n}\n",
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a href=\"/docs/theming\" class=\"underline underline-offset-4\">Theming</a>)\n\t</p>\n}\n")
 }

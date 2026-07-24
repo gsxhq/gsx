@@ -88,15 +88,18 @@ func trailsWithSpace(n ast.Markup) bool {
 	return ok && strings.HasSuffix(t.Value, " ")
 }
 
-// blockLevel reports whether a node is a block-level construct: one whose
-// presence in a children list makes the list lay out as a broken block so the
-// document hierarchy is visible. Everything that is not bare Text/Interp counts
-// (every element — gsx treats all tags as block-level — plus fragments and
-// control flow). Text and Interp are inline.
-func blockLevel(n ast.Markup) bool {
+// blockLevel reports whether n is block-level: a construct whose presence
+// makes the children list lay out as a broken block so the document
+// hierarchy stays visible. Inline atoms and interps are NOT block-level; a
+// non-atom element (wrong tag, author multiline, forced break inside) is.
+func (p *printer) blockLevel(n ast.Markup) bool {
+	if e, ok := n.(*ast.Element); ok {
+		_, atom := p.atomDoc(e)
+		return !atom
+	}
 	switch n.(type) {
-	case *ast.Element, *ast.Fragment, *ast.IfMarkup, *ast.ForMarkup,
-		*ast.SwitchMarkup, *ast.GoBlock, *ast.Doctype, *ast.HTMLComment:
+	case *ast.Fragment, *ast.IfMarkup, *ast.ForMarkup, *ast.SwitchMarkup,
+		*ast.GoBlock, *ast.Doctype, *ast.HTMLComment:
 		return true
 	default:
 		return false
@@ -105,8 +108,8 @@ func blockLevel(n ast.Markup) bool {
 
 // hasBlockChild reports whether nodes contains at least one block-level child,
 // i.e. whether the list should break structurally (regardless of width).
-func hasBlockChild(nodes []ast.Markup) bool {
-	return slices.ContainsFunc(nodes, blockLevel)
+func (p *printer) hasBlockChild(nodes []ast.Markup) bool {
+	return slices.ContainsFunc(nodes, p.blockLevel)
 }
 
 // fillParts flattens a children run into pretty.Fill parts — alternating
