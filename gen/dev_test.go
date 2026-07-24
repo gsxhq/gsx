@@ -1442,6 +1442,229 @@ func TestDevPostsBuildingPhaseMidCycle(t *testing.T) {
 	}
 }
 
+// TestDevTerminalIdleStatusIsSinglePostWithSettledFields is the final-review
+// I1(b) pinning test: every terminal branch must settle every other status
+// field (here, both Server.Healthy and LastCycle — the build-failure branch
+// in cycle()) BEFORE the terminal setPhase("idle"), so there is only ever
+// ONE post carrying a given terminal outcome. Before this fix, every
+// terminal branch posted phase "idle" TWICE per cycle with TWO DIFFERENT
+// payloads: once from setPhase's own post (stale LastCycle/Healthy) and once
+// from a trailing postStatus() carrying the corrected values (see 883bb5c2,
+// which only generalized this for Server.Healthy, and the final review's
+// I1, which found the two-post design itself unordered and thus unsound).
+//
+// This test drives a real build failure and asserts every "idle" status
+// after the triggering "building" event carries the SAME, already-settled
+// values (Server.Healthy=false, LastCycle.OK=false/Errors=1) — i.e. no STALE
+// variant is ever observed. It does not assert exactly one delivery: the
+// contactCh first-contact repost (gen/dev.go) can legitimately race
+// setPhase's own post through Go's select and redeliver the identical
+// CURRENT status a moment later — a harmless, already-reviewed duplicate
+// (see the final review, "First-contact × setPhase interplay": "at most one
+// duplicate payload, which the client handles idempotently"), distinct from
+// the STALE-payload bug this test guards against.
+func TestDevTerminalIdleStatusIsSinglePostWithSettledFields(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	// [dev].build succeeds the first time (cold start) and fails every time
+	// after — deterministically reaching cycle()'s rebuild-failure branch on
+	// the write-triggered cycle below without relying on an incidental
+	// source error that gsx's own regen/type-check might catch first (which
+	// would take a different, earlier branch that never touches
+	// Server.Healthy).
+	writeFile(t, proj, "gsx.toml", "[dev]\nbuild = [\"sh\", \"-c\", \"c=$(cat build_count 2>/dev/null || echo 0); c=$((c+1)); echo $c > build_count; if [ $c -eq 1 ]; then go build -o tmp/srv .; else exit 1; fi\"]\nrun = [\"tmp/srv\"]\n")
+
+	goPort := freePort(t)
+	if portListening(goPort) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", goPort)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT="+goPort,
+		"VITE_DEV_URL=http://127.0.0.1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("gsx dev start: %v", err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("Go server on GO_PORT=%s never came up after gsx dev start; output:\n%s", goPort, stdout.String())
+	}
+
+	// Learn the resolved front-door URL from the "watching … — open <url>" line.
+	var viteURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := regexp.MustCompile(`open (http://\S+)`).FindStringSubmatch(stdout.String()); m != nil {
+			viteURL = m[1]
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if viteURL == "" {
+		t.Fatalf("front-door URL not printed; stdout=%q", stdout.String())
+	}
+	u, err := url.Parse(viteURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fake vite plugin: records every {"event":"status"} POST body, decoded,
+	// in arrival order.
+	var mu sync.Mutex
+	var statusEvents []map[string]any
+	fake := &http.Server{
+		Addr: net.JoinHostPort(u.Hostname(), u.Port()),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/cmd":
+				w.WriteHeader(204)
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				var ev map[string]any
+				if json.Unmarshal(body, &ev) == nil && ev["event"] == "status" {
+					mu.Lock()
+					statusEvents = append(statusEvents, ev)
+					mu.Unlock()
+				}
+				w.WriteHeader(204)
+			default:
+				w.WriteHeader(204)
+			}
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	// Touch a benign, valid .go file to trigger the dep-dirty rebuild path
+	// (regen succeeds; [dev].build above is what fails, deterministically,
+	// on this second invocation). Cold start never posts phase "generating"
+	// (only the write-triggered cycle does), so the first "generating"
+	// event unambiguously anchors this cycle among any cold-start echoes.
+	trig := filepath.Join(proj, "zz_trigger.go")
+	if err := os.WriteFile(trig, []byte("package main\n\nvar _devtrigger = 1\n"), 0o644); err != nil {
+		t.Fatalf("write trigger: %v", err)
+	}
+
+	var generatingIdx, buildingIdx int
+	deadline = time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		events := append([]map[string]any(nil), statusEvents...)
+		mu.Unlock()
+
+		generatingIdx, buildingIdx = -1, -1
+		for i, ev := range events {
+			phase, _ := ev["phase"].(string)
+			switch {
+			case phase == "generating" && generatingIdx == -1:
+				generatingIdx = i
+			case phase == "building" && generatingIdx != -1 && buildingIdx == -1 && i > generatingIdx:
+				buildingIdx = i
+			}
+		}
+		if buildingIdx != -1 {
+			// Any idle event after buildingIdx yet?
+			mu.Lock()
+			hasIdle := false
+			for i := buildingIdx + 1; i < len(statusEvents); i++ {
+				if p, _ := statusEvents[i]["phase"].(string); p == "idle" {
+					hasIdle = true
+					break
+				}
+			}
+			mu.Unlock()
+			if hasIdle {
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if generatingIdx == -1 {
+		mu.Lock()
+		snap := statusEvents
+		mu.Unlock()
+		t.Fatalf("no %q status observed; events:\n%v\nstdout:\n%s", "generating", snap, stdout.String())
+	}
+	if buildingIdx == -1 {
+		mu.Lock()
+		snap := statusEvents
+		mu.Unlock()
+		t.Fatalf("no %q status observed after %q; events:\n%v\nstdout:\n%s", "building", "generating", snap, stdout.String())
+	}
+
+	// Give the (legitimate) contactCh repost a moment to arrive before
+	// asserting — a bug REINTRODUCING the stale-then-corrected double post
+	// would show up as a second, DIFFERING "idle" here well within this
+	// margin.
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	events := append([]map[string]any(nil), statusEvents...)
+	mu.Unlock()
+	var idleEvents []map[string]any
+	for i := buildingIdx + 1; i < len(events); i++ {
+		if p, _ := events[i]["phase"].(string); p == "idle" {
+			idleEvents = append(idleEvents, events[i])
+		}
+	}
+	if len(idleEvents) == 0 {
+		t.Fatalf("no idle status posts after the triggering %q; full log:\n%v", "building", events)
+	}
+
+	for i, idleEvent := range idleEvents {
+		srv, _ := idleEvent["server"].(map[string]any)
+		if srv == nil || srv["healthy"] != false {
+			t.Errorf("idle status[%d] server.healthy = %v, want false (settled before every post — no stale variant)", i, srv)
+		}
+		lc, _ := idleEvent["lastCycle"].(map[string]any)
+		if lc == nil {
+			t.Fatalf("idle status[%d] missing lastCycle: %v", i, idleEvent)
+		}
+		if lc["ok"] != false {
+			t.Errorf("idle status[%d] lastCycle.ok = %v, want false", i, lc["ok"])
+		}
+		if errs, _ := lc["errors"].(float64); errs != 1 {
+			t.Errorf("idle status[%d] lastCycle.errors = %v, want 1", i, lc["errors"])
+		}
+	}
+}
+
 // TestDevEnvErrorPostsOverlay is the final-review fix-round-1 regression test
 // for the envErr branch of the .env-fire path (gen/dev.go): a resolveViteDevEnv
 // failure (e.g. an .env edit that sets VITE_PORT to a port already in use)
