@@ -1751,3 +1751,109 @@ func TestLeadingBreakFlag(t *testing.T) {
 		t.Error("LeadingBreak: want false for interp sibling on the same line")
 	}
 }
+
+// allElemsAnywhere collects every *ast.Element with the given tag anywhere in
+// f's components, via ast.Inspect — unlike TestLeadingBreakFlag's allElems
+// (also fine to reuse structurally) this is shared by the tests below that
+// need to reach into control-flow bodies and switch arms, not just an
+// element's own Children.
+func allElemsAnywhere(f *ast.File, tag string) []*ast.Element {
+	var found []*ast.Element
+	for _, d := range f.Decls {
+		c, ok := d.(*ast.Component)
+		if !ok {
+			continue
+		}
+		for _, m := range c.Body {
+			ast.Inspect(m, func(n ast.Node) bool {
+				if e, ok := n.(*ast.Element); ok && e.Tag == tag {
+					found = append(found, e)
+				}
+				return true
+			})
+		}
+	}
+	return found
+}
+
+// TestLeadingBreakFlagComponentTopLevelBody checks that a component's own
+// top-level body — parsed by parseMarkupUntilClose(WS), NOT parseChildren —
+// also stamps LeadingBreak on its non-Text siblings. This is a distinct
+// parse path from an element's Children list, missed by the first round of
+// this amendment.
+func TestLeadingBreakFlagComponentTopLevelBody(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C() {\n\t<em>a</em>\n\t<i>b</i>\n}\n")
+	is := allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for top-level sibling after author newline")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C() {\n\t<em>a</em><i>b</i>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for top-level sibling on the same line")
+	}
+}
+
+// TestLeadingBreakFlagControlFlowBody checks if/for bodies — parsed by
+// parseControlBody → parseMarkupUntilCloseWS(preserveWS=true), a third
+// distinct parse path from parseChildren.
+func TestLeadingBreakFlagControlFlowBody(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C(x bool) {\n\t<div>{ if x {\n\t<em>a</em>\n\t<i>b</i>\n\t} }</div>\n}\n")
+	is := allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for if-body sibling after author newline")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C(x bool) {\n\t<div>{ if x { <em>a</em><i>b</i> } }</div>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for if-body sibling on the same line")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C(items []string) {\n\t<ul>{ for _, it := range items {\n\t<em>a</em>\n\t<i>b</i>\n\t} }</ul>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for for-body sibling after author newline")
+	}
+}
+
+// TestLeadingBreakFlagCaseArmInterior checks the joint BETWEEN two sibling
+// leaves inside one switch arm's own body — parsed by parseCaseBody's own
+// loop, distinct from both parseChildren and parseMarkupUntilCloseWS.
+// CaseClause.BodyMultiline only covers the break right after the colon; this
+// is the interior-sibling break the reviewer's four-context finding added.
+func TestLeadingBreakFlagCaseArmInterior(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C(kind string) {\n\t<div>{ switch kind {\n\tcase \"warn\":\n\t\t<em>a</em>\n\t\t<i>b</i>\n\t} }</div>\n}\n")
+	is := allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for case-arm interior sibling after author newline")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C(kind string) {\n\t<div>{ switch kind {\n\tcase \"warn\": <em>a</em><i>b</i>\n\t} }</div>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for case-arm interior sibling on the same line")
+	}
+}

@@ -151,12 +151,16 @@ component C() {
 	want := `package p
 
 component C() {
-	<br/><img src="x.png"/>
+	<br/>
+	<img src="x.png"/>
 }
 `
-	// Void inline tags with no children are atoms (per spec); direct adjacency
-	// between them is a safe gap (no significant space in the source), so the
-	// Fill packs them onto one line — render-free (no bytes added or dropped).
+	// Void inline tags with no children are atoms (per spec), and direct
+	// adjacency between them is normally a safe gap the Fill is free to pack
+	// onto one line. But the author placed a line break between them here
+	// (amendment 2026-07-24b): Element.LeadingBreak preserves it — an
+	// author's break next to markup is never silently joined, in the
+	// component's own top-level body same as any element's children list.
 	checkFormat(t, src, want)
 }
 
@@ -1720,4 +1724,82 @@ func TestMixedProseReflowsAroundLeadingBreakFact(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<p>\n\t\tThis is a long paragraph that explains something important about the code and\n\t\thow it works in practice with <code>example</code> shown inline for readers.\n\t</p>\n}\n"
 	want := "package p\n\ncomponent C() {\n\t<p>\n\t\tThis is a long paragraph that explains something important about the code\n\t\tand how it works in practice with <code>example</code> shown inline for\n\t\treaders.\n\t</p>\n}\n"
 	checkFormat(t, src, want)
+}
+
+// TestComponentTopLevelBodySiblingsPreserveAuthorLineBreak is one of the four
+// contexts the first round of this amendment missed: Component.Body is
+// printed via the same childrenInner/fillParts path as an element's children
+// (see (*printer).component), but the parser only stamped LeadingBreak in
+// parseChildren — component top-level siblings are parsed by
+// parseMarkupUntilClose(WS) instead, so this joined before that loop's '<'/'{'
+// dispatch sites also stamped the fact.
+func TestComponentTopLevelBodySiblingsPreserveAuthorLineBreak(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<b>a</b>\n\t<br/>\n}\n"
+	checkFormat(t, src, src)
+}
+
+// TestIfBodySiblingsPreserveAuthorLineBreak covers control-flow bodies
+// (parseControlBody → parseMarkupUntilCloseWS), the second missed context.
+func TestIfBodySiblingsPreserveAuthorLineBreak(t *testing.T) {
+	src := `package p
+component C(x bool) {
+	<div>
+		{ if x {
+			<b>a</b>
+			<br/>
+		} }
+	</div>
+}`
+	want := "package p\n\ncomponent C(x bool) {\n\t<div>\n\t\t{ if x {\n\t\t\t<b>a</b>\n\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
+	checkFormat(t, src, want)
+}
+
+// TestIfBodySiblingsStayInlineWhenAuthorInline is the inline counterpart: no
+// line break between the siblings, no LeadingBreak fact, safe gap stays soft.
+func TestIfBodySiblingsStayInlineWhenAuthorInline(t *testing.T) {
+	src := "package p\n\ncomponent C(x bool) {\n\t<div>\n\t\t{ if x { <b>a</b><br/> } }\n\t</div>\n}\n"
+	checkFormat(t, src, src)
+}
+
+// TestForBodySiblingsPreserveAuthorLineBreak covers the for-body half of
+// parseControlBody → parseMarkupUntilCloseWS.
+func TestForBodySiblingsPreserveAuthorLineBreak(t *testing.T) {
+	src := `package p
+component C(items []string) {
+	<ul>
+		{ for _, it := range items {
+			<b>{ it }</b>
+			<br/>
+		} }
+	</ul>
+}`
+	want := "package p\n\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t\t<b>{ it }</b>\n\t\t\t<br/>\n\t\t} }\n\t</ul>\n}\n"
+	checkFormat(t, src, want)
+}
+
+// TestCaseArmInteriorSiblingPreservesAuthorLineBreak is the third missed
+// context: CaseClause.BodyMultiline only protects the break right after the
+// colon — the joint BETWEEN two sibling leaves inside the arm's own body is a
+// separate joint that parseCaseBody's loop must stamp itself.
+func TestCaseArmInteriorSiblingPreservesAuthorLineBreak(t *testing.T) {
+	src := `package p
+component C(kind string) {
+	<div>
+		{ switch kind {
+		case "warn":
+			<b>w</b>
+			<br/>
+		} }
+	</div>
+}`
+	want := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":\n\t\t\t\t<b>w</b>\n\t\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
+	checkFormat(t, src, want)
+}
+
+// TestCaseArmInteriorSiblingStaysInlineWhenAuthorInline is the inline
+// counterpart: siblings written on the same line as the colon, with no break
+// between them either, all stay glued on the arm's one line.
+func TestCaseArmInteriorSiblingStaysInlineWhenAuthorInline(t *testing.T) {
+	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":<b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
+	checkFormat(t, src, src)
 }

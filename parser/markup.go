@@ -268,17 +268,21 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 			p.i++ // consume the closing brace
 			return nodes, nil
 		case p.peek() == '<':
+			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, err
 			}
+			stampLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
+			leadingBreak := newlineBefore(p.src, p.i)
 			node, skipped, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
 			if !skipped {
+				stampLeadingBreak(node, leadingBreak)
 				nodes = append(nodes, node)
 			}
 		default:
@@ -540,17 +544,21 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 		p.i = save
 		switch {
 		case p.peek() == '<':
+			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, err
 			}
+			stampLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
+			leadingBreak := newlineBefore(p.src, p.i)
 			node, skipped, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
 			if !skipped {
+				stampLeadingBreak(node, leadingBreak)
 				nodes = append(nodes, node)
 			}
 		default:
