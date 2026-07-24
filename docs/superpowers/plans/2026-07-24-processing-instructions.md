@@ -893,12 +893,16 @@ CLAUDE.md requires a corpus case per context in which new syntax is valid. Tasks
 **Files:**
 - Create, under `internal/corpus/testdata/cases/pi/`:
   - `marker_pipeline.txtar` — `<?marker name={id |> upper}>` (use a filter the corpus already registers; check `internal/corpus/testdata/cases/pipelines/` for one)
-  - `region_children.txtar` — region with element + text + interpolation children
+  - `region_children.txtar` — region with element + text + interpolation children. This case must include a **block-level child on its own indented line**: it pins the `wsnorm` fix Task 7 added (`normalizeMarkup` had no `*ast.MarkerRegion` case, so region children's source indentation rendered literally into the HTML). Without such a case nothing in the semantic corpus guards that fix.
   - `region_nested.txtar` — region containing a region and a marker
   - `pi_in_control_flow.txtar` — markers inside `{ if … }` and `{ for … }`
   - `e_element_literal_rejected.txtar` — `x := <?marker name="a">` in Go-expression position. This is an **error** case, not a rendering one: processing instructions are markup-only. Only `*ast.Element` and `*ast.Fragment` are admitted as Go-expression values, so `splitGoElements` rejects a Marker with `gsx: a *ast.Marker is not supported as a Go expression value here`. Pin that diagnostic. (Task 3 verified this behavior directly; the earlier plan text wrongly assumed it rendered.)
   - `e_unknown_target.txtar`, `e_missing_name.txtar`, `e_end_attrs.txtar`, `e_unterminated_region.txtar`, `e_stray_end.txtar`, `e_question_terminator.txtar`, `e_static_name_unsafe.txtar` (plus `e_element_literal_rejected.txtar` above) — error cases with only `diagnostics.golden` (no `invoke`), following `internal/corpus/testdata/cases/parser/e03_bad_attr_name.txtar`
 - Modify: `internal/corpus/testdata/coverage.golden` (regenerated, never hand-edited)
+- Create/modify: a package-local test in `internal/wsnorm` for the
+  `*ast.MarkerRegion` case Task 7 added to `normalizeMarkup`, mirroring however
+  the adjacent `*ast.Fragment` case is tested. That case is currently covered
+  only end-to-end, so a regression would surface far from its cause.
 
 **Interfaces:**
 - Consumes: everything from Tasks 3–7.
