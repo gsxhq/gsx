@@ -1683,3 +1683,70 @@ func TestParseMarkerErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMarkerRegion(t *testing.T) {
+	p := testParser(`<?start name="feed"><p>loading</p><?end>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := n.(*ast.MarkerRegion)
+	if !ok {
+		t.Fatalf("got %T, want *ast.MarkerRegion", n)
+	}
+	if a := r.Name.(*ast.StaticAttr); a.Value != "feed" {
+		t.Fatalf("name = %q", a.Value)
+	}
+	if len(r.Children) != 1 {
+		t.Fatalf("children = %#v", r.Children)
+	}
+	if el, ok := r.Children[0].(*ast.Element); !ok || el.Tag != "p" {
+		t.Fatalf("child = %#v", r.Children[0])
+	}
+}
+
+func TestParseMarkerRegionNested(t *testing.T) {
+	p := testParser(`<?start name="a"><?start name="b"><?end><?marker name="c"><?end>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := n.(*ast.MarkerRegion)
+	if len(r.Children) != 2 {
+		t.Fatalf("children = %#v", r.Children)
+	}
+	if _, ok := r.Children[0].(*ast.MarkerRegion); !ok {
+		t.Fatalf("child0 = %T", r.Children[0])
+	}
+	if _, ok := r.Children[1].(*ast.Marker); !ok {
+		t.Fatalf("child1 = %T", r.Children[1])
+	}
+}
+
+func TestParseMarkerRegionUnterminated(t *testing.T) {
+	p := testParser(`<?start name="feed"><p>x</p>`)
+	if _, err := p.parseElement(); err == nil || !strings.Contains(err.Error(), "<?end>") {
+		t.Fatalf("err = %v, want one naming <?end>", err)
+	}
+}
+
+func TestParseEndPIRejectsAttrs(t *testing.T) {
+	p := testParser(`<?start name="feed"><?end name="feed">`)
+	if _, err := p.parseElement(); err == nil || !strings.Contains(err.Error(), "takes no attributes") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestParseMarkerRegionEndPrefixNotTerminator proves atPITarget matches the PI
+// target exactly: `<?ending>` must not be mistaken for `<?end>`, so a region
+// containing it never terminates and the parse fails at EOF instead.
+func TestParseMarkerRegionEndPrefixNotTerminator(t *testing.T) {
+	p := testParser(`<?start name="feed"><?ending>`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown processing-instruction target") {
+		t.Fatalf("err = %v, want unknown processing-instruction target %q", err, "ending")
+	}
+}

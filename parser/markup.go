@@ -895,10 +895,33 @@ func (p *parser) parsePI(startPos token.Pos) (ast.Markup, error) {
 		m := &ast.Marker{Name: name}
 		ast.SetSpan(m, startPos, p.posAt(p.i))
 		return m, nil
+	case piStart:
+		name, err := p.parsePIName(target, startPos)
+		if err != nil {
+			return nil, err
+		}
+		childrenMultiline := newlineFollows(p.src, p.i)
+		children, _, err := p.parseChildrenTerm(childTerm{piEnd: true})
+		if err != nil {
+			return nil, err
+		}
+		r := &ast.MarkerRegion{Name: name, Children: children, ChildrenMultiline: childrenMultiline}
+		ast.SetSpan(r, startPos, p.posAt(p.i))
+		return r, nil
 	case piEnd:
 		return nil, p.errorf(startPos, "`<?end>` without a matching `<?start`")
 	}
 	return nil, p.errorf(startPos, "unknown processing-instruction target %q, expected `marker`, `start`, or `end`", target)
+}
+
+// atPITarget reports whether the cursor is at `<?` followed by exactly target
+// (so `<?end>` matches but `<?ending>` does not).
+func (p *parser) atPITarget(target string) bool {
+	if !p.at("<?") {
+		return false
+	}
+	end := scanTagName(p.src, p.i+len("<?"))
+	return p.src[p.i+len("<?"):end] == target
 }
 
 // parsePIName parses the required `name=…` of a marker/start PI and consumes the
@@ -1024,10 +1047,12 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
-// childTerm describes how a child list ends. Today that is a `</tag>` close tag
-// (tag is "" for a fragment's `</>`); Task 4 adds the `<?end>` form.
+// childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
+// a fragment's `</>`), or a `<?end>` processing instruction closing a
+// MarkerRegion. Exactly one form applies per list.
 type childTerm struct {
-	tag string
+	tag   string
+	piEnd bool
 }
 
 // parseChildrenTerm parses markup children up to the matching terminator
@@ -1038,7 +1063,26 @@ func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, err
 	var nodes []ast.Markup
 	for {
 		if p.eof() {
+			if term.piEnd {
+				return nil, token.NoPos, p.errorf(token.NoPos, "unexpected EOF, expected <?end>")
+			}
 			return nil, token.NoPos, p.errorf(token.NoPos, "unexpected EOF, expected </%s>", term.tag)
+		}
+		if term.piEnd && p.atPITarget(piEnd) {
+			endPos := p.pos()
+			p.i += len("<?") + len(piEnd)
+			attrs, _, err := p.parseAttrsUntil(func() bool { return p.peek() == '>' || p.at("?>") })
+			if err != nil {
+				return nil, token.NoPos, err
+			}
+			if p.at("?>") {
+				return nil, token.NoPos, p.errorf(p.pos(), "`?>` does not close a gsx processing instruction; use `>`")
+			}
+			if len(attrs) > 0 {
+				return nil, token.NoPos, p.errorf(endPos, "`<?end>` takes no attributes")
+			}
+			p.i++ // past '>'
+			return nodes, token.NoPos, nil
 		}
 		if p.at("</") {
 			mmTokPos := p.pos()
