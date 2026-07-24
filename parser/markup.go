@@ -690,15 +690,15 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	return node, true, nil
 }
 
-// parseAttrs consumes an element's attribute list up to (but not past) the
-// closing `>` or `/>`. multiline reports whether the author placed a line break
-// inside the opening tag's inter-token whitespace — between the tag name and an
-// attribute, between two attributes, or before the closing delimiter — so the
-// formatter can preserve that vertical layout. A newline inside an attribute's
-// value is consumed by parseSingleAttr, never by these whitespace skips, so it
-// does not set the flag; and with zero attributes there is no list to break, so
-// the flag stays false even for `<div\n>`.
-func (p *parser) parseAttrs() (attrs []ast.Attr, multiline bool, err error) {
+// parseAttrsUntil consumes an element's attribute list up to (but not past) the
+// point where stop reports true. multiline reports whether the author placed a
+// line break inside the opening tag's inter-token whitespace — between the tag
+// name and an attribute, between two attributes, or before the closing
+// delimiter — so the formatter can preserve that vertical layout. A newline
+// inside an attribute's value is consumed by parseSingleAttr, never by these
+// whitespace skips, so it does not set the flag; and with zero attributes there
+// is no list to break, so the flag stays false even for `<div\n>`.
+func (p *parser) parseAttrsUntil(stop func() bool) (attrs []ast.Attr, multiline bool, err error) {
 	sawNewline := false
 	for {
 		wsStart := p.i
@@ -709,7 +709,7 @@ func (p *parser) parseAttrs() (attrs []ast.Attr, multiline bool, err error) {
 		if p.eof() {
 			return nil, false, p.errorf(p.pos(), "unexpected EOF in attributes")
 		}
-		if p.peek() == '>' || p.at("/>") {
+		if stop() {
 			return attrs, sawNewline && len(attrs) > 0, nil
 		}
 		if c, ok, cerr := p.parseTagComment(); cerr != nil {
@@ -725,6 +725,12 @@ func (p *parser) parseAttrs() (attrs []ast.Attr, multiline bool, err error) {
 		}
 		attrs = append(attrs, a)
 	}
+}
+
+// parseAttrs consumes an element's attribute list up to (but not past) the
+// closing `>` or `/>`.
+func (p *parser) parseAttrs() (attrs []ast.Attr, multiline bool, err error) {
+	return p.parseAttrsUntil(func() bool { return p.peek() == '>' || p.at("/>") })
 }
 
 // parseAttrBraceValue parses the `{…}` after `name=`: either markup (Babel rule)
@@ -945,15 +951,23 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
-// parseChildren parses markup children up to the matching `</closeTag>` (which it
-// consumes). It returns the children, the position of the first char of the name
-// in the closing tag (token.NoPos when closeTag is empty — a `</>` fragment — or
-// on error), and any error.
-func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error) {
+// childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
+// a fragment's `</>`), or a `<?end>` processing instruction closing a
+// MarkerRegion. Exactly one form applies per list.
+type childTerm struct {
+	tag   string
+	piEnd bool
+}
+
+// parseChildrenTerm parses markup children up to the matching terminator
+// described by term (which it consumes). It returns the children, the position
+// of the first char of the name in the closing tag (token.NoPos when term.tag
+// is empty — a `</>` fragment — or on error), and any error.
+func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, error) {
 	var nodes []ast.Markup
 	for {
 		if p.eof() {
-			return nil, token.NoPos, p.errorf(token.NoPos, "unexpected EOF, expected </%s>", closeTag)
+			return nil, token.NoPos, p.errorf(token.NoPos, "unexpected EOF, expected </%s>", term.tag)
 		}
 		if p.at("</") {
 			mmTokPos := p.pos()
@@ -968,10 +982,10 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error)
 				return nil, token.NoPos, p.errorf(p.pos(), "malformed close tag")
 			}
 			p.i++ // past '>'
-			if got != closeTag {
-				return nil, token.NoPos, p.errorf(mmTokPos, "mismatched close tag </%s>, expected </%s>", got, closeTag)
+			if got != term.tag {
+				return nil, token.NoPos, p.errorf(mmTokPos, "mismatched close tag </%s>, expected </%s>", got, term.tag)
 			}
-			if closeTag == "" {
+			if term.tag == "" {
 				closeNamePos = token.NoPos // `</>` fragment — no name
 			}
 			return nodes, closeNamePos, nil
@@ -997,4 +1011,12 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error)
 		}
 		nodes = append(nodes, p.parseText())
 	}
+}
+
+// parseChildren parses markup children up to the matching `</closeTag>` (which
+// it consumes). It returns the children, the position of the first char of the
+// name in the closing tag (token.NoPos when closeTag is empty — a `</>`
+// fragment — or on error), and any error.
+func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error) {
+	return p.parseChildrenTerm(childTerm{tag: closeTag})
 }
