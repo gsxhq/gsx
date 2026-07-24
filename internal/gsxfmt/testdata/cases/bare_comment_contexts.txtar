@@ -1,0 +1,96 @@
+A bare // content comment keeps its own line at the surrounding context's
+indent in every child-content context: a control-flow body, a switch case body,
+a fragment, and a child-prop markup-attribute slot (as a direct sibling between
+two elements).
+-- input.gsx --
+package ui
+
+import "github.com/gsxhq/gsx"
+
+component IfBody(n int) {
+	<p>{ if n > 0 {
+		<span>a</span>
+		// if body note
+		<span>b</span>
+	} }</p>
+}
+
+component CaseBody(kind string) {
+	<span>{ switch kind {
+	case "a":
+		<b>x</b>
+		// case body note
+		<b>y</b>
+	default:
+		<b>z</b>
+	} }</span>
+}
+
+component FragChildren() {
+	<>
+		<span>a</span>
+		// fragment note
+		<span>b</span>
+	</>
+}
+
+component Slot(header gsx.Node) {
+	<div>{header}</div>
+}
+
+component ChildProp() {
+	<Slot header={
+		<span>a</span>
+		// child-prop note
+		<span>b</span>
+	}/>
+}
+-- fmt.golden --
+package ui
+
+import "github.com/gsxhq/gsx"
+
+component IfBody(n int) {
+	<p>
+		{ if n > 0 {
+			<span>a</span>
+			// if body note
+			<span>b</span>
+		} }
+	</p>
+}
+
+component CaseBody(kind string) {
+	<span>
+		{ switch kind {
+			case "a":
+				<b>x</b>
+				// case body note
+				<b>y</b>
+			default:
+				<b>z</b>
+		} }
+	</span>
+}
+
+component FragChildren() {
+	<>
+		<span>a</span>
+		// fragment note
+		<span>b</span>
+	</>
+}
+
+component Slot(header gsx.Node) {
+	<div>{ header }</div>
+}
+
+component ChildProp() {
+	<Slot
+		header={
+			<span>a</span>
+			// child-prop note
+			<span>b</span>
+		}
+	/>
+}
