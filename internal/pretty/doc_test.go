@@ -99,3 +99,24 @@ func TestFillGreedyWrap(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestHasForcedBreak(t *testing.T) {
+	cases := []struct {
+		name string
+		doc  Doc
+		want bool
+	}{
+		{"text", Text("x"), false},
+		{"softline", Concat(Text("a"), SoftLine, Text("b")), false},
+		{"line", Concat(Text("a"), Line, Text("b")), false},
+		{"hardline", Concat(Text("a"), HardLine), true},
+		{"breakparent", Concat(Text("a"), BreakParent), true},
+		{"nested group", Group(Concat(Text("a"), Group(Concat(HardLine)))), true},
+		{"fill with hard", Fill(Text("a"), SoftLine, Concat(HardLine)), true},
+	}
+	for _, c := range cases {
+		if got := HasForcedBreak(c.doc); got != c.want {
+			t.Errorf("%s: HasForcedBreak = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

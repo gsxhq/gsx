@@ -96,3 +96,7 @@ func containsForcedBreak(d Doc) bool {
 		return false
 	}
 }
+
+// HasForcedBreak reports whether d contains a hard break (HardLine or
+// BreakParent) at any depth — i.e. whether d can never render on one line.
+func HasForcedBreak(d Doc) bool { return containsForcedBreak(d) }
