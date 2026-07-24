@@ -80,7 +80,7 @@ func verifyFrontDoor(ctx context.Context, url, token string) bool {
 		return false
 	}
 	req.Header.Set("x-gsx-token", token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := devHTTPClient(2 * time.Second).Do(req)
 	if err != nil {
 		return false
 	}

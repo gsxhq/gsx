@@ -338,7 +338,8 @@ func setEnvValue(env []string, key, value string) []string {
 }
 
 // devHTTPClient returns a client for the dev loop's chatter with the Vite dev
-// server and the backend (health polls, overlay pushes, command polls), with
+// server and the backend (health polls, overlay pushes, command polls, front
+// door verification), with
 // keep-alives disabled. An idle pooled connection to Vite (Node) is torn down
 // by Node's keepAliveTimeout, and the teardown can emit an unsolicited
 // "HTTP/1.1 400 Bad Request" that Go's transport logs to the terminal as

@@ -580,6 +580,9 @@ func TestDevHTTPHelpersCloseConnections(t *testing.T) {
 	postEvent(srv.URL, []byte(`{}`), nil)
 	recv("postEvent")
 
+	verifyFrontDoor(context.Background(), srv.URL, "tok")
+	recv("verifyFrontDoor")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	out := make(chan string, 1)
 	go pollCommands(ctx, srv.URL, "tok", func() bool { return true }, out, nil)
