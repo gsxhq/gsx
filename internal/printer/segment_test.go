@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 func txt(s string) *ast.Text       { return &ast.Text{Value: s} }
@@ -116,5 +117,46 @@ func TestGluedSpacingInterp(t *testing.T) {
 	}
 	if glued(sp, see) {
 		t.Error("spacing interp must not glue rightward without a space")
+	}
+}
+
+// fillAt prints the element's children as a Fill at the given width.
+func fillAt(t *testing.T, src string, width int) string {
+	t.Helper()
+	p := &printer{width: width, tabWidth: 2}
+	e := firstElement(t, src)
+	return pretty.Print(pretty.Fill(p.fillParts(e.Children)...), width, 2)
+}
+
+func TestFillParts(t *testing.T) {
+	cases := []struct {
+		name  string
+		src   string
+		width int
+		want  string
+	}{
+		// Everything fits: flat output is the normalized one-line form.
+		{"flat", `<p>alpha beta <code>x</code> gamma</p>`, 80,
+			"alpha beta <code>x</code> gamma"},
+		// Word gaps break; the tag-adjacent spaces bond beta/code/gamma into
+		// one unbreakable cluster.
+		{"wrap", `<p>alpha beta <code>x</code> gamma delta epsilon</p>`, 27,
+			"alpha\nbeta <code>x</code> gamma\ndelta epsilon"},
+		// Direct adjacency is a safe gap: over-narrow width may break after
+		// </code> before the bonded-nothing period cluster... but greedy fill
+		// keeps 1-char punctuation attached at any sane width.
+		{"punct", `<p>uses <code>x</code>, and <code>y</code>.</p>`, 80,
+			"uses <code>x</code>, and <code>y</code>."},
+		// {" "} bonds left, safe gap right.
+		{"spacing", `<p>see{ " " }<a href="/x">docs</a> now</p>`, 12,
+			"see{ \" \" }\n<a href=\"/x\">docs</a> now"},
+		// An interp bonded by significant spaces joins the cluster.
+		{"interp bond", `<p>count: { n } items left today</p>`, 16,
+			"count: { n } items\nleft today"},
+	}
+	for _, c := range cases {
+		if got := fillAt(t, c.src, c.width); got != c.want {
+			t.Errorf("%s:\n--- got ---\n%s\n--- want ---\n%s", c.name, got, c.want)
+		}
 	}
 }

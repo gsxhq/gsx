@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // segment is a maximal run of adjacent children that must lay out on one line
@@ -106,4 +107,71 @@ func blockLevel(n ast.Markup) bool {
 // i.e. whether the list should break structurally (regardless of width).
 func hasBlockChild(nodes []ast.Markup) bool {
 	return slices.ContainsFunc(nodes, blockLevel)
+}
+
+// fillParts flattens a children run into pretty.Fill parts — alternating
+// cluster docs and separators. Joints between leaves follow wsnorm physics
+// (see the design spec's table):
+//
+//   - bond (no separator; leaves concat into one cluster): a significant
+//     space touching a non-word leaf — breaking it would drop the space at
+//     render — and the left side of a {" "} spacing interp;
+//   - word gap (pretty.Line, flat " "): space between two words of one Text
+//     node — a break there re-normalizes to the same single space;
+//   - safe gap (pretty.SoftLine, flat ""): direct adjacency and the right
+//     side of a spacing interp — a break there drops nothing.
+//
+// The flat rendering is byte-identical to the normalized source, so layout
+// can never change the rendered HTML.
+func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
+	var parts []pretty.Doc
+	var cur []pretty.Doc
+	gap := func(sep pretty.Doc) {
+		parts = append(parts, pretty.Concat(cur...), sep)
+		cur = nil
+	}
+	for i, n := range nodes {
+		if t, ok := n.(*ast.Text); ok {
+			v := t.Value
+			switch {
+			case strings.HasPrefix(v, " "):
+				cur = append(cur, pretty.Text(" ")) // bond to the previous leaf
+			case i > 0:
+				gap(pretty.SoftLine) // direct adjacency: safe gap
+			}
+			words := strings.Fields(v)
+			for j, w := range words {
+				if j > 0 {
+					gap(pretty.Line) // word gap
+				}
+				cur = append(cur, pretty.Text(w))
+			}
+			if strings.HasSuffix(v, " ") && v != " " {
+				cur = append(cur, pretty.Text(" ")) // bond to the next leaf
+			}
+			continue
+		}
+		switch {
+		case i == 0:
+		case trailsWithSpace(nodes[i-1]) || isSpacingInterp(n):
+			// bonded: the previous Text's trailing space is already in cur,
+			// or the {" "} idiom glues to its left neighbor.
+		default:
+			gap(pretty.SoftLine)
+		}
+		cur = append(cur, p.inlineLeaf(n))
+	}
+	return append(parts, pretty.Concat(cur...))
+}
+
+// inlineLeaf renders one non-Text leaf: atoms flat, everything else through
+// the normal markup path (a block element glued into a text segment keeps
+// today's group-based rendering).
+func (p *printer) inlineLeaf(n ast.Markup) pretty.Doc {
+	if e, ok := n.(*ast.Element); ok {
+		if doc, ok := p.atomDoc(e); ok {
+			return doc
+		}
+	}
+	return p.markup(n)
 }
