@@ -72,7 +72,8 @@ func trailsWithSpace(n ast.Markup) bool {
 func blockLevel(n ast.Markup) bool {
 	switch n.(type) {
 	case *ast.Element, *ast.Fragment, *ast.IfMarkup, *ast.ForMarkup,
-		*ast.SwitchMarkup, *ast.GoBlock, *ast.Doctype, *ast.HTMLComment:
+		*ast.SwitchMarkup, *ast.GoBlock, *ast.Doctype, *ast.HTMLComment,
+		*ast.Marker, *ast.MarkerRegion:
 		return true
 	default:
 		return false
