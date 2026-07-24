@@ -775,7 +775,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 
 	// `<?…`: a processing instruction (fixed marker/start/end vocabulary).
 	if p.peek() == '?' {
-		return p.parsePI(start, startPos)
+		return p.parsePI(startPos)
 	}
 
 	// Fragment: <>…</>
@@ -878,10 +878,10 @@ const (
 )
 
 // parsePI parses a processing instruction. The cursor is at the '?' following
-// '<'; start is the byte offset of that '<' and startPos describes it. `<?end>`
-// is only meaningful as a MarkerRegion terminator, so it is an error here —
-// parseChildrenTerm consumes the legitimate ones.
-func (p *parser) parsePI(start int, startPos token.Pos) (ast.Markup, error) {
+// '<'; startPos describes the opening '<'. `<?end>` is only meaningful as a
+// MarkerRegion terminator, so it is an error here — parseChildrenTerm consumes
+// the legitimate ones.
+func (p *parser) parsePI(startPos token.Pos) (ast.Markup, error) {
 	p.i++ // past '?'
 	targetStart := p.i
 	p.i = scanTagName(p.src, p.i)

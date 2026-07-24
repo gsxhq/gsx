@@ -192,6 +192,36 @@ func TestParseMarkupAttr(t *testing.T) {
 	}
 }
 
+// TestParseMarkupAttrMarker pins startsTagAt's '<?' widening at the
+// markup-attribute call site (parseAttrBraceValue's Babel-rule lookahead,
+// parser/markup.go). Without it, `{ <?marker … }` fails the "does this brace
+// start markup?" check and falls through to the Go-expression parser instead,
+// where `<?` is not valid Go. With it, the brace value is recognized as
+// markup and parsed via parseMarkupUntilClose, yielding a *ast.Marker.
+func TestParseMarkupAttrMarker(t *testing.T) {
+	p := testParser(`<Panel header={ <?marker name="a"> }></Panel>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	ma, ok := el.Attrs[0].(*ast.MarkupAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.MarkupAttr", el.Attrs[0])
+	}
+	if len(ma.Value) != 1 {
+		t.Fatalf("markup attr value = %#v, want 1 node", ma.Value)
+	}
+	m, ok := ma.Value[0].(*ast.Marker)
+	if !ok {
+		t.Fatalf("markup attr value[0] = %T, want *ast.Marker", ma.Value[0])
+	}
+	a, ok := m.Name.(*ast.StaticAttr)
+	if !ok || a.Name != "name" || a.Value != "a" {
+		t.Fatalf("name = %#v", m.Name)
+	}
+}
+
 func TestMarkupAttrWithApostrophe(t *testing.T) {
 	// C1: apostrophe inside a markup-attribute value must parse.
 	p := testParser(`<Panel header={ <h1>Today's news</h1> }></Panel>`)

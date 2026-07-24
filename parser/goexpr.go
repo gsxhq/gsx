@@ -786,10 +786,9 @@ func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
 			// gsx.Func closure over the children (empty <></> renders nothing).
 			parts = append(parts, node)
 		default:
-			// Any other markup (none reach here today — byteBeginsTag's
-			// remaining candidates are never flagged as marks) is not a
-			// supported Go-expression value. Preserve its bytes as verbatim
-			// GoText so the round-trip invariant holds.
+			// Any other markup — e.g. *ast.Marker, since byteBeginsTag now
+			// admits '<?' — is not a supported Go-expression value. Preserve
+			// its bytes as verbatim GoText so the round-trip invariant holds.
 			p.errorf(base+token.Pos(m.Off), "gsx: %s is not supported as a Go expression value here", markupKind(markup))
 			parts = append(parts, goTextPart(src, m.Off, sub.i, base))
 			cursor = sub.i
@@ -999,9 +998,9 @@ func goTextPart(src string, from, to int, base token.Pos) ast.GoPart {
 
 // markupKind names a parsed ast.Markup for the "unsupported here" error
 // message when parseElement returns something other than *ast.Element for a
-// detected mark (currently only a fragment can reach this, since
-// byteBeginsTag's other candidate bytes — '!' for doctype/comment — are
-// never flagged as marks by scanGoElementMarks).
+// detected mark. A fragment is the common case; a `<?marker …>` processing
+// instruction now reaches here too, since byteBeginsTag admits '<?' — '!' for
+// doctype/comment remains unreachable (byteBeginsTag never flags it).
 func markupKind(m ast.Markup) string {
 	switch m.(type) {
 	case *ast.Fragment:
