@@ -1,6 +1,9 @@
 package pretty
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTextConcat(t *testing.T) {
 	got := Print(Concat(Text("a"), Text("b"), Text("c")), 80, DefaultTabWidth)
@@ -97,5 +100,51 @@ func TestFillGreedyWrap(t *testing.T) {
 	want := "aa bb\ncc"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestFlat(t *testing.T) {
+	okCases := []struct {
+		name string
+		doc  Doc
+		want string
+	}{
+		{"text", Text("x"), "x"},
+		{"concat with line", Concat(Text("a"), Line, Text("b")), "a b"},
+		{"concat with softline", Concat(Text("a"), SoftLine, Text("b")), "ab"},
+		{"group with line", Group(Concat(Text("a"), Line, Text("b"))), "a b"},
+		{"ifbreak resolves flat branch", IfBreak(Text("BROKEN"), Text("flat")), "flat"},
+		{"fill", Fill(Text("a"), SoftLine, Text("b")), "ab"},
+	}
+	for _, c := range okCases {
+		flat, ok := Flat(c.doc)
+		if !ok {
+			t.Errorf("%s: Flat ok = false, want true", c.name)
+			continue
+		}
+		// Print at width 1: an ok Flat doc must be width-independent — no
+		// group in it can re-decide fit and break, because groups/indents are
+		// unwrapped away entirely.
+		got := Print(flat, 1, DefaultTabWidth)
+		if got != c.want {
+			t.Errorf("%s: Print(Flat(doc), 1, ...) = %q, want %q", c.name, got, c.want)
+		}
+		if strings.Contains(got, "\n") {
+			t.Errorf("%s: flat print contains newline: %q", c.name, got)
+		}
+	}
+
+	notOkCases := []struct {
+		name string
+		doc  Doc
+	}{
+		{"hardline", Concat(Text("a"), HardLine)},
+		{"breakparent", Concat(Text("a"), BreakParent)},
+		{"literal newline text", Text("a\nb")},
+	}
+	for _, c := range notOkCases {
+		if _, ok := Flat(c.doc); ok {
+			t.Errorf("%s: Flat ok = true, want false", c.name)
+		}
 	}
 }

@@ -2,9 +2,11 @@ package printer
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // segment is a maximal run of adjacent children that must lay out on one line
@@ -49,9 +51,50 @@ func segmentChildren(nodes []ast.Markup) (segs []segment, breakable bool) {
 	return segs, true
 }
 
-// glued reports whether a significant space binds left and right.
+// glued reports whether a significant space (or the {" "} idiom's left bond)
+// binds left and right onto one line.
 func glued(left, right ast.Markup) bool {
-	return trailsWithSpace(left) || leadsWithSpace(right)
+	return trailsWithSpace(left) || leadsWithSpace(right) || isSpacingInterp(right)
+}
+
+// isSpacingInterp reports whether n is the {" "} spacing idiom: an
+// interpolation of a single Go string literal whose value is only ASCII
+// spaces. Such an interp is layout glue — it bonds to its left neighbor and
+// offers a break after — because its rendered space, unlike a literal space
+// in Text, survives any adjacent line break (wsnorm cannot collapse it).
+func isSpacingInterp(n ast.Markup) bool {
+	i, ok := n.(*ast.Interp)
+	if !ok || len(i.Stages) > 0 {
+		return false
+	}
+	s := strings.TrimSpace(i.Expr)
+	if len(s) < 2 || (s[0] != '"' && s[0] != '`') {
+		return false
+	}
+	v, err := strconv.Unquote(s)
+	if err != nil || v == "" {
+		return false
+	}
+	return strings.Trim(v, " ") == ""
+}
+
+// leadingBreak reports whether n — a non-Text markup leaf — carries a
+// LeadingBreak fact: the source placed a line break in the whitespace
+// immediately before it in its children list (see
+// ast.Element/Interp/EmbeddedInterp.LeadingBreak). Any other Markup kind
+// (Fragment, IfMarkup, …) is always block-level and never reaches fillParts'
+// leaf-joint check, so it has no fact to report.
+func leadingBreak(n ast.Markup) bool {
+	switch v := n.(type) {
+	case *ast.Element:
+		return v.LeadingBreak
+	case *ast.Interp:
+		return v.LeadingBreak
+	case *ast.EmbeddedInterp:
+		return v.LeadingBreak
+	default:
+		return false
+	}
 }
 
 func leadsWithSpace(n ast.Markup) bool {
@@ -64,15 +107,18 @@ func trailsWithSpace(n ast.Markup) bool {
 	return ok && strings.HasSuffix(t.Value, " ")
 }
 
-// blockLevel reports whether a node is a block-level construct: one whose
-// presence in a children list makes the list lay out as a broken block so the
-// document hierarchy is visible. Everything that is not bare Text/Interp counts
-// (every element — gsx treats all tags as block-level — plus fragments and
-// control flow). Text and Interp are inline.
-func blockLevel(n ast.Markup) bool {
+// blockLevel reports whether n is block-level: a construct whose presence
+// makes the children list lay out as a broken block so the document
+// hierarchy stays visible. Inline atoms and interps are NOT block-level; a
+// non-atom element (wrong tag, author multiline, forced break inside) is.
+func (p *printer) blockLevel(n ast.Markup) bool {
+	if e, ok := n.(*ast.Element); ok {
+		_, atom := p.atomDoc(e)
+		return !atom
+	}
 	switch n.(type) {
-	case *ast.Element, *ast.Fragment, *ast.IfMarkup, *ast.ForMarkup,
-		*ast.SwitchMarkup, *ast.GoBlock, *ast.Doctype, *ast.HTMLComment:
+	case *ast.Fragment, *ast.IfMarkup, *ast.ForMarkup, *ast.SwitchMarkup,
+		*ast.GoBlock, *ast.Doctype, *ast.HTMLComment:
 		return true
 	default:
 		return false
@@ -81,6 +127,95 @@ func blockLevel(n ast.Markup) bool {
 
 // hasBlockChild reports whether nodes contains at least one block-level child,
 // i.e. whether the list should break structurally (regardless of width).
-func hasBlockChild(nodes []ast.Markup) bool {
-	return slices.ContainsFunc(nodes, blockLevel)
+func (p *printer) hasBlockChild(nodes []ast.Markup) bool {
+	return slices.ContainsFunc(nodes, p.blockLevel)
+}
+
+// fillParts flattens a children run into pretty.Fill parts — alternating
+// cluster docs and separators. Joints between leaves follow wsnorm physics
+// (see the design spec's table):
+//
+//   - bond (no separator; leaves concat into one cluster): a significant
+//     space touching a non-word leaf — breaking it would drop the space at
+//     render — and the left side of a {" "} spacing interp;
+//   - word gap (pretty.Line, flat " "): space between two words of one Text
+//     node — a break there re-normalizes to the same single space;
+//   - safe gap (pretty.SoftLine, flat ""): direct adjacency and the right
+//     side of a spacing interp — a break there drops nothing.
+//
+// The flat rendering is byte-identical to the normalized source, so layout
+// can never change the rendered HTML.
+func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
+	var parts []pretty.Doc
+	var cur []pretty.Doc
+	gap := func(sep pretty.Doc) {
+		parts = append(parts, pretty.Concat(cur...), sep)
+		cur = nil
+	}
+	for i, n := range nodes {
+		if t, ok := n.(*ast.Text); ok {
+			v := t.Value
+			switch {
+			// i==0 never lands here: segmentChildren's edge guard bars a
+			// leading-space Text from starting a segment, and a leading-space
+			// Text always glues leftward — so this branch only fires mid-segment.
+			case strings.HasPrefix(v, " "):
+				cur = append(cur, pretty.Text(" ")) // bond to the previous leaf
+			case i > 0:
+				gap(pretty.SoftLine) // direct adjacency: safe gap
+			}
+			// Word gaps exist ONLY at ASCII spaces — wsnorm's whitespace
+			// model (see wsnorm.go's normalizeText doc). Unicode spaces
+			// (NBSP, U+3000, …) are content and must stay inside their
+			// word: post-normalization, interior ASCII whitespace runs in
+			// core are exactly one ' ', so splitting the trimmed core on
+			// ' ' is exact (strings.Fields would also split on Unicode
+			// whitespace, dropping those runes at render time).
+			core := strings.Trim(v, " ")
+			var words []string
+			if core != "" {
+				words = strings.Split(core, " ")
+			}
+			for j, w := range words {
+				if j > 0 {
+					gap(pretty.Line) // word gap
+				}
+				cur = append(cur, pretty.Text(w))
+			}
+			if strings.HasSuffix(v, " ") && v != " " {
+				cur = append(cur, pretty.Text(" ")) // bond to the next leaf
+			}
+			continue
+		}
+		switch {
+		case i == 0:
+		case trailsWithSpace(nodes[i-1]) || isSpacingInterp(n):
+			// bonded: the previous Text's trailing space is already in cur,
+			// or the {" "} idiom glues to its left neighbor. Never affected by
+			// LeadingBreak — a significant space adjacent to a tag never
+			// coexists with a surviving newline (wsnorm drops newline-bearing
+			// edge runs), so this joint has no fact to honor.
+		case leadingBreak(n):
+			// safe gap where the source placed a line break immediately before
+			// n: preserve it as a hard break instead of a reflowable one. This
+			// also forces the enclosing group open via containsForcedBreak.
+			gap(pretty.HardLine)
+		default:
+			gap(pretty.SoftLine)
+		}
+		cur = append(cur, p.inlineLeaf(n))
+	}
+	return append(parts, pretty.Concat(cur...))
+}
+
+// inlineLeaf renders one non-Text leaf: atoms flat, everything else through
+// the normal markup path (a block element glued into a text segment keeps
+// today's group-based rendering).
+func (p *printer) inlineLeaf(n ast.Markup) pretty.Doc {
+	if e, ok := n.(*ast.Element); ok {
+		if doc, ok := p.atomDoc(e); ok {
+			return doc
+		}
+	}
+	return p.markup(n)
 }

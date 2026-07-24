@@ -1,0 +1,37 @@
+The `{" "}` spacing idiom is layout glue, not an orphan line: it bonds to its
+left neighbor (`see{ " " }` ends a line, never printed as its own `{ " " }`
+line) and offers a break after, including between two atoms that have no
+literal space character between them in the source.
+
+-- input.gsx --
+package p
+
+component SeeSpacingAtLineEnd() {
+	<p>
+		caller-class-merge behaves as documented in the theming guide (see{ " " }
+		<a href="/docs/theming" class="underline underline-offset-4">Theming</a>)
+	</p>
+}
+
+component SpacingBetweenAtoms() {
+	<p>
+		<code>a</code>{ " " }<code>b</code> renders with a real space between two
+		atoms even though there is no literal space character in the source.
+	</p>
+}
+-- fmt.golden --
+package p
+
+component SeeSpacingAtLineEnd() {
+	<p>
+		caller-class-merge behaves as documented in the theming guide (see{ " " }
+		<a href="/docs/theming" class="underline underline-offset-4">Theming</a>)
+	</p>
+}
+
+component SpacingBetweenAtoms() {
+	<p>
+		<code>a</code>{ " " }<code>b</code> renders with a real space between two
+		atoms even though there is no literal space character in the source.
+	</p>
+}

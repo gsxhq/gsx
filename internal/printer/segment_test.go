@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 func txt(s string) *ast.Text       { return &ast.Text{Value: s} }
@@ -77,5 +78,115 @@ func TestSegmentSingleInterpIsEdgeSafe(t *testing.T) {
 	_, breakable := segmentChildren([]ast.Markup{interp()})
 	if !breakable {
 		t.Fatal("single Interp is edge-safe so breakable")
+	}
+}
+
+func TestIsSpacingInterp(t *testing.T) {
+	cases := []struct {
+		expr string
+		want bool
+	}{
+		{`" "`, true},
+		{`"  "`, true},
+		{"` `", true},
+		{`""`, false},        // empty renders nothing, not a space
+		{`" x "`, false},     // not only spaces
+		{`"\t"`, false},      // tab is not the idiom
+		{`name`, false},      // not a literal
+		{`" " + " "`, false}, // not a single literal
+	}
+	for _, c := range cases {
+		n := &ast.Interp{Expr: c.expr}
+		if got := isSpacingInterp(n); got != c.want {
+			t.Errorf("isSpacingInterp({%s}) = %v, want %v", c.expr, got, c.want)
+		}
+	}
+	if isSpacingInterp(&ast.Interp{Expr: `" "`, Stages: []ast.PipeStage{{Name: "f"}}}) {
+		t.Error("interp with pipe stages must not be spacing")
+	}
+	if isSpacingInterp(&ast.Text{Value: " "}) {
+		t.Error("Text is not a spacing interp")
+	}
+}
+
+func TestGluedSpacingInterp(t *testing.T) {
+	see := &ast.Text{Value: "see"}
+	sp := &ast.Interp{Expr: `" "`}
+	if !glued(see, sp) {
+		t.Error("spacing interp must glue to its left neighbor")
+	}
+	if glued(sp, see) {
+		t.Error("spacing interp must not glue rightward without a space")
+	}
+}
+
+// fillAt prints the element's children as a Fill at the given width.
+func fillAt(t *testing.T, src string, width int) string {
+	t.Helper()
+	p := &printer{width: width, tabWidth: 2}
+	e := firstElement(t, src)
+	return pretty.Print(pretty.Fill(p.fillParts(e.Children)...), width, 2)
+}
+
+func TestFillParts(t *testing.T) {
+	cases := []struct {
+		name  string
+		src   string
+		width int
+		want  string
+	}{
+		// Everything fits: flat output is the normalized one-line form.
+		{"flat", `<p>alpha beta <code>x</code> gamma</p>`, 80,
+			"alpha beta <code>x</code> gamma"},
+		// Word gaps break; the tag-adjacent spaces bond beta/code/gamma into
+		// one unbreakable cluster.
+		{"wrap", `<p>alpha beta <code>x</code> gamma delta epsilon</p>`, 27,
+			"alpha\nbeta <code>x</code> gamma\ndelta epsilon"},
+		// Direct adjacency is a safe gap: over-narrow width may break after
+		// </code> before the bonded-nothing period cluster... but greedy fill
+		// keeps 1-char punctuation attached at any sane width.
+		{"punct", `<p>uses <code>x</code>, and <code>y</code>.</p>`, 80,
+			"uses <code>x</code>, and <code>y</code>."},
+		// {" "} bonds left, safe gap right.
+		{"spacing", `<p>see{ " " }<a href="/x">docs</a> now</p>`, 12,
+			"see{ \" \" }\n<a href=\"/x\">docs</a> now"},
+		// An interp bonded by significant spaces joins the cluster.
+		{"interp bond", `<p>count: { n } items left today</p>`, 16,
+			"count: { n } items\nleft today"},
+		// wsnorm's whitespace model is ASCII-only (space/tab/\n/\r); NBSP
+		// (U+00A0) is CONTENT and stays inside its word cluster ("10 €"
+		// is one unbreakable word), never a word-gap split point.
+		{"nbsp content", "<p>costs 10 € today</p>", 80,
+			"costs 10 € today"},
+		// Ideographic space (U+3000) is likewise content, not a word gap.
+		{"ideographic space content", "<p>日本　語 text</p>", 80,
+			"日本　語 text"},
+		// Wrap-pressure proof that "10 km" is ONE word: at width 12 the
+		// greedy fill only ever breaks at ASCII-space word gaps.
+		//
+		// Fill arithmetic (pos starts at 0, width=12):
+		//   parts = [alpha, Line, beta, Line, "10 km", Line, gamma]
+		//   - pair("alpha beta") = 10 chars <= 12           -> fits, print
+		//     "alpha"(pos 5), Line flat " "(pos 6)
+		//   - rest=[beta, Line, "10 km", Line, gamma], remaining=12-6=6
+		//     pair("beta 10 km") = 4+1+5 = 10 chars > 6 -> doesn't fit;
+		//     content "beta" (4 chars) fits in 6 -> print flat (pos 10),
+		//     Line breaks (mode=modeBreak) -> newline, pos=0
+		//   - rest=["10 km", Line, gamma], remaining=12-0=12
+		//     pair("10 km gamma") = 5+1+5 = 11 <= 12 -> fits, print
+		//     "10 km"(pos 5), Line flat " "(pos 6), then "gamma"(pos 11)
+		//   => "alpha beta\n10 km gamma"
+		{"nbsp word wraps whole", "<p>alpha beta 10 km gamma</p>", 12,
+			"alpha beta\n10 km gamma"},
+		// Standalone Text(" ") between two atoms is a bilateral bond: it glues
+		// both leftward (trailing-space rule) and rightward (leading-space
+		// rule) with no gap in between, collapsing into one segment/cluster.
+		{"space text between atoms", `<p><code>a</code> <code>b</code></p>`, 80,
+			"<code>a</code> <code>b</code>"},
+	}
+	for _, c := range cases {
+		if got := fillAt(t, c.src, c.width); got != c.want {
+			t.Errorf("%s:\n--- got ---\n%s\n--- want ---\n%s", c.name, got, c.want)
+		}
 	}
 }

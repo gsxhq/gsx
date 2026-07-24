@@ -5,6 +5,9 @@ coverage, not safety.
 
 Indentation is emitted as tabs either way. tab_width changes only the measure.
 
+Uses <div>, not <span>: see tab_width_4.txtar for why (atom flattening would
+make <span> tab-width-insensitive here).
+
 -- tab_width --
 2
 -- input.gsx --
@@ -13,7 +16,7 @@ package ui
 component C() {
 	<div>
 		<section>
-			<span class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</span>
+			<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</div>
 		</section>
 	</div>
 }
@@ -23,7 +26,7 @@ package ui
 component C() {
 	<div>
 		<section>
-			<span class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</span>
+			<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</div>
 		</section>
 	</div>
 }

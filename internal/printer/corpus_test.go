@@ -111,6 +111,7 @@ func zeroSpans(n ast.Node) {
 			switch v := m.(type) {
 			case *ast.Interp:
 				v.ExprPos = 0
+				v.LeadingBreak = false
 				for i := range v.Stages {
 					v.Stages[i].NamePos = 0
 					v.Stages[i].ArgsPos = 0
@@ -134,6 +135,7 @@ func zeroSpans(n ast.Node) {
 				v.TypeArgsClosePos = 0
 				v.ChildrenMultiline = false
 				v.AttrsMultiline = false
+				v.LeadingBreak = false
 			case *ast.Fragment:
 				v.ChildrenMultiline = false
 			case *ast.SpreadAttr:
@@ -162,6 +164,7 @@ func zeroSpans(n ast.Node) {
 				v.TagPos = 0
 			case *ast.CaseClause:
 				v.ListPos = 0
+				v.BodyMultiline = false
 			case *ast.ValueIf:
 				v.CondPos = 0
 			case *ast.ValueSwitch:
@@ -198,6 +201,8 @@ func zeroSpans(n ast.Node) {
 				for _, m := range v.Segments {
 					zeroSpans(m)
 				}
+			case *ast.EmbeddedInterp:
+				v.LeadingBreak = false
 			case *ast.OrderedAttrsAttr:
 				for i := range v.Pairs {
 					ast.SetSpan(&v.Pairs[i], 0, 0)

@@ -230,6 +230,22 @@ formatted safely, that body is left unchanged.
 `` js` ``/`` css` `` **attribute** values are re-indented the same way as
 `<script>`/`<style>` bodies. Plain `"…"` string attributes are left verbatim.
 
+### Text flow
+
+Inline elements (`code`, `a`, `span`, `em`, `b`, `img`, and other
+phrasing-content tags) stay in the surrounding text flow: the formatter never
+breaks their children open to meet the width budget. If a line has no other
+legal break point, it stays over budget rather than exploding an inline
+element.
+
+Long prose wraps between words instead: a newline between two words collapses back to a single space, a newline where two pieces of markup touch adds nothing, but a newline against a space next to a tag would delete that space — so the formatter only ever breaks where no space can be lost.
+
+`{" "}` sticks to the word before it and never starts a line.
+
+Author layout still wins: breaking the line right after an opening tag's `>`
+keeps that element block-formatted, even if its content would otherwise fit
+inline.
+
 ### Check formatting in CI
 
 `-l` and `-d` exit `1` when any file differs, so either works as a CI check:

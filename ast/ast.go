@@ -232,6 +232,10 @@ type Element struct {
 	// parser and syntax preprocessor never stamp it. Codegen and LSP read this
 	// field instead of re-deriving component identity from the tag string.
 	IsComponent bool
+	// LeadingBreak records that the source placed a line break in the whitespace
+	// run immediately before this node in its children list; the formatter
+	// preserves that break when the node sits at a render-free boundary.
+	LeadingBreak bool
 }
 
 func (*Element) markupNode() {}
@@ -319,6 +323,10 @@ type Interp struct {
 	// emit lowers each part to its inline gsx.Func(...) value) so resolved types
 	// key on the SAME node pointers.
 	Embedded []GoPart
+	// LeadingBreak records that the source placed a line break in the whitespace
+	// run immediately before this node in its children list; the formatter
+	// preserves that break when the node sits at a render-free boundary.
+	LeadingBreak bool
 }
 
 func (*Interp) markupNode() {}
@@ -460,6 +468,10 @@ type EmbeddedInterp struct {
 	// DoubleQuoted records the delimiter: false is {f`…`}, true is {f"…"}. See
 	// EmbeddedAttr.DoubleQuoted.
 	DoubleQuoted bool
+	// LeadingBreak records that the source placed a line break in the whitespace
+	// run immediately before this node in its children list; the formatter
+	// preserves that break when the node sits at a render-free boundary.
+	LeadingBreak bool
 }
 
 func (*EmbeddedInterp) markupNode() {}
@@ -551,6 +563,11 @@ type CaseClause struct {
 	ListPos token.Pos // first char of List in source (NoPos for `default:`)
 	Default bool
 	Body    []Markup
+	// BodyMultiline records that the source placed a line break immediately
+	// after the `case …:`/`default:` colon; the formatter preserves that
+	// vertical layout (keeping an inline-only body block-formatted) instead of
+	// collapsing it to one line.
+	BodyMultiline bool
 }
 
 // CondAttr is an in-tag `{ if Cond { Then } [else …] }` conditional attribute.
