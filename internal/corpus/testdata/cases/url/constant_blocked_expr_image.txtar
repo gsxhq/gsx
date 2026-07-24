@@ -1,0 +1,15 @@
+# A wholly-constant expr value on an image resource sink that urlSanitizeImage
+# always blocks (non-image MIME) warns at generate time; the render still
+# fails closed (issue #154).
+-- input.gsx --
+package p
+
+component Bad() {
+	<img src={"data:text/html,%3Cscript%3E"} alt="x"/>
+}
+-- invoke --
+Bad()
+-- diagnostics.golden --
+4:7: warning: constant src value "data:text/html,%3Cscript%3E" on <img> always sanitizes to about:invalid#gsx at render time; use an allow-listed image MIME with a base64 (data:image/png;base64,…) or strictly percent-encoded (data:image/svg+xml,%3C…) payload, or vouch with gsx.RawURL
+-- render.golden --
+<img src="about:invalid#gsx" alt="x">

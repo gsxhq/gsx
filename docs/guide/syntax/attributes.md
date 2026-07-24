@@ -152,9 +152,12 @@ URL scheme check.
 ```gsx
 <img src=f`data:image/png;base64,@{b64}`/>
 <img src={imageBytes |> dataURL("image/png")}/>
+<img src={"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"}/>
 ```
 
-A `data:` literal is rejected on strict navigation sinks such as `href`. See
+Image sinks accept both base64 and strictly validated plain-text payloads. A
+`data:` literal is rejected on strict navigation sinks such as `href`, and a
+constant value that its sink always blocks warns at generate time. See
 [Escaping](./escaping.md) for image and navigation sink rules.
 
 ### `class` and `style` are merge targets

@@ -47,21 +47,33 @@ element is trusted author text and is emitted without scheme validation.
 - `poster` on `<video>`
 - `background` on any element
 
-Those positions accept base64 `data:` URLs for `image/png`, `image/jpeg`,
-`image/gif`, `image/webp`, `image/avif`, and `image/svg+xml`. Other MIME types
-and non-base64 image data are blocked. Navigation and active-content positions,
-such as `<a href>`, `<iframe src>`, `<object data>`, and `<script src>`, always
-block `data:` URLs.
+Those positions accept `data:` URLs for `image/png`, `image/jpeg`, `image/gif`,
+`image/webp`, `image/avif`, and `image/svg+xml`, in either encoding:
 
-Use `gsx.RawURL` only for a URL you have validated yourself. It skips the scheme
-check but still receives attribute escaping.
+- base64: `data:image/png;base64,…`
+- plain-text: `data:image/svg+xml,%3Csvg…%3E`, optionally with a
+  `;charset=utf-8` parameter. Every payload byte must be printable ASCII, with
+  `%` allowed only as a two-hex-digit escape — percent-encoding is optional
+  for other characters, so `data:image/svg+xml,<svg/>` is also accepted.
+
+Other MIME types, other parameters, and payloads that fail these checks are
+blocked. Navigation and active-content positions, such as `<a href>`,
+`<iframe src>`, `<object data>`, and `<script src>`, always block `data:` URLs.
+
+When a URL attribute value is a compile-time constant that its position always
+blocks, `gsx generate` emits a warning naming the value and the fix, so the
+failure surfaces before a browser renders a broken resource.
+
+Use `gsx.RawURL` only for a URL you have validated yourself — including a
+`data:` URL outside the rules above. It skips the scheme check but still
+receives attribute escaping.
 
 ### `srcset` and `imagesrcset`
 
 These attributes contain a list of image candidates rather than one URL. gsx
 checks every candidate as an image URL. A disallowed candidate becomes
-`about:invalid#gsx` without discarding the safe candidates; base64 image data
-URLs and descriptors such as `1.5x` remain intact. `gsx.RawURL` vouches for the
+`about:invalid#gsx` without discarding the safe candidates; image `data:` URLs
+and descriptors such as `1.5x` remain intact. `gsx.RawURL` vouches for the
 entire candidate list.
 
 ### Meta refresh

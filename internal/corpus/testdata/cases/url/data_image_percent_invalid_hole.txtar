@@ -1,0 +1,15 @@
+# Percent-encoded form payload validation is strict: a hole delivering a stray
+# '%' (not a well-formed %XX escape) fails validation and the whole value
+# blocks at render time. No generate-time warning — the value has a hole, so
+# it is not a compile-time constant.
+-- input.gsx --
+package p
+
+component Icon(pct string) {
+	<img src=f`data:image/svg+xml,@{pct}` alt="i"/>
+}
+-- invoke --
+Icon("100%")
+-- diagnostics.golden --
+-- render.golden --
+<img src="about:invalid#gsx" alt="i">

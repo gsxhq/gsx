@@ -174,11 +174,35 @@ func TestURLSanitizeImage(t *testing.T) {
 		// allowed: an extra parameter before the final ;base64 marker doesn't
 		// change the MIME or the marker, so it's still accepted unchanged.
 		{"png with charset param", "data:image/png;charset=utf-8;base64,iVBORw0KGgo=", "data:image/png;charset=utf-8;base64,iVBORw0KGgo="},
-		// blocked: non-image data URLs
+		// allowed: percent-encoded form — data:<image-mime>[;charset=utf-8],<payload>
+		// with a strictly validated payload (printable ASCII, well-formed %XX).
+		{"svg percent-encoded", "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E", "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"},
+		{"svg percent-encoded charset", "data:image/svg+xml;charset=utf-8,%3Csvg%3E%3C/svg%3E", "data:image/svg+xml;charset=utf-8,%3Csvg%3E%3C/svg%3E"},
+		{"svg percent-encoded charset upper", "data:image/svg+xml;CHARSET=UTF-8,%3Csvg%3E", "data:image/svg+xml;CHARSET=UTF-8,%3Csvg%3E"},
+		{"png literal payload", "data:image/png,rawbytes", "data:image/png,rawbytes"},
+		{"gif empty payload", "data:image/gif,", "data:image/gif,"},
+		{"upper mime percent form", "data:IMAGE/SVG+XML,%3Csvg%3E", "data:IMAGE/SVG+XML,%3Csvg%3E"},
+		{"lowercase hex escape", "data:image/svg+xml,%3csvg%3e", "data:image/svg+xml,%3csvg%3e"},
+		// blocked: percent-encoded form payload violations — stray '%', bad hex,
+		// control bytes, raw non-ASCII all reject.
+		{"truncated escape", "data:image/svg+xml,%3Csvg%3", blockedURL},
+		{"trailing bare percent", "data:image/svg+xml,100%", blockedURL},
+		{"bad hex escape", "data:image/svg+xml,%GGsvg", blockedURL},
+		{"control byte payload", "data:image/svg+xml,%3Csvg\n%3E", blockedURL},
+		{"nul byte payload", "data:image/svg+xml,a\x00b", blockedURL},
+		{"raw non-ascii payload", "data:image/svg+xml,h\xc3\xa9llo", blockedURL},
+		// blocked: percent-encoded form metadata violations — only charset=utf-8
+		// is permitted as a parameter, anything else rejects.
+		{"unknown param percent form", "data:image/svg+xml;foo=bar,abc", blockedURL},
+		{"other charset percent form", "data:image/svg+xml;charset=latin1,abc", blockedURL},
+		{"doubled charset percent form", "data:image/svg+xml;charset=utf-8;charset=utf-8,abc", blockedURL},
+		// blocked: non-image data URLs (both encodings)
 		{"html", "data:text/html;base64,PHNjcmlwdD4=", blockedURL},
+		{"html percent form", "data:text/html,%3Cscript%3E", blockedURL},
 		{"js", "data:application/javascript;base64,YWxlcnQ=", blockedURL},
 		{"no mime", "data:;base64,AAAA", blockedURL},
-		{"image no base64 marker", "data:image/png,rawbytes", blockedURL},
+		{"no mime percent form", "data:,abc", blockedURL},
+		{"no comma", "data:image/png", blockedURL},
 		// blocked: marker must be exactly "base64", not a lookalike suffix
 		{"almost base64 marker", "data:image/png;base64x,AAAA", blockedURL},
 		// blocked: other dangerous schemes

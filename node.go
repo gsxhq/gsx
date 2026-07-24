@@ -35,5 +35,7 @@ func Raw(html string) Node {
 // blocked-URL sentinel. It is still entity-escaped for the attribute context, so
 // it cannot break out of the quotes — "raw" means "skip gsx's safety judgement
 // about the scheme", not "write byte-for-byte". Use only for URLs you control or
-// have already validated.
+// have already validated. It is also the sanctioned way to render a data: URL
+// the image-sink validator rejects (a non-image MIME, or an encoding outside
+// the base64/strict-percent forms) when you trust the bytes.
 type RawURL string

@@ -1,0 +1,16 @@
+# A percent-encoded image data: URI as a srcset candidate URL: the candidate
+# parser takes the non-whitespace run as the URL, urlSanitizeImage accepts the
+# strictly-validated percent form, and the descriptor passes through. (A
+# percent-encoded payload containing literal spaces would split at the space —
+# the WHATWG grammar's URL/descriptor boundary — exactly as in a browser.)
+-- input.gsx --
+package p
+
+component Pic(s string) {
+	<img srcset={s} alt="p"/>
+}
+-- invoke --
+Pic("data:image/svg+xml,%3Csvg%3E%3C/svg%3E 1x, b.png 2x")
+-- diagnostics.golden --
+-- render.golden --
+<img srcset="data:image/svg+xml,%3Csvg%3E%3C/svg%3E 1x, b.png 2x" alt="p">
