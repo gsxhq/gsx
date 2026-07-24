@@ -84,7 +84,7 @@ argument. Keep `build` and `run` pointed at the same binary.
 | `web` | `["npx", "vite"]` | Front-end command. |
 | `build` | `go build` to a per-project binary | Backend build command. |
 | `run` | the default built binary | Backend command. |
-| `log` | off | File that also receives backend output; its absolute path is injected into the front-end process as `GSX_DEV_LOG`. |
+| `log` | off | File that also receives backend output; its absolute path is injected into the front-end process as `GSX_DEV_LOG`. A relative path resolves against `gsx.toml`'s directory, not the shell's cwd. |
 | `no_web` | `false` | Disable the front-end command. |
 | `host` | from `VITE_DEV_URL`, otherwise `localhost` | Hostname used in `VITE_DEV_URL`. |
 
