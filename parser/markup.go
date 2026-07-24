@@ -780,7 +780,18 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	}
 	if j < len(p.src) && p.src[j] == '<' && startsTagAt(p.src, j+1) {
 		p.i++ // past '{'
+		// A `name={ … }` markup slot is a fresh non-preserve context: an
+		// enclosing pre/textarea's verbatim treatment does not leak across the
+		// expression boundary into the slot's own markup. This mirrors
+		// wsnorm's normalizeAttrs, which normalizes every MarkupAttr.Value
+		// with preserve=false regardless of the element's own preserve state
+		// (internal/wsnorm/wsnorm.go) — the parser and wsnorm must agree on
+		// where "verbatim" ends or a `//` in a slot renders as neither a
+		// recognized comment nor a diagnosed error.
+		savedPreserveDepth := p.preserveDepth
+		p.preserveDepth = 0
 		nodes, err := p.parseMarkupUntilClose("markup attribute")
+		p.preserveDepth = savedPreserveDepth
 		if err != nil {
 			return nil, err
 		}

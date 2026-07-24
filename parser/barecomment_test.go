@@ -245,6 +245,61 @@ func TestCRLFLineStart(t *testing.T) {
 	}
 }
 
+// TestBareCommentInSlotInsidePreserve pins that preserveDepth does not leak
+// across the `name={ … }` markup-attribute expression boundary: a slot value
+// lexically nested inside a <pre> subtree is its own fresh non-preserve
+// context (mirroring wsnorm's normalizeAttrs — internal/wsnorm/wsnorm.go),
+// so a bare `//` inside the slot IS recognized as a comment, while <pre>'s
+// own direct text children stay verbatim (no comment recognition).
+func TestBareCommentInSlotInsidePreserve(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<pre>\n// verbatim\n<div attr={\n\t<span>a</span>\n\t// note\n\t<span>b</span>\n}></div>\n</pre>\n}\n"
+	f := parseStringT(t, src)
+	comp := f.Decls[0].(*ast.Component)
+	pre := comp.Body[0].(*ast.Element)
+	if pre.Tag != "pre" {
+		t.Fatalf("body[0] tag = %q, want pre", pre.Tag)
+	}
+
+	// pre's own direct text children remain verbatim: no Comment node, and
+	// the literal "// verbatim" text survives.
+	var div *ast.Element
+	for _, n := range pre.Children {
+		if e, ok := n.(*ast.Element); ok && e.Tag == "div" {
+			div = e
+			break
+		}
+	}
+	if div == nil {
+		t.Fatalf("pre.Children = %#v, want a <div> child", pre.Children)
+	}
+	sawVerbatim := false
+	for _, n := range pre.Children {
+		if c, isComment := n.(*ast.Comment); isComment {
+			t.Fatalf("found *ast.Comment %#v as a direct child of <pre>, want verbatim text", c)
+		}
+		if t2, isText := n.(*ast.Text); isText && strings.Contains(t2.Value, "// verbatim") {
+			sawVerbatim = true
+		}
+	}
+	if !sawVerbatim {
+		t.Fatalf("pre.Children = %#v, want a verbatim Text containing %q", pre.Children, "// verbatim")
+	}
+
+	// The slot value (div's attr={...}) IS a fresh context: the bare `//`
+	// inside it is recognized as Comment{Bare:true}.
+	if len(div.Attrs) != 1 {
+		t.Fatalf("div.Attrs = %#v, want 1 attr", div.Attrs)
+	}
+	ma, ok := div.Attrs[0].(*ast.MarkupAttr)
+	if !ok {
+		t.Fatalf("div.Attrs[0] = %#v, want *ast.MarkupAttr", div.Attrs[0])
+	}
+	c := firstComment(t, ma.Value)
+	if !c.Bare || c.Block || c.Text != "note" {
+		t.Fatalf("slot comment = %#v, want Comment{Bare:true, Text:\"note\"}", c)
+	}
+}
+
 func TestFileStartLine(t *testing.T) {
 	// Line-start scan hitting offset 0 (no preceding newline) must not panic.
 	// A // at file start is Go code territory (package clause), so just assert

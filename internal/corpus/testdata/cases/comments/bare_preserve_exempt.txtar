@@ -1,7 +1,13 @@
 # Inside pre/textarea subtrees a line-start // is verbatim display content —
 # never a comment, never an error — including nested elements (<pre><code>).
+# The exemption ends at a `name={ … }` markup-attribute boundary: a slot value
+# lexically inside <pre> is a fresh non-preserve context (mirrors wsnorm's
+# normalizeAttrs), so a legal bare // there IS recognized and drops from
+# render, unlike <pre>'s own direct text content above.
 -- input.gsx --
 package views
+
+import "github.com/gsxhq/gsx"
 
 component C() {
 	<pre><code>
@@ -12,8 +18,23 @@ x := 1
 // also verbatim
 </textarea>
 }
+
+component Slot(header gsx.Node) {
+	<div>{header}</div>
+}
+
+component SlotInsidePre() {
+	<pre><Slot header={
+		<span>a</span>
+		// slot-in-pre note
+		<span>b</span>
+	}/></pre>
+}
 -- invoke --
-C()
+gsx.Fragment(
+	C(),
+	SlotInsidePre(),
+)
 -- diagnostics.golden --
 -- render.golden --
 <pre><code>
@@ -21,4 +42,4 @@ C()
 x := 1
 </code></pre><textarea>
 // also verbatim
-</textarea>
+</textarea><pre><div><span>a</span><span>b</span></div></pre>
