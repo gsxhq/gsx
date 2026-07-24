@@ -19,7 +19,17 @@ import (
 // to match before releasing anything from the mailbox (else 403, without
 // draining it); when unconfigured (externally-run vite, --no-web) the plugin
 // ignores the header entirely, so sending it is always safe.
-func pollCommands(ctx context.Context, base, token string, up func() bool, out chan<- string) {
+//
+// onContact, when non-nil, is invoked exactly once — on the first successful
+// response (200 or 204, the same paths that already reset backoff) seen
+// across this call's lifetime. It never fires for transport errors, non-2xx
+// statuses, or malformed bodies, and never fires again afterward. This is the
+// earliest proof that the front door is actually serving our plugin (a
+// managed vite's gate opens optimistically on process start, well before it
+// necessarily answers requests — see frontDoor), used by runDev to re-post
+// the current status once instead of leaving a warm-started panel waiting
+// forever for a cycle that may never come.
+func pollCommands(ctx context.Context, base, token string, up func() bool, out chan<- string, onContact func()) {
 	if strings.HasPrefix(base, "/") || base == "" {
 		return
 	}
@@ -31,6 +41,15 @@ func pollCommands(ctx context.Context, base, token string, up func() bool, out c
 			return false
 		case <-time.After(d):
 			return true
+		}
+	}
+	contacted := false
+	signalContact := func() {
+		if !contacted {
+			contacted = true
+			if onContact != nil {
+				onContact()
+			}
 		}
 	}
 	for ctx.Err() == nil {
@@ -57,6 +76,7 @@ func pollCommands(ctx context.Context, base, token string, up func() bool, out c
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusNoContent {
 			backoff = time.Second
+			signalContact()
 			continue // idle long-poll: immediately re-poll
 		}
 		if resp.StatusCode != http.StatusOK {
@@ -81,6 +101,7 @@ func pollCommands(ctx context.Context, base, token string, up func() bool, out c
 			continue
 		}
 		backoff = time.Second
+		signalContact()
 		for _, c := range payload.Cmds {
 			select {
 			case out <- c:

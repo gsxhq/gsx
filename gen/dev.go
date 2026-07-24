@@ -193,7 +193,22 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 
 	cmds := make(chan string, 8)
-	go pollCommands(ctx, viteURL, devToken, webUp, cmds)
+	// contactCh fires exactly once, the moment pollCommands' first successful
+	// response proves the front door is actually serving our plugin (its gate
+	// opens optimistically on process start — see frontDoor — well before
+	// vite/npm has finished booting on a warm start). The status-cache-driven
+	// dev panel would otherwise wait forever for a cycle that may never come
+	// on an idle project; this re-posts the CURRENT status once contact is
+	// made, deliberately fresh rather than a longer retry of the possibly-stale
+	// startup post.
+	contactCh := make(chan struct{}, 1)
+	onContact := func() {
+		select {
+		case contactCh <- struct{}{}:
+		default: // already signaled; onContact only ever fires once anyway
+		}
+	}
+	go pollCommands(ctx, viteURL, devToken, webUp, cmds, onContact)
 
 	// --- Go server: initial build + run ---
 	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
@@ -360,6 +375,13 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 		case fs := <-fdCh:
 			status.FrontDoor = fs
+			postStatus()
+
+		case <-contactCh:
+			// First proof the front door is actually serving our plugin
+			// (see contactCh's declaration above): re-post the current
+			// status so a panel that opened before any cycle ran no longer
+			// waits forever on an idle project.
 			postStatus()
 
 		case ev, ok := <-w.Events:
