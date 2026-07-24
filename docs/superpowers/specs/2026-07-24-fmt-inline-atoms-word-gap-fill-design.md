@@ -86,9 +86,9 @@ Every joint between adjacent leaves is one of:
 
 | joint | breakable | flat | broken | where |
 |---|---|---|---|---|
-| bond | no | as-is | — | significant space touching a non-word leaf (`real <code>`, `count: {n}` — a break there would drop the space at render); direct adjacency (`</code>.`); left side of a spacing interp (`see{" "}`) |
+| bond | no | as-is | — | significant space touching a non-word leaf (`real <code>`, `count: {n}` — a break there would drop the space at render); left side of a spacing interp (`see{" "}`) |
 | word gap | yes | `" "` | newline+indent | space between two words of one Text node |
-| safe gap | yes | `""` | newline+indent | today's safe segment boundaries; right side of a spacing interp |
+| safe gap | yes | `""` | newline+indent | direct adjacency (`</code>.` — a break there drops nothing at render, and greedy fill keeps punctuation attached in practice); right side of a spacing interp |
 
 Bonded leaves form **clusters**. The list's inline layout is
 `pretty.Fill(cluster, gap, cluster, …)` with `pretty.Line` for word gaps and
