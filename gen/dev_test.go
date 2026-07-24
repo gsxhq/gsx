@@ -96,11 +96,16 @@ func TestDevTeardownAndRestart(t *testing.T) {
 	//    The stub front-door keeps running long enough for the test; gsx dev kills
 	//    it via killProcGroup on shutdown. GOFLAGS=-mod=mod lets the internal
 	//    `go build` update go.sum for the replaced local gsx module as needed.
+	// A dynamic port, not a fixed one: a fixed port made the test hostage to
+	// whatever else was bound there — an unrelated local server answering
+	// /healthz 200 made waitHealthy pass against the WRONG process and the
+	// freed-port assertion fail forever.
+	goPort := freePort(t)
 	cmd := exec.Command(bin, "dev", "--web", "sleep 60")
 	cmd.Dir = proj
 	cmd.Env = devTestEnv(
 		"BROWSER=none",
-		"GO_PORT=7799",
+		"GO_PORT="+goPort,
 		"VITE_DEV_URL=http://127.0.0.1",
 		"GOFLAGS=-mod=mod",
 	)
@@ -118,8 +123,8 @@ func TestDevTeardownAndRestart(t *testing.T) {
 
 	// 4. Wait for the Go server to bind GO_PORT. The initial cycle is slow
 	//    (cold go/packages.Load + go build), so allow a generous timeout.
-	if !waitHealthy(context.Background(), "http://localhost:7799/healthz", 120*time.Second) {
-		t.Fatal("Go server on GO_PORT=7799 never came up after gsx dev start")
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("Go server on GO_PORT=%s never came up after gsx dev start", goPort)
 	}
 
 	// 5. Touch a .go file to trigger the dep-dirty rebuild path in gsx dev.
@@ -134,7 +139,7 @@ func TestDevTeardownAndRestart(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	// The port must remain healthy through the rebuild. The long timeout covers
 	// the full cycle (debounce + reopen + go build + server restart) on slow CI.
-	if !waitHealthy(context.Background(), "http://localhost:7799/healthz", 120*time.Second) {
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
 		t.Error("server not healthy after .go file change (rebuild cycle may have failed)")
 	}
 
@@ -150,7 +155,7 @@ func TestDevTeardownAndRestart(t *testing.T) {
 	//    which does a graceful Shutdown releasing the port, then exits).
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		if !portListening("7799") {
+		if !portListening(goPort) {
 			// Port is free; reap gsx dev to avoid a zombie.
 			_ = cmd.Wait()
 			// The front-door-exit notice is for an UNEXPECTED exit (pushes get
@@ -163,7 +168,7 @@ func TestDevTeardownAndRestart(t *testing.T) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Error("GO_PORT=7799 still held 15s after group-SIGINT (teardown leaked; server not killed)")
+	t.Errorf("GO_PORT=%s still held 15s after group-SIGINT (teardown leaked; server not killed)", goPort)
 }
 
 // TestDevEnvPrecedence pins shell-wins-over-.env for the dev loop: the
