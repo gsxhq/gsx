@@ -136,11 +136,37 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	post := func(body []byte) { postEvent(viteURL, body, webUp) }
 	reload := func() { postReload(viteURL, webUp) }
 
-	status := devStatus{Phase: "idle", Server: serverStat{Port: goPort, Upstream: origin}, FrontDoor: frontStat{State: "external"}}
+	// Status posts are the one kind of push that must never be delivered out
+	// of order: statuses are snapshots where the latest always wins, but
+	// postBest's per-post goroutine has no ordering guarantee at all (Go's
+	// scheduler runs the most-recently-spawned goroutine first), so two
+	// status posts fired back to back land inverted far more often than not
+	// — see the dev-panel-progress final review (I1). statusSender serializes
+	// them through one goroutine with a 1-slot latest-wins mailbox. Overlay
+	// (post, above) and reload keep their existing fire-and-forget path.
+	statusSend := newStatusSender(ctx)
+
+	status := devStatus{Phase: "idle", PhaseSince: time.Now(), Server: serverStat{Port: goPort, Upstream: origin}, FrontDoor: frontStat{State: "external"}}
 	if dc.web != nil {
 		status.FrontDoor.State = "up"
 	}
-	postStatus := func() { post(statusEvent(status)) }
+	// postStatus deposits the CURRENT status into statusSend's mailbox — see
+	// above. Every call site settles every field it wants delivered on
+	// status BEFORE calling postStatus/setPhase, never after: a post already
+	// in flight (or superseded in the mailbox) never gets a follow-up
+	// correction, so a terminal branch is exactly one postStatus call.
+	postStatus := func() { statusSend.deposit(viteURL+"/__gsx/event", statusEvent(status), webUp) }
+	// setPhase transitions status.Phase and stamps PhaseSince to now, then
+	// posts immediately — every transition (save → generating → building →
+	// starting → idle) is observable by an open panel, not just cycle ends.
+	// Every OTHER status field (LastCycle, Server.Healthy) must already be
+	// settled before this call at every terminal branch — there is no
+	// trailing postStatus() anywhere in this file.
+	setPhase := func(phase string) {
+		status.Phase = phase
+		status.PhaseSince = time.Now()
+		postStatus()
+	}
 
 	publishedStartup := publishableStartupResults(startup)
 	post(aggregateEvent(publishedStartup))
@@ -222,17 +248,27 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// its buildErrorEvent would replace the rich gsx overlay already posted
 	// above. Skip the initial build; the first successful cycle rebuilds and
 	// starts the server (poison→good always changes bytes, so `wrote` fires).
+	initCycleStart := time.Now()
 	if startOK {
+		setPhase("building")
 		if out, err := srv.rebuild(ctx); err != nil {
 			post(buildErrorEvent(buildFailureMessage(out, err)))
 			startOK = false
-		} else if waitHealthy(ctx, healthURL, 10*time.Second) {
-			status.Server.Healthy = true
-			reload()
+		} else {
+			setPhase("starting")
+			if waitHealthy(ctx, healthURL, 10*time.Second) {
+				status.Server.Healthy = true
+				reload()
+			}
 		}
 	}
-	status.LastCycle = &cycleStat{OK: startOK, At: time.Now()}
-	postStatus()
+	// LastCycle (and Server.Healthy, set above in the branches that reach
+	// here) must be settled before the terminal setPhase("idle") — it is the
+	// one post the panel needs to see, and there is no second chance: an
+	// interim post has either already landed or been superseded in
+	// statusSend's mailbox by the time this one lands.
+	status.LastCycle = &cycleStat{OK: startOK, At: time.Now(), DurationMs: time.Since(initCycleStart).Milliseconds()}
+	setPhase("idle")
 	// overlayUp: an error overlay is currently shown in the browser. A later
 	// successful cycle must reload to clear it even when nothing was written —
 	// still needed for build-error and .env recovery paths.
@@ -277,15 +313,17 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		if len(dirty.dirs) == 0 && !dirty.depDirty {
 			return
 		}
-		status.Phase = "generating"
+		cycleStart := time.Now()
+		setPhase("generating")
 		results, goChanged, rerr := dirty.regenerate(sess.regenPending)
 		if rerr != nil {
 			fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
 			post(buildErrorEvent("regen failed: " + rerr.Error()))
 			overlayUp = true
-			status.Phase = "idle"
-			status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now()}
-			postStatus()
+			// LastCycle settles before the terminal setPhase("idle") — see
+			// postStatus's declaration: exactly one post per terminal branch.
+			status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+			setPhase("idle")
 			return // retained dirty state is retried on the next relevant event
 		}
 		// Overlay state from this cycle.
@@ -305,9 +343,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		}
 		if !ok {
 			overlayUp = true
-			status.Phase = "idle"
-			status.LastCycle = &cycleStat{OK: false, Errors: errs, At: time.Now()}
-			postStatus()
+			// LastCycle settles before the terminal setPhase("idle") — see
+			// postStatus's declaration: exactly one post per terminal branch.
+			status.LastCycle = &cycleStat{OK: false, Errors: errs, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+			setPhase("idle")
 			return // keep last-good server up; overlay shows the error
 		}
 		// Successful cycle. Rebuild when code changed (or the panel forced it);
@@ -316,17 +355,19 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		// (fixed .gsx → identical .x.go).
 		doReload := overlayUp || force
 		if goChanged || wrote || force {
-			status.Phase = "building"
+			setPhase("building")
 			if out, err := srv.rebuild(ctx); err != nil {
 				post(buildErrorEvent(buildFailureMessage(out, err)))
 				overlayUp = true
-				status.Phase = "idle"
+				// Healthy and LastCycle both settle BEFORE the terminal
+				// setPhase("idle") — see postStatus's declaration: exactly
+				// one post per terminal branch.
 				status.Server.Healthy = false
-				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now()}
-				postStatus()
+				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+				setPhase("idle")
 				return
 			}
-			status.Phase = "starting"
+			setPhase("starting")
 			if waitHealthy(ctx, healthURL, 10*time.Second) {
 				doReload = true
 				status.Server.Healthy = true
@@ -338,9 +379,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			reload()
 		}
 		overlayUp = false
-		status.Phase = "idle"
-		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now()}
-		postStatus()
+		// LastCycle settles before the terminal setPhase("idle") — see
+		// postStatus's declaration: exactly one post per terminal branch.
+		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+		setPhase("idle")
 	}
 
 	for {
@@ -361,16 +403,18 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				cycle(true)
 			case "restart-server":
 				fmt.Fprintln(stdout, "gsx dev: panel: restart-server")
-				status.Phase = "starting"
-				postStatus()
+				// Server.Healthy settles fully BEFORE the terminal
+				// setPhase("idle") below — see postStatus's declaration:
+				// exactly one post per terminal branch (no LastCycle here,
+				// unlike cycle()'s terminal paths).
+				setPhase("starting")
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					status.Server.Healthy = true
 					reload()
 				} else {
 					status.Server.Healthy = false
 				}
-				status.Phase = "idle"
-				postStatus()
+				setPhase("idle")
 			default:
 				fmt.Fprintf(stderr, "gsx dev: unknown panel command %q\n", c)
 			}
