@@ -55,6 +55,8 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *HTMLComment:
 		v.span = s
+	case *Comment:
+		v.span = s
 	case *Interp:
 		v.span = s
 	case *StaticAttr:

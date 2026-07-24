@@ -1286,6 +1286,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 					"identifier %q is reserved (%s) — rename it", rb.name, reservedBodyMeaning(rb.name))
 			}
 		}
+		// A bare `//` content comment touching text is an error, same severity
+		// and per-file scope as the reserved-body-binding check above: it does
+		// NOT delete the file, so the rest of its diagnostics still surface, and
+		// generation still fails (exit 1) because an error diagnostic gates
+		// buildability.
+		for _, v := range checkBareComments(f) {
+			bag.Errorf(v.pos, v.end, "bare-comment-touches-text",
+				"bare // comment cannot touch text content; use {// …} for a comment or {\"// …\"} to render it")
+		}
 		var build skeletonBuild
 		var berr error
 		switch purpose {
