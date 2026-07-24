@@ -305,11 +305,6 @@ type MarkerRegion struct {
 
 func (*MarkerRegion) markupNode() {}
 
-var (
-	_ Markup = (*Marker)(nil)
-	_ Markup = (*MarkerRegion)(nil)
-)
-
 // Comment is a source-only content comment: `{/* text */}` or `{// text }`
 // between child nodes. Unlike HTMLComment it is NOT rendered — codegen drops it,
 // the formatter preserves it. (A bare `//` in text content is literal Text, not

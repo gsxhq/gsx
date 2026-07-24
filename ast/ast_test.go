@@ -92,6 +92,13 @@ func TestPart2NodesImplementInterfaces(t *testing.T) {
 func TestHTMLMarkupNodes(t *testing.T) {
 	var _ Markup = (*Doctype)(nil)
 	var _ Markup = (*HTMLComment)(nil)
+	// Marker/MarkerRegion are the processing-instruction siblings of
+	// Doctype/HTMLComment; unlike them, Marker/MarkerRegion are not leaves
+	// (see TestInspectWalksMarkerRegion), so only the interface assertion is
+	// shared here — the SetSpan and Inspect-leaf checks below stay Doctype/
+	// HTMLComment-only.
+	var _ Markup = (*Marker)(nil)
+	var _ Markup = (*MarkerRegion)(nil)
 
 	for _, n := range []Node{&Doctype{}, &HTMLComment{}} {
 		SetSpan(n, token.Pos(10), token.Pos(20))
