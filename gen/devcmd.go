@@ -33,7 +33,7 @@ func pollCommands(ctx context.Context, base, token string, up func() bool, out c
 	if strings.HasPrefix(base, "/") || base == "" {
 		return
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := devHTTPClient(30 * time.Second)
 	backoff := time.Second
 	sleep := func(d time.Duration) bool {
 		select {

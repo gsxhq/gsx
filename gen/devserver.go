@@ -337,11 +337,26 @@ func setEnvValue(env []string, key, value string) []string {
 	return append(env, pre+value)
 }
 
+// devHTTPClient returns a client for the dev loop's chatter with the Vite dev
+// server and the backend (health polls, overlay pushes, command polls, front
+// door verification), with
+// keep-alives disabled. An idle pooled connection to Vite (Node) is torn down
+// by Node's keepAliveTimeout, and the teardown can emit an unsolicited
+// "HTTP/1.1 400 Bad Request" that Go's transport logs to the terminal as
+// "Unsolicited response received on idle HTTP channel" — alarming noise in
+// every gsx dev session. These clients make at most one localhost request
+// every few seconds, so per-request connections cost nothing.
+func devHTTPClient(timeout time.Duration) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DisableKeepAlives = true
+	return &http.Client{Timeout: timeout, Transport: t}
+}
+
 // waitHealthy polls url until it returns any HTTP status (2xx–5xx ⇒ the server
 // is accepting connections) or timeout elapses. A refused connection retries.
 func waitHealthy(ctx context.Context, url string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 500 * time.Millisecond}
+	client := devHTTPClient(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
@@ -432,7 +447,7 @@ func postBest(url string, body []byte, gate func() bool) {
 		return
 	}
 	go func() {
-		client := &http.Client{Timeout: 2 * time.Second}
+		client := devHTTPClient(2 * time.Second)
 		for range 10 {
 			if gate != nil && !gate() {
 				return
