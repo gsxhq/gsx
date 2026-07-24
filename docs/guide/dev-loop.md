@@ -77,7 +77,7 @@ Scaffolds ship it; existing apps add one line to their Vite client entry:
 import "virtual:gsx-devpanel";
 ```
 
-(requires `@gsxhq/vite-plugin-gsx` ≥ 0.5.0). Disable it or rebind the key in
+(requires `@gsxhq/vite-plugin-gsx` ≥ 0.5.0; auto-show and the log box need ≥ 0.10.0). Disable it or rebind the key in
 `vite.config.ts`: `gsx({ devPanel: false })` or
 `gsx({ devPanel: { key: "k" } })`.
 
