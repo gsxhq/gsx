@@ -1209,7 +1209,16 @@ vocabulary remains a design aspiration, not the current API.
 - [x] **Example 02 `//`-in-markup grammar** - decided: element content is
   literal text, so a bare `//` in content renders verbatim; the braced
   `{/* … */}` form is the content-comment. Printer simplified; faithfulness +
-  idempotence re-proven.
+  idempotence re-proven. **Superseded 2026-07-24** by bare line comments
+  below - a line-start `//` between child nodes is now a source-only comment;
+  mid-line `//` is still literal text.
+- [x] **Bare `//` line comments in child content - SHIPPED (2026-07-24).** A
+  `//` that is the first non-whitespace on its source line, between child
+  nodes, is a source-only comment to end of line; touching text content on
+  either side is a compile error (`bare-comment-touches-text`); mid-line `//`
+  stays literal text, and `pre`/`textarea` remain exempt (verbatim). `gsx fmt`
+  preserves the comment's spelling and position. Spec
+  `2026-07-24-bare-line-comments-content-design.md`.
 - [x] **`_gsx`-alias generator-emitted imports** - SHIPPED (2026-07-08). Every
   generator-emitted import (`gsx`, `context`, `io`, `strconv`) is recorded at its
   emission site and referenced through a reserved `_gsx` alias, so a `.gsx` may
