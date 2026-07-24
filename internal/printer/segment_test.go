@@ -153,6 +153,36 @@ func TestFillParts(t *testing.T) {
 		// An interp bonded by significant spaces joins the cluster.
 		{"interp bond", `<p>count: { n } items left today</p>`, 16,
 			"count: { n } items\nleft today"},
+		// wsnorm's whitespace model is ASCII-only (space/tab/\n/\r); NBSP
+		// (U+00A0) is CONTENT and stays inside its word cluster ("10 €"
+		// is one unbreakable word), never a word-gap split point.
+		{"nbsp content", "<p>costs 10 € today</p>", 80,
+			"costs 10 € today"},
+		// Ideographic space (U+3000) is likewise content, not a word gap.
+		{"ideographic space content", "<p>日本　語 text</p>", 80,
+			"日本　語 text"},
+		// Wrap-pressure proof that "10 km" is ONE word: at width 12 the
+		// greedy fill only ever breaks at ASCII-space word gaps.
+		//
+		// Fill arithmetic (pos starts at 0, width=12):
+		//   parts = [alpha, Line, beta, Line, "10 km", Line, gamma]
+		//   - pair("alpha beta") = 10 chars <= 12           -> fits, print
+		//     "alpha"(pos 5), Line flat " "(pos 6)
+		//   - rest=[beta, Line, "10 km", Line, gamma], remaining=12-6=6
+		//     pair("beta 10 km") = 4+1+5 = 10 chars > 6 -> doesn't fit;
+		//     content "beta" (4 chars) fits in 6 -> print flat (pos 10),
+		//     Line breaks (mode=modeBreak) -> newline, pos=0
+		//   - rest=["10 km", Line, gamma], remaining=12-0=12
+		//     pair("10 km gamma") = 5+1+5 = 11 <= 12 -> fits, print
+		//     "10 km"(pos 5), Line flat " "(pos 6), then "gamma"(pos 11)
+		//   => "alpha beta\n10 km gamma"
+		{"nbsp word wraps whole", "<p>alpha beta 10 km gamma</p>", 12,
+			"alpha beta\n10 km gamma"},
+		// Standalone Text(" ") between two atoms is a bilateral bond: it glues
+		// both leftward (trailing-space rule) and rightward (leading-space
+		// rule) with no gap in between, collapsing into one segment/cluster.
+		{"space text between atoms", `<p><code>a</code> <code>b</code></p>`, 80,
+			"<code>a</code> <code>b</code>"},
 	}
 	for _, c := range cases {
 		if got := fillAt(t, c.src, c.width); got != c.want {

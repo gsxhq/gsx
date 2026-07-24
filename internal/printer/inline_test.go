@@ -46,6 +46,11 @@ func TestAtomDoc(t *testing.T) {
 		{`<code>{ v }</code>`, `<code>{ v }</code>`},
 		{`<a href={ u }>x</a>`, `<a href={u}>x</a>`},
 		{`<span class={ cls }>y</span>`, `<span class={ cls }>y</span>`},
+		// A body f-literal ({f`…`}) in child position parses as
+		// *ast.EmbeddedInterp (not *ast.Interp) — atomDoc's own case for it
+		// (see inline.go). Its rendering is verbatim (embeddedInterp writes
+		// the literal back byte-for-byte), so the flat form equals the source.
+		{"<span>{f`v=@{x}`}</span>", "<span>{f`v=@{x}`}</span>"},
 	}
 	for _, c := range atoms {
 		e := firstElement(t, c.src)

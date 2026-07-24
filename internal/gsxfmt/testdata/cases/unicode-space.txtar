@@ -1,0 +1,22 @@
+wsnorm's whitespace model is ASCII-only (space/tab/\n/\r): Unicode spaces
+(NBSP U+00A0, ideographic space U+3000, …) are CONTENT, never collapsible
+whitespace, so fillParts must never treat them as word-gap split points. This
+pins that a NBSP-joined pair and a U+3000-joined pair each stay inside one
+word cluster through a canonical re-wrap, byte-identical to the source.
+
+-- input.gsx --
+package p
+
+component UnicodeSpaceContent() {
+	<p>The trail sign says the summit sits 10 km ahead, but nobody mentioned that the last stretch climbs through loose gravel switchbacks before reaching a lookout named 日本　語 that the map never labels clearly at all.</p>
+}
+-- fmt.golden --
+package p
+
+component UnicodeSpaceContent() {
+	<p>
+		The trail sign says the summit sits 10 km ahead, but nobody mentioned that
+		the last stretch climbs through loose gravel switchbacks before reaching a
+		lookout named 日本　語 that the map never labels clearly at all.
+	</p>
+}

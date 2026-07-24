@@ -137,12 +137,26 @@ func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
 		if t, ok := n.(*ast.Text); ok {
 			v := t.Value
 			switch {
+			// i==0 never lands here: segmentChildren's edge guard bars a
+			// leading-space Text from starting a segment, and a leading-space
+			// Text always glues leftward — so this branch only fires mid-segment.
 			case strings.HasPrefix(v, " "):
 				cur = append(cur, pretty.Text(" ")) // bond to the previous leaf
 			case i > 0:
 				gap(pretty.SoftLine) // direct adjacency: safe gap
 			}
-			words := strings.Fields(v)
+			// Word gaps exist ONLY at ASCII spaces — wsnorm's whitespace
+			// model (see wsnorm.go's normalizeText doc). Unicode spaces
+			// (NBSP, U+3000, …) are content and must stay inside their
+			// word: post-normalization, interior ASCII whitespace runs in
+			// core are exactly one ' ', so splitting the trimmed core on
+			// ' ' is exact (strings.Fields would also split on Unicode
+			// whitespace, dropping those runes at render time).
+			core := strings.Trim(v, " ")
+			var words []string
+			if core != "" {
+				words = strings.Split(core, " ")
+			}
 			for j, w := range words {
 				if j > 0 {
 					gap(pretty.Line) // word gap
