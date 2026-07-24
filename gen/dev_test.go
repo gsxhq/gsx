@@ -311,6 +311,211 @@ func main() {
 }
 `
 
+// devTestMainGoADDR is a sibling of devTestMainGo that listens on ADDR (e.g.
+// ":8890") instead of GO_PORT — used by TestDevUpstreamSingleSource to prove
+// gsx dev's health probe/status follow a resolved [dev].upstream ${ADDR}
+// reference rather than the GO_PORT default (ADDR is already ":port"-shaped,
+// so unlike devTestMainGo it is used as Addr directly, no ":" + port).
+const devTestMainGoADDR = `package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func main() {
+	addr := os.Getenv("ADDR")
+	if addr == "" {
+		addr = ":7777"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pid", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, "%d", os.Getpid())
+	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := &http.Server{Addr: addr, Handler: mux}
+	go func() { _ = srv.ListenAndServe() }()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
+}
+`
+
+// TestDevUpstreamSingleSource pins the top-down [dev].upstream design end to
+// end: gsx.toml carries "upstream = \"http://localhost${ADDR}\"" and the
+// project's .env sets ADDR — GO_PORT appears NOWHERE in this test's env or
+// config. It asserts:
+//   - the scaffold server (listening on ADDR) is probed healthy at the
+//     RESOLVED origin (proving the probe followed [dev].upstream, not the
+//     GO_PORT default it would otherwise fall back to);
+//   - a status event carries that same origin/port (the panel wire shape);
+//   - the front door's spawned env carries GSX_DEV_UPSTREAM=<resolved origin>
+//     (the vite-plugin cross-repo contract line).
+func TestDevUpstreamSingleSource(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGoADDR)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+
+	port := freePort(t)
+	addr := ":" + port
+	writeFile(t, proj, ".env", "ADDR="+addr+"\n")
+	writeFile(t, proj, "gsx.toml", "[dev]\nupstream = \"http://localhost${ADDR}\"\n")
+	// The front door's actual job here is just to prove GSX_DEV_UPSTREAM
+	// reaches its env — it writes the var to a marker file rather than
+	// serving Vite. Two whitespace-separated argv (no embedded quoting), so
+	// the --web flag's splitArgv (strings.Fields) parses it correctly.
+	writeFile(t, proj, "webstub.sh", "#!/bin/sh\necho \"$GSX_DEV_UPSTREAM\" > marker.txt\nsleep 600\n")
+
+	if portListening(port) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", port)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sh webstub.sh")
+	cmd.Dir = proj
+	// Deliberately NO GO_PORT anywhere in the child env: proves the probe
+	// follows the resolved [dev].upstream, not the GO_PORT default.
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"VITE_DEV_URL=http://127.0.0.1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	wantOrigin := "http://localhost:" + port
+	if !waitHealthy(context.Background(), wantOrigin+"/healthz", 120*time.Second) {
+		t.Fatalf("Go server on ADDR=%s (resolved upstream %s) never came up; output:\n%s", addr, wantOrigin, stdout.String())
+	}
+
+	// Learn the resolved front-door URL from the "watching … — open <url>" line.
+	var viteURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := regexp.MustCompile(`open (http://\S+)`).FindStringSubmatch(stdout.String()); m != nil {
+			viteURL = m[1]
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if viteURL == "" {
+		t.Fatalf("front-door URL not printed; stdout=%q", stdout.String())
+	}
+	u, err := url.Parse(viteURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fake vite plugin bound at the resolved front-door address: long-poll
+	// queue (to force a fresh status push once we're listening) + event
+	// recorder, same pattern as TestDevPanelCommands.
+	cmdQ := make(chan string, 4)
+	var statusEvents lockedBuffer
+	fake := &http.Server{
+		Addr: net.JoinHostPort(u.Hostname(), u.Port()),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/cmd":
+				select {
+				case c := <-cmdQ:
+					fmt.Fprintf(w, `{"cmds":[%q]}`, c)
+				case <-time.After(2 * time.Second):
+					w.WriteHeader(204)
+				}
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				if strings.Contains(string(body), `"event":"status"`) {
+					statusEvents.Write(append(body, '\n'))
+				}
+				w.WriteHeader(204)
+			default:
+				w.WriteHeader(204)
+			}
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	// Force a fresh status push now that the fake recorder is listening
+	// (the cold startup post race-started before we could bind here).
+	cmdQ <- "restart-server"
+
+	wantUpstreamFrag := fmt.Sprintf(`"upstream":"%s"`, wantOrigin)
+	wantPortFrag := fmt.Sprintf(`"port":"%s"`, port)
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(statusEvents.String(), wantUpstreamFrag) && strings.Contains(statusEvents.String(), wantPortFrag) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !strings.Contains(statusEvents.String(), wantUpstreamFrag) {
+		t.Errorf("no status event carried %q; events:\n%s\nstdout:\n%s", wantUpstreamFrag, statusEvents.String(), stdout.String())
+	}
+	if !strings.Contains(statusEvents.String(), wantPortFrag) {
+		t.Errorf("no status event carried %q; events:\n%s", wantPortFrag, statusEvents.String())
+	}
+	if !strings.Contains(statusEvents.String(), `"healthy":true`) {
+		t.Errorf("no healthy status observed; status log:\n%s", statusEvents.String())
+	}
+
+	// Assert the front door's spawned env carried GSX_DEV_UPSTREAM.
+	markerPath := filepath.Join(proj, "marker.txt")
+	var markerContent string
+	markerDeadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(markerDeadline) {
+		if b, err := os.ReadFile(markerPath); err == nil {
+			markerContent = strings.TrimSpace(string(b))
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if markerContent != wantOrigin {
+		t.Errorf("GSX_DEV_UPSTREAM in front-door env = %q, want %q", markerContent, wantOrigin)
+	}
+}
+
 func TestKillProcGroupOwnedReapsViaExternalWaiter(t *testing.T) {
 	cmd := exec.Command("sleep", "60")
 	setProcGroup(cmd)
@@ -814,5 +1019,157 @@ func TestDevPanelRebuildCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "gsx dev: panel: rebuild") {
 		t.Errorf("log missing %q; output:\n%s", "gsx dev: panel: rebuild", stdout.String())
+	}
+}
+
+// TestDevEnvErrorPostsOverlay is the final-review fix-round-1 regression test
+// for the envErr branch of the .env-fire path (gen/dev.go): a resolveViteDevEnv
+// failure (e.g. an .env edit that sets VITE_PORT to a port already in use)
+// must post an error event to the browser overlay, exactly like the sibling
+// resolveUpstream (upErr) branch just below it — before this fix, envErr only
+// logged to the terminal.
+//
+// It also guards a bug the naive fix would otherwise reintroduce: the .env-fire
+// code assigns resolveViteDevEnv's four return values directly into the
+// function-scoped env/viteURL variables (`env, viteURL, envWarning, envErr =
+// resolveViteDevEnv(...)`); on error those returns are the zero values, so a
+// naive "just add post()" would clobber viteURL to "" first — and post()'s
+// underlying postBest() treats an empty base URL as a same-origin path and
+// no-ops, silently defeating the fix it was meant to implement. This test
+// pins that the overlay post actually reaches the front door AND that a
+// subsequent, successful .env edit still reaches it too (proving env/viteURL
+// survive an intervening error untouched).
+func TestDevEnvErrorPostsOverlay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+
+	goPort := freePort(t)
+	vitePort := freePort(t)
+	// Held for the whole test so VITE_PORT=blockedPort deterministically fails
+	// resolveViteDevEnv's portAvailable check — this is the "already in use"
+	// .env edit under test, not a transient race.
+	blockedPort := freePort(t)
+	bl, err := net.Listen("tcp", "127.0.0.1:"+blockedPort)
+	if err != nil {
+		t.Fatalf("hold blocked port %s: %v", blockedPort, err)
+	}
+	defer bl.Close()
+
+	goodEnv := "GO_PORT=" + goPort + "\nVITE_PORT=" + vitePort + "\n"
+	writeFile(t, proj, ".env", goodEnv)
+
+	if portListening(goPort) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", goPort)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	// No VITE_DEV_URL/VITE_PORT in the shell env: VITE_PORT is pinned via .env
+	// alone so every env recompute (startup and every later .env fire) resolves
+	// to the SAME port deterministically — no auto-pick variance to guard against.
+	cmd.Env = devTestEnv("BROWSER=none", "GOFLAGS=-mod=mod")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("server never came up; output:\n%s", stdout.String())
+	}
+
+	wantViteURL := "http://localhost:" + vitePort
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(stdout.String(), "open "+wantViteURL) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(stdout.String(), "open "+wantViteURL) {
+		t.Fatalf("front-door URL %q not printed (VITE_PORT pinning failed?); output:\n%s", wantViteURL, stdout.String())
+	}
+
+	// Fake vite plugin bound at the pinned front-door address: records every
+	// /__gsx/event POST body and every /__reload hit.
+	var events lockedBuffer
+	var reloads atomic.Int32
+	fake := &http.Server{
+		Addr: net.JoinHostPort("localhost", vitePort),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				events.Write(append(body, '\n'))
+			case "/__reload":
+				reloads.Add(1)
+			case "/__gsx/cmd":
+				time.Sleep(50 * time.Millisecond)
+			}
+			w.WriteHeader(204)
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	// The .env edit under test: VITE_PORT now points at the held blockedPort —
+	// resolveViteDevEnv must fail with "already in use", and the failure must
+	// be posted to the browser overlay (not just logged).
+	writeFile(t, proj, ".env", "GO_PORT="+goPort+"\nVITE_PORT="+blockedPort+"\n")
+
+	wantErrFrag := "VITE_PORT " + blockedPort + " is already in use"
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(events.String(), wantErrFrag) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(events.String(), wantErrFrag) {
+		t.Fatalf("no error event posted for the broken VITE_PORT edit (want %q); events:\n%s\nstdout:\n%s",
+			wantErrFrag, events.String(), stdout.String())
+	}
+	if !strings.Contains(events.String(), `"ok":false`) {
+		t.Errorf("posted error event should be ok:false (buildErrorEvent shape); events:\n%s", events.String())
+	}
+
+	// Recovery: revert .env to the original, valid VITE_PORT. If envErr's
+	// failed resolveViteDevEnv had clobbered the shared env/viteURL variables,
+	// this cycle's reload() would silently target an empty/wrong base URL and
+	// the fake listener (still bound at the ORIGINAL vitePort) would never see
+	// it — proving env/viteURL survived the intervening error untouched.
+	writeFile(t, proj, ".env", goodEnv)
+
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && reloads.Load() == 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if reloads.Load() == 0 {
+		t.Fatalf("no /__reload after reverting .env to a valid VITE_PORT — env/viteURL likely corrupted by the prior error; stdout:\n%s", stdout.String())
+	}
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
+		t.Fatalf("server not healthy after recovery; output:\n%s", stdout.String())
 	}
 }

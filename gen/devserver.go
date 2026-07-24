@@ -119,6 +119,121 @@ func envLookup(env []string, key string) (string, bool) {
 // envValue is envPort by another name for non-port keys (VITE_DEV_URL).
 func envValue(env []string, key, def string) string { return envPort(env, key, def) }
 
+// expandEnvRefs replaces every ${NAME} reference in s with NAME's value
+// looked up in env (a KEY=VALUE slice, e.g. the merged shell+.env env
+// resolveViteDevEnv works from). Expansion is a single pass: an expanded
+// value is never itself re-scanned for further ${...} references. A bare $
+// or $VAR with no braces is left untouched — only ${...} is special, and
+// there is no escape mechanism.
+//
+// An unset variable, a variable that is SET BUT EMPTY, an empty name (${}),
+// or an unterminated ${ (no closing }) is a startup error rather than a
+// silent empty string; the error names the offending reference/variable so a
+// bad gsx.toml [dev].upstream fails loudly. Set-but-empty gets the same
+// treatment as unset: e.g. ADDR="" in .env would otherwise silently collapse
+// "http://localhost${ADDR}" to "http://localhost" — a valid origin (port 80)
+// with no diagnostic, exactly the undiagnosable "server down" this function
+// exists to prevent.
+func expandEnvRefs(s string, env []string) (string, error) {
+	var b strings.Builder
+	rest := s
+	for {
+		i := strings.Index(rest, "${")
+		if i < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:i])
+		after := rest[i+2:]
+		name, tail, ok := strings.Cut(after, "}")
+		if !ok {
+			return "", fmt.Errorf("unterminated %q in %q", rest[i:], s)
+		}
+		if name == "" {
+			return "", fmt.Errorf("empty %q reference in %q", "${}", s)
+		}
+		v, set := envLookup(env, name)
+		if !set {
+			return "", fmt.Errorf("unset env var %q referenced in %q", name, s)
+		}
+		if v == "" {
+			return "", fmt.Errorf("env var %q referenced in %q is set but empty", name, s)
+		}
+		b.WriteString(v)
+		rest = tail
+	}
+	return b.String(), nil
+}
+
+// resolveUpstream resolves [dev].upstream/health into the origin gsx dev
+// probes and reports, and the healthURL it probes — the single source of
+// truth also injected into the vite child as GSX_DEV_UPSTREAM (origin only,
+// no path) so the plugin's devFallback() and gsx dev's panel/probe never
+// drift from independently-guessed env vars.
+//
+// upstream is observational only: it never changes where the app listens.
+// Empty upstream defaults to http://localhost:${GO_PORT|7777} — exactly
+// today's behavior, zero migration. A non-empty upstream is ${VAR}-expanded
+// (expandEnvRefs) against env, then parsed as an absolute http/https URL; a
+// non-empty path/query/fragment is rejected since upstream must be an origin.
+// health defaults to "/healthz" and must be an absolute path; healthURL is
+// origin+health. port is u.Port() (may be empty when the URL carries none).
+func resolveUpstream(upstream, health string, env []string) (origin, healthURL, port string, err error) {
+	if health == "" {
+		health = "/healthz"
+	}
+	if !strings.HasPrefix(health, "/") {
+		return "", "", "", fmt.Errorf("[dev].health %q must start with \"/\"", health)
+	}
+
+	if upstream == "" {
+		port = envPort(env, "GO_PORT", "7777")
+		if port == "" {
+			// GO_PORT is SET but empty (distinct from absent, which envPort
+			// would have defaulted to "7777"): "http://localhost:" + "" round-trips
+			// verbatim past url.Parse (Host "localhost:", Port() "") and Go's http
+			// client then silently dials port 80 — an undiagnosable "server down".
+			return "", "", "", fmt.Errorf("GO_PORT is set but empty — unset it or give it a port number")
+		}
+		origin = "http://localhost:" + port
+		return origin, origin + health, port, nil
+	}
+
+	expanded, err := expandEnvRefs(upstream, env)
+	if err != nil {
+		return "", "", "", fmt.Errorf("[dev].upstream: %w", err)
+	}
+
+	u, err := url.Parse(expanded)
+	if err != nil {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: invalid URL: %w", expanded, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: scheme must be http or https", expanded)
+	}
+	if u.Host == "" {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: missing host", expanded)
+	}
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", "", "", fmt.Errorf("[dev].upstream %q: must be an origin only (no path/query/fragment)", expanded)
+	}
+	if strings.HasSuffix(u.Host, ":") && u.Port() == "" {
+		// A literal trailing ":" already in [dev].upstream itself (no ${...}
+		// reference at all, e.g. a hardcoded "http://localhost:" in gsx.toml)
+		// round-trips through url.Parse unnoticed (Host "localhost:", Port()
+		// ""), and Go's http client then silently dials port 80 — an
+		// undiagnosable "server down". Reject it, naming the template and its
+		// expansion. Set-but-empty ${VAR} references (e.g.
+		// "http://localhost:${ADDR}" with ADDR="") are now caught earlier, by
+		// expandEnvRefs itself, naming the variable — this guard only remains
+		// reachable for a literal, var-free trailing colon.
+		return "", "", "", fmt.Errorf("[dev].upstream %q expands to %q: host %q has an empty port (bare trailing \":\") — check the referenced env var(s) aren't empty", upstream, expanded, u.Host)
+	}
+
+	origin = u.Scheme + "://" + u.Host
+	return origin, origin + health, u.Port(), nil
+}
+
 // resolveViteDevEnv resolves the Vite dev server's host:port and folds it
 // back into env as VITE_PORT/VITE_DEV_URL for the spawned front door and Go
 // server to agree on.

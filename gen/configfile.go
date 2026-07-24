@@ -71,6 +71,14 @@ type tomlDev struct {
 	// it when the dev server must be reachable under a specific hostname —
 	// e.g. host = "mstudio" yields VITE_DEV_URL=http://mstudio:<port>.
 	Host string `toml:"host"`
+	// Upstream is the dev backend's origin, ${VAR}-expanded against the merged
+	// shell+.env (e.g. "http://localhost${ADDR}"). It is observational only —
+	// gsx dev never sets the app's listen address — and feeds both the health
+	// probe and the GSX_DEV_UPSTREAM env injected into the vite child. Empty
+	// defaults to http://localhost:${GO_PORT|7777} (today's behavior).
+	Upstream string `toml:"upstream"`
+	// Health is the path probed on Upstream (default "/healthz").
+	Health string `toml:"health"`
 }
 
 // tomlMinify is the [minify] table: per-asset level spellings. A nil pointer

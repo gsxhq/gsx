@@ -10,7 +10,7 @@ func TestStatusEventShape(t *testing.T) {
 	at := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
 	s := devStatus{
 		Phase:     "idle",
-		Server:    serverStat{Healthy: true, Port: "7777"},
+		Server:    serverStat{Healthy: true, Port: "7777", Upstream: "http://localhost:7777"},
 		LastCycle: &cycleStat{OK: true, Errors: 0, At: at},
 		FrontDoor: frontStat{State: "up", Restarts: 2},
 	}
@@ -22,7 +22,7 @@ func TestStatusEventShape(t *testing.T) {
 		t.Errorf("event/phase = %v/%v", got["event"], got["phase"])
 	}
 	srv := got["server"].(map[string]any)
-	if srv["healthy"] != true || srv["port"] != "7777" {
+	if srv["healthy"] != true || srv["port"] != "7777" || srv["upstream"] != "http://localhost:7777" {
 		t.Errorf("server = %v", srv)
 	}
 	lc := got["lastCycle"].(map[string]any)

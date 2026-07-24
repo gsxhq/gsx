@@ -16,8 +16,17 @@ type devStatus struct {
 }
 
 type serverStat struct {
-	Healthy bool   `json:"healthy"`
-	Port    string `json:"port"`
+	Healthy bool `json:"healthy"`
+	// Port is derived from the resolved upstream's URL port (empty when the
+	// upstream carries none), never from GO_PORT directly — kept for one
+	// release so an older plugin's panel (rendering ":" + server.port) still
+	// renders. See Upstream for the single source of truth.
+	Port string `json:"port"`
+	// Upstream is the resolved [dev].upstream origin (see resolveUpstream) —
+	// the single source of truth for the dev backend the health probe hits
+	// and the panel should display. The plugin renders
+	// server.upstream ?? ":" + server.port.
+	Upstream string `json:"upstream"`
 }
 
 type cycleStat struct {

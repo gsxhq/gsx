@@ -124,6 +124,195 @@ func TestMergeDotEnv(t *testing.T) {
 	})
 }
 
+// TestExpandEnvRefs pins ${VAR} expansion semantics for [dev].upstream: single
+// pass (no re-expansion of expanded values), bare $/$VAR left untouched, and
+// unset/malformed/set-but-empty references are startup errors naming the
+// offending var. Set-but-empty is an error (not a silent ""): the guard exists
+// so e.g. ADDR="" doesn't quietly collapse "http://localhost${ADDR}" to
+// "http://localhost" (port 80, no diagnostic) — see TestResolveUpstream's
+// "set-but-empty var referenced with no literal colon" case for the
+// end-to-end shape this was found in.
+func TestExpandEnvRefs(t *testing.T) {
+	env := []string{"ADDR=:8890", "SCHEME=http", "P=9000", "EMPTY="}
+
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr string // substring expected in error, "" means no error
+	}{
+		{name: "single var concatenation", in: "http://localhost${ADDR}", want: "http://localhost:8890"},
+		{name: "multi var", in: "${SCHEME}://x:${P}", want: "http://x:9000"},
+		{name: "unset var errors naming it", in: "${NOPE}", wantErr: "NOPE"},
+		{name: "set-but-empty var errors naming it", in: "http://localhost${EMPTY}", wantErr: "EMPTY"},
+		{name: "bare dollar sign untouched", in: "$ADDR literal", want: "$ADDR literal"},
+		{name: "empty braces error", in: "${}", wantErr: "${}"},
+		{name: "unterminated brace errors", in: "${X", wantErr: "${X"},
+		{name: "no refs unchanged", in: "http://localhost:7777", want: "http://localhost:7777"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := expandEnvRefs(tc.in, env)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expandEnvRefs(%q) = %q, nil; want error containing %q", tc.in, got, tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("expandEnvRefs(%q) error = %q, want substring %q", tc.in, err.Error(), tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expandEnvRefs(%q) unexpected error: %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("expandEnvRefs(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveUpstream pins [dev].upstream/health resolution: empty upstream
+// falls back to today's http://localhost:${GO_PORT|7777} behavior; a
+// non-empty upstream is ${VAR}-expanded, parsed, and must be an origin only
+// (http/https, host, no path/query/fragment).
+func TestResolveUpstream(t *testing.T) {
+	cases := []struct {
+		name          string
+		upstream      string
+		health        string
+		env           []string
+		wantOrigin    string
+		wantHealthURL string
+		wantPort      string
+		wantErrSubstr string
+	}{
+		{
+			name:          "absent upstream no GO_PORT defaults to 7777",
+			upstream:      "",
+			env:           nil,
+			wantOrigin:    "http://localhost:7777",
+			wantHealthURL: "http://localhost:7777/healthz",
+			wantPort:      "7777",
+		},
+		{
+			name:          "absent upstream honors GO_PORT",
+			upstream:      "",
+			env:           []string{"GO_PORT=8081"},
+			wantOrigin:    "http://localhost:8081",
+			wantHealthURL: "http://localhost:8081/healthz",
+			wantPort:      "8081",
+		},
+		{
+			name:          "upstream expands ADDR",
+			upstream:      "http://localhost${ADDR}",
+			env:           []string{"ADDR=:8890"},
+			wantOrigin:    "http://localhost:8890",
+			wantHealthURL: "http://localhost:8890/healthz",
+			wantPort:      "8890",
+		},
+		{
+			name:          "explicit upstream with no port",
+			upstream:      "http://mstudio",
+			wantOrigin:    "http://mstudio",
+			wantHealthURL: "http://mstudio/healthz",
+			wantPort:      "",
+		},
+		{
+			name:          "path in upstream errors",
+			upstream:      "http://localhost:8890/foo",
+			wantErrSubstr: "path",
+		},
+		{
+			name:          "non-http scheme errors",
+			upstream:      "ftp://localhost:8890",
+			wantErrSubstr: "scheme",
+		},
+		{
+			name:          "unset var in upstream errors",
+			upstream:      "http://localhost${NOPE}",
+			wantErrSubstr: "NOPE",
+		},
+		{
+			name:          "custom health path suffixes healthURL",
+			upstream:      "http://localhost:8890",
+			health:        "/live",
+			wantOrigin:    "http://localhost:8890",
+			wantHealthURL: "http://localhost:8890/live",
+			wantPort:      "8890",
+		},
+		{
+			// A present-but-empty env var referenced in the template is now
+			// rejected by expandEnvRefs itself (I1 fix), naming the var, before
+			// resolveUpstream's own bare-trailing-colon guard would ever see the
+			// expansion. Was "empty port" (the bare-colon guard's message) before
+			// this fix; now the earlier, more general expandEnvRefs error fires
+			// for every shape that references the empty var, not just this one.
+			name:          "explicit upstream with present-but-empty var errors naming it",
+			upstream:      "http://localhost:${ADDR}",
+			env:           []string{"ADDR="},
+			wantErrSubstr: "ADDR",
+		},
+		{
+			// The documented canonical shape (docs/guide/config.md's
+			// upstream = "http://localhost${ADDR}") with ADDR set but empty: no
+			// literal colon is left behind by the template itself, so the
+			// bare-trailing-colon guard alone would never catch this — before the
+			// I1 fix this resolved silently to "http://localhost" (port 80, no
+			// diagnostic). Now caught at expandEnvRefs.
+			name:          "documented ADDR shape with present-but-empty var errors naming it",
+			upstream:      "http://localhost${ADDR}",
+			env:           []string{"ADDR="},
+			wantErrSubstr: "ADDR",
+		},
+		{
+			// No ${} reference at all — a hardcoded literal trailing colon in
+			// [dev].upstream. expandEnvRefs has nothing to expand (no set-but-empty
+			// var to name), so this exercises the bare-trailing-colon guard that
+			// I1 explicitly keeps for literal-":"-concat shapes.
+			name:          "literal trailing colon with no var reference still errors via bare-colon guard",
+			upstream:      "http://localhost:",
+			wantErrSubstr: "empty port",
+		},
+		{
+			name:          "default upstream with GO_PORT present but empty errors",
+			upstream:      "",
+			env:           []string{"GO_PORT="},
+			wantErrSubstr: "GO_PORT",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			origin, healthURL, port, err := resolveUpstream(tc.upstream, tc.health, tc.env)
+			if tc.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatalf("resolveUpstream(%q, %q) = (%q, %q, %q), nil; want error containing %q",
+						tc.upstream, tc.health, origin, healthURL, port, tc.wantErrSubstr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSubstr) {
+					t.Errorf("resolveUpstream(%q, %q) error = %q, want substring %q",
+						tc.upstream, tc.health, err.Error(), tc.wantErrSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveUpstream(%q, %q) unexpected error: %v", tc.upstream, tc.health, err)
+			}
+			if origin != tc.wantOrigin {
+				t.Errorf("origin = %q, want %q", origin, tc.wantOrigin)
+			}
+			if healthURL != tc.wantHealthURL {
+				t.Errorf("healthURL = %q, want %q", healthURL, tc.wantHealthURL)
+			}
+			if port != tc.wantPort {
+				t.Errorf("port = %q, want %q", port, tc.wantPort)
+			}
+		})
+	}
+}
+
 // freePort binds an ephemeral port, reads back the port the OS assigned, and
 // releases it immediately. The window between release and the caller's own
 // use is a theoretical race (acceptable here, same tolerance as the other

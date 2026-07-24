@@ -97,6 +97,24 @@ both are set and disagree, `VITE_PORT` wins and `gsx dev` logs a warning.
 Command-line flags override `[dev]`; `[dev]` overrides the defaults. See
 [`gsx dev`](./cli.md#gsx-dev) for one-off overrides.
 
+### Dev backend upstream `upstream`/`health`
+
+Use `upstream` when the backend's listen address is not the default port:
+
+```toml
+[dev]
+upstream = "http://localhost${ADDR}"   # ADDR=:8890 -> http://localhost:8890
+health = "/healthz"
+```
+
+`${VAR}` in `upstream` expands against the merged shell + `.env` environment
+(shell wins); an unset or empty variable is a startup error. The default, when
+`upstream` is unset, is `http://localhost:${GO_PORT}` with `GO_PORT` defaulting
+to `7777`. `health` is the path probed on `upstream` and defaults to
+`/healthz`. `upstream` is observational only — it retargets the health probe
+and dev panel, and is injected into the front-end process as
+`GSX_DEV_UPSTREAM`; it never changes where the backend listens.
+
 ## Pipeline filters
 
 Filters are exported Go functions that receive the piped value as their first
