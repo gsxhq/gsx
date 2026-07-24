@@ -84,7 +84,7 @@ argument. Keep `build` and `run` pointed at the same binary.
 | `web` | `["npx", "vite"]` | Front-end command. |
 | `build` | `go build` to a per-project binary | Backend build command. |
 | `run` | the default built binary | Backend command. |
-| `log` | off | File that also receives backend output. |
+| `log` | off | File that also receives backend output; its absolute path is injected into the front-end process as `GSX_DEV_LOG`. |
 | `no_web` | `false` | Disable the front-end command. |
 | `host` | from `VITE_DEV_URL`, otherwise `localhost` | Hostname used in `VITE_DEV_URL`. |
 
@@ -113,7 +113,10 @@ health = "/healthz"
 to `7777`. `health` is the path probed on `upstream` and defaults to
 `/healthz`. `upstream` is observational only — it retargets the health probe
 and dev panel, and is injected into the front-end process as
-`GSX_DEV_UPSTREAM`; it never changes where the backend listens.
+`GSX_DEV_UPSTREAM`; it never changes where the backend listens. When
+`[dev].log` is set, its resolved absolute path is likewise injected as
+`GSX_DEV_LOG`, so the Vite plugin can read the backend log without
+guessing paths; the variable is absent when logging is off.
 
 ## Pipeline filters
 

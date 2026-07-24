@@ -160,10 +160,23 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 	fdCh := make(chan frontStat, 8)
 	if dc.web != nil {
+		// The backend log's location rides the same env bus as the upstream
+		// origin (GSX_DEV_UPSTREAM): resolved once, absolute, so the plugin
+		// never guesses paths relative to a cwd it doesn't share. Absent when
+		// logging is off — the plugin treats that as "no log to read".
+		// filepath.Abs matches os.Create's resolution of the same value at
+		// startup (both against this process's cwd), so the env always names
+		// the file actually being written.
+		childEnv := append(slices.Clone(env), "GSX_DEV_TOKEN="+devToken, "GSX_DEV_UPSTREAM="+origin)
+		if dc.logPath != "" {
+			if abs, aerr := filepath.Abs(dc.logPath); aerr == nil {
+				childEnv = append(childEnv, "GSX_DEV_LOG="+abs)
+			}
+		}
 		spawn := func() (*exec.Cmd, error) {
 			c := exec.Command(dc.web[0], dc.web[1:]...)
 			c.Dir, c.Stdout, c.Stderr = workDir, mkWriter("vite"), mkWriter("vite")
-			c.Env = append(slices.Clone(env), "GSX_DEV_TOKEN="+devToken, "GSX_DEV_UPSTREAM="+origin)
+			c.Env = slices.Clone(childEnv)
 			setProcGroup(c)
 			return c, c.Start()
 		}

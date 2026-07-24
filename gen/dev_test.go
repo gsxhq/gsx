@@ -362,7 +362,8 @@ func main() {
 //     GO_PORT default it would otherwise fall back to);
 //   - a status event carries that same origin/port (the panel wire shape);
 //   - the front door's spawned env carries GSX_DEV_UPSTREAM=<resolved origin>
-//     (the vite-plugin cross-repo contract line).
+//     and GSX_DEV_LOG=<absolute [dev].log path> (the vite-plugin cross-repo
+//     contract lines).
 func TestDevUpstreamSingleSource(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test: requires building gsx and a live Go server")
@@ -390,12 +391,13 @@ func TestDevUpstreamSingleSource(t *testing.T) {
 	port := freePort(t)
 	addr := ":" + port
 	writeFile(t, proj, ".env", "ADDR="+addr+"\n")
-	writeFile(t, proj, "gsx.toml", "[dev]\nupstream = \"http://localhost${ADDR}\"\n")
-	// The front door's actual job here is just to prove GSX_DEV_UPSTREAM
-	// reaches its env — it writes the var to a marker file rather than
-	// serving Vite. Two whitespace-separated argv (no embedded quoting), so
-	// the --web flag's splitArgv (strings.Fields) parses it correctly.
-	writeFile(t, proj, "webstub.sh", "#!/bin/sh\necho \"$GSX_DEV_UPSTREAM\" > marker.txt\nsleep 600\n")
+	writeFile(t, proj, "gsx.toml", "[dev]\nupstream = \"http://localhost${ADDR}\"\nlog = \"tmp/dev.log\"\n")
+	// The front door's actual job here is just to prove GSX_DEV_UPSTREAM and
+	// GSX_DEV_LOG reach its env — it writes both (one per line) to a marker
+	// file rather than serving Vite. Two whitespace-separated argv (no
+	// embedded quoting), so the --web flag's splitArgv (strings.Fields)
+	// parses it correctly.
+	writeFile(t, proj, "webstub.sh", "#!/bin/sh\n{ echo \"$GSX_DEV_UPSTREAM\"; echo \"$GSX_DEV_LOG\"; } > marker.txt\nsleep 600\n")
 
 	if portListening(port) {
 		t.Fatalf("port %s already in use (leaked scaffold server?)", port)
@@ -500,7 +502,8 @@ func TestDevUpstreamSingleSource(t *testing.T) {
 		t.Errorf("no healthy status observed; status log:\n%s", statusEvents.String())
 	}
 
-	// Assert the front door's spawned env carried GSX_DEV_UPSTREAM.
+	// Assert the front door's spawned env carried GSX_DEV_UPSTREAM and
+	// GSX_DEV_LOG.
 	markerPath := filepath.Join(proj, "marker.txt")
 	var markerContent string
 	markerDeadline := time.Now().Add(15 * time.Second)
@@ -511,8 +514,25 @@ func TestDevUpstreamSingleSource(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if markerContent != wantOrigin {
-		t.Errorf("GSX_DEV_UPSTREAM in front-door env = %q, want %q", markerContent, wantOrigin)
+	markerLines := strings.Split(markerContent, "\n")
+	if markerLines[0] != wantOrigin {
+		t.Errorf("GSX_DEV_UPSTREAM in front-door env = %q, want %q", markerLines[0], wantOrigin)
+	}
+	// GSX_DEV_LOG must be absolute and name the file gsx dev actually
+	// writes (TempDir may be behind a symlink on macOS, so compare by
+	// stat-ing the env's own path rather than string-equality against proj).
+	if len(markerLines) < 2 || markerLines[1] == "" {
+		t.Fatalf("GSX_DEV_LOG missing from front-door env; marker=%q", markerContent)
+	}
+	gotLog := markerLines[1]
+	if !filepath.IsAbs(gotLog) {
+		t.Errorf("GSX_DEV_LOG = %q, want an absolute path", gotLog)
+	}
+	if filepath.Base(gotLog) != "dev.log" || filepath.Base(filepath.Dir(gotLog)) != "tmp" {
+		t.Errorf("GSX_DEV_LOG = %q, want .../tmp/dev.log", gotLog)
+	}
+	if _, err := os.Stat(gotLog); err != nil {
+		t.Errorf("GSX_DEV_LOG names %q but stat failed: %v (env must point at the file actually written)", gotLog, err)
 	}
 }
 
