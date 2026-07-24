@@ -195,14 +195,17 @@ func (p *parser) parseAttrs() (attrs []ast.Attr, multiline bool, err error) {
 Add above `parseChildren`:
 
 ```go
-// childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
-// a fragment's `</>`), or a `<?end>` processing instruction closing a
-// MarkerRegion. Exactly one form applies per list.
+// childTerm describes how a child list ends. Today that is a `</tag>` close tag
+// (tag is "" for a fragment's `</>`); Task 4 adds the `<?end>` form.
 type childTerm struct {
-	tag   string
-	piEnd bool
+	tag string
 }
 ```
+
+Do **not** add the `piEnd` field here. It would be dead code until Task 4 and
+`golangci-lint`'s `unused` check — which `make lint` runs — fails on it, leaving
+this commit un-bisectable. Task 4 adds the field together with the code that
+reads it.
 
 Rename the existing `parseChildren` body to `parseChildrenTerm(term childTerm)`, replacing every use of `closeTag` with `term.tag`, and add the wrapper:
 
@@ -501,7 +504,19 @@ In `parsePI`'s switch, add before `case piEnd:`:
 
 - [ ] **Step 4: Terminate child lists on `<?end>`**
 
-In `parseChildrenTerm`, before the `p.at("</")` branch:
+First add the field Task 2 deliberately left out, so it arrives with its reader:
+
+```go
+// childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
+// a fragment's `</>`), or a `<?end>` processing instruction closing a
+// MarkerRegion. Exactly one form applies per list.
+type childTerm struct {
+	tag   string
+	piEnd bool
+}
+```
+
+Then, in `parseChildrenTerm`, before the `p.at("</")` branch:
 
 ```go
 		if term.piEnd && p.atPITarget(piEnd) {
