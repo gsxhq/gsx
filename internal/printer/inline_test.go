@@ -61,13 +61,13 @@ func TestAtomDoc(t *testing.T) {
 		}
 	}
 	notAtoms := []string{
-		`<div>x</div>`,                    // not an inline tag
-		`<Card>x</Card>`,                  // component
-		`<span><div>x</div></span>`,       // block child
-		`<code>{ if v { <b/> } }</code>`,  // control-flow child
-		"<code>\n\tx\n</code>",            // author ChildrenMultiline wins
-		`<textarea>x</textarea>`,          // preserve tag, never inline
-		`<script>x</script>`,              // preserve tag, never inline
+		`<div>x</div>`,                   // not an inline tag
+		`<Card>x</Card>`,                 // component
+		`<span><div>x</div></span>`,      // block child
+		`<code>{ if v { <b/> } }</code>`, // control-flow child
+		"<code>\n\tx\n</code>",           // author ChildrenMultiline wins
+		`<textarea>x</textarea>`,         // preserve tag, never inline
+		`<script>x</script>`,             // preserve tag, never inline
 	}
 	for _, src := range notAtoms {
 		e := firstElement(t, src)
