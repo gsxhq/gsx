@@ -1047,6 +1047,148 @@ func TestDevPanelRebuildCommand(t *testing.T) {
 	}
 }
 
+// TestDevRepostsStatusOnFirstFrontDoorContact reproduces the warm-start bug:
+// npm/vite can take longer to bind the front-door port than postBest's
+// ~1.6s retry window on the startup status post, so a freshly opened dev
+// panel's status cache stays empty forever on an idle project (no later
+// cycle ever re-posts to fill it in). It proves the fix: pollCommands'
+// long-poll against the front door succeeding for the FIRST time — proof
+// vite is actually up — makes gsx dev re-post the current status, with no
+// panel command sent and no source change.
+//
+// The managed front door here is "sleep 600": it never listens on the
+// resolved URL at all. frontDoor's gate opens immediately on process start
+// regardless (first-instance semantics — see frontdoor.go), so pollCommands
+// starts polling that URL right away and hits connection-refused, backing
+// off, exactly like a real vite that hasn't finished booting yet. Only
+// after gsx dev is confirmed healthy AND a few seconds have passed (long
+// past the historical startup-post retry window, and enough for pollCommands
+// to have backed off at least once) does the test bind the resolved
+// front-door port — standing in for vite finally coming up. From that point
+// on nothing else happens: no /__gsx/cmd command is queued, nothing on disk
+// changes. A status event must still arrive promptly, sourced purely from
+// pollCommands' first successful long-poll.
+func TestDevRepostsStatusOnFirstFrontDoorContact(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	if portListening("7829") {
+		t.Fatal("port 7829 already in use (leaked scaffold server?)")
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT=7829",
+		"VITE_DEV_URL=http://127.0.0.1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:7829/healthz", 120*time.Second) {
+		t.Fatalf("server never came up; output:\n%s", stdout.String())
+	}
+
+	// Learn the resolved front-door URL from the "watching … — open <url>" line
+	// (VITE_DEV_URL above deliberately carries no port, so nothing but gsx
+	// dev's own auto-picker determines it — the test cannot pre-bind it).
+	var viteURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := regexp.MustCompile(`open (http://\S+)`).FindStringSubmatch(stdout.String()); m != nil {
+			viteURL = m[1]
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if viteURL == "" {
+		t.Fatalf("front-door URL not printed; stdout=%q", stdout.String())
+	}
+	u, err := url.Parse(viteURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the warm-start delay: gsx dev and its Go server are fully up
+	// and healthy, yet nothing is listening at the resolved front-door port
+	// for a few more seconds — long past postBest's ~1.6s retry window on the
+	// startup status post, and long enough for pollCommands to have hit
+	// connection-refused and backed off at least once.
+	time.Sleep(3 * time.Second)
+
+	// NOW bind "vite". No /__gsx/cmd command is ever queued and nothing on
+	// disk changes from here on — the only thing that can make a status
+	// event arrive is pollCommands' long-poll finally succeeding.
+	var statusEvents lockedBuffer
+	fake := &http.Server{
+		Addr: net.JoinHostPort(u.Hostname(), u.Port()),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/cmd":
+				w.WriteHeader(204) // idle long-poll: no commands queued, ever
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				if strings.Contains(string(body), `"event":"status"`) {
+					statusEvents.Write(append(body, '\n'))
+				}
+				w.WriteHeader(204)
+			default:
+				w.WriteHeader(204)
+			}
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	// pollCommands' connection-refused backoff caps at 5s; give it a generous
+	// margin above that on top of the actual poll/round-trip for CI headroom.
+	deadline = time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(statusEvents.String(), `"event":"status"`) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(statusEvents.String(), `"event":"status"`) {
+		t.Fatalf("no status event posted within 20s of the front door binding (first-contact repost missing); gsx dev stdout:\n%s", stdout.String())
+	}
+	if !strings.Contains(statusEvents.String(), `"healthy":true`) {
+		t.Errorf("no healthy status observed; status log:\n%s", statusEvents.String())
+	}
+}
+
 // TestDevEnvErrorPostsOverlay is the final-review fix-round-1 regression test
 // for the envErr branch of the .env-fire path (gen/dev.go): a resolveViteDevEnv
 // failure (e.g. an .env edit that sets VITE_PORT to a port already in use)
