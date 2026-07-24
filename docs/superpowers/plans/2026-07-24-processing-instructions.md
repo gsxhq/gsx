@@ -308,7 +308,7 @@ In `parseElement`, directly after the `<!` branch:
 ```go
 	// `<?…`: a processing instruction (fixed marker/start/end vocabulary).
 	if p.peek() == '?' {
-		return p.parsePI(start, startPos)
+		return p.parsePI(startPos)
 	}
 ```
 
@@ -326,10 +326,13 @@ const (
 )
 
 // parsePI parses a processing instruction. The cursor is at the '?' following
-// '<'; start is the byte offset of that '<' and startPos describes it. `<?end>`
-// is only meaningful as a MarkerRegion terminator, so it is an error here —
-// parseChildrenTerm consumes the legitimate ones.
-func (p *parser) parsePI(start int, startPos token.Pos) (ast.Markup, error) {
+// '<', which startPos describes. `<?end>` is only meaningful as a MarkerRegion
+// terminator, so it is an error here — parseChildrenTerm consumes the
+// legitimate ones.
+//
+// Unlike parseBang, this takes no byte offset: a PI is built structurally from
+// its parsed target and name, so no raw source slice is ever needed.
+func (p *parser) parsePI(startPos token.Pos) (ast.Markup, error) {
 	p.i++ // past '?'
 	targetStart := p.i
 	p.i = scanTagName(p.src, p.i)
@@ -893,8 +896,8 @@ CLAUDE.md requires a corpus case per context in which new syntax is valid. Tasks
   - `region_children.txtar` — region with element + text + interpolation children
   - `region_nested.txtar` — region containing a region and a marker
   - `pi_in_control_flow.txtar` — markers inside `{ if … }` and `{ for … }`
-  - `pi_element_literal.txtar` — `x := <?marker name="a">` in Go-expression position, rendered via a component
-  - `e_unknown_target.txtar`, `e_missing_name.txtar`, `e_end_attrs.txtar`, `e_unterminated_region.txtar`, `e_stray_end.txtar`, `e_question_terminator.txtar`, `e_static_name_unsafe.txtar` — error cases with only `diagnostics.golden` (no `invoke`), following `internal/corpus/testdata/cases/parser/e03_bad_attr_name.txtar`
+  - `e_element_literal_rejected.txtar` — `x := <?marker name="a">` in Go-expression position. This is an **error** case, not a rendering one: processing instructions are markup-only. Only `*ast.Element` and `*ast.Fragment` are admitted as Go-expression values, so `splitGoElements` rejects a Marker with `gsx: a *ast.Marker is not supported as a Go expression value here`. Pin that diagnostic. (Task 3 verified this behavior directly; the earlier plan text wrongly assumed it rendered.)
+  - `e_unknown_target.txtar`, `e_missing_name.txtar`, `e_end_attrs.txtar`, `e_unterminated_region.txtar`, `e_stray_end.txtar`, `e_question_terminator.txtar`, `e_static_name_unsafe.txtar` (plus `e_element_literal_rejected.txtar` above) — error cases with only `diagnostics.golden` (no `invoke`), following `internal/corpus/testdata/cases/parser/e03_bad_attr_name.txtar`
 - Modify: `internal/corpus/testdata/coverage.golden` (regenerated, never hand-edited)
 
 **Interfaces:**

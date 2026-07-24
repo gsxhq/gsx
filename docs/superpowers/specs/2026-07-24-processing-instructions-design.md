@@ -205,8 +205,23 @@ are markup-position-only, so the contexts are child positions:
 - `docs/guide/syntax/` — a page documenting the syntax, the fixed vocabulary, and
   the strict `name` rules
 
+## Position: markup only
+
+Processing instructions are markup, not values. They are valid in child
+position and inside a `{ … }` markup attribute, but **not** as a Go-expression
+value: `x := <?marker name="a">` is an error, since `splitGoElements` admits
+only `*ast.Element` and `*ast.Fragment` there. Users see:
+
+```
+gsx: a *ast.Marker is not supported as a Go expression value here
+```
+
+Verified during implementation. Admitting PIs as element literals later would be
+additive.
+
 ## Deferred
 
+- Processing instructions as Go-expression values (element literals).
 - General `<?target data?>` for arbitrary targets.
 - Multiple/arbitrary pseudo-attributes beyond `name`.
 - Any `<template for="…">` sugar — it is an ordinary element and needs no gsx
