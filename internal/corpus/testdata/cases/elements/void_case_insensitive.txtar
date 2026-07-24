@@ -1,0 +1,16 @@
+# HTML tag names are case-insensitive: a mixed-case void tag (lowercase first
+# letter, so still an HTML element in gsx — only an uppercase first letter
+# makes a component tag) must hit the void set. Without folding, <bR/> expanded
+# to <bR></bR>, whose </bR> end tag HTML parsers convert into a SECOND <br>
+# start tag — the exact #144 DOM-corruption class this branch fixes.
+-- input.gsx --
+package views
+
+component MixedCase() {
+	<div><bR/></div>
+}
+-- invoke --
+MixedCase()
+-- diagnostics.golden --
+-- render.golden --
+<div><bR></div>

@@ -1293,7 +1293,8 @@ func hasAttrsMethodSet(t types.Type) bool {
 // expands to `<div></div>` (#144: browsers ignore the slash on non-void
 // elements). Verbatim mode reproduces the authored shape byte-for-byte.
 func emitOpenTagEnd(b *bytes.Buffer, el *ast.Element, verbatim bool, bag *diag.Bag) (complete, ok bool) {
-	if voidElementNames[el.Tag] {
+	isVoid := voidElementNames[strings.ToLower(el.Tag)]
+	if isVoid {
 		if len(el.Children) > 0 {
 			bag.Errorf(el.Pos(), el.End(), "void-children",
 				"void element <%s> cannot have children", el.Tag)

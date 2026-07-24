@@ -262,6 +262,7 @@ diagnostics/shallow_interp_column	diag(error)
 diagnostics/undefined_interp	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
 diagnostics/void_children	diag(error)
+diagnostics/void_children_case	diag(error)
 diagnostics/void_children_spread	diag(error)
 doctype/render	diag render
 dquote-literals/css_attr_backtick_content	diag gen render
@@ -296,6 +297,7 @@ elements/selfclose_svg	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
 elements/void_canonical	diag render
+elements/void_case_insensitive	diag render
 fallthrough/call_site_button	diag(error)
 fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
@@ -934,4 +936,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 936 cases (render: 807, error: 91, gen-pinned: 541)
+TOTAL: 938 cases (render: 808, error: 92, gen-pinned: 541)
