@@ -28,9 +28,12 @@ func isInlineTag(tag string) bool { return inlineTags[strings.ToLower(tag)] }
 // atomDoc renders e as an inline atom: one flat line, no groups, so width
 // pressure can never break it open. ok=false when e is not an atom — wrong
 // tag, author multiline layout (which outranks atom status), a non-inline
-// child, or any forced break in the assembled doc (line-comment attr,
-// CondAttr, multi-line embedded attr value). Inside preserve subtrees text is
-// verbatim (may hold significant newlines), so nothing is an atom there.
+// child, or when the assembled doc has no one-line form. The final gate is
+// pretty.Flat: forced breaks (line-comment attrs, CondAttr, multi-line
+// embedded values) and literal-newline text all disqualify; groups from
+// dynamic attr values (e.g. `href={ … }`) are unwrapped to their flat form so
+// width can never re-break them. Inside preserve subtrees text is verbatim
+// (may hold significant newlines), so nothing is an atom there.
 func (p *printer) atomDoc(e *ast.Element) (pretty.Doc, bool) {
 	if p.preserve || !isInlineTag(e.Tag) || e.TypeArgs != "" ||
 		e.AttrsMultiline || e.ChildrenMultiline {
@@ -64,9 +67,5 @@ func (p *printer) atomDoc(e *ast.Element) (pretty.Doc, bool) {
 		}
 		parts = append(parts, pretty.Text("</"), pretty.Text(e.Tag), pretty.Text(">"))
 	}
-	doc := pretty.Concat(parts...)
-	if pretty.HasForcedBreak(doc) {
-		return pretty.Doc{}, false
-	}
-	return doc, true
+	return pretty.Flat(pretty.Concat(parts...))
 }

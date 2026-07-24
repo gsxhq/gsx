@@ -44,6 +44,8 @@ func TestAtomDoc(t *testing.T) {
 		{`<a href="/d"><code>x</code></a>`, `<a href="/d"><code>x</code></a>`},
 		{`<br/>`, `<br/>`},
 		{`<code>{ v }</code>`, `<code>{ v }</code>`},
+		{`<a href={ u }>x</a>`, `<a href={u}>x</a>`},
+		{`<span class={ cls }>y</span>`, `<span class={ cls }>y</span>`},
 	}
 	for _, c := range atoms {
 		e := firstElement(t, c.src)

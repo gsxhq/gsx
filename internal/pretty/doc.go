@@ -5,7 +5,10 @@
 // markup today; JS and CSS bodies later).
 package pretty
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // kind tags the Doc variant.
 type kind uint8
@@ -97,6 +100,41 @@ func containsForcedBreak(d Doc) bool {
 	}
 }
 
-// HasForcedBreak reports whether d contains a hard break (HardLine or
-// BreakParent) at any depth — i.e. whether d can never render on one line.
-func HasForcedBreak(d Doc) bool { return containsForcedBreak(d) }
+// Flat returns d's one-line form: groups unwrapped, break candidates
+// replaced by their flat text, IfBreak resolved to its flat branch. ok is
+// false when d has no one-line form — it contains a hard break, a
+// BreakParent, or literal newline text — and then the returned Doc is
+// meaningless. For a doc that would fit, printing Flat(d) is byte-identical
+// to printing d.
+func Flat(d Doc) (flat Doc, ok bool) {
+	switch d.kind {
+	case kindText:
+		if strings.ContainsRune(d.text, '\n') {
+			return Doc{}, false
+		}
+		return d, true
+	case kindLine:
+		if d.hard {
+			return Doc{}, false
+		}
+		return Text(d.text), true
+	case kindBreakParent:
+		return Doc{}, false
+	case kindGroup, kindIndent:
+		return Flat(d.parts[0])
+	case kindConcat, kindFill:
+		parts := make([]Doc, 0, len(d.parts))
+		for _, p := range d.parts {
+			f, ok := Flat(p)
+			if !ok {
+				return Doc{}, false
+			}
+			parts = append(parts, f)
+		}
+		return Concat(parts...), true
+	case kindIfBreak:
+		return Flat(d.parts[1]) // flat branch
+	default:
+		return Doc{}, false
+	}
+}
