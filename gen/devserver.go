@@ -145,23 +145,22 @@ func expandEnvRefs(s string, env []string) (string, error) {
 		}
 		b.WriteString(rest[:i])
 		after := rest[i+2:]
-		j := strings.IndexByte(after, '}')
-		if j < 0 {
+		name, tail, ok := strings.Cut(after, "}")
+		if !ok {
 			return "", fmt.Errorf("unterminated %q in %q", rest[i:], s)
 		}
-		name := after[:j]
 		if name == "" {
 			return "", fmt.Errorf("empty %q reference in %q", "${}", s)
 		}
-		v, ok := envLookup(env, name)
-		if !ok {
+		v, set := envLookup(env, name)
+		if !set {
 			return "", fmt.Errorf("unset env var %q referenced in %q", name, s)
 		}
 		if v == "" {
 			return "", fmt.Errorf("env var %q referenced in %q is set but empty", name, s)
 		}
 		b.WriteString(v)
-		rest = after[j+1:]
+		rest = tail
 	}
 	return b.String(), nil
 }
