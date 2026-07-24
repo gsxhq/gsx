@@ -951,12 +951,10 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
-// childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
-// a fragment's `</>`), or a `<?end>` processing instruction closing a
-// MarkerRegion. Exactly one form applies per list.
+// childTerm describes how a child list ends. Today that is a `</tag>` close tag
+// (tag is "" for a fragment's `</>`); Task 4 adds the `<?end>` form.
 type childTerm struct {
-	tag   string
-	piEnd bool
+	tag string
 }
 
 // parseChildrenTerm parses markup children up to the matching terminator
