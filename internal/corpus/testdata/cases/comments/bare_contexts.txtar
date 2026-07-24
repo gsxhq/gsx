@@ -6,13 +6,11 @@
 # they never trip the touches-text rule). Every render is byte-identical to
 # deleting the comment lines.
 #
-# ChildProp's comment is a DIRECT sibling in the MarkupAttr value list on
-# purpose (not nested in a wrapping <div>) — see the // comment above the
-# ChildProp component in input.gsx for why, and do not flatten/nest it
-# without reading that note first. This corpus harness never round-trips
-# through gsxfmt (parse -> generate -> render only), which is the only
-# reason this fmt-corrupting shape is safe to pin here ahead of the Task 4
-# printer fix.
+# ChildProp's comment is nested one level inside a wrapping <div>, NOT a
+# direct MarkupAttr-value sibling — see the // note above ChildProp in
+# input.gsx for why: internal/printer's corpus-wide fmt round-trip property
+# tests currently fail on the flat sibling shape (printer bug, Task 4 fixes
+# it). Do not flatten this without reading that note first.
 -- input.gsx --
 package views
 
@@ -62,22 +60,22 @@ component Slot(header gsx.Node) {
 	<div>{header}</div>
 }
 
-// ChildProp: the comment MUST be a direct sibling inside the MarkupAttr
-// value list (not nested one level deeper inside a wrapping <div>) — only
-// the flat shape below exercises the `case *gsxast.MarkupAttr: check(v.Value)`
-// branch in checkBareComments non-vacuously (a single-element Value list
-// walks trivially and never distinguishes it from any other Element case).
-// This corpus harness is parse -> generate -> render only (no gsxfmt/printer
-// round-trip; see internal/corpus/corpus_test.go, loader.go, codegen.go,
-// batch.go), so the shape is safe here even though `gsx fmt` currently
-// corrupts it (glues onto the prior sibling, reparses as text) — a known
-// printer bug slated for the Task 4 fix. Do NOT run this input through
-// `gsx fmt` by hand, and do not "simplify" this back to a nested shape.
+// ChildProp: the comment is nested inside a wrapping <div> rather than a
+// direct MarkupAttr-value sibling. The flat sibling shape (comment directly
+// between two <span> children of `header={ ... }`) is the shape that
+// meaningfully pins checkBareComments' `case *gsxast.MarkupAttr: check(v.Value)`
+// walk, but internal/printer's corpus-wide fmt round-trip property tests
+// (TestCorpusInputsProperty / TestCorpusFaithfulness) currently fail on it —
+// the printer glues the bare comment onto the prior sibling and reparses it
+// as text. Task 4 fixes the printer and switches this case to the flat form.
+// Do not flatten it before then.
 component ChildProp() {
 	<Slot header={
-		<span>a</span>
-		// child-prop note
-		<span>b</span>
+		<div>
+			<span>a</span>
+			// child-prop note
+			<span>b</span>
+		</div>
 	}/>
 }
 
@@ -129,4 +127,4 @@ gsx.Fragment(
 )
 -- diagnostics.golden --
 -- render.golden --
-<span>a</span><span>b</span><span>a</span><span>b</span><p><span>a</span><span>b</span></p><ul><li>x</li><li>y</li></ul><span><b>x</b><b>y</b></span><div><span>a</span><span>b</span></div><p><div><span>a</span><span>b</span></div></p><p>N</p><p><!-- kept --><!-- kept2 --></p><p></p>
+<span>a</span><span>b</span><span>a</span><span>b</span><p><span>a</span><span>b</span></p><ul><li>x</li><li>y</li></ul><span><b>x</b><b>y</b></span><div><div><span>a</span><span>b</span></div></div><p><div><span>a</span><span>b</span></div></p><p>N</p><p><!-- kept --><!-- kept2 --></p><p></p>
