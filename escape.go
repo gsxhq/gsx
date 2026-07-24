@@ -67,30 +67,68 @@ var imageDataMIMEs = map[string]bool{
 }
 
 // isImageDataURL reports whether s is a data: URL whose MIME is in the image
-// allow-list and which is base64-encoded (the ";base64," marker is required so
-// the payload charset is constrained to [A-Za-z0-9+/=], which cannot carry a
-// scheme break). It parses conservatively: data:<mime>[;param]*;base64,<payload>.
+// allow-list, in one of two accepted encodings (parsed conservatively):
+//
+//   - base64: data:<mime>[;param]*;base64,<payload> — the ";base64," marker
+//     must be the final meta parameter.
+//   - percent-encoded: data:<mime>[;charset=utf-8],<payload> — the RFC 2397
+//     readable authoring form, accepted only when the payload strictly
+//     validates via isPercentSafePayload (printable ASCII, well-formed %XX
+//     escapes). Any other meta parameter rejects.
+//
+// Neither encoding is what makes the value safe here: the guarantees are the
+// image-MIME allow-list plus browsers loading image resource sinks in
+// restricted mode (see imageDataMIMEs), and both apply equally to either
+// payload encoding. The strict payload validation exists to keep the parse
+// conservative, not to constrain what the bytes decode to.
 func isImageDataURL(s string) bool {
 	const prefix = "data:"
 	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {
 		return false
 	}
 	rest := s[len(prefix):]
-	meta, _, ok := strings.Cut(rest, ",") // e.g. "image/png;base64" or "image/svg+xml;base64"
+	meta, payload, ok := strings.Cut(rest, ",") // e.g. "image/png;base64" or "image/svg+xml"
 	if !ok {
 		return false
 	}
-	mimePart, params, ok := strings.Cut(meta, ";")
-	if !ok {
-		return false // no ";base64" marker
-	}
-	mime := strings.ToLower(mimePart)
-	if !imageDataMIMEs[mime] {
+	mimePart, params, hasParams := strings.Cut(meta, ";")
+	if !imageDataMIMEs[strings.ToLower(mimePart)] {
 		return false
 	}
-	// The remaining meta parameters must include base64 as the final token.
-	return strings.EqualFold(params, "base64") ||
-		strings.HasSuffix(strings.ToLower(params), ";base64")
+	if !hasParams {
+		return isPercentSafePayload(payload)
+	}
+	// base64 form: the meta parameters must include base64 as the final token.
+	if strings.EqualFold(params, "base64") ||
+		strings.HasSuffix(strings.ToLower(params), ";base64") {
+		return true
+	}
+	// percent-encoded form: charset=utf-8 is the only permitted parameter.
+	if strings.EqualFold(params, "charset=utf-8") {
+		return isPercentSafePayload(payload)
+	}
+	return false
+}
+
+// isPercentSafePayload reports whether p is a strictly valid percent-encoded
+// data: URL payload: every byte is printable ASCII (0x20–0x7E) and every '%'
+// begins a well-formed two-hex-digit escape. Stray '%', control bytes, and raw
+// non-ASCII bytes reject (non-ASCII content must be percent-encoded).
+func isPercentSafePayload(p string) bool {
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if c == '%' {
+			if i+2 >= len(p) || !isHex(p[i+1]) || !isHex(p[i+2]) {
+				return false
+			}
+			i += 2
+			continue
+		}
+		if c < 0x20 || c > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // urlSanitizeImage is urlSanitize for an image RESOURCE sink: it accepts the

@@ -812,6 +812,7 @@ spread-sanitize/spread_func_bag	diag render
 spread-sanitize/spread_local_bag	diag render
 spread-sanitize/spread_local_bag_img	diag render
 srcset-sanitize/cond_nested_spread	diag gen render
+srcset-sanitize/percent_data_uri	diag render
 srcset-sanitize/spread	diag gen render
 srcset-sanitize/static_expr	diag gen render
 srcset-sanitize/static_fliteral	diag gen render
@@ -880,11 +881,17 @@ tuple/reject_three_value_childprop	diag(error)
 tuple/t_int	diag gen render
 tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
+url/constant_blocked_expr_image	diag render
+url/constant_blocked_expr_nav	diag render
+url/constant_blocked_flit	diag gen render
 url/data_image_href_strict	diag(error)
+url/data_image_percent_invalid_hole	diag render
 url/data_image_script_strict	diag(error)
 url/data_image_string	diag gen render
 url/data_image_svg	diag render
 url/data_image_svg_object_blocked	diag render
+url/data_image_svg_percent	diag gen render
+url/data_image_svg_percent_hole	diag render
 url/data_url_filter	diag gen render
 url/data_url_filter_blocked_mime	diag render
 urlattrs/aliased_gsx_bag	diag gen render
@@ -895,6 +902,7 @@ urlattrs/bag_hx_get	diag gen render
 urlattrs/bag_prefix_forced	diag gen render
 urlattrs/bag_prefix_rule	diag gen render
 urlattrs/bag_rawurl	diag gen render
+urlattrs/bag_src_image_percent	diag render
 urlattrs/bag_src_image_split	diag gen render
 urlattrs/element_custom_rule	diag gen render
 urlattrs/htmx_preset	diag gen render
@@ -936,4 +944,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 938 cases (render: 808, error: 92, gen-pinned: 541)
+TOTAL: 946 cases (render: 816, error: 92, gen-pinned: 543)

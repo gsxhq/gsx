@@ -1,0 +1,36 @@
+# The percent-encoded image data: form passes the SAME tag-aware sink split as
+# the base64 form (bag_src_image_split): accepted when a bag forwards it to an
+# <img src> (image resource sink), rejected on an <a href> (navigational
+# sink) → about:invalid#gsx.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type imgProps struct {
+	Attrs gsx.Attrs
+}
+
+type anchorProps struct {
+	Attrs gsx.Attrs
+}
+
+component Img(p imgProps) {
+	<img { p.Attrs... }/>
+}
+
+component Anchor(p anchorProps) {
+	<a { p.Attrs... }>x</a>
+}
+
+component Page() {
+	<div>
+		<Img p={imgProps{Attrs: gsx.Attrs{{Key: "src", Value: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E"}}}}/>
+		<Anchor p={anchorProps{Attrs: gsx.Attrs{{Key: "href", Value: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E"}}}}/>
+	</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div><img src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E"><a href="about:invalid#gsx">x</a></div>

@@ -3166,6 +3166,73 @@ func emitSpreadCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier
 		goStringSliceLit(srcsetNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
 }
 
+// urlConstantBlocked reports whether the runtime URL sanitizer for method
+// ("URL" or "URLImage") maps val to the blocked sentinel. It routes through
+// the real runtime Writer, so codegen's verdict can never drift from render
+// behavior.
+func urlConstantBlocked(method, val string) bool {
+	var buf bytes.Buffer
+	gw := gsx.W(&buf)
+	switch method {
+	case "URL":
+		gw.URL(val)
+	case "URLImage":
+		gw.URLImage(val)
+	default:
+		return false
+	}
+	return buf.String() == "about:invalid#gsx"
+}
+
+// warnAlwaysBlockedURL emits the always-blocked-constant diagnostic (issue
+// #154): a URL-sink attribute value that is wholly constant at generate time
+// and that the sink's runtime sanitizer maps to about:invalid#gsx would
+// otherwise fail silently as a broken resource in the browser — warn now
+// instead. val must be the complete attribute value. Srcset sinks are skipped
+// (per-candidate semantics, no whole-value verdict).
+func warnAlwaysBlockedURL(bag *diag.Bag, n ast.Node, name, tag, val string) {
+	method := urlWriterMethod(tag, name)
+	if method == "Srcset" || !urlConstantBlocked(method, val) {
+		return
+	}
+	isData := strings.HasPrefix(strings.ToLower(strings.TrimSpace(val)), "data:")
+	var hint string
+	switch {
+	case method == "URLImage" && isData:
+		hint = "use an allow-listed image MIME with a base64 (data:image/png;base64,…) or strictly percent-encoded (data:image/svg+xml,%3C…) payload, or vouch with gsx.RawURL"
+	case method == "URLImage":
+		hint = "allowed schemes here are http/https/mailto/tel or an image data: URL; vouch with gsx.RawURL if this value is intentional"
+	default:
+		hint = "allowed schemes here are http/https/mailto/tel; vouch with gsx.RawURL if this value is intentional"
+	}
+	bag.Report(n.Pos(), n.End(), diag.Warning, "url-always-blocked", "codegen",
+		"constant %s value %s on <%s> always sanitizes to about:invalid#gsx at render time; %s",
+		name, diagQuote(val), tag, hint)
+}
+
+// diagQuote renders an attribute value for a diagnostic message, truncating
+// long values so a large data: payload doesn't swamp the message.
+func diagQuote(val string) string {
+	if len(val) > 60 {
+		return strconv.Quote(val[:57] + "...")
+	}
+	return strconv.Quote(val)
+}
+
+// staticSegmentsValue joins segs' text when the literal is hole-less (every
+// segment is static *ast.Text); ok=false when any hole is present.
+func staticSegmentsValue(segs []ast.Markup) (string, bool) {
+	var sb strings.Builder
+	for _, seg := range segs {
+		txt, ok := seg.(*ast.Text)
+		if !ok {
+			return "", false
+		}
+		sb.WriteString(txt.Value)
+	}
+	return sb.String(), true
+}
+
 // firstSegIsDataURL reports whether the literal's first segment is static text
 // whose value begins (case-insensitively) with the data: scheme — the compile-
 // time signal that an author wrote a data: URL literal.
@@ -3222,6 +3289,15 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			"data: URL literal in attribute %q on <%s> is a navigational/script sink where data: is blocked; use an image sink (<img src>, <video poster>, background) or gsx.RawURL if you have validated it",
 			a.Name, tag)
 		return false
+	}
+	// The remaining always-blocked constants (a non-image data: MIME on an
+	// image sink, a blocked scheme like javascript: on any sink): a hole-less,
+	// unpiped literal is wholly constant, so warn at generate time (issue
+	// #154) instead of failing silently in the browser.
+	if isURL && len(a.Stages) == 0 {
+		if val, ok := staticSegmentsValue(a.Segments); ok {
+			warnAlwaysBlockedURL(bag, a, a.Name, tag, val)
+		}
 	}
 	switch {
 	case len(a.Stages) > 0:
@@ -4523,6 +4599,15 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	if isMetaRefreshContent && isStringLike(t) {
 		fmt.Fprintf(b, "\t\t_gsxgw.RefreshContent(%s)\n", stringLikeExpr(expr, t))
 	} else if cls.Context(a.Name) == attrclass.CtxURL && !isRawURL(t) {
+		// A wholly-constant value this sink always blocks is knowable now:
+		// warn at generate time (issue #154) instead of failing silently in
+		// the browser. A string literal's type is basic string, so no
+		// renderer or (T, error) unwrap can have rewritten it above.
+		if len(a.Stages) == 0 {
+			if val, ok := stringLiteralValue(a.Expr); ok {
+				warnAlwaysBlockedURL(bag, a, a.Name, tag, val)
+			}
+		}
 		// URL context: value must be string-like; sanitize + escape. A gsx.RawURL
 		// value (isRawURL) is the author's vouch — fall through to gw.AttrValue,
 		// which entity-escapes but skips the scheme allow-list.

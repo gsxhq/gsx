@@ -1,0 +1,16 @@
+# A wholly-constant expr value on a navigational URL sink that urlSanitize
+# always blocks is knowable at generate time: warn (the render still fails
+# closed to about:invalid#gsx — the warning converts the silent runtime
+# failure into an actionable message, issue #154).
+-- input.gsx --
+package p
+
+component Bad() {
+	<a href={"javascript:alert(1)"}>x</a>
+}
+-- invoke --
+Bad()
+-- diagnostics.golden --
+4:5: warning: constant href value "javascript:alert(1)" on <a> always sanitizes to about:invalid#gsx at render time; allowed schemes here are http/https/mailto/tel; vouch with gsx.RawURL if this value is intentional
+-- render.golden --
+<a href="about:invalid#gsx">x</a>

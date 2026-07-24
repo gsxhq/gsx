@@ -1,0 +1,14 @@
+# Percent-encoded form, Form A with a string hole: the assembled value is
+# sanitized as a whole at render time and accepted when the payload strictly
+# validates — same runtime path as the base64 hole cases (data_image_svg).
+-- input.gsx --
+package p
+
+component Icon(color string) {
+	<img src=f`data:image/svg+xml,%3Csvg fill='@{color}'%3E%3C/svg%3E` alt="i"/>
+}
+-- invoke --
+Icon("red")
+-- diagnostics.golden --
+-- render.golden --
+<img src="data:image/svg+xml,%3Csvg fill=&#39;red&#39;%3E%3C/svg%3E" alt="i">
