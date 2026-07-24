@@ -79,3 +79,42 @@ func TestSegmentSingleInterpIsEdgeSafe(t *testing.T) {
 		t.Fatal("single Interp is edge-safe so breakable")
 	}
 }
+
+func TestIsSpacingInterp(t *testing.T) {
+	cases := []struct {
+		expr string
+		want bool
+	}{
+		{`" "`, true},
+		{`"  "`, true},
+		{"` `", true},
+		{`""`, false},        // empty renders nothing, not a space
+		{`" x "`, false},     // not only spaces
+		{`"\t"`, false},      // tab is not the idiom
+		{`name`, false},      // not a literal
+		{`" " + " "`, false}, // not a single literal
+	}
+	for _, c := range cases {
+		n := &ast.Interp{Expr: c.expr}
+		if got := isSpacingInterp(n); got != c.want {
+			t.Errorf("isSpacingInterp({%s}) = %v, want %v", c.expr, got, c.want)
+		}
+	}
+	if isSpacingInterp(&ast.Interp{Expr: `" "`, Stages: []ast.PipeStage{{Name: "f"}}}) {
+		t.Error("interp with pipe stages must not be spacing")
+	}
+	if isSpacingInterp(&ast.Text{Value: " "}) {
+		t.Error("Text is not a spacing interp")
+	}
+}
+
+func TestGluedSpacingInterp(t *testing.T) {
+	see := &ast.Text{Value: "see"}
+	sp := &ast.Interp{Expr: `" "`}
+	if !glued(see, sp) {
+		t.Error("spacing interp must glue to its left neighbor")
+	}
+	if glued(sp, see) {
+		t.Error("spacing interp must not glue rightward without a space")
+	}
+}

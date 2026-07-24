@@ -2,6 +2,7 @@ package printer
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -49,9 +50,31 @@ func segmentChildren(nodes []ast.Markup) (segs []segment, breakable bool) {
 	return segs, true
 }
 
-// glued reports whether a significant space binds left and right.
+// glued reports whether a significant space (or the {" "} idiom's left bond)
+// binds left and right onto one line.
 func glued(left, right ast.Markup) bool {
-	return trailsWithSpace(left) || leadsWithSpace(right)
+	return trailsWithSpace(left) || leadsWithSpace(right) || isSpacingInterp(right)
+}
+
+// isSpacingInterp reports whether n is the {" "} spacing idiom: an
+// interpolation of a single Go string literal whose value is only ASCII
+// spaces. Such an interp is layout glue — it bonds to its left neighbor and
+// offers a break after — because its rendered space, unlike a literal space
+// in Text, survives any adjacent line break (wsnorm cannot collapse it).
+func isSpacingInterp(n ast.Markup) bool {
+	i, ok := n.(*ast.Interp)
+	if !ok || len(i.Stages) > 0 {
+		return false
+	}
+	s := strings.TrimSpace(i.Expr)
+	if len(s) < 2 || (s[0] != '"' && s[0] != '`') {
+		return false
+	}
+	v, err := strconv.Unquote(s)
+	if err != nil || v == "" {
+		return false
+	}
+	return strings.Trim(v, " ") == ""
 }
 
 func leadsWithSpace(n ast.Markup) bool {
