@@ -115,10 +115,14 @@ faithfulness and idempotence hold by construction.
 
 ## Non-goals
 
-No wrapping inside atoms. No `{" "}` insertion/materialization by the
-formatter. No attr-value wrapping changes. No syntax change (tree-sitter,
-vscode-gsx, CodeMirror unaffected). No codegen change (semantic corpus goldens
-unaffected).
+No wrapping inside atoms — and "inside" includes the opening tag: an atom
+renders fully flat, attribute list included, so a solo inline element with a
+long dynamic attr stays on one long line (this is decision 1's "fully atomic"
+applied consistently; it also matches the motivating complaint, where
+breaking an `<a>`'s attrs mid-prose was the problem). Attr-value wrapping for
+non-atom elements is unchanged. No `{" "}` insertion/materialization by the
+formatter. No syntax change (tree-sitter, vscode-gsx, CodeMirror unaffected).
+No codegen change (semantic corpus goldens unaffected).
 
 ## Testing
 
