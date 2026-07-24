@@ -1,0 +1,109 @@
+Author breaks adjacent to markup are never joined (spec amendment
+2026-07-24b): a line break the source places before an element/interp sibling
+(LeadingBreak) or after a `case …:`/`default:` colon (BodyMultiline) is
+preserved in every markup-list context, while the same content written inline
+stays inline. Prose word-wrap points are the one author break the formatter
+does NOT keep — word-gap-wrap.txtar pins that reflow.
+
+-- input.gsx --
+package p
+
+component SiblingsStayPerLine() {
+	<div>
+		<img src="/a.png" alt="a"/>
+		<br/>
+		<input type="text"/>
+	</div>
+}
+
+component SiblingsStayInline() {
+	<div><em>a</em><em>b</em></div>
+}
+
+component SwitchArmsStayPerLine(kind string) {
+	<span>
+		{ switch kind {
+			case "warn":
+				<b>warning</b>
+				<br/>
+			case "err":
+				<b>error</b>
+			default:
+				<b>info</b>
+		} }
+	</span>
+}
+
+component SwitchArmsStayInline(kind string) {
+	<span>
+		{ switch kind {
+			case "warn":<b>warning</b>
+			default:<b>info</b>
+		} }
+	</span>
+}
+
+component IfBodySiblingsStayPerLine(ok bool) {
+	<div>
+		{ if ok {
+			<b>a</b>
+			<b>b</b>
+		} }
+	</div>
+}
+
+component TopLevelSiblingsStayPerLine() {
+	<br/>
+	<hr/>
+}
+-- fmt.golden --
+package p
+
+component SiblingsStayPerLine() {
+	<div>
+		<img src="/a.png" alt="a"/>
+		<br/>
+		<input type="text"/>
+	</div>
+}
+
+component SiblingsStayInline() {
+	<div><em>a</em><em>b</em></div>
+}
+
+component SwitchArmsStayPerLine(kind string) {
+	<span>
+		{ switch kind {
+			case "warn":
+				<b>warning</b>
+				<br/>
+			case "err":
+				<b>error</b>
+			default:
+				<b>info</b>
+		} }
+	</span>
+}
+
+component SwitchArmsStayInline(kind string) {
+	<span>
+		{ switch kind {
+			case "warn":<b>warning</b>
+			default:<b>info</b>
+		} }
+	</span>
+}
+
+component IfBodySiblingsStayPerLine(ok bool) {
+	<div>
+		{ if ok {
+			<b>a</b>
+			<b>b</b>
+		} }
+	</div>
+}
+
+component TopLevelSiblingsStayPerLine() {
+	<br/>
+	<hr/>
+}
