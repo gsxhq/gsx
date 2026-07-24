@@ -104,6 +104,8 @@ var astZeroValueTypes = map[string]reflect.Type{
 	"GoWithElements":   reflect.TypeFor[ast.GoWithElements](),
 	"Component":        reflect.TypeFor[ast.Component](),
 	"Element":          reflect.TypeFor[ast.Element](),
+	"Marker":           reflect.TypeFor[ast.Marker](),
+	"MarkerRegion":     reflect.TypeFor[ast.MarkerRegion](),
 	"Fragment":         reflect.TypeFor[ast.Fragment](),
 	"Text":             reflect.TypeFor[ast.Text](),
 	"Doctype":          reflect.TypeFor[ast.Doctype](),

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/token"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -114,6 +115,32 @@ func TestHTMLMarkupNodes(t *testing.T) {
 	want := []string{"*ast.Element", "*ast.Doctype", "*ast.HTMLComment"}
 	if !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("Inspect order:\n got %v\nwant %v", kinds, want)
+	}
+}
+
+// TestInspectWalksMarkerRegion proves MarkerRegion is not a leaf: Inspect must
+// walk its Name attribute and Children, unlike the true-leaf Doctype/HTMLComment
+// processing instructions above.
+func TestInspectWalksMarkerRegion(t *testing.T) {
+	region := &MarkerRegion{
+		Name:     &StaticAttr{Name: "name", Value: "feed"},
+		Children: []Markup{&Text{Value: "hi"}},
+	}
+	var seen []string
+	Inspect(region, func(n Node) bool {
+		switch n.(type) {
+		case *MarkerRegion:
+			seen = append(seen, "region")
+		case *StaticAttr:
+			seen = append(seen, "name")
+		case *Text:
+			seen = append(seen, "text")
+		}
+		return true
+	})
+	want := []string{"region", "name", "text"}
+	if !slices.Equal(seen, want) {
+		t.Fatalf("Inspect visited %v, want %v", seen, want)
 	}
 }
 

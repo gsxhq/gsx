@@ -63,6 +63,29 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 				return err
 			}
 		}
+	case *Marker:
+		if _, err := fmt.Fprintf(w, "%sMarker\n", indent); err != nil {
+			return err
+		}
+		if n.Name != nil {
+			if err := fprintNode(w, n.Name, depth+1); err != nil {
+				return err
+			}
+		}
+	case *MarkerRegion:
+		if _, err := fmt.Fprintf(w, "%sMarkerRegion\n", indent); err != nil {
+			return err
+		}
+		if n.Name != nil {
+			if err := fprintNode(w, n.Name, depth+1); err != nil {
+				return err
+			}
+		}
+		for _, c := range n.Children {
+			if err := fprintNode(w, c, depth+1); err != nil {
+				return err
+			}
+		}
 	case *Fragment:
 		if _, err := fmt.Fprintf(w, "%sFragment\n", indent); err != nil {
 			return err

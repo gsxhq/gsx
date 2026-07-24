@@ -77,6 +77,19 @@ func cloneMarkup(m Markup) Markup {
 		n.Attrs = cloneAttrs(v.Attrs)
 		n.Children = cloneMarkups(v.Children)
 		return &n
+	case *Marker:
+		n := *v
+		if v.Name != nil {
+			n.Name = cloneAttr(v.Name)
+		}
+		return &n
+	case *MarkerRegion:
+		n := *v
+		if v.Name != nil {
+			n.Name = cloneAttr(v.Name)
+		}
+		n.Children = cloneMarkups(v.Children)
+		return &n
 	case *Fragment:
 		n := *v
 		n.Children = cloneMarkups(v.Children)
