@@ -7,12 +7,15 @@ Comment syntax depends on where the comment appears.
 | Position | Source-only | Rendered |
 |---|---|---|
 | Inside a tag | `// …`, `/* … */`, `{/* … */}`, `{// … }` | — |
-| Between child nodes | `{/* … */}`, `{// … }` | `<!-- … -->` |
+| Between child nodes | `// …` (line start), `{/* … */}`, `{// … }` | `<!-- … -->` |
 | Outside markup | `// …`, `/* … */` | — |
 
 :::
 
-Bare `//` or `/* */` between child nodes is text, not a comment, and is rendered.
+A line that starts with `//` between child nodes is a source-only comment. It
+may not touch text content — next to a text line it is a compile error; use
+`{// …}` to comment or `{"// …"}` to render the slashes. Mid-line `//` is
+always literal text, and inside `pre`/`textarea` every `//` renders verbatim.
 
 ## HTML comments
 
@@ -33,6 +36,8 @@ Use a braced comment between child nodes when the note should stay in source wit
 <!--@include: ./_generated/comments/030-content-comments.md-->
 
 Both `{/* … */}` and `{// … }` are source-only in child content.
+
+<!--@include: ./_generated/comments/035-bare-line-comments.md-->
 
 ## Go comments outside markup
 

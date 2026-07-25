@@ -48,6 +48,12 @@
     "invoke": "Note()"
   },
   {
+    "name": "Bare line comments",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Nav() {\n\t<nav>\n\t\t<a href=\"/\">Home</a>\n\t\t// hidden from the HTML\n\t\t<a href=\"/about\">About</a>\n\t</nav>\n}\n",
+    "invoke": "Nav()"
+  },
+  {
     "name": "Field access",
     "category": "Basics",
     "source": "package views\n\ntype User struct {\n\tName string\n\tAge  int\n}\n\ncomponent Profile(user User) {\n\t<p>{ user.Name } is { user.Age }</p>\n}\n",

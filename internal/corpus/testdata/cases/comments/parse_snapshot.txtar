@@ -1,6 +1,8 @@
 # Parser snapshot: source comments become CommentAttr (attribute position) and
-# Comment (content position) nodes. Bare // in text content is literal Text, not
-# a comment. Braced {/* */} in attribute position also parses to CommentAttr.
+# Comment (content position) nodes. A mid-line // (not at line start) in text
+# content is literal Text, not a comment. Braced {/* */} in attribute position
+# also parses to CommentAttr. A genuine line-start `//` parses to a bare
+# Comment (Bare=true), distinct from the braced `{// line }` form (Bare=false).
 -- input.gsx --
 package p
 
@@ -14,6 +16,11 @@ component Doc(name string) {
 	/>
 	<p>{/* block */}Visible{// line
 	}text // literal</p>
+	<div>
+		<span>a</span>
+		// bare note
+		<span>b</span>
+	</div>
 }
 -- diagnostics.golden --
 -- ast.golden --
@@ -27,7 +34,17 @@ File package=p
       CommentAttr block=true trailing=false text="block note"
       CommentAttr block=true trailing=false text="braced note"
     Element tag=p void=false
-      Comment block=true text="block"
+      Comment block=true bare=false text="block"
       Text value="Visible"
-      Comment block=false text="line"
+      Comment block=false bare=false text="line"
       Text value="text // literal"
+    Element tag=div void=false
+      Text value="\n\t\t"
+      Element tag=span void=false
+        Text value="a"
+      Text value="\n\t\t"
+      Comment block=false bare=true text="bare note"
+      Text value="\n\t\t"
+      Element tag=span void=false
+        Text value="b"
+      Text value="\n\t"

@@ -571,6 +571,22 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 			return doc
 		}
 		return pretty.Text(attrInline(a))
+	case *ast.MarkupAttr:
+		// A child-prop slot value is a real children list, so it goes through the
+		// same breakable joiner as element children rather than being flattened to
+		// a single inline string. That is what lets a child's BreakParent — most
+		// importantly a bare `//` line comment, which must own its line — force the
+		// slot open and land each sibling on its own indented line, instead of
+		// gluing onto the prior sibling and reparsing as text.
+		inner, breakable := p.childrenInner(v.Value)
+		if !breakable {
+			// Empty or edge-unsafe value: keep the canonical inline padding so a
+			// significant leading/trailing space is never absorbed by a break.
+			return pretty.Concat(pretty.Text(v.Name), pretty.Text("={ "), inner, pretty.Text(" }"))
+		}
+		// Breakable: flat → `name={ value }`; broken (width overflow or a child's
+		// BreakParent) → `name={` / value indented one level / `}`.
+		return wrapAttrValue(v.Name, pretty.Line, inner)
 	default:
 		return pretty.Text(attrInline(a))
 	}
@@ -731,6 +747,17 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 	case *ast.HTMLComment:
 		return pretty.Concat(pretty.Text("<!--"), pretty.Text(v.Text), pretty.Text("-->"))
 	case *ast.Comment:
+		if v.Bare {
+			// Bare `//` line comment: must own its source line — printed
+			// mid-line it would reparse as text. BreakParent forces the
+			// enclosing children group to break so the line joiner puts it
+			// (and the following sibling) on fresh lines. An empty comment is
+			// bare `//` with no trailing space (nothing to pad).
+			if v.Text == "" {
+				return pretty.Concat(pretty.Text("//"), pretty.BreakParent)
+			}
+			return pretty.Concat(pretty.Text("// "), pretty.Text(v.Text), pretty.BreakParent)
+		}
 		// Source-only content comment; canonical braced form. The `{// text }`
 		// line form is safe on one line here — the printer controls layout, so
 		// nothing after `}` is on the comment's line to be swallowed.
@@ -1186,10 +1213,16 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		}
 		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}
-	return pretty.Concat(
+	// Wrap in a Group like ifMarkup/forMarkup do: the HardLines make it forced,
+	// so the switch establishes its own break mode. Without this, a switch placed
+	// as the sole element of a parent Fill inherits modeFlat (the Fill's fits()
+	// check short-circuits at the first HardLine), which would collapse the soft
+	// gaps between a case body's segments — e.g. packing a bare `//` comment onto
+	// a sibling's line, where it reparses as text.
+	return pretty.Group(pretty.Concat(
 		pretty.Concat(head...),
 		pretty.Indent(pretty.Concat(caseParts...)),
-		pretty.HardLine, pretty.Text("} }"))
+		pretty.HardLine, pretty.Text("} }")))
 }
 
 // switchHasEdgeUnsafeArm reports whether any arm body would lose a significant

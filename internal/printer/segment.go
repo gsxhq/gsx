@@ -116,6 +116,15 @@ func (p *printer) blockLevel(n ast.Markup) bool {
 		_, atom := p.atomDoc(e)
 		return !atom
 	}
+	if c, ok := n.(*ast.Comment); ok {
+		// A bare `//` line comment must own its output line: printed mid-line it
+		// reparses as literal text (source corruption), and the own-line
+		// invariant requires a break on both sides. Treating it as block-level
+		// excludes it from fill runs and splits any packable sibling sequence at
+		// its boundaries. The braced `{// … }`/`{/* … */}` forms are brace-
+		// delimited, safe on a shared line, and stay inline (unchanged from #165).
+		return c.Bare
+	}
 	switch n.(type) {
 	case *ast.Fragment, *ast.IfMarkup, *ast.ForMarkup, *ast.SwitchMarkup,
 		*ast.GoBlock, *ast.Doctype, *ast.HTMLComment:
