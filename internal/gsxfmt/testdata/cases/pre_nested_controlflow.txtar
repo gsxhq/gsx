@@ -46,10 +46,10 @@ mid
 		<span>{ l }</span>
 	} }</pre>
 	<pre>{ switch len(lines) {
-		case 0:
-			<i>empty</i>
-		default:
-			<i>a</i>
+	case 0:
+		<i>empty</i>
+	default:
+		<i>a</i>
 raw
 <i>b</i>
 	} }</pre>

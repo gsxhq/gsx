@@ -74,11 +74,15 @@ func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 // child content: the next two bytes are slashes and every byte between the
 // previous newline (or file start) and the cursor is space, tab, or CR.
 // Suppressed inside pre/textarea subtrees, whose text is verbatim.
-func (p *parser) atBareContentComment() bool {
-	if p.preserveDepth > 0 || !p.at("//") {
+func (p *parser) atBareContentComment() bool { return p.atBareContentCommentAt(p.i) }
+
+// atBareContentCommentAt is atBareContentComment at an arbitrary offset, so a
+// text scanner can test a position it has not moved the cursor to yet.
+func (p *parser) atBareContentCommentAt(off int) bool {
+	if p.preserveDepth > 0 || !strings.HasPrefix(p.src[off:], "//") {
 		return false
 	}
-	for j := p.i - 1; j >= 0; j-- {
+	for j := off - 1; j >= 0; j-- {
 		switch p.src[j] {
 		case ' ', '\t', '\r':
 		case '\n':
@@ -255,11 +259,17 @@ func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
 // not followed by a Go identifier rune (so `else` matches but `elsewhere` and
 // `elseπ` do not).
 func (p *parser) atWord(w string) bool {
-	if !p.at(w) {
+	return atWordAt(p.src, p.i, w)
+}
+
+// atWordAt is atWord's free-function counterpart for scanning at an arbitrary
+// offset rather than the parser's own cursor (used by the case-body label
+// lookahead in caseBodyLabelStart, which probes ahead of p.i).
+func atWordAt(src string, i int, w string) bool {
+	if !strings.HasPrefix(src[i:], w) {
 		return false
 	}
-	next := p.i + len(w)
-	return !goIdentifierContinueAt(p.src, next)
+	return !goIdentifierContinueAt(src, i+len(w))
 }
 
 // braceKeyword returns the leading control-flow keyword ("if", "for", "switch")
@@ -605,9 +615,119 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
 		default:
-			nodes = append(nodes, p.parseTextCtx(true))
+			nodes = append(nodes, p.parseCaseBodyText())
 		}
 	}
+}
+
+// parseCaseBodyText consumes literal text within a `case`/`default` arm body.
+// It is a case-body-specific variant of parseTextCtx(true): besides the same
+// '<'/'{'/'}' terminators, it also stops at a line-start valid arm label (see
+// caseBodyTextEnd) — the fix for the defect where a text-ending arm swallowed
+// the next case/default label. The check is kept out of parseTextCtx itself
+// (the common text scanner run over every text node in the file, including
+// element children and if/for bodies, which have no case/default terminators
+// of their own) so that hot path pays nothing for it.
+func (p *parser) parseCaseBodyText() *ast.Text {
+	start := p.i
+	startPos := p.posAt(start)
+	p.i = p.caseBodyTextEnd(start)
+	n := &ast.Text{Value: p.src[start:p.i]}
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n
+}
+
+// caseBodyTextEnd returns the byte offset in src where a case-body text run
+// starting at `start` must end: '<', '{', '}' (mirroring parseTextCtx(true)),
+// or the start of a trailing-whitespace run that leads to a line-start valid
+// arm label. In the label case the stop point is BEFORE that whitespace, not
+// at the label itself: parseCaseBody's top-of-loop skipSpace+terminator check
+// then consumes it exactly as it already does at a node boundary, so the
+// label is recognized identically whether it follows text or an element.
+func (p *parser) caseBodyTextEnd(start int) int {
+	src := p.src
+	i := start
+	for i < len(src) {
+		switch src[i] {
+		case '<', '{', '}':
+			return i
+		case '/':
+			// A line-start `//` content comment ends the run exactly as it does
+			// in parseTextCtx: the run stops AT the slashes (their leading
+			// whitespace stays in this text node) so parseCaseBody's next
+			// iteration dispatches it as a Comment. Without this, an arm's text
+			// swallowed the comment — the same defect class as the arm label.
+			if p.atBareContentCommentAt(i) {
+				return i
+			}
+		case ' ', '\t', '\r', '\n':
+			if i == start || !isCaseBodySpace(src[i-1]) {
+				if caseBodyLabelAfterWS(src, i) {
+					return i
+				}
+			}
+		}
+		i++
+	}
+	return i
+}
+
+func isCaseBodySpace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\r', '\n':
+		return true
+	}
+	return false
+}
+
+// caseBodyLabelAfterWS reports whether the whitespace run in src starting at
+// off (src[off] is itself whitespace) crosses at least one line break and,
+// once fully skipped, reaches a valid case/default arm label — i.e. the label
+// begins its own physical line (the design's line-start rule). A whitespace
+// run that never crosses a newline is same-line spacing and never a label
+// boundary, regardless of what follows it.
+func caseBodyLabelAfterWS(src string, off int) bool {
+	sawNewline := false
+	j := off
+	for j < len(src) {
+		switch src[j] {
+		case '\n', '\r':
+			sawNewline = true
+			j++
+			continue
+		case ' ', '\t':
+			j++
+			continue
+		}
+		break
+	}
+	return sawNewline && j < len(src) && caseBodyLabelStart(src, j)
+}
+
+// caseBodyLabelStart reports whether src at offset i begins a valid switch
+// arm label per parseCaseClause's own grammar: `default`, optionally followed
+// by whitespace, then `:`; or `case` followed by a list terminated by a `:`
+// found via scanToCaseColonBounded — the same string/rune-aware colon scan
+// parseCaseClause uses (scanToCaseColon), but bounded to the keyword's own
+// physical line since this call is SPECULATIVE (see scanToCaseColonBounded):
+// unlike parseCaseClause's committed scan, this one runs for every "case"-
+// leading word candidate in ordinary case-body prose, so it must not pay for
+// scanning to EOF. `case "a:b":` is still recognized correctly since the
+// colon is on the same line. It does not check line position; callers
+// (caseBodyLabelAfterWS) gate that separately.
+func caseBodyLabelStart(src string, i int) bool {
+	if atWordAt(src, i, "default") {
+		j := i + len("default")
+		for j < len(src) && isCaseBodySpace(src[j]) {
+			j++
+		}
+		return j < len(src) && src[j] == ':'
+	}
+	if atWordAt(src, i, "case") {
+		_, ok := scanToCaseColonBounded(src, i+len("case"))
+		return ok
+	}
+	return false
 }
 
 // parseBraceNode dispatches a `{`-leading construct in a child/markup context.

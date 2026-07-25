@@ -24,6 +24,8 @@ A `switch` block renders the matching `case`, or `default` when no case matches.
 
 Cases use normal Go syntax, including comma-separated values.
 
+Text at the start of its own line inside a case body is read as the next arm's label if it looks like one (`case <expr>:` or `default:`, colon on the same line) — mid-line text is unaffected, and a line-leading `case 1:` compiles silently as a new arm, so wrap such text in an interpolation (e.g. `{"default: 5"}`) or an element to render it literally. A label whose case list spans lines is only recognized when it follows markup, not text — keep arm labels on one line.
+
 ## Init statements
 
 An `if` can declare values before its condition. Those values remain in scope through every branch, which is useful for checking a result and its error together.

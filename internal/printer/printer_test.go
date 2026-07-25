@@ -2,6 +2,7 @@ package printer
 
 import (
 	"bytes"
+	"fmt"
 	"go/token"
 	"reflect"
 	"strings"
@@ -613,10 +614,10 @@ component C() {
 component C() {
 	<div>
 		{ switch kind {
-			case "a":
-				<p>A</p>
-			default:
-				<p>D</p>
+		case "a":
+			<p>A</p>
+		default:
+			<p>D</p>
 		} }
 	</div>
 }
@@ -1634,15 +1635,48 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-			case "warn":
-				<b>warning</b>
-			case "info":
-				<i>info</i>
+		case "warn":
+			<b>warning</b>
+		case "info":
+			<i>info</i>
 		} }
 	</div>
 }
 `
 	checkFormat(t, src, want)
+}
+
+// TestSwitchCaseAlignsWithSwitch pins the gofmt-style arm alignment: `case`/
+// `default` labels sit at the `{ switch` line's level, bodies one deeper.
+// Markup switch is Go syntax with Go case expressions, so it indents like the
+// same switch written in an attribute expression (which gofmt aligns) rather
+// than like a JavaScript switch (which prettier, and our brace-depth reindent
+// of js`/<script> bodies, put one level deeper).
+func TestSwitchCaseAlignsWithSwitch(t *testing.T) {
+	src := `package p
+component C(kind string) {
+	<div>
+		{ switch kind {
+		case "warn":
+			<b>warning</b>
+		default:
+			<i>info</i>
+		} }
+	</div>
+}`
+	checkFormat(t, src, `package p
+
+component C(kind string) {
+	<div>
+		{ switch kind {
+		case "warn":
+			<b>warning</b>
+		default:
+			<i>info</i>
+		} }
+	</div>
+}
+`)
 }
 
 // TestSwitchArmBodyStaysInlineWhenAuthorInline is the inline counterpart: a
@@ -1665,8 +1699,8 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-			case "warn":<b>w</b>
-			case "info":<i>i</i>
+		case "warn": <b>w</b>
+		case "info": <i>i</i>
 		} }
 	</div>
 }
@@ -1792,7 +1826,7 @@ component C(kind string) {
 		} }
 	</div>
 }`
-	want := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":\n\t\t\t\t<b>w</b>\n\t\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\":\n\t\t\t<b>w</b>\n\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1800,6 +1834,186 @@ component C(kind string) {
 // counterpart: siblings written on the same line as the colon, with no break
 // between them either, all stay glued on the arm's one line.
 func TestCaseArmInteriorSiblingStaysInlineWhenAuthorInline(t *testing.T) {
-	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":<b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
+	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\": <b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, src)
+}
+
+// --- 2026-07-25 amendment: the formatter must not create case labels ---
+//
+// switchArmCount parses src and returns the number of Cases in the first
+// SwitchMarkup found in decl "C"'s body (searching one level into Element
+// children, enough for these tests' `<div>{ switch ... } }</div>` shape).
+func switchArmCount(t *testing.T, src string) int {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "count.gsx", src, 0)
+	if err != nil {
+		t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
+	}
+	var find func(nodes []ast.Markup) *ast.SwitchMarkup
+	find = func(nodes []ast.Markup) *ast.SwitchMarkup {
+		for _, n := range nodes {
+			switch v := n.(type) {
+			case *ast.SwitchMarkup:
+				return v
+			case *ast.Element:
+				if s := find(v.Children); s != nil {
+					return s
+				}
+			}
+		}
+		return nil
+	}
+	for _, d := range f.Decls {
+		c, ok := d.(*ast.Component)
+		if !ok {
+			continue
+		}
+		if s := find(c.Body); s != nil {
+			return len(s.Cases)
+		}
+	}
+	t.Fatalf("no SwitchMarkup found\nsrc:\n%s", src)
+	return 0
+}
+
+// proseWrapCaseSource builds a switch with exactly two real arms — `case
+// "a":` and `default:` — where the "a" arm's body is n bare "x" words
+// followed by a bare occurrence of keyword (either "case 1: nope" or
+// "default: wins"), all on one physical source line. Neither occurrence is a
+// real label: "case 1: nope" isn't at line start in the source, and there is
+// already a real `default:` arm later, so a naive parse producing a THIRD arm
+// here would itself be a bug distinct from the ones under test — switchArmCount
+// on the UNFORMATTED src is asserted to be 2 by the caller.
+func proseWrapCaseSource(n int, keyword string) string {
+	words := make([]string, n)
+	for i := range words {
+		words[i] = "x"
+	}
+	prose := strings.Join(words, " ")
+	var tail string
+	if keyword == "case" {
+		tail = "case 1: nope"
+	} else {
+		tail = "default: wins"
+	}
+	return "package views\n\ncomponent C(k string) {\n\t<div>{ switch k {\n\tcase \"a\":\n\t\t" +
+		prose + " " + tail + "\n\tdefault:\n\t\t<i>y</i>\n\t} }</div>\n}\n"
+}
+
+// assertFormatNeverCreatesLabel is the shared TDD assertion for both repro
+// shapes (c112: mid-line "case 1:"; d108: mid-line "default:"): formatting
+// must not change the arm count, and — since a bond only forbids a break, it
+// never changes the render — the formatted output must re-format to a
+// byte-identical fixed point (idempotence), matching checkFormat elsewhere.
+func assertFormatNeverCreatesLabel(t *testing.T, n int, keyword string) {
+	t.Helper()
+	src := proseWrapCaseSource(n, keyword)
+	if got := switchArmCount(t, src); got != 2 {
+		t.Fatalf("n=%d keyword=%s: fixture itself has %d arms, want 2 (bad fixture)", n, keyword, got)
+	}
+	formatted := fmtSource(t, src)
+	if got := switchArmCount(t, formatted); got != 2 {
+		t.Errorf("n=%d keyword=%s: gsx fmt changed the arm count to %d (formatter created a label)\n--- formatted ---\n%s",
+			n, keyword, got, formatted)
+	}
+	again := fmtSource(t, formatted)
+	if again != formatted {
+		t.Errorf("n=%d keyword=%s: fmt is not idempotent\n--- pass1 ---\n%s\n--- pass2 ---\n%s", n, keyword, formatted, again)
+	}
+}
+
+// TestCaseBodyProseWrapNeverCreatesCaseLabel is c112's exact repro (2026-07-25
+// finding 1): before the fix, gsx fmt's word-gap fill could wrap this arm's
+// prose so "case 1:" landed as the first word on a line, and the parser's
+// line-start rule (ff121de6) then read it as a real arm label — silently
+// changing the render with no diagnostic. n=36 is one of the exact word
+// counts where fmtSource's width (80, matching the fmt corpus) forces a wrap
+// right at that boundary (see TestCaseBodyProseWrapNeverCreatesLabelSweep for
+// the full range this was found in).
+func TestCaseBodyProseWrapNeverCreatesCaseLabel(t *testing.T) {
+	assertFormatNeverCreatesLabel(t, 36, "case")
+}
+
+// TestCaseBodyProseWrapNeverCreatesDefaultLabel is d108's exact repro: the
+// "default:" variant, which additionally made `gsx generate` fail outright
+// ("multiple defaults") since the source already had a real default arm.
+// n=34 is the analogous exact-boundary word count for this keyword's length.
+func TestCaseBodyProseWrapNeverCreatesDefaultLabel(t *testing.T) {
+	assertFormatNeverCreatesLabel(t, 34, "default")
+}
+
+// TestCaseBodyProseWrapNeverCreatesLabelSweep is the reviewer-requested sweep:
+// varying prose length across the wrap boundary rather than pinning one
+// length (the adversarial review found 12 of 84 lengths broke — a single
+// length is not enough coverage for a greedy word-wrap interaction). Covers
+// both keywords over two wrap cycles' worth of lengths.
+func TestCaseBodyProseWrapNeverCreatesLabelSweep(t *testing.T) {
+	for _, keyword := range []string{"case", "default"} {
+		for n := 1; n <= 100; n++ {
+			t.Run(fmt.Sprintf("%s/n=%d", keyword, n), func(t *testing.T) {
+				assertFormatNeverCreatesLabel(t, n, keyword)
+			})
+		}
+	}
+}
+
+// TestCaseBodySegmentBoundaryNeverCreatesLabel exercises childrenInner's
+// per-segment ("block-list") layout path rather than fillParts' single Fill:
+// a block-level sibling (<div>, not an inline atom) elsewhere in the arm
+// forces childrenInner into the segment-per-line branch, where the prose
+// wraps inside its OWN per-segment Fill call — the same fillParts function,
+// just invoked with one segment's nodes instead of the whole list, so it must
+// honor the same bond. The extra <div> sibling shifts available width, so the
+// exact breaking word counts differ from the plain-prose sweep above (probed
+// separately); this sweeps its own range rather than assuming a shared n.
+func TestCaseBodySegmentBoundaryNeverCreatesLabel(t *testing.T) {
+	for n := 1; n <= 100; n++ {
+		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+			words := make([]string, n)
+			for i := range words {
+				words[i] = "x"
+			}
+			prose := strings.Join(words, " ")
+			src := "package views\n\ncomponent C(k string) {\n\t<div>{ switch k {\n\tcase \"a\":\n\t\t<div>y</div>\n\t\t" +
+				prose + " default: wins\n\tdefault:\n\t\t<i>z</i>\n\t} }</div>\n}\n"
+			if got := switchArmCount(t, src); got != 2 {
+				t.Fatalf("fixture itself has %d arms, want 2 (bad fixture)", got)
+			}
+			formatted := fmtSource(t, src)
+			if got := switchArmCount(t, formatted); got != 2 {
+				t.Errorf("gsx fmt changed the arm count to %d (formatter created a label)\n--- formatted ---\n%s", got, formatted)
+			}
+		})
+	}
+}
+
+// TestCaseBodyBondDoesNotLeakIntoElementChildren pins the scoping half of the
+// fix: an element's OWN children are parsed by parseElementChildren's
+// ordinary text scanner, which has no case/default label concept at all (see
+// caseBodyLeadingWord's probe in the design doc) — a line-start "default:"
+// there is just text. The printer must still be free to wrap ordinary prose
+// at word gaps inside such a nested element, even though it sits directly
+// inside a case body's arm: if the case-body bond leaked into element()'s own
+// recursion, this element's long prose would never wrap and the test would
+// need a width no line here can exceed. Asserts only that formatting succeeds
+// and is idempotent (byte-for-byte word-wrap position is not the contract);
+// the real regression this guards is the bond incorrectly narrowing where
+// text is even allowed to wrap.
+func TestCaseBodyBondDoesNotLeakIntoElementChildren(t *testing.T) {
+	words := make([]string, 40)
+	for i := range words {
+		words[i] = "x"
+	}
+	prose := strings.Join(words, " ")
+	src := "package views\n\ncomponent C(k string) {\n\t<div>{ switch k {\n\tcase \"a\":\n\t\t<p>" +
+		prose + " default: wins</p>\n\tdefault:\n\t\t<i>y</i>\n\t} }</div>\n}\n"
+	formatted := fmtSource(t, src)
+	again := fmtSource(t, formatted)
+	if again != formatted {
+		t.Errorf("fmt is not idempotent\n--- pass1 ---\n%s\n--- pass2 ---\n%s", formatted, again)
+	}
+	if !strings.Contains(formatted, "default: wins") {
+		t.Errorf("element-child prose was altered, want \"default: wins\" preserved verbatim somewhere\n%s", formatted)
+	}
 }

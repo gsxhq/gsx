@@ -323,8 +323,40 @@ func blockHeaderParses(header string) bool {
 // offset 0 — so markup prose before the case list (e.g. an earlier case body
 // with an apostrophe) is never tokenized and cannot desync the scanner. ok is
 // false if no such ':' is found.
+//
+// This is the COMMITTED scan: parseCaseClause has already decided (via the
+// node-boundary terminator check in parseCaseBody) that it is parsing a real
+// `case` arm, so scanning to EOF looking for the list's ':' is correct and
+// unbounded on purpose.
 func scanToCaseColon(src string, from int) (int, bool) {
-	sub := src[from:]
+	return scanToCaseColonIn(src, from, len(src))
+}
+
+// scanToCaseColonBounded is scanToCaseColon's SPECULATIVE counterpart, used
+// only by caseBodyLabelStart's case-body label lookahead (a candidate word
+// that might just be prose). It bounds the scan to the keyword's own physical
+// line — the end of `src[from:]`'s first line, or EOF if the line is last.
+//
+// A markup arm label is always single-line (the formatter emits it that way,
+// and hand-written source doing otherwise is not a label anyone intends), so
+// this bound costs nothing real. It is load-bearing for more than tidiness:
+// unbounded lookahead here tokenized to EOF per candidate "case"/"default"
+// word in ordinary prose — an ~800x quadratic blowup on case-leading prose
+// (found probing a 4000-line file: 2.3ms -> 1.84s) — and it could walk past
+// the current arm or even the current switch to find an unrelated ':'.
+func scanToCaseColonBounded(src string, from int) (int, bool) {
+	limit := len(src)
+	if nl := strings.IndexAny(src[from:], "\n\r"); nl >= 0 {
+		limit = from + nl
+	}
+	return scanToCaseColonIn(src, from, limit)
+}
+
+// scanToCaseColonIn is scanToCaseColon/scanToCaseColonBounded's shared
+// implementation: it scans Go tokens over src[from:to] only, so a bounded
+// caller never pays for tokenizing past `to`.
+func scanToCaseColonIn(src string, from, to int) (int, bool) {
+	sub := src[from:to]
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(sub))
 	var s scanner.Scanner

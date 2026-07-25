@@ -63,12 +63,12 @@ component IfBody(n int) {
 component CaseBody(kind string) {
 	<span>
 		{ switch kind {
-			case "a":
-				<b>x</b>
-				// case body note
-				<b>y</b>
-			default:
-				<b>z</b>
+		case "a":
+			<b>x</b>
+			// case body note
+			<b>y</b>
+		default:
+			<b>z</b>
 		} }
 	</span>
 }

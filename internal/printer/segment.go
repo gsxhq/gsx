@@ -164,15 +164,6 @@ func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
 	for i, n := range nodes {
 		if t, ok := n.(*ast.Text); ok {
 			v := t.Value
-			switch {
-			// i==0 never lands here: segmentChildren's edge guard bars a
-			// leading-space Text from starting a segment, and a leading-space
-			// Text always glues leftward — so this branch only fires mid-segment.
-			case strings.HasPrefix(v, " "):
-				cur = append(cur, pretty.Text(" ")) // bond to the previous leaf
-			case i > 0:
-				gap(pretty.SoftLine) // direct adjacency: safe gap
-			}
 			// Word gaps exist ONLY at ASCII spaces — wsnorm's whitespace
 			// model (see wsnorm.go's normalizeText doc). Unicode spaces
 			// (NBSP, U+3000, …) are content and must stay inside their
@@ -185,9 +176,30 @@ func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
 			if core != "" {
 				words = strings.Split(core, " ")
 			}
+			switch {
+			// i==0 never lands here: segmentChildren's edge guard bars a
+			// leading-space Text from starting a segment, and a leading-space
+			// Text always glues leftward — so this branch only fires mid-segment.
+			case strings.HasPrefix(v, " "):
+				cur = append(cur, pretty.Text(" ")) // bond to the previous leaf
+			case i > 0 && len(words) > 0 && p.caseBodyBondWord(words[0]):
+				// The next node's first word is a bare "case"/"default" inside
+				// a case body: bond instead of a safe gap. Not calling gap
+				// here changes nothing rendered (SoftLine's flat form is
+				// already "" — direct adjacency), it only removes the break
+				// candidate, so the fill can never place that word at the
+				// start of a line (2026-07-25 finding: the parser would then
+				// read it as a real arm label the author never wrote).
+			case i > 0:
+				gap(pretty.SoftLine) // direct adjacency: safe gap
+			}
 			for j, w := range words {
 				if j > 0 {
-					gap(pretty.Line) // word gap
+					if p.caseBodyBondWord(w) {
+						cur = append(cur, pretty.Text(" ")) // bond: never breakable
+					} else {
+						gap(pretty.Line) // word gap
+					}
 				}
 				cur = append(cur, pretty.Text(w))
 			}

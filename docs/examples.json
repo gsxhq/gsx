@@ -206,7 +206,7 @@
   {
     "name": "Switch",
     "category": "Control flow",
-    "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>\n\t\t{ switch kind {\n\t\t\tcase \"warn\":\n\t\t\t\t<b>warning</b>\n\t\t\tcase \"err\":\n\t\t\t\t<b>error</b>\n\t\t\tdefault:\n\t\t\t\t<b>info</b>\n\t\t} }\n\t</span>\n}\n",
+    "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>\n\t\t{ switch kind {\n\t\tcase \"warn\":\n\t\t\t<b>warning</b>\n\t\tcase \"err\":\n\t\t\t<b>error</b>\n\t\tdefault:\n\t\t\t<b>info</b>\n\t\t} }\n\t</span>\n}\n",
     "invoke": "Badge(\"warn\")"
   },
   {
