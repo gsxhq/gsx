@@ -83,9 +83,12 @@ component Index(title string) {
 			<p class="read-the-docs">
 				Edit <code>app.gsx</code> and save — the page live-reloads.
 			</p>
-			<p class="read-the-docs">
-				Press <kbd>Cmd-D</kbd> to open the gsx dev panel — <kbd>Ctrl-D</kbd> on Windows and Linux.
-			</p>
+			{{ v := vite.FromContext(ctx) }}
+			{ if v.Dev() {
+				<p class="read-the-docs">
+					Press <kbd>Cmd-D</kbd> to open the gsx dev panel — <kbd>Ctrl-D</kbd> on Windows and Linux.
+				</p>
+			} }
 		</div>
 	</Layout>
 }
