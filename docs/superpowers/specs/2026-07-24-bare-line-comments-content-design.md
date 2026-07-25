@@ -83,6 +83,10 @@ Non-normative; recorded so the future discussion starts from this intent.
   whitespace significance — one shared table, not a second list.
 - Components that render into a `<pre>` are undetectable; same documented
   limitation wsnorm has.
+- The exemption ends at a `name={ … }` markup-attribute boundary: a slot
+  value lexically nested inside `<pre>`/`<textarea>` is a fresh non-preserve
+  context, mirroring wsnorm's `normalizeAttrs` rule that a slot's preserve
+  never inherits from its enclosing element.
 
 ## Where it applies
 

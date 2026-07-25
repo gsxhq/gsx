@@ -117,6 +117,23 @@ func TestHTMLMarkupNodes(t *testing.T) {
 	}
 }
 
+// TestCommentSetSpan pins a fix to SetSpan: *Comment (the content-comment
+// node — braced `{// }`/`{/* */}` and, since the Bare field's introduction,
+// bare line-start `//`) was missing from SetSpan's type switch, so every
+// caller's ast.SetSpan(comment, start, end) was a silent no-op and
+// comment.Pos()/End() always read token.NoPos. Nothing surfaced it until a
+// diagnostic needed to position itself AT a content comment (the
+// bare-comment-touches-text check in internal/codegen), because comment
+// ordering/rendering never depended on the span. Modeled on
+// TestHTMLMarkupNodes' Doctype/HTMLComment coverage above.
+func TestCommentSetSpan(t *testing.T) {
+	c := &Comment{Text: "hi", Bare: true}
+	SetSpan(c, token.Pos(10), token.Pos(20))
+	if c.Pos() != token.Pos(10) || c.End() != token.Pos(20) {
+		t.Fatalf("Comment: SetSpan not applied: pos=%d end=%d", c.Pos(), c.End())
+	}
+}
+
 func TestSetSpanPart2(t *testing.T) {
 	nodes := []Node{
 		&GoBlock{}, &IfMarkup{}, &ForMarkup{}, &SwitchMarkup{}, &CaseClause{}, &CondAttr{}, &ClassAttr{},

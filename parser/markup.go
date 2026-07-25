@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
 // parseInterp parses `{ expr }` or `{ expr? }`. Cursor must be at '{'.
@@ -49,7 +50,8 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 
 // parseTextCtx consumes literal text up to the next '<' or '{' (or EOF). When
 // inBlock is true (inside a control-flow body) it also stops at '}', which
-// terminates the enclosing block.
+// terminates the enclosing block. It also stops at a line-start `//` content
+// comment, leaving it for the caller to parse as a separate Comment node.
 func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 	start := p.i
 	startPos := p.posAt(start)
@@ -58,10 +60,51 @@ func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 		if b == '<' || b == '{' || (inBlock && b == '}') {
 			break
 		}
+		if b == '/' && p.atBareContentComment() {
+			break
+		}
 		p.i++
 	}
 	n := &ast.Text{Value: p.src[start:p.i]}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n
+}
+
+// atBareContentComment reports whether the cursor sits at a line-start `//` in
+// child content: the next two bytes are slashes and every byte between the
+// previous newline (or file start) and the cursor is space, tab, or CR.
+// Suppressed inside pre/textarea subtrees, whose text is verbatim.
+func (p *parser) atBareContentComment() bool { return p.atBareContentCommentAt(p.i) }
+
+// atBareContentCommentAt is atBareContentComment at an arbitrary offset, so a
+// text scanner can test a position it has not moved the cursor to yet.
+func (p *parser) atBareContentCommentAt(off int) bool {
+	if p.preserveDepth > 0 || !strings.HasPrefix(p.src[off:], "//") {
+		return false
+	}
+	for j := off - 1; j >= 0; j-- {
+		switch p.src[j] {
+		case ' ', '\t', '\r':
+		case '\n':
+			return true
+		default:
+			return false
+		}
+	}
+	return true // file start counts as line start
+}
+
+// parseBareComment consumes a bare `//` line comment to end of line (the '\n'
+// is left for the following text node / skipSpace). Cursor must satisfy
+// atBareContentComment.
+func (p *parser) parseBareComment() *ast.Comment {
+	start := p.i
+	p.i += 2 // past '//'
+	for !p.eof() && p.src[p.i] != '\n' {
+		p.i++
+	}
+	n := &ast.Comment{Text: strings.TrimSpace(p.src[start+2 : p.i]), Bare: true}
+	ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
 	return n
 }
 
@@ -291,6 +334,8 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 				stampLeadingBreak(node, leadingBreak)
 				nodes = append(nodes, node)
 			}
+		case p.atBareContentComment():
+			nodes = append(nodes, p.parseBareComment())
 		default:
 			nodes = append(nodes, p.parseTextCtx(true))
 		}
@@ -567,6 +612,8 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 				stampLeadingBreak(node, leadingBreak)
 				nodes = append(nodes, node)
 			}
+		case p.atBareContentComment():
+			nodes = append(nodes, p.parseBareComment())
 		default:
 			nodes = append(nodes, p.parseCaseBodyText())
 		}
@@ -584,7 +631,7 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 func (p *parser) parseCaseBodyText() *ast.Text {
 	start := p.i
 	startPos := p.posAt(start)
-	p.i = caseBodyTextEnd(p.src, start)
+	p.i = p.caseBodyTextEnd(start)
 	n := &ast.Text{Value: p.src[start:p.i]}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
@@ -597,12 +644,22 @@ func (p *parser) parseCaseBodyText() *ast.Text {
 // at the label itself: parseCaseBody's top-of-loop skipSpace+terminator check
 // then consumes it exactly as it already does at a node boundary, so the
 // label is recognized identically whether it follows text or an element.
-func caseBodyTextEnd(src string, start int) int {
+func (p *parser) caseBodyTextEnd(start int) int {
+	src := p.src
 	i := start
 	for i < len(src) {
 		switch src[i] {
 		case '<', '{', '}':
 			return i
+		case '/':
+			// A line-start `//` content comment ends the run exactly as it does
+			// in parseTextCtx: the run stops AT the slashes (their leading
+			// whitespace stays in this text node) so parseCaseBody's next
+			// iteration dispatches it as a Comment. Without this, an arm's text
+			// swallowed the comment — the same defect class as the arm label.
+			if p.atBareContentCommentAt(i) {
+				return i
+			}
 		case ' ', '\t', '\r', '\n':
 			if i == start || !isCaseBodySpace(src[i-1]) {
 				if caseBodyLabelAfterWS(src, i) {
@@ -855,7 +912,18 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	}
 	if j < len(p.src) && p.src[j] == '<' && startsTagAt(p.src, j+1) {
 		p.i++ // past '{'
+		// A `name={ … }` markup slot is a fresh non-preserve context: an
+		// enclosing pre/textarea's verbatim treatment does not leak across the
+		// expression boundary into the slot's own markup. This mirrors
+		// wsnorm's normalizeAttrs, which normalizes every MarkupAttr.Value
+		// with preserve=false regardless of the element's own preserve state
+		// (internal/wsnorm/wsnorm.go) — the parser and wsnorm must agree on
+		// where "verbatim" ends or a `//` in a slot renders as neither a
+		// recognized comment nor a diagnosed error.
+		savedPreserveDepth := p.preserveDepth
+		p.preserveDepth = 0
 		nodes, err := p.parseMarkupUntilClose("markup attribute")
+		p.preserveDepth = savedPreserveDepth
 		if err != nil {
 			return nil, err
 		}
@@ -955,7 +1023,13 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return el, nil
 	}
 
+	if wsnorm.IsPreserveTag(tag) {
+		p.preserveDepth++
+	}
 	children, closeNamePos, err := p.parseChildren(tag)
+	if wsnorm.IsPreserveTag(tag) {
+		p.preserveDepth--
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1131,6 +1205,10 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error)
 			}
 			stampLeadingBreak(node, leadingBreak)
 			nodes = append(nodes, node)
+			continue
+		}
+		if p.atBareContentComment() {
+			nodes = append(nodes, p.parseBareComment())
 			continue
 		}
 		nodes = append(nodes, p.parseText())
