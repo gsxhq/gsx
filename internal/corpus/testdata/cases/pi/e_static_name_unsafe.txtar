@@ -1,0 +1,14 @@
+# A static PI name can't be escaped: '>' would end the PI early and '"' would
+# end the name attribute early, and unlike an ordinary attribute value neither
+# character has an entity escape available in PI data. genPIOpen catches this
+# at codegen time (not parse time — the value is a perfectly ordinary quoted
+# string as far as the parser is concerned) and must still produce a POSITIONED
+# diagnostic, since this is a diag.Bag error, not a parser one.
+-- input.gsx --
+package p
+
+component X() {
+	<?marker name="a>b">
+}
+-- diagnostics.golden --
+4:11: processing-instruction name "a>b" contains '>' or '"', which cannot be escaped in processing-instruction data

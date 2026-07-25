@@ -175,6 +175,21 @@ func (gw *Writer) RefreshContent(s string) {
 	gw.err = writeHTML(gw.w, refreshContentSanitize(s))
 }
 
+// PIName writes s as a processing instruction's name="…" value. Unlike every
+// other sink there is no escaping to fall back on, so an unrepresentable value
+// is a render error rather than a silently altered name — a stripped name would
+// mistarget the update with no signal.
+func (gw *Writer) PIName(s string) {
+	if gw.err != nil {
+		return
+	}
+	if piNameInvalid(s) {
+		gw.err = fmt.Errorf("gsx: processing-instruction name %q contains '>' or '\"', which cannot be escaped in processing-instruction data", s)
+		return
+	}
+	_, gw.err = io.WriteString(gw.w, s)
+}
+
 // BoolAttr writes ` name` when on, and nothing otherwise.
 func (gw *Writer) BoolAttr(name string, on bool) {
 	if !on {

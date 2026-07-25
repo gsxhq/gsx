@@ -47,6 +47,11 @@ func collectUnconditionalEdges(c *gsxast.Component, nodes map[string]bool) []cyc
 				walk(t.Children)
 			case *gsxast.Fragment:
 				walk(t.Children)
+			case *gsxast.MarkerRegion:
+				// A region's temporary content renders unconditionally (it is what
+				// shows until a patch replaces it), so its edges are unconditional
+				// exactly like a fragment's.
+				walk(t.Children)
 				// IfMarkup / ForMarkup / SwitchMarkup: conditional — do not descend.
 			}
 		}

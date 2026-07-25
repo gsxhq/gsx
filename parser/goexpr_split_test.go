@@ -429,3 +429,45 @@ component Foo() { <div/> }
 		t.Fatalf("tag=%q", el.Tag)
 	}
 }
+
+// TestSplitGoElementsMarkerNotAdmittedAsExpr pins startsTagAt's '<?' widening
+// (parser/identifier.go) at the Go-expression / element-literal call site
+// (byteBeginsTag, parser/goexpr.go). Without that widening, `<?marker …>` in
+// an operand position is invisible to scanGoElementMarks and rides along as
+// unparsed Go text — it only fails later, at `go build`, with a cryptic
+// "illegal character U+003F" pointing at the `?`. With it, `<?marker …>`
+// parses as *ast.Marker via parseElement, which the Go-expression switch then
+// rejects with its own gsx-level diagnostic (Marker is not a supported
+// Go-expression value — only *ast.Element and *ast.Fragment are).
+func TestSplitGoElementsMarkerNotAdmittedAsExpr(t *testing.T) {
+	src := `x := <?marker name="a">`
+	p, part := splitAt(src)
+	we, ok := part.(*ast.GoWithElements)
+	if !ok {
+		t.Fatalf("want *ast.GoWithElements, got %T", part)
+	}
+	if len(p.errs) == 0 {
+		t.Fatalf("want a recorded gsx diagnostic for <?marker …> in Go-expression position")
+	}
+	found := false
+	for _, e := range p.errs {
+		if strings.Contains(e.Msg, "not supported as a Go expression value here") &&
+			strings.Contains(e.Msg, "Marker") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("errs = %v, want one mentioning Marker and \"not supported as a Go expression value here\"", p.errs)
+	}
+	// Forward progress: the marker's bytes are preserved verbatim as GoText so
+	// the round-trip invariant holds, same as the malformed-element path.
+	var got string
+	for _, part := range we.Parts {
+		if gt, ok := part.(ast.GoText); ok {
+			got += gt.Src
+		}
+	}
+	if got != src {
+		t.Fatalf("reconstructed src = %q, want %q", got, src)
+	}
+}

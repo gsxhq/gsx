@@ -411,3 +411,18 @@ func skipCSSSpace(c []byte) []byte {
 // in FilterCSS so untrusted data cannot inject declarations or break out of the
 // style attribute. A trusted string-literal declaration is emitted without it.
 func FilterCSS(s string) string { return cssValueFilter(s) }
+
+// piNameInvalid reports whether s cannot be emitted inside a processing
+// instruction's name="…" value.
+//
+// Processing-instruction data is opaque: the HTML tokenizer performs no
+// character-reference decoding inside it (whatwg/html#12118), so neither byte
+// below has an escaped form. They can only be rejected.
+//
+//   - '>' ends the processing instruction, so a value containing one breaks out
+//     of the PI and the remainder is parsed as live HTML.
+//   - '"' ends the name="…" quoting that declarative partial updates reads, so a
+//     value containing one can forge further pseudo-attributes.
+//
+// '?>' needs no separate rule: rejecting '>' already excludes it.
+func piNameInvalid(s string) bool { return strings.ContainsAny(s, ">\"") }

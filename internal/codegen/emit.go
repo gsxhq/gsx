@@ -1894,6 +1894,20 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 	case *ast.Doctype:
 		// Renders verbatim — Text holds the full `<!DOCTYPE …>` source.
 		emitS(b, t.Text)
+	case *ast.Marker:
+		if !genPIOpen(b, "marker", t.Name, table, imports, interpTemp, bag, resolved) {
+			return false
+		}
+	case *ast.MarkerRegion:
+		if !genPIOpen(b, "start", t.Name, table, imports, interpTemp, bag, resolved) {
+			return false
+		}
+		for _, c := range t.Children {
+			if !genNode(b, c, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan) {
+				return false
+			}
+		}
+		emitS(b, "<?end>")
 	case *ast.HTMLComment:
 		// <!-- text --> renders verbatim (spec: HTML comments pass through). Text is
 		// the literal between the delimiters and carries no interpolation, so it needs
@@ -2635,6 +2649,14 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 				return true
 			}
 		case *ast.Fragment:
+			if scopeUsesNumeric(t.Children, resolved, table, cls) {
+				return true
+			}
+		case *ast.MarkerRegion:
+			// A region opens no Go scope (genNode emits its children inline into the
+			// enclosing render closure), so a numeric hole inside it uses THIS
+			// scope's _gsxnum and must be counted here. (Marker is void — no
+			// children; its Name goes through the PIName sink, never _gsxnum.)
 			if scopeUsesNumeric(t.Children, resolved, table, cls) {
 				return true
 			}
@@ -4618,6 +4640,91 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 		}
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
+}
+
+// genPIOpen emits `<?target name="…">`. A static name is validated here and
+// folded into the surrounding constant run; a dynamic one goes through the
+// runtime PI-name sink, which errors on a value it cannot represent. Escaping is
+// chosen by the node, never by attrclass name classification.
+func genPIOpen(b *bytes.Buffer, target string, name ast.Attr, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
+	switch a := name.(type) {
+	case *ast.StaticAttr:
+		if strings.ContainsAny(a.Value, ">\"") {
+			bag.Errorf(a.Pos(), a.End(), "invalid-pi-name",
+				"processing-instruction name %q contains '>' or '\"', which cannot be escaped in processing-instruction data", a.Value)
+			return false
+		}
+		emitS(b, "<?"+target+` name="`+a.Value+`">`)
+		return true
+	case *ast.ExprAttr:
+		emitS(b, "<?"+target+` name="`)
+		// Emit the value expression through the PIName sink. Follows the existing
+		// ExprAttr value path (pipeline stages, (T, error) unwrapping) used by
+		// emitExprAttr for URL sinks — reused rather than re-derived.
+		if !emitPIName(b, a, table, imports, interpTemp, bag, resolved) {
+			return false
+		}
+		emitS(b, `">`)
+		return true
+	}
+	bag.Errorf(name.Pos(), name.End(), "invalid-pi-name", "processing-instruction name must be a string literal or {expr}")
+	return false
+}
+
+// emitPIName emits `_gsxgw.PIName(<expr>)` for a dynamic `<?target name={expr}>`
+// name. It reuses emitExprAttr's value pipeline for the steps that ARE shared: a
+// pipeline lowers via the SAME lowerPipe call the probe used, a trailing (T,
+// error) result auto-unwraps, and a registered [renderers] entry applies AFTER
+// the unwrap and BEFORE the sink — renderer first, escape after, exactly as every
+// other value position does.
+//
+// It then DIVERGES from the URL branch, deliberately: a PI name is neither a URL
+// nor a general attribute value, so there is no scheme allow-list, no gsx.RawURL
+// vouch, and no §5 type-aware rendering (no bool/int/slice forms — PI data is a
+// string). The value must therefore be string-like (string / []byte / Stringer)
+// after the renderer step; anything else is a positioned gsx diagnostic here
+// rather than a Go type error naming the internal `_gsxgw.PIName`. The runtime
+// PIName sink is what rejects '>' and '"' at render time.
+func emitPIName(b *bytes.Buffer, a *ast.ExprAttr, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
+	expr := strings.TrimSpace(a.Expr)
+	if len(a.Stages) > 0 {
+		lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, emitPipeWrap(b, interpTemp))
+		if err != nil {
+			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		}
+		for _, path := range usedPkgs {
+			imports[path] = true
+		}
+		expr = lowered
+	}
+
+	t, ok := resolved[a]
+	if !ok || t == nil {
+		bag.Errorf(a.Pos(), a.End(), "unresolved-attr", "could not resolve type of processing-instruction name %q", a.Expr)
+		return false
+	}
+
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "processing-instruction name %q returns %s; only (T, error) is supported", a.Expr, t)
+			return false
+		}
+		expr = hoistTuple(b, expr, interpTemp)
+		t = elemT
+	}
+
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+
+	if !isStringLike(t) {
+		bag.Errorf(a.Pos(), a.End(), "unrenderable-pi-name",
+			"processing-instruction name %q has type %s; it must be a string, []byte, or fmt.Stringer (or have a registered renderer)", a.Expr, t)
+		return false
+	}
+
+	fmt.Fprintf(b, "\t\t_gsxgw.PIName(%s)\n", stringLikeExpr(expr, t))
 	return true
 }
 

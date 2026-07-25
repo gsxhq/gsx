@@ -155,3 +155,41 @@ component span() {
 		}
 	}
 }
+
+// A cycle edge sitting inside a `<?start>…<?end>` region is UNCONDITIONAL — a
+// region's temporary content always renders (it is what shows until a patch
+// replaces it) — so it must be collected exactly like an edge inside a fragment.
+// collectUnconditionalEdges had no *ast.MarkerRegion case, so the region hid the
+// edge and the cycle went unwarned. (This was masked until the component-target
+// walks got their own MarkerRegion case: before that the tag inside a region was
+// never even stamped IsComponent.)
+func TestWrapperCycleThroughMarkerRegion(t *testing.T) {
+	f, fset := parseGSXForTestWithFset(t, `package views
+
+component div() {
+	<?start name="r">
+		<span>{children}</span>
+	<?end>
+}
+
+component span() {
+	<span><div>{children}</div></span>
+}
+`)
+	bag := diag.NewBag(fset)
+	declNames := map[string]bool{"div": true, "span": true}
+	preprocessTagsForTest(t, fset, f, declNames, bag)
+	reportWrapperCycles(map[string]*gsxast.File{"a.gsx": f}, bag)
+	var warns []diag.Diagnostic
+	for _, d := range bag.Sorted() {
+		if d.Severity == diag.Warning && d.Code == "wrapper-cycle" {
+			warns = append(warns, d)
+		}
+	}
+	if len(warns) != 1 {
+		t.Fatalf("want exactly 1 wrapper-cycle warning, got %d: %v", len(warns), warns)
+	}
+	if !strings.Contains(warns[0].Message, "div") || !strings.Contains(warns[0].Message, "span") {
+		t.Errorf("cycle message should name both components: %s", warns[0].Message)
+	}
+}

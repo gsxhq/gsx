@@ -838,6 +838,10 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 		return p.goBlock(v)
 	case *ast.Doctype:
 		return pretty.Text(v.Text)
+	case *ast.Marker:
+		return pretty.Concat(pretty.Text("<?marker "), p.attrDoc(v.Name), pretty.Text(">"))
+	case *ast.MarkerRegion:
+		return p.markerRegion(v)
 	case *ast.HTMLComment:
 		return pretty.Concat(pretty.Text("<!--"), pretty.Text(v.Text), pretty.Text("-->"))
 	case *ast.Comment:
@@ -894,6 +898,27 @@ func (p *printer) fragment(f *ast.Fragment) pretty.Doc {
 	}
 	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
 	return pretty.Group(pretty.Concat(pretty.Text("<>"), force, body, pretty.Text("</>")))
+}
+
+// markerRegion renders `<?start name=…>children<?end>`. It follows fragment's
+// layout exactly (same open/indent/close shape, same ChildrenMultiline and
+// preserve-subtree handling) with a PI open/close in place of `<>`/`</>`.
+func (p *printer) markerRegion(r *ast.MarkerRegion) pretty.Doc {
+	open := pretty.Concat(pretty.Text("<?start "), p.attrDoc(r.Name), pretty.Text(">"))
+	close := pretty.Text("<?end>")
+	if p.preserve {
+		return pretty.Concat(open, p.childrenPreserve(r.Children), close)
+	}
+	inner, breakable := p.childrenInner(r.Children)
+	if !breakable {
+		return pretty.Concat(open, inner, close)
+	}
+	force := pretty.Text("")
+	if p.hasBlockChild(r.Children) || r.ChildrenMultiline {
+		force = pretty.BreakParent
+	}
+	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
+	return pretty.Group(pretty.Concat(open, force, body, close))
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {

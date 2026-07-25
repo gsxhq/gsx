@@ -1,0 +1,26 @@
+# A region is terminated ONLY by `<?end>`. parseChildrenTerm carries `piEnd:
+# true` for a region, which leaves term.tag == "" — so the generic `got !=
+# term.tag` comparison used to (a) let a fragment close `</>` SILENTLY end the
+# region (`<?start name="a">hi</>` parsed with no error at all, producing a
+# region that ended early so everything after it leaked out) and (b) name `</>`
+# as the expected terminator for any other close tag. Every `</…>` reached
+# inside a region is now rejected naming `<?end>`; the mismatched-close-tag
+# behaviour for elements and fragments is untouched (see parser/06_errors).
+-- input.gsx --
+package p
+
+component Frag() {
+	<?start name="a">hi</>
+}
+
+component EarlyClose() {
+	<?start name="a">hi</><?end>
+}
+
+component WrongTag() {
+	<?start name="a">hi</div>
+}
+-- diagnostics.golden --
+4:21: mismatched close tag </>, expected <?end>
+8:21: mismatched close tag </>, expected <?end>
+12:21: mismatched close tag </div>, expected <?end>

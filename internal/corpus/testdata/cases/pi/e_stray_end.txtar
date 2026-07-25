@@ -1,0 +1,9 @@
+# `<?end>` is only meaningful as a MarkerRegion terminator; parseChildrenTerm
+# consumes the legitimate ones before parseElement ever sees them, so one
+# reached here has no matching `<?start`.
+-- input.gsx --
+package p
+
+component X() { <?end> }
+-- diagnostics.golden --
+3:17: `<?end>` without a matching `<?start`

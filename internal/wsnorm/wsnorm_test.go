@@ -161,6 +161,29 @@ func TestMarkupAttrSlotPreservesPre(t *testing.T) {
 	}
 }
 
+// --- MarkerRegion ---
+
+// TestNormalizeMarkerRegionChildrenNormalized mirrors
+// TestNormalizeBlockIndentationRemoved but with a `<?start …> … <?end>`
+// MarkerRegion wrapper instead of a <div>: proves normalizeMarkup's
+// *ast.MarkerRegion case (added alongside the *ast.Fragment case it sits
+// next to) walks Children the same way a Fragment/Element does. Before that
+// case existed, a region's children fell through to the untouched default
+// case, so the source indentation around a region's block-level children
+// rendered LITERALLY into the HTML instead of collapsing like every other
+// non-preserved children list.
+func TestNormalizeMarkerRegionChildrenNormalized(t *testing.T) {
+	f := parse(t, "<?start name=\"x\">\n  <p>a</p>\n  <span>b</span>\n<?end>")
+	wsnorm.Normalize(f)
+	got := collectText(f)
+	// "a" and "b" survive; all indentation Text dropped — same result as the
+	// <div> case.
+	want := []string{"a", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("text nodes = %#v, want %#v", got, want)
+	}
+}
+
 // --- Control flow ---
 
 func TestControlFlowForBodyNormalized(t *testing.T) {
@@ -199,6 +222,7 @@ func TestNormalizeIdempotentAST(t *testing.T) {
 		"<Panel header={ <h1>\n  Hi \n</h1> }/>",
 		"{ for _, x := range xs {\n  <li>\n {x} \n</li>\n} }",
 		"<div>foo   bar\n  baz</div>",
+		"<?start name=\"x\">\n  <p>a</p>\n  <span>b</span>\n<?end>",
 	}
 	for _, body := range bodies {
 		t.Run(body, func(t *testing.T) {

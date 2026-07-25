@@ -1,0 +1,14 @@
+# A `<?start …>` with no matching `<?end>` before EOF is an unterminated-region
+# error, mirroring the "unexpected EOF, expected </tag>" family for ordinary
+# elements/fragments. There is no source position left to point at once the
+# file has run out, so — like the sibling unterminated-element/fragment
+# diagnostics — this one is positionless.
+-- input.gsx --
+package p
+
+component X() {
+	<?start name="a">
+		<p>stuck</p>
+}
+-- diagnostics.golden --
+unexpected EOF, expected <?end>

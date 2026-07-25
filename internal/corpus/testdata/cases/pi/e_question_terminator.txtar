@@ -1,0 +1,9 @@
+# gsx source terminates a processing instruction with a bare `>`, never XML's
+# `?>` — `?>` is a clear, actionable error rather than being silently accepted
+# or misparsed as attribute soup.
+-- input.gsx --
+package p
+
+component X() { <?marker name="a"?> }
+-- diagnostics.golden --
+3:34: `?>` does not close a gsx processing instruction; use `>`

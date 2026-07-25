@@ -47,6 +47,8 @@ func checkBareComments(f *gsxast.File) []bareCommentViolation {
 			check(v.Children)
 		case *gsxast.Fragment:
 			check(v.Children)
+		case *gsxast.MarkerRegion:
+			check(v.Children)
 		case *gsxast.MarkupAttr:
 			check(v.Value)
 		case *gsxast.IfMarkup:

@@ -80,6 +80,11 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 		{"inside_element", `<div>{{ attrs := 1 }}</div>`, nil},
 		// A fragment opens no Go scope either.
 		{"inside_fragment", `<>{{ attrs := 1 }}</>`, nil},
+		// A `<?start>…<?end>` region opens no Go scope either (genNode emits its
+		// children inline), so a GoBlock inside one is still body-scope. The walk
+		// had no *ast.MarkerRegion case, so this reserved-identifier diagnostic
+		// was silently LOST and the author got a raw go/types error instead.
+		{"inside_marker_region", `<?start name="r">{{ ctx := 1 }}<?end>`, []string{"ctx"}},
 		// attrs is ordinary even beside the still-reserved ctx binding.
 		{"two_in_one_block", `{{ ctx := 1; attrs := 2 }}`, []string{"ctx"}},
 		// A GoBlock directly under the body, then one under an element: both flag.
@@ -102,6 +107,10 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 		// Transitive: a plain element INSIDE component children is still inside
 		// the slot closure — nested all the way down.
 		{"nested_under_component_transitive", `<Wrap><div>{{ attrs := 1 }}</div></Wrap>`, nil},
+		// Transitive through a region too: a region propagates the ambient
+		// topScope rather than forcing it true, so a region inside component
+		// children is still inside the slot closure.
+		{"nested_under_component_via_region", `<Wrap><?start name="r">{{ ctx := 1 }}<?end></Wrap>`, nil},
 		// A func-literal parameter named `attrs` is nested; `f` (the only body-scope
 		// bind) is not reserved.
 		{"funclit_param", `{{ f := func(attrs int) int { return attrs } }}`, nil},

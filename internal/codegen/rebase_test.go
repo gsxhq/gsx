@@ -143,3 +143,51 @@ func TestRebaseCSSAndLangIsolation(t *testing.T) {
 		t.Fatalf("css attr not re-based: %q", got)
 	}
 }
+
+// A <script> inside a `<?start>…<?end>` region re-bases exactly like one inside
+// a <div>. rebaseMarkup had no *ast.MarkerRegion case, so a region's embedded
+// JS/CSS kept its markup-depth indentation in the SHIPPED asset — which made
+// `gsx fmt` (whose whole job is to re-indent to markup depth) change RENDERED
+// output, violating the formatter's layout-not-meaning contract.
+func TestRebaseMarkerRegionChildren(t *testing.T) {
+	body := "\n\t\t\tconst a = 1;\n\t\t\tif (a) {\n\t\t\t\tfoo();\n\t\t\t}\n\t\t"
+	script := func() *ast.Element {
+		return &ast.Element{Tag: "script", Children: []ast.Markup{&ast.Text{Value: body}}}
+	}
+	region := &ast.MarkerRegion{
+		Name:     &ast.StaticAttr{Name: "name", Value: "r"},
+		Children: []ast.Markup{script()},
+	}
+	div := &ast.Element{Tag: "div", Children: []ast.Markup{script()}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{region, div}}}}
+	rebaseEmbedded(f, true, true)
+
+	text := func(el *ast.Element) string { return el.Children[0].(*ast.Text).Value }
+	want := "\nconst a = 1;\nif (a) {\n\tfoo();\n}\n"
+	got := text(region.Children[0].(*ast.Element))
+	if got != want {
+		t.Fatalf("region <script> not re-based:\ngot  %q\nwant %q", got, want)
+	}
+	// Parity with the <div> sibling is the real invariant: a region must be
+	// transparent to asset processing.
+	if divGot := text(div.Children[0].(*ast.Element)); divGot != got {
+		t.Fatalf("region and <div> diverge: region %q, div %q", got, divGot)
+	}
+}
+
+// The CSS half of TestRebaseMarkerRegionChildren: a <style> in a region.
+func TestRebaseMarkerRegionStyleChildren(t *testing.T) {
+	style := &ast.Element{Tag: "style", Children: []ast.Markup{
+		&ast.Text{Value: "\n\t\t.a {\n\t\t\tcolor: red;\n\t\t}\n\t"},
+	}}
+	region := &ast.MarkerRegion{
+		Name:     &ast.StaticAttr{Name: "name", Value: "r"},
+		Children: []ast.Markup{style},
+	}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{region}}}}
+	rebaseEmbedded(f, true, true)
+	want := "\n.a {\n\tcolor: red;\n}\n"
+	if got := style.Children[0].(*ast.Text).Value; got != want {
+		t.Fatalf("region <style> not re-based:\ngot  %q\nwant %q", got, want)
+	}
+}

@@ -302,3 +302,28 @@ func TestSrcsetSinks(t *testing.T) {
 		t.Fatalf("SrcsetVal(string) = %q", got)
 	}
 }
+
+func TestWriterPINameRejectsUnrepresentable(t *testing.T) {
+	for _, s := range []string{`a>b`, `a"b`, `x?>y`} {
+		var buf bytes.Buffer
+		gw := W(&buf)
+		gw.PIName(s)
+		if gw.Err() == nil {
+			t.Fatalf("PIName(%q): want error, got none (wrote %q)", s, buf.String())
+		}
+	}
+}
+
+func TestWriterPINameAcceptsSafe(t *testing.T) {
+	for _, s := range []string{`results`, `row-1`, `a?b`, `a<b`, `a'b`, `héllo`} {
+		var buf bytes.Buffer
+		gw := W(&buf)
+		gw.PIName(s)
+		if gw.Err() != nil {
+			t.Fatalf("PIName(%q): unexpected error %v", s, gw.Err())
+		}
+		if buf.String() != s {
+			t.Fatalf("PIName(%q) wrote %q", s, buf.String())
+		}
+	}
+}

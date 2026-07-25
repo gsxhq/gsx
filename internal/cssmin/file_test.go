@@ -252,3 +252,21 @@ func TestMinifyFileGoBlockLiteral(t *testing.T) {
 		t.Fatalf("go-block css literal not minified: %q", got)
 	}
 }
+
+// A <style> inside a `<?start …> … <?end>` region is minified like one inside a
+// <div>. minifyMarkup had no *ast.MarkerRegion case, so a region's <style> body
+// was silently left UNMINIFIED.
+func TestMinifyFileMarkerRegionStyle(t *testing.T) {
+	style := styleEl(&ast.Text{Value: "  .a {\n  color: red;\n}  "})
+	region := &ast.MarkerRegion{
+		Name:     &ast.StaticAttr{Name: "name", Value: "r"},
+		Children: []ast.Markup{style},
+	}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{region}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := style.Children[0].(*ast.Text).Value; got != ".a{color: red}" {
+		t.Fatalf("region <style> not minified: %q", got)
+	}
+}

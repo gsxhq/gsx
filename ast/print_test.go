@@ -132,6 +132,30 @@ func TestFprintHTMLNodes(t *testing.T) {
 	}
 }
 
+func TestFprintMarkerNodes(t *testing.T) {
+	tree := &ast.Fragment{Children: []ast.Markup{
+		&ast.Marker{Name: &ast.StaticAttr{Name: "name", Value: "feed"}},
+		&ast.MarkerRegion{
+			Name:     &ast.StaticAttr{Name: "name", Value: "feed"},
+			Children: []ast.Markup{&ast.Text{Value: "loading"}},
+		},
+	}}
+	var b strings.Builder
+	if err := ast.Fprint(&b, tree); err != nil {
+		t.Fatal(err)
+	}
+	want := `Fragment
+  Marker
+    StaticAttr name=name value="feed"
+  MarkerRegion
+    StaticAttr name=name value="feed"
+    Text value="loading"
+`
+	if b.String() != want {
+		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)
+	}
+}
+
 func TestFprintGenericComponent(t *testing.T) {
 	tree := &ast.Component{
 		Name:       "Box",

@@ -55,6 +55,10 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *HTMLComment:
 		v.span = s
+	case *Marker:
+		v.span = s
+	case *MarkerRegion:
+		v.span = s
 	case *Comment:
 		v.span = s
 	case *Interp:
@@ -283,6 +287,29 @@ type HTMLComment struct {
 }
 
 func (*HTMLComment) markupNode() {}
+
+// Marker is a `<?marker name=…>` processing instruction: a void placeholder that
+// declarative partial updates patch by name. Name is a *StaticAttr or *ExprAttr
+// whose Name is "name" — reusing the attribute-value grammar means holes,
+// pipelines, and editor navigation work with no extra machinery.
+type Marker struct {
+	span
+	Name Attr
+}
+
+func (*Marker) markupNode() {}
+
+// MarkerRegion is a `<?start name=…> … <?end>` processing-instruction pair. Its
+// children are the temporary content shown until a patch replaces the region.
+// The closing `<?end>` is consumed by the parser and is not a node.
+type MarkerRegion struct {
+	span
+	Name              Attr
+	Children          []Markup
+	ChildrenMultiline bool
+}
+
+func (*MarkerRegion) markupNode() {}
 
 // Comment is a source-only content comment between child nodes: braced
 // `{/* text */}` / `{// text }`, or a bare line-start `// text` (Bare=true).
@@ -717,6 +744,8 @@ func (*CommentAttr) attrNode() {}
 //   - *GoWithElements: each Part (GoText leaves; *Element and *Fragment recurse)
 //   - *Component: each Body markup node
 //   - *Element: each Attr, then each Child
+//   - *Marker: Name (if non-nil)
+//   - *MarkerRegion: Name (if non-nil), then each Child
 //   - *Fragment: each Child
 //   - *MarkupAttr: each Value markup node
 //   - *IfMarkup: each Then and Else markup node
@@ -752,6 +781,17 @@ func Inspect(node Node, f func(Node) bool) {
 	case *Element:
 		for _, a := range n.Attrs {
 			Inspect(a, f)
+		}
+		for _, c := range n.Children {
+			Inspect(c, f)
+		}
+	case *Marker:
+		if n.Name != nil {
+			Inspect(n.Name, f)
+		}
+	case *MarkerRegion:
+		if n.Name != nil {
+			Inspect(n.Name, f)
 		}
 		for _, c := range n.Children {
 			Inspect(c, f)

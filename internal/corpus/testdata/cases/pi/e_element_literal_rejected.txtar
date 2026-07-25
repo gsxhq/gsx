@@ -1,0 +1,16 @@
+# Processing instructions are MARKUP-ONLY: only *ast.Element and *ast.Fragment
+# are admitted as Go-expression values (splitGoElements's switch). A `<?marker
+# …>` sitting in Go-expression position (`x := <?marker name="a">`) falls into
+# the default case and is rejected with a positioned diagnostic; its bytes are
+# preserved verbatim as Go text so the round-trip invariant still holds. This is
+# an ERROR case, not a rendering one — an earlier plan draft wrongly assumed a
+# PI in this position would render (Task 3 verified the rejection directly).
+-- input.gsx --
+package p
+
+func Bad() {
+	x := <?marker name="a">
+	_ = x
+}
+-- diagnostics.golden --
+4:7: gsx: a *ast.Marker is not supported as a Go expression value here

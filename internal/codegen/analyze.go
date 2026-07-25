@@ -120,6 +120,12 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 				walk(node.Children)
 			case *gsxast.Fragment:
 				walk(node.Children)
+			case *gsxast.MarkerRegion:
+				// A region's children carry ordinary `{ }` / `{{ }}` nodes whose
+				// embedded f`/js`/css` literals must be split here; without this the
+				// literal stays inside the raw Go text and go/parser rejects it.
+				// (Marker is void — no children.)
+				walk(node.Children)
 			case *gsxast.ForMarkup:
 				walk(node.Body)
 			case *gsxast.IfMarkup:
@@ -1542,6 +1548,29 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					return err
 				}
 			}
+		case *gsxast.Marker:
+			// A dynamic `<?marker name={expr}>` name is a lone ExprAttr, probed
+			// exactly like a leaf element's attr-expr value (walkAttrExprs) so
+			// harvest populates resolved[ea] for emitPIName's pipeline/(T, error)
+			// handling. A static name needs no probe.
+			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
+				emitSkeletonLine(sb, fset, ea.Pos())
+				if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					return err
+				}
+			}
+		case *gsxast.MarkerRegion:
+			// Same Name probe as *gsxast.Marker, then the region's temporary
+			// content — matching collectExprs' Marker/MarkerRegion ordering.
+			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
+				emitSkeletonLine(sb, fset, ea.Pos())
+				if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					return err
+				}
+			}
+			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+				return err
+			}
 		case *gsxast.Fragment:
 			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
@@ -2725,6 +2754,16 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node, candidates *callSit
 				*out = append(*out, ea)
 			})
 			collectExprs(t.Children, out, candidates)
+		case *gsxast.Marker:
+			// Matches emitProbes' Marker case: a dynamic name's lone ExprAttr.
+			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
+				*out = append(*out, ea)
+			}
+		case *gsxast.MarkerRegion:
+			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
+				*out = append(*out, ea)
+			}
+			collectExprs(t.Children, out, candidates)
 		case *gsxast.Fragment:
 			collectExprs(t.Children, out, candidates)
 		case *gsxast.ForMarkup:
@@ -2940,6 +2979,10 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 			})
 			collectClauseSrc(t.Children, add)
 		case *gsxast.Fragment:
+			collectClauseSrc(t.Children, add)
+		case *gsxast.MarkerRegion:
+			// Like a fragment: a region's children render in this same scope, so a
+			// control-flow clause inside one references locals bound here.
 			collectClauseSrc(t.Children, add)
 		case *gsxast.ForMarkup:
 			add(t.Clause)

@@ -193,6 +193,36 @@ func TestParseMarkupAttr(t *testing.T) {
 	}
 }
 
+// TestParseMarkupAttrMarker pins startsTagAt's '<?' widening at the
+// markup-attribute call site (parseAttrBraceValue's Babel-rule lookahead,
+// parser/markup.go). Without it, `{ <?marker … }` fails the "does this brace
+// start markup?" check and falls through to the Go-expression parser instead,
+// where `<?` is not valid Go. With it, the brace value is recognized as
+// markup and parsed via parseMarkupUntilClose, yielding a *ast.Marker.
+func TestParseMarkupAttrMarker(t *testing.T) {
+	p := testParser(`<Panel header={ <?marker name="a"> }></Panel>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	ma, ok := el.Attrs[0].(*ast.MarkupAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.MarkupAttr", el.Attrs[0])
+	}
+	if len(ma.Value) != 1 {
+		t.Fatalf("markup attr value = %#v, want 1 node", ma.Value)
+	}
+	m, ok := ma.Value[0].(*ast.Marker)
+	if !ok {
+		t.Fatalf("markup attr value[0] = %T, want *ast.Marker", ma.Value[0])
+	}
+	a, ok := m.Name.(*ast.StaticAttr)
+	if !ok || a.Name != "name" || a.Value != "a" {
+		t.Fatalf("name = %#v", m.Name)
+	}
+}
+
 func TestMarkupAttrWithApostrophe(t *testing.T) {
 	// C1: apostrophe inside a markup-attribute value must parse.
 	p := testParser(`<Panel header={ <h1>Today's news</h1> }></Panel>`)
@@ -1837,6 +1867,169 @@ func TestAuthorLineBreakFlags(t *testing.T) {
 	// Zero attributes: `<div\n>` has no attribute list to break.
 	if got := elemNode("package p\ncomponent C() {\n\t<div\n\t>x</div>\n}\n", "div"); got.AttrsMultiline {
 		t.Error("AttrsMultiline: want false for zero-attribute element")
+	}
+}
+
+func TestParseMarkerStatic(t *testing.T) {
+	p := testParser(`<?marker name="results">`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := n.(*ast.Marker)
+	if !ok {
+		t.Fatalf("got %T, want *ast.Marker", n)
+	}
+	a, ok := m.Name.(*ast.StaticAttr)
+	if !ok || a.Name != "name" || a.Value != "results" {
+		t.Fatalf("name = %#v", m.Name)
+	}
+}
+
+func TestParseMarkerExpr(t *testing.T) {
+	p := testParser(`<?marker name={item.ID}>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := n.(*ast.Marker)
+	a, ok := m.Name.(*ast.ExprAttr)
+	if !ok || a.Expr != "item.ID" {
+		t.Fatalf("name = %#v", m.Name)
+	}
+}
+
+func TestParseMarkerErrors(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{`<?nope name="x">`, "unknown processing-instruction target"},
+		{`<?marker>`, "requires a `name`"},
+		{`<?marker name="x"?>`, "use `>`"},
+		{`<?marker name="x" id="y">`, "only a `name`"},
+		{`<?end>`, "without a matching"},
+	} {
+		p := testParser(tc.src)
+		_, err := p.parseElement()
+		if err == nil {
+			t.Fatalf("%s: want error", tc.src)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: err = %v, want containing %q", tc.src, err, tc.want)
+		}
+	}
+}
+
+func TestParseMarkerRegion(t *testing.T) {
+	p := testParser(`<?start name="feed"><p>loading</p><?end>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := n.(*ast.MarkerRegion)
+	if !ok {
+		t.Fatalf("got %T, want *ast.MarkerRegion", n)
+	}
+	if a := r.Name.(*ast.StaticAttr); a.Value != "feed" {
+		t.Fatalf("name = %q", a.Value)
+	}
+	if len(r.Children) != 1 {
+		t.Fatalf("children = %#v", r.Children)
+	}
+	if el, ok := r.Children[0].(*ast.Element); !ok || el.Tag != "p" {
+		t.Fatalf("child = %#v", r.Children[0])
+	}
+}
+
+func TestParseMarkerRegionNested(t *testing.T) {
+	p := testParser(`<?start name="a"><?start name="b"><?end><?marker name="c"><?end>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := n.(*ast.MarkerRegion)
+	if len(r.Children) != 2 {
+		t.Fatalf("children = %#v", r.Children)
+	}
+	if _, ok := r.Children[0].(*ast.MarkerRegion); !ok {
+		t.Fatalf("child0 = %T", r.Children[0])
+	}
+	if _, ok := r.Children[1].(*ast.Marker); !ok {
+		t.Fatalf("child1 = %T", r.Children[1])
+	}
+}
+
+func TestParseMarkerRegionUnterminated(t *testing.T) {
+	p := testParser(`<?start name="feed"><p>x</p>`)
+	if _, err := p.parseElement(); err == nil || !strings.Contains(err.Error(), "<?end>") {
+		t.Fatalf("err = %v, want one naming <?end>", err)
+	}
+}
+
+// TestParseMarkerRegionRejectsCloseTag pins that ONLY `<?end>` terminates a
+// region. parseChildrenTerm carries `piEnd: true` for a region, which leaves
+// term.tag == "" — so the generic `got != term.tag` comparison used to let a
+// fragment close `</>` SILENTLY end the region (no error at all: the region
+// ended early and everything after it leaked out of it), and named `</>` as the
+// expected terminator for every other close tag. Element and fragment
+// mismatch behavior is unchanged (see TestParseChildrenMismatch below).
+func TestParseMarkerRegionRejectsCloseTag(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		// A fragment close inside a region: was accepted silently.
+		{`<?start name="a">hi</>`, "mismatched close tag </>, expected <?end>"},
+		// …even with the real `<?end>` still to come, which then read as a stray one.
+		{`<?start name="a">hi</><?end>`, "mismatched close tag </>, expected <?end>"},
+		// A named close tag: the expected terminator is `<?end>`, never `</>`.
+		{`<?start name="a">hi</div>`, "mismatched close tag </div>, expected <?end>"},
+		// A nested region's own terminator scope is unaffected.
+		{`<?start name="a"><?start name="b">hi</></>`, "mismatched close tag </>, expected <?end>"},
+	} {
+		p := testParser(tc.src)
+		_, err := p.parseElement()
+		if err == nil {
+			t.Fatalf("%s: want error, got nil", tc.src)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: err = %v, want containing %q", tc.src, err, tc.want)
+		}
+	}
+}
+
+// TestParseCloseTagMismatchOutsideRegionUnchanged is the control for
+// TestParseMarkerRegionRejectsCloseTag: element and fragment children lists
+// still report `</tag>` / `</>` as the expected terminator, byte-identically.
+func TestParseCloseTagMismatchOutsideRegionUnchanged(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{`<div>hi</span>`, "mismatched close tag </span>, expected </div>"},
+		{`<>hi</div>`, "mismatched close tag </div>, expected </>"},
+	} {
+		p := testParser(tc.src)
+		_, err := p.parseElement()
+		if err == nil {
+			t.Fatalf("%s: want error, got nil", tc.src)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: err = %v, want containing %q", tc.src, err, tc.want)
+		}
+	}
+}
+
+func TestParseEndPIRejectsAttrs(t *testing.T) {
+	p := testParser(`<?start name="feed"><?end name="feed">`)
+	if _, err := p.parseElement(); err == nil || !strings.Contains(err.Error(), "takes no attributes") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestParseMarkerRegionEndPrefixNotTerminator proves atPITarget matches the PI
+// target exactly: `<?ending>` must not be mistaken for `<?end>`, so a region
+// containing it never terminates and the parse fails at EOF instead.
+func TestParseMarkerRegionEndPrefixNotTerminator(t *testing.T) {
+	p := testParser(`<?start name="feed"><?ending>`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown processing-instruction target") {
+		t.Fatalf("err = %v, want unknown processing-instruction target %q", err, "ending")
 	}
 }
 

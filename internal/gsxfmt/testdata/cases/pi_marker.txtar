@@ -1,0 +1,25 @@
+A void `<?marker>` processing instruction is block-level (like Doctype/HTMLComment):
+it always takes its own line inside a children list, regardless of width, and
+reindents to its true depth. Both attribute-value forms are covered — a static
+literal (verbatim `attr` rendering) and a `{expr}` with a pipeline stage (routed
+through attrDoc's ExprAttr case, which renders `name={expr |> stage}` with no
+interior spaces, same as any other attribute).
+
+-- input.gsx --
+package ui
+
+component Page(id string) {
+<div>
+<?marker name="results">
+					<?marker name={id |> upper}>
+</div>
+}
+-- fmt.golden --
+package ui
+
+component Page(id string) {
+	<div>
+		<?marker name="results">
+		<?marker name={id |> upper}>
+	</div>
+}

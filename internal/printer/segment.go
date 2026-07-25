@@ -127,7 +127,8 @@ func (p *printer) blockLevel(n ast.Markup) bool {
 	}
 	switch n.(type) {
 	case *ast.Fragment, *ast.IfMarkup, *ast.ForMarkup, *ast.SwitchMarkup,
-		*ast.GoBlock, *ast.Doctype, *ast.HTMLComment:
+		*ast.GoBlock, *ast.Doctype, *ast.HTMLComment,
+		*ast.Marker, *ast.MarkerRegion:
 		return true
 	default:
 		return false

@@ -107,6 +107,13 @@ func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 		case *ast.Fragment:
 			v.Children = normalizeMarkup(v.Children, preserve)
 			out = append(out, v)
+		case *ast.MarkerRegion:
+			// Like Fragment: no wrapper tag, so no isPreserveTag override — a
+			// region's children normalize in the ambient preserve context. (Marker
+			// is void — no Children — so it needs no case here; it already falls
+			// through to default untouched, which is correct.)
+			v.Children = normalizeMarkup(v.Children, preserve)
+			out = append(out, v)
 		case *ast.IfMarkup:
 			v.Then = normalizeMarkup(v.Then, preserve)
 			v.Else = normalizeMarkup(v.Else, preserve)

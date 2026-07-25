@@ -638,7 +638,31 @@ parser/e04_nonspread_brace	ast diag(error)
 parser/e05_empty_pipe_stage	ast diag(error)
 parser/recover_broken_then_valid	diag(error)
 parser/recover_two_broken_components	diag(error)
+patterns/flush	diag gen render
 patterns/render_once	diag render
+pi/e_element_literal_rejected	diag(error)
+pi/e_end_attrs	diag(error)
+pi/e_missing_name	diag(error)
+pi/e_name_unrenderable	diag(error)
+pi/e_question_terminator	diag(error)
+pi/e_region_close_tag	diag(error)
+pi/e_static_name_unsafe	diag(error)
+pi/e_stray_end	diag(error)
+pi/e_unknown_target	diag(error)
+pi/e_unterminated_region	diag(error)
+pi/marker_expr	diag gen render
+pi/marker_pipeline	diag gen render
+pi/marker_renderer	diag gen render
+pi/marker_static	diag gen render
+pi/marker_stringlike	diag gen render
+pi/pi_in_control_flow	diag gen render
+pi/region_children	diag gen render
+pi/region_component	diag gen render
+pi/region_goblock_literal	diag gen render
+pi/region_nested	diag gen render
+pi/region_numeric_interp	diag gen render
+pi/region_script_interp	diag gen render
+pi/region_script_style	diag gen render
 pipeerr/attr_mid_stage	diag gen render
 pipeerr/child_prop_mid_stage	diag gen render
 pipeerr/class_cf_arm_mid_stage	diag gen render
@@ -956,4 +980,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 958 cases (render: 827, error: 93, gen-pinned: 550)
+TOTAL: 982 cases (render: 841, error: 103, gen-pinned: 564)

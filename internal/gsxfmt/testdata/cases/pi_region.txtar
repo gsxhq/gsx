@@ -1,0 +1,28 @@
+A `<?start name=…> … <?end>` MarkerRegion lays out like a fragment: the open PI,
+an indented child list, and the `<?end>` close aligned back at the open's
+column. A block-level child (here another region) forces the break regardless
+of width, and nesting reindents each level independently — same machinery as
+Element/Fragment, just with a PI open/close instead of `<tag>`/`<>`.
+
+-- input.gsx --
+package ui
+
+component Page(id string) {
+<?start name="panel">
+			<p>loading</p>
+<?start name={id}>
+						<span>nested</span>
+	<?end>
+			<?end>
+}
+-- fmt.golden --
+package ui
+
+component Page(id string) {
+	<?start name="panel">
+		<p>loading</p>
+		<?start name={id}>
+			<span>nested</span>
+		<?end>
+	<?end>
+}

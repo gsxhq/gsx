@@ -17,6 +17,7 @@ Use this page to look up `.gsx` syntax. If you are new to gsx, follow
 
 - **Styling and scripts:** [Styling](./syntax/styling.md), [JavaScript](./syntax/javascript.md), and [Forms](./syntax/forms.md)
 - **Security and raw output:** [Escaping](./syntax/escaping.md) and [Raw HTML](./syntax/raw-html.md)
+- **Client-side patching:** [Processing instructions](./syntax/processing-instructions.md)
 - **Go, context, interop, and runtime helpers:** [Raw Go](./syntax/raw-go.md), [Comments](./syntax/comments.md), [Fragments](./syntax/fragments.md), [Pipelines](./syntax/pipelines.md), [Context](./syntax/context.md), [Interop](./syntax/interop.md), and [Runtime helpers](./syntax/std-functions.md)
 
 ## Build constraints and `//go:` directives
@@ -73,6 +74,7 @@ Generation processes both files; `go build` selects the matching variant.
 | `{/* … */}` | [Content comment](./syntax/comments.md) |
 | `{ value \|> filter }` | [Pipeline](./syntax/pipelines.md#chain-filters) |
 | `` js`...` ``, `` css`...` `` in Go | [Contextual Go value](./syntax/javascript.md#contextual-literals-as-go-values) |
+| `<?marker name=VALUE>`, `<?start name=VALUE>…<?end>` | [Processing instructions](./syntax/processing-instructions.md) |
 :::
 
 ### Attribute forms

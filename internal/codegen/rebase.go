@@ -47,6 +47,13 @@ func rebaseMarkup(nodes []ast.Markup, doJS, doCSS bool) {
 			v.Segments = rebaseBody(v.Segments, v.Lang)
 		case *ast.Fragment:
 			rebaseMarkup(v.Children, doJS, doCSS)
+		case *ast.MarkerRegion:
+			// A region wraps ordinary markup, so a <script>/<style> inside it must
+			// be re-based like one inside a <div> — otherwise `gsx fmt` (which
+			// indents the body to its new markup depth) would change the RENDERED
+			// asset. (Its Name is only ever a StaticAttr or ExprAttr, neither of
+			// which rebaseAttrs touches, so there is nothing else to do here.)
+			rebaseMarkup(v.Children, doJS, doCSS)
 		case *ast.IfMarkup:
 			rebaseMarkup(v.Then, doJS, doCSS)
 			rebaseMarkup(v.Else, doJS, doCSS)

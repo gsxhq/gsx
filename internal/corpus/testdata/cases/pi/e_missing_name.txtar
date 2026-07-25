@@ -1,0 +1,9 @@
+# `name` is required on both marker and start PIs — parsePIName rejects a
+# `<?marker>` with no attributes at all before it ever gets to checking which
+# attribute was given.
+-- input.gsx --
+package p
+
+component X() { <?marker> }
+-- diagnostics.golden --
+3:17: `<?marker` requires a `name` attribute
