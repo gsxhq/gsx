@@ -338,6 +338,9 @@ func main() {
 	if port == "" {
 		port = "7777"
 	}
+	if pf := os.Getenv("PORT_FILE"); pf != "" {
+		_ = os.WriteFile(pf, []byte(port), 0o644)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/pid", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "%d", os.Getpid())
@@ -685,6 +688,96 @@ func devTestEnv(extra ...string) []string {
 		env = append(env, e)
 	}
 	return append(env, extra...)
+}
+
+// devTestEnvNoGoPort is devTestEnv with GO_PORT also scrubbed, for tests that
+// exercise the unset-GO_PORT auto-pick path. devTestEnv deliberately keeps
+// GO_PORT (TestDevEnvPrecedence needs the shell's value to survive).
+func devTestEnvNoGoPort(extra ...string) []string {
+	var env []string
+	for _, e := range devTestEnv() {
+		if strings.HasPrefix(e, "GO_PORT=") {
+			continue
+		}
+		env = append(env, e)
+	}
+	return append(env, extra...)
+}
+
+// TestDevTwoProjectsPickDistinctGoPorts is the reported bug: with GO_PORT
+// unset, two gsx dev loops must not fight over 7777. Each scaffold server
+// writes the port it actually bound to PORT_FILE, so this asserts the injected
+// GO_PORT reached the child, not just that gsx dev picked something.
+func TestDevTwoProjectsPickDistinctGoPorts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and two live Go servers")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+
+	portFiles := make([]string, 2)
+	ports := make([]string, 2)
+	for i := range 2 {
+		proj := t.TempDir()
+		writeFile(t, proj, "go.mod", gomod)
+		writeFile(t, proj, "main.go", devTestMainGo)
+		writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+		// No .env at all: nothing pins GO_PORT, so both loops auto-pick.
+		portFiles[i] = filepath.Join(t.TempDir(), "port")
+
+		cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+		cmd.Dir = proj
+		cmd.Env = devTestEnvNoGoPort("BROWSER=none", "GOFLAGS=-mod=mod", "PORT_FILE="+portFiles[i])
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		var stdout lockedBuffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stdout
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer stopDevGracefully(cmd)
+		t.Cleanup(func() {
+			if t.Failed() {
+				t.Logf("project %d output:\n%s", i, stdout.String())
+			}
+		})
+
+		// Serialized on purpose: port selection probes live listeners, so the
+		// first loop's server must actually be bound before the second one
+		// resolves — otherwise both legitimately see 7777 free and the test
+		// would be racing gsx dev's generate+build, not testing it. This is
+		// also the shape of the reported bug: a second project started while
+		// the first is already running.
+		waitFor(t, 180*time.Second, func() bool {
+			b, err := os.ReadFile(portFiles[i])
+			return err == nil && len(b) > 0
+		})
+		b, err := os.ReadFile(portFiles[i])
+		if err != nil {
+			t.Fatalf("read port file %d: %v", i, err)
+		}
+		ports[i] = string(b)
+		if !waitHealthy(context.Background(), "http://localhost:"+ports[i]+"/healthz", 60*time.Second) {
+			t.Fatalf("project %d server on port %s never became healthy; output:\n%s", i, ports[i], stdout.String())
+		}
+	}
+
+	if ports[0] == ports[1] {
+		t.Fatalf("both dev loops bound port %s — the second must pick a free one", ports[0])
+	}
 }
 
 // TestDevStopsPostingAfterWebExit reproduces cross-project overlay pollution:

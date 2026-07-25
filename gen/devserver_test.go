@@ -174,32 +174,33 @@ func TestExpandEnvRefs(t *testing.T) {
 }
 
 // TestResolveUpstream pins [dev].upstream/health resolution: empty upstream
-// falls back to today's http://localhost:${GO_PORT|7777} behavior; a
-// non-empty upstream is ${VAR}-expanded, parsed, and must be an origin only
-// (http/https, host, no path/query/fragment).
+// falls back to http://localhost:<goPort>, the port resolveGoPort already
+// resolved; a non-empty upstream is ${VAR}-expanded, parsed, and must be an
+// origin only (http/https, host, no path/query/fragment).
 func TestResolveUpstream(t *testing.T) {
 	cases := []struct {
 		name          string
 		upstream      string
 		health        string
 		env           []string
+		goPort        string
 		wantOrigin    string
 		wantHealthURL string
 		wantPort      string
 		wantErrSubstr string
 	}{
 		{
-			name:          "absent upstream no GO_PORT defaults to 7777",
+			name:          "absent upstream uses the resolved Go port",
 			upstream:      "",
-			env:           nil,
+			goPort:        "7777",
 			wantOrigin:    "http://localhost:7777",
 			wantHealthURL: "http://localhost:7777/healthz",
 			wantPort:      "7777",
 		},
 		{
-			name:          "absent upstream honors GO_PORT",
+			name:          "absent upstream honors a pinned Go port",
 			upstream:      "",
-			env:           []string{"GO_PORT=8081"},
+			goPort:        "8081",
 			wantOrigin:    "http://localhost:8081",
 			wantHealthURL: "http://localhost:8081/healthz",
 			wantPort:      "8081",
@@ -275,17 +276,11 @@ func TestResolveUpstream(t *testing.T) {
 			upstream:      "http://localhost:",
 			wantErrSubstr: "empty port",
 		},
-		{
-			name:          "default upstream with GO_PORT present but empty errors",
-			upstream:      "",
-			env:           []string{"GO_PORT="},
-			wantErrSubstr: "GO_PORT",
-		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			origin, healthURL, port, err := resolveUpstream(tc.upstream, tc.health, tc.env)
+			origin, healthURL, port, err := resolveUpstream(tc.upstream, tc.health, tc.env, tc.goPort)
 			if tc.wantErrSubstr != "" {
 				if err == nil {
 					t.Fatalf("resolveUpstream(%q, %q) = (%q, %q, %q), nil; want error containing %q",
@@ -310,6 +305,127 @@ func TestResolveUpstream(t *testing.T) {
 				t.Errorf("port = %q, want %q", port, tc.wantPort)
 			}
 		})
+	}
+}
+
+func TestResolveGoPort(t *testing.T) {
+	busy := freePort(t)
+	l, err := net.Listen("tcp", "127.0.0.1:"+busy)
+	if err != nil {
+		t.Skipf("could not hold port %s for test: %v", busy, err)
+	}
+	defer l.Close()
+	free := freePort(t)
+
+	cases := []struct {
+		name          string
+		env           []string
+		upstreamSet   bool
+		held          string
+		wantPort      string
+		wantEnvPort   string // GO_PORT expected in the returned env; "" = absent
+		wantErrSubstr string
+	}{
+		{
+			// [dev].upstream means the user places the backend: no pick, and no
+			// GO_PORT injected into an app that may not even read it.
+			name:        "upstream set is hands off",
+			env:         []string{"GO_PORT=" + busy},
+			upstreamSet: true,
+			wantPort:    "",
+			wantEnvPort: busy, // untouched, not injected
+		},
+		{
+			name:        "explicit free port accepted and kept",
+			env:         []string{"GO_PORT=" + free},
+			wantPort:    free,
+			wantEnvPort: free,
+		},
+		{
+			name:          "explicit busy port errors",
+			env:           []string{"GO_PORT=" + busy},
+			wantErrSubstr: "already in use",
+		},
+		{
+			name:        "explicit port held by our own server accepted",
+			env:         []string{"GO_PORT=" + busy},
+			held:        busy,
+			wantPort:    busy,
+			wantEnvPort: busy,
+		},
+		{
+			name:          "set but empty errors",
+			env:           []string{"GO_PORT="},
+			wantErrSubstr: "GO_PORT",
+		},
+		{
+			name:          "non-numeric errors",
+			env:           []string{"GO_PORT=web"},
+			wantErrSubstr: "invalid GO_PORT",
+		},
+		{
+			name:        "absent reuses the held port",
+			env:         []string{"PATH=/bin"},
+			held:        busy,
+			wantPort:    busy,
+			wantEnvPort: busy,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, port, err := resolveGoPort(tc.env, tc.upstreamSet, tc.held)
+			if tc.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatalf("resolveGoPort(%v) = (%v, %q, nil); want error containing %q", tc.env, env, port, tc.wantErrSubstr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSubstr) {
+					t.Errorf("error = %q, want substring %q", err, tc.wantErrSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveGoPort(%v) error = %v", tc.env, err)
+			}
+			if port != tc.wantPort {
+				t.Errorf("port = %q, want %q", port, tc.wantPort)
+			}
+			if got := envPort(env, "GO_PORT", ""); got != tc.wantEnvPort {
+				t.Errorf("GO_PORT in env = %q, want %q", got, tc.wantEnvPort)
+			}
+		})
+	}
+}
+
+func TestResolveGoPortSkipsBoundDefaultPort(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:7777")
+	if err != nil {
+		t.Skipf("default Go port unavailable before test: %v", err)
+	}
+	defer l.Close()
+	want, err := nextAvailablePort("7777", "Go server")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	env, port, err := resolveGoPort([]string{"PATH=/bin"}, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if port != want {
+		t.Fatalf("port = %q, want %s (7777 is bound)", port, want)
+	}
+	if got := envPort(env, "GO_PORT", ""); got != want {
+		t.Fatalf("GO_PORT injected into env = %q, want %s — the spawned server binds this value", got, want)
+	}
+}
+
+func TestResolveUpstreamRequiresGoPortForDefaultOrigin(t *testing.T) {
+	// The default origin is built from the resolved Go port; an empty one would
+	// produce "http://localhost:", which url.Parse accepts and Go's http client
+	// then dials as port 80 — the undiagnosable "server down" this guards.
+	if _, _, _, err := resolveUpstream("", "", nil, ""); err == nil {
+		t.Fatal("resolveUpstream with no upstream and no Go port = nil error, want a diagnostic")
 	}
 }
 

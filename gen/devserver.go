@@ -165,6 +165,55 @@ func expandEnvRefs(s string, env []string) (string, error) {
 	return b.String(), nil
 }
 
+// resolveGoPort resolves the port the Go server listens on and folds it back
+// into env as GO_PORT, so the spawned server binds exactly the port gsx dev
+// probes. Ports and their consumers must never disagree: the scaffold's
+// main.go reads GO_PORT, and gen/dev.go hands this env to the server child.
+//
+// An explicit GO_PORT is strict — a busy port is a startup error, never a
+// silent relocation, because a pinned port is usually load-bearing (absolute
+// URLs, OAuth callbacks, a sibling worktree's fixed address). With GO_PORT
+// unset the port floats, which is what lets two projects run side by side.
+//
+// held is the port our own server currently occupies (empty at startup): it is
+// exempt from the busy check and is what the picker reuses, so re-resolving
+// after an .env edit neither conflicts with our own child nor drifts. See
+// portFree.
+//
+// upstreamSet reports whether gsx.toml declares [dev].upstream. That means the
+// user places the backend themselves, so gsx dev neither picks a port nor
+// injects GO_PORT into an app that may not read it — upstream stays purely
+// observational.
+func resolveGoPort(env []string, upstreamSet bool, held string) ([]string, string, error) {
+	if upstreamSet {
+		return env, "", nil
+	}
+	if port, ok := envLookup(env, "GO_PORT"); ok {
+		if port == "" {
+			// Distinct from absent: "http://localhost:" + "" round-trips past
+			// url.Parse and Go's http client then dials port 80 — an
+			// undiagnosable "server down".
+			return nil, "", fmt.Errorf("GO_PORT is set but empty — unset it or give it a port number")
+		}
+		if _, err := strconv.Atoi(port); err != nil {
+			return nil, "", fmt.Errorf("invalid GO_PORT %q", port)
+		}
+		if !portFree(port, held) {
+			return nil, "", fmt.Errorf("GO_PORT %s is already in use — unset it (or comment it out in .env) to let gsx dev pick a free port", port)
+		}
+		return env, port, nil
+	}
+	port := held
+	if port == "" {
+		var err error
+		port, err = nextAvailablePort("7777", "Go server")
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	return setEnvValue(env, "GO_PORT", port), port, nil
+}
+
 // resolveUpstream resolves [dev].upstream/health into the origin gsx dev
 // probes and reports, and the healthURL it probes — the single source of
 // truth also injected into the vite child as GSX_DEV_UPSTREAM (origin only,
@@ -172,13 +221,14 @@ func expandEnvRefs(s string, env []string) (string, error) {
 // drift from independently-guessed env vars.
 //
 // upstream is observational only: it never changes where the app listens.
-// Empty upstream defaults to http://localhost:${GO_PORT|7777} — exactly
-// today's behavior, zero migration. A non-empty upstream is ${VAR}-expanded
+// Empty upstream defaults to http://localhost:<goPort>, the port resolveGoPort
+// resolved (and injected into the server's env) — GO_PORT has exactly one
+// reader, and it is not this function. A non-empty upstream is ${VAR}-expanded
 // (expandEnvRefs) against env, then parsed as an absolute http/https URL; a
 // non-empty path/query/fragment is rejected since upstream must be an origin.
 // health defaults to "/healthz" and must be an absolute path; healthURL is
 // origin+health. port is u.Port() (may be empty when the URL carries none).
-func resolveUpstream(upstream, health string, env []string) (origin, healthURL, port string, err error) {
+func resolveUpstream(upstream, health string, env []string, goPort string) (origin, healthURL, port string, err error) {
 	if health == "" {
 		health = "/healthz"
 	}
@@ -187,16 +237,11 @@ func resolveUpstream(upstream, health string, env []string) (origin, healthURL, 
 	}
 
 	if upstream == "" {
-		port = envPort(env, "GO_PORT", "7777")
-		if port == "" {
-			// GO_PORT is SET but empty (distinct from absent, which envPort
-			// would have defaulted to "7777"): "http://localhost:" + "" round-trips
-			// verbatim past url.Parse (Host "localhost:", Port() "") and Go's http
-			// client then silently dials port 80 — an undiagnosable "server down".
-			return "", "", "", fmt.Errorf("GO_PORT is set but empty — unset it or give it a port number")
+		if goPort == "" {
+			return "", "", "", fmt.Errorf("no Go server port resolved for the default upstream")
 		}
-		origin = "http://localhost:" + port
-		return origin, origin + health, port, nil
+		origin = "http://localhost:" + goPort
+		return origin, origin + health, goPort, nil
 	}
 
 	expanded, err := expandEnvRefs(upstream, env)
