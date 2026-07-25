@@ -42,13 +42,28 @@ h1 {
   text-align: center;
 }
 
+.logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1em;
+  flex-wrap: wrap;
+}
+
 .logo {
+  display: block;
   height: 6em;
   padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
+  box-sizing: content-box;
+  will-change: filter, transform;
+  transition: filter 300ms, transform 300ms;
+}
+/* The gsx wordmark is wide and short — size it up so both marks read equally. */
+.logo.gsx {
+  height: 7em;
 }
 .logo:hover {
+  transform: translateY(-2px);
   filter: drop-shadow(0 0 2em #646cffaa);
 }
 .logo.gsx:hover {
