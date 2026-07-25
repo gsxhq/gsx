@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe test-go127rc1
+.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format reload-probe test-go127rc1
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -16,13 +16,12 @@ test:
 # Examples are regenerated FIRST, serially: the playground module embeds
 # examples.json (`//go:embed` in playground/server/presets.go), so its build
 # must not race the regeneration. The drift check reads the just-written files.
-# The four remaining lanes are independent, so `make -j4` runs them in parallel
+# The three remaining lanes are independent, so `make -j3` runs them in parallel
 # — the long pole is `ci-gomod` (the gen/ e2e suite), under which the ~7s
-# playground build+test, the tailwind example, and the ~1s format check overlap for free.
+# playground build+test and the ~1s format check overlap for free.
 ci:
 	$(MAKE) ci-examples
-	$(MAKE) ci-tailwind-example-drift
-	$(MAKE) -j4 ci-gomod ci-playground ci-tailwind-example ci-format
+	$(MAKE) -j3 ci-gomod ci-playground ci-format
 
 # Fast inner-loop check: the SAME checks as `ci` PLUS `lint` (which `ci` omits —
 # it's a separate GitHub job), so the golangci-lint failures that only surface in
@@ -39,7 +38,6 @@ check:
 lint:
 	golangci-lint run ./...
 	cd playground/server && golangci-lint run ./...
-	cd examples/tailwind-merge && golangci-lint run ./...
 
 # Manual, repeatable local test of `gsx dev`'s browser-reload behavior (NOT in
 # `ci` — it spawns a live dev loop). Asserts that introducing a .gsx/main.go
@@ -68,18 +66,6 @@ ci-examples:
 	$(MAKE) examples
 	@if ! git diff --exit-code -- docs/examples.json playground/server/examples.json docs/guide/syntax/_generated; then \
 		echo "examples artifacts are stale — run 'make examples' and commit the result"; \
-		exit 1; \
-	fi
-
-# examples/tailwind-merge is a separate Go module wiring tailwind-merge-go via class_merger.
-ci-tailwind-example:
-	cd examples/tailwind-merge && go build ./... && go test ./... $(COUNT)
-
-# Regenerate the tailwind-merge example's generated output and fail if it drifts.
-ci-tailwind-example-drift:
-	go run ./cmd/gsx -C examples/tailwind-merge generate ./views
-	@if ! git diff --exit-code -- examples/tailwind-merge/views/card.x.go; then \
-		echo "examples/tailwind-merge/views/card.x.go is stale — run 'go run ./cmd/gsx -C examples/tailwind-merge generate ./views' and commit the result"; \
 		exit 1; \
 	fi
 
