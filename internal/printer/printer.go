@@ -21,6 +21,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gsxhq/gsx/ast"
@@ -104,6 +105,71 @@ type printer struct {
 	// body EDGES stay breakable because the parser trims brace-interior edge
 	// whitespace unconditionally (see parser.trimBodyEdges), preserve or not.
 	preserve bool
+	// inCaseBody is true only while laying out a switch arm's OWN body node
+	// list (set by caseBody, for both the inline and block switchMarkup
+	// forms). Unlike preserve, it does NOT propagate into a nested children
+	// scope: element/fragment children and if/for bodies are parsed by their
+	// own scanners, which have no notion of a case/default arm label (probed
+	// against the parser directly — see caseBodyLabelStart/parseCaseBodyText
+	// in parser/markup.go), so element(), fragment() and cfBodyInner() each
+	// save+clear it before recursing into their own child list. While true,
+	// fillParts and childrenInner's per-segment layout must never offer a
+	// break immediately before a bare "case"/"default" word (see
+	// caseBodyBondWord): the word-gap fill or the segment-per-line block
+	// layout could otherwise move that word to line start, where the parser
+	// reads it as a real arm label it never authored (2026-07-25 finding).
+	inCaseBody bool
+}
+
+// caseBodyBondWord reports whether w is a word that must never start a new
+// line while p.inCaseBody: the printer's case-body context flag plus this
+// keyword-prefix check mirror the parser's own keyword set (caseBodyLabelStart
+// recognizes only "case" and "default" as label starts). Bonding slightly
+// more than strictly necessary — e.g. a bare "default" that would not
+// actually parse as a label because it lacks a following ':' on the same
+// line — is cheap and safe: it only forbids a break, never changes what a
+// flat render produces.
+func (p *printer) caseBodyBondWord(w string) bool {
+	return p.inCaseBody && (caseBodyKeywordPrefix(w, "case") || caseBodyKeywordPrefix(w, "default"))
+}
+
+// caseBodyKeywordPrefix reports whether the ASCII-space-delimited word w
+// begins with the keyword kw and does not continue it as a longer Go
+// identifier — the exact boundary rule the parser's atWord/atWordAt use
+// (parser/identifier.go's goIdentifierContinue: underscore, Unicode letter, or
+// Unicode digit). fillParts and childrenInner split prose on ASCII spaces
+// only (see fillParts' word-gap comment), so whatever directly follows kw
+// inside w — a ':' glued on with no space ("default:"), the start of a case
+// list ("1:"), or nothing at all — is exactly what the parser itself would
+// see at that source offset; "case1"/"defaultish" correctly do not match.
+func caseBodyKeywordPrefix(w, kw string) bool {
+	rest, ok := strings.CutPrefix(w, kw)
+	if !ok {
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+}
+
+// caseBodyLeadingWord returns the first wsnorm-normalized word of n's text
+// (empty, false if n is not a *ast.Text or has no non-space content), for the
+// segment-boundary bond check in childrenInner: a segment's first node never
+// leads with a significant space (segmentChildren's glue rule would have
+// merged it into the previous segment otherwise), so trimming only removes
+// the empty string in that position.
+func caseBodyLeadingWord(n ast.Markup) (string, bool) {
+	t, ok := n.(*ast.Text)
+	if !ok {
+		return "", false
+	}
+	core := strings.TrimLeft(t.Value, " ")
+	if i := strings.IndexByte(core, ' '); i >= 0 {
+		core = core[:i]
+	}
+	return core, core != ""
 }
 
 func (p *printer) fail(format string, args ...any) pretty.Doc {
@@ -420,7 +486,7 @@ func (p *printer) childrenInner(nodes []ast.Markup) (doc pretty.Doc, breakable b
 	if !breakable {
 		parts := make([]pretty.Doc, 0, len(segs)*2)
 		for i, s := range segs {
-			if i > 0 {
+			if i > 0 && !p.caseBodyBondBoundary(s) {
 				parts = append(parts, pretty.SoftLine)
 			}
 			for _, n := range s.nodes {
@@ -434,7 +500,7 @@ func (p *printer) childrenInner(nodes []ast.Markup) (doc pretty.Doc, breakable b
 	}
 	parts := make([]pretty.Doc, 0, len(segs)*2)
 	for i, s := range segs {
-		if i > 0 {
+		if i > 0 && !p.caseBodyBondBoundary(s) {
 			parts = append(parts, pretty.SoftLine)
 		}
 		parts = append(parts, pretty.Fill(p.fillParts(s.nodes)...))
@@ -442,8 +508,36 @@ func (p *printer) childrenInner(nodes []ast.Markup) (doc pretty.Doc, breakable b
 	return pretty.Concat(parts...), true
 }
 
+// caseBodyBondBoundary reports whether the segment boundary immediately
+// before next's first node must be bonded (no separator doc at all — the
+// segment-per-line layout above, unlike fillParts' Fill, has no ambient width
+// check of its own, so an ordinary SoftLine there is not a soft "maybe"; it
+// renders as a hard break whenever the surrounding list is laid out broken).
+// A boundary bonds when p.inCaseBody and next begins directly with a bare
+// "case"/"default" word — segmentChildren's glue rule guarantees a new
+// segment's first node never leads with a significant space, so this is the
+// only guard the segment-per-line path needs (see caseBodyBondWord).
+func (p *printer) caseBodyBondBoundary(next segment) bool {
+	if len(next.nodes) == 0 {
+		return false
+	}
+	w, ok := caseBodyLeadingWord(next.nodes[0])
+	return ok && p.caseBodyBondWord(w)
+}
+
 // element renders <tag attrs>children</tag>.
 func (p *printer) element(e *ast.Element) pretty.Doc {
+	// An element's children are parsed by parseElementChildren's ordinary text
+	// scanner, never parseCaseBody's — a line-start "case"/"default" there is
+	// just text, not a label (probed against the parser directly). Clear the
+	// case-body context flag for this element's own subtree so the bond
+	// added to fillParts/childrenInner does not leak into an unrelated
+	// scanning context (it would only make prose bond slightly more than
+	// necessary here, never wrong, but the flag's whole point is to name
+	// exactly where the parser's rule applies).
+	prevCaseBody := p.inCaseBody
+	p.inCaseBody = false
+	defer func() { p.inCaseBody = prevCaseBody }()
 	attrs := make([]pretty.Doc, 0, len(e.Attrs)*2)
 	for _, a := range e.Attrs {
 		if c, ok := a.(*ast.CommentAttr); ok {
@@ -750,6 +844,11 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 }
 
 func (p *printer) fragment(f *ast.Fragment) pretty.Doc {
+	// Same reasoning as element(): a fragment's children are their own
+	// scanning context, unrelated to any enclosing case body's label rule.
+	prevCaseBody := p.inCaseBody
+	p.inCaseBody = false
+	defer func() { p.inCaseBody = prevCaseBody }()
 	if p.preserve {
 		// A fragment has no wrapper tag; inside a preserve subtree its children
 		// are the parent's content and glue verbatim (fragment edges are NOT
@@ -1138,13 +1237,20 @@ func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	return body
 }
 
-// cfBodyInner builds a control-flow body's (or switch arm's) content. In a
-// preserve subtree the nodes glue verbatim — interior whitespace is content, so
-// childrenInner's segment boundaries (calibrated for wsnorm-collapsed text)
-// must not inject breaks there. The body's outer edges remain the caller's to
-// lay out: the parser trims brace-interior edge whitespace unconditionally, so
-// a break at the edge is syntax, not content, even under preserve.
+// cfBodyInner builds an `{ if }`/`{ for }` body's content (cfBody's sole
+// caller). In a preserve subtree the nodes glue verbatim — interior
+// whitespace is content, so childrenInner's segment boundaries (calibrated
+// for wsnorm-collapsed text) must not inject breaks there. The body's outer
+// edges remain the caller's to lay out: the parser trims brace-interior edge
+// whitespace unconditionally, so a break at the edge is syntax, not content,
+// even under preserve.
 func (p *printer) cfBodyInner(nodes []ast.Markup) pretty.Doc {
+	// An if/for body's text is scanned by parseTextCtx, which has no
+	// case/default label concept at all (it stops only at '<'/'{'/'}') —
+	// unrelated to an enclosing switch arm's rule, so clear the flag here too.
+	prevCaseBody := p.inCaseBody
+	p.inCaseBody = false
+	defer func() { p.inCaseBody = prevCaseBody }()
 	if p.preserve {
 		return p.childrenPreserve(nodes)
 	}
@@ -1219,6 +1325,15 @@ func (p *printer) caseBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
+	// Set for the whole call (both the preserve and normal branches, and both
+	// switchMarkup forms that reach here) — see the inCaseBody field doc.
+	// Preserve mode never injects breaks at all, so it cannot manufacture a
+	// label either, but scoping the flag to this function only (rather than
+	// threading a parameter through childrenInner) keeps the fix contained to
+	// the case-body call site.
+	prevCaseBody := p.inCaseBody
+	p.inCaseBody = true
+	defer func() { p.inCaseBody = prevCaseBody }()
 	if p.preserve {
 		// Arm edges are parser-trimmed like control-flow body edges, so the
 		// block layout's own newlines are safe; the interior glues verbatim.

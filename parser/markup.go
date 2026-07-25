@@ -650,10 +650,14 @@ func caseBodyLabelAfterWS(src string, off int) bool {
 // caseBodyLabelStart reports whether src at offset i begins a valid switch
 // arm label per parseCaseClause's own grammar: `default`, optionally followed
 // by whitespace, then `:`; or `case` followed by a list terminated by a `:`
-// found via scanToCaseColon — the same string/rune-aware colon scan
-// parseCaseClause itself uses, so `case "a:b":` is recognized correctly. It
-// does not check line position; callers (caseBodyLabelAfterWS) gate that
-// separately.
+// found via scanToCaseColonBounded — the same string/rune-aware colon scan
+// parseCaseClause uses (scanToCaseColon), but bounded to the keyword's own
+// physical line since this call is SPECULATIVE (see scanToCaseColonBounded):
+// unlike parseCaseClause's committed scan, this one runs for every "case"-
+// leading word candidate in ordinary case-body prose, so it must not pay for
+// scanning to EOF. `case "a:b":` is still recognized correctly since the
+// colon is on the same line. It does not check line position; callers
+// (caseBodyLabelAfterWS) gate that separately.
 func caseBodyLabelStart(src string, i int) bool {
 	if atWordAt(src, i, "default") {
 		j := i + len("default")
@@ -663,7 +667,7 @@ func caseBodyLabelStart(src string, i int) bool {
 		return j < len(src) && src[j] == ':'
 	}
 	if atWordAt(src, i, "case") {
-		_, ok := scanToCaseColon(src, i+len("case"))
+		_, ok := scanToCaseColonBounded(src, i+len("case"))
 		return ok
 	}
 	return false
