@@ -90,9 +90,13 @@ argument. Keep `build` and `run` pointed at the same binary.
 
 An existing `VITE_DEV_URL` can supply the hostname when `host` is unset. Port
 precedence: `VITE_PORT` wins, then a port in `VITE_DEV_URL`, then automatic
-selection. Either explicit form (`VITE_PORT` or a port in `VITE_DEV_URL`)
-fails loudly if already in use; only a fully port-less config auto-picks. If
-both are set and disagree, `VITE_PORT` wins and `gsx dev` logs a warning.
+selection. If both are set and disagree, `VITE_PORT` wins and `gsx dev` logs a
+warning.
+
+Both ports follow one rule: unset means `gsx dev` picks a free port (from
+`5173` for Vite, `7777` for the backend) and injects it into the processes it
+starts, so several projects run side by side; set means the port is used as
+given, and a busy one is a startup error.
 
 Command-line flags override `[dev]`; `[dev]` overrides the defaults. See
 [`gsx dev`](./cli.md#gsx-dev) for one-off overrides.
@@ -109,9 +113,11 @@ health = "/healthz"
 
 `${VAR}` in `upstream` expands against the merged shell + `.env` environment
 (shell wins); an unset or empty variable is a startup error. The default, when
-`upstream` is unset, is `http://localhost:${GO_PORT}` with `GO_PORT` defaulting
-to `7777`. `health` is the path probed on `upstream` and defaults to
-`/healthz`. `upstream` is observational only — it retargets the health probe
+`upstream` is unset, is `http://localhost:` plus the backend port resolved
+above. Setting `upstream` hands port selection to you: `gsx dev` neither
+picks a backend port nor sets `GO_PORT` for the server it starts. `health` is
+the path probed on `upstream` and defaults to `/healthz`. `upstream` is
+observational only — it retargets the health probe
 and dev panel, and is injected into the front-end process as
 `GSX_DEV_UPSTREAM`; it never changes where the backend listens. When
 `[dev].log` is set, its resolved absolute path is likewise injected as
