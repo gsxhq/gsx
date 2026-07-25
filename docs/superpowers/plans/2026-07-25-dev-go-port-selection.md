@@ -924,7 +924,7 @@ Expected: PASS.
 - [ ] **Step 10: Run the whole dev suite**
 
 Run: `go test ./gen -run TestDev -count=1 -timeout 900s`
-Expected: PASS. `TestDevEnvErrorPostsOverlay` is the canary for Step 6: its recovery step re-resolves a `GO_PORT` our own server is holding, which only passes because `heldGo` is threaded through.
+Expected: PASS. The canary for Step 6 is `TestDevEnvEditKeepsPinnedGoPort`, which asserts the server's pid changes after an `.env` edit and so fails outright when `heldGo` is not threaded through. `TestDevEnvErrorPostsOverlay` only became a canary after its reload counter was reset before the recovery write — as written it passed with `heldGo` broken.
 
 - [ ] **Step 11: Commit**
 

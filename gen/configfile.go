@@ -75,7 +75,9 @@ type tomlDev struct {
 	// shell+.env (e.g. "http://localhost${ADDR}"). It is observational only —
 	// gsx dev never sets the app's listen address — and feeds both the health
 	// probe and the GSX_DEV_UPSTREAM env injected into the vite child. Empty
-	// defaults to http://localhost:${GO_PORT|7777} (today's behavior).
+	// defaults to http://localhost:<port>, the port resolveGoPort resolved (an
+	// explicit GO_PORT, else the first free port from 7777) — GO_PORT has
+	// exactly one reader, and it is not the upstream resolver.
 	Upstream string `toml:"upstream"`
 	// Health is the path probed on Upstream (default "/healthz").
 	Health string `toml:"health"`

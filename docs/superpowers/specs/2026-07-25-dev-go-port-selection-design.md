@@ -146,6 +146,22 @@ Checked against `one-learning`, the production consumer:
 So no consumer needs a migration step: only the scaffold changes, and only
 for newly created projects.
 
+### Known limitation: the probe-then-bind window
+
+Nothing holds the chosen port between the availability probe and the child's
+bind — the bind happens seconds later, after generate+build. Two `gsx dev`
+starts whose resolutions fall inside that window still pick the same port.
+
+Measured consequence: the losing server exits, but `gsx dev` keeps reporting
+healthy, because `devServer` never waits on the child and the health probe is
+answered by the *winner's* listener. There is no identity check on the Go probe
+(unlike the front door's `x-gsx` token).
+
+Accepted for this change: it is strictly narrower than the previous behavior,
+where every scaffolded project pinned 7777 and collided unconditionally.
+Closing it needs a design change — hold the listener across the spawn, pass a
+file descriptor, or supervise the child and identity-check the probe.
+
 ## Testing
 
 Unit (`gen/devserver_test.go`):

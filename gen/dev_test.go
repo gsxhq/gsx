@@ -2134,3 +2134,178 @@ func TestDevEnvEditKeepsPinnedGoPort(t *testing.T) {
 		t.Errorf("gsx dev reported its own server's GO_PORT as in use after an .env edit; output:\n%s", stdout.String())
 	}
 }
+
+// devOpenURLRe matches the front-door URL gsx dev prints at startup
+// ("gsx dev: watching <dir> — open http://localhost:5173"), the only place the
+// auto-picked Vite port is externally observable.
+var devOpenURLRe = regexp.MustCompile(`open http://[^:\s]+:(\d+)`)
+
+// TestDevEnvEditKeepsAutoPickedPorts is the auto-pick twin of
+// TestDevEnvEditKeepsPinnedGoPort and TestDevEnvEditKeepsBoundFrontDoorPort:
+// nothing here pins GO_PORT or VITE_PORT/VITE_DEV_URL, so BOTH ports come from
+// the auto-picker, and an .env edit must leave both exactly where they are.
+//
+// This is the drift the held-port fix exists to prevent, and neither existing
+// test can see it — both pin their ports, where the failure mode is a hard
+// "already in use" error. The .env-fire path re-resolves from a FRESH
+// environment (os.Environ() + .env), in which GO_PORT/VITE_PORT are absent
+// again; without heldGo/heldVite the picker walks past our own bound children
+// (7777→7778, 5173→5174) with no error at all, silently moving the restarted
+// server, the health probe and the reload target off the ports the browser and
+// the running front door are on.
+//
+// Two independent signals, each specific:
+//   - Go side: PORT_FILE is deleted before the edit, so any content afterwards
+//     was written by the RESTARTED server — its presence proves the fire path
+//     got all the way through restartNoBuild, and its value must equal the
+//     original port.
+//   - Vite side: the fake front door is bound to the ORIGINAL auto-picked port
+//     and logs every request, so a /__reload landing there after the edit
+//     proves viteURL never drifted (a drifted URL points at a port nothing
+//     listens on, and postBest fails silently). Waiting for "/__reload"
+//     specifically — not for any front-door hit — matters: the command
+//     long-poll hits the front door continuously.
+func TestDevEnvEditKeepsAutoPickedPorts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+	frontDoor := buildDevTestFrontDoor(t)
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+	// A real .env (the fire path only runs for a watched .env) that pins no
+	// port at all — both ports must come from the auto-picker.
+	baseEnv := "APP_NAME=devdemo\n"
+	writeFile(t, proj, ".env", baseEnv)
+
+	portFile := filepath.Join(t.TempDir(), "port")
+	fakeLog := filepath.Join(t.TempDir(), "frontdoor.log")
+	cmd := exec.Command(bin, "dev", "--web", frontDoor)
+	cmd.Dir = proj
+	// devTestEnvNoGoPort: an ambient shell GO_PORT would pin the Go side and
+	// turn this back into TestDevEnvEditKeepsPinnedGoPort.
+	cmd.Env = devTestEnvNoGoPort("BROWSER=none", "GOFLAGS=-mod=mod", "PORT_FILE="+portFile, "FAKE_LOG="+fakeLog)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+	t.Cleanup(func() {
+		if t.Failed() {
+			b, _ := os.ReadFile(portFile)
+			log, _ := os.ReadFile(fakeLog)
+			t.Logf("PORT_FILE=%q front-door log:\n%s\ngsx dev output:\n%s", b, log, stdout.String())
+		}
+	})
+
+	// The Go port the CHILD actually bound (not just what gsx dev intended).
+	waitFor(t, 180*time.Second, func() bool {
+		b, err := os.ReadFile(portFile)
+		return err == nil && len(b) > 0
+	})
+	b, err := os.ReadFile(portFile)
+	if err != nil {
+		t.Fatalf("read port file: %v", err)
+	}
+	goPort := strings.TrimSpace(string(b))
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 60*time.Second) {
+		t.Fatalf("auto-picked Go server on port %s never became healthy", goPort)
+	}
+
+	// The front-door port gsx dev auto-picked and handed to the fake vite.
+	var vitePort string
+	waitFor(t, 30*time.Second, func() bool {
+		m := devOpenURLRe.FindStringSubmatch(stdout.String())
+		if m == nil {
+			return false
+		}
+		vitePort = m[1]
+		return true
+	})
+	if !portListening(vitePort) {
+		t.Fatalf("nothing is listening on the announced front-door port %s", vitePort)
+	}
+
+	pidOf := func() string {
+		resp, err := http.Get("http://localhost:" + goPort + "/pid")
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		p, _ := io.ReadAll(resp.Body)
+		return string(p)
+	}
+	before := pidOf()
+	if before == "" {
+		t.Fatal("could not read /pid before the .env edit")
+	}
+
+	// Wait for the STARTUP reload specifically before truncating, so the
+	// post-edit assertion cannot be satisfied by a leftover startup hit.
+	waitFor(t, 60*time.Second, func() bool {
+		b, _ := os.ReadFile(fakeLog)
+		return strings.Contains(string(b), "/__reload")
+	})
+	if err := os.Truncate(fakeLog, 0); err != nil {
+		t.Fatal(err)
+	}
+	// Deleted, not truncated: only a freshly started server recreates it.
+	if err := os.Remove(portFile); err != nil {
+		t.Fatal(err)
+	}
+
+	// The edit under test: an unrelated key, nothing port-related touched.
+	writeFile(t, proj, ".env", baseEnv+"FOO=bar\n")
+
+	// Go side: the restarted server rewrote PORT_FILE — with the SAME port.
+	waitFor(t, 60*time.Second, func() bool {
+		b, err := os.ReadFile(portFile)
+		return err == nil && len(strings.TrimSpace(string(b))) > 0
+	})
+	b, err = os.ReadFile(portFile)
+	if err != nil {
+		t.Fatalf("read port file after the .env edit: %v", err)
+	}
+	if got := strings.TrimSpace(string(b)); got != goPort {
+		t.Fatalf("Go port drifted across an .env edit: %s → %s (the auto-picker walked past our own server)", goPort, got)
+	}
+	after := pidOf()
+	if after == "" || after == before {
+		t.Fatalf("the .env edit did not restart the Go server (pid %q → %q)", before, after)
+	}
+
+	// Vite side: the reload landed on the ORIGINAL front-door port.
+	waitFor(t, 60*time.Second, func() bool {
+		b, _ := os.ReadFile(fakeLog)
+		return strings.Contains(string(b), "/__reload")
+	})
+	if m := devOpenURLRe.FindAllStringSubmatch(stdout.String(), -1); len(m) > 0 && m[len(m)-1][1] != vitePort {
+		t.Errorf("front-door port drifted across an .env edit: %s → %s", vitePort, m[len(m)-1][1])
+	}
+	if strings.Contains(stdout.String(), "already in use") {
+		t.Errorf("gsx dev reported one of its own children's ports as in use after an .env edit")
+	}
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
+		t.Fatalf("server not healthy on the original Go port %s after the .env edit", goPort)
+	}
+}
