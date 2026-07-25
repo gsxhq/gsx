@@ -62,14 +62,14 @@ component Layout(title string, children gsx.Node) {
 
 // Reusable markup binds to a package-level var, inferred as gsx.Node.
 var logos = (
-	<>
+	<div class="logos">
 		<a href="https://vite.dev" target="_blank" rel="noreferrer">
 			<img src="/public/vite.svg" class="logo" alt="Vite logo"/>
 		</a>
 		<a href="https://github.com/gsxhq/gsx" target="_blank" rel="noreferrer">
 			<img src="/public/gsx.svg" class="logo gsx" alt="gsx logo"/>
 		</a>
-	</>
+	</div>
 )
 
 component Index(title string) {
