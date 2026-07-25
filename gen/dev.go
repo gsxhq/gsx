@@ -63,11 +63,15 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	// --- env + ports ---
 	env := mergeDotEnv(os.Environ(), loadDotEnv(workDir))
-	env, viteURL, warning, err := resolveViteDevEnv(env, dc.host)
+	env, viteURL, warning, err := resolveViteDevEnv(env, dc.host, "")
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
 	}
+	// heldVite is the last resolved front-door port; every later re-resolution
+	// passes it so our own running child is not mistaken for a foreign
+	// listener (see portFree).
+	heldVite := envPort(env, "VITE_PORT", "")
 	if warning != "" {
 		fmt.Fprintf(stderr, "gsx dev: %s\n", warning)
 	}
@@ -75,7 +79,17 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	if td != nil {
 		tdUpstream, tdHealth = td.Upstream, td.Health
 	}
-	origin, healthURL, goPort, err := resolveUpstream(tdUpstream, tdHealth, env)
+	// bindPort is the port the Go server child listens on (empty when
+	// [dev].upstream places the backend); goPort below stays the
+	// upstream-derived port the panel reports, which may carry a foreign host's
+	// port or none at all.
+	env, bindPort, err := resolveGoPort(env, tdUpstream != "", "")
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+		return 1
+	}
+	heldGo := bindPort
+	origin, healthURL, goPort, err := resolveUpstream(tdUpstream, tdHealth, env, bindPort)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
@@ -461,7 +475,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if envDirty {
 				envDirty = false
 				newEnv := mergeDotEnv(os.Environ(), loadDotEnv(workDir))
-				resolvedEnv, newViteURL, envWarning, envErr := resolveViteDevEnv(newEnv, dc.host)
+				resolvedEnv, newViteURL, envWarning, envErr := resolveViteDevEnv(newEnv, dc.host, heldVite)
 				if envErr != nil {
 					// A broken .env edit (e.g. an explicit VITE_PORT that's now
 					// in use) must not crash a running dev loop OR corrupt
@@ -481,11 +495,17 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 					overlayUp = true
 					continue
 				}
-				env, viteURL = resolvedEnv, newViteURL
-				if envWarning != "" {
-					fmt.Fprintf(stderr, "gsx dev: %s\n", envWarning)
+				goEnv, newBind, goErr := resolveGoPort(resolvedEnv, tdUpstream != "", heldGo)
+				if goErr != nil {
+					// Same treatment as envErr/upErr: a broken GO_PORT edit
+					// must not crash the loop or corrupt the last-known-good
+					// env — log, overlay, keep everything as it was.
+					fmt.Fprintf(stderr, "gsx dev: %v\n", goErr)
+					post(buildErrorEvent(goErr.Error()))
+					overlayUp = true
+					continue
 				}
-				newOrigin, newHealthURL, newPort, upErr := resolveUpstream(tdUpstream, tdHealth, env)
+				newOrigin, newHealthURL, newPort, upErr := resolveUpstream(tdUpstream, tdHealth, goEnv, newBind)
 				if upErr != nil {
 					// A broken [dev].upstream (e.g. a now-unset ${VAR}, or an
 					// env edit that produces a bare trailing ":") must not crash
@@ -497,6 +517,12 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 					post(buildErrorEvent(upErr.Error()))
 					overlayUp = true
 					continue
+				}
+				env, viteURL = goEnv, newViteURL
+				heldVite = envPort(env, "VITE_PORT", "")
+				heldGo = newBind
+				if envWarning != "" {
+					fmt.Fprintf(stderr, "gsx dev: %s\n", envWarning)
 				}
 				origin, healthURL, goPort = newOrigin, newHealthURL, newPort
 				// Vite reads .env itself (loadEnv + native .env watch), so only the Go server is restarted here.

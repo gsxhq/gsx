@@ -174,32 +174,33 @@ func TestExpandEnvRefs(t *testing.T) {
 }
 
 // TestResolveUpstream pins [dev].upstream/health resolution: empty upstream
-// falls back to today's http://localhost:${GO_PORT|7777} behavior; a
-// non-empty upstream is ${VAR}-expanded, parsed, and must be an origin only
-// (http/https, host, no path/query/fragment).
+// falls back to http://localhost:<goPort>, the port resolveGoPort already
+// resolved; a non-empty upstream is ${VAR}-expanded, parsed, and must be an
+// origin only (http/https, host, no path/query/fragment).
 func TestResolveUpstream(t *testing.T) {
 	cases := []struct {
 		name          string
 		upstream      string
 		health        string
 		env           []string
+		goPort        string
 		wantOrigin    string
 		wantHealthURL string
 		wantPort      string
 		wantErrSubstr string
 	}{
 		{
-			name:          "absent upstream no GO_PORT defaults to 7777",
+			name:          "absent upstream uses the resolved Go port",
 			upstream:      "",
-			env:           nil,
+			goPort:        "7777",
 			wantOrigin:    "http://localhost:7777",
 			wantHealthURL: "http://localhost:7777/healthz",
 			wantPort:      "7777",
 		},
 		{
-			name:          "absent upstream honors GO_PORT",
+			name:          "absent upstream honors a pinned Go port",
 			upstream:      "",
-			env:           []string{"GO_PORT=8081"},
+			goPort:        "8081",
 			wantOrigin:    "http://localhost:8081",
 			wantHealthURL: "http://localhost:8081/healthz",
 			wantPort:      "8081",
@@ -275,17 +276,11 @@ func TestResolveUpstream(t *testing.T) {
 			upstream:      "http://localhost:",
 			wantErrSubstr: "empty port",
 		},
-		{
-			name:          "default upstream with GO_PORT present but empty errors",
-			upstream:      "",
-			env:           []string{"GO_PORT="},
-			wantErrSubstr: "GO_PORT",
-		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			origin, healthURL, port, err := resolveUpstream(tc.upstream, tc.health, tc.env)
+			origin, healthURL, port, err := resolveUpstream(tc.upstream, tc.health, tc.env, tc.goPort)
 			if tc.wantErrSubstr != "" {
 				if err == nil {
 					t.Fatalf("resolveUpstream(%q, %q) = (%q, %q, %q), nil; want error containing %q",
@@ -313,6 +308,127 @@ func TestResolveUpstream(t *testing.T) {
 	}
 }
 
+func TestResolveGoPort(t *testing.T) {
+	busy := freePort(t)
+	l, err := net.Listen("tcp", "127.0.0.1:"+busy)
+	if err != nil {
+		t.Skipf("could not hold port %s for test: %v", busy, err)
+	}
+	defer l.Close()
+	free := freePort(t)
+
+	cases := []struct {
+		name          string
+		env           []string
+		upstreamSet   bool
+		held          string
+		wantPort      string
+		wantEnvPort   string // GO_PORT expected in the returned env; "" = absent
+		wantErrSubstr string
+	}{
+		{
+			// [dev].upstream means the user places the backend: no pick, and no
+			// GO_PORT injected into an app that may not even read it.
+			name:        "upstream set is hands off",
+			env:         []string{"GO_PORT=" + busy},
+			upstreamSet: true,
+			wantPort:    "",
+			wantEnvPort: busy, // untouched, not injected
+		},
+		{
+			name:        "explicit free port accepted and kept",
+			env:         []string{"GO_PORT=" + free},
+			wantPort:    free,
+			wantEnvPort: free,
+		},
+		{
+			name:          "explicit busy port errors",
+			env:           []string{"GO_PORT=" + busy},
+			wantErrSubstr: "already in use",
+		},
+		{
+			name:        "explicit port held by our own server accepted",
+			env:         []string{"GO_PORT=" + busy},
+			held:        busy,
+			wantPort:    busy,
+			wantEnvPort: busy,
+		},
+		{
+			name:          "set but empty errors",
+			env:           []string{"GO_PORT="},
+			wantErrSubstr: "GO_PORT",
+		},
+		{
+			name:          "non-numeric errors",
+			env:           []string{"GO_PORT=web"},
+			wantErrSubstr: "invalid GO_PORT",
+		},
+		{
+			name:        "absent reuses the held port",
+			env:         []string{"PATH=/bin"},
+			held:        busy,
+			wantPort:    busy,
+			wantEnvPort: busy,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, port, err := resolveGoPort(tc.env, tc.upstreamSet, tc.held)
+			if tc.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatalf("resolveGoPort(%v) = (%v, %q, nil); want error containing %q", tc.env, env, port, tc.wantErrSubstr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSubstr) {
+					t.Errorf("error = %q, want substring %q", err, tc.wantErrSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveGoPort(%v) error = %v", tc.env, err)
+			}
+			if port != tc.wantPort {
+				t.Errorf("port = %q, want %q", port, tc.wantPort)
+			}
+			if got := envPort(env, "GO_PORT", ""); got != tc.wantEnvPort {
+				t.Errorf("GO_PORT in env = %q, want %q", got, tc.wantEnvPort)
+			}
+		})
+	}
+}
+
+func TestResolveGoPortSkipsBoundDefaultPort(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:7777")
+	if err != nil {
+		t.Skipf("default Go port unavailable before test: %v", err)
+	}
+	defer l.Close()
+	want, err := nextAvailablePort("7777", "Go server")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	env, port, err := resolveGoPort([]string{"PATH=/bin"}, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if port != want {
+		t.Fatalf("port = %q, want %s (7777 is bound)", port, want)
+	}
+	if got := envPort(env, "GO_PORT", ""); got != want {
+		t.Fatalf("GO_PORT injected into env = %q, want %s — the spawned server binds this value", got, want)
+	}
+}
+
+func TestResolveUpstreamRequiresGoPortForDefaultOrigin(t *testing.T) {
+	// The default origin is built from the resolved Go port; an empty one would
+	// produce "http://localhost:", which url.Parse accepts and Go's http client
+	// then dials as port 80 — the undiagnosable "server down" this guards.
+	if _, _, _, err := resolveUpstream("", "", nil, ""); err == nil {
+		t.Fatal("resolveUpstream with no upstream and no Go port = nil error, want a diagnostic")
+	}
+}
+
 // freePort binds an ephemeral port, reads back the port the OS assigned, and
 // releases it immediately. The window between release and the caller's own
 // use is a theoretical race (acceptable here, same tolerance as the other
@@ -333,18 +449,97 @@ func freePort(t *testing.T) string {
 	return port
 }
 
+func TestPortFreeTreatsHeldPortAsFree(t *testing.T) {
+	port := freePort(t)
+	l, err := net.Listen("tcp", "127.0.0.1:"+port)
+	if err != nil {
+		t.Skipf("could not hold port %s for test: %v", port, err)
+	}
+	defer l.Close()
+
+	// Held by a stranger: a conflict.
+	if portFree(port, "") {
+		t.Errorf("portFree(%s, \"\") = true, want false (port is bound by another process)", port)
+	}
+	// Held by our own child: not a conflict.
+	if !portFree(port, port) {
+		t.Errorf("portFree(%s, %s) = false, want true (our own listener must not read as a conflict)", port, port)
+	}
+	// A different held port does not excuse a busy one.
+	if portFree(port, "1") {
+		t.Errorf("portFree(%s, \"1\") = true, want false", port)
+	}
+}
+
+func TestNextAvailablePortLabelsItsErrors(t *testing.T) {
+	if _, err := nextAvailablePort("65536", "Go server"); err == nil {
+		t.Fatal("nextAvailablePort(65536) = nil error, want exhaustion error")
+	} else if !strings.Contains(err.Error(), "Go server") {
+		t.Errorf("error = %q, want it to name the Go server port", err)
+	}
+	if _, err := nextAvailablePort("not-a-port", "Vite dev"); err == nil {
+		t.Fatal("nextAvailablePort(\"not-a-port\") = nil error, want an invalid-start error")
+	}
+}
+
+func TestResolveViteDevEnvAcceptsOwnHeldPort(t *testing.T) {
+	port := freePort(t)
+	l, err := net.Listen("tcp", "127.0.0.1:"+port)
+	if err != nil {
+		t.Skipf("could not hold port %s for test: %v", port, err)
+	}
+	defer l.Close()
+
+	// Our own front door is on this port: a re-resolution must accept the pin.
+	_, viteURL, _, err := resolveViteDevEnv([]string{"VITE_PORT=" + port, "PATH=/bin"}, "", port)
+	if err != nil {
+		t.Fatalf("explicit VITE_PORT held by our own front door was rejected: %v", err)
+	}
+	if want := "http://localhost:" + port; viteURL != want {
+		t.Fatalf("viteURL = %q, want %s", viteURL, want)
+	}
+
+	// Same for a URL-derived pin.
+	if _, _, _, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}, "", port); err != nil {
+		t.Fatalf("VITE_DEV_URL port held by our own front door was rejected: %v", err)
+	}
+
+	// A stranger on the same port must still fail: held is an exemption for
+	// OUR child only, not a blanket disable of the busy check.
+	if _, _, _, err := resolveViteDevEnv([]string{"VITE_PORT=" + port, "PATH=/bin"}, "", ""); err == nil {
+		t.Fatal("busy VITE_PORT with no held port = nil error, want 'already in use'")
+	}
+}
+
+func TestResolveViteDevEnvAutoPickReusesHeldPort(t *testing.T) {
+	// Port-less config with a port already picked for this session: re-resolve
+	// to the SAME port. Probing would find our own vite there and drift to the
+	// next one, leaving viteURL pointing at a port nobody listens on.
+	held := freePort(t)
+	_, viteURL, warning, err := resolveViteDevEnv([]string{"PATH=/bin"}, "", held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warning != "" {
+		t.Errorf("warning = %q, want none", warning)
+	}
+	if want := "http://localhost:" + held; viteURL != want {
+		t.Fatalf("viteURL = %q, want %s (auto-pick must reuse the held port)", viteURL, want)
+	}
+}
+
 func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:5173")
 	if err != nil {
 		t.Skipf("default Vite port unavailable before test: %v", err)
 	}
 	defer l.Close()
-	wantPort, err := nextAvailablePort("5173")
+	wantPort, err := nextAvailablePort("5173", "Vite dev")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	env, viteURL, warning, err := resolveViteDevEnv([]string{"PATH=/bin"}, "")
+	env, viteURL, warning, err := resolveViteDevEnv([]string{"PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,10 +559,10 @@ func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 }
 
 func TestResolveViteDevEnvHost(t *testing.T) {
-	env, viteURL, _, err := resolveViteDevEnv([]string{"VITE_PORT=0", "PATH=/bin"}, "mstudio")
+	env, viteURL, _, err := resolveViteDevEnv([]string{"VITE_PORT=0", "PATH=/bin"}, "mstudio", "")
 	if err != nil {
 		// port 0 is "available" (ephemeral); if the platform rejects it, fall back.
-		env, viteURL, _, err = resolveViteDevEnv([]string{"PATH=/bin"}, "mstudio")
+		env, viteURL, _, err = resolveViteDevEnv([]string{"PATH=/bin"}, "mstudio", "")
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +580,7 @@ func TestResolveViteDevEnvHostFromDevURL(t *testing.T) {
 	devURL := "VITE_DEV_URL=http://mstudio:" + port
 	// With no [dev].host, the hostname comes from VITE_DEV_URL in the env, and
 	// (with VITE_PORT unset) so does the port.
-	_, viteURL, warning, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "")
+	_, viteURL, warning, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +593,7 @@ func TestResolveViteDevEnvHostFromDevURL(t *testing.T) {
 	}
 	// An explicit [dev].host wins over VITE_DEV_URL's hostname; the URL's port
 	// is still honored.
-	_, viteURL2, warning2, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "override")
+	_, viteURL2, warning2, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "override", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +609,7 @@ func TestResolveViteDevEnvHostFromDevURL(t *testing.T) {
 func TestResolveViteDevEnvPortlessURLAutoPicks(t *testing.T) {
 	// A VITE_DEV_URL with no port keeps today's behavior exactly: hostname
 	// hint only, port still comes from the auto-picker.
-	_, viteURL, warning, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio", "PATH=/bin"}, "")
+	_, viteURL, warning, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio", "PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +629,7 @@ func TestResolveViteDevEnvHonorsURLPortWhenBusy(t *testing.T) {
 	}
 	defer l.Close()
 
-	_, _, _, err = resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}, "")
+	_, _, _, err = resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}, "", "")
 	if err == nil {
 		t.Fatal("expected VITE_DEV_URL's busy explicit port to fail")
 	}
@@ -451,7 +646,7 @@ func TestResolveViteDevEnvHonorsURLPortWhenBusy(t *testing.T) {
 func TestResolveViteDevEnvVitePortAgreesWithURLNoWarning(t *testing.T) {
 	port := freePort(t)
 	env := []string{"VITE_PORT=" + port, "VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}
-	_, viteURL, warning, err := resolveViteDevEnv(env, "")
+	_, viteURL, warning, err := resolveViteDevEnv(env, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +663,7 @@ func TestResolveViteDevEnvVitePortOverridesDisagreeingURL(t *testing.T) {
 	vitePort := freePort(t)
 	urlPort := freePort(t)
 	env := []string{"VITE_PORT=" + vitePort, "VITE_DEV_URL=http://mstudio:" + urlPort, "PATH=/bin"}
-	_, viteURL, warning, err := resolveViteDevEnv(env, "")
+	_, viteURL, warning, err := resolveViteDevEnv(env, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,12 +688,12 @@ func TestResolveViteDevEnvSkipsIPv6BoundDefaultPort(t *testing.T) {
 		t.Skipf("IPv6 default Vite port unavailable before test: %v", err)
 	}
 	defer l.Close()
-	wantPort, err := nextAvailablePort("5173")
+	wantPort, err := nextAvailablePort("5173", "Vite dev")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	env, viteURL, _, err := resolveViteDevEnv([]string{"PATH=/bin"}, "")
+	env, viteURL, _, err := resolveViteDevEnv([]string{"PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +713,7 @@ func TestResolveViteDevEnvRejectsBoundExplicitVitePort(t *testing.T) {
 	}
 	defer l.Close()
 
-	_, _, _, err = resolveViteDevEnv([]string{"VITE_PORT=5173"}, "")
+	_, _, _, err = resolveViteDevEnv([]string{"VITE_PORT=5173"}, "", "")
 	if err == nil {
 		t.Fatal("expected bound explicit VITE_PORT to fail")
 	}

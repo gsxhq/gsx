@@ -794,6 +794,11 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   server-swap phase). Also fixes a latent `fire`-token leak - `schedule()`
   stops the timer but never drains the capacity-1 channel, so a token from a
   timer that fired mid-cycle can trigger an extra partial cycle.
+- [ ] **Go-port probe-then-bind window** (2026-07-25,
+  `2026-07-25-dev-go-port-selection-design.md`) - nothing holds an auto-picked
+  `GO_PORT` between the probe and the child's bind seconds later, so two
+  simultaneous `gsx dev` starts can still collide, and the loser's exit goes
+  unnoticed because the health probe has no identity check.
 
 ## Security - safe by default
 

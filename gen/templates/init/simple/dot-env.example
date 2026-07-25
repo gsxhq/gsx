@@ -1,1 +1,3 @@
-GO_PORT=7777
+# Backend port. Unset, gsx dev picks a free one so several projects can run
+# at once; uncomment to pin it (a pinned port that's busy is an error).
+# GO_PORT=7777
