@@ -63,8 +63,12 @@ the render silently.
 
 Two corrections, both found by probing rather than reading:
 
-1. **Colon must be on the keyword's own line.** The speculative validity scan
-   is bounded to the label's physical line. Unbounded `scanToCaseColon`
+1. **The `case` list scan is bounded to the keyword's own line.** The
+   speculative list scan stops at the end of the label's physical line.
+   (`default`'s colon lookahead keeps skipping whitespace, newlines included,
+   so it matches `parseCaseClause`'s committed grammar exactly — the two paths
+   must agree, and that lookahead is one whitespace run, so it carries no perf
+   risk.) Unbounded `scanToCaseColon`
    lookahead tokenized to EOF per candidate — an ~800× quadratic parse blowup
    on `case`-leading prose (4000 lines: 2.3ms → 1.84s), and it captured colons
    across arms and even across a sibling switch. A markup arm label is always
