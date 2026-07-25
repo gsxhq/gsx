@@ -118,6 +118,34 @@ port with no further plumbing.
 - Sibling repo `gsx-examples/streaming-partial/.env`: comment out its
   `GO_PORT` so the examples run side by side.
 
+## Impact on existing projects
+
+Checked against `one-learning`, the production consumer:
+
+- It never sets `GO_PORT`. The server binds its own `ADDR=:8890` and
+  `gsx.toml` declares `upstream = "http://localhost${ADDR}"` — the hands-off
+  path. The new Go-port logic is a no-op there: no pick, no injection, no
+  migration.
+- Its ports are pinned on purpose and must stay pinned: `.env` keeps
+  `APP_URL` and `VITE_DEV_URL` on the same `http://mstudio:4000` (absolute
+  links, SSO callbacks). Parallel worktrees get distinct ports by editing
+  `ADDR`/`VITE_DEV_URL` per worktree. "Strict when set" preserves this
+  exactly; auto-pick must never reach a configured port.
+- It does gain the held-port fix. Reproduced in a scratch project shaped like
+  it — explicit `VITE_DEV_URL` port with the front door actually bound to it —
+  where touching `.env` produces:
+
+  ```
+  gsx dev: VITE_DEV_URL port 7912 is already in use
+  ```
+
+  The re-resolution counts `gsx dev`'s own Vite child as a conflict, so the
+  server restart is skipped and the browser gets an overlay instead of a
+  reload. Every `.env` edit during a run hits this today.
+
+So no consumer needs a migration step: only the scaffold changes, and only
+for newly created projects.
+
 ## Testing
 
 Unit (`gen/devserver_test.go`):
@@ -137,7 +165,13 @@ Integration (`gen/dev_test.go`, recorder pattern, skipped under `-short`):
   reach healthy on distinct Go ports — the reported bug.
 - An `.env` edit during a run leaves both the Go and the Vite port unchanged
   (pins the stickiness fix).
+- One-learning's shape: an explicit `VITE_DEV_URL` port with a front door that
+  really binds it (not `--web "sleep 600"`), then an `.env` edit — the loop
+  must restart and reload, not error. The existing test at
+  `gen/dev_test.go:1711` masks this bug precisely because its front door binds
+  nothing, so the new case must use a front-door command that listens.
 
 Existing tests that pin the Vite "already in use" hard error
 (`gen/dev_test.go:1712`) and the `.env`-fire error branches stay green
-unmodified.
+unmodified — they block a *foreign* listener, which the held-port exemption
+does not touch.
