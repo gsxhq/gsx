@@ -1097,6 +1097,14 @@ func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, err
 				return nil, token.NoPos, p.errorf(p.pos(), "malformed close tag")
 			}
 			p.i++ // past '>'
+			if term.piEnd {
+				// A region is terminated ONLY by `<?end>`. term.tag is "" for a
+				// region, so the `got != term.tag` comparison below would let a
+				// fragment close `</>` silently end the region (and would then
+				// mis-name `</>` as the expected terminator for any other close
+				// tag). Reject every `</…>` here instead, naming `<?end>`.
+				return nil, token.NoPos, p.errorf(mmTokPos, "mismatched close tag </%s>, expected <?end>", got)
+			}
 			if got != term.tag {
 				return nil, token.NoPos, p.errorf(mmTokPos, "mismatched close tag </%s>, expected </%s>", got, term.tag)
 			}

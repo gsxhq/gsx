@@ -100,7 +100,7 @@ func ResolveScriptsErr(f *ast.File) error {
 }
 
 // resolveMarkup mirrors internal/jsmin/file.go's minifyMarkup walk: recurse
-// through Element/Fragment/IfMarkup/ForMarkup/SwitchMarkup, but stop at <script>
+// through Element/Fragment/MarkerRegion/IfMarkup/ForMarkup/SwitchMarkup, but stop at <script>
 // elements (resolve them, don't recurse into their raw-text children).
 // Returns true if clean, false if any diagnostic was added to bag.
 func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
@@ -133,6 +133,14 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 				ok = false
 			}
 		case *ast.Fragment:
+			if !resolveMarkup(v.Children, bag) {
+				ok = false
+			}
+		case *ast.MarkerRegion:
+			// A `<?start>…<?end>` region wraps ordinary markup: a <script> inside it
+			// needs its holes classified like one inside a <div>, or emit rejects
+			// them with the "no JS context" internal-error diagnostic. (Marker is
+			// void — no children.)
 			if !resolveMarkup(v.Children, bag) {
 				ok = false
 			}

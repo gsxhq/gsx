@@ -82,6 +82,11 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 				}
 			case *ast.Fragment:
 				walk(t.Children, topScope)
+			case *ast.MarkerRegion:
+				// Like a fragment: a region opens no Go scope (genNode emits its
+				// children inline), so a top-scope `{{ ctx := … }}` inside one is a
+				// body-scope binding and must be reported.
+				walk(t.Children, topScope)
 			case *ast.Element:
 				// A PLAIN element opens no Go scope; its children emit inline at the
 				// same scope — EXCEPT <script>/<style>, whose children do not route

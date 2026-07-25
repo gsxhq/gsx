@@ -2652,6 +2652,14 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 			if scopeUsesNumeric(t.Children, resolved, table, cls) {
 				return true
 			}
+		case *ast.MarkerRegion:
+			// A region opens no Go scope (genNode emits its children inline into the
+			// enclosing render closure), so a numeric hole inside it uses THIS
+			// scope's _gsxnum and must be counted here. (Marker is void — no
+			// children; its Name goes through the PIName sink, never _gsxnum.)
+			if scopeUsesNumeric(t.Children, resolved, table, cls) {
+				return true
+			}
 		case *ast.ForMarkup:
 			if scopeUsesNumeric(t.Body, resolved, table, cls) {
 				return true
@@ -4665,15 +4673,19 @@ func genPIOpen(b *bytes.Buffer, target string, name ast.Attr, table funcTables, 
 }
 
 // emitPIName emits `_gsxgw.PIName(<expr>)` for a dynamic `<?target name={expr}>`
-// name, following emitExprAttr's URL-sink value path exactly: a pipeline lowers
-// via the SAME lowerPipe call the probe used, and a trailing (T, error) result
-// auto-unwraps exactly as any other dynamic attribute value does — so a piped or
-// tuple-returning name behaves identically to an href={ } value. There is no
-// classify dispatch or scheme allow-list here (unlike the URL sinks) because a PI
-// name is not a URL or a general attribute value; the runtime PIName sink is what
-// rejects '>' and '"' at render time. Unlike emitExprAttr's URL branch, there is
-// no rtImports param: urlStringExpr's non-string fallback needs no rt helper, and
-// PIName never reaches stringifyExpr/emitAttrValue (which do).
+// name. It reuses emitExprAttr's value pipeline for the steps that ARE shared: a
+// pipeline lowers via the SAME lowerPipe call the probe used, a trailing (T,
+// error) result auto-unwraps, and a registered [renderers] entry applies AFTER
+// the unwrap and BEFORE the sink — renderer first, escape after, exactly as every
+// other value position does.
+//
+// It then DIVERGES from the URL branch, deliberately: a PI name is neither a URL
+// nor a general attribute value, so there is no scheme allow-list, no gsx.RawURL
+// vouch, and no §5 type-aware rendering (no bool/int/slice forms — PI data is a
+// string). The value must therefore be string-like (string / []byte / Stringer)
+// after the renderer step; anything else is a positioned gsx diagnostic here
+// rather than a Go type error naming the internal `_gsxgw.PIName`. The runtime
+// PIName sink is what rejects '>' and '"' at render time.
 func emitPIName(b *bytes.Buffer, a *ast.ExprAttr, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
 	expr := strings.TrimSpace(a.Expr)
 	if len(a.Stages) > 0 {
@@ -4704,7 +4716,15 @@ func emitPIName(b *bytes.Buffer, a *ast.ExprAttr, table funcTables, imports map[
 		t = elemT
 	}
 
-	fmt.Fprintf(b, "\t\t_gsxgw.PIName(%s)\n", urlStringExpr(expr, t))
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+
+	if !isStringLike(t) {
+		bag.Errorf(a.Pos(), a.End(), "unrenderable-pi-name",
+			"processing-instruction name %q has type %s; it must be a string, []byte, or fmt.Stringer (or have a registered renderer)", a.Expr, t)
+		return false
+	}
+
+	fmt.Fprintf(b, "\t\t_gsxgw.PIName(%s)\n", stringLikeExpr(expr, t))
 	return true
 }
 

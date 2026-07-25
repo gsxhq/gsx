@@ -46,6 +46,10 @@ component Feed() {
 stages — the same grammar as any attribute value. `name` is required on
 `marker` and `start`; `<?end>` takes no attributes.
 
+An `{expr}` must be a `string`, `[]byte`, or `fmt.Stringer` — or have a
+registered [renderer](../patterns/package-renderers.md), which is applied
+before the name is written. Any other type is a compile error.
+
 A name can't contain `>` or `"`: neither is escapable in processing-instruction
 data, since it is never entity-decoded. A literal containing one is a compile
 error; an `{expr}` producing one is a render error.
@@ -55,6 +59,10 @@ error; an `{expr}` producing one is a render error.
 `marker`, `start`, and `end` are the only valid targets — any other target,
 such as `<?foo>`, is a compile error. Source must terminate with `>`; the
 XML-style `<?marker name="a"?>` is a compile error naming the `?>`.
+
+Only `<?end>` closes a region. Any close tag reached inside one — including a
+fragment's `</>` — is a compile error naming `<?end>` as the expected
+terminator.
 
 Processing instructions are markup only. They are not valid as a Go-expression
 value:

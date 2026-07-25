@@ -120,6 +120,12 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 				walk(node.Children)
 			case *gsxast.Fragment:
 				walk(node.Children)
+			case *gsxast.MarkerRegion:
+				// A region's children carry ordinary `{ }` / `{{ }}` nodes whose
+				// embedded f`/js`/css` literals must be split here; without this the
+				// literal stays inside the raw Go text and go/parser rejects it.
+				// (Marker is void — no children.)
+				walk(node.Children)
 			case *gsxast.ForMarkup:
 				walk(node.Body)
 			case *gsxast.IfMarkup:
@@ -2973,6 +2979,10 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 			})
 			collectClauseSrc(t.Children, add)
 		case *gsxast.Fragment:
+			collectClauseSrc(t.Children, add)
+		case *gsxast.MarkerRegion:
+			// Like a fragment: a region's children render in this same scope, so a
+			// control-flow clause inside one references locals bound here.
 			collectClauseSrc(t.Children, add)
 		case *gsxast.ForMarkup:
 			add(t.Clause)

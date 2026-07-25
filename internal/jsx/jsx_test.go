@@ -508,3 +508,36 @@ func TestResolveEmbedded(t *testing.T) {
 		}
 	})
 }
+
+// TestResolveScriptsInsideMarkerRegion pins that a <script> inside a
+// `<?start …> … <?end>` region gets its holes classified like one inside a
+// <div>. resolveMarkup had no *ast.MarkerRegion case, so ResolveScripts skipped
+// the region entirely, the hole kept JSCtxNone, and codegen then rejected valid
+// source with the "no JS context (internal error: ResolveScripts not run?)"
+// diagnostic. It failed CLOSED (no unsafe escaping), but the source is legal.
+func TestResolveScriptsInsideMarkerRegion(t *testing.T) {
+	src := "package p\ncomponent C() {\n\t<?start name=\"r\">\n\t\t<script>let x = @{ a }</script>\n\t<?end>\n}\n"
+	f, err := parser.ParseFile(token.NewFileSet(), "test.gsx", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	bag := diag.NewBag(nil)
+	if !ResolveScripts(f, bag) {
+		t.Fatalf("ResolveScripts reported: %v", bag.Sorted())
+	}
+	region, ok := f.Decls[0].(*ast.Component).Body[0].(*ast.MarkerRegion)
+	if !ok {
+		t.Fatalf("body[0] = %T, want *ast.MarkerRegion", f.Decls[0].(*ast.Component).Body[0])
+	}
+	el := findScript(region.Children)
+	if el == nil {
+		t.Fatal("no <script> in the region's children")
+	}
+	got := interps(el)
+	if len(got) != 1 {
+		t.Fatalf("interps = %d, want 1", len(got))
+	}
+	if got[0].JSCtx != ast.JSCtxValue {
+		t.Fatalf("JSCtx = %d, want JSCtxValue (%d) — region's script was not resolved", got[0].JSCtx, ast.JSCtxValue)
+	}
+}

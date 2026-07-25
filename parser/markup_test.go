@@ -1730,6 +1730,54 @@ func TestParseMarkerRegionUnterminated(t *testing.T) {
 	}
 }
 
+// TestParseMarkerRegionRejectsCloseTag pins that ONLY `<?end>` terminates a
+// region. parseChildrenTerm carries `piEnd: true` for a region, which leaves
+// term.tag == "" — so the generic `got != term.tag` comparison used to let a
+// fragment close `</>` SILENTLY end the region (no error at all: the region
+// ended early and everything after it leaked out of it), and named `</>` as the
+// expected terminator for every other close tag. Element and fragment
+// mismatch behavior is unchanged (see TestParseChildrenMismatch below).
+func TestParseMarkerRegionRejectsCloseTag(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		// A fragment close inside a region: was accepted silently.
+		{`<?start name="a">hi</>`, "mismatched close tag </>, expected <?end>"},
+		// …even with the real `<?end>` still to come, which then read as a stray one.
+		{`<?start name="a">hi</><?end>`, "mismatched close tag </>, expected <?end>"},
+		// A named close tag: the expected terminator is `<?end>`, never `</>`.
+		{`<?start name="a">hi</div>`, "mismatched close tag </div>, expected <?end>"},
+		// A nested region's own terminator scope is unaffected.
+		{`<?start name="a"><?start name="b">hi</></>`, "mismatched close tag </>, expected <?end>"},
+	} {
+		p := testParser(tc.src)
+		_, err := p.parseElement()
+		if err == nil {
+			t.Fatalf("%s: want error, got nil", tc.src)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: err = %v, want containing %q", tc.src, err, tc.want)
+		}
+	}
+}
+
+// TestParseCloseTagMismatchOutsideRegionUnchanged is the control for
+// TestParseMarkerRegionRejectsCloseTag: element and fragment children lists
+// still report `</tag>` / `</>` as the expected terminator, byte-identically.
+func TestParseCloseTagMismatchOutsideRegionUnchanged(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{`<div>hi</span>`, "mismatched close tag </span>, expected </div>"},
+		{`<>hi</div>`, "mismatched close tag </div>, expected </>"},
+	} {
+		p := testParser(tc.src)
+		_, err := p.parseElement()
+		if err == nil {
+			t.Fatalf("%s: want error, got nil", tc.src)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: err = %v, want containing %q", tc.src, err, tc.want)
+		}
+	}
+}
+
 func TestParseEndPIRejectsAttrs(t *testing.T) {
 	p := testParser(`<?start name="feed"><?end name="feed">`)
 	if _, err := p.parseElement(); err == nil || !strings.Contains(err.Error(), "takes no attributes") {

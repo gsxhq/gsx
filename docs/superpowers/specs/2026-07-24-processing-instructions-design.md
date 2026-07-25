@@ -175,10 +175,13 @@ like other block markup.
 ## Diagnostics
 
 - unknown PI target (with the valid set listed)
-- `?>` used as the terminator (point at `>`)
+- `?>` used as the terminator (point at the `?`, so the caret sits on the first
+  offending byte — pinned by corpus `pi/e_question_terminator`)
 - missing `name` on `marker` / `start`
 - attributes on `<?end>`
 - unterminated `<?start>` (EOF before `<?end>`)
+- a `</…>` close tag reached inside a region — including a fragment's `</>` —
+  naming `<?end>` as the expected terminator
 - stray `<?end>` with no open region
 - static `name` containing `>` or `"`
 

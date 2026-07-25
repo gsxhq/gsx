@@ -73,6 +73,12 @@ func minifyMarkup(nodes []ast.Markup, m Minifiers) error {
 			if err := minifyMarkup(v.Children, m); err != nil {
 				return err
 			}
+		case *ast.MarkerRegion:
+			// A `<?start>…<?end>` region wraps ordinary markup: a <script> inside it
+			// must minify like one inside a <div>. (Marker is void — no children.)
+			if err := minifyMarkup(v.Children, m); err != nil {
+				return err
+			}
 		case *ast.IfMarkup:
 			if err := minifyMarkup(v.Then, m); err != nil {
 				return err

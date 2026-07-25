@@ -1225,6 +1225,13 @@ func collectMaterializedComponentCandidates(file *gsxast.File, declNames map[str
 				walk(node.Children, exclusions, reportDiagnostics)
 			case *gsxast.Fragment:
 				walk(node.Children, exclusions, reportDiagnostics)
+			case *gsxast.MarkerRegion:
+				// A region's temporary content is ordinary markup rendered in the
+				// enclosing scope, so a component tag inside it must be classified
+				// like one inside a <div>. (Its Name is only ever a StaticAttr or
+				// ExprAttr — parsePIName enforces that — so there is no markup-attr
+				// value to walk. *gsxast.Marker is void and needs no case.)
+				walk(node.Children, exclusions, reportDiagnostics)
 			case *gsxast.Interp:
 				walkParts(node.Embedded, exclusions, reportDiagnostics)
 			case *gsxast.EmbeddedInterp:
@@ -1319,6 +1326,13 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidate
 					return err
 				}
 			case *gsxast.Fragment:
+				if err := walk(node.Children); err != nil {
+					return err
+				}
+			case *gsxast.MarkerRegion:
+				// Same reason as collectMaterializedComponentCandidates' region case:
+				// a component tag in a region's temporary content is a real call site
+				// and must get a call-site ID like any other.
 				if err := walk(node.Children); err != nil {
 					return err
 				}

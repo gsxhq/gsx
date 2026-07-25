@@ -1,0 +1,14 @@
+# A PI name is a string sink: processing-instruction data has no §5 type-aware
+# rendering (no bool/int/slice forms), so a value that is not string-like after
+# the [renderers] step is a positioned gsx diagnostic. Previously emitPIName
+# emitted `_gsxgw.PIName(n)` regardless and the author got a raw Go type error
+# naming the internal `_gsxgw.PIName` instead. string/[]byte/fmt.Stringer ARE
+# accepted (pinned in marker_static / marker_renderer / marker_stringlike).
+-- input.gsx --
+package p
+
+component X(n int) {
+	<?marker name={n}>
+}
+-- diagnostics.golden --
+4:11: processing-instruction name "n" has type int; it must be a string, []byte, or fmt.Stringer (or have a registered renderer)

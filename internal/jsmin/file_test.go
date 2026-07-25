@@ -484,3 +484,24 @@ func TestMinifyJSAttrSinglePropHoley(t *testing.T) {
 		t.Fatalf("single-prop holey object broke: %q (hole=%v)", text, hasHole)
 	}
 }
+
+// A <script> inside a `<?start …> … <?end>` region is minified like one inside a
+// <div>. minifyMarkup had no *ast.MarkerRegion case, so a region's <script> body
+// was silently left UNMINIFIED — a MarkerRegion is a children-bearing container
+// exactly like Element/Fragment and must be walked as one.
+func TestMinifyFileMarkerRegionScript(t *testing.T) {
+	body := "const x =   1 ;\nfoo(  ) ;"
+	script := &ast.Element{Tag: "script", Children: []ast.Markup{&ast.Text{Value: body}}}
+	region := &ast.MarkerRegion{
+		Name:     &ast.StaticAttr{Name: "name", Value: "r"},
+		Children: []ast.Markup{script},
+	}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{region}}}}
+	if err := MinifyFile(f, Minifiers{}); err != nil {
+		t.Fatal(err)
+	}
+	got := script.Children[0].(*ast.Text).Value
+	if got == body || strings.Contains(got, "  ") {
+		t.Fatalf("region <script> not minified: %q", got)
+	}
+}
