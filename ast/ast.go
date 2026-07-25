@@ -59,6 +59,8 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *MarkerRegion:
 		v.span = s
+	case *Comment:
+		v.span = s
 	case *Interp:
 		v.span = s
 	case *StaticAttr:
@@ -236,6 +238,10 @@ type Element struct {
 	// parser and syntax preprocessor never stamp it. Codegen and LSP read this
 	// field instead of re-deriving component identity from the tag string.
 	IsComponent bool
+	// LeadingBreak records that the source placed a line break in the whitespace
+	// run immediately before this node in its children list; the formatter
+	// preserves that break when the node sits at a render-free boundary.
+	LeadingBreak bool
 }
 
 func (*Element) markupNode() {}
@@ -305,14 +311,15 @@ type MarkerRegion struct {
 
 func (*MarkerRegion) markupNode() {}
 
-// Comment is a source-only content comment: `{/* text */}` or `{// text }`
-// between child nodes. Unlike HTMLComment it is NOT rendered — codegen drops it,
-// the formatter preserves it. (A bare `//` in text content is literal Text, not
-// a comment; only the braced forms are comments in content position.)
+// Comment is a source-only content comment between child nodes: braced
+// `{/* text */}` / `{// text }`, or a bare line-start `// text` (Bare=true).
+// Unlike HTMLComment it is NOT rendered — codegen drops it, the formatter
+// preserves it and never converts between the braced and bare spellings.
 type Comment struct {
 	span
 	Text  string
 	Block bool // true = /* */, false = //
+	Bare  bool // true = bare line-start `//` (no braces); implies Block=false
 }
 
 func (*Comment) markupNode() {}
@@ -346,6 +353,10 @@ type Interp struct {
 	// emit lowers each part to its inline gsx.Func(...) value) so resolved types
 	// key on the SAME node pointers.
 	Embedded []GoPart
+	// LeadingBreak records that the source placed a line break in the whitespace
+	// run immediately before this node in its children list; the formatter
+	// preserves that break when the node sits at a render-free boundary.
+	LeadingBreak bool
 }
 
 func (*Interp) markupNode() {}
@@ -487,6 +498,10 @@ type EmbeddedInterp struct {
 	// DoubleQuoted records the delimiter: false is {f`…`}, true is {f"…"}. See
 	// EmbeddedAttr.DoubleQuoted.
 	DoubleQuoted bool
+	// LeadingBreak records that the source placed a line break in the whitespace
+	// run immediately before this node in its children list; the formatter
+	// preserves that break when the node sits at a render-free boundary.
+	LeadingBreak bool
 }
 
 func (*EmbeddedInterp) markupNode() {}
@@ -578,6 +593,11 @@ type CaseClause struct {
 	ListPos token.Pos // first char of List in source (NoPos for `default:`)
 	Default bool
 	Body    []Markup
+	// BodyMultiline records that the source placed a line break immediately
+	// after the `case …:`/`default:` colon; the formatter preserves that
+	// vertical layout (keeping an inline-only body block-formatted) instead of
+	// collapsing it to one line.
+	BodyMultiline bool
 }
 
 // CondAttr is an in-tag `{ if Cond { Then } [else …] }` conditional attribute.

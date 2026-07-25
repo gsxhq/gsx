@@ -1,6 +1,6 @@
 Interior whitespace inside a { switch } case body is preserved. Uses a single
-`default` arm to avoid the pre-existing keyword-swallow limitation (a plain text
-run before another `case`/`default` swallows it — out of scope, see spec).
+`default` arm; the text-before-label swallow this once had to avoid is fixed
+(2026-07-25, see control_flow/switch_label_after_text*.txtar).
 -- input.gsx --
 package views
 

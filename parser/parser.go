@@ -25,6 +25,10 @@ type parser struct {
 	i          int // byte cursor within src
 	classifier *attrclass.Classifier
 	errs       []Error
+
+	// preserveDepth counts enclosing pre/textarea elements; >0 suppresses bare
+	// `//` content-comment recognition (their text is verbatim display content).
+	preserveDepth int
 }
 
 // errorf records a positioned error and returns an error whose Error() returns
@@ -88,6 +92,28 @@ func newlineFollows(src string, off int) bool {
 			return true
 		case ' ', '\t':
 			off++
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// newlineBefore is newlineFollows's mirror: it reports whether the whitespace
+// run in src ending at off (scanned backward) contains a line break before the
+// previous non-whitespace byte. Used to detect an author break in the
+// whitespace immediately preceding a children-list leaf (ast.*.LeadingBreak):
+// by the time a non-text child is about to be parsed, any whitespace before it
+// has already been consumed forward into the previous sibling's Text node (or,
+// for the first child, is still ahead — see newlineFollows for that case)
+// either way the bytes sit undisturbed in src just behind off.
+func newlineBefore(src string, off int) bool {
+	for off > 0 {
+		switch src[off-1] {
+		case '\n', '\r':
+			return true
+		case ' ', '\t':
+			off--
 		default:
 			return false
 		}

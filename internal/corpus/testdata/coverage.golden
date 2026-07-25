@@ -115,6 +115,11 @@ codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
 comments/attr_comment	diag render
+comments/bare_between_tags	diag render
+comments/bare_contexts	diag render
+comments/bare_midline_text	diag render
+comments/bare_preserve_exempt	diag render
+comments/bare_touches_text_err	diag(error)
 comments/cond_attr_comment	diag render
 comments/content_comment	diag render
 comments/parse_snapshot	ast diag
@@ -237,6 +242,12 @@ control_flow/if_pos	diag render
 control_flow/if_zero	diag render
 control_flow/switch_default	diag render
 control_flow/switch_err	diag render
+control_flow/switch_label_after_element_text	diag gen render
+control_flow/switch_label_after_text	diag gen render
+control_flow/switch_label_after_text_default	diag gen render
+control_flow/switch_prose_default_stays_text	diag gen render
+control_flow/switch_prose_wrap_never_creates_case_label	diag gen render
+control_flow/switch_prose_wrap_never_creates_default_label	diag gen render
 control_flow/switch_warn	diag gen render
 control_flow/value_form_guard_rejected	diag(error)
 control_flow/value_form_trailing_rejected	diag(error)
@@ -950,6 +961,7 @@ whitespace/interior_switch	diag gen render
 whitespace/layout_title	diag gen render
 whitespace/pre_nested	diag gen render
 whitespace/switch_two_arm	diag gen render
+whitespace/unicode_space_text	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inferred_import	diag render
@@ -968,4 +980,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 970 cases (render: 830, error: 102, gen-pinned: 557)
+TOTAL: 982 cases (render: 841, error: 103, gen-pinned: 564)

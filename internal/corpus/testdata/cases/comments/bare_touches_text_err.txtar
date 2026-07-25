@@ -1,0 +1,58 @@
+# bare-comment-touches-text: a line-start // whose immediate post-wsnorm
+# sibling is text content is rejected, whichever side the text is on (or
+# both), regardless of whether the comment itself carries any text. This
+# includes a child-prop slot value lexically nested inside <pre>: the
+# preserve exemption ends at the `name={ … }` boundary (see
+# bare_preserve_exempt.txtar), so the slot's own touches-text bare comment is
+# checked exactly like any other MarkupAttr.Value.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component BothSides() {
+	<p>
+		before
+		// note
+		after
+	</p>
+}
+
+component TextBeforeOnly() {
+	<p>
+		before
+		// note
+	</p>
+}
+
+component TextAfterOnly() {
+	<p>
+		// note
+		after
+	</p>
+}
+
+component EmptyNextToText() {
+	<p>
+		before
+		//
+	</p>
+}
+
+component Slot(header gsx.Node) {
+	<div>{header}</div>
+}
+
+component TouchesTextInSlotInsidePre() {
+	<pre><Slot header={
+		<span>a</span>
+		// note
+		after
+	}/></pre>
+}
+-- diagnostics.golden --
+8:3: bare // comment cannot touch text content; use {// …} for a comment or {"// …"} to render it
+16:3: bare // comment cannot touch text content; use {// …} for a comment or {"// …"} to render it
+22:3: bare // comment cannot touch text content; use {// …} for a comment or {"// …"} to render it
+30:3: bare // comment cannot touch text content; use {// …} for a comment or {"// …"} to render it
+41:3: bare // comment cannot touch text content; use {// …} for a comment or {"// …"} to render it

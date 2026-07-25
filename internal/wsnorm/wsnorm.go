@@ -45,7 +45,7 @@ func Normalize(f *ast.File) {
 					// Mirrors normalizeMarkup's own *ast.Element case: a
 					// Go-embedded element starts a fresh (preserve=false)
 					// context, same as a top-level component body element.
-					p.Children = normalizeMarkup(p.Children, isPreserveTag(p.Tag))
+					p.Children = normalizeMarkup(p.Children, IsPreserveTag(p.Tag))
 					normalizeAttrs(p.Attrs)
 				case *ast.Fragment:
 					// A fragment has no wrapper tag; its children normalize in a
@@ -67,7 +67,10 @@ var preserveTags = map[string]bool{
 	"style":    true,
 }
 
-func isPreserveTag(tag string) bool {
+// IsPreserveTag reports whether tag (any case) roots a whitespace-significant
+// subtree (pre, textarea) or a raw-text body (script, style). The parser uses
+// the same predicate to suppress bare `//` content-comment recognition.
+func IsPreserveTag(tag string) bool {
 	return preserveTags[strings.ToLower(tag)]
 }
 
@@ -95,7 +98,7 @@ func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 			ast.SetSpan(v, v.Pos(), v.End())
 			out = append(out, v)
 		case *ast.Element:
-			childPreserve := preserve || isPreserveTag(v.Tag)
+			childPreserve := preserve || IsPreserveTag(v.Tag)
 			v.Children = normalizeMarkup(v.Children, childPreserve)
 			// Attribute markup slots are reached regardless of element preserve:
 			// a slot is a fresh expression-boundary context (see normalizeAttrs).

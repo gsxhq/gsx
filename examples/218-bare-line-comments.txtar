@@ -1,0 +1,20 @@
+-- doc --
+name: Bare line comments
+summary: A line that starts with // between child tags is a source-only comment; next to text it is an error, and mid-line // is literal text.
+category: Elements
+page: comments
+pageOrder: 35
+-- input.gsx --
+package views
+
+component Nav() {
+	<nav>
+		<a href="/">Home</a>
+		// hidden from the HTML
+		<a href="/about">About</a>
+	</nav>
+}
+-- invoke --
+Nav()
+-- render.golden --
+<nav><a href="/">Home</a><a href="/about">About</a></nav>

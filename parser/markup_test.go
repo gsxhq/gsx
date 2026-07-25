@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsxhq/gsx/ast"
 )
@@ -726,6 +727,239 @@ func TestParseSwitchTagless(t *testing.T) {
 	}
 	if n.Cases[0].List != "x > 0" {
 		t.Fatalf("case list = %q", n.Cases[0].List)
+	}
+}
+
+// TestSwitchCaseBodyTextDoesNotSwallowLabel covers the line-start label rule
+// (2026-07-25 design doc): a case body's bare text must stop at a following
+// case/default label rather than consuming it as literal text.
+func TestSwitchCaseBodyTextDoesNotSwallowLabel(t *testing.T) {
+	parseSwitch := func(t *testing.T, src string) *ast.SwitchMarkup {
+		t.Helper()
+		p := testParser(src)
+		node, _, err := p.parseBraceNode()
+		if err != nil {
+			t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
+		}
+		n, ok := node.(*ast.SwitchMarkup)
+		if !ok {
+			t.Fatalf("got %T, want *ast.SwitchMarkup", node)
+		}
+		return n
+	}
+	textSig := func(nodes []ast.Markup) string {
+		var b strings.Builder
+		for _, n := range nodes {
+			switch v := n.(type) {
+			case *ast.Text:
+				b.WriteString("T(" + v.Value + ")")
+			case *ast.Element:
+				b.WriteString("<" + v.Tag + ">")
+			default:
+				b.WriteString("?")
+			}
+		}
+		return b.String()
+	}
+
+	t.Run("label after text-only arm", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\ttail\ndefault:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail)" {
+			t.Fatalf("case0 body = %s, want T(tail)", got)
+		}
+		if !n.Cases[1].Default {
+			t.Fatalf("case1 = %#v, want default", n.Cases[1])
+		}
+	})
+
+	t.Run("label after element-then-text arm", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\t<b>x</b> tail\ndefault:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "<b>T( tail)" {
+			t.Fatalf("case0 body = %s, want <b>T( tail)", got)
+		}
+		if !n.Cases[1].Default {
+			t.Fatalf("case1 = %#v, want default", n.Cases[1])
+		}
+	})
+
+	t.Run("case label with colon inside string literal", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\ttail\ncase \"a:b\":\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if n.Cases[1].List != `"a:b"` {
+			t.Fatalf("case1 List = %q, want \"a:b\"", n.Cases[1].List)
+		}
+	})
+
+	t.Run("label indented with tabs", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\ttail\n\t\tdefault:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail)" {
+			t.Fatalf("case0 body = %s, want T(tail)", got)
+		}
+	})
+
+	t.Run("label indented with spaces", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n    tail\n    default:\n\t<i>y</i>\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2: %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail)" {
+			t.Fatalf("case0 body = %s, want T(tail)", got)
+		}
+	})
+
+	t.Run("mid-line prose containing default: stays text", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ndefault:\n\tthe default: value is 5\n} }")
+		if len(n.Cases) != 1 {
+			t.Fatalf("got %d cases, want 1 (no false label split): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(the default: value is 5)" {
+			t.Fatalf("case0 body = %s, want T(the default: value is 5)", got)
+		}
+	})
+
+	t.Run("line-start default with no colon stays text", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ndefault:\n\ttail\ndefault\nmore\n} }")
+		if len(n.Cases) != 1 {
+			t.Fatalf("got %d cases, want 1 (no colon => not a label): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail\ndefault\nmore)" {
+			t.Fatalf("case0 body = %q, want T(tail\\ndefault\\nmore)", got)
+		}
+	})
+
+	t.Run("line-start defaults: (not a whole word) stays text", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ndefault:\n\ttail\ndefaults:\nmore\n} }")
+		if len(n.Cases) != 1 {
+			t.Fatalf("got %d cases, want 1 (defaults: is not the keyword): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail\ndefaults:\nmore)" {
+			t.Fatalf("case0 body = %q, want T(tail\\ndefaults:\\nmore)", got)
+		}
+	})
+
+	// 2026-07-25 amendment: the speculative label scan (caseBodyLabelStart,
+	// via scanToCaseColonBounded) is bounded to the "case" keyword's own
+	// physical line. A "case" whose colon is on a LATER line is therefore not
+	// a label — even though parseCaseClause's own COMMITTED scan (unbounded
+	// scanToCaseColon) would eventually find that colon if it ever got there.
+	// It never does: this is exactly the point of bounding the speculative
+	// check to what a markup arm label always is (single-line).
+	t.Run("case whose colon is on a later line stays text", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\ncase \"a\":\n\ttail\ncase 1\n: nope\n} }")
+		if len(n.Cases) != 1 {
+			t.Fatalf("got %d cases, want 1 (colon on a later line is not a same-line label): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail\ncase 1\n: nope)" {
+			t.Fatalf("case0 body = %q, want T(tail\\ncase 1\\n: nope)", got)
+		}
+	})
+
+	// CRLF line endings: caseBodyLabelAfterWS's newline scan matches '\r' as
+	// well as '\n', so a label preceded by a Windows-style line ending is
+	// still recognized — probed working but previously unpinned by a test.
+	t.Run("CRLF line endings still detect the label", func(t *testing.T) {
+		n := parseSwitch(t, "{ switch k {\r\ncase \"a\":\r\n\ttail\r\ndefault:\r\n\t<i>y</i>\r\n} }")
+		if len(n.Cases) != 2 {
+			t.Fatalf("got %d cases, want 2 (CRLF label detection): %#v", len(n.Cases), n.Cases)
+		}
+		if got := textSig(n.Cases[0].Body); got != "T(tail)" {
+			t.Fatalf("case0 body = %q, want T(tail) (trimBodyEdges trims the trailing CRLF)", got)
+		}
+		if !n.Cases[1].Default {
+			t.Fatalf("case1 = %#v, want default", n.Cases[1])
+		}
+	})
+}
+
+// TestCaseBodyLabelScanIsLinearNotQuadratic pins the 2026-07-25b amendment's
+// perf fix: caseBodyLabelStart's speculative colon scan (scanToCaseColonBounded)
+// is bounded to the candidate keyword's own physical line, not the unbounded
+// scanToCaseColon parseCaseClause's COMMITTED path uses. Before the bound, a
+// case body consisting mostly of "case"-leading prose with no colon at all
+// tokenized to true EOF on every single candidate line — ~800x quadratic
+// blowup on a 4000-line pathological file (2.3ms -> 1.84s, probed by the
+// adversarial reviewer). This asserts near-linear scaling (4x the lines should
+// cost nowhere near 4x^2 = 16x the time) rather than pinning an absolute
+// duration, to stay stable across machines while still failing hard on a
+// reintroduced quadratic scan.
+func TestCaseBodyLabelScanIsLinearNotQuadratic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("perf regression test; skipped in -short")
+	}
+	// Every noop line starts with "case" and has NO colon anywhere in the
+	// line or in any line after it — the worst case for an unbounded
+	// speculative scan, which must tokenize all the way to true EOF on every
+	// single one. The leading "tail" line keeps arm0's body non-empty so
+	// parseCaseBody's (pre-existing, unconditional) top-of-loop terminator
+	// check doesn't fire on its very first iteration — that check runs
+	// before any text is scanned at all and is unrelated to this fix; an
+	// empty-bodied arm hitting it immediately would make the very first noop
+	// line a COMMITTED case clause (parseCaseClause), which correctly fails
+	// to parse (no colon anywhere) rather than exercising the speculative
+	// scan this test is about.
+	build := func(n int) string {
+		var b strings.Builder
+		b.WriteString("{ switch k {\ncase \"x\":\n\ttail\n")
+		for range n {
+			b.WriteString("case noop line without colon\n")
+		}
+		b.WriteString("} }")
+		return b.String()
+	}
+	parseOnce := func(src string) time.Duration {
+		p := testParser(src)
+		start := time.Now()
+		if _, _, err := p.parseBraceNode(); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		return time.Since(start)
+	}
+	// Warm up (file-system/GC noise, first-run allocation) before timing.
+	_ = parseOnce(build(200))
+
+	const small, large = 1000, 4000 // 4x the lines
+	tSmall := parseOnce(build(small))
+	tLarge := parseOnce(build(large))
+	t.Logf("parse time: %d lines=%v, %d lines=%v (ratio %.2fx)", small, tSmall, large, tLarge, float64(tLarge)/float64(max(tSmall, 1)))
+	// A quadratic scan would cost roughly (large/small)^2 = 16x; linear costs
+	// ~4x. 10x leaves generous headroom for machine noise while still failing
+	// on any reintroduced O(n^2) (which historically blew up ~800x on this
+	// exact shape at 4000 lines).
+	if tSmall > 0 && tLarge > tSmall*10 {
+		t.Errorf("parse time did not scale linearly: %d lines=%v, %d lines=%v (ratio %.2fx, want well under 10x for a 4x size increase) — the speculative label scan may be unbounded again",
+			small, tSmall, large, tLarge, float64(tLarge)/float64(tSmall))
+	}
+}
+
+// BenchmarkCaseBodyLabelScanPathological is the `go test -bench` counterpart
+// of TestCaseBodyLabelScanIsLinearNotQuadratic, for tracking absolute cost
+// over time (benchstat etc.) rather than just gating on the linear-scaling
+// ratio.
+func BenchmarkCaseBodyLabelScanPathological(b *testing.B) {
+	var src strings.Builder
+	src.WriteString("{ switch k {\ncase \"x\":\n\ttail\n")
+	for range 4000 {
+		src.WriteString("case noop line without colon\n")
+	}
+	src.WriteString("} }")
+	s := src.String()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		p := testParser(s)
+		if _, _, err := p.parseBraceNode(); err != nil {
+			b.Fatalf("parse error: %v", err)
+		}
 	}
 }
 
@@ -1796,5 +2030,257 @@ func TestParseMarkerRegionEndPrefixNotTerminator(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown processing-instruction target") {
 		t.Fatalf("err = %v, want unknown processing-instruction target %q", err, "ending")
+	}
+}
+
+// TestCaseClauseBodyMultiline checks that the parser records a line break
+// placed immediately after a `case …:`/`default:` colon (amendment
+// 2026-07-24b), mirroring IfMarkup.ThenMultiline for switch arms.
+func TestCaseClauseBodyMultiline(t *testing.T) {
+	caseNode := func(src string, wantDefault bool) *ast.CaseClause {
+		f := parseStringT(t, src)
+		var found *ast.CaseClause
+		for _, d := range f.Decls {
+			c, ok := d.(*ast.Component)
+			if !ok {
+				continue
+			}
+			for _, m := range c.Body {
+				ast.Inspect(m, func(n ast.Node) bool {
+					if found != nil {
+						return false
+					}
+					if cc, ok := n.(*ast.CaseClause); ok && cc.Default == wantDefault {
+						found = cc
+					}
+					return found == nil
+				})
+			}
+		}
+		if found == nil {
+			t.Fatalf("no matching CaseClause (default=%v) in:\n%s", wantDefault, src)
+		}
+		return found
+	}
+
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tcase \"warn\":\n\t\t<b>warning</b>\n\t} }\n}\n", false); !got.BodyMultiline {
+		t.Error("BodyMultiline: want true for author-broken case body")
+	}
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tcase \"warn\": <b>w</b>\n\t} }\n}\n", false); got.BodyMultiline {
+		t.Error("BodyMultiline: want false for inline case body")
+	}
+	// default: arm follows the same rule.
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tdefault:\n\t\t<b>d</b>\n\t} }\n}\n", true); !got.BodyMultiline {
+		t.Error("BodyMultiline: want true for author-broken default body")
+	}
+	if got := caseNode("package p\ncomponent C(kind string) {\n\t{ switch kind {\n\tdefault: <b>d</b>\n\t} }\n}\n", true); got.BodyMultiline {
+		t.Error("BodyMultiline: want false for inline default body")
+	}
+	// CRLF line break after the colon still counts.
+	if got := caseNode("package p\r\ncomponent C(kind string) {\r\n\t{ switch kind {\r\n\tcase \"warn\":\r\n\t\t<b>w</b>\r\n\t} }\r\n}\r\n", false); !got.BodyMultiline {
+		t.Error("BodyMultiline: want true for CRLF-broken case body")
+	}
+}
+
+// TestLeadingBreakFlag checks that the parser records a line break placed in
+// the whitespace immediately before a non-Text markup leaf (Element, Interp)
+// in its children list (amendment 2026-07-24b).
+func TestLeadingBreakFlag(t *testing.T) {
+	allElems := func(f *ast.File, tag string) []*ast.Element {
+		var found []*ast.Element
+		for _, d := range f.Decls {
+			c, ok := d.(*ast.Component)
+			if !ok {
+				continue
+			}
+			for _, m := range c.Body {
+				ast.Inspect(m, func(n ast.Node) bool {
+					if e, ok := n.(*ast.Element); ok && e.Tag == tag {
+						found = append(found, e)
+					}
+					return true
+				})
+			}
+		}
+		return found
+	}
+	allInterps := func(f *ast.File) []*ast.Interp {
+		var found []*ast.Interp
+		for _, d := range f.Decls {
+			c, ok := d.(*ast.Component)
+			if !ok {
+				continue
+			}
+			for _, m := range c.Body {
+				ast.Inspect(m, func(n ast.Node) bool {
+					if in, ok := n.(*ast.Interp); ok {
+						found = append(found, in)
+					}
+					return true
+				})
+			}
+		}
+		return found
+	}
+
+	// second sibling after a newline: LeadingBreak true.
+	f := parseStringT(t, "package p\ncomponent C() {\n\t<div><em>a</em>\n\t<i>b</i></div>\n}\n")
+	is := allElems(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for sibling after author newline")
+	}
+
+	// second sibling on the same line: LeadingBreak false.
+	f = parseStringT(t, "package p\ncomponent C() {\n\t<div><em>a</em><i>b</i></div>\n}\n")
+	is = allElems(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for sibling on the same line")
+	}
+
+	// first child: no previous sibling, no leading break even though `>` is
+	// immediately followed by the element (ChildrenMultiline governs the
+	// opening-tag boundary, not this fact).
+	f = parseStringT(t, "package p\ncomponent C() {\n\t<div><em>a</em></div>\n}\n")
+	is = allElems(f, "em")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <em>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for the first child")
+	}
+
+	// Interp sibling after a newline: LeadingBreak true.
+	f = parseStringT(t, "package p\ncomponent C(a, b string) {\n\t<div>{ a }\n\t{ b }</div>\n}\n")
+	interps := allInterps(f)
+	if len(interps) != 2 {
+		t.Fatalf("want exactly two interps, got %d", len(interps))
+	}
+	if interps[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for the first interp")
+	}
+	if !interps[1].LeadingBreak {
+		t.Error("LeadingBreak: want true for interp sibling after author newline")
+	}
+
+	// Interp sibling on the same line: LeadingBreak false.
+	f = parseStringT(t, "package p\ncomponent C(a, b string) {\n\t<div>{ a }{ b }</div>\n}\n")
+	interps = allInterps(f)
+	if len(interps) != 2 {
+		t.Fatalf("want exactly two interps, got %d", len(interps))
+	}
+	if interps[1].LeadingBreak {
+		t.Error("LeadingBreak: want false for interp sibling on the same line")
+	}
+}
+
+// allElemsAnywhere collects every *ast.Element with the given tag anywhere in
+// f's components, via ast.Inspect — unlike TestLeadingBreakFlag's allElems
+// (also fine to reuse structurally) this is shared by the tests below that
+// need to reach into control-flow bodies and switch arms, not just an
+// element's own Children.
+func allElemsAnywhere(f *ast.File, tag string) []*ast.Element {
+	var found []*ast.Element
+	for _, d := range f.Decls {
+		c, ok := d.(*ast.Component)
+		if !ok {
+			continue
+		}
+		for _, m := range c.Body {
+			ast.Inspect(m, func(n ast.Node) bool {
+				if e, ok := n.(*ast.Element); ok && e.Tag == tag {
+					found = append(found, e)
+				}
+				return true
+			})
+		}
+	}
+	return found
+}
+
+// TestLeadingBreakFlagComponentTopLevelBody checks that a component's own
+// top-level body — parsed by parseMarkupUntilClose(WS), NOT parseChildren —
+// also stamps LeadingBreak on its non-Text siblings. This is a distinct
+// parse path from an element's Children list, missed by the first round of
+// this amendment.
+func TestLeadingBreakFlagComponentTopLevelBody(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C() {\n\t<em>a</em>\n\t<i>b</i>\n}\n")
+	is := allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for top-level sibling after author newline")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C() {\n\t<em>a</em><i>b</i>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for top-level sibling on the same line")
+	}
+}
+
+// TestLeadingBreakFlagControlFlowBody checks if/for bodies — parsed by
+// parseControlBody → parseMarkupUntilCloseWS(preserveWS=true), a third
+// distinct parse path from parseChildren.
+func TestLeadingBreakFlagControlFlowBody(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C(x bool) {\n\t<div>{ if x {\n\t<em>a</em>\n\t<i>b</i>\n\t} }</div>\n}\n")
+	is := allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for if-body sibling after author newline")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C(x bool) {\n\t<div>{ if x { <em>a</em><i>b</i> } }</div>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for if-body sibling on the same line")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C(items []string) {\n\t<ul>{ for _, it := range items {\n\t<em>a</em>\n\t<i>b</i>\n\t} }</ul>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for for-body sibling after author newline")
+	}
+}
+
+// TestLeadingBreakFlagCaseArmInterior checks the joint BETWEEN two sibling
+// leaves inside one switch arm's own body — parsed by parseCaseBody's own
+// loop, distinct from both parseChildren and parseMarkupUntilCloseWS.
+// CaseClause.BodyMultiline only covers the break right after the colon; this
+// is the interior-sibling break the reviewer's four-context finding added.
+func TestLeadingBreakFlagCaseArmInterior(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C(kind string) {\n\t<div>{ switch kind {\n\tcase \"warn\":\n\t\t<em>a</em>\n\t\t<i>b</i>\n\t} }</div>\n}\n")
+	is := allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if !is[0].LeadingBreak {
+		t.Error("LeadingBreak: want true for case-arm interior sibling after author newline")
+	}
+
+	f = parseStringT(t, "package p\ncomponent C(kind string) {\n\t<div>{ switch kind {\n\tcase \"warn\": <em>a</em><i>b</i>\n\t} }</div>\n}\n")
+	is = allElemsAnywhere(f, "i")
+	if len(is) != 1 {
+		t.Fatalf("want exactly one <i>, got %d", len(is))
+	}
+	if is[0].LeadingBreak {
+		t.Error("LeadingBreak: want false for case-arm interior sibling on the same line")
 	}
 }

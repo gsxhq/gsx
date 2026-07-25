@@ -108,7 +108,7 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			return err
 		}
 	case *Comment:
-		if _, err := fmt.Fprintf(w, "%sComment block=%t text=%q\n", indent, n.Block, n.Text); err != nil {
+		if _, err := fmt.Fprintf(w, "%sComment block=%t bare=%t text=%q\n", indent, n.Block, n.Bare, n.Text); err != nil {
 			return err
 		}
 	case *Interp:
