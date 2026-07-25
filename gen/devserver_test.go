@@ -333,13 +333,46 @@ func freePort(t *testing.T) string {
 	return port
 }
 
+func TestPortFreeTreatsHeldPortAsFree(t *testing.T) {
+	port := freePort(t)
+	l, err := net.Listen("tcp", "127.0.0.1:"+port)
+	if err != nil {
+		t.Skipf("could not hold port %s for test: %v", port, err)
+	}
+	defer l.Close()
+
+	// Held by a stranger: a conflict.
+	if portFree(port, "") {
+		t.Errorf("portFree(%s, \"\") = true, want false (port is bound by another process)", port)
+	}
+	// Held by our own child: not a conflict.
+	if !portFree(port, port) {
+		t.Errorf("portFree(%s, %s) = false, want true (our own listener must not read as a conflict)", port, port)
+	}
+	// A different held port does not excuse a busy one.
+	if portFree(port, "1") {
+		t.Errorf("portFree(%s, \"1\") = true, want false", port)
+	}
+}
+
+func TestNextAvailablePortLabelsItsErrors(t *testing.T) {
+	if _, err := nextAvailablePort("65536", "Go server"); err == nil {
+		t.Fatal("nextAvailablePort(65536) = nil error, want exhaustion error")
+	} else if !strings.Contains(err.Error(), "Go server") {
+		t.Errorf("error = %q, want it to name the Go server port", err)
+	}
+	if _, err := nextAvailablePort("not-a-port", "Vite dev"); err == nil {
+		t.Fatal("nextAvailablePort(\"not-a-port\") = nil error, want an invalid-start error")
+	}
+}
+
 func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:5173")
 	if err != nil {
 		t.Skipf("default Vite port unavailable before test: %v", err)
 	}
 	defer l.Close()
-	wantPort, err := nextAvailablePort("5173")
+	wantPort, err := nextAvailablePort("5173", "Vite dev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +526,7 @@ func TestResolveViteDevEnvSkipsIPv6BoundDefaultPort(t *testing.T) {
 		t.Skipf("IPv6 default Vite port unavailable before test: %v", err)
 	}
 	defer l.Close()
-	wantPort, err := nextAvailablePort("5173")
+	wantPort, err := nextAvailablePort("5173", "Vite dev")
 	if err != nil {
 		t.Fatal(err)
 	}

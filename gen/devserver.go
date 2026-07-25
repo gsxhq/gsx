@@ -278,7 +278,7 @@ func resolveViteDevEnv(env []string, host string) ([]string, string, string, err
 		}
 		port = urlPort
 	default:
-		port, err = nextAvailablePort("5173")
+		port, err = nextAvailablePort("5173", "Vite dev")
 		if err != nil {
 			return nil, "", "", err
 		}
@@ -293,10 +293,12 @@ func resolveViteDevEnv(env []string, host string) ([]string, string, string, err
 	return env, viteURL, warning, nil
 }
 
-func nextAvailablePort(start string) (string, error) {
+// nextAvailablePort returns the first free port at or above start. label names
+// the port's role ("Vite dev", "Go server") and appears in the error messages.
+func nextAvailablePort(start, label string) (string, error) {
 	port, err := strconv.Atoi(start)
 	if err != nil {
-		return "", fmt.Errorf("invalid VITE_PORT %q", start)
+		return "", fmt.Errorf("invalid %s start port %q", label, start)
 	}
 	for ; port <= 65535; port++ {
 		candidate := strconv.Itoa(port)
@@ -304,7 +306,7 @@ func nextAvailablePort(start string) (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("choose Vite dev port: no free port at or above %s", start)
+	return "", fmt.Errorf("choose %s port: no free port at or above %s", label, start)
 }
 
 func portAvailable(port string) bool {
@@ -323,6 +325,18 @@ func portAvailable(port string) bool {
 		}
 	}
 	return true
+}
+
+// portFree is portAvailable with one exemption: held — the port a child gsx
+// dev itself spawned currently occupies — counts as free. Re-resolution (an
+// .env edit while the loop runs) probes ports our own vite/server are sitting
+// on, and without this a running front door reads as somebody else's conflict.
+// held is "" when nothing of ours holds a port yet.
+func portFree(port, held string) bool {
+	if held != "" && port == held {
+		return true
+	}
+	return portAvailable(port)
 }
 
 func setEnvValue(env []string, key, value string) []string {
