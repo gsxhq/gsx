@@ -1940,6 +1940,15 @@ func TestDevEnvErrorPostsOverlay(t *testing.T) {
 	// this cycle's reload() would silently target an empty/wrong base URL and
 	// the fake listener (still bound at the ORIGINAL vitePort) would never see
 	// it — proving env/viteURL survived the intervening error untouched.
+	//
+	// Zero the counter first, or the assertion below is a no-op: the STARTUP
+	// reload's postBest retries (10 × 150ms) are still in flight when the fake
+	// listener binds above, so one of them lands on it and satisfies
+	// reloads != 0 before the recovery fire has even run. Settle those
+	// stragglers, then reset, so what we observe can only have been caused by
+	// THIS write.
+	time.Sleep(2 * time.Second)
+	reloads.Store(0)
 	writeFile(t, proj, ".env", goodEnv)
 
 	deadline = time.Now().Add(30 * time.Second)
@@ -2032,5 +2041,96 @@ func TestDevEnvEditKeepsBoundFrontDoorPort(t *testing.T) {
 	}
 	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
 		t.Fatalf("server not healthy after the .env edit; output:\n%s", stdout.String())
+	}
+}
+
+// TestDevEnvEditKeepsPinnedGoPort is the Go-side twin of
+// TestDevEnvEditKeepsBoundFrontDoorPort, and the dedicated canary for heldGo:
+// resolveGoPort probes an explicit GO_PORT on EVERY .env fire, so without the
+// held-port exemption the re-resolution finds OUR OWN server sitting on the
+// pinned port and fails the whole fire path with "already in use" — the server
+// is never restarted and the .env edit silently does nothing.
+//
+// The signal is the server's pid changing: the fire path reaches
+// srv.restartNoBuild() only after resolveViteDevEnv, resolveGoPort AND
+// resolveUpstream have all succeeded, so a new pid is proof the whole chain
+// got through. No front door is needed (the edit's effect is on the Go side),
+// so --web is a no-op sleep.
+func TestDevEnvEditKeepsPinnedGoPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+
+	goPort := freePort(t)
+	goodEnv := "GO_PORT=" + goPort + "\n"
+	writeFile(t, proj, ".env", goodEnv)
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	cmd.Env = devTestEnvNoGoPort("BROWSER=none", "GOFLAGS=-mod=mod")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("server never came up on pinned GO_PORT=%s; output:\n%s", goPort, stdout.String())
+	}
+	pidOf := func() string {
+		resp, err := http.Get("http://localhost:" + goPort + "/pid")
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	before := pidOf()
+	if before == "" {
+		t.Fatalf("could not read /pid; output:\n%s", stdout.String())
+	}
+
+	// The edit under test: an unrelated key, GO_PORT deliberately unchanged and
+	// still bound by the server we just health-checked.
+	writeFile(t, proj, ".env", goodEnv+"FOO=bar\n")
+
+	restarted := false
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		if p := pidOf(); p != "" && p != before {
+			restarted = true
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !restarted {
+		t.Fatalf("the .env edit did not restart the Go server (pid stayed %s) — the fire path likely rejected our own pinned GO_PORT; output:\n%s", before, stdout.String())
+	}
+	if strings.Contains(stdout.String(), "already in use") {
+		t.Errorf("gsx dev reported its own server's GO_PORT as in use after an .env edit; output:\n%s", stdout.String())
 	}
 }
