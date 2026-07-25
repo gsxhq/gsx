@@ -366,6 +366,52 @@ func TestNextAvailablePortLabelsItsErrors(t *testing.T) {
 	}
 }
 
+func TestResolveViteDevEnvAcceptsOwnHeldPort(t *testing.T) {
+	port := freePort(t)
+	l, err := net.Listen("tcp", "127.0.0.1:"+port)
+	if err != nil {
+		t.Skipf("could not hold port %s for test: %v", port, err)
+	}
+	defer l.Close()
+
+	// Our own front door is on this port: a re-resolution must accept the pin.
+	_, viteURL, _, err := resolveViteDevEnv([]string{"VITE_PORT=" + port, "PATH=/bin"}, "", port)
+	if err != nil {
+		t.Fatalf("explicit VITE_PORT held by our own front door was rejected: %v", err)
+	}
+	if want := "http://localhost:" + port; viteURL != want {
+		t.Fatalf("viteURL = %q, want %s", viteURL, want)
+	}
+
+	// Same for a URL-derived pin.
+	if _, _, _, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}, "", port); err != nil {
+		t.Fatalf("VITE_DEV_URL port held by our own front door was rejected: %v", err)
+	}
+
+	// A stranger on the same port must still fail: held is an exemption for
+	// OUR child only, not a blanket disable of the busy check.
+	if _, _, _, err := resolveViteDevEnv([]string{"VITE_PORT=" + port, "PATH=/bin"}, "", ""); err == nil {
+		t.Fatal("busy VITE_PORT with no held port = nil error, want 'already in use'")
+	}
+}
+
+func TestResolveViteDevEnvAutoPickReusesHeldPort(t *testing.T) {
+	// Port-less config with a port already picked for this session: re-resolve
+	// to the SAME port. Probing would find our own vite there and drift to the
+	// next one, leaving viteURL pointing at a port nobody listens on.
+	held := freePort(t)
+	_, viteURL, warning, err := resolveViteDevEnv([]string{"PATH=/bin"}, "", held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warning != "" {
+		t.Errorf("warning = %q, want none", warning)
+	}
+	if want := "http://localhost:" + held; viteURL != want {
+		t.Fatalf("viteURL = %q, want %s (auto-pick must reuse the held port)", viteURL, want)
+	}
+}
+
 func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:5173")
 	if err != nil {
@@ -377,7 +423,7 @@ func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env, viteURL, warning, err := resolveViteDevEnv([]string{"PATH=/bin"}, "")
+	env, viteURL, warning, err := resolveViteDevEnv([]string{"PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,10 +443,10 @@ func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 }
 
 func TestResolveViteDevEnvHost(t *testing.T) {
-	env, viteURL, _, err := resolveViteDevEnv([]string{"VITE_PORT=0", "PATH=/bin"}, "mstudio")
+	env, viteURL, _, err := resolveViteDevEnv([]string{"VITE_PORT=0", "PATH=/bin"}, "mstudio", "")
 	if err != nil {
 		// port 0 is "available" (ephemeral); if the platform rejects it, fall back.
-		env, viteURL, _, err = resolveViteDevEnv([]string{"PATH=/bin"}, "mstudio")
+		env, viteURL, _, err = resolveViteDevEnv([]string{"PATH=/bin"}, "mstudio", "")
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -418,7 +464,7 @@ func TestResolveViteDevEnvHostFromDevURL(t *testing.T) {
 	devURL := "VITE_DEV_URL=http://mstudio:" + port
 	// With no [dev].host, the hostname comes from VITE_DEV_URL in the env, and
 	// (with VITE_PORT unset) so does the port.
-	_, viteURL, warning, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "")
+	_, viteURL, warning, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +477,7 @@ func TestResolveViteDevEnvHostFromDevURL(t *testing.T) {
 	}
 	// An explicit [dev].host wins over VITE_DEV_URL's hostname; the URL's port
 	// is still honored.
-	_, viteURL2, warning2, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "override")
+	_, viteURL2, warning2, err := resolveViteDevEnv([]string{devURL, "PATH=/bin"}, "override", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +493,7 @@ func TestResolveViteDevEnvHostFromDevURL(t *testing.T) {
 func TestResolveViteDevEnvPortlessURLAutoPicks(t *testing.T) {
 	// A VITE_DEV_URL with no port keeps today's behavior exactly: hostname
 	// hint only, port still comes from the auto-picker.
-	_, viteURL, warning, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio", "PATH=/bin"}, "")
+	_, viteURL, warning, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio", "PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +513,7 @@ func TestResolveViteDevEnvHonorsURLPortWhenBusy(t *testing.T) {
 	}
 	defer l.Close()
 
-	_, _, _, err = resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}, "")
+	_, _, _, err = resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}, "", "")
 	if err == nil {
 		t.Fatal("expected VITE_DEV_URL's busy explicit port to fail")
 	}
@@ -484,7 +530,7 @@ func TestResolveViteDevEnvHonorsURLPortWhenBusy(t *testing.T) {
 func TestResolveViteDevEnvVitePortAgreesWithURLNoWarning(t *testing.T) {
 	port := freePort(t)
 	env := []string{"VITE_PORT=" + port, "VITE_DEV_URL=http://mstudio:" + port, "PATH=/bin"}
-	_, viteURL, warning, err := resolveViteDevEnv(env, "")
+	_, viteURL, warning, err := resolveViteDevEnv(env, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +547,7 @@ func TestResolveViteDevEnvVitePortOverridesDisagreeingURL(t *testing.T) {
 	vitePort := freePort(t)
 	urlPort := freePort(t)
 	env := []string{"VITE_PORT=" + vitePort, "VITE_DEV_URL=http://mstudio:" + urlPort, "PATH=/bin"}
-	_, viteURL, warning, err := resolveViteDevEnv(env, "")
+	_, viteURL, warning, err := resolveViteDevEnv(env, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +577,7 @@ func TestResolveViteDevEnvSkipsIPv6BoundDefaultPort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env, viteURL, _, err := resolveViteDevEnv([]string{"PATH=/bin"}, "")
+	env, viteURL, _, err := resolveViteDevEnv([]string{"PATH=/bin"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +597,7 @@ func TestResolveViteDevEnvRejectsBoundExplicitVitePort(t *testing.T) {
 	}
 	defer l.Close()
 
-	_, _, _, err = resolveViteDevEnv([]string{"VITE_PORT=5173"}, "")
+	_, _, _, err = resolveViteDevEnv([]string{"VITE_PORT=5173"}, "", "")
 	if err == nil {
 		t.Fatal("expected bound explicit VITE_PORT to fail")
 	}

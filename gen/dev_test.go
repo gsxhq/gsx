@@ -400,6 +400,50 @@ func main() {
 }
 `
 
+// devTestFrontDoorGo stands in for vite in tests that need the front-door port
+// to be genuinely BOUND (a `sleep` front door holds nothing, which is why the
+// self-conflict bug hid for so long). It binds VITE_PORT — injected into the
+// front door's environment by resolveViteDevEnv — appends every request path
+// to $FAKE_LOG, and echoes GSX_DEV_TOKEN in x-gsx so gsx dev recognizes it as
+// its own child.
+const devTestFrontDoorGo = `package main
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+)
+
+func main() {
+	logPath := os.Getenv("FAKE_LOG")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			fmt.Fprintln(f, r.URL.Path)
+			f.Close()
+		}
+		w.Header().Set("x-gsx", os.Getenv("GSX_DEV_TOKEN"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	_ = http.ListenAndServe("localhost:"+os.Getenv("VITE_PORT"), nil)
+}
+`
+
+// buildDevTestFrontDoor compiles devTestFrontDoorGo into its own stdlib-only
+// module and returns the binary path.
+func buildDevTestFrontDoor(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module fakefrontdoor\n\ngo 1.26.1\n")
+	writeFile(t, dir, "main.go", devTestFrontDoorGo)
+	bin := filepath.Join(dir, "frontdoor")
+	cmd := exec.Command("go", "build", "-o", bin, ".")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake front door: %v\n%s", err, out)
+	}
+	return bin
+}
+
 // TestDevUpstreamSingleSource pins the top-down [dev].upstream design end to
 // end: gsx.toml carries "upstream = \"http://localhost${ADDR}\"" and the
 // project's .env sets ADDR — GO_PORT appears NOWHERE in this test's env or
@@ -1814,5 +1858,86 @@ func TestDevEnvErrorPostsOverlay(t *testing.T) {
 	}
 	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
 		t.Fatalf("server not healthy after recovery; output:\n%s", stdout.String())
+	}
+}
+
+// TestDevEnvEditKeepsBoundFrontDoorPort pins the held-port exemption end to
+// end: with an explicit VITE_DEV_URL port that the managed front door actually
+// binds, an .env edit must restart-and-reload. Before portFree, re-resolution
+// probed the port, found OUR OWN front door on it, and failed the whole
+// .env-fire path with "already in use" — one-learning (VITE_DEV_URL pinned to
+// http://mstudio:4000) hit this on every .env edit.
+func TestDevEnvEditKeepsBoundFrontDoorPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+	frontDoor := buildDevTestFrontDoor(t)
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
+
+	goPort := freePort(t)
+	vitePort := freePort(t)
+	goodEnv := "GO_PORT=" + goPort + "\nVITE_DEV_URL=http://localhost:" + vitePort + "\n"
+	writeFile(t, proj, ".env", goodEnv)
+
+	fakeLog := filepath.Join(t.TempDir(), "frontdoor.log")
+	cmd := exec.Command(bin, "dev", "--web", frontDoor)
+	cmd.Dir = proj
+	cmd.Env = devTestEnv("BROWSER=none", "GOFLAGS=-mod=mod", "FAKE_LOG="+fakeLog)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("server never came up; output:\n%s", stdout.String())
+	}
+	// Wait for the STARTUP reload specifically (not just any hit — the poll
+	// loop hits the front door within milliseconds, well before the startup
+	// build+health+reload cycle finishes, so "any hit" truncates too early
+	// and lets the startup reload leak past the truncation, masking a broken
+	// .env-edit path with a false pass).
+	waitFor(t, 30*time.Second, func() bool {
+		b, _ := os.ReadFile(fakeLog)
+		return strings.Contains(string(b), "/__reload")
+	})
+	if err := os.Truncate(fakeLog, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// The edit under test: any change at all, with both ports unchanged.
+	writeFile(t, proj, ".env", goodEnv+"FOO=bar\n")
+
+	waitFor(t, 30*time.Second, func() bool {
+		b, _ := os.ReadFile(fakeLog)
+		return strings.Contains(string(b), "/__reload")
+	})
+	if strings.Contains(stdout.String(), "already in use") {
+		t.Fatalf("gsx dev reported its own front door's port as in use after an .env edit; output:\n%s", stdout.String())
+	}
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
+		t.Fatalf("server not healthy after the .env edit; output:\n%s", stdout.String())
 	}
 }

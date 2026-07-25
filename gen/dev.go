@@ -63,11 +63,15 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	// --- env + ports ---
 	env := mergeDotEnv(os.Environ(), loadDotEnv(workDir))
-	env, viteURL, warning, err := resolveViteDevEnv(env, dc.host)
+	env, viteURL, warning, err := resolveViteDevEnv(env, dc.host, "")
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
 	}
+	// heldVite is the port our own front door occupies; every later
+	// re-resolution passes it so the running child is not mistaken for a
+	// foreign listener (see portFree).
+	heldVite := envPort(env, "VITE_PORT", "")
 	if warning != "" {
 		fmt.Fprintf(stderr, "gsx dev: %s\n", warning)
 	}
@@ -461,7 +465,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if envDirty {
 				envDirty = false
 				newEnv := mergeDotEnv(os.Environ(), loadDotEnv(workDir))
-				resolvedEnv, newViteURL, envWarning, envErr := resolveViteDevEnv(newEnv, dc.host)
+				resolvedEnv, newViteURL, envWarning, envErr := resolveViteDevEnv(newEnv, dc.host, heldVite)
 				if envErr != nil {
 					// A broken .env edit (e.g. an explicit VITE_PORT that's now
 					// in use) must not crash a running dev loop OR corrupt
@@ -482,6 +486,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 					continue
 				}
 				env, viteURL = resolvedEnv, newViteURL
+				heldVite = envPort(env, "VITE_PORT", "")
 				if envWarning != "" {
 					fmt.Fprintf(stderr, "gsx dev: %s\n", envWarning)
 				}

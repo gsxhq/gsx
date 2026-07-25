@@ -246,8 +246,12 @@ func resolveUpstream(upstream, health string, env []string) (origin, healthURL, 
 // per-machine dev hostname needs no committed config; that lookup is
 // independent of the port precedence above. If VITE_PORT and VITE_DEV_URL's
 // port disagree, VITE_PORT wins and the non-empty warning return names the
-// override — the caller should print it once.
-func resolveViteDevEnv(env []string, host string) ([]string, string, string, error) {
+// override — the caller should print it once. held is the port gsx dev's own
+// front door is currently on (empty at startup): it is exempt from the busy
+// check and is what the auto-picker returns, so re-resolving after an .env
+// edit neither conflicts with our own child nor drifts to a port nothing
+// listens on.
+func resolveViteDevEnv(env []string, host, held string) ([]string, string, string, error) {
 	var urlPort string
 	if raw := envValue(env, "VITE_DEV_URL", ""); raw != "" {
 		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
@@ -269,15 +273,19 @@ func resolveViteDevEnv(env []string, host string) ([]string, string, string, err
 		if urlPort != "" && urlPort != port {
 			warning = fmt.Sprintf("VITE_PORT=%s overrides VITE_DEV_URL's :%s", port, urlPort)
 		}
-		if !portAvailable(port) {
+		if !portFree(port, held) {
 			return nil, "", "", fmt.Errorf("VITE_PORT %s is already in use", port)
 		}
 	case urlPort != "":
-		if !portAvailable(urlPort) {
+		if !portFree(urlPort, held) {
 			return nil, "", "", fmt.Errorf("VITE_DEV_URL port %s is already in use", urlPort)
 		}
 		port = urlPort
 	default:
+		if held != "" {
+			port = held
+			break
+		}
 		port, err = nextAvailablePort("5173", "Vite dev")
 		if err != nil {
 			return nil, "", "", err
