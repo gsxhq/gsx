@@ -25,6 +25,9 @@ Go compiler type-checks and builds:
 - **templ-compatible** — `gsx.Node` has the identical method set to
   `templ.Component`, so gsx output drops into the templ ecosystem without importing
   templ. The runtime is **standard-library only**.
+- **No Node.js** — the toolchain is Go and the output is Go: `gsx generate &&
+  go build` gives one binary. Node appears only if you choose a JS asset pipeline
+  such as Vite, and then only to bundle assets — never to run the server.
 
 ## A taste
 

@@ -5,7 +5,8 @@ A server-rendered gsx app with Vite assets and live reload.
 ## Prerequisites
 
 - Go 1.24+
-- Node.js 18+ with npm
+- Node.js 18+ with npm — for Vite, which bundles this template's CSS and
+  JavaScript. gsx itself needs only Go; the built server runs without Node.
 
 ## Setup
 
@@ -35,4 +36,5 @@ go build -o app
 ./app
 ```
 
-The server listens on `:7777`, embeds the built assets, and runs without Vite.
+The server listens on `:7777` and embeds the built assets, so the binary is the
+only thing you deploy — no Node.js, npm install, or Vite in production.

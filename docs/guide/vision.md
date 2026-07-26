@@ -44,8 +44,11 @@ for runnable examples and [Comparisons](./comparisons.md) for choosing a tool.
 ## What gsx does not provide
 
 gsx is a template compiler, not a router, HTTP framework, or client-side UI
-runtime. Its runtime uses only the Go standard library. Dynamic values are
-escaped by default; see [Escaping](./syntax/escaping.md) for the trust boundary.
+runtime. Its runtime uses only the Go standard library, and it adds no Node.js or
+npm dependency: Go toolchain, Go output, Go binary. Bundle front-end assets with
+Vite or anything else you like — that stays outside gsx and outside the server.
+Dynamic values are escaped by default; see [Escaping](./syntax/escaping.md) for
+the trust boundary.
 
 > **Status — alpha.** The language and APIs may change before a stable release.
 > See [Status](./status.md).

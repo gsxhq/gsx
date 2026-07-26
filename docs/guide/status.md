@@ -6,7 +6,8 @@ before a stable release.
 ## Ready to use
 
 - Start a project, generate and format templates, inspect configuration, and run
-  the Vite-backed development loop through the [CLI](./cli.md).
+  the development loop through the [CLI](./cli.md) — a Go binary, with an
+  optional Vite front door for front-end assets.
 - Build typed components whose authored parameters are their Go signature,
   including declared children, slots, control flow, pipelines, and attribute
   forwarding.

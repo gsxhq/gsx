@@ -4,9 +4,23 @@ Create a gsx app, start live reload, and make your first change.
 
 ## Prerequisites
 
-- Go 1.24 or newer
-- Node.js 18 or newer
-- npm (the scaffold command below runs `npm install`)
+- Go 1.24 or newer — the only requirement for gsx itself.
+- Node.js 18 or newer with npm — only for the starter's Vite asset pipeline,
+  which this page uses. See [Do I need Node.js?](#do-i-need-node-js).
+
+## Do I need Node.js? {#do-i-need-node-js}
+
+Not for gsx, and never to run a gsx server in production.
+
+gsx is a Go program that turns `.gsx` into `.x.go`. Building and serving an app
+is `gsx generate && go build` — one Go binary, nothing installed from npm.
+
+Node enters only because the starter below pairs gsx with
+[Vite](https://vite.dev) to bundle CSS and JavaScript, and only while you
+develop and when you build those assets. The compiled server embeds the built
+files and runs neither Vite nor Node. Skip it by writing your own `main.go` with
+[`gsx generate`](./cli.md#generate), or run the loop with
+[`gsx dev --no-web`](./cli.md#gsx-dev).
 
 ## Create a project
 
@@ -30,8 +44,10 @@ dependencies.
 npm run dev
 ```
 
-Open the URL printed in the terminal. The starter runs `go tool gsx dev`, so
-you do not need a separate code generator or file watcher.
+Open the URL printed in the terminal. That npm script is a one-line wrapper
+around `go tool gsx dev` — the watching, generation, and rebuilding are all
+done by the Go binary, so you do not need a separate code generator or file
+watcher. Run `go tool gsx dev` directly if you prefer.
 
 After scaffolding, you can switch to pnpm, Yarn, or another package manager.
 Run its equivalent of `npm run dev`; use the
@@ -72,7 +88,10 @@ go build -o app
 ./app
 ```
 
-The resulting server embeds the built Vite assets and does not run Vite.
+`npm run build` (`vite build`) bundles assets into `dist/`; the Go steps
+generate and compile. The binary embeds those files, so deployment is the binary
+alone — no Node.js, npm install, or Vite on the server. Only the bundling step
+needs a JS toolchain, and only on the build machine.
 
 ## Next steps
 

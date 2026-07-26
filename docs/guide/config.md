@@ -81,7 +81,7 @@ argument. Keep `build` and `run` pointed at the same binary.
 
 | Key | Default | Effect |
 |---|---|---|
-| `web` | `["npx", "vite"]` | Front-end command. |
+| `web` | `["npx", "vite"]` | Front-end command. Any command works; set `no_web` if the project has no front-end build. |
 | `build` | `go build` to a per-project binary | Backend build command. |
 | `run` | the default built binary | Backend command. |
 | `log` | off | File that also receives backend output; its absolute path is injected into the front-end process as `GSX_DEV_LOG`. A relative path resolves against `gsx.toml`'s directory, not the shell's cwd. |

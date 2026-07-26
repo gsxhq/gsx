@@ -14,7 +14,8 @@ Choose by where templates live, when they load, and where rendering happens.
 Choose gsx when you want JSX-like calls and HTML-shaped component bodies while
 keeping expressions, component inputs, and builds in Go. It is especially useful when
 class, attribute, and contextual-escaping rules should be part of the template
-language.
+language. The JSX-like syntax does not bring a JavaScript toolchain with it: gsx
+compiles to Go and ships as a Go binary, with no Node.js runtime.
 
 ## Choose templ
 

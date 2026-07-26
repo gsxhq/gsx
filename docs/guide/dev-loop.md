@@ -1,16 +1,21 @@
 # Dev loop
 
 `gsx dev` watches the project, keeps the Go server current, and reloads the
-browser. The generated starter runs it with `npm run dev`.
+browser. It is a Go binary and does the watching, generation, and rebuilding
+itself.
 
 ## Run it
 
 ```sh
-npm run dev
+gsx dev
 ```
 
 Open the URL printed in the terminal and leave the command running while you
 edit the project.
+
+The starter exposes the same thing as `npm run dev`, a script that runs
+`go tool gsx dev`; the wrapper exists only so one command also starts Vite. With
+no front-end pipeline, `gsx dev --no-web` keeps Node out of the loop entirely.
 
 ## What happens on save
 

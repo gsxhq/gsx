@@ -111,11 +111,13 @@ See [Fragments](./syntax/fragments.md) for more.
 
 ## 7. Save and reload
 
-Run the starter's development server once:
+Run the development server once:
 
 ```sh
-npm run dev
+gsx dev
 ```
+
+In the starter, `npm run dev` wraps the same command and also starts Vite.
 
 Save a `.gsx` file and gsx regenerates it, rebuilds the server, and reloads the
 browser. Errors appear in the browser while you fix them.

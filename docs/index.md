@@ -7,6 +7,11 @@ a **JSX-style markup body**, compiled to plain Go.
 .gsx → parser → AST → codegen → .x.go → go build → HTML
 ```
 
+That pipeline is Go end to end: **no Node.js, npm, or JavaScript runtime** is
+needed to build or serve a gsx app. The default starter adds Vite to bundle
+front-end assets — optional, and never part of the running server. See
+[Do I need Node.js?](./guide/getting-started.md#do-i-need-node-js).
+
 > **Status — alpha.** gsx is usable end to end, but the language and APIs may
 > change before a stable release. See [Status](./guide/status.md) and
 > [Roadmap](./ROADMAP.md).
