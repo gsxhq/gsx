@@ -1,3 +1,9 @@
+# A Go bool bound to a JS-context attribute renders as PRESENCE, like a bool on
+# any other name HTML does not give a true/false vocabulary. gsx does not carve
+# out the Alpine/htmx vocabularies: their attributes are written as static
+# strings or js`` literals in practice (x-show=js`open`), so a Go bool on one
+# can only have meant presence. For an expression, write the literal; for the
+# string, write x-show={ strconv.FormatBool(open) }.
 -- input.gsx --
 package views
 
@@ -16,7 +22,6 @@ import (
 	_gsxctx "context"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
-	_gsxsc "strconv"
 )
 
 //line input.gsx:3:1
@@ -24,11 +29,11 @@ func Page(open bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div x-show=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(open)))
-		_gsxgw.S("\">x</div>")
+		_gsxgw.S("<div")
+		_gsxgw.BoolAttr("x-show", bool(open))
+		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div x-show="true">x</div>
+<div x-show>x</div>

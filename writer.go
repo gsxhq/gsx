@@ -261,9 +261,9 @@ func (gw *Writer) AttrAny(v any) {
 	gw.AttrValue(s)
 }
 
-// AttrAnyToggle writes one complete attribute whose name IS a boolean attribute
-// (codegen resolved the list at generate time) but whose value type is known only
-// at runtime — a mixed type parameter such as T string | bool. A bool-kinded
+// AttrAnyToggle writes one complete attribute whose name renders a bool bare
+// (codegen resolved BoolRendersBare at generate time) but whose value type is
+// known only at runtime — a mixed type parameter such as T string | bool. A bool-kinded
 // value writes presence (` name` or nothing); any other value writes
 // ` name="escaped"`. It owns the whole span — the leading space, the name, and
 // the optional ="…" — which is what lets it omit a name codegen would otherwise

@@ -21,19 +21,33 @@ are literal: `title="Item @{id}"` does not scan for `@{}` holes.
 
 ## Boolean attributes
 
-The attribute **name** decides how a `bool` value renders:
+A `bool` renders as **presence** — `true` writes a bare attribute, `false` omits
+it — on every name except the handful whose HTML values *are* the strings
+`"true"` and `"false"`.
 
-- On an HTML boolean attribute (`checked`, `required`, `disabled`, `hidden`, …),
-  `true` renders a bare attribute and `false` omits it — presence is the state.
-- On any other name (`aria-*`, `data-*`, `contenteditable`, …), a `bool`
-  renders `="true"`/`="false"` — there the string is the state.
+```gsx
+<div data-open={open} hidden={done} aria-expanded={open}>
+```
+```html
+<div data-open hidden aria-expanded="true">
+```
 
-A bare attribute (`<input required>`) is always present. A **string** value is
-never affected by the name, so `required="foo"` renders verbatim.
+The exceptions are the `aria-*` states plus `contenteditable`, `spellcheck`,
+`draggable` and `writingsuggestions`. There the string carries meaning absence
+cannot: a screen reader announces `aria-expanded="false"` as collapsed and says
+nothing at all when the attribute is missing, and `contenteditable` and
+`spellcheck` **inherit**, so only `="false"` opts a subtree out.
 
-For a name gsx cannot know is a toggle — a web component, a Datastar directive —
-wrap the value in `gsx.Toggle`, which forces presence anywhere:
-`active={ gsx.Toggle(open) }`.
+Everything else is presence — including `title={b}` and library names like
+`x-show`/`hx-boost`, which you write as strings or `js` literals anyway
+(``x-show=js`open` ``, `hx-boost="false"`). Static and string values are never
+touched by this rule: `required="foo"` and `hx-boost="false"` render verbatim.
+
+A bare attribute (`<input required>`) is always present, wherever it travels —
+including through a component's `attrs` bag.
+
+- Want the string from a Go bool? Say so: `data-x={ strconv.FormatBool(b) }`.
+- Want presence on an `aria-*` name? `gsx.Toggle(b)`.
 
 <!--@include: ./_generated/attributes/020-boolean-attributes.md-->
 
@@ -54,7 +68,7 @@ Spread a `gsx.Attrs` bag with `{ bag... }`; entries render in slice order.
 <!--@include: ./_generated/attributes/040-spread-attributes.md-->
 
 - Source order is kept.
-- A `bool` on an HTML boolean attribute toggles (`true` bare, `false` omitted); on any other name it renders `="true"`/`="false"`. `gsx.Toggle(b)` forces presence on any name.
+- A `bool` takes the same rule as an element attribute: presence, except on the names whose HTML values are `"true"`/`"false"` (`aria-*`, `contenteditable`, `spellcheck`, `draggable`). `gsx.Toggle(b)` forces presence on any name.
 - Spread values are escaped for the destination attribute; URL and `srcset`
   destinations also run scheme sanitization.
 - `gsx.AttrMap.ToAttrs()` sorts map keys.
@@ -79,7 +93,7 @@ call site must declare the bag in source order.
 ::: v-pre
 - The literal is valid only as a component attribute value.
 - Keys must be quoted strings.
-- A `bool` on an HTML boolean attribute toggles (`true` bare, `false` omitted); on any other name it renders `="true"`/`="false"`. `gsx.Toggle(b)` forces presence on any name.
+- A `bool` takes the same rule as an element attribute: presence, except on the names whose HTML values are `"true"`/`"false"` (`aria-*`, `contenteditable`, `spellcheck`, `draggable`). `gsx.Toggle(b)` forces presence on any name.
 - The last scalar value for a key wins.
 - All `class` and `style` values compose.
 :::

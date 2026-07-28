@@ -40,9 +40,9 @@ func _gsxrenderField[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer,
 		return _gsxerr
 	}
 //line input.gsx:4:2
-	_gsxgw.S("<input value=\"")
-	_gsxgw.AttrAny(value)
-	_gsxgw.S("\">")
+	_gsxgw.S("<input")
+	_gsxgw.AttrAnyToggle("value", value)
+	_gsxgw.S(">")
 	return _gsxgw.Err()
 }
 

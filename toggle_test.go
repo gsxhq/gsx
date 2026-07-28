@@ -27,12 +27,20 @@ func TestSpreadBoolByName(t *testing.T) {
 		// plain bool on a boolean attribute → presence toggle
 		{"listed true", "required", true, " required"},
 		{"listed false", "required", false, ""},
-		// plain bool on a NON-boolean name → stringify (the reversal this fixes)
-		{"unlisted true", "aria-hidden", true, ` aria-hidden="true"`},
-		{"unlisted false", "data-open", false, ` data-open="false"`},
+		// plain bool on a platform-valued name → stringify: the string IS the
+		// state there (aria-* needs the literal "false")
+		{"valued true", "aria-hidden", true, ` aria-hidden="true"`},
+		{"valued false", "aria-expanded", false, ` aria-expanded="false"`},
+		{"valued contenteditable", "contenteditable", false, ` contenteditable="false"`},
+		// plain bool on a name the platform never defined → presence, because
+		// HTML gives it no value vocabulary and [data-open] matches "false" too
+		{"unknown true", "data-open", true, " data-open"},
+		{"unknown false", "data-open", false, ""},
+		{"unknown custom-element name", "active", true, " active"},
 		// named bool honors the same name rule (dispatch unification made this work)
 		{"named bool listed", "required", spreadFlag(false), ""},
-		{"named bool unlisted", "aria-expanded", spreadFlag(true), ` aria-expanded="true"`},
+		{"named bool valued", "aria-expanded", spreadFlag(true), ` aria-expanded="true"`},
+		{"named bool unknown", "data-open", spreadFlag(true), " data-open"},
 		// Toggle forces presence on ANY name, ignoring the list
 		{"toggle unlisted true", "active", Toggle(true), " active"},
 		{"toggle unlisted false", "active", Toggle(false), ""},

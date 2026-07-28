@@ -4594,20 +4594,28 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 
 	// Presence semantics apply when the author declared them (gsx.Toggle) or the
-	// name IS a boolean attribute. A bool value on any OTHER name falls through to
-	// the normal attribute-value path, which stringifies it to "true"/"false" —
-	// what enumerated attributes (aria-*, data-*, contenteditable) require, since
-	// there the string is the state. The list is consulted only for catBool, so a
-	// string value like required="foo" is never diverted here.
-	if isToggle(t) || (classify(t) == catBool && gsx.IsBooleanAttr(a.Name)) {
+	// name renders a bool bare (gsx.BoolRendersBare: an HTML boolean attribute,
+	// or a name the platform never defined — data-*, custom elements, x-*). A
+	// bool on a platform-valued name falls through to the normal attribute-value
+	// path, which stringifies it to "true"/"false", since there the string IS the
+	// state (aria-*, contenteditable). The rule is consulted only for catBool, so
+	// a string value like required="foo" is never diverted here.
+	if isToggle(t) || (classify(t) == catBool && gsx.BoolRendersBare(a.Name)) {
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
 		return true
 	}
-	// A mixed type parameter (T string | bool) on a boolean-attribute name: the
-	// value's kind is unknown until runtime, so AttrAnyToggle owns the whole span
-	// and decides then — a bool toggles, a string renders name="value". This is
-	// what makes one component correct at both instantiations without annotation.
-	if classify(t) == catAnyMixed && gsx.IsBooleanAttr(a.Name) {
+	// A mixed type parameter (T string | bool) on a name that renders a bool
+	// bare: the value's kind is unknown until runtime, so AttrAnyToggle owns the
+	// whole span and decides then — a bool toggles, a string renders
+	// name="value". This is what makes one component correct at both
+	// instantiations without annotation.
+	//
+	// PLAIN CONTEXT ONLY. AttrAnyToggle attribute-escapes the string case and
+	// nothing more, so on a URL, JS or CSS name it would emit an unsanitized
+	// value where the branches below sanitize one — href={u} with T string|int
+	// would ship javascript: through. Those names fall through instead, to the
+	// sink that owns them.
+	if classify(t) == catAnyMixed && gsx.BoolRendersBare(a.Name) && cls.Context(a.Name) == attrclass.CtxPlain {
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrAnyToggle(%s, %s)\n", strconv.Quote(a.Name), expr)
 		return true
 	}

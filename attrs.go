@@ -383,11 +383,12 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 				}
 				return
 			}
-			// A bool value toggles ONLY on a boolean attribute name; on any other
-			// name it stringifies to "true"/"false", which is what enumerated
-			// attributes (aria-*, contenteditable, data-*) require. gsx.Toggle
-			// (handled above) is the escape hatch for a name the list cannot know.
-			if vk == kindBool && IsBooleanAttr(kv.Key) {
+			// A bool value toggles on an HTML boolean attribute and on any name
+			// the platform never defined (data-*, custom elements, x-*); it
+			// stringifies to "true"/"false" only where the platform gives the
+			// name a value vocabulary (aria-*, contenteditable). Same rule the
+			// generator applies to a static name={boolExpr} — see BoolRendersBare.
+			if vk == kindBool && BoolRendersBare(kv.Key) {
 				gw.BoolAttr(kv.Key, vs == "true")
 				continue
 			}
