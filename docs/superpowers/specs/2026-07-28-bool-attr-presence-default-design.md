@@ -156,7 +156,7 @@ Runtime: `TestBoolRendersBare` (both buckets + folding),
 
 Found by probing, not fixed here — each wants its own change:
 
-1. **Meta-refresh `content` is not sanitized on two paths.** `<meta
+1. **Meta-refresh `content` is not sanitized on two paths** (issue #171). `<meta
    http-equiv="refresh" content={v}>` with `v` a mixed type parameter, and the
    same name arriving through a spread bag, both bypass `RefreshContent` and
    emit `javascript:` verbatim. Pre-existing (verified against the parent
@@ -164,16 +164,17 @@ Found by probing, not fixed here — each wants its own change:
    name, so `content` classifies as `CtxPlain` and neither the codegen guard nor
    `Writer.Spread` knows to route it. The fix is to make the refresh sink travel
    with the name, not to bolt another special case onto the toggle branch.
-2. **A mixed type parameter on a sink name fails as a Go type error**, naming an
+2. **A mixed type parameter on a sink name fails as a Go type error** (issue #172), naming an
    internal `_gsxgw` symbol, where it should be a gsx diagnostic. Fail-closed,
    so not urgent; it also means no corpus case can cover that shape, since
    corpus cases must render.
 3. **`style={bool}` renders `style="true"`**, not presence — it goes through the
    class/style merge site rather than the bool branch. Documented in the guide
    as its own case rather than changed.
-4. **htmx and Alpine bools invert silently.** `hx-boost={true}` renders bare,
-   and htmx reads a missing value as "not boosted" — the opposite of the
-   author's `true`; a bare `x-show` is an empty Alpine expression. Accepted
-   deliberately (see the rejected carve-outs above) because those attributes are
-   written as static strings or `js` literals, but the failure mode is silent
-   and inverted, so it is pinned by a corpus case rather than left implicit.
+4. **htmx and Alpine bools render presence** — settled, not a gap. `hx-boost={true}`
+   renders bare, and htmx reads a missing value as "not boosted", so an author who
+   means the string writes it: `hx-boost="true"`. The review flagged the inversion
+   as a silent failure mode; the decision stands, because carving out library
+   vocabularies costs a second rule for attributes that are written as static
+   strings or `js` literals anyway. Pinned by a corpus case rather than left
+   implicit.
