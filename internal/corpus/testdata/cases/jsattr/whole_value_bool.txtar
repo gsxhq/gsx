@@ -1,14 +1,25 @@
-# A Go bool bound to a JS-context attribute renders as PRESENCE, like a bool on
-# any other name HTML does not give a true/false vocabulary. gsx does not carve
-# out the Alpine/htmx vocabularies: their attributes are written as static
-# strings or js`` literals in practice (x-show=js`open`), so a Go bool on one
-# can only have meant presence. For an expression, write the literal; for the
-# string, write x-show={ strconv.FormatBool(open) }.
+# The four forms of the same Alpine attribute, side by side, because only the
+# first is governed by the bool rule:
+#
+#   x-show={ open }                   Go bool  → PRESENCE (bare / omitted)
+#   x-show="true"                     static   → verbatim, never inspected
+#   x-show={ strconv.FormatBool(o) }  string   → the string the author asked for
+#   x-show=js`open`                   literal  → a JS expression
+#
+# gsx does not carve out the Alpine/htmx vocabularies — a name HTML gives no
+# true/false vocabulary takes the bool rule whatever library claims it. The
+# author who means the string writes one of the middle two forms; a Go bool
+# could only have meant presence.
 -- input.gsx --
 package views
 
+import "strconv"
+
 component Page(open bool) {
 	<div x-show={ open }>x</div>
+	<div x-show="true">s</div>
+	<div x-show={ strconv.FormatBool(open) }>f</div>
+	<div x-show=js`open`>j</div>
 }
 -- invoke --
 Page(true)
@@ -19,21 +30,31 @@ Page(true)
 package views
 
 import (
+	"strconv"
+
 	_gsxctx "context"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
 
-//line input.gsx:3:1
+//line input.gsx:5:1
 func Page(open bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:2
+//line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxgw.BoolAttr("x-show", bool(open))
 		_gsxgw.S(">x</div>")
+//line input.gsx:7:2
+		_gsxgw.S("<div x-show=\"true\">s</div>")
+//line input.gsx:8:2
+		_gsxgw.S("<div x-show=\"")
+		_gsxgw.AttrValue(string(strconv.FormatBool(open)))
+		_gsxgw.S("\">f</div>")
+//line input.gsx:9:2
+		_gsxgw.S("<div x-show=\"open\">j</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div x-show>x</div>
+<div x-show>x</div><div x-show="true">s</div><div x-show="true">f</div><div x-show="open">j</div>
