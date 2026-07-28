@@ -47,21 +47,54 @@ func TestTrueFalseAttrMatchesHTMLData(t *testing.T) {
 	if len(want) == 0 {
 		t.Fatal("derived no true/false attributes from htmldata; the dataset or its schema changed")
 	}
-	for name := range want {
-		if !trueFalseAttr(name) {
-			t.Errorf("trueFalseAttr(%q) = false, but its value vocabulary is true/false; regenerate with go generate ./internal/htmldata", name)
+
+	// Both directions, over every name the dataset knows. Checking only the
+	// forward direction (or a couple of hand-picked names in reverse) lets an
+	// extra `case "href",` sit in the generated switch undetected, which would
+	// silently turn href={b} from presence into href="true".
+	seen := map[string]bool{}
+	check := func(name string) {
+		if seen[name] {
+			return
 		}
-		if BoolRendersBare(name) {
+		seen[name] = true
+		wantTrueFalse := want[name] && datasetTrueFalseErrors[name] == ""
+		if got := trueFalseAttr(name); got != wantTrueFalse {
+			t.Errorf("trueFalseAttr(%q) = %v, want %v; regenerate with go generate ./internal/htmldata", name, got, wantTrueFalse)
+		}
+		if wantTrueFalse && BoolRendersBare(name) {
 			t.Errorf("BoolRendersBare(%q) = true; an attribute whose values ARE \"true\"/\"false\" must stringify", name)
 		}
 	}
+	for _, a := range htmldata.GlobalAttributes {
+		check(a.Name)
+	}
+	for _, tag := range htmldata.Tags {
+		for _, a := range tag.Attrs {
+			check(a.Name)
+		}
+	}
+	// Sanity: the sweep above must have covered the names most likely to be
+	// mis-added, so a future dataset reshuffle cannot quietly empty it out.
+	for _, name := range []string{"href", "src", "sandbox", "class", "aria-hidden"} {
+		if !seen[name] {
+			t.Errorf("%q was not covered by the dataset sweep; the drift gate is weaker than it looks", name)
+		}
+	}
 
-	// The reverse direction: nothing may creep into the generated table that the
-	// dataset does not justify. trueFalseExtras is the curated escape hatch and
-	// is deliberately separate, so it must NOT appear in the generated switch.
-	for _, name := range []string{"contenteditable", "writingsuggestions"} {
+	// The curated escape hatches are deliberately separate from the generated
+	// table, so neither may appear in the switch.
+	for name := range trueFalseExtras {
 		if trueFalseAttr(name) {
 			t.Errorf("trueFalseAttr(%q) = true; curated names belong in trueFalseExtras, not the generated table", name)
+		}
+	}
+	for name, why := range datasetTrueFalseErrors {
+		if trueFalseAttr(name) {
+			t.Errorf("trueFalseAttr(%q) = true; the generator must exclude it (%s)", name, why)
+		}
+		if !BoolRendersBare(name) {
+			t.Errorf("BoolRendersBare(%q) = false; want true (%s)", name, why)
 		}
 	}
 }

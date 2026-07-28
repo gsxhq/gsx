@@ -286,10 +286,25 @@ func writeTrueFalseAttrs(d rawData, valueSets map[string][]outValue) {
 		}
 	}
 
+	// datasetErrors are names the dataset types as true/false but whose real
+	// vocabulary is something else. Excluded here rather than in boolattr.go so
+	// the generated table stays exactly "names whose values are true/false".
+	//
+	//   - virtualkeyboardpolicy: the dataset assigns it valueSet "b", but HTML
+	//     defines it as auto | manual. A bool means presence, not "true".
+	datasetErrors := map[string]string{
+		"virtualkeyboardpolicy": "HTML defines auto | manual, not true/false",
+	}
+	datasetErrorNames := make([]string, 0, len(datasetErrors))
+	for n := range datasetErrors {
+		datasetErrorNames = append(datasetErrorNames, n)
+	}
+	sort.Strings(datasetErrorNames)
+
 	names := map[string]bool{}
 	add := func(attrs []rawAttribute) {
 		for _, a := range attrs {
-			if !trueFalse[a.ValueSet] {
+			if !trueFalse[a.ValueSet] || datasetErrors[a.Name] != "" {
 				continue
 			}
 			if lower := strings.ToLower(a.Name); lower != a.Name {
@@ -322,6 +337,16 @@ func writeTrueFalseAttrs(d rawData, valueSets map[string][]outValue) {
 	buf.WriteString("// These are the ONLY names on which a bool stringifies; see BoolRendersBare.\n")
 	buf.WriteString("// Dataset gaps are curated in trueFalseExtras.\n")
 	writeSwitch(&buf, "trueFalseAttr", sorted)
+	buf.WriteString("\n")
+	buf.WriteString("// datasetTrueFalseErrors are names the dataset types as true/false but whose\n")
+	buf.WriteString("// real vocabulary is something else. The generator excluded them from the\n")
+	buf.WriteString("// switch above; the value is the reason. Emitted rather than hand-written so\n")
+	buf.WriteString("// the drift test can account for them without a second copy of the list.\n")
+	buf.WriteString("var datasetTrueFalseErrors = map[string]string{\n")
+	for _, n := range datasetErrorNames {
+		fmt.Fprintf(&buf, "\t%q: %q,\n", n, datasetErrors[n])
+	}
+	buf.WriteString("}\n")
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {

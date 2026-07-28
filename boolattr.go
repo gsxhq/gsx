@@ -22,13 +22,15 @@ type Toggle bool
 // "true"/"false". It is the single source of truth for that decision, consulted
 // by codegen for a static name={boolExpr} and by the runtime at the bag leaf.
 //
-// ONE RULE: a bool renders as presence UNLESS HTML's own value vocabulary for
-// that name is the literal strings "true" and "false" — the aria-* states plus
-// draggable, spellcheck, contenteditable and writingsuggestions. On those the
-// string IS the state and absence means something else entirely: a screen
-// reader announces aria-expanded="false" as collapsed and says nothing at all
-// when the attribute is absent, and contenteditable/spellcheck inherit, so only
-// the literal "false" opts a subtree out.
+// ONE RULE: a bool renders as presence UNLESS the name's own value vocabulary
+// is the literal strings "true" and "false" — the aria-* states plus draggable
+// and spellcheck (generated), and contenteditable, writingsuggestions, SVG
+// focusable/preserveAlpha/externalResourcesRequired and MathML displaystyle
+// (curated). On those the string IS the state and absence means something else
+// entirely: a screen reader announces aria-expanded="false" as collapsed and
+// says nothing at all when the attribute is absent, and
+// contenteditable/spellcheck/displaystyle inherit, so only the literal "false"
+// opts a subtree out.
 //
 // Everywhere else — data-*, custom-element attributes, x-*, hx-*, an author's
 // own name — a bool can only mean presence, and presence is what CSS reads:
@@ -45,18 +47,29 @@ func BoolRendersBare(name string) bool {
 	return !trueFalseAttr(lower) && !trueFalseExtras[lower]
 }
 
-// trueFalseExtras are enumerated true/false attributes the generated
-// trueFalseAttr table misses because the vendored dataset records no value
-// vocabulary for them. Each entry states why HTML's "false" is load-bearing;
-// each MUST survive a dataset refresh.
+// trueFalseExtras are true/false attributes the generated trueFalseAttr table
+// cannot see: the vendored dataset records no value vocabulary for the first
+// two, and covers HTML only, so the SVG and MathML names below are absent
+// entirely. Each entry states why "false" is load-bearing; each MUST survive a
+// dataset refresh. Keys are lowercase — BoolRendersBare folds before the lookup,
+// which is also why the SVG camelCase names appear folded here.
 //
 //   - contenteditable: enumerated true/false/plaintext-only, and it INHERITS —
 //     only contenteditable="false" opts a subtree out of an editable ancestor.
 //   - writingsuggestions: enumerated true/false, added to HTML after this
 //     dataset snapshot, and it inherits the same way.
+//   - focusable (SVG): true/false/auto. focusable="false" on a decorative graphic
+//     is the common case, and absence leaves it focusable in some engines.
+//   - preservealpha (SVG feConvolveMatrix), externalresourcesrequired (SVG):
+//     true/false vocabularies whose defaults differ from absence.
+//   - displaystyle (MathML): true/false, and it INHERITS through the math tree.
 var trueFalseExtras = map[string]bool{
-	"contenteditable":    true,
-	"writingsuggestions": true,
+	"contenteditable":           true,
+	"writingsuggestions":        true,
+	"focusable":                 true,
+	"preservealpha":             true,
+	"externalresourcesrequired": true,
+	"displaystyle":              true,
 }
 
 // IsBooleanAttr reports whether name is an HTML boolean (presence-only)

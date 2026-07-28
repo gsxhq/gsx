@@ -68,4 +68,38 @@ func TestSpreadToggleShortCircuitsURLSink(t *testing.T) {
 	}
 }
 
+// A plain bool on a URL-classified name reaches the same verdict as Toggle, and
+// for the same reason: presence declares no value, so the sink is inapplicable.
+// The bag leaf used to answer AFTER the URL sinks and write href="true" while
+// codegen wrote a bare href for the identical source — a divergence between the
+// two places BoolRendersBare is consulted.
+func TestSpreadBoolOnURLNameMatchesCodegen(t *testing.T) {
+	for _, c := range []struct {
+		key       string
+		val       any
+		navNames  []string
+		imageName []string
+		want      string
+	}{
+		{"href", true, []string{"href"}, nil, " href"},
+		{"href", false, []string{"href"}, nil, ""},
+		{"src", spreadFlag(true), []string{"src"}, nil, " src"},
+		{"background", true, nil, []string{"background"}, " background"},
+		// a string on the same name still sanitizes — the bool short-circuit
+		// must not have moved the sink itself
+		{"href", "javascript:alert(1)", []string{"href"}, nil, ` href="about:invalid#gsx"`},
+	} {
+		got := spreadOne(t, c.key, c.val, c.navNames)
+		if c.imageName != nil {
+			var b strings.Builder
+			gw := W(&b)
+			gw.Spread(context.Background(), Attrs{{Key: c.key, Value: c.val}}, nil, c.imageName, nil, nil, nil)
+			got = b.String()
+		}
+		if got != c.want {
+			t.Errorf("Spread(%q=%#v) = %q; want %q", c.key, c.val, got, c.want)
+		}
+	}
+}
+
 type spreadFlag bool

@@ -30,9 +30,16 @@ func trueFalseAttr(name string) bool {
 		"aria-required",
 		"aria-selected",
 		"draggable",
-		"spellcheck",
-		"virtualkeyboardpolicy":
+		"spellcheck":
 		return true
 	}
 	return false
+}
+
+// datasetTrueFalseErrors are names the dataset types as true/false but whose
+// real vocabulary is something else. The generator excluded them from the
+// switch above; the value is the reason. Emitted rather than hand-written so
+// the drift test can account for them without a second copy of the list.
+var datasetTrueFalseErrors = map[string]string{
+	"virtualkeyboardpolicy": "HTML defines auto | manual, not true/false",
 }

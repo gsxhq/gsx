@@ -33,21 +33,32 @@ it — on every name except the handful whose HTML values *are* the strings
 ```
 
 The exceptions are the `aria-*` states plus `contenteditable`, `spellcheck`,
-`draggable` and `writingsuggestions`. There the string carries meaning absence
-cannot: a screen reader announces `aria-expanded="false"` as collapsed and says
-nothing at all when the attribute is missing, and `contenteditable` and
-`spellcheck` **inherit**, so only `="false"` opts a subtree out.
+`draggable`, `writingsuggestions`, SVG `focusable` and MathML `displaystyle`.
+There the string carries meaning absence cannot: a screen reader announces
+`aria-expanded="false"` as collapsed and says nothing at all when the attribute
+is missing, and `contenteditable`, `spellcheck` and `displaystyle` **inherit**,
+so only `="false"` opts a subtree out.
 
 Everything else is presence — including `title={b}` and library names like
 `x-show`/`hx-boost`, which you write as strings or `js` literals anyway
 (``x-show=js`open` ``, `hx-boost="false"`). Static and string values are never
 touched by this rule: `required="foo"` and `hx-boost="false"` render verbatim.
+`style={b}` is its own case: it goes through the class/style merge, which always
+writes a value.
 
 A bare attribute (`<input required>`) is always present, wherever it travels —
 including through a component's `attrs` bag.
 
 - Want the string from a Go bool? Say so: `data-x={ strconv.FormatBool(b) }`.
 - Want presence on an `aria-*` name? `gsx.Toggle(b)`.
+
+::: warning Attributes where absence is the permissive state
+`sandbox={untrusted}` and `crossorigin={cors}` now **omit** the attribute when
+the bool is false. For `sandbox` that removes the sandbox entirely, where the
+old rendering (`sandbox="false"`, an unrecognized token) applied every
+restriction. If you bind a bool to one of these, make sure absence is what you
+want, or write the value: `sandbox="allow-scripts"`.
+:::
 
 <!--@include: ./_generated/attributes/020-boolean-attributes.md-->
 

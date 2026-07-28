@@ -343,6 +343,35 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 			gw.BoolAttr(kv.Key, bool(tg))
 			continue
 		}
+		// class/style are whole-bag aggregates (a.Class()/a.Style()), not this
+		// entry's fragment. Resolve them before anything reads the value. The
+		// forwarding-residual caller excludes both — the merge site owns them —
+		// so this only fires for a standalone spread that carries them (e.g. a
+		// nested cond-attr spread).
+		switch kv.Key {
+		case "class":
+			kv.Value = a.Class()
+		case "style":
+			kv.Value = a.Style()
+		}
+		// Classify ONCE: anyRenderVal is reflect-based (and copies for []byte),
+		// so the sinks below and the plain arm share this single call.
+		var vs string
+		var vk valKind
+		var vok bool
+		if kv.Value != nil {
+			vs, vk, vok = anyRenderVal(kv.Value)
+			// A bool that renders bare declares the attribute has NO value, so —
+			// exactly like Toggle above — a URL sink is inapplicable rather than
+			// skipped. This must run BEFORE the sinks for the leaf to agree with
+			// codegen, which decides presence before its own URL branch: href={b}
+			// writes a bare href on both paths, where routing through URLVal
+			// would fabricate href="true" here and nowhere else.
+			if vok && vk == kindBool && BoolRendersBare(kv.Key) {
+				gw.BoolAttr(kv.Key, vs == "true")
+				continue
+			}
+		}
 		switch {
 		case attrNameExcluded(kv.Key, imageNames):
 			gw.writeStr(" ")
@@ -363,35 +392,19 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 			gw.URLVal(kv.Value)
 			gw.writeStr(`"`)
 		default:
-			// A non-excluded class/style key aggregates over the whole bag
-			// (a.Class()/a.Style()). The forwarding-residual caller excludes
-			// class/style (owned by the merge site), so this only fires for a
-			// standalone spread that carries them (e.g. a nested cond-attr spread).
-			switch kv.Key {
-			case "class":
-				kv.Value = a.Class()
-			case "style":
-				kv.Value = a.Style()
-			}
 			if kv.Value == nil {
 				continue
 			}
-			vs, vk, vok := anyRenderVal(kv.Value)
 			if !vok {
 				if gw.err == nil {
 					gw.err = fmt.Errorf("gsx: attribute %q: unsupported dynamic type %T", kv.Key, kv.Value)
 				}
 				return
 			}
-			// A bool value toggles on an HTML boolean attribute and on any name
-			// the platform never defined (data-*, custom elements, x-*); it
-			// stringifies to "true"/"false" only where the platform gives the
-			// name a value vocabulary (aria-*, contenteditable). Same rule the
-			// generator applies to a static name={boolExpr} — see BoolRendersBare.
-			if vk == kindBool && BoolRendersBare(kv.Key) {
-				gw.BoolAttr(kv.Key, vs == "true")
-				continue
-			}
+			// A bool that reaches here renders its string: the name's own HTML
+			// vocabulary IS "true"/"false" (aria-*, contenteditable), so absence
+			// would mean something else. See BoolRendersBare — the same rule
+			// codegen applies to a static name={boolExpr}.
 			gw.writeStr(" ")
 			gw.writeStr(kv.Key)
 			gw.writeStr(`="`)

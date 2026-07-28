@@ -4613,8 +4613,16 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	// PLAIN CONTEXT ONLY. AttrAnyToggle attribute-escapes the string case and
 	// nothing more, so on a URL, JS or CSS name it would emit an unsanitized
 	// value where the branches below sanitize one — href={u} with T string|int
-	// would ship javascript: through. Those names fall through instead, to the
-	// sink that owns them.
+	// would ship javascript: through. Those names fall through to their sink
+	// instead.
+	//
+	// Caveat, pre-dating this guard: meta-refresh `content` is CtxPlain (the
+	// sink is keyed on the element's http-equiv, not on the name), so it lands
+	// here rather than at RefreshContent. A mixed type parameter on it is
+	// unsanitized — as it was before, via AttrAny. Same gap exists in the bag
+	// path, which has no meta-refresh awareness at all. Tracked separately; it
+	// wants the refresh sink to travel with the name, not another special case
+	// bolted onto this branch.
 	if classify(t) == catAnyMixed && gsx.BoolRendersBare(a.Name) && cls.Context(a.Name) == attrclass.CtxPlain {
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrAnyToggle(%s, %s)\n", strconv.Quote(a.Name), expr)
 		return true

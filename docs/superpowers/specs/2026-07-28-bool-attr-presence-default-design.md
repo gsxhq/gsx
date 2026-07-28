@@ -76,10 +76,19 @@ lists both `"true"` and `"false"` (valueSets `b`, `u`, `tristate`, `current`,
 `invalid`, `haspopup`). No hand-picking, and a dataset refresh carries new names
 in automatically. 20 names today.
 
-`contenteditable` and `writingsuggestions` are curated in `trueFalseExtras`
-because the dataset records no value vocabulary for either — the same shape as
-the existing `presenceOnlyExtras`, each entry stating why `"false"` is
-load-bearing.
+`trueFalseExtras` curates in what the table cannot see: `contenteditable` and
+`writingsuggestions` (the dataset records no value vocabulary for either), and
+SVG `focusable`, `preserveAlpha`, `externalResourcesRequired` plus MathML
+`displaystyle` (the dataset is HTML-only, so the mechanical criterion can never
+reach them). Same shape as the existing `presenceOnlyExtras`, each entry stating
+why `"false"` is load-bearing. Keys are folded lowercase, since `BoolRendersBare`
+folds before the lookup.
+
+`datasetTrueFalseErrors` runs the other way: names the dataset types as
+true/false whose real vocabulary is something else. `virtualkeyboardpolicy` is
+the only one — HTML defines `auto | manual`. It is emitted BY the generator
+rather than hand-written in `boolattr.go`, so the drift test can account for the
+exclusion without a second copy of the list.
 
 Emitted as a `switch` (zero init cost, no map allocation). `TestTrueFalseAttrMatchesHTMLData`
 re-derives the criterion from `htmldata` and compares, so regenerating one file
@@ -116,6 +125,15 @@ set. Pre-1.0, but it needs a migration note:
 - JS that reads `el.dataset.x === "true"` moves to `'x' in el.dataset` /
   `hasAttribute`, or the author asks for the string with `strconv.FormatBool`.
 
+**Fail-open direction, called out separately.** For most names the old
+stringified form was inert, but `sandbox` and `crossorigin` are the exception:
+`sandbox="false"` is a token list with one unrecognized token, i.e. FULLY
+sandboxed, while absence is not sandboxed at all. So `sandbox={untrusted}`
+written under the old rule loses its sandbox when the flag goes false. The new
+rendering is the honest reading of the author's bool — under the old rule the
+bool did nothing, since both branches sandboxed — but the migration is
+fail-open and is documented in the guide with a warning block.
+
 ## Test plan
 
 Corpus (one case per context where the decision is made):
@@ -133,3 +151,29 @@ Corpus (one case per context where the decision is made):
 Runtime: `TestBoolRendersBare` (both buckets + folding),
 `TestTrueFalseAttrMatchesHTMLData` (drift gate), `TestTrueFalseExtras`,
 `TestSpreadBoolByName` (the runtime leaf).
+
+## Known gaps, surfaced by the adversarial review
+
+Found by probing, not fixed here — each wants its own change:
+
+1. **Meta-refresh `content` is not sanitized on two paths.** `<meta
+   http-equiv="refresh" content={v}>` with `v` a mixed type parameter, and the
+   same name arriving through a spread bag, both bypass `RefreshContent` and
+   emit `javascript:` verbatim. Pre-existing (verified against the parent
+   commit): the sink is keyed on the element's `http-equiv` rather than on the
+   name, so `content` classifies as `CtxPlain` and neither the codegen guard nor
+   `Writer.Spread` knows to route it. The fix is to make the refresh sink travel
+   with the name, not to bolt another special case onto the toggle branch.
+2. **A mixed type parameter on a sink name fails as a Go type error**, naming an
+   internal `_gsxgw` symbol, where it should be a gsx diagnostic. Fail-closed,
+   so not urgent; it also means no corpus case can cover that shape, since
+   corpus cases must render.
+3. **`style={bool}` renders `style="true"`**, not presence — it goes through the
+   class/style merge site rather than the bool branch. Documented in the guide
+   as its own case rather than changed.
+4. **htmx and Alpine bools invert silently.** `hx-boost={true}` renders bare,
+   and htmx reads a missing value as "not boosted" — the opposite of the
+   author's `true`; a bare `x-show` is an empty Alpine expression. Accepted
+   deliberately (see the rejected carve-outs above) because those attributes are
+   written as static strings or `js` literals, but the failure mode is silent
+   and inverted, so it is pinned by a corpus case rather than left implicit.
