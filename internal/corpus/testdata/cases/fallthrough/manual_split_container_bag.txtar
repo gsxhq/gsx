@@ -96,7 +96,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Email", gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: true}})))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Email", gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: _gsxrt.Toggle(true)}})))
 		return _gsxgw.Err()
 	})
 }

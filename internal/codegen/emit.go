@@ -5459,7 +5459,11 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			}
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 		case *ast.BoolAttr:
-			entries = append(entries, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
+			entries = append(entries, fmt.Sprintf(
+				"{Key: %s, Value: %s.Toggle(true)}",
+				strconv.Quote(t.Name),
+				rtPkg,
+			))
 		case *ast.ClassAttr:
 			// Class/style lowering may emit value-form, tuple, or renderer
 			// statements directly rather than through orderedWrap. Pin everything

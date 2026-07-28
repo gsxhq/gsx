@@ -11,6 +11,12 @@ import "strings"
 // It is a value, not syntax, so the same expression works on an element, as a
 // component prop, and in a hand-written bag: gsx.Toggle(b) travels to the leaf
 // where the presence decision is actually made.
+//
+// GSX also uses Toggle internally when a syntactically bare attribute must
+// travel through an Attrs bag, carrying its authored presence semantics to the
+// leaf. An explicit name={boolExpr} remains an ordinary bool: on custom,
+// data-*, and aria-* names it renders as name="true" or name="false" unless the
+// author explicitly wraps the expression in Toggle.
 type Toggle bool
 
 // IsBooleanAttr reports whether name is an HTML boolean (presence-only)
