@@ -53,11 +53,10 @@ including through a component's `attrs` bag.
 - Want presence on an `aria-*` name? `gsx.Toggle(b)`.
 
 ::: warning Attributes where absence is the permissive state
-`sandbox={untrusted}` and `crossorigin={cors}` now **omit** the attribute when
-the bool is false. For `sandbox` that removes the sandbox entirely, where the
-old rendering (`sandbox="false"`, an unrecognized token) applied every
-restriction. If you bind a bool to one of these, make sure absence is what you
-want, or write the value: `sandbox="allow-scripts"`.
+`sandbox={untrusted}` and `crossorigin={cors}` **omit** the attribute when the
+bool is false — and for `sandbox`, no attribute means no sandbox at all. Make
+sure absence is the state you want, or write the value:
+`sandbox="allow-scripts"`.
 :::
 
 <!--@include: ./_generated/attributes/020-boolean-attributes.md-->

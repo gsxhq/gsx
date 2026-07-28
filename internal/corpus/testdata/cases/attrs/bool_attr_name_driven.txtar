@@ -10,8 +10,8 @@
 # and displaystyle INHERIT, so only the literal "false" opts a subtree out.
 #
 # sandbox is deliberately NOT an exception: its vocabulary is a token list, so a
-# bool means presence. Note the direction — false OMITS it, removing the
-# sandbox, where the old rule wrote sandbox="false" and sandboxed everything.
+# bool means presence. Note which way that cuts — false OMITS the attribute, and
+# an absent sandbox is no sandbox at all.
 #
 # Everything else is presence, including names HTML defines with some other
 # vocabulary (title, role) and library names (x-show, hx-boost) — those are
