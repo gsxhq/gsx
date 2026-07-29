@@ -121,9 +121,9 @@ func TestBuildSkeletonRecordsNavSpanOffsets(t *testing.T) {
 			}
 		case *gsxast.CondAttr:
 			wants = append(wants, want{"CondAttr cond", v, v.Cond})
-		case *gsxast.ClassPart:
+		case *gsxast.ComposedPart:
 			if v.Cond != "" {
-				wants = append(wants, want{"ClassPart guard cond", v, v.Cond})
+				wants = append(wants, want{"ComposedPart guard cond", v, v.Cond})
 			}
 		case *gsxast.SwitchMarkup:
 			wants = append(wants, want{"SwitchMarkup tag", v, v.Tag})

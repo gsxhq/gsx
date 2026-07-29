@@ -709,7 +709,7 @@ func goCompletionBridge(eph *Package, cc completionContext, exprStartOff, off in
 
 // matchedSpanPos returns the nav-span position of node whose byte-offset start
 // equals startOff, so isCtrlSpan can discriminate a multi-span node (a
-// ClassPart's expr span vs its `: cond` ctrl span). Falls back to the node's
+// ComposedPart's expr span vs its `: cond` ctrl span). Falls back to the node's
 // first span position when none matches exactly.
 func matchedSpanPos(node gsxast.Node, startOff int, eph *Package) token.Pos {
 	spans, _ := nodeNavSpans(node)

@@ -53,7 +53,7 @@ func TestFprintPart2(t *testing.T) {
 		}},
 		&ast.Element{Tag: "div", Attrs: []ast.Attr{
 			&ast.CondAttr{Cond: `id != ""`, Then: []ast.Attr{&ast.BoolAttr{Name: "hidden"}}},
-			&ast.ClassAttr{Name: "class", Parts: []ast.ClassPart{
+			&ast.ComposedAttr{Name: "class", Parts: []ast.ComposedPart{
 				{Expr: `"btn"`},
 				{Expr: `"on"`, Cond: "active"},
 			}},
@@ -81,9 +81,9 @@ func TestFprintPart2(t *testing.T) {
     CondAttr cond="id != \"\""
       then:
         BoolAttr name=hidden
-    ClassAttr name=class
-      ClassPart expr="\"btn\"" cond=""
-      ClassPart expr="\"on\"" cond="active"
+    ComposedAttr name=class
+      ComposedPart expr="\"btn\"" cond=""
+      ComposedPart expr="\"on\"" cond="active"
 `
 	if b.String() != want {
 		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)

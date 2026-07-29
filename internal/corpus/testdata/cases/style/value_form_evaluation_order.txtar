@@ -44,7 +44,7 @@ func C(label string) _gsxrt.Node {
 			_gsxv1 = "color: red"
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(_gsxv0)), _gsxrt.Class(_gsxv1))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(_gsxv0)), _gsxrt.Style(_gsxv1))
 		_gsxgw.S("\">")
 //line input.gsx:6:84
 		_gsxgw.Text(string(label))

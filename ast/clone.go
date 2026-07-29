@@ -16,7 +16,7 @@ import "fmt"
 //
 // The switches are exhaustive over the sealed node families (Decl / Markup /
 // Attr / GoPart) plus the standalone Node types they contain (CaseClause,
-// ClassPart, OrderedPair, and the value-form control-flow nodes). An unhandled
+// ComposedPart, OrderedPair, and the value-form control-flow nodes). An unhandled
 // concrete type panics rather than silently sharing a mutable node — the corpus
 // goldens, which exercise every node kind through Package/Generate, turn that
 // panic into a loud test failure if a new node type is added without a clone
@@ -195,9 +195,9 @@ func cloneAttr(a Attr) Attr {
 		n.Then = cloneAttrs(v.Then)
 		n.Else = cloneAttrs(v.Else)
 		return &n
-	case *ClassAttr:
+	case *ComposedAttr:
 		n := *v
-		n.Parts = cloneClassParts(v.Parts)
+		n.Parts = cloneComposedParts(v.Parts)
 		return &n
 	case *OrderedAttrsAttr:
 		n := *v
@@ -238,18 +238,18 @@ func cloneGoPart(p GoPart) GoPart {
 	}
 }
 
-func cloneClassParts(in []ClassPart) []ClassPart {
+func cloneComposedParts(in []ComposedPart) []ComposedPart {
 	if in == nil {
 		return nil
 	}
-	out := make([]ClassPart, len(in))
+	out := make([]ComposedPart, len(in))
 	for i := range in {
-		out[i] = cloneClassPart(in[i])
+		out[i] = cloneComposedPart(in[i])
 	}
 	return out
 }
 
-func cloneClassPart(p ClassPart) ClassPart {
+func cloneComposedPart(p ComposedPart) ComposedPart {
 	// p is already a value copy; deep-copy its mutable slices/pointers.
 	p.Stages = clonePipeStages(p.Stages)
 	p.CSSSegments = cloneMarkups(p.CSSSegments)

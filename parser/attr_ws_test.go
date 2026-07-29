@@ -48,7 +48,7 @@ func parseAttrListErr(t *testing.T, attrSrc string) string {
 
 func TestAttrWS_ExprSpaceBoth(t *testing.T) {
 	// data-x = {expr} — ExprAttr with space on both sides of '='.
-	// We use "data-x" (not "class"/"style") since those route to ClassAttr.
+	// We use "data-x" (not "class"/"style") since those route to ComposedAttr.
 	attrs := parseAttrList(t, "data-x = {expr}")
 	if len(attrs) != 1 {
 		t.Fatalf("got %d attrs, want 1", len(attrs))
@@ -92,21 +92,21 @@ func TestAttrWS_ExprSpaceAfter(t *testing.T) {
 	}
 }
 
-func TestAttrWS_ClassAttrSpace(t *testing.T) {
-	// class = {x} — spaces around '='; class routes to ClassAttr (composed).
+func TestAttrWS_ComposedAttrSpace(t *testing.T) {
+	// class = {x} — spaces around '='; class routes to ComposedAttr (composed).
 	attrs := parseAttrList(t, "class = {x}")
 	if len(attrs) != 1 {
 		t.Fatalf("got %d attrs, want 1", len(attrs))
 	}
-	ca, ok := attrs[0].(*ast.ClassAttr)
+	ca, ok := attrs[0].(*ast.ComposedAttr)
 	if !ok {
-		t.Fatalf("got %T, want *ast.ClassAttr", attrs[0])
+		t.Fatalf("got %T, want *ast.ComposedAttr", attrs[0])
 	}
 	if ca.Name != "class" {
-		t.Errorf("ClassAttr Name=%q, want class", ca.Name)
+		t.Errorf("ComposedAttr Name=%q, want class", ca.Name)
 	}
 	if len(ca.Parts) != 1 || ca.Parts[0].Expr != "x" {
-		t.Errorf("ClassAttr Parts=%+v, want one part with Expr=x", ca.Parts)
+		t.Errorf("ComposedAttr Parts=%+v, want one part with Expr=x", ca.Parts)
 	}
 }
 

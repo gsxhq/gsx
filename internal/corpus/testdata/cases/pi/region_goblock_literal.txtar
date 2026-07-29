@@ -46,7 +46,7 @@ func RegionGoBlock(v string) _gsxrt.Node {
 		_gsxgw.S("<div @click=\"")
 		_gsxgw.AttrValue(string(h))
 		_gsxgw.S("\" style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(s)))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(s)))
 		_gsxgw.S("\">x</div><?end>")
 		return _gsxgw.Err()
 	})

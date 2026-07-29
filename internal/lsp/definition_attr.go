@@ -143,7 +143,7 @@ func attrName(a gsxast.Attr) (string, bool) {
 		return t.Name, true
 	case *gsxast.EmbeddedAttr:
 		return t.Name, true
-	case *gsxast.ClassAttr:
+	case *gsxast.ComposedAttr:
 		return t.Name, true
 	case *gsxast.OrderedAttrsAttr:
 		return t.Name, true

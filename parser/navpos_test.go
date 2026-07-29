@@ -63,11 +63,11 @@ component C(user string, cond bool, n int, bag string) {
 	seen := map[string]int{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch v := n.(type) {
-		case *ast.ClassPart:
+		case *ast.ComposedPart:
 			if v.CF == nil && v.CSSSegments == nil {
 				seen["classpart"]++
-				check("ClassPart.ExprPos", v.ExprPos, v.Expr)
-				check("ClassPart.CondPos", v.CondPos, v.Cond)
+				check("ComposedPart.ExprPos", v.ExprPos, v.Expr)
+				check("ComposedPart.CondPos", v.CondPos, v.Cond)
 			}
 		case *ast.ValueIf:
 			seen["valueif"]++
@@ -147,7 +147,7 @@ func TestSpreadPipelineParenUnwrapExprPos(t *testing.T) {
 	}
 }
 
-func TestClassPartExpressionSpan(t *testing.T) {
+func TestComposedPartExpressionSpan(t *testing.T) {
 	src := []byte(`package p
 
 component C(cond bool) {
@@ -175,7 +175,7 @@ component C(cond bool) {
 
 	seen := map[string]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
-		part, ok := n.(*ast.ClassPart)
+		part, ok := n.(*ast.ComposedPart)
 		if !ok {
 			return true
 		}
@@ -233,7 +233,7 @@ component C(cond bool) {
 		"value-form",
 	} {
 		if !seen[kind] {
-			t.Errorf("did not inspect a %s ClassPart", kind)
+			t.Errorf("did not inspect a %s ComposedPart", kind)
 		}
 	}
 }

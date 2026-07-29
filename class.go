@@ -2,18 +2,24 @@ package gsx
 
 import "strings"
 
-// ClassPart is one contribution to a class or style attribute: a string included
-// only when on. Generated code builds these from the `"str": cond` source sugar.
-type ClassPart struct {
+// conditionalPart is one generated contribution to a composed class or style
+// attribute: a string included only when on.
+type conditionalPart struct {
 	s  string
 	on bool
 }
 
-// Class is an unconditional class/style contribution.
-func Class(s string) ClassPart { return ClassPart{s: s, on: true} }
+// Class is an unconditional class contribution used by generated code.
+func Class(s string) conditionalPart { return conditionalPart{s: s, on: true} }
 
-// ClassIf includes s only when on.
-func ClassIf(s string, on bool) ClassPart { return ClassPart{s: s, on: on} }
+// ClassIf includes the class contribution s only when on.
+func ClassIf(s string, on bool) conditionalPart { return conditionalPart{s: s, on: on} }
+
+// Style is an unconditional style contribution used by generated code.
+func Style(s string) conditionalPart { return conditionalPart{s: s, on: true} }
+
+// StyleIf includes the style contribution s only when on.
+func StyleIf(s string, on bool) conditionalPart { return conditionalPart{s: s, on: on} }
 
 // DefaultClassMerge is the built-in class-merge strategy. It receives the raw,
 // un-split class strings of each on source (static parts, toggles, and the
@@ -65,7 +71,7 @@ func dedupeLastWins(toks []string) []string {
 
 // onClasses collects the on, non-empty class strings from parts (raw, un-split),
 // in source order — the input a ClassMerger receives.
-func onClasses(parts []ClassPart) []string {
+func onClasses(parts []conditionalPart) []string {
 	var classes []string
 	for _, p := range parts {
 		if p.on && p.s != "" {
@@ -80,7 +86,7 @@ func onClasses(parts []ClassPart) []string {
 // class token cannot conflict with anything, so the merge step is a guaranteed
 // no-op for any merger — letting the hot single-class case skip the slice and the
 // merger call entirely.
-func loneToken(parts []ClassPart) (string, bool) {
+func loneToken(parts []conditionalPart) (string, bool) {
 	s := ""
 	for _, p := range parts {
 		if !p.on || p.s == "" {
@@ -110,7 +116,7 @@ func hasClassSpace(s string) bool {
 // form of gw.Style), so generated code can pass a composed root style to
 // StyleMerged. Like gw.Style it includes only on-parts and joins with "; ", but
 // does NOT attr-escape (the caller escapes).
-func StyleString(parts ...ClassPart) string {
+func StyleString(parts ...conditionalPart) string {
 	decls := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if !p.on {
@@ -126,7 +132,7 @@ func StyleString(parts ...ClassPart) string {
 // ClassString returns the merged class string for parts, run through merge (the
 // value form of gw.Class), so generated code can place a composed class into an
 // Attrs map. merge receives the raw, un-split on-class strings.
-func ClassString(merge func(classes []string) string, parts ...ClassPart) string {
+func ClassString(merge func(classes []string) string, parts ...conditionalPart) string {
 	if s, ok := loneToken(parts); ok {
 		return s
 	}
@@ -145,7 +151,7 @@ func ClassString(merge func(classes []string) string, parts ...ClassPart) string
 // repeated tokens resolves to the same string whether it sits on a root or is
 // forwarded to a child — matching DefaultClassMerge's "keep last occurrence" rule
 // for the common (default-merger) case.
-func ClassJoin(parts ...ClassPart) string {
+func ClassJoin(parts ...conditionalPart) string {
 	var toks []string
 	for _, p := range parts {
 		if !p.on || p.s == "" {
@@ -158,7 +164,7 @@ func ClassJoin(parts ...ClassPart) string {
 
 // Class composes parts, runs them through merge, and writes the escaped class
 // attribute value. merge receives the raw, un-split on-class strings.
-func (gw *Writer) Class(merge func(classes []string) string, parts ...ClassPart) {
+func (gw *Writer) Class(merge func(classes []string) string, parts ...conditionalPart) {
 	if gw.err != nil {
 		return
 	}
@@ -174,7 +180,7 @@ func (gw *Writer) Class(merge func(classes []string) string, parts ...ClassPart)
 // nothing when there is no class to emit — so a root element with no class and no
 // fallthrough class stays attribute-free. merge receives the raw, un-split
 // on-class strings.
-func (gw *Writer) ClassMerged(merge func(classes []string) string, extra string, parts ...ClassPart) {
+func (gw *Writer) ClassMerged(merge func(classes []string) string, extra string, parts ...conditionalPart) {
 	if gw.err != nil {
 		return
 	}
@@ -202,7 +208,7 @@ func (gw *Writer) ClassMerged(merge func(classes []string) string, extra string,
 
 // Style composes the on parts as '; '-joined declarations (no merge) and writes
 // the escaped style attribute value.
-func (gw *Writer) Style(parts ...ClassPart) {
+func (gw *Writer) Style(parts ...conditionalPart) {
 	if gw.err != nil {
 		return
 	}

@@ -13,7 +13,7 @@ type completionContextKind int
 
 const (
 	ctxNone      completionContextKind = iota // markup text, js/css bodies, import strings — v1 offers nothing
-	ctxGoExpr                                 // Interp/ExprAttr/SpreadAttr/ClassPart/OrderedPair/value-form/ctrl-clause/GoBlock/GoChunk/@{} holes
+	ctxGoExpr                                 // Interp/ExprAttr/SpreadAttr/ComposedPart/OrderedPair/value-form/ctrl-clause/GoBlock/GoChunk/@{} holes
 	ctxPipeStage                              // after |> inside a pipeline
 	ctxTag                                    // tag-name region after <
 	ctxAttrName                               // inside an open tag, attribute-name position

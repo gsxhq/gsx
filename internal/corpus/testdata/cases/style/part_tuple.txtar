@@ -34,7 +34,7 @@ func C(v int) _gsxrt.Node {
 			return _gsxerr
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxrt.StyleValue(_gsxv1)))
+		_gsxgw.Style(_gsxrt.Style(_gsxv0), _gsxrt.Style(_gsxrt.StyleValue(_gsxv1)))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

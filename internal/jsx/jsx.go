@@ -200,7 +200,7 @@ func resolveAttrList(attrs []ast.Attr, bag *diag.Bag) bool {
 			if !resolveMarkup(at.Segments, bag) {
 				ok = false
 			}
-		case *ast.ClassAttr:
+		case *ast.ComposedAttr:
 			for i := range at.Parts {
 				if at.Parts[i].CSSSegments != nil && !resolveMarkup(at.Parts[i].CSSSegments, bag) {
 					ok = false

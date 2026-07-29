@@ -41,7 +41,7 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(Combined)))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(Combined)))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

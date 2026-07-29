@@ -144,7 +144,7 @@ func zeroSpans(n ast.Node) {
 					v.Stages[i].NamePos = 0
 					v.Stages[i].ArgsPos = 0
 				}
-			case *ast.ClassPart:
+			case *ast.ComposedPart:
 				v.ExprPos = 0
 				v.CondPos = 0
 				for i := range v.Stages {
@@ -338,7 +338,7 @@ func canonGoAttr(a ast.Attr) {
 		}
 	case *ast.SpreadAttr:
 		v.Expr = fmtExpr(v.Expr)
-	case *ast.ClassAttr:
+	case *ast.ComposedAttr:
 		for i := range v.Parts {
 			if v.Parts[i].CF != nil {
 				canonValueCF(v.Parts[i].CF)

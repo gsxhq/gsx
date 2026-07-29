@@ -10,13 +10,13 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
-// classPartsLogicalEqual compares ClassPart slices by their logical fields
+// composedPartsLogicalEqual compares ComposedPart slices by their logical fields
 // (Expr, Cond, Stages, CF), ignoring the span positions set during parsing.
 // NOTE: CF is compared by pointer identity (`a[i].CF != b[i].CF`). This is
 // correct for all current `want` cases, which all have CF == nil. A future
 // test with non-nil CF in `want` would silently pass on a differently-valued
 // non-nil CF — extend this function to a recursive deep compare if needed.
-func classPartsLogicalEqual(a, b []ast.ClassPart) bool {
+func composedPartsLogicalEqual(a, b []ast.ComposedPart) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -1038,21 +1038,21 @@ func TestParseComposedClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	el := node.(*ast.Element)
-	ca, ok := el.Attrs[0].(*ast.ClassAttr)
+	ca, ok := el.Attrs[0].(*ast.ComposedAttr)
 	if !ok {
-		t.Fatalf("attr0 = %T, want *ast.ClassAttr", el.Attrs[0])
+		t.Fatalf("attr0 = %T, want *ast.ComposedAttr", el.Attrs[0])
 	}
 	if ca.Name != "class" {
 		t.Fatalf("Name = %q", ca.Name)
 	}
-	want := []ast.ClassPart{
+	want := []ast.ComposedPart{
 		{Expr: `"group flex gap-x-3"`},
 		{Expr: `variantClass(v)`},
 		{Expr: `"bg-active"`, Cond: "isActive"},
 		{Expr: `"text-muted"`, Cond: "!isActive"},
 		{Expr: `class`},
 	}
-	if !classPartsLogicalEqual(ca.Parts, want) {
+	if !composedPartsLogicalEqual(ca.Parts, want) {
 		t.Fatalf("Parts:\n got %#v\nwant %#v", ca.Parts, want)
 	}
 }
@@ -1064,7 +1064,7 @@ func TestParseComposedStyleSingle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ca := node.(*ast.Element).Attrs[0].(*ast.ClassAttr)
+	ca := node.(*ast.Element).Attrs[0].(*ast.ComposedAttr)
 	if ca.Name != "style" || len(ca.Parts) != 1 || ca.Parts[0].Expr != `"color: red"` {
 		t.Fatalf("got %#v", ca.Parts)
 	}
@@ -1076,7 +1076,7 @@ func TestParseComposedStyleCSSLiteralPart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ca := node.(*ast.Element).Attrs[0].(*ast.ClassAttr)
+	ca := node.(*ast.Element).Attrs[0].(*ast.ComposedAttr)
 	if ca.Name != "style" || len(ca.Parts) != 2 {
 		t.Fatalf("got %#v", ca)
 	}
@@ -1105,9 +1105,9 @@ func TestComposedColonInsideBracketsIsOneExpr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ca := node.(*ast.Element).Attrs[0].(*ast.ClassAttr)
-	want := []ast.ClassPart{{Expr: "m[k]"}, {Expr: "s[1:2]"}}
-	if !classPartsLogicalEqual(ca.Parts, want) {
+	ca := node.(*ast.Element).Attrs[0].(*ast.ComposedAttr)
+	want := []ast.ComposedPart{{Expr: "m[k]"}, {Expr: "s[1:2]"}}
+	if !composedPartsLogicalEqual(ca.Parts, want) {
 		t.Fatalf("Parts = %#v, want %#v", ca.Parts, want)
 	}
 }

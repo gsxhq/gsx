@@ -63,7 +63,7 @@ type navSpan struct {
 // stages (whose name/args regions are matched separately). Every span's source
 // bytes spell exactly the stored fragment text — the parser's byte-faithful
 // invariant — so cursors bridge into the skeleton by relative offset. A node
-// can carry more than one span (a ClassPart's expr and its `: cond` guard);
+// can carry more than one span (a ComposedPart's expr and its `: cond` guard);
 // spans never overlap across nodes, so at most one (node, span) matches an
 // offset. Nodes with no navigable fragment return nil.
 func nodeNavSpans(n gsxast.Node) (spans []navSpan, stages []gsxast.PipeStage) {
@@ -76,7 +76,7 @@ func nodeNavSpans(n gsxast.Node) (spans []navSpan, stages []gsxast.PipeStage) {
 		return []navSpan{{e.ExprPos, len(e.Expr)}}, e.Stages
 	case *gsxast.OrderedPair:
 		return []navSpan{{e.Pos(), len(e.Value)}}, nil
-	case *gsxast.ClassPart:
+	case *gsxast.ComposedPart:
 		if e.CF != nil {
 			return nil, nil // the CF's own nodes carry the spans
 		}
@@ -432,7 +432,7 @@ func hasPipeStages(n gsxast.Node) bool {
 		return len(e.Stages) > 0
 	case *gsxast.SpreadAttr:
 		return len(e.Stages) > 0
-	case *gsxast.ClassPart:
+	case *gsxast.ComposedPart:
 		return len(e.Stages) > 0
 	case *gsxast.ValueArm:
 		return len(e.Stages) > 0
@@ -443,7 +443,7 @@ func hasPipeStages(n gsxast.Node) bool {
 // isCtrlSpan reports whether the matched span (see exprNodeAtOffset) resolves
 // through the CtrlMap bridge — a control-flow clause emitted verbatim in
 // statement position — rather than the ExprMap expression bridge. For a
-// ClassPart the two coexist: its `: cond` guard is a ctrl span while its expr
+// ComposedPart the two coexist: its `: cond` guard is a ctrl span while its expr
 // is an ExprMap span, so the matched position discriminates.
 func isCtrlSpan(node gsxast.Node, matched token.Pos) bool {
 	switch e := node.(type) {
@@ -451,7 +451,7 @@ func isCtrlSpan(node gsxast.Node, matched token.Pos) bool {
 		*gsxast.ValueIf, *gsxast.ValueSwitch, *gsxast.ValueSwitchCase,
 		*gsxast.CondAttr, *gsxast.SwitchMarkup, *gsxast.CaseClause:
 		return true
-	case *gsxast.ClassPart:
+	case *gsxast.ComposedPart:
 		return e.CondPos.IsValid() && matched == e.CondPos
 	}
 	return false
@@ -733,7 +733,7 @@ func resolvedTargetForObject(pkg *Package, obj types.Object, ok bool) (resolvedD
 // exprDefinitionAt answers go-to-definition for a cursor inside any Go-fragment
 // span of a .gsx file (see nodeNavSpans): ctrl spans resolve through CtrlMap,
 // pipelined expressions through pipedTarget, and plain expressions through the
-// ExprMap byte-identical bridge. Ctrl spans are checked first: a ClassPart's
+// ExprMap byte-identical bridge. Ctrl spans are checked first: a ComposedPart's
 // `: cond` guard must resolve via CtrlMap even when the part's EXPR carries a
 // pipeline. ok=false when no span covers the offset or nothing resolves to a
 // real source location.

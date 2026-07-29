@@ -73,7 +73,7 @@ func Tag(val pg.Text, on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.ClassIf("display:block", on), _gsxrt.Class("color:"+_gsxrt.StyleValue(_gsxf0.PgColor((val)))))
+		_gsxgw.Style(_gsxrt.StyleIf("display:block", on), _gsxrt.Style("color:"+_gsxrt.StyleValue(_gsxf0.PgColor((val)))))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

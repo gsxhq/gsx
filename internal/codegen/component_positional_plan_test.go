@@ -399,8 +399,8 @@ func TestPlanComponentPositionalCallsDerivesNestedClassAndStyleFactsForSiblings(
 	if len(elements) != 2 {
 		t.Fatalf("component elements = %d, want 2", len(elements))
 	}
-	classAttr := elements[0].Attrs[0].(*gsxast.ClassAttr)
-	styleAttr := elements[1].Attrs[0].(*gsxast.ClassAttr)
+	classAttr := elements[0].Attrs[0].(*gsxast.ComposedAttr)
+	styleAttr := elements[1].Attrs[0].(*gsxast.ComposedAttr)
 	if len(styleAttr.Parts) != 2 || styleAttr.Parts[1].CSSSegments == nil {
 		t.Fatalf("style parts = %+v, want plain part followed by CSS literal", styleAttr.Parts)
 	}
@@ -451,7 +451,7 @@ func TestPlanComponentPositionalCallsDerivesNestedClassAndStyleFactsForSiblings(
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %+v", diagnostics)
 	}
-	for id, attr := range map[callSiteID]*gsxast.ClassAttr{1: classAttr, 2: styleAttr} {
+	for id, attr := range map[callSiteID]*gsxast.ComposedAttr{1: classAttr, 2: styleAttr} {
 		site, ok := got.sites[id]
 		if !ok {
 			t.Errorf("site %d missing", id)
@@ -466,8 +466,8 @@ func TestPlanComponentPositionalCallsDerivesNestedClassAndStyleFactsForSiblings(
 
 func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
 	t.Run("plain class part owns fact", func(t *testing.T) {
-		part := &gsxast.ClassPart{Expr: "label"}
-		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{*part}}
+		part := &gsxast.ComposedPart{Expr: "label"}
+		root := &gsxast.ComposedAttr{Parts: []gsxast.ComposedPart{*part}}
 		part = &root.Parts[0]
 		if _, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(nil)); complete {
 			t.Fatal("plain part without its authoritative fact reported complete")
@@ -486,7 +486,7 @@ func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
 	t.Run("control flow delegates to value arms", func(t *testing.T) {
 		thenArm := &gsxast.ValueArm{Expr: "first()"}
 		elseArm := &gsxast.ValueArm{Expr: `"off"`}
-		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{{CF: &gsxast.ValueCF{If: &gsxast.ValueIf{Then: thenArm, Else: elseArm}}}}}
+		root := &gsxast.ComposedAttr{Parts: []gsxast.ComposedPart{{CF: &gsxast.ValueCF{If: &gsxast.ValueIf{Then: thenArm, Else: elseArm}}}}}
 		facts := map[gsxast.Node]expressionFact{
 			thenArm: {tv: types.TypeAndValue{Type: types.Typ[types.String]}},
 			elseArm: {tv: types.TypeAndValue{Type: types.Typ[types.UntypedString]}},
@@ -503,7 +503,7 @@ func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
 
 	t.Run("CSS literal delegates to embedded values", func(t *testing.T) {
 		value := &gsxast.Interp{Expr: "tone()"}
-		root := &gsxast.ClassAttr{Parts: []gsxast.ClassPart{{CSSSegments: []gsxast.Markup{&gsxast.Text{Value: "color:"}, value}}}}
+		root := &gsxast.ComposedAttr{Parts: []gsxast.ComposedPart{{CSSSegments: []gsxast.Markup{&gsxast.Text{Value: "color:"}, value}}}}
 		ordered, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(map[gsxast.Node]expressionFact{
 			value: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, tuple: types.NewTuple(
 				types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),

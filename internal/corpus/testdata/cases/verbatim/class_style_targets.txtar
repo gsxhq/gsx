@@ -59,7 +59,7 @@ func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, class string, s
 	_gsxgw.S("<span class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(class))
 	_gsxgw.S("\" style=\"")
-	_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(style)))
+	_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(style)))
 	_gsxgw.S("\">x</span>")
 	return _gsxgw.Err()
 }
@@ -92,7 +92,7 @@ func Page() _gsxrt.Node {
 //line input.gsx:14:2
 		_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, "a b", "color: red"))
 //line input.gsx:15:2
-		_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, _gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.ClassIf("b", true)), _gsxrt.StyleString(_gsxrt.Class("color: blue"))))
+		_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, _gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.ClassIf("b", true)), _gsxrt.StyleString(_gsxrt.Style("color: blue"))))
 //line input.gsx:16:2
 		_gsxgw.NodeResult(_gsxrenderPlain(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: "c"}}))
 		return _gsxgw.Err()

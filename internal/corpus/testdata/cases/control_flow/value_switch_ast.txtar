@@ -13,8 +13,8 @@ component Badge(variant int) {
 File package=views
   Component name=Badge recv="" params="variant int"
     Element tag=span void=false
-      ClassAttr name=class
-        ClassPart expr="\"base\"" cond=""
+      ComposedAttr name=class
+        ComposedPart expr="\"base\"" cond=""
         ValueSwitch tag="variant"
           ValueSwitchCase list="1" default=false
             ValueArm expr="\"green\""
@@ -22,5 +22,5 @@ File package=views
             ValueArm expr="\"amber\""
           ValueSwitchCase list="" default=true
             ValueArm expr="\"gray\""
-        ClassPart expr="\"extra\"" cond="variant > 0"
+        ComposedPart expr="\"extra\"" cond="variant > 0"
       Text value="x"

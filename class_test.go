@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func renderClass(parts ...ClassPart) string {
+func renderClass(parts ...conditionalPart) string {
 	var b strings.Builder
 	W(&b).Class(DefaultClassMerge, parts...)
 	return b.String()
@@ -32,13 +32,13 @@ func TestClassEscapesValue(t *testing.T) {
 
 func TestStyleJoins(t *testing.T) {
 	var b strings.Builder
-	W(&b).Style(Class("color: red"), ClassIf("display: none", false), Class("margin: 0"))
+	W(&b).Style(Style("color: red"), StyleIf("display: none", false), Style("margin: 0"))
 	if b.String() != "color: red; margin: 0" {
 		t.Fatalf("got %q", b.String())
 	}
 }
 
-func renderClassMerged(extra string, parts ...ClassPart) string {
+func renderClassMerged(extra string, parts ...conditionalPart) string {
 	var b strings.Builder
 	W(&b).ClassMerged(DefaultClassMerge, extra, parts...)
 	return b.String()
@@ -142,7 +142,7 @@ func TestClassString(t *testing.T) {
 
 func TestStyleString(t *testing.T) {
 	// gw.Style includes a part only when its .on is true; joins decls with "; ".
-	if got := StyleString(Class("color: red"), ClassIf("margin: 0", false), Class("padding: 1px")); got != "color: red; padding: 1px" {
+	if got := StyleString(Style("color: red"), StyleIf("margin: 0", false), Style("padding: 1px")); got != "color: red; padding: 1px" {
 		t.Errorf("StyleString = %q, want \"color: red; padding: 1px\"", got)
 	}
 }

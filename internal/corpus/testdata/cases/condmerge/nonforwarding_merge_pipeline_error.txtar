@@ -48,7 +48,7 @@ func Box(on bool, gap string) _gsxrt.Node {
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(_gsxv1)))}}, nil
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv1)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

@@ -640,7 +640,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 // attrDoc renders one attribute as a Doc. Conditional attributes are rendered
 // with their `{ if … { … } }` body broken across lines (templ-style), emitting
 // a BreakParent so the enclosing opening-tag group breaks. ExprAttr and
-// ClassAttr use fmtExprDoc so long or comment-bearing values can be multi-line.
+// ComposedAttr use fmtExprDoc so long or comment-bearing values can be multi-line.
 func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 	switch v := a.(type) {
 	case *ast.CondAttr:
@@ -651,13 +651,13 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 			val = append(val, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 		}
 		return wrapAttrValue(v.Name, pretty.SoftLine, pretty.Concat(val...))
-	case *ast.ClassAttr:
+	case *ast.ComposedAttr:
 		parts := make([]pretty.Doc, 0, len(v.Parts)*2)
 		for i, part := range v.Parts {
 			if i > 0 {
 				parts = append(parts, pretty.Text(","), pretty.Line)
 			}
-			parts = append(parts, p.classPartDoc(part))
+			parts = append(parts, p.composedPartDoc(part))
 		}
 		return wrapAttrValue(v.Name, pretty.Line, pretty.Group(pretty.Concat(parts...)))
 	case *ast.EmbeddedAttr:
@@ -686,9 +686,9 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 	}
 }
 
-// classPartDoc renders one composed class/style contribution: `expr`,
+// composedPartDoc renders one composed class/style contribution: `expr`,
 // `expr |> stage`, `expr: cond`, or a value-form if/switch.
-func (p *printer) classPartDoc(part ast.ClassPart) pretty.Doc {
+func (p *printer) composedPartDoc(part ast.ComposedPart) pretty.Doc {
 	if part.CF != nil {
 		return p.valueCFDoc(part.CF)
 	}
@@ -1540,7 +1540,7 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 			b.WriteString(fmtExpr(v.Expr))
 			b.WriteString("... }")
 		}
-	case *ast.ClassAttr:
+	case *ast.ComposedAttr:
 		b.WriteString(v.Name)
 		b.WriteString("={ ")
 		for i, part := range v.Parts {

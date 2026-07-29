@@ -36,7 +36,7 @@ func StyleCondTwoSpreads(on bool, p gsx.Attrs, q gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := p
-		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.ClassIf("color:red", on))}}, q)
+		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.StyleIf("color:red", on))}}, q)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())

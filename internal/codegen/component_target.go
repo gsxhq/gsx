@@ -984,7 +984,7 @@ func componentTargetQualifiers(registry *callSiteRegistry, facts map[callSiteID]
 // dropping a used one is the bug this closes. It walks the element's attrs (not
 // its child elements — each nested component tag is its own registry record) via
 // gsxast.Inspect so every Go-expression carrier (ExprAttr, OrderedAttrsAttr
-// pairs, SpreadAttr, EmbeddedAttr holes, CondAttr branches, ClassAttr parts,
+// pairs, SpreadAttr, EmbeddedAttr holes, CondAttr branches, ComposedAttr parts,
 // value-form control flow, pipeline stage args) is covered uniformly.
 func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string]bool) {
 	if element == nil {
@@ -1011,7 +1011,7 @@ func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string
 				scanStageQualifierRoots(n.Stages, qualifiers)
 			case *gsxast.CondAttr:
 				scanQualifierRoots(n.Cond, qualifiers)
-			case *gsxast.ClassPart:
+			case *gsxast.ComposedPart:
 				scanQualifierRoots(n.Expr, qualifiers)
 				scanQualifierRoots(n.Cond, qualifiers)
 				scanStageQualifierRoots(n.Stages, qualifiers)

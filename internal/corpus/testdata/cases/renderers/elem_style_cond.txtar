@@ -61,7 +61,7 @@ func Page(val pg.Text, on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.ClassIf(_gsxrt.StyleValue(_gsxf0.PgColor((val))), on))
+		_gsxgw.Style(_gsxrt.StyleIf(_gsxrt.StyleValue(_gsxf0.PgColor((val))), on))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

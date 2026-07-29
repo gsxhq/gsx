@@ -89,9 +89,9 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *CondAttr:
 		v.span = s
-	case *ClassAttr:
+	case *ComposedAttr:
 		v.span = s
-	case *ClassPart:
+	case *ComposedPart:
 		v.span = s
 	case *OrderedAttrsAttr:
 		v.span = s
@@ -455,7 +455,7 @@ const (
 //	name=f`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={f`…`}.
 //
 // Interpolation is opt-in behind the f`/js`/css` prefix; a bare `…` attribute
-// value is a plain Go raw string (ExprAttr/ClassAttr), never an EmbeddedAttr.
+// value is a plain Go raw string (ExprAttr/ComposedAttr), never an EmbeddedAttr.
 // Segments contain *Text and *Interp only. Stages is the optional whole-literal
 // pipeline applied to the assembled string: name={f`…` |> f}.
 type EmbeddedAttr struct {
@@ -612,7 +612,7 @@ type CondAttr struct {
 
 func (*CondAttr) attrNode() {}
 
-// ClassPart is one complete contribution in a composable class/style list. Its
+// ComposedPart is one complete contribution in a composable class/style list. Its
 // Pos and End span covers the contribution between comma delimiters, including
 // surrounding trivia and any pipeline stages or `: cond` guard.
 //
@@ -622,11 +622,11 @@ func (*CondAttr) attrNode() {}
 // and Stages are applied left-to-right (`seed |> s0 |> s1 ...`), mirroring
 // Interp.Stages; the guard Cond is never piped.
 //
-// ClassPart is a Node so it can be keyed in the resolved map for renderer
+// ComposedPart is a Node so it can be keyed in the resolved map for renderer
 // application and (T, error) auto-unwrap on plain parts, conditional or not
 // (#88). When CSSSegments != nil, Expr/Cond/Stages/CF are unused. When CF !=
 // nil, Expr/Cond/Stages and CSSSegments are unused.
-type ClassPart struct {
+type ComposedPart struct {
 	span
 	Expr string
 	// ExprPos is the first byte of Expr, the pipeline seed. ExprPos through
@@ -647,22 +647,22 @@ type ClassPart struct {
 
 // ExprEnd returns the position immediately after Expr. It returns NoPos when
 // the part is nil or has no source expression position.
-func (p *ClassPart) ExprEnd() token.Pos {
+func (p *ComposedPart) ExprEnd() token.Pos {
 	if p == nil || !p.ExprPos.IsValid() {
 		return token.NoPos
 	}
 	return p.ExprPos + token.Pos(len(p.Expr))
 }
 
-// ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.
+// ComposedAttr is `class={ … }` / `style={ … }` — a composable contribution list.
 // Name is "class" or "style".
-type ClassAttr struct {
+type ComposedAttr struct {
 	span
 	Name  string
-	Parts []ClassPart
+	Parts []ComposedPart
 }
 
-func (*ClassAttr) attrNode() {}
+func (*ComposedAttr) attrNode() {}
 
 // ValueArm is one produced value in a value-form if/switch inside a class/style
 // list — a Go string expression with an optional pipeline. It is a Node (for
@@ -705,7 +705,7 @@ type ValueSwitchCase struct {
 	Value   *ValueArm
 }
 
-// ValueCF is the value-form control-flow attached to a ClassPart. Exactly one of
+// ValueCF is the value-form control-flow attached to a ComposedPart. Exactly one of
 // If/Switch is non-nil.
 type ValueCF struct {
 	span
@@ -766,8 +766,8 @@ func (*CommentAttr) attrNode() {}
 //   - *SwitchMarkup: each CaseClause
 //   - *CaseClause: each Body markup node
 //   - *CondAttr: each Then and Else attr node
-//   - *ClassAttr: each *ClassPart (Parts slice walked by pointer)
-//   - *ClassPart: CF (if non-nil)
+//   - *ComposedAttr: each *ComposedPart (Parts slice walked by pointer)
+//   - *ComposedPart: CF (if non-nil)
 //   - *ValueCF: If or Switch (whichever is non-nil)
 //   - *ValueIf: Then, ElseIf (if non-nil), Else (if non-nil)
 //   - *ValueSwitch: each CaseClause
@@ -855,11 +855,11 @@ func Inspect(node Node, f func(Node) bool) {
 		for i := range n.Pairs {
 			Inspect(&n.Pairs[i], f)
 		}
-	case *ClassAttr:
+	case *ComposedAttr:
 		for i := range n.Parts {
 			Inspect(&n.Parts[i], f)
 		}
-	case *ClassPart:
+	case *ComposedPart:
 		for _, m := range n.CSSSegments {
 			Inspect(m, f)
 		}

@@ -112,7 +112,7 @@ func Tag(j pg.JSVal, c pg.CSSVal) _gsxrt.Node {
 		_gsxgw.S("\">x</button>")
 //line input.gsx:21:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(mkColor(c))))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(mkColor(c))))
 		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})

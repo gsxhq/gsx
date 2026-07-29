@@ -17,7 +17,7 @@ import (
 // bracket/brace/paren depth 0; within a contribution a depth-0 ':' separates an
 // `expr : cond` conditional from its condition. A trailing comma yields no empty
 // part.
-func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, error) {
+func (p *parser) splitComposed(name, src string, base int) ([]ast.ComposedPart, error) {
 	commas, colons := composedDelims(src)
 
 	// Segment boundaries: [-1] + commas + [len]. Each segment is (start, end).
@@ -26,7 +26,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 	bounds = append(bounds, commas...)
 	bounds = append(bounds, len(src))
 
-	var parts []ast.ClassPart
+	var parts []ast.ComposedPart
 	for k := 0; k+1 < len(bounds); k++ {
 		segStart := bounds[k] + 1
 		segEnd := bounds[k+1]
@@ -58,7 +58,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			if rest := strings.TrimSpace(src[endOff:segEnd]); rest != "" {
 				return nil, p.errorf(cf.End(), "unexpected %q after value-form %s in class/style; pipe stages on a value-form result are not supported", rest, kw)
 			}
-			parts = append(parts, ast.ClassPart{CF: cf})
+			parts = append(parts, ast.ComposedPart{CF: cf})
 			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue
 		}
@@ -101,7 +101,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			if rest := strings.TrimSpace(src[literalEnd-base : partEnd]); rest != "" {
 				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after css literal in style={...}", rest)
 			}
-			parts = append(parts, ast.ClassPart{CSSSegments: segments, CSSDoubleQuoted: dquoted, Cond: condSrc, CondPos: condPos})
+			parts = append(parts, ast.ComposedPart{CSSSegments: segments, CSSDoubleQuoted: dquoted, Cond: condSrc, CondPos: condPos})
 			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue
 		}
@@ -130,7 +130,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			}
 			condPos = p.posAt(condOff)
 		}
-		parts = append(parts, ast.ClassPart{Expr: seed, ExprPos: p.posAt(exprPos), Cond: condSrc, CondPos: condPos, Stages: stages})
+		parts = append(parts, ast.ComposedPart{Expr: seed, ExprPos: p.posAt(exprPos), Cond: condSrc, CondPos: condPos, Stages: stages})
 		ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 	}
 	return parts, nil
@@ -169,7 +169,7 @@ func (p *parser) parseComposedAttr(name string, startPos token.Pos) (ast.Attr, e
 		return nil, err
 	}
 	p.i = end + 1
-	n := &ast.ClassAttr{Name: name, Parts: parts}
+	n := &ast.ComposedAttr{Name: name, Parts: parts}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -383,7 +383,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 		p.i = start
 		p.errs = p.errs[:errMark]
 		// Mirror parseSingleAttr's class/style dispatch: a non-literal
-		// class/style value must remain a composed ClassAttr so the
+		// class/style value must remain a composed ComposedAttr so the
 		// fallthrough/forwarding merge machinery recognizes it, not a plain
 		// ExprAttr (which would silently drop the component's own contribution
 		// when a caller forwards class/style via an attrs bag).
@@ -460,7 +460,7 @@ func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (as
 // opening backtick.
 //
 // For a `class`/`style` name the value is emitted as a single-contribution
-// composed ClassAttr (matching parseBracedEmbeddedAttrValue's class/style
+// composed ComposedAttr (matching parseBracedEmbeddedAttrValue's class/style
 // fallback), so the fallthrough/forwarding merge machinery still recognizes the
 // component's own class/style contribution when a caller forwards an attrs bag.
 // Every other name yields an ordinary ExprAttr.
@@ -478,9 +478,9 @@ func (p *parser) parseBareBacktickAttrValue(name string, attrStartPos token.Pos)
 	expr := p.src[open:end]
 	p.i = end
 	if name == "class" || name == "style" {
-		part := ast.ClassPart{Expr: expr, ExprPos: exprPos}
+		part := ast.ComposedPart{Expr: expr, ExprPos: exprPos}
 		ast.SetSpan(&part, exprPos, p.posAt(end))
-		ca := &ast.ClassAttr{Name: name, Parts: []ast.ClassPart{part}}
+		ca := &ast.ComposedAttr{Name: name, Parts: []ast.ComposedPart{part}}
 		ast.SetSpan(ca, attrStartPos, p.posAt(p.i))
 		return ca, nil
 	}

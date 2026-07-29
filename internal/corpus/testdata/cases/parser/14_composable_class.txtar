@@ -16,8 +16,8 @@ component Link(active bool, class string) {
 File package=examples
   Component name=Link recv="" params="active bool, class string"
     Element tag=a void=false
-      ClassAttr name=class
-        ClassPart expr="\"flex gap-2\"" cond=""
-        ClassPart expr="\"bg-active\"" cond="active"
-        ClassPart expr="class" cond=""
+      ComposedAttr name=class
+        ComposedPart expr="\"flex gap-2\"" cond=""
+        ComposedPart expr="\"bg-active\"" cond="active"
+        ComposedPart expr="class" cond=""
       Text value="link"

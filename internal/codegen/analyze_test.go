@@ -199,21 +199,21 @@ component Page(hot bool, csv string) {
 	if err != nil {
 		t.Fatalf("package: %v", err)
 	}
-	var gotClassPart, gotExprAttr bool
+	var gotComposedPart, gotExprAttr bool
 	for node, expr := range pr.ExprMap {
 		typ := pr.Info.Types[expr].Type
 		if _, isTuple := typ.(*types.Tuple); !isTuple {
 			continue
 		}
 		switch node.(type) {
-		case *gsxast.ClassPart:
-			gotClassPart = true
+		case *gsxast.ComposedPart:
+			gotComposedPart = true
 		case *gsxast.ExprAttr:
 			gotExprAttr = true
 		}
 	}
-	if !gotClassPart || !gotExprAttr {
-		t.Fatalf("branch positions not harvested: classPart=%v exprAttr=%v", gotClassPart, gotExprAttr)
+	if !gotComposedPart || !gotExprAttr {
+		t.Fatalf("branch positions not harvested: composedPart=%v exprAttr=%v", gotComposedPart, gotExprAttr)
 	}
 }
 

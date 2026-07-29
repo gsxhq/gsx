@@ -134,7 +134,7 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 			scan(x.List, x.ListPos)
 		case *gsxast.CondAttr:
 			scan(x.Cond, x.CondPos)
-		case *gsxast.ClassPart:
+		case *gsxast.ComposedPart:
 			scan(x.Expr, x.ExprPos)
 			scan(x.Cond, x.CondPos)
 			stages(x.Stages)

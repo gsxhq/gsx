@@ -314,7 +314,7 @@ func TestBracedAttrBacktickBackslashSubExpressionStaysGo(t *testing.T) {
 // TestBracedAttrBacktickBackslashSubExpressionClassComposes pins the class/style
 // dispatch in parseBracedEmbeddedAttrValue's fallback: when a class value starts
 // with a backtick but is actually a Go sub-expression (so it is NOT a lone gsx
-// literal), it must fall back to parseComposedAttr and remain a *ast.ClassAttr —
+// literal), it must fall back to parseComposedAttr and remain a *ast.ComposedAttr —
 // the node the fallthrough/forwarding merge machinery recognizes — not a plain
 // ExprAttr (which would silently drop the component's own class when a caller
 // forwards class via an attrs bag).
@@ -325,22 +325,22 @@ func TestBracedAttrBacktickBackslashSubExpressionClassComposes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	var cls *ast.ClassAttr
+	var cls *ast.ComposedAttr
 	ast.Inspect(f, func(n ast.Node) bool {
 		if cls != nil {
 			return false
 		}
-		if ca, ok := n.(*ast.ClassAttr); ok {
+		if ca, ok := n.(*ast.ComposedAttr); ok {
 			cls = ca
 			return false
 		}
 		return true
 	})
 	if cls == nil {
-		t.Fatalf("no *ast.ClassAttr found (want the class attr parsed as a composed ClassAttr so it merges with forwarded bag classes)")
+		t.Fatalf("no *ast.ComposedAttr found (want the class attr parsed as a composed ComposedAttr so it merges with forwarded bag classes)")
 	}
 	if cls.Name != "class" {
-		t.Fatalf("ClassAttr.Name = %q, want %q", cls.Name, "class")
+		t.Fatalf("ComposedAttr.Name = %q, want %q", cls.Name, "class")
 	}
 }
 
@@ -402,29 +402,29 @@ func TestBareBacktickAttrValueStaysGoString(t *testing.T) {
 	}
 }
 
-// TestBareBacktickClassAttrValueComposes pins that an unbraced bare backtick on
-// class/style is a plain Go string routed through the composed ClassAttr (so the
+// TestBareBacktickComposedAttrValueComposes pins that an unbraced bare backtick on
+// class/style is a plain Go string routed through the composed ComposedAttr (so the
 // forwarding/merge machinery still recognizes the component's contribution),
 // never an EmbeddedAttr.
-func TestBareBacktickClassAttrValueComposes(t *testing.T) {
+func TestBareBacktickComposedAttrValueComposes(t *testing.T) {
 	src := "package p\ncomponent C() { <span class=`p-4 flex`>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	var ca *ast.ClassAttr
+	var ca *ast.ComposedAttr
 	ast.Inspect(f, func(n ast.Node) bool {
 		if ca != nil {
 			return false
 		}
-		if a, ok := n.(*ast.ClassAttr); ok {
+		if a, ok := n.(*ast.ComposedAttr); ok {
 			ca = a
 			return false
 		}
 		return true
 	})
 	if ca == nil {
-		t.Fatalf("no *ast.ClassAttr found; bare `…` class value must compose")
+		t.Fatalf("no *ast.ComposedAttr found; bare `…` class value must compose")
 	}
 	if len(ca.Parts) != 1 || ca.Parts[0].Expr != "`p-4 flex`" {
 		t.Fatalf("Parts = %#v, want one Expr part `p-4 flex`", ca.Parts)

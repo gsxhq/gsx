@@ -26,7 +26,7 @@ func Box(hidden bool, color string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.ClassIf("display:none", hidden), _gsxrt.Class("color:"+_gsxrt.StyleValue(color)+";content:\"`\""))
+		_gsxgw.Style(_gsxrt.StyleIf("display:none", hidden), _gsxrt.Style("color:"+_gsxrt.StyleValue(color)+";content:\"`\""))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

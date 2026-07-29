@@ -292,7 +292,7 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 		return readyPositionalValue(expr, nil)
 	case *gsxast.OrderedAttrsAttr:
 		return positionalOrderedAttrsExpr(b, node, plan, ctx)
-	case *gsxast.ClassAttr:
+	case *gsxast.ComposedAttr:
 		if node.Name == "style" {
 			expr, _, ok := rootStyleString(b, node, nil, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.resolved)
 			if !ok {

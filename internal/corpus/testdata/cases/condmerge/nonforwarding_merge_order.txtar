@@ -47,15 +47,15 @@ func Ordered(on bool) _gsxrt.Node {
 //line input.gsx:11:2
 		trace = ""
 //line input.gsx:12:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(mark("a", "color:red"))))}, {Key: "data-n", Value: 42}}
+		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(mark("a", "color:red"))))}, {Key: "data-n", Value: 42}}
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(mark("b", "margin:0"))))}}, nil
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(mark("b", "margin:0"))))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1)
-		_gsxv3 := _gsxrt.ConcatAttrs(_gsxv2, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(mark("c", "padding:1px"))))}})
+		_gsxv3 := _gsxrt.ConcatAttrs(_gsxv2, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(mark("c", "padding:1px"))))}})
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
 		_gsxgw.StyleMerged("", _gsxv3.Style())

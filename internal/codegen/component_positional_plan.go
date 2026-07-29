@@ -536,7 +536,7 @@ func syntaxDefinedComponentFact(node gsxast.Node, nested expressionFactSet, runt
 			return expressionFact{}, false
 		}
 		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: ordered}, true
-	case *gsxast.ClassAttr:
+	case *gsxast.ComposedAttr:
 		ordered, complete := aggregateNestedComponentFacts(node, nested)
 		if !complete && len(node.Parts) != 0 {
 			return expressionFact{}, false
@@ -593,9 +593,9 @@ func aggregateNestedComponentFacts(root gsxast.Node, facts expressionFactSet) (o
 }
 
 // nestedComponentFactBearingNode mirrors the authoritative expression probes
-// in analyze.go. A plain class/style expression is probed on its ClassPart;
+// in analyze.go. A plain class/style expression is probed on its ComposedPart;
 // value-form control flow is probed on each ValueArm instead; a composed CSS
-// literal has no ClassPart expression and delegates to its Interp holes.
+// literal has no ComposedPart expression and delegates to its Interp holes.
 // Ordered attrs likewise publish one fact per OrderedPair. This function only
 // identifies facts that analysis actually publishes: callers must not invent a
 // type when any required fact is absent.
@@ -603,7 +603,7 @@ func nestedComponentFactBearingNode(node gsxast.Node) bool {
 	switch node := node.(type) {
 	case *gsxast.Interp, *gsxast.OrderedPair, *gsxast.ValueArm:
 		return true
-	case *gsxast.ClassPart:
+	case *gsxast.ComposedPart:
 		return node.CF == nil && node.CSSSegments == nil
 	default:
 		return false
@@ -671,7 +671,7 @@ func positionalLoweringOwnsTuple(value componentInputValue) bool {
 		return false
 	}
 	switch value.node.(type) {
-	case *gsxast.ClassAttr, *gsxast.EmbeddedAttr, *gsxast.OrderedAttrsAttr:
+	case *gsxast.ComposedAttr, *gsxast.EmbeddedAttr, *gsxast.OrderedAttrsAttr:
 		return true
 	default:
 		return false

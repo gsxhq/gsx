@@ -173,7 +173,7 @@ func (s *Server) hoverAnswerFromPkg(pkg *Package, path string, source []byte, of
 			// H3: an identifier inside a CtrlMap-bridged span — a for/if/{{ }} clause,
 			// switch tag or case list, in-tag conditional-attribute cond, class guard
 			// cond, or value-form control expression — hovers like the same identifier
-			// in Go. Checked before the pipeline path: a ClassPart's `: cond` guard is
+			// in Go. Checked before the pipeline path: a ComposedPart's `: cond` guard is
 			// a ctrl span even when the part's expr carries a pipeline.
 			if isCtrlSpan(node, exprPos) {
 				if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
@@ -284,7 +284,7 @@ func exprText(n gsxast.Node) string {
 		return e.Expr
 	case *gsxast.SpreadAttr:
 		return e.Expr
-	case *gsxast.ClassPart:
+	case *gsxast.ComposedPart:
 		return e.Expr
 	case *gsxast.ValueArm:
 		return e.Expr

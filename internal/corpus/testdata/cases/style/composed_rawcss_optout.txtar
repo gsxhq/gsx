@@ -29,7 +29,7 @@ func Theme(themeColor gsx.RawCSS, userInput string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue("border: "+userInput)), _gsxrt.Class(_gsxrt.StyleValue("color: "+themeColor)))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue("border: "+userInput)), _gsxrt.Style(_gsxrt.StyleValue("color: "+themeColor)))
 		_gsxgw.S("\">content</div>")
 		return _gsxgw.Err()
 	})

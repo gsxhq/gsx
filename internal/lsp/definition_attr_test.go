@@ -16,7 +16,7 @@ func TestAttrNameCoversEveryNamedAttributeNode(t *testing.T) {
 		{&gsxast.BoolAttr{Name: "bool"}, "bool"},
 		{&gsxast.MarkupAttr{Name: "markup"}, "markup"},
 		{&gsxast.EmbeddedAttr{Name: "embedded"}, "embedded"},
-		{&gsxast.ClassAttr{Name: "class"}, "class"},
+		{&gsxast.ComposedAttr{Name: "class"}, "class"},
 		{&gsxast.OrderedAttrsAttr{Name: "ordered"}, "ordered"},
 	}
 	for _, tt := range tests {

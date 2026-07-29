@@ -38,7 +38,7 @@ func C() _gsxrt.Node {
 			_gsxv1 = "width: 100%"
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))
+		_gsxgw.Style(_gsxrt.Style(_gsxv0), _gsxrt.Style(_gsxv1))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

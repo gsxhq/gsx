@@ -85,7 +85,7 @@ func TestPart2NodesImplementInterfaces(t *testing.T) {
 	var _ Markup = (*ForMarkup)(nil)
 	var _ Markup = (*SwitchMarkup)(nil)
 	var _ Attr = (*CondAttr)(nil)
-	var _ Attr = (*ClassAttr)(nil)
+	var _ Attr = (*ComposedAttr)(nil)
 	var _ Node = (*CaseClause)(nil)
 }
 
@@ -170,7 +170,7 @@ func TestCommentSetSpan(t *testing.T) {
 
 func TestSetSpanPart2(t *testing.T) {
 	nodes := []Node{
-		&GoBlock{}, &IfMarkup{}, &ForMarkup{}, &SwitchMarkup{}, &CaseClause{}, &CondAttr{}, &ClassAttr{},
+		&GoBlock{}, &IfMarkup{}, &ForMarkup{}, &SwitchMarkup{}, &CaseClause{}, &CondAttr{}, &ComposedAttr{},
 	}
 	for _, n := range nodes {
 		SetSpan(n, token.Pos(10), token.Pos(20))
@@ -278,29 +278,29 @@ func TestInspectGoWithElements(t *testing.T) {
 }
 
 func TestClassPartExprEnd(t *testing.T) {
-	var nilPart *ClassPart
+	var nilPart *ComposedPart
 	if got := nilPart.ExprEnd(); got != token.NoPos {
 		t.Fatalf("nil ExprEnd() = %d, want NoPos", got)
 	}
 
 	tests := []struct {
 		name string
-		part *ClassPart
+		part *ComposedPart
 		want token.Pos
 	}{
 		{
 			name: "invalid position",
-			part: &ClassPart{Expr: "button.Role()"},
+			part: &ComposedPart{Expr: "button.Role()"},
 			want: token.NoPos,
 		},
 		{
 			name: "ASCII",
-			part: &ClassPart{Expr: "button.Role()", ExprPos: token.Pos(11)},
+			part: &ComposedPart{Expr: "button.Role()", ExprPos: token.Pos(11)},
 			want: token.Pos(11 + len("button.Role()")),
 		},
 		{
 			name: "UTF-8 uses byte length",
-			part: &ClassPart{Expr: `"é"`, ExprPos: token.Pos(23)},
+			part: &ComposedPart{Expr: `"é"`, ExprPos: token.Pos(23)},
 			want: token.Pos(23 + len(`"é"`)),
 		},
 	}

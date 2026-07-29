@@ -462,7 +462,7 @@ func componentExpressionSource(node gsxast.Node) (token.Pos, string, []gsxast.Pi
 		return expression.ExprPos, expression.Expr, expression.Stages, true
 	case *gsxast.OrderedPair:
 		return expression.Pos(), expression.Value, nil, true
-	case *gsxast.ClassPart:
+	case *gsxast.ComposedPart:
 		if expression.CF == nil && expression.CSSSegments == nil {
 			return expression.ExprPos, expression.Expr, expression.Stages, true
 		}
@@ -526,7 +526,7 @@ func componentControlSourceStart(node gsxast.Node) (token.Pos, bool) {
 		return control.TagPos, control.TagPos.IsValid()
 	case *gsxast.CaseClause:
 		return control.ListPos, control.ListPos.IsValid()
-	case *gsxast.ClassPart:
+	case *gsxast.ComposedPart:
 		return control.CondPos, control.CondPos.IsValid()
 	}
 	return token.NoPos, false

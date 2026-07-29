@@ -26,7 +26,7 @@ func Evil(u string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span style=\"")
-		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue("color: " + u)))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue("color: " + u)))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

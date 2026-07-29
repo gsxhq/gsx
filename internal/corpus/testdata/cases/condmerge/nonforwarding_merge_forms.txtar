@@ -110,7 +110,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(_gsxv13)))}}, nil
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv13)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -124,7 +124,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 //line input.gsx:13:2
 		_gsxv16 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
 		_gsxv17, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(_gsxstd.Upper(("margin:" + gap)))))}}, nil
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxstd.Upper(("margin:" + gap)))))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

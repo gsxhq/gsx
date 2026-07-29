@@ -26,7 +26,7 @@ func Badge(accent string, hide bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span style=\"")
-		_gsxgw.Style(_gsxrt.Class("color: red"), _gsxrt.Class(_gsxrt.StyleValue("color: "+accent)), _gsxrt.ClassIf("display: none", hide))
+		_gsxgw.Style(_gsxrt.Style("color: red"), _gsxrt.Style(_gsxrt.StyleValue("color: "+accent)), _gsxrt.StyleIf("display: none", hide))
 		_gsxgw.S("\">hi</span>")
 		return _gsxgw.Err()
 	})

@@ -24,7 +24,7 @@ import (
 //     ClassMerged/StyleMerged/Spread over the folded bag.
 //   - Composable: `<a class={ "tab", "tab-active": active } { attrs... }>` —
 //     the same shape expressed via the composable form: one gw.Class call
-//     over ClassPart values, and the caller's Attrs used directly in Spread —
+//     over ComposedPart values, and the caller's Attrs used directly in Spread —
 //     no ConcatAttrs/AttrsCond at all.
 func BenchmarkCondMergeFolded(b *testing.B) {
 	b.ReportAllocs()

@@ -525,7 +525,7 @@ func componentInputAttrName(attr gsxast.Attr) (string, bool) {
 		return attr.Name, true
 	case *gsxast.EmbeddedAttr:
 		return attr.Name, true
-	case *gsxast.ClassAttr:
+	case *gsxast.ComposedAttr:
 		return attr.Name, true
 	case *gsxast.OrderedAttrsAttr:
 		return attr.Name, true
