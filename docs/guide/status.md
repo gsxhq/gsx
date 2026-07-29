@@ -18,8 +18,8 @@ boundaries](./syntax/escaping.md).
 
 ### Toolchain
 
-The [CLI](./cli.md) provides init, generate, format, and info commands, plus the
-[development loop](./dev-loop.md). Vite is an optional front door.
+The [CLI](./cli.md) provides `init`, `generate`, `fmt`, and `info` commands, plus
+the [development loop](./dev-loop.md). Vite is an optional front door.
 
 ### Editor support
 
