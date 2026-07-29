@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/gsxhq/gsx/internal/htmlattr"
 )
 
 // Attr is one ordered attribute pair. Value is rendered like any attribute value:
@@ -365,22 +367,22 @@ func (gw *Writer) Spread(ctx context.Context, tag string, a Attrs, sinks AttrSin
 			// codegen, which decides presence before its own URL branch: href={b}
 			// writes a bare href on both paths, where routing through URLVal
 			// would fabricate href="true" here and nowhere else.
-			if vok && vk == kindBool && BoolRendersBare(kv.Key) {
+			if vok && vk == kindBool && htmlattr.RendersBare(kv.Key) {
 				gw.BoolAttr(kv.Key, vs == "true")
 				continue
 			}
 		}
 		sink := sinks.sinkFor(tag, kv.Key)
-		if sink != URLSinkNone {
+		if sink != htmlattr.SinkNone {
 			gw.writeStr(" ")
 			gw.writeStr(kv.Key)
 			gw.writeStr(`="`)
 			switch sink {
-			case URLSinkImage:
+			case htmlattr.SinkImage:
 				gw.URLImageVal(kv.Value)
-			case URLSinkSrcset:
+			case htmlattr.SinkSrcset:
 				gw.SrcsetVal(kv.Value)
-			case URLSinkRefresh:
+			case htmlattr.SinkRefresh:
 				gw.RefreshContentVal(kv.Value)
 			default:
 				gw.URLVal(kv.Value)

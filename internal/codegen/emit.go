@@ -23,6 +23,7 @@ import (
 	"github.com/gsxhq/gsx/internal/cssmin"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/goexprshape"
+	"github.com/gsxhq/gsx/internal/htmlattr"
 	"github.com/gsxhq/gsx/internal/jsmin"
 )
 
@@ -3143,12 +3144,12 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 // otherwise. Each has a name+"Val" runtime twin for a value whose kind is not
 // known until render time. Callers must have established CtxURL for name.
 func urlWriterMethod(tag, name string) string {
-	switch gsx.URLAttrSink(tag, name) {
-	case gsx.URLSinkImage:
+	switch htmlattr.Sink(tag, name) {
+	case htmlattr.SinkImage:
 		return "URLImage"
-	case gsx.URLSinkSrcset:
+	case htmlattr.SinkSrcset:
 		return "Srcset"
-	case gsx.URLSinkRefresh:
+	case htmlattr.SinkRefresh:
 		return "RefreshContent"
 	}
 	// URLSinkNone reaches here only for a name a PROJECT rule classified as a
@@ -4604,13 +4605,13 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 
 	// Presence semantics apply when the author declared them (gsx.Toggle) or the
-	// name renders a bool bare (gsx.BoolRendersBare: an HTML boolean attribute,
+	// name renders a bool bare (htmlattr.RendersBare: an HTML boolean attribute,
 	// or a name the platform never defined — data-*, custom elements, x-*). A
 	// bool on a platform-valued name falls through to the normal attribute-value
 	// path, which stringifies it to "true"/"false", since there the string IS the
 	// state (aria-*, contenteditable). The rule is consulted only for catBool, so
 	// a string value like required="foo" is never diverted here.
-	if isToggle(t) || (classify(t) == catBool && gsx.BoolRendersBare(a.Name)) {
+	if isToggle(t) || (classify(t) == catBool && htmlattr.RendersBare(a.Name)) {
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
 		return true
 	}
@@ -4626,7 +4627,7 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	// ship javascript: through. Those names fall through to their sink instead,
 	// which has a runtime twin (URLVal, RefreshContentVal, …) for exactly this
 	// unknown-kind case.
-	if classify(t) == catAnyMixed && gsx.BoolRendersBare(a.Name) && cls.Context(tag, a.Name) == attrclass.CtxPlain {
+	if classify(t) == catAnyMixed && htmlattr.RendersBare(a.Name) && cls.Context(tag, a.Name) == attrclass.CtxPlain {
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrAnyToggle(%s, %s)\n", strconv.Quote(a.Name), expr)
 		return true
 	}

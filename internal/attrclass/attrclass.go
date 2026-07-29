@@ -14,7 +14,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/gsxhq/gsx"
+	"github.com/gsxhq/gsx/internal/htmlattr"
 )
 
 // Context is the escaping context implied by an attribute name.
@@ -90,7 +90,7 @@ func (c *Classifier) Context(tag, name string) Context {
 	ln := strings.ToLower(name)
 
 	// 1. Built-ins, in the historical attrContext order: URL, CSS, JS.
-	if gsx.BuiltinURLAttr(tag, ln) {
+	if htmlattr.BuiltinURL(tag, ln) {
 		return CtxURL
 	}
 	if ln == "style" {
@@ -168,7 +168,7 @@ func (c *Classifier) UserURLExactNames() []string {
 		ln := strings.ToLower(r.Name)
 		// "" asks only the element-independent floor, which is what "already
 		// built in on every element" means.
-		if gsx.BuiltinURLAttr("", ln) {
+		if htmlattr.BuiltinURL("", ln) {
 			continue
 		}
 		set[ln] = true

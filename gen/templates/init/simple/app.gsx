@@ -76,7 +76,7 @@ component Index(title string) {
 	<Layout title={title}>
 		<div id="app">
 			{ logos }
-			<h1>gsx + Vite</h1>
+			<h1 class="app-title">gsx + Vite</h1>
 			<div class="card">
 				<button id="counter" type="button">count is 0</button>
 			</div>

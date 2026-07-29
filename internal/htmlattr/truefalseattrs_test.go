@@ -1,4 +1,4 @@
-package gsx
+package htmlattr
 
 import (
 	"strings"
@@ -62,8 +62,8 @@ func TestTrueFalseAttrMatchesHTMLData(t *testing.T) {
 		if got := trueFalseAttr(name); got != wantTrueFalse {
 			t.Errorf("trueFalseAttr(%q) = %v, want %v; regenerate with go generate ./internal/htmldata", name, got, wantTrueFalse)
 		}
-		if wantTrueFalse && BoolRendersBare(name) {
-			t.Errorf("BoolRendersBare(%q) = true; an attribute whose values ARE \"true\"/\"false\" must stringify", name)
+		if wantTrueFalse && RendersBare(name) {
+			t.Errorf("RendersBare(%q) = true; an attribute whose values ARE \"true\"/\"false\" must stringify", name)
 		}
 	}
 	for _, a := range htmldata.GlobalAttributes {
@@ -93,8 +93,8 @@ func TestTrueFalseAttrMatchesHTMLData(t *testing.T) {
 		if trueFalseAttr(name) {
 			t.Errorf("trueFalseAttr(%q) = true; the generator must exclude it (%s)", name, why)
 		}
-		if !BoolRendersBare(name) {
-			t.Errorf("BoolRendersBare(%q) = false; want true (%s)", name, why)
+		if !RendersBare(name) {
+			t.Errorf("RendersBare(%q) = false; want true (%s)", name, why)
 		}
 	}
 }
@@ -104,8 +104,8 @@ func TestTrueFalseAttrMatchesHTMLData(t *testing.T) {
 // "false" opts a subtree out.
 func TestTrueFalseExtras(t *testing.T) {
 	for name := range trueFalseExtras {
-		if BoolRendersBare(name) {
-			t.Errorf("BoolRendersBare(%q) = true; want false (enumerated true/false, and it inherits)", name)
+		if RendersBare(name) {
+			t.Errorf("RendersBare(%q) = true; want false (enumerated true/false, and it inherits)", name)
 		}
 	}
 }

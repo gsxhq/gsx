@@ -1,8 +1,8 @@
-package gsx
+package htmlattr
 
 import "testing"
 
-func TestIsBooleanAttr(t *testing.T) {
+func TestIsBoolean(t *testing.T) {
 	// A representative slice of the WHATWG "Boolean attribute" set. Presence
 	// alone means true; the value is ignored, so only absence expresses false.
 	present := []string{
@@ -11,21 +11,21 @@ func TestIsBooleanAttr(t *testing.T) {
 		"controls", "loop", "muted", "reversed", "ismap", "novalidate",
 	}
 	for _, n := range present {
-		if !IsBooleanAttr(n) {
-			t.Errorf("IsBooleanAttr(%q) = false; want true", n)
+		if !IsBoolean(n) {
+			t.Errorf("IsBoolean(%q) = false; want true", n)
 		}
 	}
 
 	// ASCII-case-insensitive: HTML attribute names fold.
 	for _, n := range []string{"Checked", "DISABLED", "ReadOnly"} {
-		if !IsBooleanAttr(n) {
-			t.Errorf("IsBooleanAttr(%q) = false; want true (names fold)", n)
+		if !IsBoolean(n) {
+			t.Errorf("IsBoolean(%q) = false; want true (names fold)", n)
 		}
 	}
 
 	// The guard set: these LOOK boolean but are enumerated — "false" is a valid
 	// keyword — plus ordinary value attributes. None is an HTML boolean
-	// attribute. (Whether a bool RENDERS bare on them is BoolRendersBare's
+	// attribute. (Whether a bool RENDERS bare on them is RendersBare's
 	// question, not this one: data-open is not an HTML boolean attribute yet
 	// still toggles, because HTML defines no data-open at all.)
 	notBoolean := []string{
@@ -35,13 +35,13 @@ func TestIsBooleanAttr(t *testing.T) {
 		"data-open", "translate", "autocapitalize", "role", "title",
 	}
 	for _, n := range notBoolean {
-		if IsBooleanAttr(n) {
-			t.Errorf("IsBooleanAttr(%q) = true; want false", n)
+		if IsBoolean(n) {
+			t.Errorf("IsBoolean(%q) = true; want false", n)
 		}
 	}
 }
 
-func TestBoolRendersBare(t *testing.T) {
+func TestRendersBare(t *testing.T) {
 	// Everything renders presence — HTML boolean attributes, userland names,
 	// library vocabularies, and ordinary HTML attributes a bool has no business
 	// being on. Only the true/false vocabulary is special, so the rule stays one
@@ -62,8 +62,8 @@ func TestBoolRendersBare(t *testing.T) {
 		"part", "exportparts", "slot", "is", "popover", "itemprop", "onclick",
 	}
 	for _, n := range bare {
-		if !BoolRendersBare(n) {
-			t.Errorf("BoolRendersBare(%q) = false; want true", n)
+		if !RendersBare(n) {
+			t.Errorf("RendersBare(%q) = false; want true", n)
 		}
 	}
 
@@ -79,20 +79,20 @@ func TestBoolRendersBare(t *testing.T) {
 		"contenteditable", "writingsuggestions", "draggable", "spellcheck",
 	}
 	for _, n := range stringified {
-		if BoolRendersBare(n) {
-			t.Errorf("BoolRendersBare(%q) = true; want false", n)
+		if RendersBare(n) {
+			t.Errorf("RendersBare(%q) = true; want false", n)
 		}
 	}
 
 	// Names fold, in both directions.
 	for _, n := range []string{"Data-Slot", "REQUIRED", "Hx-Boost"} {
-		if !BoolRendersBare(n) {
-			t.Errorf("BoolRendersBare(%q) = false; want true (names fold)", n)
+		if !RendersBare(n) {
+			t.Errorf("RendersBare(%q) = false; want true (names fold)", n)
 		}
 	}
 	for _, n := range []string{"ARIA-EXPANDED", "ContentEditable", "Draggable"} {
-		if BoolRendersBare(n) {
-			t.Errorf("BoolRendersBare(%q) = true; want false (names fold)", n)
+		if RendersBare(n) {
+			t.Errorf("RendersBare(%q) = true; want false (names fold)", n)
 		}
 	}
 }

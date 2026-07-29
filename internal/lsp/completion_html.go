@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gsxhq/gsx"
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/htmlattr"
 	"github.com/gsxhq/gsx/internal/htmldata"
 )
 
@@ -104,7 +104,7 @@ func htmlAttrItems(el *gsxast.Element, tagName string, htmxEnabled bool, tier in
 			continue
 		}
 		seen[lower] = true
-		if attr.Boolean() || gsx.IsBooleanAttr(attr.Name) {
+		if attr.Boolean() || htmlattr.IsBoolean(attr.Name) {
 			// Presence-only: insert the bare name.
 			items = append(items, htmlAttrItem(text, start, end, enc, attr.Name, attr.Name, ciKindField, tier, markdownDoc(attr.Doc), insertTextFormatPlainText))
 			continue

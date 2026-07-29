@@ -284,7 +284,7 @@ func (gw *Writer) AttrAny(v any) {
 }
 
 // AttrAnyToggle writes one complete attribute whose name renders a bool bare
-// (codegen resolved BoolRendersBare at generate time) but whose value type is
+// (codegen resolved htmlattr.RendersBare at generate time) but whose value type is
 // known only at runtime — a mixed type parameter such as T string | bool. A bool-kinded
 // value writes presence (` name` or nothing); any other value writes
 // ` name="escaped"`. It owns the whole span — the leading space, the name, and

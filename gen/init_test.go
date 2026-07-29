@@ -356,6 +356,44 @@ func TestInitScaffoldImportsDevPanel(t *testing.T) {
 	}
 }
 
+func TestInitScaffoldScopesDemoStyles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if code, _, errb := initNI(t, "--module", "styledemo", dir); code != 0 {
+		t.Fatalf("init failed: %d %s", code, errb)
+	}
+
+	css, err := os.ReadFile(filepath.Join(dir, "web", "style.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []string{
+		".logos a {",
+		".logos a:hover {",
+		".app-title {",
+		"#counter {",
+		"#counter:hover {",
+		"#counter:focus,",
+		"#counter:focus-visible {",
+	} {
+		if !strings.Contains(string(css), selector) {
+			t.Errorf("web/style.css is missing scoped demo selector %q", selector)
+		}
+	}
+	globalDemoSelector := regexp.MustCompile(`(?m)^[\t ]*(?:a|h1|button)(?::[a-z-]+)?[\t ]*(?:,|\{)`)
+	if match := globalDemoSelector.Find(css); match != nil {
+		t.Errorf("web/style.css contains global demo selector %q", match)
+	}
+
+	app, err := os.ReadFile(filepath.Join(dir, "app.gsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(app), `<h1 class="app-title">gsx + Vite</h1>`) {
+		t.Error("app.gsx does not give the starter heading its demo style hook")
+	}
+}
+
 // TestInitScaffoldViteConfigHasExplicitUpstreamTarget guards against C1 from
 // the dev-upstream final review: a zero-arg devFallback() throws whenever
 // neither opts.target nor GSX_DEV_UPSTREAM is set — which happens for
