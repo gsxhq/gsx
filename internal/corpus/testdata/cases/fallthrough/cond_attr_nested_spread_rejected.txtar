@@ -42,7 +42,7 @@ func Box(active bool, extra gsx.Attrs, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())
-		_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv1, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})

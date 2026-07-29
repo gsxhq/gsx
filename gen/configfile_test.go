@@ -268,13 +268,13 @@ func TestLoadConfigURLPreset(t *testing.T) {
 		t.Fatalf("loadConfig: %v", err)
 	}
 	cls := cfg.classifier()
-	if cls.Context("hx-get") != attrclass.CtxURL {
+	if cls.Context("div", "hx-get") != attrclass.CtxURL {
 		t.Error("htmx preset should classify hx-get as URL")
 	}
-	if cls.Context("data-href") != attrclass.CtxURL {
+	if cls.Context("div", "data-href") != attrclass.CtxURL {
 		t.Error("[[url_attrs]] rule should still apply alongside the preset")
 	}
-	if cls.Context("hx-target") != attrclass.CtxPlain {
+	if cls.Context("div", "hx-target") != attrclass.CtxPlain {
 		t.Error("hx-target must stay plain (not covered by the htmx preset)")
 	}
 }

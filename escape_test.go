@@ -126,6 +126,78 @@ func TestWriterRefreshContentEscapesAfterSanitize(t *testing.T) {
 	}
 }
 
+// RefreshContentVal is the runtime twin RefreshContent's static form cannot
+// cover: a mixed type parameter, or a `content` key arriving through a spread
+// bag. It must reach the same bytes RefreshContent does for every value kind
+// anyRenderVal accepts, and honour a RawURL vouch exactly as the static path
+// does by declining to sanitize it.
+func TestWriterRefreshContentVal(t *testing.T) {
+	cases := []struct {
+		name string
+		v    any
+		want string
+	}{
+		{"blocked scheme", "0;url=javascript:alert(1)", `0;url=` + blockedURL},
+		{"safe url", "3;url=/next", `3;url=/next`},
+		{"not a directive", "width=device-width, initial-scale=1", `width=device-width, initial-scale=1`},
+		{"seconds only", 5, `5`},
+		{"bytes", []byte("0;url=javascript:alert(1)"), `0;url=` + blockedURL},
+		{"stringer", stringerVal{"0;url=javascript:alert(1)"}, `0;url=` + blockedURL},
+		{"escapes after sanitize", `0;url=/x?a="b"&c`, `0;url=/x?a=&#34;b&#34;&amp;c`},
+		// A RawURL is the author's whole-value vouch: emitted verbatim, still
+		// attribute-escaped. Mirrors codegen's isRawURL fall-through.
+		{"rawurl vouch", RawURL("0;url=app://home"), `0;url=app://home`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var b strings.Builder
+			gw := W(&b)
+			gw.RefreshContentVal(c.v)
+			if err := gw.Err(); err != nil {
+				t.Fatal(err)
+			}
+			if b.String() != c.want {
+				t.Fatalf("RefreshContentVal(%#v) = %q, want %q", c.v, b.String(), c.want)
+			}
+		})
+	}
+
+	// A value no renderer accepts is a render error, not a silently dropped
+	// attribute — same contract as URLVal/SrcsetVal.
+	var b strings.Builder
+	gw := W(&b)
+	gw.RefreshContentVal(struct{ X int }{1})
+	if gw.Err() == nil {
+		t.Fatal("RefreshContentVal(struct) must set an error")
+	}
+}
+
+// The static and runtime forms must agree byte-for-byte on every string value:
+// a divergence would mean an author's component sanitizes differently depending
+// on whether its parameter type happened to be statically known.
+func TestRefreshContentStaticRuntimeAgreement(t *testing.T) {
+	for _, s := range []string{
+		"", "5", "0;url=javascript:alert(1)", "3;url=/next", "0, url=data:text/html,x",
+		"width=device-width", `0;url="javascript:alert(1)"`, "0;URL=vbscript:x",
+		"0;url=/x?a=\"b\"&c", "  7 ; url = HTTPS://ok/ ",
+	} {
+		var stat, dyn strings.Builder
+		gs, gd := W(&stat), W(&dyn)
+		gs.RefreshContent(s)
+		gd.RefreshContentVal(s)
+		if gs.Err() != nil || gd.Err() != nil {
+			t.Fatalf("%q: static err=%v runtime err=%v", s, gs.Err(), gd.Err())
+		}
+		if stat.String() != dyn.String() {
+			t.Errorf("%q: RefreshContent = %q but RefreshContentVal = %q", s, stat.String(), dyn.String())
+		}
+	}
+}
+
+type stringerVal struct{ s string }
+
+func (s stringerVal) String() string { return s.s }
+
 func TestStyleValue(t *testing.T) {
 	// RawCSS passthrough: value is emitted verbatim (no filtering).
 	if got := StyleValue(RawCSS("color:blue")); got != "color:blue" {

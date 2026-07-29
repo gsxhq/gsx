@@ -96,7 +96,7 @@ func renderChip(p chipProps) _gsxrt.Node {
 		_gsxgw.S("<span")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "span", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">chip</span>")
 		return _gsxgw.Err()
 	})

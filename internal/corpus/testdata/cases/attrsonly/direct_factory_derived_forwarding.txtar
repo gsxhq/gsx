@@ -67,7 +67,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 			_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("size-5"), _gsxrt.Class(_gsxv0.Class()))
 			_gsxgw.S("\"")
 			_gsxgw.StyleMerged("", _gsxv0.Style())
-			_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+			_gsxgw.Spread(ctx, "svg", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 			_gsxgw.S(">")
 //line input.gsx:17:72
 			_gsxgw.Text(string(name))

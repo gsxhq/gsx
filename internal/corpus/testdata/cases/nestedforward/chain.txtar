@@ -63,7 +63,7 @@ func _gsxrenderC(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) er
 		_gsxgw.S(" data-scalar=\"c-default\"")
 	}
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">leaf</div>")
 	return _gsxgw.Err()
 }

@@ -57,7 +57,7 @@ func Box(on bool, gap string) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
 		_gsxgw.StyleMerged("", _gsxv3.Style())
-		_gsxgw.Spread(ctx, _gsxv3, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})

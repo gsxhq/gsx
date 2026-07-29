@@ -35,7 +35,7 @@ func Page(u string, color string, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<button")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 		_gsxgw.StyleMerged("", _gsxv2.Style())
-		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "button", _gsxv2, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">go</button>")
 //line input.gsx:7:2
 		_gsxv3 := a
@@ -44,7 +44,7 @@ func Page(u string, color string, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv5.Class())
 		_gsxgw.StyleMerged("", _gsxv5.Style())
-		_gsxgw.Spread(ctx, _gsxv5, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv5, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})

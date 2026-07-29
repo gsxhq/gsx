@@ -175,6 +175,28 @@ func (gw *Writer) RefreshContent(s string) {
 	gw.err = writeHTML(gw.w, refreshContentSanitize(s))
 }
 
+// RefreshContentVal is RefreshContent for a value whose kind is not known until
+// render time — a mixed type parameter, or a `content` key arriving through an
+// element spread on a meta the caller identified as a refresh. A gsx.RawURL is
+// the author's whole-value vouch and is emitted verbatim (still attribute-
+// escaped), matching what codegen does when it can see the static type; any
+// other value is stringified then refresh-sanitized.
+func (gw *Writer) RefreshContentVal(v any) {
+	if gw.err != nil {
+		return
+	}
+	if r, ok := v.(RawURL); ok {
+		gw.err = writeHTML(gw.w, string(r))
+		return
+	}
+	s, _, ok := anyRenderVal(v)
+	if !ok {
+		gw.err = fmt.Errorf("gsx: meta refresh content attribute: unsupported dynamic type %T", v)
+		return
+	}
+	gw.err = writeHTML(gw.w, refreshContentSanitize(s))
+}
+
 // PIName writes s as a processing instruction's name="…" value. Unlike every
 // other sink there is no escaping to fall back on, so an unrepresentable value
 // is a render error rather than a silently altered name — a stripped name would

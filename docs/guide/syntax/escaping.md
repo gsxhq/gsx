@@ -78,15 +78,17 @@ entire candidate list.
 
 ### Meta refresh
 
-Keep `http-equiv="refresh"` literal, or use a compile-time constant expression,
-when `content` contains a dynamic refresh URL:
+`content` on `<meta>` is checked for an embedded `;url=` redirect and the URL
+sanitized in place:
 
 ```gsx
 <meta http-equiv="refresh" content={"0;url=" + next}/>
 ```
 
-A runtime-dynamic or spread `http-equiv` value is not classified as refresh, so
-do not combine it with an untrusted URL in `content`.
+This does not depend on `http-equiv`, so a dynamic one — or one arriving through
+a spread — is checked the same way. A value that is not a refresh directive is
+left byte for byte, so `<meta name="description" content={…}>` is unaffected.
+`gsx.RawURL` vouches for the whole value.
 
 ## JavaScript and CSS contexts
 

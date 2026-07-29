@@ -51,7 +51,7 @@ func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, active bool, attr
 	}
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, _gsxv0)
+	_gsxgw.Spread(ctx, "button", attrs, _gsxrt.AttrSinks{}, _gsxv0)
 	if _gsxv1 {
 		_gsxgw.S(" id=\"mine\"")
 	}

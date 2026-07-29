@@ -19,10 +19,10 @@ func TestWithURLAttrsOnly(t *testing.T) {
 		t.Fatalf("unexpected errs: %v", cfg.errs)
 	}
 	cls := cfg.classifier()
-	if cls.Context("data-href") != attrclass.CtxURL {
+	if cls.Context("div", "data-href") != attrclass.CtxURL {
 		t.Fatal("data-href should be URL")
 	}
-	if cls.Context("wire:click") == attrclass.CtxJS {
+	if cls.Context("div", "wire:click") == attrclass.CtxJS {
 		t.Fatal("wire:click must not be JS-configurable")
 	}
 }
@@ -46,12 +46,12 @@ func TestWithURLPreset(t *testing.T) {
 	cls := cfg.classifier()
 	// The five method attrs are re-enabled as URL sinks.
 	for _, n := range []string{"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch"} {
-		if cls.Context(n) != attrclass.CtxURL {
+		if cls.Context("div", n) != attrclass.CtxURL {
 			t.Errorf("with htmx preset: Context(%q) != CtxURL", n)
 		}
 	}
 	// Non-URL hx-* attrs stay plain.
-	if cls.Context("hx-target") != attrclass.CtxPlain {
+	if cls.Context("div", "hx-target") != attrclass.CtxPlain {
 		t.Error("hx-target must stay plain (not a URL attr)")
 	}
 }

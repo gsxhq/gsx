@@ -48,7 +48,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">top</div>")
 //line input.gsx:9:2
 		_gsxv1 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -72,7 +72,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv4.Class())
 		_gsxgw.StyleMerged("", _gsxv4.Style())
-		_gsxgw.Spread(ctx, _gsxv4, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv4, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">branch</div>")
 //line input.gsx:10:2
 		_gsxv5 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
@@ -87,7 +87,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv8.Class())
 		_gsxgw.StyleMerged("", _gsxv8.Style())
-		_gsxgw.Spread(ctx, _gsxv8, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv8, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">css</div>")
 //line input.gsx:11:2
 		_gsxv9 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("base"))}}
@@ -101,7 +101,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv11.Class())
 		_gsxgw.StyleMerged("", _gsxv11.Style())
-		_gsxgw.Spread(ctx, _gsxv11, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv11, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">class</div>")
 //line input.gsx:12:2
 		_gsxv12 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
@@ -119,7 +119,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv15.Class())
 		_gsxgw.StyleMerged("", _gsxv15.Style())
-		_gsxgw.Spread(ctx, _gsxv15, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv15, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">tuple</div>")
 //line input.gsx:13:2
 		_gsxv16 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
@@ -133,7 +133,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv18.Class())
 		_gsxgw.StyleMerged("", _gsxv18.Style())
-		_gsxgw.Spread(ctx, _gsxv18, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv18, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">pipeline</div>")
 		return _gsxgw.Err()
 	})

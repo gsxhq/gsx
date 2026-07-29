@@ -49,7 +49,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, a
 	}
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "input", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 	return _gsxgw.Err()
 }

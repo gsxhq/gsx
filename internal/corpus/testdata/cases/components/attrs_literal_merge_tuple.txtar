@@ -49,7 +49,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs
 	_gsxgw.S("<section")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">x</section>")
 	return _gsxgw.Err()
 }

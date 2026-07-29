@@ -1,7 +1,9 @@
 // Package attrclass classifies HTML attribute names into security/escaping
 // contexts (JS, URL, CSS, plain). The built-in set is the safety floor; users
-// extend it additively via declarative Rules and an optional predicate, wired
-// through gen.Main. The same Classifier is consulted by the parser (JS facet,
+// extend it additively via declarative Rules, wired through gen.Main. Rules are
+// DECLARATIVE on purpose: classification must be fully enumerable, because the
+// set has to travel to the spread leaf as data and has to be hashable into the
+// codegen cache key. The same Classifier is consulted by the parser (JS facet,
 // to split @{ } holes) and by codegen (all facets, for context-aware escaping).
 package attrclass
 
@@ -11,6 +13,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/gsxhq/gsx"
 )
 
 // Context is the escaping context implied by an attribute name.
@@ -61,32 +65,32 @@ type Rules struct {
 }
 
 // Classifier resolves an attribute name to a Context. Built-ins are the safety
-// floor and are checked first; user rules and the predicate are additive.
+// floor and are checked first; user rules are additive and can only widen it.
 type Classifier struct {
-	rules     Rules
-	predicate func(name string) (Context, bool)
+	rules Rules
 }
 
 // Builtin returns a Classifier with only gsx's built-in classification — no user
-// rules, no predicate. Its decisions are identical to the historical
+// rules. Its decisions are identical to the historical
 // attrjs.IsJSAttr + urlAttrs + style logic.
 func Builtin() *Classifier { return &Classifier{} }
 
-// New layers user rules and an optional predicate over the built-ins. predicate
-// may be nil.
-func New(user Rules, predicate func(name string) (Context, bool)) *Classifier {
-	return &Classifier{rules: user, predicate: predicate}
+// New layers user rules over the built-ins.
+func New(user Rules) *Classifier {
+	return &Classifier{rules: user}
 }
 
-// Context classifies name. Priority (union semantics):
-//  1. built-ins (safety floor)
+// Context classifies name on element tag. Priority (union semantics):
+//  1. built-ins (safety floor), including the tag-scoped ones
 //  2. user declarative rules (URL, then CSS, then JS — mirrors built-in order)
-//  3. user predicate (only for names no rule matched; CtxPlain results ignored)
-func (c *Classifier) Context(name string) Context {
+//
+// tag may be empty for a caller with no element in hand; only the tag-scoped
+// built-ins consult it, so every other answer is unaffected.
+func (c *Classifier) Context(tag, name string) Context {
 	ln := strings.ToLower(name)
 
 	// 1. Built-ins, in the historical attrContext order: URL, CSS, JS.
-	if builtinURL[ln] {
+	if gsx.BuiltinURLAttr(tag, ln) {
 		return CtxURL
 	}
 	if ln == "style" {
@@ -116,20 +120,8 @@ func (c *Classifier) Context(name string) Context {
 			return CtxJS
 		}
 	}
-
-	// 3. Predicate escape hatch (receives the original name, not lowercased).
-	if c.predicate != nil {
-		if ctx, ok := c.predicate(name); ok && ctx != CtxPlain {
-			return ctx
-		}
-	}
 	return CtxPlain
 }
-
-// HasPredicate reports whether a predicate escape hatch is registered. The
-// manifest records this so offline tools can warn that predicate-classified
-// attributes are not available without a live build.
-func (c *Classifier) HasPredicate() bool { return c != nil && c.predicate != nil }
 
 // Rules returns the user rules (built-ins excluded). Used to serialize the
 // manifest delta; built-ins are compiled into every consumer.
@@ -140,37 +132,46 @@ func (c *Classifier) Rules() Rules {
 	return c.rules
 }
 
-// Fingerprint is a stable hash of the user rules plus whether a predicate is
-// present. It feeds the codegen cache key so changing rules invalidates cached
-// output. NOTE: predicate *bodies* are not hashed (closures aren't inspectable),
-// matching the existing treatment of WithCSSMinifier/WithJSMinifier — document
-// that changing a predicate's logic requires `gsx clean --cache`.
+// Fingerprint is a stable hash of the user rules. It feeds the codegen cache key
+// so changing rules invalidates cached output. Because rules are declarative
+// data, this hash covers the classifier COMPLETELY — there is no escape hatch
+// whose behaviour could change without changing the fingerprint.
 func (c *Classifier) Fingerprint() string {
 	type fp struct {
-		Rules        Rules `json:"rules"`
-		HasPredicate bool  `json:"hasPredicate"`
+		Rules Rules `json:"rules"`
 	}
-	b, _ := json.Marshal(fp{Rules: c.Rules(), HasPredicate: c.HasPredicate()})
+	b, _ := json.Marshal(fp{Rules: c.Rules()})
 	sum := sha256.Sum256(b)
 	return fmt.Sprintf("%x", sum[:])
 }
 
-// URLExactNames returns every exact-name URL-classified attribute — the
-// built-in set unioned with the user's exact-Name URL rules — lowercased,
-// deduplicated, and sorted. Codegen groups these names by sink for every
-// element spread so a URL attribute entering through any bag is sanitized at
-// the leaf; the deterministic sort keeps generated code stable.
-func (c *Classifier) URLExactNames() []string {
-	set := make(map[string]bool, len(builtinURL))
-	for n := range builtinURL {
-		set[n] = true
+// UserURLExactNames returns the project's own exact-Name URL rules — lowercased,
+// deduplicated, sorted, and EXCLUDING anything already in the built-in floor.
+// This is the delta codegen ships to the Spread leaf (gsx.AttrSinks); the floor
+// itself lives in the runtime (gsx.URLAttrSink), so it is applied there and is
+// never repeated in generated code. The deterministic sort keeps that output
+// stable.
+//
+// A user rule can only ADD a name, never reclassify one: a rule naming a
+// built-in is dropped here because the floor already claims it, with the sink
+// the element dictates (an `src` rule cannot demote <img src> off the image
+// sink). This is the same additive-only guarantee Context provides.
+func (c *Classifier) UserURLExactNames() []string {
+	if c == nil {
+		return nil
 	}
-	if c != nil {
-		for _, r := range c.rules.URL {
-			if r.Name != "" {
-				set[strings.ToLower(r.Name)] = true
-			}
+	set := make(map[string]bool, len(c.rules.URL))
+	for _, r := range c.rules.URL {
+		if r.Name == "" {
+			continue
 		}
+		ln := strings.ToLower(r.Name)
+		// "" asks only the element-independent floor, which is what "already
+		// built in on every element" means.
+		if gsx.BuiltinURLAttr("", ln) {
+			continue
+		}
+		set[ln] = true
 	}
 	out := make([]string, 0, len(set))
 	for n := range set {
@@ -199,16 +200,6 @@ func (c *Classifier) URLPrefixes() []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-// builtinURL is the URL-context attribute set (ported from codegen.urlAttrs).
-// Keys are lowercase. The htmx method attributes are NOT here — they moved to
-// the opt-in "htmx" preset (see Preset) so the safety floor stays pure-HTML and
-// projects that never touch htmx don't sanitize hx-* by default.
-var builtinURL = map[string]bool{
-	"href": true, "src": true, "action": true, "formaction": true, "poster": true,
-	"cite": true, "ping": true, "data": true, "background": true, "manifest": true,
-	"xlink:href": true, "srcset": true, "imagesrcset": true,
 }
 
 // presets maps a named opt-in ruleset to the classification Rules it contributes.
@@ -242,49 +233,6 @@ func PresetNames() []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-// SinkClass distinguishes URL attribute sinks that differ in what schemes are
-// safe. It is only meaningful for attributes already classified CtxURL.
-type SinkClass int
-
-const (
-	// SinkStrict is the default, navigational-strict sink: only the standard
-	// http/https/mailto/tel allow-list; no data:. Covers href, action, script
-	// src, iframe src, object data, media src, etc.
-	SinkStrict SinkClass = iota
-	// SinkImage is an image-rendering resource sink where data:image/* (raster +
-	// svg) is safe: <img src>, <source src>, <input src>, <video poster>, and the
-	// legacy background attribute. Browsers render these as inert images (SVG in
-	// restricted mode), so no script executes.
-	SinkImage
-)
-
-// URLSink classifies a tag+attribute pair (both matched case-insensitively) as
-// an image-rendering resource sink or the strict default. The caller must have
-// already established Context(name) == CtxURL; URLSink assumes it.
-//
-// The image set is intentionally narrow and tag-specific: `src` is an image
-// sink on <img>/<source>/<input> but strict on <script>/<iframe>/<embed>/<video>
-// (where a data: URL is a live document or executable). `poster` is image-only
-// on <video>. `background` (legacy) is an image sink on any tag.
-func URLSink(tag, name string) SinkClass {
-	lt := strings.ToLower(tag)
-	ln := strings.ToLower(name)
-	switch ln {
-	case "src":
-		switch lt {
-		case "img", "source", "input":
-			return SinkImage
-		}
-	case "poster":
-		if lt == "video" {
-			return SinkImage
-		}
-	case "background":
-		return SinkImage
-	}
-	return SinkStrict
 }
 
 // builtinJS reports whether the lowercased attribute name n is a JS-context

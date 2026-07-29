@@ -1,0 +1,42 @@
+# The two paths where a `content` value's kind is not known until render time,
+# both of which shipped `0;url=javascript:…` unsanitized before (issue #171):
+#
+#   Mixed — a mixed type parameter (T string | int). Codegen cannot convert it
+#           statically, so the sink's runtime twin RefreshContentVal decides.
+#   Bag   — `content` arriving through an element spread. Spread routes it by
+#           the tag-scoped name set, exactly as it routes href/src/srcset.
+#
+# Hole covers the third shape: an f-literal whose @{ } hole assembles into the
+# whole value, sanitized ONCE over the assembled string (never per hole — the
+# same rule that closed the five per-hole URL bypasses).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Mixed[T string | int](v T) {
+	<meta http-equiv="refresh" content={v}/>
+}
+
+component Bag(attrs gsx.Attrs) {
+	<meta http-equiv="refresh" { attrs... }/>
+}
+
+component Hole(u string) {
+	<meta http-equiv="refresh" content=f"0;url=@{u}"/>
+}
+
+component Page() {
+	<Mixed[string] v={"0;url=javascript:alert(1)"}/>
+	<Mixed[string] v={"3;url=/safe"}/>
+	<Mixed[int] v={5}/>
+	<Bag attrs={gsx.Attrs{{Key: "content", Value: "0;url=javascript:alert(2)"}}}/>
+	<Bag attrs={gsx.Attrs{{Key: "content", Value: "3;url=/safe"}}}/>
+	<Hole u={"javascript:alert(3)"}/>
+	<Hole u={"/safe"}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<meta http-equiv="refresh" content="0;url=about:invalid#gsx"><meta http-equiv="refresh" content="3;url=/safe"><meta http-equiv="refresh" content="5"><meta http-equiv="refresh" content="0;url=about:invalid#gsx"><meta http-equiv="refresh" content="3;url=/safe"><meta http-equiv="refresh" content="0;url=about:invalid#gsx"><meta http-equiv="refresh" content="0;url=/safe">

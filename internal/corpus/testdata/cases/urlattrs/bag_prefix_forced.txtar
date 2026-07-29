@@ -62,7 +62,7 @@ func _gsxrenderNav(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p navProps) error
 	_gsxgw.S("<a")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
-	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style", "data-url-go"})
+	_gsxgw.Spread(ctx, "a", _gsxv0, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style", "data-url-go"})
 	_gsxgw.S(" data-url-go=\"/forced\">x</a>")
 	return _gsxgw.Err()
 }

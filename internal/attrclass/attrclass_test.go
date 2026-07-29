@@ -32,7 +32,7 @@ func TestBuiltinParity(t *testing.T) {
 		{"id", CtxPlain}, {"data-x", CtxPlain}, {"class", CtxPlain},
 	}
 	for _, tc := range cases {
-		if got := c.Context(tc.name); got != tc.want {
+		if got := c.Context("div", tc.name); got != tc.want {
 			t.Errorf("Context(%q) = %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -43,7 +43,7 @@ func TestUserRulesAdditive(t *testing.T) {
 		JS:  []Rule{{Prefix: "wire:"}, {Prefix: "v-on:"}},
 		URL: []Rule{{Name: "data-href"}},
 		CSS: []Rule{{Name: "data-style"}},
-	}, nil)
+	})
 	checks := map[string]Context{
 		"wire:click": CtxJS, "v-on:click": CtxJS,
 		"data-href": CtxURL, "data-style": CtxCSS,
@@ -53,31 +53,9 @@ func TestUserRulesAdditive(t *testing.T) {
 		"data-x": CtxPlain,
 	}
 	for name, want := range checks {
-		if got := c.Context(name); got != want {
+		if got := c.Context("div", name); got != want {
 			t.Errorf("Context(%q) = %v, want %v", name, got, want)
 		}
-	}
-}
-
-func TestPredicateIsFallbackOnly(t *testing.T) {
-	// predicate would say onclick is URL, but built-ins claim it first → stays JS.
-	c := New(Rules{}, func(name string) (Context, bool) {
-		if name == "onclick" {
-			return CtxURL, true
-		}
-		if name == "fancy-go" {
-			return CtxJS, true
-		}
-		return CtxPlain, false
-	})
-	if got := c.Context("onclick"); got != CtxJS {
-		t.Errorf("predicate must not downgrade built-in: Context(onclick) = %v, want CtxJS", got)
-	}
-	if got := c.Context("fancy-go"); got != CtxJS {
-		t.Errorf("predicate fallback: Context(fancy-go) = %v, want CtxJS", got)
-	}
-	if !c.HasPredicate() {
-		t.Error("HasPredicate() = false, want true")
 	}
 }
 
@@ -97,18 +75,14 @@ func TestRuleValid(t *testing.T) {
 }
 
 func TestFingerprintStable(t *testing.T) {
-	a := New(Rules{JS: []Rule{{Prefix: "wire:"}}}, nil)
-	b := New(Rules{JS: []Rule{{Prefix: "wire:"}}}, nil)
+	a := New(Rules{JS: []Rule{{Prefix: "wire:"}}})
+	b := New(Rules{JS: []Rule{{Prefix: "wire:"}}})
 	if a.Fingerprint() != b.Fingerprint() {
 		t.Error("same rules must produce same fingerprint")
 	}
-	c := New(Rules{JS: []Rule{{Prefix: "other:"}}}, nil)
+	c := New(Rules{JS: []Rule{{Prefix: "other:"}}})
 	if a.Fingerprint() == c.Fingerprint() {
 		t.Error("different rules must produce different fingerprint")
-	}
-	withPred := New(Rules{JS: []Rule{{Prefix: "wire:"}}}, func(string) (Context, bool) { return CtxPlain, false })
-	if a.Fingerprint() == withPred.Fingerprint() {
-		t.Error("presence of predicate must change fingerprint")
 	}
 }
 
@@ -130,14 +104,14 @@ func TestPreset(t *testing.T) {
 
 	// A classifier built from the preset's rules classifies the method attrs as
 	// URL again, but leaves the non-URL hx-* attrs plain.
-	c := New(rules, nil)
+	c := New(rules)
 	for _, n := range []string{"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch"} {
-		if got := c.Context(n); got != CtxURL {
+		if got := c.Context("div", n); got != CtxURL {
 			t.Errorf("with htmx preset: Context(%q) = %v, want CtxURL", n, got)
 		}
 	}
 	for _, n := range []string{"hx-swap", "hx-target", "hx-trigger"} {
-		if got := c.Context(n); got != CtxPlain {
+		if got := c.Context("div", n); got != CtxPlain {
 			t.Errorf("with htmx preset: Context(%q) = %v, want CtxPlain (not a URL attr)", n, got)
 		}
 	}
@@ -148,81 +122,64 @@ func TestPreset(t *testing.T) {
 	}
 }
 
-func TestURLSink(t *testing.T) {
-	image := []struct{ tag, name string }{
-		{"img", "src"}, {"IMG", "SRC"},
-		{"source", "src"},
-		{"input", "src"},
-		{"video", "poster"},
-		{"body", "background"},
-		{"table", "background"},
+func TestUserURLExactNames(t *testing.T) {
+	// The built-in floor is NOT repeated here: it lives in the runtime
+	// (gsx.URLAttrSink) and Spread applies it itself, so generated code carries
+	// only the project's own delta.
+	if got := Builtin().UserURLExactNames(); len(got) != 0 {
+		t.Errorf("Builtin().UserURLExactNames() = %v, want empty", got)
 	}
-	for _, c := range image {
-		if got := URLSink(c.tag, c.name); got != SinkImage {
-			t.Errorf("URLSink(%q,%q) = %v, want SinkImage", c.tag, c.name, got)
-		}
-	}
-	strict := []struct{ tag, name string }{
-		{"a", "href"},
-		{"form", "action"},
-		{"script", "src"}, // script src must stay strict
-		{"iframe", "src"}, // iframe src must stay strict
-		{"object", "data"},
-		{"embed", "src"},
-		{"video", "src"}, // media src, not an image sink
-		{"img", "href"},  // href on img is not a resource sink
-	}
-	for _, c := range strict {
-		if got := URLSink(c.tag, c.name); got != SinkStrict {
-			t.Errorf("URLSink(%q,%q) = %v, want SinkStrict", c.tag, c.name, got)
-		}
-	}
-}
-
-func TestURLExactNames(t *testing.T) {
-	// Builtin: the 13 built-in URL names, lowercased and sorted, no prefixes.
-	// (htmx method attrs moved to the opt-in "htmx" preset.)
-	wantBuiltin := []string{
-		"action", "background", "cite", "data", "formaction", "href",
-		"imagesrcset", "manifest", "ping", "poster", "src", "srcset", "xlink:href",
-	}
-	if got := Builtin().URLExactNames(); !reflect.DeepEqual(got, wantBuiltin) {
-		t.Errorf("Builtin().URLExactNames() = %v, want %v", got, wantBuiltin)
+	if got := (*Classifier)(nil).UserURLExactNames(); len(got) != 0 {
+		t.Errorf("nil.UserURLExactNames() = %v, want empty", got)
 	}
 	if got := Builtin().URLPrefixes(); len(got) != 0 {
 		t.Errorf("Builtin().URLPrefixes() = %v, want empty", got)
 	}
-	// nil classifier is the built-in floor.
-	if got := (*Classifier)(nil).URLExactNames(); !reflect.DeepEqual(got, wantBuiltin) {
-		t.Errorf("nil.URLExactNames() = %v, want %v", got, wantBuiltin)
-	}
 
-	// New with exact + prefix URL rules: the exact name unions with the built-ins
-	// (deduped, sorted); a duplicate/case-variant of a built-in does not double it.
-	// Prefixes are lowercased, deduped and sorted; exact rules are excluded.
 	c := New(Rules{URL: []Rule{
 		{Name: "Data-Href"}, // case-variant user exact rule → data-href
-		{Name: "HREF"},      // duplicate of a built-in → no double
+		{Name: "HREF"},      // already in the floor → dropped, never doubled
+		{Name: "src"},       // ditto: a rule cannot demote <img src> off the image sink
 		{Prefix: "Data-URL-"},
 		{Prefix: "hx-"},
-	}}, nil)
-	wantExact := []string{
-		"action", "background", "cite", "data", "data-href", "formaction", "href",
-		"imagesrcset", "manifest", "ping", "poster", "src", "srcset", "xlink:href",
+	}})
+	if got, want := c.UserURLExactNames(), []string{"data-href"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("UserURLExactNames() = %v, want %v", got, want)
 	}
-	if got := c.URLExactNames(); !reflect.DeepEqual(got, wantExact) {
-		t.Errorf("New().URLExactNames() = %v, want %v", got, wantExact)
+	if got, want := c.URLPrefixes(), []string{"data-url-", "hx-"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("URLPrefixes() = %v, want %v", got, want)
 	}
-	wantPrefixes := []string{"data-url-", "hx-"}
-	if got := c.URLPrefixes(); !reflect.DeepEqual(got, wantPrefixes) {
-		t.Errorf("New().URLPrefixes() = %v, want %v", got, wantPrefixes)
+}
+
+// `content` is a URL context on <meta> and nowhere else, and membership does NOT
+// depend on a sibling http-equiv — html/template's rule. Keying it on the
+// element alone is what makes the sink unevadable; the refresh sanitizer
+// returns a non-directive value unchanged, so classifying every meta content
+// costs nothing. The sink table itself is pinned in the runtime
+// (TestURLAttrSink); what is checked here is that Context agrees with it.
+func TestMetaContentIsTagScopedURL(t *testing.T) {
+	c := Builtin()
+	for _, tag := range []string{"meta", "META", "Meta"} {
+		for _, name := range []string{"content", "CONTENT"} {
+			if got := c.Context(tag, name); got != CtxURL {
+				t.Errorf("Context(%q, %q) = %v, want CtxURL", tag, name, got)
+			}
+		}
+	}
+	for _, tag := range []string{"div", "span", "object", ""} {
+		if got := c.Context(tag, "content"); got != CtxPlain {
+			t.Errorf("Context(%q, content) = %v, want CtxPlain", tag, got)
+		}
+	}
+	if got := c.Context("meta", "name"); got != CtxPlain {
+		t.Errorf("Context(meta, name) = %v, want CtxPlain", got)
 	}
 }
 
 func TestSrcsetClassifiedURL(t *testing.T) {
 	c := Builtin()
 	for _, name := range []string{"srcset", "imagesrcset", "SrcSet"} {
-		if got := c.Context(name); got != CtxURL {
+		if got := c.Context("div", name); got != CtxURL {
 			t.Errorf("Context(%q) = %v, want CtxURL", name, got)
 		}
 	}

@@ -10,7 +10,7 @@ func spreadOne(t *testing.T, key string, val any, navNames []string) string {
 	t.Helper()
 	var b strings.Builder
 	gw := W(&b)
-	gw.Spread(context.Background(), Attrs{{Key: key, Value: val}}, navNames, nil, nil, nil, nil)
+	gw.Spread(context.Background(), "div", Attrs{{Key: key, Value: val}}, AttrSinks{Nav: navNames}, nil)
 	if gw.Err() != nil {
 		t.Fatalf("Spread(%q=%#v) errored: %v", key, val, gw.Err())
 	}
@@ -93,7 +93,7 @@ func TestSpreadBoolOnURLNameMatchesCodegen(t *testing.T) {
 		if c.imageName != nil {
 			var b strings.Builder
 			gw := W(&b)
-			gw.Spread(context.Background(), Attrs{{Key: c.key, Value: c.val}}, nil, c.imageName, nil, nil, nil)
+			gw.Spread(context.Background(), "img", Attrs{{Key: c.key, Value: c.val}}, AttrSinks{}, nil)
 			got = b.String()
 		}
 		if got != c.want {

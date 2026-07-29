@@ -22,7 +22,7 @@ func TestAttrsFoldWhitespaceAndBoolValues(t *testing.T) {
 		"reference": referenceLastWins(contribs),
 	} {
 		var buf bytes.Buffer
-		W(&buf).Spread(context.Background(), attrs, nil, nil, nil, nil, nil)
+		W(&buf).Spread(context.Background(), "div", attrs, AttrSinks{}, nil)
 		if got, want := buf.String(), ` class="a b" disabled`; got != want {
 			t.Errorf("%s render = %q, want %q", name, got, want)
 		}
@@ -46,7 +46,7 @@ func TestAttrsFoldBoolAggregatesMatchReference(t *testing.T) {
 				"reference": referenceLastWins(contribs),
 			} {
 				var buf bytes.Buffer
-				W(&buf).Spread(context.Background(), attrs, nil, nil, nil, nil, nil)
+				W(&buf).Spread(context.Background(), "div", attrs, AttrSinks{}, nil)
 				if got := buf.String(); got != tt.want {
 					t.Errorf("%s render = %q, want %q", name, got, tt.want)
 				}
@@ -96,8 +96,8 @@ func FuzzAttrsFoldMatchesReference(f *testing.F) {
 		contribs := decodeContribs(data)
 
 		var g, w bytes.Buffer
-		W(&g).Spread(context.Background(), ConcatAttrs(contribs...), []string{"href"}, nil, nil, nil, nil)
-		W(&w).Spread(context.Background(), referenceLastWins(contribs), []string{"href"}, nil, nil, nil, nil)
+		W(&g).Spread(context.Background(), "a", ConcatAttrs(contribs...), AttrSinks{}, nil)
+		W(&w).Spread(context.Background(), "a", referenceLastWins(contribs), AttrSinks{}, nil)
 		if g.String() != w.String() {
 			t.Fatalf("fold != reference\ncontribs=%v\n got=%q\nwant=%q", contribs, g.String(), w.String())
 		}

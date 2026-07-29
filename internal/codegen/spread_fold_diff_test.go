@@ -206,24 +206,18 @@ func splitSpreadFoldOutput(out string) map[string]string {
 	return res
 }
 
-// urlSinkArgsForTag computes the same navNames/imageNames/srcsetNames/prefixes
-// split emitSpreadCall (emit.go) builds for tag, from the SAME production
-// pieces (attrclass.Builtin's default classifier + urlWriterMethod) — so the
-// reference render below classifies URL keys exactly as generated code would,
-// without re-deriving or guessing the classification tables by hand.
-func urlSinkArgsForTag(tag string) (nav, img, srcset, prefixes []string) {
+// userSinksForRef builds the same gsx.AttrSinks delta emitSpreadCall (emit.go)
+// emits, from the SAME production piece (attrclass.Builtin's default
+// classifier) — so the reference render below classifies URL keys exactly as
+// generated code would, without re-deriving the tables by hand. The built-in
+// floor is not part of it: Spread applies that itself from gsx.URLAttrSink,
+// which is precisely why the reference cannot drift from shipped output.
+func userSinksForRef() gsx.AttrSinks {
 	cls := attrclass.Builtin()
-	for _, name := range cls.URLExactNames() {
-		switch urlWriterMethod(tag, name) {
-		case "URLImage":
-			img = append(img, name)
-		case "Srcset":
-			srcset = append(srcset, name)
-		default:
-			nav = append(nav, name)
-		}
+	return gsx.AttrSinks{
+		Nav:      cls.UserURLExactNames(),
+		Prefixes: cls.URLPrefixes(),
 	}
-	return nav, img, srcset, cls.URLPrefixes()
 }
 
 // refTagHTML renders the naive full-fold reference for one <a ...>body</a>
@@ -242,12 +236,11 @@ func urlSinkArgsForTag(tag string) (nav, img, srcset, prefixes []string) {
 // plain string here would sanitize where shipped output trusts. Non-URL keys
 // render identically either way.
 func refTagHTML(bag gsx.Attrs, body string) string {
-	nav, img, srcset, prefixes := urlSinkArgsForTag("a")
 	var buf bytes.Buffer
 	gw := gsx.W(&buf)
 	gw.ClassMerged(gsx.DefaultClassMerge, bag.Class())
 	gw.StyleMerged("", bag.Style())
-	gw.Spread(context.Background(), bag, nav, img, srcset, prefixes, []string{"class", "style"})
+	gw.Spread(context.Background(), "a", bag, userSinksForRef(), []string{"class", "style"})
 	return "<a" + buf.String() + ">" + body + "</a>"
 }
 

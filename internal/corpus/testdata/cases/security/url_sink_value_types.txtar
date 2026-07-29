@@ -1,0 +1,38 @@
+# Every renderable value type reaches the URL sink, converted statically through
+# the SAME dispatch the URL-context @{ } holes use (stringifyExpr): string and
+# []byte via string(), []string joined, numbers via strconv, Stringer via
+# String(). Only a plain `string` used to compile here — the others emitted
+# `_gsxgw.URL(v)` against a string parameter and failed the Go build with an
+# internal symbol in the message (the wider shape of issue #172). Sanitization is
+# unchanged: it runs once, over the whole converted value.
+-- input.gsx --
+package views
+
+type Path string
+
+type Slug struct{ s string }
+
+func (s Slug) String() string { return s.s }
+
+component Types(a []byte, b Path, c Slug, d int, e []string) {
+	<a href={a}>bytes</a>
+	<a href={b}>named string</a>
+	<a href={c}>stringer</a>
+	<a href={d}>int</a>
+	<a href={e}>string slice</a>
+}
+
+component Blocked(a []byte, c Slug) {
+	<a href={a}>bytes</a>
+	<a href={c}>stringer</a>
+}
+
+component Page() {
+	<Types a={[]byte("/from-bytes")} b={Path("/named")} c={Slug{s: "/stringer"}} d={42} e={[]string{"/a", "b"}}/>
+	<Blocked a={[]byte("javascript:alert(1)")} c={Slug{s: "javascript:alert(2)"}}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<a href="/from-bytes">bytes</a><a href="/named">named string</a><a href="/stringer">stringer</a><a href="42">int</a><a href="/a b">string slice</a><a href="about:invalid#gsx">bytes</a><a href="about:invalid#gsx">stringer</a>

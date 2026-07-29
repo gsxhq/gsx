@@ -66,7 +66,7 @@ func _gsxrenderChild(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, variant string,
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("a"), _gsxrt.Class(variant), _gsxrt.Class(attrs.Class()))
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "a", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:41
 	_gsxgw.Node(ctx, children)

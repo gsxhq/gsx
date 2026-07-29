@@ -113,7 +113,7 @@ func TestAttrsCondError(t *testing.T) {
 func TestSpreadOrderAndDrop(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.Spread(context.Background(), "div", Attrs{
 		{Key: "data-b", Value: "2"},
 		{Key: "data-a", Value: "1"},
 		{Key: "data-b", Value: "last"},
@@ -121,7 +121,7 @@ func TestSpreadOrderAndDrop(t *testing.T) {
 		{Key: "skip me", Value: "x"},     // invalid name → dropped
 		{Key: "disabled", Value: false},  // boolean attr, false → omitted
 		{Key: "aria-busy", Value: false}, // NOT a boolean attr → stringifies
-	}, nil, nil, nil, nil, nil)
+	}, AttrSinks{}, nil)
 	if got := buf.String(); got != ` data-a="1" data-b="last" checked aria-busy="false"` {
 		t.Fatalf("Spread = %q", got)
 	}
@@ -130,14 +130,14 @@ func TestSpreadOrderAndDrop(t *testing.T) {
 func TestSpreadAggregatesDuplicateClassStyle(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.Spread(context.Background(), "div", Attrs{
 		{Key: "data-a", Value: "1"},
 		{Key: "class", Value: "first"},
 		{Key: "data-b", Value: "2"},
 		{Key: "class", Value: "second"},
 		{Key: "style", Value: "color: red"},
 		{Key: "style", Value: "display: block"},
-	}, nil, nil, nil, nil, nil)
+	}, AttrSinks{}, nil)
 	if got := buf.String(); got != ` data-a="1" data-b="2" class="first second" style="color: red; display: block"` {
 		t.Fatalf("Spread = %q", got)
 	}
@@ -157,7 +157,7 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 	// Empty key is also invalid; check separately since strings.Contains("", "") is always true.
 	emptyKeyBag := Attrs{{Key: "", Value: "evil"}}
 	var emptyBuf bytes.Buffer
-	W(&emptyBuf).Spread(context.Background(), emptyKeyBag, nil, nil, nil, nil, nil)
+	W(&emptyBuf).Spread(context.Background(), "div", emptyKeyBag, AttrSinks{}, nil)
 	if emptyBuf.Len() != 0 {
 		t.Errorf("Spread with empty key should emit nothing, got: %q", emptyBuf.String())
 	}
@@ -179,7 +179,7 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), bag, nil, nil, nil, nil, nil)
+	gw.Spread(context.Background(), "div", bag, AttrSinks{}, nil)
 	out := buf.String()
 
 	for _, k := range unsafe {
@@ -337,11 +337,11 @@ func TestURLPrefixMatch(t *testing.T) {
 func TestSpread(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	navNames := []string{"action", "href", "src"} // "src" here would be nav…
-	imageNames := []string{"src"}                 // …but image wins (checked first)
+	// On <img>, `src` is an image sink and `href`/`action` are strict nav — the
+	// element table decides, so no name sets are passed for the built-in floor.
 	prefixes := []string{"data-url-"}
 	excluded := []string{"class", "style", "id"} // class/style merged elsewhere; id forced
-	gw.Spread(context.Background(), Attrs{
+	gw.Spread(context.Background(), "img", Attrs{
 		{Key: "data-n", Value: "1"},                       // plain, first position
 		{Key: "href", Value: "/nav"},                      // nav sink
 		{Key: "src", Value: "data:image/png;base64,AAAA"}, // image sink (data:image ok)
@@ -354,7 +354,7 @@ func TestSpread(t *testing.T) {
 		{Key: "action", Value: RawURL("app://vouch")},     // RawURL through nav sink → verbatim
 		{Key: "checked", Value: true},                     // bool → BoolAttr
 		{Key: "bad key", Value: "x"},                      // invalid name → dropped
-	}, navNames, imageNames, nil, prefixes, excluded)
+	}, AttrSinks{Prefixes: prefixes}, excluded)
 	got := buf.String()
 	// Security: neither the case-variant HREF nor the prefix key smuggles a scheme.
 	if strings.Contains(got, "javascript:") {
@@ -375,15 +375,56 @@ func TestSpread(t *testing.T) {
 	}
 }
 
+// TestSpreadRefreshNames pins the meta-refresh sink at the bag leaf. Codegen
+// puts `content` in refreshNames on <meta> and nowhere else — the sink is keyed
+// on the element, so it has to travel here as a name set exactly like the URL
+// sinks do. Before this, a `content` key entering through a spread got the
+// plain attribute write and shipped its redirect URL verbatim (issue #171).
+func TestSpreadRefreshNames(t *testing.T) {
+	bad := Attrs{{Key: "content", Value: "0;url=javascript:alert(1)"}}
+
+	var buf bytes.Buffer
+	W(&buf).Spread(context.Background(), "meta", bad, AttrSinks{}, nil)
+	if want := ` content="0;url=` + blockedURL + `"`; buf.String() != want {
+		t.Fatalf("refresh key = %q, want %q", buf.String(), want)
+	}
+
+	// Case-variant key: HTML attribute names fold, so a smuggled CONTENT cannot
+	// slip past the sink — same fold the URL sinks use.
+	buf.Reset()
+	W(&buf).Spread(context.Background(), "meta",
+		Attrs{{Key: "CONTENT", Value: "0;url=javascript:alert(1)"}}, AttrSinks{}, nil)
+	if strings.Contains(buf.String(), "javascript:") {
+		t.Fatalf("case-variant CONTENT smuggled a scheme: %q", buf.String())
+	}
+
+	// Any element other than <meta> → ordinary plain write. `content` carries no
+	// URL there, so sanitizing it would be wrong.
+	buf.Reset()
+	W(&buf).Spread(context.Background(), "div", bad, AttrSinks{}, nil)
+	if want := ` content="0;url=javascript:alert(1)"`; buf.String() != want {
+		t.Fatalf("non-meta content = %q, want the plain write %q", buf.String(), want)
+	}
+
+	// A value that is not a refresh directive is passed through byte-for-byte —
+	// this is why classifying EVERY meta content costs nothing.
+	buf.Reset()
+	W(&buf).Spread(context.Background(), "meta",
+		Attrs{{Key: "content", Value: "width=device-width, initial-scale=1"}}, AttrSinks{}, nil)
+	if want := ` content="width=device-width, initial-scale=1"`; buf.String() != want {
+		t.Fatalf("non-directive content = %q, want %q", buf.String(), want)
+	}
+}
+
 // TestSpreadImageBeatsNav pins the routing precedence: a name in BOTH
 // navNames and imageNames takes the image sink (imageNames is checked first), so
 // an <img src=data:image/*> forwarded through a bag keeps its data: URL.
 func TestSpreadImageBeatsNav(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.Spread(context.Background(), "img", Attrs{
 		{Key: "src", Value: "data:image/gif;base64,R0lGOD"},
-	}, []string{"src"}, []string{"src"}, nil, nil, nil)
+	}, AttrSinks{}, nil)
 	if want := ` src="data:image/gif;base64,R0lGOD"`; buf.String() != want {
 		t.Fatalf("Spread image-beats-nav = %q want %q", buf.String(), want)
 	}
@@ -395,9 +436,9 @@ func TestSpreadImageBeatsNav(t *testing.T) {
 func TestSpreadNavRejectsDataImage(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.Spread(context.Background(), "a", Attrs{
 		{Key: "href", Value: "data:image/png;base64,AAAA"},
-	}, []string{"href"}, nil, nil, nil, nil)
+	}, AttrSinks{}, nil)
 	if got := buf.String(); got != ` href="about:invalid#gsx"` {
 		t.Fatalf("Spread nav must reject data:image = %q", got)
 	}
@@ -409,10 +450,10 @@ func TestSpreadNavRejectsDataImage(t *testing.T) {
 func TestSpreadExcludedCaseInsensitive(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.Spread(context.Background(), "a", Attrs{
 		{Key: "HREF", Value: "javascript:alert(1)"}, // force-owned via excluded → skipped entirely
 		{Key: "data-keep", Value: "ok"},
-	}, []string{"href"}, nil, nil, nil, []string{"href"})
+	}, AttrSinks{}, []string{"href"})
 	got := buf.String()
 	if strings.Contains(got, "HREF") || strings.Contains(got, "javascript:") {
 		t.Fatalf("Spread wrote a force-owned case-variant key: %q", got)
@@ -429,12 +470,12 @@ func TestSpreadExcludedCaseInsensitive(t *testing.T) {
 func TestSpreadAggregatesClassStyle(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.Spread(context.Background(), "div", Attrs{
 		{Key: "class", Value: "a"},
 		{Key: "class", Value: "b"},
 		{Key: "style", Value: "color:red"},
 		{Key: "style", Value: "margin:0"},
-	}, nil, nil, nil, nil, nil)
+	}, AttrSinks{}, nil)
 	if got, want := buf.String(), ` class="a b" style="color:red; margin:0"`; got != want {
 		t.Fatalf("Spread class/style aggregation = %q, want %q", got, want)
 	}

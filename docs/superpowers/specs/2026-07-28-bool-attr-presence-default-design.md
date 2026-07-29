@@ -156,18 +156,25 @@ Runtime: `TestBoolRendersBare` (both buckets + folding),
 
 Found by probing, not fixed here — each wants its own change:
 
-1. **Meta-refresh `content` is not sanitized on two paths** (issue #171). `<meta
-   http-equiv="refresh" content={v}>` with `v` a mixed type parameter, and the
-   same name arriving through a spread bag, both bypass `RefreshContent` and
-   emit `javascript:` verbatim. Pre-existing (verified against the parent
-   commit): the sink is keyed on the element's `http-equiv` rather than on the
-   name, so `content` classifies as `CtxPlain` and neither the codegen guard nor
-   `Writer.Spread` knows to route it. The fix is to make the refresh sink travel
-   with the name, not to bolt another special case onto the toggle branch.
-2. **A mixed type parameter on a sink name fails as a Go type error** (issue #172), naming an
-   internal `_gsxgw` symbol, where it should be a gsx diagnostic. Fail-closed,
-   so not urgent; it also means no corpus case can cover that shape, since
-   corpus cases must render.
+1. ~~**Meta-refresh `content` is not sanitized on two paths**~~ (issue #171) —
+   **FIXED.** The premise turned out to be the bug: keying the sink on the
+   element's `http-equiv` is what made it evadable, and it bought nothing,
+   because `refreshContentSanitize` returns a non-directive value unchanged.
+   `html/template` never reads `http-equiv` either (`transition.go`:
+   `c.element == elementMeta && attrName == "content"`). So the detection was
+   deleted rather than extended: `content` on `<meta>` is now a tag-scoped URL
+   sink like any other, `attrsDeclareRefresh` is gone, and the two reported
+   paths plus three more (dynamic `http-equiv`, `http-equiv` in a bag, and an
+   f-literal hole) all sanitize.
+2. ~~**A mixed type parameter on a sink name fails as a Go type error**~~
+   (issue #172) — **FIXED**, and the root cause was wider than reported:
+   `urlStringExpr` converted only a plain `string` and left everything else to
+   "let the Go compiler check gw.URL's arg", so `href={int}`, `href={[]byte}`,
+   `href={Stringer}` and `href={[]string}` failed the same way. All now route
+   through `stringifyExpr` (the dispatch the URL-context `@{ }` holes already
+   used), and a mixed type parameter reaches the sink's runtime twin
+   (`URLVal`/`URLImageVal`/`SrcsetVal`/`RefreshContentVal`) instead of a
+   diagnostic — so the shape renders, and corpus cases *can* cover it.
 3. **`style={bool}` renders `style="true"`**, not presence — it goes through the
    class/style merge site rather than the bool branch. Documented in the guide
    as its own case rather than changed.

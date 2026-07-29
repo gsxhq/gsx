@@ -45,14 +45,14 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, Attrs gsx.Attrs
 	_gsxgw.S("<section")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:24
 	_gsxv0 := Attrs
 	_gsxgw.S("<i")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
-	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "i", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></i>")
 //line input.gsx:6:44
 	_gsxgw.Node(ctx, children)

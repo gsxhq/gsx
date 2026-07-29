@@ -29,9 +29,6 @@ import (
 func BenchmarkCondMergeFolded(b *testing.B) {
 	b.ReportAllocs()
 	attrs := Attrs{{Key: "id", Value: "tab1"}, {Key: "data-n", Value: "1"}}
-	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
-	imageNames := []string{"background"}
-	srcsetNames := []string{"imagesrcset", "srcset"}
 	gw := W(io.Discard)
 	ctx := context.Background()
 	active := true
@@ -48,23 +45,20 @@ func BenchmarkCondMergeFolded(b *testing.B) {
 		v2 := ConcatAttrs(v0, v1)
 		gw.ClassMerged(DefaultClassMerge, v2.Class())
 		gw.StyleMerged("", v2.Style())
-		gw.Spread(ctx, v2, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
+		gw.Spread(ctx, "a", v2, AttrSinks{}, []string{"class", "style"})
 	}
 }
 
 func BenchmarkCondMergeComposable(b *testing.B) {
 	b.ReportAllocs()
 	attrs := Attrs{{Key: "id", Value: "tab1"}, {Key: "data-n", Value: "1"}}
-	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
-	imageNames := []string{"background"}
-	srcsetNames := []string{"imagesrcset", "srcset"}
 	gw := W(io.Discard)
 	ctx := context.Background()
 	active := true
 	for b.Loop() {
 		gw.Class(DefaultClassMerge, Class("tab"), ClassIf("tab-active", active), Class(attrs.Class()))
 		gw.StyleMerged("", attrs.Style())
-		gw.Spread(ctx, attrs, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
+		gw.Spread(ctx, "a", attrs, AttrSinks{}, []string{"class", "style"})
 	}
 }
 
@@ -88,9 +82,6 @@ func BenchmarkNonForwardingSingleStyleInline(b *testing.B) {
 // composition; neither benchmark imposes a machine-specific threshold.
 func BenchmarkNonForwardingConditionalStyleMerged(b *testing.B) {
 	b.ReportAllocs()
-	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
-	imageNames := []string{"background"}
-	srcsetNames := []string{"imagesrcset", "srcset"}
 	gw := W(io.Discard)
 	ctx := context.Background()
 	active := true
@@ -105,6 +96,6 @@ func BenchmarkNonForwardingConditionalStyleMerged(b *testing.B) {
 		v2 := ConcatAttrs(v0, v1)
 		gw.ClassMerged(DefaultClassMerge, v2.Class())
 		gw.StyleMerged("", v2.Style())
-		gw.Spread(ctx, v2, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
+		gw.Spread(ctx, "a", v2, AttrSinks{}, []string{"class", "style"})
 	}
 }

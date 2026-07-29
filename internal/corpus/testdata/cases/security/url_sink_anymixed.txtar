@@ -1,0 +1,39 @@
+# A mixed type parameter (T string | int) on a URL sink name. The value's kind
+# is unknown until runtime, so the sink's runtime twin owns the whole span and
+# decides then — the SAME twin a bag's key reaches through Spread, so both
+# unknown-kind paths sanitize identically. Before this, codegen emitted the
+# static sink (`_gsxgw.URL(u)`, which takes a string) and the author got a Go
+# type error naming an internal symbol instead of working code (issue #172).
+#
+# One instantiation per sink flavour: navigational (URL/URLVal), image resource
+# (URLImage/URLImageVal, data:image allowed) and srcset (Srcset/SrcsetVal,
+# sanitized per candidate).
+-- input.gsx --
+package views
+
+component Link[T string | int](u T) {
+	<a href={u}>x</a>
+}
+
+component Img[T string | int](s T) {
+	<img src={s}/>
+}
+
+component Cands[T string | int](s T) {
+	<img srcset={s}/>
+}
+
+component Page() {
+	<Link[string] u={"javascript:alert(1)"}/>
+	<Link[string] u={"/ok"}/>
+	<Link[int] u={42}/>
+	<Img[string] s={"data:image/png;base64,AAAA"}/>
+	<Img[string] s={"javascript:alert(1)"}/>
+	<Img[int] s={7}/>
+	<Cands[string] s={"a.png 1x, javascript:alert(1) 2x"}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<a href="about:invalid#gsx">x</a><a href="/ok">x</a><a href="42">x</a><img src="data:image/png;base64,AAAA"><img src="about:invalid#gsx"><img src="7"><img srcset="a.png 1x, about:invalid#gsx">

@@ -59,7 +59,7 @@ func _gsxrenderLink(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs)
 	_gsxgw.S("<a")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "a", attrs, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 	_gsxgw.S(">component</a>")
 	return _gsxgw.Err()
 }
@@ -80,7 +80,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 		_gsxgw.StyleMerged("", _gsxv2.Style())
-		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "a", _gsxv2, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">dynamic-wins</a>")
 //line input.gsx:9:2
 		_gsxv3 := _gsxrt.Attrs{{Key: "href", Value: dangerous}, {Key: "href", Value: _gsxrt.RawURL("javascript:static-last()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -94,7 +94,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv5.Class())
 		_gsxgw.StyleMerged("", _gsxv5.Style())
-		_gsxgw.Spread(ctx, _gsxv5, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "a", _gsxv5, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">static-wins</a>")
 //line input.gsx:10:2
 		_gsxv6 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:first()")}, {Key: "href", Value: _gsxrt.RawURL("javascript:second()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -108,7 +108,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv8.Class())
 		_gsxgw.StyleMerged("", _gsxv8.Style())
-		_gsxgw.Spread(ctx, _gsxv8, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "a", _gsxv8, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">two-statics</a>")
 //line input.gsx:11:2
 		_gsxv9 := _gsxrt.Attrs{{Key: "href", Value: dangerous}, {Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -122,7 +122,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv11.Class())
 		_gsxgw.StyleMerged("", _gsxv11.Style())
-		_gsxgw.Spread(ctx, _gsxv11, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "a", _gsxv11, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">conditional</a>")
 //line input.gsx:12:2
 		_gsxv12 := _gsxrt.Attrs{{Key: "src", Value: _gsxrt.RawURL("data:image/png;base64,AA")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -136,7 +136,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<img")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv14.Class())
 		_gsxgw.StyleMerged("", _gsxv14.Style())
-		_gsxgw.Spread(ctx, _gsxv14, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "img", _gsxv14, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line input.gsx:13:2
 		_gsxv15 := _gsxrt.Attrs{{Key: "srcset", Value: _gsxrt.RawURL("javascript:one 1x, javascript:two 2x")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -150,7 +150,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<img")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv17.Class())
 		_gsxgw.StyleMerged("", _gsxv17.Style())
-		_gsxgw.Spread(ctx, _gsxv17, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "img", _gsxv17, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line input.gsx:14:2
 		_gsxv18 := _gsxrt.Attrs{{Key: "data-url-go", Value: _gsxrt.RawURL("javascript:custom()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -164,7 +164,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv20.Class())
 		_gsxgw.StyleMerged("", _gsxv20.Style())
-		_gsxgw.Spread(ctx, _gsxv20, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "div", _gsxv20, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">prefix</div>")
 //line input.gsx:15:2
 		_gsxv21 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:void(0)?a=1&amp;b=&#34;x&#34;")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
@@ -178,7 +178,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv23.Class())
 		_gsxgw.StyleMerged("", _gsxv23.Style())
-		_gsxgw.Spread(ctx, _gsxv23, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, []string{"data-url-"}, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "a", _gsxv23, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">html</a>")
 //line input.gsx:16:2
 		_gsxv24, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {

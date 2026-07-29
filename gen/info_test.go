@@ -279,8 +279,6 @@ func TestBuildManifestReportsURLRulesOnly(t *testing.T) {
 		JS:  []attrclass.Rule{{Prefix: "wire:"}},
 		URL: []attrclass.Rule{{Name: "data-href"}},
 		CSS: []attrclass.Rule{{Name: "data-style"}},
-	}, func(string) (attrclass.Context, bool) {
-		return attrclass.CtxJS, true
 	})
 
 	data, err := json.Marshal(buildManifest("example.com/app", cls, nil, MinifyNone, MinifyNone, 80))

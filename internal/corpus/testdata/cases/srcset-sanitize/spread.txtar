@@ -36,7 +36,7 @@ func Pic(s string) _gsxrt.Node {
 		_gsxgw.S("<img")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style", "alt"})
+		_gsxgw.Spread(ctx, "img", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style", "alt"})
 		_gsxgw.S(" alt=\"x\">")
 		return _gsxgw.Err()
 	})

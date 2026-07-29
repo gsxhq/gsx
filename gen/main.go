@@ -128,7 +128,7 @@ func (c config) effectiveJSONMin() func(string) (string, error) {
 // classifier builds the resolved Classifier from the accumulated options. A
 // config with no attr options yields a built-ins-only Classifier.
 func (cfg *config) classifier() *attrclass.Classifier {
-	return attrclass.New(attrclass.Rules{URL: cfg.urlRules}, nil)
+	return attrclass.New(attrclass.Rules{URL: cfg.urlRules})
 }
 
 // Main is the gsx process entry point: it builds a config from opts (currently

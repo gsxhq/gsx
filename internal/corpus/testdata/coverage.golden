@@ -818,14 +818,15 @@ script/value_tuple	diag gen render
 security/base_href_url	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
-security/meta_refresh_cond_http_equiv	diag render
-security/meta_refresh_dynamic_http_equiv	diag gen render
-security/meta_refresh_expr_http_equiv	diag render
+security/meta_refresh_http_equiv_irrelevant	diag render
 security/meta_refresh_int_content	diag render
 security/meta_refresh_raw_vouched	diag render
+security/meta_refresh_unknown_kind	diag render
 security/meta_refresh_url	diag gen render
 security/url_blocked	diag render
 security/url_raw_vouched	diag render
+security/url_sink_anymixed	diag render
+security/url_sink_value_types	diag render
 security/xss	diag render
 serialization/verbatim_selfclose	diag render
 serialization/verbatim_void	diag render
@@ -981,4 +982,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 983 cases (render: 842, error: 103, gen-pinned: 565)
+TOTAL: 984 cases (render: 843, error: 103, gen-pinned: 564)

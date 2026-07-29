@@ -48,7 +48,7 @@ func Bad(c bool, d bool, x gsx.Attrs, y gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
 		_gsxgw.StyleMerged("", _gsxv3.Style())
-		_gsxgw.Spread(ctx, _gsxv3, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "a", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">hi</a>")
 		return _gsxgw.Err()
 	})

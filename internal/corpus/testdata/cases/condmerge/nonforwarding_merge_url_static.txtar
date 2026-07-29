@@ -43,7 +43,7 @@ func Link(on bool) _gsxrt.Node {
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 		_gsxgw.StyleMerged("", _gsxv2.Style())
-		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "a", _gsxv2, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">x</a>")
 //line input.gsx:5:2
 		_gsxgw.S("<a href=\"javascript:void(0)\" class=\"base\">y</a>")

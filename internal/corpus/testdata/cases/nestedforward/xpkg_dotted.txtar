@@ -96,7 +96,7 @@ func Panel(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<section")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line panel.gsx:6:24
 		_gsxgw.Node(ctx, children)

@@ -1431,7 +1431,7 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 				if _, static := embeddedStaticText(t); static {
 					continue
 				}
-				if cls.Context(t.Name) == attrclass.CtxURL {
+				if cls.Context(el.Tag, t.Name) == attrclass.CtxURL {
 					bag.Errorf(t.Pos(), t.End(), "url-sink-fold",
 						"embedded %s attribute literal %q with @{ } interpolation is a URL attribute on <%s>; this element's attributes must be merged through a shared bag, whose URL sanitization would rewrite the %s-escaped value, so the contextual literal cannot be used on this URL-sink key — use an ordinary URL expression or string for %q, or avoid the contextual %s literal on that key",
 						embeddedLangName(t.Lang), t.Name, el.Tag, embeddedLangName(t.Lang), t.Name, embeddedLangName(t.Lang))
@@ -2639,7 +2639,7 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 			// through _gsxnum (see elementFolds' doc) — skip the scan entirely
 			// so a numeric attr on such an element doesn't fabricate an unused
 			// _gsxnum declaration.
-			if !elementFolds(t.Attrs) && attrsUseNumericScratch(t.Attrs, resolved, table, cls) {
+			if !elementFolds(t.Attrs) && attrsUseNumericScratch(t.Tag, t.Attrs, resolved, table, cls) {
 				return true
 			}
 			if strings.EqualFold(t.Tag, "script") {
@@ -2692,15 +2692,15 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 //     emitAttrValue). js`/css` EmbeddedAttrs (EmbeddedJS/EmbeddedCSS) and
 //     style={…}/class={…} ClassAttrs route through the JS/CSS/merge writers, not
 //     emitAttrValue, and are not matched here.
-func attrsUseNumericScratch(attrs []ast.Attr, resolved map[ast.Node]types.Type, table funcTables, cls *attrclass.Classifier) bool {
+func attrsUseNumericScratch(tag string, attrs []ast.Attr, resolved map[ast.Node]types.Type, table funcTables, cls *attrclass.Classifier) bool {
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *ast.ExprAttr:
-			if cls.Context(at.Name) != attrclass.CtxURL && resolvedTypeIsNumeric(at, resolved, table) {
+			if cls.Context(tag, at.Name) != attrclass.CtxURL && resolvedTypeIsNumeric(at, resolved, table) {
 				return true
 			}
 		case *ast.EmbeddedAttr:
-			if at.Lang != ast.EmbeddedText || cls.Context(at.Name) == attrclass.CtxURL {
+			if at.Lang != ast.EmbeddedText || cls.Context(tag, at.Name) == attrclass.CtxURL {
 				continue
 			}
 			if len(at.Stages) > 0 {
@@ -2716,7 +2716,7 @@ func attrsUseNumericScratch(attrs []ast.Attr, resolved map[ast.Node]types.Type, 
 				}
 			}
 		case *ast.CondAttr:
-			if attrsUseNumericScratch(at.Then, resolved, table, cls) || attrsUseNumericScratch(at.Else, resolved, table, cls) {
+			if attrsUseNumericScratch(tag, at.Then, resolved, table, cls) || attrsUseNumericScratch(tag, at.Else, resolved, table, cls) {
 				return true
 			}
 		}
@@ -3011,7 +3011,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 	case *ast.ClassAttr:
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
-		if cls.Context(t.Name) == attrclass.CtxCSS {
+		if cls.Context(tag, t.Name) == attrclass.CtxCSS {
 			if !emitStyleAttr(b, t, table, imports, rt, interpTemp, bag, resolved) {
 				return false
 			}
@@ -3136,18 +3136,24 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 }
 
 // urlWriterMethod returns the generated Writer method for a URL-context
-// attribute: "Srcset" for srcset/imagesrcset (a comma-separated image-
-// candidate list, sanitized per candidate), "URLImage" for an image resource
-// sink (data:image/* allowed), "URL" otherwise. Callers must have established
-// CtxURL for name.
+// attribute: "Srcset" for srcset/imagesrcset (a comma-separated image-candidate
+// list, sanitized per candidate), "RefreshContent" for <meta> content (a
+// `<seconds>;url=<URL>` directive whose redirect URL is sanitized in place),
+// "URLImage" for an image resource sink (data:image/* allowed), "URL"
+// otherwise. Each has a name+"Val" runtime twin for a value whose kind is not
+// known until render time. Callers must have established CtxURL for name.
 func urlWriterMethod(tag, name string) string {
-	switch strings.ToLower(name) {
-	case "srcset", "imagesrcset":
-		return "Srcset"
-	}
-	if attrclass.URLSink(tag, name) == attrclass.SinkImage {
+	switch gsx.URLAttrSink(tag, name) {
+	case gsx.URLSinkImage:
 		return "URLImage"
+	case gsx.URLSinkSrcset:
+		return "Srcset"
+	case gsx.URLSinkRefresh:
+		return "RefreshContent"
 	}
+	// URLSinkNone reaches here only for a name a PROJECT rule classified as a
+	// URL (the built-in floor is what URLAttrSink knows). User rules are always
+	// strict, so the nav sink is correct for them too.
 	return "URL"
 }
 
@@ -3171,21 +3177,25 @@ func goStringSliceLit(names []string) string {
 // nothing is forced — the standalone / nested-cond-attr spread case). Every
 // element spread routes through here so URL-classified keys sanitize at the
 // leaf regardless of the bag's provenance or nesting.
+//
+// Only the PROJECT's own url_attrs delta is emitted. The built-in floor — and
+// its tag scoping, which is what makes `content` a refresh sink on <meta> and an
+// ordinary attribute everywhere else — is applied by Spread itself from
+// gsx.URLAttrSink. So a default-config project emits an empty gsx.AttrSinks{}
+// here, the floor cannot be forgotten by a codegen bug, and adding a sink later
+// changes only the elements that use it (issue #171).
 func emitSpreadCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier, excludedExpr string) {
-	var navNames, imageNames, srcsetNames []string
-	for _, name := range cls.URLExactNames() {
-		switch urlWriterMethod(tag, name) {
-		case "URLImage":
-			imageNames = append(imageNames, name)
-		case "Srcset":
-			srcsetNames = append(srcsetNames, name)
-		default:
-			navNames = append(navNames, name)
-		}
+	var fields []string
+	if names := cls.UserURLExactNames(); len(names) > 0 {
+		// Project rules are always strict-navigational — a rule never earns the
+		// image-sink allowance, which stays keyed to the built-in element table.
+		fields = append(fields, "Nav: "+goStringSliceLit(names))
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, %s, %s, %s, %s)\n",
-		expr, goStringSliceLit(navNames), goStringSliceLit(imageNames),
-		goStringSliceLit(srcsetNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
+	if prefixes := cls.URLPrefixes(); len(prefixes) > 0 {
+		fields = append(fields, "Prefixes: "+goStringSliceLit(prefixes))
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, _gsxrt.AttrSinks{%s}, %s)\n",
+		strconv.Quote(tag), expr, strings.Join(fields, ", "), excludedExpr)
 }
 
 // urlConstantBlocked reports whether the runtime URL sanitizer for method
@@ -3278,9 +3288,9 @@ func firstSegIsDataURL(segs []ast.Markup) bool {
 // (so resolved[a] is already the pipeline's result type — emit ≡ probe),
 // unwrapping a trailing (T, error) tuple exactly like genInterp/
 // emitEmbeddedInterp. The piped result then renders for URL or plain-attr
-// context depending on cls.Context(a.Name), below.
+// context depending on cls.Context(tag, a.Name), below.
 //
-// A URL-context attribute (cls.Context(a.Name) == attrclass.CtxURL) is
+// A URL-context attribute (cls.Context(tag, a.Name) == attrclass.CtxURL) is
 // sanitized as a WHOLE value: every segment (static text and each hole) is
 // assembled into one Go string expression and passed through a single
 // _gsxgw.URL(...) call — the SAME urlSanitize fail-closed allow-list +
@@ -3300,7 +3310,7 @@ func firstSegIsDataURL(segs []ast.Markup) bool {
 // result renders via emitAttrValue (string -> AttrValue(string(x)), etc.).
 func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	isURL := cls.Context(a.Name) == attrclass.CtxURL
+	isURL := cls.Context(tag, a.Name) == attrclass.CtxURL
 	// A literal that OPENS with data: on a strict sink is author error
 	// regardless of any downstream pipe: reject at compile time (this
 	// inspects the pre-pipe first segment deliberately — unlike Form B's
@@ -4611,32 +4621,18 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	// instantiations without annotation.
 	//
 	// PLAIN CONTEXT ONLY. AttrAnyToggle attribute-escapes the string case and
-	// nothing more, so on a URL, JS or CSS name it would emit an unsanitized
-	// value where the branches below sanitize one — href={u} with T string|int
-	// would ship javascript: through. Those names fall through to their sink
-	// instead.
-	//
-	// Caveat, pre-dating this guard: meta-refresh `content` is CtxPlain (the
-	// sink is keyed on the element's http-equiv, not on the name), so it lands
-	// here rather than at RefreshContent. A mixed type parameter on it is
-	// unsanitized — as it was before, via AttrAny. Same gap exists in the bag
-	// path, which has no meta-refresh awareness at all. Tracked separately; it
-	// wants the refresh sink to travel with the name, not another special case
-	// bolted onto this branch.
-	if classify(t) == catAnyMixed && gsx.BoolRendersBare(a.Name) && cls.Context(a.Name) == attrclass.CtxPlain {
+	// nothing more, so on a name with a sink it would emit an unsanitized value
+	// where the branch below sanitizes one — href={u} with T string|int would
+	// ship javascript: through. Those names fall through to their sink instead,
+	// which has a runtime twin (URLVal, RefreshContentVal, …) for exactly this
+	// unknown-kind case.
+	if classify(t) == catAnyMixed && gsx.BoolRendersBare(a.Name) && cls.Context(tag, a.Name) == attrclass.CtxPlain {
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrAnyToggle(%s, %s)\n", strconv.Quote(a.Name), expr)
 		return true
 	}
 
-	// A gsx.RawURL content value is the author's vouch, exactly as in the URL
-	// branch below — fall through to gw.AttrValue. Non-string-like values
-	// (numbers) cannot carry a redirect URL and keep §5 type-aware rendering.
-	isMetaRefreshContent := strings.EqualFold(a.Name, "content") && strings.EqualFold(tag, "meta") && attrsDeclareRefresh(attrs) && !isRawURL(t)
-
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	if isMetaRefreshContent && isStringLike(t) {
-		fmt.Fprintf(b, "\t\t_gsxgw.RefreshContent(%s)\n", stringLikeExpr(expr, t))
-	} else if cls.Context(a.Name) == attrclass.CtxURL && !isRawURL(t) {
+	if cls.Context(tag, a.Name) == attrclass.CtxURL && !isRawURL(t) {
 		// A wholly-constant value this sink always blocks is knowable now:
 		// warn at generate time (issue #154) instead of failing silently in
 		// the browser. A string literal's type is basic string, so no
@@ -4646,10 +4642,27 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 				warnAlwaysBlockedURL(bag, a, a.Name, tag, val)
 			}
 		}
-		// URL context: value must be string-like; sanitize + escape. A gsx.RawURL
-		// value (isRawURL) is the author's vouch — fall through to gw.AttrValue,
-		// which entity-escapes but skips the scheme allow-list.
-		fmt.Fprintf(b, "\t\t_gsxgw.%s(%s)\n", urlWriterMethod(tag, a.Name), urlStringExpr(expr, t))
+		// URL context: sanitize + escape. A gsx.RawURL value (isRawURL) is the
+		// author's vouch — it never reaches here, falling through to
+		// gw.AttrValue, which entity-escapes but skips the scheme allow-list.
+		if classify(t) == catAnyMixed {
+			// Kind unknown until render time. The static sink takes a string, so
+			// there is nothing to convert to; its runtime twin stringifies and
+			// sanitizes at render time — the SAME sink a bag's key reaches
+			// through Spread, so both unknown-kind paths agree (issue #172).
+			fmt.Fprintf(b, "\t\t_gsxgw.%sVal(%s)\n", urlWriterMethod(tag, a.Name), expr)
+		} else {
+			// Every other renderable type converts statically, through the same
+			// dispatch the URL-context @{ } holes use — string/[]byte, []string
+			// joined, numbers via strconv, Stringer via String(). Anything else
+			// is a positioned gsx diagnostic rather than a Go type error naming
+			// the internal _gsxgw.URL.
+			strExpr, ok := stringifyExpr(expr, t, rt, a, bag, fmt.Sprintf("attribute %q value", a.Name))
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "\t\t_gsxgw.%s(%s)\n", urlWriterMethod(tag, a.Name), strExpr)
+		}
 	} else {
 		if !emitAttrValue(b, expr, t, rt, a, bag) {
 			return false
@@ -4744,39 +4757,6 @@ func emitPIName(b *bytes.Buffer, a *ast.ExprAttr, table funcTables, imports map[
 	return true
 }
 
-// attrsDeclareRefresh reports whether the sibling attrs statically mark the
-// element as a meta refresh: an http-equiv="refresh" as a static attr, a
-// constant string-literal expr attr, or either inside a conditional attr — a
-// refresh in ANY branch marks the element, which is safe because
-// refreshContentSanitize no-ops on values that aren't a refresh directive. A
-// runtime-dynamic http-equiv={expr} is deliberately out of scope (pinned in
-// corpus security/meta_refresh_dynamic_http_equiv); an http-equiv carried
-// inside an `{ attrs... }` element spread is likewise not detected here, so
-// its "content" key never gets the refresh-content sanitizer — it renders
-// through Spread's ordinary per-key routing instead (URL-sanitized
-// if URL-classified, attribute-escaped otherwise).
-func attrsDeclareRefresh(attrs []ast.Attr) bool {
-	for _, a := range attrs {
-		switch t := a.(type) {
-		case *ast.StaticAttr:
-			if strings.EqualFold(t.Name, "http-equiv") && strings.EqualFold(strings.TrimSpace(t.Value), "refresh") {
-				return true
-			}
-		case *ast.ExprAttr:
-			if strings.EqualFold(t.Name, "http-equiv") && len(t.Stages) == 0 {
-				if v, ok := stringLiteralValue(t.Expr); ok && strings.EqualFold(strings.TrimSpace(v), "refresh") {
-					return true
-				}
-			}
-		case *ast.CondAttr:
-			if attrsDeclareRefresh(t.Then) || attrsDeclareRefresh(t.Else) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // stringLiteralValue reports the constant value of a Go string-literal
 // expression (`"refresh"`, “ `refresh` “), and false for anything else.
 func stringLiteralValue(expr string) (string, bool) {
@@ -4857,14 +4837,6 @@ func isRawJS(t types.Type) bool {
 func bindingPositionDiag(bag *diag.Bag, pos, end token.Pos) {
 	bag.Errorf(pos, end, "jsx-binding-position",
 		"@{ } here is a JavaScript binding/lvalue position (assignment target, declaration or member name); only a gsx.RawJS value may be spliced here — wrap it as gsx.RawJS(...) if the bytes are trusted, or use it where a value is expected")
-}
-
-// urlStringExpr renders a URL-context value as a string expression for gw.URL.
-func urlStringExpr(expr string, t types.Type) string {
-	if classify(t) == catString {
-		return "string(" + expr + ")"
-	}
-	return expr // non-string URL values are unusual; let the Go compiler check gw.URL's arg
 }
 
 // emitAttrValue writes a non-URL attribute value via gw.AttrValue, §5 type-aware.

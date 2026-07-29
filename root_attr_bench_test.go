@@ -34,7 +34,7 @@ func BenchmarkRootAttrMachineryEmpty(b *testing.B) {
 	ctx := context.Background()
 	for b.Loop() {
 		gw.StyleMerged("", a.Style())
-		gw.Spread(ctx, a, nil, nil, nil, nil, []string{"class", "style"})
+		gw.Spread(ctx, "div", a, AttrSinks{}, []string{"class", "style"})
 	}
 }
 
@@ -60,15 +60,12 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 	// (attrclass's builtinURL floor), split nav vs image exactly as codegen
 	// emits them — see e.g. spread-sanitize/derived_local_bag.txtar's
 	// generated.x.go.golden.
-	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
-	imageNames := []string{"background"}
-	srcsetNames := []string{"imagesrcset", "srcset"}
 	gw := W(io.Discard)
 	ctx := context.Background()
 	for b.Loop() {
 		gw.ClassMerged(DefaultClassMerge, a.Class())
 		gw.StyleMerged("", a.Style())
-		gw.Spread(ctx, a, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
+		gw.Spread(ctx, "a", a, AttrSinks{}, []string{"class", "style"})
 	}
 }
 
@@ -81,13 +78,10 @@ func BenchmarkSpreadNoURLLarge(b *testing.B) {
 			Value: "value",
 		})
 	}
-	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
-	imageNames := []string{"background"}
-	srcsetNames := []string{"imagesrcset", "srcset"}
 	gw := W(io.Discard)
 	ctx := context.Background()
 	for b.Loop() {
-		gw.Spread(ctx, attrs, navNames, imageNames, srcsetNames, nil, nil)
+		gw.Spread(ctx, "a", attrs, AttrSinks{}, nil)
 	}
 }
 

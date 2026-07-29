@@ -40,7 +40,7 @@ func JSCssHoleLoneSpread(c bool, u string, x gsx.Attrs) _gsxrt.Node {
 		_gsxgw.JSValAttr(u)
 		_gsxgw.S(")\"")
 		if c {
-			_gsxgw.Spread(ctx, x, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, nil)
+			_gsxgw.Spread(ctx, "button", x, _gsxrt.AttrSinks{}, nil)
 		}
 		_gsxgw.S(">go</button>")
 		return _gsxgw.Err()

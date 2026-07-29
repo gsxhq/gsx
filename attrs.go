@@ -298,32 +298,30 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 // FORCED root attr owns at this element (class/style — merged separately; static
 // forced names — always; a post-spread conditional's names — only when its branch
 // was taken, which is why codegen passes the runtime drop slice); such a key is
-// SKIPPED so the owning site is the sole value. For each surviving key, matching
-// case-insensitively (HTML attr names fold, so a smuggled HREF/SRC cannot slip
-// past the sink):
-//   - a name in imageNames → URLImageVal (image-resource sink; data:image/* ok).
-//     Checked FIRST so a name that is both nav- and image-classified (e.g. src)
-//     takes the image sink.
-//   - a name in srcsetNames → SrcsetVal (comma-separated image-candidate list,
-//     sanitized per candidate). Checked SECOND, before the nav sink.
-//   - a name in navNames, OR a key matching a URL prefix rule (URLPrefixMatch) →
-//     URLVal (strict navigational sink; prefix rules are user rules, always strict).
-//   - anything else → a plain attribute write (a non-excluded class/style key
-//     aggregates via a.Class()/a.Style(); bool → BoolAttr; else key="value"
-//     attribute-escaped).
+// SKIPPED so the owning site is the sole value.
 //
-// navNames, imageNames, srcsetNames and prefixes must already be lowercase. A
-// RawURL value is the author's vouch and is emitted verbatim (still attribute-
-// escaped) by the URL sinks. URL keys render IN their bag position — not hoisted
-// ahead of the residual as the old unrolled extraction did — so the bag's
-// authored attribute order is preserved. ctx is reserved for forward-
-// compatibility. The URL classification policy lives in these caller-supplied
-// name sets, not in this method: a hand-written caller passing nil
-// navNames/imageNames/srcsetNames/prefixes gets NO URL sanitization at all
-// (every key falls through to the plain-attribute write) — generated code
-// always supplies the built-in + configured name sets, so only a caller
-// bypassing codegen needs to worry about this.
-func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, srcsetNames, prefixes, excluded []string) {
+// Each surviving key is routed by AttrSinks.sinkFor(tag, key), matching
+// case-insensitively (HTML attribute names fold, so a smuggled HREF/SRC cannot
+// slip an unsanitized value past the sink). The built-in floor is applied from
+// the table in urlattrs.go and is NOT caller-supplied: it is the safety default,
+// so it holds even for a hand-written caller passing the zero AttrSinks, and no
+// project rule can downgrade it. sinks carries only that project's own url_attrs
+// delta. A key with no sink gets the plain attribute write (a non-excluded
+// class/style key aggregates via a.Class()/a.Style(); bool → BoolAttr; else
+// key="value", attribute-escaped).
+//
+// tag is the element the bag is being written onto — needed because a sink can
+// be tag-scoped (`content` is a refresh directive on <meta> and an ordinary
+// attribute everywhere else) and because `src` splits between the image and
+// strict sinks by element. An empty tag applies only the element-independent
+// floor.
+//
+// The names in sinks must already be lowercase. A RawURL value is the author's
+// vouch and is emitted verbatim (still attribute-escaped) by the URL sinks. URL
+// keys render IN their bag position — not hoisted ahead of the residual as the
+// old unrolled extraction did — so the bag's authored attribute order is
+// preserved. ctx is reserved for forward-compatibility.
+func (gw *Writer) Spread(ctx context.Context, tag string, a Attrs, sinks AttrSinks, excluded []string) {
 	if gw.err != nil || len(a) == 0 {
 		return
 	}
@@ -372,45 +370,42 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, src
 				continue
 			}
 		}
-		switch {
-		case attrNameExcluded(kv.Key, imageNames):
+		sink := sinks.sinkFor(tag, kv.Key)
+		if sink != URLSinkNone {
 			gw.writeStr(" ")
 			gw.writeStr(kv.Key)
 			gw.writeStr(`="`)
-			gw.URLImageVal(kv.Value)
-			gw.writeStr(`"`)
-		case attrNameExcluded(kv.Key, srcsetNames):
-			gw.writeStr(" ")
-			gw.writeStr(kv.Key)
-			gw.writeStr(`="`)
-			gw.SrcsetVal(kv.Value)
-			gw.writeStr(`"`)
-		case attrNameExcluded(kv.Key, navNames) || URLPrefixMatch(kv.Key, prefixes):
-			gw.writeStr(" ")
-			gw.writeStr(kv.Key)
-			gw.writeStr(`="`)
-			gw.URLVal(kv.Value)
-			gw.writeStr(`"`)
-		default:
-			if kv.Value == nil {
-				continue
+			switch sink {
+			case URLSinkImage:
+				gw.URLImageVal(kv.Value)
+			case URLSinkSrcset:
+				gw.SrcsetVal(kv.Value)
+			case URLSinkRefresh:
+				gw.RefreshContentVal(kv.Value)
+			default:
+				gw.URLVal(kv.Value)
 			}
-			if !vok {
-				if gw.err == nil {
-					gw.err = fmt.Errorf("gsx: attribute %q: unsupported dynamic type %T", kv.Key, kv.Value)
-				}
-				return
-			}
-			// A bool that reaches here renders its string: the name's own HTML
-			// vocabulary IS "true"/"false" (aria-*, contenteditable), so absence
-			// would mean something else. See BoolRendersBare — the same rule
-			// codegen applies to a static name={boolExpr}.
-			gw.writeStr(" ")
-			gw.writeStr(kv.Key)
-			gw.writeStr(`="`)
-			gw.AttrValue(vs)
 			gw.writeStr(`"`)
+			continue
 		}
+		if kv.Value == nil {
+			continue
+		}
+		if !vok {
+			if gw.err == nil {
+				gw.err = fmt.Errorf("gsx: attribute %q: unsupported dynamic type %T", kv.Key, kv.Value)
+			}
+			return
+		}
+		// A bool that reaches here renders its string: the name's own HTML
+		// vocabulary IS "true"/"false" (aria-*, contenteditable), so absence
+		// would mean something else. See BoolRendersBare — the same rule
+		// codegen applies to a static name={boolExpr}.
+		gw.writeStr(" ")
+		gw.writeStr(kv.Key)
+		gw.writeStr(`="`)
+		gw.AttrValue(vs)
+		gw.writeStr(`"`)
 	}
 }
 

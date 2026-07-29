@@ -167,7 +167,7 @@ func loadCase(path string) (*caseDoc, error) {
 				rules = append(rules, pr.URL...)
 			}
 			if len(rules) > 0 {
-				c.classifier = attrclass.New(attrclass.Rules{URL: rules}, nil)
+				c.classifier = attrclass.New(attrclass.Rules{URL: rules})
 			}
 			if tc.Serialization != "" {
 				switch tc.Serialization {

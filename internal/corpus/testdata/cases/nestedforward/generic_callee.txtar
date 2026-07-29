@@ -56,7 +56,7 @@ func _gsxrenderList[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, items []T
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("list"), _gsxrt.Class(attrs.Class()))
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "ul", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:7:3
 	for _, it := range items {

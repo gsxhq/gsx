@@ -84,14 +84,14 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, inputAttrs gsx.
 	_gsxgw.S("<input")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
-	_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "input", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:33
 	_gsxv1 := inputAttrs
 	_gsxgw.S("<span")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 	_gsxgw.StyleMerged("", _gsxv1.Style())
-	_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "span", _gsxv1, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></span></label>")
 	return _gsxgw.Err()
 }
@@ -112,7 +112,7 @@ func _gsxrenderShell(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs
 	_gsxgw.S("<main")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
-	_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "main", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></main>")
 	return _gsxgw.Err()
 }
@@ -137,7 +137,7 @@ func _gsxrenderDefined(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs LocalAt
 	_gsxgw.S("<aside")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 	_gsxgw.StyleMerged("", _gsxv2.Style())
-	_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "aside", _gsxv2, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></aside>")
 	return _gsxgw.Err()
 }
@@ -159,7 +159,7 @@ func _gsxrenderVariadic(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs ...gsx
 	_gsxgw.S("<nav")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
 	_gsxgw.StyleMerged("", _gsxv3.Style())
-	_gsxgw.Spread(ctx, _gsxv3, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "nav", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></nav>")
 	return _gsxgw.Err()
 }
