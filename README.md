@@ -1,10 +1,9 @@
 # gsx
 
-A templating language for Go: **templ-style `component` declarations** with a
-**JSX-style markup body**, compiled to plain Go.
+A JSX-like templating language for Go, compiled to plain Go that streams HTML.
 
-> **Status — alpha.** gsx is usable end to end, but the language and APIs may
-> change before a stable release. See [Status](docs/guide/status.md) and
+> **Status — alpha.** gsx is used in production today, while language and API
+> compatibility may change before 1.0. See [Status](docs/guide/status.md) and
 > [Roadmap](docs/ROADMAP.md).
 
 ## What is gsx
@@ -17,17 +16,14 @@ Go compiler type-checks and builds:
 .gsx → parser → AST → codegen → .x.go → go build → HTML
 ```
 
-- **Checked by Go** — each component keeps its authored Go signature; markup
-  binds parameters by exact name and direct Go callers use the same function.
-- **Close to HTML and to Go** — JSX-style markup for templates; ordinary Go for
-  everything else. Tags resolve against package symbols; an unresolved lowercase
-  tag remains an HTML element.
-- **templ-compatible** — `gsx.Node` has the identical method set to
-  `templ.Component`, so gsx output drops into the templ ecosystem without importing
-  templ. The runtime is **standard-library only**.
-- **No Node.js** — the toolchain is Go and the output is Go: `gsx generate &&
-  go build` gives one binary. Node appears only if you choose a JS asset pipeline
-  such as Vite, and then only to bundle assets — never to run the server.
+- **Checked by Go** — each component keeps its exact authored Go signature, and
+  markup binds parameters by name.
+- **HTML-shaped markup with ordinary Go** — use JSX-like markup for templates
+  and ordinary Go for everything else.
+- **Safe by context** — contextual HTML, URL, CSS, and JavaScript escaping with
+  a **standard-library-only** runtime.
+- **Go-native tooling** — generation and builds are Go; Node.js is needed only
+  when your application chooses frontend tooling such as Vite.
 
 ## A taste
 
