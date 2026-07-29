@@ -1,32 +1,39 @@
 # Status
 
-gsx is alpha software. It works end to end, but the language and APIs may change
-before a stable release.
+## Maturity
 
-## Ready to use
+gsx is alpha software and is used in production. The compiler, runtime, and
+toolchain work end to end, but language and API compatibility are not guaranteed
+before 1.0.
 
-- Start a project, generate and format templates, inspect configuration, and run
-  the development loop through the [CLI](./cli.md) — a Go binary, with an
-  optional Vite front door for front-end assets.
-- Build typed components whose authored parameters are their Go signature,
-  including declared children, slots, control flow, pipelines, and attribute
-  forwarding.
-- Render escaped HTML, URLs, CSS, and JavaScript values, with explicit trust
-  boundaries where automatic encoding is not enough.
-- Use diagnostics, go-to-definition, hover, references, symbols, formatting,
-  and completion through the [language server](./editor.md). Completion
-  analysis runs in about 140µs warm per request.
+## Shipped surfaces
 
-## Current limits
+### Language and rendering
 
-- Find-references covers project components, not external or non-project
-  references.
-- Composable `style={...}` works on elements, but not on component invocations;
-  pass a static style or compose it inside the component instead.
-- Class composition accepts individual string contributions, but not a
-  `[]string` as one class part.
+[Typed authored signatures](./syntax/props.md), [components, children, and
+slots](./syntax/composition.md), [control flow](./syntax/control-flow.md),
+[pipelines](./syntax/pipelines.md), and [attribute forwarding](./syntax/composition.md)
+are available. Rendering has [contextual escaping and explicit trust
+boundaries](./syntax/escaping.md).
+
+### Toolchain
+
+The [CLI](./cli.md) provides init, generate, format, and info commands, plus the
+[development loop](./dev-loop.md). Vite is an optional front door.
+
+### Editor support
+
+The [language server](./editor.md) provides diagnostics, navigation, references,
+symbols, formatting, code actions, completion, completion documentation, and
+auto-imports.
+
+## Durable boundaries
+
+- Generation produces `.x.go` files that are compiled with the application.
+- Find-references is project-scoped and excludes external package references.
+- Pre-1.0 releases may require source migrations.
 
 ## Roadmap
 
 See [Roadmap & Status](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md)
-for planned work and detailed engineering progress.
+for changing engineering details and planned work.
