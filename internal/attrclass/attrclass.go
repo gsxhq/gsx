@@ -124,9 +124,9 @@ func lowerSorted(vals []string, drop func(string) bool) []string {
 // nothing anywhere else. Only URL is tag-scopable — a JS or CSS attribute's
 // meaning does not turn on its element.
 type Rules struct {
-	JS      RuleSet            `json:"js,omitempty"`
-	URL     RuleSet            `json:"url,omitempty"`
-	CSS     RuleSet            `json:"css,omitempty"`
+	JS      RuleSet            `json:"js,omitzero"`
+	URL     RuleSet            `json:"url,omitzero"`
+	CSS     RuleSet            `json:"css,omitzero"`
 	URLTags map[string]RuleSet `json:"urlTags,omitempty"`
 }
 

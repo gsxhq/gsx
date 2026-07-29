@@ -308,3 +308,27 @@ func TestBuildManifestReportsURLRulesOnly(t *testing.T) {
 		t.Fatalf("manifest should include URL user rules: %s", got)
 	}
 }
+
+func TestBuildManifestOmitsEmptyURLRules(t *testing.T) {
+	t.Parallel()
+	data, err := json.Marshal(buildManifest(
+		"example.com/app",
+		attrclass.New(attrclass.Rules{}),
+		nil,
+		MinifyNone,
+		MinifyNone,
+		80,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		UserRules map[string]json.RawMessage `json:"userRules"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.UserRules) != 0 {
+		t.Fatalf("manifest userRules = %s, want an empty object", decoded.UserRules)
+	}
+}

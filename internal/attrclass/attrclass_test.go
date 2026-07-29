@@ -1,6 +1,7 @@
 package attrclass
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -190,6 +191,18 @@ func TestRuleSetValidRejectsEmptyEntry(t *testing.T) {
 	}
 	if err := (RuleSet{Names: []string{"ok"}}).Valid(); err != nil {
 		t.Errorf("valid set rejected: %v", err)
+	}
+}
+
+func TestRulesJSONOmitsEmptyRuleSets(t *testing.T) {
+	data, err := json.Marshal(Rules{
+		URL: RuleSet{Names: []string{"data-href"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), `{"url":{"names":["data-href"]}}`; got != want {
+		t.Fatalf("Rules JSON = %s, want %s", got, want)
 	}
 }
 

@@ -29,7 +29,7 @@ type manifest struct {
 }
 
 type manifestRules struct {
-	URL     attrclass.RuleSet            `json:"url,omitempty"`
+	URL     attrclass.RuleSet            `json:"url,omitzero"`
 	URLTags map[string]attrclass.RuleSet `json:"urlTags,omitempty"`
 }
 
