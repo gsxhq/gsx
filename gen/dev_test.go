@@ -326,9 +326,11 @@ const devTestMainGo = `package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -338,8 +340,22 @@ func main() {
 	if port == "" {
 		port = "7777"
 	}
+	// Bind BEFORE announcing, and never swallow the error. PORT_FILE has to
+	// mean "I am listening here": a caller that waits on the file and then
+	// polls /healthz would otherwise sit through its whole timeout on a bind
+	// that failed, and report a health timeout for what was really an
+	// address-in-use. That matters most on a developer machine where 7777 and
+	// its neighbours are often taken.
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "scaffold: listen on :%s: %v\n", port, err)
+		os.Exit(1)
+	}
+	// The port actually bound, which differs from the requested one when the
+	// caller asks for :0.
+	bound := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 	if pf := os.Getenv("PORT_FILE"); pf != "" {
-		_ = os.WriteFile(pf, []byte(port), 0o644)
+		_ = os.WriteFile(pf, []byte(bound), 0o644)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/pid", func(w http.ResponseWriter, _ *http.Request) {
@@ -348,8 +364,8 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	srv := &http.Server{Addr: ":" + port, Handler: mux}
-	go func() { _ = srv.ListenAndServe() }()
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -371,6 +387,7 @@ const devTestMainGoADDR = `package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -383,6 +400,13 @@ func main() {
 	if addr == "" {
 		addr = ":7777"
 	}
+	// Bind before serving so an address-in-use is a loud, immediate exit
+	// rather than a silent process the caller waits on until timeout.
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "scaffold: listen on %s: %v\n", addr, err)
+		os.Exit(1)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/pid", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "%d", os.Getpid())
@@ -390,8 +414,8 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	srv := &http.Server{Addr: addr, Handler: mux}
-	go func() { _ = srv.ListenAndServe() }()
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -704,10 +728,39 @@ func devTestEnvNoGoPort(extra ...string) []string {
 	return append(env, extra...)
 }
 
+// skipIfPortRaceLost distinguishes the one failure this test cannot own from a
+// real regression: gsx dev probes a port free and the CHILD binds it, so a
+// third party can take it in between. That window is a documented, accepted
+// limitation of probe-then-bind, and a developer machine running several dev
+// servers hits it far more often than CI does.
+//
+// The scaffold reports the bind failure and exits non-zero (see devTestMainGo),
+// which is what makes this distinguishable at all — before that it looked
+// identical to a health timeout. On CI, where the port landscape is ours, a lost
+// race is still a failure worth seeing.
+func skipIfPortRaceLost(t *testing.T, project int, port, output string) {
+	t.Helper()
+	if !strings.Contains(output, "scaffold: listen on") {
+		return // not a bind failure — a real health timeout, let it fail
+	}
+	if os.Getenv("CI") != "" {
+		return
+	}
+	t.Skipf("project %d lost the probe-then-bind race for port %s to another local "+
+		"process; this is the accepted probe-then-bind window, not a regression. "+
+		"Runs on CI, where the port landscape is ours.\noutput:\n%s", project, port, output)
+}
+
 // TestDevTwoProjectsPickDistinctGoPorts is the reported bug: with GO_PORT
 // unset, two gsx dev loops must not fight over 7777. Each scaffold server
 // writes the port it actually bound to PORT_FILE, so this asserts the injected
 // GO_PORT reached the child, not just that gsx dev picked something.
+//
+// It deliberately does NOT pin GO_PORT (that is the behaviour under test), so
+// it is the one dev test exposed to whatever else holds 7777 locally. The
+// scaffold binds before announcing its port, so an occupied 7777 simply pushes
+// selection upward and the test still passes; only losing the probe-then-bind
+// race is unownable, and skipIfPortRaceLost handles that.
 func TestDevTwoProjectsPickDistinctGoPorts(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test: requires building gsx and two live Go servers")
@@ -771,6 +824,7 @@ func TestDevTwoProjectsPickDistinctGoPorts(t *testing.T) {
 		}
 		ports[i] = string(b)
 		if !waitHealthy(context.Background(), "http://localhost:"+ports[i]+"/healthz", 60*time.Second) {
+			skipIfPortRaceLost(t, i, ports[i], stdout.String())
 			t.Fatalf("project %d server on port %s never became healthy; output:\n%s", i, ports[i], stdout.String())
 		}
 	}
