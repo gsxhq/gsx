@@ -200,10 +200,23 @@ func (a Attrs) WithoutFunc(drop func(key string) bool) Attrs {
 	return out
 }
 
+// URLSuffixMatch reports whether key (Unicode-lowercased) ends with any of the
+// suffixes, which must already be lowercase. It serves the `*-url` naming
+// convention, which a prefix rule cannot express.
+func URLSuffixMatch(key string, suffixes []string) bool {
+	lk := strings.ToLower(key)
+	for _, sfx := range suffixes {
+		if strings.HasSuffix(lk, sfx) {
+			return true
+		}
+	}
+	return false
+}
+
 // URLPrefixMatch reports whether key (Unicode-lowercased) begins with any of the
-// prefixes, which must already be lowercase. It is the single source of truth
-// for URL prefix-rule matching, used by Spread to route a prefix-matched
-// bag key through the strict navigational URL sink.
+// prefixes, which must already be lowercase. See URLSuffixMatch for the
+// end-anchored form; both route a matched bag key through the strict
+// navigational URL sink.
 func URLPrefixMatch(key string, prefixes []string) bool {
 	lk := strings.ToLower(key)
 	for _, p := range prefixes {

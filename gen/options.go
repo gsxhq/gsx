@@ -314,10 +314,36 @@ func (cfg *config) appendFilterPkg(path string) {
 	}
 }
 
-// WithURLAttrs registers additional URL-context attribute rules.
-func WithURLAttrs(rules ...Rule) Option {
+// WithURLAttrs registers additional URL-context attribute rules that apply to
+// every element. Use WithURLAttrsOn to scope them to one.
+func WithURLAttrs(rules RuleSet) Option {
 	return func(cfg *config) {
-		cfg.urlRules = appendValidRules(cfg, "WithURLAttrs", cfg.urlRules, rules)
+		if err := rules.Valid(); err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithURLAttrs: %w", err))
+			return
+		}
+		cfg.urlRules = cfg.urlRules.Merge(rules)
+	}
+}
+
+// WithURLAttrsOn registers URL-context attribute rules that apply only on the
+// named element — the same shape the built-in floor uses for `content` on
+// <meta>, where a name carries a URL on one element and nothing anywhere else.
+func WithURLAttrsOn(tag string, rules RuleSet) Option {
+	return func(cfg *config) {
+		if strings.TrimSpace(tag) == "" {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithURLAttrsOn: empty element name"))
+			return
+		}
+		if err := rules.Valid(); err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithURLAttrsOn(%q): %w", tag, err))
+			return
+		}
+		lt := strings.ToLower(tag)
+		if cfg.urlTagRules == nil {
+			cfg.urlTagRules = map[string]attrclass.RuleSet{}
+		}
+		cfg.urlTagRules[lt] = cfg.urlTagRules[lt].Merge(rules)
 	}
 }
 
@@ -335,7 +361,7 @@ func WithURLPreset(names ...string) Option {
 				cfg.errs = append(cfg.errs, fmt.Errorf("WithURLPreset: unknown preset %q (known: %s)", name, strings.Join(attrclass.PresetNames(), ", ")))
 				continue
 			}
-			cfg.urlRules = append(cfg.urlRules, rules.URL...)
+			cfg.urlRules = cfg.urlRules.Merge(rules.URL)
 			cfg.urlPresets = append(cfg.urlPresets, name)
 		}
 	}
@@ -363,17 +389,4 @@ func WithSerialization(s Serialization) Option {
 		cfg.serialization = s
 		cfg.serializationSet = true
 	}
-}
-
-// appendValidRules validates each rule in add, recording errors for invalid
-// rules onto cfg.errs, and appends the valid ones to dst.
-func appendValidRules(cfg *config, who string, dst, add []Rule) []Rule {
-	for i, r := range add {
-		if err := r.Valid(); err != nil {
-			cfg.errs = append(cfg.errs, fmt.Errorf("%s: rule %d: %w", who, i, err))
-			continue
-		}
-		dst = append(dst, r)
-	}
-	return dst
 }

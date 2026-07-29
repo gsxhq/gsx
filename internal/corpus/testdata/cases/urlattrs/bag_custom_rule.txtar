@@ -1,9 +1,9 @@
-# Bag hardening Part A: a project [[url_attrs]] exact-name rule (data-href) makes
+# Bag hardening Part A: a project [url_attrs] names rule (data-href) makes
 # that name URL-classified, so a value carried by an ordinary struct prop is
 # extracted and sanitized at the leaf just like a built-in URL attribute.
 -- gsx.toml --
-[[url_attrs]]
-name = "data-href"
+[url_attrs]
+names = ["data-href"]
 -- input.gsx --
 package views
 

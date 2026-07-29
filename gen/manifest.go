@@ -8,7 +8,11 @@ import (
 
 // manifestSchemaVersion is bumped on incompatible manifest layout changes so a
 // reader can reject a manifest it does not understand.
-const manifestSchemaVersion = 3
+//
+// 4: userRules.url became a matcher object ({names, prefixes, suffixes}) rather
+// than a list of one-field rule objects, and userRules.urlTags was added for
+// element-scoped rules.
+const manifestSchemaVersion = 4
 
 // manifest is the resolved, build-independent projection of a project's gsx
 // configuration — the data `gsx info --json` emits. It is computed on demand
@@ -25,7 +29,8 @@ type manifest struct {
 }
 
 type manifestRules struct {
-	URL []attrclass.Rule `json:"url,omitempty"`
+	URL     attrclass.RuleSet            `json:"url,omitempty"`
+	URLTags map[string]attrclass.RuleSet `json:"urlTags,omitempty"`
 }
 
 type manifestMinify struct {
@@ -69,7 +74,7 @@ func buildManifest(modPath string, cls *attrclass.Classifier, filters []manifest
 	return manifest{
 		SchemaVersion: manifestSchemaVersion,
 		Module:        modPath,
-		UserRules:     manifestRules{URL: cls.Rules().URL},
+		UserRules:     manifestRules{URL: cls.Rules().URL, URLTags: cls.Rules().URLTags},
 		Filters:       filters,
 		Minify:        manifestMinify{CSS: cssMinLevel.String(), JS: jsMinLevel.String()},
 		Formatter:     manifestFmt{PrintWidth: printWidth},

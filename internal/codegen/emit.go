@@ -3186,14 +3186,19 @@ func goStringSliceLit(names []string) string {
 // here, the floor cannot be forgotten by a codegen bug, and adding a sink later
 // changes only the elements that use it (issue #171).
 func emitSpreadCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier, excludedExpr string) {
+	// Project rules are always strict-navigational — a rule never earns the
+	// image-sink allowance, which stays keyed to the built-in element table.
+	// UserURLRules has already resolved this element's tag scope, so nothing
+	// tag-dependent survives into the emitted value.
+	rules := cls.UserURLRules(tag)
 	var fields []string
-	if names := cls.UserURLExactNames(); len(names) > 0 {
-		// Project rules are always strict-navigational — a rule never earns the
-		// image-sink allowance, which stays keyed to the built-in element table.
-		fields = append(fields, "Nav: "+goStringSliceLit(names))
-	}
-	if prefixes := cls.URLPrefixes(); len(prefixes) > 0 {
-		fields = append(fields, "Prefixes: "+goStringSliceLit(prefixes))
+	for _, f := range []struct {
+		name string
+		vals []string
+	}{{"Nav", rules.Names}, {"Prefixes", rules.Prefixes}, {"Suffixes", rules.Suffixes}} {
+		if len(f.vals) > 0 {
+			fields = append(fields, f.name+": "+goStringSliceLit(f.vals))
+		}
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, _gsxrt.AttrSinks{%s}, %s)\n",
 		strconv.Quote(tag), expr, strings.Join(fields, ", "), excludedExpr)

@@ -4,23 +4,32 @@ import "testing"
 
 func TestAttrTypesPublicFacadeCompiles(t *testing.T) {
 	t.Parallel()
-	// Construct rules using only gen.Rule — no attrclass import.
+	// Construct rules using only gen.RuleSet — no attrclass import.
 	var cfg config
-	WithURLAttrs(Rule{Name: "data-href"})(&cfg)
+	WithURLAttrs(RuleSet{Names: []string{"data-href"}, Suffixes: []string{"-url"}})(&cfg)
+	WithURLAttrsOn("img", RuleSet{Names: []string{"data-src"}})(&cfg)
 
 	if len(cfg.errs) != 0 {
 		t.Fatalf("unexpected errs: %v", cfg.errs)
 	}
-
-	cls := cfg.classifier()
-
-	if got := len(cfg.urlRules); got != 1 {
-		t.Fatalf("urlRules len = %d, want 1", got)
+	if got, want := cfg.urlRules.Names, []string{"data-href"}; len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("urlRules.Names = %v, want %v", got, want)
 	}
-	if cfg.urlRules[0].Name != "data-href" {
-		t.Fatalf("urlRules[0] = %+v, want data-href name rule", cfg.urlRules[0])
+	if got := cfg.urlTagRules["img"].Names; len(got) != 1 || got[0] != "data-src" {
+		t.Fatalf("urlTagRules[img].Names = %v, want [data-src]", got)
 	}
-	if cls == nil {
+	if cfg.classifier() == nil {
 		t.Fatal("classifier is nil")
+	}
+}
+
+// An empty matcher would classify every attribute; the option records it as a
+// config error rather than silently installing it.
+func TestWithURLAttrsRejectsEmptyEntry(t *testing.T) {
+	t.Parallel()
+	var cfg config
+	WithURLAttrs(RuleSet{Names: []string{""}})(&cfg)
+	if len(cfg.errs) == 0 {
+		t.Fatal("empty name should be a config error")
 	}
 }

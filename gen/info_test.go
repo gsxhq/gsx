@@ -276,9 +276,9 @@ func TestRunInfo_MinifyAndEnv(t *testing.T) {
 func TestBuildManifestReportsURLRulesOnly(t *testing.T) {
 	t.Parallel()
 	cls := attrclass.New(attrclass.Rules{
-		JS:  []attrclass.Rule{{Prefix: "wire:"}},
-		URL: []attrclass.Rule{{Name: "data-href"}},
-		CSS: []attrclass.Rule{{Name: "data-style"}},
+		JS:  attrclass.RuleSet{Prefixes: []string{"wire:"}},
+		URL: attrclass.RuleSet{Names: []string{"data-href"}},
+		CSS: attrclass.RuleSet{Names: []string{"data-style"}},
 	})
 
 	data, err := json.Marshal(buildManifest("example.com/app", cls, nil, MinifyNone, MinifyNone, 80))

@@ -49,8 +49,9 @@ type config struct {
 	jsMin          func(string) (string, error)
 	cssFmt         rawfmt.Formatter
 	jsFmt          rawfmt.Formatter
-	urlRules       []attrclass.Rule
-	urlPresets     []string // names of enabled url-attribute presets (e.g. "htmx"); retained ALONGSIDE their expansion into urlRules so the LSP can tell which presets are on
+	urlRules       attrclass.RuleSet
+	urlTagRules    map[string]attrclass.RuleSet // url rules scoped to one element
+	urlPresets     []string                     // names of enabled url-attribute presets (e.g. "htmx"); retained ALONGSIDE their expansion into urlRules so the LSP can tell which presets are on
 	errs           []error
 	printWidth     int                     // gsx.toml [formatter] print_width; 0 means "unset" → pretty.DefaultPrintWidth at use
 	tabWidth       int                     // gsx.toml [formatter] tab_width; 0 means "unset" → pretty.DefaultTabWidth at use
@@ -128,7 +129,7 @@ func (c config) effectiveJSONMin() func(string) (string, error) {
 // classifier builds the resolved Classifier from the accumulated options. A
 // config with no attr options yields a built-ins-only Classifier.
 func (cfg *config) classifier() *attrclass.Classifier {
-	return attrclass.New(attrclass.Rules{URL: cfg.urlRules})
+	return attrclass.New(attrclass.Rules{URL: cfg.urlRules, URLTags: cfg.urlTagRules})
 }
 
 // Main is the gsx process entry point: it builds a config from opts (currently

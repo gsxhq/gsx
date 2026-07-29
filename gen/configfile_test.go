@@ -37,8 +37,8 @@ filter_packages = ["github.com/gsxhq/gsx/std", "example.com/myfilters"]
 url    = "github.com/jackielii/structpages.URLFor"
 id     = "github.com/jackielii/structpages.ID"
 
-[[url_attrs]]
-name = "data-href"
+[url_attrs]
+names = ["data-href"]
 `)
 	cfg, err := loadConfig(path)
 	if err != nil {
@@ -57,7 +57,7 @@ name = "data-href"
 	if cfg.aliases[1].Name != "url" || cfg.aliases[1].FuncName != "URLFor" {
 		t.Fatalf("alias[1] = %+v", cfg.aliases[1])
 	}
-	if len(cfg.urlRules) != 1 || cfg.urlRules[0].Name != "data-href" {
+	if got := cfg.urlRules.Names; len(got) != 1 || got[0] != "data-href" {
 		t.Fatalf("urlRules = %+v", cfg.urlRules)
 	}
 }
@@ -241,28 +241,52 @@ func TestLoadConfigRejectsCSSAttrs(t *testing.T) {
 	}
 }
 
-// TestLoadConfigBothNamePrefix proves a rule with both name+prefix is rejected.
-func TestLoadConfigBothNamePrefix(t *testing.T) {
+// TestLoadConfigEmptyMatcher proves an empty matcher entry is rejected — it
+// would classify every attribute as a URL rather than doing nothing.
+func TestLoadConfigEmptyMatcher(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, path, "[[url_attrs]]\nname = \"a\"\nprefix = \"b\"\n")
+	mkfile(t, path, "[url_attrs]\nnames = [\"\"]\n")
 	_, err := loadConfig(path)
 	if err == nil {
-		t.Fatal("expected error for both name+prefix")
+		t.Fatal("expected error for an empty name entry")
 	}
 	if !strings.Contains(err.Error(), "url_attrs") {
 		t.Fatalf("error should name the rule table; got: %v", err)
 	}
 }
 
+// TestLoadConfigTagScopedRule proves [url_attrs.tags.<element>] classifies a
+// name on that element only.
+func TestLoadConfigTagScopedRule(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "gsx.toml")
+	mkfile(t, path, "[url_attrs]\nsuffixes = [\"-url\"]\n\n[url_attrs.tags.img]\nnames = [\"data-src\"]\n")
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cls := cfg.classifier()
+	if cls.Context("img", "data-src") != attrclass.CtxURL {
+		t.Error("tag-scoped rule should classify data-src on <img>")
+	}
+	if cls.Context("div", "data-src") != attrclass.CtxPlain {
+		t.Error("tag-scoped rule must not leak to other elements")
+	}
+	if cls.Context("div", "data-cancel-url") != attrclass.CtxURL {
+		t.Error("suffix rule should classify *-url on any element")
+	}
+}
+
 // TestLoadConfigURLPreset proves url_presets = ["htmx"] resolves the preset's
-// URL rules into the classifier, additively with [[url_attrs]].
+// URL rules into the classifier, additively with [url_attrs].
 func TestLoadConfigURLPreset(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, path, "url_presets = [\"htmx\"]\n\n[[url_attrs]]\nname = \"data-href\"\n")
+	mkfile(t, path, "url_presets = [\"htmx\"]\n\n[url_attrs]\nnames = [\"data-href\"]\n")
 	cfg, err := loadConfig(path)
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
@@ -272,7 +296,7 @@ func TestLoadConfigURLPreset(t *testing.T) {
 		t.Error("htmx preset should classify hx-get as URL")
 	}
 	if cls.Context("div", "data-href") != attrclass.CtxURL {
-		t.Error("[[url_attrs]] rule should still apply alongside the preset")
+		t.Error("[url_attrs] rule should still apply alongside the preset")
 	}
 	if cls.Context("div", "hx-target") != attrclass.CtxPlain {
 		t.Error("hx-target must stay plain (not covered by the htmx preset)")

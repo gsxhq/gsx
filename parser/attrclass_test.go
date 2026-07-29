@@ -32,7 +32,7 @@ func parseAttrType(t *testing.T, src string, cls *attrclass.Classifier) ast.Attr
 }
 
 func TestCustomJSRuleDoesNotSplitQuotedAttr(t *testing.T) {
-	cls := attrclass.New(attrclass.Rules{JS: []attrclass.Rule{{Prefix: "wire:"}}})
+	cls := attrclass.New(attrclass.Rules{JS: attrclass.RuleSet{Prefixes: []string{"wire:"}}})
 	got := parseAttrType(t, `<div wire:click="@{action}"></div>`, cls)
 	if a, ok := got.(*ast.StaticAttr); !ok || a.Value != "@{action}" {
 		t.Fatalf("custom JS rule should not split quoted attr, got %#v", got)

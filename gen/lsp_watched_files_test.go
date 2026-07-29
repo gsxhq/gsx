@@ -150,7 +150,7 @@ func TestLSPRefreshDiskConfigEventUsesExactOpenConfigProvenance(t *testing.T) {
 	firstPath := filepath.Join(root, "first", "first.gsx")
 	secondPath := filepath.Join(root, "second", "second.gsx")
 	rootConfig := filepath.Join(root, "gsx.toml")
-	if err := os.WriteFile(rootConfig, []byte("[[url_attrs]]\nname = \"href\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(rootConfig, []byte("[url_attrs]\nnames = [\"href\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	a := newLSPAnalyzer(config{}, nil)
@@ -164,7 +164,7 @@ func TestLSPRefreshDiskConfigEventUsesExactOpenConfigProvenance(t *testing.T) {
 		}
 	}
 	firstConfig := filepath.Join(root, "first", "gsx.toml")
-	if err := os.WriteFile(firstConfig, []byte("[[url_attrs]]\nname = \"hx-get\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(firstConfig, []byte("[url_attrs]\nnames = [\"hx-get\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	affected, err := a.RefreshDisk([]string{firstConfig})
@@ -241,7 +241,7 @@ func TestLSPRefreshDiskReopenCannotReuseRetainedStaleUniverse(t *testing.T) {
 		}
 		oldModule := lspModuleForRoot(a, root)
 		configPath := filepath.Join(root, "gsx.toml")
-		if err := os.WriteFile(configPath, []byte("[[url_attrs]]\nname = \"hx-get\"\n"), 0o644); err != nil {
+		if err := os.WriteFile(configPath, []byte("[url_attrs]\nnames = [\"hx-get\"]\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if affected, err := a.RefreshDisk([]string{configPath}); err != nil || affected != nil {

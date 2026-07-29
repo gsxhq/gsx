@@ -879,7 +879,7 @@ vocabulary remains a design aspiration, not the current API.
 8. [x] **Bag hardening - resolve everything at the leaf** (2026-07-10). Three
    parts, per `2026-07-10-bag-spread-hardening-design.md`: **(A) URL
    sanitization at the leaf** - every forwarding element now emits a
-   `Get`-extraction block for each `[[url_attrs]]`-classified name (built-ins +
+   `Get`-extraction block for each `[url_attrs]`-classified name (built-ins +
    `gsx.toml` rules + `gen.WithURLAttrs`, resolved at generate time),
    case-insensitively (`GetFold`/`WithoutFold`, so a smuggled `HREF` cannot
    bypass the check and is normalized to lowercase on output), through the

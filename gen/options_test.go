@@ -14,7 +14,7 @@ import (
 func TestWithURLAttrsOnly(t *testing.T) {
 	t.Parallel()
 	var cfg config
-	WithURLAttrs(attrclass.Rule{Name: "data-href"})(&cfg)
+	WithURLAttrs(attrclass.RuleSet{Names: []string{"data-href"}})(&cfg)
 	if len(cfg.errs) != 0 {
 		t.Fatalf("unexpected errs: %v", cfg.errs)
 	}
@@ -30,7 +30,7 @@ func TestWithURLAttrsOnly(t *testing.T) {
 func TestWithURLAttrsRejectsInvalidRule(t *testing.T) {
 	t.Parallel()
 	var cfg config
-	WithURLAttrs(attrclass.Rule{Name: "x", Prefix: "y"})(&cfg) // both set
+	WithURLAttrs(attrclass.RuleSet{Names: []string{""}})(&cfg) // empty matcher
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for a rule with both Name and Prefix set")
 	}
@@ -63,8 +63,8 @@ func TestWithURLPresetUnknownRecorded(t *testing.T) {
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for an unknown preset name")
 	}
-	if len(cfg.urlRules) != 0 {
-		t.Fatalf("unknown preset must add no rules, got %v", cfg.urlRules)
+	if !cfg.urlRules.Empty() {
+		t.Fatalf("unknown preset must add no rules, got %+v", cfg.urlRules)
 	}
 }
 

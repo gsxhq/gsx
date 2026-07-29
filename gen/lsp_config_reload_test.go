@@ -59,7 +59,7 @@ func TestLSPSemanticConfigIdentityTracksOnlyEffectiveModuleSemantics(t *testing.
 	}
 
 	classifierChanged := base
-	classifierChanged.urlRules = []attrclass.Rule{{Name: "hx-get"}}
+	classifierChanged.urlRules = attrclass.RuleSet{Names: []string{"hx-get"}}
 	if got := lspSemanticConfigIdentity(classifierChanged); got == baseID {
 		t.Fatal("classifier rule change did not change Module semantic identity")
 	}

@@ -40,9 +40,9 @@ func TestBuiltinParity(t *testing.T) {
 
 func TestUserRulesAdditive(t *testing.T) {
 	c := New(Rules{
-		JS:  []Rule{{Prefix: "wire:"}, {Prefix: "v-on:"}},
-		URL: []Rule{{Name: "data-href"}},
-		CSS: []Rule{{Name: "data-style"}},
+		JS:  RuleSet{Prefixes: []string{"wire:", "v-on:"}},
+		URL: RuleSet{Names: []string{"data-href"}},
+		CSS: RuleSet{Names: []string{"data-style"}},
 	})
 	checks := map[string]Context{
 		"wire:click": CtxJS, "v-on:click": CtxJS,
@@ -59,30 +59,35 @@ func TestUserRulesAdditive(t *testing.T) {
 	}
 }
 
-func TestRuleValid(t *testing.T) {
-	if err := (Rule{Name: "x"}).Valid(); err != nil {
-		t.Errorf("name-only rule should be valid: %v", err)
-	}
-	if err := (Rule{Prefix: "x:"}).Valid(); err != nil {
-		t.Errorf("prefix-only rule should be valid: %v", err)
-	}
-	if (Rule{Name: "x", Prefix: "y"}).Valid() == nil {
-		t.Error("both Name and Prefix set should be invalid")
-	}
-	if (Rule{}).Valid() == nil {
-		t.Error("empty rule should be invalid")
-	}
-}
-
 func TestFingerprintStable(t *testing.T) {
-	a := New(Rules{JS: []Rule{{Prefix: "wire:"}}})
-	b := New(Rules{JS: []Rule{{Prefix: "wire:"}}})
+	a := New(Rules{JS: RuleSet{Prefixes: []string{"wire:"}}})
+	b := New(Rules{JS: RuleSet{Prefixes: []string{"wire:"}}})
 	if a.Fingerprint() != b.Fingerprint() {
 		t.Error("same rules must produce same fingerprint")
 	}
-	c := New(Rules{JS: []Rule{{Prefix: "other:"}}})
+	c := New(Rules{JS: RuleSet{Prefixes: []string{"other:"}}})
 	if a.Fingerprint() == c.Fingerprint() {
 		t.Error("different rules must produce different fingerprint")
+	}
+
+	// EVERY matcher must reach the hash — it feeds the codegen cache key, so a
+	// field the fingerprint cannot see would serve stale generated code after a
+	// config edit. This is the property the removed predicate escape hatch could
+	// not provide (a closure body is not hashable), and the reason rules are
+	// declarative data.
+	base := Rules{URL: RuleSet{Names: []string{"data-href"}}}
+	for name, changed := range map[string]Rules{
+		"names":    {URL: RuleSet{Names: []string{"data-other"}}},
+		"prefixes": {URL: RuleSet{Names: []string{"data-href"}, Prefixes: []string{"data-url-"}}},
+		"suffixes": {URL: RuleSet{Names: []string{"data-href"}, Suffixes: []string{"-url"}}},
+		"urlTags": {
+			URL:     RuleSet{Names: []string{"data-href"}},
+			URLTags: map[string]RuleSet{"img": {Names: []string{"data-src"}}},
+		},
+	} {
+		if New(base).Fingerprint() == New(changed).Fingerprint() {
+			t.Errorf("changing %s must change the fingerprint", name)
+		}
 	}
 }
 
@@ -94,10 +99,9 @@ func TestPreset(t *testing.T) {
 	if !ok {
 		t.Fatal(`Preset("htmx") not found`)
 	}
-	want := Rules{URL: []Rule{
-		{Name: "hx-get"}, {Name: "hx-post"}, {Name: "hx-put"},
-		{Name: "hx-delete"}, {Name: "hx-patch"},
-	}}
+	want := Rules{URL: RuleSet{Names: []string{
+		"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch",
+	}}}
 	if !reflect.DeepEqual(rules, want) {
 		t.Errorf(`Preset("htmx") = %+v, want %+v`, rules, want)
 	}
@@ -122,32 +126,70 @@ func TestPreset(t *testing.T) {
 	}
 }
 
-func TestUserURLExactNames(t *testing.T) {
+func TestUserURLRules(t *testing.T) {
 	// The built-in floor is NOT repeated here: it lives in the runtime
 	// (gsx.URLAttrSink) and Spread applies it itself, so generated code carries
 	// only the project's own delta.
-	if got := Builtin().UserURLExactNames(); len(got) != 0 {
-		t.Errorf("Builtin().UserURLExactNames() = %v, want empty", got)
+	if got := Builtin().UserURLRules("div"); !got.Empty() {
+		t.Errorf("Builtin().UserURLRules() = %+v, want empty", got)
 	}
-	if got := (*Classifier)(nil).UserURLExactNames(); len(got) != 0 {
-		t.Errorf("nil.UserURLExactNames() = %v, want empty", got)
-	}
-	if got := Builtin().URLPrefixes(); len(got) != 0 {
-		t.Errorf("Builtin().URLPrefixes() = %v, want empty", got)
+	if got := (*Classifier)(nil).UserURLRules("div"); !got.Empty() {
+		t.Errorf("nil.UserURLRules() = %+v, want empty", got)
 	}
 
-	c := New(Rules{URL: []Rule{
-		{Name: "Data-Href"}, // case-variant user exact rule → data-href
-		{Name: "HREF"},      // already in the floor → dropped, never doubled
-		{Name: "src"},       // ditto: a rule cannot demote <img src> off the image sink
-		{Prefix: "Data-URL-"},
-		{Prefix: "hx-"},
+	c := New(Rules{URL: RuleSet{
+		Names: []string{
+			"Data-Href", // case-variant user exact rule → data-href
+			"HREF",      // already in the floor → dropped, never doubled
+			"src",       // ditto: a rule cannot demote <img src> off the image sink
+		},
+		Prefixes: []string{"Data-URL-", "hx-"},
+		Suffixes: []string{"-URL"},
 	}})
-	if got, want := c.UserURLExactNames(), []string{"data-href"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("UserURLExactNames() = %v, want %v", got, want)
+	got := c.UserURLRules("div")
+	if want := []string{"data-href"}; !reflect.DeepEqual(got.Names, want) {
+		t.Errorf("UserURLRules().Names = %v, want %v", got.Names, want)
 	}
-	if got, want := c.URLPrefixes(), []string{"data-url-", "hx-"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("URLPrefixes() = %v, want %v", got, want)
+	if want := []string{"data-url-", "hx-"}; !reflect.DeepEqual(got.Prefixes, want) {
+		t.Errorf("UserURLRules().Prefixes = %v, want %v", got.Prefixes, want)
+	}
+	if want := []string{"-url"}; !reflect.DeepEqual(got.Suffixes, want) {
+		t.Errorf("UserURLRules().Suffixes = %v, want %v", got.Suffixes, want)
+	}
+}
+
+// A tag-scoped rule applies on its element and nowhere else, and merges with the
+// global set rather than replacing it. Codegen resolves this at generate time,
+// so the leaf never sees anything tag-dependent.
+func TestUserURLRulesTagScope(t *testing.T) {
+	c := New(Rules{
+		URL:     RuleSet{Names: []string{"data-href"}},
+		URLTags: map[string]RuleSet{"img": {Names: []string{"data-src"}}},
+	})
+	if got, want := c.UserURLRules("img").Names, []string{"data-href", "data-src"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("UserURLRules(img).Names = %v, want %v", got, want)
+	}
+	if got, want := c.UserURLRules("div").Names, []string{"data-href"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("UserURLRules(div).Names = %v, want %v", got, want)
+	}
+	// Context agrees with the delta.
+	if got := c.Context("img", "data-src"); got != CtxURL {
+		t.Errorf("Context(img, data-src) = %v, want CtxURL", got)
+	}
+	if got := c.Context("div", "data-src"); got != CtxPlain {
+		t.Errorf("Context(div, data-src) = %v, want CtxPlain", got)
+	}
+}
+
+// An empty matcher would classify every attribute, so it is a config error.
+func TestRuleSetValidRejectsEmptyEntry(t *testing.T) {
+	for _, set := range []RuleSet{{Names: []string{""}}, {Prefixes: []string{" "}}, {Suffixes: []string{""}}} {
+		if err := set.Valid(); err == nil {
+			t.Errorf("RuleSet%+v.Valid() = nil, want an error", set)
+		}
+	}
+	if err := (RuleSet{Names: []string{"ok"}}).Valid(); err != nil {
+		t.Errorf("valid set rejected: %v", err)
 	}
 }
 

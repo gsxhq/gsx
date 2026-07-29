@@ -35,7 +35,7 @@ type tomlConfig struct {
 	Filters        map[string]string `toml:"filters"`
 	FilterPackages []string          `toml:"filter_packages"`
 	Renderers      map[string]string `toml:"renderers"`
-	URLAttrs       []tomlRule        `toml:"url_attrs"`
+	URLAttrs       *tomlURLAttrs     `toml:"url_attrs"`
 	URLPresets     []string          `toml:"url_presets"`
 	Formatter      *tomlFormatter    `toml:"formatter"`
 	Minify         *tomlMinify       `toml:"minify"`
@@ -93,9 +93,104 @@ type tomlMinify struct {
 
 // tomlRule is one attribute-classification rule from an array-of-tables. Exactly
 // one of Name/Prefix must be set (validated against attrclass.Rule.Valid).
-type tomlRule struct {
-	Name   string `toml:"name"`
-	Prefix string `toml:"prefix"`
+// tomlURLAttrs is the [url_attrs] table: three name-matching arrays that apply
+// to every element, plus [url_attrs.tags.<element>] sub-tables scoping rules to
+// one element the way the built-in floor scopes `content` to <meta>.
+type tomlURLAttrs struct {
+	tomlRuleSet
+	Tags map[string]tomlRuleSet `toml:"tags"`
+}
+
+type tomlRuleSet struct {
+	Names    []string `toml:"names"`
+	Prefixes []string `toml:"prefixes"`
+	Suffixes []string `toml:"suffixes"`
+}
+
+// UnmarshalTOML decodes [url_attrs] by hand so a shape mistake produces OUR
+// message rather than the decoder's, which would name the internal Go type. The
+// common mistake is the retired array-of-tables form, so that one gets a
+// migration hint instead of a type error.
+func (u *tomlURLAttrs) UnmarshalTOML(v any) error {
+	table, ok := v.(map[string]any)
+	if !ok {
+		if _, wasArray := v.([]map[string]any); wasArray {
+			return fmt.Errorf("url_attrs is a table, not a list of tables; replace each [[url_attrs]] name/prefix entry with one [url_attrs] table:\n\n[url_attrs]\nnames    = [\"data-href\"]\nprefixes = [\"data-url-\"]\nsuffixes = [\"-url\"]")
+		}
+		return fmt.Errorf("url_attrs must be a table, got %T", v)
+	}
+	for key, raw := range table {
+		switch key {
+		case "names", "prefixes", "suffixes":
+			vals, err := tomlStringSlice(key, raw)
+			if err != nil {
+				return err
+			}
+			switch key {
+			case "names":
+				u.Names = vals
+			case "prefixes":
+				u.Prefixes = vals
+			case "suffixes":
+				u.Suffixes = vals
+			}
+		case "tags":
+			tags, ok := raw.(map[string]any)
+			if !ok {
+				return fmt.Errorf("url_attrs.tags must be a table of elements, got %T", raw)
+			}
+			u.Tags = map[string]tomlRuleSet{}
+			for tag, rawSet := range tags {
+				set, ok := rawSet.(map[string]any)
+				if !ok {
+					return fmt.Errorf("url_attrs.tags.%s must be a table, got %T", tag, rawSet)
+				}
+				var rs tomlRuleSet
+				for k, rv := range set {
+					vals, err := tomlStringSlice("url_attrs.tags."+tag+"."+k, rv)
+					if err != nil {
+						return err
+					}
+					switch k {
+					case "names":
+						rs.Names = vals
+					case "prefixes":
+						rs.Prefixes = vals
+					case "suffixes":
+						rs.Suffixes = vals
+					default:
+						return fmt.Errorf("url_attrs.tags.%s: unknown key %q (want names, prefixes or suffixes)", tag, k)
+					}
+				}
+				u.Tags[tag] = rs
+			}
+		default:
+			return fmt.Errorf("url_attrs: unknown key %q (want names, prefixes, suffixes or tags)", key)
+		}
+	}
+	return nil
+}
+
+// tomlStringSlice converts a decoded TOML value to []string, naming who on a
+// type mismatch.
+func tomlStringSlice(who string, raw any) ([]string, error) {
+	list, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a list of strings, got %T", who, raw)
+	}
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		str, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s must contain only strings, got %T", who, item)
+		}
+		out = append(out, str)
+	}
+	return out, nil
+}
+
+func (r tomlRuleSet) toRuleSet() attrclass.RuleSet {
+	return attrclass.RuleSet{Names: r.Names, Prefixes: r.Prefixes, Suffixes: r.Suffixes}
 }
 
 // discoverConfig walks UP from startDir and returns the full path of the FIRST
@@ -221,15 +316,31 @@ func loadConfig(path string) (config, error) {
 		cfg.classMerger = &codegen.ClassMergerRef{PkgPath: pkgPath, FuncName: funcName}
 	}
 
-	if cfg.urlRules, err = appendTomlRules(path, "url_attrs", cfg.urlRules, tc.URLAttrs); err != nil {
-		return config{}, err
+	if tc.URLAttrs != nil {
+		rules := attrclass.Rules{URL: tc.URLAttrs.toRuleSet()}
+		for tag, set := range tc.URLAttrs.Tags {
+			if rules.URLTags == nil {
+				rules.URLTags = map[string]attrclass.RuleSet{}
+			}
+			rules.URLTags[strings.ToLower(tag)] = set.toRuleSet()
+		}
+		if err := rules.Valid(); err != nil {
+			return config{}, fmt.Errorf("%s: %w", path, err)
+		}
+		cfg.urlRules = cfg.urlRules.Merge(rules.URL)
+		for tag, set := range rules.URLTags {
+			if cfg.urlTagRules == nil {
+				cfg.urlTagRules = map[string]attrclass.RuleSet{}
+			}
+			cfg.urlTagRules[tag] = cfg.urlTagRules[tag].Merge(set)
+		}
 	}
 	for _, name := range tc.URLPresets {
 		rules, ok := attrclass.Preset(name)
 		if !ok {
 			return config{}, fmt.Errorf("%s: url_presets: unknown preset %q (known: %s)", path, name, strings.Join(attrclass.PresetNames(), ", "))
 		}
-		cfg.urlRules = append(cfg.urlRules, rules.URL...)
+		cfg.urlRules = cfg.urlRules.Merge(rules.URL)
 		cfg.urlPresets = append(cfg.urlPresets, name)
 	}
 	if tc.Minify != nil {
@@ -266,19 +377,6 @@ func loadConfig(path string) (config, error) {
 	return cfg, nil
 }
 
-// appendTomlRules converts and validates a slice of tomlRule into attrclass.Rule,
-// returning an error (naming the path + table + index) on the first invalid rule.
-func appendTomlRules(path, who string, dst []attrclass.Rule, add []tomlRule) ([]attrclass.Rule, error) {
-	for i, r := range add {
-		rule := attrclass.Rule{Name: r.Name, Prefix: r.Prefix}
-		if err := rule.Valid(); err != nil {
-			return nil, fmt.Errorf("%s: %s rule %d: %w", path, who, i, err)
-		}
-		dst = append(dst, rule)
-	}
-	return dst, nil
-}
-
 // mergeConfig merges a programmatic opts config ON TOP of a file-loaded base
 // config. The file base comes first; opts are appended after so they win under
 // the existing last-wins resolution: filterPkgs, aliases, and renderers are
@@ -302,7 +400,15 @@ func mergeConfig(base, opts config) config {
 	merged.renderers = append(merged.renderers, base.renderers...)
 	merged.renderers = append(merged.renderers, opts.renderers...)
 
-	merged.urlRules = append(append(merged.urlRules, base.urlRules...), opts.urlRules...)
+	merged.urlRules = base.urlRules.Merge(opts.urlRules)
+	for _, src := range []map[string]attrclass.RuleSet{base.urlTagRules, opts.urlTagRules} {
+		for tag, set := range src {
+			if merged.urlTagRules == nil {
+				merged.urlTagRules = map[string]attrclass.RuleSet{}
+			}
+			merged.urlTagRules[tag] = merged.urlTagRules[tag].Merge(set)
+		}
+	}
 	merged.urlPresets = append(append(merged.urlPresets, base.urlPresets...), opts.urlPresets...)
 
 	merged.cssMin = base.cssMin

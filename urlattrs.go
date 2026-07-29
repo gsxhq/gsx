@@ -8,9 +8,10 @@ import "github.com/gsxhq/gsx/internal/htmlattr"
 // from the table above — so a project that configures nothing passes the zero
 // value and generated code stays free of the built-in name list.
 //
-// Every field is a set of lowercase attribute names naming the sink they leave
-// through, except Prefixes, which are name PREFIXES and always take the strict
-// navigational sink (a user rule never gets the image-sink allowance).
+// Nav/Image/Srcset/Refresh are sets of lowercase attribute names naming the sink
+// they leave through. Prefixes and Suffixes match a name's start or end instead,
+// and always take the strict navigational sink (a project rule never earns the
+// image-sink allowance).
 //
 // The zero value adds nothing to the floor. A new sink is a new field: existing
 // generated code, which writes only the fields it needs, keeps compiling and
@@ -21,6 +22,7 @@ type AttrSinks struct {
 	Srcset   []string // → SrcsetVal
 	Refresh  []string // → RefreshContentVal
 	Prefixes []string // name prefixes → URLVal (strict)
+	Suffixes []string // name suffixes → URLVal (strict)
 }
 
 // sinkFor returns the sink for key on tag: the built-in floor first (it is the
@@ -37,7 +39,8 @@ func (s AttrSinks) sinkFor(tag, key string) htmlattr.URLSink {
 		return htmlattr.SinkSrcset
 	case attrNameExcluded(key, s.Refresh):
 		return htmlattr.SinkRefresh
-	case attrNameExcluded(key, s.Nav) || URLPrefixMatch(key, s.Prefixes):
+	case attrNameExcluded(key, s.Nav) ||
+		URLPrefixMatch(key, s.Prefixes) || URLSuffixMatch(key, s.Suffixes):
 		return htmlattr.SinkNav
 	}
 	return htmlattr.SinkNone

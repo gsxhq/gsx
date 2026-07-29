@@ -26,7 +26,7 @@ type caseDoc struct {
 	modulePath   string
 	classMerger  *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
 	filterPkgs   []string                // resolved import paths from gsx.toml filter_packages; "./x" entries resolve against the case import root
-	classifier   *attrclass.Classifier   // set when case has a gsx.toml with [[url_attrs]] rules
+	classifier   *attrclass.Classifier   // set when case has a gsx.toml with [url_attrs] rules
 	renderers    []codegen.RendererAlias // resolved from gsx.toml [renderers]; "./x" package parts (on either side) resolve against the case import root; sorted by TypeKey
 	verbatimTags *bool                   // set when case has a gsx.toml with serialization = "canonical" | "verbatim"; nil = inherit the corpus-wide default
 }
@@ -36,7 +36,7 @@ type caseDoc struct {
 type caseToml struct {
 	ClassMerger    string        `toml:"class_merger"`
 	FilterPackages []string      `toml:"filter_packages"`
-	URLAttrs       []caseURLRule `toml:"url_attrs"`
+	URLAttrs       *caseURLAttrs `toml:"url_attrs"`
 	URLPresets     []string      `toml:"url_presets"`
 	// Renderers maps a canonical type key ("[*]pkgPart.TypeName") to its
 	// renderer func ("pkgPart.FuncName"). A "./"-prefixed package part on
@@ -49,11 +49,21 @@ type caseToml struct {
 	Serialization string `toml:"serialization"`
 }
 
-// caseURLRule mirrors attrclass.Rule's toml shape for a case's [[url_attrs]]
-// entries: exactly one of Name/Prefix must be set (validated via Rule.Valid).
-type caseURLRule struct {
-	Name   string `toml:"name"`
-	Prefix string `toml:"prefix"`
+// caseURLAttrs mirrors gen's [url_attrs] table: matcher arrays that apply to
+// every element, plus [url_attrs.tags.<element>] scopes.
+type caseURLAttrs struct {
+	caseRuleSet
+	Tags map[string]caseRuleSet `toml:"tags"`
+}
+
+type caseRuleSet struct {
+	Names    []string `toml:"names"`
+	Prefixes []string `toml:"prefixes"`
+	Suffixes []string `toml:"suffixes"`
+}
+
+func (r caseRuleSet) toRuleSet() attrclass.RuleSet {
+	return attrclass.RuleSet{Names: r.Names, Prefixes: r.Prefixes, Suffixes: r.Suffixes}
 }
 
 var goldenSections = map[string]bool{
@@ -151,23 +161,28 @@ func loadCase(path string) (*caseDoc, error) {
 			slices.SortFunc(c.renderers, func(a, b codegen.RendererAlias) int {
 				return strings.Compare(a.TypeKey, b.TypeKey)
 			})
-			var rules []attrclass.Rule
-			for i, u := range tc.URLAttrs {
-				r := attrclass.Rule{Name: u.Name, Prefix: u.Prefix}
-				if err := r.Valid(); err != nil {
-					return nil, fmt.Errorf("gsx.toml: url_attrs[%d]: %w", i, err)
+			var rules attrclass.Rules
+			if tc.URLAttrs != nil {
+				rules.URL = tc.URLAttrs.toRuleSet()
+				for tag, set := range tc.URLAttrs.Tags {
+					if rules.URLTags == nil {
+						rules.URLTags = map[string]attrclass.RuleSet{}
+					}
+					rules.URLTags[strings.ToLower(tag)] = set.toRuleSet()
 				}
-				rules = append(rules, r)
 			}
 			for _, name := range tc.URLPresets {
 				pr, ok := attrclass.Preset(name)
 				if !ok {
 					return nil, fmt.Errorf("gsx.toml: url_presets: unknown preset %q", name)
 				}
-				rules = append(rules, pr.URL...)
+				rules.URL = rules.URL.Merge(pr.URL)
 			}
-			if len(rules) > 0 {
-				c.classifier = attrclass.New(attrclass.Rules{URL: rules})
+			if err := rules.Valid(); err != nil {
+				return nil, fmt.Errorf("gsx.toml: %w", err)
+			}
+			if !rules.URL.Empty() || len(rules.URLTags) > 0 {
+				c.classifier = attrclass.New(rules)
 			}
 			if tc.Serialization != "" {
 				switch tc.Serialization {

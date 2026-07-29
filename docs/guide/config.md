@@ -241,24 +241,39 @@ Project rules extend this set; they cannot downgrade a built-in URL attribute.
 See [Escaping](./syntax/escaping.md#url-attributes) for the allowed schemes and
 the different navigation, image, and source-set sinks.
 
-### Exact and prefix rules `[[url_attrs]]`
+### Project rules `[url_attrs]`
 
-Register a framework or project attribute that carries a URL:
+Register the framework or project attributes that carry a URL:
 
 ```toml
-[[url_attrs]]
-name = "v-bind:href"
-
-[[url_attrs]]
-prefix = "data-url-"
+[url_attrs]
+names    = ["v-bind:href", "wire:navigate"]
+prefixes = ["data-url-"]
+suffixes = ["-url"]
 ```
 
-Each rule sets exactly one field:
-
-| Field | Match |
+| Key | Match |
 |---|---|
-| `name` | Exact attribute name, case-insensitive. |
-| `prefix` | Attribute names beginning with the prefix, case-insensitive. |
+| `names` | Exact attribute name. |
+| `prefixes` | Names beginning with the string. |
+| `suffixes` | Names ending with the string — for a `*-url` convention. |
+
+All matching is case-insensitive, and the three are alternatives. An empty
+string is a configuration error rather than a rule matching everything.
+
+### Element-scoped rules `[url_attrs.tags.<element>]`
+
+Some names carry a URL on one element only — the way `content` does on
+`<meta http-equiv="refresh">`. Scope those to the element:
+
+```toml
+[url_attrs.tags.img]
+names = ["data-src"]
+```
+
+`data-src` is then sanitized on `<img>` and stays an ordinary attribute
+everywhere else. Scoped rules add to the unscoped ones rather than replacing
+them.
 
 ### Presets `url_presets` {#url_presets-named-opt-in-rulesets}
 

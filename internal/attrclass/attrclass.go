@@ -27,41 +27,129 @@ const (
 	CtxCSS
 )
 
-// Rule matches an attribute name by exact Name (case-insensitive) OR by Prefix.
-// Exactly one field is set; the other is empty (see Valid).
-type Rule struct {
-	Name   string `json:"name,omitempty"`
-	Prefix string `json:"prefix,omitempty"`
+// RuleSet matches attribute names three ways. Matching is case-insensitive
+// (HTML attribute names fold), and the three are checked in the order below;
+// they are alternatives, not a conjunction.
+//
+// Suffix exists because the convention it serves is real — a project that names
+// every link attribute `*-url` (data-cancel-url, data-submit-url) cannot express
+// that as a prefix.
+type RuleSet struct {
+	Names    []string `json:"names,omitempty"`
+	Prefixes []string `json:"prefixes,omitempty"`
+	Suffixes []string `json:"suffixes,omitempty"`
 }
 
-// Valid reports whether exactly one of Name/Prefix is set.
-func (r Rule) Valid() error {
-	switch {
-	case r.Name != "" && r.Prefix != "":
-		return fmt.Errorf("attrclass.Rule: set only one of Name/Prefix, got both (%q, %q)", r.Name, r.Prefix)
-	case r.Name == "" && r.Prefix == "":
-		return fmt.Errorf("attrclass.Rule: set exactly one of Name/Prefix, got neither")
-	default:
-		return nil
-	}
+// Empty reports whether the set matches nothing.
+func (r RuleSet) Empty() bool {
+	return len(r.Names) == 0 && len(r.Prefixes) == 0 && len(r.Suffixes) == 0
 }
 
-// matches reports whether the already-lowercased lname matches this rule.
-func (r Rule) matches(lname string) bool {
-	if r.Name != "" {
-		return lname == strings.ToLower(r.Name)
+// Valid rejects an entry that would match everything or nothing — an empty
+// string as a name, prefix or suffix. A caller's typo should be a config error,
+// not a rule that silently classifies every attribute as a URL.
+func (r RuleSet) Valid() error {
+	for _, group := range []struct {
+		field string
+		vals  []string
+	}{{"names", r.Names}, {"prefixes", r.Prefixes}, {"suffixes", r.Suffixes}} {
+		for _, v := range group.vals {
+			if strings.TrimSpace(v) == "" {
+				return fmt.Errorf("attrclass: %s contains an empty entry", group.field)
+			}
+		}
 	}
-	if r.Prefix != "" {
-		return strings.HasPrefix(lname, strings.ToLower(r.Prefix))
+	return nil
+}
+
+// matches reports whether the already-lowercased lname matches this set.
+func (r RuleSet) matches(lname string) bool {
+	for _, n := range r.Names {
+		if lname == strings.ToLower(n) {
+			return true
+		}
+	}
+	for _, p := range r.Prefixes {
+		if strings.HasPrefix(lname, strings.ToLower(p)) {
+			return true
+		}
+	}
+	for _, sfx := range r.Suffixes {
+		if strings.HasSuffix(lname, strings.ToLower(sfx)) {
+			return true
+		}
 	}
 	return false
 }
 
-// Rules groups user-supplied classification rules by context.
+// Merge returns the union of r and other, preserving r's entries first. Rules
+// are additive, so merging is how a preset, a config file and a programmatic
+// option compose over one another.
+func (r RuleSet) Merge(other RuleSet) RuleSet {
+	return RuleSet{
+		Names:    append(append([]string(nil), r.Names...), other.Names...),
+		Prefixes: append(append([]string(nil), r.Prefixes...), other.Prefixes...),
+		Suffixes: append(append([]string(nil), r.Suffixes...), other.Suffixes...),
+	}
+}
+
+// lowerSorted returns vals lowercased, deduplicated and sorted — the stable form
+// generated code embeds, minus anything drop reports as already covered.
+func lowerSorted(vals []string, drop func(string) bool) []string {
+	if len(vals) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(vals))
+	for _, v := range vals {
+		lv := strings.ToLower(v)
+		if drop != nil && drop(lv) {
+			continue
+		}
+		set[lv] = true
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for v := range set {
+		out = append(out, v)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Rules groups a project's classification rules by context. URLTags scopes URL
+// rules to ONE element, which is how a project expresses what the built-in floor
+// expresses for `content` on <meta>: a name that carries a URL on one element and
+// nothing anywhere else. Only URL is tag-scopable — a JS or CSS attribute's
+// meaning does not turn on its element.
 type Rules struct {
-	JS  []Rule `json:"js,omitempty"`
-	URL []Rule `json:"url,omitempty"`
-	CSS []Rule `json:"css,omitempty"`
+	JS      RuleSet            `json:"js,omitempty"`
+	URL     RuleSet            `json:"url,omitempty"`
+	CSS     RuleSet            `json:"css,omitempty"`
+	URLTags map[string]RuleSet `json:"urlTags,omitempty"`
+}
+
+// Valid checks every set, naming the context so a config error points at the
+// offending table.
+func (r Rules) Valid() error {
+	for _, group := range []struct {
+		ctx string
+		set RuleSet
+	}{{"url_attrs", r.URL}, {"js", r.JS}, {"css", r.CSS}} {
+		if err := group.set.Valid(); err != nil {
+			return fmt.Errorf("%s: %w", group.ctx, err)
+		}
+	}
+	for tag, set := range r.URLTags {
+		if strings.TrimSpace(tag) == "" {
+			return fmt.Errorf("url_attrs.tags: empty element name")
+		}
+		if err := set.Valid(); err != nil {
+			return fmt.Errorf("url_attrs.tags.%s: %w", tag, err)
+		}
+	}
+	return nil
 }
 
 // Classifier resolves an attribute name to a Context. Built-ins are the safety
@@ -104,21 +192,16 @@ func (c *Classifier) Context(tag, name string) Context {
 		return CtxPlain
 	}
 
-	// 2. User declarative rules.
-	for _, r := range c.rules.URL {
-		if r.matches(ln) {
-			return CtxURL
-		}
+	// 2. User declarative rules — the global sets, plus the URL rules this
+	// element scopes.
+	if c.rules.URL.matches(ln) || c.rules.URLTags[strings.ToLower(tag)].matches(ln) {
+		return CtxURL
 	}
-	for _, r := range c.rules.CSS {
-		if r.matches(ln) {
-			return CtxCSS
-		}
+	if c.rules.CSS.matches(ln) {
+		return CtxCSS
 	}
-	for _, r := range c.rules.JS {
-		if r.matches(ln) {
-			return CtxJS
-		}
+	if c.rules.JS.matches(ln) {
+		return CtxJS
 	}
 	return CtxPlain
 }
@@ -145,61 +228,26 @@ func (c *Classifier) Fingerprint() string {
 	return fmt.Sprintf("%x", sum[:])
 }
 
-// UserURLExactNames returns the project's own exact-Name URL rules — lowercased,
-// deduplicated, sorted, and EXCLUDING anything already in the built-in floor.
-// This is the delta codegen ships to the Spread leaf (gsx.AttrSinks); the floor
-// itself lives in the runtime (gsx.URLAttrSink), so it is applied there and is
-// never repeated in generated code. The deterministic sort keeps that output
-// stable.
+// UserURLRules returns the project's own URL rules as they apply to element
+// tag: the global set merged with that element's scoped set, lowercased,
+// deduplicated and sorted, with any name the built-in floor already claims
+// dropped. This is the delta codegen ships to the Spread leaf; the floor itself
+// lives in internal/htmlattr and is applied there, so it is never repeated in
+// generated code and a project rule can only ADD a name, never move one to a
+// laxer sink.
 //
-// A user rule can only ADD a name, never reclassify one: a rule naming a
-// built-in is dropped here because the floor already claims it, with the sink
-// the element dictates (an `src` rule cannot demote <img src> off the image
-// sink). This is the same additive-only guarantee Context provides.
-func (c *Classifier) UserURLExactNames() []string {
+// Resolving the tag scope HERE, at generate time, is why the leaf needs no
+// tag-matching machinery of its own: codegen knows the element.
+func (c *Classifier) UserURLRules(tag string) RuleSet {
 	if c == nil {
-		return nil
+		return RuleSet{}
 	}
-	set := make(map[string]bool, len(c.rules.URL))
-	for _, r := range c.rules.URL {
-		if r.Name == "" {
-			continue
-		}
-		ln := strings.ToLower(r.Name)
-		// "" asks only the element-independent floor, which is what "already
-		// built in on every element" means.
-		if htmlattr.BuiltinURL("", ln) {
-			continue
-		}
-		set[ln] = true
+	set := c.rules.URL.Merge(c.rules.URLTags[strings.ToLower(tag)])
+	return RuleSet{
+		Names:    lowerSorted(set.Names, func(n string) bool { return htmlattr.BuiltinURL(tag, n) }),
+		Prefixes: lowerSorted(set.Prefixes, nil),
+		Suffixes: lowerSorted(set.Suffixes, nil),
 	}
-	out := make([]string, 0, len(set))
-	for n := range set {
-		out = append(out, n)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// URLPrefixes returns the user's URL prefix rules, lowercased, deduplicated and
-// sorted. Prefix rules cannot be enumerated into Get blocks; codegen consults
-// them with a runtime matcher in the residual spread, and only when this is
-// non-empty. Built-ins contribute no prefixes.
-func (c *Classifier) URLPrefixes() []string {
-	if c == nil {
-		return nil
-	}
-	var out []string
-	for _, r := range c.rules.URL {
-		if r.Prefix != "" {
-			p := strings.ToLower(r.Prefix)
-			if !slices.Contains(out, p) {
-				out = append(out, p)
-			}
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 // presets maps a named opt-in ruleset to the classification Rules it contributes.
@@ -210,10 +258,9 @@ func (c *Classifier) URLPrefixes() []string {
 // A "hx-" prefix would be wrong — it would also classify hx-swap/hx-target/
 // hx-trigger (and every other hx-* attribute), none of which carry URLs.
 var presets = map[string]Rules{
-	"htmx": {URL: []Rule{
-		{Name: "hx-get"}, {Name: "hx-post"}, {Name: "hx-put"},
-		{Name: "hx-delete"}, {Name: "hx-patch"},
-	}},
+	"htmx": {URL: RuleSet{Names: []string{
+		"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch",
+	}}},
 }
 
 // Preset returns the classification Rules contributed by the named preset and

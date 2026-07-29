@@ -21,8 +21,8 @@ component Cases(dangerous string, on bool) {
 	<Link { if on { href="javascript:component()" } }/>
 }
 -- gsx.toml --
-[[url_attrs]]
-prefix = "data-url-"
+[url_attrs]
+prefixes = ["data-url-"]
 -- invoke --
 gsx.Fragment(
 	Cases("javascript:dynamic()", true),

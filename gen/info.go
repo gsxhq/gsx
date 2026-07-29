@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -141,10 +143,13 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 
 	// Attribute rules section: show user-supplied URL rules.
 	rules := cls.Rules()
-	hasRules := len(rules.URL) > 0
+	hasRules := !rules.URL.Empty() || len(rules.URLTags) > 0
 	if hasRules {
 		fmt.Fprintf(stdout, "\nAttribute rules:\n")
-		printRuleSlice(stdout, "URL", rules.URL)
+		printRuleSet(stdout, "URL", rules.URL)
+		for _, tag := range slices.Sorted(maps.Keys(rules.URLTags)) {
+			printRuleSet(stdout, "URL <"+tag+">", rules.URLTags[tag])
+		}
 	}
 
 	fmt.Fprintf(stdout, "\nminify: css=%s js=%s\n", cssMinLevel, jsMinLevel)
@@ -164,16 +169,14 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 	return 0
 }
 
-// printRuleSlice prints a labelled list of rules when non-empty.
-func printRuleSlice(w io.Writer, label string, rules []attrclass.Rule) {
-	if len(rules) == 0 {
-		return
-	}
-	for _, r := range rules {
-		if r.Name != "" {
-			fmt.Fprintf(w, "  %s  name=%s\n", label, r.Name)
-		} else {
-			fmt.Fprintf(w, "  %s  prefix=%s\n", label, r.Prefix)
+// printRuleSet prints a labelled list of matchers when non-empty.
+func printRuleSet(w io.Writer, label string, set attrclass.RuleSet) {
+	for _, g := range []struct {
+		kind string
+		vals []string
+	}{{"name", set.Names}, {"prefix", set.Prefixes}, {"suffix", set.Suffixes}} {
+		for _, v := range g.vals {
+			fmt.Fprintf(w, "  %s  %s=%s\n", label, g.kind, v)
 		}
 	}
 }

@@ -210,13 +210,14 @@ func splitSpreadFoldOutput(out string) map[string]string {
 // emits, from the SAME production piece (attrclass.Builtin's default
 // classifier) — so the reference render below classifies URL keys exactly as
 // generated code would, without re-deriving the tables by hand. The built-in
-// floor is not part of it: Spread applies that itself from gsx.URLAttrSink,
+// floor is not part of it: Spread applies that itself from htmlattr.Sink,
 // which is precisely why the reference cannot drift from shipped output.
 func userSinksForRef() gsx.AttrSinks {
-	cls := attrclass.Builtin()
+	rules := attrclass.Builtin().UserURLRules("a")
 	return gsx.AttrSinks{
-		Nav:      cls.UserURLExactNames(),
-		Prefixes: cls.URLPrefixes(),
+		Nav:      rules.Names,
+		Prefixes: rules.Prefixes,
+		Suffixes: rules.Suffixes,
 	}
 }
 
