@@ -276,3 +276,39 @@ func TestInspectGoWithElements(t *testing.T) {
 		t.Fatalf("Inspect order:\n got %v\nwant %v", kinds, want)
 	}
 }
+
+func TestClassPartExprEnd(t *testing.T) {
+	var nilPart *ClassPart
+	if got := nilPart.ExprEnd(); got != token.NoPos {
+		t.Fatalf("nil ExprEnd() = %d, want NoPos", got)
+	}
+
+	tests := []struct {
+		name string
+		part *ClassPart
+		want token.Pos
+	}{
+		{
+			name: "invalid position",
+			part: &ClassPart{Expr: "button.Role()"},
+			want: token.NoPos,
+		},
+		{
+			name: "ASCII",
+			part: &ClassPart{Expr: "button.Role()", ExprPos: token.Pos(11)},
+			want: token.Pos(11 + len("button.Role()")),
+		},
+		{
+			name: "UTF-8 uses byte length",
+			part: &ClassPart{Expr: `"é"`, ExprPos: token.Pos(23)},
+			want: token.Pos(23 + len(`"é"`)),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.part.ExprEnd(); got != tt.want {
+				t.Fatalf("ExprEnd() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

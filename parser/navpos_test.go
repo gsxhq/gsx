@@ -2,6 +2,7 @@ package parser
 
 import (
 	"go/token"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -143,5 +144,96 @@ func TestSpreadPipelineParenUnwrapExprPos(t *testing.T) {
 	}
 	if sa := parse("{ bag... }"); !sa.ExprPos.IsValid() {
 		t.Error("plain spread has no ExprPos")
+	}
+}
+
+func TestClassPartExpressionSpan(t *testing.T) {
+	src := []byte(`package p
+
+component C(cond bool) {
+	<div
+		class={
+			"plain",
+			button.Role() : cond,
+			makeClass(
+				"é",
+			) |> upper,
+			other() |> upper : cond,
+		}
+		style={
+			css` + "`" + `color: red` + "`" + `,
+			if cond { "display:block" } else { "display:none" },
+		}
+	></div>
+}
+`)
+	fset := token.NewFileSet()
+	f, err := ParseFile(fset, "span.gsx", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seen := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		part, ok := n.(*ast.ClassPart)
+		if !ok {
+			return true
+		}
+		if part.CSSSegments != nil {
+			seen["css"] = true
+			if got := part.ExprEnd(); got != token.NoPos {
+				t.Errorf("CSS ExprEnd() = %d, want NoPos", got)
+			}
+			return true
+		}
+		if part.CF != nil {
+			seen["value-form"] = true
+			if got := part.ExprEnd(); got != token.NoPos {
+				t.Errorf("value-form ExprEnd() = %d, want NoPos", got)
+			}
+			return true
+		}
+
+		start := fset.Position(part.ExprPos).Offset
+		end := fset.Position(part.ExprEnd()).Offset
+		if got := string(src[start:end]); got != part.Expr {
+			t.Errorf("expression span = %q, want %q", got, part.Expr)
+		}
+
+		switch {
+		case part.Cond != "" && len(part.Stages) > 0:
+			seen["guarded-pipeline"] = true
+		case part.Cond != "":
+			seen["guarded"] = true
+		case len(part.Stages) > 0:
+			seen["pipeline"] = true
+		default:
+			seen["plain"] = true
+		}
+		if (part.Cond != "" || len(part.Stages) > 0) && part.End() <= part.ExprEnd() {
+			t.Errorf("whole-node End() = %d, want beyond ExprEnd() = %d for Expr %q", part.End(), part.ExprEnd(), part.Expr)
+		}
+		if strings.Contains(part.Expr, "\n") {
+			seen["multiline"] = true
+		}
+		if strings.Contains(part.Expr, "é") {
+			seen["utf8"] = true
+		}
+		return true
+	})
+
+	for _, kind := range []string{
+		"plain",
+		"guarded",
+		"pipeline",
+		"guarded-pipeline",
+		"multiline",
+		"utf8",
+		"css",
+		"value-form",
+	} {
+		if !seen[kind] {
+			t.Errorf("did not inspect a %s ClassPart", kind)
+		}
 	}
 }

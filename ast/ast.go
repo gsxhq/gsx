@@ -612,22 +612,26 @@ type CondAttr struct {
 
 func (*CondAttr) attrNode() {}
 
-// ClassPart is one contribution in a composable class/style list: an
-// unconditional Expr, Expr emitted when Cond is true, an explicit CSS literal
-// inside style={...}, or a value-form if/switch. Cond == "" → always.
-// When Stages is non-empty, Expr is the pipeline seed and Stages are applied
-// left-to-right (`seed |> s0 |> s1 ...`), mirroring Interp.Stages; the guard Cond
-// is NEVER piped. It is a Node (span embedded) so *ClassPart can be keyed in the
-// resolved map for renderer application and (T, error) auto-unwrap on plain
-// parts, conditional or not (#88).
-// When CSSSegments != nil, this is style={ ..., css`...` }; Expr/Cond/Stages/CF
-// are unused. When CF != nil, this is a value-form if/switch; Expr/Cond/Stages
-// and CSSSegments are unused.
+// ClassPart is one complete contribution in a composable class/style list. Its
+// Pos and End span covers the contribution between comma delimiters, including
+// surrounding trivia and any pipeline stages or `: cond` guard.
+//
+// A part is an unconditional Expr, an Expr emitted when Cond is true, an
+// explicit CSS literal inside style={...}, or a value-form if/switch.
+// Cond == "" means always. When Stages is non-empty, Expr is the pipeline seed
+// and Stages are applied left-to-right (`seed |> s0 |> s1 ...`), mirroring
+// Interp.Stages; the guard Cond is never piped.
+//
+// ClassPart is a Node so it can be keyed in the resolved map for renderer
+// application and (T, error) auto-unwrap on plain parts, conditional or not
+// (#88). When CSSSegments != nil, Expr/Cond/Stages/CF are unused. When CF !=
+// nil, Expr/Cond/Stages and CSSSegments are unused.
 type ClassPart struct {
 	span
 	Expr string
-	// ExprPos is the position of the first char of Expr (the pipe seed) in
-	// source (NoPos for CSS-literal and value-form parts, which have no Expr).
+	// ExprPos is the first byte of Expr, the pipeline seed. ExprPos through
+	// ExprEnd() is the exact expression-only source span. It is NoPos for
+	// CSS-literal and value-form parts, which have no Expr.
 	ExprPos token.Pos
 	Cond    string
 	// CondPos is the position of the first char of the `: cond` guard text in
@@ -639,6 +643,15 @@ type ClassPart struct {
 	// (style={ css`…` } vs style={ css"…" }). See EmbeddedAttr.DoubleQuoted.
 	CSSDoubleQuoted bool
 	CF              *ValueCF
+}
+
+// ExprEnd returns the position immediately after Expr. It returns NoPos when
+// the part is nil or has no source expression position.
+func (p *ClassPart) ExprEnd() token.Pos {
+	if p == nil || !p.ExprPos.IsValid() {
+		return token.NoPos
+	}
+	return p.ExprPos + token.Pos(len(p.Expr))
 }
 
 // ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.
