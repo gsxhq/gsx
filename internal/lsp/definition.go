@@ -80,7 +80,7 @@ func nodeNavSpans(n gsxast.Node) (spans []navSpan, stages []gsxast.PipeStage) {
 		if e.CF != nil {
 			return nil, nil // the CF's own nodes carry the spans
 		}
-		if e.CSSSegments == nil {
+		if e.LiteralSegments == nil {
 			spans = append(spans, navSpan{e.ExprPos, len(e.Expr)})
 			stages = e.Stages
 		}
@@ -89,6 +89,9 @@ func nodeNavSpans(n gsxast.Node) (spans []navSpan, stages []gsxast.PipeStage) {
 		}
 		return spans, stages
 	case *gsxast.ValueArm:
+		if e.Segments != nil {
+			return nil, nil // a literal arm's holes carry their own spans
+		}
 		return []navSpan{{e.ExprPos, len(e.Expr)}}, e.Stages
 	case *gsxast.ValueIf:
 		return []navSpan{{e.CondPos, len(e.Cond)}}, nil
@@ -98,6 +101,10 @@ func nodeNavSpans(n gsxast.Node) (spans []navSpan, stages []gsxast.PipeStage) {
 		return []navSpan{{e.ListPos, len(e.List)}}, nil
 	case *gsxast.CondAttr:
 		return []navSpan{{e.CondPos, len(e.Cond)}}, nil
+	case *gsxast.SwitchAttr:
+		return []navSpan{{e.TagPos, len(e.Tag)}}, nil
+	case *gsxast.AttrCaseClause:
+		return []navSpan{{e.ListPos, len(e.List)}}, nil
 	case *gsxast.SwitchMarkup:
 		return []navSpan{{e.TagPos, len(e.Tag)}}, nil
 	case *gsxast.CaseClause:
@@ -449,7 +456,8 @@ func isCtrlSpan(node gsxast.Node, matched token.Pos) bool {
 	switch e := node.(type) {
 	case *gsxast.ForMarkup, *gsxast.IfMarkup, *gsxast.GoBlock,
 		*gsxast.ValueIf, *gsxast.ValueSwitch, *gsxast.ValueSwitchCase,
-		*gsxast.CondAttr, *gsxast.SwitchMarkup, *gsxast.CaseClause:
+		*gsxast.CondAttr, *gsxast.SwitchMarkup, *gsxast.CaseClause,
+		*gsxast.SwitchAttr, *gsxast.AttrCaseClause:
 		return true
 	case *gsxast.ComposedPart:
 		return e.CondPos.IsValid() && matched == e.CondPos

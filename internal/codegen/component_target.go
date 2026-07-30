@@ -1011,6 +1011,10 @@ func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string
 				scanStageQualifierRoots(n.Stages, qualifiers)
 			case *gsxast.CondAttr:
 				scanQualifierRoots(n.Cond, qualifiers)
+			case *gsxast.SwitchAttr:
+				scanQualifierRoots(n.Tag, qualifiers)
+			case *gsxast.AttrCaseClause:
+				scanQualifierRoots(n.List, qualifiers)
 			case *gsxast.ComposedPart:
 				scanQualifierRoots(n.Expr, qualifiers)
 				scanQualifierRoots(n.Cond, qualifiers)

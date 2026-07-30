@@ -2420,6 +2420,13 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 	*interpTemp++
 	fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
 	armExpr := func(a *ast.ValueArm) (string, bool) {
+		// A literal arm reuses the SAME lowering a non-arm literal part uses, so
+		// the two can never diverge. It returns a complete contribution (a full
+		// declaration for style), hence no styleDeclExpr wrap and no renderer
+		// pass — exactly how composedParts treats a literal part.
+		if a.Segments != nil {
+			return composedLiteralSegmentsExpr(b, a.Segments, a.Pos(), a.End(), style, resolved, table, imports, rt, interpTemp, bag)
+		}
 		expr, used, err := lowerComposedPartSeed(ast.ComposedPart{Expr: a.Expr, Stages: a.Stages}, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -3056,6 +3063,26 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		if len(t.Else) > 0 {
 			b.WriteString("\t\t} else {\n")
 			for _, inner := range t.Else {
+				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
+					return false
+				}
+			}
+		}
+		b.WriteString("\t\t}\n")
+		return true
+	case *ast.SwitchAttr:
+		// Same statement position as the CondAttr `if` above, so a real Go
+		// `switch` is valid here. Emitting the tag once (rather than lowering to
+		// an `==` chain) is the whole point: a tag that is a call must be
+		// evaluated exactly once, as Go does.
+		fmt.Fprintf(b, "\t\tswitch %s {\n", t.Tag)
+		for _, cc := range t.Cases {
+			if cc.Default {
+				b.WriteString("\t\tdefault:\n")
+			} else {
+				fmt.Fprintf(b, "\t\tcase %s:\n", cc.List)
+			}
+			for _, inner := range cc.Body {
 				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
 					return false
 				}
@@ -4409,12 +4436,8 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 			parts = append(parts, partExpr(tmp))
 			continue
 		}
-		if p.CSSSegments != nil {
-			if !style {
-				bag.Errorf(p.Pos(), p.End(), "unsupported-class-part", "css literal parts are only valid in style={...}")
-				return nil, false
-			}
-			val, ok := cssLiteralStylePartExpr(b, p.CSSSegments, resolved, table, imports, rt, interpTemp, bag)
+		if p.LiteralSegments != nil {
+			val, ok := composedLiteralPartExpr(b, p, style, resolved, table, imports, rt, interpTemp, bag)
 			if !ok {
 				return nil, false
 			}
@@ -4495,6 +4518,30 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 		parts = append(parts, conditionalPartExpr(val, cond))
 	}
 	return parts, true
+}
+
+// composedLiteralPartExpr lowers a prefixed backtick literal used as a
+// composed part or a value-form arm. class={…} and style={…} each take the
+// literal matching their own value context — f`…` and css`…` — and the parser
+// has already rejected the other language, so this only has to pick the
+// lowering. Each hole is escaped by its own context's sanitizer either way, so
+// composing a literal never widens what a hole may contribute.
+func composedLiteralPartExpr(b *bytes.Buffer, p *ast.ComposedPart, style bool, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+	return composedLiteralSegmentsExpr(b, p.LiteralSegments, p.Pos(), p.End(), style, resolved, table, imports, rt, interpTemp, bag)
+}
+
+// composedLiteralSegmentsExpr is composedLiteralPartExpr over bare segments, so
+// a *ast.ValueArm literal can reuse the identical lowering its non-arm
+// counterpart uses — one path, so an arm and a plain part can never diverge.
+func composedLiteralSegmentsExpr(b *bytes.Buffer, segments []ast.Markup, pos, end token.Pos, style bool, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+	if style {
+		return cssLiteralStylePartExpr(b, segments, resolved, table, imports, rt, interpTemp, bag)
+	}
+	// A class f`…` literal is an ordinary interpolated text value: each hole is
+	// HTML-escaped by embeddedValueExpr, and the joined string is then merged
+	// as one class contribution.
+	return embeddedValueExpr(b, segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false,
+		"invalid-tuple", "class f literal interpolation")
 }
 
 func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {

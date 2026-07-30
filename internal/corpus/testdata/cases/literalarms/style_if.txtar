@@ -1,0 +1,10 @@
+# css`` literal arm in a style={} value-form if, mixed with a string arm
+-- input.gsx --
+package views
+
+component C(c bool, v string) { <div style={ if c { css`color: @{v}` } else { "color: gray" } }>x</div> }
+-- invoke --
+C(true, "red")
+-- diagnostics.golden --
+-- render.golden --
+<div style="color: red">x</div>

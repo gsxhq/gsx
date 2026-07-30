@@ -51,6 +51,17 @@ attrsonly/reject_shadowed_qualifier	diag(error)
 attrsonly/reject_undefined	diag(error)
 attrsonly/sibling_cf_class	diag gen render
 attrsonly/unnamed_slice	diag gen render
+attrswitch/component_tag	diag render
+attrswitch/composed_arms	diag render
+attrswitch/css_literal_arm	diag render
+attrswitch/fallthrough_rejected	ast diag(error)
+attrswitch/nested_if	diag render
+attrswitch/nested_switch	diag render
+attrswitch/no_default	diag render
+attrswitch/spread_after	diag render
+attrswitch/spread_before	diag render
+attrswitch/tagged	diag render
+attrswitch/tagless	diag render
 bodyinterp/bare_backtick_no_interp	diag gen render
 bodyinterp/escaped_hole	diag gen render
 bodyinterp/f_body_is_markup_template	diag gen render
@@ -496,6 +507,18 @@ jsattr/whole_value_bool	diag gen render
 jsattr/whole_value_map	diag gen render
 jsattr/xdata_literal_holes	diag gen render
 jsattr/xdata_whole_value	diag gen render
+literalarms/class_css_literal_rejected	ast diag(error)
+literalarms/class_if	diag render
+literalarms/class_js_literal_rejected	ast diag(error)
+literalarms/class_literal_part	diag render
+literalarms/class_switch	diag render
+literalarms/class_switch_hostile	diag render
+literalarms/style_f_literal_rejected	ast diag(error)
+literalarms/style_if	diag render
+literalarms/style_switch	diag render
+literalarms/style_switch_hostile	diag render
+literalarms/wrong_language_arm_rejected	ast diag(error)
+literalarms/wrong_language_rejected	ast diag(error)
 lowertags/cycle_conditional_ok	diag render
 lowertags/cycle_warning	diag render
 lowertags/embedded_interp_resolution	diag render
@@ -984,4 +1007,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 986 cases (render: 845, error: 103, gen-pinned: 566)
+TOTAL: 1009 cases (render: 862, error: 109, gen-pinned: 566)

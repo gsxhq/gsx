@@ -1,0 +1,11 @@
+# a hostile hole in a css`` literal arm is filtered exactly as it is outside an
+# arm — branching never widens what a hole may contribute
+-- input.gsx --
+package views
+
+component C(n int, w string) { <div style={ switch n { case 1: css`aspect-ratio: @{w} / 9` default: css`aspect-ratio: @{w}` } }>x</div> }
+-- invoke --
+C(1, "1;color:red")
+-- diagnostics.golden --
+-- render.golden --
+<div style="aspect-ratio: ZgotmplZ / 9">x</div>

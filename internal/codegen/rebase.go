@@ -104,6 +104,10 @@ func rebaseAttrs(attrs []ast.Attr, doJS, doCSS bool) {
 		case *ast.CondAttr:
 			rebaseAttrs(v.Then, doJS, doCSS)
 			rebaseAttrs(v.Else, doJS, doCSS)
+		case *ast.SwitchAttr:
+			for _, cc := range v.Cases {
+				rebaseAttrs(cc.Body, doJS, doCSS)
+			}
 		}
 	}
 }

@@ -645,6 +645,8 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 	switch v := a.(type) {
 	case *ast.CondAttr:
 		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.condAttrChainDoc(v), pretty.Text(" }"))
+	case *ast.SwitchAttr:
+		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.switchAttrDoc(v), pretty.Text(" }"))
 	case *ast.ExprAttr:
 		val := []pretty.Doc{fmtExprDoc(v.Expr)}
 		for _, s := range v.Stages {
@@ -692,8 +694,8 @@ func (p *printer) composedPartDoc(part ast.ComposedPart) pretty.Doc {
 	if part.CF != nil {
 		return p.valueCFDoc(part.CF)
 	}
-	if part.CSSSegments != nil {
-		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments, embeddedDelim(part.CSSDoubleQuoted)))}
+	if part.LiteralSegments != nil {
+		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(part.LiteralLang, part.LiteralSegments, embeddedDelim(part.LiteralDoubleQuoted)))}
 		if part.Cond != "" {
 			seg = append(seg, pretty.Text(": "), multiline(fmtExpr(part.Cond)))
 		}
@@ -737,6 +739,11 @@ func (p *printer) valueArmBody(a *ast.ValueArm) pretty.Doc {
 }
 
 func (p *printer) valueArmDoc(a *ast.ValueArm) pretty.Doc {
+	if a.Segments != nil {
+		// Same rendering a non-arm literal part gets (composedPartDoc), so an
+		// arm and a plain part print identically.
+		return pretty.Text(embeddedLiteralString(a.Lang, a.Segments, embeddedDelim(a.DoubleQuoted)))
+	}
 	seg := []pretty.Doc{fmtExprDoc(a.Expr)}
 	for _, s := range a.Stages {
 		seg = append(seg, pretty.Text(" |> "), multiline(pipeStageStr(s)))
@@ -789,6 +796,45 @@ func (p *printer) condAttrChainDoc(c *ast.CondAttr) pretty.Doc {
 	}
 	parts = append(parts, pretty.Text(" else {"), p.condAttrListDoc(c.Else), pretty.Text("}"))
 	return pretty.Concat(parts...)
+}
+
+// switchAttrDoc renders `switch [Tag] { case List: … default: … }` in
+// attribute position. Case labels sit at the switch's own indent (Go's layout
+// for switch bodies) and each arm's attributes are indented one level under
+// their label, mirroring condAttrChainDoc's one-attr-per-line body.
+func (p *printer) switchAttrDoc(s *ast.SwitchAttr) pretty.Doc {
+	parts := []pretty.Doc{pretty.Text("switch")}
+	if tag := fmtExpr(s.Tag); strings.TrimSpace(tag) != "" {
+		parts = append(parts, pretty.Text(" "), multiline(tag))
+	}
+	parts = append(parts, pretty.Text(" {"))
+	for _, cc := range s.Cases {
+		label := "default:"
+		if !cc.Default {
+			label = "case " + fmtExpr(cc.List) + ":"
+		}
+		parts = append(parts, pretty.HardLine, pretty.Text(label), p.attrCaseBodyDoc(cc.Body))
+	}
+	parts = append(parts, pretty.HardLine, pretty.Text("}"))
+	return pretty.Concat(parts...)
+}
+
+// attrCaseBodyDoc lays one case arm's attributes one per line, indented under
+// their label. An empty arm contributes nothing, so `case 1:` with no
+// attributes stays on its own line rather than emitting a blank one.
+func (p *printer) attrCaseBodyDoc(attrs []ast.Attr) pretty.Doc {
+	if len(attrs) == 0 {
+		return pretty.Text("")
+	}
+	inner := make([]pretty.Doc, 0, len(attrs)*2)
+	for _, a := range attrs {
+		sep := pretty.Doc(pretty.HardLine)
+		if c, ok := a.(*ast.CommentAttr); ok && c.Trailing {
+			sep = pretty.Text(" ") // glue a trailing comment to the previous attr's line
+		}
+		inner = append(inner, sep, p.attrDoc(a))
+	}
+	return pretty.Indent(pretty.Concat(inner...))
 }
 
 // condAttrListDoc lays a conditional attribute's inner attrs one per line.
@@ -1547,8 +1593,8 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 			if i > 0 {
 				b.WriteString(", ")
 			}
-			if part.CSSSegments != nil {
-				b.WriteString(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments, embeddedDelim(part.CSSDoubleQuoted)))
+			if part.LiteralSegments != nil {
+				b.WriteString(embeddedLiteralString(part.LiteralLang, part.LiteralSegments, embeddedDelim(part.LiteralDoubleQuoted)))
 			} else {
 				b.WriteString(fmtExpr(part.Expr))
 				for _, s := range part.Stages {
@@ -1565,6 +1611,10 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 	case *ast.CondAttr:
 		b.WriteString("{ ")
 		writeCondAttrChain(b, v)
+		b.WriteString(" }")
+	case *ast.SwitchAttr:
+		b.WriteString("{ ")
+		writeSwitchAttr(b, v)
 		b.WriteString(" }")
 	case *ast.MarkupAttr:
 		b.WriteString(v.Name)
@@ -1926,6 +1976,28 @@ func writeCondAttrChain(b *strings.Builder, c *ast.CondAttr) {
 	}
 	b.WriteString(" else {")
 	writeCondAttrList(b, c.Else)
+	b.WriteString("}")
+}
+
+// writeSwitchAttr is switchAttrDoc's flat counterpart, for the inline
+// attribute slots that render without line breaks.
+func writeSwitchAttr(b *strings.Builder, s *ast.SwitchAttr) {
+	b.WriteString("switch")
+	if tag := fmtExpr(s.Tag); strings.TrimSpace(tag) != "" {
+		b.WriteString(" ")
+		b.WriteString(tag)
+	}
+	b.WriteString(" {")
+	for _, cc := range s.Cases {
+		if cc.Default {
+			b.WriteString(" default:")
+		} else {
+			b.WriteString(" case ")
+			b.WriteString(fmtExpr(cc.List))
+			b.WriteString(":")
+		}
+		writeCondAttrList(b, cc.Body)
+	}
 	b.WriteString("}")
 }
 

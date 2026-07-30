@@ -436,18 +436,24 @@ func positionalEmbeddedPipeline(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, expr
 }
 
 func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
+	if sw, ok := node.attr.(*gsxast.SwitchAttr); ok {
+		return positionalSwitchAttrsExpr(b, sw, node, plan, ctx)
+	}
 	cond, ok := node.attr.(*gsxast.CondAttr)
 	if !ok {
 		return positionalValueLowering{outcome: positionalLoweringUnsupported}
 	}
-	thenLowering := positionalAttrsBranchThunk(node.then, plan, ctx)
+	if len(node.branches) != 2 {
+		return positionalValueLowering{outcome: positionalLoweringUnsupported}
+	}
+	thenLowering := positionalAttrsBranchThunk(node.branches[0], plan, ctx)
 	if thenLowering.outcome != positionalLoweringReady {
 		return thenLowering
 	}
 	elseExpr := "nil"
 	used := thenLowering.used
-	if len(node.otherwise) != 0 {
-		elseLowering := positionalAttrsBranchThunk(node.otherwise, plan, ctx)
+	if len(node.branches[1]) != 0 {
+		elseLowering := positionalAttrsBranchThunk(node.branches[1], plan, ctx)
 		if elseLowering.outcome != positionalLoweringReady {
 			return elseLowering
 		}
@@ -461,6 +467,49 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
 	fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
+	fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
+	return readyPositionalValue(name, used)
+}
+
+// positionalSwitchAttrsExpr lowers an in-tag `{ switch … }` attrs contributor
+// on a COMPONENT tag. The if-form above composes into a single AttrsCond
+// expression; the switch form instead emits a real Go switch statement, for the
+// same reason the element-side emitter does: the tag must be evaluated exactly
+// once, and every arm shape Go allows — multi-value case lists, a tagless
+// switch, a type switch — then lowers unchanged. Each arm calls only its own
+// branch thunk, so an arm's attrs are built only when that arm is taken, and an
+// unmatched switch with no default leaves the nil bag, matching an `if` with no
+// `else`.
+func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
+	if len(node.branches) != len(sw.Cases) {
+		return positionalValueLowering{outcome: positionalLoweringUnsupported}
+	}
+	thunks := make([]string, len(sw.Cases))
+	used := map[string]string{}
+	for i := range sw.Cases {
+		lowering := positionalAttrsBranchThunk(node.branches[i], plan, ctx)
+		if lowering.outcome != positionalLoweringReady {
+			return lowering
+		}
+		thunks[i] = lowering.expr
+		maps.Copy(used, lowering.used)
+	}
+	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
+	*ctx.interpTemp++
+	// A short var decl keeps _gsxerr shared with any sibling lowering in this
+	// scope (name is new, so `:=` is legal whether or not _gsxerr already
+	// exists), which is what ctx.errorReturn() refers to.
+	fmt.Fprintf(b, "%s, _gsxerr := %s.Attrs(nil), error(nil)\n", name, ctx.rt.rt())
+	fmt.Fprintf(b, "switch %s {\n", strings.TrimSpace(sw.Tag))
+	for i, cc := range sw.Cases {
+		if cc.Default {
+			b.WriteString("default:\n")
+		} else {
+			fmt.Fprintf(b, "case %s:\n", cc.List)
+		}
+		fmt.Fprintf(b, "%s, _gsxerr = (%s)()\n", name, thunks[i])
+	}
+	b.WriteString("}\n")
 	fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 	return readyPositionalValue(name, used)
 }

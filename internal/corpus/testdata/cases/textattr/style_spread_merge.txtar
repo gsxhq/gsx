@@ -5,7 +5,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 component Box(w int, attrs gsx.Attrs) {
-	<div style=f`width:@{w}px` { attrs... }>x</div>
+	<div style=css`width:@{w}px` { attrs... }>x</div>
 }
 -- invoke --
 Box(10, gsx.Attrs{{Key: "style", Value: "color:red"}, {Key: "id", Value: "b"}})
@@ -27,21 +27,19 @@ import (
 func Box(w int, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-		var _gsxnum [32]byte
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		if attrs.Has("style") {
-			_gsxgw.StyleMerged("width:"+_gsxsc.FormatInt(int64(w), 10)+"px", attrs.Style())
-		} else {
+		if !attrs.Has("style") {
 			_gsxgw.S(" style=\"width:")
-			_gsxgw.IntInto(_gsxnum[:], int64(w))
+			_gsxgw.AttrValue(_gsxrt.StyleValue(_gsxsc.FormatInt(int64(w), 10)))
 			_gsxgw.S("px\"")
 		}
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div style="width:10px; color:red" id="b">x</div>
+<div style="color:red" id="b">x</div>

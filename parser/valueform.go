@@ -16,19 +16,19 @@ func (p *parser) offsetOf(pos token.Pos) int {
 
 // parseValueCF parses one value-form `if`/`switch` contribution. at is the
 // absolute offset in p.src of the leading keyword; kw is "if" or "switch".
-func (p *parser) parseValueCF(at int, kw string) (*ast.ValueCF, error) {
+func (p *parser) parseValueCF(attrName string, at int, kw string) (*ast.ValueCF, error) {
 	start := p.posAt(at)
 	cf := &ast.ValueCF{}
 	var end token.Pos
 	switch kw {
 	case "if":
-		vi, e, err := p.parseValueIf(at)
+		vi, e, err := p.parseValueIf(attrName, at)
 		if err != nil {
 			return nil, err
 		}
 		cf.If, end = vi, e
 	case "switch":
-		vs, e, err := p.parseValueSwitch(at)
+		vs, e, err := p.parseValueSwitch(attrName, at)
 		if err != nil {
 			return nil, err
 		}
@@ -41,7 +41,7 @@ func (p *parser) parseValueCF(at int, kw string) (*ast.ValueCF, error) {
 // parseValueIf parses `if Cond { Arm } [else if … | else { Arm }]` starting at
 // the `if` keyword (offset at). Returns the node and the position one past
 // its last `}`.
-func (p *parser) parseValueIf(at int) (*ast.ValueIf, token.Pos, error) {
+func (p *parser) parseValueIf(attrName string, at int) (*ast.ValueIf, token.Pos, error) {
 	start := p.posAt(at)
 	condStart := at + len("if")
 	braceOff, ok := scanToBlockBrace(p.src, condStart, "if")
@@ -51,7 +51,7 @@ func (p *parser) parseValueIf(at int) (*ast.ValueIf, token.Pos, error) {
 	rawCond := p.src[condStart:braceOff]
 	lead := len(rawCond) - len(strings.TrimLeft(rawCond, " \t\r\n"))
 	n := &ast.ValueIf{Cond: strings.TrimSpace(rawCond), CondPos: p.posAt(condStart + lead)}
-	arm, afterThenPos, err := p.parseValueArm(braceOff)
+	arm, afterThenPos, err := p.parseValueArm(attrName, braceOff)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -66,14 +66,14 @@ func (p *parser) parseValueIf(at int) (*ast.ValueIf, token.Pos, error) {
 		switch {
 		case strings.HasPrefix(r2, "if") && !goIdentifierContinueAt(r2, len("if")):
 			ifAt := elseAt + (len(p.src[elseAt:]) - len(r2))
-			ei, e2, err := p.parseValueIf(ifAt)
+			ei, e2, err := p.parseValueIf(attrName, ifAt)
 			if err != nil {
 				return nil, 0, err
 			}
 			n.ElseIf, end = ei, e2
 		case strings.HasPrefix(r2, "{"):
 			braceAt := elseAt + (len(p.src[elseAt:]) - len(r2))
-			ea, e2, err := p.parseValueArm(braceAt)
+			ea, e2, err := p.parseValueArm(attrName, braceAt)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -88,7 +88,7 @@ func (p *parser) parseValueIf(at int) (*ast.ValueIf, token.Pos, error) {
 
 // parseValueArm parses `{ <go-value-expr> }` whose `{` is at offset braceOff.
 // Returns the arm and the position one past the matching `}`.
-func (p *parser) parseValueArm(braceOff int) (*ast.ValueArm, token.Pos, error) {
+func (p *parser) parseValueArm(attrName string, braceOff int) (*ast.ValueArm, token.Pos, error) {
 	closeOff, ok := goExprEnd(p.src, braceOff)
 	if !ok {
 		return nil, 0, p.errorf(p.posAt(braceOff), "unterminated `{` in value-form arm")
@@ -98,6 +98,29 @@ func (p *parser) parseValueArm(braceOff int) (*ast.ValueArm, token.Pos, error) {
 		return nil, 0, p.errorf(p.posAt(braceOff), "value-form arm must produce a value")
 	}
 	lead := len(inner) - len(strings.TrimLeft(inner, " \t\r\n"))
+	// An arm accepts the same prefixed backtick literal its attribute accepts
+	// as a plain part (f`…` in class, css`…` in style) — the arm is a value
+	// position like any other, so the value grammar must not shrink inside one.
+	if hasEmbeddedLiteralPrefix(strings.TrimSpace(inner)) {
+		literalOff := braceOff + 1 + lead
+		old := p.i
+		p.i = literalOff
+		lang, dquoted, segments, lerr := p.parseEmbeddedAttrLiteral()
+		literalEnd := p.i
+		p.i = old
+		if lerr != nil {
+			return nil, 0, lerr
+		}
+		if want, ok := composedLiteralLang(attrName); !ok || lang != want {
+			return nil, 0, p.errorf(p.posAt(literalOff), "%s literal arms are not valid in %s={...}; %s={...} takes %s literals", embeddedLangPrefix(lang), attrName, attrName, composedLiteralPrefix(attrName))
+		}
+		if rest := strings.TrimSpace(p.src[literalEnd:closeOff]); rest != "" {
+			return nil, 0, p.errorf(p.posAt(literalEnd), "unexpected %q after %s literal arm; pipe stages on a literal arm are not supported", rest, embeddedLangPrefix(lang))
+		}
+		arm := &ast.ValueArm{Segments: segments, Lang: lang, DoubleQuoted: dquoted}
+		ast.SetSpan(arm, p.posAt(braceOff), p.posAt(closeOff+1))
+		return arm, p.posAt(closeOff + 1), nil
+	}
 	seed, stages, err := parsePipe(strings.TrimSpace(inner), p.posAt(braceOff+1+lead))
 	if err != nil {
 		return nil, 0, p.pipeErrorf(p.posAt(braceOff), err)
@@ -109,7 +132,7 @@ func (p *parser) parseValueArm(braceOff int) (*ast.ValueArm, token.Pos, error) {
 
 // parseValueSwitch parses `switch [Tag] { case List: Arm … default: Arm }`
 // starting at the `switch` keyword (offset at).
-func (p *parser) parseValueSwitch(at int) (*ast.ValueSwitch, token.Pos, error) {
+func (p *parser) parseValueSwitch(attrName string, at int) (*ast.ValueSwitch, token.Pos, error) {
 	start := p.posAt(at)
 	tagStart := at + len("switch")
 	braceOff, ok := scanToBlockBrace(p.src, tagStart, "switch")
@@ -130,7 +153,7 @@ func (p *parser) parseValueSwitch(at int) (*ast.ValueSwitch, token.Pos, error) {
 			return n, end, nil
 		}
 		caseAt := i + (len(p.src[i:]) - len(r))
-		cc, after, err := p.parseValueSwitchCase(caseAt)
+		cc, after, err := p.parseValueSwitchCase(attrName, caseAt)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -142,7 +165,7 @@ func (p *parser) parseValueSwitch(at int) (*ast.ValueSwitch, token.Pos, error) {
 // parseValueSwitchCase parses one `case List: Arm` or `default: Arm`, starting
 // at the keyword (offset at). Returns the node and the offset at the next case,
 // default, or switch-closing brace.
-func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error) {
+func (p *parser) parseValueSwitchCase(attrName string, at int) (*ast.ValueSwitchCase, int, error) {
 	start := p.posAt(at)
 	cc := &ast.ValueSwitchCase{}
 	r := p.src[at:]
@@ -172,13 +195,34 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 		return nil, 0, p.errorf(p.posAt(at), "expected `case` or `default` in value-form `switch`")
 	}
 	if valueAt < len(p.src) && p.src[valueAt] == '{' {
-		arm, afterPos, err := p.parseValueArm(valueAt)
+		arm, afterPos, err := p.parseValueArm(attrName, valueAt)
 		if err != nil {
 			return nil, 0, err
 		}
 		cc.Value = arm
 		ast.SetSpan(cc, start, arm.End())
 		return cc, p.offsetOf(afterPos), nil
+	}
+	// A literal arm is consumed by the literal parser itself, BEFORE
+	// valueSwitchArmEnd's delimiter scan — the literal body may hold `:` or the
+	// word `case`, which that scan would otherwise treat as arm structure.
+	if hasEmbeddedLiteralPrefix(p.src[valueAt:]) {
+		old := p.i
+		p.i = valueAt
+		lang, dquoted, segments, lerr := p.parseEmbeddedAttrLiteral()
+		literalEnd := p.i
+		p.i = old
+		if lerr != nil {
+			return nil, 0, lerr
+		}
+		if want, ok := composedLiteralLang(attrName); !ok || lang != want {
+			return nil, 0, p.errorf(p.posAt(valueAt), "%s literal arms are not valid in %s={...}; %s={...} takes %s literals", embeddedLangPrefix(lang), attrName, attrName, composedLiteralPrefix(attrName))
+		}
+		arm := &ast.ValueArm{Segments: segments, Lang: lang, DoubleQuoted: dquoted}
+		ast.SetSpan(arm, p.posAt(valueAt), p.posAt(literalEnd))
+		cc.Value = arm
+		ast.SetSpan(cc, start, p.posAt(literalEnd))
+		return cc, literalEnd, nil
 	}
 	end, ok := valueSwitchArmEnd(p.src, valueAt)
 	if !ok {

@@ -153,6 +153,10 @@ func zeroSpans(n ast.Node) {
 				}
 			case *ast.CondAttr:
 				v.CondPos = 0
+			case *ast.SwitchAttr:
+				v.TagPos = 0
+			case *ast.AttrCaseClause:
+				v.ListPos = 0
 			case *ast.ForMarkup:
 				v.ClausePos = 0
 				v.BodyMultiline = false

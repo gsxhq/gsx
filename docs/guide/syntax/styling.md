@@ -104,6 +104,35 @@ The selected arm contributes one string. With no matching arm and no `else` or
 `default`, it contributes nothing. The same forms work in `style={...}` lists,
 where each arm returns a complete declaration.
 
+An arm may also hold a contextual literal — `f` in `class={...}`, `css` in
+`style={...}` — the same literal each attribute accepts as a plain entry:
+
+```gsx
+<div style={
+	switch form {
+	case ratioPair: css`aspect-ratio: @{w} / @{h}`
+	default:        css`aspect-ratio: @{ratio}`
+	},
+}>...</div>
+```
+
+This is how you get punctuation the CSS value filter rejects — here the `/`
+separator — into a declaration without reaching for `gsx.RawCSS`: the
+separator is static template text and only `@{w}`/`@{h}` are holes, so each is
+still filtered.
+
+Each attribute takes only its own literal language, in every position — as the
+whole value, as one entry in a list, or as a value-form arm. `class` takes
+`f`; `style` takes `css`. Anything else is a compile error.
+
+That is a safety rule, not a stylistic one: the literal's language selects the
+sanitizer applied to its `@{...}` holes. An `f` literal in `style` would escape
+its holes for HTML only and never run the CSS value filter, letting a hole
+inject `background:url(javascript:...)` into the style attribute; a `css`
+literal in `class` would run the CSS filter over a class string, collapsing an
+ordinary `bg-primary/20` to `ZgotmplZ`. Attributes that compose nothing
+(`data-*`, `onclick`, …) are unrestricted.
+
 ## `<style>` blocks
 
 Use a `<style>` block for component CSS. Interpolate Go values with `@{...}`.

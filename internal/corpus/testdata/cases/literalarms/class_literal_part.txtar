@@ -1,0 +1,11 @@
+# f`` as one composed part among several in class={} — the class counterpart of
+# style={ "a: 1", css`…` }
+-- input.gsx --
+package views
+
+component C(v string, on bool) { <div class={ "base", f`btn-@{v}`, f`sz-@{v}`: on }>x</div> }
+-- invoke --
+C("primary", true)
+-- diagnostics.golden --
+-- render.golden --
+<div class="base btn-primary sz-primary">x</div>

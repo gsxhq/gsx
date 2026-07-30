@@ -401,7 +401,7 @@ func TestPlanComponentPositionalCallsDerivesNestedClassAndStyleFactsForSiblings(
 	}
 	classAttr := elements[0].Attrs[0].(*gsxast.ComposedAttr)
 	styleAttr := elements[1].Attrs[0].(*gsxast.ComposedAttr)
-	if len(styleAttr.Parts) != 2 || styleAttr.Parts[1].CSSSegments == nil {
+	if len(styleAttr.Parts) != 2 || styleAttr.Parts[1].LiteralSegments == nil {
 		t.Fatalf("style parts = %+v, want plain part followed by CSS literal", styleAttr.Parts)
 	}
 	stylePlain := &styleAttr.Parts[0]
@@ -503,7 +503,7 @@ func TestAggregateNestedComponentFactsUsesOnlyProbedValueNodes(t *testing.T) {
 
 	t.Run("CSS literal delegates to embedded values", func(t *testing.T) {
 		value := &gsxast.Interp{Expr: "tone()"}
-		root := &gsxast.ComposedAttr{Parts: []gsxast.ComposedPart{{CSSSegments: []gsxast.Markup{&gsxast.Text{Value: "color:"}, value}}}}
+		root := &gsxast.ComposedAttr{Parts: []gsxast.ComposedPart{{LiteralSegments: []gsxast.Markup{&gsxast.Text{Value: "color:"}, value}}}}
 		ordered, complete := aggregateNestedComponentFacts(root, newExpressionFactSet(map[gsxast.Node]expressionFact{
 			value: {tv: types.TypeAndValue{Type: types.Typ[types.String]}, tuple: types.NewTuple(
 				types.NewVar(token.NoPos, nil, "", types.Typ[types.String]),

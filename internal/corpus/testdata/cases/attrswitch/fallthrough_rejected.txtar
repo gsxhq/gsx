@@ -1,0 +1,10 @@
+# error: `fallthrough` in a switch attribute would emit two arms' attributes
+# and silently duplicate names
+-- input.gsx --
+package views
+
+component C(n int) { <div { switch n { case 1: data-one="y" fallthrough case 2: data-two="y" } }>x</div> }
+-- ast.golden --
+File package=views
+-- diagnostics.golden --
+3:61: `fallthrough` is not supported in a `{ switch … }` attribute; list the shared attributes in each `case` instead

@@ -477,6 +477,11 @@ func TestParseEmbeddedAttrBracedPipe(t *testing.T) {
 	}
 }
 
+// These three use a NON-composable attribute (data-x) on purpose: class={…}
+// and style={…} accept only their own literal language, so a js“/css“ there
+// is rejected by that rule before the pipeline gate is reached. The attribute
+// is incidental to what they test — the whole-literal `|>` gate itself.
+//
 // TestParseEmbeddedAttrBracedJSPipeRejected pins the parser-level gate closing
 // a latent codegen gap: a whole-literal `|> f` pipeline is only meaningful on
 // a plain-text “ `…` “ literal, since the codegen only ever consumes Stages
@@ -484,7 +489,7 @@ func TestParseEmbeddedAttrBracedPipe(t *testing.T) {
 // cleanly (Stages set) and would be silently dropped at emit — wrong output,
 // no error. It must now be a parse error instead.
 func TestParseEmbeddedAttrBracedJSPipeRejected(t *testing.T) {
-	src := "package p\ncomponent C() { <span class={js`x` |> upper}>h</span> }\n"
+	src := "package p\ncomponent C() { <span data-x={js`x` |> upper}>h</span> }\n"
 	_, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err == nil {
 		t.Fatalf("parse succeeded, want error rejecting whole-literal |> on a js`` literal")
@@ -497,7 +502,7 @@ func TestParseEmbeddedAttrBracedJSPipeRejected(t *testing.T) {
 // TestParseEmbeddedAttrBracedCSSPipeRejected is the css“ sibling of
 // TestParseEmbeddedAttrBracedJSPipeRejected.
 func TestParseEmbeddedAttrBracedCSSPipeRejected(t *testing.T) {
-	src := "package p\ncomponent C() { <span class={css`color:red` |> upper}>h</span> }\n"
+	src := "package p\ncomponent C() { <span data-x={css`color:red` |> upper}>h</span> }\n"
 	_, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err == nil {
 		t.Fatalf("parse succeeded, want error rejecting whole-literal |> on a css`` literal")
@@ -512,7 +517,7 @@ func TestParseEmbeddedAttrBracedCSSPipeRejected(t *testing.T) {
 // pipe is unaffected by the gate and still parses as a plain EmbeddedAttr with
 // no Stages.
 func TestParseEmbeddedAttrBracedJSNoPipeStillParses(t *testing.T) {
-	src := "package p\ncomponent C() { <span class={js`x`}>h</span> }\n"
+	src := "package p\ncomponent C() { <span data-x={js`x`}>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)

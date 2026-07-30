@@ -202,7 +202,7 @@ func resolveAttrList(attrs []ast.Attr, bag *diag.Bag) bool {
 			}
 		case *ast.ComposedAttr:
 			for i := range at.Parts {
-				if at.Parts[i].CSSSegments != nil && !resolveMarkup(at.Parts[i].CSSSegments, bag) {
+				if at.Parts[i].LiteralSegments != nil && !resolveMarkup(at.Parts[i].LiteralSegments, bag) {
 					ok = false
 				}
 			}
@@ -212,6 +212,12 @@ func resolveAttrList(attrs []ast.Attr, bag *diag.Bag) bool {
 			}
 			if !resolveAttrList(at.Else, bag) {
 				ok = false
+			}
+		case *ast.SwitchAttr:
+			for _, cc := range at.Cases {
+				if !resolveAttrList(cc.Body, bag) {
+					ok = false
+				}
 			}
 		}
 	}

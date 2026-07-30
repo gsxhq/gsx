@@ -1,0 +1,10 @@
+# tagless `{ switch { case <bool>: … } }` in attribute position
+-- input.gsx --
+package views
+
+component C(n int) { <div { switch { case n > 5: data-big="y" default: data-small="y" } }>x</div> }
+-- invoke --
+C(9)
+-- diagnostics.golden --
+-- render.golden --
+<div data-big="y">x</div>

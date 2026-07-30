@@ -1,0 +1,70 @@
+Layout fact: an in-tag `{ switch … }` attribute always prints broken across
+lines, the same templ-style layout `{ if … }` uses, so a one-line authored
+switch is opened out. Case labels sit at the switch's own indent (Go's layout
+for switch bodies) and each arm's attributes are indented one level under their
+label. An empty arm keeps its label on its own line without emitting a blank
+one, and the group's BreakParent breaks the enclosing opening tag.
+
+-- input.gsx --
+package main
+
+component C(n int, m int) {
+	<div { switch n { case 1: data-one="y" case 2, 3: data-two="y" data-three="y" case 4: default: data-other="y" } } id="b">x</div>
+}
+
+component Tagless(n int) {
+	<div { switch { case n > 5: data-big="y" default: data-small="y" } }>x</div>
+}
+
+component Nested(n int, m int) {
+	<div { switch n { case 1: { switch m { case 2: data-m="y" } } default: data-other="y" } }>x</div>
+}
+-- fmt.golden --
+package main
+
+component C(n int, m int) {
+	<div
+		{ switch n {
+		case 1:
+			data-one="y"
+		case 2, 3:
+			data-two="y"
+			data-three="y"
+		case 4:
+		default:
+			data-other="y"
+		} }
+		id="b"
+	>
+		x
+	</div>
+}
+
+component Tagless(n int) {
+	<div
+		{ switch {
+		case n > 5:
+			data-big="y"
+		default:
+			data-small="y"
+		} }
+	>
+		x
+	</div>
+}
+
+component Nested(n int, m int) {
+	<div
+		{ switch n {
+		case 1:
+			{ switch m {
+			case 2:
+				data-m="y"
+			} }
+		default:
+			data-other="y"
+		} }
+	>
+		x
+	</div>
+}

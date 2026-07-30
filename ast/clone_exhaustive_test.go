@@ -124,6 +124,7 @@ var astZeroValueTypes = map[string]reflect.Type{
 	"MarkupAttr":       reflect.TypeFor[ast.MarkupAttr](),
 	"EmbeddedAttr":     reflect.TypeFor[ast.EmbeddedAttr](),
 	"CondAttr":         reflect.TypeFor[ast.CondAttr](),
+	"SwitchAttr":       reflect.TypeFor[ast.SwitchAttr](),
 	"ComposedAttr":     reflect.TypeFor[ast.ComposedAttr](),
 	"OrderedAttrsAttr": reflect.TypeFor[ast.OrderedAttrsAttr](),
 	"CommentAttr":      reflect.TypeFor[ast.CommentAttr](),

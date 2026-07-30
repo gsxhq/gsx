@@ -1,0 +1,10 @@
+# composed class= / style= attributes inside switch arms
+-- input.gsx --
+package views
+
+component C(n int) { <div { switch n { case 1: class={ "a" } default: style={ "color: red" } } }>x</div> }
+-- invoke --
+C(2)
+-- diagnostics.golden --
+-- render.golden --
+<div style="color: red">x</div>

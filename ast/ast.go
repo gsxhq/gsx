@@ -89,6 +89,10 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *CondAttr:
 		v.span = s
+	case *SwitchAttr:
+		v.span = s
+	case *AttrCaseClause:
+		v.span = s
 	case *ComposedAttr:
 		v.span = s
 	case *ComposedPart:
@@ -612,6 +616,40 @@ type CondAttr struct {
 
 func (*CondAttr) attrNode() {}
 
+// SwitchAttr is an in-tag `{ switch [Tag] { case List: … default: … } }`
+// attribute group — the switch counterpart of CondAttr, mirroring SwitchMarkup
+// in attribute position. Tag is "" for a tagless `switch { case cond: … }`.
+//
+// Each case arm holds an attribute list, so the group emits a real Go `switch`
+// wrapping its arms' attribute emits, the same way CondAttr emits a real Go
+// `if`. There is deliberately no `fallthrough`: an attribute list is not a
+// statement list, so falling through would emit two arms' attributes and
+// silently duplicate names.
+type SwitchAttr struct {
+	span
+	Tag    string
+	TagPos token.Pos // first char of Tag in source (NoPos for a tagless switch)
+	Cases  []*AttrCaseClause
+}
+
+func (*SwitchAttr) attrNode() {}
+
+// AttrCaseClause is one `case List:` or `default:` arm of a SwitchAttr — the
+// attribute-position counterpart of CaseClause. It is a Node (for Inspect and
+// positions) but is neither Markup nor Attr. List is the raw Go case
+// expression(s); Default is true for the `default:` arm (List == "").
+type AttrCaseClause struct {
+	span
+	List    string
+	ListPos token.Pos // first char of List in source (NoPos for `default:`)
+	Default bool
+	Body    []Attr
+}
+
+// Deliberately no BodyMultiline counterpart to CaseClause: an attribute switch
+// always prints broken across lines, the same templ-style layout CondAttr uses,
+// so there is no inline form for the formatter to preserve.
+
 // ComposedPart is one complete contribution in a composable class/style list. Its
 // Pos and End span covers the contribution between comma delimiters, including
 // surrounding trivia and any pipeline stages or `: cond` guard.
@@ -624,8 +662,8 @@ func (*CondAttr) attrNode() {}
 //
 // ComposedPart is a Node so it can be keyed in the resolved map for renderer
 // application and (T, error) auto-unwrap on plain parts, conditional or not
-// (#88). When CSSSegments != nil, Expr/Cond/Stages/CF are unused. When CF !=
-// nil, Expr/Cond/Stages and CSSSegments are unused.
+// (#88). When LiteralSegments != nil, Expr/Cond/Stages/CF are unused. When CF !=
+// nil, Expr/Cond/Stages and LiteralSegments are unused.
 type ComposedPart struct {
 	span
 	Expr string
@@ -636,13 +674,19 @@ type ComposedPart struct {
 	Cond    string
 	// CondPos is the position of the first char of the `: cond` guard text in
 	// source (NoPos when Cond == "").
-	CondPos     token.Pos
-	Stages      []PipeStage
-	CSSSegments []Markup
-	// CSSDoubleQuoted records the delimiter of a composed CSS literal part
-	// (style={ css`…` } vs style={ css"…" }). See EmbeddedAttr.DoubleQuoted.
-	CSSDoubleQuoted bool
-	CF              *ValueCF
+	CondPos token.Pos
+	Stages  []PipeStage
+	// LiteralSegments is set for a prefixed backtick literal part: css`…` in
+	// style={…}, f`…` in class={…}. Each attribute accepts the literal whose
+	// language matches its own value context, and nothing else.
+	LiteralSegments []Markup
+	// LiteralLang is that literal's language (EmbeddedCSS for style,
+	// EmbeddedText for class); meaningful only when LiteralSegments != nil.
+	LiteralLang EmbeddedLang
+	// LiteralDoubleQuoted records the literal's delimiter (css`…` vs css"…",
+	// f`…` vs f"…"). See EmbeddedAttr.DoubleQuoted.
+	LiteralDoubleQuoted bool
+	CF                  *ValueCF
 }
 
 // ExprEnd returns the position immediately after Expr. It returns NoPos when
@@ -665,13 +709,29 @@ type ComposedAttr struct {
 func (*ComposedAttr) attrNode() {}
 
 // ValueArm is one produced value in a value-form if/switch inside a class/style
-// list — a Go string expression with an optional pipeline. It is a Node (for
-// type harvest + diagnostics) but neither Markup nor Attr.
+// list — a Go string expression with an optional pipeline, or a prefixed
+// backtick literal. It is a Node (for type harvest + diagnostics) but neither
+// Markup nor Attr.
+//
+// When Segments != nil the arm is a literal and Expr/Stages are unused. The
+// rule is that an arm accepts the same literal that is legal as its
+// attribute's own value: css`…` in style={…} (mirroring
+// ComposedPart.LiteralSegments) and f`…` in class={…}. Holes inside the literal
+// are filtered individually by the attribute's sanitizer exactly as they are
+// outside an arm — branching never widens what a hole may contribute.
 type ValueArm struct {
 	span
 	Expr    string
 	ExprPos token.Pos // first char of Expr (the pipe seed) in source
 	Stages  []PipeStage
+
+	Segments []Markup
+	// Lang is the literal's language (EmbeddedCSS for style, EmbeddedText for
+	// class); meaningful only when Segments != nil.
+	Lang EmbeddedLang
+	// DoubleQuoted records the literal's delimiter (css`…` vs css"…"), matching
+	// ComposedPart.LiteralDoubleQuoted and EmbeddedAttr.DoubleQuoted.
+	DoubleQuoted bool
 }
 
 // ValueIf is the value-producing `if Cond { Then } [else if … | else { Else }]`
@@ -766,13 +826,15 @@ func (*CommentAttr) attrNode() {}
 //   - *SwitchMarkup: each CaseClause
 //   - *CaseClause: each Body markup node
 //   - *CondAttr: each Then and Else attr node
+//   - *SwitchAttr: each AttrCaseClause
+//   - *AttrCaseClause: each Body attr node
 //   - *ComposedAttr: each *ComposedPart (Parts slice walked by pointer)
 //   - *ComposedPart: CF (if non-nil)
 //   - *ValueCF: If or Switch (whichever is non-nil)
 //   - *ValueIf: Then, ElseIf (if non-nil), Else (if non-nil)
 //   - *ValueSwitch: each CaseClause
 //   - *ValueSwitchCase: Value arm
-//   - *ValueArm: leaf
+//   - *ValueArm: each Segments markup node (literal arms only; otherwise a leaf)
 //   - all other nodes: leaves (no children)
 func Inspect(node Node, f func(Node) bool) {
 	if !f(node) {
@@ -851,6 +913,14 @@ func Inspect(node Node, f func(Node) bool) {
 		for _, a := range n.Else {
 			Inspect(a, f)
 		}
+	case *SwitchAttr:
+		for _, c := range n.Cases {
+			Inspect(c, f)
+		}
+	case *AttrCaseClause:
+		for _, a := range n.Body {
+			Inspect(a, f)
+		}
 	case *OrderedAttrsAttr:
 		for i := range n.Pairs {
 			Inspect(&n.Pairs[i], f)
@@ -860,7 +930,7 @@ func Inspect(node Node, f func(Node) bool) {
 			Inspect(&n.Parts[i], f)
 		}
 	case *ComposedPart:
-		for _, m := range n.CSSSegments {
+		for _, m := range n.LiteralSegments {
 			Inspect(m, f)
 		}
 		if n.CF != nil {
@@ -888,7 +958,10 @@ func Inspect(node Node, f func(Node) bool) {
 	case *ValueSwitchCase:
 		Inspect(n.Value, f)
 	case *ValueArm:
-		// leaf
+		// A literal arm carries markup segments; an expression arm is a leaf.
+		for _, m := range n.Segments {
+			Inspect(m, f)
+		}
 		// GoBlock and OrderedPair are also leaves with no child nodes.
 	}
 	f(nil)

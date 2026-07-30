@@ -213,6 +213,12 @@ func minifyJSAttrs(attrs []ast.Attr, m Minifiers) error {
 			if err := minifyJSAttrs(v.Else, m); err != nil {
 				return err
 			}
+		case *ast.SwitchAttr:
+			for _, cc := range v.Cases {
+				if err := minifyJSAttrs(cc.Body, m); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

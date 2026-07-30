@@ -47,7 +47,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ComposedPart, 
 			}
 			// Compute the absolute offset of the keyword's first byte (skip any
 			// leading whitespace so the parsers' at+len("kw") arithmetic is correct).
-			cf, err := p.parseValueCF(base+segStart+trimOff, kw)
+			cf, err := p.parseValueCF(name, base+segStart+trimOff, kw)
 			if err != nil {
 				return nil, err
 			}
@@ -70,10 +70,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ComposedPart, 
 				break
 			}
 		}
-		if strings.HasPrefix(segSrc[trimOff:], "css`") || strings.HasPrefix(segSrc[trimOff:], `css"`) {
-			if name != "style" {
-				return nil, p.errorf(p.posAt(base+segStart+trimOff), "css literal parts are only valid in style={...}")
-			}
+		if hasEmbeddedLiteralPrefix(segSrc[trimOff:]) {
 			literalOff := base + segStart + trimOff
 			old := p.i
 			p.i = literalOff
@@ -83,8 +80,8 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ComposedPart, 
 			if err != nil {
 				return nil, err
 			}
-			if lang != ast.EmbeddedCSS {
-				return nil, p.errorf(p.posAt(literalOff), "expected css literal in style={...}")
+			if want, ok := composedLiteralLang(name); !ok || lang != want {
+				return nil, p.errorf(p.posAt(literalOff), "%s literal parts are not valid in %s={...}; %s={...} takes %s literals", embeddedLangPrefix(lang), name, name, composedLiteralPrefix(name))
 			}
 			partEnd := segEnd
 			var condSrc string
@@ -99,9 +96,9 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ComposedPart, 
 				condPos = p.posAt(condOff)
 			}
 			if rest := strings.TrimSpace(src[literalEnd-base : partEnd]); rest != "" {
-				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after css literal in style={...}", rest)
+				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after %s literal in %s={...}", rest, embeddedLangPrefix(lang), name)
 			}
-			parts = append(parts, ast.ComposedPart{CSSSegments: segments, CSSDoubleQuoted: dquoted, Cond: condSrc, CondPos: condPos})
+			parts = append(parts, ast.ComposedPart{LiteralSegments: segments, LiteralLang: lang, LiteralDoubleQuoted: dquoted, Cond: condSrc, CondPos: condPos})
 			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue
 		}
@@ -134,6 +131,76 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ComposedPart, 
 		ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 	}
 	return parts, nil
+}
+
+// checkComposableLiteralLang rejects a prefixed backtick literal whose language
+// does not match the composable attribute it is being supplied to. class={…}
+// composes class strings and takes f`…`; style={…} composes declarations and
+// takes css`…`. Any other attribute composes nothing and is unrestricted.
+//
+// This is a correctness AND a safety rule, and it holds in every position a
+// literal may appear — whole value, list entry, and value-form arm — because
+// the literal's language is what picks the sanitizer applied to its @{ } holes:
+//
+//   - style=f`color: @{v}` escaped the hole for HTML only and never ran the CSS
+//     value filter, so a hole could inject `background:url(javascript:…)` into
+//     the style attribute.
+//   - class=css`…` ran the CSS value filter over a CLASS value, so an ordinary
+//     Tailwind class like `bg-primary/20` collapsed to ZgotmplZ.
+func (p *parser) checkComposableLiteralLang(name string, lang ast.EmbeddedLang, at token.Pos) error {
+	want, composable := composedLiteralLang(name)
+	if !composable || lang == want {
+		return nil
+	}
+	return p.errorf(at, "%s literals are not valid in %s=…; %s takes %s literals", embeddedLangPrefix(lang), name, name, composedLiteralPrefix(name))
+}
+
+// hasEmbeddedLiteralPrefix reports whether s begins with a prefixed backtick
+// literal opener (f`/f"/js`/js"/css`/css").
+func hasEmbeddedLiteralPrefix(s string) bool {
+	for _, pfx := range [...]string{"f`", `f"`, "js`", `js"`, "css`", `css"`} {
+		if strings.HasPrefix(s, pfx) {
+			return true
+		}
+	}
+	return false
+}
+
+// composedLiteralLang returns the literal language a composable attribute
+// accepts as a part or a value-form arm. class={…} composes class strings, so
+// it takes the text literal f`…`; style={…} composes declarations, so it takes
+// css`…`. Every other attribute composes nothing and accepts no literal part.
+func composedLiteralLang(name string) (ast.EmbeddedLang, bool) {
+	switch name {
+	case "class":
+		return ast.EmbeddedText, true
+	case "style":
+		return ast.EmbeddedCSS, true
+	}
+	return 0, false
+}
+
+// composedLiteralPrefix names the literal form composedLiteralLang accepts, for
+// diagnostics.
+func composedLiteralPrefix(name string) string {
+	switch name {
+	case "class":
+		return "f`…`"
+	case "style":
+		return "css`…`"
+	}
+	return "no"
+}
+
+// embeddedLangPrefix names a literal language by its source prefix.
+func embeddedLangPrefix(lang ast.EmbeddedLang) string {
+	switch lang {
+	case ast.EmbeddedJS:
+		return "js"
+	case ast.EmbeddedCSS:
+		return "css"
+	}
+	return "f"
 }
 
 func leadingSpaceLen(s string) int {
@@ -262,8 +329,11 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		if p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
 			return nil, p.errorf(p.posAt(p.i), "`{{ }}` is only valid as an attribute value `name={{ … }}`, not a standalone spread")
 		}
-		if p.braceKeyword() == "if" {
+		switch p.braceKeyword() {
+		case "if":
 			return p.parseCondAttr()
+		case "switch":
+			return p.parseSwitchAttr()
 		}
 		return p.parseSpreadAttr()
 	}
@@ -401,9 +471,13 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 	// can't contain a gsx backtick escape, so a Go-aware scan is safe there
 	// even though it is not safe over the literal itself (see goStagesEnd
 	// doc).
+	literalPos := p.posAt(p.i)
 	lang, dquoted, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return fallback()
+	}
+	if lerr := p.checkComposableLiteralLang(name, lang, literalPos); lerr != nil {
+		return nil, lerr
 	}
 	p.skipSpace()
 	afterLiteral := p.i
@@ -443,9 +517,13 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 }
 
 func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	literalPos := p.posAt(p.i)
 	lang, dquoted, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return nil, err
+	}
+	if lerr := p.checkComposableLiteralLang(name, lang, literalPos); lerr != nil {
+		return nil, lerr
 	}
 	ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, DoubleQuoted: dquoted}
 	ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
@@ -684,6 +762,145 @@ func (p *parser) parseAttrsUntilBrace() ([]ast.Attr, error) {
 		if p.peek() == '}' {
 			p.i++ // consume '}'
 			return attrs, nil
+		}
+		if c, ok, err := p.parseTagComment(); err != nil {
+			return nil, err
+		} else if ok {
+			c.Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
+			attrs = append(attrs, c)
+			continue
+		}
+		a, err := p.parseSingleAttr()
+		if err != nil {
+			return nil, err
+		}
+		attrs = append(attrs, a)
+	}
+}
+
+// parseSwitchAttr parses `{ switch [Tag] { case List: … default: … } }` in
+// attribute position — the attribute counterpart of parseSwitchMarkup. Cursor
+// at '{'; the caller has verified the leading keyword is "switch".
+func (p *parser) parseSwitchAttr() (ast.Attr, error) {
+	startPos := p.posAt(p.i)
+	p.i++ // past outer '{'
+	p.skipSpace()
+	p.i += len("switch")
+	tagStart := p.i
+	braceOff, ok := scanToBlockBrace(p.src, p.i, "switch")
+	if !ok {
+		return nil, p.errorf(p.posAt(p.i), "expected `{` after `switch`")
+	}
+	tag := strings.TrimSpace(p.src[tagStart:braceOff])
+	tagPos := token.NoPos
+	if tag != "" {
+		tagPos = p.posAt(tagStart + leadingSpaceLen(p.src[tagStart:braceOff]))
+	}
+	p.i = braceOff + 1 // past switch-body '{'
+
+	var cases []*ast.AttrCaseClause
+	for {
+		p.skipSpace()
+		if p.eof() {
+			return nil, p.errorf(p.pos(), "unterminated `switch`, expected `}`")
+		}
+		if p.peek() == '}' {
+			p.i++ // past switch-body '}'
+			break
+		}
+		cc, err := p.parseAttrCaseClause()
+		if err != nil {
+			return nil, err
+		}
+		cases = append(cases, cc)
+	}
+
+	p.skipSpace()
+	if p.peek() != '}' {
+		return nil, p.errorf(p.pos(), "expected `}` to close `{ switch … }` attribute")
+	}
+	p.i++ // past outer '}'
+	n := &ast.SwitchAttr{Tag: tag, TagPos: tagPos, Cases: cases}
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n, nil
+}
+
+// parseAttrCaseClause parses one `case List:` or `default:` arm with its
+// attribute body. Cursor at the `case` or `default` keyword. It mirrors
+// parseCaseClause, differing only in that the body is an attribute list.
+func (p *parser) parseAttrCaseClause() (*ast.AttrCaseClause, error) {
+	startPos := p.posAt(p.i)
+	cc := &ast.AttrCaseClause{}
+	switch {
+	case p.atWord("case"):
+		p.i += len("case")
+		listStart := p.i
+		colonOff, ok := scanToCaseColon(p.src, p.i)
+		if !ok {
+			return nil, p.errorf(p.posAt(p.i), "expected `:` in `case`")
+		}
+		cc.List = strings.TrimSpace(p.src[listStart:colonOff])
+		if cc.List != "" {
+			cc.ListPos = p.posAt(listStart + leadingSpaceLen(p.src[listStart:colonOff]))
+		}
+		p.i = colonOff + 1 // past ':'
+	case p.atWord("default"):
+		p.i += len("default")
+		p.skipSpace()
+		if p.peek() != ':' {
+			return nil, p.errorf(p.pos(), "expected `:` after `default`")
+		}
+		cc.Default = true
+		p.i++ // past ':'
+	case p.atWord("fallthrough"):
+		// An attribute list is not a statement list: falling through would emit
+		// two arms' attributes and silently duplicate names. Reject it by name
+		// rather than letting it parse as a bool attribute called
+		// "fallthrough", which is what scanAttrName would otherwise produce.
+		return nil, p.errorf(p.pos(), "`fallthrough` is not supported in a `{ switch … }` attribute; list the shared attributes in each `case` instead")
+	default:
+		return nil, p.errorf(p.pos(), "expected `case` or `default` in `{ switch … }` attribute")
+	}
+	body, err := p.parseAttrCaseBody()
+	if err != nil {
+		return nil, err
+	}
+	cc.Body = body
+	ast.SetSpan(cc, startPos, p.posAt(p.i))
+	return cc, nil
+}
+
+// wordHasValue reports whether the word at the cursor is followed by `=`,
+// i.e. it is an attribute with a value rather than a bare bool attribute.
+func (p *parser) wordHasValue(word string) bool {
+	j := p.i + len(word)
+	for j < len(p.src) && (p.src[j] == ' ' || p.src[j] == '\t' || p.src[j] == '\r' || p.src[j] == '\n') {
+		j++
+	}
+	return j < len(p.src) && p.src[j] == '='
+}
+
+// parseAttrCaseBody parses the attribute body of a case arm. Like
+// parseCaseBody it does NOT consume its terminator: it stops (without
+// advancing) at the next `case`/`default` keyword or at the switch body's
+// closing `}`.
+func (p *parser) parseAttrCaseBody() ([]ast.Attr, error) {
+	var attrs []ast.Attr
+	for {
+		wsStart := p.i
+		p.skipSpace()
+		if p.eof() {
+			return nil, p.errorf(p.pos(), "unexpected EOF in `{ switch … }` attribute body")
+		}
+		if p.peek() == '}' || p.atWord("case") || p.atWord("default") {
+			return attrs, nil
+		}
+		// `fallthrough` reaches HERE, in body position, not at the clause start —
+		// scanAttrName would otherwise happily turn the bare keyword into a bool
+		// attribute literally named "fallthrough" and render it. Only the bare
+		// form is rejected: `fallthrough="x"` is an author writing an attribute.
+		if p.atWord("fallthrough") && !p.wordHasValue("fallthrough") {
+			return nil, p.errorf(p.pos(), "`fallthrough` is not supported in a `{ switch … }` attribute; list the shared attributes in each `case` instead")
 		}
 		if c, ok, err := p.parseTagComment(); err != nil {
 			return nil, err

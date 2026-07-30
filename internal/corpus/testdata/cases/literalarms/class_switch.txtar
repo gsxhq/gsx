@@ -1,0 +1,10 @@
+# f`` literal arms in a class={} value-form switch
+-- input.gsx --
+package views
+
+component C(n int, v string) { <div class={ switch n { case 1: f`btn-@{v}` default: "plain" } }>x</div> }
+-- invoke --
+C(1, "primary")
+-- diagnostics.golden --
+-- render.golden --
+<div class="btn-primary">x</div>

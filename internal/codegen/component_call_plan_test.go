@@ -291,17 +291,17 @@ func TestPlanComponentInputsConditionalAttrsBuildsRecursiveStream(t *testing.T) 
 		t.Fatalf("conditional stream root = %+v", root)
 	}
 	cond := el.Attrs[1].(*gsxast.CondAttr)
-	for i, node := range root.then {
+	for i, node := range root.branches[0] {
 		if node.attr != cond.Then[i] {
 			t.Errorf("then node %d attr = %p, want authored attr %p", i, node.attr, cond.Then[i])
 		}
 	}
-	for i, node := range root.otherwise {
+	for i, node := range root.branches[1] {
 		if node.attr != cond.Else[i] {
 			t.Errorf("else node %d attr = %p, want authored attr %p", i, node.attr, cond.Else[i])
 		}
 	}
-	if got := attrsStreamKinds(root.then); !slices.Equal(got, []componentAttrsStreamKind{
+	if got := attrsStreamKinds(root.branches[0]); !slices.Equal(got, []componentAttrsStreamKind{
 		componentAttrsStreamPair,
 		componentAttrsStreamContributor,
 		componentAttrsStreamPair,
@@ -310,17 +310,17 @@ func TestPlanComponentInputsConditionalAttrsBuildsRecursiveStream(t *testing.T) 
 	}) {
 		t.Fatalf("then kinds = %v", got)
 	}
-	if got := attrsStreamSourceIndexes(root.then); !slices.Equal(got, []int{0, 1, 2, 3, 4}) {
+	if got := attrsStreamSourceIndexes(root.branches[0]); !slices.Equal(got, []int{0, 1, 2, 3, 4}) {
 		t.Fatalf("then source indexes = %v", got)
 	}
-	if got := attrsStreamKinds(root.otherwise); !slices.Equal(got, []componentAttrsStreamKind{componentAttrsStreamContributor}) {
+	if got := attrsStreamKinds(root.branches[1]); !slices.Equal(got, []componentAttrsStreamKind{componentAttrsStreamContributor}) {
 		t.Fatalf("else kinds = %v", got)
 	}
-	nested := root.then[4]
-	if got := attrsStreamKinds(nested.then); !slices.Equal(got, []componentAttrsStreamKind{componentAttrsStreamContributor}) {
+	nested := root.branches[0][4]
+	if got := attrsStreamKinds(nested.branches[0]); !slices.Equal(got, []componentAttrsStreamKind{componentAttrsStreamContributor}) {
 		t.Fatalf("nested then kinds = %v", got)
 	}
-	if got := attrsStreamKinds(nested.otherwise); !slices.Equal(got, []componentAttrsStreamKind{componentAttrsStreamPair}) {
+	if got := attrsStreamKinds(nested.branches[1]); !slices.Equal(got, []componentAttrsStreamKind{componentAttrsStreamPair}) {
 		t.Fatalf("nested else kinds = %v", got)
 	}
 }
@@ -368,11 +368,11 @@ func TestPlanComponentInputsLeaflessConditionalIsAnAttrsContributor(t *testing.T
 			t.Fatalf("values = %+v, want one retained conditional contributor", plan.values)
 		}
 		outer := plan.values[0].attrsNode
-		if outer.kind != componentAttrsStreamConditional || len(outer.then) != 1 || outer.then[0].kind != componentAttrsStreamConditional {
+		if outer.kind != componentAttrsStreamConditional || len(outer.branches[0]) != 1 || outer.branches[0][0].kind != componentAttrsStreamConditional {
 			t.Fatalf("conditional tree = %+v", outer)
 		}
-		if len(outer.then[0].then) != 0 || len(outer.then[0].otherwise) != 0 {
-			t.Fatalf("comment-only inner conditional retained value leaves: %+v", outer.then[0])
+		if len(outer.branches[0][0].branches[0]) != 0 || len(outer.branches[0][0].branches[1]) != 0 {
+			t.Fatalf("comment-only inner conditional retained value leaves: %+v", outer.branches[0][0])
 		}
 	})
 
