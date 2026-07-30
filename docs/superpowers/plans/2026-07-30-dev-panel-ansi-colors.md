@@ -379,11 +379,13 @@ Expected: new tests PASS, full suite PASS, typecheck clean.
 ```bash
 cd ~/personal/gsxhq/vite-plugin-gsx && npm run build
 grep -c "from *[\"']ansi_up[\"']" dist/client.js   # must print 0
-grep -c "ansi-bright-green-fg" dist/client.js      # must print 1 or more
+grep -c "ansi_to_html" dist/client.js              # must print 1 or more
 grep -c "from *[\"']vite[\"']" dist/client.js      # must print 0
 ```
 
 Expected: `0`, then a nonzero count, then `0`. A nonzero first count means `noExternal` did not take effect — fix that before committing.
+
+Do NOT grep for a full class name like `ansi-bright-green-fg`: ansi_up composes those at runtime from a `ansi-` prefix plus a color-table name, so the complete string never appears in the bundle and the check would false-negative. `ansi_to_html` is a real function name in the source and survives bundling.
 
 - [ ] **Step 7: Commit**
 
