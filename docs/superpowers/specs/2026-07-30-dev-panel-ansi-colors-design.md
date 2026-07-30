@@ -54,21 +54,43 @@ leading sequence as text. Worst case is one garbled first line, which the
 existing "earlier output truncated" banner already contextualizes. Accepted as
 is.
 
-### Carriage-return progress lines
+### Pre-pass: carriage returns and OSC
 
-No ANSI library handles `\r` overwrite. A pure helper in `client-logic.ts`
-collapses each line to the segment after its last `\r`, applied before
-`ansi_to_html`. Unit-tested alongside the other pure helpers there.
+(Behaviors below were established against a real `ansi_up@6.0.6`, not assumed.)
+
+A pure helper in `client-logic.ts`, applied before `ansi_to_html`, unit-tested
+alongside the other pure helpers there. Two jobs, both things AnsiUp verifiably
+does not do:
+
+1. **`\r` overwrite.** Collapse each line to the segment after its last `\r`.
+   SGR state persists across a `\r` in a real terminal, so the SGR sequences
+   found in the discarded prefix are re-prepended to the kept segment —
+   otherwise a colored spinner line (`ESC[32m10%\r99% done`) loses its color.
+2. **OSC strings.** `ESC ] … BEL` / `ESC ] … ESC \` leak through AnsiUp as
+   literal text — a title-setting sequence renders as `]0;my title`. Stripped,
+   *except* OSC 8 hyperlinks, which AnsiUp does handle (it emits `<a href>`,
+   with a scheme allowlist of http/https and the URL HTML-escaped) and which
+   are left for it.
+
+Cursor movement (`ESC[1A`) and erase-line (`ESC[2K`) need no handling — AnsiUp
+already consumes them.
 
 ### Colors
 
-`use_classes = true`, so AnsiUp emits `class="ansi-*"` rather than inline
-`style="color:rgb(...)"`. The classes are defined in the panel's existing
-`<style>` block, tuned for the panel's dark background — the default ANSI
-blue and black are unreadable there.
+`use_classes = true`, so AnsiUp emits `class="ansi-*"` for the 16 basic
+colors instead of inline `style="color:rgb(...)"`. The classes
+(`ansi-{color}-fg/-bg` and `ansi-bright-{color}-fg/-bg`) are defined in the
+panel's existing `<style>` block, tuned for the panel's dark background — the
+default ANSI blue and black are unreadable there.
+
+`use_classes` covers only those 16. 256-color and truecolor sequences still
+emit inline rgb styles, and bold/dim/italic/underline always emit inline
+styles. That is fine: an author who wrote an explicit rgb value meant that
+value.
 
 ### Tests
 
 - `client-logic` tests for the `\r` collapse helper.
-- Client tests for SGR → HTML, HTML escaping of log content, and 256-color /
-  24-bit truecolor sequences.
+- Client tests for SGR → HTML, HTML escaping of log content, 256-color /
+  24-bit truecolor sequences, and a `javascript:` OSC 8 hyperlink not
+  becoming an anchor.
