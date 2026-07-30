@@ -8,7 +8,7 @@ Runtime (root package) is **standard-library only** — keep it dependency-free;
 ## Before merging to main
 
 Run `make ci` — it mirrors `.github/workflows/ci.yml` (build/vet/test both modules, examples drift, `gofmt` + `gsx fmt`).
-It is the authoritative, uncached run (`-count=1`); GitHub CI runs the same. For the **inner dev loop**, use `make check`: the same checks, but it drops `-count=1` 
+It is the authoritative, uncached run (`-count=1`); GitHub CI runs the same. `make check` is the same checks plus `lint` with the test cache left on — use it as a **pre-merge dry run**, not as an inner loop. For the inner loop run the single affected test; see **Test performance** below.
 
 Pin Go to `GO_VERSION` in `ci.yml` (currently 1.26.1); a different minor re-introduces gofmt drift.
 The CI `docs` job (VitePress, clones `gsxhq/gsxhq.github.io`) isn't in `make ci` — only matters when editing `docs/guide/**`.
@@ -33,6 +33,28 @@ Run `make lint`
 
 `internal/gsxfmt/testdata/cases/*.txtar` pins **layout** (`input.gsx` + `fmt.golden`); the semantic corpus above pins meaning. Keep them apart. Regenerate with `go test ./internal/gsxfmt -run TestFmtCorpus -update`, then verify without `-update`. **Any formatter change ships a fmt-corpus case.**
 
+## Test performance — run the narrow test, not the suite
+
+The full suite is **~230s**; a single test is **~1.5s**. Never run `make ci` / `make check` / `go test ./...` as your inner loop.
+
+**While building a feature, run only what you changed:**
+
+```
+go test ./internal/codegen -run 'TestMyNewThing' -count=1     # one test
+go test ./internal/corpus  -run 'TestCorpus/my_case' -count=1 # one corpus case
+go test ./gen -run 'TestDev' -count=1                          # one cluster
+```
+
+Run the full `make ci` **once, at final review before merging** — that is the authoritative gate and its exit code must reach the merge decision.
+
+**Why it's slow, and the rule that follows.** `gen` (~264s) and `internal/codegen` (~260s) run concurrently and *are* the suite; every other package finishes in under a second. Both are dominated by `packages.Load`: the gsx runtime closure is **85 packages / 667 files / ~205k lines**, and it is re-parsed and re-type-checked **once per test Module** — 803 loads per run, ~0.25–0.31s each. In the CPU profile that is `parseFiles` 96s + `checkFiles` 61s + 106s of resulting GC.
+
+So the unit of test cost is **a `codegen.Module` open, not a test function.** Adding 50 table rows to an existing Module-backed test is ~free; adding one more test that opens its own Module costs ~0.3s forever. Prefer extending an existing fixture's table over writing a new module-opening test.
+
+Do **not** try to speed the suite up by merging fast tests: in `gen`, 344 of 552 tests take <1s and total 46s combined. Merging only pays when it removes a `packages.Load`.
+
+Test parallelism is capped at `-parallel 4` in the Makefile (`PARALLEL`). This is deliberate — the default `GOMAXPROCS` fan-out is *slower* (292s vs 232s) because each `go list` internally saturates every core. Don't raise it without measuring.
+
 ## Conventions
 
 - **Branches:** feature work in a **git worktree** (use the `superpowers:using-git-worktrees` skill).
@@ -47,7 +69,7 @@ No workarounds, when we see somethings looks odd, flag it and discuss. Don't jus
 
 If you need a paragraph-long comment to justify why the workaround is OIK, the code is wrong - fix the code.
 
-`golang.org/x/tools/go/packages.Load` is expensive. Make sure you understand the performance implications before calling it.
+`golang.org/x/tools/go/packages.Load` is expensive — ~0.25–0.31s, and it governs test wall time (see **Test performance**). Make sure you understand the performance implications before calling it, in production code *or* in a test.
 
 ## Neighboring repos (siblings under `~/personal/gsxhq/`)
 
