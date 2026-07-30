@@ -894,6 +894,7 @@ style/explicit_css_attr_pipeline	diag render
 style/loop_var_in_style	diag render
 style/minify_block	diag gen render
 style/part_tuple	diag gen render
+style/trailing_semicolon_normalized	diag render
 style/value_form_evaluation_order	diag gen render
 style/value_if_else	diag gen render
 style/value_if_local_liveness	diag gen render
@@ -1007,4 +1008,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1009 cases (render: 862, error: 109, gen-pinned: 566)
+TOTAL: 1010 cases (render: 863, error: 109, gen-pinned: 566)
