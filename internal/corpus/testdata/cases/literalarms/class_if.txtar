@@ -1,0 +1,10 @@
+# f`` literal arm in a class={} value-form if, alongside a plain string part
+-- input.gsx --
+package views
+
+component C(c bool, v string) { <div class={ "base", if c { f`btn-@{v}` } else { "off" } }>x</div> }
+-- invoke --
+C(true, "primary")
+-- diagnostics.golden --
+-- render.golden --
+<div class="base btn-primary">x</div>

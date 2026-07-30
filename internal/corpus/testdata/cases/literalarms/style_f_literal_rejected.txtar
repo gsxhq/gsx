@@ -1,0 +1,12 @@
+# error: an f`` literal supplied as a style value escaped its holes for HTML
+# only and never ran the CSS value filter, so a hole could inject CSS
+# (`background:url(javascript:…)`) into the style attribute. The literal's
+# language is what selects the sanitizer, so style= takes css`` only.
+-- input.gsx --
+package views
+
+component C(v string) { <div style=f`color: @{v}`>x</div> }
+-- ast.golden --
+File package=views
+-- diagnostics.golden --
+3:36: f literals are not valid in style=…; style takes css`…` literals

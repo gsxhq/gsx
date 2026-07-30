@@ -1,0 +1,36 @@
+Layout fact: a value-form arm holding a prefixed backtick literal prints as the
+literal itself, identically to the same literal used as a plain composed part —
+an arm is a value position like any other, so it neither gains nor loses
+formatting. class={…} takes f`…`, style={…} takes css`…`.
+
+-- input.gsx --
+package main
+
+component StyleSwitch(n int, w string) {
+	<div style={ switch n { case 1: css`aspect-ratio: @{w} / 9` default: css`aspect-ratio: @{w}` } }>a</div>
+}
+
+component ClassIf(c bool, v string) {
+	<div class={ "base", if c { f`btn-@{v}` } else { "off" } }>b</div>
+}
+-- fmt.golden --
+package main
+
+component StyleSwitch(n int, w string) {
+	<div
+		style={
+			switch n {
+			case 1:
+				css`aspect-ratio: @{w} / 9`
+			default:
+				css`aspect-ratio: @{w}`
+			}
+		}
+	>
+		a
+	</div>
+}
+
+component ClassIf(c bool, v string) {
+	<div class={ "base", if c { f`btn-@{v}` } else { "off" } }>b</div>
+}

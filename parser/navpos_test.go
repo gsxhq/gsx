@@ -64,7 +64,7 @@ component C(user string, cond bool, n int, bag string) {
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.ComposedPart:
-			if v.CF == nil && v.CSSSegments == nil {
+			if v.CF == nil && v.LiteralSegments == nil {
 				seen["classpart"]++
 				check("ComposedPart.ExprPos", v.ExprPos, v.Expr)
 				check("ComposedPart.CondPos", v.CondPos, v.Cond)
@@ -179,7 +179,7 @@ component C(cond bool) {
 		if !ok {
 			return true
 		}
-		if part.CSSSegments != nil {
+		if part.LiteralSegments != nil {
 			seen["css"] = true
 			if got := part.ExprEnd(); got != token.NoPos {
 				t.Errorf("CSS ExprEnd() = %d, want NoPos", got)

@@ -154,6 +154,19 @@ func cloneCaseClauses(in []*CaseClause) []*CaseClause {
 	return out
 }
 
+func cloneAttrCaseClauses(in []*AttrCaseClause) []*AttrCaseClause {
+	if in == nil {
+		return nil
+	}
+	out := make([]*AttrCaseClause, len(in))
+	for i, c := range in {
+		n := *c
+		n.Body = cloneAttrs(c.Body)
+		out[i] = &n
+	}
+	return out
+}
+
 func cloneAttrs(in []Attr) []Attr {
 	if in == nil {
 		return nil
@@ -194,6 +207,10 @@ func cloneAttr(a Attr) Attr {
 		n := *v
 		n.Then = cloneAttrs(v.Then)
 		n.Else = cloneAttrs(v.Else)
+		return &n
+	case *SwitchAttr:
+		n := *v
+		n.Cases = cloneAttrCaseClauses(v.Cases)
 		return &n
 	case *ComposedAttr:
 		n := *v
@@ -252,7 +269,7 @@ func cloneComposedParts(in []ComposedPart) []ComposedPart {
 func cloneComposedPart(p ComposedPart) ComposedPart {
 	// p is already a value copy; deep-copy its mutable slices/pointers.
 	p.Stages = clonePipeStages(p.Stages)
-	p.CSSSegments = cloneMarkups(p.CSSSegments)
+	p.LiteralSegments = cloneMarkups(p.LiteralSegments)
 	if p.CF != nil {
 		p.CF = cloneValueCF(p.CF)
 	}
@@ -302,6 +319,7 @@ func cloneValueSwitch(vs *ValueSwitch) *ValueSwitch {
 func cloneValueArm(va *ValueArm) *ValueArm {
 	n := *va
 	n.Stages = clonePipeStages(va.Stages)
+	n.Segments = cloneMarkups(va.Segments)
 	return &n
 }
 

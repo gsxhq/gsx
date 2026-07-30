@@ -199,6 +199,24 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 				return err
 			}
 		}
+	case *SwitchAttr:
+		if _, err := fmt.Fprintf(w, "%sSwitchAttr tag=%q\n", indent, n.Tag); err != nil {
+			return err
+		}
+		for _, cc := range n.Cases {
+			if err := fprintNode(w, cc, depth+1); err != nil {
+				return err
+			}
+		}
+	case *AttrCaseClause:
+		if _, err := fmt.Fprintf(w, "%sAttrCaseClause list=%q default=%v\n", indent, n.List, n.Default); err != nil {
+			return err
+		}
+		for _, a := range n.Body {
+			if err := fprintNode(w, a, depth+1); err != nil {
+				return err
+			}
+		}
 	case *CondAttr:
 		if _, err := fmt.Fprintf(w, "%sCondAttr cond=%q\n", indent, n.Cond); err != nil {
 			return err
@@ -232,8 +250,8 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 				}
 				continue
 			}
-			if part.CSSSegments != nil {
-				if _, err := fmt.Fprintf(w, "%s  ComposedPart cssSegments=%d cond=%q\n", indent, len(part.CSSSegments), part.Cond); err != nil {
+			if part.LiteralSegments != nil {
+				if _, err := fmt.Fprintf(w, "%s  ComposedPart cssSegments=%d cond=%q\n", indent, len(part.LiteralSegments), part.Cond); err != nil {
 					return err
 				}
 				continue
@@ -285,6 +303,17 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 		}
 		return fprintNode(w, n.Value, depth+1)
 	case *ValueArm:
+		if n.Segments != nil {
+			if _, err := fmt.Fprintf(w, "%sValueArm segments=%d\n", indent, len(n.Segments)); err != nil {
+				return err
+			}
+			for _, m := range n.Segments {
+				if err := fprintNode(w, m, depth+1); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		if _, err := fmt.Fprintf(w, "%sValueArm expr=%q\n", indent, n.Expr); err != nil {
 			return err
 		}

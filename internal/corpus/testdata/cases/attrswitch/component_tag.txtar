@@ -1,0 +1,14 @@
+# a switch attribute on a COMPONENT tag routes through the attrs bag
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Leaf(attrs gsx.Attrs) { <span { attrs... }>leaf</span> }
+
+component C(n int) { <Leaf { switch n { case 1: data-one="y" default: data-other="y" } }/> }
+-- invoke --
+C(9)
+-- diagnostics.golden --
+-- render.golden --
+<span data-other="y">leaf</span>

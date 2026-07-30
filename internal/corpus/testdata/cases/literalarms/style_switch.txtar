@@ -1,0 +1,11 @@
+# css`` literal arms in a style={} value-form switch: the static `/` separator
+# is template text, so only the numbers are holes and each is still filtered
+-- input.gsx --
+package views
+
+component C(n int, w string) { <div style={ switch n { case 1: css`aspect-ratio: @{w} / 9` default: css`aspect-ratio: @{w}` } }>x</div> }
+-- invoke --
+C(1, "16")
+-- diagnostics.golden --
+-- render.golden --
+<div style="aspect-ratio: 16 / 9">x</div>

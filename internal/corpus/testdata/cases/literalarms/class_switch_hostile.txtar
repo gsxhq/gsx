@@ -1,0 +1,11 @@
+# a hostile hole in an f`` class literal arm is HTML-escaped, so it cannot
+# break out of the class attribute
+-- input.gsx --
+package views
+
+component C(n int, v string) { <div class={ switch n { case 1: f`btn-@{v}` default: "plain" } }>x</div> }
+-- invoke --
+C(1, `x" onclick="alert(1)`)
+-- diagnostics.golden --
+-- render.golden --
+<div class="btn-x&#34; onclick=&#34;alert(1)">x</div>

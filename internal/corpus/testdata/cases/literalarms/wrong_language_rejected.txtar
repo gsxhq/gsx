@@ -1,0 +1,10 @@
+# error: each composable attribute takes only its own literal language —
+# class={} takes f`…`, style={} takes css`…`
+-- input.gsx --
+package views
+
+component C(v string) { <div class={ "base", css`color: @{v}` }>x</div> }
+-- ast.golden --
+File package=views
+-- diagnostics.golden --
+3:46: css literal parts are not valid in class={...}; class={...} takes f`…` literals

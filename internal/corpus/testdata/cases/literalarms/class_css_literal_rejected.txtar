@@ -1,0 +1,11 @@
+# error: a css`` literal supplied as a class value ran the CSS value filter
+# over a CLASS string, so an ordinary utility class like `bg-primary/20`
+# collapsed to ZgotmplZ. class= takes f`` only.
+-- input.gsx --
+package views
+
+component C(v string) { <div class=css`color: @{v}`>x</div> }
+-- ast.golden --
+File package=views
+-- diagnostics.golden --
+3:36: css literals are not valid in class=…; class takes f`…` literals

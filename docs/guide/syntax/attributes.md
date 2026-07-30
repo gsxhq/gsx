@@ -71,6 +71,31 @@ one or more attributes.
 An `else` branch works too:
 `{ if active { class="active" } else { class="idle" } }`.
 
+`{ switch … }` is the switch counterpart, for when one of several mutually
+exclusive attribute sets applies:
+
+```gsx
+<div
+    { switch status {
+    case "ok":
+        data-state="ok"
+    case "warn", "error":
+        data-state="bad" aria-live="polite"
+    default:
+        data-state="unknown"
+    } }
+>
+```
+
+It takes the same shapes Go's `switch` does — a tag expression, multi-value
+case lists, a tagless `switch { case cond: … }`, and `default` — and evaluates
+its tag exactly once. `fallthrough` is not supported: an attribute list is not
+a statement list, so falling through would emit two arms' attributes and
+duplicate names. List the shared attributes in each `case` instead.
+
+An arm with no matching case contributes nothing, exactly like an `if` with no
+`else`.
+
 ## Spread `{ x… }` — ordered
 
 Spread a `gsx.Attrs` bag with `{ bag... }`; entries render in slice order.

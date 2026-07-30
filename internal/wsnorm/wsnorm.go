@@ -148,6 +148,10 @@ func normalizeAttrs(attrs []ast.Attr) {
 		case *ast.CondAttr:
 			normalizeAttrs(v.Then)
 			normalizeAttrs(v.Else)
+		case *ast.SwitchAttr:
+			for _, cc := range v.Cases {
+				normalizeAttrs(cc.Body)
+			}
 		}
 	}
 }

@@ -223,6 +223,12 @@ func minifyAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
 			if err := minifyAttrs(v.Else, ext); err != nil {
 				return err
 			}
+		case *ast.SwitchAttr:
+			for _, cc := range v.Cases {
+				if err := minifyAttrs(cc.Body, ext); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

@@ -1,0 +1,9 @@
+# error: the same language rule applies inside a value-form arm
+-- input.gsx --
+package views
+
+component C(n int, v string) { <div class={ switch n { case 1: css`color: @{v}` default: "plain" } }>x</div> }
+-- ast.golden --
+File package=views
+-- diagnostics.golden --
+3:64: css literal arms are not valid in class={...}; class={...} takes f`…` literals

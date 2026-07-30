@@ -1,0 +1,10 @@
+# error: the same rule covers js`` — its holes are JS-escaped, which is the
+# wrong sanitizer for a class value.
+-- input.gsx --
+package views
+
+component C(v string) { <div class={js`x = @{v}`}>x</div> }
+-- ast.golden --
+File package=views
+-- diagnostics.golden --
+3:37: js literals are not valid in class=…; class takes f`…` literals

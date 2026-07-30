@@ -493,10 +493,7 @@ func completeComponentOperandFacts(plan componentCallPlan, discovered map[gsxast
 	var completeAttrsTree func(componentAttrsStreamNode)
 	completeAttrsTree = func(node componentAttrsStreamNode) {
 		if node.kind == componentAttrsStreamConditional {
-			for _, child := range node.then {
-				completeAttrsTree(child)
-			}
-			for _, child := range node.otherwise {
+			for _, child := range node.branchNodes() {
 				completeAttrsTree(child)
 			}
 			if _, exists := facts.get(node.attr); !exists {
@@ -557,7 +554,7 @@ func syntaxDefinedComponentFact(node gsxast.Node, nested expressionFactSet, runt
 			return expressionFact{}, false
 		}
 		return expressionFact{tv: types.TypeAndValue{Type: typ}, hasOrderedOperation: ordered}, true
-	case *gsxast.CondAttr:
+	case *gsxast.CondAttr, *gsxast.SwitchAttr:
 		return expressionFact{tv: types.TypeAndValue{Type: runtime.attrs}, hasOrderedOperation: true}, true
 	case *gsxast.Element:
 		return expressionFact{tv: types.TypeAndValue{Type: runtime.node}}, true
@@ -604,7 +601,7 @@ func nestedComponentFactBearingNode(node gsxast.Node) bool {
 	case *gsxast.Interp, *gsxast.OrderedPair, *gsxast.ValueArm:
 		return true
 	case *gsxast.ComposedPart:
-		return node.CF == nil && node.CSSSegments == nil
+		return node.CF == nil && node.LiteralSegments == nil
 	default:
 		return false
 	}
@@ -683,10 +680,7 @@ func validateRecursiveAttrsOperands(plan componentCallPlan, facts expressionFact
 	var visit func(componentAttrsStreamNode)
 	visit = func(node componentAttrsStreamNode) {
 		if node.kind == componentAttrsStreamConditional {
-			for _, child := range node.then {
-				visit(child)
-			}
-			for _, child := range node.otherwise {
+			for _, child := range node.branchNodes() {
 				visit(child)
 			}
 			return
@@ -718,10 +712,7 @@ func validateRequiredAttrsFacts(plan componentCallPlan, facts expressionFactSet,
 	var visit func(componentAttrsStreamNode)
 	visit = func(node componentAttrsStreamNode) {
 		if node.kind == componentAttrsStreamConditional {
-			for _, child := range node.then {
-				visit(child)
-			}
-			for _, child := range node.otherwise {
+			for _, child := range node.branchNodes() {
 				visit(child)
 			}
 			return

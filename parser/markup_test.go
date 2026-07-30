@@ -23,7 +23,7 @@ func composedPartsLogicalEqual(a, b []ast.ComposedPart) bool {
 	for i := range a {
 		if a[i].Expr != b[i].Expr || a[i].Cond != b[i].Cond ||
 			!reflect.DeepEqual(a[i].Stages, b[i].Stages) ||
-			!reflect.DeepEqual(a[i].CSSSegments, b[i].CSSSegments) ||
+			!reflect.DeepEqual(a[i].LiteralSegments, b[i].LiteralSegments) ||
 			a[i].CF != b[i].CF {
 			return false
 		}
@@ -1083,9 +1083,9 @@ func TestParseComposedStyleCSSLiteralPart(t *testing.T) {
 	if ca.Parts[0].Expr != `"display:none"` || ca.Parts[0].Cond != "hidden" {
 		t.Fatalf("part0 = %#v", ca.Parts[0])
 	}
-	segs := ca.Parts[1].CSSSegments
+	segs := ca.Parts[1].LiteralSegments
 	if len(segs) != 3 {
-		t.Fatalf("CSSSegments len = %d, want 3: %#v", len(segs), segs)
+		t.Fatalf("LiteralSegments len = %d, want 3: %#v", len(segs), segs)
 	}
 	if text, ok := segs[0].(*ast.Text); !ok || text.Value != `color:` {
 		t.Fatalf("seg0 = %#v", segs[0])

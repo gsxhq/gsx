@@ -1,0 +1,11 @@
+# css`` literal values inside switch arms: each @{ } hole is still filtered, so
+# the static `/` separator is the ONLY slash that can reach the declaration
+-- input.gsx --
+package views
+
+component C(n int, w string) { <div { switch n { case 1: style=css`aspect-ratio: @{w} / 9` default: style=css`aspect-ratio: @{w}` } }>x</div> }
+-- invoke --
+C(1, "1;color:red")
+-- diagnostics.golden --
+-- render.golden --
+<div style="aspect-ratio: ZgotmplZ / 9">x</div>

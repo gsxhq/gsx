@@ -463,7 +463,7 @@ func componentExpressionSource(node gsxast.Node) (token.Pos, string, []gsxast.Pi
 	case *gsxast.OrderedPair:
 		return expression.Pos(), expression.Value, nil, true
 	case *gsxast.ComposedPart:
-		if expression.CF == nil && expression.CSSSegments == nil {
+		if expression.CF == nil && expression.LiteralSegments == nil {
 			return expression.ExprPos, expression.Expr, expression.Stages, true
 		}
 	case *gsxast.ValueArm:
@@ -522,6 +522,10 @@ func componentControlSourceStart(node gsxast.Node) (token.Pos, bool) {
 		return control.ListPos, control.ListPos.IsValid()
 	case *gsxast.CondAttr:
 		return control.CondPos, control.CondPos.IsValid()
+	case *gsxast.SwitchAttr:
+		return control.TagPos, control.TagPos.IsValid()
+	case *gsxast.AttrCaseClause:
+		return control.ListPos, control.ListPos.IsValid()
 	case *gsxast.SwitchMarkup:
 		return control.TagPos, control.TagPos.IsValid()
 	case *gsxast.CaseClause:
@@ -595,10 +599,7 @@ func componentCallFacts(plan componentPositionalPackagePlan) map[*gsxast.Element
 			case componentAttrsStreamContributor:
 				bind(node.attr, paramIndex)
 			case componentAttrsStreamConditional:
-				for _, child := range node.then {
-					bindAttrsContributors(child, paramIndex)
-				}
-				for _, child := range node.otherwise {
+				for _, child := range node.branchNodes() {
 					bindAttrsContributors(child, paramIndex)
 				}
 			}

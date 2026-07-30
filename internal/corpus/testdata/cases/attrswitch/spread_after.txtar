@@ -1,0 +1,12 @@
+# a spread following a switch attribute keeps source order (post-spread path)
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component C(n int, extra gsx.Attrs) { <div { switch n { case 1: data-one="y" default: data-other="y" } } { extra... }>x</div> }
+-- invoke --
+C(1, gsx.Attrs{{Key: "data-extra", Value: "e"}})
+-- diagnostics.golden --
+-- render.golden --
+<div data-one="y" data-extra="e">x</div>

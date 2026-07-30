@@ -56,11 +56,34 @@ type componentAttrsStreamNode struct {
 	kind        componentAttrsStreamKind
 	sourceIndex int // index in the immediately containing attribute list
 	attr        gsxast.Attr
-	then        []componentAttrsStreamNode
-	otherwise   []componentAttrsStreamNode
-	// hasSyntaxError records invalid descendants omitted from then/otherwise.
+	// branches holds one entry per mutually exclusive arm, in source order. A
+	// *CondAttr contributes exactly two (Then, then Else — the second empty when
+	// there is no `else`); a *SwitchAttr contributes one per case arm. Consumers
+	// walk them uniformly and must not assume a count.
+	branches [][]componentAttrsStreamNode
+	// hasSyntaxError records invalid descendants omitted from branches.
 	// It suppresses a cascading missing-attrs error for an invalid-only subtree.
 	hasSyntaxError bool
+}
+
+// branchNodes reports every arm's nodes flattened, for consumers that only need
+// to visit each descendant once and do not care which arm it came from.
+func (n componentAttrsStreamNode) branchNodes() []componentAttrsStreamNode {
+	var out []componentAttrsStreamNode
+	for _, br := range n.branches {
+		out = append(out, br...)
+	}
+	return out
+}
+
+// emptyBranches reports whether no arm contributed a node.
+func (n componentAttrsStreamNode) emptyBranches() bool {
+	for _, br := range n.branches {
+		if len(br) != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 type componentArgSlot struct {
@@ -227,7 +250,17 @@ func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSi
 		}
 	}
 
-	var normalizeAttrsList func([]gsxast.Attr) ([]componentAttrsStreamNode, bool)
+	// normalizeBranchLists normalizes an if-form's two arms into the uniform
+	// branch slice; the Else arm stays present-but-empty when there is no
+	// `else`, so a consumer counting arms sees the same shape either way.
+	// normalizeCaseLists does the same for a switch-form's case arms, in source
+	// order. Both are declared before normalizeAttrsList and assigned after it,
+	// because that closure is recursive and calls them for nested groups.
+	var (
+		normalizeAttrsList   func([]gsxast.Attr) ([]componentAttrsStreamNode, bool)
+		normalizeBranchLists func(then, els []gsxast.Attr) ([][]componentAttrsStreamNode, bool)
+		normalizeCaseLists   func(cases []*gsxast.AttrCaseClause) ([][]componentAttrsStreamNode, bool)
+	)
 	normalizeAttrsList = func(attrs []gsxast.Attr) ([]componentAttrsStreamNode, bool) {
 		nodes := make([]componentAttrsStreamNode, 0, len(attrs))
 		hasSyntaxError := false
@@ -259,23 +292,46 @@ func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSi
 					attr:        attr,
 				})
 			case *gsxast.CondAttr:
-				then, thenSyntaxError := normalizeAttrsList(attr.Then)
-				otherwise, elseSyntaxError := normalizeAttrsList(attr.Else)
+				branches, branchSyntaxError := normalizeBranchLists(attr.Then, attr.Else)
 				nodes = append(nodes, componentAttrsStreamNode{
 					kind:           componentAttrsStreamConditional,
 					sourceIndex:    sourceIndex,
 					attr:           attr,
-					then:           then,
-					otherwise:      otherwise,
-					hasSyntaxError: thenSyntaxError || elseSyntaxError,
+					branches:       branches,
+					hasSyntaxError: branchSyntaxError,
 				})
-				hasSyntaxError = hasSyntaxError || thenSyntaxError || elseSyntaxError
+				hasSyntaxError = hasSyntaxError || branchSyntaxError
+			case *gsxast.SwitchAttr:
+				branches, branchSyntaxError := normalizeCaseLists(attr.Cases)
+				nodes = append(nodes, componentAttrsStreamNode{
+					kind:           componentAttrsStreamConditional,
+					sourceIndex:    sourceIndex,
+					attr:           attr,
+					branches:       branches,
+					hasSyntaxError: branchSyntaxError,
+				})
+				hasSyntaxError = hasSyntaxError || branchSyntaxError
 			default:
 				addDiagnostic(attr, "unsupported-component-attr", fmt.Sprintf("unsupported component attribute %T on <%s>", attr, el.Tag))
 				hasSyntaxError = true
 			}
 		}
 		return nodes, hasSyntaxError
+	}
+	normalizeBranchLists = func(then, els []gsxast.Attr) ([][]componentAttrsStreamNode, bool) {
+		thenNodes, thenErr := normalizeAttrsList(then)
+		elseNodes, elseErr := normalizeAttrsList(els)
+		return [][]componentAttrsStreamNode{thenNodes, elseNodes}, thenErr || elseErr
+	}
+	normalizeCaseLists = func(cases []*gsxast.AttrCaseClause) ([][]componentAttrsStreamNode, bool) {
+		branches := make([][]componentAttrsStreamNode, 0, len(cases))
+		anyErr := false
+		for _, cc := range cases {
+			nodes, err := normalizeAttrsList(cc.Body)
+			branches = append(branches, nodes)
+			anyErr = anyErr || err
+		}
+		return branches, anyErr
 	}
 	reportMissingAttrsTree := func(root componentAttrsStreamNode) {
 		var report func(componentAttrsStreamNode)
@@ -288,13 +344,10 @@ func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSi
 				requireAttrs(node.attr, input)
 				return
 			}
-			for _, child := range node.then {
+			for _, child := range node.branchNodes() {
 				report(child)
 			}
-			for _, child := range node.otherwise {
-				report(child)
-			}
-			if len(node.then) == 0 && len(node.otherwise) == 0 && !node.hasSyntaxError {
+			if node.emptyBranches() && !node.hasSyntaxError {
 				requireAttrs(node.attr, "conditional attrs contributor")
 			}
 		}
@@ -344,15 +397,29 @@ func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSi
 		case *gsxast.CondAttr:
 			currentContributor := contributorIndex
 			contributorIndex++
-			then, thenSyntaxError := normalizeAttrsList(attr.Then)
-			otherwise, elseSyntaxError := normalizeAttrsList(attr.Else)
+			branches, branchSyntaxError := normalizeBranchLists(attr.Then, attr.Else)
 			attrsNode := componentAttrsStreamNode{
 				kind:           componentAttrsStreamConditional,
 				sourceIndex:    sourceIndex,
 				attr:           attr,
-				then:           then,
-				otherwise:      otherwise,
-				hasSyntaxError: thenSyntaxError || elseSyntaxError,
+				branches:       branches,
+				hasSyntaxError: branchSyntaxError,
+			}
+			if attrsParam >= 0 {
+				addAttrsValue(attrsNode, currentContributor)
+			} else {
+				reportMissingAttrsTree(attrsNode)
+			}
+		case *gsxast.SwitchAttr:
+			currentContributor := contributorIndex
+			contributorIndex++
+			branches, branchSyntaxError := normalizeCaseLists(attr.Cases)
+			attrsNode := componentAttrsStreamNode{
+				kind:           componentAttrsStreamConditional,
+				sourceIndex:    sourceIndex,
+				attr:           attr,
+				branches:       branches,
+				hasSyntaxError: branchSyntaxError,
 			}
 			if attrsParam >= 0 {
 				addAttrsValue(attrsNode, currentContributor)

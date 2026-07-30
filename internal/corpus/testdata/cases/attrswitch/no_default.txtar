@@ -1,0 +1,11 @@
+# a switch attribute with no matching case contributes nothing, like an `if`
+# with no `else`
+-- input.gsx --
+package views
+
+component C(n int) { <div { switch n { case 1: data-one="y" } }>x</div> }
+-- invoke --
+C(2)
+-- diagnostics.golden --
+-- render.golden --
+<div>x</div>

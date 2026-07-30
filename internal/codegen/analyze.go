@@ -1285,13 +1285,16 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 							// Value-form CF part: probe each arm so harvest populates
 							// resolved[arm] for classEntryExpr's (T, error) unwrap.
 							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								if arm.Segments != nil {
+									continue // literal arm: its holes are probed via walkMarkupAttrs
+								}
 								emitSkeletonLine(sb, fset, arm.Pos())
 								if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, arm.ExprPos, arm.Expr, arm.Stages, table, usedFilters, arm, bag); err != nil {
 									classProbeErr = err
 									return
 								}
 							}
-						} else if ca.Parts[i].CSSSegments == nil {
+						} else if ca.Parts[i].LiteralSegments == nil {
 							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
 							if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters, &ca.Parts[i], bag); err != nil {
 								classProbeErr = err
@@ -1318,6 +1321,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					emitValueCFControl(sb, fset, cf, ctrlOff)
 				}, func(node gsxast.Node, cond string, condPos token.Pos) {
 					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
+				}, func(sa *gsxast.SwitchAttr) {
+					emitSwitchAttrControl(sb, fset, sa, ctrlOff)
 				})
 				// Probe ExprAttr values nested in a component cond-attr branch
 				// (`{ if C { attr={expr} } }`) with _gsxuseq, AFTER the parts probes —
@@ -1470,13 +1475,16 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					for i := range ca.Parts {
 						if ca.Parts[i].CF != nil {
 							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								if arm.Segments != nil {
+									continue // literal arm: its holes are probed via walkMarkupAttrs
+								}
 								emitSkeletonLine(sb, fset, arm.Pos())
 								if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, arm.ExprPos, arm.Expr, arm.Stages, table, usedFilters, arm, bag); err != nil {
 									leafClassProbeErr = err
 									return
 								}
 							}
-						} else if ca.Parts[i].CSSSegments == nil {
+						} else if ca.Parts[i].LiteralSegments == nil {
 							// Plain part, conditional or not: harvest its type for
 							// renderer application and (T, error) unwrap (#88). _gsxuse
 							// also serves as a liveness reference (replaces `_ =
@@ -1512,6 +1520,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					emitValueCFControl(sb, fset, cf, ctrlOff)
 				}, func(node gsxast.Node, cond string, condPos token.Pos) {
 					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
+				}, func(sa *gsxast.SwitchAttr) {
+					emitSwitchAttrControl(sb, fset, sa, ctrlOff)
 				})
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
 				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
@@ -2676,9 +2686,12 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node, candidates *callSit
 					for i := range ca.Parts {
 						if ca.Parts[i].CF != nil {
 							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								if arm.Segments != nil {
+									continue // literal arm: collected via walkMarkupAttrs below
+								}
 								*out = append(*out, arm)
 							}
-						} else if ca.Parts[i].CSSSegments == nil {
+						} else if ca.Parts[i].LiteralSegments == nil {
 							*out = append(*out, &ca.Parts[i])
 						}
 					}
@@ -2736,9 +2749,12 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node, candidates *callSit
 				for i := range ca.Parts {
 					if ca.Parts[i].CF != nil {
 						for _, arm := range valueFormArms(ca.Parts[i].CF) {
+							if arm.Segments != nil {
+								continue // literal arm: collected via walkMarkupAttrs below
+							}
 							*out = append(*out, arm)
 						}
-					} else if ca.Parts[i].CSSSegments == nil {
+					} else if ca.Parts[i].LiteralSegments == nil {
 						*out = append(*out, &ca.Parts[i])
 					}
 				}
@@ -2794,6 +2810,10 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 		case *gsxast.CondAttr:
 			walkAttrExprs(at.Then, fn)
 			walkAttrExprs(at.Else, fn)
+		case *gsxast.SwitchAttr:
+			for _, cc := range at.Cases {
+				walkAttrExprs(cc.Body, fn)
+			}
 		}
 	}
 }
@@ -2813,9 +2833,14 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 // probe always maps to the k-th collected branch-ExprAttr node.
 func walkBranchAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 	for _, a := range attrs {
-		if ca, ok := a.(*gsxast.CondAttr); ok {
-			walkAttrExprs(ca.Then, fn)
-			walkAttrExprs(ca.Else, fn)
+		switch at := a.(type) {
+		case *gsxast.CondAttr:
+			walkAttrExprs(at.Then, fn)
+			walkAttrExprs(at.Else, fn)
+		case *gsxast.SwitchAttr:
+			for _, cc := range at.Cases {
+				walkAttrExprs(cc.Body, fn)
+			}
 		}
 	}
 }
@@ -2834,6 +2859,10 @@ func walkSpreadAttrs(attrs []gsxast.Attr, fn func(*gsxast.SpreadAttr)) {
 		case *gsxast.CondAttr:
 			walkSpreadAttrs(at.Then, fn)
 			walkSpreadAttrs(at.Else, fn)
+		case *gsxast.SwitchAttr:
+			for _, cc := range at.Cases {
+				walkSpreadAttrs(cc.Body, fn)
+			}
 		}
 	}
 }
@@ -2853,6 +2882,10 @@ func walkComposedAttrs(attrs []gsxast.Attr, fn func(*gsxast.ComposedAttr)) {
 		case *gsxast.CondAttr:
 			walkComposedAttrs(at.Then, fn)
 			walkComposedAttrs(at.Else, fn)
+		case *gsxast.SwitchAttr:
+			for _, cc := range at.Cases {
+				walkComposedAttrs(cc.Body, fn)
+			}
 		}
 	}
 }
@@ -2878,7 +2911,7 @@ func walkComposedAttrs(attrs []gsxast.Attr, fn func(*gsxast.ComposedAttr)) {
 // case lists are only legal in statement position) the same way. Both forms
 // are invisible to the k-th-probe→k-th-node type-harvest alignment, unlike
 // _gsxuse.
-func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos)) {
+func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos), fnSwitch func(sa *gsxast.SwitchAttr)) {
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *gsxast.ComposedAttr:
@@ -2886,7 +2919,7 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), f
 			// pointer ast.Inspect yields — the identity the LSP looks up in CtrlMap.
 			for i := range at.Parts {
 				p := &at.Parts[i]
-				if p.CSSSegments != nil {
+				if p.LiteralSegments != nil {
 					fnCond(p, p.Cond, p.CondPos)
 					continue
 				}
@@ -2900,8 +2933,16 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), f
 			}
 		case *gsxast.CondAttr:
 			fnCond(at, at.Cond, at.CondPos)
-			walkLivenessAttrExprs(at.Then, fnCF, fnCond)
-			walkLivenessAttrExprs(at.Else, fnCF, fnCond)
+			walkLivenessAttrExprs(at.Then, fnCF, fnCond, fnSwitch)
+			walkLivenessAttrExprs(at.Else, fnCF, fnCond, fnSwitch)
+		case *gsxast.SwitchAttr:
+			// The tag and every case list go out as ONE switch skeleton (a case
+			// list is only well-typed against its tag), unlike a CondAttr's
+			// standalone bool condition.
+			fnSwitch(at)
+			for _, cc := range at.Cases {
+				walkLivenessAttrExprs(cc.Body, fnCF, fnCond, fnSwitch)
+			}
 		}
 	}
 }
@@ -2925,13 +2966,30 @@ func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
 			fn(t.Segments)
 		case *gsxast.ComposedAttr:
 			for i := range t.Parts {
-				if t.Parts[i].CSSSegments != nil {
-					fn(t.Parts[i].CSSSegments)
+				if t.Parts[i].LiteralSegments != nil {
+					fn(t.Parts[i].LiteralSegments)
+					continue
+				}
+				// A value-form part's LITERAL arms carry @{ } interps too, and
+				// they need types exactly like a non-arm literal part's do. Yield
+				// them in arm order so collectExprs and emitProbes stay in
+				// lockstep. Expression arms are harvested separately, by the
+				// value-form arm pass — not here.
+				if t.Parts[i].CF != nil {
+					for _, arm := range valueFormArms(t.Parts[i].CF) {
+						if arm.Segments != nil {
+							fn(arm.Segments)
+						}
+					}
 				}
 			}
 		case *gsxast.CondAttr:
 			walkMarkupAttrs(t.Then, fn)
 			walkMarkupAttrs(t.Else, fn)
+		case *gsxast.SwitchAttr:
+			for _, cc := range t.Cases {
+				walkMarkupAttrs(cc.Body, fn)
+			}
 		}
 	}
 }
@@ -2956,6 +3014,10 @@ func walkEmbeddedAttrStages(attrs []gsxast.Attr, fn func(*gsxast.EmbeddedAttr)) 
 		case *gsxast.CondAttr:
 			walkEmbeddedAttrStages(at.Then, fn)
 			walkEmbeddedAttrStages(at.Else, fn)
+		case *gsxast.SwitchAttr:
+			for _, cc := range at.Cases {
+				walkEmbeddedAttrStages(cc.Body, fn)
+			}
 		}
 	}
 }
@@ -3073,28 +3135,66 @@ func emitValueCFControl(sb skeletonWriter, fset *token.FileSet, cf *gsxast.Value
 		return
 	}
 	if vs := cf.Switch; vs != nil {
-		if strings.TrimSpace(vs.Tag) != "" {
-			emitSkeletonClauseLine(sb, fset, vs.TagPos, len("switch "))
-			ctrlOff[vs] = sb.Len() + len("switch ")
+		cases := make([]switchLivenessCase, len(vs.Cases))
+		for i, c := range vs.Cases {
+			cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, isDefault: c.Default}
 		}
-		writeSkeletonGenerated(sb, "switch ")
-		if strings.TrimSpace(vs.Tag) != "" {
-			_ = writeSkeletonAuthoredAt(sb, fset, vs.TagPos, strings.TrimSpace(vs.Tag), sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
-		}
-		writeSkeletonGenerated(sb, " {\n")
-		for _, c := range vs.Cases {
-			if c.Default {
-				sb.WriteString("default:\n")
-				continue
-			}
-			emitSkeletonClauseLine(sb, fset, c.ListPos, len("case "))
-			ctrlOff[c] = sb.Len() + len("case ")
-			writeSkeletonGenerated(sb, "case ")
-			_ = writeSkeletonAuthoredAt(sb, fset, c.ListPos, c.List, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
-			writeSkeletonGenerated(sb, ":\n")
-		}
-		sb.WriteString("}\n")
+		emitSwitchLiveness(sb, fset, vs, vs.Tag, vs.TagPos, cases, ctrlOff)
 	}
+}
+
+// switchLivenessCase is one case arm of either switch form, reduced to what the
+// liveness skeleton needs. It lets *ValueSwitchCase and *AttrCaseClause — which
+// differ only in what their bodies hold — share one skeleton emitter.
+type switchLivenessCase struct {
+	node      gsxast.Node
+	list      string
+	listPos   token.Pos
+	isDefault bool
+}
+
+// emitSwitchLiveness writes the empty-bodied `switch <tag> { case <list>: … }`
+// skeleton shared by the value-form switch (*ValueSwitch) and the in-tag
+// attribute switch (*SwitchAttr). Statement position is required for the same
+// reason emitValueCFControl documents: a case list may hold `nil`, type names
+// under a `.(type)` tag, or untyped constants that only fit the tag's type,
+// none of which are legal as a bare expression. ctrlOff is keyed by the tag
+// node and by each case node, which is the CtrlMap bridge go-to-definition and
+// positioned type errors use inside the control expressions.
+func emitSwitchLiveness(sb skeletonWriter, fset *token.FileSet, tagNode gsxast.Node, tag string, tagPos token.Pos, cases []switchLivenessCase, ctrlOff map[gsxast.Node]int) {
+	tagged := strings.TrimSpace(tag) != ""
+	if tagged {
+		emitSkeletonClauseLine(sb, fset, tagPos, len("switch "))
+		ctrlOff[tagNode] = sb.Len() + len("switch ")
+	}
+	writeSkeletonGenerated(sb, "switch ")
+	if tagged {
+		_ = writeSkeletonAuthoredAt(sb, fset, tagPos, strings.TrimSpace(tag), sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+	}
+	writeSkeletonGenerated(sb, " {\n")
+	for _, c := range cases {
+		if c.isDefault {
+			sb.WriteString("default:\n")
+			continue
+		}
+		emitSkeletonClauseLine(sb, fset, c.listPos, len("case "))
+		ctrlOff[c.node] = sb.Len() + len("case ")
+		writeSkeletonGenerated(sb, "case ")
+		_ = writeSkeletonAuthoredAt(sb, fset, c.listPos, c.list, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+		writeSkeletonGenerated(sb, ":\n")
+	}
+	sb.WriteString("}\n")
+}
+
+// emitSwitchAttrControl is emitSwitchLiveness for an in-tag `{ switch … }`
+// attribute group. Its arms hold attributes, whose own exprs are harvested by
+// the walks in this file; only the tag and case lists need the skeleton.
+func emitSwitchAttrControl(sb skeletonWriter, fset *token.FileSet, sa *gsxast.SwitchAttr, ctrlOff map[gsxast.Node]int) {
+	cases := make([]switchLivenessCase, len(sa.Cases))
+	for i, c := range sa.Cases {
+		cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, isDefault: c.Default}
+	}
+	emitSwitchLiveness(sb, fset, sa, sa.Tag, sa.TagPos, cases, ctrlOff)
 }
 
 // valueFormArms returns the arm value-expression nodes of a value-form part in
