@@ -112,17 +112,30 @@ func hasClassSpace(s string) bool {
 	return false
 }
 
+// trimTrailingSemis drops a declaration's trailing ';' (and surrounding space)
+// so joining it with the next part cannot produce an empty declaration between
+// two separators. Only the TAIL is touched: a part's internal ';' separators
+// are the author's formatting and are left exactly as written, and a ';' inside
+// url(data:…;base64,…) or a quoted value is never at the tail of a
+// well-formed declaration.
+func trimTrailingSemis(s string) string {
+	return strings.TrimRight(strings.TrimSpace(s), "; \t\r\n")
+}
+
 // StyleString returns the merged style declaration string for parts (the value
 // form of gw.Style), so generated code can pass a composed root style to
 // StyleMerged. Like gw.Style it includes only on-parts and joins with "; ", but
 // does NOT attr-escape (the caller escapes).
+//
+// A part's trailing ';' is trimmed so joining cannot produce a doubled
+// separator; its internal ';' separators are left as the author wrote them.
 func StyleString(parts ...conditionalPart) string {
 	decls := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if !p.on {
 			continue
 		}
-		if d := strings.TrimSpace(p.s); d != "" {
+		if d := trimTrailingSemis(p.s); d != "" {
 			decls = append(decls, d)
 		}
 	}
@@ -207,7 +220,8 @@ func (gw *Writer) ClassMerged(merge func(classes []string) string, extra string,
 }
 
 // Style composes the on parts as '; '-joined declarations (no merge) and writes
-// the escaped style attribute value.
+// the escaped style attribute value. A part's trailing ';' is trimmed (see
+// StyleString), so it never yields a doubled separator.
 func (gw *Writer) Style(parts ...conditionalPart) {
 	if gw.err != nil {
 		return
@@ -217,7 +231,7 @@ func (gw *Writer) Style(parts ...conditionalPart) {
 		if !p.on {
 			continue
 		}
-		if d := strings.TrimSpace(p.s); d != "" {
+		if d := trimTrailingSemis(p.s); d != "" {
 			decls = append(decls, d)
 		}
 	}

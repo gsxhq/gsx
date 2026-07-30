@@ -3840,10 +3840,21 @@ func stringifyExpr(expr string, t types.Type, rt rtImports, n ast.Node, bag *dia
 // HTML-attr-escaped.
 func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	for _, seg := range a.Segments {
+	for i, seg := range a.Segments {
 		switch s := seg.(type) {
 		case *ast.Text:
-			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
+			text := s.Value
+			if i == len(a.Segments)-1 {
+				// A trailing ';' terminates the last declaration; it carries no
+				// meaning in an attribute value, and dropping it matches how
+				// gw.Style normalizes a composed part (see gsx.StyleString).
+				// Keeping the two paths identical is what lets an author add the
+				// ';' that editors need to parse the literal as CSS without it
+				// showing up in the rendered attribute. Only the tail is touched
+				// — internal ';' separators are the author's formatting.
+				text = strings.TrimRight(text, "; \t\r\n")
+			}
+			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(text)))
 		case *ast.Interp:
 			if !emitCSSAttrInterp(b, s, resolved, table, imports, rt, interpTemp, bag) {
 				return false

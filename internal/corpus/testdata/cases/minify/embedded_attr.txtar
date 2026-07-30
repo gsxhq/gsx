@@ -25,4 +25,4 @@ Widget()
 <div x-data="{
 open: false,
 active: -1,
-}" style="color: red;margin: 0;"></div>
+}" style="color: red;margin: 0"></div>

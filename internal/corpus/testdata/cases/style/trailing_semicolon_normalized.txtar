@@ -1,0 +1,19 @@
+# A trailing `;` terminates the last declaration and carries no meaning in an
+# attribute value, so it is normalized away — identically on both paths: a
+# composed part (gw.Style) and a whole-value css`` literal. Two parts that each
+# end in `;` therefore join with ONE separator, not `;;`. Internal `;`
+# separators are the author's formatting and are left exactly as written.
+-- input.gsx --
+package views
+
+component Box(w string, on bool) {
+	<div style=css`aspect-ratio: @{w} / 9;`>whole-value</div>
+	<div style={ css`a: @{w};`, css`b: @{w};` }>two literal parts</div>
+	<div style={ "color: red;", "margin: 0" }>string parts</div>
+	<div style={ "display:none;": on, css`c: @{w};color:teal` }>guard plus internal semicolons</div>
+}
+-- invoke --
+Box("16", true)
+-- diagnostics.golden --
+-- render.golden --
+<div style="aspect-ratio: 16 / 9">whole-value</div><div style="a: 16; b: 16">two literal parts</div><div style="color: red; margin: 0">string parts</div><div style="display:none; c: 16;color:teal">guard plus internal semicolons</div>
