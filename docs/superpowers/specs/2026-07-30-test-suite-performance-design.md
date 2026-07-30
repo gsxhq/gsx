@@ -104,10 +104,9 @@ of 90GB.
 This is not a test problem. It is production latency in `gsx generate`, and
 therefore in every `gsx dev` rebuild and every LSP analysis.
 
-### Probe result
+### Measured effect
 
-A prototype memoising `inspect` on stat identity (`os.SameFile` + size + mtime),
-with everything else unchanged:
+Prototype (on the main checkout, quiet machine):
 
 | | before | after |
 | --- | --- | --- |
@@ -116,11 +115,66 @@ with everything else unchanged:
 | `gen` tests | 264s | **174.3s** (−34%) |
 | full suite (with `-parallel 4`) | 217s | **176s** |
 
-The full suite passed, **including `internal/golauncher`'s own change-detection
-tests** — the scenarios they exercise (rewriting the `go` script) change size and
-mtime, so the memo correctly misses.
+Shipped version, A/B interleaved three rounds against a `before` binary built
+from the same worktree:
 
-### The decision to make
+| round | before | after |
+| --- | --- | --- |
+| 1 | 9.63s | 7.80s |
+| 2 | 9.50s | 7.86s |
+| 3 | 9.45s | 7.82s |
+
+**−18%** per `gsx generate`, replicated. Absolute numbers are inflated relative
+to the prototype row because the machine was loaded (see below); the ratio is the
+comparable figure since both binaries ran back-to-back under identical load.
+
+The full suite passed, **including `internal/golauncher`'s own change-detection
+tests** — the scenarios they exercise change size or mtime, so the cache
+correctly misses.
+
+> **Suite wall-clock re-measure still owed.** The post-change full-suite run
+> landed at 493s, but load average was 36 (an unrelated 1287%-CPU process was
+> running) and untouched packages inflated in step — `internal/corpus` 31s → 104s,
+> `internal/lsp` 27s → 74s. That number is noise, not a regression. Re-time on a
+> quiet machine before quoting a suite figure. Correctness is load-independent and
+> was verified: `make ci` exit 0, `make lint` exit 0, `-race` clean.
+
+### Decision taken: option 1, with the package contract restated
+
+Shipped. `inspect` now caches the digest per path and reuses it while the file's
+identity (`os.SameFile`), size, mode, and mtime all hold; any of those moving
+forces a fresh read.
+
+Before choosing, the 18 hashes were traced to their call sites:
+
+| call site | count | binary |
+| --- | --- | --- |
+| `validateLive ← Run ← freezeGoCommandEnvironment` | 6 | `go` |
+| `Launcher.Validate.func1` | 3 | `compile` |
+| `validateLive ← SealToolchain` | 2 | `go` |
+| `validateLive ← Validate ← validateGoCommandContext ← externalImporter` | 2 | `go` |
+| `SnapshotLive`, `RequireLocalToolchain` ×2, `commitCache`, `SealToolchain` | 5 | mixed |
+
+`Run` validates before *and* after each subprocess, and
+`freezeGoCommandEnvironment` makes three `go env` calls — 6 full hashes of a
+14.5MB binary to read three environment values.
+
+**Why no contract-preserving option exists.** An exec-scoped cache (rehash only
+when something has executed since the last hash) was the obvious candidate and
+does not work: `TestValidateRejectsCompilerMutation` rewrites the compiler from
+the test process with **no subprocess in between**, so an exec-scoped cache would
+miss it. Detecting an arbitrary external write without re-reading the bytes
+requires stat — there is no third mechanism. Option 2 is the same trade stated
+differently; option 3 is a fraction of the win for a much larger change.
+
+What the cache gives up is exactly one case: an in-place rewrite whose author
+also restores the original mtime, size, and mode — an actor who already holds
+write access to the toolchain. `ctime` would narrow even that, but only via
+per-OS `syscall.Stat_t` files (field names differ across Unix variants), which is
+not worth the complexity in this file. The package doc now states the real
+contract instead of the old "without relying on inode identity alone" claim.
+
+### The options as they stood
 
 Re-hashing detects one thing that a stat check does not: an **in-place content
 rewrite that preserves the inode**. The existing code already checks `os.SameFile`

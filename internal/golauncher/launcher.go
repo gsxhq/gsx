@@ -1,6 +1,17 @@
 // Package golauncher captures and validates the Go launcher used across a
 // semantic operation. It detects path changes, replacement files, in-place
 // mutations, and compiler-tool drift without relying on inode identity alone.
+//
+// Content digests are cached per path and reused while the file's identity
+// (device and inode), size, mode, and modification time all stay put; any of
+// those moving forces a fresh read. So a replacement file is still caught by
+// identity even if it copies every other attribute, and an in-place rewrite is
+// caught by the timestamp the write itself sets. What this does not catch is an
+// in-place rewrite whose author also restores the original mtime, size, and
+// mode — an actor who by then already holds write access to the toolchain.
+// The alternative is re-hashing ~40MB of Go command and compiler on every
+// validation, which repeats twice per package load; see
+// docs/superpowers/specs/2026-07-30-test-suite-performance-design.md.
 package golauncher
 
 import (
@@ -13,6 +24,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Snapshot is the selected Go launcher's immutable file identity before its
@@ -303,6 +317,41 @@ func (snapshot *Snapshot) validateLive() error {
 	return nil
 }
 
+// digestReads counts full content reads performed by inspect. It exists so
+// tests can prove the digest cache actually avoids re-reading a file.
+var digestReads atomic.Int64
+
+// digestEntry is a digest together with the file state it was computed from.
+type digestEntry struct {
+	info   os.FileInfo
+	size   int64
+	mode   os.FileMode
+	mtime  time.Time
+	digest [sha256.Size]byte
+}
+
+// fresh reports whether entry's digest still describes the file now at info.
+// os.SameFile compares the device and inode, so a replacement file fails here
+// even when it copies the original's size, mode, and timestamp.
+func (entry digestEntry) fresh(info os.FileInfo) bool {
+	return entry.info != nil &&
+		os.SameFile(entry.info, info) &&
+		entry.size == info.Size() &&
+		entry.mode == info.Mode() &&
+		entry.mtime.Equal(info.ModTime())
+}
+
+var (
+	digestCacheMu sync.Mutex
+	digestCache   = map[string]digestEntry{}
+)
+
+// inspect returns the file's current identity and content digest. The toolchain
+// binaries are large (the Go command is ~14MB and the compiler ~25MB) and every
+// launcher validation inspects both, so a digest is recomputed only when the
+// file's identity, size, mode, or modification time has moved since it was last
+// read. Both of this package's callers validate repeatedly against a toolchain
+// that does not change, which is what makes the cache worth having.
 func inspect(path string) (os.FileInfo, [sha256.Size]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -313,11 +362,27 @@ func inspect(path string) (os.FileInfo, [sha256.Size]byte, error) {
 	if err != nil {
 		return nil, [sha256.Size]byte{}, err
 	}
+	digestCacheMu.Lock()
+	cached, ok := digestCache[path]
+	digestCacheMu.Unlock()
+	if ok && cached.fresh(info) {
+		return info, cached.digest, nil
+	}
+	digestReads.Add(1)
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return nil, [sha256.Size]byte{}, err
 	}
 	var digest [sha256.Size]byte
 	copy(digest[:], hash.Sum(nil))
+	digestCacheMu.Lock()
+	digestCache[path] = digestEntry{
+		info:   info,
+		size:   info.Size(),
+		mode:   info.Mode(),
+		mtime:  info.ModTime(),
+		digest: digest,
+	}
+	digestCacheMu.Unlock()
 	return info, digest, nil
 }
