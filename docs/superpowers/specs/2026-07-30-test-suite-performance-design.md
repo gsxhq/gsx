@@ -1,8 +1,10 @@
 # Test suite performance — measurement and design
 
-**Status:** Phase 1 and Lever B shipped (277s → 181s, −35%). Lever A specced,
-not started — direction chosen 2026-07-31: shared fixture for `internal/codegen`
-only, leaving `gen`'s e2e loads on the real loader.
+**Status:** Phase 1 and Lever B shipped (277s → 181s, −35%). Lever A investigated
+2026-07-31 and **not pursued** — batching is confirmed at 82× on loads, but the
+suite is no longer load-gated and the remaining ceiling is ~2×, not 10×. See
+"Lever A investigated" below for the measurements and the reverted `t.Parallel`
+experiment.
 
 **Date:** 2026-07-30
 
@@ -220,7 +222,87 @@ Options, in preference order:
 
 Options 1 and 3 compose.
 
-## Phase 2 — Lever A: amortise the runtime closure
+## Lever A investigated 2026-07-31 — batching is real, but the suite is no longer load-gated
+
+Two things were measured after Lever B shipped. Both are negative results for the
+suite, and both are worth not rediscovering.
+
+### Batching one module instead of N: confirmed, and it is not 10×, it is O(N)→O(1)
+
+A probe generated N identical tiny packages two ways — N one-package modules (the
+shape gen/codegen tests use today) versus N sibling packages inside ONE module
+(the `internal/corpus` shape from PR #56):
+
+| n | N modules (N loads) | 1 module (1 load) | speedup |
+| --- | --- | --- | --- |
+| 16 | 3.71s | 251ms | 14.8× |
+| 32 | 8.54s | 271ms | 31.5× |
+| 64 | 14.99s | 303ms | 49.5× |
+| 128 | 32.59s | **397ms** | **82.1×** |
+
+Mode B is near-constant because the one runtime-closure load dominates; marginal
+cost is **~250ms per package separate vs ~3ms shared**. The technique is proven.
+
+### But almost nothing in `gen` is reachable by it
+
+`gen` is 250 test-seconds (161.9s wall at `-parallel 4`). By category:
+
+| category | seconds | tests |
+| --- | --- | --- |
+| lsp | 71.9 | 118 |
+| dev | 65.6 | 29 |
+| other (no generation) | 54.5 | 310 |
+| watch | 19.9 | 29 |
+| cache | 19.9 | 35 |
+| **generate-and-assert (batchable)** | **8.5** | **16** |
+| gobuild | 7.3 | 7 |
+| mutate / env | 2.5 | 8 |
+
+Only **31 of 557** `gen` tests invoke generation at all. The 337 loads live in the
+LSP, cache and dev tests, not in generate tests. So batching "generate-and-assert"
+tests addresses **8.5 of 250 test-seconds — 3.4%**.
+
+### The governing model
+
+`gen` wall = serial_sum + parallel_sum / 4 → **132.4 + 117.8/4 = 161.9s**, which is
+the measured wall exactly. The floor is serial tests, and it breaks down as:
+
+| why serial | secs | tests |
+| --- | --- | --- |
+| timing/network (dev, watch) — genuinely serial | 66.5 | 38 |
+| no obvious blocker — missing `t.Parallel()` | 44.6 | 162 |
+| `t.Setenv` — needs config threading | 21.3 | 34 |
+
+### The `t.Parallel` sweep was tried and reverted
+
+Adding `t.Parallel()` to `lsp_completion_e2e_test.go` alone: **11.19s → 5.55s**,
+`-race` clean. Real. But rolled out to 101 tests across 30 safe files it produced
+only **161.9s → 153.95s (8s, 5%)** — the model predicts exactly that — and it was
+**flaky**: an intermittent hover failure, plus Go **build-cache corruption**
+(`could not import container/heap (open …/go-build/…: no such file or directory)`,
+`link: cannot open file …`) from more concurrent `go build`/`go run` subprocesses.
+Reverted whole. 5% is not worth a flaky suite.
+
+Three traps for anyone retrying: regex-parsing these test files is unreliable
+because they embed Go source in string literals (a `t.Setenv` was attributed to a
+fixture's `func A`); global state reaches tests through *helpers*, so a body-text
+scan misses it; and `os.Chdir`/`os.Setenv` (raw, not the `t.` forms) must be
+excluded too — a concurrent chdir breaks every test resolving `filepath.Abs("..")`.
+
+### Ceiling
+
+Even doing everything — batch codegen, batch the LSP families, thread config to
+free the `t.Setenv` cluster — the arithmetic lands around `gen` ~88s and
+`internal/codegen` ~70s, so a suite of **~90–128s against 181s today.** Roughly
+2×, not 10×. The residue is `dev`/`watch` tests that are wall-clock bound by
+design: they assert *absence* (nothing was posted, the loop gave up) and cannot be
+made event-driven.
+
+**Recommendation: stop here.** 277s → 181s is banked. The next increment costs a
+large refactor of 119 LSP tests plus a config-threading change, for maybe 50s, and
+every attempt so far has traded wall-clock for flakiness.
+
+## Phase 2 — Lever A (original analysis): amortise the runtime closure
 
 The larger and harder lever: `parseFiles` + `checkFiles` is ~36% of samples in both
 packages (~144s in `gen`, ~157s in `codegen`), all of it re-deriving the same
