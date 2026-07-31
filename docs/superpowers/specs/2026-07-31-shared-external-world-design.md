@@ -126,7 +126,34 @@ lookup then has to choose a fset by package path — `externalImportPaths` alrea
 records exactly that set, so the routing is available, but the audit is
 **61 `m.fset` sites and 84 `.Position(` calls across 14 files**.
 
-**Narrower alternative worth weighing first.** `Options.Bundle` is already
+**Blocker resolved 2026-07-31 — disjoint Pos ranges.** A probe confirms the two
+FileSets can be given non-overlapping `Pos` ranges: reserve the shared world's
+range up front with `shared.AddFile("gsx:shared-world-base", 1<<40, 0)`, then
+`packages.Load` into it. Measured:
+
+```
+shared fset Base() after reservation: 1099511627777
+external object "Attr" Pos=1099517625050   (>= sharedBase)
+  shared.Position -> /…/attrs.go:16:6      (correct)
+module fset Base()=4098, module Pos=21
+disjoint? module max Pos (4097) < sharedBase: true
+asking the module fset for a shared Pos -> "-"   (invalid, NOT a wrong file)
+```
+
+Two consequences that shrink the work:
+
+- **Routing is a numeric range check, not a package-path lookup.** `positionOf(pos)`
+  is `if pos >= sharedWorldBase { shared } else { m.fset }`. No need to know an
+  object's package, so the 84 call sites become a mechanical substitution of
+  `m.fset.Position(x)` → `m.position(x)`.
+- **A missed site fails loudly.** Asking the wrong fset returns an invalid
+  position rather than a plausible wrong one, so an incomplete audit surfaces as
+  a test failure instead of silent corruption. This is what makes the full split
+  safe to attempt.
+
+A module would need ~1TB of source to collide with the reserved base.
+
+**Narrower alternative (not taken; recorded for context).** `Options.Bundle` is already
 documented as generation-only for precisely this reason. Sharing the external
 world only on the `Generate` path — leaving `Package()`/LSP on today's path —
 respects an existing sanctioned boundary, needs no position-routing audit, and
