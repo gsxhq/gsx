@@ -40,7 +40,17 @@ func genDevToken() (string, error) {
 // runDev owns the dev loop: it generates (warm Module), builds+runs the Go
 // server, supervises Vite, watches sources + .env, and drives the browser. It
 // returns 0 on clean shutdown (SIGINT/SIGTERM), 1 on a fatal startup error.
+// runDev is the production entry: the session ends on SIGINT/SIGTERM.
 func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev, workDir string) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runDevContext(ctx, args, stdout, stderr, merged, td, workDir)
+}
+
+// runDevContext is runDev with the session lifetime supplied by the caller:
+// cancel ctx and the loop shuts down exactly as a SIGINT would. The seam
+// exists so the dev loop can be driven (and torn down) in-process.
+func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer, merged config, td *tomlDev, workDir string) int {
 	// --- flags ---
 	fs := flag.NewFlagSet("dev", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -110,9 +120,6 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	// --- warm watch session: arm observation before the initial snapshot ---
 	wcfg := watchConfig{
 		paths: []string{workDir}, stdout: stdout, stderr: stderr,
@@ -147,8 +154,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	// pushes always go out.
 	var fd *frontDoor
 	webUp := func() bool { return fd == nil || fd.up() }
-	post := func(body []byte) { postEvent(viteURL, body, webUp) }
-	reload := func() { postReload(viteURL, webUp) }
+	posts := newPoster(ctx)
+	defer posts.drain()
+	post := func(body []byte) { posts.postEvent(viteURL, body, webUp) }
+	reload := func() { posts.postReload(viteURL, webUp) }
 
 	// Status posts are the one kind of push that must never be delivered out
 	// of order: statuses are snapshots where the latest always wins, but

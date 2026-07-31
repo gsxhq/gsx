@@ -772,7 +772,7 @@ func TestDevHTTPHelpersCloseConnections(t *testing.T) {
 	waitHealthy(context.Background(), srv.URL+"/healthz", 2*time.Second)
 	recv("waitHealthy")
 
-	postEvent(srv.URL, []byte(`{}`), nil)
+	newPoster(context.Background()).postEvent(srv.URL, []byte(`{}`), nil)
 	recv("postEvent")
 
 	verifyFrontDoor(context.Background(), srv.URL, "tok")
@@ -906,7 +906,7 @@ func TestPostEventReachesServer(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	postEvent(srv.URL, []byte(`{"event":"generated","ok":true}`), nil)
+	newPoster(context.Background()).postEvent(srv.URL, []byte(`{"event":"generated","ok":true}`), nil)
 	select {
 	case b := <-got:
 		if !strings.Contains(b, "generated") {
