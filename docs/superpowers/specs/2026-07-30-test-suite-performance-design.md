@@ -1,7 +1,8 @@
 # Test suite performance — measurement and design
 
-**Status:** Phase 1 shipped. Phase 2 (this document) awaiting a decision on Lever B's
-security semantics.
+**Status:** Phase 1 and Lever B shipped (277s → 181s, −35%). Lever A specced,
+not started — direction chosen 2026-07-31: shared fixture for `internal/codegen`
+only, leaving `gen`'s e2e loads on the real loader.
 
 **Date:** 2026-07-30
 
@@ -132,12 +133,32 @@ The full suite passed, **including `internal/golauncher`'s own change-detection
 tests** — the scenarios they exercise change size or mtime, so the cache
 correctly misses.
 
-> **Suite wall-clock re-measure still owed.** The post-change full-suite run
-> landed at 493s, but load average was 36 (an unrelated 1287%-CPU process was
-> running) and untouched packages inflated in step — `internal/corpus` 31s → 104s,
-> `internal/lsp` 27s → 74s. That number is noise, not a regression. Re-time on a
-> quiet machine before quoting a suite figure. Correctness is load-independent and
-> was verified: `make ci` exit 0, `make lint` exit 0, `-race` clean.
+### Suite wall-clock, three-way on a quiet machine
+
+Re-measured 2026-07-31 back-to-back in one script, each config building from its
+own ref, so all three share machine conditions:
+
+| config | wall | sys | `gen` | `internal/codegen` |
+| --- | --- | --- | --- | --- |
+| A — baseline, default `-parallel` | 276.9s | 1487s | 275.3s | 179.7s |
+| B — Phase 1 (`-parallel 4`) | 200.9s | 630s | 200.2s | 159.1s |
+| C — Phase 1 + digest cache | **181.0s** | 756s | 180.3s | 127.9s |
+
+**277s → 181s, −35% overall.** Zero failures across all three runs.
+
+`internal/codegen` carries most of the Phase 2 win (159.1s → 127.9s), and the
+packages that merely *depend* on the launcher improved in step, which is the
+expected signature: `internal/corpus` 32.3s → 26.9s, `internal/lsp` 27.2s →
+22.2s.
+
+An earlier post-change run reported 493s and was discarded: load average was 36
+(an unrelated 1287%-CPU process), and untouched packages inflated in step
+(`corpus` 31s → 104s, `lsp` 27s → 74s). Noise, not a regression — but a good
+reminder to check `uptime` before quoting any timing.
+
+Correctness is load-independent and was verified separately: `make ci` exit 0,
+`make lint` exit 0, `-race` clean on `golauncher` and on codegen's
+concurrent-analysis tests.
 
 ### Decision taken: option 1, with the package contract restated
 
