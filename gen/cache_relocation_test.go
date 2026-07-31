@@ -76,3 +76,53 @@ func TestCacheSharedAcrossCheckoutPaths(t *testing.T) {
 		t.Fatalf("content change: hits=%d misses=%d uncacheable=%d, want 0/1/0", hits, misses, uncacheable)
 	}
 }
+
+// TestCacheDistinguishesRelativeReplaceTargets is the other half of the
+// relocation contract: two checkouts whose go.mod bytes are IDENTICAL but whose
+// relative directory replace resolves to different runtimes must NOT share
+// cache entries. (Adversarial-review finding: dropping GOMOD from the
+// fingerprint removed the accidental path component that used to mask this;
+// resolved replace targets are now keyed explicitly.)
+func TestCacheDistinguishesRelativeReplaceTargets(t *testing.T) {
+	t.Setenv("GSXCACHE", t.TempDir())
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Two parents, each holding: rt (a runtime symlink target differs) + app.
+	// The apps' go.mod bytes are identical: `replace ... => ../rt`.
+	mkCheckout := func(parent, runtimeDir string) string {
+		app := filepath.Join(parent, "app")
+		if err := os.MkdirAll(filepath.Join(app, "v"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(runtimeDir, filepath.Join(parent, "rt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(app, "go.mod"), []byte("module ex/reloc\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => ../rt\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(app, "v", "v.gsx"), []byte("package v\n\ncomponent A(name string) { <p>{name}</p> }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return app
+	}
+
+	first := mkCheckout(t.TempDir(), repoRoot)
+	if _, report, err := generateCachedWithReport([]string{first}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
+		t.Fatal(err)
+	} else if hits, misses, _ := report.counts(); hits != 0 || misses != 1 {
+		t.Fatalf("first checkout cold: hits=%d misses=%d, want 0/1", hits, misses)
+	}
+
+	// Same go.mod bytes, but ../rt resolves to a DIFFERENT directory (still the
+	// real runtime via symlink so generation succeeds — what matters is that
+	// the resolved target path differs).
+	second := mkCheckout(t.TempDir(), repoRoot)
+	if _, report, err := generateCachedWithReport([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
+		t.Fatal(err)
+	} else if hits, misses, _ := report.counts(); hits != 0 || misses != 1 {
+		t.Fatalf("relative replace to a different resolved target: hits=%d misses=%d, want 0/1 (identical go.mod bytes must not alias distinct runtimes)", hits, misses)
+	}
+}

@@ -133,7 +133,18 @@ type PackageResult struct {
 	// Imported-object positions (go-to-definition / hover / completion docs on
 	// e.g. a std filter) MUST resolve through this, not Fset. Nil only when the
 	// package failed before analysis.
+	//
+	// Both resolvers are closures over the FileSets THIS result was built from
+	// — never live Module state. A retained result therefore keeps resolving
+	// against its own generation after the Module rebuilds its fset (a live
+	// read raced rebuildFset and returned plausible wrong files; demonstrated
+	// in the adversarial review).
 	PositionFor func(token.Pos) token.Position
+
+	// PositionForPhysical is PositionFor without //line adjustment
+	// (FileSet.PositionFor(pos, false)) — for consumers that need the physical
+	// file of a generated-output position.
+	PositionForPhysical func(token.Pos) token.Position
 
 	// SourceIndex is the immutable authored-source semantic index harvested from
 	// Info. It shares PackageResult's snapshot lifetime and invalidation.

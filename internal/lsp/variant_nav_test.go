@@ -138,13 +138,15 @@ func TestDefinitionShowsAllVariants(t *testing.T) {
 		cross[k] = CrossRef{Name: v.Name, Decl: v.Decl, Decls: v.Decls, Refs: v.Refs}
 	}
 	pkg := &Package{
-		GSXFset:    pr.GSXFset,
-		Fset:       pr.Fset,
-		Info:       pr.Info,
-		Types:      pr.Types,
-		Files:      pr.GSXFiles,
-		ExprMap:    pr.ExprMap,
-		CrossIndex: cross,
+		GSXFset:          pr.GSXFset,
+		Fset:             pr.Fset,
+		Position:         pr.PositionFor,
+		PositionPhysical: pr.PositionForPhysical,
+		Info:             pr.Info,
+		Types:            pr.Types,
+		Files:            pr.GSXFiles,
+		ExprMap:          pr.ExprMap,
+		CrossIndex:       cross,
 	}
 
 	off := strings.Index(pageSrc, "<Icon") + 1 // cursor on 'I' of the tag name

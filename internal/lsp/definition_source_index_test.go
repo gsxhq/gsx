@@ -169,6 +169,11 @@ component Box[T Labelish](value T) {
 		gluePackage := *pkg
 		gluePackage.SourceIndex = index
 		gluePackage.Fset = fset
+		// The fake glue object's Pos lives in the subtest's own fset; the copied
+		// analysis resolvers would mis-resolve it. Nil them so objPosition falls
+		// back to the swapped Fset.
+		gluePackage.Position = nil
+		gluePackage.PositionPhysical = nil
 		if got, ok := semanticDefinition(&gluePackage, path, []byte(page), cardOffset); ok {
 			t.Fatalf("semanticDefinition(generated glue) = %+v, want no target", got)
 		}

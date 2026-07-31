@@ -168,6 +168,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// them through one goroutine with a 1-slot latest-wins mailbox. Overlay
 	// (post, above) and reload keep their existing fire-and-forget path.
 	statusSend := newStatusSender(ctx)
+	defer statusSend.drain()
 
 	status := devStatus{Phase: "idle", PhaseSince: time.Now(), Server: serverStat{Port: goPort, Upstream: origin}, FrontDoor: frontStat{State: "external"}}
 	if dc.web != nil {

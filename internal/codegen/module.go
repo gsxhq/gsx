@@ -1254,6 +1254,10 @@ func (m *Module) rebuildFset() {
 	defer m.mu.Unlock()
 	m.fset = token.NewFileSet()
 	m.ext = nil
+	// sharedFset is re-set by the next externalImporter run that takes the fast
+	// path; retained PackageResults are unaffected (their resolvers captured
+	// the pair at construction).
+	m.sharedFset = nil
 	m.extPkgs = nil
 	m.externalImportPaths = map[string]bool{}
 	m.extErrs = nil
@@ -1333,17 +1337,18 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		return nil, err
 	}
 	res := &PackageResult{
-		Files:       map[string][]byte{},
-		GSXFset:     a.gsxFset,
-		Fset:        a.skelFset,
-		PositionFor: m.positionFor,
-		Info:        a.info,
-		Types:       a.pkg,
-		GSXFiles:    a.gsxFiles,
-		ExprMap:     a.exprMap,
-		CtrlMap:     a.ctrlMap,
-		SigTypes:    a.sigTypes,
-		SourceIndex: a.sourceIndex,
+		Files:               map[string][]byte{},
+		GSXFset:             a.gsxFset,
+		Fset:                a.skelFset,
+		PositionFor:         positionResolver(a.skelFset, m.snapshotSharedFset()),
+		PositionForPhysical: positionResolverPhysical(a.skelFset, m.snapshotSharedFset()),
+		Info:                a.info,
+		Types:               a.pkg,
+		GSXFiles:            a.gsxFiles,
+		ExprMap:             a.exprMap,
+		CtrlMap:             a.ctrlMap,
+		SigTypes:            a.sigTypes,
+		SourceIndex:         a.sourceIndex,
 	}
 	// Run emit for side-effect diagnostics only (unknown filter, attr-error, etc.).
 	// Gated on len(a.typeErrs)==0, exactly like Generate: running generateFile on a
@@ -1543,17 +1548,18 @@ func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*Packa
 		return nil, err
 	}
 	res := &PackageResult{
-		Files:       map[string][]byte{},
-		GSXFset:     a.gsxFset,
-		Fset:        a.skelFset,
-		PositionFor: m.positionFor,
-		Info:        a.info,
-		Types:       a.pkg,
-		GSXFiles:    a.gsxFiles,
-		ExprMap:     a.exprMap,
-		CtrlMap:     a.ctrlMap,
-		SigTypes:    a.sigTypes,
-		SourceIndex: a.sourceIndex,
+		Files:               map[string][]byte{},
+		GSXFset:             a.gsxFset,
+		Fset:                a.skelFset,
+		PositionFor:         positionResolver(a.skelFset, m.snapshotSharedFset()),
+		PositionForPhysical: positionResolverPhysical(a.skelFset, m.snapshotSharedFset()),
+		Info:                a.info,
+		Types:               a.pkg,
+		GSXFiles:            a.gsxFiles,
+		ExprMap:             a.exprMap,
+		CtrlMap:             a.ctrlMap,
+		SigTypes:            a.sigTypes,
+		SourceIndex:         a.sourceIndex,
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)

@@ -44,6 +44,12 @@ type fileStamp struct {
 type sharedWorld struct {
 	fset  *token.FileSet
 	types map[string]*types.Package
+	// errs carries each closure package's load/type errors. The synthetic
+	// entries hand them to externalImporter's harvest so a BROKEN runtime (the
+	// exact thing `gsx dev` edits) fails as loudly on the fast path as on the
+	// full load — dropping them made a runtime type error surface as silently
+	// partial types downstream.
+	errs map[string][]packages.Error
 	// stamps covers modification of a file that was loaded; dirStamps covers
 	// files being ADDED to or REMOVED from a loaded package, which no per-file
 	// check can see (a directory's mtime moves when its entries change).
@@ -74,6 +80,12 @@ func (w *sharedWorld) fresh() bool {
 
 var sharedWorldIneligible, sharedWorldFellBack, sharedWorldFast atomic.Int64
 
+// sharedWorlds is deliberately unbounded and never evicted: keys are one per
+// distinct (origin, env, toolchain) closure, which a CLI or test process holds
+// one or two of, and a long-lived LSP holds one per open project. Duplicate
+// concurrent cold loads for one key are possible and accepted (last write
+// wins; both worlds are correct) — a singleflight would add coordination for a
+// cold-start-only cost. Revisit only with evidence of real accumulation.
 var (
 	sharedWorldMu sync.Mutex
 	sharedWorlds  = map[string]*sharedWorld{}
@@ -217,7 +229,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	}
 	origin := sharedWorldOrigin(m.opts.ModuleRoot, cfg.Env)
 	key := sharedWorldKey(sharedPaths, cfg.Env, toolchain, origin)
-	world, err := loadSharedWorld(key, cfg, environmentValue(cfg.Env, "GOROOT"), sharedPaths)
+	world, err := loadSharedWorld(key, cfg, sharedPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -244,13 +256,11 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	// reduced mode is present but carries no types. Module.Main is the same test
 	// projectSourcePackages uses, and it needs no import-path prefix guessing
 	// (a nested module can share the main module's prefix).
-	local := map[string]bool{}
 	mainModule := map[string]bool{}
 	for _, p := range pkgs {
 		if p == nil || p.PkgPath == "" {
 			continue
 		}
-		local[p.PkgPath] = true
 		if p.Module != nil && p.Module.Main && p.Module.Path == m.opts.ModulePath {
 			mainModule[p.PkgPath] = true
 		}
@@ -259,14 +269,17 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	// of THIS module. One that did not is outside the module — a nested module,
 	// which can share the main module's import prefix, so no prefix test would be
 	// sound — and its types would have come from the full load's NeedDeps.
+	// A LoadRoot already resident in the closure IS served (via the synthetic
+	// entries below), so it must not force a fallback: .gsx files importing
+	// stdlib packages (strings, fmt, time) are the common case, and treating
+	// them as unservable silently returned most real projects to the full
+	// per-Module load.
 	for _, p := range projectPaths {
-		if p == "./..." {
+		if p == "./..." || mainModule[p] || world.types[p] != nil {
 			continue
 		}
-		if !mainModule[p] {
-			sharedWorldFellBack.Add(1)
-			return packages.Load(cfg, loadPaths...)
-		}
+		sharedWorldFellBack.Add(1)
+		return packages.Load(cfg, loadPaths...)
 	}
 	for _, p := range pkgs {
 		if p == nil {
@@ -285,15 +298,15 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	m.sharedFset = world.fset
 	m.mu.Unlock()
 	for path, t := range world.types {
-		pkgs = append(pkgs, &packages.Package{PkgPath: path, Types: t})
+		pkgs = append(pkgs, &packages.Package{PkgPath: path, Types: t, Errors: world.errs[path]})
 	}
 	return pkgs, nil
 }
 
 // loadSharedWorld returns the cached closure for key, loading it if absent or
-// stale. goRoot names the toolchain's GOROOT so stdlib files can be excluded
-// from the freshness stamps.
-func loadSharedWorld(key string, cfg *packages.Config, goRoot string, loadPaths []string) (*sharedWorld, error) {
+// stale. Freshness stamps cover module-owned files only; stdlib is covered by
+// the toolchain identity in the key.
+func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sharedWorld, error) {
 	sharedWorldMu.Lock()
 	cached, ok := sharedWorlds[key]
 	sharedWorldMu.Unlock()
@@ -314,15 +327,26 @@ func loadSharedWorld(key string, cfg *packages.Config, goRoot string, loadPaths 
 		return nil, err
 	}
 
-	world := &sharedWorld{fset: fset, types: map[string]*types.Package{}}
+	world := &sharedWorld{fset: fset, types: map[string]*types.Package{}, errs: map[string][]packages.Error{}}
 	seen := map[string]bool{}
 	seenDir := map[string]bool{}
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
 		if p.Types != nil {
 			world.types[p.PkgPath] = p.Types
 		}
+		if len(p.Errors) > 0 {
+			world.errs[p.PkgPath] = p.Errors
+		}
+		// Only module-owned files are stamped (p.Module == nil means stdlib,
+		// which the toolchain identity in the key already covers). The previous
+		// GOROOT-prefix exclusion keyed off an env var that is unset in normal
+		// environments, so every stdlib file was being stat'd per freshness
+		// check for nothing.
+		if p.Module == nil {
+			return
+		}
 		for _, f := range p.CompiledGoFiles {
-			if seen[f] || (goRoot != "" && strings.HasPrefix(f, goRoot)) {
+			if seen[f] {
 				continue
 			}
 			seen[f] = true
@@ -347,19 +371,64 @@ func loadSharedWorld(key string, cfg *packages.Config, goRoot string, loadPaths 
 	return world, nil
 }
 
-// positionFor resolves a Pos that may belong to either this Module's FileSet or
-// the shared external world's. The two reserve disjoint ranges (see
-// sharedWorldBase), so the owner is decided numerically — no package lookup, and
-// no way to silently read one FileSet's Pos as the other's.
-func (m *Module) positionFor(pos token.Pos) token.Position {
-	if pos >= token.Pos(sharedWorldBase) {
-		m.mu.Lock()
-		shared := m.sharedFset
-		m.mu.Unlock()
-		if shared != nil {
-			return shared.Position(pos)
+// positionResolver builds a resolver over an IMMUTABLE pair of FileSets. The
+// two reserve disjoint Pos ranges (see sharedWorldBase), so the owner is
+// decided numerically — no package lookup, and no way to silently read one
+// FileSet's Pos as the other's.
+//
+// The resolver must always be a closure over fsets captured at one instant,
+// never a live read of Module fields: a retained resolver (the LSP keeps
+// PackageResult snapshots across analyses) racing rebuildFset would otherwise
+// read a REPLACED fset and return a plausible-looking position in the wrong
+// file — the adversarial review demonstrated exactly that, in both Pos ranges.
+func positionResolver(skel, shared *token.FileSet) func(token.Pos) token.Position {
+	return func(pos token.Pos) token.Position {
+		if pos >= token.Pos(sharedWorldBase) {
+			if shared != nil {
+				return shared.Position(pos)
+			}
+			return token.Position{}
+		}
+		if skel != nil {
+			return skel.Position(pos)
 		}
 		return token.Position{}
 	}
-	return m.fset.Position(pos)
+}
+
+// positionResolverPhysical is positionResolver without //line adjustment —
+// PositionFor(pos, false) — for consumers that need the physical file (the
+// LSP's generated-output fallback).
+func positionResolverPhysical(skel, shared *token.FileSet) func(token.Pos) token.Position {
+	return func(pos token.Pos) token.Position {
+		if pos >= token.Pos(sharedWorldBase) {
+			if shared != nil {
+				return shared.PositionFor(pos, false)
+			}
+			return token.Position{}
+		}
+		if skel != nil {
+			return skel.PositionFor(pos, false)
+		}
+		return token.Position{}
+	}
+}
+
+// snapshotSharedFset reads the shared world FileSet under m.mu for capture
+// into a result snapshot.
+func (m *Module) snapshotSharedFset() *token.FileSet {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sharedFset
+}
+
+// positionFor is the during-analysis resolver (filter harvest and friends run
+// under analysisMu, where m.fset is stable). Both fields are read under m.mu;
+// snapshots published to callers that outlive the analysis must use
+// positionResolver instead.
+func (m *Module) positionFor(pos token.Pos) token.Position {
+	m.mu.Lock()
+	skel, shared := m.fset, m.sharedFset
+	m.mu.Unlock()
+	return positionResolver(skel, shared)(pos)
 }

@@ -181,3 +181,142 @@ func TestSharedWorldFastPathEngages(t *testing.T) {
 		t.Fatalf("shared-world fast path taken %d times for a gsx-only module, want 1", got)
 	}
 }
+
+// TestSharedWorldFastPathServesStdlibGSXImports pins the LoadRoot rule: a .gsx
+// importing a stdlib package (the common case — strings, fmt, time) must still
+// take the shared path, because the closure already contains those types. The
+// adversarial review demonstrated the opposite: any stdlib .gsx import silently
+// fell back to the full per-Module load, evaporating the fast path for most
+// real projects.
+func TestSharedWorldFastPathServesStdlibGSXImports(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, content string) {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/stdgsx\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	write("views/c.gsx", "package views\n\nimport \"strings\"\n\ncomponent C(name string) {\n\t<p>{strings.ToUpper(name)}</p>\n}\n")
+
+	before := sharedWorldFast.Load()
+	m := openTiny(t, root, "example.com/stdgsx")
+	if _, err := m.externalImporter(); err != nil {
+		t.Fatalf("externalImporter: %v", err)
+	}
+	if got := sharedWorldFast.Load() - before; got != 1 {
+		t.Fatalf("shared-world fast path taken %d times for a stdlib-importing module, want 1", got)
+	}
+}
+
+// TestSharedWorldSurfacesBrokenRuntimeErrors pins that a runtime that fails to
+// type-check produces a loud error through the fast path's synthetic entries —
+// not silently partial types. `gsx dev` edits the runtime; this is its most
+// common failure mode.
+func TestSharedWorldSurfacesBrokenRuntimeErrors(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeCopy := t.TempDir()
+	if err := copyTree(repoRoot, runtimeCopy); err != nil {
+		t.Skipf("could not stage a runtime copy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeCopy, "zzbroken.go"), []byte("package gsx\n\nvar _ = zzUndefinedIdentifier\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	write := func(rel, content string) {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/broke\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+runtimeCopy+"\n")
+	write("views/c.gsx", "package views\n\ncomponent C(name string) {\n\t<p>{name}</p>\n}\n")
+
+	m := openTiny(t, root, "example.com/broke")
+	if _, err := m.externalImporter(); err != nil {
+		t.Fatalf("externalImporter itself should not fail (errors surface per package): %v", err)
+	}
+	m.mu.Lock()
+	errs := m.extErrs[gsxRuntimeImportPath]
+	m.mu.Unlock()
+	if len(errs) == 0 {
+		t.Fatal("broken runtime produced no recorded load errors on the fast path: silent partial types")
+	}
+}
+
+// TestPositionResolverSurvivesFsetRebuild pins the snapshot contract the LSP
+// depends on: a retained PackageResult keeps resolving positions against the
+// FileSets it was built from, even after the Module rebuilds its fset. The live
+// -read version of this raced rebuildFset and returned plausible wrong FILES
+// (demonstrated in the adversarial review, both Pos ranges).
+func TestPositionResolverSurvivesFsetRebuild(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, content string) {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	// helper.go exists in the manifest from the start; overriding a tracked Go
+	// source is what dirties the source inventory and forces the rebuild.
+	write("components/helper.go", "package components\n\nconst helperTag = \"one\"\n")
+	write("components/card.gsx", "package components\n\ncomponent X(title string) {\n\t<div>{title}{helperTag}</div>\n}\n")
+	write("pages/page.gsx", "package pages\n\nimport \"example.com/x/components\"\n\ncomponent Page() {\n\t<main><components.X title=\"hello\"/></main>\n}\n")
+	m := openTiny(t, root, "example.com/x")
+	comp := filepath.Join(root, "components")
+	pr1, err := m.Package(comp)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+	obj := pr1.Types.Scope().Lookup("X")
+	if obj == nil || !obj.Pos().IsValid() {
+		t.Fatal("component X not found in analysis result")
+	}
+	before := pr1.PositionFor(obj.Pos())
+	if before.Filename == "" {
+		t.Fatalf("component position did not resolve: %+v", before)
+	}
+
+	// Force a rebuild: dirty the inventory and re-analyze another dir. Guard
+	// against vacuity — the test only means something if the Module really did
+	// replace its FileSet underneath the retained result.
+	m.mu.Lock()
+	oldFset := m.fset
+	m.mu.Unlock()
+	m.SetOverride(filepath.Join(root, "components", "helper.go"), []byte("package components\n\nconst helperTag = \"two\"\n"))
+	if _, err := m.Package(filepath.Join(root, "pages")); err != nil {
+		t.Fatalf("second Package: %v", err)
+	}
+	m.mu.Lock()
+	rebuilt := m.fset != oldFset
+	m.mu.Unlock()
+	if !rebuilt {
+		t.Fatal("fset did not rebuild — the scenario this test exists for never happened")
+	}
+
+	after := pr1.PositionFor(obj.Pos())
+	if after != before {
+		t.Fatalf("retained resolver drifted after fset rebuild: %v -> %v", before, after)
+	}
+}

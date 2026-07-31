@@ -131,6 +131,9 @@ type Package struct {
 	// external world's FileSet rather than Fset (disjoint Pos ranges; see
 	// codegen.PackageResult.PositionFor). Nil-safe via objPosition.
 	Position func(token.Pos) token.Position
+	// PositionPhysical is Position without //line adjustment (physical file of
+	// a generated-output position). Nil-safe via objPositionPhysical.
+	PositionPhysical func(token.Pos) token.Position
 
 	// SourceIndex is codegen's immutable authored-source semantic index. The
 	// adapter preserves its pointer and package-snapshot lifetime directly.
@@ -215,4 +218,15 @@ func (p *Package) objPosition(pos token.Pos) token.Position {
 		return token.Position{}
 	}
 	return p.Fset.Position(pos)
+}
+
+// objPositionPhysical is objPosition without //line adjustment.
+func (p *Package) objPositionPhysical(pos token.Pos) token.Position {
+	if p.PositionPhysical != nil {
+		return p.PositionPhysical(pos)
+	}
+	if p.Fset == nil {
+		return token.Position{}
+	}
+	return p.Fset.PositionFor(pos, false)
 }
