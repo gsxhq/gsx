@@ -55,12 +55,14 @@ func analyzeForPipe(t *testing.T, files map[string]string, filterPkgs []string, 
 		filters[i] = FilterCandidate{Name: f.Name, Pkg: f.Pkg, Func: f.Func, WantsCtx: f.WantsCtx}
 	}
 	pkg := &Package{
-		GSXFset: pr.GSXFset,
-		Fset:    pr.Fset,
-		Info:    pr.Info,
-		Types:   pr.Types,
-		Files:   pr.GSXFiles,
-		ExprMap: pr.ExprMap,
+		GSXFset:          pr.GSXFset,
+		Fset:             pr.Fset,
+		Position:         pr.PositionFor,
+		PositionPhysical: pr.PositionForPhysical,
+		Info:             pr.Info,
+		Types:            pr.Types,
+		Files:            pr.GSXFiles,
+		ExprMap:          pr.ExprMap,
 	}
 	return pkg, filepath.Join(root, "page", "page.gsx"), filters
 }

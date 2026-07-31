@@ -32,6 +32,7 @@ type statusSender struct {
 	pending *statusPost
 	wake    chan struct{}
 	wg      sync.WaitGroup
+	cancel  context.CancelFunc
 }
 
 // statusPost is one undelivered status post: the full target URL (base +
@@ -45,12 +46,23 @@ type statusPost struct {
 	gate func() bool
 }
 
-// newStatusSender starts the sender goroutine and returns immediately.
+// newStatusSender starts the sender goroutine and returns immediately. The
+// sender's lifetime derives from ctx and additionally ends at drain().
 func newStatusSender(ctx context.Context) *statusSender {
 	s := &statusSender{wake: make(chan struct{}, 1)}
+	ctx, s.cancel = context.WithCancel(ctx)
 	s.wg.Add(1)
 	go s.run(ctx)
 	return s
+}
+
+// drain stops the sender — aborting an in-flight POST, not just future ones —
+// and waits for its goroutine to exit. Idempotent. Teardown calls this so no
+// status can be initiated after runDev returns (same contract as
+// poster.drain; the front-door port may belong to a stranger by then).
+func (s *statusSender) drain() {
+	s.cancel()
+	s.wg.Wait()
 }
 
 // deposit overwrites any undelivered previous status with (url, body, gate)
@@ -117,7 +129,12 @@ func (s *statusSender) deliver(ctx context.Context, client *http.Client, p *stat
 		if p.gate != nil && !p.gate() {
 			return true // gate closed: drop
 		}
-		resp, err := client.Post(p.url, "application/json", bytes.NewReader(p.body))
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, p.url, bytes.NewReader(p.body))
+		if reqErr != nil {
+			return true // malformed target: drop, same as an unpostable URL
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
 		if err == nil {
 			resp.Body.Close()
 			return true // delivered

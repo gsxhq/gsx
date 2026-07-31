@@ -497,36 +497,77 @@ func reportHardErrors(w io.Writer, results []cycleResult) {
 }
 
 // postEvent best-effort POSTs body to base+/__gsx/event (overlay state).
-func postEvent(base string, body []byte, gate func() bool) {
-	postBest(base+"/__gsx/event", body, gate)
+func (p *poster) postEvent(base string, body []byte, gate func() bool) {
+	p.post(base+"/__gsx/event", body, gate)
 }
 
 // postReload best-effort POSTs to base+/__reload (browser full-reload).
-func postReload(base string, gate func() bool) { postBest(base+"/__reload", nil, gate) }
+func (p *poster) postReload(base string, gate func() bool) { p.post(base+"/__reload", nil, gate) }
 
-// postBest POSTs with a few short retries so a not-yet-up Vite isn't fatal
+// poster owns every best-effort browser push a dev session fires. Each post
+// still runs in its own goroutine (delivery must not block the watch loop),
+// but the goroutines are joined: drain aborts pending retries AND in-flight
+// requests, then waits, so no push can land after teardown — previously the
+// fire-and-forget loop could retry for up to 1.5s past runDev's return and
+// deliver into a port a stranger had since rebound (the gate narrows that
+// window but cannot close it; only joining does).
+type poster struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// newPoster derives the poster's lifetime from ctx: session shutdown (SIGINT /
+// SIGTERM / test cancel) aborts deliveries even before drain is called.
+func newPoster(ctx context.Context) *poster {
+	p := &poster{}
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	return p
+}
+
+// drain stops retrying, aborts any in-flight request, and waits for every post
+// goroutine to exit. Idempotent; returns promptly (bounded by request
+// cancellation, not by the retry schedule).
+func (p *poster) drain() {
+	p.cancel()
+	p.wg.Wait()
+}
+
+// post POSTs with a few short retries so a not-yet-up Vite isn't fatal
 // (mirrors vite.NotifyReload's cold-start handling). dev-only; base "" no-ops.
 // gate, when non-nil, is re-checked before every attempt: the retry window can
 // straddle the managed front door's exit, after which the port may belong to a
 // stranger and the push must not be delivered.
-func postBest(url string, body []byte, gate func() bool) {
+func (p *poster) post(url string, body []byte, gate func() bool) {
 	if strings.HasPrefix(url, "/") || url == "" {
 		return
 	}
-	go func() {
+	p.wg.Go(func() {
 		client := devHTTPClient(2 * time.Second)
 		for range 10 {
+			if p.ctx.Err() != nil {
+				return
+			}
 			if gate != nil && !gate() {
 				return
 			}
-			resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+			req, err := http.NewRequestWithContext(p.ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
 			if err == nil {
 				resp.Body.Close()
 				return
 			}
-			time.Sleep(150 * time.Millisecond)
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-time.After(150 * time.Millisecond):
+			}
 		}
-	}()
+	})
 }
 
 // devServer supervises the built Go server child with build-then-swap semantics.

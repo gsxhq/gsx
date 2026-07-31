@@ -247,7 +247,7 @@ func completionDocFor(pkg *Package, obj types.Object, source []byte) (*MarkupCon
 		}
 		return nil, nil
 	}
-	pos := pkg.Fset.Position(obj.Pos())
+	pos := pkg.objPosition(obj.Pos())
 	if pos.Filename == "" || pos.Line <= 0 {
 		return nil, nil
 	}
@@ -270,7 +270,7 @@ func authoredDoc(pkg *Package, obj types.Object, source []byte) (string, bool) {
 	if pkg == nil || pkg.GSXFset == nil || obj == nil || len(source) == 0 {
 		return "", false
 	}
-	pos := pkg.Fset.Position(obj.Pos())
+	pos := pkg.objPosition(obj.Pos())
 	if pos.Line <= 0 || !strings.HasSuffix(pos.Filename, ".gsx") {
 		return "", false
 	}

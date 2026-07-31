@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/tools/go/packages"
 
@@ -239,6 +240,7 @@ type Module struct {
 	sourceDeclImports         map[string][]string                 // configured declaration-source graph forward edges
 	sourceDeclImportedBy      map[string]map[string]bool          // configured declaration-source graph reverse edges
 	dirty                     map[string]bool                     // dirs with a pending content change (consumed by applyDirty)
+	sharedFset                *token.FileSet                      // external world FileSet when the shared path was used (positions above sharedWorldBase)
 	fsetBaseline              int                                 // m.fset.Base() captured after the last packages.Load (growth measured since here)
 	fsetRebuildBytes          int                                 // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount              int                                 // count of fset rebuilds performed (observability; exposed via rebuilds())
@@ -698,7 +700,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		//   import _gsxrt "github.com/gsxhq/gsx"
 		// so the importer must carry that package. This mirrors newCachedResolver
 		// (resolver.go) which lists "github.com/gsxhq/gsx" first for the same reason.
-		loadPaths := append([]string{"github.com/gsxhq/gsx", stdImportPath}, m.opts.FilterPkgs...)
+		loadPaths := append([]string{gsxRuntimeImportPath, stdImportPath}, m.opts.FilterPkgs...)
 		loadPaths = append(loadPaths, m.opts.LoadPkgs...)
 		// Explicit WithFilter aliases name packages that need not appear anywhere
 		// else. They must be in the load set for configured filter resolution to classify their
@@ -736,7 +738,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		if err := m.validateGoCommandContext(); err != nil {
 			return nil, err
 		}
-		pkgs, loadErr := packages.Load(cfg, loadPaths...)
+		pkgs, loadErr := m.loadExternalGraph(cfg, loadPaths)
 		contextErr := m.validateGoCommandContext()
 		m.mu.Lock()
 		m.extLoads++
@@ -828,6 +830,14 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		return ext, nil
 	}
 }
+
+// externalClosureLoads counts loads of the gsx-runtime dependency closure across
+// the whole process. Today that is one per Module; the shared external world
+// makes it one per distinct closure. Tests assert against it.
+var externalClosureLoads atomic.Int64
+
+// sharedClosureLoads reports externalClosureLoads for tests.
+func sharedClosureLoads() int64 { return externalClosureLoads.Load() }
 
 // externalLoads returns the number of external packages.Load calls performed
 // (test hook). Together with filterTableLoads it guards the warm-regen perf
@@ -1073,12 +1083,13 @@ func (m *Module) filterTableFromSource(pkgs []string) (filterTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	// configuredSourcePackages resolves every request (local or external)
-	// against the Module's own shared m.fset (see configuredSourceDeclResolver
-	// / externalImporter), the SAME Fset PackageResult.Fset publishes — so a
-	// filterEntry.pos captured here is directly usable, with no further
-	// resolution, by the LSP completion (T9/T10 lazy doc resolve).
-	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil, m.fset)
+	// configuredSourcePackages resolves local requests against the Module's own
+	// m.fset and external ones against the shared world's FileSet (see
+	// externalImporter). The two reserve disjoint Pos ranges, so m.positionFor
+	// routes each declaration to its owner — a filterEntry.pos captured here is
+	// directly usable, with no further resolution, by the LSP completion
+	// (T9/T10 lazy doc resolve) wherever the declaration lives.
+	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil, m.positionFor)
 	return table, err
 }
 
@@ -1243,6 +1254,10 @@ func (m *Module) rebuildFset() {
 	defer m.mu.Unlock()
 	m.fset = token.NewFileSet()
 	m.ext = nil
+	// sharedFset is re-set by the next externalImporter run that takes the fast
+	// path; retained PackageResults are unaffected (their resolvers captured
+	// the pair at construction).
+	m.sharedFset = nil
 	m.extPkgs = nil
 	m.externalImportPaths = map[string]bool{}
 	m.extErrs = nil
@@ -1322,16 +1337,18 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		return nil, err
 	}
 	res := &PackageResult{
-		Files:       map[string][]byte{},
-		GSXFset:     a.gsxFset,
-		Fset:        a.skelFset,
-		Info:        a.info,
-		Types:       a.pkg,
-		GSXFiles:    a.gsxFiles,
-		ExprMap:     a.exprMap,
-		CtrlMap:     a.ctrlMap,
-		SigTypes:    a.sigTypes,
-		SourceIndex: a.sourceIndex,
+		Files:               map[string][]byte{},
+		GSXFset:             a.gsxFset,
+		Fset:                a.skelFset,
+		PositionFor:         positionResolver(a.skelFset, m.snapshotSharedFset()),
+		PositionForPhysical: positionResolverPhysical(a.skelFset, m.snapshotSharedFset()),
+		Info:                a.info,
+		Types:               a.pkg,
+		GSXFiles:            a.gsxFiles,
+		ExprMap:             a.exprMap,
+		CtrlMap:             a.ctrlMap,
+		SigTypes:            a.sigTypes,
+		SourceIndex:         a.sourceIndex,
 	}
 	// Run emit for side-effect diagnostics only (unknown filter, attr-error, etc.).
 	// Gated on len(a.typeErrs)==0, exactly like Generate: running generateFile on a
@@ -1531,16 +1548,18 @@ func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*Packa
 		return nil, err
 	}
 	res := &PackageResult{
-		Files:       map[string][]byte{},
-		GSXFset:     a.gsxFset,
-		Fset:        a.skelFset,
-		Info:        a.info,
-		Types:       a.pkg,
-		GSXFiles:    a.gsxFiles,
-		ExprMap:     a.exprMap,
-		CtrlMap:     a.ctrlMap,
-		SigTypes:    a.sigTypes,
-		SourceIndex: a.sourceIndex,
+		Files:               map[string][]byte{},
+		GSXFset:             a.gsxFset,
+		Fset:                a.skelFset,
+		PositionFor:         positionResolver(a.skelFset, m.snapshotSharedFset()),
+		PositionForPhysical: positionResolverPhysical(a.skelFset, m.snapshotSharedFset()),
+		Info:                a.info,
+		Types:               a.pkg,
+		GSXFiles:            a.gsxFiles,
+		ExprMap:             a.exprMap,
+		CtrlMap:             a.ctrlMap,
+		SigTypes:            a.sigTypes,
+		SourceIndex:         a.sourceIndex,
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)

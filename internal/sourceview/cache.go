@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/mod/modfile"
 	"io"
 	"os"
 	"path/filepath"
@@ -407,7 +408,48 @@ func moduleProvenanceInputs(labelPrefix, moduleDir, goMod string, requireGoMod b
 	if err != nil {
 		return nil, err
 	}
-	return []cacheInput{goModInput, goSumInput}, nil
+	replaceInput, err := replaceDirsInput(labelPrefix, moduleDir, goMod)
+	if err != nil {
+		return nil, err
+	}
+	return []cacheInput{goModInput, goSumInput, replaceInput}, nil
+}
+
+// replaceDirsInput keys the RESOLVED absolute targets of go.mod directory
+// replaces. The go.mod content input alone cannot distinguish two checkouts
+// whose replace lines are byte-identical but relative (`=> ../gsx`), which
+// resolve to different directories with different content — before the cache
+// key stopped depending on the checkout path (the GOMOD env field), that
+// aliasing was masked by accident. Version replaces (`=> path v1.2.3`) resolve
+// through the module cache and are covered by go.mod/go.sum content already.
+func replaceDirsInput(labelPrefix, moduleDir, goMod string) (cacheInput, error) {
+	label := labelPrefix + ":replace-dirs"
+	data, err := os.ReadFile(goMod)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cacheInput{label: label}, nil
+		}
+		return cacheInput{}, err
+	}
+	parsed, err := modfile.Parse(goMod, data, nil)
+	if err != nil {
+		// A malformed go.mod already fails the load; the go.mod content input
+		// covers its bytes. Nothing further to key here.
+		return cacheInput{label: label}, nil
+	}
+	var lines []string
+	for _, r := range parsed.Replace {
+		if r.New.Version != "" {
+			continue // module-version replace: content-addressed via go.sum
+		}
+		target := r.New.Path
+		if !filepath.IsAbs(target) {
+			target = filepath.Clean(filepath.Join(moduleDir, target))
+		}
+		lines = append(lines, r.Old.Path+" "+r.Old.Version+" => "+filepath.ToSlash(target))
+	}
+	sort.Strings(lines)
+	return inputFromBytes(label, goMod, []byte(strings.Join(lines, "\n"))), nil
 }
 
 func fileInput(label, path string, required bool) (cacheInput, error) {

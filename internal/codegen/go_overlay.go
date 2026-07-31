@@ -357,6 +357,12 @@ func canonicalGoEnvironment(environment map[string]string, buildEnv []string) ([
 	// GOGCCFLAGS is output-only and embeds a new per-command work directory.
 	// Its inputs remain represented by the other effective environment fields.
 	delete(environment, "GOGCCFLAGS")
+	// GOMOD is the absolute go.mod path — pure location, no semantics. Keeping
+	// it made every checkout of the same project a distinct cache universe. The
+	// go.mod CONTENT is already a keyed cache input ("main:<module>:go.mod",
+	// sourceview moduleProvenanceInputs), so dependency changes still miss;
+	// TestCacheSharedAcrossCheckoutPaths pins both directions.
+	delete(environment, "GOMOD")
 	return json.Marshal(environment)
 }
 

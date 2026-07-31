@@ -127,6 +127,14 @@ type Package struct {
 	Fset    *token.FileSet
 	Info    *types.Info
 
+	// Position resolves object positions that may live in the process-shared
+	// external world's FileSet rather than Fset (disjoint Pos ranges; see
+	// codegen.PackageResult.PositionFor). Nil-safe via objPosition.
+	Position func(token.Pos) token.Position
+	// PositionPhysical is Position without //line adjustment (physical file of
+	// a generated-output position). Nil-safe via objPositionPhysical.
+	PositionPhysical func(token.Pos) token.Position
+
 	// SourceIndex is codegen's immutable authored-source semantic index. The
 	// adapter preserves its pointer and package-snapshot lifetime directly.
 	SourceIndex *sourceintel.Index
@@ -196,4 +204,29 @@ type FilterCandidate struct {
 	// completionItem/resolve (filterItems). The zero Position (Pos.IsValid()
 	// false) means no position was resolved — filterItems then omits Data.
 	Pos token.Position
+}
+
+// objPosition resolves a types.Object position through the range-routing
+// resolver when the analysis published one, else through Fset. Object positions
+// are the ONLY positions that can live in the shared external world; gsx and
+// skeleton AST positions always belong to GSXFset/Fset and stay on them.
+func (p *Package) objPosition(pos token.Pos) token.Position {
+	if p.Position != nil {
+		return p.Position(pos)
+	}
+	if p.Fset == nil {
+		return token.Position{}
+	}
+	return p.Fset.Position(pos)
+}
+
+// objPositionPhysical is objPosition without //line adjustment.
+func (p *Package) objPositionPhysical(pos token.Pos) token.Position {
+	if p.PositionPhysical != nil {
+		return p.PositionPhysical(pos)
+	}
+	if p.Fset == nil {
+		return token.Position{}
+	}
+	return p.Fset.PositionFor(pos, false)
 }

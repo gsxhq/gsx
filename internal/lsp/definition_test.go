@@ -141,18 +141,20 @@ func analyzedLSPModule(t *testing.T, files map[string]string, target string) (*P
 		componentDecls[ComponentDeclKey{PackagePath: key.PackagePath, ComponentKey: key.ComponentKey}] = append([]sourceintel.VersionedSpan(nil), declarations...)
 	}
 	return &Package{
-		GSXFset:        pr.GSXFset,
-		Fset:           pr.Fset,
-		Info:           pr.Info,
-		SourceIndex:    pr.SourceIndex,
-		Types:          pr.Types,
-		Files:          pr.GSXFiles,
-		ExprMap:        pr.ExprMap,
-		CtrlMap:        ctrl,
-		SigTypes:       sigTypes,
-		CrossIndex:     cross,
-		ComponentCalls: calls,
-		ComponentDecls: componentDecls,
+		GSXFset:          pr.GSXFset,
+		Fset:             pr.Fset,
+		Position:         pr.PositionFor,
+		PositionPhysical: pr.PositionForPhysical,
+		Info:             pr.Info,
+		SourceIndex:      pr.SourceIndex,
+		Types:            pr.Types,
+		Files:            pr.GSXFiles,
+		ExprMap:          pr.ExprMap,
+		CtrlMap:          ctrl,
+		SigTypes:         sigTypes,
+		CrossIndex:       cross,
+		ComponentCalls:   calls,
+		ComponentDecls:   componentDecls,
 	}, gsxPath
 }
 
