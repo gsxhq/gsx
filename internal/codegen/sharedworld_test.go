@@ -95,8 +95,11 @@ func TestExternalClosureLoadsOncePerProcess(t *testing.T) {
 		t.Fatalf("module B externalImporter: %v", err)
 	}
 
-	if got := sharedClosureLoads() - before; got != 1 {
-		t.Fatalf("gsx runtime closure loaded %d times across two Modules, want 1", got)
+	// At most one: another test in this process may already have loaded the
+	// identical closure, in which case both Modules reuse it and the delta is 0.
+	// Two would mean no sharing at all, which is the regression this guards.
+	if got := sharedClosureLoads() - before; got > 1 {
+		t.Fatalf("gsx runtime closure loaded %d times across two Modules, want at most 1", got)
 	}
 }
 
@@ -161,5 +164,20 @@ func TestExternalClosureReloadsWhenRuntimeChanges(t *testing.T) {
 	}
 	if pkgB.Scope().Lookup("SharedWorldProbe") == nil {
 		t.Fatal("edited gsx runtime was not observed: the shared closure served stale types")
+	}
+}
+
+// TestSharedWorldFastPathEngages pins that an ordinary Module — one whose only
+// dependency is the gsx runtime — actually takes the shared path. Without this,
+// a future tightening of the eligibility rules could silently return every
+// Module to a full per-Module load, costing nothing visible except wall time.
+func TestSharedWorldFastPathEngages(t *testing.T) {
+	before := sharedWorldFast.Load()
+	m := openTiny(t, newTinyModule(t, "fastpath"), "example.com/fastpath")
+	if _, err := m.externalImporter(); err != nil {
+		t.Fatalf("externalImporter: %v", err)
+	}
+	if got := sharedWorldFast.Load() - before; got != 1 {
+		t.Fatalf("shared-world fast path taken %d times for a gsx-only module, want 1", got)
 	}
 }

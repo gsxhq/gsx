@@ -163,6 +163,9 @@ type funcTables struct {
 // packages.
 const stdImportPath = "github.com/gsxhq/gsx/std"
 
+// gsxRuntimeImportPath is the gsx runtime package every skeleton imports as _gsxrt.
+const gsxRuntimeImportPath = "github.com/gsxhq/gsx"
+
 // stdAlias is the reserved import alias for the std filter package. Preserving
 // it keeps std-only generated output unchanged across the multi-package feature.
 const stdAlias = "_gsxstd"
@@ -321,7 +324,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 	if len(pkgs) > 0 {
 		fset = pkgs[0].Fset
 	}
-	harvested, err := harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases, fset)
+	harvested, err := harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases, fsetResolver(fset))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -534,15 +537,25 @@ func filterCandidates(t funcTables) []FilterCandidate {
 	return out
 }
 
-// funcPosition resolves fn's declaration position against fset, or the zero
-// token.Position when fset is nil (no Fset available at this harvest site —
+// funcPosition resolves fn's declaration position with resolve, or the zero
+// token.Position when resolve is nil (no position source at this harvest site —
 // e.g. a WASM/typebundle load with no real source files) or fn/its Pos are
 // invalid. Shared by every harvestFromTypes call site so a filterEntry always
 // carries an ALREADY-RESOLVED Position rather than a raw, Fset-instance-only
 // token.Pos (see filterEntry.pos for why that distinction matters).
-func funcPosition(fn *types.Func, fset *token.FileSet) token.Position {
-	if fset == nil || fn == nil || !fn.Pos().IsValid() {
+func funcPosition(fn *types.Func, resolve func(token.Pos) token.Position) token.Position {
+	if resolve == nil || fn == nil || !fn.Pos().IsValid() {
 		return token.Position{}
 	}
-	return fset.Position(fn.Pos())
+	return resolve(fn.Pos())
+}
+
+// fsetResolver adapts a FileSet to the position resolver harvestFromTypes takes.
+// nil in, nil out: harvest sites with no position source leave entries at their
+// zero Position, which is the documented behaviour.
+func fsetResolver(fset *token.FileSet) func(token.Pos) token.Position {
+	if fset == nil {
+		return nil
+	}
+	return fset.Position
 }

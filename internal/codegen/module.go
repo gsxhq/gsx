@@ -240,6 +240,7 @@ type Module struct {
 	sourceDeclImports         map[string][]string                 // configured declaration-source graph forward edges
 	sourceDeclImportedBy      map[string]map[string]bool          // configured declaration-source graph reverse edges
 	dirty                     map[string]bool                     // dirs with a pending content change (consumed by applyDirty)
+	sharedFset                *token.FileSet                      // external world FileSet when the shared path was used (positions above sharedWorldBase)
 	fsetBaseline              int                                 // m.fset.Base() captured after the last packages.Load (growth measured since here)
 	fsetRebuildBytes          int                                 // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount              int                                 // count of fset rebuilds performed (observability; exposed via rebuilds())
@@ -699,7 +700,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		//   import _gsxrt "github.com/gsxhq/gsx"
 		// so the importer must carry that package. This mirrors newCachedResolver
 		// (resolver.go) which lists "github.com/gsxhq/gsx" first for the same reason.
-		loadPaths := append([]string{"github.com/gsxhq/gsx", stdImportPath}, m.opts.FilterPkgs...)
+		loadPaths := append([]string{gsxRuntimeImportPath, stdImportPath}, m.opts.FilterPkgs...)
 		loadPaths = append(loadPaths, m.opts.LoadPkgs...)
 		// Explicit WithFilter aliases name packages that need not appear anywhere
 		// else. They must be in the load set for configured filter resolution to classify their
@@ -737,9 +738,8 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		if err := m.validateGoCommandContext(); err != nil {
 			return nil, err
 		}
-		pkgs, loadErr := packages.Load(cfg, loadPaths...)
+		pkgs, loadErr := m.loadExternalGraph(cfg, loadPaths)
 		contextErr := m.validateGoCommandContext()
-		externalClosureLoads.Add(1)
 		m.mu.Lock()
 		m.extLoads++
 		staleManifest := m.sourceManifestEpoch != epoch || m.sourceSnapshotEpoch != snapshotEpoch || m.fset != fset

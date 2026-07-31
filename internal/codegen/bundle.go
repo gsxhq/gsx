@@ -30,7 +30,7 @@ import (
 // filterEntry.pos) — pass nil when no real Fset is available at this call
 // site (e.g. the WASM/typebundle path), which simply leaves every entry's pos
 // at its zero value.
-func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, aliases map[string]string, fset *token.FileSet) (map[string][]filterEntry, error) {
+func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, aliases map[string]string, resolve func(token.Pos) token.Position) (map[string][]filterEntry, error) {
 	harvested := map[string][]filterEntry{}
 	for _, path := range pkgPaths {
 		pkg, ok := byPath[path]
@@ -63,7 +63,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 				hasErr:   sig.Results().Len() == 2,
 				alias:    alias,
 				pkgPath:  path,
-				pos:      funcPosition(fn, fset),
+				pos:      funcPosition(fn, resolve),
 			})
 		}
 	}
@@ -100,7 +100,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 			hasErr:   sig.Results().Len() == 2,
 			alias:    aliases[a.PkgPath],
 			pkgPath:  a.PkgPath,
-			pos:      funcPosition(fn, fset),
+			pos:      funcPosition(fn, resolve),
 		})
 	}
 	return harvested, nil
@@ -124,7 +124,7 @@ func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []strin
 		aliasPaths = append(aliasPaths, r.PkgPath)
 	}
 	aliases := filterAliases(aliasPaths)
-	harvested, err := harvestFromTypes(byPath, pkgPaths, explicitAliases, aliases, fset)
+	harvested, err := harvestFromTypes(byPath, pkgPaths, explicitAliases, aliases, fsetResolver(fset))
 	if err != nil {
 		return nil, nil, err
 	}
