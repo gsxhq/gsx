@@ -97,6 +97,42 @@ than from `projectSourcePackages(pkgs, …)`.
 
 Expected: per-Module load cost → ~0.
 
+### Blocker found 2026-07-31: FileSet ownership
+
+The back-edge question resolved cleanly (below), but a second one did not, and it
+changes the size of the work.
+
+`rebuildFset` sets `m.fset = token.NewFileSet()` **and nils `m.ext`**, on purpose:
+*"discards the grown FileSet and the caches that hold positions into it — ext,
+pkgTypes, targetDeclTypes, and pkgResults — together, so nothing live references
+the old fset (no orphaned positions)."*
+
+So the external world is deliberately coupled to the Module's fset lifetime. And
+`maybeRebuildFset` fires not only on growth but on **`m.sourceInventoryDirty`** —
+i.e. on every source edit. Two consequences:
+
+1. **The production win is larger than estimated.** `gsx dev` and the LSP
+   currently discard and reload the entire 85-package / 205k-line closure on
+   *every* edit-triggered regen, not just on cold start.
+2. **A shared world cannot simply outlive `rebuildFset`.** Its `types.Package`
+   values hold positions into the fset it was loaded with; reusing it after a
+   rebuild orphans every imported-object position. That is a correctness hazard
+   (wrong go-to-def targets), not a memory one.
+
+The real fix is to **split FileSet ownership**: the shared external world owns a
+stable, never-rebuilt fset (external deps do not change during a session), while
+each Module keeps its own rebuildable fset for project packages. Every position
+lookup then has to choose a fset by package path — `externalImportPaths` already
+records exactly that set, so the routing is available, but the audit is
+**61 `m.fset` sites and 84 `.Position(` calls across 14 files**.
+
+**Narrower alternative worth weighing first.** `Options.Bundle` is already
+documented as generation-only for precisely this reason. Sharing the external
+world only on the `Generate` path — leaving `Package()`/LSP on today's path —
+respects an existing sanctioned boundary, needs no position-routing audit, and
+still captures the whole `gsx dev` regen win plus the `Generate`-side test win.
+It does not help the LSP, which is where `gen`'s 118 LSP tests live.
+
 ### Risks
 
 - **Shared FileSet growth.** One process-wide fset accumulating every external

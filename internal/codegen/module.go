@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/tools/go/packages"
 
@@ -738,6 +739,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		}
 		pkgs, loadErr := packages.Load(cfg, loadPaths...)
 		contextErr := m.validateGoCommandContext()
+		externalClosureLoads.Add(1)
 		m.mu.Lock()
 		m.extLoads++
 		staleManifest := m.sourceManifestEpoch != epoch || m.sourceSnapshotEpoch != snapshotEpoch || m.fset != fset
@@ -828,6 +830,14 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		return ext, nil
 	}
 }
+
+// externalClosureLoads counts loads of the gsx-runtime dependency closure across
+// the whole process. Today that is one per Module; the shared external world
+// makes it one per distinct closure. Tests assert against it.
+var externalClosureLoads atomic.Int64
+
+// sharedClosureLoads reports externalClosureLoads for tests.
+func sharedClosureLoads() int64 { return externalClosureLoads.Load() }
 
 // externalLoads returns the number of external packages.Load calls performed
 // (test hook). Together with filterTableLoads it guards the warm-regen perf
