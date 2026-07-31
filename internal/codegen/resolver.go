@@ -110,7 +110,7 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 	if goVersion == "" {
 		return nil, fmt.Errorf("codegen: cached resolver load returned no Go language version for %s", moduleDir)
 	}
-	table, rt, err := loadFilterTableFromTypes(m, filterPkgs, aliases, nil, fset)
+	table, rt, err := loadFilterTableFromTypes(m, filterPkgs, aliases, nil, fsetResolver(fset))
 	if err != nil {
 		return nil, err
 	}

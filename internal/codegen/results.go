@@ -126,6 +126,15 @@ type PackageResult struct {
 	Fset    *token.FileSet
 	Info    *types.Info
 
+	// PositionFor resolves a token.Pos that may belong to either this package's
+	// skeleton FileSet (Fset) or the process-shared external world's. The two
+	// reserve disjoint Pos ranges, so the owner is decided numerically; asking
+	// the wrong FileSet yields an invalid position, never a plausible wrong one.
+	// Imported-object positions (go-to-definition / hover / completion docs on
+	// e.g. a std filter) MUST resolve through this, not Fset. Nil only when the
+	// package failed before analysis.
+	PositionFor func(token.Pos) token.Position
+
 	// SourceIndex is the immutable authored-source semantic index harvested from
 	// Info. It shares PackageResult's snapshot lifetime and invalidation.
 	SourceIndex *sourceintel.Index

@@ -353,6 +353,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		Diags:          pr.Diags,
 		GSXFset:        pr.GSXFset,
 		Fset:           pr.Fset,
+		Position:       pr.PositionFor,
 		Info:           pr.Info,
 		Types:          pr.Types,
 		ExprMap:        pr.ExprMap,

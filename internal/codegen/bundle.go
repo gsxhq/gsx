@@ -112,7 +112,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 // shares its alias with a same-path filter package, and harvestRenderers runs
 // after harvestFromTypes to produce the rendererTable returned alongside the
 // filterTable.
-func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, renderers []RendererAlias, fset *token.FileSet) (filterTable, rendererTable, error) {
+func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, renderers []RendererAlias, resolve func(token.Pos) token.Position) (filterTable, rendererTable, error) {
 	if len(pkgPaths) == 0 && len(explicitAliases) == 0 && len(renderers) == 0 {
 		return filterTable{}, rendererTable{}, nil
 	}
@@ -124,7 +124,7 @@ func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []strin
 		aliasPaths = append(aliasPaths, r.PkgPath)
 	}
 	aliases := filterAliases(aliasPaths)
-	harvested, err := harvestFromTypes(byPath, pkgPaths, explicitAliases, aliases, fsetResolver(fset))
+	harvested, err := harvestFromTypes(byPath, pkgPaths, explicitAliases, aliases, resolve)
 	if err != nil {
 		return nil, nil, err
 	}

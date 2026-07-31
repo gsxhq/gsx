@@ -1083,12 +1083,13 @@ func (m *Module) filterTableFromSource(pkgs []string) (filterTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	// configuredSourcePackages resolves every request (local or external)
-	// against the Module's own shared m.fset (see configuredSourceDeclResolver
-	// / externalImporter), the SAME Fset PackageResult.Fset publishes — so a
-	// filterEntry.pos captured here is directly usable, with no further
-	// resolution, by the LSP completion (T9/T10 lazy doc resolve).
-	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil, m.fset)
+	// configuredSourcePackages resolves local requests against the Module's own
+	// m.fset and external ones against the shared world's FileSet (see
+	// externalImporter). The two reserve disjoint Pos ranges, so m.positionFor
+	// routes each declaration to its owner — a filterEntry.pos captured here is
+	// directly usable, with no further resolution, by the LSP completion
+	// (T9/T10 lazy doc resolve) wherever the declaration lives.
+	table, _, err := loadFilterTableFromTypes(packages, pkgs, m.opts.Aliases, nil, m.positionFor)
 	return table, err
 }
 
@@ -1335,6 +1336,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		Files:       map[string][]byte{},
 		GSXFset:     a.gsxFset,
 		Fset:        a.skelFset,
+		PositionFor: m.positionFor,
 		Info:        a.info,
 		Types:       a.pkg,
 		GSXFiles:    a.gsxFiles,
@@ -1544,6 +1546,7 @@ func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*Packa
 		Files:       map[string][]byte{},
 		GSXFset:     a.gsxFset,
 		Fset:        a.skelFset,
+		PositionFor: m.positionFor,
 		Info:        a.info,
 		Types:       a.pkg,
 		GSXFiles:    a.gsxFiles,

@@ -42,7 +42,7 @@ func semanticDefinitionFromSnapshot(pkg *Package, path string, source []byte, of
 	if pkg.Fset == nil || !object.Pos().IsValid() {
 		return semanticDefinitionTarget{}, false
 	}
-	goPosition := pkg.Fset.Position(object.Pos())
+	goPosition := pkg.objPosition(object.Pos())
 	if goPosition.Filename == "" || !isNavigableTargetFile(goPosition.Filename) {
 		return semanticDefinitionTarget{}, false
 	}
@@ -505,7 +505,7 @@ func objectSourceLocation(sources *requestSourceSnapshot, pkg *Package, object t
 	if pkg == nil || pkg.Fset == nil || object == nil || !object.Pos().IsValid() {
 		return Location{}, false
 	}
-	if adjusted := pkg.Fset.Position(object.Pos()); strings.HasSuffix(adjusted.Filename, ".gsx") {
+	if adjusted := pkg.objPosition(object.Pos()); strings.HasSuffix(adjusted.Filename, ".gsx") {
 		if location, ok := sources.locationForExistingFile(adjusted, len(object.Name())); ok {
 			return location, true
 		}
@@ -731,7 +731,7 @@ func resolvedTargetForObject(pkg *Package, obj types.Object, ok bool) (resolvedD
 	if !ok || obj == nil || !obj.Pos().IsValid() || pkg == nil || pkg.Fset == nil {
 		return resolvedDefinitionTarget{}, false
 	}
-	position := pkg.Fset.Position(obj.Pos())
+	position := pkg.objPosition(obj.Pos())
 	if position.Filename == "" {
 		return resolvedDefinitionTarget{}, false
 	}
@@ -790,7 +790,7 @@ func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off in
 	if !ok || !obj.Pos().IsValid() {
 		return token.Position{}, false
 	}
-	dp := pkg.Fset.Position(obj.Pos())
+	dp := pkg.objPosition(obj.Pos())
 	if dp.Filename == "" {
 		return token.Position{}, false
 	}
