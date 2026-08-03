@@ -472,6 +472,9 @@ imports/shadow_gsx_import	diag gen render
 imports/shadow_io	diag gen render
 imports/shadow_strconv	diag gen render
 imports/unused_gsx_import	diag(error)
+imports/unused_import_aliased_column	diag(error)
+imports/unused_import_block_column	diag(error)
+imports/unused_import_component_call_site	diag(error)
 interpolation/diag_element_in_attr_hole	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
@@ -1008,4 +1011,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1010 cases (render: 863, error: 109, gen-pinned: 566)
+TOTAL: 1013 cases (render: 863, error: 112, gen-pinned: 566)

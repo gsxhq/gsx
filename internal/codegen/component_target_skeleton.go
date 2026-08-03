@@ -352,11 +352,31 @@ func buildComponentTargetSkeleton(
 		fmt.Fprintf(&source, "import %s %q\n", alias, usedFilters[alias])
 	}
 	for _, spec := range imports {
-		emitSkeletonLineImport(&source, fset, spec.pos)
+		// Anchor the spec itself, INLINE, so go/types import errors carry the
+		// authored column. go/types reports them at ImportSpec.Pos() — the alias
+		// for `al "p"`, the `.` for a dot import — which is why the directive goes
+		// before the whole spec rather than before the path literal.
+		//
+		// The line form cannot do this: `//line` sets only the FIRST column of the
+		// next line, and the spec is preceded there by the 7-byte "import "
+		// keyword, so the directive column would have to be pre-decremented by 7 —
+		// unrepresentable for any import indented by less (a tab-indented spec sits
+		// at column 2, and clamping to 1 silently reports every such import at
+		// column 8).
+		//
+		// This must stay in lockstep with the same emit in buildSkeleton: an unused
+		// import errors in BOTH skeletons, and unmatchedTargetTypeErrors pairs them
+		// on the authored (file, line, column, softness). If the two disagree the
+		// pairing fails and the user sees the SAME error twice, at two columns.
+		//
+		// Emit no whitespace between `*/` and the spec — the directive anchors the
+		// byte immediately following it, so a single space shifts the column by one.
+		source.WriteString("import ")
+		emitSkeletonBlockLine(&source, fset, spec.pos)
 		if spec.name != "" {
-			fmt.Fprintf(&source, "import %s %q\n", spec.name, spec.path)
+			fmt.Fprintf(&source, "%s %q\n", spec.name, spec.path)
 		} else {
-			fmt.Fprintf(&source, "import %q\n", spec.path)
+			fmt.Fprintf(&source, "%q\n", spec.path)
 		}
 	}
 	source.WriteString("var _ _gsxrt.Node\nvar _ _gsxctx.Context\n")

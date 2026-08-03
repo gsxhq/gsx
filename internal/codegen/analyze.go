@@ -617,13 +617,15 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 		fmt.Fprintf(sb, "import %s %q\n", alias, usedFilters[alias])
 	}
 	for _, imp := range imports {
-		// Map go/types import errors back to the .gsx source. The skeleton spec
-		// starts at column 8 (after "import "), so compensate the //line column by
-		// that prefix; when the source column is < 8 (the common indented-import
-		// case) the compensated column would be < 1, so fall back to a line-only
-		// directive (column 1) rather than emit a misleading offset.
-		emitSkeletonLineImport(sb, fset, imp.pos)
+		// Map go/types import errors back to the .gsx source. The directive is
+		// emitted INLINE, after the "import " keyword and immediately before the
+		// spec (with no whitespace between), so it anchors exactly the position
+		// go/types reports an import error at: ImportSpec.Pos(), which is the alias
+		// when there is one, else the path literal. See the same emit in
+		// buildComponentTargetSkeleton for why the line form cannot work here and
+		// why the two sites must agree to the column.
 		writeSkeletonGenerated(sb, "import ")
+		emitSkeletonBlockLine(sb, fset, imp.pos)
 		if imp.name != "" {
 			if err := writeSkeletonAuthoredAt(sb, fset, imp.namePos, imp.name, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
 				return "", nil, nil, nil, nil, err
@@ -1755,23 +1757,6 @@ func emitSkeletonBlockLine(sb skeletonWriter, fset *token.FileSet, pos token.Pos
 	}
 	p := fset.Position(pos)
 	fmt.Fprintf(sb, "/*line %s:%d:%d*/", p.Filename, p.Line, p.Column)
-}
-
-// emitSkeletonLineImport emits a //line directive ahead of a hoisted user
-// import so go/types import errors (notably "imported and not used") resolve to
-// the .gsx source instead of the synthesized overlay .x.go. The skeleton spec
-// sits at column 8 (after the literal "import "), so the directive column is
-// compensated by that 7-char prefix; when the source column is ≤ 7 (the common
-// indented-import case) the compensated column would be < 1, so a line-only
-// directive (column 1) is emitted rather than a misleading offset.
-func emitSkeletonLineImport(sb skeletonWriter, fset *token.FileSet, pos token.Pos) {
-	if fset == nil || !pos.IsValid() {
-		return
-	}
-	const prefixLen = len("import ")
-	p := fset.Position(pos)
-	col := max(p.Column-prefixLen, 1)
-	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
 // probeExpr returns the Go expression to probe for an interpolation / expr-attr.

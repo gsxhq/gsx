@@ -1,0 +1,17 @@
+# Context: an unused ALIASED import reports at the spec's start — the alias
+# name, not the path literal. This case pins the distinction: the alias sits at
+# column 2 and the path literal at column 5, so anchoring the position directive
+# at the wrong one of the two is visible here and nowhere else. (A third wrong
+# answer, column 8, is what a directive that cannot anchor the spec produces.)
+-- input.gsx --
+package demo
+
+import (
+	zz "context"
+)
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+4:2: "context" imported as zz and not used

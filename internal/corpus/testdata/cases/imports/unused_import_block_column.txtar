@@ -1,0 +1,23 @@
+# Context: an unused import inside a parenthesized block reports at the SPEC's
+# own column. The indentation is load-bearing: the type-check skeleton writes
+# every hoisted import as `import <spec>`, so the spec sits at skeleton column 8.
+# A position directive that cannot anchor the spec itself collapses every
+# indented import onto column 8 — which is why the sibling case
+# unused_gsx_import.txtar (an unindented single-spec import, genuinely at
+# column 8) cannot discriminate and this one can. The unused spec is also the
+# SECOND in the block, so the line stays under test alongside the column.
+-- input.gsx --
+package demo
+
+import (
+	"io"
+	"context"
+)
+
+var _ io.Writer
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+5:2: "context" imported and not used
