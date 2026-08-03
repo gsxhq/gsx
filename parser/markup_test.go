@@ -928,9 +928,25 @@ func TestCaseBodyLabelScanIsLinearNotQuadratic(t *testing.T) {
 	// Warm up (file-system/GC noise, first-run allocation) before timing.
 	_ = parseOnce(build(200))
 
+	// Best-of-N: take the minimum over several samples per size. A single
+	// wall-clock sample on a loaded 2-core CI runner is at the mercy of
+	// scheduling stalls and GC pauses (observed: one 10.88x outlier on a
+	// code-unchanged main), while a genuine O(n^2) scan inflates EVERY
+	// sample, so the minimum still fails hard on the real regression.
+	bestOf := func(src string) time.Duration {
+		best := parseOnce(src)
+		for range 4 {
+			if d := parseOnce(src); d < best {
+				best = d
+			}
+		}
+		return best
+	}
+
 	const small, large = 1000, 4000 // 4x the lines
-	tSmall := parseOnce(build(small))
-	tLarge := parseOnce(build(large))
+	srcSmall, srcLarge := build(small), build(large)
+	tSmall := bestOf(srcSmall)
+	tLarge := bestOf(srcLarge)
 	t.Logf("parse time: %d lines=%v, %d lines=%v (ratio %.2fx)", small, tSmall, large, tLarge, float64(tLarge)/float64(max(tSmall, 1)))
 	// A quadratic scan would cost roughly (large/small)^2 = 16x; linear costs
 	// ~4x. 10x leaves generous headroom for machine noise while still failing
