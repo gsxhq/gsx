@@ -81,9 +81,11 @@ supports tree-sitter.
 | Code actions | Organize imports and choose missing imports. |
 | Completion | Go identifiers and members, pipe filters, component tags and attributes, HTML tags/attributes/values, and `hx-*` attributes when htmx is enabled. |
 
-Completion returns plain text edits, not snippets, and does not add imports
-yet; use the missing-import quick fix for that. References do not include
-external packages. See [Status](./status.md) for the current limits.
+Completion returns plain text edits, not snippets. Completing a symbol on a
+package you have not imported — `ui.Button` in a Go expression, or `<ui.Button`
+as a tag — adds the import along with the name. A tag cursor offers only the
+package's component-shaped declarations. References do not include external
+packages. See [Status](./status.md) for the current limits.
 
 ## Organize imports {#organize-imports-on-save}
 
@@ -99,7 +101,8 @@ Enable formatting and import organization on save in VS Code:
 ```
 
 The organize-imports action removes unused imports, sorts them, and adds a
-missing import when there is one unambiguous match. When several packages match,
+missing import when there is one unambiguous match — including the package half
+of a component tag, so `<ui.Button/>` imports `ui`. When several packages match,
 use the **Add import** quick fix to choose one. Run `go get` first when the
 package is not in your module.
 

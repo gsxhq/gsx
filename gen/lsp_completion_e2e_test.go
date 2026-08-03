@@ -2207,6 +2207,52 @@ func TestAutoImportCompletionE2E(t *testing.T) {
 		}
 	})
 
+	// TAG position: `<ui.▮` on a sibling package the file never imported. Two
+	// things are exercised here that no Go-expression case can reach — the tag
+	// surface offers only TAG-CALLABLE symbols (Button, not Plain), and the buffer
+	// is genuinely unterminated, so the import chunk has to be located in the
+	// REPAIRED parse while the edit addresses the live document.
+	t.Run("unimported component tag qualifier", func(t *testing.T) {
+		extra := map[string]string{"ui/ui.go": "package ui\n\nimport \"github.com/gsxhq/gsx\"\n\n" +
+			"func Button(label string) gsx.Node { return nil }\n\n" +
+			"func Plain(s string) string { return s }\n"}
+		source := "package page\n\ncomponent Home() {\n\t<div><ui.</div>\n}\n"
+		cursor := strings.Index(source, "<ui.") + len("<ui.")
+		items := runHTMLCompletionE2E(t, extra, source, cursor)
+		labels := map[string]bool{}
+		var button *lsp.CompletionItem
+		for i := range items {
+			labels[items[i].Label] = true
+			if items[i].Label == "Button" {
+				button = &items[i]
+			}
+		}
+		if button == nil {
+			t.Fatalf("unimported `<ui.` did not offer Button; labels=%v", labels)
+		}
+		if labels["Plain"] {
+			t.Errorf("`<ui.` offered Plain; a tag cursor must offer tag-callable symbols only (labels=%v)", labels)
+		}
+		if button.Kind != 7 { // ciKindClass
+			t.Errorf("Button kind = %d, want Class(7)", button.Kind)
+		}
+		if len(button.AdditionalTextEdits) != 1 {
+			t.Fatalf("Button AdditionalTextEdits = %d, want 1 (the import)", len(button.AdditionalTextEdits))
+		}
+		got := applyLSPEdits(source, append([]lsp.TextEdit{*button.TextEdit}, button.AdditionalTextEdits...))
+		if !strings.Contains(got, "import \"example.com/app/ui\"") {
+			t.Errorf("applied doc missing the ui import:\n%s", got)
+		}
+		if !strings.Contains(got, "<div><ui.Button</div>") {
+			t.Errorf("applied doc did not insert the tag name in place:\n%s", got)
+		}
+		// The source was mid-typing and stays mid-typing, so no reparse assertion:
+		// what must survive is the untouched prefix around the inserted import.
+		if !strings.HasPrefix(got, "package page\n") {
+			t.Errorf("applied doc corrupted the head:\n%s", got)
+		}
+	})
+
 	// Option 2: bare `{ fm }` offers the package name `fmt` at the bottom tier
 	// with an import edit.
 	t.Run("unimported package name", func(t *testing.T) {

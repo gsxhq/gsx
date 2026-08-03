@@ -1164,6 +1164,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	var positionalPlan componentPositionalPackagePlan
 	var targetErrs []types.Error
 	var targetDiagnostics []diag.Diagnostic
+	// Undefined qualifiers used as the package half of a component tag. Only
+	// discovery's own type-check can see them (missingFromTargetMarkers), and
+	// they must survive BOTH branches below — the rejecting one empties gsxFiles,
+	// so the shipping skeleton it goes on to build has nothing left to walk.
+	var targetMissingImports map[string][]MissingImport
 	if callSites != nil && (callSites.hasCandidates() || len(componentPlan.families) != 0) {
 		targetBag := diag.NewBag(fset)
 		targetResult, unrelatedTargetErrs, targetErr := discoverComponentTargets(
@@ -1175,6 +1180,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		if targetErr != nil {
 			return nil, targetErr
 		}
+		targetMissingImports = targetResult.missingImports
 		if len(targetResult.diagnostics) != 0 {
 			targetErrs = append(targetErrs, unrelatedTargetErrs...)
 			targetDiagnostics = append(targetDiagnostics, targetResult.diagnostics...)
@@ -1690,7 +1696,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// copy of a child-prop expression using spansByFile, the same per-file spans
 	// the type-error loop's quietSpans, above, is built from. See
 	// missingFromSkeletons' doc.
-	missingImports := missingFromSkeletons(skelByGsx, fset, info, spansByFile)
+	//
+	// Folded together with target discovery's own findings: a qualifier used
+	// ONLY as a component tag's package half never reaches a shipping skeleton
+	// (see missingFromTargetMarkers), so without this merge `<ui.Button/>` on an
+	// unimported `ui` would report `undefined: ui` and then offer no way to fix
+	// it. The shipping answer wins any (file, name, symbol) collision, keeping
+	// Pos on the occurrence whose diagnostic the user is most likely reading.
+	missingImports := mergeMissingImports(missingFromSkeletons(skelByGsx, fset, info, spansByFile), targetMissingImports)
 	if localComponentProvenance != nil {
 		componentDecls = make(map[ComponentDeclKey][]sourceintel.VersionedSpan)
 		for key, provenance := range localComponentProvenance {
