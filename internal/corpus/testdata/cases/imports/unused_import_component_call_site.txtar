@@ -1,0 +1,24 @@
+# Context: this case is the only one that exercises BOTH type-check skeletons.
+# The component tag `<Inner/>` gives the package a call site, which turns on the
+# target-discovery phase; that phase builds its own skeleton with its own copy of
+# the hoisted imports. Unpaired target-phase errors stay independently visible,
+# and the pairing key is the authored (file, line, column, softness) — so the two
+# skeletons must agree on the import's column to the byte. Pin ONE diagnostic:
+# if either skeleton anchors the import differently, correspondence breaks and
+# the same unused import is reported twice, at two different columns.
+-- input.gsx --
+package demo
+
+import (
+	"context"
+)
+
+component Inner() {
+	<b>hi</b>
+}
+
+component Outer() {
+	<Inner/>
+}
+-- diagnostics.golden --
+4:2: "context" imported and not used
