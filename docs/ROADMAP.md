@@ -709,7 +709,43 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   ways, tier + prefix cap) in internal/lsp + internal/codegen; e2e (unimported
   `strings.▮` → ToUpper with an import edit that reparses cleanly, bare
   package-name item, imported-package precedence) in gen.
-  **Follow-ups:** snippet placeholders;
+  **Auto-import in TAG position** — DONE. `<ui.▮` on a package the file has not
+  imported now completes, and `source.organizeImports` / **Add import** now fire
+  on `<ui.Button/>`. Both were structurally impossible before, for two separate
+  reasons. (1) `MissingImports` was derived only from the SHIPPING skeleton, but
+  a component tag's identity expression exists as Go syntax only in the
+  target-DISCOVERY skeleton; an unresolved qualifier makes discovery reject the
+  call site, so the element is never stamped `IsComponent` and lowers as a leaf
+  carrying no selector — and on the rejecting branch analyze rebuilds from an
+  EMPTY gsx file set, leaving nothing to walk. `missingFromTargetMarkers`
+  (add_imports.go) now applies the SAME exact `info.Uses` miss test to discovery's
+  own marker table and info, and `mergeMissingImports` folds it in (shipping
+  answer wins a collision, so Pos stays on the occurrence whose diagnostic the
+  user is reading). (2) `componentTagItems` only ever consulted imported
+  qualifiers; it now returns `(items, resolved)` and `tagCompletion` falls through
+  to `unimportedTagItems` when — and only when — the qualifier resolves to
+  nothing. Gating on `resolved` rather than on an empty item list is what keeps an
+  imported-but-componentless package, and an in-scope binding with no method
+  components, from being second-guessed with an auto-import list. Only
+  TAG-CALLABLE symbols are offered: `codegen.ExportedSymbol`/`lsp.ImportSymbol`
+  gained a `TagCallable` flag, computed inside the analysis lock from real type
+  objects, and the predicate behind it (callable-universe shape + every parameter
+  named) plus the `gsx.Node` identity lookup moved into `internal/tagcallable` as
+  `IsCandidate`/`NodeInterface` so the imported and unimported tag surfaces cannot
+  drift. A markup cursor also cannot locate its import chunk in the LIVE buffer
+  the way a Go-expression cursor can — `<ui.` does not parse, while `{ fmt. }`
+  does (Go is an opaque blob to gsx) — so `prepareImportEditIn` parses the
+  REPAIRED buffer while addressing the original document; that is exact because
+  `completionPatches` never modifies a byte before the cursor and `apply` refuses
+  any edit reaching the cursor. Tests: unit (tag-qualifier MissingImports with Pos
+  pinned to the shipped diagnostic, resolved-qualifier negative, sibling-package
+  resolve + TagCallable classification in internal/codegen; handler-level
+  unimported/imported tag cursors with the applied-edit round trip, and the
+  `resolved` flag matrix in internal/lsp).
+  **Follow-ups:** unimported package NAMES at a bare tag cursor (`<u▮` does not
+  offer `ui.` — Option 2's tag counterpart, deferred: it needs a tag-callable
+  probe per candidate package to avoid offering ~1000 componentless names);
+  snippet placeholders;
   body-local value bindings as method-component qualifiers (declared in a
   `{{ }}` block, a v1 gap); `Component.Doc` — component-tag completion/hover
   still show only the rendered signature (`renderComponentSig`), never a doc

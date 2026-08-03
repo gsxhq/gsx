@@ -25,6 +25,12 @@ type componentTargetPackageResult struct {
 	facts           map[callSiteID]componentTargetFact
 	expressionFacts map[gsxast.Node]expressionFact
 	diagnostics     []diag.Diagnostic
+	// missingImports are the undefined qualifiers used as the package half of a
+	// component tag, per .gsx path — see missingFromTargetMarkers for why the
+	// shipping skeleton cannot report them. Published even when diagnostics
+	// reject the package, since an unresolved qualifier is BOTH the rejection's
+	// cause and the fact the add-import code action needs.
+	missingImports map[string][]MissingImport
 }
 
 type componentTargetExpressionHarvest struct {
@@ -203,6 +209,11 @@ func discoverComponentTargets(
 	module.recordTargetImports(dir, importPaths)
 
 	pkg, info, typeErrs := checkComponentTargetPackage(pkgPath, pkgName, goFiles, fset, importer, componentTargetCheckConfig{typeEnvironment: typeEnvironment})
+	// Computed from the markers and the info this check just produced, BEFORE
+	// any rejection path can discard them: an unimported component package is
+	// exactly the case that rejects the site, so waiting until after would mean
+	// only ever reporting the qualifiers that did not need reporting.
+	missingImports := missingFromTargetMarkers(markers, fset, info)
 	facts, unrelated, err := harvestComponentTargetFacts(goFiles, fset, info, typeErrs, markers)
 	if err != nil {
 		return componentTargetPackageResult{}, nil, err
@@ -240,6 +251,7 @@ func discoverComponentTargets(
 		facts:           facts,
 		expressionFacts: expressionFacts,
 		diagnostics:     bag.Sorted(),
+		missingImports:  missingImports,
 	}, unrelated, nil
 }
 

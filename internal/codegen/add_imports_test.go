@@ -520,3 +520,101 @@ func TestMissingImportsDifferentSymbolsSamePackage(t *testing.T) {
 		t.Fatalf("missing = %v, want %v", got, want)
 	}
 }
+
+// TestMissingImportsComponentTagQualifier: a qualifier used ONLY as the package
+// half of a component tag — `<ui.Button/>` — is reported, so organizeImports and
+// the add-import quickfix can act on the very `undefined: ui` the user is
+// looking at.
+//
+// This is the case the shipping skeleton structurally cannot see (see
+// missingFromTargetMarkers): an unresolved qualifier makes target discovery
+// reject the call site, the element is never stamped IsComponent, and the
+// element lowers as a plain leaf carrying no selector at all. Pos is asserted
+// against the REAL shipped diagnostic rather than a hardcoded column, the same
+// contract TestMissingImportsPosMatchesDiagnostic pins for Go-expression uses.
+func TestMissingImportsComponentTagQualifier(t *testing.T) {
+	m, dir := newMissingModule(t, "package u\n\ncomponent Wrap() {\n\t<ui.Button/>\n}\n")
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mis := pr.MissingImports[filepath.Join(dir, "a.gsx")]
+	if len(mis) != 1 || mis[0].Name != "ui" || mis[0].Symbol != "Button" {
+		t.Fatalf("MissingImports = %+v, want exactly one {ui Button}", mis)
+	}
+	var want *diagPos
+	for i := range pr.Diags {
+		if d := &pr.Diags[i]; strings.Contains(d.Message, "undefined: ui") {
+			want = &diagPos{line: d.Start.Line, col: d.Start.Column}
+			break
+		}
+	}
+	if want == nil {
+		t.Fatalf("no shipped diagnostic contains %q; Diags = %+v", "undefined: ui", pr.Diags)
+	}
+	if mis[0].Pos.Line != want.line || mis[0].Pos.Column != want.col {
+		t.Fatalf("MissingImport.Pos = %d:%d, want the shipped diagnostic's %d:%d",
+			mis[0].Pos.Line, mis[0].Pos.Column, want.line, want.col)
+	}
+}
+
+// TestMissingImportsComponentTagIgnoresResolvedQualifier: `<strings.Nope/>` on
+// an IMPORTED `strings` is a bad symbol, not a missing import. The qualifier
+// resolves, so nothing is reported — otherwise organizeImports would keep
+// re-adding an import the file already has.
+func TestMissingImportsComponentTagIgnoresResolvedQualifier(t *testing.T) {
+	src := "package u\n\nimport \"strings\"\n\ncomponent Wrap() {\n\t<strings.Nope/>\n}\n"
+	m, dir := newMissingModule(t, src)
+	if got := missingNames(t, m, dir); len(got) != 0 {
+		t.Fatalf("missing = %v, want none (strings is imported; only its symbol is wrong)", got)
+	}
+}
+
+// TestComponentTagQualifierResolvesToModulePackage is the end-to-end shape a
+// gsx project actually hits: a sibling package in the SAME module, never
+// imported by the .gsx file, used as `<ui.Button/>`. It pins the whole chain the
+// organize-imports code action walks — MissingImports names the qualifier,
+// ResolveImportCandidates maps it to the sibling's import path — plus the
+// TagCallable classification the `<ui.▮` completion surface filters on.
+//
+// The sibling is deliberately plain Go with no `component` keyword: a package
+// like that declares nothing in ComponentDecls, so TagCallable is the only thing
+// that can tell Button (a tag) from Count (not one).
+func TestComponentTagQualifierResolvesToModulePackage(t *testing.T) {
+	sibling := "package ui\n\nimport \"github.com/gsxhq/gsx\"\n\n" +
+		"// Button is tag-callable: one gsx.Node result, every parameter named.\n" +
+		"func Button(label string) gsx.Node { return nil }\n\n" +
+		"// Unnamed is the callable-universe shape but could never receive a markup\n" +
+		"// attribute, so completion must not offer it.\n" +
+		"func Unnamed(string) gsx.Node { return nil }\n\n" +
+		"// Count has the wrong result type.\n" +
+		"func Count() int { return 0 }\n\n" +
+		"// Size is not callable at all.\n" +
+		"const Size = 3\n"
+	m, dir := newMissingModuleFiles(t,
+		"", "package u\n\ncomponent Wrap() {\n\t<ui.Button label=\"go\"/>\n}\n",
+		map[string]string{"ui/ui.go": sibling})
+
+	if got := missingNames(t, m, dir); len(got) != 1 || got[0] != "ui.Button" {
+		t.Fatalf("missing = %v, want [ui.Button]", got)
+	}
+	cands := m.ResolveImportCandidates(dir, "ui", "Button")
+	if len(cands) != 1 || cands[0] != "example.com/u/ui" {
+		t.Fatalf("ResolveImportCandidates(ui, Button) = %v, want [example.com/u/ui]", cands)
+	}
+
+	tagCallable := map[string]bool{}
+	for _, sym := range m.PackageExportedSymbols("example.com/u/ui") {
+		tagCallable[sym.Name] = sym.TagCallable
+	}
+	want := map[string]bool{"Button": true, "Unnamed": false, "Count": false, "Size": false}
+	for name, wantCallable := range want {
+		got, present := tagCallable[name]
+		if !present {
+			t.Fatalf("PackageExportedSymbols did not report %q; got %v", name, tagCallable)
+		}
+		if got != wantCallable {
+			t.Errorf("%s TagCallable = %v, want %v", name, got, wantCallable)
+		}
+	}
+}

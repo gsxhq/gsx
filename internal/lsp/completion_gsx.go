@@ -122,16 +122,31 @@ func (s *Server) pipeFilterPackage(dir, path string, src []byte) *Package {
 // componentDeclPackage comes back nil (analysis is a shell): only the COMPONENT
 // half depends on the package. A qualified `<pkg.▮` cursor is component-only —
 // HTML tags have no qualifier — so htmlTagItems is skipped there.
+//
+// A qualifier that resolves to NOTHING — neither an in-scope binding nor an
+// import — falls through to unimportedTagItems, which offers the tag-callable
+// symbols of whatever package(s) that name could import, each item carrying the
+// import edit. That fallback is gated on componentTagItems' `resolved` flag, not
+// on its item list being empty: an imported package that happens to declare no
+// components, and an in-scope var whose type declares no method components, both
+// legitimately produce zero items and must NOT be second-guessed with an
+// auto-import list (the same precedence rule undefinedQualifier enforces for a
+// Go-expression cursor).
 func (s *Server) tagCompletion(cc completionContext, path, text string, off int, r repairResult) CompletionList {
 	start, end := completionTokenSpan(text, off, false)
 	capitalizedPrefix := startsWithUpper(text[start:end])
+	dir := filepath.Dir(path)
 
 	var items []CompletionItem
-	if pkg := s.componentDeclPackage(filepath.Dir(path), path, r.src); pkg != nil {
-		items = componentTagItems(pkg, cc.qualifier, capitalizedPrefix, path, off, text, start, end, s.enc)
+	resolved := false
+	if pkg := s.componentDeclPackage(dir, path, r.src); pkg != nil {
+		items, resolved = componentTagItems(pkg, cc.qualifier, capitalizedPrefix, path, off, text, start, end, s.enc)
 	}
-	if cc.qualifier == "" {
+	switch {
+	case cc.qualifier == "":
 		items = append(items, htmlTagItems(capitalizedPrefix, text, start, end, s.enc)...)
+	case !resolved:
+		items = append(items, s.unimportedTagItems(dir, string(r.src), text, cc.qualifier, start, end)...)
 	}
 	if len(items) == 0 {
 		return emptyCompletion()
@@ -215,45 +230,58 @@ func (s *Server) componentDeclPackage(dir, path string, src []byte) *Package {
 // caller / htmlTagItems, not here. The parameter is retained so the signature
 // documents the merge contract and the tests pin that components stay tierContext
 // either way.
-func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, path string, off int, text string, start, end int, enc encoding) []CompletionItem {
+//
+// resolved reports whether a NON-EMPTY qualifier named something already
+// visible from this cursor — an in-scope binding, or an import. It is always
+// true for an empty qualifier (there is nothing to resolve). false means the
+// name is undefined here, which is the caller's cue to offer unimported
+// packages; it is deliberately independent of whether any items came back, so a
+// resolvable-but-componentless qualifier is never mistaken for a missing import.
+func componentTagItems(pkg *Package, qualifier string, capitalizedPrefix bool, path string, off int, text string, start, end int, enc encoding) ([]CompletionItem, bool) {
 	if pkg == nil || pkg.Types == nil {
-		return nil
+		return nil, false
 	}
 	if qualifier != "" {
-		// Go-scoping precedence: a value binding named qualifier shadows a
+		// Go-scoping precedence: an in-scope binding named qualifier shadows a
 		// same-named import, so try receiver/param/var resolution first. resolved
-		// == true means qualifier IS an in-scope value binding — stop here even
-		// when its type declares no method components (the binding still shadows
-		// any import, per Go).
+		// == true means qualifier IS such a binding — stop here even when it
+		// yields no items (the binding still shadows any import, per Go, and it is
+		// certainly not a missing import).
 		if items, resolved := receiverVarComponentItems(pkg, qualifier, path, off, text, start, end, enc); resolved {
-			return items
+			return items, true
 		}
 		impPath, ok := importQualifierCandidates(pkg)[qualifier]
 		if !ok {
-			return nil
+			return nil, false
 		}
 		items := componentNameItems(pkg, impPath, text, start, end, enc)
 		if target := importedPackageAt(pkg, impPath); target != nil {
 			items = append(items, componentValueNameItems(target, offeredNames(items), true, text, start, end, enc)...)
 		}
-		return items
+		return items, true
 	}
 	items := componentNameItems(pkg, pkg.Types.Path(), text, start, end, enc)
 	items = append(items, componentValueNameItems(pkg.Types, offeredNames(items), false, text, start, end, enc)...)
 	items = append(items, importQualifierItems(pkg, text, start, end, enc)...)
-	return items
+	return items, true
 }
 
 // receiverVarComponentItems resolves a qualified tag cursor `<qualifier.▮`
-// against the in-scope VALUE bindings visible from the enclosing component,
-// and offers the method components declared on the binding's type. It returns
-// (items, resolved): resolved reports whether qualifier named an in-scope value
-// binding (a *types.Var — receiver, parameter, or package-scope var). When
-// resolved is true the caller must NOT fall through to import-qualifier
-// resolution, even if items is empty: a value binding shadows a same-named
-// import (Go scoping), so `<qualifier.▮` can only mean that binding's methods.
-// When resolved is false (qualifier is an import PkgName, or resolves to
-// nothing) the caller proceeds to the import-qualifier path.
+// against the in-scope bindings visible from the enclosing component, and offers
+// the method components declared on a value binding's type. It returns
+// (items, resolved): resolved reports whether qualifier named an in-scope
+// binding OTHER than an import — a *types.Var (receiver, parameter, or
+// package-scope var), or any other declared object such as a func, type, or
+// const. When resolved is true the caller must NOT fall through to
+// import-qualifier resolution or to auto-import, even if items is empty: such a
+// binding shadows a same-named import (Go scoping), so `<qualifier.▮` can only
+// mean that binding — and a binding that carries no method components has none
+// to offer, not a missing import to add.
+//
+// When resolved is false — qualifier is an import PkgName, or resolves to
+// nothing at all — the caller proceeds to the import-qualifier path, and from
+// there to unimported-package resolution. A PkgName deliberately reports false
+// so the import path (which knows the resolved package) owns it.
 //
 // The scope is the enclosing component's generated-func scope, located WITHOUT
 // relying on authored-offset↔skeleton-offset alignment (which does not hold —
@@ -279,9 +307,14 @@ func receiverVarComponentItems(pkg *Package, qualifier, path string, off int, te
 		return nil, false
 	}
 	_, obj := scope.LookupParent(qualifier, token.NoPos)
-	v, ok := obj.(*types.Var)
-	if !ok {
-		return nil, false
+	v, isVar := obj.(*types.Var)
+	if !isVar {
+		if _, isPkgName := obj.(*types.PkgName); obj == nil || isPkgName {
+			return nil, false // undefined, or an import the qualifier path owns
+		}
+		// A func / type / const / builtin named qualifier: it shadows any
+		// same-named import per Go scoping, and carries no method components.
+		return nil, true
 	}
 	typeName, pkgPath, ok := namedTypeOf(v.Type())
 	if !ok {
@@ -437,38 +470,29 @@ func componentValueNameItems(target *types.Package, skip map[string]bool, export
 }
 
 // tagCallableValueNames returns target's package-scope identifiers — sorted,
-// minus skip — that satisfy codegen's callable-universe tag shape: a
-// types.Func or function-valued types.Var whose signature has one result
-// assignable to gsx.Node (single-sourced from internal/tagcallable — see its
-// package doc) AND every parameter named.
-//
-// The named-parameter half is NOT part of the shared tagcallable predicate:
-// it is a deliberate, conservative choice specific to offering completion
-// candidates, not a copy of some single codegen acceptance function. codegen
-// itself only requires named parameters at the point it plans how markup
-// attributes bind to a resolved call target — component_signature.go's
-// analyzeComponentSignature (the "component-parameter-name" check), reached
-// from component_positional_plan.go's operand planning
-// (planComponentPositionalCalls) — which runs on one already-authored,
-// already-resolved call site, never on a package-scope scan like this one.
-// An unnamed parameter could never receive a markup attribute that way, so
-// completion excludes it up front rather than offering a candidate codegen
-// would reject at the call site; but nothing stops a future codegen change
-// from accepting unnamed parameters through some other binding path this
-// scan does not know about, without this file needing to track it — hence
-// "deliberate choice", not "mirrored rule".
+// minus skip — that tagcallable.IsCandidate accepts: the callable-universe tag
+// shape (one result assignable to gsx.Node) plus every parameter named. Both
+// halves, and the gsx.Node lookup they are checked against, are single-sourced
+// in internal/tagcallable so this scan and codegen's unimported-package scan
+// (Module.PackageExportedSymbols' TagCallable flag, which feeds `<pkg.▮` for a
+// package this file does not import yet) can never drift apart. See that
+// package's doc for why the named-parameter rule belongs to the completion
+// layer.
 //
 // exportedOnly gates on obj.Exported() — required when target is a DIFFERENT
 // package than the one completion is running in (Go visibility), and false
 // for target's own package (every package-scope identifier, exported or
 // not, is a legal same-package tag).
 //
-// gsxNodeInterface resolving to nil (target does not import gsx.Node at all,
-// directly or — for the tests' synthetic packages — because it has no
+// tagcallable.NodeInterface resolving to nil (target does not import gsx.Node
+// at all, directly or — for the tests' synthetic packages — because it has no
 // imports set up) is a silent, fail-soft "no value candidates", not an error:
 // most packages never define a component-shaped value.
 func tagCallableValueNames(target *types.Package, skip map[string]bool, exportedOnly bool) []string {
-	iface := gsxNodeInterface(target)
+	if target == nil {
+		return nil
+	}
+	iface := tagcallable.NodeInterface(target)
 	if iface == nil {
 		return nil
 	}
@@ -482,85 +506,13 @@ func tagCallableValueNames(target *types.Package, skip map[string]bool, exported
 		if exportedOnly && !obj.Exported() {
 			continue
 		}
-		var sig *types.Signature
-		switch o := obj.(type) {
-		case *types.Func:
-			sig, _ = o.Type().(*types.Signature)
-		case *types.Var:
-			sig = tagcallable.Signature(o.Type())
-		default:
-			continue
-		}
-		if sig == nil || !isTagCallableSignature(sig, iface) {
+		if !tagcallable.IsCandidate(obj, iface) {
 			continue
 		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
-}
-
-// isTagCallableSignature reports whether sig matches codegen's
-// callable-universe shape — tagcallable.IsResult, single-sourced with
-// codegen's component_identity.go — AND every parameter is named. See
-// tagCallableValueNames' doc for why the named-parameter half stays a
-// completion-local, deliberately conservative addition rather than part of
-// the shared predicate.
-func isTagCallableSignature(sig *types.Signature, node *types.Interface) bool {
-	if !tagcallable.IsResult(sig, node) {
-		return false
-	}
-	for param := range sig.Params().Variables() {
-		if param.Name() == "" {
-			return false
-		}
-	}
-	return true
-}
-
-// gsxNodeInterface locates the gsx.Node interface type within target's OWN
-// direct imports. target must import "github.com/gsxhq/gsx" itself for any
-// of its declarations to type-check against gsx.Node in the first place, so
-// this never needs to search transitively or reach into a different
-// package's import graph (in particular, the LSP's own analyzed root
-// package's imports are irrelevant — target is scanned as an independent
-// package, per the go/types identity rule that every *types.Package in one
-// checked build shares one canonical object per imported package). Returns
-// nil (fail-soft) when target does not import gsx at all.
-//
-// This duplicates a lookup codegen also performs — component_signature.go's
-// runtimeContractFromAnalysisPackage is the authority there, and its
-// runtimeContract.node is exactly this same gsx.Node identity — but that
-// helper is not reachable from here without either a layering violation
-// (internal/lsp importing internal/codegen) or pulling in invariants this
-// scan does not need: runtimeContractFromAnalysisPackage resolves Node,
-// Attr, AND Attrs together for one fixed "the analysis package" and errors
-// if any is missing or inconsistent, whereas this needs only Node, resolved
-// against an arbitrary imported target package that is never itself "the
-// analysis package". Folding the two would mean either exporting a
-// narrower, Node-only codegen entry point (not part of this pass; a
-// follow-up if the duplication proves troublesome) or accepting the
-// unrelated Attr/Attrs requirement here. Kept local for now, with codegen's
-// runtimeContract as the documented authority for the identity this mirrors.
-func gsxNodeInterface(target *types.Package) *types.Interface {
-	if target == nil {
-		return nil
-	}
-	for _, imp := range target.Imports() {
-		if imp.Path() != "github.com/gsxhq/gsx" {
-			continue
-		}
-		tn, ok := imp.Scope().Lookup("Node").(*types.TypeName)
-		if !ok {
-			return nil
-		}
-		iface, ok := types.Unalias(tn.Type()).Underlying().(*types.Interface)
-		if !ok {
-			return nil
-		}
-		return iface
-	}
-	return nil
 }
 
 // componentNameItems returns one item per plain (non-receiver) component

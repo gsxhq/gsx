@@ -1084,7 +1084,7 @@ func (a lspAnalyzer) ExportedSymbols(dir, importPath string) []lsp.ImportSymbol 
 	}
 	out := make([]lsp.ImportSymbol, len(syms))
 	for i, sym := range syms {
-		out[i] = lsp.ImportSymbol{Name: sym.Name, Kind: importSymbolKind(sym.Kind), Detail: sym.Detail}
+		out[i] = lsp.ImportSymbol{Name: sym.Name, Kind: importSymbolKind(sym.Kind), Detail: sym.Detail, TagCallable: sym.TagCallable}
 	}
 	return out
 }

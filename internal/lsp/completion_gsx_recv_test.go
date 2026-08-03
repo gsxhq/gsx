@@ -119,7 +119,7 @@ func (f *Form) _submit() { _ = f }
 func TestReceiverVarTagResolvesMethodComponents(t *testing.T) {
 	pkg, src := methodComponentFixture(t)
 	off := strings.Index(src, "<p.Row") + len("<p.")
-	items := componentTagItems(pkg, "p", false, "page.gsx", off, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "p", false, "page.gsx", off, "", 0, 0, encUTF8)
 	got := map[string]int{}
 	for _, it := range items {
 		got[it.Label] = it.Kind
@@ -154,7 +154,7 @@ func TestReceiverVarTagResolvesMethodComponents(t *testing.T) {
 func TestParamVarTagResolvesMethodComponents(t *testing.T) {
 	pkg, src := methodComponentFixture(t)
 	off := strings.Index(src, "<p.Row") + len("<p.")
-	items := componentTagItems(pkg, "f", false, "page.gsx", off, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "f", false, "page.gsx", off, "", 0, 0, encUTF8)
 	if len(items) != 1 || items[0].Label != "Submit" {
 		t.Fatalf("items = %+v, want exactly [Submit] for the *Form param `f`", items)
 	}
@@ -168,7 +168,7 @@ func TestParamVarTagResolvesMethodComponents(t *testing.T) {
 func TestReceiverVarUnknownQualifierEmpty(t *testing.T) {
 	pkg, src := methodComponentFixture(t)
 	off := strings.Index(src, "<p.Row") + len("<p.")
-	if items := componentTagItems(pkg, "zzz", false, "page.gsx", off, "", 0, 0, encUTF8); len(items) != 0 {
+	if items, _ := componentTagItems(pkg, "zzz", false, "page.gsx", off, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("items = %+v, want empty for an unresolvable qualifier", items)
 	}
 }
@@ -187,7 +187,7 @@ func TestReceiverVarShadowsImport(t *testing.T) {
 	pkg.ComponentDecls[ComponentDeclKey{PackagePath: "example.com/app/pkgp", ComponentKey: ".Button"}] = nil
 
 	off := strings.Index(src, "<p.Row") + len("<p.")
-	items := componentTagItems(pkg, "p", false, "page.gsx", off, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "p", false, "page.gsx", off, "", 0, 0, encUTF8)
 	for _, it := range items {
 		if it.Label == "Button" {
 			t.Fatalf("import component Button leaked past the shadowing receiver var: %+v", items)
@@ -213,7 +213,7 @@ func TestReceiverVarBindingWithoutMethodsStopsFallback(t *testing.T) {
 	pkg.ComponentDecls[ComponentDeclKey{PackagePath: "example.com/app/pkgp", ComponentKey: ".Button"}] = nil
 
 	off := strings.Index(src, "<p.Row") + len("<p.")
-	if items := componentTagItems(pkg, "p", false, "page.gsx", off, "", 0, 0, encUTF8); len(items) != 0 {
+	if items, _ := componentTagItems(pkg, "p", false, "page.gsx", off, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("items = %+v, want empty (receiver var shadows import even with no methods)", items)
 	}
 }
@@ -233,7 +233,7 @@ var _ = myui.ToUpper
 	}
 	// No Files/GSXFset/SigTypes: enclosingComponentAt finds nothing, the package
 	// scope has no `myui` var, so resolution declines and the import path runs.
-	items := componentTagItems(pkg, "myui", false, "page.gsx", 10, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "myui", false, "page.gsx", 10, "", 0, 0, encUTF8)
 	if len(items) != 1 || items[0].Label != "Button" {
 		t.Fatalf("items = %+v, want [Button] via import fallback", items)
 	}

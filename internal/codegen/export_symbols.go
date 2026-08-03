@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen/stdpath"
+	"github.com/gsxhq/gsx/internal/tagcallable"
 )
 
 // SymbolKind is a coarse classification of an exported package-level symbol,
@@ -27,10 +28,19 @@ const (
 // ExportedSymbol is one exported top-level declaration of a package, described
 // by value (name, coarse kind, formatted type/signature) so the caller never
 // touches a graph *types.Object outside the analysis lock.
+//
+// TagCallable reports whether this declaration could be written as a gsx TAG
+// (`<pkg.Name/>`) — tagcallable.IsCandidate, the same completion-grade
+// predicate internal/lsp applies when scanning an ALREADY-imported package's
+// scope. It is carried on every symbol rather than served by a separate
+// enumeration so both the Go-expression member surface (`pkg.▮`, which wants
+// every export) and the tag surface (`<pkg.▮`, which wants only these) read one
+// answer computed once, inside the analysis lock, from real type objects.
 type ExportedSymbol struct {
-	Name   string
-	Kind   SymbolKind
-	Detail string
+	Name        string
+	Kind        SymbolKind
+	Detail      string
+	TagCallable bool
 }
 
 // PackageName is one importable package: its declared name (the qualifier a
@@ -75,6 +85,10 @@ func (m *Module) PackageExportedSymbols(importPath string) []ExportedSymbol {
 	}
 	scope := pkg.Scope()
 	qf := func(p *types.Package) string { return p.Name() }
+	// nil when pkg does not import the gsx runtime at all — then no declaration
+	// of pkg can be tag-callable, and IsCandidate rejects every object against a
+	// nil node. Resolved once per package, not once per symbol.
+	node := tagcallable.NodeInterface(pkg)
 	var out []ExportedSymbol
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
@@ -82,9 +96,10 @@ func (m *Module) PackageExportedSymbols(importPath string) []ExportedSymbol {
 			continue
 		}
 		out = append(out, ExportedSymbol{
-			Name:   name,
-			Kind:   classifyExportedSymbol(obj),
-			Detail: exportedSymbolDetail(obj, qf),
+			Name:        name,
+			Kind:        classifyExportedSymbol(obj),
+			Detail:      exportedSymbolDetail(obj, qf),
+			TagCallable: node != nil && tagcallable.IsCandidate(obj, node),
 		})
 	}
 	slices.SortFunc(out, func(a, b ExportedSymbol) int { return strings.Compare(a.Name, b.Name) })

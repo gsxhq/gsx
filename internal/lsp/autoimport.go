@@ -48,10 +48,16 @@ func (k SymbolKind) ciKind() int {
 // auto-import completion candidate. Kind/Detail feed the item's icon and
 // signature; the import path is supplied separately by the resolving caller
 // (one package's symbols share one path).
+//
+// TagCallable is the LSP mirror of codegen.ExportedSymbol.TagCallable: the
+// symbol could be written as a gsx tag (`<pkg.Name/>`). A Go-expression cursor
+// (`pkg.▮`) ignores it and offers everything; a TAG cursor (`<pkg.▮`) offers
+// only the symbols carrying it.
 type ImportSymbol struct {
-	Name   string
-	Kind   SymbolKind
-	Detail string
+	Name        string
+	Kind        SymbolKind
+	Detail      string
+	TagCallable bool
 }
 
 // ImportablePackage is one package a file could import: its declared name (the
@@ -155,12 +161,31 @@ type importEditPrep struct {
 // parse, or there is no place to put imports), so the loop can be skipped
 // entirely.
 func prepareImportEdit(text string, enc encoding) (importEditPrep, bool) {
+	return prepareImportEditIn(text, text, enc)
+}
+
+// prepareImportEditIn is prepareImportEdit for a cursor whose LIVE buffer does
+// not parse: parseSrc is the repaired buffer (repairResult.src), text is the
+// original document the resulting TextEdit ranges must address.
+//
+// A markup cursor needs this and a Go-expression cursor does not. gsx treats Go
+// as an opaque blob, so `{ fmt.▮ }` is still a well-formed gsx document and the
+// live buffer parses as-is; `<ui.▮` is an unterminated element and does not
+// parse at all — which is precisely the buffer state the user is in WHILE
+// typing the tag that needs the import.
+//
+// Substituting the repaired bytes is exact, not approximate: completionPatches
+// only ever INSERTS at the cursor and never modifies a byte before it, so the
+// two buffers are byte-identical over [0, cursor) — and apply refuses any edit
+// reaching at or past cursorStart, so every range this prep can produce lies
+// wholly inside that identical prefix. Nothing downstream re-reads parseSrc.
+func prepareImportEditIn(parseSrc, text string, enc encoding) (importEditPrep, bool) {
 	fset := token.NewFileSet()
-	file, err := gsxparser.ParseFile(fset, "buffer.gsx", text, 0)
+	file, err := gsxparser.ParseFile(fset, "buffer.gsx", parseSrc, 0)
 	if file == nil || err != nil {
 		return importEditPrep{}, false
 	}
-	chunkStart, oldSrc, ok := importChunkRegion(file, fset, text)
+	chunkStart, oldSrc, ok := importChunkRegion(file, fset, parseSrc)
 	if !ok {
 		return importEditPrep{}, false
 	}
@@ -325,6 +350,60 @@ func (s *Server) unimportedQualifierItems(dir, path, text, qualifier string, sta
 				continue
 			}
 			item := newCompletionItem(text, start, end, s.enc, sym.Name, sym.Name, sym.Kind.ciKind(), tierImported, sym.Detail, nil)
+			item.AdditionalTextEdits = []TextEdit{edit}
+			s.applyImportPathLabel(&item, sym.Detail, importPath)
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// unimportedTagItems is the TAG-position counterpart of
+// unimportedQualifierItems: `<ui.▮` where `ui` names no import and no in-scope
+// binding resolves to the candidate package(s), and each package's TAG-CALLABLE
+// exported symbols become items whose accept inserts both the tag name and the
+// import.
+//
+// Two differences from the Go-expression member surface, both load-bearing:
+//
+//   - Only ImportSymbol.TagCallable symbols are offered. `<ui.` is not a Go
+//     selector — a const, a struct type, or a func returning int can never be a
+//     tag, and offering them would make the list mostly noise. The predicate is
+//     codegen's (tagcallable.IsCandidate), applied inside the analysis lock over
+//     real type objects, so an unimported package's tag list matches exactly what
+//     componentValueNameItems offers once the import exists.
+//   - Items are ciKindClass, matching componentNameItems — an editor that
+//     auto-appends "()" to a Function-kind item would produce `<ui.Button()`,
+//     which is not valid markup. The TIER stays unimportedQualifierItems'
+//     tierImported, below every context-native component.
+//
+// A qualifier that maps to several packages yields one item per surviving symbol
+// per path, each labelled with its own path — same honesty rule as Option 1. A
+// candidate whose import edit cannot be synthesized is skipped rather than
+// offered without its import.
+//
+// parseSrc is the repaired buffer the import edit is located in — see
+// prepareImportEditIn for why a markup cursor cannot use the live text.
+func (s *Server) unimportedTagItems(dir, parseSrc, text, qualifier string, start, end int) []CompletionItem {
+	paths := s.analyzer.ResolveImport(dir, qualifier, "")
+	if len(paths) == 0 {
+		return nil
+	}
+	prep, ok := prepareImportEditIn(parseSrc, text, s.enc)
+	if !ok {
+		return nil
+	}
+	var items []CompletionItem
+	for _, importPath := range paths {
+		edit, ok := prep.apply(importPath, start)
+		if !ok {
+			continue
+		}
+		for _, sym := range s.analyzer.ExportedSymbols(dir, importPath) {
+			if !sym.TagCallable || isReservedGsxInternal(sym.Name) {
+				continue
+			}
+			item := newCompletionItem(text, start, end, s.enc, sym.Name, sym.Name, ciKindClass, tierImported, sym.Detail, nil)
 			item.AdditionalTextEdits = []TextEdit{edit}
 			s.applyImportPathLabel(&item, sym.Detail, importPath)
 			items = append(items, item)

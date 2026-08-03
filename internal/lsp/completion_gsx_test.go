@@ -270,7 +270,7 @@ func componentTagFixturePackage() *Package {
 // qualifiers (sorted) — deterministic despite ComponentDecls being a map.
 func TestComponentTagItemsBareCursor(t *testing.T) {
 	pkg := componentTagFixturePackage()
-	items := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
 	if len(items) != 2 {
 		t.Fatalf("len(items) = %d, want 2: %+v", len(items), items)
 	}
@@ -297,7 +297,7 @@ func TestComponentTagItemsBareCursor(t *testing.T) {
 // package's plain component ("Button"), dot-free.
 func TestComponentTagItemsQualified(t *testing.T) {
 	pkg := componentTagFixturePackage()
-	items := componentTagItems(pkg, "ui", false, "", 0, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "ui", false, "", 0, "", 0, 0, encUTF8)
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1: %+v", len(items), items)
 	}
@@ -313,7 +313,7 @@ func TestComponentTagItemsQualified(t *testing.T) {
 // matching no import's Name() yields an empty list, not a panic.
 func TestComponentTagItemsQualifiedUnknownImport(t *testing.T) {
 	pkg := componentTagFixturePackage()
-	if items := componentTagItems(pkg, "nope", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
+	if items, _ := componentTagItems(pkg, "nope", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("items = %+v, want empty for an unresolvable qualifier", items)
 	}
 }
@@ -325,7 +325,7 @@ func TestComponentTagItemsNilTypesFailsSoft(t *testing.T) {
 	pkg := &Package{ComponentDecls: map[ComponentDeclKey][]sourceintel.VersionedSpan{
 		{PackagePath: "example.com/app/page", ComponentKey: ".Card"}: nil,
 	}}
-	if items := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
+	if items, _ := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("items = %+v, want empty when pkg.Types is nil", items)
 	}
 }
@@ -352,17 +352,17 @@ var _ = myui.ToUpper
 		{PackagePath: "strings", ComponentKey: ".Button"}: nil,
 	}
 
-	items := componentTagItems(pkg, "myui", false, "", 0, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "myui", false, "", 0, "", 0, 0, encUTF8)
 	if len(items) != 1 || items[0].Label != "Button" {
 		t.Fatalf("qualifier=%q items = %+v, want exactly [Button]", "myui", items)
 	}
 
 	// The declared name ("strings") must NOT resolve — only the alias does.
-	if items := componentTagItems(pkg, "strings", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
+	if items, _ := componentTagItems(pkg, "strings", false, "", 0, "", 0, 0, encUTF8); len(items) != 0 {
 		t.Fatalf("qualifier=%q items = %+v, want empty (declared name is not the local name)", "strings", items)
 	}
 
-	bareItems := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
+	bareItems, _ := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
 	var qualItem *CompletionItem
 	for i := range bareItems {
 		if bareItems[i].Kind == ciKindModule {
@@ -456,7 +456,7 @@ func buildIconValueComponentFixture() *Package {
 // ciKindClass), BadParam/WrongResult/unexp are not.
 func TestComponentValueNameItemsQualified(t *testing.T) {
 	pkg := buildIconValueComponentFixture()
-	items := componentTagItems(pkg, "icon", false, "", 0, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "icon", false, "", 0, "", 0, 0, encUTF8)
 	got := map[string]CompletionItem{}
 	for _, it := range items {
 		got[it.Label] = it
@@ -485,7 +485,7 @@ func TestComponentValueNameItemsQualified(t *testing.T) {
 // though it has zero ComponentDecls entries.
 func TestComponentValueNameItemsBareCursorLocal(t *testing.T) {
 	pkg := buildIconValueComponentFixture()
-	items := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "", false, "", 0, "", 0, 0, encUTF8)
 	var local, qual *CompletionItem
 	for i := range items {
 		switch items[i].Label {
@@ -518,7 +518,7 @@ func TestComponentValueNameItemsDedup(t *testing.T) {
 	pkg.ComponentDecls = map[ComponentDeclKey][]sourceintel.VersionedSpan{
 		{PackagePath: "github.com/tespkg/one-learning/ds/icon", ComponentKey: ".X"}: nil,
 	}
-	items := componentTagItems(pkg, "icon", false, "", 0, "", 0, 0, encUTF8)
+	items, _ := componentTagItems(pkg, "icon", false, "", 0, "", 0, 0, encUTF8)
 	count := 0
 	for _, it := range items {
 		if it.Label == "X" {
@@ -539,6 +539,18 @@ type tagCompletionAnalyzer struct {
 	ephPkg   *Package
 	ephErr   error
 	analyzed *Package // returned by Analyze, populates s.pkgs[dir] via didOpen
+	// resolve/symbols back the unimported-qualifier fallback (`<ui.▮` where the
+	// file never imported ui); both stay nil for every test that must NOT reach
+	// it, so a regression that fires the fallback on a resolved qualifier shows
+	// up as items appearing where the fixture supplies none.
+	resolve map[string][]string
+	symbols map[string][]ImportSymbol
+}
+
+func (a tagCompletionAnalyzer) ResolveImport(_, name, _ string) []string { return a.resolve[name] }
+
+func (a tagCompletionAnalyzer) ExportedSymbols(_, path string) []ImportSymbol {
+	return a.symbols[path]
 }
 
 func (a tagCompletionAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, error) {
@@ -1164,4 +1176,158 @@ func TestElementAtTagOffsetNoMatch(t *testing.T) {
 	if got := elementAtTagOffset(nil, "page.gsx", 0); got != nil {
 		t.Fatalf("got = %+v, want nil for a nil package", got)
 	}
+}
+
+// unimportedTagFixture is componentTagFixturePackage's counterpart for the
+// auto-import path: the analyzed package imports NOTHING, so a `<ui.▮` cursor
+// finds no qualifier to resolve and falls through to unimportedTagItems.
+func unimportedTagFixture() *Package {
+	main := types.NewPackage("example.com/app/page", "page")
+	main.MarkComplete()
+	return &Package{Types: main}
+}
+
+// uiImportSymbols is one unimported package's exported surface: a tag-callable
+// component and three symbols that are not tags. Only Button may be offered at
+// a `<ui.▮` cursor.
+func uiImportSymbols() map[string][]ImportSymbol {
+	return map[string][]ImportSymbol{
+		"example.com/app/ui": {
+			{Name: "Button", Kind: SymbolFunc, Detail: "func ui.Button(label string) gsx.Node", TagCallable: true},
+			{Name: "Format", Kind: SymbolFunc, Detail: "func ui.Format(s string) string"},
+			{Name: "Theme", Kind: SymbolTypeStruct, Detail: "type ui.Theme struct{...}"},
+			{Name: "Size", Kind: SymbolConst, Detail: "const ui.Size untyped int = 3"},
+		},
+	}
+}
+
+// TestTagCompletionUnimportedQualifier drives the real handler at `<ui.▮` in a
+// file that never imported ui: the package's TAG-CALLABLE symbol is offered,
+// carrying the import as an AdditionalTextEdit, and its non-tag symbols are
+// not. This is the wiring test — componentTagItems finds nothing, reports the
+// qualifier unresolved, and tagCompletion falls through to unimportedTagItems.
+func TestTagCompletionUnimportedQualifier(t *testing.T) {
+	uri := "file:///m/a.gsx"
+	text := "package p\n\nimport \"github.com/gsxhq/gsx\"\n\nvar _ gsx.Node\n\ncomponent C() {\n\t<div><ui.</div>\n}\n"
+	off := strings.Index(text, "<ui.") + len("<ui.")
+	pos := positionForByteOffset(text, off, encUTF16)
+
+	a := tagCompletionAnalyzer{
+		ephPkg:  unimportedTagFixture(),
+		resolve: map[string][]string{"ui": {"example.com/app/ui"}},
+		symbols: uiImportSymbols(),
+	}
+	out := drive(t, a, initFrame()+didOpenFrame(uri, text)+
+		completionFrame(2, uri, pos)+exitFrame())
+	items := decodeCompletionItems(t, out, 2)
+
+	button := itemByLabel(items, "Button")
+	if button == nil {
+		t.Fatalf("`<ui.` completion missing Button; labels=%v", labelSet(items))
+	}
+	if button.Kind != ciKindClass {
+		t.Errorf("Button.Kind = %d, want ciKindClass (%d) — a Function-kind item makes editors append \"()\"", button.Kind, ciKindClass)
+	}
+	if len(button.AdditionalTextEdits) != 1 {
+		t.Fatalf("Button.AdditionalTextEdits = %+v, want exactly the import edit", button.AdditionalTextEdits)
+	}
+	if got := button.AdditionalTextEdits[0].NewText; !strings.Contains(got, "example.com/app/ui") {
+		t.Errorf("Button import edit = %q, want it to add example.com/app/ui", got)
+	}
+	for _, name := range []string{"Format", "Theme", "Size"} {
+		if itemByLabel(items, name) != nil {
+			t.Errorf("`<ui.` offered %q, want tag-callable symbols only", name)
+		}
+	}
+	// The import edit was located in the REPAIRED buffer but must address the
+	// ORIGINAL document (prepareImportEditIn). Applying both edits to the live
+	// text is the only assertion that catches an off-by-N in that mapping.
+	got := applyTextEdits(text, append([]TextEdit{*button.TextEdit}, button.AdditionalTextEdits...), encUTF16)
+	if !strings.Contains(got, "\"example.com/app/ui\"") {
+		t.Errorf("applied document did not gain the import:\n%s", got)
+	}
+	if !strings.Contains(got, "<ui.Button") {
+		t.Errorf("applied document did not gain the tag name:\n%s", got)
+	}
+	if strings.Contains(got, "packag\n") || !strings.HasPrefix(got, "package p\n") {
+		t.Errorf("applied document corrupted the head:\n%s", got)
+	}
+}
+
+// TestTagCompletionImportedQualifierSkipsAutoImport is the precedence guard: a
+// qualifier that already names an IMPORT resolves, so the auto-import fallback
+// must not run even though the fixture's resolve/symbols maps could answer it.
+// Otherwise `<ui.▮` on an imported ui would offer a duplicate Button carrying a
+// redundant import edit.
+func TestTagCompletionImportedQualifierSkipsAutoImport(t *testing.T) {
+	uri := "file:///m/a.gsx"
+	text := "package p\n\nimport \"example.com/app/ui\"\n\ncomponent C() {\n\t<div><ui.</div>\n}\n"
+	off := strings.Index(text, "<ui.") + len("<ui.")
+	pos := positionForByteOffset(text, off, encUTF16)
+
+	a := tagCompletionAnalyzer{
+		ephPkg:  componentTagFixturePackage(), // already imports example.com/app/ui
+		resolve: map[string][]string{"ui": {"example.com/app/ui"}},
+		symbols: uiImportSymbols(),
+	}
+	out := drive(t, a, initFrame()+didOpenFrame(uri, text)+
+		completionFrame(2, uri, pos)+exitFrame())
+	items := decodeCompletionItems(t, out, 2)
+
+	if len(items) != 1 || items[0].Label != "Button" {
+		t.Fatalf("`<ui.` on an imported ui = %v, want exactly the declared component [Button]", labelSet(items))
+	}
+	if len(items[0].AdditionalTextEdits) != 0 {
+		t.Errorf("Button.AdditionalTextEdits = %+v, want none (ui is already imported)", items[0].AdditionalTextEdits)
+	}
+}
+
+// TestComponentTagItemsResolvedFlag pins the flag tagCompletion gates the
+// auto-import fallback on. It is deliberately independent of whether items came
+// back: an import that declares no components, and an in-scope binding that
+// carries no method components, both resolve to something and must never be
+// second-guessed with an auto-import list.
+func TestComponentTagItemsResolvedFlag(t *testing.T) {
+	t.Run("bare cursor always resolved", func(t *testing.T) {
+		if _, resolved := componentTagItems(componentTagFixturePackage(), "", false, "", 0, "", 0, 0, encUTF8); !resolved {
+			t.Error("resolved = false for an empty qualifier, want true (nothing to resolve)")
+		}
+	})
+	t.Run("imported qualifier with components", func(t *testing.T) {
+		if _, resolved := componentTagItems(componentTagFixturePackage(), "ui", false, "", 0, "", 0, 0, encUTF8); !resolved {
+			t.Error("resolved = false for an imported qualifier, want true")
+		}
+	})
+	t.Run("unknown qualifier", func(t *testing.T) {
+		if _, resolved := componentTagItems(componentTagFixturePackage(), "nope", false, "", 0, "", 0, 0, encUTF8); resolved {
+			t.Error("resolved = true for a qualifier naming nothing, want false")
+		}
+	})
+	t.Run("imported qualifier with NO components", func(t *testing.T) {
+		// The noise guard: `strings` is imported and declares no components, so it
+		// yields zero items — but it is resolved, so no auto-import list may follow.
+		src := "package p\n\nimport \"strings\"\n\nvar _ = strings.ToUpper\n"
+		pkg, _ := buildSyntheticPackage(t, src)
+		items, resolved := componentTagItems(pkg, "strings", false, "page.gsx", 0, "", 0, 0, encUTF8)
+		if len(items) != 0 {
+			t.Fatalf("items = %+v, want none (strings declares no components)", items)
+		}
+		if !resolved {
+			t.Error("resolved = false for an imported componentless package, want true")
+		}
+	})
+	t.Run("in-scope non-value binding shadows imports", func(t *testing.T) {
+		// A package-scope func named `helper` shadows any same-named import per Go
+		// scoping. It carries no method components, so items is empty — but it is
+		// resolved, and `<helper.` is not a missing import.
+		src := "package p\n\nfunc helper() {}\n"
+		pkg, _ := buildSyntheticPackage(t, src)
+		items, resolved := componentTagItems(pkg, "helper", false, "page.gsx", 0, "", 0, 0, encUTF8)
+		if len(items) != 0 {
+			t.Fatalf("items = %+v, want none", items)
+		}
+		if !resolved {
+			t.Error("resolved = false for an in-scope func binding, want true")
+		}
+	})
 }

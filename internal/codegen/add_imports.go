@@ -94,6 +94,110 @@ func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet,
 	return out
 }
 
+// missingFromTargetMarkers finds every undefined qualifier used as the PACKAGE
+// half of a component tag — `<ui.Button/>` where the file never imported `ui`.
+//
+// missingFromSkeletons cannot see these. A component tag's identity expression
+// (`ui.Button`) exists as real Go syntax only in the target-DISCOVERY skeleton,
+// under its own marker binding (`var _gsxtargetN = ui.Button`) and its own
+// type-check. An unresolved qualifier makes discovery REJECT the call site, so
+// the element is never stamped IsComponent and the shipping skeleton — the only
+// input missingFromSkeletons reads — lowers it as a plain leaf element carrying
+// no selector at all. Worse, a rejected site fails the package, and analyze then
+// builds the shipping skeleton from an EMPTY gsx file set, so that pass has
+// nothing left to walk. Without this function an unimported component package is
+// invisible to organizeImports and to the add-import quickfix, even though the
+// user is staring at the `undefined: ui` those same markers produced.
+//
+// The test is the same exact one missingFromSkeletons applies, against
+// discovery's own types.Info: a selector root is always a reference occurrence,
+// so an identifier with no entry in info.Uses resolved to nothing. A qualifier
+// that IS resolved (an imported package, a local shadowing it) is not reported,
+// and neither is a bare `<Foo/>` tag (no selector, hence no qualifier to
+// import) nor a chained `<a.b.C/>` root (not a bare identifier).
+//
+// Pos anchors at the element's TagPos — exactly where componentTargetDiagnostic
+// and the checker's own `undefined: ui` land — so the quickfix the user reaches
+// for from that diagnostic resolves the same qualifier the diagnostic named.
+// Entries are deduped by (Name, Symbol) per file for the same reason
+// missingFromSkeletons dedupes: the caller adds one import either way.
+//
+// Pure: walks the marker table discovery already built and the info it already
+// produced. No IO, no lock, no packages.Load.
+func missingFromTargetMarkers(registry *componentTargetMarkerRegistry, gsxFset *token.FileSet, info *types.Info) map[string][]MissingImport {
+	if registry == nil || info == nil || gsxFset == nil {
+		return nil
+	}
+	out := map[string][]MissingImport{}
+	seen := map[string]bool{} // gsxPath+"\x00"+name+"."+symbol
+	for _, marker := range registry.ordered {
+		if marker.expr == nil || marker.element == nil {
+			continue // syntax-invalid target: no expression was type-checked
+		}
+		shape, ok := componentTargetShapeOf(marker.expr)
+		if !ok || shape.selector == nil {
+			continue
+		}
+		qualifier, isIdent := shape.selector.X.(*goast.Ident)
+		if !isIdent {
+			continue
+		}
+		if _, used := info.Uses[qualifier]; used {
+			continue // an imported package, a local, a receiver...
+		}
+		if !marker.element.TagPos.IsValid() {
+			// Defensive: every candidate element comes from a real parse, so this
+			// never fires. Reporting it anyway would key the entry under an empty
+			// filename, which no caller could ever look up.
+			continue
+		}
+		pos := gsxFset.Position(marker.element.TagPos)
+		key := pos.Filename + "\x00" + qualifier.Name + "." + shape.selector.Sel.Name
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out[pos.Filename] = append(out[pos.Filename], MissingImport{
+			Name:   qualifier.Name,
+			Symbol: shape.selector.Sel.Name,
+			Pos:    pos,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// mergeMissingImports folds extra into base, keeping base's entry whenever the
+// same file already reports the same (Name, Symbol) — base is the shipping
+// skeleton's answer, whose Pos matches the diagnostic the user sees for a
+// Go-expression use. Neither map is mutated; the result is a fresh map.
+func mergeMissingImports(base, extra map[string][]MissingImport) map[string][]MissingImport {
+	if len(extra) == 0 {
+		return base
+	}
+	out := make(map[string][]MissingImport, len(base)+len(extra))
+	seen := map[string]bool{}
+	for path, mis := range base {
+		out[path] = append([]MissingImport(nil), mis...)
+		for _, mi := range mis {
+			seen[path+"\x00"+mi.Name+"."+mi.Symbol] = true
+		}
+	}
+	for path, mis := range extra {
+		for _, mi := range mis {
+			key := path + "\x00" + mi.Name + "." + mi.Symbol
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out[path] = append(out[path], mi)
+		}
+	}
+	return out
+}
+
 // inHarvestProbe reports whether pos falls inside one of spans (each a
 // harvestProbeSpans result for the same file/fset — see that function's doc).
 func inHarvestProbe(spans []posSpan, pos token.Pos) bool {
