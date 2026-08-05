@@ -3,6 +3,7 @@ package gen
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"embed"
 	"errors"
 	"flag"
@@ -234,14 +235,15 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 // template picker (promptTemplate) — asking "what" before "which template"
 // mirrors the order a user would naturally answer them. An explicit
 // --template is validated immediately, before any prompting, so a typo fails
-// fast.
+// fast. --from bypasses --template's source entirely (see
+// resolveTemplateSource), so neither the early validation nor the picker
+// runs when it's set.
 func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
 	dir, flagArgs := splitDirFlags(args)
 	fs, templateName, module, force, yes := initFlagSet("new", stderr)
 	// --from <dir-or-module> overrides --template's source: a path that
 	// exists on disk is fetched via localTemplateFS, otherwise it's treated
-	// as a module path fetched at latest via fetchModuleFS. Consumed by the
-	// source dispatch in scaffoldCore (see fetch.go, personalize.go).
+	// as a module path fetched at latest via fetchModuleFS.
 	var from string
 	fs.StringVar(&from, "from", "", "fetch a template from a module path or local directory (overrides --template)")
 	if err := fs.Parse(flagArgs); err != nil {
@@ -253,7 +255,7 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 			explicitTemplate = true
 		}
 	})
-	if explicitTemplate {
+	if from == "" && explicitTemplate {
 		if _, ok := lookupTemplate(*templateName, stderr); !ok {
 			return 2
 		}
@@ -269,13 +271,22 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 		}
 	}
 
-	name := *templateName
-	if interactive && !*yes && !explicitTemplate {
-		name = promptTemplate(reader, stdout, defaultTemplate)
+	var tpl initTemplate
+	if from == "" {
+		name := *templateName
+		if interactive && !*yes && !explicitTemplate {
+			name = promptTemplate(reader, stdout, defaultTemplate)
+		}
+		var ok bool
+		tpl, ok = lookupTemplate(name, stderr)
+		if !ok {
+			return 2
+		}
 	}
-	tpl, ok := lookupTemplate(name, stderr)
-	if !ok {
-		return 2
+
+	fetchedSrc, code := resolveTemplateSource(workDir, from, tpl, stderr)
+	if code != 0 {
+		return code
 	}
 
 	// Anchor a relative target dir at workDir rather than the process-global
@@ -286,10 +297,53 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 		mod = filepath.Base(abs)
 	}
 
-	// --from's fetch/local-checkout dispatch lands in the end-to-end wiring
-	// task (fetch.go/personalize.go exist as of this commit; newWith doesn't
-	// consult `from` yet, so a fetchedSrc is never non-nil here today).
-	return scaffoldCore(reader, "new", tpl, nil, abs, dir, mod, *force, stdout, stderr, interactive, *yes, run)
+	return scaffoldCore(reader, "new", tpl, fetchedSrc, abs, dir, mod, *force, stdout, stderr, interactive, *yes, run)
+}
+
+// resolveTemplateSource decides where new's scaffold content comes from. An
+// explicit --from wins outright: a path that exists on disk as a directory is
+// read via localTemplateFS; anything else is treated as a module path and
+// fetched at latest via fetchModuleFS. Without --from, an embedded template
+// (tpl.module == "", e.g. simple) needs no fetch — (nil, 0) tells the caller
+// to fall back to tpl.root — while a registry entry with a module (e.g. saas)
+// is fetched the same way a module --from would be.
+//
+// On failure the error is printed to stderr here (not returned) so the
+// caller can propagate a plain exit code: 2 for a bad --from directory or an
+// invalid GOPROXY (both are the user's input, not a network failure), 1 for
+// an actual fetch/proxy operational failure.
+func resolveTemplateSource(workDir, from string, tpl initTemplate, stderr io.Writer) (fs.FS, int) {
+	modulePath := from
+	if from != "" {
+		fromAbs := absAgainst(workDir, from)
+		if info, statErr := os.Stat(fromAbs); statErr == nil && info.IsDir() {
+			src, err := localTemplateFS(fromAbs)
+			if err != nil {
+				fmt.Fprintf(stderr, "gsx: %v\n", err)
+				return nil, 2
+			}
+			return src, 0
+		}
+		// Not an existing local directory: fall through to the module-fetch
+		// path below, treating --from's value as the module to fetch.
+	} else {
+		if tpl.module == "" {
+			return nil, 0
+		}
+		modulePath = tpl.module
+	}
+
+	proxyBase, err := proxyBaseFromEnv()
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx: %v\n", err)
+		return nil, 2
+	}
+	src, _, err := fetchModuleFS(context.Background(), proxyBase, modulePath, "latest")
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx: %v\n", err)
+		return nil, 1
+	}
+	return src, 0
 }
 
 // scaffoldCore is the shared body of init and new once the target directory

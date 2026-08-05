@@ -202,6 +202,89 @@ func TestNewInteractiveInvalidThenFallsBackToDefault(t *testing.T) {
 	}
 }
 
+// TestNewFromLocalFixture is the end-to-end shape the template repo's own CI
+// will mirror (`gsx new --from . <tmp>` against its HEAD, per the plan): a
+// full newWith run with --from pointed at a real on-disk fixture
+// (gen/testdata/newfixture — not an fstest.MapFS, since localTemplateFS uses
+// os.DirFS), asserting the scaffolded tree, the rewritten module, the
+// manifest-stripped files, the generated .env secret, and the printed
+// next-steps block, entirely offline.
+//
+// --module is given explicitly (unlike the embedded-template tests, which
+// happily default to a bare dir-basename module such as "myapp"): personalize
+// validates the target module with module.CheckPath, the strict "must be a
+// real, publishable path" validator — a bare "myapp" has no dot in its first
+// component and is correctly rejected. A fetched template does real import
+// rewriting, so it requires a real path; an embedded template's go.mod
+// substitution is a no-op string fill with no such requirement.
+func TestNewFromLocalFixture(t *testing.T) {
+	t.Parallel()
+	fixture, err := filepath.Abs("testdata/newfixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := newWith([]string{"--from", fixture, "--module", "example.com/myapp", "--yes", "myapp"}, strings.NewReader(""), &out, &errb, false, run, dir)
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%q", code, errb.String())
+	}
+
+	target := filepath.Join(dir, "myapp")
+
+	gomod, err := os.ReadFile(filepath.Join(target, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gomod), "module example.com/myapp") {
+		t.Fatalf("go.mod not rewritten to the new module: %s", gomod)
+	}
+
+	mainGo, err := os.ReadFile(filepath.Join(target, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainGo), `"example.com/myapp/pages"`) {
+		t.Fatalf("main.go import not rewritten: %s", mainGo)
+	}
+	if strings.Contains(string(mainGo), "github.com/gsxhq/newfixture") {
+		t.Fatalf("main.go still references the fixture's original module: %s", mainGo)
+	}
+
+	if _, err := os.Stat(filepath.Join(target, "docs", "README.md")); err == nil {
+		t.Fatal("docs/README.md should have been stripped by gsx-template.json")
+	}
+	if _, err := os.Stat(filepath.Join(target, "gsx-template.json")); err == nil {
+		t.Fatal("the gsx-template.json manifest itself should have been stripped")
+	}
+
+	env, err := os.ReadFile(filepath.Join(target, ".env"))
+	if err != nil {
+		t.Fatalf("expected .env with the generated secret: %v", err)
+	}
+	secret := dotEnvValue(t, string(env), "APP_SECRET")
+	if len(secret) != 64 {
+		t.Fatalf("APP_SECRET = %q (len %d), want 64 hex chars", secret, len(secret))
+	}
+
+	pkg, err := os.ReadFile(filepath.Join(target, "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pkg), `"name": "myapp"`) {
+		t.Fatalf("package.json name not rewritten: %s", pkg)
+	}
+
+	if len(*calls) != 3 {
+		t.Fatalf("expected 3 setup steps, got %d: %v", len(*calls), *calls)
+	}
+	if !strings.Contains(out.String(), "npm run dev") {
+		t.Fatalf("next-steps block missing from stdout: %q", out.String())
+	}
+}
+
 func TestNewTemplateFlagSkipsPicker(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
