@@ -761,7 +761,7 @@ func (p *printer) valueSwitchDoc(s *ast.ValueSwitch) pretty.Doc {
 	for _, c := range s.Cases {
 		label := pretty.Text("default:")
 		if !c.Default {
-			label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
+			label = pretty.Concat(pretty.Text("case "), multiline(fmtCaseList(c.List)), pretty.Text(":"))
 		}
 		cases = append(cases,
 			pretty.Line, label,
@@ -809,11 +809,11 @@ func (p *printer) switchAttrDoc(s *ast.SwitchAttr) pretty.Doc {
 	}
 	parts = append(parts, pretty.Text(" {"))
 	for _, cc := range s.Cases {
-		label := "default:"
+		label := pretty.Text("default:")
 		if !cc.Default {
-			label = "case " + fmtExpr(cc.List) + ":"
+			label = pretty.Concat(pretty.Text("case "), multiline(fmtExpr(cc.List)), pretty.Text(":"))
 		}
-		parts = append(parts, pretty.HardLine, pretty.Text(label), p.attrCaseBodyDoc(cc.Body))
+		parts = append(parts, pretty.HardLine, label, p.attrCaseBodyDoc(cc.Body))
 	}
 	parts = append(parts, pretty.HardLine, pretty.Text("}"))
 	return pretty.Concat(parts...)
@@ -1298,7 +1298,7 @@ func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
 
 func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
 	return pretty.Group(pretty.Concat(
-		pretty.Text("{ for "), pretty.Text(fmtClause(f.Clause)), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline), pretty.Text("} }")))
+		pretty.Text("{ for "), multiline(fmtClause(f.Clause)), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline), pretty.Text("} }")))
 }
 
 // cfBody renders a control-flow body between an already-emitted `{` and a
@@ -1372,7 +1372,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		for _, c := range s.Cases {
 			label := pretty.Text("default:")
 			if !c.Default {
-				label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
+				label = pretty.Concat(pretty.Text("case "), multiline(fmtCaseList(c.List)), pretty.Text(":"))
 			}
 			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 		}
@@ -1386,7 +1386,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 	for _, c := range s.Cases {
 		label := pretty.Text("default:")
 		if !c.Default {
-			label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
+			label = pretty.Concat(pretty.Text("case "), multiline(fmtCaseList(c.List)), pretty.Text(":"))
 		}
 		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}

@@ -1,0 +1,57 @@
+A multi-line Go fragment in a control-flow header (a for clause's range
+operand, a switch case list) must re-indent its continuation lines to the
+header's own depth. gofmt renders the fragment relative to column 0; joining
+lines with HardLine (the multiline helper) lets the engine add the current
+indent, keeping gofmt's relative tabs on top. Wrapping the fragment in a bare
+Text instead leaks the column-0 lines verbatim (the gsxui gallery.gsx bug).
+
+-- input.gsx --
+package pages
+
+func releaseList() gsx.Node {
+	return (
+		<div class="p-4">
+			{ for _, tag := range []string{
+				"v1.2.0-beta.5", "v1.2.0-beta.4", "v1.2.0-beta.3",
+				"v1.2.0-beta.2", "v1.2.0-beta.1", "v1.1.9",
+			} {
+				<div class="text-sm">{ tag }</div>
+			} }
+			{ switch len([]string{
+				"a", "b",
+			}) {
+			case len([]int{
+				1, 2,
+			}):
+				<span>two</span>
+			default:
+				<span>other</span>
+			} }
+		</div>
+	)
+}
+-- fmt.golden --
+package pages
+
+func releaseList() gsx.Node {
+	return (
+		<div class="p-4">
+			{ for _, tag := range []string{
+				"v1.2.0-beta.5", "v1.2.0-beta.4", "v1.2.0-beta.3",
+				"v1.2.0-beta.2", "v1.2.0-beta.1", "v1.1.9",
+			} {
+				<div class="text-sm">{ tag }</div>
+			} }
+			{ switch len([]string{
+				"a", "b",
+			}) {
+			case len([]int{
+				1, 2,
+			}):
+				<span>two</span>
+			default:
+				<span>other</span>
+			} }
+		</div>
+	)
+}
