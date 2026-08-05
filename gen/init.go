@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -223,7 +224,7 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 	}
 
 	reader := bufio.NewReader(stdin)
-	return scaffoldCore(reader, "init", tpl, abs, ".", mod, *force, stdout, stderr, interactive, *yes, run)
+	return scaffoldCore(reader, "init", tpl, nil, abs, ".", mod, *force, stdout, stderr, interactive, *yes, run)
 }
 
 // newWith is the `gsx new <dir>` core: the target directory is a required
@@ -285,7 +286,10 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 		mod = filepath.Base(abs)
 	}
 
-	return scaffoldCore(reader, "new", tpl, abs, dir, mod, *force, stdout, stderr, interactive, *yes, run)
+	// --from's fetch/local-checkout dispatch lands in the end-to-end wiring
+	// task (fetch.go/personalize.go exist as of this commit; newWith doesn't
+	// consult `from` yet, so a fetchedSrc is never non-nil here today).
+	return scaffoldCore(reader, "new", tpl, nil, abs, dir, mod, *force, stdout, stderr, interactive, *yes, run)
 }
 
 // scaffoldCore is the shared body of init and new once the target directory
@@ -293,8 +297,12 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 // and the post-scaffold setup steps (or next-steps printout). cmdName ("init"
 // or "new") labels operational-error output; dir is the display-only
 // directory name used in "cd <dir>" hints ("." for init, which never shows a
-// cd line).
-func scaffoldCore(reader *bufio.Reader, cmdName string, tpl initTemplate, abs, dir, module string, force bool, stdout, stderr io.Writer, interactive, yes bool, run stepRunner) int {
+// cd line). fetchedSrc, when non-nil, is a fetched module or --from local
+// checkout (see fetch.go): it is personalized in place via scaffoldFetched
+// instead of rendering tpl's embedded «»/transformName root — the two
+// sources are otherwise identical past this point (same existence guard,
+// same setup steps).
+func scaffoldCore(reader *bufio.Reader, cmdName string, tpl initTemplate, fetchedSrc fs.FS, abs, dir, module string, force bool, stdout, stderr io.Writer, interactive, yes bool, run stepRunner) int {
 	if !force {
 		for _, f := range []string{"go.mod", "package.json"} {
 			if _, err := os.Stat(filepath.Join(abs, f)); err == nil {
@@ -304,9 +312,22 @@ func scaffoldCore(reader *bufio.Reader, cmdName string, tpl initTemplate, abs, d
 		}
 	}
 
-	data := tmplData{Module: module, Name: path.Base(filepath.ToSlash(module))}
-	if err := scaffold(initFS, tpl.root, abs, data); err != nil {
-		fmt.Fprintf(stderr, "gsx: %s: %v\n", cmdName, err)
+	var scaffoldErr error
+	if fetchedSrc != nil {
+		scaffoldErr = scaffoldFetched(fetchedSrc, abs, module)
+	} else {
+		data := tmplData{Module: module, Name: path.Base(filepath.ToSlash(module))}
+		scaffoldErr = scaffold(initFS, tpl.root, abs, data)
+	}
+	if scaffoldErr != nil {
+		var ime *invalidModuleError
+		if errors.As(scaffoldErr, &ime) {
+			// A bad --module value is a usage error, not an operational one,
+			// regardless of which source produced it.
+			fmt.Fprintf(stderr, "gsx: %v\n", scaffoldErr)
+			return 2
+		}
+		fmt.Fprintf(stderr, "gsx: %s: %v\n", cmdName, scaffoldErr)
 		return 1
 	}
 
@@ -316,6 +337,16 @@ func scaffoldCore(reader *bufio.Reader, cmdName string, tpl initTemplate, abs, d
 		return 0
 	}
 	return runSteps(reader, abs, dir, stdout, stderr, interactive && !yes, run)
+}
+
+// scaffoldFetched personalizes a fetched module zip or --from local checkout
+// (src) into abs for the given module path. It is the fetched-template
+// counterpart of scaffold: unlike scaffold's «»/transformName rendering of
+// an embedded Go text/template source tree, a fetched template is a literal
+// repo, so personalize copies it byte-for-byte except for the targeted
+// module-path/manifest rewrites documented on personalize itself.
+func scaffoldFetched(src fs.FS, abs, module string) error {
+	return personalize(src, abs, module)
 }
 
 // runSteps confirms (when ask) and runs each setup step in abs. On a failed step
