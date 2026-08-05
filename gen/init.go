@@ -27,26 +27,40 @@ type tmplData struct {
 	Name   string // path.Base(Module), e.g. "app" (npm name, etc.)
 }
 
-// initTemplate is one registered starter: a name, a one-line description, the
-// root path of its subtree within the embedded template FS, and a display
-// order for the interactive picker (lower sorts first; ties break by name).
+// initTemplate is one registered starter: a name, a one-line description, a
+// display order for the interactive picker (lower sorts first; ties break by
+// name), and a source — either an embedded root (module == "") rendered
+// through the «»/transformName pipeline, or a module path fetched from the
+// proxy (or a local checkout via --from) and personalized in place (see
+// personalize.go): module rewrite, gsx-template.json strip list, generated
+// env secrets, but no «» rendering or dot- transform — a fetched template is
+// a literal repo, not a Go text/template source tree.
 type initTemplate struct {
-	name  string
-	desc  string
-	root  string
-	order int
+	name   string
+	desc   string
+	order  int
+	root   string // embedded FS subtree root; empty when module is set
+	module string // module path to fetch; empty for an embedded template
 }
 
 const defaultTemplate = "simple"
 
-// templates is the registry. The embedded FS and the "simple" subtree land in
-// the template task; the registry entry is declared here.
+// templates is the registry. saas lists first (order 0): it's the flagship
+// one-liner this plan exists to deliver. Its module, github.com/gsxhq/template,
+// may not exist yet while this plan executes — every code path exercising it
+// is tested against local fixtures and --from, never the real proxy.
 var templates = map[string]initTemplate{
 	"simple": {
 		name:  "simple",
 		desc:  "Stock net/http ServeMux + gsx + Vite dev loop.",
 		root:  "templates/init/simple",
-		order: 0,
+		order: 1,
+	},
+	"saas": {
+		name:   "saas",
+		desc:   "Full-stack SaaS starter: auth, dashboard, CRUD, SQLite, htmx (fetched from github.com/gsxhq/template)",
+		module: "github.com/gsxhq/template",
+		order:  0,
 	},
 }
 
@@ -127,9 +141,16 @@ func runNew(args []string, stdin io.Reader, stdout, stderr io.Writer, workDir st
 // splitDirFlags partitions args into flag tokens and (at most) one positional
 // directory argument, so flags may appear before or after the positional arg.
 // It is shared by initWith (which rejects a non-empty dir) and newWith (which
-// requires or prompts for one).
+// requires or prompts for one). --from is only defined on new's flag set, but
+// recognizing its value-consuming shape here is harmless for init (an
+// unexpected --from there is still rejected by ifs.Parse, just with its value
+// token correctly grouped alongside it rather than misread as the dir).
 func splitDirFlags(args []string) (dir string, flagArgs []string) {
-	valueFlag := map[string]bool{"-template": true, "--template": true, "-module": true, "--module": true}
+	valueFlag := map[string]bool{
+		"-template": true, "--template": true,
+		"-module": true, "--module": true,
+		"-from": true, "--from": true,
+	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "-") {
@@ -216,6 +237,12 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
 	dir, flagArgs := splitDirFlags(args)
 	fs, templateName, module, force, yes := initFlagSet("new", stderr)
+	// --from <dir-or-module> overrides --template's source: a path that
+	// exists on disk is fetched via localTemplateFS, otherwise it's treated
+	// as a module path fetched at latest via fetchModuleFS. Consumed by the
+	// source dispatch in scaffoldCore (see fetch.go, personalize.go).
+	var from string
+	fs.StringVar(&from, "from", "", "fetch a template from a module path or local directory (overrides --template)")
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
