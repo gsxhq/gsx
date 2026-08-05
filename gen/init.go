@@ -170,20 +170,22 @@ func splitDirFlags(args []string) (dir string, flagArgs []string) {
 
 // initFlagSet builds the flag.FlagSet shared by init and new: -template,
 // -module, -force, -yes/-y. name distinguishes the two in flag-parsing error
-// output (e.g. `-h`).
-func initFlagSet(name string, stderr io.Writer) (fs *flag.FlagSet, templateName, module *string, force, yes *bool) {
-	fs = flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(stderr)
+// output (e.g. `-h`). The returned set is named fset, not fs — this package
+// imports io/fs, and a local fs would shadow that package identifier for the
+// rest of the enclosing function.
+func initFlagSet(name string, stderr io.Writer) (fset *flag.FlagSet, templateName, module *string, force, yes *bool) {
+	fset = flag.NewFlagSet(name, flag.ContinueOnError)
+	fset.SetOutput(stderr)
 	templateName = new(string)
 	module = new(string)
 	force = new(bool)
 	yes = new(bool)
-	fs.StringVar(templateName, "template", defaultTemplate, "starter template")
-	fs.StringVar(module, "module", "", "Go module path (default: target dir basename)")
-	fs.BoolVar(force, "force", false, "overwrite an existing go.mod/package.json")
-	fs.BoolVar(yes, "yes", false, "run setup steps without prompting")
-	fs.BoolVar(yes, "y", false, "run setup steps without prompting (shorthand)")
-	return fs, templateName, module, force, yes
+	fset.StringVar(templateName, "template", defaultTemplate, "starter template")
+	fset.StringVar(module, "module", "", "Go module path (default: target dir basename)")
+	fset.BoolVar(force, "force", false, "overwrite an existing go.mod/package.json")
+	fset.BoolVar(yes, "yes", false, "run setup steps without prompting")
+	fset.BoolVar(yes, "y", false, "run setup steps without prompting (shorthand)")
+	return fset, templateName, module, force, yes
 }
 
 // lookupTemplate resolves templateName in the registry, printing the
@@ -204,8 +206,8 @@ func lookupTemplate(templateName string, stderr io.Writer) (initTemplate, bool) 
 // new`'s job).
 func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
 	dir, flagArgs := splitDirFlags(args)
-	fs, templateName, module, force, yes := initFlagSet("init", stderr)
-	if err := fs.Parse(flagArgs); err != nil {
+	fset, templateName, module, force, yes := initFlagSet("init", stderr)
+	if err := fset.Parse(flagArgs); err != nil {
 		return 2
 	}
 	if dir != "" {
@@ -224,8 +226,12 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 		mod = filepath.Base(abs)
 	}
 
+	if !checkNotExisting(abs, ".", *force, stderr) {
+		return 2
+	}
+
 	reader := bufio.NewReader(stdin)
-	return scaffoldCore(reader, "init", tpl, nil, abs, ".", mod, *force, stdout, stderr, interactive, *yes, run)
+	return scaffoldCore(reader, "init", tpl, nil, abs, ".", mod, stdout, stderr, interactive, *yes, run)
 }
 
 // newWith is the `gsx new <dir>` core: the target directory is a required
@@ -238,19 +244,25 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 // fast. --from bypasses --template's source entirely (see
 // resolveTemplateSource), so neither the early validation nor the picker
 // runs when it's set.
+//
+// Everything that can fail without touching the network — flag/dir/template
+// resolution, the target module's validity, and the existing-project guard —
+// runs BEFORE resolveTemplateSource. A doomed run (bad --module, an existing
+// go.mod without --force) must exit 2 without ever hitting the module proxy;
+// see checkNotExisting and validateNewModule.
 func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
 	dir, flagArgs := splitDirFlags(args)
-	fs, templateName, module, force, yes := initFlagSet("new", stderr)
+	fset, templateName, module, force, yes := initFlagSet("new", stderr)
 	// --from <dir-or-module> overrides --template's source: a path that
 	// exists on disk is fetched via localTemplateFS, otherwise it's treated
 	// as a module path fetched at latest via fetchModuleFS.
 	var from string
-	fs.StringVar(&from, "from", "", "fetch a template from a module path or local directory (overrides --template)")
-	if err := fs.Parse(flagArgs); err != nil {
+	fset.StringVar(&from, "from", "", "fetch a template from a module path or local directory (overrides --template)")
+	if err := fset.Parse(flagArgs); err != nil {
 		return 2
 	}
 	explicitTemplate := false
-	fs.Visit(func(f *flag.Flag) {
+	fset.Visit(func(f *flag.Flag) {
 		if f.Name == "template" {
 			explicitTemplate = true
 		}
@@ -284,11 +296,6 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 		}
 	}
 
-	fetchedSrc, code := resolveTemplateSource(workDir, from, tpl, stderr)
-	if code != 0 {
-		return code
-	}
-
 	// Anchor a relative target dir at workDir rather than the process-global
 	// cwd, so new is reentrant under -C.
 	abs := absAgainst(workDir, dir)
@@ -297,7 +304,25 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 		mod = filepath.Base(abs)
 	}
 
-	return scaffoldCore(reader, "new", tpl, fetchedSrc, abs, dir, mod, *force, stdout, stderr, interactive, *yes, run)
+	// Validate the target module and guard the existing project BEFORE
+	// resolveTemplateSource: both apply to every source (embedded, fetched,
+	// or --from) equally, and neither needs the fetched/local content to
+	// decide, so there is no reason to make a network round trip (or even
+	// touch the local --from filesystem) first only to discard the result.
+	if err := validateNewModule(mod); err != nil {
+		fmt.Fprintf(stderr, "gsx: %v\n", err)
+		return 2
+	}
+	if !checkNotExisting(abs, dir, *force, stderr) {
+		return 2
+	}
+
+	fetchedSrc, code := resolveTemplateSource(workDir, from, tpl, stderr)
+	if code != 0 {
+		return code
+	}
+
+	return scaffoldCore(reader, "new", tpl, fetchedSrc, abs, dir, mod, stdout, stderr, interactive, *yes, run)
 }
 
 // resolveTemplateSource decides where new's scaffold content comes from. An
@@ -346,26 +371,37 @@ func resolveTemplateSource(workDir, from string, tpl initTemplate, stderr io.Wri
 	return src, 0
 }
 
-// scaffoldCore is the shared body of init and new once the target directory
-// and module path are resolved: the existence guard, the template scaffold,
-// and the post-scaffold setup steps (or next-steps printout). cmdName ("init"
-// or "new") labels operational-error output; dir is the display-only
+// checkNotExisting guards abs against silently overwriting an existing
+// project: unless force, it fails (printing the standard --force hint to
+// stderr) when go.mod or package.json already exists there. Both init and
+// new call this — new calls it before resolveTemplateSource specifically, so
+// a doomed run (existing project, no --force) never touches the network.
+func checkNotExisting(abs, dir string, force bool, stderr io.Writer) bool {
+	if force {
+		return true
+	}
+	for _, f := range []string{"go.mod", "package.json"} {
+		if _, err := os.Stat(filepath.Join(abs, f)); err == nil {
+			fmt.Fprintf(stderr, "gsx: %s already exists in %s (use --force to overwrite)\n", f, dir)
+			return false
+		}
+	}
+	return true
+}
+
+// scaffoldCore is the shared body of init and new once the target directory,
+// module path, and template source are all resolved and validated: the
+// template scaffold and the post-scaffold setup steps (or next-steps
+// printout). Both the existing-project guard (checkNotExisting) and the
+// target module's validity (validateNewModule) are the caller's
+// responsibility, run before this — for new, specifically before
+// resolveTemplateSource, so neither check costs a network round trip. cmdName
+// ("init" or "new") labels operational-error output; dir is the display-only
 // directory name used in "cd <dir>" hints ("." for init, which never shows a
 // cd line). fetchedSrc, when non-nil, is a fetched module or --from local
 // checkout (see fetch.go): it is personalized in place via scaffoldFetched
-// instead of rendering tpl's embedded «»/transformName root — the two
-// sources are otherwise identical past this point (same existence guard,
-// same setup steps).
-func scaffoldCore(reader *bufio.Reader, cmdName string, tpl initTemplate, fetchedSrc fs.FS, abs, dir, module string, force bool, stdout, stderr io.Writer, interactive, yes bool, run stepRunner) int {
-	if !force {
-		for _, f := range []string{"go.mod", "package.json"} {
-			if _, err := os.Stat(filepath.Join(abs, f)); err == nil {
-				fmt.Fprintf(stderr, "gsx: %s already exists in %s (use --force to overwrite)\n", f, dir)
-				return 2
-			}
-		}
-	}
-
+// instead of rendering tpl's embedded «»/transformName root.
+func scaffoldCore(reader *bufio.Reader, cmdName string, tpl initTemplate, fetchedSrc fs.FS, abs, dir, module string, stdout, stderr io.Writer, interactive, yes bool, run stepRunner) int {
 	var scaffoldErr error
 	if fetchedSrc != nil {
 		scaffoldErr = scaffoldFetched(fetchedSrc, abs, module)

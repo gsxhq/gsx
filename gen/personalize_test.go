@@ -174,6 +174,15 @@ func TestPersonalizeGeneratesSecrets(t *testing.T) {
 	}
 }
 
+// TestPersonalizeInvalidModulePath pins personalize's rejection of genuinely
+// malformed module input. The fixture string's spaces and "!" are outside
+// module.CheckImportPath's allowed path-element characters (ASCII
+// letters/digits and -._~ only — see `go doc golang.org/x/mod/module
+// CheckImportPath`), so it stays invalid under the looser CheckImportPath
+// validator personalize now uses (previously module.CheckPath, which also
+// rejected it, but additionally rejected any bare, non-dotted module name —
+// see TestPersonalizeAcceptsBareModuleName for the case that distinguishes
+// the two).
 func TestPersonalizeInvalidModulePath(t *testing.T) {
 	t.Parallel()
 	dest := t.TempDir()
@@ -184,6 +193,73 @@ func TestPersonalizeInvalidModulePath(t *testing.T) {
 	var ime *invalidModuleError
 	if !errors.As(err, &ime) {
 		t.Fatalf("expected an *invalidModuleError, got %T: %v", err, err)
+	}
+}
+
+// TestPersonalizeAcceptsBareModuleName pins the CRITICAL fix: a bare,
+// non-dotted module name like "myapp" — exactly what `gsx new myapp` derives
+// as the default module with zero flags — must be accepted for a fetched or
+// --from template, the same as it already is for the embedded templates.
+// module.CheckPath (personalize's validator before this fix) rejected this;
+// module.CheckImportPath (what `go mod init myapp` itself effectively
+// accepts) does not.
+func TestPersonalizeAcceptsBareModuleName(t *testing.T) {
+	t.Parallel()
+	dest := t.TempDir()
+	if err := personalize(personalizeFixture(), dest, "myapp"); err != nil {
+		t.Fatalf("personalize(%q) should succeed for a bare module name: %v", "myapp", err)
+	}
+	gomod, err := os.ReadFile(filepath.Join(dest, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gomod), "module myapp") {
+		t.Fatalf("go.mod = %s", gomod)
+	}
+	mainGo, err := os.ReadFile(filepath.Join(dest, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainGo), `"myapp/pages"`) {
+		t.Fatalf("main.go import not rewritten to the bare module: %s", mainGo)
+	}
+}
+
+// TestPersonalizePreservesExecBit pins mode preservation: a template's
+// executable script keeps its exec bit through personalize, and a
+// tightly-permissioned source file is still floored at 0o644 (so the
+// scaffold is never left with an unreadable file). This only exercises
+// fstest.MapFS's own Mode field — a real module zip fetched from the proxy
+// carries no permission bits at all (golang.org/x/mod/zip's format docs:
+// "File permissions and timestamps are ignored"), so this behavior is
+// observable in practice only for a --from local checkout (os.DirFS, which
+// does report real host permission bits).
+func TestPersonalizePreservesExecBit(t *testing.T) {
+	t.Parallel()
+	src := fstest.MapFS{
+		"go.mod":     &fstest.MapFile{Data: []byte("module example.com/scripts\n"), Mode: 0o644},
+		"run.sh":     &fstest.MapFile{Data: []byte("#!/bin/sh\necho hi\n"), Mode: 0o755},
+		"secret.txt": &fstest.MapFile{Data: []byte("shh\n"), Mode: 0o600},
+	}
+	dest := t.TempDir()
+	if err := personalize(src, dest, "example.com/renamed"); err != nil {
+		t.Fatal(err)
+	}
+
+	runInfo, err := os.Stat(filepath.Join(dest, "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runInfo.Mode().Perm()&0o111 == 0 {
+		t.Errorf("run.sh lost its exec bit: mode = %v", runInfo.Mode())
+	}
+
+	secretInfo, err := os.Stat(filepath.Join(dest, "secret.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secretInfo.Mode().Perm()&0o644 != 0o644 {
+		t.Errorf("secret.txt should be floored at 0o644, got %v", secretInfo.Mode())
 	}
 }
 
@@ -210,26 +286,33 @@ func TestPersonalizeNoManifest(t *testing.T) {
 }
 
 // TestPersonalizeRewritesGsxToml pins the gsx.toml filter-reference rewrite
-// mentioned in the plan's personalize spec; the shared fixture doesn't ship
-// a gsx.toml, so this is a small dedicated fixture.
+// mentioned in the plan's personalize spec, at both the src root AND nested
+// under a subdirectory — personalize walks the whole tree for gsx.toml
+// (path.Base(p) == "gsx.toml"), not just a root-only check, so a template
+// with more than one gsx.toml (a subproject, an example app under examples/,
+// etc.) gets every one rewritten. The shared fixture doesn't ship a
+// gsx.toml, so this is a small dedicated fixture.
 func TestPersonalizeRewritesGsxToml(t *testing.T) {
 	t.Parallel()
 	src := fstest.MapFS{
-		"go.mod":   &fstest.MapFile{Data: []byte("module github.com/gsxhq/template\n")},
-		"gsx.toml": &fstest.MapFile{Data: []byte("[[filter]]\nname = \"markdown\"\nimport = \"github.com/gsxhq/template/filters\"\n")},
+		"go.mod":                &fstest.MapFile{Data: []byte("module github.com/gsxhq/template\n")},
+		"gsx.toml":              &fstest.MapFile{Data: []byte("[[filter]]\nname = \"markdown\"\nimport = \"github.com/gsxhq/template/filters\"\n")},
+		"examples/app/gsx.toml": &fstest.MapFile{Data: []byte("[[filter]]\nname = \"markdown\"\nimport = \"github.com/gsxhq/template/filters\"\n")},
 	}
 	dest := t.TempDir()
 	if err := personalize(src, dest, "example.com/myapp"); err != nil {
 		t.Fatal(err)
 	}
-	toml, err := os.ReadFile(filepath.Join(dest, "gsx.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(toml), `"example.com/myapp/filters"`) {
-		t.Errorf("gsx.toml filter import not rewritten: %s", toml)
-	}
-	if strings.Contains(string(toml), "github.com/gsxhq/template") {
-		t.Errorf("gsx.toml still references the old module: %s", toml)
+	for _, rel := range []string{"gsx.toml", filepath.Join("examples", "app", "gsx.toml")} {
+		toml, err := os.ReadFile(filepath.Join(dest, rel))
+		if err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		if !strings.Contains(string(toml), `"example.com/myapp/filters"`) {
+			t.Errorf("%s filter import not rewritten: %s", rel, toml)
+		}
+		if strings.Contains(string(toml), "github.com/gsxhq/template") {
+			t.Errorf("%s still references the old module: %s", rel, toml)
+		}
 	}
 }

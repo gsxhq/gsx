@@ -802,8 +802,10 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   deliver). A fetched template, or a local checkout via `--from <dir>`, is
   personalized in place rather than rendered: `go.mod`'s module path is
   rewritten with the `golang.org/x/mod/modfile` write API (validated first
-  with the strict `module.CheckPath`), `.go`/`.gsx`/`gsx.toml` import strings
-  and `package.json`'s `name` are rewritten to match, an optional
+  with `module.CheckImportPath` — the same rule `go mod init` applies, so
+  the flagship `gsx new myapp --from ...` one-liner works with zero other
+  flags), `.go`/`.gsx`/`gsx.toml` import strings (at any depth, not just the
+  template root) and `package.json`'s `name` are rewritten to match, an optional
   `gsx-template.json` manifest can strip files and ask for generated
   `crypto/rand` `.env` secrets. `--from` also accepts a module path (fetched
   the same way), so a template's own repo can smoke-test itself with

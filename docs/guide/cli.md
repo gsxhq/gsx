@@ -105,25 +105,28 @@ is rewritten throughout `go.mod`, `.go`/`.gsx` imports, and `package.json`'s
 can also strip files (build tooling that doesn't belong in a fresh scaffold,
 for example) and ask for generated `.env` secrets.
 
-`GOPROXY=off`, or a `GOPROXY` with no `https://` entry, disables fetching.
-Use `--from` for a local checkout instead, or to fetch a template outside the
-registry:
+`GOPROXY=off`, or a `GOPROXY` with no `http://`/`https://` entry, disables
+fetching. Use `--from` for a local checkout instead, or to fetch a template
+outside the registry:
 
 ```bash
-gsx new myapp --from ../my-template --module example.com/acme/myapp
-gsx new myapp --from example.com/org/template --module example.com/acme/myapp
+gsx new myapp --from ../my-template
+gsx new myapp --from example.com/org/template
 ```
 
 `--from` accepts a local directory (read directly, no network) or a module
 path (fetched like a registry template). It overrides `--template`'s source
 but reuses the same personalization.
 
-Because a fetched or `--from` template rewrites real Go import paths, its
-target module path is validated strictly
-(`golang.org/x/mod/module.CheckPath`) — an invalid or non-dotted path, such
-as the bare directory-name default that works fine for the embedded `simple`
-template, is rejected. Pass a real module path explicitly with `--module`
-when using `--from` or a fetched template.
+The target module path — the target directory's basename by default, or
+`--module`'s value — is validated the same way `go mod init` validates one
+(`golang.org/x/mod/module.CheckImportPath`), so the flagship one-liner above
+works with zero other flags: a bare directory-name module like `myapp` is
+accepted for a fetched or `--from` template exactly as it already is for the
+embedded `simple` template. Only genuinely malformed input (stray whitespace,
+disallowed punctuation, reserved Windows device names) is rejected. Pass
+`--module` explicitly when you want a real, publishable path instead of the
+directory-basename default.
 
 `new` exits `0` on success, `2` for invalid usage (including a missing
 directory argument, a bad `--from` path, or an invalid target module path) or

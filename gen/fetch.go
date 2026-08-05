@@ -21,6 +21,13 @@ import (
 // lookup and the zip download, when a lookup is needed).
 const fetchTimeout = 30 * time.Second
 
+// maxFetchBytes caps a single proxy response (the @latest JSON or the zip),
+// matching golang.org/x/mod/zip's own MaxZipFile ceiling for module zips —
+// there is no legitimate reason a template fetch would ever need more, and
+// an unbounded io.ReadAll on an attacker- or misconfigured-proxy-controlled
+// response is an unbounded-memory footgun.
+const maxFetchBytes = 500 << 20
+
 // latestInfo is the JSON body of a module proxy @latest response (only the
 // field we need).
 type latestInfo struct {
@@ -101,9 +108,14 @@ func fetchBytes(ctx context.Context, rawURL string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: proxy returned %s", rawURL, resp.Status)
 	}
-	body, err := io.ReadAll(resp.Body)
+	// Read one byte past the cap so an exactly-at-the-limit response isn't
+	// mistaken for a truncated one.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%s: reading response body: %w", rawURL, err)
+	}
+	if len(body) > maxFetchBytes {
+		return nil, fmt.Errorf("%s: response exceeds %d bytes, refusing to read further", rawURL, maxFetchBytes)
 	}
 	return body, nil
 }
@@ -127,11 +139,15 @@ func localTemplateFS(dir string) (fs.FS, error) {
 }
 
 // proxyBaseFromEnv resolves the module-proxy base URL to fetch templates
-// from: the first https:// entry of the comma/pipe-separated GOPROXY
-// environment variable, defaulting to https://proxy.golang.org when GOPROXY
-// is unset or empty. GOPROXY=off (or a GOPROXY with no usable https://
-// entry, e.g. "direct" alone) returns an error directing the caller to
-// --from, since there is then no proxy this package can fetch a zip from.
+// from: the first http:// or https:// entry of the comma/pipe-separated
+// GOPROXY environment variable, defaulting to https://proxy.golang.org when
+// GOPROXY is unset or empty. Plain http:// is accepted alongside https://
+// because GOPROXY itself allows it (a corporate proxy behind a VPN/private
+// network commonly has no TLS cert, and it's what httptest.Server's URL
+// always is — the only way to exercise this against a fake proxy in tests).
+// GOPROXY=off (or a GOPROXY with no usable http(s):// entry, e.g. "direct"
+// alone) returns an error directing the caller to --from, since there is
+// then no proxy this package can fetch a zip from.
 func proxyBaseFromEnv() (string, error) {
 	v := os.Getenv("GOPROXY")
 	if v == "" {
@@ -141,9 +157,9 @@ func proxyBaseFromEnv() (string, error) {
 		return "", fmt.Errorf("GOPROXY=off: use --from <dir> to fetch a template from a local checkout instead")
 	}
 	for _, f := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '|' }) {
-		if f = strings.TrimSpace(f); strings.HasPrefix(f, "https://") {
+		if f = strings.TrimSpace(f); strings.HasPrefix(f, "https://") || strings.HasPrefix(f, "http://") {
 			return f, nil
 		}
 	}
-	return "", fmt.Errorf("GOPROXY=%q has no https:// entry: use --from <dir> to fetch a template from a local checkout instead", v)
+	return "", fmt.Errorf("GOPROXY=%q has no http:// or https:// entry: use --from <dir> to fetch a template from a local checkout instead", v)
 }

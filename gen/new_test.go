@@ -3,10 +3,14 @@ package gen
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -210,13 +214,14 @@ func TestNewInteractiveInvalidThenFallsBackToDefault(t *testing.T) {
 // manifest-stripped files, the generated .env secret, and the printed
 // next-steps block, entirely offline.
 //
-// --module is given explicitly (unlike the embedded-template tests, which
-// happily default to a bare dir-basename module such as "myapp"): personalize
-// validates the target module with module.CheckPath, the strict "must be a
-// real, publishable path" validator — a bare "myapp" has no dot in its first
-// component and is correctly rejected. A fetched template does real import
-// rewriting, so it requires a real path; an embedded template's go.mod
-// substitution is a no-op string fill with no such requirement.
+// No --module flag: this is the flagship one-liner shape, `gsx new myapp
+// --from <template>` with zero other flags, deriving "myapp" from the target
+// directory's basename exactly like the embedded-template tests do.
+// personalize validates the target module with module.CheckImportPath (the
+// same acceptance rule `go mod init` applies), which — unlike the stricter
+// module.CheckPath used before the fix — accepts a bare, non-dotted name like
+// "myapp". See TestPersonalizeAcceptsBareModuleName for the underlying
+// personalize-level pin.
 func TestNewFromLocalFixture(t *testing.T) {
 	t.Parallel()
 	fixture, err := filepath.Abs("testdata/newfixture")
@@ -227,7 +232,7 @@ func TestNewFromLocalFixture(t *testing.T) {
 	dir := t.TempDir()
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
-	code := newWith([]string{"--from", fixture, "--module", "example.com/myapp", "--yes", "myapp"}, strings.NewReader(""), &out, &errb, false, run, dir)
+	code := newWith([]string{"--from", fixture, "--yes", "myapp"}, strings.NewReader(""), &out, &errb, false, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb.String())
 	}
@@ -238,7 +243,7 @@ func TestNewFromLocalFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(gomod), "module example.com/myapp") {
+	if !strings.Contains(string(gomod), "module myapp") {
 		t.Fatalf("go.mod not rewritten to the new module: %s", gomod)
 	}
 
@@ -246,7 +251,7 @@ func TestNewFromLocalFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(mainGo), `"example.com/myapp/pages"`) {
+	if !strings.Contains(string(mainGo), `"myapp/pages"`) {
 		t.Fatalf("main.go import not rewritten: %s", mainGo)
 	}
 	if strings.Contains(string(mainGo), "github.com/gsxhq/newfixture") {
@@ -299,5 +304,124 @@ func TestNewTemplateFlagSkipsPicker(t *testing.T) {
 	}
 	if len(*calls) != 3 {
 		t.Fatalf("expected 3 steps, got %d: %v", len(*calls), *calls)
+	}
+}
+
+// fetchCountingProxy starts an httptest.Server that counts every request it
+// receives (whatever the path), for tests that must assert the proxy was
+// never hit. The server never returns a usable response — any test relying
+// on it actually fetching should use fetchTestModuleProxy instead.
+func fetchCountingProxy(t *testing.T) (server *httptest.Server, hits *int32) {
+	t.Helper()
+	hits = new(int32)
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(hits, 1)
+		http.Error(w, "unexpected proxy request", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	return server, hits
+}
+
+// TestNewSkipsFetchOnInvalidModule pins the reordering that makes newWith
+// validate --module BEFORE resolveTemplateSource: a doomed run (garbage
+// --module, which will always fail personalize's module.CheckImportPath
+// check) must exit 2 without ever making a proxy request, fetched-template
+// selection notwithstanding.
+func TestNewSkipsFetchOnInvalidModule(t *testing.T) {
+	server, hits := fetchCountingProxy(t)
+	t.Setenv("GOPROXY", server.URL)
+	withTestTemplates(t, map[string]initTemplate{
+		"fetched": {name: "fetched", desc: "test", module: "example.com/tmpl", order: 0},
+	})
+
+	dir := t.TempDir()
+	code, _, errb := newNI(t, dir, "--template", "fetched", "--module", "not a valid module!!", "myapp")
+	if code != 2 {
+		t.Fatalf("expected exit 2 for an invalid --module, got %d; stderr=%q", code, errb)
+	}
+	if atomic.LoadInt32(hits) != 0 {
+		t.Fatalf("expected zero proxy requests when --module is invalid, got %d", atomic.LoadInt32(hits))
+	}
+}
+
+// TestNewSkipsFetchWhenForceGuardBlocks is TestNewSkipsFetchOnInvalidModule's
+// sibling for the other doomed-run reason: an existing go.mod without
+// --force must also exit 2 without ever making a proxy request.
+func TestNewSkipsFetchWhenForceGuardBlocks(t *testing.T) {
+	server, hits := fetchCountingProxy(t)
+	t.Setenv("GOPROXY", server.URL)
+	withTestTemplates(t, map[string]initTemplate{
+		"fetched": {name: "fetched", desc: "test", module: "example.com/tmpl", order: 0},
+	})
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "myapp")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errb := newNI(t, dir, "--template", "fetched", "myapp")
+	if code != 2 {
+		t.Fatalf("expected exit 2 for an existing project without --force, got %d; stderr=%q", code, errb)
+	}
+	if !strings.Contains(errb, "--force") {
+		t.Fatalf("expected the --force hint, got %q", errb)
+	}
+	if atomic.LoadInt32(hits) != 0 {
+		t.Fatalf("expected zero proxy requests when the force guard blocks, got %d", atomic.LoadInt32(hits))
+	}
+}
+
+// TestNewFetchesModuleTemplateViaGOPROXY is the end-to-end counterpart to
+// TestFetchModuleFS: it drives the real newWith → resolveTemplateSource →
+// fetchModuleFS path (a registry template with a module, no --from) with
+// GOPROXY pointed at an httptest fixture, entirely offline. Before this test
+// the only coverage of the module-fetch branch was fetchModuleFS itself in
+// isolation — the wiring from newWith through proxyBaseFromEnv was untested.
+// The fixture server is plain HTTP (as httptest.Server always is), which is
+// exactly why proxyBaseFromEnv accepting http:// (not just https://) matters
+// for testability, not just corporate-proxy users.
+func TestNewFetchesModuleTemplateViaGOPROXY(t *testing.T) {
+	zipData := buildTestZip(t, map[string]string{
+		"example.com/tmpl@v0.1.0/go.mod":  "module example.com/tmpl\n",
+		"example.com/tmpl@v0.1.0/main.go": "package main\n\nimport \"example.com/tmpl/pages\"\n\nfunc main() { _ = pages.X }\n",
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/example.com/tmpl/@latest", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"Version": "v0.1.0"})
+	})
+	mux.HandleFunc("/example.com/tmpl/@v/v0.1.0.zip", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(zipData)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	t.Setenv("GOPROXY", server.URL)
+	withTestTemplates(t, map[string]initTemplate{
+		"fetched": {name: "fetched", desc: "test", module: "example.com/tmpl", order: 0},
+	})
+
+	dir := t.TempDir()
+	code, _, errb := newNI(t, dir, "--template", "fetched", "myapp")
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%q", code, errb)
+	}
+
+	gomod, err := os.ReadFile(filepath.Join(dir, "myapp", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gomod), "module myapp") {
+		t.Fatalf("go.mod = %s", gomod)
+	}
+	mainGo, err := os.ReadFile(filepath.Join(dir, "myapp", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainGo), `"myapp/pages"`) {
+		t.Fatalf("main.go import not rewritten: %s", mainGo)
 	}
 }
