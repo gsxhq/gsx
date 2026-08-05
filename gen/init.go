@@ -116,19 +116,16 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer, workDir s
 	return initWith(args, stdin, stdout, stderr, isTTYReader(stdin), execStep, workDir)
 }
 
-func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
-	ifs := flag.NewFlagSet("init", flag.ContinueOnError)
-	ifs.SetOutput(stderr)
-	var templateName, module string
-	var force, yes bool
-	ifs.StringVar(&templateName, "template", defaultTemplate, "starter template")
-	ifs.StringVar(&module, "module", "", "Go module path (default: target dir basename)")
-	ifs.BoolVar(&force, "force", false, "overwrite an existing go.mod/package.json")
-	ifs.BoolVar(&yes, "yes", false, "run setup steps without prompting")
-	ifs.BoolVar(&yes, "y", false, "run setup steps without prompting (shorthand)")
+func runNew(args []string, stdin io.Reader, stdout, stderr io.Writer, workDir string) int {
+	return newWith(args, stdin, stdout, stderr, isTTYReader(stdin), execStep, workDir)
+}
+
+// splitDirFlags partitions args into flag tokens and (at most) one positional
+// directory argument, so flags may appear before or after the positional arg.
+// It is shared by initWith (which rejects a non-empty dir) and newWith (which
+// requires or prompts for one).
+func splitDirFlags(args []string) (dir string, flagArgs []string) {
 	valueFlag := map[string]bool{"-template": true, "--template": true, "-module": true, "--module": true}
-	var flagArgs []string
-	dir := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "-") {
@@ -141,35 +138,112 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 			dir = a
 		}
 	}
-	if err := ifs.Parse(flagArgs); err != nil {
-		return 2
-	}
+	return dir, flagArgs
+}
 
+// initFlagSet builds the flag.FlagSet shared by init and new: -template,
+// -module, -force, -yes/-y. name distinguishes the two in flag-parsing error
+// output (e.g. `-h`).
+func initFlagSet(name string, stderr io.Writer) (fs *flag.FlagSet, templateName, module *string, force, yes *bool) {
+	fs = flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	templateName = new(string)
+	module = new(string)
+	force = new(bool)
+	yes = new(bool)
+	fs.StringVar(templateName, "template", defaultTemplate, "starter template")
+	fs.StringVar(module, "module", "", "Go module path (default: target dir basename)")
+	fs.BoolVar(force, "force", false, "overwrite an existing go.mod/package.json")
+	fs.BoolVar(yes, "yes", false, "run setup steps without prompting")
+	fs.BoolVar(yes, "y", false, "run setup steps without prompting (shorthand)")
+	return fs, templateName, module, force, yes
+}
+
+// lookupTemplate resolves templateName in the registry, printing the
+// available-templates listing to stderr on a miss.
+func lookupTemplate(templateName string, stderr io.Writer) (initTemplate, bool) {
 	tpl, ok := templates[templateName]
 	if !ok {
 		fmt.Fprintf(stderr, "gsx: unknown template %q. Available:\n", templateName)
 		for _, t := range templateList() {
 			fmt.Fprintf(stderr, "  %-12s %s\n", t.name, t.desc)
 		}
+	}
+	return tpl, ok
+}
+
+// initWith is the cwd-only `gsx init` core: it scaffolds directly into
+// workDir and never accepts a positional directory argument (that's `gsx
+// new`'s job).
+func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
+	dir, flagArgs := splitDirFlags(args)
+	fs, templateName, module, force, yes := initFlagSet("init", stderr)
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if dir != "" {
+		fmt.Fprintln(stderr, "gsx: init scaffolds into the current directory; use 'gsx new <dir>' to create a project directory")
+		return 2
+	}
+
+	tpl, ok := lookupTemplate(*templateName, stderr)
+	if !ok {
+		return 2
+	}
+
+	abs := workDir
+	mod := *module
+	if mod == "" {
+		mod = filepath.Base(abs)
+	}
+
+	reader := bufio.NewReader(stdin)
+	return scaffoldCore(reader, "init", tpl, abs, ".", mod, *force, stdout, stderr, interactive, *yes, run)
+}
+
+// newWith is the `gsx new <dir>` core: the target directory is a required
+// positional arg (or, interactively, a prompted project name); it scaffolds
+// into <workDir>/<dir>.
+func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
+	dir, flagArgs := splitDirFlags(args)
+	fs, templateName, module, force, yes := initFlagSet("new", stderr)
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+
+	tpl, ok := lookupTemplate(*templateName, stderr)
+	if !ok {
 		return 2
 	}
 
 	reader := bufio.NewReader(stdin)
 	if dir == "" {
-		if interactive && !yes {
+		if interactive && !*yes {
 			dir = promptText(reader, stdout, "Project name", "gsx-app")
 		} else {
-			dir = "."
+			fmt.Fprintln(stderr, "gsx: new requires a directory argument (run interactively with no arguments to be prompted)")
+			return 2
 		}
 	}
 
-	// Anchor a relative target dir (and the default ".") at workDir rather than the
-	// process-global cwd, so init is reentrant under -C.
+	// Anchor a relative target dir at workDir rather than the process-global
+	// cwd, so new is reentrant under -C.
 	abs := absAgainst(workDir, dir)
-	if module == "" {
-		module = filepath.Base(abs)
+	mod := *module
+	if mod == "" {
+		mod = filepath.Base(abs)
 	}
 
+	return scaffoldCore(reader, "new", tpl, abs, dir, mod, *force, stdout, stderr, interactive, *yes, run)
+}
+
+// scaffoldCore is the shared body of init and new once the target directory
+// and module path are resolved: the existence guard, the template scaffold,
+// and the post-scaffold setup steps (or next-steps printout). cmdName ("init"
+// or "new") labels operational-error output; dir is the display-only
+// directory name used in "cd <dir>" hints ("." for init, which never shows a
+// cd line).
+func scaffoldCore(reader *bufio.Reader, cmdName string, tpl initTemplate, abs, dir, module string, force bool, stdout, stderr io.Writer, interactive, yes bool, run stepRunner) int {
 	if !force {
 		for _, f := range []string{"go.mod", "package.json"} {
 			if _, err := os.Stat(filepath.Join(abs, f)); err == nil {
@@ -181,7 +255,7 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 
 	data := tmplData{Module: module, Name: path.Base(filepath.ToSlash(module))}
 	if err := scaffold(initFS, tpl.root, abs, data); err != nil {
-		fmt.Fprintf(stderr, "gsx: init: %v\n", err)
+		fmt.Fprintf(stderr, "gsx: %s: %v\n", cmdName, err)
 		return 1
 	}
 

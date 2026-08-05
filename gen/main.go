@@ -275,6 +275,8 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		return runFmt(os.Stdin, stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, fmtOpts, workDir)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr, workDir)
+	case "new":
+		return runNew(cmdArgs, os.Stdin, stdout, stderr, workDir)
 	case "lsp":
 		// lsp resolves gsx.toml per-file (best-effort) and merges these compiled-in
 		// opts under it; cfg.errs are already surfaced at the top of runConfig.
@@ -612,7 +614,8 @@ Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
 	dev [flags]           warm generate + build-then-swap server + browser reload (dev loop)
 	fmt [paths...]        format .gsx files (canonical, idempotent; -stdin-filename reads stdin)
-	init [dir]            scaffold a gsx + Vite starter app (--template, --module)
+	new <dir>             create a new gsx project directory (--template, --module)
+	init                  scaffold a gsx starter into the current directory (--template, --module)
 	clean --cache         remove the gsx cache directory
 	info                  list the resolved pipeline filters
 	lsp                   run the language server over stdio (JSON-RPC)

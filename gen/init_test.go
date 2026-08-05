@@ -14,13 +14,13 @@ import (
 )
 
 // initNI drives initWith non-interactively (no TTY, no real subprocess) so
-// scaffold-style tests never depend on the ambient terminal.
-func initNI(t *testing.T, args ...string) (int, string, string) {
+// scaffold-style tests never depend on the ambient terminal. workDir is the
+// directory init scaffolds into (init is cwd-only and takes no dir arg).
+func initNI(t *testing.T, workDir string, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	noop := func(_ []string, _ string, _, _ io.Writer) error { return nil }
-	wd, _ := os.Getwd()
-	code := initWith(args, strings.NewReader(""), &out, &errb, false, noop, wd)
+	code := initWith(args, strings.NewReader(""), &out, &errb, false, noop, workDir)
 	return code, out.String(), errb.String()
 }
 
@@ -43,7 +43,7 @@ func TestInitInteractiveRunsAllSteps(t *testing.T) {
 	dir := t.TempDir()
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
-	code := initWith([]string{"--module", "demo", dir},
+	code := initWith([]string{"--module", "demo"},
 		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb.String())
@@ -64,7 +64,7 @@ func TestInitInteractiveSkipsOnNo(t *testing.T) {
 	dir := t.TempDir()
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
-	code := initWith([]string{"--module", "demo", dir},
+	code := initWith([]string{"--module", "demo"},
 		strings.NewReader("n\ny\ny\n"), &out, &errb, true, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; %q", code, errb.String())
@@ -82,7 +82,7 @@ func TestInitInteractiveStopsOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	calls, run := recordingRunner(1, fmt.Errorf("boom")) // 2nd step fails
 	var out, errb bytes.Buffer
-	code := initWith([]string{"--module", "demo", dir},
+	code := initWith([]string{"--module", "demo"},
 		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run, dir)
 	if code != 1 {
 		t.Fatalf("expected exit 1, got %d", code)
@@ -101,7 +101,7 @@ func TestInitYesRunsWithoutPrompt(t *testing.T) {
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
 	// interactive=false but --yes ⇒ run all, no stdin consumed.
-	code := initWith([]string{"--yes", "--module", "demo", dir},
+	code := initWith([]string{"--yes", "--module", "demo"},
 		strings.NewReader(""), &out, &errb, false, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; %q", code, errb.String())
@@ -114,17 +114,16 @@ func TestInitYesRunsWithoutPrompt(t *testing.T) {
 func TestInitDefault(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	target := filepath.Join(dir, "myapp")
-	code, out, errb := initNI(t, target)
+	code, out, errb := initNI(t, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb)
 	}
-	gomod, err := os.ReadFile(filepath.Join(target, "go.mod"))
+	gomod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(gomod), "module myapp") {
-		t.Fatalf("module not derived from dir basename: %s", gomod)
+	if !strings.Contains(string(gomod), "module "+filepath.Base(dir)) {
+		t.Fatalf("module not derived from workDir basename: %s", gomod)
 	}
 	if !strings.Contains(out, "npm run dev") {
 		t.Fatalf("next steps not printed: %q", out)
@@ -134,7 +133,7 @@ func TestInitDefault(t *testing.T) {
 func TestInitModuleFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	code, _, errb := initNI(t, "--module", "example.com/foo", dir)
+	code, _, errb := initNI(t, dir, "--module", "example.com/foo")
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb)
 	}
@@ -151,7 +150,7 @@ func TestInitModuleFlag(t *testing.T) {
 func TestInitUnknownTemplate(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	code, _, errb := initNI(t, "--template", "bogus", dir)
+	code, _, errb := initNI(t, dir, "--template", "bogus")
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
 	}
@@ -174,7 +173,7 @@ func TestInitRefusesExistingProject(t *testing.T) {
 		t.Fatalf("error should mention --force: %q", errb)
 	}
 	// --force proceeds:
-	code, _, errb = initNI(t, "--force", dir)
+	code, _, errb = initNI(t, dir, "--force")
 	if code != 0 {
 		t.Fatalf("--force should succeed, got %d; %q", code, errb)
 	}
@@ -195,16 +194,20 @@ func TestInitRefusesExistingPackageJSON(t *testing.T) {
 	}
 }
 
-func TestInitFlagsAfterDir(t *testing.T) {
+// TestInitRejectsDirArg pins init's repurposed cwd-only contract: a positional
+// dir argument is now new's job, not init's.
+func TestInitRejectsDirArg(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	code, _, errb := initNI(t, dir, "--module", "example.com/after")
-	if code != 0 {
-		t.Fatalf("exit %d; stderr=%q", code, errb)
+	code, _, errb := initNI(t, dir, "myproj")
+	if code != 2 {
+		t.Fatalf("expected exit 2, got %d; stderr=%q", code, errb)
 	}
-	gomod, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if !strings.Contains(string(gomod), "module example.com/after") {
-		t.Fatalf("flag after dir ignored: go.mod = %s", gomod)
+	if !strings.Contains(errb, "gsx new") || !strings.Contains(errb, "current directory") {
+		t.Fatalf("expected a redirect-to-`gsx new` message, got %q", errb)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		t.Fatalf("init must not scaffold when rejecting a dir arg")
 	}
 }
 
@@ -324,7 +327,7 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 func TestInitScaffoldHasDevCommand(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if code, _, errb := initNI(t, "--module", "devdemo", dir); code != 0 {
+	if code, _, errb := initNI(t, dir, "--module", "devdemo"); code != 0 {
 		t.Fatalf("init failed: %d %s", code, errb)
 	}
 	// No Taskfile in the migrated scaffold.
@@ -344,7 +347,7 @@ func TestInitScaffoldHasDevCommand(t *testing.T) {
 func TestInitScaffoldImportsDevPanel(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if code, _, errb := initNI(t, "--module", "devpaneldemo", dir); code != 0 {
+	if code, _, errb := initNI(t, dir, "--module", "devpaneldemo"); code != 0 {
 		t.Fatalf("init failed: %d %s", code, errb)
 	}
 	mainJS, err := os.ReadFile(filepath.Join(dir, "web", "main.js"))
@@ -359,7 +362,7 @@ func TestInitScaffoldImportsDevPanel(t *testing.T) {
 func TestInitScaffoldScopesDemoStyles(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if code, _, errb := initNI(t, "--module", "styledemo", dir); code != 0 {
+	if code, _, errb := initNI(t, dir, "--module", "styledemo"); code != 0 {
 		t.Fatalf("init failed: %d %s", code, errb)
 	}
 
@@ -411,7 +414,7 @@ func TestInitScaffoldScopesDemoStyles(t *testing.T) {
 func TestInitScaffoldViteConfigHasExplicitUpstreamTarget(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if code, _, errb := initNI(t, "--module", "upstreamdemo", dir); code != 0 {
+	if code, _, errb := initNI(t, dir, "--module", "upstreamdemo"); code != 0 {
 		t.Fatalf("init failed: %d %s", code, errb)
 	}
 	cfg, err := os.ReadFile(filepath.Join(dir, "vite.config.ts"))
@@ -447,7 +450,7 @@ func TestInitScaffoldCompiles(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if code, _, errb := initNI(t, "--module", "gsxinitdemo", dir); code != 0 {
+	if code, _, errb := initNI(t, dir, "--module", "gsxinitdemo"); code != 0 {
 		t.Fatalf("init failed: %d %s", code, errb)
 	}
 
