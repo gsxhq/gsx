@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -26,12 +27,14 @@ type tmplData struct {
 	Name   string // path.Base(Module), e.g. "app" (npm name, etc.)
 }
 
-// initTemplate is one registered starter: a name, a one-line description, and
-// the root path of its subtree within the embedded template FS.
+// initTemplate is one registered starter: a name, a one-line description, the
+// root path of its subtree within the embedded template FS, and a display
+// order for the interactive picker (lower sorts first; ties break by name).
 type initTemplate struct {
-	name string
-	desc string
-	root string
+	name  string
+	desc  string
+	root  string
+	order int
 }
 
 const defaultTemplate = "simple"
@@ -40,9 +43,10 @@ const defaultTemplate = "simple"
 // the template task; the registry entry is declared here.
 var templates = map[string]initTemplate{
 	"simple": {
-		name: "simple",
-		desc: "Stock net/http ServeMux + gsx + Vite dev loop.",
-		root: "templates/init/simple",
+		name:  "simple",
+		desc:  "Stock net/http ServeMux + gsx + Vite dev loop.",
+		root:  "templates/init/simple",
+		order: 0,
 	},
 }
 
@@ -203,17 +207,28 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 
 // newWith is the `gsx new <dir>` core: the target directory is a required
 // positional arg (or, interactively, a prompted project name); it scaffolds
-// into <workDir>/<dir>.
+// into <workDir>/<dir>. When run interactively without an explicit
+// --template, it prompts for the project name first and then offers the
+// template picker (promptTemplate) — asking "what" before "which template"
+// mirrors the order a user would naturally answer them. An explicit
+// --template is validated immediately, before any prompting, so a typo fails
+// fast.
 func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
 	dir, flagArgs := splitDirFlags(args)
 	fs, templateName, module, force, yes := initFlagSet("new", stderr)
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
-
-	tpl, ok := lookupTemplate(*templateName, stderr)
-	if !ok {
-		return 2
+	explicitTemplate := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "template" {
+			explicitTemplate = true
+		}
+	})
+	if explicitTemplate {
+		if _, ok := lookupTemplate(*templateName, stderr); !ok {
+			return 2
+		}
 	}
 
 	reader := bufio.NewReader(stdin)
@@ -224,6 +239,15 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 			fmt.Fprintln(stderr, "gsx: new requires a directory argument (run interactively with no arguments to be prompted)")
 			return 2
 		}
+	}
+
+	name := *templateName
+	if interactive && !*yes && !explicitTemplate {
+		name = promptTemplate(reader, stdout, defaultTemplate)
+	}
+	tpl, ok := lookupTemplate(name, stderr)
+	if !ok {
+		return 2
 	}
 
 	// Anchor a relative target dir at workDir rather than the process-global
@@ -311,6 +335,43 @@ func promptText(reader *bufio.Reader, stdout io.Writer, q, def string) string {
 	return def
 }
 
+// promptTemplate prints a numbered menu of the registered templates (in
+// templateList order, so a flagship entry can list first) and reads a
+// selection: a 1-based list number or a template name. Empty input returns
+// def. Invalid input reprints the "not a valid template" hint and reprompts
+// once; a second invalid answer falls back to def.
+func promptTemplate(reader *bufio.Reader, stdout io.Writer, def string) string {
+	list := templateList()
+	fmt.Fprintln(stdout, "Select a template:")
+	for i, t := range list {
+		fmt.Fprintf(stdout, "  %d) %-12s %s\n", i+1, t.name, t.desc)
+	}
+	resolve := func(s string) (string, bool) {
+		if s == "" {
+			return def, true
+		}
+		if n, err := strconv.Atoi(s); err == nil {
+			if n >= 1 && n <= len(list) {
+				return list[n-1].name, true
+			}
+			return "", false
+		}
+		if _, ok := templates[s]; ok {
+			return s, true
+		}
+		return "", false
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		fmt.Fprintf(stdout, "Select a template [%s]: ", def)
+		line, _ := reader.ReadString('\n')
+		if name, ok := resolve(strings.TrimSpace(line)); ok {
+			return name
+		}
+		fmt.Fprintln(stdout, "  not a valid template; try again.")
+	}
+	return def
+}
+
 // isTTYReader reports whether r is a terminal (a character device). Mirrors the
 // writer-side isTTY in main.go; avoids a golang.org/x/term dependency.
 func isTTYReader(r io.Reader) bool {
@@ -334,13 +395,19 @@ func execStep(args []string, dir string, stdout, stderr io.Writer) error {
 	return cmd.Run()
 }
 
-// templateList returns the registered templates sorted by name.
+// templateList returns the registered templates sorted by order (so a
+// flagship entry can list first), with name as the tiebreaker.
 func templateList() []initTemplate {
 	out := make([]initTemplate, 0, len(templates))
 	for _, t := range templates {
 		out = append(out, t)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].order != out[j].order {
+			return out[i].order < out[j].order
+		}
+		return out[i].name < out[j].name
+	})
 	return out
 }
 

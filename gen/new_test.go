@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"os"
@@ -59,7 +60,10 @@ func TestNewBareInteractivePromptsName(t *testing.T) {
 	dir := t.TempDir()
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
-	code := newWith(nil, strings.NewReader("myproj\ny\ny\ny\n"), &out, &errb, true, run, dir)
+	// "myproj" answers the project-name prompt; the blank line accepts the
+	// template picker's default (--template wasn't set); three "y"s run all
+	// setup steps.
+	code := newWith(nil, strings.NewReader("myproj\n\ny\ny\ny\n"), &out, &errb, true, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb.String())
 	}
@@ -71,6 +75,9 @@ func TestNewBareInteractivePromptsName(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Project name") {
 		t.Fatalf("expected a project-name prompt, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Select a template") {
+		t.Fatalf("expected a template picker prompt, got %q", out.String())
 	}
 }
 
@@ -125,5 +132,89 @@ func TestNewFlagsAfterDir(t *testing.T) {
 	gomod, _ := os.ReadFile(filepath.Join(dir, "myapp", "go.mod"))
 	if !strings.Contains(string(gomod), "module example.com/after") {
 		t.Fatalf("flag after dir ignored: go.mod = %s", gomod)
+	}
+}
+
+// withTestTemplates temporarily overrides the package-level templates
+// registry, restoring the original on cleanup. Tests using it mutate global
+// state and must NOT call t.Parallel(): Go's testing runner completes every
+// non-parallel top-level test before any t.Parallel() test starts, so leaving
+// these serial is what keeps them race-free against the rest of the suite.
+func withTestTemplates(t *testing.T, tpls map[string]initTemplate) {
+	t.Helper()
+	orig := templates
+	templates = tpls
+	t.Cleanup(func() { templates = orig })
+}
+
+func TestNewInteractivePicksTemplateByNumber(t *testing.T) {
+	withTestTemplates(t, map[string]initTemplate{
+		"alpha": {name: "alpha", desc: "First starter.", root: "templates/init/simple", order: 0},
+		"beta":  {name: "beta", desc: "Second starter.", root: "templates/init/simple", order: 1},
+	})
+	var out bytes.Buffer
+	reader := bufio.NewReader(strings.NewReader("2\n"))
+	got := promptTemplate(reader, &out, "alpha")
+	if got != "beta" {
+		t.Fatalf("promptTemplate(%q) = %q, want %q (list is order-sorted: alpha=1, beta=2); menu=%q", "2", got, "beta", out.String())
+	}
+}
+
+func TestNewInteractivePicksByName(t *testing.T) {
+	withTestTemplates(t, map[string]initTemplate{
+		"alpha": {name: "alpha", desc: "First starter.", root: "templates/init/simple", order: 0},
+		"beta":  {name: "beta", desc: "Second starter.", root: "templates/init/simple", order: 1},
+	})
+	var out bytes.Buffer
+	reader := bufio.NewReader(strings.NewReader("alpha\n"))
+	got := promptTemplate(reader, &out, "beta")
+	if got != "alpha" {
+		t.Fatalf("promptTemplate(%q) = %q, want %q", "alpha", got, "alpha")
+	}
+}
+
+func TestNewInteractiveEmptyUsesDefault(t *testing.T) {
+	withTestTemplates(t, map[string]initTemplate{
+		"alpha": {name: "alpha", desc: "First starter.", root: "templates/init/simple", order: 0},
+		"beta":  {name: "beta", desc: "Second starter.", root: "templates/init/simple", order: 1},
+	})
+	var out bytes.Buffer
+	reader := bufio.NewReader(strings.NewReader("\n"))
+	got := promptTemplate(reader, &out, "beta")
+	if got != "beta" {
+		t.Fatalf("promptTemplate(empty) = %q, want default %q", got, "beta")
+	}
+}
+
+func TestNewInteractiveInvalidThenFallsBackToDefault(t *testing.T) {
+	withTestTemplates(t, map[string]initTemplate{
+		"alpha": {name: "alpha", desc: "First starter.", root: "templates/init/simple", order: 0},
+		"beta":  {name: "beta", desc: "Second starter.", root: "templates/init/simple", order: 1},
+	})
+	var out bytes.Buffer
+	reader := bufio.NewReader(strings.NewReader("bogus\nstillbogus\n"))
+	got := promptTemplate(reader, &out, "beta")
+	if got != "beta" {
+		t.Fatalf("promptTemplate(invalid twice) = %q, want fallback default %q", got, "beta")
+	}
+	if !strings.Contains(out.String(), "not a valid template") {
+		t.Fatalf("expected a reprompt message after the first invalid answer, got %q", out.String())
+	}
+}
+
+func TestNewTemplateFlagSkipsPicker(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := newWith([]string{"--template", "simple", "myapp"}, strings.NewReader("y\ny\ny\n"), &out, &errb, true, run, dir)
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%q", code, errb.String())
+	}
+	if strings.Contains(out.String(), "Select a template") {
+		t.Fatalf("picker should be skipped when --template is explicit: %q", out.String())
+	}
+	if len(*calls) != 3 {
+		t.Fatalf("expected 3 steps, got %d: %v", len(*calls), *calls)
 	}
 }
