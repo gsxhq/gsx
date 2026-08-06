@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/format"
 	"io/fs"
 	"os"
 	"path"
@@ -77,6 +78,17 @@ func validateNewModule(mod string) error {
 //     string that merely contains oldModule as a substring elsewhere (see the
 //     oldQuoted/newQuoted comment below). package.json's "name" is set to the
 //     new module's basename.
+//  4. *.go files are additionally run through go/format.Source after the
+//     rewrite: the new module path can sort differently than the old one
+//     within its (unchanged) gofmt import group — e.g. an own-module import
+//     that used to sort as "github.com/gsxhq/template/..." now sorts under
+//     "example.com/...", which is a valid position in a *different* place in
+//     the block than the byte replace left it. format.Source's ast.SortImports
+//     re-sorts within each existing blank-line-separated group, which is
+//     sufficient here since the rewrite only ever changes a path's sort key,
+//     never which group it belongs to (no import gains or loses a blank-line
+//     boundary from a module rename). *.gsx files are deliberately excluded:
+//     gsx isn't Go syntax and format.Source would just error on them.
 //
 // Unlike scaffold (the embedded-template engine), personalize does NOT run
 // «»/text-template rendering or the dot-/transformName renaming: a fetched
@@ -167,7 +179,26 @@ func personalize(src fs.FS, destDir, newModule string) error {
 			if err != nil {
 				return fmt.Errorf("package.json: %w", err)
 			}
-		case strings.HasSuffix(p, ".go"), strings.HasSuffix(p, ".gsx"), path.Base(p) == "gsx.toml":
+		case strings.HasSuffix(p, ".go"):
+			raw, err := fs.ReadFile(src, p)
+			if err != nil {
+				return err
+			}
+			rewritten := bytes.ReplaceAll(raw, oldQuoted, newQuoted)
+			// Re-sort imports disturbed by the module rename (see point 4 of
+			// the doc comment above). A parse failure here means the
+			// template's Go source was already malformed, or uses syntax the
+			// pinned toolchain can't parse — not something personalize
+			// should hard-fail the whole scaffold over. Ship the rewritten
+			// (unsorted-import) bytes in that case: the user gets a scaffold
+			// they can see is broken and fix, rather than no scaffold at
+			// all.
+			if formatted, ferr := format.Source(rewritten); ferr == nil {
+				out = formatted
+			} else {
+				out = rewritten
+			}
+		case strings.HasSuffix(p, ".gsx"), path.Base(p) == "gsx.toml":
 			raw, err := fs.ReadFile(src, p)
 			if err != nil {
 				return err

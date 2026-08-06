@@ -1,8 +1,10 @@
 package gen
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
+	"go/format"
 	"os"
 	"path/filepath"
 	"strings"
@@ -314,5 +316,66 @@ func TestPersonalizeRewritesGsxToml(t *testing.T) {
 		if strings.Contains(string(toml), "github.com/gsxhq/template") {
 			t.Errorf("%s still references the old module: %s", rel, toml)
 		}
+	}
+}
+
+// TestPersonalizeFormatsGoFiles pins the fix for a real, downstream-found
+// defect: personalize's import rewrite is a byte-level `"<old` -> `"<new`
+// replace (see the oldQuoted/newQuoted comment on personalize), which is
+// correct for *finding* the import but has no notion of import ordering. The
+// fixture below mirrors the failure as it was actually found — a flagship
+// template's pages/projects.go, gofmt-clean under its own module path,
+// scaffolded to a *.go file that failed the scaffold's own gofmt gate.
+//
+// The reproduction needs the own-module import to sort strictly between two
+// unrelated imports in the same gofmt group under the OLD module, and to
+// sort somewhere else under the NEW one:
+//
+//   - old module "github.com/gsxhq/template" sorts between
+//     "github.com/aaa/pkg" and "github.com/zzz/other" — so the block below is
+//     gofmt-clean as shipped in the template.
+//   - new module "example.com/n" sorts before both (an 'e' beats a 'g'), so
+//     a byte-level rewrite leaves "example.com/n/pages/nav" sitting in the
+//     OLD (now wrong) position, second rather than first.
+//
+// The assertion — personalized output is byte-identical to format.Source of
+// itself — is the general gofmt-clean check the fix promises for every *.go
+// file, not just this one shape of reordering.
+func TestPersonalizeFormatsGoFiles(t *testing.T) {
+	t.Parallel()
+	const oldModule = "github.com/gsxhq/template"
+	const newModule = "example.com/n"
+	src := fstest.MapFS{
+		"go.mod": &fstest.MapFile{Data: []byte("module " + oldModule + "\n\ngo 1.26\n")},
+		"pages/projects.go": &fstest.MapFile{Data: []byte(`package pages
+
+import (
+	"fmt"
+
+	"github.com/aaa/pkg"
+	"` + oldModule + `/pages/nav"
+	"github.com/zzz/other"
+)
+
+func Index() string {
+	return fmt.Sprint(pkg.X, nav.Y, other.Z)
+}
+`)},
+	}
+	dest := t.TempDir()
+	if err := personalize(src, dest, newModule); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dest, "pages", "projects.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := format.Source(got)
+	if err != nil {
+		t.Fatalf("format.Source(got): %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("personalized pages/projects.go is not gofmt-clean:\n--- got ---\n%s\n--- gofmt ---\n%s", got, want)
 	}
 }
