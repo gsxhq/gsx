@@ -132,6 +132,8 @@ comments/bare_contexts	diag render
 comments/bare_midline_text	diag render
 comments/bare_preserve_exempt	diag render
 comments/bare_touches_text_err	diag(error)
+comments/comment_group_empty	diag render
+comments/comment_group_multi	diag render
 comments/cond_attr_comment	diag render
 comments/content_comment	diag render
 comments/parse_snapshot	ast diag
@@ -1011,4 +1013,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1013 cases (render: 863, error: 112, gen-pinned: 566)
+TOTAL: 1015 cases (render: 865, error: 112, gen-pinned: 566)

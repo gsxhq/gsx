@@ -114,11 +114,14 @@ func (p *parser) parseText() *ast.Text {
 }
 
 // parseTagComment recognizes a tag-interior comment at the cursor: bare `//` or
-// `/* */`, or a comment-only `{ … }`. Returns (node, true, nil) when one is
-// consumed, (nil, false, nil) when the cursor is not at a comment, or
-// (nil, false, err) for an unterminated block comment. Trailing is left false;
-// the caller sets it from the preceding whitespace.
-func (p *parser) parseTagComment() (*ast.CommentAttr, bool, error) {
+// `/* */`, or a comment-only `{ … }` group. Returns (nodes, true, nil) when one
+// is consumed — a braced group yields one CommentAttr per interior comment, so
+// the slice is non-empty whenever ok is true — (nil, false, nil) when the
+// cursor is not at a comment, or (nil, false, err) for an unterminated block
+// comment. Trailing is left false on the first node; the caller sets it from
+// the preceding whitespace. Later nodes' Trailing comes from the group's own
+// interior layout (same source line as the part before = trailing).
+func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 	start := p.i
 	if p.at("/*") {
 		p.i += 2 // past '/*'
@@ -128,7 +131,7 @@ func (p *parser) parseTagComment() (*ast.CommentAttr, bool, error) {
 				p.i += 2 // past '*/'
 				n := &ast.CommentAttr{Text: text, Block: true}
 				ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
-				return n, true, nil
+				return []*ast.CommentAttr{n}, true, nil
 			}
 			p.i++
 		}
@@ -143,64 +146,117 @@ func (p *parser) parseTagComment() (*ast.CommentAttr, bool, error) {
 		// leave '\n' in place so skipSpace() sees it
 		n := &ast.CommentAttr{Text: text, Block: false}
 		ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
-		return n, true, nil
+		return []*ast.CommentAttr{n}, true, nil
 	}
 	if p.peek() == '{' {
 		end, ok := goExprEnd(p.src, p.i)
 		if !ok {
 			return nil, false, nil
 		}
-		inner := p.src[p.i+1 : end]
-		if !commentOnly(inner) {
+		parts, ok := commentParts(p.src[p.i+1 : end])
+		if !ok {
 			return nil, false, nil
 		}
-		text, block := splitBracedComment(inner)
+		innerBase := p.i + 1
+		groupStart, groupEnd := p.posAt(start), p.posAt(end+1)
 		p.i = end + 1 // past '}'
-		n := &ast.CommentAttr{Text: text, Block: block}
-		ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
-		return n, true, nil
+		if len(parts) == 0 {
+			// Empty group ({} / { } / { ; }): a single empty block comment —
+			// /**/ is the one bare spelling with nothing in it.
+			n := &ast.CommentAttr{Text: "", Block: true}
+			ast.SetSpan(n, groupStart, groupEnd)
+			return []*ast.CommentAttr{n}, true, nil
+		}
+		nodes := make([]*ast.CommentAttr, len(parts))
+		for i, part := range parts {
+			n := &ast.CommentAttr{
+				Text:     part.text,
+				Block:    part.block,
+				Trailing: i > 0 && part.line == parts[i-1].line,
+			}
+			// The braces belong to the group, not to any one comment: the
+			// first span starts at `{` and the last ends past `}`, so the
+			// nodes together still cover the group's full source extent.
+			s, e := p.posAt(innerBase+part.off), p.posAt(innerBase+part.end)
+			if i == 0 {
+				s = groupStart
+			}
+			if i == len(parts)-1 {
+				e = groupEnd
+			}
+			ast.SetSpan(n, s, e)
+			nodes[i] = n
+		}
+		return nodes, true, nil
 	}
 	return nil, false, nil
 }
 
-// splitBracedComment extracts the inner text and kind of a comment-only `{ … }`
-// body (as verified by commentOnly). Braced comments in attribute position
-// canonicalize to the bare form, so the wrapping braces and delimiters are
-// stripped.
-func splitBracedComment(inner string) (text string, block bool) {
-	trimmed := strings.TrimSpace(inner)
-	if after, ok := strings.CutPrefix(trimmed, "/*"); ok {
-		return strings.TrimSpace(strings.TrimSuffix(after, "*/")), true
-	}
-	after, _ := strings.CutPrefix(trimmed, "//")
-	return strings.TrimSpace(after), false
+// commentPart is one comment inside a comment-only `{ … }` group, located
+// relative to the group's interior.
+type commentPart struct {
+	text  string
+	block bool // true = /* */, false = //
+	off   int  // byte offset of the comment token within the interior
+	end   int  // byte offset just past the comment token
+	line  int  // 1-based line within the interior
 }
 
-// commentOnly reports whether src contains only Go comments (no real expression tokens).
-// A {/* … */} or {// … \n} whose body passes this check can be silently dropped.
-func commentOnly(src string) bool {
+// commentParts scans the interior of a braced group and returns its comments
+// in source order. ok=false when the interior holds any real Go token — then
+// the brace is not a comment group but an expression (or an error) for other
+// parse paths. Semicolons, explicit or auto-inserted, are lexical noise (as
+// they always were here) and contribute no part; a group with no parts at all
+// ({}, { }, { ; }) is still a comment group, just an empty one.
+func commentParts(src string) (parts []commentPart, ok bool) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
 	var s scanner.Scanner
 	s.Init(file, []byte(src), nil, scanner.ScanComments)
 	for {
-		_, tok, _ := s.Scan()
+		pos, tok, lit := s.Scan()
 		switch tok {
 		case token.EOF:
-			return true
-		case token.COMMENT, token.SEMICOLON:
-			// allowed — comments and auto-inserted semicolons are fine
+			return parts, true
+		case token.COMMENT:
+			off := file.Offset(pos)
+			part := commentPart{
+				block: strings.HasPrefix(lit, "/*"),
+				off:   off,
+				line:  file.Line(pos),
+			}
+			// The token's end is measured in the SOURCE, not via len(lit):
+			// go/scanner strips '\r' from comment literals, so a CRLF-bearing
+			// comment's lit under-counts the source extent by one byte per CR.
+			if part.block {
+				part.text = strings.TrimSpace(lit[2 : len(lit)-2])
+				part.end = off + strings.Index(src[off:], "*/") + len("*/")
+			} else {
+				part.text = strings.TrimSpace(lit[2:])
+				part.end = off + len(src[off:])
+				if nl := strings.IndexByte(src[off:], '\n'); nl >= 0 {
+					part.end = off + nl
+				}
+				for part.end > off && src[part.end-1] == '\r' {
+					part.end--
+				}
+			}
+			parts = append(parts, part)
+		case token.SEMICOLON:
+			// allowed — explicit or auto-inserted semicolons are fine
 		default:
-			return false
+			return nil, false
 		}
 	}
 }
 
-// parseBracedComment builds a *ast.Comment when the `{…}` at the current cursor
-// is comment-only, advancing past the closing `}`. Otherwise it returns
-// (nil, false, nil) without moving the cursor. Unterminated `{` is not an error
-// here — parseInterp handles that.
-func (p *parser) parseBracedComment() (*ast.Comment, bool, error) {
+// parseBracedComment builds *ast.Comment nodes when the `{…}` at the current
+// cursor is comment-only, advancing past the closing `}` — one node per
+// interior comment (the slice is non-empty whenever ok is true; an empty group
+// is a single empty block comment, canonical output `{}`). Otherwise it
+// returns (nil, false, nil) without moving the cursor. Unterminated `{` is not
+// an error here — parseInterp handles that.
+func (p *parser) parseBracedComment() ([]*ast.Comment, bool, error) {
 	if p.peek() != '{' {
 		return nil, false, nil
 	}
@@ -209,15 +265,34 @@ func (p *parser) parseBracedComment() (*ast.Comment, bool, error) {
 	if !ok {
 		return nil, false, nil
 	}
-	inner := p.src[p.i+1 : end]
-	if !commentOnly(inner) {
+	parts, ok := commentParts(p.src[p.i+1 : end])
+	if !ok {
 		return nil, false, nil
 	}
-	text, block := splitBracedComment(inner)
+	innerBase := p.i + 1
+	groupStart, groupEnd := p.posAt(start), p.posAt(end+1)
 	p.i = end + 1
-	n := &ast.Comment{Text: text, Block: block}
-	ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
-	return n, true, nil
+	if len(parts) == 0 {
+		n := &ast.Comment{Text: "", Block: true}
+		ast.SetSpan(n, groupStart, groupEnd)
+		return []*ast.Comment{n}, true, nil
+	}
+	nodes := make([]*ast.Comment, len(parts))
+	for i, part := range parts {
+		n := &ast.Comment{Text: part.text, Block: part.block}
+		// Brace ownership as in parseTagComment: first span opens at `{`,
+		// last closes past `}`.
+		s, e := p.posAt(innerBase+part.off), p.posAt(innerBase+part.end)
+		if i == 0 {
+			s = groupStart
+		}
+		if i == len(parts)-1 {
+			e = groupEnd
+		}
+		ast.SetSpan(n, s, e)
+		nodes[i] = n
+	}
+	return nodes, true, nil
 }
 
 // parseGoBlock parses `{{ stmt }}`. Cursor must be at the first '{' of `{{`.
@@ -326,14 +401,12 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 			nodes = append(nodes, el)
 		case p.peek() == '{':
 			leadingBreak := newlineBefore(p.src, p.i)
-			node, skipped, err := p.parseBraceNode()
+			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
-			if !skipped {
-				stampLeadingBreak(node, leadingBreak)
-				nodes = append(nodes, node)
-			}
+			stampLeadingBreak(bnodes[0], leadingBreak)
+			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
 		default:
@@ -604,14 +677,12 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 			nodes = append(nodes, el)
 		case p.peek() == '{':
 			leadingBreak := newlineBefore(p.src, p.i)
-			node, skipped, err := p.parseBraceNode()
+			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
-			if !skipped {
-				stampLeadingBreak(node, leadingBreak)
-				nodes = append(nodes, node)
-			}
+			stampLeadingBreak(bnodes[0], leadingBreak)
+			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
 		default:
@@ -731,38 +802,57 @@ func caseBodyLabelStart(src string, i int) bool {
 }
 
 // parseBraceNode dispatches a `{`-leading construct in a child/markup context.
-// Cursor must be at '{'. It returns (node, false, nil) for a GoBlock, control
-// flow, or interpolation; (nil, true, nil) when a comment-only `{ }` was
-// skipped; or (nil, false, err) on error. Control-flow cases are wired in
-// Tasks 3–5.
-func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
+// Cursor must be at '{'. It returns (nodes, nil) — a single node for a
+// GoBlock, control flow, or interpolation; one node per interior comment for
+// a comment-only `{ … }` group — or (nil, err) on error. The slice is never
+// empty on success.
+func (p *parser) parseBraceNode() ([]ast.Markup, error) {
 	if p.at("{{") {
 		gb, err := p.parseGoBlock()
-		return gb, false, err
+		if err != nil {
+			return nil, err
+		}
+		return []ast.Markup{gb}, nil
 	}
-	if c, ok, err := p.parseBracedComment(); err != nil {
-		return nil, false, err
+	if cs, ok, err := p.parseBracedComment(); err != nil {
+		return nil, err
 	} else if ok {
-		return c, false, nil
+		nodes := make([]ast.Markup, len(cs))
+		for i, c := range cs {
+			nodes[i] = c
+		}
+		return nodes, nil
 	}
 	switch p.braceKeyword() {
 	case "if":
 		n, err := p.parseIfMarkup()
-		return n, false, err
+		if err != nil {
+			return nil, err
+		}
+		return []ast.Markup{n}, nil
 	case "for":
 		n, err := p.parseForMarkup()
-		return n, false, err
+		if err != nil {
+			return nil, err
+		}
+		return []ast.Markup{n}, nil
 	case "switch":
 		n, err := p.parseSwitchMarkup()
-		return n, false, err
+		if err != nil {
+			return nil, err
+		}
+		return []ast.Markup{n}, nil
 	}
 	if in, ok, err := p.tryParseBodyEmbeddedInterp(); err != nil {
-		return nil, false, err
+		return nil, err
 	} else if ok {
-		return in, false, nil
+		return []ast.Markup{in}, nil
 	}
 	in, err := p.parseInterp()
-	return in, false, err
+	if err != nil {
+		return nil, err
+	}
+	return []ast.Markup{in}, nil
 }
 
 // tryParseBodyEmbeddedInterp recognizes a lone f`…` literal — optionally
@@ -890,8 +980,10 @@ func (p *parser) parseAttrsUntil(stop func() bool) (attrs []ast.Attr, multiline 
 		if c, ok, cerr := p.parseTagComment(); cerr != nil {
 			return nil, false, cerr
 		} else if ok {
-			c.Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
-			attrs = append(attrs, c)
+			c[0].Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
+			for _, n := range c {
+				attrs = append(attrs, n)
+			}
 			continue
 		}
 		a, aerr := p.parseSingleAttr()
@@ -1334,15 +1426,12 @@ func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, err
 		}
 		if p.peek() == '{' {
 			leadingBreak := newlineBefore(p.src, p.i)
-			node, skipped, err := p.parseBraceNode()
+			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, token.NoPos, err
 			}
-			if skipped {
-				continue
-			}
-			stampLeadingBreak(node, leadingBreak)
-			nodes = append(nodes, node)
+			stampLeadingBreak(bnodes[0], leadingBreak)
+			nodes = append(nodes, bnodes...)
 			continue
 		}
 		if p.atBareContentComment() {

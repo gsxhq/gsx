@@ -164,3 +164,16 @@ Rewrite `docs/guide/syntax/comments.md`:
   YAGNI until asked). Comments inside an attribute *value* Go expression
   (`id={ x /* keep */ }`) already survive via `go/format` and are untouched.
 - Blank-line preservation between attributes.
+
+## Addendum (2026-08-10): comment groups split per comment
+
+A braced comment-only `{ … }` may hold any number of comments — its boundary is
+"no real Go token inside the braces". The single-node collapse described above
+corrupted multi-comment groups (`{ /* a */ // b }` became one block comment
+whose text contained `*/`, and the reconstructed output failed to reparse), so
+the parser now emits one `CommentAttr`/`Comment` per interior comment
+(`parser/markup.go` commentParts), and an empty group (`{}` / `{ }` / `{ ; }`)
+is a single empty block comment — canonical output `/**/` in attribute
+position, `{}` in child position. Canonicalize-to-bare is unchanged, applied
+per comment; a line comment's forced break now lives inside the printer's
+`attrDoc` so the inline-atom flat path can never emit `//` mid-line.

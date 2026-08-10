@@ -1,0 +1,26 @@
+# A braced comment group may hold SEVERAL comments (any mix of /* */ and //,
+# per commentParts' boundary: no real Go token inside the braces). Each interior
+# comment is its own AST node — the group is not collapsed to a single text.
+# All are source-only: the rendered HTML carries none of them.
+-- input.gsx --
+package views
+
+component C(name string) {
+	<input
+		type="checkbox"
+		{ /* block a */ /* block b */ }
+		{ /* head note */ // tail note
+		}
+		id={name}
+	/>
+	<div>
+		{ /* child a */ // child b
+		}
+		<span>ok</span>
+	</div>
+}
+-- invoke --
+C("agree")
+-- diagnostics.golden --
+-- render.golden --
+<input type="checkbox" id="agree"><div><span>ok</span></div>

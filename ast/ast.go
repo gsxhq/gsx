@@ -2,6 +2,7 @@
 package ast
 
 import (
+	"fmt"
 	"go/token"
 	"strings"
 )
@@ -111,6 +112,13 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *ValueCF:
 		v.span = s
+	case *CommentAttr:
+		v.span = s
+	default:
+		// Every span-embedding node must be listed: a silent fallthrough
+		// drops the node's positions (CommentAttr was missing here since it
+		// shipped — every comment attribute silently carried NoPos).
+		panic(fmt.Sprintf("ast.SetSpan: unhandled node type %T", n))
 	}
 }
 
@@ -319,6 +327,9 @@ func (*MarkerRegion) markupNode() {}
 // `{/* text */}` / `{// text }`, or a bare line-start `// text` (Bare=true).
 // Unlike HTMLComment it is NOT rendered — codegen drops it, the formatter
 // preserves it and never converts between the braced and bare spellings.
+// A braced group holding several comments parses to one Comment per comment;
+// an empty group is a single empty block comment whose canonical braced
+// output is `{}`.
 type Comment struct {
 	span
 	Text  string
@@ -797,14 +808,17 @@ type OrderedAttrsAttr struct {
 func (*OrderedAttrsAttr) attrNode() {}
 
 // CommentAttr is a source-only comment in an element's attribute list: bare
-// `// text` / `/* text */`, or a braced comment-only `{/* */}` / `{// }`. It is
-// never rendered (codegen ignores it); the formatter preserves it. Braced forms
-// canonicalize to bare on output, so no "braced" flag is retained.
+// `// text` / `/* text */`, or a braced comment-only `{ … }` group. It is
+// never rendered (codegen ignores it); the formatter preserves it. Braced
+// forms canonicalize to bare on output, so no "braced" flag is retained; a
+// group holding several comments parses to one CommentAttr per comment, and an
+// empty group ({} / { } / { ; }) is a single empty block comment whose
+// canonical output is `/**/` — the one bare spelling with nothing in it.
 type CommentAttr struct {
 	span
 	Text     string // inner text, delimiters and wrapping braces stripped, trimmed
 	Block    bool   // true = /* */, false = //
-	Trailing bool   // true = same source line as the previous attribute
+	Trailing bool   // true = same source line as the previous attribute/comment
 }
 
 func (*CommentAttr) attrNode() {}
