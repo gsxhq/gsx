@@ -1,0 +1,20 @@
+# An empty comment brace — {} or { } or only whitespace/semicolons inside — is
+# a comment group with nothing in it (commentParts accepts it), in both attribute
+# and child position. It renders nothing and must survive the formatter as a
+# parseable comment (attr canonical form /**/, child canonical form {}).
+-- input.gsx --
+package views
+
+component C() {
+	<input type="checkbox" {} { } value="x"/>
+	<div>
+		{}
+		{ }
+		<span>ok</span>
+	</div>
+}
+-- invoke --
+C()
+-- diagnostics.golden --
+-- render.golden --
+<input type="checkbox" value="x"><div><span>ok</span></div>

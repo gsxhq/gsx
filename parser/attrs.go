@@ -766,8 +766,10 @@ func (p *parser) parseAttrsUntilBrace() ([]ast.Attr, error) {
 		if c, ok, err := p.parseTagComment(); err != nil {
 			return nil, err
 		} else if ok {
-			c.Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
-			attrs = append(attrs, c)
+			c[0].Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
+			for _, n := range c {
+				attrs = append(attrs, n)
+			}
 			continue
 		}
 		a, err := p.parseSingleAttr()
@@ -905,8 +907,10 @@ func (p *parser) parseAttrCaseBody() ([]ast.Attr, error) {
 		if c, ok, err := p.parseTagComment(); err != nil {
 			return nil, err
 		} else if ok {
-			c.Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
-			attrs = append(attrs, c)
+			c[0].Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
+			for _, n := range c {
+				attrs = append(attrs, n)
+			}
 			continue
 		}
 		a, err := p.parseSingleAttr()

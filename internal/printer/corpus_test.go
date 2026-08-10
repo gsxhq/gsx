@@ -104,6 +104,15 @@ func TestCorpusIdempotence(t *testing.T) {
 func zeroSpans(n ast.Node) {
 	ast.Inspect(n, func(m ast.Node) bool {
 		if m != nil {
+			if _, ok := m.(ast.GoText); ok {
+				// GoText is the one VALUE leaf Inspect yields (GoWithElements
+				// holds its parts by value): SetSpan through an interface copy
+				// can never reach the stored part, and now panics instead of
+				// silently no-opping. Skipping keeps the long-standing
+				// behavior explicit — GoText spans never differ here because
+				// normalizedAST canonicalizes Go fragments on both sides.
+				return true
+			}
 			ast.SetSpan(m, 0, 0)
 			// Position fields outside the embedded span (set by the parser for
 			// codegen //line columns and the LSP) must also be zeroed so the

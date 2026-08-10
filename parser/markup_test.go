@@ -484,7 +484,7 @@ func TestUnterminatedTagBlockComment(t *testing.T) {
 
 func TestParseIfSimple(t *testing.T) {
 	p := testParser(`{ if ok { <b>yes</b> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestParseIfSimple(t *testing.T) {
 
 func TestParseIfElse(t *testing.T) {
 	p := testParser(`{ if a { <b>1</b> } else { <i>2</i> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +517,7 @@ func TestParseIfElse(t *testing.T) {
 
 func TestParseIfElseIfChain(t *testing.T) {
 	p := testParser(`{ if a { <x/> } else if b { <y/> } else { <z/> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +542,7 @@ func TestParseIfElseIfChain(t *testing.T) {
 
 func TestParseIfWithInterpAndText(t *testing.T) {
 	p := testParser(`{ if it.Active { <strong>{it.Name}</strong> } else { {it.Name} } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,16 +565,30 @@ func TestParseIfWithInterpAndText(t *testing.T) {
 
 var _ = ast.Text{}
 
+// parseSingleBraceNode runs parseBraceNode and asserts the construct produced
+// exactly one node (every non-comment-group brace construct does).
+func parseSingleBraceNode(p *parser) (ast.Markup, error) {
+	nodes, err := p.parseBraceNode()
+	if err != nil {
+		return nil, err
+	}
+	if len(nodes) != 1 {
+		panic("parseSingleBraceNode: construct produced more than one node")
+	}
+	return nodes[0], nil
+}
+
 func TestParseGoBlock(t *testing.T) {
 	// {{ … }} at child level becomes a GoBlock with trimmed Code; trailing text remains.
 	p := testParser("{{ x := f() }}rest<")
-	node, skipped, err := p.parseBraceNode()
+	bnodes, err := p.parseBraceNode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if skipped {
-		t.Fatal("GoBlock should not be skipped")
+	if len(bnodes) != 1 {
+		t.Fatalf("got %d nodes, want 1", len(bnodes))
 	}
+	node := bnodes[0]
 	gb, ok := node.(*ast.GoBlock)
 	if !ok {
 		t.Fatalf("got %T, want *ast.GoBlock", node)
@@ -590,7 +604,7 @@ func TestParseGoBlock(t *testing.T) {
 func TestParseGoBlockNestedBraces(t *testing.T) {
 	// Inner Go braces (composite literal, if-block) must not end the {{ }} early.
 	p := testParser("{{ if err != nil { return err }; m := map[string]int{} }}")
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +643,7 @@ component C() {
 
 func TestParseForRange(t *testing.T) {
 	p := testParser(`{ for i, it := range items { <li>{it.Name}</li> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +662,7 @@ func TestParseForRange(t *testing.T) {
 
 func TestParseForCStyle(t *testing.T) {
 	p := testParser(`{ for i := 0; i < n; i++ { <x/> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -660,7 +674,7 @@ func TestParseForCStyle(t *testing.T) {
 
 func TestParseForWithGoBlockInside(t *testing.T) {
 	p := testParser(`{ for i := range xs { {{ v := g(i) }}<a>{v}</a> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -686,7 +700,7 @@ func TestParseSwitch(t *testing.T) {
 			<span>info</span>
 		} }`
 	p := testParser(src)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -717,7 +731,7 @@ func TestParseSwitchTagless(t *testing.T) {
 			<a/>
 		} }`
 	p := testParser(src)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,7 +751,7 @@ func TestSwitchCaseBodyTextDoesNotSwallowLabel(t *testing.T) {
 	parseSwitch := func(t *testing.T, src string) *ast.SwitchMarkup {
 		t.Helper()
 		p := testParser(src)
-		node, _, err := p.parseBraceNode()
+		node, err := parseSingleBraceNode(p)
 		if err != nil {
 			t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
 		}
@@ -920,7 +934,7 @@ func TestCaseBodyLabelScanIsLinearNotQuadratic(t *testing.T) {
 	parseOnce := func(src string) time.Duration {
 		p := testParser(src)
 		start := time.Now()
-		if _, _, err := p.parseBraceNode(); err != nil {
+		if _, err := p.parseBraceNode(); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		return time.Since(start)
@@ -973,7 +987,7 @@ func BenchmarkCaseBodyLabelScanPathological(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := testParser(s)
-		if _, _, err := p.parseBraceNode(); err != nil {
+		if _, err := p.parseBraceNode(); err != nil {
 			b.Fatalf("parse error: %v", err)
 		}
 	}
@@ -1159,7 +1173,7 @@ func TestParseForRangeSliceLiteral(t *testing.T) {
 	// I2: ranging over a bare composite literal — the literal's '{' must NOT be
 	// taken as the body brace.
 	p := testParser(`{ for _, v := range []int{1, 2} { <a>{v}</a> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1177,7 +1191,7 @@ func TestParseForRangeSliceLiteral(t *testing.T) {
 
 func TestParseForRangeMapLiteral(t *testing.T) {
 	p := testParser(`{ for k := range map[string]int{"a": 1} { <i>{k}</i> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -1190,7 +1204,7 @@ func TestParseForRangeMapLiteral(t *testing.T) {
 func TestParseIfParenComposite(t *testing.T) {
 	// Paren-wrapped composite in an if condition still resolves to the body brace.
 	p := testParser(`{ if (struct{ Ok bool }{Ok: true}).Ok { <y/> } }`)
-	node, _, err := p.parseBraceNode()
+	node, err := parseSingleBraceNode(p)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}

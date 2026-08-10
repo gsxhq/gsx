@@ -25,7 +25,7 @@ An HTML comment is rendered verbatim, including `<` and `&` in its text.
 
 ## Comments inside a tag
 
-Use Go-style line or block comments to annotate an element's attributes. Braced comment forms are also accepted there. These comments remain in the `.gsx` source but do not render.
+Use Go-style line or block comments to annotate an element's attributes. Braced comment forms are also accepted there, and one braced group may hold several comments. These comments remain in the `.gsx` source but do not render.
 
 <!--@include: ./_generated/comments/020-attribute-comments.md-->
 

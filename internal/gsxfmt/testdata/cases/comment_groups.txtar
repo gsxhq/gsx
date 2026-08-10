@@ -1,0 +1,72 @@
+A braced comment-only group may hold zero, one, or several comments. Attribute
+position canonicalizes every comment to bare form — one bare comment per
+interior comment, an empty group ({} / { } / { ; }) to /**/ (the one bare
+spelling with nothing in it, inline-safe), and a line comment always ends its
+output line (the tag header breaks; it can never swallow following
+attributes). Child position stays braced — one brace pair per comment, an
+empty group prints {}, and a line comment keeps the closing } on the next
+line. Comment text is preserved exactly: no stray delimiters from group
+splitting (the old collapse emitted "/* a */ // b */").
+-- input.gsx --
+package ui
+
+component EmptyAttr() {
+	<input {} type="text"/>
+	<input { } type="text"/>
+	<input { ; } type="text"/>
+}
+
+component MultiAttr() {
+	<input { /* a */ /* b */ } type="text"/>
+	<input
+		{ /* head */ // tail
+		}
+		type="text"
+	/>
+}
+
+component LineAttrInlineTag() {
+	<input {// note
+	} type="text"/>
+}
+
+component Children() {
+	<div>
+		{}
+		{ /* a */ // b
+		}
+		{ /* a */ /* b */ }
+		<span>ok</span>
+	</div>
+}
+-- fmt.golden --
+package ui
+
+component EmptyAttr() {
+	<input /**/ type="text"/>
+	<input /**/ type="text"/>
+	<input /**/ type="text"/>
+}
+
+component MultiAttr() {
+	<input /* a */ /* b */ type="text"/>
+	<input
+		/* head */ // tail
+		type="text"
+	/>
+}
+
+component LineAttrInlineTag() {
+	<input
+		// note
+		type="text"
+	/>
+}
+
+component Children() {
+	<div>
+		{}{/* a */}{// b
+		}{/* a */}{/* b */}
+		<span>ok</span>
+	</div>
+}

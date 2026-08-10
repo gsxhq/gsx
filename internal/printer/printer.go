@@ -545,12 +545,9 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 			if c.Trailing {
 				sep = pretty.Text(" ") // glue to the previous attr's line
 			}
+			// A `//` line comment's forced break lives inside attrDoc itself
+			// (so atomDoc's Flat sees it too); block comments may stay inline.
 			attrs = append(attrs, sep, p.attrDoc(a))
-			if !c.Block {
-				// A `//` line comment cannot share a flat line with what follows;
-				// force the opening-tag group to break. Block comments may stay inline.
-				attrs = append(attrs, pretty.BreakParent)
-			}
 			continue
 		}
 		attrs = append(attrs, pretty.Line, p.attrDoc(a))
@@ -647,6 +644,25 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.condAttrChainDoc(v), pretty.Text(" }"))
 	case *ast.SwitchAttr:
 		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.switchAttrDoc(v), pretty.Text(" }"))
+	case *ast.CommentAttr:
+		if v.Block {
+			if v.Text == "" {
+				// Empty comment group ({} in source): /**/ is the only bare
+				// spelling with nothing in it. Inline-safe, so no forced break.
+				return pretty.Text("/**/")
+			}
+			return pretty.Text("/* " + v.Text + " */")
+		}
+		// A `//` line comment swallows everything after it on its output line,
+		// so the doc itself carries the forced break (same convention as
+		// CondAttr/SwitchAttr above). This is what disqualifies atomDoc's
+		// pretty.Flat, which sees only this doc — a break added by the caller's
+		// layout loop would be invisible there and the atom would render the
+		// comment inline, eating the following attributes on reparse.
+		if v.Text == "" {
+			return pretty.Concat(pretty.Text("//"), pretty.BreakParent)
+		}
+		return pretty.Concat(pretty.Text("// "), pretty.Text(v.Text), pretty.BreakParent)
 	case *ast.ExprAttr:
 		val := []pretty.Doc{fmtExprDoc(v.Expr)}
 		for _, s := range v.Stages {
@@ -906,7 +922,15 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 		// line form is safe on one line here — the printer controls layout, so
 		// nothing after `}` is on the comment's line to be swallowed.
 		if v.Block {
+			if v.Text == "" {
+				// Empty comment group: `{}` is the minimal braced spelling and
+				// reparses to exactly this node.
+				return pretty.Text("{}")
+			}
 			return pretty.Concat(pretty.Text("{/* "), pretty.Text(v.Text), pretty.Text(" */}"))
+		}
+		if v.Text == "" {
+			return pretty.Concat(pretty.Text("{//"), pretty.HardLine, pretty.Text("}"))
 		}
 		return pretty.Concat(pretty.Text("{// "), pretty.Text(v.Text), pretty.HardLine, pretty.Text("}"))
 	case *ast.Text:
@@ -1553,11 +1577,16 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 		b.WriteString(v.Value)
 		b.WriteString(`"`)
 	case *ast.CommentAttr:
-		if v.Block {
+		switch {
+		case v.Block && v.Text == "":
+			b.WriteString("/**/")
+		case v.Block:
 			b.WriteString("/* ")
 			b.WriteString(v.Text)
 			b.WriteString(" */")
-		} else {
+		case v.Text == "":
+			b.WriteString("//")
+		default:
 			b.WriteString("// ")
 			b.WriteString(v.Text)
 		}
