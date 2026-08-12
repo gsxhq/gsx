@@ -57,6 +57,11 @@ Other project files have slightly different behavior:
 - A `.env` change restarts the existing backend with fresh environment values,
   then reloads. It does not regenerate or rebuild.
 
+A `.go` save regenerates only the packages that depend on it and performs one
+in-place world reload rather than reopening the whole project. The reason
+appears in the terminal and the dev panel, e.g. `full reload: changed Go
+source merge/merge.go`.
+
 ## When a build fails
 
 After the server has built successfully once, generation and build errors from
