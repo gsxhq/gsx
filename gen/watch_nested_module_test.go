@@ -142,6 +142,66 @@ func TestWatchSession_NestedReplaceTargetGoEdit(t *testing.T) {
 	}
 }
 
+// TestWatchSession_VendoredGoEditDoesNotWedgeTheCycle pins the second
+// ownership boundary. A vendored .go file is attributed by moduleRoot to the
+// enclosing module — vendoring writes no go.mod — but that module cannot
+// refresh it: sourceview's ownership oracle rejects any path with a vendor
+// segment, exactly as it rejects a nested module. Routed as an ordinary
+// in-place go edit, regenPending's refresh returned that rejection as a cycle
+// error, which RETAINS the dirty transaction: every later fire replayed the
+// same pending dir and failed again, wedging the session until restart. One
+// `go mod vendor` is enough to trigger it.
+//
+// A vendored write IS dependency-surface movement, so escalating it to the
+// reopen is both safe and what the pre-goDirty classification did. Discovery
+// skips vendor (gen/gen.go skipDirs), so the reopen itself never touches it.
+//
+// The fixture nests vendor/ under a subdirectory — see
+// TestLSPRefreshDiskSkipsUnrefreshableGoPaths for why a root vendor/ cannot be
+// built here; the oracle keys on the path segment either way.
+func TestWatchSession_VendoredGoEditDoesNotWedgeTheCycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real module analysis")
+	}
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	writeFileT(t, filepath.Join(root, "views", "page.gsx"),
+		"package views\n\ncomponent Page() {\n\t<p>one</p>\n}\n")
+	vendorGo := filepath.Join(root, "lib", "vendor", "example.com", "third", "party.go")
+	writeFileT(t, vendorGo, "package party\n\nfunc Value() string { return \"v1\" }\n")
+
+	sess, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("startup regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+	}
+
+	sources, err := newSourceTracker(sess.watchRoots, sess.requestedRoots, sess)
+	if err != nil {
+		t.Fatalf("newSourceTracker: %v", err)
+	}
+	dirty := newWatchDirtySet()
+	writeFileT(t, vendorGo, "package party\n\nfunc Value() int { return 2 }\n")
+	if !queueWatchSource(vendorGo, sources, dirty.dirs, &dirty.depDirty, &dirty.goDirty) {
+		t.Fatal("edited vendored .go did not queue as a watchable source event")
+	}
+	if !dirty.depDirty {
+		t.Fatal("a vendored .go edit must escalate to depDirty: the enclosing module cannot refresh a vendor dir, so the in-place path can only fail the cycle")
+	}
+
+	if _, _, err := dirty.regenerate(sess.regenPending); err != nil {
+		t.Fatalf("regenerate after a vendored .go edit: %v", err)
+	}
+	if len(dirty.dirs) != 0 || dirty.depDirty || dirty.goDirty {
+		t.Fatalf("the cycle did not commit: dirs=%v depDirty=%v goDirty=%v — a retained transaction replays and fails forever", dirty.dirs, dirty.depDirty, dirty.goDirty)
+	}
+}
+
 // TestGoEditNeedsReopen pins the escalation predicate itself, without paying
 // for a warm Module: only a dir whose owning module is NOT the session module
 // that CONTAINS it escalates. Sibling module roots are independent — an edit
@@ -157,6 +217,8 @@ func TestGoEditNeedsReopen(t *testing.T) {
 	sibling := filepath.Join(t.TempDir(), "beta")
 	writeFileT(t, filepath.Join(sibling, "go.mod"), "module example.com/beta\n\ngo 1.26.1\n")
 
+	unowned := t.TempDir() // no go.mod anywhere above it
+
 	cases := []struct {
 		name  string
 		roots []string
@@ -168,6 +230,11 @@ func TestGoEditNeedsReopen(t *testing.T) {
 		{"nested replace-target dir escalates", []string{root, nested}, nested, true},
 		{"dir below a nested module escalates", []string{root, nested}, filepath.Join(nested, "sub"), true},
 		{"sibling module dir stays warm", []string{root, sibling}, filepath.Join(sibling, "dep"), false},
+		// The ownership oracle's second boundary: no session module can
+		// refresh a vendor dir, so the in-place path has nothing to route to.
+		{"vendored dir escalates in a single-module session", []string{root}, filepath.Join(root, "vendor", "x", "y"), true},
+		{"vendored dir nested under a package escalates", []string{root}, filepath.Join(root, "lib", "vendor", "x"), true},
+		{"dir with no module above it escalates", []string{root}, unowned, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

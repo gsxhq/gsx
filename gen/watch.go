@@ -362,17 +362,20 @@ func queueWatchSource(path string, sources *sourceTracker, pending map[string]bo
 // dependent closure, suffices). A .gsx source trips neither: ordinary warm
 // regeneration already picks it up through the pending dir.
 //
-// An authored .go source whose owning module is not the session module that
-// contains it — a nested module the outer one consumes through a go.mod
-// `replace` — escalates to depDirty instead: the in-place reload can only
-// refresh the nested Module, which nothing in this session generates against.
-// See watchSession.goEditNeedsReopen.
+// An authored .go source in a directory the in-place path cannot serve —
+// a nested module the outer one consumes through a go.mod `replace`, a
+// vendored tree, anything outside every module — escalates to depDirty
+// instead. See watchSession.goEditNeedsReopen.
+//
+// The escalation probe is skipped once the cycle is already dep-dirty: the
+// answer cannot change the routing, and a bulk rewrite (a `go mod vendor`, a
+// branch switch) would otherwise pay it per file.
 func (t *sourceTracker) classifyDirtyFile(path string, depDirty, goDirty *bool) {
 	switch {
 	case isDepFile(path):
 		*depDirty = true
 	case isGoSourceFile(path):
-		if t != nil && t.session.goEditNeedsReopen(filepath.Dir(path)) {
+		if t != nil && !*depDirty && t.session.goEditNeedsReopen(filepath.Dir(path)) {
 			*depDirty = true
 			return
 		}

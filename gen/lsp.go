@@ -546,14 +546,7 @@ func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 
 	_, modules = a.mods.snapshot()
 	dirsByModule := map[*codegen.Module][]string{}
-	// Authored .go changes take exactly the .gsx route: their directory is
-	// refreshed by the same per-module RefreshDiskSourcesAndInvalidate call,
-	// which re-reads the dir's helper Go facts, marks the pending world
-	// reload, and returns the reverse closure — the `affected` set the server
-	// republishes diagnostics for. Without it a go-only helper package (the
-	// common layout) stayed stale in diagnostics, gd and hover until some
-	// unrelated event happened to reload the world.
-	for _, path := range slices.Concat(gsxPaths, goPaths) {
+	for _, path := range gsxPaths {
 		dir := filepath.Dir(path)
 		root, _, err := moduleRoot(dir)
 		if err != nil {
@@ -562,6 +555,40 @@ func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 		if module := modules[root]; module != nil {
 			dirsByModule[module] = append(dirsByModule[module], dir)
 		}
+	}
+	// Authored .go changes take exactly the .gsx route: their directory is
+	// refreshed by the same per-module RefreshDiskSourcesAndInvalidate call,
+	// which re-reads the dir's helper Go facts, marks the pending world
+	// reload, and returns the reverse closure — the `affected` set the server
+	// republishes diagnostics for. Without it a go-only helper package (the
+	// common layout) stayed stale in diagnostics, gd and hover until some
+	// unrelated event happened to reload the world.
+	//
+	// Unlike a .gsx path, a watched .go path can land somewhere no retained
+	// Module is allowed to refresh: vendor/ (an ownership boundary exactly
+	// like a nested go.mod — `go mod vendor` writes hundreds of files and no
+	// go.mod, so moduleRoot attributes them to the enclosing module) or
+	// outside every module. Those are SKIPPED, never errors: RefreshDisk
+	// returning an error makes the server disable saved-source intelligence
+	// with no path back short of a restart, and per-module batching would let
+	// one such path discard every legitimate refresh delivered with it.
+	for _, path := range goPaths {
+		dir := filepath.Dir(path)
+		root, _, err := moduleRoot(dir)
+		if err != nil {
+			continue // no module above it — nothing retained can refresh it
+		}
+		module := modules[root]
+		if module == nil {
+			continue
+		}
+		// The same oracle RefreshDiskSourcesAndInvalidate applies. A probe
+		// error leaves ownership indeterminate; skipping costs staleness for
+		// that one dir, while proceeding costs the whole disk view.
+		if owned, ownErr := sourceview.OwnsDir(root, dir); ownErr != nil || !owned {
+			continue
+		}
+		dirsByModule[module] = append(dirsByModule[module], dir)
 	}
 	for module, dirs := range dirsByModule {
 		changed, _, err := module.RefreshDiskSourcesAndInvalidate(sortedUniqueDirs(dirs)...)

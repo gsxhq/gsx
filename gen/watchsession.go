@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // cycleResult is the outcome of one generate cycle (cold startup or warm regen).
@@ -143,23 +144,43 @@ func (s *watchSession) moduleForDir(dir string) (*codegen.Module, error) {
 // an edit in module B's dir is served correctly by B's own Module, and no
 // other session module contains it.
 //
-// A session spanning a single module (the overwhelmingly common case) short
-// circuits before resolving any module root, so classification stays free of
-// filesystem work on the hot path. Nested modules are registered up front by
-// resolveWatchTargets, and a go.mod created mid-session is itself a dep file,
-// so len(s.roots) < 2 cannot hide a nested module.
+// A nested go.mod is not the only ownership boundary. sourceview's oracle also
+// rejects any path with a `vendor` segment, so a vendored .go write — one
+// `go mod vendor` produces hundreds — is attributed by moduleRoot to the
+// enclosing module that provably cannot refresh it. Routed in place, the
+// refresh returns an error, which RETAINS the dirty transaction and makes
+// every later fire replay and fail it: the session wedges until restart.
+// Consulting the same oracle the refresh will consult is the fix; a vendored
+// write is dependency-surface movement anyway, so the reopen is both correct
+// and what the pre-goDirty classification did. Discovery skips vendor
+// (gen/gen.go's skipDirs), so the reopen never visits it.
+//
+// Cost: one moduleRoot plus one ownership probe per authored .go change.
+// classifyDirtyFile skips the call entirely once the cycle is already
+// escalated, so a bulk vendor rewrite pays it once, not once per file.
 func (s *watchSession) goEditNeedsReopen(dir string) bool {
-	if s == nil || len(s.roots) < 2 {
+	if s == nil {
 		return false
 	}
 	owner, _, err := moduleRoot(dir)
 	if err != nil {
 		// dir's module boundary is unreadable — a removed tree, an unparsable
-		// go.mod. Fail closed: reopen re-resolves the whole session from disk,
-		// which is exactly the recovery an unreadable boundary needs.
+		// go.mod, a file outside every module. Fail closed: reopen re-resolves
+		// the whole session from disk, which is exactly the recovery an
+		// unreadable boundary needs, and it cannot wedge the way an in-place
+		// refresh of an unroutable dir does.
 		return true
 	}
 	owner = filepath.Clean(owner)
+	// The oracle RefreshDiskSourcesAndInvalidate itself applies. A probe error
+	// leaves ownership indeterminate, which is the same fail-closed case.
+	if owned, ownErr := sourceview.OwnsDir(owner, dir); ownErr != nil || !owned {
+		return true
+	}
+	if len(s.roots) < 2 {
+		// One module in the session: nothing else can contain dir.
+		return false
+	}
 	for _, root := range s.roots {
 		if filepath.Clean(root) != owner && pathWithinTree(root, dir) {
 			return true
