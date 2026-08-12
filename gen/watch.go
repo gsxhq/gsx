@@ -114,9 +114,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 		return 1
 	}
 	dirty.retainOperational(startup)
-	for _, r := range publishableStartupResults(startup) {
-		em.cycle(r)
-	}
+	em.cycleBatch(publishableStartupResults(startup))
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -166,9 +164,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 				em.emitError(rerr)
 				continue
 			}
-			for _, r := range results {
-				em.cycle(r)
-			}
+			em.cycleBatch(results)
 		case werr, ok := <-w.Errors:
 			if !ok || errors.Is(werr, fsnotify.ErrClosed) {
 				if werr == nil {

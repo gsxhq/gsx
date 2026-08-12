@@ -100,6 +100,62 @@ func TestEmitter_HumanLine_ReloadNote(t *testing.T) {
 	}
 }
 
+// TestEmitter_OneReloadNotePerCycle pins the cycle-scoped dedupe. A world
+// reload is module-wide, but the stamp lands per cycleResult from two
+// independent branches (regenPending's orphan-only branch and regenDirs'
+// first-generated-dir convention), so one cycle can hand the emitter several
+// Reload-carrying results — with DIFFERENT causes, since each was attributed
+// by its own refresh call. Printing all of them tells a developer the same
+// single reload happened for two mutually inconsistent reasons. Exactly one
+// note per cycle reaches the console and the NDJSON stream; the surviving one
+// is the first, matching aggregateEvent/firstReload's fold.
+func TestEmitter_OneReloadNotePerCycle(t *testing.T) {
+	t.Parallel()
+	results := []cycleResult{
+		{Dir: "/m/dep", OK: true, Reload: "changed Go source dep/dep.go"},
+		{Dir: "/m/page", OK: true, Reload: "package membership changed in dep/dep.gsx"},
+		{Dir: "/m/other", OK: true},
+	}
+
+	var out, errb bytes.Buffer
+	human := &emitter{ndjson: false, stdout: &out, stderr: &errb}
+	human.cycleBatch(results)
+	if got := strings.Count(errb.String(), "full reload:"); got != 1 {
+		t.Fatalf("human output has %d reload notes for one cycle, want exactly 1:\n%s", got, errb.String())
+	}
+	if !strings.Contains(errb.String(), "full reload: changed Go source dep/dep.go") {
+		t.Fatalf("surviving note is not the cycle's first:\n%s", errb.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	nd := &emitter{ndjson: true, stdout: &out, stderr: &errb}
+	nd.cycleBatch(results)
+	reloads := []string{}
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("non-JSON stdout line %q: %v", line, err)
+		}
+		if reload, has := ev["reload"]; has {
+			reloads = append(reloads, reload.(string))
+		}
+	}
+	if len(reloads) != 1 || reloads[0] != "changed Go source dep/dep.go" {
+		t.Fatalf("NDJSON reload fields = %v, want exactly one first-wins note", reloads)
+	}
+
+	// A later cycle is a new cycle: its own first note must print again.
+	errb.Reset()
+	human.cycleBatch([]cycleResult{{Dir: "/m/page", OK: true, Reload: "changed Go source dep/dep.go"}})
+	if got := strings.Count(errb.String(), "full reload:"); got != 1 {
+		t.Fatalf("the next cycle emitted %d reload notes, want 1:\n%s", got, errb.String())
+	}
+}
+
 func TestEmitter_NDJSON_DiagnosticsShapeMatchesRenderJSON(t *testing.T) {
 	t.Parallel()
 	d := diag.Diagnostic{Severity: diag.Error, Code: "x", Message: "boom"}

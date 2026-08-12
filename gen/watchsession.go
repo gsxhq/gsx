@@ -47,10 +47,12 @@ type cycleResult struct {
 	// its call site. These are still independent branches, not a single
 	// per-cycle gate, so one regenPending cycle CAN produce more than one
 	// Reload-carrying result for the same Module (e.g. two unrelated
-	// dependent-less leaves changing in one batch) — every consumer here
-	// folds a batch down to one note via "first non-empty wins"
-	// (aggregateEvent, firstReload), not by relying on cycleResult itself
-	// being pre-deduped.
+	// dependent-less leaves changing in one batch) — every consumer folds a
+	// batch down to one note via "first non-empty wins" (aggregateEvent and
+	// firstReload for the dev panel, emitter.cycleBatch for the watch CLI's
+	// console and NDJSON), not by relying on cycleResult itself being
+	// pre-deduped. Results are produced in sorted dir order so "first" is the
+	// same note on every run.
 	Reload string
 }
 
@@ -674,7 +676,11 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 	}
 	affected := map[string]bool{}
 	var results []cycleResult
-	for dir := range pending {
+	// Sorted, like affectedDirs below: the orphan-only branch can stamp a
+	// reload note on more than one result, and every consumer folds a batch
+	// with "first non-empty wins" — so which cause a developer is shown must
+	// not depend on map iteration order.
+	for _, dir := range sortedSet(pending) {
 		m, err := s.moduleForDir(dir)
 		if err != nil {
 			results = append(results, cycleResult{Dir: dir, Err: err})
