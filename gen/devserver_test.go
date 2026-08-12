@@ -803,6 +803,34 @@ func TestAggregateEvent(t *testing.T) {
 	}
 }
 
+// TestAggregateEventReloadFirstNonEmptyWins proves aggregateEvent surfaces a
+// "reload" field from the first result whose Reload is non-empty, and omits
+// the key entirely when every result's Reload is empty — matching the
+// per-result emitter's "omit, never render empty" contract.
+func TestAggregateEventReloadFirstNonEmptyWins(t *testing.T) {
+	results := []cycleResult{
+		{Dir: "a", OK: true},
+		{Dir: "b", OK: true, Reload: "changed Go source dep/dep.go"},
+		{Dir: "c", OK: true, Reload: "package clause changed in other/other.gsx"},
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(aggregateEvent(results), &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev["reload"] != "changed Go source dep/dep.go" {
+		t.Fatalf("reload = %v, want the first non-empty result's Reload", ev["reload"])
+	}
+
+	noReload := []cycleResult{{Dir: "a", OK: true}, {Dir: "b", OK: true}}
+	var ev2 map[string]any
+	if err := json.Unmarshal(aggregateEvent(noReload), &ev2); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := ev2["reload"]; has {
+		t.Fatalf("reload key present when every result's Reload is empty: %v", ev2)
+	}
+}
+
 // A cycle that fails with a hard operational error (r.Err set, no Diags — e.g.
 // the "imports must appear before other declarations" skeleton error that
 // Module.Generate returns as a plain error, not a parse-diagnostic) must not be

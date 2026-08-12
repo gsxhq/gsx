@@ -78,7 +78,55 @@ func inspectGsxSourceInventory(path string, source []byte, present bool) (gsxSou
 func (m *Module) RefreshDiskSources(dirs ...string) error {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
-	return m.refreshDiskSources(dirs...)
+	_, err := m.refreshDiskSources(dirs...)
+	return err
+}
+
+// RefreshVerdict reports whether a disk refresh left the Module's cold world
+// pending an in-place reload, and — when so — a deterministic attribution a
+// caller can surface to a developer. It is returned by value from the exact
+// critical section that published the refresh (see refreshVerdictLocked):
+// reading m.goSourceReload/m.sourceReloadReasons through a later, separate
+// m.mu acquisition would risk attributing a concurrent unrelated transition
+// (SetOverride/ClearOverride do not serialize against
+// RefreshDiskSourcesAndInvalidate) to this call's refresh.
+type RefreshVerdict struct {
+	WorldReloadPending bool
+	Reason             sourceview.ReloadReason // ReloadGoSource for authored Go changes
+	Path               string                  // representative file that forced the reload, module-relative; "" when unknown
+}
+
+// Describe renders the verdict as a short, human-readable reason suitable for
+// console/panel output, e.g. "changed Go source dep/dep.go" or "new import
+// outside the loaded world in page/page.gsx". It is "" when no reload is
+// pending.
+func (v RefreshVerdict) Describe() string {
+	if !v.WorldReloadPending {
+		return ""
+	}
+	switch v.Reason {
+	case sourceview.ReloadGoSource:
+		return "changed Go source " + v.Path
+	case sourceview.ReloadImports:
+		return "new import outside the loaded world in " + v.Path
+	case sourceview.ReloadMembership:
+		return "package membership changed in " + v.Path
+	case sourceview.ReloadPackage:
+		return "package clause changed in " + v.Path
+	default:
+		return ""
+	}
+}
+
+// reloadAttribution is the persisted cause of a pending Go-source world
+// reload. Unlike m.sourceReloadReasons (a live per-path map that already
+// remembers every currently-outstanding .gsx reason), m.goSourceReload is a
+// single flag with no memory of which file tripped it — so the call that
+// flips it captures the cause here for verdicts returned by later calls
+// whose own refresh found nothing new to attribute.
+type reloadAttribution struct {
+	reason sourceview.ReloadReason
+	path   string // module-relative, slash-separated; "" when unknown
 }
 
 // RefreshDiskSourcesAndInvalidate atomically refreshes the complete saved-source
@@ -86,41 +134,42 @@ func (m *Module) RefreshDiskSources(dirs ...string) error {
 // that closure while analysis is excluded. This is the LSP watched-file
 // transition: returning affected dirs from the same critical section prevents a
 // concurrent Package call from republishing facts from the pre-refresh view.
-func (m *Module) RefreshDiskSourcesAndInvalidate(dirs ...string) ([]string, error) {
+func (m *Module) RefreshDiskSourcesAndInvalidate(dirs ...string) ([]string, RefreshVerdict, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
-	if err := m.refreshDiskSources(dirs...); err != nil {
-		return nil, err
+	verdict, err := m.refreshDiskSources(dirs...)
+	if err != nil {
+		return nil, RefreshVerdict{}, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.invalidateLocked(dirs), nil
+	return m.invalidateLocked(dirs), verdict, nil
 }
 
-func (m *Module) refreshDiskSources(dirs ...string) error {
+func (m *Module) refreshDiskSources(dirs ...string) (RefreshVerdict, error) {
 	if len(dirs) == 0 {
-		return nil
+		return RefreshVerdict{}, nil
 	}
 	if m.opts.Bundle != nil || m.opts.SourceOnly {
-		return fmt.Errorf("codegen: RefreshDiskSources requires a normal source-backed Module")
+		return RefreshVerdict{}, fmt.Errorf("codegen: RefreshDiskSources requires a normal source-backed Module")
 	}
 	root := filepath.Clean(m.opts.ModuleRoot)
 	dirSet := map[string]bool{}
 	for _, dir := range dirs {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
-			return fmt.Errorf("codegen: resolve disk-source refresh directory %s: %w", dir, err)
+			return RefreshVerdict{}, fmt.Errorf("codegen: resolve disk-source refresh directory %s: %w", dir, err)
 		}
 		abs = filepath.Clean(abs)
 		if !pathWithin(root, abs) {
-			return fmt.Errorf("codegen: disk-source refresh directory %s is outside module root %s", abs, root)
+			return RefreshVerdict{}, fmt.Errorf("codegen: disk-source refresh directory %s is outside module root %s", abs, root)
 		}
 		owned, err := moduleOwnsPath(root, filepath.Join(abs, ".gsx-refresh-ownership"))
 		if err != nil {
-			return fmt.Errorf("codegen: inspect disk-source refresh ownership for %s: %w", abs, err)
+			return RefreshVerdict{}, fmt.Errorf("codegen: inspect disk-source refresh ownership for %s: %w", abs, err)
 		}
 		if !owned {
-			return fmt.Errorf("codegen: disk-source refresh directory %s is not owned by module root %s", abs, root)
+			return RefreshVerdict{}, fmt.Errorf("codegen: disk-source refresh directory %s is not owned by module root %s", abs, root)
 		}
 		dirSet[abs] = true
 	}
@@ -151,12 +200,12 @@ func (m *Module) refreshDiskSources(dirs ...string) error {
 			})
 		}
 		if err != nil {
-			return fmt.Errorf("codegen: refresh saved source manifest: %w", err)
+			return RefreshVerdict{}, fmt.Errorf("codegen: refresh saved source manifest: %w", err)
 		}
 		if len(savedFiles) != 0 {
 			base, err = base.WithFileSnapshots(savedFiles)
 			if err != nil {
-				return fmt.Errorf("codegen: apply captured saved source before refresh: %w", err)
+				return RefreshVerdict{}, fmt.Errorf("codegen: apply captured saved source before refresh: %w", err)
 			}
 		}
 		orderedDirs := make([]string, 0, len(dirSet))
@@ -166,11 +215,11 @@ func (m *Module) refreshDiskSources(dirs ...string) error {
 		sort.Strings(orderedDirs)
 		refreshed, err := base.RefreshDirs(orderedDirs)
 		if err != nil {
-			return fmt.Errorf("codegen: refresh saved source manifest: %w", err)
+			return RefreshVerdict{}, fmt.Errorf("codegen: refresh saved source manifest: %w", err)
 		}
 		effective, err := refreshed.WithOverrides(allOverrides)
 		if err != nil {
-			return fmt.Errorf("codegen: apply overrides to refreshed source manifest: %w", err)
+			return RefreshVerdict{}, fmt.Errorf("codegen: apply overrides to refreshed source manifest: %w", err)
 		}
 		viewErr := effective.CheckReadable()
 		newFacts := sourceInventoryFactsForDirs(effective.Facts(), dirSet)
@@ -201,6 +250,16 @@ func (m *Module) refreshDiskSources(dirs ...string) error {
 		// sourceManifest so a helper-only disk event can stay warm without leaving
 		// direct generation on stale names.
 		m.helperGoSourceManifest = effective
+		// Disk counterpart of the override rule at module.go:443-445: a changed or
+		// added/removed authored .go file invalidates the retained cold world's
+		// types, which only an inventory reload can refresh. Paired generated
+		// outputs are excluded — the session's own .x.go writes must never reload.
+		goChanged, goChangedPath := goSourceChangedInDirs(saved, refreshed, dirSet)
+		if goChanged {
+			m.sourceManifestEpoch++
+			m.goSourceReload = true
+			m.sourceInventoryDirty = true
+		}
 		for path := range m.savedFileSnapshots {
 			if dirSet[filepath.Dir(path)] {
 				delete(m.savedFileSnapshots, path)
@@ -221,12 +280,117 @@ func (m *Module) refreshDiskSources(dirs ...string) error {
 			fact, present := newFacts[path]
 			m.updateSourceReloadReasonLocked(path, fact, present)
 		}
+		// Computed here, under the same m.mu section that just published the
+		// refresh: a caller-visible read via a later, separate Lock could
+		// observe an interleaved SetOverride/ClearOverride's transition
+		// instead of (or in addition to) this call's own.
+		verdict := m.refreshVerdictLocked(goChanged, goChangedPath)
 		m.mu.Unlock()
 		if viewErr != nil {
-			return fmt.Errorf("codegen: refreshed saved source view: %w", viewErr)
+			return RefreshVerdict{}, fmt.Errorf("codegen: refreshed saved source view: %w", viewErr)
 		}
-		return nil
+		return verdict, nil
 	}
+}
+
+// refreshVerdictLocked computes the world-reload verdict for a refresh this
+// call just published. Must be called with m.mu held, after
+// updateSourceReloadReasonLocked has folded in every path this call touched,
+// so both goSourceReload and sourceReloadReasons reflect this call's result.
+//
+// Attribution is deterministic: a Go-source diff found by THIS call always
+// wins (freshest and most specific), then the lexicographically-first
+// currently-outstanding .gsx reload reason (sourceReloadReasons is a live
+// map covering the whole Module, not just this call's dirs, so an earlier
+// call's entry for an untouched dir still surfaces here — the row-7
+// persistence case). Only when goSourceReload is pending purely from an
+// earlier call, with no current .gsx reason to explain it, does this fall
+// back to the persisted m.reloadAttribution: goSourceReload itself is a
+// single flag with no memory of which file tripped it.
+func (m *Module) refreshVerdictLocked(goChanged bool, goChangedPath string) RefreshVerdict {
+	verdict := RefreshVerdict{WorldReloadPending: m.goSourceReload || len(m.sourceReloadReasons) != 0}
+	if !verdict.WorldReloadPending {
+		return verdict
+	}
+	switch {
+	case goChanged:
+		verdict.Reason = sourceview.ReloadGoSource
+		verdict.Path = reloadDescriptionPath(m.opts.ModuleRoot, goChangedPath)
+		m.reloadAttribution = reloadAttribution{reason: verdict.Reason, path: verdict.Path}
+	case len(m.sourceReloadReasons) != 0:
+		reason, path := firstSourceReloadReason(m.sourceReloadReasons)
+		verdict.Reason = reason
+		verdict.Path = reloadDescriptionPath(m.opts.ModuleRoot, path)
+	default:
+		verdict.Reason = m.reloadAttribution.reason
+		verdict.Path = m.reloadAttribution.path
+	}
+	return verdict
+}
+
+// firstSourceReloadReason returns the lexicographically-first path in
+// reasons and its reason, for deterministic verdict attribution when more
+// than one .gsx file is currently outstanding.
+func firstSourceReloadReason(reasons map[string]sourceview.ReloadReason) (sourceview.ReloadReason, string) {
+	paths := make([]string, 0, len(reasons))
+	for path := range reasons {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	path := paths[0]
+	return reasons[path], path
+}
+
+// reloadDescriptionPath renders an absolute path relative to the module root
+// for verdict attribution text, matching the display form used elsewhere
+// (e.g. module_importer.go's import-path derivation). Falls back to the raw
+// path when it cannot be made relative, which should not happen for a
+// module-owned path.
+func reloadDescriptionPath(moduleRoot, absPath string) string {
+	if absPath == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(moduleRoot, absPath)
+	if err != nil {
+		return absPath
+	}
+	return filepath.ToSlash(rel)
+}
+
+// goSourceChangedInDirs reports whether any authored .go snapshot in dirs
+// differs between two manifests, and when so, the lexicographically-first
+// differing absolute path — the verdict's deterministic attribution when a
+// refresh touches more than one changed file. nil old means first
+// publication: nothing was retained yet, so nothing can be stale.
+//
+// Per-dir comparison goes through Manifest.HelperGoFilesDiff, the non-copying
+// counterpart of HelperGoFiles: it compares retained state and source bytes
+// by identity-then-equal instead of cloning every candidate snapshot (map
+// entries via HelperGoFiles, then byte slices via FileSnapshot.Source) only
+// to discard the copies here.
+func goSourceChangedInDirs(old, new *sourceview.Manifest, dirs map[string]bool) (bool, string) {
+	if old == nil {
+		return false, ""
+	}
+	paired := func(m *sourceview.Manifest) map[string]bool {
+		out := map[string]bool{}
+		for _, p := range m.PairedOutputs() {
+			if dirs[filepath.Dir(p)] {
+				out[p] = true
+			}
+		}
+		return out
+	}
+	oldPaired, newPaired := paired(old), paired(new)
+	var changed []string
+	for dir := range dirs {
+		changed = append(changed, old.HelperGoFilesDiff(new, dir, oldPaired, newPaired)...)
+	}
+	if len(changed) == 0 {
+		return false, ""
+	}
+	sort.Strings(changed)
+	return true, changed[0]
 }
 
 func cloneSourceOverrides(overrides map[string][]byte) map[string][]byte {

@@ -478,8 +478,27 @@ func aggregateEvent(results []cycleResult) []byte {
 		"removed":     removed,
 		"diagnostics": diags,
 	}
+	// firstReload's empty-string return omits the key entirely — never a
+	// rendered empty reason (see cycleResult.Reload's doc).
+	if reload := firstReload(results); reload != "" {
+		ev["reload"] = reload
+	}
 	b, _ := json.Marshal(ev)
 	return b
+}
+
+// firstReload returns the first non-empty cycleResult.Reload across results,
+// "" if none. A batch's world-reload reason is module-wide, not per-dir (see
+// regenDirs' stamping convention), so at most one result in a batch normally
+// carries a non-empty Reload — but "first non-empty" stays correct even for a
+// batch spanning multiple modules, each of which stamps independently.
+func firstReload(results []cycleResult) string {
+	for _, r := range results {
+		if r.Reload != "" {
+			return r.Reload
+		}
+	}
+	return ""
 }
 
 // reportHardErrors echoes each cycle's hard operational error (Err set with no

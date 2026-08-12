@@ -106,7 +106,7 @@ func TestRefreshDiskSourcesAndInvalidateIsOneExactAnalysisTransition(t *testing.
 	if err := os.WriteFile(filepath.Join(utilDir, "util.gsx"), []byte("package util\ncomponent Y(label string) { <strong>{label}</strong> }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	affected, err := m.RefreshDiskSourcesAndInvalidate(utilDir)
+	affected, _, err := m.RefreshDiskSourcesAndInvalidate(utilDir)
 	if err != nil {
 		t.Fatal(err)
 	}

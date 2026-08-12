@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // cycleResult is the outcome of one generate cycle (cold startup or warm regen).
@@ -29,6 +30,31 @@ type cycleResult struct {
 	OK      bool
 	Err     error
 	DurMs   int64
+	// Reload is the human-readable reason (codegen.RefreshVerdict.Describe())
+	// this cycle required a full in-place world reload, e.g. "changed Go
+	// source dep/dep.go". Empty when the cycle stayed warm — never a rendered
+	// empty reason (RefreshVerdict.Describe() can itself return "" for a
+	// pending-but-unattributed reload; consumers must treat that as "no
+	// note", same as this field's own zero value). Reload is module-wide, not
+	// per-dir: regenDirs stamps only its own first generated result per
+	// Module per regenDirs call (reusing its chargedRefresh convention).
+	// regenPending's orphan-only branch stamps its own lone result ONLY when
+	// dir has no dependent at all (a true go-only leaf, e.g. an unreferenced
+	// cmd/ package) — that dir never reaches regenDirs (affected stays empty
+	// for it), so its own branch is the sole place its cause can surface; a
+	// dir WITH a dependent leaves its own result unstamped (or unproduced,
+	// when nothing was removed) since the dependent's own regenDirs call
+	// independently recomputes and stamps the SAME module-wide verdict — see
+	// its call site. These are still independent branches, not a single
+	// per-cycle gate, so one regenPending cycle CAN produce more than one
+	// Reload-carrying result for the same Module (e.g. two unrelated
+	// dependent-less leaves changing in one batch) — every consumer folds a
+	// batch down to one note via "first non-empty wins" (aggregateEvent and
+	// firstReload for the dev panel, emitter.cycleBatch for the watch CLI's
+	// console and NDJSON), not by relying on cycleResult itself being
+	// pre-deduped. Results are produced in sorted dir order so "first" is the
+	// same note on every run.
+	Reload string
 }
 
 func (r cycleResult) durationMs() int64 { return r.DurMs }
@@ -91,6 +117,76 @@ func (s *watchSession) moduleForDir(dir string) (*codegen.Module, error) {
 		sort.Strings(s.roots)
 	}
 	return s.modules[root], nil
+}
+
+// goEditNeedsReopen reports whether an authored .go change in dir must escalate
+// to a full session reopen instead of the in-place, closure-scoped goDirty
+// regeneration.
+//
+// The in-place path refreshes exactly ONE Module: the one moduleForDir picks,
+// rooted at dir's NEAREST go.mod. That is the whole story while dir belongs to
+// the session module whose tree contains it. It is not when dir belongs to a
+// module NESTED inside another session module — the layout a go.mod
+// `replace example.com/x => ./x` produces. There the refresh lands on the
+// nested Module, which nothing in the session generates against, while the
+// consuming outer module structurally cannot observe the change: sourceview's
+// walk stops at every nested go.mod, and RefreshDiskSourcesAndInvalidate
+// rejects a dir the outer root does not own. Its dependents would keep
+// generating against pre-edit types — silently wrong output, not a build
+// error (a string→int signature keeps `Text(string(...))` compiling). Reopen
+// instead: it rebuilds every session module from current disk, which is what
+// the classification did for every .go edit before the goDirty split.
+//
+// Escalation is deliberately keyed on containment, not on parsing replace
+// directives: an in-tree nested module is precisely the shape a directory
+// replace produces, and a nested module the outer one does NOT consume costs
+// only the reopen it always used to pay. Sibling module roots never escalate —
+// an edit in module B's dir is served correctly by B's own Module, and no
+// other session module contains it.
+//
+// A nested go.mod is not the only ownership boundary. sourceview's oracle also
+// rejects any path with a `vendor` segment, so a vendored .go write — one
+// `go mod vendor` produces hundreds — is attributed by moduleRoot to the
+// enclosing module that provably cannot refresh it. Routed in place, the
+// refresh returns an error, which RETAINS the dirty transaction and makes
+// every later fire replay and fail it: the session wedges until restart.
+// Consulting the same oracle the refresh will consult is the fix; a vendored
+// write is dependency-surface movement anyway, so the reopen is both correct
+// and what the pre-goDirty classification did. Discovery skips vendor
+// (gen/gen.go's skipDirs), so the reopen never visits it.
+//
+// Cost: one moduleRoot plus one ownership probe per authored .go change.
+// classifyDirtyFile skips the call entirely once the cycle is already
+// escalated, so a bulk vendor rewrite pays it once, not once per file.
+func (s *watchSession) goEditNeedsReopen(dir string) bool {
+	if s == nil {
+		return false
+	}
+	owner, _, err := moduleRoot(dir)
+	if err != nil {
+		// dir's module boundary is unreadable — a removed tree, an unparsable
+		// go.mod, a file outside every module. Fail closed: reopen re-resolves
+		// the whole session from disk, which is exactly the recovery an
+		// unreadable boundary needs, and it cannot wedge the way an in-place
+		// refresh of an unroutable dir does.
+		return true
+	}
+	owner = filepath.Clean(owner)
+	// The oracle RefreshDiskSourcesAndInvalidate itself applies. A probe error
+	// leaves ownership indeterminate, which is the same fail-closed case.
+	if owned, ownErr := sourceview.OwnsDir(owner, dir); ownErr != nil || !owned {
+		return true
+	}
+	if len(s.roots) < 2 {
+		// One module in the session: nothing else can contain dir.
+		return false
+	}
+	for _, root := range s.roots {
+		if filepath.Clean(root) != owner && pathWithinTree(root, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // prepareWatchSession resolves the structural observation roots and opens one
@@ -452,13 +548,22 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		batchDirs[m] = append(batchDirs[m], dir)
 	}
 	refreshMs := make(map[*codegen.Module]int64, len(batchOrder))
+	// moduleReload holds each module's world-reload verdict description for
+	// this cycle ("" when no reload is pending). The batch call's own verdict
+	// wins outright; a fallback per-dir retry keeps the first non-empty
+	// Describe() it sees, since a Module-wide pending reload can be
+	// attributed by an earlier dir's own scoped diff and only echoed via
+	// persisted attribution by a later dir's call (see refreshVerdictLocked's
+	// three-way fallback in RefreshDiskSourcesAndInvalidate's doc).
+	moduleReload := make(map[*codegen.Module]string, len(batchOrder))
 	dirErr := map[string]error{}
 	dirErrMs := map[string]int64{}
 	for _, m := range batchOrder {
 		t := time.Now()
-		_, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
+		_, verdict, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
 		refreshMs[m] = time.Since(t).Milliseconds()
 		if err == nil {
+			moduleReload[m] = verdict.Describe()
 			continue
 		}
 		// The batch refresh is all-or-nothing (atomic, no partial state), so
@@ -472,8 +577,11 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		refreshMs[m] = 0 // per-dir retries carry their own timing below
 		for _, dir := range batchDirs[m] {
 			dt := time.Now()
-			if _, derr := m.RefreshDiskSourcesAndInvalidate(dir); derr != nil {
+			_, dirVerdict, derr := m.RefreshDiskSourcesAndInvalidate(dir)
+			if derr != nil {
 				dirErr[dir] = derr
+			} else if moduleReload[m] == "" {
+				moduleReload[m] = dirVerdict.Describe()
 			}
 			dirErrMs[dir] = time.Since(dt).Milliseconds()
 		}
@@ -497,6 +605,10 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		if !chargedRefresh[m] {
 			chargedRefresh[m] = true
 			results[i].DurMs += refreshMs[m]
+			// Same "first result of the cycle" convention as the refresh-time
+			// charge above: the reload note is module-wide, not per-dir, so it
+			// lands on exactly one result per module per cycle.
+			results[i].Reload = moduleReload[m]
 		}
 	}
 	return results
@@ -585,7 +697,11 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 	}
 	affected := map[string]bool{}
 	var results []cycleResult
-	for dir := range pending {
+	// Sorted, like affectedDirs below: the orphan-only branch can stamp a
+	// reload note on more than one result, and every consumer folds a batch
+	// with "first non-empty wins" — so which cause a developer is shown must
+	// not depend on map iteration order.
+	for _, dir := range sortedSet(pending) {
 		m, err := s.moduleForDir(dir)
 		if err != nil {
 			results = append(results, cycleResult{Dir: dir, Err: err})
@@ -595,17 +711,27 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 		// directory source view before ordinary graph invalidation. The Module
 		// decides from parsed package/import facts whether this stays warm or
 		// requires an atomic source-inventory reload; watch does not guess from
-		// fsnotify operation kinds.
-		if err := m.RefreshDiskSources(dir); err != nil {
+		// fsnotify operation kinds. Refresh and invalidate run as the one atomic
+		// RefreshDiskSourcesAndInvalidate call (not separate RefreshDiskSources +
+		// Invalidate calls) per RefreshDiskSources' own doc: a caller that also
+		// needs invalidation must use the combined form so no analysis can
+		// observe refreshed saved bytes through stale retained facts; it also
+		// surfaces the refresh's RefreshVerdict for the orphan-only branch below,
+		// which produces a cycleResult of its own and would otherwise carry no
+		// reload attribution (a non-empty dir's own reload note is captured by
+		// the later regenDirs(affectedDirs) call instead).
+		_, verdict, err := m.RefreshDiskSourcesAndInvalidate(dir)
+		if err != nil {
 			return results, fmt.Errorf("refresh saved GSX sources in %s: %w", dir, err)
 		}
-		m.Invalidate(dir)
 		empty := onlyGeneratedRemains(dir)
+		hasDependent := false
 		for _, dep := range m.Dependents(dir) {
 			if empty && dep == dir {
 				continue
 			}
 			affected[dep] = true
+			hasDependent = true
 		}
 		if empty {
 			// Nothing left to regenerate in dir, but a .gsx that used to live
@@ -618,8 +744,24 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 				results = append(results, cycleResult{Dir: dir, Err: rerr})
 				continue
 			}
-			if len(removed) > 0 {
-				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true})
+			// A dir can reach here with nothing removed at all: a .gsx-free
+			// package (e.g. a cmd/ leaf nothing imports) whose .go file just
+			// changed is "empty" (onlyGeneratedRemains doesn't require a
+			// leftover .x.go). When it ALSO has no dependents (hasDependent is
+			// false), nothing else in this cycle will ever carry its reload
+			// cause forward — affected stays empty for it, so it never reaches
+			// regenDirs. Stamp this dir's own lone result in exactly that case.
+			// When a dependent DOES exist, leave a nothing-removed result
+			// unproduced here: the dependent's own regenDirs call independently
+			// recomputes (and stamps) the SAME module-wide verdict, and adding
+			// a second, phantom "regenerated nothing" result for dir here would
+			// both duplicate the note and violate "one cycleResult per dir that
+			// actually did something" (see TestWatchSession_GoEditRegeneratesOnlyDependents,
+			// which asserts dep contributes no cycleResult when page, its
+			// dependent, carries the note instead).
+			reload := verdict.Describe()
+			if len(removed) > 0 || (reload != "" && !hasDependent) {
+				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true, Reload: reload})
 			}
 			continue
 		}

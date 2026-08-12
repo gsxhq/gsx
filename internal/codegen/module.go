@@ -209,6 +209,7 @@ type Module struct {
 	sourceInventoryReady      bool                                // distinguishes an authoritative empty selection from Bundle/uninitialized mode
 	sourceInventoryDirty      bool                                // source selection or an unpublished import changed; rebuild before the next analysis
 	goSourceReload            bool                                // an effective Go override transition requires the authoritative cold overlay to reload
+	reloadAttribution         reloadAttribution                   // persisted cause of a pending Go-source reload; goSourceReload has no per-path memory of its own. Cleared alongside goSourceReload (module.go landing sites)
 	extLoads                  int                                 // count of external packages.Load calls (observability; test hook)
 	funcTbl                   funcTables                          // lazily built filter-only fmt table (see cachedFuncTables)
 	funcTblErr                error                               // error from the func-tables load (cached alongside funcTbl)
@@ -821,6 +822,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		m.sourceInventoryReady = true
 		m.sourceInventoryDirty = false
 		m.goSourceReload = false
+		m.reloadAttribution = reloadAttribution{}
 		m.fsetBaseline = fset.Base()
 		m.mu.Unlock()
 		// Return the local, not m.ext: a concurrent rebuildFset (which nils m.ext
@@ -1273,6 +1275,7 @@ func (m *Module) rebuildFset() {
 	m.sourceInventoryReady = false
 	m.sourceInventoryDirty = false
 	m.goSourceReload = false
+	m.reloadAttribution = reloadAttribution{}
 	m.funcTbl, m.funcTblErr, m.funcTblDone = funcTables{}, nil, false
 	m.rendererPkgs, m.rendererLocal = nil, nil
 	m.rendererPkgsErr, m.rendererPkgsDone = nil, false

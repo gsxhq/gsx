@@ -216,11 +216,45 @@ func TestInitializedRegistersExactWatchedFileSurfaceWhenSupported(t *testing.T) 
 	for _, watcher := range wire.Registrations[0].RegisterOptions.Watchers {
 		got = append(got, watcher.GlobPattern)
 	}
-	want := []string{"**/*.gsx", "**/go.mod", "**/go.work", "**/gsx.toml"}
+	want := []string{"**/*.go", "**/*.gsx", "**/go.mod", "**/go.work", "**/gsx.toml"}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("watch globs = %v, want %v", got, want)
+	}
+}
+
+// TestWatchedFileRelevantAcceptsAuthoredGo pins the delivery filter for the
+// **/*.go watcher. Authored Go participates in the analyzed dependency
+// surface, so a saved .go change must reach the analyzer's disk refresh; the
+// one exclusion is a generated output whose exact same-base .gsx sibling
+// exists, which is gsx's own write and would otherwise reload the world on
+// every generate cycle. An unpaired .x.go is authored Go like any other.
+func TestWatchedFileRelevantAcceptsAuthoredGo(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	write("page.gsx")
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{write("dep.go"), true},
+		{write("helper.x.go"), true}, // unpaired: authored Go
+		{write("page.x.go"), false},  // paired with page.gsx: generated output
+		{filepath.Join(dir, "page.gsx"), true},
+		{filepath.Join(dir, "go.mod"), true},
+		{filepath.Join(dir, "README.md"), false},
+	}
+	for _, c := range cases {
+		if got := watchedFileRelevant(c.path); got != c.want {
+			t.Errorf("watchedFileRelevant(%q) = %v, want %v", c.path, got, c.want)
+		}
 	}
 }
 

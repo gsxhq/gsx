@@ -14,7 +14,7 @@ func TestSourceTrackerAuthoritativeReconcileFindsMissedChanges(t *testing.T) {
 	removed := filepath.Join(root, "model", "model.go")
 	writeTestFile(t, changed, "package ui\n")
 	writeTestFile(t, removed, "package model\n")
-	tracker, err := newSourceTracker([]string{root}, nil)
+	tracker, err := newSourceTracker([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,23 +25,32 @@ func TestSourceTrackerAuthoritativeReconcileFindsMissedChanges(t *testing.T) {
 	}
 	pending := map[string]bool{}
 	depDirty := false
-	changedAny, err := tracker.reconcile([]string{root}, pending, &depDirty)
+	goDirty := false
+	changedAny, err := tracker.reconcile([]string{root}, pending, &depDirty, &goDirty)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !changedAny || !pending[filepath.Dir(changed)] || !pending[filepath.Dir(removed)] {
 		t.Fatalf("reconciled pending = %v, changed = %v", pending, changedAny)
 	}
-	if !depDirty {
-		t.Fatal("missed authored Go removal did not invalidate dependency state")
+	// removed is a plain .go file (not go.mod/go.sum): its loss regenerates
+	// the dependent closure in place, so it must set goDirty — NOT depDirty,
+	// which is reserved for module dependency-surface files that require a
+	// full session reopen.
+	if depDirty {
+		t.Fatal("missed authored Go removal incorrectly set depDirty")
+	}
+	if !goDirty {
+		t.Fatal("missed authored Go removal did not set goDirty")
 	}
 
 	// The tracker commits the authoritative scan, so repeating it is a no-op.
 	pending = map[string]bool{}
 	depDirty = false
-	changedAny, err = tracker.reconcile([]string{root}, pending, &depDirty)
-	if err != nil || changedAny || len(pending) != 0 || depDirty {
-		t.Fatalf("second reconcile = (%v, %v, %v, %v), want no-op", changedAny, pending, depDirty, err)
+	goDirty = false
+	changedAny, err = tracker.reconcile([]string{root}, pending, &depDirty, &goDirty)
+	if err != nil || changedAny || len(pending) != 0 || depDirty || goDirty {
+		t.Fatalf("second reconcile = (%v, %v, %v, %v, %v), want no-op", changedAny, pending, depDirty, goDirty, err)
 	}
 }
 
@@ -59,7 +68,7 @@ func TestExplicitExcludedRootRecreationIsRearmedAndInventoried(t *testing.T) {
 	if err := addWatchTree(watcher, []string{module, explicit}); err != nil {
 		t.Fatal(err)
 	}
-	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit})
+	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +83,8 @@ func TestExplicitExcludedRootRecreationIsRearmedAndInventoried(t *testing.T) {
 
 	pending := map[string]bool{}
 	depDirty := false
-	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: explicit, Op: fsnotify.Create}, tracker, pending, &depDirty)
+	goDirty := false
+	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: explicit, Op: fsnotify.Create}, tracker, pending, &depDirty, &goDirty)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +108,7 @@ func TestExplicitRootBelowExcludedAncestorRearmsAcrossAncestorRecreation(t *test
 	if err := addWatchTree(watcher, []string{module, explicit}); err != nil {
 		t.Fatal(err)
 	}
-	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit})
+	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +121,8 @@ func TestExplicitRootBelowExcludedAncestorRearmsAcrossAncestorRecreation(t *test
 	}
 	pending := map[string]bool{}
 	depDirty := false
-	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Remove}, tracker, pending, &depDirty)
+	goDirty := false
+	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Remove}, tracker, pending, &depDirty, &goDirty)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +131,7 @@ func TestExplicitRootBelowExcludedAncestorRearmsAcrossAncestorRecreation(t *test
 	}
 
 	writeTestFile(t, source, "package selected\n// recreated\n")
-	changed, err = applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Create}, tracker, pending, &depDirty)
+	changed, err = applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Create}, tracker, pending, &depDirty, &goDirty)
 	if err != nil {
 		t.Fatal(err)
 	}

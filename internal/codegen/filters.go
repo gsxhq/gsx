@@ -272,7 +272,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 			packages.NeedImports | packages.NeedDeps,
 		Dir: dir,
 	}
-	pkgs, err := packages.Load(cfg, aliasPaths...)
+	pkgs, err := loadPackages(cfg, aliasPaths...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("codegen: load filter packages: %w", err)
 	}

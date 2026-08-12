@@ -43,6 +43,11 @@ type cycleStat struct {
 	// recorded start, or the initial-build path's own start, to this
 	// terminal post), for the panel's "last: 2m10s" expectation-setting.
 	DurationMs int64 `json:"durationMs"`
+	// Reload is the human-readable reason (codegen.RefreshVerdict.Describe(),
+	// via firstReload) this cycle required a full in-place world reload, e.g.
+	// "changed Go source dep/dep.go". Omitted when the cycle stayed warm —
+	// never a rendered empty reason.
+	Reload string `json:"reload,omitempty"`
 }
 
 type frontStat struct {

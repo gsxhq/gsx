@@ -80,6 +80,22 @@ func (w *sharedWorld) fresh() bool {
 
 var sharedWorldIneligible, sharedWorldFellBack, sharedWorldFast atomic.Int64
 
+// projectLoads counts every packages.Load call issued by this process from
+// anywhere in internal/codegen. It is incremented in exactly one place —
+// loadPackages, the package's sole caller of packages.Load — so a new load
+// site cannot forget it (see loadpackages.go and
+// TestProjectLoadsHasOneLoadSite). One counter across every call site because
+// the invariant it pins is process-wide: "how many go-list loads did this
+// process issue," not which call site issued them.
+// Tests use it to pin the go-list call budget of warm edit cycles — a `.go`
+// edit must trigger a small, dir-count-independent number of loads, not one
+// per directory. See TestWatchSession_EditLoadBudget.
+var projectLoads atomic.Uint64
+
+// ProjectLoadCalls returns the process-wide count of packages.Load
+// invocations issued by internal/codegen.
+func ProjectLoadCalls() uint64 { return projectLoads.Load() }
+
 // sharedWorlds is deliberately unbounded and never evicted: keys are one per
 // distinct (origin, env, toolchain) closure, which a CLI or test process holds
 // one or two of, and a long-lived LSP holds one per open project. Duplicate
@@ -212,7 +228,7 @@ const projectLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCo
 func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]*packages.Package, error) {
 	if !m.sharedWorldEligible() {
 		sharedWorldIneligible.Add(1)
-		return packages.Load(cfg, loadPaths...)
+		return loadPackages(cfg, loadPaths...)
 	}
 	sharedPaths := []string{gsxRuntimeImportPath, stdImportPath}
 	shared := map[string]bool{gsxRuntimeImportPath: true, stdImportPath: true}
@@ -236,7 +252,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 
 	projectCfg := *cfg
 	projectCfg.Mode = projectLoadMode
-	pkgs, err := packages.Load(&projectCfg, projectPaths...)
+	pkgs, err := loadPackages(&projectCfg, projectPaths...)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +295,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 			continue
 		}
 		sharedWorldFellBack.Add(1)
-		return packages.Load(cfg, loadPaths...)
+		return loadPackages(cfg, loadPaths...)
 	}
 	for _, p := range pkgs {
 		if p == nil {
@@ -288,7 +304,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		for importPath := range p.Imports {
 			if world.types[importPath] == nil && !mainModule[importPath] {
 				sharedWorldFellBack.Add(1)
-				return packages.Load(cfg, loadPaths...)
+				return loadPackages(cfg, loadPaths...)
 			}
 		}
 	}
@@ -321,7 +337,7 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 
 	loadCfg := *cfg
 	loadCfg.Fset = fset
-	pkgs, err := packages.Load(&loadCfg, loadPaths...)
+	pkgs, err := loadPackages(&loadCfg, loadPaths...)
 	externalClosureLoads.Add(1)
 	if err != nil {
 		return nil, err

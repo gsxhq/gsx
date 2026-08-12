@@ -795,6 +795,14 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   (~70–100×). Rebuilds the resolver
   on `.go`/go.mod changes; pure `.gsx` edits take the fast path. Slice 2 (fine-grained
   per-package invalidation) is deferred - the measured warm time made it unnecessary.
+- [x] **Warm `.go`-edit dev cycles** (2026-08-12, Phase 1,
+  `2026-08-12-warm-go-edit-watch-design.md`) - a `.go` save regenerates only the
+  dependent package closure and does one in-place world reload instead of
+  reopening the whole session; the reason surfaces in the console and dev panel
+  (`full reload: changed Go source …`).
+- [ ] **Cheap world reload** (Phase 2) - extend world sharing to the full
+  external closure (keyed by go.mod/go.sum + replace-dirs + vendor mode) so the
+  reload itself gets cheaper, not just narrower.
 - [x] **`@gsxhq/vite-plugin-gsx`** (npm **v0.4.5**, `~/personal/gsxhq/vite-plugin-gsx`) -
   receives generation/build events from `gsx dev`, surfaces diagnostics in the
   Vite error overlay (auto-clears on recovery), and full-reloads after the server

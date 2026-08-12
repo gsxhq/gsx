@@ -140,7 +140,31 @@ const (
 	ReloadMembership
 	ReloadPackage
 	ReloadImports
+	// ReloadGoSource marks an authored .go content or membership change
+	// (codegen's disk-refresh counterpart to the reasons above, which are
+	// derived from .gsx package/import facts only). Appended last so existing
+	// numeric values never renumber.
+	ReloadGoSource
 )
+
+// String renders the reason for diagnostics, logs, and dev-loop console
+// output.
+func (r ReloadReason) String() string {
+	switch r {
+	case ReloadNone:
+		return "none"
+	case ReloadMembership:
+		return "membership"
+	case ReloadPackage:
+		return "package"
+	case ReloadImports:
+		return "imports"
+	case ReloadGoSource:
+		return "go-source"
+	default:
+		return "unknown"
+	}
+}
 
 // ReloadReasonFor compares a current per-path fact to its immutable published
 // baseline. An authored import addition needs no rebuild when the published
@@ -188,6 +212,13 @@ type Manifest struct {
 	loadRoots     []string
 	trackedFiles  map[string]FileSnapshot
 	helperGoFiles map[string]FileSnapshot
+	// helperGoFilesByDir indexes helperGoFiles by each entry's canonical
+	// directory. Built once in newManifest (the single construction site
+	// shared by Build/RefreshDirs/WithFileSnapshots/WithOverrides) and never
+	// mutated afterwards, so HelperGoFiles(dir) is an O(dir-entries) map read
+	// instead of a module-wide scan with a canonicalPath/EvalSymlinks call per
+	// entry. See TestHelperGoFilesIsIndexedByDir.
+	helperGoFilesByDir map[string]map[string]FileSnapshot
 }
 
 // Build constructs the complete owned GSX manifest once. It snapshots owned Go
@@ -347,6 +378,27 @@ func newManifest(prev *Manifest, moduleRoot, physicalRoot, modulePath string, so
 	}
 	if manifest.helperGoFiles == nil {
 		manifest.helperGoFiles = map[string]FileSnapshot{}
+	}
+	// Index once, here, rather than per HelperGoFiles call: canonicalPath is
+	// memoized per distinct raw directory (many helper files typically share
+	// one package directory), so this pass costs O(distinct dirs), not
+	// O(files), canonicalPath calls — and it is paid once per manifest
+	// construction rather than once per (dir, HelperGoFiles-call) pair.
+	manifest.helperGoFilesByDir = make(map[string]map[string]FileSnapshot, len(manifest.helperGoFiles))
+	canonicalRawDir := make(map[string]string, len(manifest.helperGoFiles))
+	for path, snapshot := range manifest.helperGoFiles {
+		rawDir := filepath.Dir(path)
+		canonicalDir, ok := canonicalRawDir[rawDir]
+		if !ok {
+			canonicalDir = canonicalPath(rawDir)
+			canonicalRawDir[rawDir] = canonicalDir
+		}
+		bucket := manifest.helperGoFilesByDir[canonicalDir]
+		if bucket == nil {
+			bucket = make(map[string]FileSnapshot)
+			manifest.helperGoFilesByDir[canonicalDir] = bucket
+		}
+		bucket[path] = snapshot
 	}
 	for path, snapshot := range manifest.trackedFiles {
 		if strings.HasSuffix(path, ".go") {
@@ -675,6 +727,16 @@ var inspectCalls atomic.Uint64
 // InspectCalls returns the process-wide count of Inspect invocations.
 func InspectCalls() uint64 { return inspectCalls.Load() }
 
+// canonicalPathCalls counts canonicalPath invocations process-wide. Tests use
+// it to pin the per-dir complexity of directory-keyed accessors such as
+// HelperGoFiles: a per-dir lookup must canonicalize O(1) query directories,
+// not O(module files) entries per call. See TestHelperGoFilesIsIndexedByDir.
+var canonicalPathCalls atomic.Uint64
+
+// CanonicalPathCalls returns the process-wide count of canonicalPath
+// invocations (each of which may perform a filepath.EvalSymlinks syscall).
+func CanonicalPathCalls() uint64 { return canonicalPathCalls.Load() }
+
 // Inspect extracts the dependency-surface fact for source. A malformed file
 // retains any recoverable package clause but publishes no guessed import edge.
 func Inspect(path string, source []byte, present bool) FileFact {
@@ -779,13 +841,52 @@ func (manifest *Manifest) FileSnapshot(path string) (FileSnapshot, bool) {
 // compilation and therefore remains separate from PackagesOverlay.
 func (manifest *Manifest) HelperGoFiles(dir string) map[string]FileSnapshot {
 	dir = canonicalPath(dir)
-	files := make(map[string]FileSnapshot)
-	for path, snapshot := range manifest.helperGoFiles {
-		if canonicalPath(filepath.Dir(path)) == dir {
-			files[path] = cloneFileSnapshot(snapshot)
-		}
+	entries := manifest.helperGoFilesByDir[dir]
+	files := make(map[string]FileSnapshot, len(entries))
+	for path, snapshot := range entries {
+		files[path] = cloneFileSnapshot(snapshot)
 	}
 	return files
+}
+
+// HelperGoFilesDiff reports the absolute paths of helper Go files in dir
+// whose saved snapshot differs between manifest and other — added, removed,
+// or changed state/bytes — skipping any path present in either exclude set
+// (a caller-computed exclusion, such as paired .x.go outputs the caller has
+// already decided are out of scope). It is the non-copying counterpart to
+// comparing two HelperGoFiles(dir) results by hand: state and source bytes
+// are compared by identity-then-equal (the sameSourceBytes pattern used
+// elsewhere in this file), so neither manifest's retained bytes are cloned to
+// answer the question. Order is unspecified; callers that need determinism
+// sort the result.
+func (manifest *Manifest) HelperGoFilesDiff(other *Manifest, dir string, exclude, otherExclude map[string]bool) []string {
+	dir = canonicalPath(dir)
+	oldEntries := manifest.helperGoFilesByDir[dir]
+	newEntries := other.helperGoFilesByDir[dir]
+	var changed []string
+	for path, oldSnap := range oldEntries {
+		if exclude[path] || otherExclude[path] {
+			continue
+		}
+		newSnap, ok := newEntries[path]
+		switch {
+		case !ok:
+			changed = append(changed, path)
+		case oldSnap.state != newSnap.state:
+			changed = append(changed, path)
+		case !sameSourceBytes(oldSnap.source, newSnap.source):
+			changed = append(changed, path)
+		}
+	}
+	for path := range newEntries {
+		if exclude[path] || otherExclude[path] {
+			continue
+		}
+		if _, ok := oldEntries[path]; !ok {
+			changed = append(changed, path)
+		}
+	}
+	return changed
 }
 
 // CheckReadable fails deterministically when any unmasked saved source is

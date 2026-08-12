@@ -291,7 +291,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// one post the panel needs to see, and there is no second chance: an
 	// interim post has either already landed or been superseded in
 	// statusSend's mailbox by the time this one lands.
-	status.LastCycle = &cycleStat{OK: startOK, At: time.Now(), DurationMs: time.Since(initCycleStart).Milliseconds()}
+	status.LastCycle = &cycleStat{OK: startOK, At: time.Now(), DurationMs: time.Since(initCycleStart).Milliseconds(), Reload: firstReload(startup)}
 	setPhase("idle")
 	// overlayUp: an error overlay is currently shown in the browser. A later
 	// successful cycle must reload to clear it even when nothing was written —
@@ -346,6 +346,9 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			overlayUp = true
 			// LastCycle settles before the terminal setPhase("idle") — see
 			// postStatus's declaration: exactly one post per terminal branch.
+			// No Reload here: dirty.regenerate returns a nil results slice on
+			// this path (see watchDirtySet.regenerate's rerr branch), so
+			// firstReload would always be "" — nothing to thread.
 			status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
 			setPhase("idle")
 			return // retained dirty state is retried on the next relevant event
@@ -369,7 +372,11 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			overlayUp = true
 			// LastCycle settles before the terminal setPhase("idle") — see
 			// postStatus's declaration: exactly one post per terminal branch.
-			status.LastCycle = &cycleStat{OK: false, Errors: errs, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+			// Reload is threaded here too: cycleStat.Reload documents "omitted
+			// when the cycle stayed warm", not "omitted when not OK" — a
+			// failing reload cycle is exactly when "why was this slow/why did
+			// this reload" matters most to a developer watching the panel.
+			status.LastCycle = &cycleStat{OK: false, Errors: errs, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds(), Reload: firstReload(results)}
 			setPhase("idle")
 			return // keep last-good server up; overlay shows the error
 		}
@@ -385,9 +392,11 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 				overlayUp = true
 				// Healthy and LastCycle both settle BEFORE the terminal
 				// setPhase("idle") — see postStatus's declaration: exactly
-				// one post per terminal branch.
+				// one post per terminal branch. results is in scope and
+				// already committed by dirty.regenerate, so its reload note
+				// (if any) still describes why this build was triggered.
 				status.Server.Healthy = false
-				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+				status.LastCycle = &cycleStat{OK: false, Errors: 1, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds(), Reload: firstReload(results)}
 				setPhase("idle")
 				return
 			}
@@ -405,7 +414,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		overlayUp = false
 		// LastCycle settles before the terminal setPhase("idle") — see
 		// postStatus's declaration: exactly one post per terminal branch.
-		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds(), Reload: firstReload(results)}
 		setPhase("idle")
 	}
 
@@ -470,7 +479,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 				schedule()
 				continue
 			}
-			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty)
+			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty, &dirty.goDirty)
 			if eventErr != nil {
 				fmt.Fprintf(stderr, "gsx dev: watch event: %v\n", eventErr)
 				shutdownProcesses()

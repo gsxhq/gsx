@@ -16,7 +16,13 @@ import (
 type watchDirtySet struct {
 	dirs     map[string]bool
 	depDirty bool
-	effects  map[string]*watchEffects
+	// goDirty is set when a pending event is an authored .go source change
+	// (not go.mod/go.sum). It does not route through reopen() — regenPending
+	// regenerates only the dependent closure — but it still forces a server
+	// rebuild, since the closure's generated .x.go can carry fresh types even
+	// when no .gsx byte changed.
+	goDirty bool
+	effects map[string]*watchEffects
 }
 
 type watchEffects struct {
@@ -28,9 +34,19 @@ func newWatchDirtySet() *watchDirtySet {
 	return &watchDirtySet{dirs: map[string]bool{}, effects: map[string]*watchEffects{}}
 }
 
+// regenerate runs one regeneration pass via regen (sess.regenPending), and
+// reports whether the caller must rebuild the server binary. rebuild is true
+// whenever depDirty or goDirty was set for this cycle: both a dep-surface
+// reopen and an in-place go-edit closure regen can change compiled Go types
+// that server.rebuild must pick up, even on cycles that wrote zero .x.go
+// bytes (a signature-only change with unchanged text output). It is NOT
+// cleared when the cycle fails — see the two error returns below — so a
+// retained failed go-cycle retries as a go-cycle and still forces the rebuild
+// once it lands.
 func (d *watchDirtySet) regenerate(regen func(map[string]bool, bool) ([]cycleResult, error)) ([]cycleResult, bool, error) {
 	dirs := maps.Clone(d.dirs)
 	depDirty := d.depDirty
+	rebuild := depDirty || d.goDirty
 	results, err := regen(dirs, depDirty)
 	if err != nil {
 		// regenPending may discover a fatal refresh/reopen error after an earlier
@@ -39,19 +55,20 @@ func (d *watchDirtySet) regenerate(regen func(map[string]bool, bool) ([]cycleRes
 		for _, result := range results {
 			d.retainEffects(result)
 		}
-		return nil, depDirty, err
+		return nil, rebuild, err
 	}
 	if err := cycleOperationalError(results); err != nil {
 		d.retainOperational(results)
 		// A cycle that performed some writes and then failed is not a commit.
 		// Callers surface the operational error, while the effect provenance stays
 		// private until a later complete retry commits the transaction.
-		return nil, depDirty, err
+		return nil, rebuild, err
 	}
 	results = d.commitEffects(results)
 	d.dirs = map[string]bool{}
 	d.depDirty = false
-	return results, depDirty, nil
+	d.goDirty = false
+	return results, rebuild, nil
 }
 
 // retainOperational seeds or extends an uncommitted transaction from a cycle

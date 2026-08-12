@@ -432,7 +432,7 @@ func (a lspAnalyzer) ClearOverride(path string) ([]string, error) {
 // be governed by the changed file, replaying their open buffers through the
 // ordinary ownership transition.
 func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
-	var gsxPaths, configPaths, goModPaths, goWorkPaths []string
+	var gsxPaths, goPaths, configPaths, goModPaths, goWorkPaths []string
 	for _, path := range paths {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
@@ -448,9 +448,16 @@ func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 			goModPaths = append(goModPaths, absPath)
 		case filepath.Base(absPath) == "go.work":
 			goWorkPaths = append(goWorkPaths, canonicalWatchedPath(absPath))
+		case isGoSourceFile(absPath):
+			// Authored Go, judged by exactly the rule the watch loop uses: an
+			// .x.go with a same-base .gsx sibling is this toolchain's own
+			// output and must never reload the analyzer's world, while an
+			// unpaired one is ordinary source. See isGoSourceFile.
+			goPaths = append(goPaths, absPath)
 		}
 	}
 	gsxPaths = sortedUniqueDirs(gsxPaths)
+	goPaths = sortedUniqueDirs(goPaths)
 	configPaths = sortedUniqueDirs(configPaths)
 	goModPaths = sortedUniqueDirs(goModPaths)
 	goWorkPaths = sortedUniqueDirs(goWorkPaths)
@@ -549,8 +556,42 @@ func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 			dirsByModule[module] = append(dirsByModule[module], dir)
 		}
 	}
+	// Authored .go changes take exactly the .gsx route: their directory is
+	// refreshed by the same per-module RefreshDiskSourcesAndInvalidate call,
+	// which re-reads the dir's helper Go facts, marks the pending world
+	// reload, and returns the reverse closure — the `affected` set the server
+	// republishes diagnostics for. Without it a go-only helper package (the
+	// common layout) stayed stale in diagnostics, gd and hover until some
+	// unrelated event happened to reload the world.
+	//
+	// Unlike a .gsx path, a watched .go path can land somewhere no retained
+	// Module is allowed to refresh: vendor/ (an ownership boundary exactly
+	// like a nested go.mod — `go mod vendor` writes hundreds of files and no
+	// go.mod, so moduleRoot attributes them to the enclosing module) or
+	// outside every module. Those are SKIPPED, never errors: RefreshDisk
+	// returning an error makes the server disable saved-source intelligence
+	// with no path back short of a restart, and per-module batching would let
+	// one such path discard every legitimate refresh delivered with it.
+	for _, path := range goPaths {
+		dir := filepath.Dir(path)
+		root, _, err := moduleRoot(dir)
+		if err != nil {
+			continue // no module above it — nothing retained can refresh it
+		}
+		module := modules[root]
+		if module == nil {
+			continue
+		}
+		// The same oracle RefreshDiskSourcesAndInvalidate applies. A probe
+		// error leaves ownership indeterminate; skipping costs staleness for
+		// that one dir, while proceeding costs the whole disk view.
+		if owned, ownErr := sourceview.OwnsDir(root, dir); ownErr != nil || !owned {
+			continue
+		}
+		dirsByModule[module] = append(dirsByModule[module], dir)
+	}
 	for module, dirs := range dirsByModule {
-		changed, err := module.RefreshDiskSourcesAndInvalidate(sortedUniqueDirs(dirs)...)
+		changed, _, err := module.RefreshDiskSourcesAndInvalidate(sortedUniqueDirs(dirs)...)
 		affected = append(affected, changed...)
 		if err != nil {
 			transitionErr = errors.Join(transitionErr, err)

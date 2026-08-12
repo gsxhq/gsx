@@ -487,6 +487,7 @@ func isMainModule(module *ModuleMetadata, manifest *Manifest) bool {
 }
 
 func canonicalPath(path string) string {
+	canonicalPathCalls.Add(1)
 	path = filepath.Clean(path)
 	if resolved, err := resolvePathAllowMissing(path); err == nil {
 		return filepath.Clean(resolved)

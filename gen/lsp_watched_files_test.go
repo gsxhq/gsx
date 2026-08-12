@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 func unsetLSPTestEnvironment(t *testing.T, key string) {
@@ -96,6 +97,156 @@ func TestLSPRefreshDiskTracksClosedGSXChangeCreateAndDelete(t *testing.T) {
 	}
 	if got := refCount(); got != initial+1 {
 		t.Fatalf("refs after closed-file delete = %d, want %d", got, initial+1)
+	}
+}
+
+// TestLSPRefreshDiskTracksClosedGoChange pins the saved-.go half of the
+// watched-file flow: a plain authored .go file changing on disk, with no open
+// buffer anywhere, must reload the analyzer's world so diagnostics stop
+// describing the pre-edit types. RefreshDisk used to classify only .gsx,
+// gsx.toml, go.mod and go.work, so a go-only helper package — the common
+// layout — stayed stale in diagnostics/gd/hover until some unrelated event
+// happened to reload the world.
+//
+// Its paired generated output is excluded for the same reason gen/watch.go
+// excludes it: a .x.go whose exact same-base .gsx sibling exists is this
+// toolchain's own write, and refreshing on it would make every generate cycle
+// reload the LSP's world.
+func TestLSPRefreshDiskTracksClosedGoChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real module analysis")
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLSPRenameModule(t, root, repoRoot, map[string]string{
+		"dep/dep.go":     "package dep\n\nfunc Value() string { return \"v1\" }\n",
+		"views/page.gsx": "package views\n\nimport \"example.com/unsafe/dep\"\n\ncomponent Page() {\n\t<p>{dep.Value()}</p>\n}\n",
+	})
+	viewsDir := filepath.Join(root, "views")
+	depGo := filepath.Join(root, "dep", "dep.go")
+
+	a := newLSPAnalyzer(config{}, nil)
+	errorDiags := func() []string {
+		pkg, err := a.Analyze(viewsDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var msgs []string
+		for _, d := range pkg.Diags {
+			if d.Severity == diag.Error {
+				msgs = append(msgs, d.Message)
+			}
+		}
+		return msgs
+	}
+	if msgs := errorDiags(); len(msgs) != 0 {
+		t.Fatalf("baseline analysis is not clean: %v", msgs)
+	}
+
+	// Remove the referenced symbol on disk. Nothing else changes, and no
+	// buffer is open, so only a .go-driven refresh can surface it.
+	if err := os.WriteFile(depGo, []byte("package dep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	affected, err := a.RefreshDisk([]string{depGo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(affected, viewsDir) {
+		t.Fatalf("affected = %v, want the reverse closure of dep/ to include %s so diagnostics republish", affected, viewsDir)
+	}
+	msgs := errorDiags()
+	if len(msgs) == 0 {
+		t.Fatal("no error diagnostic after dep.Value() was deleted on disk: the .go change never reached the analyzer's world")
+	}
+
+	// A paired generated output is not authored Go: refreshing on it would
+	// make gsx's own writes reload the LSP world on every cycle.
+	pairedOut := filepath.Join(viewsDir, "page.x.go")
+	if err := os.WriteFile(pairedOut, []byte("package views\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pairedAffected, err := a.RefreshDisk([]string{pairedOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairedAffected) != 0 {
+		t.Fatalf("paired generated output %s was refreshed (affected = %v); it must be dropped", pairedOut, pairedAffected)
+	}
+}
+
+// TestLSPRefreshDiskSkipsUnrefreshableGoPaths pins the failure mode the
+// **/*.go watcher makes reachable: a .go path whose directory no retained
+// Module can refresh must be SKIPPED, never turned into a RefreshDisk error.
+//
+// `go mod vendor` writes hundreds of .go files under vendor/, which
+// moduleRoot attributes to the enclosing module (vendoring writes no go.mod)
+// but sourceview's ownership oracle rejects — vendor segments are a module
+// boundary exactly like a nested go.mod. Returning that as an error made the
+// server drop diskViewValid with no path back to true short of a restart, and
+// the per-module batching meant one vendor path also discarded every
+// legitimate refresh delivered alongside it. A .go file with no go.mod above
+// it at all is the same shape and gets the same treatment.
+//
+// The fixture's vendor directory is a SUBDIRECTORY one, not the module root's:
+// a root vendor/ makes the go command auto-select -mod=vendor and then reject
+// the whole module for an inconsistent vendor/modules.txt, which no fixture
+// can satisfy while replacing the gsx runtime to this checkout. The ownership
+// oracle keys on any path SEGMENT named vendor, so this exercises the exact
+// rejection a real `go mod vendor` write hits.
+func TestLSPRefreshDiskSkipsUnrefreshableGoPaths(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real module analysis")
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLSPRenameModule(t, root, repoRoot, map[string]string{
+		"views/page.gsx":                        "package views\ncomponent Page() { <p>one</p> }\n",
+		"lib/vendor/example.com/third/party.go": "package party\n\nfunc Value() string { return \"v1\" }\n",
+		"lib/vendor/example.com/third/other.go": "package party\n\nfunc Other() string { return \"o\" }\n",
+	})
+	viewsDir := filepath.Join(root, "views")
+	vendorGo := filepath.Join(root, "lib", "vendor", "example.com", "third", "party.go")
+
+	a := newLSPAnalyzer(config{}, nil)
+	if _, err := a.Analyze(viewsDir, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// One batch, mixed: the vendored path must not take the legitimate one
+	// down with it.
+	if err := os.WriteFile(filepath.Join(viewsDir, "page.gsx"), []byte("package views\ncomponent Page() { <p>two</p> }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(vendorGo, []byte("package party\n\nfunc Value() int { return 2 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	affected, err := a.RefreshDisk([]string{vendorGo, filepath.Join(viewsDir, "page.gsx")})
+	if err != nil {
+		t.Fatalf("RefreshDisk with a vendored .go path returned %v; it must skip the path, not fail the batch (the server disables saved-source intelligence on this error until restart)", err)
+	}
+	if !slices.Contains(affected, viewsDir) {
+		t.Fatalf("affected = %v, want the legitimate .gsx dir %s refreshed alongside the skipped vendor path", affected, viewsDir)
+	}
+
+	// A vendored path on its own is a plain no-op.
+	if affected, err := a.RefreshDisk([]string{vendorGo}); err != nil || len(affected) != 0 {
+		t.Fatalf("RefreshDisk([vendored .go]) = %v, %v; want no affected dirs and no error", affected, err)
+	}
+
+	// A .go file with no go.mod above it: same skip, no error.
+	stray := filepath.Join(t.TempDir(), "stray.go")
+	if err := os.WriteFile(stray, []byte("package stray\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if affected, err := a.RefreshDisk([]string{stray}); err != nil || len(affected) != 0 {
+		t.Fatalf("RefreshDisk([.go with no module]) = %v, %v; want no affected dirs and no error", affected, err)
 	}
 }
 

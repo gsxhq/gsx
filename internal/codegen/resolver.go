@@ -62,7 +62,7 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 		loadPaths = append(loadPaths, a.PkgPath)
 	}
 	loadPaths = append(loadPaths, allowImports...)
-	pkgs, err := packages.Load(cfg, loadPaths...)
+	pkgs, err := loadPackages(cfg, loadPaths...)
 	if err != nil {
 		return nil, err
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // defaultDebounce is how long the server waits for typing to settle before
@@ -439,6 +440,13 @@ func (s *Server) handleInitialized() error {
 		Method: "workspace/didChangeWatchedFiles",
 		RegisterOptions: didChangeWatchedFilesRegistrationOptions{Watchers: []fileSystemWatcher{
 			{GlobPattern: "**/*.gsx"},
+			// Authored Go is part of the analyzed dependency surface: a
+			// go-only helper package changing on disk changes the types every
+			// .gsx in its reverse closure is checked against. Paired
+			// generated output is filtered on arrival (watchedFileRelevant),
+			// not here — LSP glob patterns cannot express "unless a same-base
+			// .gsx sibling exists".
+			{GlobPattern: "**/*.go"},
 			{GlobPattern: "**/gsx.toml"},
 			{GlobPattern: "**/go.mod"},
 			{GlobPattern: "**/go.work"},
@@ -661,6 +669,13 @@ func (s *Server) logWorkspaceMetadataReplayError(paths []string, err error) erro
 	})
 }
 
+// watchedFileRelevant reports whether a watched-file notification can change
+// any analyzed fact. Authored Go qualifies — it supplies the types .gsx
+// packages are checked against — with one exclusion: a generated output whose
+// exact same-base .gsx sibling exists on disk is gsx's own write, and treating
+// it as a source change would reload the analyzer's world on every generate
+// cycle. An unpaired .x.go is authored Go like any other file. This is exactly
+// the rule the watch loop applies (gen/watch.go's isGoSourceFile).
 func watchedFileRelevant(path string) bool {
 	if strings.HasSuffix(path, ".gsx") {
 		return true
@@ -668,9 +683,16 @@ func watchedFileRelevant(path string) bool {
 	switch filepath.Base(path) {
 	case "gsx.toml", "go.mod", "go.work":
 		return true
-	default:
+	}
+	if !strings.HasSuffix(path, ".go") {
 		return false
 	}
+	gsxPath, paired := sourceview.PairedGSXPath(path)
+	if !paired {
+		return true
+	}
+	info, err := os.Stat(gsxPath)
+	return err != nil || info.IsDir()
 }
 
 func (s *Server) publishEmptyOpenDirs(dirs []string) error {
