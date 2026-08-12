@@ -162,6 +162,84 @@ func TestWatchDirtySetRetainsInitialOperationalFailures(t *testing.T) {
 	}
 }
 
+func TestWatchDirtySetGoDirtyForcesRebuildWithoutDepDirty(t *testing.T) {
+	dirty := newWatchDirtySet()
+	dirty.dirs["/module/dep"] = true
+	dirty.goDirty = true
+
+	results, rebuild, err := dirty.regenerate(func(dirs map[string]bool, depDirty bool) ([]cycleResult, error) {
+		if depDirty {
+			t.Fatalf("goDirty-only cycle passed depDirty=true to regen")
+		}
+		if !maps.Equal(dirs, map[string]bool{"/module/dep": true}) {
+			t.Fatalf("regen dirs = %v, want /module/dep", dirs)
+		}
+		return []cycleResult{{Dir: "/module/page", OK: true}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rebuild {
+		t.Fatal("goDirty cycle must report rebuild=true even though depDirty stayed false")
+	}
+	if len(results) != 1 || results[0].Dir != "/module/page" {
+		t.Fatalf("results = %+v, want /module/page", results)
+	}
+	if dirty.goDirty {
+		t.Fatal("successful commit did not clear goDirty")
+	}
+	if len(dirty.dirs) != 0 {
+		t.Fatalf("successful commit did not clear dirs: %v", dirty.dirs)
+	}
+}
+
+// TestWatchDirtySetRetainsGoDirtyAcrossOperationalFailure pins the retry
+// contract for a go-edit cycle: a per-directory operational failure must not
+// drop goDirty, so the next relevant event's retry still regenerates as a
+// go-cycle (in place) rather than silently downgrading to an ordinary .gsx-
+// only regen that would leave the dependent closure on stale types.
+func TestWatchDirtySetRetainsGoDirtyAcrossOperationalFailure(t *testing.T) {
+	dirty := newWatchDirtySet()
+	dirty.dirs["/module/dep"] = true
+	dirty.goDirty = true
+	wantErr := errors.New("refresh dep: temporarily unreadable")
+
+	_, rebuild, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+		return []cycleResult{{Dir: "/module/dep", Err: wantErr}}, nil
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("first attempt error = %v, want %v", err, wantErr)
+	}
+	if !rebuild {
+		t.Fatal("failed go-cycle must still report rebuild=true")
+	}
+	if !dirty.goDirty {
+		t.Fatal("failed go-cycle dropped goDirty; a retry would no longer retry as a go-cycle")
+	}
+	if !maps.Equal(dirty.dirs, map[string]bool{"/module/dep": true}) {
+		t.Fatalf("failed attempt did not retain dirs: %v", dirty.dirs)
+	}
+
+	results, rebuild, err := dirty.regenerate(func(dirs map[string]bool, depDirty bool) ([]cycleResult, error) {
+		if depDirty {
+			t.Fatalf("retained go-cycle retry passed depDirty=true to regen")
+		}
+		return []cycleResult{{Dir: "/module/page", OK: true}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rebuild {
+		t.Fatal("successful retry of a retained go-cycle must report rebuild=true")
+	}
+	if len(results) != 1 || results[0].Dir != "/module/page" {
+		t.Fatalf("results = %+v, want /module/page", results)
+	}
+	if dirty.goDirty {
+		t.Fatal("successful retry did not clear goDirty")
+	}
+}
+
 func TestStartupPublicationHidesUncommittedFilesystemEffects(t *testing.T) {
 	opErr := errors.New("rename failed")
 	startup := []cycleResult{

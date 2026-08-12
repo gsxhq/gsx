@@ -7,15 +7,19 @@ import (
 	"testing"
 )
 
-// TestWatchDepChange verifies the depDirty path in the fire handler: when a
-// companion .go file in a gsx package is modified (isDepFile returns true),
-// the watch loop calls sess.reopen() rather than a per-dir regen. reopen()
-// rebuilds all Modules and re-runs regenDir for every discovered dir so the
-// type graph incorporates the new .go file content.
+// TestWatchDepChange verifies the goDirty path in the fire handler: when a
+// companion .go file in a gsx package is modified, isDepFile does NOT
+// classify it as a dep file (that is reserved for go.mod/go.sum, which can
+// change the module's own import resolution) — instead it routes as an
+// ordinary pending dir and the watch loop calls sess.regenPending(pending,
+// false), which regenerates only the dependent closure in place. The Module's
+// lazy world reload (triggered inside Generate, not orchestrated by watch)
+// still incorporates the new .go file content.
 //
 // This test simulates that path directly — it modifies a companion .go, asserts
-// isDepFile classifies it correctly, calls sess.reopen(), then verifies the
-// package regenerated with no error.
+// isDepFile does NOT classify it as a dep file, calls
+// sess.regenPending(pending, false), then verifies the package regenerated
+// with no error.
 func TestWatchDepChange(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -54,9 +58,10 @@ func TestWatchDepChange(t *testing.T) {
 		t.Fatalf("page.x.go should reference greeting(), got:\n%s", initial)
 	}
 
-	// isDepFile gate: a plain .go file must be classified as a dep-change trigger.
-	if !isDepFile(helperPath) {
-		t.Fatalf("helper.go must be classified as dep file by isDepFile")
+	// isDepFile gate: a plain .go file is NOT a dep file — only go.mod/go.sum
+	// force a full session reopen. helper.go routes through goDirty instead.
+	if isDepFile(helperPath) {
+		t.Fatalf("helper.go must NOT be classified as dep file by isDepFile")
 	}
 
 	// Simulate the dep-change: add a new function to the companion .go.
@@ -64,18 +69,19 @@ func TestWatchDepChange(t *testing.T) {
 	writeFileT(t, helperPath,
 		"package blog\n\nfunc greeting() string { return \"hello\" }\n\nfunc farewell() string { return \"goodbye\" }\n")
 
-	// Drive the depDirty path: reopen() re-opens all Modules and re-runs
-	// regenDir for every dir, incorporating the new .go file content.
-	results, reopenErr := sess.reopen()
-	if reopenErr != nil {
-		t.Fatalf("sess.reopen() after dep change: %v", reopenErr)
+	// Drive the goDirty path: regenPending(pending, false) refreshes and
+	// invalidates just blogDir, regenerating its reverse closure in place
+	// (blogDir's own .gsx makes it non-empty, so it is regenerated directly)
+	// rather than reopening every Module in the session.
+	results, regenErr := sess.regenPending(map[string]bool{blogDir: true}, false)
+	if regenErr != nil {
+		t.Fatalf("sess.regenPending() after dep change: %v", regenErr)
 	}
 
-	// Regression guard: reopen must return non-empty results — a dep-change
-	// cycle must NOT be silent. Before the fix, results were discarded and
-	// callers never received diagnostics or notifications for dep-change cycles.
+	// Regression guard: the cycle must return non-empty results — a go-edit
+	// cycle must NOT be silent.
 	if len(results) == 0 {
-		t.Fatal("sess.reopen() returned no cycleResults: dep-change cycle is silent (regression)")
+		t.Fatal("sess.regenPending() returned no cycleResults: go-edit cycle is silent (regression)")
 	}
 
 	// The blog dir must appear in the results and must have regenerated OK.
@@ -84,25 +90,26 @@ func TestWatchDepChange(t *testing.T) {
 		if r.Dir == blogDir {
 			found = true
 			if !r.OK {
-				t.Fatalf("reopen cycleResult for blogDir not OK: err=%v diags=%v", r.Err, r.Diags)
+				t.Fatalf("regenPending cycleResult for blogDir not OK: err=%v diags=%v", r.Err, r.Diags)
 			}
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("reopen results do not contain blogDir %q; got %d results", blogDir, len(results))
+		t.Fatalf("regenPending results do not contain blogDir %q; got %d results", blogDir, len(results))
 	}
 
-	// After reopen the .x.go must still be valid and non-empty.
+	// After the closure-scoped regen the .x.go must still be valid and
+	// non-empty.
 	post, postErr := os.ReadFile(filepath.Join(blogDir, "page.x.go"))
 	if postErr != nil {
-		t.Fatalf("page.x.go missing after reopen: %v", postErr)
+		t.Fatalf("page.x.go missing after regenPending: %v", postErr)
 	}
 	if len(post) == 0 {
-		t.Fatal("page.x.go empty after reopen")
+		t.Fatal("page.x.go empty after regenPending")
 	}
 	if !strings.Contains(string(post), "greeting()") {
-		t.Fatalf("page.x.go after reopen should still reference greeting(), got:\n%s", post)
+		t.Fatalf("page.x.go after regenPending should still reference greeting(), got:\n%s", post)
 	}
 }
 
@@ -123,13 +130,21 @@ func TestWatchDepChange_GoMod(t *testing.T) {
 	writeFileT(t, paired, "package sample\n")
 	writeFileT(t, unpaired, "package sample\n")
 	// Only an .x.go paired with an exact same-base .gsx source is generated
-	// output. An unpaired .x.go is ordinary authored Go and must rebuild the
-	// dependency graph.
+	// output. An unpaired .x.go is ordinary authored Go: it is never a dep
+	// file (that classification is reserved for go.mod/go.sum), but it does
+	// route as a watchable source event via isGoSourceFile/watchable, so the
+	// dependent closure regenerates in place.
 	if isDepFile(paired) {
 		t.Error("isDepFile(paired page.x.go) = true, want false")
 	}
-	if !isDepFile(unpaired) {
-		t.Error("isDepFile(unpaired helper.x.go) = false, want true")
+	if isDepFile(unpaired) {
+		t.Error("isDepFile(unpaired helper.x.go) = true, want false")
+	}
+	if watchable(paired) {
+		t.Error("watchable(paired page.x.go) = true, want false (ignored generated output)")
+	}
+	if !watchable(unpaired) {
+		t.Error("watchable(unpaired helper.x.go) = false, want true (routes as a source event)")
 	}
 }
 

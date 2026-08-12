@@ -46,12 +46,13 @@ func TestArmedWatchSessionQueuesEditBeforeInitialGeneration(t *testing.T) {
 
 	pending := map[string]bool{}
 	depDirty := false
+	goDirty := false
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	for len(pending) == 0 {
 		select {
 		case event := <-armed.watcher.Events:
-			if _, eventErr := applyWatchEvent(armed.watcher, event, armed.sources, pending, &depDirty); eventErr != nil {
+			if _, eventErr := applyWatchEvent(armed.watcher, event, armed.sources, pending, &depDirty, &goDirty); eventErr != nil {
 				t.Fatal(eventErr)
 			}
 		case watchErr := <-armed.watcher.Errors:

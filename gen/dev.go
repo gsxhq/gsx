@@ -470,7 +470,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 				schedule()
 				continue
 			}
-			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty)
+			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty, &dirty.goDirty)
 			if eventErr != nil {
 				fmt.Fprintf(stderr, "gsx dev: watch event: %v\n", eventErr)
 				shutdownProcesses()
