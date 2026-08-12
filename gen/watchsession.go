@@ -29,6 +29,18 @@ type cycleResult struct {
 	OK      bool
 	Err     error
 	DurMs   int64
+	// Reload is the human-readable reason (codegen.RefreshVerdict.Describe())
+	// this cycle required a full in-place world reload, e.g. "changed Go
+	// source dep/dep.go". Empty when the cycle stayed warm — never a rendered
+	// empty reason (RefreshVerdict.Describe() can itself return "" for a
+	// pending-but-unattributed reload; consumers must treat that as "no
+	// note", same as this field's own zero value). Reload is module-wide, not
+	// per-dir, so at most one cycleResult per Module per cycle carries it:
+	// regenDirs stamps its first generated result per Module (reusing its
+	// chargedRefresh convention); regenPending's orphan-only branch (a
+	// go-only dir that never reaches regenDirs) stamps its own lone result
+	// the same way.
+	Reload string
 }
 
 func (r cycleResult) durationMs() int64 { return r.DurMs }
@@ -452,13 +464,22 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		batchDirs[m] = append(batchDirs[m], dir)
 	}
 	refreshMs := make(map[*codegen.Module]int64, len(batchOrder))
+	// moduleReload holds each module's world-reload verdict description for
+	// this cycle ("" when no reload is pending). The batch call's own verdict
+	// wins outright; a fallback per-dir retry keeps the first non-empty
+	// Describe() it sees, since a Module-wide pending reload can be
+	// attributed by an earlier dir's own scoped diff and only echoed via
+	// persisted attribution by a later dir's call (see refreshVerdictLocked's
+	// three-way fallback in RefreshDiskSourcesAndInvalidate's doc).
+	moduleReload := make(map[*codegen.Module]string, len(batchOrder))
 	dirErr := map[string]error{}
 	dirErrMs := map[string]int64{}
 	for _, m := range batchOrder {
 		t := time.Now()
-		_, _, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
+		_, verdict, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
 		refreshMs[m] = time.Since(t).Milliseconds()
 		if err == nil {
+			moduleReload[m] = verdict.Describe()
 			continue
 		}
 		// The batch refresh is all-or-nothing (atomic, no partial state), so
@@ -472,8 +493,11 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		refreshMs[m] = 0 // per-dir retries carry their own timing below
 		for _, dir := range batchDirs[m] {
 			dt := time.Now()
-			if _, _, derr := m.RefreshDiskSourcesAndInvalidate(dir); derr != nil {
+			_, dirVerdict, derr := m.RefreshDiskSourcesAndInvalidate(dir)
+			if derr != nil {
 				dirErr[dir] = derr
+			} else if moduleReload[m] == "" {
+				moduleReload[m] = dirVerdict.Describe()
 			}
 			dirErrMs[dir] = time.Since(dt).Milliseconds()
 		}
@@ -497,6 +521,10 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		if !chargedRefresh[m] {
 			chargedRefresh[m] = true
 			results[i].DurMs += refreshMs[m]
+			// Same "first result of the cycle" convention as the refresh-time
+			// charge above: the reload note is module-wide, not per-dir, so it
+			// lands on exactly one result per module per cycle.
+			results[i].Reload = moduleReload[m]
 		}
 	}
 	return results
@@ -595,11 +623,19 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 		// directory source view before ordinary graph invalidation. The Module
 		// decides from parsed package/import facts whether this stays warm or
 		// requires an atomic source-inventory reload; watch does not guess from
-		// fsnotify operation kinds.
-		if err := m.RefreshDiskSources(dir); err != nil {
+		// fsnotify operation kinds. Refresh and invalidate run as the one atomic
+		// RefreshDiskSourcesAndInvalidate call (not separate RefreshDiskSources +
+		// Invalidate calls) per RefreshDiskSources' own doc: a caller that also
+		// needs invalidation must use the combined form so no analysis can
+		// observe refreshed saved bytes through stale retained facts; it also
+		// surfaces the refresh's RefreshVerdict for the orphan-only branch below,
+		// which produces a cycleResult of its own and would otherwise carry no
+		// reload attribution (a non-empty dir's own reload note is captured by
+		// the later regenDirs(affectedDirs) call instead).
+		_, verdict, err := m.RefreshDiskSourcesAndInvalidate(dir)
+		if err != nil {
 			return results, fmt.Errorf("refresh saved GSX sources in %s: %w", dir, err)
 		}
-		m.Invalidate(dir)
 		empty := onlyGeneratedRemains(dir)
 		for _, dep := range m.Dependents(dir) {
 			if empty && dep == dir {
@@ -619,7 +655,7 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 				continue
 			}
 			if len(removed) > 0 {
-				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true})
+				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true, Reload: verdict.Describe()})
 			}
 			continue
 		}

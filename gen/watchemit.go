@@ -40,8 +40,17 @@ func (e *emitter) cycle(r cycleResult) {
 			"removed":     baseNames(r.Removed),
 			"diagnostics": rawDiagnostics(r.Diags),
 		}
+		// r.Reload can itself be "" for a pending-but-unattributed reload
+		// (RefreshVerdict.Describe()'s default branch) — omit the key
+		// entirely rather than emit a rendered empty reason.
+		if r.Reload != "" {
+			ev["reload"] = r.Reload
+		}
 		e.line(ev)
 		return
+	}
+	if r.Reload != "" {
+		fmt.Fprintf(e.stderr, "full reload: %s\n", r.Reload)
 	}
 	if r.OK {
 		if len(r.Removed) > 0 {

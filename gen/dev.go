@@ -291,7 +291,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// one post the panel needs to see, and there is no second chance: an
 	// interim post has either already landed or been superseded in
 	// statusSend's mailbox by the time this one lands.
-	status.LastCycle = &cycleStat{OK: startOK, At: time.Now(), DurationMs: time.Since(initCycleStart).Milliseconds()}
+	status.LastCycle = &cycleStat{OK: startOK, At: time.Now(), DurationMs: time.Since(initCycleStart).Milliseconds(), Reload: firstReload(startup)}
 	setPhase("idle")
 	// overlayUp: an error overlay is currently shown in the browser. A later
 	// successful cycle must reload to clear it even when nothing was written —
@@ -405,7 +405,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		overlayUp = false
 		// LastCycle settles before the terminal setPhase("idle") — see
 		// postStatus's declaration: exactly one post per terminal branch.
-		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds()}
+		status.LastCycle = &cycleStat{OK: true, Errors: 0, At: time.Now(), DurationMs: time.Since(cycleStart).Milliseconds(), Reload: firstReload(results)}
 		setPhase("idle")
 	}
 

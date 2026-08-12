@@ -50,6 +50,56 @@ func TestEmitter_NDJSON_OperationalErrorSurfaces(t *testing.T) {
 	}
 }
 
+// TestEmitter_NDJSON_ReloadField proves the "generated" NDJSON event carries
+// a "reload" field when cycleResult.Reload is non-empty, and omits the key
+// entirely (not an empty-string value) when it is empty — the LSP override
+// path can leave a pending reload whose Describe() is "", and no consumer may
+// render that as a note.
+func TestEmitter_NDJSON_ReloadField(t *testing.T) {
+	t.Parallel()
+	var out, errb bytes.Buffer
+	e := &emitter{ndjson: true, stdout: &out, stderr: &errb}
+	e.cycle(cycleResult{Dir: "/m/page", OK: true, Reload: "changed Go source dep/dep.go"})
+
+	var ev map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &ev); err != nil {
+		t.Fatalf("stdout is not one JSON object: %q (%v)", out.String(), err)
+	}
+	if ev["reload"] != "changed Go source dep/dep.go" {
+		t.Fatalf("reload field = %v, want %q", ev["reload"], "changed Go source dep/dep.go")
+	}
+
+	out.Reset()
+	e.cycle(cycleResult{Dir: "/m/other", OK: true})
+	var ev2 map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &ev2); err != nil {
+		t.Fatalf("stdout is not one JSON object: %q (%v)", out.String(), err)
+	}
+	if _, has := ev2["reload"]; has {
+		t.Fatalf("reload key present for empty Reload: %v", ev2)
+	}
+}
+
+// TestEmitter_HumanLine_ReloadNote proves the non-NDJSON console output
+// prints a "full reload: <reason>" line when cycleResult.Reload is
+// non-empty, and prints nothing extra when it is empty.
+func TestEmitter_HumanLine_ReloadNote(t *testing.T) {
+	t.Parallel()
+	var out, errb bytes.Buffer
+	e := &emitter{ndjson: false, stdout: &out, stderr: &errb}
+	e.cycle(cycleResult{Dir: "/m/page", OK: true, Reload: "changed Go source dep/dep.go"})
+
+	if !strings.Contains(errb.String(), "full reload: changed Go source dep/dep.go") {
+		t.Fatalf("stderr missing reload human line: %q", errb.String())
+	}
+
+	errb.Reset()
+	e.cycle(cycleResult{Dir: "/m/other", OK: true})
+	if strings.Contains(errb.String(), "full reload:") {
+		t.Fatalf("stderr has a reload line for an empty Reload: %q", errb.String())
+	}
+}
+
 func TestEmitter_NDJSON_DiagnosticsShapeMatchesRenderJSON(t *testing.T) {
 	t.Parallel()
 	d := diag.Diagnostic{Severity: diag.Error, Code: "x", Message: "boom"}

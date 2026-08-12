@@ -99,6 +99,13 @@ func TestWatchSession_GoEditRegeneratesOnlyDependents(t *testing.T) {
 		}
 	}
 
+	// Observability: page's cycleResult must carry the verdict's Describe()
+	// reason — the reload was forced by dep/dep.go's changed Go source, and
+	// page is the sole (first) result of the cycle for its module.
+	if !strings.Contains(pageResult.Reload, "Go source") {
+		t.Fatalf("pageResult.Reload = %q, want it to contain %q", pageResult.Reload, "Go source")
+	}
+
 	before, err := os.ReadFile(filepath.Join(pageDir, "page.x.go"))
 	if err != nil {
 		t.Fatalf("reading page.x.go after body-only edit: %v", err)
@@ -211,5 +218,53 @@ func TestQueueWatchSourceRoutesAuthoredGoAsSourceEvent(t *testing.T) {
 	}
 	if !pending[root] {
 		t.Errorf("unpaired .x.go must queue its directory as pending, got pending=%v", pending)
+	}
+}
+
+// TestWatchSession_GsxEditCarriesNoReload proves an ordinary warm .gsx body
+// edit's cycleResult carries no Reload note: RefreshVerdict.Describe() is ""
+// when no world reload is pending, and cycleResult.Reload must stay empty —
+// never a rendered empty reason — for a cycle that never touched authored Go
+// source.
+func TestWatchSession_GsxEditCarriesNoReload(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	writeFileT(t, filepath.Join(root, "page", "page.gsx"),
+		"package page\n\ncomponent Page() {\n\t<p>v1</p>\n}\n")
+
+	pageDir := filepath.Join(root, "page")
+
+	sess, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("startup regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+	}
+
+	// Body-only .gsx edit — no Go source, no membership/import change.
+	writeFileT(t, filepath.Join(pageDir, "page.gsx"),
+		"package page\n\ncomponent Page() {\n\t<p>v2</p>\n}\n")
+
+	dirty := newWatchDirtySet()
+	dirty.dirs[pageDir] = true
+
+	results, _, err := dirty.regenerate(sess.regenPending)
+	if err != nil {
+		t.Fatalf("regenerate after gsx edit: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("gsx-edit cycle returned no cycleResults")
+	}
+	for _, r := range results {
+		if !r.OK {
+			t.Fatalf("gsx regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+		if r.Reload != "" {
+			t.Errorf("dir %q carries unexpected Reload note %q for a pure .gsx edit", r.Dir, r.Reload)
+		}
 	}
 }
