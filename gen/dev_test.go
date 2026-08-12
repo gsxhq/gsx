@@ -312,6 +312,37 @@ func portListening(port string) bool {
 	return true
 }
 
+// idleEventsAfter filters a captured status-event log to "idle" phase posts
+// whose lastCycle.at — stamped by cycle() itself at completion, unaffected
+// by delivery timing — is strictly after cutoff. This is the only reliable
+// way for a test to identify which status posts belong to a specific
+// triggered cycle: statusSend's 1-slot latest-wins mailbox means an earlier
+// phase (generating/building/starting) can be legitimately SUPERSEDED
+// before delivery on a loaded runner (observed on CI: building→starting→
+// idle all arrived, but the transient "generating" post did not), so a test
+// must never require having observed any particular earlier phase — only
+// the terminal idle status of a settled cycle is guaranteed to eventually
+// be delivered.
+func idleEventsAfter(events []map[string]any, cutoff time.Time) []map[string]any {
+	var out []map[string]any
+	for _, ev := range events {
+		if phase, _ := ev["phase"].(string); phase != "idle" {
+			continue
+		}
+		lc, ok := ev["lastCycle"].(map[string]any)
+		if !ok {
+			continue
+		}
+		atRaw, _ := lc["at"].(string)
+		at, err := time.Parse(time.RFC3339, atRaw)
+		if err != nil || !at.After(cutoff) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
 // devNullWriter is an io.Writer that discards all output. Used to drain gsx
 // dev's stdout/stderr so its internal pipes never block.
 type devNullWriter struct{}
@@ -1645,8 +1676,10 @@ func TestDevPostsBuildingPhaseMidCycle(t *testing.T) {
 // I1, which found the two-post design itself unordered and thus unsound).
 //
 // This test drives a real build failure and asserts every "idle" status
-// after the triggering "building" event carries the SAME, already-settled
-// values (Server.Healthy=false, LastCycle.OK=false/Errors=1) — i.e. no STALE
+// whose lastCycle.at postdates the triggering edit (see idleEventsAfter —
+// keyed on the guaranteed-delivered terminal status, not on having observed
+// any earlier phase post) carries the SAME, already-settled values
+// (Server.Healthy=false, LastCycle.OK=false/Errors=1) — i.e. no STALE
 // variant is ever observed. It does not assert exactly one delivery: the
 // contactCh first-contact repost (gen/dev.go) can legitimately race
 // setPhase's own post through Go's select and redeliver the identical
@@ -1763,60 +1796,33 @@ func TestDevTerminalIdleStatusIsSinglePostWithSettledFields(t *testing.T) {
 
 	// Touch a benign, valid .go file to trigger the dep-dirty rebuild path
 	// (regen succeeds; [dev].build above is what fails, deterministically,
-	// on this second invocation). Cold start never posts phase "generating"
-	// (only the write-triggered cycle does), so the first "generating"
-	// event unambiguously anchors this cycle among any cold-start echoes.
+	// on this second invocation). triggerTime anchors "this cycle" via
+	// idleEventsAfter (lastCycle.at, not phase-post observation — see its
+	// doc: a "generating" post is NOT a guaranteed delivery).
+	triggerTime := time.Now()
 	trig := filepath.Join(proj, "zz_trigger.go")
 	if err := os.WriteFile(trig, []byte("package main\n\nvar _devtrigger = 1\n"), 0o644); err != nil {
 		t.Fatalf("write trigger: %v", err)
 	}
 
-	var generatingIdx, buildingIdx int
+	var idleEvents []map[string]any
 	deadline = time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		events := append([]map[string]any(nil), statusEvents...)
 		mu.Unlock()
 
-		generatingIdx, buildingIdx = -1, -1
-		for i, ev := range events {
-			phase, _ := ev["phase"].(string)
-			switch {
-			case phase == "generating" && generatingIdx == -1:
-				generatingIdx = i
-			case phase == "building" && generatingIdx != -1 && buildingIdx == -1 && i > generatingIdx:
-				buildingIdx = i
-			}
-		}
-		if buildingIdx != -1 {
-			// Any idle event after buildingIdx yet?
-			mu.Lock()
-			hasIdle := false
-			for i := buildingIdx + 1; i < len(statusEvents); i++ {
-				if p, _ := statusEvents[i]["phase"].(string); p == "idle" {
-					hasIdle = true
-					break
-				}
-			}
-			mu.Unlock()
-			if hasIdle {
-				break
-			}
+		idleEvents = idleEventsAfter(events, triggerTime)
+		if len(idleEvents) > 0 {
+			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-
-	if generatingIdx == -1 {
+	if len(idleEvents) == 0 {
 		mu.Lock()
 		snap := statusEvents
 		mu.Unlock()
-		t.Fatalf("no %q status observed; events:\n%v\nstdout:\n%s", "generating", snap, stdout.String())
-	}
-	if buildingIdx == -1 {
-		mu.Lock()
-		snap := statusEvents
-		mu.Unlock()
-		t.Fatalf("no %q status observed after %q; events:\n%v\nstdout:\n%s", "building", "generating", snap, stdout.String())
+		t.Fatalf("no idle status with lastCycle.at after the triggering edit observed; events:\n%v\nstdout:\n%s", snap, stdout.String())
 	}
 
 	// Give the (legitimate) contactCh repost a moment to arrive before
@@ -1828,14 +1834,9 @@ func TestDevTerminalIdleStatusIsSinglePostWithSettledFields(t *testing.T) {
 	mu.Lock()
 	events := append([]map[string]any(nil), statusEvents...)
 	mu.Unlock()
-	var idleEvents []map[string]any
-	for i := buildingIdx + 1; i < len(events); i++ {
-		if p, _ := events[i]["phase"].(string); p == "idle" {
-			idleEvents = append(idleEvents, events[i])
-		}
-	}
+	idleEvents = idleEventsAfter(events, triggerTime)
 	if len(idleEvents) == 0 {
-		t.Fatalf("no idle status posts after the triggering %q; full log:\n%v", "building", events)
+		t.Fatalf("no idle status posts after the triggering edit; full log:\n%v", events)
 	}
 
 	for i, idleEvent := range idleEvents {
@@ -1975,56 +1976,62 @@ func TestDevStatusOmitsReloadForWarmCycle(t *testing.T) {
 
 	// Body-only .gsx edit — no authored Go source, no membership/import
 	// change: this cycle must never have a RefreshVerdict pending.
+	// triggerTime anchors "this cycle" via idleEventsAfter (lastCycle.at,
+	// not phase-post observation): statusSend's 1-slot latest-wins mailbox
+	// means a transient "generating" post is NOT a guaranteed delivery — on
+	// a loaded runner it can be superseded by "building" before it ever
+	// reaches the fake front door, which is exactly the flake this test hit
+	// on CI (building→starting→idle all arrived; "generating" did not).
+	triggerTime := time.Now()
 	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>v2</span>\n}\n")
 
-	// "generating" anchors the write-triggered cycle among any cold-start
-	// echoes (only cycle() ever posts it — see the sibling test above); the
-	// first terminal "idle" carrying a lastCycle after that is this cycle's
-	// settled outcome.
-	var generatingIdx int
-	var idleEvent map[string]any
+	var idleEvents []map[string]any
 	deadline = time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		events := append([]map[string]any(nil), statusEvents...)
 		mu.Unlock()
 
-		generatingIdx, idleEvent = -1, nil
-		for i, ev := range events {
-			phase, _ := ev["phase"].(string)
-			switch {
-			case phase == "generating" && generatingIdx == -1:
-				generatingIdx = i
-			case phase == "idle" && generatingIdx != -1 && i > generatingIdx && idleEvent == nil:
-				if _, ok := ev["lastCycle"].(map[string]any); ok {
-					idleEvent = ev
-				}
-			}
-		}
-		if idleEvent != nil {
+		idleEvents = idleEventsAfter(events, triggerTime)
+		if len(idleEvents) > 0 {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if generatingIdx == -1 {
+	if len(idleEvents) == 0 {
 		mu.Lock()
 		snap := statusEvents
 		mu.Unlock()
-		t.Fatalf("no %q status observed; events:\n%v\nstdout:\n%s", "generating", snap, stdout.String())
-	}
-	if idleEvent == nil {
-		mu.Lock()
-		snap := statusEvents
-		mu.Unlock()
-		t.Fatalf("no terminal %q status observed after %q; events:\n%v\nstdout:\n%s", "idle", "generating", snap, stdout.String())
+		t.Fatalf("no idle status with lastCycle.at after the triggering edit observed; events:\n%v\nstdout:\n%s", snap, stdout.String())
 	}
 
+	// The last-delivered matching idle status is this cycle's final settled
+	// outcome (a legitimate contactCh repost can redeliver the identical
+	// CURRENT status afterward — see the sibling test — so take the latest,
+	// not the first).
+	idleEvent := idleEvents[len(idleEvents)-1]
 	lc := idleEvent["lastCycle"].(map[string]any)
 	if lc["ok"] != true {
 		t.Fatalf("lastCycle.ok = %v, want true — a body-only .gsx edit must not fail: %v", lc["ok"], idleEvent)
 	}
 	if reload, has := lc["reload"]; has {
 		t.Errorf("lastCycle.reload = %v (key present), want it omitted entirely for a warm cycle", reload)
+	}
+
+	// Belt and suspenders: no status post observed at any point (any phase,
+	// not just the matched idle ones) may carry a reload note — a warm .gsx
+	// edit never has a pending RefreshVerdict, cold start included.
+	mu.Lock()
+	allEvents := append([]map[string]any(nil), statusEvents...)
+	mu.Unlock()
+	for i, ev := range allEvents {
+		lc, ok := ev["lastCycle"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if reload, has := lc["reload"]; has {
+			t.Errorf("status[%d] (phase=%v) lastCycle.reload = %v (key present), want it omitted entirely for this session", i, ev["phase"], reload)
+		}
 	}
 }
 
