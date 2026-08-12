@@ -1853,6 +1853,178 @@ func TestDevTerminalIdleStatusIsSinglePostWithSettledFields(t *testing.T) {
 		if errs, _ := lc["errors"].(float64); errs != 1 {
 			t.Errorf("idle status[%d] lastCycle.errors = %v, want 1", i, lc["errors"])
 		}
+		// zz_trigger.go lands in the same dir as app.gsx, so this cycle's
+		// refresh detects a genuine authored-Go-source diff — lastCycle.reload
+		// must carry that reason through the rebuild-failure branch too
+		// (cycleStat.Reload's doc: "omitted when the cycle stayed warm", not
+		// "omitted when not OK").
+		reload, _ := lc["reload"].(string)
+		if reload == "" {
+			t.Errorf("idle status[%d] lastCycle.reload is empty, want the zz_trigger.go reload reason", i)
+		} else if !strings.Contains(reload, "Go source") {
+			t.Errorf("idle status[%d] lastCycle.reload = %q, want it to contain %q", i, reload, "Go source")
+		}
+	}
+}
+
+// TestDevStatusOmitsReloadForWarmCycle is the counterpart negative case to
+// TestDevTerminalIdleStatusIsSinglePostWithSettledFields's lastCycle.reload
+// assertion above: an ordinary body-only .gsx edit touches no authored Go
+// source and no membership/import surface, so no codegen.RefreshVerdict is
+// ever pending for the cycle — lastCycle.reload must be the omitempty zero
+// value (the JSON key absent entirely), never a rendered empty string.
+func TestDevStatusOmitsReloadForWarmCycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: requires building gsx and a live Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	gsxRoot := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "gsx")
+	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/gsx")
+	buildCmd.Dir = gsxRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gsx: %v\n%s", err, out)
+	}
+
+	proj := t.TempDir()
+	gomod := fmt.Sprintf(
+		"module devdemo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n",
+		gsxRoot,
+	)
+	writeFile(t, proj, "go.mod", gomod)
+	writeFile(t, proj, "main.go", devTestMainGo)
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>v1</span>\n}\n")
+
+	goPort := freePort(t)
+	if portListening(goPort) {
+		t.Fatalf("port %s already in use (leaked scaffold server?)", goPort)
+	}
+
+	cmd := exec.Command(bin, "dev", "--web", "sleep 600")
+	cmd.Dir = proj
+	cmd.Env = devTestEnv(
+		"BROWSER=none",
+		"GO_PORT="+goPort,
+		"VITE_DEV_URL=http://127.0.0.1",
+		"GOFLAGS=-mod=mod",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stdout lockedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("gsx dev start: %v", err)
+	}
+	defer stopDevGracefully(cmd)
+
+	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 120*time.Second) {
+		t.Fatalf("Go server on GO_PORT=%s never came up after gsx dev start; output:\n%s", goPort, stdout.String())
+	}
+
+	// Learn the resolved front-door URL from the "watching … — open <url>" line.
+	var viteURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := regexp.MustCompile(`open (http://\S+)`).FindStringSubmatch(stdout.String()); m != nil {
+			viteURL = m[1]
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if viteURL == "" {
+		t.Fatalf("front-door URL not printed; stdout=%q", stdout.String())
+	}
+	u, err := url.Parse(viteURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fake vite plugin: records every {"event":"status"} POST body, decoded,
+	// in arrival order.
+	var mu sync.Mutex
+	var statusEvents []map[string]any
+	fake := &http.Server{
+		Addr: net.JoinHostPort(u.Hostname(), u.Port()),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("x-gsx", "1")
+			switch r.URL.Path {
+			case "/__gsx/cmd":
+				w.WriteHeader(204)
+			case "/__gsx/event":
+				body, _ := io.ReadAll(r.Body)
+				var ev map[string]any
+				if json.Unmarshal(body, &ev) == nil && ev["event"] == "status" {
+					mu.Lock()
+					statusEvents = append(statusEvents, ev)
+					mu.Unlock()
+				}
+				w.WriteHeader(204)
+			default:
+				w.WriteHeader(204)
+			}
+		}),
+	}
+	fl, err := net.Listen("tcp", fake.Addr)
+	if err != nil {
+		t.Fatalf("bind resolved front-door port %s: %v", fake.Addr, err)
+	}
+	go func() { _ = fake.Serve(fl) }()
+	defer fake.Close()
+
+	// Body-only .gsx edit — no authored Go source, no membership/import
+	// change: this cycle must never have a RefreshVerdict pending.
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>v2</span>\n}\n")
+
+	// "generating" anchors the write-triggered cycle among any cold-start
+	// echoes (only cycle() ever posts it — see the sibling test above); the
+	// first terminal "idle" carrying a lastCycle after that is this cycle's
+	// settled outcome.
+	var generatingIdx int
+	var idleEvent map[string]any
+	deadline = time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		events := append([]map[string]any(nil), statusEvents...)
+		mu.Unlock()
+
+		generatingIdx, idleEvent = -1, nil
+		for i, ev := range events {
+			phase, _ := ev["phase"].(string)
+			switch {
+			case phase == "generating" && generatingIdx == -1:
+				generatingIdx = i
+			case phase == "idle" && generatingIdx != -1 && i > generatingIdx && idleEvent == nil:
+				if _, ok := ev["lastCycle"].(map[string]any); ok {
+					idleEvent = ev
+				}
+			}
+		}
+		if idleEvent != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if generatingIdx == -1 {
+		mu.Lock()
+		snap := statusEvents
+		mu.Unlock()
+		t.Fatalf("no %q status observed; events:\n%v\nstdout:\n%s", "generating", snap, stdout.String())
+	}
+	if idleEvent == nil {
+		mu.Lock()
+		snap := statusEvents
+		mu.Unlock()
+		t.Fatalf("no terminal %q status observed after %q; events:\n%v\nstdout:\n%s", "idle", "generating", snap, stdout.String())
+	}
+
+	lc := idleEvent["lastCycle"].(map[string]any)
+	if lc["ok"] != true {
+		t.Fatalf("lastCycle.ok = %v, want true — a body-only .gsx edit must not fail: %v", lc["ok"], idleEvent)
+	}
+	if reload, has := lc["reload"]; has {
+		t.Errorf("lastCycle.reload = %v (key present), want it omitted entirely for a warm cycle", reload)
 	}
 }
 

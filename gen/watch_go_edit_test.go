@@ -268,3 +268,77 @@ func TestWatchSession_GsxEditCarriesNoReload(t *testing.T) {
 		}
 	}
 }
+
+// TestWatchSession_GoOnlyLeafDirZeroDependentsCarriesReload pins the fix for
+// a dropped-note regression: a .gsx-free package (e.g. a cmd/ leaf nothing
+// imports) whose .go file changes is "empty" per onlyGeneratedRemains (which
+// only checks for a live .gsx, not a leftover .x.go) AND has no dependents
+// to carry the reload note forward via regenDirs — m.Dependents(dir) returns
+// only dir itself, which the empty branch's self-skip then excludes from
+// affected entirely. Before the fix, regenPending's orphan-only branch only
+// produced a cycleResult when len(removed) > 0, so this dir's reload cause —
+// a real, non-empty RefreshVerdict.Describe() — was silently dropped from
+// every consumer (no cycleResult at all, for the whole cycle). The fix fires
+// the branch whenever Describe() is non-empty too, not only on a removal.
+//
+// other/other.gsx is required for the diff to even be detectable: the go
+// source diff is computed against m.savedSourceManifest, which is only
+// published by the FIRST successful Generate anywhere in the module (cold
+// externalImporter load) — a module with literally no .gsx file anywhere
+// never publishes a baseline to diff dep.go's edit against. other/ is
+// deliberately unrelated (does not import dep) so dep/ stays a true
+// zero-dependents leaf.
+func TestWatchSession_GoOnlyLeafDirZeroDependentsCarriesReload(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	// dep/ is go-only (no .gsx) and nothing in the module imports it — a
+	// true zero-dependents leaf, e.g. an unreferenced cmd/ package.
+	writeFileT(t, filepath.Join(root, "dep", "dep.go"),
+		"package dep\n\nfunc Value() string { return \"v1\" }\n")
+	writeFileT(t, filepath.Join(root, "other", "other.gsx"),
+		"package other\n\ncomponent Other() {\n\t<p>unrelated</p>\n}\n")
+
+	depDir := filepath.Join(root, "dep")
+
+	sess, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("startup regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+	}
+
+	writeFileT(t, filepath.Join(depDir, "dep.go"),
+		"package dep\n\nfunc Value() string { return \"v2\" }\n")
+
+	dirty := newWatchDirtySet()
+	dirty.dirs[depDir] = true
+	dirty.goDirty = true
+
+	results, _, err := dirty.regenerate(sess.regenPending)
+	if err != nil {
+		t.Fatalf("regenerate after go edit to a zero-dependents leaf: %v", err)
+	}
+
+	// Regression guard: the reload cause must reach at least one cycleResult
+	// — a silently empty results slice is exactly the bug being pinned.
+	if len(results) != 1 {
+		t.Fatalf("results = %+v, want exactly one cycleResult (dep itself, via the orphan-only branch)", results)
+	}
+	r := results[0]
+	if r.Dir != depDir {
+		t.Fatalf("cycleResult.Dir = %q, want %q", r.Dir, depDir)
+	}
+	if !r.OK {
+		t.Fatalf("cycleResult not OK: err=%v diags=%v", r.Err, r.Diags)
+	}
+	if len(r.Removed) != 0 {
+		t.Fatalf("Removed = %v, want none — dep/ is go-only, never had a paired .x.go to sweep", r.Removed)
+	}
+	if !strings.Contains(r.Reload, "Go source") {
+		t.Fatalf("cycleResult.Reload = %q, want it to contain %q", r.Reload, "Go source")
+	}
+}

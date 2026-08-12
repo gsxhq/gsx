@@ -35,11 +35,22 @@ type cycleResult struct {
 	// empty reason (RefreshVerdict.Describe() can itself return "" for a
 	// pending-but-unattributed reload; consumers must treat that as "no
 	// note", same as this field's own zero value). Reload is module-wide, not
-	// per-dir, so at most one cycleResult per Module per cycle carries it:
-	// regenDirs stamps its first generated result per Module (reusing its
-	// chargedRefresh convention); regenPending's orphan-only branch (a
-	// go-only dir that never reaches regenDirs) stamps its own lone result
-	// the same way.
+	// per-dir: regenDirs stamps only its own first generated result per
+	// Module per regenDirs call (reusing its chargedRefresh convention).
+	// regenPending's orphan-only branch stamps its own lone result ONLY when
+	// dir has no dependent at all (a true go-only leaf, e.g. an unreferenced
+	// cmd/ package) — that dir never reaches regenDirs (affected stays empty
+	// for it), so its own branch is the sole place its cause can surface; a
+	// dir WITH a dependent leaves its own result unstamped (or unproduced,
+	// when nothing was removed) since the dependent's own regenDirs call
+	// independently recomputes and stamps the SAME module-wide verdict — see
+	// its call site. These are still independent branches, not a single
+	// per-cycle gate, so one regenPending cycle CAN produce more than one
+	// Reload-carrying result for the same Module (e.g. two unrelated
+	// dependent-less leaves changing in one batch) — every consumer here
+	// folds a batch down to one note via "first non-empty wins"
+	// (aggregateEvent, firstReload), not by relying on cycleResult itself
+	// being pre-deduped.
 	Reload string
 }
 
@@ -637,11 +648,13 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 			return results, fmt.Errorf("refresh saved GSX sources in %s: %w", dir, err)
 		}
 		empty := onlyGeneratedRemains(dir)
+		hasDependent := false
 		for _, dep := range m.Dependents(dir) {
 			if empty && dep == dir {
 				continue
 			}
 			affected[dep] = true
+			hasDependent = true
 		}
 		if empty {
 			// Nothing left to regenerate in dir, but a .gsx that used to live
@@ -654,8 +667,24 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 				results = append(results, cycleResult{Dir: dir, Err: rerr})
 				continue
 			}
-			if len(removed) > 0 {
-				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true, Reload: verdict.Describe()})
+			// A dir can reach here with nothing removed at all: a .gsx-free
+			// package (e.g. a cmd/ leaf nothing imports) whose .go file just
+			// changed is "empty" (onlyGeneratedRemains doesn't require a
+			// leftover .x.go). When it ALSO has no dependents (hasDependent is
+			// false), nothing else in this cycle will ever carry its reload
+			// cause forward — affected stays empty for it, so it never reaches
+			// regenDirs. Stamp this dir's own lone result in exactly that case.
+			// When a dependent DOES exist, leave a nothing-removed result
+			// unproduced here: the dependent's own regenDirs call independently
+			// recomputes (and stamps) the SAME module-wide verdict, and adding
+			// a second, phantom "regenerated nothing" result for dir here would
+			// both duplicate the note and violate "one cycleResult per dir that
+			// actually did something" (see TestWatchSession_GoEditRegeneratesOnlyDependents,
+			// which asserts dep contributes no cycleResult when page, its
+			// dependent, carries the note instead).
+			reload := verdict.Describe()
+			if len(removed) > 0 || (reload != "" && !hasDependent) {
+				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true, Reload: reload})
 			}
 			continue
 		}
