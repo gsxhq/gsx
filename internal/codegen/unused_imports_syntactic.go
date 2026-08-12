@@ -213,8 +213,7 @@ func (m *Module) resolvePackageNames(paths []string) map[string]string {
 		return out
 	}
 	cfg := &packages.Config{Mode: packages.NeedName, Dir: m.opts.ModuleRoot}
-	projectLoads.Add(1)
-	pkgs, err := packages.Load(cfg, paths...)
+	pkgs, err := loadPackages(cfg, paths...)
 	if err != nil {
 		return out
 	}
