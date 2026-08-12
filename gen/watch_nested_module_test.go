@@ -206,8 +206,8 @@ func TestWatchSession_VendoredGoEditDoesNotWedgeTheCycle(t *testing.T) {
 // for a warm Module: only a dir whose owning module is NOT the session module
 // that CONTAINS it escalates. Sibling module roots are independent — an edit
 // in module B's dir is served correctly by B's own Module — and the
-// single-module session (the overwhelmingly common case) never even resolves
-// a module root.
+// single-module session (the overwhelmingly common case) exits right after
+// the ownership probe, before the containment loop.
 func TestGoEditNeedsReopen(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

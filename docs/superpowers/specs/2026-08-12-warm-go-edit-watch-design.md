@@ -49,7 +49,7 @@ an in-place, Module-decided reload.
   Gates pin operation counts (Inspect, packages.Load), not wall-clock.
 - Correctness bar: unsure → escalate. Stale generated output is never an
   acceptable trade — see **Known limits** for the two shapes this design does
-  not reach and why they are at pre-branch parity or better.
+  not reach (one at pre-branch parity, one a knowing narrowing).
 
 ## Non-goals
 
@@ -127,7 +127,7 @@ disables saved-source intelligence until the server restarts, and per-module
 batching would let one vendored path discard the legitimate refreshes
 delivered with it. A `.go` path with no `go.mod` above it takes the same skip.
 
-**Known limits (parity with pre-branch).** Escalation is decided from tree
+**Known limits (one parity, one narrowing).** Escalation is decided from tree
 containment, so two shapes can still generate against stale types until
 something else forces a reopen. A `replace` pointing at a module OUTSIDE the
 watched trees is invisible to the session — it was unwatched before this
