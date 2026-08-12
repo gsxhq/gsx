@@ -48,7 +48,8 @@ an in-place, Module-decided reload.
   with the edited package's dependent closure, never with module size.
   Gates pin operation counts (Inspect, packages.Load), not wall-clock.
 - Correctness bar: unsure → escalate. Stale generated output is never an
-  acceptable trade.
+  acceptable trade — see **Known limits** for the two shapes this design does
+  not reach and why they are at pre-branch parity or better.
 
 ## Non-goals
 
@@ -114,6 +115,31 @@ cannot observe the file (`sourceview` stops at every nested `go.mod`, and
 Escalating on containment keeps the reopen these edits always paid; sibling
 module roots are independent and stay warm, and `.gsx` edits inside a nested
 module stay warm too (`watchSession.goEditNeedsReopen`).
+
+The same predicate consults `sourceview.OwnsDir`, whose boundary is not only
+the nested `go.mod`: a `vendor` path segment is one too. A vendored `.go`
+write is attributed by `moduleRoot` to the enclosing module that provably
+cannot refresh it, so routing it in place returns an error, retains the dirty
+transaction, and wedges every later cycle. It escalates instead — a vendored
+write is dependency-surface movement anyway. The LSP's `RefreshDisk` applies
+the same oracle but SKIPS such paths rather than escalating: an error there
+disables saved-source intelligence until the server restarts, and per-module
+batching would let one vendored path discard the legitimate refreshes
+delivered with it. A `.go` path with no `go.mod` above it takes the same skip.
+
+**Known limits (parity with pre-branch).** Escalation is decided from tree
+containment, so two shapes can still generate against stale types until
+something else forces a reopen. A `replace` pointing at a module OUTSIDE the
+watched trees is invisible to the session — it was unwatched before this
+design and is unwatched now, so nothing changes. The in-tree `go.work`
+sibling-consumer shape does change: two module roots where neither contains
+the other, one consuming the other's types, where an authored `.go` edit in
+the producer now stays warm for the producer and leaves the consumer stale.
+Pre-branch that healed only incidentally, because ANY `.go` edit was
+`depDirty`. Closing it properly means resolving `replace` directives and
+`go.work` `use` lists into a consumer graph; until then these two are the
+documented exceptions to "stale generated output is never an acceptable
+trade", and a `go.mod`/`go.sum` touch or a session restart clears them.
 
 **Preserved invariant.** Any authored-`.go` event still sets `goChanged`
 (via a new `goDirty` flag on the dirty set, since `depDirty` no longer
