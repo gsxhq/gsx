@@ -11,18 +11,32 @@ dependency-surface change (`isDepFile`, `gen/watch.go`) and answers with
 `reopen()`: discard every warm Module, redo the full `packages.Load`, and
 regenerate all dirs. On gsxui (1,169 `.gsx` / 78 dirs) that is ~4.6s per `.go`
 save after #184 — and the cost scales with module size, while gsx is being
-adopted by ever-bigger projects. The Module layer already distinguishes
-body-only Go changes (warm) from genuine graph changes
+adopted by ever-bigger projects. The Module layer already classifies `.gsx` fact changes
 (`sourceview.ReloadReasonFor`: membership / package clause / import outside
-the published world → atomic importer rebuild at next analysis); the LSP's
-watched-file path lives on that machinery today. The dev loop predates it.
+the published world → atomic importer rebuild at next analysis), and Go
+*override* transitions (editor buffers) mark `goSourceReload` for the same
+in-place rebuild. **Probe-verified premise correction (2026-08-12):** the
+*disk* refresh path marks neither — a `.go` disk edit routed through
+`RefreshDiskSourcesAndInvalidate` leaves warm analysis serving stale types
+(removing an exported symbol produced no diagnostic in a dependent's warm
+regen). Today's coarse `reopen` is therefore load-bearing for correctness,
+and the LSP watched-files flow has a latent staleness bug for `.go` changes
+with no open buffer. This design fixes that bug and replaces the reopen with
+an in-place, Module-decided reload.
 
 ## Goals
 
-- A body-only `.go` edit costs what a `.gsx` edit costs: refresh + invalidate
-  the owning dir, regenerate its dependent closure warm. No `packages.Load`.
-- Genuine graph changes escalate **once**, decided by the Module — never by
-  the watch loop, never from fsnotify op kinds — and the reason is visible.
+- A `.go` edit keeps the session and its Modules warm: refresh + invalidate
+  the owning dir, regenerate **only its dependent closure**, and pay exactly
+  one in-place world reload inside that cycle — no session teardown, no
+  rediscovery, no regenerate-all. Expected on gsxui: ~4.6s → ~2.5–3s
+  (verified by A/B). Sub-second body edits arrive with Phase 2's cheap
+  reload; a future exported-surface comparison could later eliminate the
+  reload for provably body-only edits (explicitly deferred, not scope).
+- Fix the latent LSP watched-files staleness: disk `.go` changes must mark
+  the world reload exactly as override transitions already do.
+- Escalation is decided by the Module — never by the watch loop, never from
+  fsnotify op kinds — and the reason is visible.
 - Design point: 10× gsxui (~10k files / ~800 dirs). Warm-path cost scales
   with the edited package's dependent closure, never with module size.
   Gates pin operation counts (Inspect, packages.Load), not wall-clock.
@@ -57,14 +71,17 @@ type RefreshVerdict struct {
 }
 ```
 
-computed from the existing `ReloadReasonFor` classification plus one new
-comparison: per-dir authored-`.go` membership diffed against the **published
-cold world's** per-dir selection — not the rolling manifest, because the
-reload-pending state must persist across further refreshes until the world
-rebuild actually lands (the same published-baseline discipline
-`sourceReloadReasons` already applies to `.gsx` facts). A `.go` file
-appearing or vanishing (or a `.gsx` membership/package/import change per the
-existing rules) escalates.
+computed from the existing `ReloadReasonFor` classification plus the Go rule
+this design adds to the disk path: **any change to authored `.go` content or
+membership in a refreshed dir marks `goSourceReload`** — exactly what the
+override path already does at `module.go:443-445` — with gsx-owned paired
+`.x.go` outputs excluded from the comparison (the session's own generated
+writes must never trigger a reload storm). The pending state persists across
+further refreshes until the in-place rebuild lands (the discipline
+`goSourceReload`/`sourceReloadReasons` already implement). In Phase 1 every
+authored-`.go` content change therefore verdicts reload-pending; the verdict
+earns its keep through closure-scoped regeneration, observability, the LSP
+staleness fix, and as Phase 2's hook point.
 Internal API; LSP call sites update mechanically and gain the verdict for
 free. The verdict is observational: analysis already self-escalates at the
 next `Generate` — the watch session never orchestrates the rebuild, it only
@@ -80,10 +97,12 @@ isolation preserved), regenerates the affected reverse closure warm
 verdicts. Structural events (dir create/delete) and `go.mod`/`go.sum` keep
 today's session-level reopen.
 
-**Preserved invariant.** Any authored-`.go` event still sets `goChanged`, so
-the server binary rebuilds and restarts even when zero `.x.go` bytes change.
-Signature-level `.go` edits propagate because dependents re-type-check from
-current source after invalidation; hash-gated writes drop no-op disk churn.
+**Preserved invariant.** Any authored-`.go` event still sets `goChanged`
+(via a new `goDirty` flag on the dirty set, since `depDirty` no longer
+covers it), so the server binary rebuilds and restarts even when zero
+`.x.go` bytes change. Signature-level `.go` edits propagate through the
+in-place world reload the verdict announces; dependents then regenerate
+against fresh types, and hash-gated writes drop no-op disk churn.
 
 **Observability (chosen: console + panel).** The verdict reason threads into
 the `generated`/status events and one console line, e.g.
@@ -94,8 +113,11 @@ the `generated`/status events and one console line, e.g.
 
 **Measure first.** Instrument where the 4.6s reopen goes on gsxui
 (main-module `packages.Load` vs external closure vs regeneration). #178's
-shared external world may already cover part of dev's cost in-process; the
-phase's exact shape depends on the split.
+shared world covers only the closure every Module resolves identically — the
+gsx runtime, gsx/std, and their transitive stdlib (`sharedworld.go`); a
+project's third-party deps and main module still reload each time. Phase 2
+extends world sharing to the project's full external (non-main-module)
+closure; the measurement fixes the expected win before any code.
 
 **Core.** Cache the external (non-main-module) world across Module
 generations in-process, keyed exactly like #178: go.mod/go.sum content plus
