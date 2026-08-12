@@ -362,6 +362,12 @@ func reloadDescriptionPath(moduleRoot, absPath string) string {
 // differing absolute path — the verdict's deterministic attribution when a
 // refresh touches more than one changed file. nil old means first
 // publication: nothing was retained yet, so nothing can be stale.
+//
+// Per-dir comparison goes through Manifest.HelperGoFilesDiff, the non-copying
+// counterpart of HelperGoFiles: it compares retained state and source bytes
+// by identity-then-equal instead of cloning every candidate snapshot (map
+// entries via HelperGoFiles, then byte slices via FileSnapshot.Source) only
+// to discard the copies here.
 func goSourceChangedInDirs(old, new *sourceview.Manifest, dirs map[string]bool) (bool, string) {
 	if old == nil {
 		return false, ""
@@ -378,34 +384,7 @@ func goSourceChangedInDirs(old, new *sourceview.Manifest, dirs map[string]bool) 
 	oldPaired, newPaired := paired(old), paired(new)
 	var changed []string
 	for dir := range dirs {
-		oldGo, newGo := old.HelperGoFiles(dir), new.HelperGoFiles(dir)
-		for path := range oldGo {
-			if oldPaired[path] || newPaired[path] {
-				delete(oldGo, path)
-			}
-		}
-		for path := range newGo {
-			if oldPaired[path] || newPaired[path] {
-				delete(newGo, path)
-			}
-		}
-		for path, oldSnap := range oldGo {
-			newSnap, ok := newGo[path]
-			if !ok || oldSnap.State() != newSnap.State() {
-				changed = append(changed, path)
-				continue
-			}
-			oldSrc, _ := oldSnap.Source()
-			newSrc, _ := newSnap.Source()
-			if !bytes.Equal(oldSrc, newSrc) {
-				changed = append(changed, path)
-			}
-		}
-		for path := range newGo {
-			if _, ok := oldGo[path]; !ok {
-				changed = append(changed, path)
-			}
-		}
+		changed = append(changed, old.HelperGoFilesDiff(new, dir, oldPaired, newPaired)...)
 	}
 	if len(changed) == 0 {
 		return false, ""

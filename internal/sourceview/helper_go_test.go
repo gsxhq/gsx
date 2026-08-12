@@ -1,6 +1,7 @@
 package sourceview
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -150,5 +151,53 @@ func TestManifestRefreshDirsReplacesHelperGoMembership(t *testing.T) {
 	}
 	if source, ok := refreshed.HelperGoFiles(dir)[newPath].Source(); !ok || string(source) != "//go:build inactive\n\npackage ui\nfunc newName() {}\n" {
 		t.Fatalf("refreshed helper source = %q, %v", source, ok)
+	}
+}
+
+// TestHelperGoFilesIsIndexedByDir pins the per-dir complexity of
+// Manifest.HelperGoFiles: a query for one directory must canonicalize O(1)
+// paths (its own query dir), never scan and canonicalize every helper Go
+// file in the module. The historical failure mode did exactly that — a
+// module-wide linear scan with a canonicalPath (filepath.EvalSymlinks) call
+// per entry, per call — costing 2 x ndirs x |helperGoFiles| resolutions:
+// 248,664 canonicalPath calls in one measured refresh cycle over a
+// 78-dir/1,594-file module. See
+// .superpowers/sdd/2026-08-12-warm-go-edit-watch/regression-diagnosis.md.
+func TestHelperGoFilesIsIndexedByDir(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	const dirs = 20
+	const filesPerDir = 5
+	dirPaths := make([]string, 0, dirs)
+	for d := range dirs {
+		pkg := fmt.Sprintf("p%02d", d)
+		writeTestFile(t, root, filepath.Join(pkg, "c.gsx"), fmt.Sprintf("package %s\ncomponent C() { <p/> }\n", pkg))
+		for f := range filesPerDir {
+			writeTestFile(t, root, filepath.Join(pkg, fmt.Sprintf("helper%d.go", f)), fmt.Sprintf("package %s\nfunc helper%d() {}\n", pkg, f))
+		}
+		dirPaths = append(dirPaths, filepath.Join(root, pkg))
+	}
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Query every directory once, after construction so index-build cost
+	// (paid once, inside Build) is excluded from this delta. A per-dir
+	// accessor canonicalizes only its own query directory — one
+	// canonicalPath call per HelperGoFiles call. A module-wide-scan
+	// implementation instead canonicalizes every module helper Go file's
+	// directory on every call: dirs * (dirs*filesPerDir) = 20 * 100 = 2,000
+	// calls here, versus an indexed implementation's 20.
+	before := CanonicalPathCalls()
+	for _, dir := range dirPaths {
+		files := manifest.HelperGoFiles(dir)
+		if len(files) != filesPerDir {
+			t.Fatalf("HelperGoFiles(%s) = %d files, want %d", dir, len(files), filesPerDir)
+		}
+	}
+	delta := CanonicalPathCalls() - before
+	if budget := uint64(dirs * 3); delta > budget {
+		t.Fatalf("HelperGoFiles over %d dirs made %d canonicalPath calls, want <= %d (O(1) query per call, not O(module files) scan per call)", dirs, delta, budget)
 	}
 }
