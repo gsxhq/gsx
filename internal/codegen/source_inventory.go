@@ -201,6 +201,15 @@ func (m *Module) refreshDiskSources(dirs ...string) error {
 		// sourceManifest so a helper-only disk event can stay warm without leaving
 		// direct generation on stale names.
 		m.helperGoSourceManifest = effective
+		// Disk counterpart of the override rule at module.go:443-445: a changed or
+		// added/removed authored .go file invalidates the retained cold world's
+		// types, which only an inventory reload can refresh. Paired generated
+		// outputs are excluded — the session's own .x.go writes must never reload.
+		if goSourceChangedInDirs(saved, refreshed, dirSet) {
+			m.sourceManifestEpoch++
+			m.goSourceReload = true
+			m.sourceInventoryDirty = true
+		}
 		for path := range m.savedFileSnapshots {
 			if dirSet[filepath.Dir(path)] {
 				delete(m.savedFileSnapshots, path)
@@ -227,6 +236,53 @@ func (m *Module) refreshDiskSources(dirs ...string) error {
 		}
 		return nil
 	}
+}
+
+// goSourceChangedInDirs reports whether any authored .go snapshot in dirs
+// differs between two manifests. nil old means first publication: nothing
+// was retained yet, so nothing can be stale.
+func goSourceChangedInDirs(old, new *sourceview.Manifest, dirs map[string]bool) bool {
+	if old == nil {
+		return false
+	}
+	paired := func(m *sourceview.Manifest) map[string]bool {
+		out := map[string]bool{}
+		for _, p := range m.PairedOutputs() {
+			if dirs[filepath.Dir(p)] {
+				out[p] = true
+			}
+		}
+		return out
+	}
+	oldPaired, newPaired := paired(old), paired(new)
+	for dir := range dirs {
+		oldGo, newGo := old.HelperGoFiles(dir), new.HelperGoFiles(dir)
+		for path := range oldGo {
+			if oldPaired[path] || newPaired[path] {
+				delete(oldGo, path)
+			}
+		}
+		for path := range newGo {
+			if oldPaired[path] || newPaired[path] {
+				delete(newGo, path)
+			}
+		}
+		if len(oldGo) != len(newGo) {
+			return true
+		}
+		for path, oldSnap := range oldGo {
+			newSnap, ok := newGo[path]
+			if !ok || oldSnap.State() != newSnap.State() {
+				return true
+			}
+			oldSrc, _ := oldSnap.Source()
+			newSrc, _ := newSnap.Source()
+			if !bytes.Equal(oldSrc, newSrc) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func cloneSourceOverrides(overrides map[string][]byte) map[string][]byte {
