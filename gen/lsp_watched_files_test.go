@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 func unsetLSPTestEnvironment(t *testing.T, key string) {
@@ -96,6 +97,84 @@ func TestLSPRefreshDiskTracksClosedGSXChangeCreateAndDelete(t *testing.T) {
 	}
 	if got := refCount(); got != initial+1 {
 		t.Fatalf("refs after closed-file delete = %d, want %d", got, initial+1)
+	}
+}
+
+// TestLSPRefreshDiskTracksClosedGoChange pins the saved-.go half of the
+// watched-file flow: a plain authored .go file changing on disk, with no open
+// buffer anywhere, must reload the analyzer's world so diagnostics stop
+// describing the pre-edit types. RefreshDisk used to classify only .gsx,
+// gsx.toml, go.mod and go.work, so a go-only helper package — the common
+// layout — stayed stale in diagnostics/gd/hover until some unrelated event
+// happened to reload the world.
+//
+// Its paired generated output is excluded for the same reason gen/watch.go
+// excludes it: a .x.go whose exact same-base .gsx sibling exists is this
+// toolchain's own write, and refreshing on it would make every generate cycle
+// reload the LSP's world.
+func TestLSPRefreshDiskTracksClosedGoChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real module analysis")
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLSPRenameModule(t, root, repoRoot, map[string]string{
+		"dep/dep.go":     "package dep\n\nfunc Value() string { return \"v1\" }\n",
+		"views/page.gsx": "package views\n\nimport \"example.com/unsafe/dep\"\n\ncomponent Page() {\n\t<p>{dep.Value()}</p>\n}\n",
+	})
+	viewsDir := filepath.Join(root, "views")
+	depGo := filepath.Join(root, "dep", "dep.go")
+
+	a := newLSPAnalyzer(config{}, nil)
+	errorDiags := func() []string {
+		pkg, err := a.Analyze(viewsDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var msgs []string
+		for _, d := range pkg.Diags {
+			if d.Severity == diag.Error {
+				msgs = append(msgs, d.Message)
+			}
+		}
+		return msgs
+	}
+	if msgs := errorDiags(); len(msgs) != 0 {
+		t.Fatalf("baseline analysis is not clean: %v", msgs)
+	}
+
+	// Remove the referenced symbol on disk. Nothing else changes, and no
+	// buffer is open, so only a .go-driven refresh can surface it.
+	if err := os.WriteFile(depGo, []byte("package dep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	affected, err := a.RefreshDisk([]string{depGo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(affected, viewsDir) {
+		t.Fatalf("affected = %v, want the reverse closure of dep/ to include %s so diagnostics republish", affected, viewsDir)
+	}
+	msgs := errorDiags()
+	if len(msgs) == 0 {
+		t.Fatal("no error diagnostic after dep.Value() was deleted on disk: the .go change never reached the analyzer's world")
+	}
+
+	// A paired generated output is not authored Go: refreshing on it would
+	// make gsx's own writes reload the LSP world on every cycle.
+	pairedOut := filepath.Join(viewsDir, "page.x.go")
+	if err := os.WriteFile(pairedOut, []byte("package views\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pairedAffected, err := a.RefreshDisk([]string{pairedOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairedAffected) != 0 {
+		t.Fatalf("paired generated output %s was refreshed (affected = %v); it must be dropped", pairedOut, pairedAffected)
 	}
 }
 

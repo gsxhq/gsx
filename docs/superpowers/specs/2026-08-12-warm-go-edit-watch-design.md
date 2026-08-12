@@ -33,8 +33,11 @@ an in-place, Module-decided reload.
   (verified by A/B). Sub-second body edits arrive with Phase 2's cheap
   reload; a future exported-surface comparison could later eliminate the
   reload for provably body-only edits (explicitly deferred, not scope).
-- Fix the latent LSP watched-files staleness: disk `.go` changes must mark
-  the world reload exactly as override transitions already do.
+- Fix the latent LSP watched-files staleness end to end: disk `.go` changes
+  must mark the world reload exactly as override transitions already do, and
+  must actually *reach* that marking through the LSP — the watched-file
+  registration, the relevance filter, and `RefreshDisk`'s classification all
+  carry `.go` (paired generated `.x.go` excluded).
 - Whether the world is stale is decided by the Module — never by the watch
   loop, never from fsnotify op kinds — and the reason is visible. WHICH
   Module gets asked is the loop's, since a Module can only ever speak for its

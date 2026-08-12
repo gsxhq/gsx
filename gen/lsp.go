@@ -432,7 +432,7 @@ func (a lspAnalyzer) ClearOverride(path string) ([]string, error) {
 // be governed by the changed file, replaying their open buffers through the
 // ordinary ownership transition.
 func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
-	var gsxPaths, configPaths, goModPaths, goWorkPaths []string
+	var gsxPaths, goPaths, configPaths, goModPaths, goWorkPaths []string
 	for _, path := range paths {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
@@ -448,9 +448,16 @@ func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 			goModPaths = append(goModPaths, absPath)
 		case filepath.Base(absPath) == "go.work":
 			goWorkPaths = append(goWorkPaths, canonicalWatchedPath(absPath))
+		case isGoSourceFile(absPath):
+			// Authored Go, judged by exactly the rule the watch loop uses: an
+			// .x.go with a same-base .gsx sibling is this toolchain's own
+			// output and must never reload the analyzer's world, while an
+			// unpaired one is ordinary source. See isGoSourceFile.
+			goPaths = append(goPaths, absPath)
 		}
 	}
 	gsxPaths = sortedUniqueDirs(gsxPaths)
+	goPaths = sortedUniqueDirs(goPaths)
 	configPaths = sortedUniqueDirs(configPaths)
 	goModPaths = sortedUniqueDirs(goModPaths)
 	goWorkPaths = sortedUniqueDirs(goWorkPaths)
@@ -539,7 +546,14 @@ func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 
 	_, modules = a.mods.snapshot()
 	dirsByModule := map[*codegen.Module][]string{}
-	for _, path := range gsxPaths {
+	// Authored .go changes take exactly the .gsx route: their directory is
+	// refreshed by the same per-module RefreshDiskSourcesAndInvalidate call,
+	// which re-reads the dir's helper Go facts, marks the pending world
+	// reload, and returns the reverse closure — the `affected` set the server
+	// republishes diagnostics for. Without it a go-only helper package (the
+	// common layout) stayed stale in diagnostics, gd and hover until some
+	// unrelated event happened to reload the world.
+	for _, path := range slices.Concat(gsxPaths, goPaths) {
 		dir := filepath.Dir(path)
 		root, _, err := moduleRoot(dir)
 		if err != nil {
