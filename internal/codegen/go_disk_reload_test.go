@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // TestRefreshDiskSourcesMarksGoReload pins the disk counterpart of the
@@ -19,6 +20,15 @@ import (
 // appearing on disk, and a .gsx deletion whose paired .x.go is orphaned on
 // disk in the same refresh (that case still bumps the epoch once, through
 // the pre-existing source-inventory-fact path — just not twice).
+//
+// It continues past that baseline into the RefreshVerdict truth table (Task
+// 2): eight rows pinning WorldReloadPending/Reason/Path, including the
+// persistence rule — a verdict can be pending from an EARLIER call whose
+// reload has not landed yet, and Describe must still render that call's
+// attribution. The rows extend this same Module/fixture (no extra
+// packages.Load) rather than opening a second one; the "extra" module below
+// exists only so row 6 has a real previously-unseen import to add — mirrors
+// TestRefreshDiskSourcesReloadsPreviouslyUnseenImport's example.com/dep.
 func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -31,7 +41,9 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("go.mod", "module example.com/m\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot(t)+"\n")
+	write("go.mod", "module example.com/m\n\ngo 1.26.1\n\nrequire (\n\tgithub.com/gsxhq/gsx v0.0.0\n\texample.com/extra v0.0.0\n)\n\nreplace github.com/gsxhq/gsx => "+repoRoot(t)+"\n\nreplace example.com/extra => ./extra\n")
+	write("extra/go.mod", "module example.com/extra\n\ngo 1.26.1\n")
+	write("extra/extra.go", "package extra\n\nfunc Label() string { return \"extra\" }\n")
 	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v1\" }\n")
 	write("page/page.gsx", "package page\n\nimport \"example.com/m/dep\"\n\ncomponent Page() {\n\t<p>{dep.Value()}</p>\n}\n")
 
@@ -46,7 +58,7 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 
 	// Case 1: content change removing the symbol → dependent regen must diagnose.
 	write("dep/dep.go", "package dep\n\nfunc Hidden() string { return \"v2\" }\n")
-	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "dep")); err != nil {
+	if _, _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "dep")); err != nil {
 		t.Fatal(err)
 	}
 	_, diags, _ := m.Generate(filepath.Join(root, "page"))
@@ -56,7 +68,7 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 
 	// Case 2: restoring the symbol heals on the same warm module.
 	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v3\" }\n")
-	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "dep")); err != nil {
+	if _, _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "dep")); err != nil {
 		t.Fatal(err)
 	}
 	if _, diags, _ := m.Generate(filepath.Join(root, "page")); diagMentions(diags, "Value") {
@@ -66,7 +78,7 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	// Case 3: byte-identical rewrite must NOT mark a reload (no epoch churn).
 	epoch := m.testSourceManifestEpoch()
 	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v3\" }\n")
-	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "dep")); err != nil {
+	if _, _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "dep")); err != nil {
 		t.Fatal(err)
 	}
 	if got := m.testSourceManifestEpoch(); got != epoch {
@@ -77,7 +89,7 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	// must never mark a reload, even though it is a new .go file on disk.
 	epoch = m.testSourceManifestEpoch()
 	write("page/page.x.go", "package page\n\n// generated\n")
-	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
+	if _, _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
 		t.Fatal(err)
 	}
 	if got := m.testSourceManifestEpoch(); got != epoch {
@@ -98,7 +110,7 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	write("page/page.x.go", "package page\n\n// orphaned rewrite\n")
-	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
+	if _, _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
 		t.Fatal(err)
 	}
 	if got := m.testSourceManifestEpoch(); got != epoch+1 {
@@ -111,11 +123,165 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	// A subsequent healthy refresh cycle still behaves normally: restoring
 	// page.gsx heals cleanly with no leftover suppression from the delete.
 	write("page/page.gsx", "package page\n\nimport \"example.com/m/dep\"\n\ncomponent Page() {\n\t<p>{dep.Value()}</p>\n}\n")
-	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
+	if _, _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
 		t.Fatal(err)
 	}
 	if out, diags, err := m.Generate(filepath.Join(root, "page")); err != nil || hasDiagErrors(diags) || len(out) == 0 {
 		t.Fatalf("post-delete restore generate: out=%d diags=%v err=%v", len(out), diags, err)
+	}
+
+	// --- RefreshVerdict truth table (Task 2) -------------------------------
+	//
+	// The Generate call directly above landed every outstanding reload, so
+	// the module enters row 1 with WorldReloadPending already false — the
+	// same starting condition a freshly Opened Module would have, without
+	// paying for a second packages.Load.
+	depDir := filepath.Join(root, "dep")
+	pageDir := filepath.Join(root, "page")
+
+	// Row 1: .go content change -> pending, ReloadGoSource, attributed to
+	// the changed file.
+	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v4\" }\n")
+	_, verdict, err := m.RefreshDiskSourcesAndInvalidate(depDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/dep.go" {
+		t.Fatalf("row 1 verdict = %+v, want {true ReloadGoSource dep/dep.go}", verdict)
+	}
+	if got, want := verdict.Describe(), "changed Go source dep/dep.go"; got != want {
+		t.Fatalf("row 1 Describe() = %q, want %q", got, want)
+	}
+	// Land it so row 2 starts clean.
+	if _, diags, err := m.Generate(pageDir); err != nil || hasDiagErrors(diags) {
+		t.Fatalf("row 1 landing generate: diags=%v err=%v", diags, err)
+	}
+
+	// Row 2: byte-identical .go rewrite with no prior pending reload -> not
+	// pending.
+	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v4\" }\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(depDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict.WorldReloadPending {
+		t.Fatalf("row 2 verdict = %+v, want not pending", verdict)
+	}
+	if got := verdict.Describe(); got != "" {
+		t.Fatalf("row 2 Describe() = %q, want empty", got)
+	}
+
+	// Row 3: .go file added -> pending, ReloadGoSource, attributed to the
+	// new file.
+	write("dep/helper.go", "package dep\n\nfunc Extra() string { return \"extra\" }\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(depDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/helper.go" {
+		t.Fatalf("row 3 verdict = %+v, want {true ReloadGoSource dep/helper.go}", verdict)
+	}
+
+	// Row 4: .go file removed -> pending, ReloadGoSource, attributed to the
+	// removed file. Left unlanded from row 3 on purpose: a second Go-source
+	// diff inside one still-pending window must still attribute correctly.
+	if err := os.Remove(filepath.Join(depDir, "helper.go")); err != nil {
+		t.Fatal(err)
+	}
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(depDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/helper.go" {
+		t.Fatalf("row 4 verdict = %+v, want {true ReloadGoSource dep/helper.go}", verdict)
+	}
+	// Land it so row 5 starts clean.
+	if _, diags, err := m.Generate(pageDir); err != nil || hasDiagErrors(diags) {
+		t.Fatalf("row 4 landing generate: diags=%v err=%v", diags, err)
+	}
+
+	// Row 5: .gsx body-only edit -> not pending (no package/import/membership
+	// fact changed).
+	write("page/page.gsx", "package page\n\nimport \"example.com/m/dep\"\n\ncomponent Page() {\n\t<p>changed: {dep.Value()}</p>\n}\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict.WorldReloadPending {
+		t.Fatalf("row 5 verdict = %+v, want not pending", verdict)
+	}
+
+	// Row 6: .gsx gains an import outside the loaded world -> pending,
+	// ReloadImports, attributed to page.gsx. example.com/extra was declared
+	// in go.mod from Open but never imported, so it is genuinely absent from
+	// the cold external importer.
+	write("page/page.gsx", "package page\n\nimport (\n\t\"example.com/m/dep\"\n\t\"example.com/extra\"\n)\n\ncomponent Page() {\n\t<p>changed: {dep.Value()}</p>\n\t<p>{extra.Label()}</p>\n}\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadImports || verdict.Path != "page/page.gsx" {
+		t.Fatalf("row 6 verdict = %+v, want {true ReloadImports page/page.gsx}", verdict)
+	}
+	if got, want := verdict.Describe(), "new import outside the loaded world in page/page.gsx"; got != want {
+		t.Fatalf("row 6 Describe() = %q, want %q", got, want)
+	}
+
+	// Row 7: persistence — refresh a DIFFERENT dir byte-identically, with NO
+	// Generate in between, and the row-6 reload must still read pending. The
+	// dep dir's own facts are untouched by this refresh, so the only source
+	// of WorldReloadPending here is row 6's still-unlanded page.gsx entry.
+	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v4\" }\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(depDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.WorldReloadPending {
+		t.Fatalf("row 7 verdict = %+v, want still pending (persisted from row 6)", verdict)
+	}
+
+	// Row 8: after Generate lands the row-6/7 reload, a fresh byte-identical
+	// refresh reports not pending again.
+	if _, diags, err := m.Generate(pageDir); err != nil || hasDiagErrors(diags) {
+		t.Fatalf("row 7 landing generate: diags=%v err=%v", diags, err)
+	}
+	write("page/page.gsx", "package page\n\nimport (\n\t\"example.com/m/dep\"\n\t\"example.com/extra\"\n)\n\ncomponent Page() {\n\t<p>changed: {dep.Value()}</p>\n\t<p>{extra.Label()}</p>\n}\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict.WorldReloadPending {
+		t.Fatalf("row 8 verdict = %+v, want not pending", verdict)
+	}
+
+	// Row 9 (beyond the brief's 8; closes a coverage gap): persistence for
+	// the Go-source branch specifically, not just sourceReloadReasons (row
+	// 7). goSourceReload is a single flag with no memory of which file
+	// tripped it, so once it is pending, a LATER call that finds nothing new
+	// of its own must still attribute to the file that originally set it —
+	// exactly what m.reloadAttribution exists for.
+	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v5\" }\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(depDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/dep.go" {
+		t.Fatalf("row 9a verdict = %+v, want {true ReloadGoSource dep/dep.go}", verdict)
+	}
+	// Refresh page dir byte-identically, with NO Generate in between: this
+	// call finds nothing new (page.gsx unchanged, no .gsx reload reason), so
+	// the verdict can only come from the persisted attribution set by the
+	// dep.go change above, not from anything this call touched.
+	write("page/page.gsx", "package page\n\nimport (\n\t\"example.com/m/dep\"\n\t\"example.com/extra\"\n)\n\ncomponent Page() {\n\t<p>changed: {dep.Value()}</p>\n\t<p>{extra.Label()}</p>\n}\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/dep.go" {
+		t.Fatalf("row 9b verdict = %+v, want {true ReloadGoSource dep/dep.go} (persisted from the untouched dep dir)", verdict)
+	}
+	if got, want := verdict.Describe(), "changed Go source dep/dep.go"; got != want {
+		t.Fatalf("row 9b Describe() = %q, want %q", got, want)
 	}
 }
 

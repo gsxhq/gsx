@@ -140,7 +140,31 @@ const (
 	ReloadMembership
 	ReloadPackage
 	ReloadImports
+	// ReloadGoSource marks an authored .go content or membership change
+	// (codegen's disk-refresh counterpart to the reasons above, which are
+	// derived from .gsx package/import facts only). Appended last so existing
+	// numeric values never renumber.
+	ReloadGoSource
 )
+
+// String renders the reason for diagnostics, logs, and dev-loop console
+// output.
+func (r ReloadReason) String() string {
+	switch r {
+	case ReloadNone:
+		return "none"
+	case ReloadMembership:
+		return "membership"
+	case ReloadPackage:
+		return "package"
+	case ReloadImports:
+		return "imports"
+	case ReloadGoSource:
+		return "go-source"
+	default:
+		return "unknown"
+	}
+}
 
 // ReloadReasonFor compares a current per-path fact to its immutable published
 // baseline. An authored import addition needs no rebuild when the published

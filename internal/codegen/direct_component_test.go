@@ -783,7 +783,7 @@ func TestDirectHelperRefreshPublishesNewInactiveGoMembership(t *testing.T) {
 		t.Fatalf("initial provenance = %+v", provenance.direct)
 	}
 	writeFile(t, dir, "inactive.go", "//go:build helpervariant\n\npackage p\nfunc _gsxrenderChild() {}\n")
-	if _, err := module.RefreshDiskSourcesAndInvalidate(dir); err != nil {
+	if _, _, err := module.RefreshDiskSourcesAndInvalidate(dir); err != nil {
 		t.Fatal(err)
 	}
 	_, diagnostics, err = module.Generate(dir)

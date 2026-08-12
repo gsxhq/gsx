@@ -456,7 +456,7 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 	dirErrMs := map[string]int64{}
 	for _, m := range batchOrder {
 		t := time.Now()
-		_, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
+		_, _, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
 		refreshMs[m] = time.Since(t).Milliseconds()
 		if err == nil {
 			continue
@@ -472,7 +472,7 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		refreshMs[m] = 0 // per-dir retries carry their own timing below
 		for _, dir := range batchDirs[m] {
 			dt := time.Now()
-			if _, derr := m.RefreshDiskSourcesAndInvalidate(dir); derr != nil {
+			if _, _, derr := m.RefreshDiskSourcesAndInvalidate(dir); derr != nil {
 				dirErr[dir] = derr
 			}
 			dirErrMs[dir] = time.Since(dt).Milliseconds()

@@ -550,7 +550,7 @@ func (a lspAnalyzer) RefreshDisk(paths []string) ([]string, error) {
 		}
 	}
 	for module, dirs := range dirsByModule {
-		changed, err := module.RefreshDiskSourcesAndInvalidate(sortedUniqueDirs(dirs)...)
+		changed, _, err := module.RefreshDiskSourcesAndInvalidate(sortedUniqueDirs(dirs)...)
 		affected = append(affected, changed...)
 		if err != nil {
 			transitionErr = errors.Join(transitionErr, err)
