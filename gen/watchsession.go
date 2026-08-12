@@ -116,6 +116,56 @@ func (s *watchSession) moduleForDir(dir string) (*codegen.Module, error) {
 	return s.modules[root], nil
 }
 
+// goEditNeedsReopen reports whether an authored .go change in dir must escalate
+// to a full session reopen instead of the in-place, closure-scoped goDirty
+// regeneration.
+//
+// The in-place path refreshes exactly ONE Module: the one moduleForDir picks,
+// rooted at dir's NEAREST go.mod. That is the whole story while dir belongs to
+// the session module whose tree contains it. It is not when dir belongs to a
+// module NESTED inside another session module — the layout a go.mod
+// `replace example.com/x => ./x` produces. There the refresh lands on the
+// nested Module, which nothing in the session generates against, while the
+// consuming outer module structurally cannot observe the change: sourceview's
+// walk stops at every nested go.mod, and RefreshDiskSourcesAndInvalidate
+// rejects a dir the outer root does not own. Its dependents would keep
+// generating against pre-edit types — silently wrong output, not a build
+// error (a string→int signature keeps `Text(string(...))` compiling). Reopen
+// instead: it rebuilds every session module from current disk, which is what
+// the classification did for every .go edit before the goDirty split.
+//
+// Escalation is deliberately keyed on containment, not on parsing replace
+// directives: an in-tree nested module is precisely the shape a directory
+// replace produces, and a nested module the outer one does NOT consume costs
+// only the reopen it always used to pay. Sibling module roots never escalate —
+// an edit in module B's dir is served correctly by B's own Module, and no
+// other session module contains it.
+//
+// A session spanning a single module (the overwhelmingly common case) short
+// circuits before resolving any module root, so classification stays free of
+// filesystem work on the hot path. Nested modules are registered up front by
+// resolveWatchTargets, and a go.mod created mid-session is itself a dep file,
+// so len(s.roots) < 2 cannot hide a nested module.
+func (s *watchSession) goEditNeedsReopen(dir string) bool {
+	if s == nil || len(s.roots) < 2 {
+		return false
+	}
+	owner, _, err := moduleRoot(dir)
+	if err != nil {
+		// dir's module boundary is unreadable — a removed tree, an unparsable
+		// go.mod. Fail closed: reopen re-resolves the whole session from disk,
+		// which is exactly the recovery an unreadable boundary needs.
+		return true
+	}
+	owner = filepath.Clean(owner)
+	for _, root := range s.roots {
+		if filepath.Clean(root) != owner && pathWithinTree(root, dir) {
+			return true
+		}
+	}
+	return false
+}
+
 // prepareWatchSession resolves the structural observation roots and opens one
 // lazy Module per module root. It deliberately does not discover GSX files or
 // generate: callers must arm fsnotify first, then call initialGenerate. Keeping

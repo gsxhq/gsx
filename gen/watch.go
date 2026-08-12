@@ -65,7 +65,7 @@ func armWatchSession(cfg watchConfig) (*armedWatchSession, error) {
 		_ = watcher.Close()
 		return nil, err
 	}
-	sources, err := newSourceTracker(session.watchRoots, session.requestedRoots)
+	sources, err := newSourceTracker(session.watchRoots, session.requestedRoots, session)
 	if err != nil {
 		_ = watcher.Close()
 		return nil, fmt.Errorf("inventory watched sources: %w", err)
@@ -355,7 +355,7 @@ func queueWatchSource(path string, sources *sourceTracker, pending map[string]bo
 	if !watchable(path) || !sources.changed(path) {
 		return false
 	}
-	classifyDirtyFile(path, depDirty, goDirty)
+	sources.classifyDirtyFile(path, depDirty, goDirty)
 	pending[filepath.Dir(path)] = true
 	return true
 }
@@ -365,11 +365,21 @@ func queueWatchSource(path string, sources *sourceTracker, pending map[string]bo
 // any other authored .go source (an in-place world reload, scoped to the
 // dependent closure, suffices). A .gsx source trips neither: ordinary warm
 // regeneration already picks it up through the pending dir.
-func classifyDirtyFile(path string, depDirty, goDirty *bool) {
+//
+// An authored .go source whose owning module is not the session module that
+// contains it — a nested module the outer one consumes through a go.mod
+// `replace` — escalates to depDirty instead: the in-place reload can only
+// refresh the nested Module, which nothing in this session generates against.
+// See watchSession.goEditNeedsReopen.
+func (t *sourceTracker) classifyDirtyFile(path string, depDirty, goDirty *bool) {
 	switch {
 	case isDepFile(path):
 		*depDirty = true
 	case isGoSourceFile(path):
+		if t != nil && t.session.goEditNeedsReopen(filepath.Dir(path)) {
+			*depDirty = true
+			return
+		}
 		*goDirty = true
 	}
 }
@@ -380,18 +390,24 @@ type sourceTracker struct {
 	explicitRoots     map[string]bool
 	requestedBranches map[string][]string
 	sentinelParents   map[string]bool
+	// session is the watch session whose module topology decides whether an
+	// authored .go change can stay on the in-place goDirty path. nil in tests
+	// whose subject is inventory/observation rather than classification; a nil
+	// session never escalates (see watchSession.goEditNeedsReopen).
+	session *watchSession
 }
 
 type sourceSnapshot struct {
 	hash [32]byte
 }
 
-func newSourceTracker(roots, explicitRoots []string) (*sourceTracker, error) {
+func newSourceTracker(roots, explicitRoots []string, session *watchSession) (*sourceTracker, error) {
 	t := &sourceTracker{
 		roots:             append([]string(nil), roots...),
 		explicitRoots:     map[string]bool{},
 		requestedBranches: map[string][]string{},
 		sentinelParents:   map[string]bool{},
+		session:           session,
 	}
 	for _, root := range explicitRoots {
 		root = filepath.Clean(root)
@@ -480,7 +496,7 @@ func (t *sourceTracker) reconcile(roots []string, pending map[string]bool, depDi
 		}
 		changed = true
 		pending[filepath.Dir(path)] = true
-		classifyDirtyFile(path, depDirty, goDirty)
+		t.classifyDirtyFile(path, depDirty, goDirty)
 	}
 	t.files = files
 	return changed, nil
@@ -503,7 +519,7 @@ func (t *sourceTracker) removeTree(root string, pending map[string]bool, depDirt
 		}
 		delete(t.files, path)
 		pending[filepath.Dir(path)] = true
-		classifyDirtyFile(path, depDirty, goDirty)
+		t.classifyDirtyFile(path, depDirty, goDirty)
 		changed = true
 	}
 	return changed

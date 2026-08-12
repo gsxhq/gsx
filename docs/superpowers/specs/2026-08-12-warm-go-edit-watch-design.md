@@ -35,8 +35,12 @@ an in-place, Module-decided reload.
   reload for provably body-only edits (explicitly deferred, not scope).
 - Fix the latent LSP watched-files staleness: disk `.go` changes must mark
   the world reload exactly as override transitions already do.
-- Escalation is decided by the Module — never by the watch loop, never from
-  fsnotify op kinds — and the reason is visible.
+- Whether the world is stale is decided by the Module — never by the watch
+  loop, never from fsnotify op kinds — and the reason is visible. WHICH
+  Module gets asked is the loop's, since a Module can only ever speak for its
+  own root: an authored `.go` file inside a nested module that another
+  session module consumes through a `replace` is escalated to the reopen by
+  the loop, because no single Module can observe it.
 - Design point: 10× gsxui (~10k files / ~800 dirs). Warm-path cost scales
   with the edited package's dependent closure, never with module size.
   Gates pin operation counts (Inspect, packages.Load), not wall-clock.
@@ -96,6 +100,17 @@ isolation preserved), regenerates the affected reverse closure warm
 (`Dependents()` walks through go-only dirs — verified), and collects
 verdicts. Structural events (dir create/delete) and `go.mod`/`go.sum` keep
 today's session-level reopen.
+
+**Nested-module escalation.** So does an authored `.go` file whose owning
+module is not the session module that CONTAINS it — the shape a go.mod
+`replace example.com/x => ./x` produces. The in-place path refreshes only the
+Module rooted at the file's nearest `go.mod`, i.e. the nested one, which
+nothing generates against, while the consuming outer module structurally
+cannot observe the file (`sourceview` stops at every nested `go.mod`, and
+`RefreshDiskSourcesAndInvalidate` rejects a dir the outer root does not own).
+Escalating on containment keeps the reopen these edits always paid; sibling
+module roots are independent and stay warm, and `.gsx` edits inside a nested
+module stay warm too (`watchSession.goEditNeedsReopen`).
 
 **Preserved invariant.** Any authored-`.go` event still sets `goChanged`
 (via a new `goDirty` flag on the dirty set, since `depDirty` no longer

@@ -14,7 +14,7 @@ func TestSourceTrackerAuthoritativeReconcileFindsMissedChanges(t *testing.T) {
 	removed := filepath.Join(root, "model", "model.go")
 	writeTestFile(t, changed, "package ui\n")
 	writeTestFile(t, removed, "package model\n")
-	tracker, err := newSourceTracker([]string{root}, nil)
+	tracker, err := newSourceTracker([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestExplicitExcludedRootRecreationIsRearmedAndInventoried(t *testing.T) {
 	if err := addWatchTree(watcher, []string{module, explicit}); err != nil {
 		t.Fatal(err)
 	}
-	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit})
+	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestExplicitRootBelowExcludedAncestorRearmsAcrossAncestorRecreation(t *test
 	if err := addWatchTree(watcher, []string{module, explicit}); err != nil {
 		t.Fatal(err)
 	}
-	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit})
+	tracker, err := newSourceTracker([]string{module, explicit}, []string{explicit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

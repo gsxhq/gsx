@@ -155,7 +155,7 @@ func TestSourceTrackerSkipsUnchangedFollowupEvents(t *testing.T) {
 	path := filepath.Join(root, "main.go")
 	writeFileT(t, path, "package main\n\nfunc main() {}\n")
 
-	tracker, err := newSourceTracker([]string{root}, nil)
+	tracker, err := newSourceTracker([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestSourceTrackerTreatsDeletionAsOneChange(t *testing.T) {
 	path := filepath.Join(root, "page.gsx")
 	writeFileT(t, path, "package main\n\ncomponent Page() { <div/> }\n")
 
-	tracker, err := newSourceTracker([]string{root}, nil)
+	tracker, err := newSourceTracker([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestSourceTrackerHonorsExplicitExcludedNamedRoot(t *testing.T) {
 	path := filepath.Join(root, "main.go")
 	writeFileT(t, path, "package main\n\nfunc main() {}\n")
 
-	tracker, err := newSourceTracker([]string{root}, nil)
+	tracker, err := newSourceTracker([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

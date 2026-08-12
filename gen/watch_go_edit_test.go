@@ -187,7 +187,7 @@ func TestQueueWatchSourceRoutesAuthoredGoAsSourceEvent(t *testing.T) {
 	writeFileT(t, paired, "package sample\n")
 	writeFileT(t, unpaired, "package sample\n")
 
-	tracker, err := newSourceTracker([]string{root}, nil)
+	tracker, err := newSourceTracker([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
