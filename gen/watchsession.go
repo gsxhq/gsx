@@ -451,13 +451,32 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		}
 		batchDirs[m] = append(batchDirs[m], dir)
 	}
-	refreshErr := make(map[*codegen.Module]error, len(batchOrder))
 	refreshMs := make(map[*codegen.Module]int64, len(batchOrder))
+	dirErr := map[string]error{}
+	dirErrMs := map[string]int64{}
 	for _, m := range batchOrder {
 		t := time.Now()
 		_, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
 		refreshMs[m] = time.Since(t).Milliseconds()
-		refreshErr[m] = err
+		if err == nil {
+			continue
+		}
+		// The batch refresh is all-or-nothing (atomic, no partial state), so
+		// one broken dir — an unreadable directory, a paired .x.go path
+		// occupied by a non-regular file — would otherwise block every
+		// healthy sibling in the module for the cycle. Re-scope per dir: the
+		// failure isolates to exactly the culprit dirs, and healthy dirs
+		// refresh and regenerate, restoring the per-dir form's partial-failure
+		// behavior (a module-wide failure such as a broken cold Build simply
+		// fails every per-dir attempt too, matching the old cold path).
+		refreshMs[m] = 0 // per-dir retries carry their own timing below
+		for _, dir := range batchDirs[m] {
+			dt := time.Now()
+			if _, derr := m.RefreshDiskSourcesAndInvalidate(dir); derr != nil {
+				dirErr[dir] = derr
+			}
+			dirErrMs[dir] = time.Since(dt).Milliseconds()
+		}
 	}
 	chargedRefresh := make(map[*codegen.Module]bool, len(batchOrder))
 	for i, dir := range dirs {
@@ -465,14 +484,16 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		if m == nil {
 			continue // moduleForDir already failed; results[i] is set
 		}
-		if err := refreshErr[m]; err != nil {
-			results[i] = cycleResult{Dir: dir, Err: err, DurMs: time.Since(starts[i]).Milliseconds()}
+		if err := dirErr[dir]; err != nil {
+			results[i] = cycleResult{Dir: dir, Err: err, DurMs: dirErrMs[dir]}
 			continue
 		}
 		results[i] = s.generateDir(m, dir)
-		// Charge each module's batch refresh to its first generated dir so
-		// aggregate durations (aggregateEvent sums per-dir DurMs) still cover
-		// the whole cycle's work.
+		// Fold this dir's share of refresh time into its result so aggregate
+		// durations (aggregateEvent sums per-dir DurMs) cover the whole
+		// cycle's work: the batch refresh is charged to the module's first
+		// generated dir, a fallback per-dir refresh to its own dir.
+		results[i].DurMs += dirErrMs[dir]
 		if !chargedRefresh[m] {
 			chargedRefresh[m] = true
 			results[i].DurMs += refreshMs[m]
