@@ -104,11 +104,19 @@ func TestWatchSession_ColdStartParseWorkIsLinear(t *testing.T) {
 //     importer stays cached, and Generate re-type-checks the edited dir from
 //     retained source only.
 //   - a .go body edit forces exactly ONE in-place world reload (Task 1/2's
-//     lazy externalImporter reload, not a full session reopen), which costs a
-//     small constant number of packages.Load calls — see goEditLoadBudget
-//     below for what that constant comprises.
-//   - a second .go edit cycle must cost the SAME constant: no drift toward
-//     the old reopen-every-time behavior.
+//     lazy externalImporter reload), which costs a small constant number of
+//     packages.Load calls — see goEditLoadBudget below for what that constant
+//     comprises. The constant pins that load cost is dir-count-independent
+//     and does not become per-dir or per-cycle; it does NOT by itself
+//     distinguish scoped-closure regen from a full reopen() — on this fixture
+//     a reopen also costs exactly one packages.Load (openModule is lazy, and
+//     the first Generate's "./..." load caches into m.ext for every later
+//     dir). Routing scope — that a .go edit regenerates only the dependent
+//     closure, never the whole module — is separately pinned by
+//     TestWatchSession_GoEditRegeneratesOnlyDependents (asserts results are
+//     scoped to page, never other/).
+//   - a second .go edit cycle must cost the SAME constant: the reload cost
+//     does not grow across repeated cycles.
 //
 // Deliberately NOT t.Parallel(): codegen.ProjectLoadCalls is a process-wide
 // counter (same discipline as sourceview.InspectCalls above), so a
@@ -197,8 +205,8 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 		}
 		goDelta1 = codegen.ProjectLoadCalls() - before
 
-		// (c) a second .go edit cycle — must cost the same constant, not drift
-		// toward reopen-like behavior.
+		// (c) a second .go edit cycle — must cost the same constant as the
+		// first, not grow across repeated cycles.
 		writeFileT(t, filepath.Join(depDir, "dep.go"),
 			"package dep\n\nfunc Value() string { return \"v3\" }\n")
 		dirty = newWatchDirtySet()
@@ -235,6 +243,6 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 		t.Errorf(".go body edit issued %d packages.Load calls, want exactly %d (one in-place world reload's project-half load)", goDelta1, goEditLoadBudget)
 	}
 	if goDelta2 != goEditLoadBudget {
-		t.Errorf("second .go body edit issued %d packages.Load calls, want the same %d as the first — no drift toward reopen-per-cycle behavior", goDelta2, goEditLoadBudget)
+		t.Errorf("second .go body edit issued %d packages.Load calls, want the same %d as the first — reload cost must not grow across repeated cycles", goDelta2, goEditLoadBudget)
 	}
 }
