@@ -160,9 +160,7 @@ func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 	// otherwise survive indefinitely. Must run before the per-dir regen loop,
 	// same ordering as the batch path.
 	startup := sweepOrphanStartup(s.cfg.paths, dirs)
-	for _, dir := range dirs {
-		startup = append(startup, s.regenDir(dir))
-	}
+	startup = append(startup, s.regenDirs(dirs)...)
 	return startup, nil
 }
 
@@ -200,9 +198,7 @@ func (s *watchSession) reopen() ([]cycleResult, error) {
 	// Walk-level orphan sweep — see the matching call in initialGenerate for
 	// why this can't be left to the per-dir sweep inside regenDir alone.
 	results := sweepOrphanStartup(s.cfg.paths, dirs)
-	for _, dir := range dirs {
-		results = append(results, s.regenDir(dir))
-	}
+	results = append(results, s.regenDirs(dirs)...)
 	return results, nil
 }
 
@@ -415,30 +411,88 @@ func sweepOrphanStartup(paths, kept []string) []cycleResult {
 	return results
 }
 
-// regenDir warm-regenerates one package dir using its module's warm Module. It
-// calls Module.Generate, maps the gsx-path-keyed output to .x.go files, and
-// writes them via the hash-gated writeFiles helper.
+// regenDirs warm-regenerates the given package dirs from current disk,
+// returning one cycleResult per dir in input order.
+//
+// Saved disk facts are refreshed — and stale cached analysis evicted — in ONE
+// atomic RefreshDiskSourcesAndInvalidate batch per owning module before any
+// generation. The refresh is the disk counterpart to SetOverride: it
+// re-enumerates the dirs' package/import/membership facts beneath any override
+// layer, and the eviction drops their reverse closures so generation
+// re-type-checks from the refreshed source. The warm Module otherwise reads a
+// frozen cold-load manifest, so without this a .gsx edit is invisible to
+// Generate. Batching keeps the "regenerate from current disk" contract while
+// paying the module-wide refresh bookkeeping once per cycle instead of once
+// per directory — the per-dir form made cold startup and dep-surface reopen
+// O(dirs × module files): ~26s on a 78-dir/1169-file module whose batch
+// generate takes ~5s. TestWatchSession_ColdStartParseWorkIsLinear pins this.
+//
+// A disk write that lands after the batch refresh but before a later dir's
+// Generate is not lost: observation is armed before every caller of this
+// helper snapshots membership, so the write's fsnotify event re-dirties the
+// dir and the next cycle regenerates it — the same guarantee the per-dir
+// refresh relied on for writes landing after ITS refresh.
+func (s *watchSession) regenDirs(dirs []string) []cycleResult {
+	results := make([]cycleResult, len(dirs))
+	starts := make([]time.Time, len(dirs))
+	modules := make([]*codegen.Module, len(dirs))
+	batchDirs := map[*codegen.Module][]string{}
+	var batchOrder []*codegen.Module
+	for i, dir := range dirs {
+		starts[i] = time.Now()
+		m, err := s.moduleForDir(dir)
+		if err != nil {
+			results[i] = cycleResult{Dir: dir, Err: err, DurMs: time.Since(starts[i]).Milliseconds()}
+			continue
+		}
+		modules[i] = m
+		if _, seen := batchDirs[m]; !seen {
+			batchOrder = append(batchOrder, m)
+		}
+		batchDirs[m] = append(batchDirs[m], dir)
+	}
+	refreshErr := make(map[*codegen.Module]error, len(batchOrder))
+	refreshMs := make(map[*codegen.Module]int64, len(batchOrder))
+	for _, m := range batchOrder {
+		t := time.Now()
+		_, err := m.RefreshDiskSourcesAndInvalidate(batchDirs[m]...)
+		refreshMs[m] = time.Since(t).Milliseconds()
+		refreshErr[m] = err
+	}
+	chargedRefresh := make(map[*codegen.Module]bool, len(batchOrder))
+	for i, dir := range dirs {
+		m := modules[i]
+		if m == nil {
+			continue // moduleForDir already failed; results[i] is set
+		}
+		if err := refreshErr[m]; err != nil {
+			results[i] = cycleResult{Dir: dir, Err: err, DurMs: time.Since(starts[i]).Milliseconds()}
+			continue
+		}
+		results[i] = s.generateDir(m, dir)
+		// Charge each module's batch refresh to its first generated dir so
+		// aggregate durations (aggregateEvent sums per-dir DurMs) still cover
+		// the whole cycle's work.
+		if !chargedRefresh[m] {
+			chargedRefresh[m] = true
+			results[i].DurMs += refreshMs[m]
+		}
+	}
+	return results
+}
+
+// regenDir warm-regenerates one package dir from current disk; it is the
+// single-dir form of regenDirs and shares its refresh/generate contract.
 func (s *watchSession) regenDir(dir string) cycleResult {
+	return s.regenDirs([]string{dir})[0]
+}
+
+// generateDir runs the post-refresh half of one dir's regeneration: orphan
+// sweep, Module.Generate, poison-on-error, and the hash-gated write. Callers
+// must have refreshed and invalidated dir's saved disk facts first (see
+// regenDirs).
+func (s *watchSession) generateDir(m *codegen.Module, dir string) cycleResult {
 	start := time.Now()
-	m, err := s.moduleForDir(dir)
-	if err != nil {
-		return cycleResult{Dir: dir, Err: err, DurMs: time.Since(start).Milliseconds()}
-	}
-	// Refresh authoritative saved disk facts for dir before warm invalidation,
-	// then evict dir's stale cached analysis. The warm Module reads source from a
-	// frozen cold-load manifest, not live disk, so without this a .gsx edit is
-	// invisible to Generate. RefreshDiskSources is the disk counterpart to
-	// SetOverride (it re-enumerates dir's package/import/membership facts and
-	// updates the saved layer beneath any override); Invalidate then drops dir's
-	// reverse closure so it re-type-checks from the refreshed source. This is the
-	// same refresh-before-invalidation sequence regenPending applies to the
-	// changed dir, and it restores the "regenDir regenerates dir from current
-	// disk" contract every direct caller (initial generate, reopen, warm
-	// dependents) relies on.
-	if err := m.RefreshDiskSources(dir); err != nil {
-		return cycleResult{Dir: dir, Err: err, DurMs: time.Since(start).Milliseconds()}
-	}
-	m.Invalidate(dir)
 	// Dir-scoped orphan sweep: a .gsx sibling deletion in dir is independent
 	// of what this cycle regenerates for the .gsx files still present, so it
 	// runs unconditionally (mirrors writeDirOutcome in gen/cache.go).
@@ -549,8 +603,14 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 			continue
 		}
 	}
+	// The affected reverse closure can be large (a shared component dirties
+	// every dependent); regenerate it as one batch so the refresh bookkeeping
+	// is paid per cycle, not per dir. Sorted for deterministic emit order.
+	affectedDirs := make([]string, 0, len(affected))
 	for dir := range affected {
-		results = append(results, s.regenDir(dir))
+		affectedDirs = append(affectedDirs, dir)
 	}
+	sort.Strings(affectedDirs)
+	results = append(results, s.regenDirs(affectedDirs)...)
 	return results, nil
 }
