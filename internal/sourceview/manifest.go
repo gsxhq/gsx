@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -310,15 +311,24 @@ func Build(options BuildOptions) (*Manifest, error) {
 			helperGoFiles[path] = cloneFileSnapshot(snapshot)
 		}
 	}
-	return newManifest(root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles)
+	return newManifest(nil, root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles)
 }
 
-func newManifest(moduleRoot, physicalRoot, modulePath string, sources map[string][]byte, pairedPresent map[string]bool, preferredSentinels map[string]string, trackedFiles, helperGoFiles map[string]FileSnapshot) (*Manifest, error) {
+// newManifest takes ownership of the sources, trackedFiles, and helperGoFiles
+// maps and of every byte slice they hold; callers must not retain or mutate
+// them afterwards. All stored slices are immutable — the accessor surface
+// clones on the way out, and derivations share slices instead of copying.
+//
+// prev, when non-nil, is the manifest this construction derives from: any path
+// whose source bytes are unchanged from prev reuses prev's FileFact instead of
+// re-running Inspect, so derivation parse work is proportional to the changed
+// file set rather than the module.
+func newManifest(prev *Manifest, moduleRoot, physicalRoot, modulePath string, sources map[string][]byte, pairedPresent map[string]bool, preferredSentinels map[string]string, trackedFiles, helperGoFiles map[string]FileSnapshot) (*Manifest, error) {
 	manifest := &Manifest{
 		moduleRoot:    moduleRoot,
 		physicalRoot:  physicalRoot,
 		modulePath:    modulePath,
-		sources:       make(map[string][]byte, len(sources)),
+		sources:       sources,
 		facts:         make(map[string]FileFact, len(sources)),
 		gsxDirs:       make(map[string]bool),
 		packageDirs:   make(map[string]string),
@@ -326,14 +336,23 @@ func newManifest(moduleRoot, physicalRoot, modulePath string, sources map[string
 		pairedPresent: make(map[string]bool, len(sources)),
 		overlay:       make(map[string][]byte),
 		sentinelByDir: make(map[string]string),
-		trackedFiles:  cloneFileSnapshots(trackedFiles),
-		helperGoFiles: cloneFileSnapshots(helperGoFiles),
+		trackedFiles:  trackedFiles,
+		helperGoFiles: helperGoFiles,
+	}
+	if manifest.sources == nil {
+		manifest.sources = map[string][]byte{}
+	}
+	if manifest.trackedFiles == nil {
+		manifest.trackedFiles = map[string]FileSnapshot{}
+	}
+	if manifest.helperGoFiles == nil {
+		manifest.helperGoFiles = map[string]FileSnapshot{}
 	}
 	for path, snapshot := range manifest.trackedFiles {
 		if strings.HasSuffix(path, ".go") {
 			switch snapshot.state {
 			case FilePresent:
-				manifest.overlay[path] = bytes.Clone(snapshot.source)
+				manifest.overlay[path] = snapshot.source
 			case FileAbsent:
 				manifest.overlay[path] = []byte(absentGoReplacement)
 			}
@@ -345,8 +364,7 @@ func newManifest(moduleRoot, physicalRoot, modulePath string, sources map[string
 			manifest.overlay[paired] = []byte(pairedReplacement)
 		}
 	}
-	for path, source := range sources {
-		manifest.sources[path] = bytes.Clone(source)
+	for path := range manifest.sources {
 		manifest.sourcePaths = append(manifest.sourcePaths, path)
 	}
 	sort.Strings(manifest.sourcePaths)
@@ -355,7 +373,17 @@ func newManifest(moduleRoot, physicalRoot, modulePath string, sources map[string
 	loadRoots := make(map[string]bool)
 	for _, path := range manifest.sourcePaths {
 		source := manifest.sources[path]
-		fact := Inspect(path, source, true)
+		fact, reused := FileFact{}, false
+		if prev != nil {
+			if prevFact, ok := prev.facts[path]; ok {
+				if prevSource, ok := prev.sources[path]; ok && sameSourceBytes(prevSource, source) {
+					fact, reused = prevFact, true
+				}
+			}
+		}
+		if !reused {
+			fact = Inspect(path, source, true)
+		}
 		manifest.facts[path] = fact
 		dir := filepath.Dir(path)
 		manifest.gsxDirs[dir] = true
@@ -447,11 +475,18 @@ func (manifest *Manifest) WithFileSnapshots(snapshots map[string]FileSnapshot) (
 	if manifest == nil {
 		return nil, fmt.Errorf("sourceview: nil saved manifest")
 	}
-	sources := cloneSources(manifest.sources)
+	// Zero snapshots derive the identical view; manifests are immutable, so the
+	// receiver itself is that view.
+	if len(snapshots) == 0 {
+		return manifest, nil
+	}
+	// Shallow map clones: the byte slices they reference are immutable and
+	// shared with the receiver (see newManifest's ownership contract).
+	sources := maps.Clone(manifest.sources)
 	pairedPresent := maps.Clone(manifest.pairedPresent)
 	preferredSentinels := maps.Clone(manifest.sentinelByDir)
-	trackedFiles := cloneFileSnapshots(manifest.trackedFiles)
-	helperGoFiles := cloneFileSnapshots(manifest.helperGoFiles)
+	trackedFiles := maps.Clone(manifest.trackedFiles)
+	helperGoFiles := maps.Clone(manifest.helperGoFiles)
 	for path, snapshot := range snapshots {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
@@ -502,7 +537,7 @@ func (manifest *Manifest) WithFileSnapshots(snapshots map[string]FileSnapshot) (
 			return nil, fmt.Errorf("sourceview: invalid saved file state %d for %s", snapshot.state, absPath)
 		}
 	}
-	return newManifest(manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
+	return newManifest(manifest, manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
 }
 
 // RefreshDirs replaces the saved GSX membership, bytes, paired-output state,
@@ -529,11 +564,12 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 		}
 		dirSet[absDir] = true
 	}
-	sources := cloneSources(manifest.sources)
+	// Shallow map clones — shared immutable byte slices; see newManifest.
+	sources := maps.Clone(manifest.sources)
 	pairedPresent := maps.Clone(manifest.pairedPresent)
 	preferredSentinels := maps.Clone(manifest.sentinelByDir)
-	trackedFiles := cloneFileSnapshots(manifest.trackedFiles)
-	helperGoFiles := cloneFileSnapshots(manifest.helperGoFiles)
+	trackedFiles := maps.Clone(manifest.trackedFiles)
+	helperGoFiles := maps.Clone(manifest.helperGoFiles)
 	for path := range sources {
 		if !dirSet[filepath.Dir(path)] {
 			continue
@@ -609,15 +645,20 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 			pairedPresent[paired] = present
 		}
 	}
-	return newManifest(manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
+	return newManifest(manifest, manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
 }
 
-func cloneSources(sources map[string][]byte) map[string][]byte {
-	out := make(map[string][]byte, len(sources))
-	for path, source := range sources {
-		out[path] = bytes.Clone(source)
+// sameSourceBytes reports whether two immutable source slices hold identical
+// bytes, preferring O(1) backing-array identity before falling back to a
+// content compare (a re-read of an unchanged file yields a fresh slice).
+func sameSourceBytes(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return out
+	if len(a) == 0 || &a[0] == &b[0] {
+		return true
+	}
+	return bytes.Equal(a, b)
 }
 
 func cloneFileSnapshot(snapshot FileSnapshot) FileSnapshot {
@@ -625,17 +666,19 @@ func cloneFileSnapshot(snapshot FileSnapshot) FileSnapshot {
 	return snapshot
 }
 
-func cloneFileSnapshots(snapshots map[string]FileSnapshot) map[string]FileSnapshot {
-	out := make(map[string]FileSnapshot, len(snapshots))
-	for path, snapshot := range snapshots {
-		out[path] = cloneFileSnapshot(snapshot)
-	}
-	return out
-}
+// inspectCalls counts Inspect invocations process-wide. Tests use it to pin
+// the parse-work complexity of manifest construction and derivation: cold
+// watch-session startup must perform O(module files) Inspects, not
+// O(dirs × module files). See TestWatchSession_ColdStartParseWorkIsLinear.
+var inspectCalls atomic.Uint64
+
+// InspectCalls returns the process-wide count of Inspect invocations.
+func InspectCalls() uint64 { return inspectCalls.Load() }
 
 // Inspect extracts the dependency-surface fact for source. A malformed file
 // retains any recoverable package clause but publishes no guessed import edge.
 func Inspect(path string, source []byte, present bool) FileFact {
+	inspectCalls.Add(1)
 	fact := FileFact{present: present}
 	if !present {
 		return fact
