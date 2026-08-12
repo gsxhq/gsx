@@ -7,3 +7,11 @@ func (m *Module) testSourceManifestEpoch() uint64 {
 	defer m.mu.Unlock()
 	return m.sourceManifestEpoch
 }
+
+// testGoSourceReload exposes the pending Go-reload flag for tests pinning
+// override/disk-refresh reload behavior.
+func (m *Module) testGoSourceReload() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.goSourceReload
+}

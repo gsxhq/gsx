@@ -14,8 +14,11 @@ import (
 // changes observed by a disk refresh must reload the cold world at the next
 // analysis. Before this task the warm world kept serving stale types (a
 // removed exported symbol produced no diagnostic in a dependent's regen).
-// It also pins the two ways a reload must NOT fire: a byte-identical
-// rewrite, and the dev session's own paired .x.go output appearing on disk.
+// It also pins the new Go-reload path staying quiet when it must: a
+// byte-identical rewrite, the dev session's own paired .x.go output
+// appearing on disk, and a .gsx deletion whose paired .x.go is orphaned on
+// disk in the same refresh (that case still bumps the epoch once, through
+// the pre-existing source-inventory-fact path — just not twice).
 func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -79,6 +82,40 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	}
 	if got := m.testSourceManifestEpoch(); got != epoch {
 		t.Fatalf("paired .x.go appearance bumped the manifest epoch %d -> %d", epoch, got)
+	}
+
+	// Case 5: deleting the .gsx AND rewriting its paired .x.go in the SAME
+	// refresh cycle bumps the epoch once, through the pre-existing
+	// source-inventory-fact path (the .gsx's absence is itself a tracked fact
+	// change) — but must NOT also trip the new Go-reload path. Once the .gsx
+	// is gone, the refreshed manifest no longer classifies page.x.go as a
+	// paired output at all; only the PRE-refresh (old) manifest still does,
+	// because the .gsx was present when this cycle started. If the exclusion
+	// consulted only the refreshed manifest, this rewritten, now-orphaned
+	// .x.go would misread as a newly-appeared/changed authored .go file.
+	epoch = m.testSourceManifestEpoch()
+	if err := os.Remove(filepath.Join(root, "page", "page.gsx")); err != nil {
+		t.Fatal(err)
+	}
+	write("page/page.x.go", "package page\n\n// orphaned rewrite\n")
+	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.testSourceManifestEpoch(); got != epoch+1 {
+		t.Fatalf(".gsx deletion epoch = %d -> %d, want exactly +1 (membership fact only, no double count from the orphaned .x.go rewrite)", epoch, got)
+	}
+	if m.testGoSourceReload() {
+		t.Fatal("orphaned .x.go rewrite alongside .gsx deletion marked a pending Go reload")
+	}
+
+	// A subsequent healthy refresh cycle still behaves normally: restoring
+	// page.gsx heals cleanly with no leftover suppression from the delete.
+	write("page/page.gsx", "package page\n\nimport \"example.com/m/dep\"\n\ncomponent Page() {\n\t<p>{dep.Value()}</p>\n}\n")
+	if _, err := m.RefreshDiskSourcesAndInvalidate(filepath.Join(root, "page")); err != nil {
+		t.Fatal(err)
+	}
+	if out, diags, err := m.Generate(filepath.Join(root, "page")); err != nil || hasDiagErrors(diags) || len(out) == 0 {
+		t.Fatalf("post-delete restore generate: out=%d diags=%v err=%v", len(out), diags, err)
 	}
 }
 
