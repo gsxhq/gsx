@@ -134,7 +134,8 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 	// closure, which loadSharedWorld already cached fresh from cold start. The
 	// project-half load is the only per-reload cost because this fixture's
 	// Options carry no filters/renderers/aliases/class-merger, so
-	// sharedWorldEligible stays true and no fallback full load triggers. It is
+	// sharedWorldComposition composes to exactly {runtime, std} (ok=true) and
+	// no fallback full load triggers. It is
 	// independent of fillerDirs: "./..." is one packages.Load call regardless
 	// of how many directories it walks, which is the invariant this test
 	// exists to pin — a regression toward reopen-per-dir would scale with

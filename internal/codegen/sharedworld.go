@@ -173,40 +173,61 @@ func sharedWorldKey(loadPaths, buildEnv []string, toolchain, origin string) stri
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-// sharedWorldEligible reports whether this Module's external needs are exactly
-// the fixed gsx-runtime closure, judged from the resolved load set itself.
+// sharedWorldComposition returns the load-path set for this Module's shared
+// world: the fixed gsx-runtime closure PLUS the module's resolved config
+// packages — the same packages the full-mode loadPaths derivation in
+// externalImporter puts through packages.Load (module.go:704-727), read via
+// the same already-resolved accessors (ClassMergerRef.PkgPath,
+// FilterAlias.PkgPath, RendererAlias.PkgPath via finalRendererAliases) rather
+// than re-parsing "pkg.Func" strings. Config packages are harvested from the
+// LOADED types, so composing them into the world (instead of excluding them)
+// is what lets a configured module take the fast path at all: a project half
+// loaded without NeedTypes could never serve them.
 //
-// Anything else in loadPaths is either user-configured (a filter, renderer,
-// alias or class-merger package, which can live inside the main module and so
-// import back into it — something the shared closure provably cannot, the gsx
-// runtime being standard-library only) or a manifest LoadRoot: a package
-// imported ONLY from .gsx files, whose *types* the caller needs. The project
-// half is loaded without NeedTypes, so a LoadRoot cannot be served from it.
-// Both cases keep the original single full-mode load.
-func (m *Module) sharedWorldEligible() bool {
+// ok is false only when the module's config cannot be composed into ONE
+// world: a PerDir entry carrying its own class merger or a non-std filter
+// package wants a world that differs by directory, which this phase does not
+// support — that module keeps the original single full-mode load. A PerDir
+// entry that only repeats the std filter (the "inherit" shape) is not
+// variance and does not disqualify.
+func (m *Module) sharedWorldComposition() (paths []string, ok bool) {
 	o := m.opts
-	// Filter, renderer, alias and class-merger packages are harvested from the
-	// LOADED types, so they cannot be served by a project half loaded without
-	// NeedTypes. Their presence disqualifies the fast path outright.
-	if len(o.LoadPkgs) > 0 || len(o.Aliases) > 0 || o.ClassMerger != nil || len(finalRendererAliases(o.Renderers)) > 0 {
-		return false
-	}
-	for _, f := range o.FilterPkgs {
-		if f != stdImportPath {
-			return false
-		}
-	}
 	for _, d := range o.PerDir {
 		if d.ClassMerger != nil {
-			return false
+			return nil, false
 		}
 		for _, f := range d.FilterPkgs {
 			if f != stdImportPath {
-				return false
+				return nil, false
 			}
 		}
 	}
-	return true
+
+	set := map[string]bool{gsxRuntimeImportPath: true, stdImportPath: true}
+	for _, f := range o.FilterPkgs {
+		set[f] = true
+	}
+	for _, p := range o.LoadPkgs {
+		set[p] = true
+	}
+	for _, a := range o.Aliases {
+		set[a.PkgPath] = true
+	}
+	for _, r := range finalRendererAliases(o.Renderers) {
+		set[r.PkgPath] = true
+	}
+	if o.ClassMerger != nil {
+		set[o.ClassMerger.PkgPath] = true
+	}
+
+	paths = make([]string, 0, len(set))
+	for p := range set {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	sort.Strings(paths)
+	return paths, true
 }
 
 // projectLoadMode drops NeedTypes/NeedDeps: the caller discards every
@@ -223,15 +244,32 @@ const projectLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCo
 // loads only the project's own packages, then hands back the project packages
 // plus one synthetic entry per shared package so the caller's allTypes/errs
 // harvest is unchanged. Synthetic entries carry no Imports and no Module, so
-// back-edge detection sees none (correct: the shared closure cannot back-edge)
-// and projectSourcePackages skips them.
+// back-edge detection (externalBackedgePackages, called by the caller on this
+// function's return value) sees none and projectSourcePackages skips them.
+//
+// That was correct when sharedPaths was always exactly {runtime, std}: the
+// gsx runtime is standard-library only, so that closure provably cannot
+// back-edge into the main module. It is NOT yet correct now that
+// sharedWorldComposition can add config packages: a config package that
+// itself imports back into the main module (the shape
+// TestConfiguredExternalBackedgeIsHardConfigurationError pins on the full
+// load) is invisible to back-edge detection here, because its synthetic
+// entry drops the Imports that would reveal the back-edge. That module is
+// mis-served (the hard-configuration-error rejection is silently skipped)
+// rather than falling back — a known gap for the composition change, closed
+// by the guard described in docs/superpowers/specs/2026-08-13-project-shared-world-design.md
+// ("Back-edges"); do not treat the shared closure as back-edge-free until
+// that guard lands.
 func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]*packages.Package, error) {
-	if !m.sharedWorldEligible() {
+	sharedPaths, ok := m.sharedWorldComposition()
+	if !ok {
 		sharedWorldIneligible.Add(1)
 		return loadPackages(cfg, loadPaths...)
 	}
-	sharedPaths := []string{gsxRuntimeImportPath, stdImportPath}
-	shared := map[string]bool{gsxRuntimeImportPath: true, stdImportPath: true}
+	shared := make(map[string]bool, len(sharedPaths))
+	for _, p := range sharedPaths {
+		shared[p] = true
+	}
 	var projectPaths []string
 	for _, p := range loadPaths {
 		if !shared[p] {
