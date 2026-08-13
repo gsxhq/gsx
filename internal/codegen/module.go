@@ -838,8 +838,10 @@ func (m *Module) externalImporter() (types.Importer, error) {
 // makes it one per distinct closure. Tests assert against it.
 var externalClosureLoads atomic.Int64
 
-// sharedClosureLoads reports externalClosureLoads for tests.
-func sharedClosureLoads() int64 { return externalClosureLoads.Load() }
+// sharedClosureLoads reports externalClosureLoads for tests. Delegates to the
+// exported SharedWorldLoads (sharedworld.go) so internal/codegen's own tests
+// and gen's cross-package tests read the identical counter.
+func sharedClosureLoads() int64 { return SharedWorldLoads() }
 
 // externalLoads returns the number of external packages.Load calls performed
 // (test hook). Together with filterTableLoads it guards the warm-regen perf

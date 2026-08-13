@@ -188,6 +188,20 @@ var projectLoads atomic.Uint64
 // invocations issued by internal/codegen.
 func ProjectLoadCalls() uint64 { return projectLoads.Load() }
 
+// SharedWorldLoads returns the process-wide count of times loadSharedWorld
+// actually issued a packages.Load for the shared external world's closure —
+// a cold miss, or a stale-freshness reload after a module-owned file the
+// world stamped (the gsx runtime, or a composed config package such as a
+// main-module class merger) changed on disk. It does NOT count a Module's
+// ordinary project-half reload (see ProjectLoadCalls), which fires on every
+// authored .go edit regardless of whether the edit touched the world.
+//
+// Tests use the distinction to pin the freshness design's claim: a .go edit
+// INSIDE the world's composed closure must move this counter, and a .go edit
+// OUTSIDE it (an unrelated project dependency, or a pure .gsx edit) must not
+// — see gen/watch_sharedworld_test.go.
+func SharedWorldLoads() int64 { return externalClosureLoads.Load() }
+
 // sharedWorlds is deliberately unbounded and never evicted: keys are one per
 // distinct (origin, env, toolchain) closure, which a CLI or test process holds
 // one or two of, and a long-lived LSP holds one per open project. Duplicate
