@@ -803,6 +803,15 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
 - [ ] **Cheap world reload** (Phase 2) - extend world sharing to the full
   external closure (keyed by go.mod/go.sum + replace-dirs + vendor mode) so the
   reload itself gets cheaper, not just narrower.
+- [x] **Project-scoped shared world** (2026-08-13, Phase 2a,
+  `2026-08-13-project-shared-world-design.md`) - a configured module (filters,
+  renderers, aliases, or a class merger) now composes into the shared world
+  instead of being disqualified outright; byte-identical (`GSXCACHE=off
+  generate` over gsxui: all up to date, zero writes). gsxui itself still falls
+  back to the full load every cycle (a `.gsx` file imports a package outside
+  the composed config surface, the design's own accepted non-goal) and that
+  fallback path currently regresses gsxui's `.go`-edit cycles ~12-18% — see
+  the spec's Acceptance gate 4 for the measured numbers.
 - [x] **`@gsxhq/vite-plugin-gsx`** (npm **v0.4.5**, `~/personal/gsxhq/vite-plugin-gsx`) -
   receives generation/build events from `gsx dev`, surfaces diagnostics in the
   Vite error overlay (auto-clears on recovery), and full-reloads after the server

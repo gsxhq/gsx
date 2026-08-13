@@ -1,7 +1,7 @@
 # Project-scoped shared world (Phase 2a of warm dev cycles)
 
 **Date:** 2026-08-13
-**Status:** Approved direction (Jackie, 2026-08-12: "as long as the corpus golden didn't change, I welcome all perf improvements"). Design derived from the Phase-2 measurement.
+**Status:** Implemented (pending review + CI). Design derived from the Phase-2 measurement.
 **Prior art:** PR #178 (shared external world), PR #186 (warm `.go`-edit watch cycles), `docs/superpowers/specs/2026-08-12-warm-go-edit-watch-design.md`, the Phase-2 measurement (2026-08-12: one reload = 436 pkgs / 2.0–2.35s flat; gsxui disqualified from the shared world outright).
 
 ## Problem
@@ -111,9 +111,28 @@ load in this phase and record the reason).
    ~1.0–1.3s/cycle off the load share (narrow cycle ≈ 2.0s → ~1s; wide and
    go.mod reopen keep their generate-dominated floor). Honest numbers in the
    PR whatever they turn out to be.
+
+   **Measured (Task 5, 2026-08-13):** byte-identity holds
+   (`GSXCACHE=off generate` over gsxui: 1169 up to date, zero writes,
+   `git status` clean). gsxui itself never reaches the fast path: `document.gsx`
+   directly imports `github.com/gsxhq/vite`, a manifest LoadRoot outside the
+   composed {runtime, std, structpages, merge} closure — the exact
+   unaccounted-LoadRoot fallback this design's own Non-goals section names as
+   intentional. But the fallback is not cost-neutral as designed: it now pays
+   for the shared-world load AND the reduced project-half load before falling
+   through to the same full load as before (`ProjectLoadCalls` 3 vs. 1 on the
+   pre-Phase-2a path), a real regression, not a wash. Dev-loop A/B (2 samples
+   main, 4 samples this branch, `--no-web` event-sink method) on gsxui: narrow
+   `.go` edit 2626ms → 3109ms (+18%), wide (`merge/merge.go`) 5175ms → 6116ms
+   (+18%), go.mod touch 4940ms → 5546ms (+12%); cold start ~6.27s either way
+   (parity — build time dominates). All three edit cycles regress >10%. See
+   `.superpowers/sdd/2026-08-13-project-shared-world/task-5-report.md` for the
+   full methodology and per-sample numbers.
 5. Adversarial review with live probes before merge (staleness of
    main-module config edits, back-edge shapes, multi-world processes,
-   vendor).
+   vendor). **Given Task 5's finding above, this review must also resolve the
+   fallback-path regression (the wasted shared-world + project-half loads
+   before falling through) — not just correctness.**
 
 ## Sequencing
 
