@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -62,6 +63,11 @@ type sharedWorld struct {
 	// root). The module path is the same fact projectSourcePackages tests
 	// against, so the two agree on what "main module" means for a given Module.
 	moduleOf map[string]string
+	// imports is the closure's adjacency, kept because the synthetic entries
+	// handed to externalImporter carry none: it is the only place the world's
+	// shape survives the split load, and the back-edge guard needs REACHABILITY,
+	// not just ownership (see mainModuleBackedge).
+	imports map[string][]string
 	// stamps covers modification of a file that was loaded; dirStamps covers
 	// files being ADDED to or REMOVED from a loaded package, which no per-file
 	// check can see (a directory's mtime moves when its entries change).
@@ -70,9 +76,21 @@ type sharedWorld struct {
 	dirStamps []fileStamp
 }
 
-// mainModuleBackedge reports whether the closure holds a package owned by
-// modulePath other than the composed config packages themselves — a package the
-// world had no business loading.
+// mainModuleBackedge reports whether this world may serve a Module whose main
+// module is modulePath, given the composed config paths. Two shapes disqualify
+// it, and both have to be tested:
+//
+//   - a closure package owned by modulePath that is NOT one of the composed
+//     config packages: the world dragged main-module code in beyond the
+//     configuration, and every other phase rebuilds that code from source;
+//   - an EXTERNAL closure package that transitively reaches one owned by
+//     modulePath — the one-way boundary externalBackedgePackages enforces on
+//     the full load. Ownership alone cannot see this: when the back-edge target
+//     is the composed merger itself (an external filter package calling
+//     gsxui-style `merge.Merge`), every main-module package in the closure is a
+//     legitimately composed one, and only reachability reveals that an external
+//     package depends on it. The full load rejects that configuration outright,
+//     so serving it here would emit where the full load emits nothing.
 //
 // An empty modulePath means the caller has no main module to speak of: nothing
 // is local to it, projectSourcePackages retains nothing, and the full load's
@@ -82,8 +100,43 @@ func (w *sharedWorld) mainModuleBackedge(modulePath string, composed map[string]
 	if modulePath == "" {
 		return false
 	}
+	local := map[string]bool{}
 	for pkgPath, owner := range w.moduleOf {
-		if owner == modulePath && !composed[pkgPath] {
+		if owner != modulePath {
+			continue
+		}
+		if !composed[pkgPath] {
+			return true
+		}
+		local[pkgPath] = true
+	}
+	if len(local) == 0 {
+		return false
+	}
+	// Memoized reachability over the closure's adjacency, mirroring
+	// externalBackedgePackages: Go forbids import cycles, so the visiting set is
+	// belt-and-braces against a malformed graph rather than a real shape.
+	reaches := make(map[string]bool, len(w.imports))
+	visiting := map[string]bool{}
+	var walk func(string) bool
+	walk = func(path string) bool {
+		if local[path] {
+			return true
+		}
+		if hit, done := reaches[path]; done {
+			return hit
+		}
+		if visiting[path] {
+			return false
+		}
+		visiting[path] = true
+		hit := slices.ContainsFunc(w.imports[path], walk)
+		delete(visiting, path)
+		reaches[path] = hit
+		return hit
+	}
+	for path := range w.imports {
+		if !local[path] && walk(path) {
 			return true
 		}
 	}
@@ -146,15 +199,18 @@ var (
 	sharedWorlds  = map[string]*sharedWorld{}
 )
 
-// sharedWorldOrigin describes WHERE this module root resolves the gsx runtime
-// from. Without it two modules that replace the runtime to different directories
-// would share one cache entry, and the second would be served the first's types
-// — the entry would even pass sharedWorld.fresh, because the stamps it checks
-// belong to the other directory and are genuinely unchanged.
+// sharedWorldOrigin describes WHERE this module root resolves the world's
+// packages from: the gsx runtime, plus the module of every composed config
+// package. Without it two modules that resolve the same import path to
+// different code would share one cache entry, and the second would be served
+// the first's types — the entry would even pass sharedWorld.fresh, because the
+// stamps it checks belong to the other directory and are genuinely unchanged.
+// Version pins matter as much as replace targets: two projects on structpages
+// v1.0.0 and v1.5.0 compose the same path and must not share a world.
 //
 // Returning moduleRoot is the safe fallback: it makes the key unique, which
-// costs sharing but can never alias two different runtimes.
-func sharedWorldOrigin(moduleRoot string, buildEnv []string) string {
+// costs sharing but can never alias two different closures.
+func sharedWorldOrigin(moduleRoot string, buildEnv, composedPaths []string) string {
 	if work := environmentValue(buildEnv, "GOWORK"); work != "" && work != "off" {
 		// A workspace can redirect module resolution in ways go.mod does not
 		// record. Do not share across it.
@@ -168,8 +224,19 @@ func sharedWorldOrigin(moduleRoot string, buildEnv []string) string {
 	if err != nil {
 		return moduleRoot
 	}
-	relevant := func(path string) bool {
-		return path == gsxRuntimeImportPath || strings.HasPrefix(path, gsxRuntimeImportPath+"/")
+	// A go.mod line names a MODULE; the composition names PACKAGES. A module is
+	// relevant when it owns one of them — the same prefix test sharedWorldRootBound
+	// uses, read in the other direction.
+	relevant := func(modPath string) bool {
+		if modPath == gsxRuntimeImportPath || strings.HasPrefix(modPath, gsxRuntimeImportPath+"/") {
+			return true
+		}
+		for _, p := range composedPaths {
+			if p == modPath || strings.HasPrefix(p, modPath+"/") {
+				return true
+			}
+		}
+		return false
 	}
 	var b strings.Builder
 	for _, r := range f.Require {
@@ -352,7 +419,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	if m.goContext != nil && m.goContext.goLauncher != nil {
 		toolchain = m.goContext.goLauncher.CompilerIdentity()
 	}
-	origin := sharedWorldOrigin(m.opts.ModuleRoot, cfg.Env)
+	origin := sharedWorldOrigin(m.opts.ModuleRoot, cfg.Env, sharedPaths)
 	if sharedWorldRootBound(sharedPaths, m.opts.ModulePath) {
 		origin += "\x00root\x00" + filepath.Clean(m.opts.ModuleRoot)
 	}
@@ -479,6 +546,7 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 		types:    map[string]*types.Package{},
 		errs:     map[string][]packages.Error{},
 		moduleOf: map[string]string{},
+		imports:  map[string][]string{},
 	}
 	seen := map[string]bool{}
 	seenDir := map[string]bool{}
@@ -491,6 +559,13 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 		}
 		if p.Module != nil && p.Module.Path != "" {
 			world.moduleOf[p.PkgPath] = p.Module.Path
+		}
+		if len(p.Imports) > 0 {
+			edges := make([]string, 0, len(p.Imports))
+			for importPath := range p.Imports {
+				edges = append(edges, importPath)
+			}
+			world.imports[p.PkgPath] = edges
 		}
 		// Only module-owned files are stamped (p.Module == nil means stdlib,
 		// which the toolchain identity in the key already covers). The previous

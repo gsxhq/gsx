@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/diag"
@@ -26,22 +27,55 @@ import "strings"
 func Merge(classes []string) string { return strings.Join(classes, " ") }
 `
 
-// writeConfiguredWorldModule stages that fixture. mergeSrc is the merger
-// package's source so a caller can give the merger an extra main-module import
-// (the back-edge shape).
-func writeConfiguredWorldModule(t *testing.T, name, mergeSrc string) (root, modPath, filterPath string) {
+const configuredWorldFilter = `package filters
+
+import "strings"
+
+func Shout(s string) string { return strings.ToUpper(s) + "!" }
+`
+
+// configuredWorldFixture parameterizes that fixture. The zero merge/filter
+// source means the plain shape; a caller overrides one of them to stage a
+// back-edge (a config package reaching back into the main module) and sets
+// filterRequiresMain so the filters module can import it.
+type configuredWorldFixture struct {
+	name                string
+	merge               string
+	filter              string
+	filterRequiresMain  bool
+	extraMainModuleFile [2]string // relative dir, source; empty to skip
+}
+
+func (f configuredWorldFixture) write(t *testing.T) (root, modPath, filterPath string) {
 	t.Helper()
 	root = t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	modPath = "example.com/" + name
-	filterPath = "example.com/" + name + "filters"
+	modPath = "example.com/" + f.name
+	filterPath = "example.com/" + f.name + "filters"
+	merge, filter := f.merge, f.filter
+	if merge == "" {
+		merge = configuredWorldMerge
+	}
+	if filter == "" {
+		filter = configuredWorldFilter
+	}
+	filterMod := "module " + filterPath + "\n\ngo 1.26.1\n"
+	if f.filterRequiresMain {
+		// No replace needed: the main module always resolves to itself, which is
+		// exactly how a real external package importing back into the project
+		// under development resolves (see externalBackedgeTestModule).
+		filterMod += "\nrequire " + modPath + " v0.0.0\n"
+	}
 	writeFile(t, root, "go.mod", "module "+modPath+"\n\ngo 1.26.1\n\nrequire (\n\tgithub.com/gsxhq/gsx v0.0.0\n\t"+filterPath+" v0.0.0\n)\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n\nreplace "+filterPath+" => ./filters\n")
-	writeFile(t, filepath.Join(root, "filters"), "go.mod", "module "+filterPath+"\n\ngo 1.26.1\n")
-	writeFile(t, filepath.Join(root, "filters"), "filters.go", "package filters\n\nimport \"strings\"\n\nfunc Shout(s string) string { return strings.ToUpper(s) + \"!\" }\n")
-	writeFile(t, filepath.Join(root, "merge"), "merge.go", mergeSrc)
+	writeFile(t, filepath.Join(root, "filters"), "go.mod", filterMod)
+	writeFile(t, filepath.Join(root, "filters"), "filters.go", filter)
+	writeFile(t, filepath.Join(root, "merge"), "merge.go", merge)
+	if dir := f.extraMainModuleFile[0]; dir != "" {
+		writeFile(t, filepath.Join(root, dir), filepath.Base(dir)+".go", f.extraMainModuleFile[1])
+	}
 	writeFile(t, filepath.Join(root, "views"), "card.gsx", "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(attrs gsx.Attrs, children gsx.Node, label string) {\n\t<section class=\"card\" { attrs... }>{label |> shout}{children}</section>\n}\n")
 	return root, modPath, filterPath
 }
@@ -108,7 +142,7 @@ func assertGeneratedEqual(t *testing.T, want, got map[string][]byte) {
 // sharedWorldComposition refuses to compose — so it exercises the full load
 // with an otherwise identical configuration and an identical load-path set.
 func TestSharedWorldServesConfiguredModule(t *testing.T) {
-	root, modPath, filterPath := writeConfiguredWorldModule(t, "cfgworld", configuredWorldMerge)
+	root, modPath, filterPath := configuredWorldFixture{name: "cfgworld"}.write(t)
 	views := filepath.Join(root, "views")
 	opts := configuredWorldOptions(root, modPath, filterPath)
 
@@ -163,7 +197,7 @@ func TestSharedWorldServesConfiguredModule(t *testing.T) {
 // consumer of retained source for that dir (the merger's own type resolution,
 // LSP go-to-definition and hover) would go with it.
 func TestSharedWorldRetainsMainModuleConfigDir(t *testing.T) {
-	root, modPath, filterPath := writeConfiguredWorldModule(t, "cfgretain", configuredWorldMerge)
+	root, modPath, filterPath := configuredWorldFixture{name: "cfgretain"}.write(t)
 	views := filepath.Join(root, "views")
 	mergeDir := filepath.Join(root, "merge")
 
@@ -215,8 +249,11 @@ import (
 
 func Merge(classes []string) string { return strings.Join(append(classes, style.Extra), " ") }
 `
-	root, modPath, filterPath := writeConfiguredWorldModule(t, "cfgbackedge", mergeSrc)
-	writeFile(t, filepath.Join(root, "style"), "style.go", "package style\n\nconst Extra = \"extra\"\n")
+	root, modPath, filterPath := configuredWorldFixture{
+		name:                "cfgbackedge",
+		merge:               mergeSrc,
+		extraMainModuleFile: [2]string{"style", "package style\n\nconst Extra = \"extra\"\n"},
+	}.write(t)
 	views := filepath.Join(root, "views")
 
 	beforeBackedge, beforeFast := sharedWorldBackedge.Load(), sharedWorldFast.Load()
@@ -233,5 +270,45 @@ func Merge(classes []string) string { return strings.Join(append(classes, style.
 	}
 	if !bytes.Contains([]byte(emitted), []byte("_gsxcm.Merge")) {
 		t.Fatalf("fallback generation lost the configured merger:\n%s", emitted)
+	}
+}
+
+// TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack is the shape an
+// ownership-only guard misses: the external filter package re-enters the main
+// module THROUGH the composed merger, so every main-module package in the
+// closure is a composed config package and no ownership test can see the
+// boundary. Reachability is the only thing that can — the synthetic entries
+// carry no Imports, so externalBackedgePackages is structurally blind here and
+// the world-build guard is the sole defence.
+//
+// The full load rejects this configuration outright (the filter package's
+// dependency graph re-enters the main module), so the world path must too, by
+// falling back to the load that produces that rejection.
+func TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack(t *testing.T) {
+	root, modPath, filterPath := configuredWorldFixture{
+		name: "cfghole",
+		filter: `package filters
+
+import "example.com/cfghole/merge"
+
+func Shout(s string) string { return merge.Merge([]string{s, "!"}) }
+`,
+		filterRequiresMain: true,
+	}.write(t)
+
+	beforeBackedge, beforeFast := sharedWorldBackedge.Load(), sharedWorldFast.Load()
+	m, err := Open(configuredWorldOptions(root, modPath, filterPath))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	out, _, err := m.Generate(filepath.Join(root, "views"))
+	if err == nil || !strings.Contains(err.Error(), "crosses the external-to-main-module semantic boundary") {
+		t.Fatalf("Generate error = %v (%d files emitted), want the configured-package boundary error", err, len(out))
+	}
+	if got := sharedWorldBackedge.Load() - beforeBackedge; got != 1 {
+		t.Fatalf("world back-edge fallbacks = %d, want 1", got)
+	}
+	if got := sharedWorldFast.Load() - beforeFast; got != 0 {
+		t.Fatalf("shared-world fast path taken %d times for a config package that re-enters the main module, want 0", got)
 	}
 }

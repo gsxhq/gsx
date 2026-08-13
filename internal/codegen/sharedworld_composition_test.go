@@ -5,6 +5,57 @@ import (
 	"testing"
 )
 
+// TestSharedWorldOriginCoversConfigModules pins what the world key knows about
+// WHERE a config package resolves from. sharedWorldOrigin used to record only
+// the gsx runtime's resolution, which was complete while the world held nothing
+// else. With config packages composed in, two roots that pin the same external
+// config import path at DIFFERENT versions — or replace it to different
+// directories — hash to the same key, and sharedWorld.fresh agrees with the
+// aliasing because the stamps it checks belong to the other root's files. The
+// second project is then served the first's config types.
+//
+// Unconfigured modules must keep a byte-identical origin: they are the common
+// case and their sharing is the whole point of the shared world.
+func TestSharedWorldOriginCoversConfigModules(t *testing.T) {
+	base := []string{gsxRuntimeImportPath, stdImportPath}
+	configPath := "github.com/jackielii/structpages"
+	configured := append(append([]string(nil), base...), configPath)
+
+	originOf := func(t *testing.T, gomod string, composed []string) string {
+		t.Helper()
+		root := t.TempDir()
+		writeFile(t, root, "go.mod", gomod)
+		return sharedWorldOrigin(root, nil, composed)
+	}
+
+	const withoutConfig = "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => /elsewhere/gsx\n"
+	const configV1 = withoutConfig + "\nrequire " + "github.com/jackielii/structpages" + " v1.0.0\n"
+	const configV15 = withoutConfig + "\nrequire " + "github.com/jackielii/structpages" + " v1.5.0\n"
+	const configReplaced = configV1 + "\nreplace " + "github.com/jackielii/structpages" + " => /elsewhere/structpages\n"
+
+	// Unconfigured: the config module's presence in go.mod must not perturb the
+	// origin at all — that is the Task-1 behavior this widening must not change.
+	if got, want := originOf(t, configV1, base), originOf(t, withoutConfig, base); got != want {
+		t.Fatalf("unconfigured origin changed with an unrelated require:\n got %q\nwant %q", got, want)
+	}
+	if got, want := originOf(t, configV15, base), originOf(t, configV1, base); got != want {
+		t.Fatalf("unconfigured origin is version-sensitive to an uncomposed module:\n got %q\nwant %q", got, want)
+	}
+
+	// Configured: the same two roots must now key differently.
+	if originOf(t, configV1, configured) == originOf(t, configV15, configured) {
+		t.Fatal("two roots pinning different versions of a COMPOSED config module share one world origin")
+	}
+	if originOf(t, configV1, configured) == originOf(t, configReplaced, configured) {
+		t.Fatal("a replace of a COMPOSED config module does not change the world origin")
+	}
+	// And the composed origin must actually be richer than the base one, or the
+	// two checks above could be passing for some unrelated reason.
+	if originOf(t, configV1, configured) == originOf(t, configV1, base) {
+		t.Fatal("composing a config module did not add anything to the origin")
+	}
+}
+
 // TestSharedWorldRootBound is a pure table test over composed path sets: it
 // decides whether a world may be shared between two module roots. A world
 // holding only the fixed base closure is root-independent (sharedWorldOrigin
