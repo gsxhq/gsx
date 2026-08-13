@@ -1,0 +1,124 @@
+# Project-scoped shared world (Phase 2a of warm dev cycles)
+
+**Date:** 2026-08-13
+**Status:** Approved direction (Jackie, 2026-08-12: "as long as the corpus golden didn't change, I welcome all perf improvements"). Design derived from the Phase-2 measurement.
+**Prior art:** PR #178 (shared external world), PR #186 (warm `.go`-edit watch cycles), `docs/superpowers/specs/2026-08-12-warm-go-edit-watch-design.md`, the Phase-2 measurement (2026-08-12: one reload = 436 pkgs / 2.0–2.35s flat; gsxui disqualified from the shared world outright).
+
+## Problem
+
+`sharedWorldEligible` (internal/codegen/sharedworld.go) disqualifies any Module
+configured with filters, renderers, aliases, or a class merger, because those
+packages are harvested **from the loaded types** and the reduced project half
+carries no types. Real projects always configure at least a class merger —
+gsxui's `class_merger = gsxui/merge.Merge` plus the structpages `url` filter
+mean every world reload is a full uncached 436-package load (~2.0–2.35s),
+every `.go` edit cycle, every escalation, every dev cold start. The #178
+shared world helps only unconfigured modules — mostly tests.
+
+## Non-negotiable invariant
+
+**Generated output is byte-identical.** The corpus goldens do not change; a
+full `GSXCACHE=off gsx generate` over gsxui reports everything up to date
+under the new path. This is an explicit acceptance gate, not a hope.
+
+## Goals
+
+- A configured module (filters / renderers / aliases / class merger) reuses a
+  process-cached world across Module generations: dev world reloads and cold
+  starts stop paying the runtime + std + config closure (~1.0–1.3s/cycle on
+  gsxui per the measurement's isolated probe; re-measure at the end).
+- One type universe, always. No second full-mode load beside the world —
+  cross-universe `*types.Package` identity is the failure mode this design
+  exists to avoid (renderer/merger type matching is pointer-identity based).
+- Correctness fallbacks unchanged: the unaccounted-import check and back-edge
+  rejection keep falling back to the single full load. Unsure → full load.
+
+## Non-goals
+
+- The generate phase (type-check + emit over the closure; dominates wide
+  cycles at ~10s) — separate, larger project.
+- Caching manifest LoadRoots (packages imported only from `.gsx`) beyond what
+  the config set already covers: `.gsx` import churn would key-thrash the
+  world. The unaccounted-import fallback continues to serve those modules.
+- Any change to `gsx generate` batch semantics or the on-disk cache.
+
+## Design
+
+**World composition.** The shared world for a Module becomes the runtime
+closure PLUS the module's resolved config packages: `FilterPkgs` (beyond
+std), `LoadPkgs`, alias packages, renderer packages, and the class-merger
+package. One `packages.Load` builds it; one universe serves all types.
+
+**Keying.** `sharedWorldKey` already hashes the load-path set, build env,
+toolchain, and origin (go.mod/go.sum content + resolved replace-dirs). The
+config packages join the path set, so two modules with different config get
+different worlds, and a config change (gsx.toml edit) naturally re-keys. The
+process cache may hold multiple worlds (it is already keyed); memory stays
+bounded by the number of distinct (module-config) pairs in a process — in
+practice one for dev, a handful for tests.
+
+**Main-module config packages (the hard case).** gsxui's merger lives in the
+main module. The world's freshness stamps (file + dir stamps) already cover
+every loaded file, so an edit to the merger package — or anything in its
+loaded closure — marks the world stale and rebuilds it on next use: rare,
+correct, and self-healing. Two guards make this sound rather than hopeful:
+- **Back-edges:** a config package that imports other main-module packages
+  drags them into the world. That is exactly the shape
+  `externalBackedgePackages` exists to reject — the world build must run the
+  same back-edge detection the full load runs, and a world whose closure
+  back-edges into main-module packages OUTSIDE the config closure falls back
+  to the full load (permanently for that key; record why in the world entry
+  so the fallback is visible, not silent). A config package whose closure
+  stays within itself + external deps (gsxui/merge → tailwind-merge-go,
+  csscolorparser) is servable.
+- **Staleness discipline:** the watch session's `.go`-edit path must treat a
+  world-stale verdict like any world reload — the existing goSourceReload
+  machinery already forces the next analysis through `externalImporter`,
+  which re-checks world freshness. No new watch-side logic.
+
+**Synthetic-entry harvest.** Unchanged in shape: the project half stays a
+reduced load; world packages surface as synthetic entries carrying their
+Errors (the #178 review lesson — a broken runtime/config package must fail
+loudly on the fast path). Config packages' synthetic entries additionally
+carry their Module identity where `projectSourcePackages` needs to retain
+main-module members (the merger's own dir must remain a retained source
+package for the LSP/nav features — verify against `logicalProjectPath`
+handling; if retention requires the full project-half view of that dir, the
+project half's path set must include the config package dirs too, in reduced
+mode, with the types still served by the world).
+
+**Eligibility rewrite.** `sharedWorldEligible` stops being a boolean
+gate on config presence and becomes the world-composition function: it
+returns the world path set. Modules remain INELIGIBLE only where the world
+cannot be composed at all (per-dir config variance — `PerDir` overrides
+with distinct mergers/filters produce per-dir worlds; keep those on the full
+load in this phase and record the reason).
+
+## Acceptance gates
+
+1. Corpus suite untouched: no golden churn (`make ci` corpus job), and
+   `GSXCACHE=off go tool gsx generate` over the gsxui clone reports all up
+   to date with the new binary.
+2. `TestWatchSession_EditLoadBudget` budgets hold; a new gate pins that a
+   CONFIGURED module (class merger + non-std filter fixture) takes the
+   shared-world path: second Module open in a process performs 0 world
+   loads (counter: extend `ProjectLoadCalls` discrimination or add
+   `SharedWorldLoads`/`SharedWorldHits` counters).
+3. Type-identity proof: a renderer/merger fixture whose registered type is
+   matched in a `.gsx` expression must behave identically on the fast path —
+   the #178-era equivalence tests extended to configured modules.
+4. A/B on gsxui: dev cold start and `.go`-edit cycles re-measured; expected
+   ~1.0–1.3s/cycle off the load share (narrow cycle ≈ 2.0s → ~1s; wide and
+   go.mod reopen keep their generate-dominated floor). Honest numbers in the
+   PR whatever they turn out to be.
+5. Adversarial review with live probes before merge (staleness of
+   main-module config edits, back-edge shapes, multi-world processes,
+   vendor).
+
+## Sequencing
+
+One PR. Tasks: (1) world-composition eligibility + keying; (2) config
+packages in the world build + synthetic harvest + retention; (3) back-edge
+guard on the world path; (4) gates (counters + configured-module fixtures +
+type-identity equivalence); (5) gsxui A/B + docs; (6) adversarial review +
+`make ci`.
