@@ -37,9 +37,13 @@ under the new path. This is an explicit acceptance gate, not a hope.
 
 - The generate phase (type-check + emit over the closure; dominates wide
   cycles at ~10s) — separate, larger project.
-- Caching manifest LoadRoots (packages imported only from `.gsx`) beyond what
-  the config set already covers: `.gsx` import churn would key-thrash the
-  world. The unaccounted-import fallback continues to serve those modules.
+- ~~Caching manifest LoadRoots (packages imported only from `.gsx`) beyond what
+  the config set already covers.~~ **Revised (Task 5 rerun, 2026-08-13):** this
+  non-goal was the reason the phase served nobody real. gsxui's
+  `document.gsx` imports `github.com/gsxhq/vite`, so its every reload took the
+  fallback — and the fallback was not cost-neutral, it was three
+  `packages.Load` calls where the pre-phase code took one. The world now covers
+  what the project references; see "Extending the world" below.
 - Any change to `gsx generate` batch semantics or the on-disk cache.
 
 ## Design
@@ -87,6 +91,35 @@ handling; if retention requires the full project-half view of that dir, the
 project half's path set must include the config package dirs too, in reduced
 mode, with the types still served by the world).
 
+**Extending the world (added in the Task-5 rerun).** Configuration is not the
+only thing a project needs types for. The project half is loaded WITHOUT types,
+so every package it references from outside the main module must come from the
+world: `.gsx` load roots (gsxui's `vite`), dependencies imported only from the
+module's Go files, nested modules named as load roots. The world is therefore
+composed in two tiers.
+
+- **Tier one — the config world** ({runtime, std} + config packages). Identical
+  for every module with the same configuration, so it is the entry a whole
+  process shares. A `.gsx` importing `strings` needs nothing more: composing
+  such paths as roots would mint a distinct world per distinct import set while
+  loading byte-identical contents.
+- **Tier two — the extension** (tier one + the references tier one does not
+  carry). Its key is a pure function of (config paths, tier-one contents,
+  project references), so a body edit never moves it; only adding or removing
+  an import of a package the config world lacks does. That churn is rare, and
+  self-healing when it happens.
+
+Order matters: the project half loads FIRST. It is the cheap load and the only
+thing that can say what the world must cover; deciding that after the world
+load — the original order — made every unservable module pay for a world it was
+about to discard.
+
+Two rules keep this honest. Import paths are compared in RESOLVED form: the
+`Imports` map is keyed as written, and the stdlib's own vendored dependencies
+resolve to `vendor/…` paths, so the written form made every project whose load
+roots include `net/http` unservable. And the coverage checks stay as a safety
+net for packages that come back from the world without types.
+
 **Eligibility rewrite.** `sharedWorldEligible` stops being a boolean
 gate on config presence and becomes the world-composition function: it
 returns the world path set. Modules remain INELIGIBLE only where the world
@@ -128,11 +161,31 @@ load in this phase and record the reason).
    (parity — build time dominates). All three edit cycles regress >10%. See
    `.superpowers/sdd/2026-08-13-project-shared-world/task-5-report.md` for the
    full methodology and per-sample numbers.
+   **Re-measured after the fix (Task-5 rerun, 2026-08-13):** gsxui now takes
+   the fast path (`fast=1 fellback=0`) and byte identity still holds (1169 up
+   to date, zero writes, clean `git status`). Dev-loop A/B, 2 samples each,
+   same event-sink method: narrow `.go` edit 2614ms → 2431ms (**−7.0%**),
+   go.mod touch 4959ms → 4935ms (parity), cold start 6190ms → 6105ms (parity).
+   The across-the-board 12–18% regression is gone and the narrow cycle is now
+   faster than main — but by ~180ms, not the ~1.0–1.3s this gate projected:
+   that estimate came from an isolated COLD load probe, while a warm dev
+   process's full load is far cheaper than 2s, so the cacheable share is
+   correspondingly smaller.
+
+   One cycle still regresses: editing the class merger — a main-module config
+   package — costs 5171ms → 6001ms (**+16%**), because the merger's files are
+   stamped into BOTH tiers, so both rebuild (measured: 2 world loads for a
+   merger edit, 0 for any other `.go` edit). The merger's own types never come
+   from the world (module-local config packages resolve from retained source),
+   so the fix is to stop composing main-module config packages into the world
+   at all and let the extension tier cover their dependencies — now possible
+   only because the extension tier exists. That reverses this document's
+   "Main-module config packages (the hard case)" decision and changes two
+   pinned test contracts, so it is proposed, not taken.
 5. Adversarial review with live probes before merge (staleness of
    main-module config edits, back-edge shapes, multi-world processes,
-   vendor). **Given Task 5's finding above, this review must also resolve the
-   fallback-path regression (the wasted shared-world + project-half loads
-   before falling through) — not just correctness.**
+   vendor). **The fallback-path regression Task 5 found is fixed (see gate 4);
+   what remains for review is the merger-edit cycle above.**
 
 ## Sequencing
 
