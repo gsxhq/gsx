@@ -450,13 +450,13 @@ const projectLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCo
 // a retained source package because the project half still loads "./...", which
 // covers every main-module dir whether or not it is a config package.
 func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]*packages.Package, error) {
-	sharedPaths, ok := m.sharedWorldComposition()
+	configPaths, ok := m.sharedWorldComposition()
 	if !ok {
 		sharedWorldIneligible.Add(1)
 		return loadPackages(cfg, loadPaths...)
 	}
-	shared := make(map[string]bool, len(sharedPaths))
-	for _, p := range sharedPaths {
+	shared := make(map[string]bool, len(configPaths))
+	for _, p := range configPaths {
 		shared[p] = true
 	}
 	var projectPaths []string
@@ -466,18 +466,42 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		}
 	}
 
-	toolchain := ""
-	if m.goContext != nil && m.goContext.goLauncher != nil {
-		toolchain = m.goContext.goLauncher.CompilerIdentity()
-	}
-	origin := sharedWorldOrigin(m.opts.ModuleRoot, cfg.Env, sharedPaths)
-	if sharedWorldRootBound(sharedPaths, m.opts.ModulePath) {
-		origin += "\x00root\x00" + filepath.Clean(m.opts.ModuleRoot)
-	}
-	key := sharedWorldKey(sharedPaths, cfg.Env, toolchain, origin)
-	world, err := loadSharedWorld(key, cfg, sharedPaths)
+	// The project half runs FIRST. It is the cheap load — no types, no deps —
+	// and it is the only thing that can say which external packages this module
+	// actually needs, which is what the world has to cover. Deciding that after
+	// the world load (the original order) meant a module the world could not
+	// serve had already paid for it: three packages.Load calls where the
+	// pre-shared-world code paid one, measured as a 12–18% regression on every
+	// gsxui dev cycle.
+	projectCfg := *cfg
+	projectCfg.Mode = projectLoadMode
+	pkgs, err := loadPackages(&projectCfg, projectPaths...)
 	if err != nil {
 		return nil, err
+	}
+
+	// mainModule records packages that belong to THIS module. Presence in the
+	// project load is not enough — a stdlib or nested-module root loaded in
+	// reduced mode is present but carries no types. Module.Main is the same test
+	// projectSourcePackages uses, and it needs no import-path prefix guessing
+	// (a nested module can share the main module's prefix).
+	mainModule := map[string]bool{}
+	for _, p := range pkgs {
+		if p == nil || p.PkgPath == "" {
+			continue
+		}
+		if p.Module != nil && p.Module.Main && p.Module.Path == m.opts.ModulePath {
+			mainModule[p.PkgPath] = true
+		}
+	}
+
+	world, worldPaths, err := m.coveringWorld(cfg, configPaths, pkgs, mainModule)
+	if err != nil {
+		return nil, err
+	}
+	composed := make(map[string]bool, len(worldPaths))
+	for _, p := range worldPaths {
+		composed[p] = true
 	}
 
 	// The world may only carry code this Module treats as EXTERNAL. A config
@@ -494,51 +518,17 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	// identity, so it is stable for as long as the entry is cached — "permanent
 	// for that key", as the design requires — while staying correct for a world
 	// shared by roots whose main modules differ.
-	if world.mainModuleBackedge(m.opts.ModulePath, shared) {
+	if world.mainModuleBackedge(m.opts.ModulePath, composed) {
 		sharedWorldBackedge.Add(1)
 		return loadPackages(cfg, loadPaths...)
 	}
 
-	projectCfg := *cfg
-	projectCfg.Mode = projectLoadMode
-	pkgs, err := loadPackages(&projectCfg, projectPaths...)
-	if err != nil {
-		return nil, err
-	}
-
-	// The shared world carries the gsx closure and nothing else, but a project
-	// package may import something outside it — another module in the workspace,
-	// a third-party dependency, a nested module. Those types came from the full
-	// load's NeedDeps, which the project half does not request, so serving this
-	// Module from the shared world would silently lose them.
-	//
-	// Checking each project package's IMMEDIATE imports is sufficient: the world
-	// is a closure, so anything it contains has its own dependencies inside it.
-	// If any import is unaccounted for, fall back to the original single load —
-	// correctness first, and the fallback costs only the modules that need it.
-	// mainModule records packages that belong to THIS module. Presence in the
-	// project load is not enough — a stdlib or nested-module root loaded in
-	// reduced mode is present but carries no types. Module.Main is the same test
-	// projectSourcePackages uses, and it needs no import-path prefix guessing
-	// (a nested module can share the main module's prefix).
-	mainModule := map[string]bool{}
-	for _, p := range pkgs {
-		if p == nil || p.PkgPath == "" {
-			continue
-		}
-		if p.Module != nil && p.Module.Main && p.Module.Path == m.opts.ModulePath {
-			mainModule[p.PkgPath] = true
-		}
-	}
-	// Every extra load path (a manifest LoadRoot) must have resolved as a package
-	// of THIS module. One that did not is outside the module — a nested module,
-	// which can share the main module's import prefix, so no prefix test would be
-	// sound — and its types would have come from the full load's NeedDeps.
-	// A LoadRoot already resident in the closure IS served (via the synthetic
-	// entries below), so it must not force a fallback: .gsx files importing
-	// stdlib packages (strings, fmt, time) are the common case, and treating
-	// them as unservable silently returned most real projects to the full
-	// per-Module load.
+	// Safety net. coveringWorld composes exactly what the project half
+	// references, so these two checks are expected to pass — they fail only
+	// when a package the world was ASKED for did not come back with types (a
+	// broken or unresolvable dependency), which no composition can fix. The
+	// original single load is then the honest answer, and it is the one that
+	// reports the underlying error.
 	for _, p := range projectPaths {
 		if p == "./..." || mainModule[p] || world.types[p] != nil {
 			continue
@@ -566,6 +556,107 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		pkgs = append(pkgs, &packages.Package{PkgPath: path, Types: t, Errors: world.errs[path]})
 	}
 	return pkgs, nil
+}
+
+// coveringWorld returns a world that carries every external package the project
+// half references, and the path set it was composed from.
+//
+// It is two-tier on purpose. Tier one is the CONFIG world — the fixed base pair
+// plus this module's config packages — which is identical for every module with
+// the same configuration and is therefore the entry a whole process shares. Most
+// modules need nothing beyond it: a `.gsx` importing "strings" or "fmt" names a
+// package the gsx runtime's own closure already carries, and composing such
+// paths as extra roots would mint a distinct world per distinct import set while
+// loading byte-identical contents.
+//
+// Tier two exists for the packages tier one genuinely does not carry —
+// gsxui's `.gsx` import of github.com/gsxhq/vite, a third-party dependency
+// imported only from the module's Go files, a nested module named as a load
+// root. Before this, those modules could not be served at all: the world was
+// composed from configuration alone, so the coverage checks rejected them and
+// every dev cycle paid the world load, the project-half load AND the full load.
+// Composing the gap instead of rejecting it is what puts a real project on the
+// fast path — the whole point of the phase.
+//
+// The extended key is a pure function of (config paths, tier-one contents,
+// project references), so it is stable across cycles: editing a `.gsx` body or
+// a `.go` body does not move it, and only ADDING or REMOVING an import of a
+// package the config world lacks re-keys — rare, and self-healing when it
+// happens.
+func (m *Module) coveringWorld(cfg *packages.Config, configPaths []string, pkgs []*packages.Package, mainModule map[string]bool) (*sharedWorld, []string, error) {
+	world, err := m.sharedWorldFor(cfg, configPaths)
+	if err != nil {
+		return nil, nil, err
+	}
+	gaps := worldGaps(pkgs, mainModule, world)
+	if len(gaps) == 0 {
+		return world, configPaths, nil
+	}
+	worldPaths := append(append(make([]string, 0, len(configPaths)+len(gaps)), configPaths...), gaps...)
+	sort.Strings(worldPaths)
+	world, err = m.sharedWorldFor(cfg, worldPaths)
+	if err != nil {
+		return nil, nil, err
+	}
+	return world, worldPaths, nil
+}
+
+// worldGaps returns the sorted external packages the project half references
+// that world does not carry.
+//
+// A root that is not a main-module package (an out-of-module load root, a
+// nested module) contributes ITSELF and not its imports: composing it as a
+// world root brings its whole closure. A main-module root contributes its
+// immediate non-local imports — the world is a closure, so covering those
+// covers everything under them. This mirrors, one step ahead of it, the
+// coverage check the caller still runs.
+func worldGaps(pkgs []*packages.Package, mainModule map[string]bool, world *sharedWorld) []string {
+	gaps := map[string]bool{}
+	need := func(path string) {
+		// "C" is the cgo pseudo-package: it names no loadable package, and
+		// sourceview already keeps it out of the manifest's load roots.
+		if path == "" || path == "C" || mainModule[path] || world.types[path] != nil {
+			return
+		}
+		gaps[path] = true
+	}
+	for _, p := range pkgs {
+		if p == nil || p.PkgPath == "" {
+			continue
+		}
+		if !mainModule[p.PkgPath] {
+			need(p.PkgPath)
+			continue
+		}
+		for importPath := range p.Imports {
+			need(importPath)
+		}
+	}
+	if len(gaps) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(gaps))
+	for path := range gaps {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// sharedWorldFor resolves the process-wide world entry for one composed path
+// set: the key derivation (origin, root binding, toolchain) plus the cache
+// lookup. Both tiers of coveringWorld go through it, so a tier-two world is
+// keyed by exactly the same rules as a tier-one world.
+func (m *Module) sharedWorldFor(cfg *packages.Config, paths []string) (*sharedWorld, error) {
+	toolchain := ""
+	if m.goContext != nil && m.goContext.goLauncher != nil {
+		toolchain = m.goContext.goLauncher.CompilerIdentity()
+	}
+	origin := sharedWorldOrigin(m.opts.ModuleRoot, cfg.Env, paths)
+	if sharedWorldRootBound(paths, m.opts.ModulePath) {
+		origin += "\x00root\x00" + filepath.Clean(m.opts.ModuleRoot)
+	}
+	return loadSharedWorld(sharedWorldKey(paths, cfg.Env, toolchain, origin), cfg, paths)
 }
 
 // loadSharedWorld returns the cached closure for key, loading it if absent or
