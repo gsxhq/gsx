@@ -125,9 +125,20 @@ component Page(value string) { <p>{value |> upper}</p> }
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The configured filter package now joins the shared world, so this
+	// rejection is reached by way of the world's back-edge guard: the world's
+	// closure re-enters the main module (example.com/app/model), the Module
+	// falls back to the single full-mode load, and the full load is where the
+	// boundary is detected on real Imports. Pinning the counter keeps the two
+	// halves of that contract from drifting apart — without the guard, this
+	// Generate silently succeeds.
+	before := sharedWorldBackedge.Load()
 	if _, _, err := m.Generate(pageDir); err == nil ||
 		!strings.Contains(err.Error(), "crosses the external-to-main-module semantic boundary") {
 		t.Fatalf("Generate error = %v, want explicit configured-package boundary", err)
+	}
+	if got := sharedWorldBackedge.Load() - before; got != 1 {
+		t.Fatalf("world back-edge fallbacks = %d, want 1", got)
 	}
 }
 

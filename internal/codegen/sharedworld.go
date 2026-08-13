@@ -50,12 +50,44 @@ type sharedWorld struct {
 	// full load — dropping them made a runtime type error surface as silently
 	// partial types downstream.
 	errs map[string][]packages.Error
+	// moduleOf maps each closure package to the module that owns it (absent for
+	// the stdlib, which belongs to no module). It is what the back-edge guard
+	// reads: a closure package owned by the LOADING module's own module path,
+	// other than the composed config packages themselves, means the world
+	// dragged main-module code in — see mainModuleBackedge.
+	//
+	// The owning module PATH is recorded rather than packages.Module.Main
+	// because Main is relative to the root the world was built from, and one
+	// world can serve several roots (the key is the path set + origin, not the
+	// root). The module path is the same fact projectSourcePackages tests
+	// against, so the two agree on what "main module" means for a given Module.
+	moduleOf map[string]string
 	// stamps covers modification of a file that was loaded; dirStamps covers
 	// files being ADDED to or REMOVED from a loaded package, which no per-file
 	// check can see (a directory's mtime moves when its entries change).
 	// Together they catch the three ways the runtime can change under us.
 	stamps    []fileStamp
 	dirStamps []fileStamp
+}
+
+// mainModuleBackedge reports whether the closure holds a package owned by
+// modulePath other than the composed config packages themselves — a package the
+// world had no business loading.
+//
+// An empty modulePath means the caller has no main module to speak of: nothing
+// is local to it, projectSourcePackages retains nothing, and the full load's
+// own externalBackedgePackages finds no boundary either — so there is no
+// boundary here to enforce.
+func (w *sharedWorld) mainModuleBackedge(modulePath string, composed map[string]bool) bool {
+	if modulePath == "" {
+		return false
+	}
+	for pkgPath, owner := range w.moduleOf {
+		if owner == modulePath && !composed[pkgPath] {
+			return true
+		}
+	}
+	return false
 }
 
 // fresh reports whether the sources the world was built from are unchanged.
@@ -79,6 +111,13 @@ func (w *sharedWorld) fresh() bool {
 }
 
 var sharedWorldIneligible, sharedWorldFellBack, sharedWorldFast atomic.Int64
+
+// sharedWorldBackedge counts Modules returned to the full load because the
+// composed world's closure re-entered their main module (see
+// sharedWorld.mainModuleBackedge). It is the visible record the design asks
+// for: a back-edging configuration must never be served silently, because the
+// full load is the path that turns it into the hard configuration error.
+var sharedWorldBackedge atomic.Int64
 
 // projectLoads counts every packages.Load call issued by this process from
 // anywhere in internal/codegen. It is incremented in exactly one place —
@@ -150,6 +189,37 @@ func sharedWorldOrigin(moduleRoot string, buildEnv []string) string {
 		fmt.Fprintf(&b, "replace\x00%s\x00%s\x00%s\n", r.Old.Path, target, r.New.Version)
 	}
 	return b.String()
+}
+
+// sharedWorldRootBound reports whether the composed path set names a package
+// that could belong to THIS module root, in which case the world it builds must
+// not be shared with any other root.
+//
+// The fixed base pair is module-independent by construction (the runtime and
+// std resolve through go.mod, which sharedWorldOrigin already keys). A config
+// package, however, may live in the main module itself (gsxui's merge/), and
+// nothing else in the key distinguishes two roots that declare the same module
+// path and the same config — two checkouts of one project, e.g. worktrees, open
+// in one LSP. Without this, the second root would be served the first root's
+// working-copy types and would even pass sharedWorld.fresh, because the stamps
+// belong to the other directory and are genuinely unchanged. It is the same
+// aliasing sharedWorldOrigin exists to prevent, one level down.
+//
+// The test is by import-path prefix, which is sound in the SAFE direction: a
+// main-module package's path always starts with the module path, so no
+// main-module config package escapes, and a nested module that shares the
+// prefix merely loses sharing. An empty module path forfeits the test
+// altogether, so every non-base config path binds to the root.
+func sharedWorldRootBound(paths []string, modulePath string) bool {
+	for _, p := range paths {
+		if p == gsxRuntimeImportPath || p == stdImportPath {
+			continue
+		}
+		if modulePath == "" || p == modulePath || strings.HasPrefix(p, modulePath+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // sharedWorldKey identifies a closure by everything that can change its types:
@@ -247,19 +317,20 @@ const projectLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCo
 // back-edge detection (externalBackedgePackages, called by the caller on this
 // function's return value) sees none and projectSourcePackages skips them.
 //
-// That was correct when sharedPaths was always exactly {runtime, std}: the
-// gsx runtime is standard-library only, so that closure provably cannot
-// back-edge into the main module. It is NOT yet correct now that
-// sharedWorldComposition can add config packages: a config package that
-// itself imports back into the main module (the shape
-// TestConfiguredExternalBackedgeIsHardConfigurationError pins on the full
-// load) is invisible to back-edge detection here, because its synthetic
-// entry drops the Imports that would reveal the back-edge. That module is
-// mis-served (the hard-configuration-error rejection is silently skipped)
-// rather than falling back — a known gap for the composition change, closed
-// by the guard described in docs/superpowers/specs/2026-08-13-project-shared-world-design.md
-// ("Back-edges"); do not treat the shared closure as back-edge-free until
-// that guard lands.
+// Dropping Imports from the synthetic entries is only safe because a world that
+// re-enters the main module never reaches them: mainModuleBackedge below
+// rejects it wholesale and the Module takes the full load, where the boundary
+// is detected on real Imports. That check is what makes the composed world
+// (which may name config packages, including main-module ones) as
+// back-edge-free as the fixed {runtime, std} closure was by construction.
+//
+// A main-module CONFIG package in the world is not a back-edge — it is the
+// hard case the design names. Its types still come from the retained project
+// source (configuredSourcePackages routes module-local paths to the source
+// resolver, and the caller drops every local path from the published importer),
+// so the world's copy is a load-set member, not a second universe. Its dir stays
+// a retained source package because the project half still loads "./...", which
+// covers every main-module dir whether or not it is a config package.
 func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]*packages.Package, error) {
 	sharedPaths, ok := m.sharedWorldComposition()
 	if !ok {
@@ -282,10 +353,32 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		toolchain = m.goContext.goLauncher.CompilerIdentity()
 	}
 	origin := sharedWorldOrigin(m.opts.ModuleRoot, cfg.Env)
+	if sharedWorldRootBound(sharedPaths, m.opts.ModulePath) {
+		origin += "\x00root\x00" + filepath.Clean(m.opts.ModuleRoot)
+	}
 	key := sharedWorldKey(sharedPaths, cfg.Env, toolchain, origin)
 	world, err := loadSharedWorld(key, cfg, sharedPaths)
 	if err != nil {
 		return nil, err
+	}
+
+	// The world may only carry code this Module treats as EXTERNAL. A config
+	// package that imports back into the main module drags main-module packages
+	// into the closure, which is the shape externalBackedgePackages rejects on
+	// the full load — and the synthetic entries below drop the Imports that
+	// would reveal it, so nothing downstream could see it here. Serving such a
+	// Module would silently skip the hard configuration error for an external
+	// config package, and would publish a second copy of main-module packages
+	// that every other phase rebuilds from source. Returning it to the full load
+	// restores both behaviors exactly, because the full load is where they live.
+	//
+	// The verdict is a pure function of the world's contents and this Module's
+	// identity, so it is stable for as long as the entry is cached — "permanent
+	// for that key", as the design requires — while staying correct for a world
+	// shared by roots whose main modules differ.
+	if world.mainModuleBackedge(m.opts.ModulePath, shared) {
+		sharedWorldBackedge.Add(1)
+		return loadPackages(cfg, loadPaths...)
 	}
 
 	projectCfg := *cfg
@@ -381,7 +474,12 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 		return nil, err
 	}
 
-	world := &sharedWorld{fset: fset, types: map[string]*types.Package{}, errs: map[string][]packages.Error{}}
+	world := &sharedWorld{
+		fset:     fset,
+		types:    map[string]*types.Package{},
+		errs:     map[string][]packages.Error{},
+		moduleOf: map[string]string{},
+	}
 	seen := map[string]bool{}
 	seenDir := map[string]bool{}
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
@@ -390,6 +488,9 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 		}
 		if len(p.Errors) > 0 {
 			world.errs[p.PkgPath] = p.Errors
+		}
+		if p.Module != nil && p.Module.Path != "" {
+			world.moduleOf[p.PkgPath] = p.Module.Path
 		}
 		// Only module-owned files are stamped (p.Module == nil means stdlib,
 		// which the toolchain identity in the key already covers). The previous

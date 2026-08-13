@@ -5,6 +5,63 @@ import (
 	"testing"
 )
 
+// TestSharedWorldRootBound is a pure table test over composed path sets: it
+// decides whether a world may be shared between two module roots. A world
+// holding only the fixed base closure is root-independent (sharedWorldOrigin
+// already keys where the runtime resolves from); a world holding a config
+// package that could live in the main module is not, because two roots can
+// declare the same module path and the same config — two checkouts of one
+// project — and nothing else in the key would tell them apart.
+func TestSharedWorldRootBound(t *testing.T) {
+	base := []string{gsxRuntimeImportPath, stdImportPath}
+	tests := []struct {
+		name       string
+		paths      []string
+		modulePath string
+		want       bool
+	}{
+		{"base closure alone is shareable across roots", base, "example.com/app", false},
+		{
+			"an out-of-module config package keeps the world shareable",
+			append(append([]string(nil), base...), "github.com/jackielii/structpages"),
+			"example.com/app",
+			false,
+		},
+		{
+			"a main-module config package binds the world to this root",
+			append(append([]string(nil), base...), "example.com/app/merge"),
+			"example.com/app",
+			true,
+		},
+		{
+			"the main module package itself binds the world to this root",
+			append(append([]string(nil), base...), "example.com/app"),
+			"example.com/app",
+			true,
+		},
+		{
+			"a prefix neighbour is not a main-module package",
+			append(append([]string(nil), base...), "example.com/apps/merge"),
+			"example.com/app",
+			false,
+		},
+		{
+			"without a module path every config package binds to the root",
+			append(append([]string(nil), base...), "github.com/jackielii/structpages"),
+			"",
+			true,
+		},
+		{"without a module path the base closure still shares", base, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sharedWorldRootBound(tt.paths, tt.modulePath); got != tt.want {
+				t.Fatalf("sharedWorldRootBound(%v, %q) = %v, want %v", tt.paths, tt.modulePath, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestSharedWorldComposition is a pure table test over Options shapes — it
 // never calls packages.Load. sharedWorldComposition derives the shared-world
 // load-path set the same way the full-mode loadPaths derivation in
