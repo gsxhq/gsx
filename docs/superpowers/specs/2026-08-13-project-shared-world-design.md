@@ -55,13 +55,23 @@ class-merger package, minus any of those that live in the main module itself
 (see "the hard case, dissolved"). One `packages.Load` builds it; one universe
 serves all types.
 
-**Keying.** `sharedWorldKey` already hashes the load-path set, build env,
-toolchain, and origin (go.mod/go.sum content + resolved replace-dirs). The
-config packages join the path set, so two modules with different config get
-different worlds, and a config change (gsx.toml edit) naturally re-keys. The
-process cache may hold multiple worlds (it is already keyed); memory stays
-bounded by the number of distinct (module-config) pairs in a process — in
-practice one for dev, a handful for tests.
+**Keying and cache lifetime.** `sharedWorldKey` hashes the load-path set, build
+env, toolchain, and origin (the go.mod requires/replaces of every module that
+owns a composed package, so a version bump or a replace-target change re-keys).
+The two tiers then have deliberately different lifetimes:
+
+- **Config-tier entries are unbounded and never evicted**, as before: one per
+  distinct (config paths, origin, env, toolchain) closure. A project's
+  configuration is stable — it changes when gsx.toml does — so this set is one
+  or two per process and one per open project in an LSP.
+- **Extension-tier entries are bounded to one per (module root, config tier).**
+  Their key follows the set of external packages the project references, which
+  moves whenever an import is added or removed; unbounded, a long-lived LSP
+  would retain a full types graph and FileSet for every import set the
+  developer ever passed through — the retention the #134–#138 LSP memory work
+  exists to prevent. Minting a new extension entry drops the previous one for
+  that root. Reverting an import change therefore reloads instead of hitting,
+  which is the right trade.
 
 **Main-module config packages — the hard case, dissolved.** *(Revised after the
 Task-5 A/B; this section previously argued the opposite and the reversal is the
@@ -127,10 +137,18 @@ composed in two tiers.
   an import of a package the config world lacks does. That churn is rare, and
   self-healing when it happens.
 
-Order matters: the project half loads FIRST. It is the cheap load and the only
-thing that can say what the world must cover; deciding that after the world
-load — the original order — made every unservable module pay for a world it was
-about to discard.
+Order matters: the project half loads FIRST, because the extension tier cannot
+be composed without it — the references it discovers ARE that tier's path set.
+That is the whole justification. It does NOT make the fallbacks cheap: a
+coverage or back-edge fallback still discards both loads and re-loads
+everything, 3–4 `packages.Load` calls where the pre-phase code paid 1
+(probe-measured: a back-edging module reports 3). That is acceptable because
+the shapes that reach a fallback are either already fatal (a back-edging
+configuration fails generation) or rare (a dependency that comes back without
+types), and because the shape that used to reach it on EVERY gsxui cycle — an
+import outside the config surface — is now composed instead of refused. The one
+disqualification that stays genuinely cheap is per-dir config variance, which
+is decided before any load.
 
 Two rules keep this honest. Import paths are compared in RESOLVED form: the
 `Imports` map is keyed as written, and the stdlib's own vendored dependencies
@@ -140,10 +158,12 @@ net for packages that come back from the world without types.
 
 **Eligibility rewrite.** `sharedWorldEligible` stops being a boolean
 gate on config presence and becomes the world-composition function: it
-returns the world path set. Modules remain INELIGIBLE only where the world
-cannot be composed at all (per-dir config variance — `PerDir` overrides
-with distinct mergers/filters produce per-dir worlds; keep those on the full
-load in this phase and record the reason).
+returns the world path set. Modules remain INELIGIBLE in exactly two cases,
+both decided before any load, both recorded on the ineligible counter:
+per-dir config variance (`PerDir` overrides with distinct mergers or non-std
+filters want a world per directory, which this phase does not support), and an
+empty composition — which happens only when the module being built IS the gsx
+runtime, so main-module exclusion leaves no external world to share.
 
 ## Acceptance gates
 
@@ -204,8 +224,14 @@ load in this phase and record the reason).
 5. Adversarial review with live probes before merge (staleness of
    main-module config edits, back-edge shapes, multi-world processes,
    vendor). **Both regressions Task 5 found are fixed (see gate 4); review's
-   remaining lenses are the extension tier's key churn, multi-world memory, and
-   the nested-module/vendor shapes the root binding now exists for.**
+   remaining lenses are the extension tier's key churn and its one-entry bound,
+   multi-world memory, and vendoring.** On vendoring specifically: root binding
+   used to shield a configured project whose config package lived in the main
+   module, and no longer does, because no main-module package composes. A
+   `-mod=vendor` project's composed packages resolve out of its own `vendor/`
+   directory while `sharedWorldOrigin` reads go.mod, which vendoring does not
+   have to agree with — two roots with identical go.mod files and different
+   vendored contents would share a world entry. Probe it.
 
 ## Sequencing
 
