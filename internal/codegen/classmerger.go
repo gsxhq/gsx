@@ -17,13 +17,31 @@ type ClassMergerRef struct {
 	FuncName string
 }
 
+// ValidateConfiguredMergers validates every class merger configured on an
+// ALREADY-OPEN Module (the module-wide ClassMerger plus any PerDir override),
+// against that Module's own composed shared-world closure — the one its later
+// Generate calls will use. Prefer this over the package-level
+// ValidateClassMerger for a caller (e.g. gen.prepareWatchSession) that already
+// holds the fully-configured Module: a throwaway probe Module built from just
+// a ClassMergerRef composes a NARROWER shared-world path set whenever the real
+// Module also carries FilterPkgs/Aliases/Renderers/LoadPkgs, which mints a
+// second, differently-keyed world at session startup instead of sharing the
+// one this Module is about to load anyway — exactly the duplicate cold load
+// gen.TestWatchSession_ConfiguredModuleWorldBudget pins against. The result is
+// memoized on m (classMergersDone), so a later Generate's own defense-in-depth
+// call is a no-op.
+func (m *Module) ValidateConfiguredMergers() error { return m.validateConfiguredMergers() }
+
 // ValidateClassMerger type-checks ref.PkgPath and verifies ref.FuncName names an
 // exported package-level object whose type is exactly func([]string) string.
 // Returns a clear, user-facing error otherwise (missing symbol, or wrong
 // signature with a pointer at the wrapper idiom).
 //
-// Callers outside codegen (e.g. gen.newWatchSession) should call this once at
-// startup to surface a bad merger before codegen emits uncompilable .x.go files.
+// This opens its OWN throwaway Module scoped to just ref, so its composed
+// shared-world closure can be narrower than a caller's real, fully-configured
+// Module — see ValidateConfiguredMergers above for the caller that already
+// holds one. Standalone callers with no Module of their own (tests; any future
+// caller that only has a dir and a ref) should still use this.
 // Do NOT call this from codegen.Open: that path is shared by the LSP and fmt,
 // which must not pay a packages.Load per-Open or fail on merger config.
 func ValidateClassMerger(dir string, ref *ClassMergerRef) error {

@@ -256,9 +256,9 @@ func Merge(classes []string) string { return strings.Join(append(classes, style.
 	}.write(t)
 	views := filepath.Join(root, "views")
 
-	beforeBackedge, beforeFast := sharedWorldBackedge.Load(), sharedWorldFast.Load()
+	beforeBackedge, beforeFast := SharedWorldBackedgeFallbacks(), sharedWorldFast.Load()
 	_, out := generateConfiguredWorld(t, configuredWorldOptions(root, modPath, filterPath), views)
-	if got := sharedWorldBackedge.Load() - beforeBackedge; got != 1 {
+	if got := SharedWorldBackedgeFallbacks() - beforeBackedge; got != 1 {
 		t.Fatalf("world back-edge fallbacks = %d, want 1", got)
 	}
 	if got := sharedWorldFast.Load() - beforeFast; got != 0 {
@@ -296,7 +296,7 @@ func Shout(s string) string { return merge.Merge([]string{s, "!"}) }
 		filterRequiresMain: true,
 	}.write(t)
 
-	beforeBackedge, beforeFast := sharedWorldBackedge.Load(), sharedWorldFast.Load()
+	beforeBackedge, beforeFast := SharedWorldBackedgeFallbacks(), sharedWorldFast.Load()
 	m, err := Open(configuredWorldOptions(root, modPath, filterPath))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -305,7 +305,7 @@ func Shout(s string) string { return merge.Merge([]string{s, "!"}) }
 	if err == nil || !strings.Contains(err.Error(), "crosses the external-to-main-module semantic boundary") {
 		t.Fatalf("Generate error = %v (%d files emitted), want the configured-package boundary error", err, len(out))
 	}
-	if got := sharedWorldBackedge.Load() - beforeBackedge; got != 1 {
+	if got := SharedWorldBackedgeFallbacks() - beforeBackedge; got != 1 {
 		t.Fatalf("world back-edge fallbacks = %d, want 1", got)
 	}
 	if got := sharedWorldFast.Load() - beforeFast; got != 0 {

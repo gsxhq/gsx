@@ -132,12 +132,12 @@ component Page(value string) { <p>{value |> upper}</p> }
 	// boundary is detected on real Imports. Pinning the counter keeps the two
 	// halves of that contract from drifting apart — without the guard, this
 	// Generate silently succeeds.
-	before := sharedWorldBackedge.Load()
+	before := SharedWorldBackedgeFallbacks()
 	if _, _, err := m.Generate(pageDir); err == nil ||
 		!strings.Contains(err.Error(), "crosses the external-to-main-module semantic boundary") {
 		t.Fatalf("Generate error = %v, want explicit configured-package boundary", err)
 	}
-	if got := sharedWorldBackedge.Load() - before; got != 1 {
+	if got := SharedWorldBackedgeFallbacks() - before; got != 1 {
 		t.Fatalf("world back-edge fallbacks = %d, want 1", got)
 	}
 }

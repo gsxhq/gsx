@@ -170,7 +170,21 @@ var sharedWorldIneligible, sharedWorldFellBack, sharedWorldFast atomic.Int64
 // sharedWorld.mainModuleBackedge). It is the visible record the design asks
 // for: a back-edging configuration must never be served silently, because the
 // full load is the path that turns it into the hard configuration error.
+// Exported as SharedWorldBackedgeFallbacks — every consumer, in-package or
+// not, reads it through that accessor (see
+// TestConfiguredExternalBackedgeIsHardConfigurationError,
+// TestSharedWorldBackedgeFallsBack,
+// TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack).
 var sharedWorldBackedge atomic.Int64
+
+// sharedWorldHits counts every loadSharedWorld call that was served from the
+// process-wide cache — a key already present whose sharedWorld.fresh() still
+// held, so no packages.Load ran. It is the payoff counter for the process
+// cache Task 4 exists to prove: a second Module (or watch session) opened
+// over the same root and configuration must record a hit here, not a
+// SharedWorldLoads increment. See SharedWorldHits and
+// gen.TestWatchSession_ConfiguredModuleWorldBudget.
+var sharedWorldHits atomic.Int64
 
 // projectLoads counts every packages.Load call issued by this process from
 // anywhere in internal/codegen. It is incremented in exactly one place —
@@ -199,8 +213,31 @@ func ProjectLoadCalls() uint64 { return projectLoads.Load() }
 // Tests use the distinction to pin the freshness design's claim: a .go edit
 // INSIDE the world's composed closure must move this counter, and a .go edit
 // OUTSIDE it (an unrelated project dependency, or a pure .gsx edit) must not
-// — see gen/watch_sharedworld_test.go.
+// — see gen/watch_sharedworld_test.go and
+// gen.TestWatchSession_ConfiguredModuleWorldBudget.
 func SharedWorldLoads() int64 { return externalClosureLoads.Load() }
+
+// SharedWorldHits returns the process-wide count of loadSharedWorld calls
+// served from the cache (a fresh entry already keyed for this closure), the
+// complement of SharedWorldLoads: every loadSharedWorld call is either a load
+// or a hit, never both. It is the process-cache payoff the shared-world
+// design exists to prove — see gen.TestWatchSession_ConfiguredModuleWorldBudget,
+// which opens a second Module over the same root and configuration and
+// asserts this counter moves while SharedWorldLoads does not.
+func SharedWorldHits() int64 { return sharedWorldHits.Load() }
+
+// SharedWorldBackedgeFallbacks returns the process-wide count of Modules
+// returned to the full per-Module load because the composed world's closure
+// re-entered their main module outside the composed config set (see
+// sharedWorld.mainModuleBackedge). Mirrors ProjectLoadCalls and
+// SharedWorldLoads: a back-edging configuration must never be served
+// silently, because the full load is the path that turns it into the hard
+// configuration error. Consuming tests, all in internal/codegen:
+// TestConfiguredExternalBackedgeIsHardConfigurationError
+// (external_backedge_test.go), TestSharedWorldBackedgeFallsBack and
+// TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack
+// (sharedworld_configured_test.go).
+func SharedWorldBackedgeFallbacks() int64 { return sharedWorldBackedge.Load() }
 
 // sharedWorlds is deliberately unbounded and never evicted: keys are one per
 // distinct (origin, env, toolchain) closure, which a CLI or test process holds
@@ -539,6 +576,7 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 	cached, ok := sharedWorlds[key]
 	sharedWorldMu.Unlock()
 	if ok && cached.fresh() {
+		sharedWorldHits.Add(1)
 		return cached, nil
 	}
 
