@@ -37,13 +37,11 @@ under the new path. This is an explicit acceptance gate, not a hope.
 
 - The generate phase (type-check + emit over the closure; dominates wide
   cycles at ~10s) — separate, larger project.
-- ~~Caching manifest LoadRoots (packages imported only from `.gsx`) beyond what
-  the config set already covers.~~ **Revised (Task 5 rerun, 2026-08-13):** this
-  non-goal was the reason the phase served nobody real. gsxui's
-  `document.gsx` imports `github.com/gsxhq/vite`, so its every reload took the
-  fallback — and the fallback was not cost-neutral, it was three
-  `packages.Load` calls where the pre-phase code took one. The world now covers
-  what the project references; see "Extending the world" below.
+- Caching packages the CONFIGURATION does not name — a `.gsx` load root or a Go
+  import reaching outside the configured closure. This was briefly implemented
+  as an extension tier and then descoped; a module that needs such types takes
+  the single full load, and the phase's job is to make that refusal free. See
+  "Extension tier, descoped".
 - Any change to `gsx generate` batch semantics or the on-disk cache.
 
 ## Design
@@ -55,23 +53,42 @@ class-merger package, minus any of those that live in the main module itself
 (see "the hard case, dissolved"). One `packages.Load` builds it; one universe
 serves all types.
 
-**Keying and cache lifetime.** `sharedWorldKey` hashes the load-path set, build
-env, toolchain, and origin (the go.mod requires/replaces of every module that
-owns a composed package, so a version bump or a replace-target change re-keys).
-The two tiers then have deliberately different lifetimes:
+**Keying.** `sharedWorldKey` hashes the composed path set, the build env, the
+toolchain identity, and an ORIGIN describing how this root resolves modules.
+The origin is every resolution directive of go.mod — the `go` and `toolchain`
+lines, every require, every replace (filesystem targets resolved to absolute
+paths), every exclude — plus the whole go.sum. Not a filtered subset: the
+adversarial review probed a version bump of a DEPENDENCY of a composed package
+and found the world stayed keyed and stayed fresh while serving types the
+compiler no longer agreed with, emitting different `.x.go` bytes depending only
+on cache warmth. The main module's own `module` line is the one directive left
+out — no world holds main-module code, so the name a root gives itself cannot
+change a world's contents, and including it would end cross-root sharing
+entirely.
 
-- **Config-tier entries are unbounded and never evicted**, as before: one per
-  distinct (config paths, origin, env, toolchain) closure. A project's
-  configuration is stable — it changes when gsx.toml does — so this set is one
-  or two per process and one per open project in an LSP.
-- **Extension-tier entries are bounded to one per (module root, config tier).**
-  Their key follows the set of external packages the project references, which
-  moves whenever an import is added or removed; unbounded, a long-lived LSP
-  would retain a full types graph and FileSet for every import set the
-  developer ever passed through — the retention the #134–#138 LSP memory work
-  exists to prevent. Minting a new extension entry drops the previous one for
-  that root. Reverting an import change therefore reloads instead of hitting,
-  which is the right trade.
+Two situations forfeit content keying and bind the key to the module root,
+losing sharing but never correctness: a Go workspace, and vendoring. Vendored
+packages resolve out of `vendor/`, which go.mod does not constrain — two
+worktrees of one vendored project have byte-identical go.mod files and may hold
+different code. The review probed it and it emitted the wrong bytes; PR #178's
+commit message claimed this guard, but it was never in the tree.
+
+**Cache lifetime.** One cache, unbounded and never evicted, keyed as above:
+that set follows CONFIGURATION, which changes when gsx.toml or go.mod does, so
+a CLI or test process holds one or two entries and a long-lived LSP one per
+open project.
+
+Only HEALTHY worlds are published. A world whose load produced any
+error-carrying package, or any module-owned package with no compiled files, is
+served — its errors must surface loudly, as #178 established — but not cached.
+Fileless brokenness (build constraints excluding every file, an empty or
+not-yet-created package dir) is the shape that forced this: go/packages returns
+a non-nil EMPTY types.Package for it and there is nothing to stamp, so
+`fresh()` can never fail and no key component moves when the developer fixes
+the file. The review wedged both a config package and a dependency that way,
+permanently, in a process that would otherwise have healed on the next cycle.
+Not caching costs one reload per cycle while broken — the pre-shared-world cost
+for exactly the broken shape — and the first healthy cycle caches normally.
 
 **Main-module config packages — the hard case, dissolved.** *(Revised after the
 Task-5 A/B; this section previously argued the opposite and the reversal is the
@@ -119,51 +136,62 @@ loudly on the fast path). Retention of main-module dirs needs nothing from the
 world: the project half loads `./...`, which covers every main-module dir
 whether or not it is named in the configuration.
 
-**Extending the world (added in the Task-5 rerun).** Configuration is not the
-only thing a project needs types for. The project half is loaded WITHOUT types,
-so every package it references from outside the main module must come from the
-world: `.gsx` load roots (gsxui's `vite`), dependencies imported only from the
-module's Go files, nested modules named as load roots. The world is therefore
-composed in two tiers.
+**Extension tier, descoped.** Between the Task-5 rerun and the adversarial
+review, this design also composed a SECOND world tier from the packages the
+project half referenced but the configuration did not name — gsxui's `.gsx`
+import of `github.com/gsxhq/vite`, a dependency imported only from Go files, a
+nested module named as a load root. It worked, it was fast, and it is gone.
 
-- **Tier one — the config world** ({runtime, std} + config packages). Identical
-  for every module with the same configuration, so it is the entry a whole
-  process shares. A `.gsx` importing `strings` needs nothing more: composing
-  such paths as roots would mint a distinct world per distinct import set while
-  loading byte-identical contents.
-- **Tier two — the extension** (tier one + the references tier one does not
-  carry). Its key is a pure function of (config paths, tier-one contents,
-  project references), so a body edit never moves it; only adding or removing
-  an import of a package the config world lacks does. That churn is rare, and
-  self-healing when it happens.
+The reason is not any single bug but the identity model: a tier keyed on the
+project's import set cannot capture what determines its contents. The review
+confirmed the consequences — an entry keyed that way needs an eviction policy
+to stay bounded, and the policy could delete another root's config world
+("Extension-seat eviction can delete another module's live CONFIG-TIER
+world"); a sibling module inside the tier made every sibling edit rebuild the
+whole tier, +17–20% against the pre-phase load ("Sibling-edit cycles cost more
+than the pre-branch full load"); and the same key was blind to how its members
+resolved ("Stale world served after go.mod resolution change of a dep-of-
+composed module"). Each has a fix; together they say the tier needs its own
+design phase, with these findings as its inputs, rather than a patch inside
+this one.
 
-Order matters: the project half loads FIRST, because the extension tier cannot
-be composed without it — the references it discovers ARE that tier's path set.
-That is the whole justification. It does NOT make the fallbacks cheap: a
-coverage or back-edge fallback still discards both loads and re-loads
-everything, 3–4 `packages.Load` calls where the pre-phase code paid 1
-(probe-measured: a back-edging module reports 3). That is acceptable because
-the shapes that reach a fallback are either already fatal (a back-edging
-configuration fails generation) or rare (a dependency that comes back without
-types), and because the shape that used to reach it on EVERY gsxui cycle — an
-import outside the config surface — is now composed instead of refused. The one
-disqualification that stays genuinely cheap is per-dir config variance, which
-is decided before any load.
+What remains is the CONFIG world, whose membership is declared rather than
+inferred, plus a rule that refuses everything else early — see below. The
+honest consequence for the flagship case: gsxui imports `vite` from a `.gsx`,
+so it does not ride the world at all. It pays exactly the single full-mode load
+it paid before this phase, and measures at parity (see gate 4). The projects
+this phase does speed up are those whose external surface is what their
+configuration names — every corpus fixture, every test module, and any project
+whose `.gsx` files import only the stdlib and their own packages.
 
-Two rules keep this honest. Import paths are compared in RESOLVED form: the
-`Imports` map is keyed as written, and the stdlib's own vendored dependencies
-resolve to `vendor/…` paths, so the written form made every project whose load
-roots include `net/http` unservable. And the coverage checks stay as a safety
-net for packages that come back from the world without types.
+**Eligibility.** `sharedWorldEligible` is no longer a boolean gate on config
+presence: `sharedWorldComposition` returns the world path set, and a Module is
+refused only when it cannot be served. Three refusals, in the order they can be
+decided, each on its own counter:
 
-**Eligibility rewrite.** `sharedWorldEligible` stops being a boolean
-gate on config presence and becomes the world-composition function: it
-returns the world path set. Modules remain INELIGIBLE in exactly two cases,
-both decided before any load, both recorded on the ineligible counter:
-per-dir config variance (`PerDir` overrides with distinct mergers or non-std
-filters want a world per directory, which this phase does not support), and an
-empty composition — which happens only when the module being built IS the gsx
-runtime, so main-module exclusion leaves no external world to share.
+- **From configuration alone, before any load** (`SharedWorldIneligibleModules`):
+  per-dir config variance wants a world per directory, which this phase does
+  not support; and an empty composition, which happens only when the module
+  being built IS the gsx runtime.
+- **From the load paths, before any load** (`SharedWorldPreloadFallbacks`): a
+  manifest load root outside the configured closure. This is the rule that
+  replaced the extension tier, and deciding it up front is what makes the
+  refusal cost exactly the one full-mode load the pre-phase code paid. Load
+  roots that LOOK standard-library (no dot in the first path element) are
+  admitted here, because the world carries the stdlib the runtime closure
+  reaches and no pre-load test knows which — a `.gsx` importing "strings" must
+  stay on the fast path.
+- **From the project half's references, after both loads**
+  (`SharedWorldCoverageFallbacks`): a Go file importing a package outside the
+  closure, or a dependency that came back without types. Nothing sees these
+  until the module is loaded, so reaching this verdict costs three loads. The
+  Module therefore REMEMBERS it: a dev loop re-runs this on every `.go` edit,
+  and the second cycle is back to one load. The latch is conservative — a
+  module that becomes servable again keeps taking the full load until it is
+  reopened, which config and go.mod changes do anyway.
+
+A back-edging config package (`SharedWorldBackedgeFallbacks`) is refused the
+same way, and latched for the same reason.
 
 ## Acceptance gates
 
@@ -199,39 +227,48 @@ runtime, so main-module exclusion leaves no external world to share.
    (parity — build time dominates). All three edit cycles regress >10%. See
    `.superpowers/sdd/2026-08-13-project-shared-world/task-5-report.md` for the
    full methodology and per-sample numbers.
-   **Re-measured after the fixes (Task-5 rerun, 2026-08-13):** gsxui takes the
-   fast path (`fast=1 ineligible=0 fellback=0 backedge=0`) and byte identity
-   holds (1169 up to date, zero writes, clean `git status`). Dev-loop A/B,
-   2 samples per binary, interleaved in one session, same event-sink method:
+   **Final measurement (2026-08-13, after the extension tier was descoped):**
+   byte identity holds — `GSXCACHE=off generate` over gsxui reports 1169 up to
+   date, zero files written, clean `git status`. gsxui does not ride the world
+   (`preload=1 loads=0 projectLoadCalls=1`): its `.gsx` import of
+   `github.com/gsxhq/vite` is outside the configured closure, so it takes the
+   single full-mode load, refused before anything else loads. Parity is
+   therefore the expected result, and is what was measured — dev-loop A/B, 2
+   samples per binary interleaved in one session:
 
    | cycle | main | this branch | delta |
    |---|---:|---:|---:|
-   | cold start | 6408ms | 6249ms | −159 (−2.5%) |
-   | narrow (`site/examples/kbd.go`) | 2650ms | 2542ms | −109 (−4.1%) |
-   | wide (`merge/merge.go`, the class merger) | 5242ms | 5130ms | −112 (−2.1%) |
-   | go.mod touch | 5100ms | 4996ms | −104 (−2.0%) |
+   | cold start | 6255ms | 5596ms | −659 (−10.5%) |
+   | narrow (`site/examples/kbd.go`) | 2564ms | 2581ms | +18 (+0.7%) |
+   | wide (`merge/merge.go`) | 5130ms | 5125ms | −4 (−0.1%) |
+   | go.mod touch | 4946ms | 4882ms | −64 (−1.3%) |
 
-   Every cycle is at parity or better; the 12–18% regression this gate first
-   measured is gone, including the merger cycle, which was +16% until
-   main-module config packages stopped composing into worlds (see "Main-module
-   config packages — the hard case, dissolved").
+   The three edit cycles are parity to within noise, which is the honest claim:
+   gsxui pays what it always paid. The cold-start delta is inside the ±1.5s
+   Go-build-cache variance band every session of this measurement has shown and
+   should not be read as a win.
 
-   The win is ~100–160ms/cycle, not the ~1.0–1.3s this gate projected. That
-   estimate came from an isolated COLD load probe; in a warm dev process the
-   full load is far cheaper, and gsxui's whole generate phase is ~1.6s, so the
-   cacheable share is correspondingly smaller. The corpus suite, which opens
-   many small Modules in one process, is the clearer beneficiary: 30.0s → 12.5s.
-5. Adversarial review with live probes before merge (staleness of
-   main-module config edits, back-edge shapes, multi-world processes,
-   vendor). **Both regressions Task 5 found are fixed (see gate 4); review's
-   remaining lenses are the extension tier's key churn and its one-entry bound,
-   multi-world memory, and vendoring.** On vendoring specifically: root binding
-   used to shield a configured project whose config package lived in the main
-   module, and no longer does, because no main-module package composes. A
-   `-mod=vendor` project's composed packages resolve out of its own `vendor/`
-   directory while `sharedWorldOrigin` reads go.mod, which vendoring does not
-   have to agree with — two roots with identical go.mod files and different
-   vendored contents would share a world entry. Probe it.
+   Where the phase does pay is a process that opens many Modules over one
+   configuration. `internal/corpus`, measured on this branch against `origin/main`
+   (7c1f2897), twice each: **19.4s → 12.8s (−34%)**. (An earlier report quoted
+   30.0s → 12.5s; the 30.0s baseline was this branch mid-work, not main. The
+   number above is the honest comparison.)
+
+5. Adversarial review with live probes before merge — **done, 8 findings
+   confirmed (3 critical).** Resolved here: vendored cross-root aliasing (root-
+   bound origin), stale worlds after a resolution change of a composed
+   package's dependency (whole-resolution origin), and fileless-broken packages
+   cached and served forever (unhealthy worlds are not published). Mooted by
+   descoping the extension tier: cross-tier eviction of a config world,
+   sibling-edit cycle economics, and dep-churn key thrash. The remaining
+   findings are inputs to the extension tier's own design phase, recorded in
+   `.superpowers/sdd/2026-08-13-project-shared-world/adversarial-findings.md`.
+
+   Still open for a future probe, now that main-module code never composes: the
+   coverage counter's documentation once claimed to catch broken dependencies
+   that in practice reach the fast path instead — with unhealthy worlds no
+   longer cached the wedge is closed, but the classification is worth
+   re-probing under the descoped design.
 
 ## Sequencing
 
