@@ -150,9 +150,8 @@ func SharedWorldCoverageFallbacks() int64 { return sharedWorldFellBack.Load() }
 // full load is the path that turns it into the hard configuration error.
 // Exported as SharedWorldBackedgeFallbacks — every consumer, in-package or
 // not, reads it through that accessor (see
-// TestConfiguredExternalBackedgeIsHardConfigurationError,
-// TestSharedWorldBackedgeFallsBack,
-// TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack).
+// TestConfiguredExternalBackedgeIsHardConfigurationError and
+// TestSharedWorldExternalConfigBackedgeFallsBack).
 var sharedWorldBackedge atomic.Int64
 
 // sharedWorldHits counts every loadSharedWorld call that was served from the
@@ -181,17 +180,18 @@ var projectLoads atomic.Uint64
 func ProjectLoadCalls() uint64 { return projectLoads.Load() }
 
 // SharedWorldLoads returns the process-wide count of times loadSharedWorld
-// actually issued a packages.Load for the shared external world's closure —
-// a cold miss, or a stale-freshness reload after a module-owned file the
-// world stamped (the gsx runtime, or a composed config package such as a
-// main-module class merger) changed on disk. It does NOT count a Module's
-// ordinary project-half reload (see ProjectLoadCalls), which fires on every
-// authored .go edit regardless of whether the edit touched the world.
+// actually issued a packages.Load for a shared external world's closure — a
+// cold miss (a new key: a new configuration, or a changed set of external
+// packages the project references) or a stale-freshness reload after a
+// module-owned file the world stamped changed on disk. Only EXTERNAL code is
+// ever stamped: main-module code does not enter a world, so no edit inside the
+// project — including an edit to a class merger the project owns — can move
+// this counter. It does not count a Module's ordinary project-half reload
+// (see ProjectLoadCalls), which fires on every authored .go edit.
 //
 // Tests use the distinction to pin the freshness design's claim: a .go edit
-// INSIDE the world's composed closure must move this counter, and a .go edit
-// OUTSIDE it (an unrelated project dependency, or a pure .gsx edit) must not
-// — see gen/watch_sharedworld_test.go and
+// anywhere in the project must leave this counter alone — see
+// gen/watch_sharedworld_test.go (including the merger-edit pin) and
 // gen.TestWatchSession_ConfiguredModuleWorldBudget.
 func SharedWorldLoads() int64 { return externalClosureLoads.Load() }
 
@@ -205,28 +205,54 @@ func SharedWorldLoads() int64 { return externalClosureLoads.Load() }
 func SharedWorldHits() int64 { return sharedWorldHits.Load() }
 
 // SharedWorldBackedgeFallbacks returns the process-wide count of Modules
-// returned to the full per-Module load because the composed world's closure
-// re-entered their main module outside the composed config set (see
-// sharedWorld.mainModuleBackedge). Mirrors ProjectLoadCalls and
-// SharedWorldLoads: a back-edging configuration must never be served
-// silently, because the full load is the path that turns it into the hard
-// configuration error. Consuming tests, all in internal/codegen:
+// returned to the full per-Module load because a world's closure re-entered
+// their main module (see sharedWorld.mainModuleBackedge). Mirrors
+// ProjectLoadCalls and SharedWorldLoads: a back-edging configuration must never
+// be served silently, because the full load is the path that turns it into the
+// hard configuration error. Consuming tests, all in internal/codegen:
 // TestConfiguredExternalBackedgeIsHardConfigurationError
-// (external_backedge_test.go), TestSharedWorldBackedgeFallsBack and
-// TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack
+// (external_backedge_test.go) and
+// TestSharedWorldExternalConfigBackedgeFallsBack
 // (sharedworld_configured_test.go).
 func SharedWorldBackedgeFallbacks() int64 { return sharedWorldBackedge.Load() }
 
-// sharedWorlds is deliberately unbounded and never evicted: keys are one per
-// distinct (origin, env, toolchain) closure, which a CLI or test process holds
-// one or two of, and a long-lived LSP holds one per open project. Duplicate
-// concurrent cold loads for one key are possible and accepted (last write
-// wins; both worlds are correct) — a singleflight would add coordination for a
-// cold-start-only cost. Revisit only with evidence of real accumulation.
+// sharedWorlds holds two kinds of entry, with two different lifetimes.
+//
+// CONFIG-TIER entries are unbounded and never evicted, as they always were:
+// their key is one per distinct (config paths, origin, env, toolchain)
+// closure, which a CLI or test process holds one or two of and a long-lived
+// LSP one per open project. They are the stable part — a project's
+// configuration changes when gsx.toml does.
+//
+// EXTENSION-TIER entries are keyed by the set of external packages the project
+// REFERENCES, which moves whenever an import is added or removed. Left
+// unbounded, a long-lived LSP session would accumulate one full types graph and
+// FileSet per import-set the developer ever passed through — exactly the
+// retention the #134–#138 LSP memory work exists to avoid. So each (module
+// root, config-tier key) owns at most ONE extension entry: minting a new one
+// drops the previous one for that slot. Reverting an import change reloads
+// rather than hitting, which is the right trade — a bounded cache that
+// occasionally reloads beats an unbounded one that never forgets.
+//
+// Duplicate concurrent cold loads for one key are possible and accepted (last
+// write wins; both worlds are correct) — a singleflight would add coordination
+// for a cold-start-only cost.
 var (
 	sharedWorldMu sync.Mutex
 	sharedWorlds  = map[string]*sharedWorld{}
+	// extensionSlots maps "module root + config-tier key" to the extension key
+	// currently occupying that slot, so minting the next one can drop it.
+	extensionSlots = map[string]string{}
 )
+
+// sharedWorldCacheSize reports how many world entries the process holds. Tests
+// use deltas across it to pin the extension-tier bound (see
+// TestSharedWorldKeyFollowsImportsNotEdits); nothing in production reads it.
+func sharedWorldCacheSize() int {
+	sharedWorldMu.Lock()
+	defer sharedWorldMu.Unlock()
+	return len(sharedWorlds)
+}
 
 // sharedWorldOrigin describes WHERE this module root resolves the world's
 // packages from: the gsx runtime, plus the module of every composed config
@@ -303,12 +329,16 @@ func sharedWorldOrigin(moduleRoot string, buildEnv, composedPaths []string) stri
 // and are genuinely unchanged. It is the same aliasing sharedWorldOrigin exists
 // to prevent, one level down.
 //
-// Main-module config packages used to be the motivating case; they no longer
-// compose into any world (see sharedWorldComposition), which narrows this to
-// the nested-module case above and to an empty module path — where nothing can
-// be classified, so every non-base path binds to the root. The test is by
-// import-path prefix, which errs toward binding: over-binding costs sharing,
-// under-binding would alias two roots' types.
+// This is belt-and-braces, and largely subsumed by sharedWorldOrigin: a nested
+// module reached through a filesystem `replace` is already differentiated by
+// the ABSOLUTE target path the origin records, and an empty module path is not
+// reachable from any production caller (Open's callers read it from go.mod).
+// Main-module config packages, the case this originally existed for, no longer
+// compose into any world at all (see sharedWorldComposition). It is kept
+// because the cost is one prefix scan of a short path list and the failure it
+// prevents — one root served another root's types, with freshness agreeing — is
+// silent and severe. The test errs toward binding: over-binding costs sharing,
+// under-binding would alias.
 func sharedWorldRootBound(paths []string, modulePath string) bool {
 	for _, p := range paths {
 		if p == gsxRuntimeImportPath || p == stdImportPath {
@@ -442,17 +472,14 @@ const projectLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCo
 // Dropping Imports from the synthetic entries is only safe because a world that
 // re-enters the main module never reaches them: mainModuleBackedge below
 // rejects it wholesale and the Module takes the full load, where the boundary
-// is detected on real Imports. That check is what makes the composed world
-// (which may name config packages, including main-module ones) as
+// is detected on real Imports. That check is what keeps a composed world as
 // back-edge-free as the fixed {runtime, std} closure was by construction.
 //
-// A main-module CONFIG package in the world is not a back-edge — it is the
-// hard case the design names. Its types still come from the retained project
-// source (configuredSourcePackages routes module-local paths to the source
-// resolver, and the caller drops every local path from the published importer),
-// so the world's copy is a load-set member, not a second universe. Its dir stays
-// a retained source package because the project half still loads "./...", which
-// covers every main-module dir whether or not it is a config package.
+// Main-module code never enters a world, config packages included (see
+// sharedWorldComposition): its types come from the retained project source, and
+// its dirs stay retained source packages because the project half loads
+// "./...", which covers every main-module dir whether or not the configuration
+// names it.
 func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]*packages.Package, error) {
 	configPaths, ok := m.sharedWorldComposition()
 	if !ok {
@@ -470,13 +497,14 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		}
 	}
 
-	// The project half runs FIRST. It is the cheap load — no types, no deps —
-	// and it is the only thing that can say which external packages this module
-	// actually needs, which is what the world has to cover. Deciding that after
-	// the world load (the original order) meant a module the world could not
-	// serve had already paid for it: three packages.Load calls where the
-	// pre-shared-world code paid one, measured as a 12–18% regression on every
-	// gsxui dev cycle.
+	// The project half runs FIRST because coveringWorld cannot compose the
+	// extension tier without it: the references it discovers ARE the tier's
+	// path set. That is the whole reason for the order — it does not make the
+	// fallbacks below cheaper. They still discard this load and re-load
+	// everything (three or four packages.Load calls where the pre-shared-world
+	// code paid one), which is acceptable only because the shapes that reach
+	// them are rare or already fatal; the shape that used to reach them on
+	// every gsxui cycle is now composed instead of refused.
 	projectCfg := *cfg
 	projectCfg.Mode = projectLoadMode
 	pkgs, err := loadPackages(&projectCfg, projectPaths...)
@@ -541,6 +569,9 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		}
 		for key, imported := range p.Imports {
 			importPath := resolvedImportPath(key, imported)
+			if pseudoImportPath(importPath) {
+				continue
+			}
 			if world.types[importPath] == nil && !mainModule[importPath] {
 				sharedWorldFellBack.Add(1)
 				return loadPackages(cfg, loadPaths...)
@@ -584,7 +615,8 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 // package the config world lacks re-keys — rare, and self-healing when it
 // happens.
 func (m *Module) coveringWorld(cfg *packages.Config, configPaths []string, pkgs []*packages.Package, mainModule map[string]bool) (*sharedWorld, error) {
-	world, err := m.sharedWorldFor(cfg, configPaths)
+	configKey := m.sharedWorldKeyFor(cfg, configPaths)
+	world, err := loadSharedWorld(configKey, "", cfg, configPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -594,8 +626,20 @@ func (m *Module) coveringWorld(cfg *packages.Config, configPaths []string, pkgs 
 	}
 	worldPaths := append(append(make([]string, 0, len(configPaths)+len(gaps)), configPaths...), gaps...)
 	sort.Strings(worldPaths)
-	return m.sharedWorldFor(cfg, worldPaths)
+	// The slot this extension occupies: one per (module root, config tier), so
+	// the next import-set change replaces it instead of adding to the cache.
+	slot := filepath.Clean(m.opts.ModuleRoot) + "\x00" + configKey
+	return loadSharedWorld(m.sharedWorldKeyFor(cfg, worldPaths), slot, cfg, worldPaths)
 }
+
+// pseudoImportPath reports paths that name no loadable package, so no world can
+// ever carry them and neither the gap set nor the coverage check may treat them
+// as a package: "C" is cgo's pseudo-import, which go list reports among a cgo
+// package's imports (sourceview already keeps it out of the manifest's load
+// roots for the same reason). Asking for it as a gap would put an unloadable
+// root in the world's path set; treating it as uncovered would send every
+// project with a cgo package down the full load forever.
+func pseudoImportPath(path string) bool { return path == "" || path == "C" }
 
 // resolvedImportPath returns the package path an import RESOLVES to. The
 // Imports map is keyed by the import string as written, which is not the
@@ -626,9 +670,7 @@ func resolvedImportPath(key string, imported *packages.Package) string {
 func worldGaps(pkgs []*packages.Package, mainModule map[string]bool, world *sharedWorld) []string {
 	gaps := map[string]bool{}
 	need := func(path string) {
-		// "C" is the cgo pseudo-package: it names no loadable package, and
-		// sourceview already keeps it out of the manifest's load roots.
-		if path == "" || path == "C" || mainModule[path] || world.types[path] != nil {
+		if pseudoImportPath(path) || mainModule[path] || world.types[path] != nil {
 			return
 		}
 		gaps[path] = true
@@ -656,11 +698,11 @@ func worldGaps(pkgs []*packages.Package, mainModule map[string]bool, world *shar
 	return out
 }
 
-// sharedWorldFor resolves the process-wide world entry for one composed path
-// set: the key derivation (origin, root binding, toolchain) plus the cache
-// lookup. Both tiers of coveringWorld go through it, so a tier-two world is
-// keyed by exactly the same rules as a tier-one world.
-func (m *Module) sharedWorldFor(cfg *packages.Config, paths []string) (*sharedWorld, error) {
+// sharedWorldKeyFor derives the process-wide cache key for one composed path
+// set: origin, root binding, toolchain. Both tiers of coveringWorld go through
+// it, so a tier-two world is keyed by exactly the same rules as a tier-one
+// world — only their lifetimes differ (see sharedWorlds).
+func (m *Module) sharedWorldKeyFor(cfg *packages.Config, paths []string) string {
 	toolchain := ""
 	if m.goContext != nil && m.goContext.goLauncher != nil {
 		toolchain = m.goContext.goLauncher.CompilerIdentity()
@@ -669,13 +711,15 @@ func (m *Module) sharedWorldFor(cfg *packages.Config, paths []string) (*sharedWo
 	if sharedWorldRootBound(paths, m.opts.ModulePath) {
 		origin += "\x00root\x00" + filepath.Clean(m.opts.ModuleRoot)
 	}
-	return loadSharedWorld(sharedWorldKey(paths, cfg.Env, toolchain, origin), cfg, paths)
+	return sharedWorldKey(paths, cfg.Env, toolchain, origin)
 }
 
 // loadSharedWorld returns the cached closure for key, loading it if absent or
 // stale. Freshness stamps cover module-owned files only; stdlib is covered by
 // the toolchain identity in the key.
-func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sharedWorld, error) {
+// slot, when non-empty, names the single extension-tier seat this key occupies:
+// publishing into it drops whatever key held it before (see sharedWorlds).
+func loadSharedWorld(key, slot string, cfg *packages.Config, loadPaths []string) (*sharedWorld, error) {
 	sharedWorldMu.Lock()
 	cached, ok := sharedWorlds[key]
 	sharedWorldMu.Unlock()
@@ -744,6 +788,12 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 	})
 
 	sharedWorldMu.Lock()
+	if slot != "" {
+		if previous, held := extensionSlots[slot]; held && previous != key {
+			delete(sharedWorlds, previous)
+		}
+		extensionSlots[slot] = key
+	}
 	sharedWorlds[key] = world
 	sharedWorldMu.Unlock()
 	return world, nil

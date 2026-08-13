@@ -144,10 +144,17 @@ func TestSharedWorldServesVendoredStdlibImports(t *testing.T) {
 }
 
 // TestSharedWorldKeyFollowsImportsNotEdits pins the churn contract the extended
-// composition buys its keying with: the world key must move ONLY when the set
-// of packages the module needs from outside itself changes. A body edit — the
-// thing a dev loop does every few seconds — must not re-key, or every cycle
-// would pay a world rebuild and the phase would be a pessimization.
+// composition buys its keying with, and the bound that makes the churn safe:
+//
+//   - the world key must move ONLY when the set of packages the module needs
+//     from outside itself changes. A body edit — the thing a dev loop does every
+//     few seconds — must not re-key, or every cycle would pay a world rebuild
+//     and the phase would be a pessimization;
+//   - when it DOES move, the new extension entry must REPLACE the old one for
+//     this root, not join it in the cache. Unbounded, a long-lived LSP would
+//     retain one full types graph and FileSet per import set the developer ever
+//     passed through (see sharedWorlds). The cache-size delta across an
+//     import-set change is therefore zero: one minted, one dropped.
 func TestSharedWorldKeyFollowsImportsNotEdits(t *testing.T) {
 	root, modPath, filterPath, libPath := writeOutOfModuleImportFixture(t, "cfgkey",
 		outOfModuleViews("example.com/cfgkeylib", "", false))
@@ -167,18 +174,35 @@ func TestSharedWorldKeyFollowsImportsNotEdits(t *testing.T) {
 		t.Fatalf("a .gsx BODY edit rebuilt the world %d times, want 0", got)
 	}
 
-	// An import of a package the world does not carry: this one must re-key.
+	// An import of a package the world does not carry: this one must re-key,
+	// and the entry it mints must take the previous one's place.
 	if err := os.WriteFile(card, []byte(outOfModuleViews(libPath, "edited ", true)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	beforeWorlds = SharedWorldLoads()
 	beforeFast := sharedWorldFast.Load()
+	beforeCache := sharedWorldCacheSize()
 	generateConfiguredWorld(t, opts, views)
 	if got := SharedWorldLoads() - beforeWorlds; got != 1 {
 		t.Fatalf("a NEW out-of-module import rebuilt the world %d times, want 1", got)
 	}
 	if got := sharedWorldFast.Load() - beforeFast; got != 1 {
 		t.Fatalf("the re-keyed module took the shared-world path %d times, want 1", got)
+	}
+	if got := sharedWorldCacheSize() - beforeCache; got != 0 {
+		t.Fatalf("re-keying grew the world cache by %d entries, want 0: the extension must supersede its predecessor for this root", got)
+	}
+
+	// And again, from the other direction — dropping the import re-keys back to
+	// a set whose entry was already evicted, so it reloads rather than hitting,
+	// and still leaves the cache the same size.
+	if err := os.WriteFile(card, []byte(outOfModuleViews(libPath, "edited ", false)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeCache = sharedWorldCacheSize()
+	generateConfiguredWorld(t, opts, views)
+	if got := sharedWorldCacheSize() - beforeCache; got != 0 {
+		t.Fatalf("a second import-set change grew the world cache by %d entries, want 0", got)
 	}
 }
 

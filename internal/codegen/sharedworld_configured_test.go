@@ -312,18 +312,22 @@ func Merge(classes []string) string { return strings.Join(append(classes, style.
 	}
 }
 
-// TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack is the shape an
-// ownership-only guard misses: the external filter package re-enters the main
-// module THROUGH the composed merger, so every main-module package in the
-// closure is a composed config package and no ownership test can see the
-// boundary. Reachability is the only thing that can — the synthetic entries
-// carry no Imports, so externalBackedgePackages is structurally blind here and
-// the world-build guard is the sole defence.
+// TestSharedWorldExternalConfigBackedgeFallsBack pins the boundary that
+// survives: an OUT-OF-MODULE config package whose closure re-enters the main
+// module. Here the filter package calls the project's own merger — gsxui's
+// shape inverted — so `merge` enters the world as the filter's dependency and
+// the guard's flat ownership test catches it.
+//
+// This test once needed reachability analysis, because the merger was itself
+// composed and therefore exempt from the ownership test; dissolving that
+// exemption (main-module code no longer composes) made ownership sufficient.
+// The externalImporter side is blind either way — synthetic entries carry no
+// Imports — so this world-build guard is the sole defence.
 //
 // The full load rejects this configuration outright (the filter package's
 // dependency graph re-enters the main module), so the world path must too, by
 // falling back to the load that produces that rejection.
-func TestSharedWorldBackedgeThroughComposedConfigPackageFallsBack(t *testing.T) {
+func TestSharedWorldExternalConfigBackedgeFallsBack(t *testing.T) {
 	root, modPath, filterPath := configuredWorldFixture{
 		name: "cfghole",
 		filter: `package filters
