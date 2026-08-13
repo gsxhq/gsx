@@ -64,8 +64,9 @@ func TestSharedWorldOriginFollowsWholeModuleGraph(t *testing.T) {
 // under the main module's own import path is not, because two roots can
 // declare the same module path and hold different code there — two checkouts
 // of one project — and nothing else in the key would tell them apart. Since
-// main-module code stopped composing, the reachable case is a nested module
-// named as a load root, which the extension tier composes.
+// main-module code stopped composing, the reachable case is a config package
+// resolved relative to this root (an empty ModulePath makes every composed
+// path a candidate).
 func TestSharedWorldRootBound(t *testing.T) {
 	base := []string{gsxRuntimeImportPath, stdImportPath}
 	tests := []struct {
@@ -207,9 +208,10 @@ func TestSharedWorldComposition(t *testing.T) {
 				ClassMerger: &ClassMergerRef{PkgPath: "example.com/m/merge", FuncName: "Merge"},
 			},
 			wantOK: true,
-			// Its types come from retained source, and its external dependencies
-			// reach the world through the extension tier. Composing it only
-			// stamped its files into every tier, so a merger edit rebuilt them all.
+			// Its types come from retained source. Composing it only stamped its
+			// files into every tier, so a merger edit rebuilt them all. Its own
+			// external dependencies are NOT composed in its place: if it has any
+			// the coverage check takes the whole Module off the fast path.
 			wantPaths: base,
 		},
 		{
@@ -228,9 +230,10 @@ func TestSharedWorldComposition(t *testing.T) {
 				LoadPkgs:   []string{"example.com/m/nested/tools"},
 			},
 			wantOK: true,
-			// Over-exclusion is safe: the project half references it, so the
-			// extension tier composes it with its non-main-module identity read
-			// from the load rather than guessed from the path.
+			// Over-exclusion is safe but not free: the project half references
+			// it and no world carries it, so the coverage check decides with a
+			// loaded module identity rather than a guessed path prefix — the
+			// verdict is a full load, never wrong types.
 			wantPaths: base,
 		},
 		{

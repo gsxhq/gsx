@@ -73,6 +73,16 @@ worktrees of one vendored project have byte-identical go.mod files and may hold
 different code. The review probed it and it emitted the wrong bytes; PR #178's
 commit message claimed this guard, but it was never in the tree.
 
+A vendored root therefore gets no resolution keying at all: freshness rides
+entirely on file stamps, which is sound because `go mod vendor` materializes
+every resolution change as a rewrite under the root, and rewrites move stamps.
+The residual gap is the one shape stamps cannot see — a vendored package
+directory ADDED under a parent no loaded file lives in, so neither a file stamp
+nor a dir stamp covers it. Reaching it requires the world's closure to grow
+into a directory it never touched, which nothing but a go.mod edit can cause,
+and a go.mod edit in a vendored project is a re-vendor. Recorded rather than
+guarded.
+
 **Cache lifetime.** One cache, unbounded and never evicted, keyed as above:
 that set follows CONFIGURATION, which changes when gsx.toml or go.mod does, so
 a CLI or test process holds one or two entries and a long-lived LSP one per
@@ -108,9 +118,15 @@ stamps, nothing more.
 
 So **main-module code never enters a shared world.** `sharedWorldComposition`
 drops any config path under the module's own import path (by prefix, erring
-toward exclusion), and the extension tier composes what the project half
-references, so the merger's own dependencies (tailwind-merge-go,
-csscolorparser) still arrive in the one universe. Three consequences:
+toward exclusion).
+
+The merger's own dependencies (tailwind-merge-go, csscolorparser) do NOT
+follow it in. While the extension tier existed they were composed from the
+project half's references; with the tier descoped they are named by no
+configuration, so the coverage check takes the WHOLE module off the fast path
+— three loads on the first analysis, one per cycle after the verdict latches.
+Plainly: a main-module class merger that imports a third-party package
+disqualifies the project from the shared world. Three consequences:
 
 - **Freshness for config behavior rides retained source.** A merger edit is an
   ordinary main-module `.go` edit: the project half reloads, the merger is
@@ -247,6 +263,15 @@ same way, and latched for the same reason.
    gsxui pays what it always paid. The cold-start delta is inside the ±1.5s
    Go-build-cache variance band every session of this measurement has shown and
    should not be read as a win.
+
+   What this A/B does NOT cover, because gsxui takes the free pre-load refusal:
+   the class of project refused by the post-load COVERAGE check instead — any
+   main-module Go file importing a third-party package the configured closure
+   does not reach. The latch is per Module, and a Module is reopened on every
+   go.mod/go.sum save, so that class pays three loads on every reopen cycle,
+   not once per process. That is the +12.3% go.mod-touch shape Task 5 measured
+   above; it is unmeasured for the descoped design and it is the strongest
+   remaining argument for the extension tier's own phase.
 
    Where the phase does pay is a process that opens many Modules over one
    configuration. `internal/corpus`, measured on this branch against `origin/main`

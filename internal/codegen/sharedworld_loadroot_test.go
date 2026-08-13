@@ -46,9 +46,8 @@ func outOfModuleViews(libPath string) string {
 // The byte-identity half matters just as much: refusing must produce the same
 // output as before, which is what the control comparison pins.
 func TestSharedWorldOutOfConfigImportRefusedForFree(t *testing.T) {
-	root, modPath, filterPath, libPath := writeOutOfModuleImportFixture(t, "cfgvite",
+	root, modPath, filterPath, _ := writeOutOfModuleImportFixture(t, "cfgvite",
 		outOfModuleViews("example.com/cfgvitelib"))
-	_ = libPath
 	views := filepath.Join(root, "views")
 	opts := configuredWorldOptions(root, modPath, filterPath)
 

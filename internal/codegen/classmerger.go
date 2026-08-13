@@ -36,7 +36,12 @@ type ClassMergerRef struct {
 // through configuredSourcePackages, which reaches externalImporter and can
 // therefore reach rebuildFset — the one operation that swaps m.fset and drops
 // the cached importer, and which every analysis assumes is serialized against
-// it. In-package callers already hold the mutex and use the unexported form.
+// it.
+//
+// In-package callers use the unexported form. Package/Generate/
+// analyzeEphemeralLocked already hold analysisMu when they do. GenerateDirs
+// does not, and does not need to: it validates once on a Module it just
+// opened, before any concurrent entry point can exist, on a single goroutine.
 func (m *Module) ValidateConfiguredMergers() error {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()

@@ -296,8 +296,8 @@ func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string)
 // TestWatchSession_ConfiguredModuleWorldBudget pins Task 4's acceptance gate
 // (docs/superpowers/specs/2026-08-13-project-shared-world-design.md,
 // "Acceptance gates" #2): a CONFIGURED module — an out-of-module filter package
-// composed into the config tier, a class merger the main module owns, and a
-// dependency reached only through the extension tier — must hold the same
+// composed into the world, a class merger the main module owns, and an ordinary
+// project dependency that stays inside the composed closure — must hold the same
 // world discipline TestWatchSharedWorld_UnrelatedEditsLeaveWorldCold pins for
 // the unconfigured fixture, PLUS the payoff that motivates this whole phase: a
 // second Module opened in this process over the SAME root and configuration

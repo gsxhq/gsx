@@ -70,13 +70,13 @@ type sharedWorld struct {
 
 // mainModuleBackedge reports whether this world carries code that belongs to
 // the module being served. Nothing composes a main-module package into a world
-// — sharedWorldComposition drops them — so any
-// that appears got there as a DEPENDENCY of an external package: the one-way
-// boundary externalBackedgePackages rejects on the full load, and the shape a
-// configured back-edging filter package takes (gsxui-style `merge.Merge`
-// called from an out-of-module filter). One ownership test decides it, with no
-// exemption to reason about, because there is no legitimate reason for a world
-// to hold main-module code at all.
+// — sharedWorldComposition drops every config path under the module's own
+// import prefix — so any that appears got there as a DEPENDENCY of an external
+// package: the one-way boundary externalBackedgePackages rejects on the full
+// load, and the shape a configured back-edging filter package takes
+// (gsxui-style `merge.Merge` called from an out-of-module filter). One
+// ownership test decides it, with no exemption to reason about, because there
+// is no legitimate reason for a world to hold main-module code at all.
 //
 // An empty modulePath means the caller has no main module to speak of: nothing
 // is local to it, projectSourcePackages retains nothing, and the full load's
@@ -138,11 +138,18 @@ func SharedWorldIneligibleModules() int64 { return sharedWorldIneligible.Load() 
 
 // SharedWorldCoverageFallbacks returns the process-wide count of Modules
 // returned to the full load because the world did not carry types the project
-// half references: a Go file importing a package outside the configured
-// closure, or a dependency that came back from the world load without types.
-// It is the post-load half of the eligibility rule — the half that costs three
-// loads to reach, which is why the verdict is remembered per Module (see
-// SharedWorldPreloadFallbacks).
+// half references — in practice exactly one shape: a Go or `.gsx` file
+// importing a package outside the configured closure. It is the post-load half
+// of the eligibility rule, the half that costs three loads to reach, which is
+// why the verdict is remembered per Module (see SharedWorldPreloadFallbacks).
+//
+// It does NOT count broken dependencies, and no wording here should imply it
+// does — the adversarial review's finding was that go/packages materializes a
+// non-nil (empty, error-carrying) *types.Package for a broken root, so
+// `world.types[p] != nil` passes and this check never fires for one. That shape
+// is handled at admission instead: loadSharedWorld refuses to publish an
+// unhealthy world, so a broken dependency is served loudly and reloaded every
+// cycle until it is fixed, rather than being counted here.
 func SharedWorldCoverageFallbacks() int64 { return sharedWorldFellBack.Load() }
 
 // SharedWorldPreloadFallbacks returns the process-wide count of Modules that
@@ -244,8 +251,9 @@ var (
 )
 
 // sharedWorldCacheSize reports how many world entries the process holds. Tests
-// use deltas across it to pin the extension-tier bound (see
-// TestSharedWorldKeyFollowsImportsNotEdits); nothing in production reads it.
+// use deltas across it to pin the admission rule — a broken closure must add
+// nothing and the repaired one must add exactly one (see
+// TestSharedWorldDoesNotCacheUnhealthyWorlds); nothing in production reads it.
 func sharedWorldCacheSize() int {
 	sharedWorldMu.Lock()
 	defer sharedWorldMu.Unlock()
@@ -343,10 +351,22 @@ func sharedWorldOrigin(moduleRoot string, buildEnv []string, vendored bool) stri
 	return b.String()
 }
 
-// moduleIsVendored reports whether this module resolves packages from vendor/.
-// The frozen GoCommandContext already computed it for the cache fingerprint;
-// without one (syntax-only Opens, tests), the modules.txt marker cmd/go itself
-// keys vendor mode on is read directly.
+// moduleIsVendored reports whether this module may resolve packages from
+// vendor/. In production the answer always comes from the frozen
+// GoCommandContext, which every non-Bundle Open captures, and whose rule is the
+// EXISTENCE OF A vendor/ DIRECTORY (moduleVendorDir) — deliberately broader
+// than cmd/go's own activation rule, which additionally wants vendor/modules.txt
+// and go >= 1.14. The modules.txt stat below is the no-goContext fallback and is
+// unreachable for any Module that can reach loadExternalGraph: only Bundle
+// Modules have a nil goContext, and a Bundle short-circuits externalImporter
+// before any world is keyed.
+//
+// The two tests disagree on a root that has vendor/ without modules.txt, and
+// that is fine in both directions: a true answer binds the origin to the module
+// root, which costs cross-root sharing and can never alias; a false answer
+// content-hashes go.mod, which is exactly right when cmd/go is not in vendor
+// mode. Both err toward binding or toward the correct key, never toward
+// serving one root another root's types.
 func (m *Module) moduleIsVendored() bool {
 	if m.goContext != nil {
 		return m.goContext.vendorDir
@@ -361,15 +381,15 @@ func (m *Module) moduleIsVendored() bool {
 //
 // The fixed base pair is module-independent by construction (the runtime and
 // std resolve through go.mod, which sharedWorldOrigin already keys). What is
-// not is a package resolved RELATIVE to this root: a nested module under the
-// main module's import prefix, named as a load root and therefore composed
-// into the extension tier. Nothing else in the key distinguishes two roots that
-// declare the same module path and hold different code at that path — two
-// checkouts of one project, e.g. worktrees, open in one LSP. Without this, the
-// second root would be served the first root's working-copy types and would
-// even pass sharedWorld.fresh, because the stamps belong to the other directory
-// and are genuinely unchanged. It is the same aliasing sharedWorldOrigin exists
-// to prevent, one level down.
+// not is a package that could resolve RELATIVE to this root — anything under
+// the main module's own import path, or any composed path at all when the
+// caller declares no module path and so cannot claim one. Nothing else in the
+// key distinguishes two roots that declare the same module path and hold
+// different code at that path — two checkouts of one project, e.g. worktrees,
+// open in one LSP. Without this, the second root would be served the first
+// root's working-copy types and would even pass sharedWorld.fresh, because the
+// stamps belong to the other directory and are genuinely unchanged. It is the
+// same aliasing sharedWorldOrigin exists to prevent, one level down.
 //
 // This is belt-and-braces, and largely subsumed by sharedWorldOrigin: a nested
 // module reached through a filesystem `replace` is already differentiated by
@@ -432,11 +452,20 @@ func sharedWorldKey(loadPaths, buildEnv []string, toolchain, origin string) stri
 // world's copy was only ever a load-set member. What it did do was stamp the
 // merger's files into every world tier, so editing the class merger — a
 // routine edit — invalidated all of them and cost two world rebuilds
-// (measured: +16% on gsxui's merger cycle). The merger's own external
-// dependencies are not lost: the project half references them, so the
-// extension tier composes them like any other gap. Main-module code therefore
-// never enters a shared world, which is also what lets mainModuleBackedge be
-// one flat ownership test.
+// (measured: +16% on gsxui's merger cycle). Main-module code therefore never
+// enters a shared world, which is also what lets mainModuleBackedge be one
+// flat ownership test.
+//
+// The merger's own external dependencies are a different matter, and the
+// answer changed when the extension tier was descoped. They are NOT composed:
+// the world carries what the configuration names, and a main-module merger's
+// import of tailwind-merge-go or csscolorparser is named by nothing. The
+// project half references it, the world does not carry it, and the coverage
+// check in loadExternalGraph therefore takes the WHOLE module off the fast
+// path — three loads on the first analysis, then one per cycle once the
+// verdict latches. That is the honest consequence of the descope: a project
+// rides the world only when its external surface is what its configuration
+// names.
 //
 // ok is false when the module's config cannot be composed into ONE world: a
 // PerDir entry carrying its own class merger or a non-std filter package wants
@@ -479,9 +508,10 @@ func (m *Module) sharedWorldComposition() (paths []string, ok bool) {
 	paths = make([]string, 0, len(set))
 	for p := range set {
 		// The prefix test errs toward exclusion: a nested module sharing the
-		// main module's import prefix is dropped here too, and the extension
-		// tier picks it up from the project half's references, where its
-		// non-main-module identity is a loaded fact rather than a guess.
+		// main module's import prefix is dropped here too. Nothing composes it
+		// back — the coverage check then finds the project half referencing a
+		// package no world carries and takes the whole Module off the fast
+		// path, which is correct if slow, and is the descope's cost.
 		if p == "" || p == m.opts.ModulePath || (m.opts.ModulePath != "" && strings.HasPrefix(p, m.opts.ModulePath+"/")) {
 			continue
 		}
@@ -544,6 +574,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	// anyway.
 	if m.worldUnservable() {
 		sharedWorldPreload.Add(1)
+		m.clearSharedFset()
 		return loadPackages(cfg, loadPaths...)
 	}
 	configPaths, ok := m.sharedWorldComposition()
@@ -569,6 +600,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		}
 		sharedWorldPreload.Add(1)
 		m.markWorldUnservable()
+		m.clearSharedFset()
 		return loadPackages(cfg, loadPaths...)
 	}
 
@@ -708,10 +740,20 @@ func (m *Module) markWorldUnservable() {
 }
 
 // clearSharedFset drops a shared-world FileSet the Module may be holding from
-// an earlier analysis. Every fallback path calls it: the full load puts every
-// position back in m.fset, so a retained m.sharedFset would leave
-// positionResolver routing high Pos values at a FileSet this analysis no longer
-// uses — positions from a world that no longer serves this Module.
+// an earlier analysis. Every fallback path calls it — the two pre-load
+// refusals included: the full load puts every position back in m.fset, so a
+// retained m.sharedFset would leave positionResolver routing high Pos values at
+// a FileSet this analysis no longer uses — positions from a world that no
+// longer serves this Module.
+//
+// Usually redundant, and deliberately not relied upon to be: rebuildFset is the
+// only thing that clears m.ext, which is what gates re-entry into
+// loadExternalGraph, and it nils m.sharedFset in the same critical section. The
+// gap is externalImporter returning early (a Go-command context error) AFTER a
+// fast path published the fset but BEFORE it published m.ext — the next
+// analysis then enters loadExternalGraph holding a live m.sharedFset, and a
+// pre-load refusal would keep it. Making the contract unconditional costs one
+// uncontended mutex per refusal and removes the case analysis.
 func (m *Module) clearSharedFset() {
 	m.mu.Lock()
 	m.sharedFset = nil
