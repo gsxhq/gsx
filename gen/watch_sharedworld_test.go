@@ -91,8 +91,21 @@ func runSharedWorldRender(t *testing.T, root string) string {
 //     did not corrupt or poison card.x.go in the process, and that the
 //     round-trip a developer actually observes under `gsx dev` behaves as the
 //     spec promises end to end.
+//
+// Deliberately NOT t.Parallel(), even though the SharedWorldLoads assertion
+// is a ">= 1" bound rather than an exact delta: codegen.SharedWorldLoads is a
+// process-wide counter, so under -parallel a sibling test that mints and
+// cold-loads its OWN distinct world key pads this same counter. That would
+// make the ">= 1" bound pass even if THIS test's own reload were completely
+// broken (a false pass, not a false fail) — and the render check does not
+// backstop it, because `go run .` always recompiles mrg.go fresh from disk
+// regardless of gsx's internal freshness state (see the doc above). A
+// process-wide counter that gates a load-bearing assertion needs the same
+// non-parallel discipline as every other counter-reading test in this
+// package (TestWatchSession_EditLoadBudget,
+// TestWatchSharedWorld_UnrelatedEditsLeaveWorldCold), regardless of which
+// direction the bound points.
 func TestWatchSharedWorld_MergerEditProducesFreshBehavior(t *testing.T) {
-	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build/run test in -short mode")
 	}
