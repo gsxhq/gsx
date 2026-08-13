@@ -807,12 +807,13 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   `2026-08-13-project-shared-world-design.md`) - a configured module (filters,
   renderers, aliases, or a class merger) now composes into the shared world
   instead of being disqualified outright; byte-identical (`GSXCACHE=off
-  generate` over gsxui: all up to date, zero writes). The world also extends
-  itself to cover what a project imports from outside its configuration (a
-  `.gsx` importing a third-party package), which is what puts gsxui on the fast
-  path: narrow `.go`-edit cycles -7%, go.mod and cold start at parity, merger
-  edits still +16% (both world tiers rebuild) — see the spec's Acceptance gate
-  4 for the measured numbers and the proposed follow-up.
+  generate` over gsxui: all up to date, zero writes). The world extends itself
+  to cover what a project imports from outside its configuration (a `.gsx`
+  importing a third-party package), and main-module code never enters it, so a
+  class-merger edit is an ordinary project edit. gsxui rides the fast path with
+  every dev cycle at parity or better (-2% to -4%); the corpus suite, which
+  opens many small Modules per process, goes 30.0s -> 12.5s. See the spec's
+  Acceptance gate 4.
 - [x] **`@gsxhq/vite-plugin-gsx`** (npm **v0.4.5**, `~/personal/gsxhq/vite-plugin-gsx`) -
   receives generation/build events from `gsx dev`, surfaces diagnostics in the
   Vite error overlay (auto-clears on recovery), and full-reloads after the server

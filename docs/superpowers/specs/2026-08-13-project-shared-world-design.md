@@ -49,9 +49,11 @@ under the new path. This is an explicit acceptance gate, not a hope.
 ## Design
 
 **World composition.** The shared world for a Module becomes the runtime
-closure PLUS the module's resolved config packages: `FilterPkgs` (beyond
-std), `LoadPkgs`, alias packages, renderer packages, and the class-merger
-package. One `packages.Load` builds it; one universe serves all types.
+closure PLUS the module's resolved OUT-OF-MODULE config packages: `FilterPkgs`
+(beyond std), `LoadPkgs`, alias packages, renderer packages, and the
+class-merger package, minus any of those that live in the main module itself
+(see "the hard case, dissolved"). One `packages.Load` builds it; one universe
+serves all types.
 
 **Keying.** `sharedWorldKey` already hashes the load-path set, build env,
 toolchain, and origin (go.mod/go.sum content + resolved replace-dirs). The
@@ -61,35 +63,51 @@ process cache may hold multiple worlds (it is already keyed); memory stays
 bounded by the number of distinct (module-config) pairs in a process — in
 practice one for dev, a handful for tests.
 
-**Main-module config packages (the hard case).** gsxui's merger lives in the
-main module. The world's freshness stamps (file + dir stamps) already cover
-every loaded file, so an edit to the merger package — or anything in its
-loaded closure — marks the world stale and rebuilds it on next use: rare,
-correct, and self-healing. Two guards make this sound rather than hopeful:
-- **Back-edges:** a config package that imports other main-module packages
-  drags them into the world. That is exactly the shape
-  `externalBackedgePackages` exists to reject — the world build must run the
-  same back-edge detection the full load runs, and a world whose closure
-  back-edges into main-module packages OUTSIDE the config closure falls back
-  to the full load (permanently for that key; record why in the world entry
-  so the fallback is visible, not silent). A config package whose closure
-  stays within itself + external deps (gsxui/merge → tailwind-merge-go,
-  csscolorparser) is servable.
-- **Staleness discipline:** the watch session's `.go`-edit path must treat a
-  world-stale verdict like any world reload — the existing goSourceReload
-  machinery already forces the next analysis through `externalImporter`,
-  which re-checks world freshness. No new watch-side logic.
+**Main-module config packages — the hard case, dissolved.** *(Revised after the
+Task-5 A/B; this section previously argued the opposite and the reversal is the
+point.)* gsxui's merger lives in the main module. The original plan composed it
+into the world and accepted the consequence: the world stamps every file it
+loads, so editing the merger marked the world stale — "rare, correct, and
+self-healing". Measurement disagreed with "rare": the class merger is a routine
+edit target, and once the world also had an extension tier, one merger edit
+rebuilt BOTH tiers — 5171ms → 6001ms, +16% against main, on the very cycle the
+phase exists to speed up.
+
+The rebuild bought nothing. A module-local config package's types NEVER come
+from the world: `configuredSourcePackages` routes module-local paths to the
+source resolver, and `externalImporter` drops every local path from the
+published importer. The world's copy was a load-set member and a set of file
+stamps, nothing more.
+
+So **main-module code never enters a shared world.** `sharedWorldComposition`
+drops any config path under the module's own import path (by prefix, erring
+toward exclusion), and the extension tier composes what the project half
+references, so the merger's own dependencies (tailwind-merge-go,
+csscolorparser) still arrive in the one universe. Three consequences:
+
+- **Freshness for config behavior rides retained source.** A merger edit is an
+  ordinary main-module `.go` edit: the project half reloads, the merger is
+  re-read and re-type-checked from source, the rebuilt program renders the new
+  behavior. No world reload, no world-side staleness rule at all.
+- **Retention is the type authority**, and always was — which is why the
+  retention pin needed no change when this landed. `./...` covers the merger's
+  dir in the reduced project half; that syntax is what both the merger's own
+  type resolution and LSP nav read.
+- **The back-edge guard gets simpler and stays load-bearing.** With no
+  legitimate main-module package in any world, the rule is flat: a world
+  carrying code owned by the module being served got it as a DEPENDENCY of an
+  external package — the one-way boundary `externalBackedgePackages` rejects on
+  the full load — and that Module falls back to the full load, which is where
+  the hard configuration error is produced. The exemption-plus-reachability
+  pair the composed-merger design needed is gone with the case that required
+  it.
 
 **Synthetic-entry harvest.** Unchanged in shape: the project half stays a
 reduced load; world packages surface as synthetic entries carrying their
 Errors (the #178 review lesson — a broken runtime/config package must fail
-loudly on the fast path). Config packages' synthetic entries additionally
-carry their Module identity where `projectSourcePackages` needs to retain
-main-module members (the merger's own dir must remain a retained source
-package for the LSP/nav features — verify against `logicalProjectPath`
-handling; if retention requires the full project-half view of that dir, the
-project half's path set must include the config package dirs too, in reduced
-mode, with the types still served by the world).
+loudly on the fast path). Retention of main-module dirs needs nothing from the
+world: the project half loads `./...`, which covers every main-module dir
+whether or not it is named in the configuration.
 
 **Extending the world (added in the Task-5 rerun).** Configuration is not the
 only thing a project needs types for. The project half is loaded WITHOUT types,
@@ -161,31 +179,33 @@ load in this phase and record the reason).
    (parity — build time dominates). All three edit cycles regress >10%. See
    `.superpowers/sdd/2026-08-13-project-shared-world/task-5-report.md` for the
    full methodology and per-sample numbers.
-   **Re-measured after the fix (Task-5 rerun, 2026-08-13):** gsxui now takes
-   the fast path (`fast=1 fellback=0`) and byte identity still holds (1169 up
-   to date, zero writes, clean `git status`). Dev-loop A/B, 2 samples each,
-   same event-sink method: narrow `.go` edit 2614ms → 2431ms (**−7.0%**),
-   go.mod touch 4959ms → 4935ms (parity), cold start 6190ms → 6105ms (parity).
-   The across-the-board 12–18% regression is gone and the narrow cycle is now
-   faster than main — but by ~180ms, not the ~1.0–1.3s this gate projected:
-   that estimate came from an isolated COLD load probe, while a warm dev
-   process's full load is far cheaper than 2s, so the cacheable share is
-   correspondingly smaller.
+   **Re-measured after the fixes (Task-5 rerun, 2026-08-13):** gsxui takes the
+   fast path (`fast=1 ineligible=0 fellback=0 backedge=0`) and byte identity
+   holds (1169 up to date, zero writes, clean `git status`). Dev-loop A/B,
+   2 samples per binary, interleaved in one session, same event-sink method:
 
-   One cycle still regresses: editing the class merger — a main-module config
-   package — costs 5171ms → 6001ms (**+16%**), because the merger's files are
-   stamped into BOTH tiers, so both rebuild (measured: 2 world loads for a
-   merger edit, 0 for any other `.go` edit). The merger's own types never come
-   from the world (module-local config packages resolve from retained source),
-   so the fix is to stop composing main-module config packages into the world
-   at all and let the extension tier cover their dependencies — now possible
-   only because the extension tier exists. That reverses this document's
-   "Main-module config packages (the hard case)" decision and changes two
-   pinned test contracts, so it is proposed, not taken.
+   | cycle | main | this branch | delta |
+   |---|---:|---:|---:|
+   | cold start | 6408ms | 6249ms | −159 (−2.5%) |
+   | narrow (`site/examples/kbd.go`) | 2650ms | 2542ms | −109 (−4.1%) |
+   | wide (`merge/merge.go`, the class merger) | 5242ms | 5130ms | −112 (−2.1%) |
+   | go.mod touch | 5100ms | 4996ms | −104 (−2.0%) |
+
+   Every cycle is at parity or better; the 12–18% regression this gate first
+   measured is gone, including the merger cycle, which was +16% until
+   main-module config packages stopped composing into worlds (see "Main-module
+   config packages — the hard case, dissolved").
+
+   The win is ~100–160ms/cycle, not the ~1.0–1.3s this gate projected. That
+   estimate came from an isolated COLD load probe; in a warm dev process the
+   full load is far cheaper, and gsxui's whole generate phase is ~1.6s, so the
+   cacheable share is correspondingly smaller. The corpus suite, which opens
+   many small Modules in one process, is the clearer beneficiary: 30.0s → 12.5s.
 5. Adversarial review with live probes before merge (staleness of
    main-module config edits, back-edge shapes, multi-world processes,
-   vendor). **The fallback-path regression Task 5 found is fixed (see gate 4);
-   what remains for review is the merger-edit cycle above.**
+   vendor). **Both regressions Task 5 found are fixed (see gate 4); review's
+   remaining lenses are the extension tier's key churn, multi-world memory, and
+   the nested-module/vendor shapes the root binding now exists for.**
 
 ## Sequencing
 
