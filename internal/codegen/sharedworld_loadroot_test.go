@@ -1,22 +1,16 @@
 package codegen
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
 
-// The out-of-module-import fixture is gsxui's real shape, the one the Task-5
-// A/B found the world could not serve: a configured module (main-module class
-// merger + out-of-module filter package) whose `.gsx` ALSO imports a package
-// from a module NO configuration names — gsxui's site/pages/document.gsx
-// importing github.com/gsxhq/vite. Nothing in the config surface reaches it,
-// so a world composed from configuration alone lacks its types, and every
-// reload of the whole module fell back to the full load.
-//
-// libSrc/extraSrc are two packages of that out-of-module module so a test can
-// stage "the module now imports a package the world does not carry" — the only
-// edit that may legitimately re-key the world.
+// The out-of-module-import fixture is gsxui's real shape: a configured module
+// (main-module class merger + out-of-module filter package) whose `.gsx` ALSO
+// imports a package from a module NO configuration names — gsxui's
+// site/pages/document.gsx importing github.com/gsxhq/vite. The world serves
+// what the configuration names, so this module is not servable, and the point
+// of the fixture is that finding that out must cost nothing.
 func writeOutOfModuleImportFixture(t *testing.T, name, viewsSrc string) (root, modPath, filterPath, libPath string) {
 	t.Helper()
 	root = t.TempDir()
@@ -32,192 +26,158 @@ func writeOutOfModuleImportFixture(t *testing.T, name, viewsSrc string) (root, m
 	writeFile(t, filepath.Join(root, "filters"), "filters.go", configuredWorldFilter)
 	writeFile(t, filepath.Join(root, "lib"), "go.mod", "module "+libPath+"\n\ngo 1.26.1\n")
 	writeFile(t, filepath.Join(root, "lib"), "lib.go", "package lib\n\nfunc Tag() string { return \"lib\" }\n")
-	writeFile(t, filepath.Join(root, "lib", "extra"), "extra.go", "package extra\n\nfunc Tag() string { return \"extra\" }\n")
 	writeFile(t, filepath.Join(root, "merge"), "merge.go", configuredWorldMerge)
 	writeFile(t, filepath.Join(root, "views"), "card.gsx", viewsSrc)
 	return root, modPath, filterPath, libPath
 }
 
-// outOfModuleViews renders the fixture's views source. extra adds an import of
-// the SECOND out-of-module package; body varies the emitted text without
-// touching any import.
-func outOfModuleViews(libPath, body string, extra bool) string {
-	imports := "\t\"github.com/gsxhq/gsx\"\n\t\"" + libPath + "\"\n"
-	call := "{lib.Tag()}"
-	if extra {
-		imports += "\t\"" + libPath + "/extra\"\n"
-		call += "{extra.Tag()}"
-	}
-	return "package views\n\nimport (\n" + imports + ")\n\ncomponent Card(attrs gsx.Attrs, children gsx.Node, label string) {\n\t<section class=\"card\" { attrs... }>" + body + call + "{label |> shout}{children}</section>\n}\n"
+func outOfModuleViews(libPath string) string {
+	return "package views\n\nimport (\n\t\"github.com/gsxhq/gsx\"\n\t\"" + libPath + "\"\n)\n\ncomponent Card(attrs gsx.Attrs, children gsx.Node, label string) {\n\t<section class=\"card\" { attrs... }>{lib.Tag()}{label |> shout}{children}</section>\n}\n"
 }
 
-// TestSharedWorldServesOutOfModuleGsxImport is the fix for the Task-5 finding.
-// A `.gsx` import of a package outside the composed configuration used to
-// disqualify the WHOLE module from the fast path — and disqualify it
-// expensively, after the world and project-half loads had already been paid
-// for. The world now composes that gap, so the module is served, and the
-// steady-state cost of a reload is the reduced project-half load alone.
-func TestSharedWorldServesOutOfModuleGsxImport(t *testing.T) {
+// TestSharedWorldOutOfConfigImportRefusedForFree pins the cost of the shape the
+// world cannot serve. A `.gsx` import of a package outside the configured
+// closure needs types no world composed from this module's configuration
+// carries, so the Module takes the single full-mode load it took before the
+// shared world existed — and takes it BEFORE loading anything else, so it pays
+// exactly one packages.Load, not three. Task 5 measured what the third load
+// costs: 12–18% on every gsxui dev cycle.
+//
+// The byte-identity half matters just as much: refusing must produce the same
+// output as before, which is what the control comparison pins.
+func TestSharedWorldOutOfConfigImportRefusedForFree(t *testing.T) {
 	root, modPath, filterPath, libPath := writeOutOfModuleImportFixture(t, "cfgvite",
-		outOfModuleViews("example.com/cfgvitelib", "", false))
+		outOfModuleViews("example.com/cfgvitelib"))
+	_ = libPath
 	views := filepath.Join(root, "views")
 	opts := configuredWorldOptions(root, modPath, filterPath)
 
-	beforeFast, beforeFell := sharedWorldFast.Load(), sharedWorldFellBack.Load()
-	fast, fastOut := generateConfiguredWorld(t, opts, views)
-	if got := sharedWorldFast.Load() - beforeFast; got != 1 {
-		t.Fatalf("shared-world fast path taken %d times for an out-of-module .gsx import, want 1", got)
-	}
-	if got := sharedWorldFellBack.Load() - beforeFell; got != 0 {
-		t.Fatalf("coverage fallbacks = %d, want 0: the world was supposed to compose the gap", got)
-	}
-
-	// The gap package's types must come from the world's universe like every
-	// other external package — one universe, decided numerically.
-	fast.mu.Lock()
-	libPkg := fast.extPkgs[libPath]
-	fast.mu.Unlock()
-	if libPkg == nil {
-		t.Fatalf("out-of-module package %q is missing from the published external types", libPath)
-	}
-	if tag := libPkg.Scope().Lookup("Tag"); tag == nil || tag.Pos() < sharedWorldBase {
-		t.Fatalf("out-of-module declaration did not come from the world's FileSet: %v", tag)
-	}
-
-	// Steady state — what a dev cycle actually pays. A second Module over the
-	// same root reuses both world tiers and issues exactly the reduced
-	// project-half load. Before this fix the same second Module issued three.
-	beforeLoads, beforeWorlds, beforeHits := ProjectLoadCalls(), SharedWorldLoads(), SharedWorldHits()
-	_, warmOut := generateConfiguredWorld(t, opts, views)
+	beforeFast, beforePre := sharedWorldFast.Load(), SharedWorldPreloadFallbacks()
+	beforeLoads, beforeWorlds := ProjectLoadCalls(), SharedWorldLoads()
+	_, out := generateConfiguredWorld(t, opts, views)
 	if got := ProjectLoadCalls() - beforeLoads; got != 1 {
-		t.Fatalf("a warm Module over the same root issued %d packages.Load calls, want 1 (the project half)", got)
+		t.Fatalf("an unservable module issued %d packages.Load calls, want exactly 1 (the pre-shared-world cost)", got)
 	}
 	if got := SharedWorldLoads() - beforeWorlds; got != 0 {
-		t.Fatalf("warm Module rebuilt the world %d times, want 0", got)
+		t.Fatalf("an unservable module built %d worlds, want 0 — the refusal must come before any world load", got)
 	}
-	if got := SharedWorldHits() - beforeHits; got < 2 {
-		t.Fatalf("warm Module recorded %d world hits, want both tiers served from the cache", got)
+	if got := SharedWorldPreloadFallbacks() - beforePre; got != 1 {
+		t.Fatalf("pre-load refusals = %d, want 1", got)
 	}
-	assertGeneratedEqual(t, fastOut, warmOut)
+	if got := sharedWorldFast.Load() - beforeFast; got != 0 {
+		t.Fatalf("shared-world fast path taken %d times for an out-of-config import, want 0", got)
+	}
 
-	// Byte identity against the full load, for the shape that just changed
-	// paths: this module took the full load before the fix.
+	// Same Module shape, forced down the full load by per-dir config variance:
+	// the bytes must match, because refusing is supposed to be invisible.
 	control := opts
 	control.PerDir = map[string]DirOptions{
 		filepath.Join(root, "unused"): {ClassMerger: opts.ClassMerger},
 	}
-	beforeIneligible := sharedWorldIneligible.Load()
 	_, controlOut := generateConfiguredWorld(t, control, views)
-	if got := sharedWorldIneligible.Load() - beforeIneligible; got != 1 {
-		t.Fatalf("control module took the full load %d times, want 1 (the comparison is vacuous otherwise)", got)
-	}
-	assertGeneratedEqual(t, controlOut, fastOut)
+	assertGeneratedEqual(t, controlOut, out)
 }
 
-// TestSharedWorldServesVendoredStdlibImports pins the resolution rule behind
-// resolvedImportPath. A `.gsx` importing net/http makes net/http a load root,
-// and net/http imports its own stdlib-vendored dependencies — written
-// "golang.org/x/net/http/httpproxy", resolved to
-// "vendor/golang.org/x/net/http/httpproxy". Comparing the WRITTEN string
-// against the world's types (keyed by resolved path) reported those as
-// unaccounted for, so any project whose load roots include net/http fell back
-// to the full load on every reload, forever. gsxui is such a project: this was
-// the second of the two shapes its A/B uncovered.
-func TestSharedWorldServesVendoredStdlibImports(t *testing.T) {
+// TestSharedWorldStdlibLoadRootsAreNotRefusedUpFront is the counterweight to
+// the refusal above, and the #178 review's lesson in test form. The pre-load
+// scan cannot know WHICH stdlib packages the world's closure reaches, so it
+// admits every stdlib-shaped load root and lets the post-load coverage check
+// decide. Refusing them up front would be catastrophic in the common direction:
+// a `.gsx` importing "strings" — which the closure does carry — must stay on
+// the fast path (TestSharedWorldFastPathServesStdlibGSXImports pins that side).
+//
+// This test pins the other side, net/http, which the gsx runtime's stdlib-only
+// closure does NOT reach: admitted by the pre-load scan, declined by coverage,
+// served by the single full load — the same verdict, and the same bytes, as
+// before the shared world existed.
+func TestSharedWorldStdlibLoadRootsAreNotRefusedUpFront(t *testing.T) {
 	root := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, root, "go.mod", "module example.com/vendorimp\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, root, "go.mod", "module example.com/stdroot\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	writeFile(t, filepath.Join(root, "views"), "card.gsx", "package views\n\nimport \"net/http\"\n\ncomponent Card(r *http.Request) {\n\t<p>{r.URL.Path}</p>\n}\n")
 
 	views := filepath.Join(root, "views")
-	beforeFast, beforeFell := sharedWorldFast.Load(), sharedWorldFellBack.Load()
-	generateConfiguredWorld(t, Options{ModuleRoot: root, ModulePath: "example.com/vendorimp", FilterPkgs: []string{StdImportPath}}, views)
-	if got := sharedWorldFast.Load() - beforeFast; got != 1 {
-		t.Fatalf("shared-world fast path taken %d times for a net/http load root, want 1", got)
+	opts := Options{ModuleRoot: root, ModulePath: "example.com/stdroot", FilterPkgs: []string{StdImportPath}}
+	beforePre, beforeFell := SharedWorldPreloadFallbacks(), SharedWorldCoverageFallbacks()
+	_, out := generateConfiguredWorld(t, opts, views)
+	if got := SharedWorldPreloadFallbacks() - beforePre; got != 0 {
+		t.Fatalf("pre-load refusals = %d for a stdlib load root, want 0: the scan must admit stdlib shapes and let coverage decide", got)
 	}
-	if got := sharedWorldFellBack.Load() - beforeFell; got != 0 {
-		t.Fatalf("coverage fallbacks = %d, want 0: a stdlib-vendored import is not an unaccounted package", got)
+	if got := SharedWorldCoverageFallbacks() - beforeFell; got != 1 {
+		t.Fatalf("coverage fallbacks = %d, want 1: net/http is not in the gsx runtime's closure, so the world cannot serve it", got)
 	}
+
+	// A PerDir non-std filter package makes the module uncomposable, forcing the
+	// same single full load by a different route.
+	control := opts
+	control.PerDir = map[string]DirOptions{filepath.Join(root, "unused"): {FilterPkgs: []string{StdImportPath, "example.com/nope"}}}
+	beforeIneligible := sharedWorldIneligible.Load()
+	_, controlOut := generateConfiguredWorld(t, control, views)
+	if got := sharedWorldIneligible.Load() - beforeIneligible; got != 1 {
+		t.Fatalf("control took the full load %d times, want 1", got)
+	}
+	assertGeneratedEqual(t, controlOut, out)
 }
 
-// TestSharedWorldKeyFollowsImportsNotEdits pins the churn contract the extended
-// composition buys its keying with, and the bound that makes the churn safe:
-//
-//   - the world key must move ONLY when the set of packages the module needs
-//     from outside itself changes. A body edit — the thing a dev loop does every
-//     few seconds — must not re-key, or every cycle would pay a world rebuild
-//     and the phase would be a pessimization;
-//   - when it DOES move, the new extension entry must REPLACE the old one for
-//     this root, not join it in the cache. Unbounded, a long-lived LSP would
-//     retain one full types graph and FileSet per import set the developer ever
-//     passed through (see sharedWorlds). The cache-size delta across an
-//     import-set change is therefore zero: one minted, one dropped.
-func TestSharedWorldKeyFollowsImportsNotEdits(t *testing.T) {
-	root, modPath, filterPath, libPath := writeOutOfModuleImportFixture(t, "cfgkey",
-		outOfModuleViews("example.com/cfgkeylib", "", false))
+// TestSharedWorldUnservableVerdictIsRemembered pins the other half of the cost
+// story. The coverage check can only fire AFTER the project half and the world
+// have loaded — three loads — because the references it examines are imports of
+// the module's own files, which nothing sees until they are loaded. A dev loop
+// re-runs this on every `.go` edit, so the verdict is latched: the second
+// analysis of the same Module is back to the pre-shared-world one load.
+func TestSharedWorldUnservableVerdictIsRemembered(t *testing.T) {
+	root, modPath, filterPath, libPath := writeOutOfModuleImportFixture(t, "cfgremember",
+		"package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(attrs gsx.Attrs, children gsx.Node, label string) {\n\t<section class=\"card\" { attrs... }>{label |> shout}{children}</section>\n}\n")
+	// A GO file — invisible to the manifest's load roots — imports the
+	// out-of-module package, so only the post-load coverage check can catch it.
+	writeFile(t, filepath.Join(root, "views"), "helper.go", "package views\n\nimport \""+libPath+"\"\n\nvar _ = lib.Tag\n")
 	views := filepath.Join(root, "views")
-	card := filepath.Join(views, "card.gsx")
 	opts := configuredWorldOptions(root, modPath, filterPath)
 
-	generateConfiguredWorld(t, opts, views)
-
-	// A body edit: same imports, different text.
-	if err := os.WriteFile(card, []byte(outOfModuleViews(libPath, "edited ", false)), 0o644); err != nil {
-		t.Fatal(err)
+	m, err := Open(opts)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
 	}
-	beforeWorlds := SharedWorldLoads()
-	generateConfiguredWorld(t, opts, views)
+	beforeFell := SharedWorldCoverageFallbacks()
+	if _, _, err := m.Generate(views); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if got := SharedWorldCoverageFallbacks() - beforeFell; got != 1 {
+		t.Fatalf("coverage fallbacks = %d, want 1: a Go-file import outside the configured closure is only visible after the project half loads", got)
+	}
+	if fset := m.snapshotSharedFset(); fset != nil {
+		t.Fatal("a fallback left the Module holding a shared-world FileSet: positions would resolve against a world this analysis does not use")
+	}
+
+	// Second analysis of the SAME Module — what the next dev cycle does.
+	m.rebuildFset()
+	beforeLoads, beforeWorlds := ProjectLoadCalls(), SharedWorldLoads()
+	beforePre := SharedWorldPreloadFallbacks()
+	if _, _, err := m.Generate(views); err != nil {
+		t.Fatalf("second Generate: %v", err)
+	}
+	if got := ProjectLoadCalls() - beforeLoads; got != 1 {
+		t.Fatalf("the second analysis of an unservable Module issued %d packages.Load calls, want 1", got)
+	}
 	if got := SharedWorldLoads() - beforeWorlds; got != 0 {
-		t.Fatalf("a .gsx BODY edit rebuilt the world %d times, want 0", got)
+		t.Fatalf("the second analysis built %d worlds, want 0", got)
 	}
-
-	// An import of a package the world does not carry: this one must re-key,
-	// and the entry it mints must take the previous one's place.
-	if err := os.WriteFile(card, []byte(outOfModuleViews(libPath, "edited ", true)), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	beforeWorlds = SharedWorldLoads()
-	beforeFast := sharedWorldFast.Load()
-	beforeCache := sharedWorldCacheSize()
-	generateConfiguredWorld(t, opts, views)
-	if got := SharedWorldLoads() - beforeWorlds; got != 1 {
-		t.Fatalf("a NEW out-of-module import rebuilt the world %d times, want 1", got)
-	}
-	if got := sharedWorldFast.Load() - beforeFast; got != 1 {
-		t.Fatalf("the re-keyed module took the shared-world path %d times, want 1", got)
-	}
-	if got := sharedWorldCacheSize() - beforeCache; got != 0 {
-		t.Fatalf("re-keying grew the world cache by %d entries, want 0: the extension must supersede its predecessor for this root", got)
-	}
-
-	// And again, from the other direction — dropping the import re-keys back to
-	// a set whose entry was already evicted, so it reloads rather than hitting,
-	// and still leaves the cache the same size.
-	if err := os.WriteFile(card, []byte(outOfModuleViews(libPath, "edited ", false)), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	beforeCache = sharedWorldCacheSize()
-	generateConfiguredWorld(t, opts, views)
-	if got := sharedWorldCacheSize() - beforeCache; got != 0 {
-		t.Fatalf("a second import-set change grew the world cache by %d entries, want 0", got)
+	if got := SharedWorldPreloadFallbacks() - beforePre; got != 1 {
+		t.Fatalf("remembered refusals = %d, want 1", got)
 	}
 }
 
 // TestSharedWorldIneligibleModulePaysOneLoad pins the cost of the one
-// disqualification that is decidable before any load: per-dir config variance.
-// Such a module must pay exactly what it paid before the shared world existed —
-// a single full-mode load — and no world load at all. The Task-5 A/B found the
-// opposite for the coverage fallback (three loads where one would do), which
-// the composition above removes; this pins the remaining pre-load path so it
-// cannot regress the same way.
+// disqualification that is decidable from configuration alone: per-dir config
+// variance. Such a module must pay exactly what it paid before the shared world
+// existed — a single full-mode load — and no world load at all.
 func TestSharedWorldIneligibleModulePaysOneLoad(t *testing.T) {
 	root, modPath, filterPath := configuredWorldFixture{name: "cfgineligible"}.write(t)
 	views := filepath.Join(root, "views")
 	opts := configuredWorldOptions(root, modPath, filterPath)
-	// Per-dir merger variance: one world cannot serve the module.
 	opts.PerDir = map[string]DirOptions{
 		views: {ClassMerger: &ClassMergerRef{PkgPath: modPath + "/merge", FuncName: "Merge"}},
 	}

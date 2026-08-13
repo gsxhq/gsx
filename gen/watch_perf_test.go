@@ -256,10 +256,9 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 //     composes into NO world and its types come from retained source;
 //   - an out-of-module filter package (filters/, its own module, the
 //     structpages shape): this is what the config tier is made of;
-//   - an ordinary project dependency (dep/) that imports a package no
-//     configuration names (gsx/parser — the runtime is stdlib-only, so the
-//     config tier cannot carry it): this is what the EXTENSION tier is made of,
-//     gsxui's document.gsx → github.com/gsxhq/vite.
+//   - an ordinary project dependency (dep/) whose own imports stay inside the
+//     world's closure, so the module is servable and this gate measures the
+//     world rather than a refusal.
 //
 // views/ exercises all three: the merger via a composite class attribute, the
 // filter via a `|> shout` pipeline, and dep via an ordinary .gsx import.
@@ -282,15 +281,13 @@ func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string)
 		"package mrg\n\nimport \"strings\"\n\nfunc Merge(classes []string) string { return strings.Join(classes, \" \") }\n")
 	writeFileT(t, filepath.Join(filterDir, "filters.go"),
 		"package filters\n\nimport \"strings\"\n\nfunc Shout(s string) string { return strings.ToUpper(s) + \"!\" }\n")
-	// dep imports a package NO configuration names and the base closure does not
-	// carry (the gsx runtime is stdlib-only; parser is a tool package). That is
-	// gsxui's shape — site/pages/document.gsx importing github.com/gsxhq/vite —
-	// and it is what makes this fixture exercise the world's EXTENSION tier
-	// rather than the config tier alone. Before the extension existed such a
-	// module could not be served at all: it paid the world load, the project-half
-	// load AND the full load, on every cycle.
+	// dep stays inside the servable surface: main-module code importing only the
+	// stdlib the runtime closure already carries. A dependency outside the
+	// configured closure would make the whole module unservable — correctly, and
+	// for one load — which is a different gate (internal/codegen's
+	// TestSharedWorldOutOfConfigImportRefusedForFree).
 	writeFileT(t, filepath.Join(depDir, "dep.go"),
-		"package dep\n\nimport \"github.com/gsxhq/gsx/parser\"\n\nvar _ parser.Mode\n\nfunc Value() string { return \"extra\" }\n")
+		"package dep\n\nimport \"strings\"\n\nfunc Value() string { return strings.ToLower(\"EXTRA\") }\n")
 	writeFileT(t, filepath.Join(viewsDir, "card.gsx"),
 		"package views\n\nimport \""+modPath+"/dep\"\n\ncomponent Card() {\n\t<div class={ \"card\", dep.Value() }>{dep.Value() |> shout}</div>\n}\n")
 	return modPath, filterPath, mrgDir, depDir, viewsDir
@@ -306,17 +303,17 @@ func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string)
 // second Module opened in this process over the SAME root and configuration
 // must reuse the cached world instead of reloading it.
 //
-//   - cold start (the session's first Generate) performs exactly TWO world
-//     LOOKUPS, one per tier. Lookups, not loads: every loadSharedWorld call
+//   - cold start (the session's first Generate) performs exactly ONE world
+//     LOOKUP. Lookups, not loads: every loadSharedWorld call
 //     increments exactly one of SharedWorldLoads or SharedWorldHits, so their
 //     sum counts calls regardless of what an earlier test in the process left
 //     in the cache. Counting loads alone is worthless here — neither tier's key
 //     mentions this fixture's temp root, so a sibling test of the same shape
 //     pre-warms both entries and every load-delta assertion passes vacuously
 //     (the retry-and-take-the-minimum below makes that certain, since the
-//     second window is all hits). Three lookups would mean a third,
+//     second window is all hits). Two lookups would mean a second,
 //     differently-keyed world, which is the regression this bound exists for:
-//     getting the config tier to one lookup required routing
+//     getting it to one required routing
 //     prepareWatchSession's class-merger validation through the session's own
 //     already-open Module (codegen.Module.ValidateConfiguredMergers) instead of
 //     a throwaway probe Module scoped to just the merger, whose narrower
@@ -385,7 +382,7 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		coldLookupDelta = worldLookups() - beforeCold
 
 		// .go edit OUTSIDE the world's composed closure.
-		writeFileT(t, filepath.Join(depDir, "dep.go"), "package dep\n\nimport \"github.com/gsxhq/gsx/parser\"\n\nvar _ parser.Mode\n\nfunc Value() string { return \"extra2\" }\n")
+		writeFileT(t, filepath.Join(depDir, "dep.go"), "package dep\n\nimport \"strings\"\n\nfunc Value() string { return strings.ToLower(\"EXTRA2\") }\n")
 		dirty := newWatchDirtySet()
 		dirty.dirs[depDir] = true
 		dirty.goDirty = true
@@ -424,7 +421,7 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 	}
 
 	coldLookupDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta := measure()
-	if coldLookupDelta != 2 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
+	if coldLookupDelta != 1 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
 		c2, w2, p2, sw2, sh2 := measure()
 		coldLookupDelta = min(coldLookupDelta, c2)
 		goEditWorldDelta = min(goEditWorldDelta, w2)
@@ -432,8 +429,8 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		secondWorldDelta = min(secondWorldDelta, sw2)
 		secondHitDelta = min(secondHitDelta, sh2)
 	}
-	if coldLookupDelta != 2 {
-		t.Errorf("configured-module cold start performed %d shared-world lookups, want exactly 2 (the config tier, then the extension that covers dep's out-of-config import)", coldLookupDelta)
+	if coldLookupDelta != 1 {
+		t.Errorf("configured-module cold start performed %d shared-world lookups, want exactly 1 (the configured closure, built once)", coldLookupDelta)
 	}
 	if goEditWorldDelta != 0 {
 		t.Errorf("dep.go edit (outside the composed closure) reloaded the shared world %d times, want 0", goEditWorldDelta)

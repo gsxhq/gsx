@@ -242,13 +242,21 @@ type Module struct {
 	sourceDeclImportedBy      map[string]map[string]bool          // configured declaration-source graph reverse edges
 	dirty                     map[string]bool                     // dirs with a pending content change (consumed by applyDirty)
 	sharedFset                *token.FileSet                      // external world FileSet when the shared path was used (positions above sharedWorldBase)
-	fsetBaseline              int                                 // m.fset.Base() captured after the last packages.Load (growth measured since here)
-	fsetRebuildBytes          int                                 // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
-	rebuildCount              int                                 // count of fset rebuilds performed (observability; exposed via rebuilds())
-	sourceIndexBuildCount     int                                 // count of retained semantic index builds (observability; test hook)
-	gcImporter                types.Importer                      // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
-	mu                        sync.Mutex                          // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, and gcImporter publication
-	analysisMu                sync.Mutex                          // serializes Package/Generate/typesPackage (see concurrency contract)
+	// sharedWorldUnservable latches once this Module has been found unservable
+	// by the shared world (a load path or a project reference outside the
+	// configured closure, or a back-edging config package). Reaching that
+	// verdict costs the project-half and world loads; a dev loop re-runs
+	// externalImporter on every .go edit, so remembering it keeps an ineligible
+	// module at the pre-shared-world cost of one load per cycle. See
+	// loadExternalGraph.
+	sharedWorldUnservable bool
+	fsetBaseline          int            // m.fset.Base() captured after the last packages.Load (growth measured since here)
+	fsetRebuildBytes      int            // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
+	rebuildCount          int            // count of fset rebuilds performed (observability; exposed via rebuilds())
+	sourceIndexBuildCount int            // count of retained semantic index builds (observability; test hook)
+	gcImporter            types.Importer // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
+	mu                    sync.Mutex     // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, and gcImporter publication
+	analysisMu            sync.Mutex     // serializes Package/Generate/typesPackage (see concurrency contract)
 }
 
 // defaultFsetRebuildBytes bounds the module-lifetime FileSet's project re-parse

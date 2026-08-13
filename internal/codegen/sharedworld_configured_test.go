@@ -355,3 +355,126 @@ func Shout(s string) string { return merge.Merge([]string{s, "!"}) }
 		t.Fatalf("shared-world fast path taken %d times for a config package that re-enters the main module, want 0", got)
 	}
 }
+
+// TestSharedWorldDoesNotCacheUnhealthyWorlds pins the admission rule that closed
+// the adversarial review's worst finding. A config package that is broken in a
+// FILELESS way — build constraints excluding every file, an empty directory, a
+// package that does not exist yet — comes back from go/packages as a non-nil,
+// EMPTY types.Package carrying an error, and contributes no files to stamp. A
+// world holding one is therefore unfalsifiable: fresh() has nothing that can
+// fail, no key component moves when the developer fixes the file, and every
+// later analysis in the process is served the stale failure. The review wedged
+// exactly that, for the life of the process.
+//
+// So an unhealthy world is served (its errors must surface loudly — #178) and
+// NOT published. While broken, each cycle reloads — the pre-shared-world cost,
+// for precisely the broken shape — and the cycle after the fix is healthy,
+// cached, and correct.
+func TestSharedWorldDoesNotCacheUnhealthyWorlds(t *testing.T) {
+	root, modPath, filterPath := configuredWorldFixture{
+		name:   "cfgunhealthy",
+		filter: "//go:build ignore\n\n" + configuredWorldFilter,
+	}.write(t)
+	views := filepath.Join(root, "views")
+	opts := configuredWorldOptions(root, modPath, filterPath)
+
+	before := sharedWorldCacheSize()
+	m, err := Open(opts)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_, _, genErr := m.Generate(views)
+	if genErr == nil {
+		t.Fatal("a constraint-excluded filter package generated cleanly: the world's errors did not surface")
+	}
+	if !strings.Contains(genErr.Error(), "build constraints exclude all Go files") {
+		t.Fatalf("Generate error = %v, want the go-list error the world carried", genErr)
+	}
+	if got := sharedWorldCacheSize() - before; got != 0 {
+		t.Fatalf("world cache grew by %d entries for a broken closure, want 0: caching it is what makes the failure permanent", got)
+	}
+
+	// Fix it on disk. A new Module in the SAME process must see the repair —
+	// this is the wedge: nothing about the key or the stamps changed, so only
+	// the refusal to cache can heal it.
+	if err := os.WriteFile(filepath.Join(root, "filters", "filters.go"), []byte(configuredWorldFilter), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeHealthy := sharedWorldCacheSize()
+	fixed, out := generateConfiguredWorld(t, opts, views)
+	if got := sharedWorldCacheSize() - beforeHealthy; got != 1 {
+		t.Fatalf("the healthy world was cached %d times, want 1", got)
+	}
+	if len(out) == 0 {
+		t.Fatal("no output after the fix")
+	}
+	if fset := fixed.snapshotSharedFset(); fset == nil {
+		t.Fatal("the healed cycle did not take the world path")
+	}
+}
+
+// TestSharedWorldRendererTypeIdentityMatchesFullLoad is acceptance gate 3: a
+// registered renderer whose TYPE is matched in a `.gsx` expression must behave
+// identically on the fast path. Renderer matching is by type identity, and on
+// the fast path the renderer package's types come from the WORLD's universe
+// while the consuming package is type-checked in the Module's own — the exact
+// cross-universe shape this design exists to keep singular. If the two ever
+// diverged, the match would silently stop firing and the emitted call would
+// change shape, which is what the byte comparison against the full-load control
+// detects.
+func TestSharedWorldRendererTypeIdentityMatchesFullLoad(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const modPath = "example.com/rndhost"
+	const rndPath = "example.com/rndpkg"
+	writeFile(t, root, "go.mod", "module "+modPath+"\n\ngo 1.26.1\n\nrequire (\n\tgithub.com/gsxhq/gsx v0.0.0\n\t"+rndPath+" v0.0.0\n)\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n\nreplace "+rndPath+" => ./rnd\n")
+	writeFile(t, filepath.Join(root, "rnd"), "go.mod", "module "+rndPath+"\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, filepath.Join(root, "rnd"), "rnd.go", `package rnd
+
+import "github.com/gsxhq/gsx"
+
+type Widget struct{ Label string }
+
+func Render(w Widget) gsx.Node { return gsx.Raw("<b>" + w.Label + "</b>") }
+`)
+	writeFile(t, filepath.Join(root, "views"), "card.gsx", "package views\n\nimport \""+rndPath+"\"\n\ncomponent Card(w rnd.Widget) {\n\t<div>{w}</div>\n}\n")
+
+	views := filepath.Join(root, "views")
+	opts := Options{
+		ModuleRoot: root,
+		ModulePath: modPath,
+		FilterPkgs: []string{StdImportPath},
+		Renderers: []RendererAlias{{
+			TypeKey:  rndPath + ".Widget",
+			PkgPath:  rndPath,
+			FuncName: "Render",
+		}},
+	}
+
+	beforeFast := sharedWorldFast.Load()
+	_, fastOut := generateConfiguredWorld(t, opts, views)
+	if got := sharedWorldFast.Load() - beforeFast; got != 1 {
+		t.Fatalf("the renderer fixture took the shared-world path %d times, want 1", got)
+	}
+	var emitted string
+	for _, src := range fastOut {
+		emitted = string(src)
+	}
+	if !strings.Contains(emitted, "Render(") {
+		t.Fatalf("the registered renderer did not fire on the fast path — type identity was lost:\n%s", emitted)
+	}
+
+	control := opts
+	control.PerDir = map[string]DirOptions{
+		filepath.Join(root, "unused"): {FilterPkgs: []string{StdImportPath, "example.com/nope"}},
+	}
+	beforeIneligible := sharedWorldIneligible.Load()
+	_, controlOut := generateConfiguredWorld(t, control, views)
+	if got := sharedWorldIneligible.Load() - beforeIneligible; got != 1 {
+		t.Fatalf("control module took the full load %d times, want 1", got)
+	}
+	assertGeneratedEqual(t, controlOut, fastOut)
+}

@@ -5,54 +5,55 @@ import (
 	"testing"
 )
 
-// TestSharedWorldOriginCoversConfigModules pins what the world key knows about
-// WHERE a config package resolves from. sharedWorldOrigin used to record only
-// the gsx runtime's resolution, which was complete while the world held nothing
-// else. With config packages composed in, two roots that pin the same external
-// config import path at DIFFERENT versions — or replace it to different
-// directories — hash to the same key, and sharedWorld.fresh agrees with the
-// aliasing because the stamps it checks belong to the other root's files. The
-// second project is then served the first's config types.
-//
-// Unconfigured modules must keep a byte-identical origin: they are the common
-// case and their sharing is the whole point of the shared world.
-func TestSharedWorldOriginCoversConfigModules(t *testing.T) {
-	base := []string{gsxRuntimeImportPath, stdImportPath}
-	configPath := "github.com/jackielii/structpages"
-	configured := append(append([]string(nil), base...), configPath)
+// TestSharedWorldOriginFollowsWholeModuleGraph pins what the world key knows
+// about WHERE a project's packages resolve from. The origin used to hash only
+// the go.mod lines that named a composed package; the adversarial review probed
+// what that misses and found it serves stale types with no signal: bumping a
+// DEPENDENCY of a composed package (or swapping its replace target) changes the
+// types that package is built from while touching no admitted line, so the
+// cached world stayed keyed and stayed fresh — and emitted different .x.go
+// bytes depending only on cache warmth. Hashing the whole file makes any
+// resolution change re-key, which is the only rule that is right by
+// construction rather than by enumeration.
+func TestSharedWorldOriginFollowsWholeModuleGraph(t *testing.T) {
+	const base = "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => /elsewhere/gsx\n"
+	const composed = base + "\nrequire github.com/jackielii/structpages v1.0.0\n"
+	// The transitive dependency of the composed package: no line here names a
+	// composed path, which is exactly what the old relevance filter ignored.
+	const depBumped = composed + "\nrequire github.com/jackielii/ctxkey v1.0.1 // indirect\n"
+	const depBumpedNewer = composed + "\nrequire github.com/jackielii/ctxkey v1.2.0 // indirect\n"
 
-	originOf := func(t *testing.T, gomod string, composed []string) string {
+	originOf := func(t *testing.T, gomod, gosum string, vendored bool) string {
 		t.Helper()
 		root := t.TempDir()
 		writeFile(t, root, "go.mod", gomod)
-		return sharedWorldOrigin(root, nil, composed)
+		if gosum != "" {
+			writeFile(t, root, "go.sum", gosum)
+		}
+		return sharedWorldOrigin(root, nil, vendored)
 	}
 
-	const withoutConfig = "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => /elsewhere/gsx\n"
-	const configV1 = withoutConfig + "\nrequire " + "github.com/jackielii/structpages" + " v1.0.0\n"
-	const configV15 = withoutConfig + "\nrequire " + "github.com/jackielii/structpages" + " v1.5.0\n"
-	const configReplaced = configV1 + "\nreplace " + "github.com/jackielii/structpages" + " => /elsewhere/structpages\n"
-
-	// Unconfigured: the config module's presence in go.mod must not perturb the
-	// origin at all — that is the Task-1 behavior this widening must not change.
-	if got, want := originOf(t, configV1, base), originOf(t, withoutConfig, base); got != want {
-		t.Fatalf("unconfigured origin changed with an unrelated require:\n got %q\nwant %q", got, want)
+	if originOf(t, depBumped, "", false) == originOf(t, depBumpedNewer, "", false) {
+		t.Fatal("bumping a composed package's transitive dependency did not change the world origin")
 	}
-	if got, want := originOf(t, configV15, base), originOf(t, configV1, base); got != want {
-		t.Fatalf("unconfigured origin is version-sensitive to an uncomposed module:\n got %q\nwant %q", got, want)
+	if originOf(t, base, "", false) == originOf(t, composed, "", false) {
+		t.Fatal("adding a composed require did not change the world origin")
+	}
+	// go.sum content participates: a same-version re-resolution with different
+	// bytes must not reuse a world.
+	if originOf(t, composed, "h1:aaa\n", false) == originOf(t, composed, "h1:bbb\n", false) {
+		t.Fatal("differing go.sum content did not change the world origin")
 	}
 
-	// Configured: the same two roots must now key differently.
-	if originOf(t, configV1, configured) == originOf(t, configV15, configured) {
-		t.Fatal("two roots pinning different versions of a COMPOSED config module share one world origin")
+	// Vendoring forfeits content hashing entirely: go.mod does not constrain
+	// what is in vendor/, so two roots with identical files must not share.
+	vendoredA := originOf(t, composed, "", true)
+	vendoredB := originOf(t, composed, "", true)
+	if vendoredA == vendoredB {
+		t.Fatal("two vendored roots with identical go.mod share one world origin: vendor/ contents are not keyed by anything else")
 	}
-	if originOf(t, configV1, configured) == originOf(t, configReplaced, configured) {
-		t.Fatal("a replace of a COMPOSED config module does not change the world origin")
-	}
-	// And the composed origin must actually be richer than the base one, or the
-	// two checks above could be passing for some unrelated reason.
-	if originOf(t, configV1, configured) == originOf(t, configV1, base) {
-		t.Fatal("composing a config module did not add anything to the origin")
+	if vendoredA == originOf(t, composed, "", false) {
+		t.Fatal("a vendored root and an unvendored root with identical go.mod share one world origin")
 	}
 }
 

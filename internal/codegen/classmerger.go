@@ -30,7 +30,18 @@ type ClassMergerRef struct {
 // gen.TestWatchSession_ConfiguredModuleWorldBudget pins against. The result is
 // memoized on m (classMergersDone), so a later Generate's own defense-in-depth
 // call is a no-op.
-func (m *Module) ValidateConfiguredMergers() error { return m.validateConfiguredMergers() }
+//
+// Holds analysisMu, like every other top-level entry point and like the
+// package-level ValidateClassMerger below: validation resolves the merger
+// through configuredSourcePackages, which reaches externalImporter and can
+// therefore reach rebuildFset — the one operation that swaps m.fset and drops
+// the cached importer, and which every analysis assumes is serialized against
+// it. In-package callers already hold the mutex and use the unexported form.
+func (m *Module) ValidateConfiguredMergers() error {
+	m.analysisMu.Lock()
+	defer m.analysisMu.Unlock()
+	return m.validateConfiguredMergers()
+}
 
 // ValidateClassMerger type-checks ref.PkgPath and verifies ref.FuncName names an
 // exported package-level object whose type is exactly func([]string) string.
