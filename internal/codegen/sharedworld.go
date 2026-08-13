@@ -7,7 +7,6 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -53,9 +52,7 @@ type sharedWorld struct {
 	errs map[string][]packages.Error
 	// moduleOf maps each closure package to the module that owns it (absent for
 	// the stdlib, which belongs to no module). It is what the back-edge guard
-	// reads: a closure package owned by the LOADING module's own module path,
-	// other than the composed config packages themselves, means the world
-	// dragged main-module code in — see mainModuleBackedge.
+	// reads — see mainModuleBackedge.
 	//
 	// The owning module PATH is recorded rather than packages.Module.Main
 	// because Main is relative to the root the world was built from, and one
@@ -63,11 +60,6 @@ type sharedWorld struct {
 	// root). The module path is the same fact projectSourcePackages tests
 	// against, so the two agree on what "main module" means for a given Module.
 	moduleOf map[string]string
-	// imports is the closure's adjacency, kept because the synthetic entries
-	// handed to externalImporter carry none: it is the only place the world's
-	// shape survives the split load, and the back-edge guard needs REACHABILITY,
-	// not just ownership (see mainModuleBackedge).
-	imports map[string][]string
 	// stamps covers modification of a file that was loaded; dirStamps covers
 	// files being ADDED to or REMOVED from a loaded package, which no per-file
 	// check can see (a directory's mtime moves when its entries change).
@@ -76,67 +68,26 @@ type sharedWorld struct {
 	dirStamps []fileStamp
 }
 
-// mainModuleBackedge reports whether this world may serve a Module whose main
-// module is modulePath, given the composed config paths. Two shapes disqualify
-// it, and both have to be tested:
-//
-//   - a closure package owned by modulePath that is NOT one of the composed
-//     config packages: the world dragged main-module code in beyond the
-//     configuration, and every other phase rebuilds that code from source;
-//   - an EXTERNAL closure package that transitively reaches one owned by
-//     modulePath — the one-way boundary externalBackedgePackages enforces on
-//     the full load. Ownership alone cannot see this: when the back-edge target
-//     is the composed merger itself (an external filter package calling
-//     gsxui-style `merge.Merge`), every main-module package in the closure is a
-//     legitimately composed one, and only reachability reveals that an external
-//     package depends on it. The full load rejects that configuration outright,
-//     so serving it here would emit where the full load emits nothing.
+// mainModuleBackedge reports whether this world carries code that belongs to
+// the module being served. Nothing composes a main-module package into a world
+// — sharedWorldComposition drops them and worldGaps never adds one — so any
+// that appears got there as a DEPENDENCY of an external package: the one-way
+// boundary externalBackedgePackages rejects on the full load, and the shape a
+// configured back-edging filter package takes (gsxui-style `merge.Merge`
+// called from an out-of-module filter). One ownership test decides it, with no
+// exemption to reason about, because there is no legitimate reason for a world
+// to hold main-module code at all.
 //
 // An empty modulePath means the caller has no main module to speak of: nothing
 // is local to it, projectSourcePackages retains nothing, and the full load's
 // own externalBackedgePackages finds no boundary either — so there is no
 // boundary here to enforce.
-func (w *sharedWorld) mainModuleBackedge(modulePath string, composed map[string]bool) bool {
+func (w *sharedWorld) mainModuleBackedge(modulePath string) bool {
 	if modulePath == "" {
 		return false
 	}
-	local := map[string]bool{}
-	for pkgPath, owner := range w.moduleOf {
-		if owner != modulePath {
-			continue
-		}
-		if !composed[pkgPath] {
-			return true
-		}
-		local[pkgPath] = true
-	}
-	if len(local) == 0 {
-		return false
-	}
-	// Memoized reachability over the closure's adjacency, mirroring
-	// externalBackedgePackages: Go forbids import cycles, so the visiting set is
-	// belt-and-braces against a malformed graph rather than a real shape.
-	reaches := make(map[string]bool, len(w.imports))
-	visiting := map[string]bool{}
-	var walk func(string) bool
-	walk = func(path string) bool {
-		if local[path] {
-			return true
-		}
-		if hit, done := reaches[path]; done {
-			return hit
-		}
-		if visiting[path] {
-			return false
-		}
-		visiting[path] = true
-		hit := slices.ContainsFunc(w.imports[path], walk)
-		delete(visiting, path)
-		reaches[path] = hit
-		return hit
-	}
-	for path := range w.imports {
-		if !local[path] && walk(path) {
+	for _, owner := range w.moduleOf {
+		if owner == modulePath {
 			return true
 		}
 	}
@@ -341,20 +292,23 @@ func sharedWorldOrigin(moduleRoot string, buildEnv, composedPaths []string) stri
 // not be shared with any other root.
 //
 // The fixed base pair is module-independent by construction (the runtime and
-// std resolve through go.mod, which sharedWorldOrigin already keys). A config
-// package, however, may live in the main module itself (gsxui's merge/), and
-// nothing else in the key distinguishes two roots that declare the same module
-// path and the same config — two checkouts of one project, e.g. worktrees, open
-// in one LSP. Without this, the second root would be served the first root's
-// working-copy types and would even pass sharedWorld.fresh, because the stamps
-// belong to the other directory and are genuinely unchanged. It is the same
-// aliasing sharedWorldOrigin exists to prevent, one level down.
+// std resolve through go.mod, which sharedWorldOrigin already keys). What is
+// not is a package resolved RELATIVE to this root: a nested module under the
+// main module's import prefix, named as a load root and therefore composed
+// into the extension tier. Nothing else in the key distinguishes two roots that
+// declare the same module path and hold different code at that path — two
+// checkouts of one project, e.g. worktrees, open in one LSP. Without this, the
+// second root would be served the first root's working-copy types and would
+// even pass sharedWorld.fresh, because the stamps belong to the other directory
+// and are genuinely unchanged. It is the same aliasing sharedWorldOrigin exists
+// to prevent, one level down.
 //
-// The test is by import-path prefix, which is sound in the SAFE direction: a
-// main-module package's path always starts with the module path, so no
-// main-module config package escapes, and a nested module that shares the
-// prefix merely loses sharing. An empty module path forfeits the test
-// altogether, so every non-base config path binds to the root.
+// Main-module config packages used to be the motivating case; they no longer
+// compose into any world (see sharedWorldComposition), which narrows this to
+// the nested-module case above and to an empty module path — where nothing can
+// be classified, so every non-base path binds to the root. The test is by
+// import-path prefix, which errs toward binding: over-binding costs sharing,
+// under-binding would alias two roots' types.
 func sharedWorldRootBound(paths []string, modulePath string) bool {
 	for _, p := range paths {
 		if p == gsxRuntimeImportPath || p == stdImportPath {
@@ -399,12 +353,27 @@ func sharedWorldKey(loadPaths, buildEnv []string, toolchain, origin string) stri
 // is what lets a configured module take the fast path at all: a project half
 // loaded without NeedTypes could never serve them.
 //
-// ok is false only when the module's config cannot be composed into ONE
-// world: a PerDir entry carrying its own class merger or a non-std filter
-// package wants a world that differs by directory, which this phase does not
-// support — that module keeps the original single full-mode load. A PerDir
-// entry that only repeats the std filter (the "inherit" shape) is not
-// variance and does not disqualify.
+// A config package that lives in the MAIN module (gsxui's merge/) is left
+// OUT. Its types never came from the world in the first place: module-local
+// paths resolve through configuredSourcePackages' source resolver, and
+// externalImporter drops every local path from the published importer, so the
+// world's copy was only ever a load-set member. What it did do was stamp the
+// merger's files into every world tier, so editing the class merger — a
+// routine edit — invalidated all of them and cost two world rebuilds
+// (measured: +16% on gsxui's merger cycle). The merger's own external
+// dependencies are not lost: the project half references them, so the
+// extension tier composes them like any other gap. Main-module code therefore
+// never enters a shared world, which is also what lets mainModuleBackedge be
+// one flat ownership test.
+//
+// ok is false when the module's config cannot be composed into ONE world: a
+// PerDir entry carrying its own class merger or a non-std filter package wants
+// a world that differs by directory, which this phase does not support — that
+// module keeps the original single full-mode load. A PerDir entry that only
+// repeats the std filter (the "inherit" shape) is not variance and does not
+// disqualify. ok is false too when the exclusion above empties the set, which
+// happens only when the module being built IS the gsx runtime: there is no
+// external world left to share, and the full load is the honest answer.
 func (m *Module) sharedWorldComposition() (paths []string, ok bool) {
 	o := m.opts
 	for _, d := range o.PerDir {
@@ -437,9 +406,17 @@ func (m *Module) sharedWorldComposition() (paths []string, ok bool) {
 
 	paths = make([]string, 0, len(set))
 	for p := range set {
-		if p != "" {
-			paths = append(paths, p)
+		// The prefix test errs toward exclusion: a nested module sharing the
+		// main module's import prefix is dropped here too, and the extension
+		// tier picks it up from the project half's references, where its
+		// non-main-module identity is a loaded fact rather than a guess.
+		if p == "" || p == m.opts.ModulePath || (m.opts.ModulePath != "" && strings.HasPrefix(p, m.opts.ModulePath+"/")) {
+			continue
 		}
+		paths = append(paths, p)
+	}
+	if len(paths) == 0 {
+		return nil, false
 	}
 	sort.Strings(paths)
 	return paths, true
@@ -522,15 +499,10 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		}
 	}
 
-	world, worldPaths, err := m.coveringWorld(cfg, configPaths, pkgs, mainModule)
+	world, err := m.coveringWorld(cfg, configPaths, pkgs, mainModule)
 	if err != nil {
 		return nil, err
 	}
-	composed := make(map[string]bool, len(worldPaths))
-	for _, p := range worldPaths {
-		composed[p] = true
-	}
-
 	// The world may only carry code this Module treats as EXTERNAL. A config
 	// package that imports back into the main module drags main-module packages
 	// into the closure, which is the shape externalBackedgePackages rejects on
@@ -545,7 +517,7 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 	// identity, so it is stable for as long as the entry is cached — "permanent
 	// for that key", as the design requires — while staying correct for a world
 	// shared by roots whose main modules differ.
-	if world.mainModuleBackedge(m.opts.ModulePath, composed) {
+	if world.mainModuleBackedge(m.opts.ModulePath) {
 		sharedWorldBackedge.Add(1)
 		return loadPackages(cfg, loadPaths...)
 	}
@@ -611,22 +583,18 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 // a `.go` body does not move it, and only ADDING or REMOVING an import of a
 // package the config world lacks re-keys — rare, and self-healing when it
 // happens.
-func (m *Module) coveringWorld(cfg *packages.Config, configPaths []string, pkgs []*packages.Package, mainModule map[string]bool) (*sharedWorld, []string, error) {
+func (m *Module) coveringWorld(cfg *packages.Config, configPaths []string, pkgs []*packages.Package, mainModule map[string]bool) (*sharedWorld, error) {
 	world, err := m.sharedWorldFor(cfg, configPaths)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	gaps := worldGaps(pkgs, mainModule, world)
 	if len(gaps) == 0 {
-		return world, configPaths, nil
+		return world, nil
 	}
 	worldPaths := append(append(make([]string, 0, len(configPaths)+len(gaps)), configPaths...), gaps...)
 	sort.Strings(worldPaths)
-	world, err = m.sharedWorldFor(cfg, worldPaths)
-	if err != nil {
-		return nil, nil, err
-	}
-	return world, worldPaths, nil
+	return m.sharedWorldFor(cfg, worldPaths)
 }
 
 // resolvedImportPath returns the package path an import RESOLVES to. The
@@ -734,7 +702,6 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 		types:    map[string]*types.Package{},
 		errs:     map[string][]packages.Error{},
 		moduleOf: map[string]string{},
-		imports:  map[string][]string{},
 	}
 	seen := map[string]bool{}
 	seenDir := map[string]bool{}
@@ -747,13 +714,6 @@ func loadSharedWorld(key string, cfg *packages.Config, loadPaths []string) (*sha
 		}
 		if p.Module != nil && p.Module.Path != "" {
 			world.moduleOf[p.PkgPath] = p.Module.Path
-		}
-		if len(p.Imports) > 0 {
-			edges := make([]string, 0, len(p.Imports))
-			for importPath := range p.Imports {
-				edges = append(edges, importPath)
-			}
-			world.imports[p.PkgPath] = edges
 		}
 		// Only module-owned files are stamped (p.Module == nil means stdlib,
 		// which the toolchain identity in the key already covers). The previous

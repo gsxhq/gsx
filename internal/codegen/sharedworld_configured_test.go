@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,8 +16,9 @@ import (
 // the split load:
 //
 //   - a class merger in the MAIN module (gsxui's `merge/`), whose types come
-//     from the retained project source, and whose dir must therefore stay a
-//     retained source package even though the world also loads it;
+//     from the retained project source and which therefore never enters a
+//     world at all — its dir must stay a retained source package, since that
+//     retention IS the type authority for it;
 //   - a whole-package filter in a SEPARATE module (the structpages shape),
 //     whose types can only come from the world's universe — the reduced project
 //     half carries none.
@@ -36,8 +38,9 @@ func Shout(s string) string { return strings.ToUpper(s) + "!" }
 
 // configuredWorldFixture parameterizes that fixture. The zero merge/filter
 // source means the plain shape; a caller overrides one of them to stage a
-// back-edge (a config package reaching back into the main module) and sets
-// filterRequiresMain so the filters module can import it.
+// back-edge — an OUT-OF-MODULE config package reaching back into the main
+// module, the only remaining boundary crossing — and sets filterRequiresMain
+// so the filters module can import it.
 type configuredWorldFixture struct {
 	name                string
 	merge               string
@@ -191,11 +194,13 @@ func TestSharedWorldServesConfiguredModule(t *testing.T) {
 }
 
 // TestSharedWorldRetainsMainModuleConfigDir pins retention for a config package
-// that lives in the MAIN module. The world's synthetic entries carry no
-// CompiledGoFiles and no syntax, so if the reduced project half stopped
-// covering the merger's dir, projectSourcePackages would lose it — and every
-// consumer of retained source for that dir (the merger's own type resolution,
-// LSP go-to-definition and hover) would go with it.
+// that lives in the MAIN module — which, since main-module code stopped
+// entering worlds, is the ONLY source of types for it. If the reduced project
+// half stopped covering the merger's dir, projectSourcePackages would lose it,
+// and with it the merger's own type resolution and LSP go-to-definition and
+// hover; nothing else carries that dir's syntax. The test predates that change
+// and needed no edit for it, which is the point: retained source was always
+// the authority here.
 func TestSharedWorldRetainsMainModuleConfigDir(t *testing.T) {
 	root, modPath, filterPath := configuredWorldFixture{name: "cfgretain"}.write(t)
 	views := filepath.Join(root, "views")
@@ -234,11 +239,21 @@ func TestSharedWorldRetainsMainModuleConfigDir(t *testing.T) {
 	}
 }
 
-// TestSharedWorldBackedgeFallsBack pins the guard: a config package whose
-// closure pulls in main-module packages OUTSIDE the composed config set makes
-// the world unservable, so the Module falls back to the single full-mode load
-// — visibly (sharedWorldBackedge), and with generation still correct.
-func TestSharedWorldBackedgeFallsBack(t *testing.T) {
+// TestSharedWorldServesMainModuleConfigDependencies pins what replaced the
+// design's "hard case". A class merger in the main module is NOT composed into
+// any world tier — its types always came from retained source — so:
+//
+//   - a merger that imports another main-module package is an ordinary local
+//     dependency, not a back-edge: both resolve from source, no main-module
+//     code is in the world, and the module is served rather than returned to
+//     the full load (which is what this test asserted while the merger was
+//     composed);
+//   - editing the merger no longer invalidates the world at all. It is a
+//     main-module `.go` edit like any other: one project-half reload, zero
+//     world loads. While the merger was composed, its files were stamped into
+//     every tier, so this edit rebuilt them all — +16% on gsxui's merger cycle,
+//     the measurement that motivated the change.
+func TestSharedWorldServesMainModuleConfigDependencies(t *testing.T) {
 	mergeSrc := `package merge
 
 import (
@@ -255,21 +270,45 @@ func Merge(classes []string) string { return strings.Join(append(classes, style.
 		extraMainModuleFile: [2]string{"style", "package style\n\nconst Extra = \"extra\"\n"},
 	}.write(t)
 	views := filepath.Join(root, "views")
+	opts := configuredWorldOptions(root, modPath, filterPath)
 
 	beforeBackedge, beforeFast := SharedWorldBackedgeFallbacks(), sharedWorldFast.Load()
-	_, out := generateConfiguredWorld(t, configuredWorldOptions(root, modPath, filterPath), views)
-	if got := SharedWorldBackedgeFallbacks() - beforeBackedge; got != 1 {
-		t.Fatalf("world back-edge fallbacks = %d, want 1", got)
+	_, out := generateConfiguredWorld(t, opts, views)
+	if got := SharedWorldBackedgeFallbacks() - beforeBackedge; got != 0 {
+		t.Fatalf("world back-edge fallbacks = %d, want 0: a main-module merger's main-module import is not a boundary crossing", got)
 	}
-	if got := sharedWorldFast.Load() - beforeFast; got != 0 {
-		t.Fatalf("shared-world fast path taken %d times despite a main-module back-edge, want 0", got)
+	if got := sharedWorldFast.Load() - beforeFast; got != 1 {
+		t.Fatalf("shared-world fast path taken %d times, want 1", got)
 	}
 	var emitted string
 	for _, src := range out {
 		emitted = string(src)
 	}
 	if !bytes.Contains([]byte(emitted), []byte("_gsxcm.Merge")) {
-		t.Fatalf("fallback generation lost the configured merger:\n%s", emitted)
+		t.Fatalf("generation lost the configured merger:\n%s", emitted)
+	}
+
+	// The merger edit itself: a behavior change (space-joined to comma-joined),
+	// the shape gsxui's wide cycle takes.
+	if err := os.WriteFile(filepath.Join(root, "merge", "merge.go"), []byte(`package merge
+
+import (
+	"strings"
+
+	"example.com/cfgbackedge/style"
+)
+
+func Merge(classes []string) string { return strings.Join(append(classes, style.Extra), ",") }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeWorlds, beforeLoads := SharedWorldLoads(), ProjectLoadCalls()
+	generateConfiguredWorld(t, opts, views)
+	if got := SharedWorldLoads() - beforeWorlds; got != 0 {
+		t.Fatalf("editing the class merger rebuilt %d worlds, want 0: main-module code must not be stamped into any world", got)
+	}
+	if got := ProjectLoadCalls() - beforeLoads; got != 1 {
+		t.Fatalf("a merger edit issued %d packages.Load calls, want 1 (the project half, like any other main-module .go edit)", got)
 	}
 }
 

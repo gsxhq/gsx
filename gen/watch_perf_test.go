@@ -295,12 +295,16 @@ func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string)
 // opened in this process over the SAME root and configuration must reuse the
 // cached world instead of reloading it.
 //
-//   - cold start (the session's first Generate) issues exactly TWO world
-//     loads, one per tier: the config closure {runtime, std, filters, mrg},
-//     then the extension that covers what the project imports from outside
-//     it (dep/ imports github.com/gsxhq/gsx/parser — gsxui's shape, a package
-//     no configuration names). Each tier is built once and only once.
-//     Getting the config tier to 1 (not 2) required routing prepareWatchSession's
+//   - cold start (the session's first Generate) issues AT MOST two world
+//     loads, one per tier: the config closure, then the extension that covers
+//     what the project imports from outside it (dep/ imports
+//     github.com/gsxhq/gsx/parser — gsxui's shape, a package no configuration
+//     names). At most, not exactly, because neither tier's key mentions this
+//     fixture's temp root — main-module code no longer composes, so two
+//     fixtures of the same shape share both entries — and an earlier test in
+//     the process may already have built either one. Three would mean a
+//     third, differently-keyed world, which is the regression this bound
+//     exists for: getting the config tier to one required routing prepareWatchSession's
 //     class-merger validation through the session's own already-open Module
 //     (codegen.Module.ValidateConfiguredMergers) instead of a throwaway probe
 //     Module scoped to just the merger: the probe's narrower composition
@@ -401,7 +405,7 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 	}
 
 	coldWorldDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta := measure()
-	if coldWorldDelta != 2 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
+	if coldWorldDelta > 2 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
 		c2, w2, p2, sw2, sh2 := measure()
 		coldWorldDelta = min(coldWorldDelta, c2)
 		goEditWorldDelta = min(goEditWorldDelta, w2)
@@ -409,8 +413,8 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		secondWorldDelta = min(secondWorldDelta, sw2)
 		secondHitDelta = min(secondHitDelta, sh2)
 	}
-	if coldWorldDelta != 2 {
-		t.Errorf("configured-module cold start issued %d shared-world loads, want exactly 2 (the config tier and the extension that covers dep's out-of-config import)", coldWorldDelta)
+	if coldWorldDelta > 2 {
+		t.Errorf("configured-module cold start issued %d shared-world loads, want at most 2 (the config tier and the extension that covers dep's out-of-config import)", coldWorldDelta)
 	}
 	if goEditWorldDelta != 0 {
 		t.Errorf("dep.go edit (outside the composed closure) reloaded the shared world %d times, want 0", goEditWorldDelta)

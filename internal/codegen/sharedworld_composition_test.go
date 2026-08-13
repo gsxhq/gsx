@@ -59,10 +59,12 @@ func TestSharedWorldOriginCoversConfigModules(t *testing.T) {
 // TestSharedWorldRootBound is a pure table test over composed path sets: it
 // decides whether a world may be shared between two module roots. A world
 // holding only the fixed base closure is root-independent (sharedWorldOrigin
-// already keys where the runtime resolves from); a world holding a config
-// package that could live in the main module is not, because two roots can
-// declare the same module path and the same config — two checkouts of one
-// project — and nothing else in the key would tell them apart.
+// already keys where the runtime resolves from); a world holding a package
+// under the main module's own import path is not, because two roots can
+// declare the same module path and hold different code there — two checkouts
+// of one project — and nothing else in the key would tell them apart. Since
+// main-module code stopped composing, the reachable case is a nested module
+// named as a load root, which the extension tier composes.
 func TestSharedWorldRootBound(t *testing.T) {
 	base := []string{gsxRuntimeImportPath, stdImportPath}
 	tests := []struct {
@@ -79,7 +81,7 @@ func TestSharedWorldRootBound(t *testing.T) {
 			false,
 		},
 		{
-			"a main-module config package binds the world to this root",
+			"a package under the main module's path (a nested module load root) binds the world to this root",
 			append(append([]string(nil), base...), "example.com/app/merge"),
 			"example.com/app",
 			true,
@@ -196,6 +198,46 @@ func TestSharedWorldComposition(t *testing.T) {
 			},
 			wantOK:    true,
 			wantPaths: base,
+		},
+		{
+			name: "a class merger in the MAIN module is left out of the world",
+			opts: Options{
+				ModulePath:  "example.com/m",
+				ClassMerger: &ClassMergerRef{PkgPath: "example.com/m/merge", FuncName: "Merge"},
+			},
+			wantOK: true,
+			// Its types come from retained source, and its external dependencies
+			// reach the world through the extension tier. Composing it only
+			// stamped its files into every tier, so a merger edit rebuilt them all.
+			wantPaths: base,
+		},
+		{
+			name: "an out-of-module config package still joins the world",
+			opts: Options{
+				ModulePath: "example.com/m",
+				FilterPkgs: []string{"github.com/jackielii/structpages"},
+			},
+			wantOK:    true,
+			wantPaths: append(append([]string(nil), base...), "github.com/jackielii/structpages"),
+		},
+		{
+			name: "the exclusion is by import-path prefix, so a nested module under the main module's path is left out too",
+			opts: Options{
+				ModulePath: "example.com/m",
+				LoadPkgs:   []string{"example.com/m/nested/tools"},
+			},
+			wantOK: true,
+			// Over-exclusion is safe: the project half references it, so the
+			// extension tier composes it with its non-main-module identity read
+			// from the load rather than guessed from the path.
+			wantPaths: base,
+		},
+		{
+			name: "a module that IS the gsx runtime has no external world left to share",
+			opts: Options{
+				ModulePath: gsxRuntimeImportPath,
+			},
+			wantOK: false,
 		},
 		{
 			name: "per-dir class merger disqualifies composition",

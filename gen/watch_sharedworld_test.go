@@ -10,16 +10,16 @@ import (
 )
 
 // writeSharedWorldFixture stages the ONE configured-module watch fixture the
-// design's "Main-module config packages (the hard case)" section names: a
+// design's "Main-module config packages" section names: a
 // class merger that lives in the MAIN module (mrg/ — gsxui's own merge/
 // shape), an unrelated go-only project dependency (dep/), and a views
 // package that depends on both — the merger implicitly (recordImports'
 // configured-function edge, the same mechanism TestWatchSession_
 // RendererEditInvalidatesConsumer exercises for renderers) and dep
 // explicitly (an ordinary .gsx import). One fixture serves all three watch-
-// cycle shapes below: a merger edit (inside the world's composed closure), a
-// dep edit (inside the project but outside the world), and a pure .gsx edit
-// (outside both).
+// cycle shapes below: a merger edit (main-module config code, which no world
+// carries), a dep edit (an ordinary project dependency), and a pure .gsx edit
+// — none of which may touch the world, for three different reasons.
 func writeSharedWorldFixture(t *testing.T, root, modName string) (modPath, mrgDir, depDir, viewsDir string) {
 	t.Helper()
 	modPath = "example.com/" + modName
@@ -70,41 +70,40 @@ func runSharedWorldRender(t *testing.T, root string) string {
 }
 
 // TestWatchSharedWorld_MergerEditProducesFreshBehavior pins behavior (a) of
-// Task 3: editing the configured class merger's .go file — main-module code
-// living INSIDE the shared world's composed closure — regenerates cleanly on
-// the very next watch cycle and the rebuilt program's rendered output
-// reflects the merger's new join separator.
+// Task 3, rewritten after the gsxui A/B: editing the configured class merger's
+// .go file regenerates cleanly on the very next watch cycle and the rebuilt
+// program's rendered output reflects the merger's new join separator — WITHOUT
+// touching the shared world at all.
 //
-// The generated card.x.go itself cannot show this: codegen never inlines a
+// The pin used to be the opposite ("SharedWorldLoads increases"), because a
+// main-module class merger was composed into the world and its file stamps
+// invalidated it. That cost two world rebuilds per merger edit and measured
+// +16% against main on gsxui's merger cycle, for types the world never served:
+// a module-local config package resolves through configuredSourcePackages'
+// source resolver, and externalImporter drops every local path from the
+// published importer. Main-module code no longer enters any world, so a merger
+// edit is now an ordinary main-module .go edit.
+//
+// The generated card.x.go itself cannot show freshness: codegen never inlines a
 // merger's behavior, it only ever emits a runtime reference
 // (_gsxgw.Class(_gsxcm.Merge, ...); see
 // internal/corpus/testdata/cases/class/merger_static.txtar), so the merger's
 // body is invisible to a bytes-of-card.x.go comparison regardless of
-// staleness. Two separate assertions are needed to actually pin the design's
-// freshness claim:
+// staleness. Two assertions pin the new contract:
 //
-//   - SharedWorldLoads increases, proving loadSharedWorld's own freshness
-//     check (sharedWorld.fresh, keyed on the merger's file stamp) noticed the
-//     edit and re-loaded rather than silently reusing the cold closure — this
-//     is the part that is actually gsx's, not go build's;
-//   - the rendered class attribute changes, proving the watch cycle's regen
-//     did not corrupt or poison card.x.go in the process, and that the
-//     round-trip a developer actually observes under `gsx dev` behaves as the
-//     spec promises end to end.
+//   - SharedWorldLoads does NOT move: the world holds nothing belonging to the
+//     merger, so nothing about it can go stale. This is an exact zero, which is
+//     a strictly stronger statement than the old ">= 1";
+//   - the rendered class attribute changes, proving the merger's new behavior
+//     reaches the rebuilt program through retained source + recompilation —
+//     the round-trip a developer observes under `gsx dev`. This check remains
+//     valid and is now the whole freshness story for config behavior.
 //
-// Deliberately NOT t.Parallel(), even though the SharedWorldLoads assertion
-// is a ">= 1" bound rather than an exact delta: codegen.SharedWorldLoads is a
-// process-wide counter, so under -parallel a sibling test that mints and
-// cold-loads its OWN distinct world key pads this same counter. That would
-// make the ">= 1" bound pass even if THIS test's own reload were completely
-// broken (a false pass, not a false fail) — and the render check does not
-// backstop it, because `go run .` always recompiles mrg.go fresh from disk
-// regardless of gsx's internal freshness state (see the doc above). A
-// process-wide counter that gates a load-bearing assertion needs the same
-// non-parallel discipline as every other counter-reading test in this
-// package (TestWatchSession_EditLoadBudget,
-// TestWatchSharedWorld_UnrelatedEditsLeaveWorldCold), regardless of which
-// direction the bound points.
+// Deliberately NOT t.Parallel(): codegen.SharedWorldLoads is a process-wide
+// counter, and a zero-delta bound is exactly what a sibling test's own cold
+// world load would falsely trip (same discipline as
+// TestWatchSession_EditLoadBudget and
+// TestWatchSharedWorld_UnrelatedEditsLeaveWorldCold).
 func TestWatchSharedWorld_MergerEditProducesFreshBehavior(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping go-build/run test in -short mode")
@@ -155,8 +154,8 @@ func TestWatchSharedWorld_MergerEditProducesFreshBehavior(t *testing.T) {
 	if !results[0].OK {
 		t.Fatalf("views regen after merger edit not OK: err=%v diags=%v", results[0].Err, results[0].Diags)
 	}
-	if got := codegen.SharedWorldLoads() - beforeWorld; got < 1 {
-		t.Fatalf("shared-world load count did not increase after editing a file the world stamped (delta %d): loadSharedWorld's freshness check did not re-load the merger's package", got)
+	if got := codegen.SharedWorldLoads() - beforeWorld; got != 0 {
+		t.Fatalf("editing the class merger rebuilt %d shared worlds, want 0: main-module code must not be stamped into any world tier", got)
 	}
 
 	out := runSharedWorldRender(t, root)
