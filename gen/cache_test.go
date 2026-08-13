@@ -5,13 +5,32 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
+// writeCacheBoundaryGoCommand installs a fake `go` on PATH that answers the
+// environment probes from a fixed script and forwards everything else to the
+// real toolchain.
+//
+// GSX_COMMAND_LOG records one line per forwarded (non-`go env`) command. It is
+// append-only on purpose: packages.Load runs several `go list` invocations
+// CONCURRENTLY — golist.go fills in Sizes from a goroutine, so the
+// `{{context.GOARCH}} {{context.Compiler}}` probe overlaps the driver's
+// `{{context.ReleaseTags}}` probe to the microsecond. A read-modify-write
+// counter loses updates under that overlap (and reads an empty file inside the
+// other writer's truncate window, resetting the count to 1), which is exactly
+// how this harness flaked in CI. Appends of one short line are atomic, and the
+// log doubles as the diagnostic when a command-count assertion fails.
+//
+// GSX_CREATE_VENDOR_AFTER_FIRST_COMMAND creates GSX_CREATE_VENDOR_DIR from the
+// second forwarded command onwards — i.e. once the metadata graph list has been
+// taken, so vendor/ appears while packages.Load is running. Each command counts
+// the log after appending its own line, so the ordering is decided by durable
+// state rather than by a racing counter.
 func writeCacheBoundaryGoCommand(t *testing.T, compiler string) string {
 	t.Helper()
 	realGo, err := exec.LookPath("go")
@@ -48,22 +67,13 @@ if [ "$1" = "list" ] && [ "$2" = "-deps" ] && [ -n "$GSX_FAIL_GRAPH_MARKER" ]; t
 	: > "$GSX_FAIL_GRAPH_MARKER"
 	exit 1
 fi
-if [ -n "$GSX_COMMAND_COUNTER" ]; then
-	count=0
-	if [ -f "$GSX_COMMAND_COUNTER" ]; then
-		read count < "$GSX_COMMAND_COUNTER"
-	fi
-	count=$((count + 1))
-	printf '%s' "$count" > "$GSX_COMMAND_COUNTER"
-fi
-if [ -n "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
-	count=0
-	if [ -f "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER" ]; then
-		read count < "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER"
-	fi
-	count=$((count + 1))
-	printf '%s' "$count" > "$GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER"
-	if [ "$count" -eq 2 ]; then
+if [ -n "$GSX_COMMAND_LOG" ]; then
+	printf '%s\n' "$*" >> "$GSX_COMMAND_LOG"
+	commands=0
+	while read -r _; do
+		commands=$((commands + 1))
+	done < "$GSX_COMMAND_LOG"
+	if [ -n "$GSX_CREATE_VENDOR_AFTER_FIRST_COMMAND" ] && [ "$commands" -ge 2 ]; then
 		/bin/mkdir -p "$GSX_CREATE_VENDOR_DIR"
 	fi
 fi
@@ -91,6 +101,79 @@ exec "$REAL_GO" "$@"
 	t.Setenv("GOFLAGS", "")
 	t.Setenv("GOPACKAGESDRIVER", "off")
 	return command
+}
+
+// enableGoCommandLog points the fake `go` launcher at a fresh command log and
+// returns the reader for it. The reader reports the forwarded commands in the
+// order they started, so assertions can name what ran instead of comparing a
+// bare integer.
+func enableGoCommandLog(t *testing.T) func() []string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "go-commands")
+	t.Setenv("GSX_COMMAND_LOG", path)
+	return func() []string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			t.Fatalf("read go command log: %v", err)
+		}
+		var commands []string
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if strings.TrimSpace(line) != "" {
+				commands = append(commands, line)
+			}
+		}
+		return commands
+	}
+}
+
+// TestCacheBoundaryGoCommandLogRecordsConcurrentCommands pins the harness
+// property every command-count assertion below rests on. packages.Load runs
+// `go list` invocations concurrently, so the launcher's log must record all of
+// them; the read-modify-write counter this replaced dropped commands under that
+// overlap and flaked in CI. No packages.Load here — `go version` forwards in
+// milliseconds.
+func TestCacheBoundaryGoCommandLogRecordsConcurrentCommands(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell Go launcher probe is Unix-only")
+	}
+	compiler := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(compiler, []byte("compiler version one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := writeCacheBoundaryGoCommand(t, compiler)
+	goCommands := enableGoCommandLog(t)
+
+	const concurrent = 8
+	errs := make([]error, concurrent)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range concurrent {
+		wg.Go(func() {
+			<-start
+			errs[i] = exec.Command(command, "version").Run()
+		})
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent forwarded command %d: %v", i, err)
+		}
+	}
+	if commands := goCommands(); len(commands) != concurrent {
+		t.Fatalf("logged commands = %d, want %d: %q", len(commands), concurrent, commands)
+	}
+}
+
+// isMetadataGraphList reports whether cmd is the cache's own
+// `go list -deps` metadata graph query (gen/cachekey.go), the command that must
+// precede any packages.Load on a cache path.
+func isMetadataGraphList(cmd string) bool {
+	return strings.HasPrefix(cmd, "list -deps ")
 }
 
 func TestCacheColdWarmEdit(t *testing.T) {
@@ -219,11 +302,7 @@ func TestCacheWarmHitAvoidsSemanticPackagesLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	counter := filepath.Join(t.TempDir(), "command-count")
-	if err := os.WriteFile(counter, []byte("0"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GSX_COMMAND_COUNTER", counter)
+	goCommands := enableGoCommandLog(t)
 
 	_, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
@@ -233,12 +312,8 @@ func TestCacheWarmHitAvoidsSemanticPackagesLoad(t *testing.T) {
 	if hits != 1 || misses != 0 || uncacheable != 0 || report.semanticGeneration() {
 		t.Fatalf("warm cache report = %+v", report)
 	}
-	data, err := os.ReadFile(counter)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(string(data)); got != "1" {
-		t.Fatalf("warm non-env go commands = %s, want 1 metadata go list only", got)
+	if commands := goCommands(); len(commands) != 1 || !isMetadataGraphList(commands[0]) {
+		t.Fatalf("warm non-env go commands = %q, want the metadata go list only", commands)
 	}
 	gotSource, err := os.ReadFile(xgo)
 	if err != nil {
@@ -498,21 +573,25 @@ func TestCacheMissRejectsVendorAppearanceDuringPackagesLoad(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	cacheRoot := t.TempDir()
 	t.Setenv("GSXCACHE", cacheRoot)
-	counter := filepath.Join(t.TempDir(), "semantic-command-count")
-	t.Setenv("GSX_CREATE_VENDOR_ON_SECOND_COMMAND_COUNTER", counter)
+	goCommands := enableGoCommandLog(t)
+	t.Setenv("GSX_CREATE_VENDOR_AFTER_FIRST_COMMAND", "1")
 	t.Setenv("GSX_CREATE_VENDOR_DIR", filepath.Join(root, "vendor"))
 
 	res, err := generateCached([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err == nil || !strings.Contains(err.Error(), "vendor directory state changed") {
 		t.Fatalf("generate error = %v, want packages.Load vendor mutation rejection", err)
 	}
-	count, err := os.ReadFile(counter)
-	if err != nil {
-		t.Fatalf("semantic command counter: %v", err)
+	// vendor/ appears from the second command onwards, so the rejection is only
+	// meaningful if the metadata graph list ran first and a packages.Load
+	// followed it — assert that shape, not just a count.
+	commands := goCommands()
+	if len(commands) < 2 || !isMetadataGraphList(commands[0]) {
+		t.Fatalf("semantic go commands = %q, want the metadata graph list followed by packages.Load", commands)
 	}
-	commandCount, err := strconv.Atoi(string(count))
-	if err != nil || commandCount < 2 {
-		t.Fatalf("semantic command count = %q, want graph followed by packages.Load", count)
+	for _, cmd := range commands[1:] {
+		if isMetadataGraphList(cmd) {
+			t.Fatalf("semantic go commands = %q, want packages.Load after the metadata graph list", commands)
+		}
 	}
 	if len(res.Written) != 0 {
 		t.Fatalf("packages.Load provenance failure wrote files: %v", res.Written)

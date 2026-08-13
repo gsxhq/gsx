@@ -803,6 +803,17 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
 - [ ] **Cheap world reload** (Phase 2) - extend world sharing to the full
   external closure (keyed by go.mod/go.sum + replace-dirs + vendor mode) so the
   reload itself gets cheaper, not just narrower.
+- [x] **Project-scoped shared world** (2026-08-13, Phase 2a,
+  `2026-08-13-project-shared-world-design.md`) - a configured module (filters,
+  renderers, aliases, or a class merger) composes its out-of-module config
+  packages into the process-wide shared world instead of being disqualified
+  outright; main-module code never enters a world, so a class-merger edit is an
+  ordinary project edit. Byte-identical (`GSXCACHE=off generate` over gsxui: all
+  up to date, zero writes). A module needing types the configuration does not
+  name - a `.gsx` importing a third-party package, as gsxui does - is refused
+  before any load and pays exactly the pre-phase single load: gsxui measures at
+  parity on every dev cycle. The win is in processes that open many Modules over
+  one configuration: the corpus suite 19.4s -> 12.8s.
 - [x] **`@gsxhq/vite-plugin-gsx`** (npm **v0.4.5**, `~/personal/gsxhq/vite-plugin-gsx`) -
   receives generation/build events from `gsx dev`, surfaces diagnostics in the
   Vite error overlay (auto-clears on recovery), and full-reloads after the server

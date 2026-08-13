@@ -216,11 +216,7 @@ func TestRealisticCacheColdWarm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	counter := filepath.Join(t.TempDir(), "command-count")
-	if err := os.WriteFile(counter, []byte("0"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GSX_COMMAND_COUNTER", counter)
+	goCommands := enableGoCommandLog(t)
 	warm, warmReport, err := generate()
 	if err != nil {
 		t.Fatalf("warm generation: %v", err)
@@ -232,12 +228,8 @@ func TestRealisticCacheColdWarm(t *testing.T) {
 	if len(warm.Written) != 0 || warm.UpToDate != 1 {
 		t.Fatalf("warm result = %+v, want one up-to-date output", warm)
 	}
-	gotCount, err := os.ReadFile(counter)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(string(gotCount)); got != "1" {
-		t.Fatalf("warm non-env Go commands = %s, want metadata go list only", got)
+	if commands := goCommands(); len(commands) != 1 || !isMetadataGraphList(commands[0]) {
+		t.Fatalf("warm non-env Go commands = %q, want the metadata go list only", commands)
 	}
 	gotGenerated, err := os.ReadFile(generatedPath)
 	if err != nil {

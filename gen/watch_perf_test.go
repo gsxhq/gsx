@@ -134,7 +134,8 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 	// closure, which loadSharedWorld already cached fresh from cold start. The
 	// project-half load is the only per-reload cost because this fixture's
 	// Options carry no filters/renderers/aliases/class-merger, so
-	// sharedWorldEligible stays true and no fallback full load triggers. It is
+	// sharedWorldComposition composes to exactly {runtime, std} (ok=true) and
+	// no fallback full load triggers. It is
 	// independent of fillerDirs: "./..." is one packages.Load call regardless
 	// of how many directories it walks, which is the invariant this test
 	// exists to pin — a regression toward reopen-per-dir would scale with
@@ -244,5 +245,203 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 	}
 	if goDelta2 != goEditLoadBudget {
 		t.Errorf("second .go body edit issued %d packages.Load calls, want the same %d as the first — reload cost must not grow across repeated cycles", goDelta2, goEditLoadBudget)
+	}
+}
+
+// writeConfiguredModuleWorldBudgetFixture stages the CONFIGURED-module fixture
+// the design's acceptance gate #2 names (docs/superpowers/specs/2026-08-13-
+// project-shared-world-design.md), in the shape gsxui actually has:
+//
+//   - an in-module class merger (mrg/, gsxui's merge/): main-module code, so it
+//     composes into NO world and its types come from retained source;
+//   - an out-of-module filter package (filters/, its own module, the
+//     structpages shape): this is what the config tier is made of;
+//   - an ordinary project dependency (dep/) whose own imports stay inside the
+//     world's closure, so the module is servable and this gate measures the
+//     world rather than a refusal.
+//
+// views/ exercises all three: the merger via a composite class attribute, the
+// filter via a `|> shout` pipeline, and dep via an ordinary .gsx import.
+func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string) (modPath, filterPath, mrgDir, depDir, viewsDir string) {
+	t.Helper()
+	modPath = "example.com/" + modName
+	// The filter package lives in its OWN module, so it actually composes into
+	// the config tier. A main-module filter package would not: main-module code
+	// never enters a world, which would collapse tier one to the base pair and
+	// leave this gate measuring nothing about configuration at all.
+	filterPath = "example.com/" + modName + "filters"
+	writeFileT(t, filepath.Join(root, "go.mod"),
+		"module "+modPath+"\n\ngo 1.26.1\n\nrequire (\n\tgithub.com/gsxhq/gsx v0.0.0\n\t"+filterPath+" v0.0.0\n)\n\nreplace github.com/gsxhq/gsx => "+gsxModuleDir(t)+"\n\nreplace "+filterPath+" => ./filters\n")
+	mrgDir = filepath.Join(root, "mrg")
+	filterDir := filepath.Join(root, "filters")
+	depDir = filepath.Join(root, "dep")
+	viewsDir = filepath.Join(root, "views")
+	writeFileT(t, filepath.Join(filterDir, "go.mod"), "module "+filterPath+"\n\ngo 1.26.1\n")
+	writeFileT(t, filepath.Join(mrgDir, "mrg.go"),
+		"package mrg\n\nimport \"strings\"\n\nfunc Merge(classes []string) string { return strings.Join(classes, \" \") }\n")
+	writeFileT(t, filepath.Join(filterDir, "filters.go"),
+		"package filters\n\nimport \"strings\"\n\nfunc Shout(s string) string { return strings.ToUpper(s) + \"!\" }\n")
+	// dep stays inside the servable surface: main-module code importing only the
+	// stdlib the runtime closure already carries. A dependency outside the
+	// configured closure would make the whole module unservable — correctly, and
+	// for one load — which is a different gate (internal/codegen's
+	// TestSharedWorldOutOfConfigImportRefusedForFree).
+	writeFileT(t, filepath.Join(depDir, "dep.go"),
+		"package dep\n\nimport \"strings\"\n\nfunc Value() string { return strings.ToLower(\"EXTRA\") }\n")
+	writeFileT(t, filepath.Join(viewsDir, "card.gsx"),
+		"package views\n\nimport \""+modPath+"/dep\"\n\ncomponent Card() {\n\t<div class={ \"card\", dep.Value() }>{dep.Value() |> shout}</div>\n}\n")
+	return modPath, filterPath, mrgDir, depDir, viewsDir
+}
+
+// TestWatchSession_ConfiguredModuleWorldBudget pins Task 4's acceptance gate
+// (docs/superpowers/specs/2026-08-13-project-shared-world-design.md,
+// "Acceptance gates" #2): a CONFIGURED module — an out-of-module filter package
+// composed into the world, a class merger the main module owns, and an ordinary
+// project dependency that stays inside the composed closure — must hold the same
+// world discipline TestWatchSharedWorld_UnrelatedEditsLeaveWorldCold pins for
+// the unconfigured fixture, PLUS the payoff that motivates this whole phase: a
+// second Module opened in this process over the SAME root and configuration
+// must reuse the cached world instead of reloading it.
+//
+//   - cold start (the session's first Generate) performs exactly ONE world
+//     LOOKUP. Lookups, not loads: every loadSharedWorld call
+//     increments exactly one of SharedWorldLoads or SharedWorldHits, so their
+//     sum counts calls regardless of what an earlier test in the process left
+//     in the cache. Counting loads alone is worthless here — neither tier's key
+//     mentions this fixture's temp root, so a sibling test of the same shape
+//     pre-warms both entries and every load-delta assertion passes vacuously
+//     (the retry-and-take-the-minimum below makes that certain, since the
+//     second window is all hits). Two lookups would mean a second,
+//     differently-keyed world, which is the regression this bound exists for:
+//     getting it to one required routing
+//     prepareWatchSession's class-merger validation through the session's own
+//     already-open Module (codegen.Module.ValidateConfiguredMergers) instead of
+//     a throwaway probe Module scoped to just the merger, whose narrower
+//     composition used to mint a second, differently-keyed world at every
+//     configured-module session startup;
+//   - a .go edit OUTSIDE the composed closure (dep/, an ordinary project
+//     dependency, mirroring TestWatchSharedWorld_UnrelatedEditsLeaveWorldCold's
+//     shape) forces the usual one in-place project-half reload
+//     (TestWatchSession_EditLoadBudget's goEditLoadBudget) but must NOT
+//     reload the world itself — dep.go is not one of the world's stamped
+//     files;
+//   - opening a SECOND watch session over the identical root and cfg — the
+//     same class merger and filter package, so sharedWorldKey computes the
+//     same key — must serve the process-wide cached world: zero further
+//     world loads, and at least one recorded world HIT (SharedWorldHits),
+//     the process-cache payoff this phase exists to prove.
+//
+// Deliberately NOT t.Parallel(): codegen.SharedWorldLoads, codegen.
+// SharedWorldHits, and codegen.ProjectLoadCalls are all process-wide
+// counters (same discipline as TestWatchSession_EditLoadBudget and every
+// other counter-reading test in this package — see gen/watch_sharedworld_
+// test.go's comment block, memorialized after a t.Parallel() regression on a
+// ">= 1" world-load bound). A non-parallel test has the package's only
+// running slot for the assertions below, which a concurrent sibling test's
+// own packages.Load or cache-hit traffic could otherwise falsely trip in
+// either direction. A budget breach is retried once in a fresh module and
+// the two measurements' minimum is taken for every delta, including the
+// "at least 1" hit bound: a real regression (broken caching) reports 0 hits
+// in BOTH windows, so min(0, 0) still fails correctly; foreign traffic can
+// only inflate a measurement, so taking the min never manufactures a false
+// pass — same reasoning as TestWatchSession_EditLoadBudget's retry.
+func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
+	// goEditLoadBudget mirrors TestWatchSession_EditLoadBudget's constant of
+	// the same name: loadExternalGraph's project-half load is the only
+	// packages.Load call an in-place world reload performs, whether or not
+	// the module carries a class merger and filter package — sharedWorldComposition
+	// widens the composed PATH SET, not the number of load calls.
+	const goEditLoadBudget = 1
+
+	// worldLookups counts loadSharedWorld CALLS: each one increments exactly one
+	// of the two counters, so the sum is order-independent where either counter
+	// alone is not.
+	worldLookups := func() uint64 {
+		return uint64(codegen.SharedWorldLoads() + codegen.SharedWorldHits())
+	}
+
+	measure := func() (coldLookupDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta uint64) {
+		root := t.TempDir()
+		modPath, filterPath, _, depDir, viewsDir := writeConfiguredModuleWorldBudgetFixture(t, root, "wwbudget")
+		cfg := watchConfig{
+			paths:       []string{viewsDir},
+			filterPkgs:  []string{filterPath},
+			classMerger: &codegen.ClassMergerRef{PkgPath: modPath + "/mrg", FuncName: "Merge"},
+		}
+
+		beforeCold := worldLookups()
+		sess, startup, err := startWatchSessionForTest(cfg)
+		if err != nil {
+			t.Fatalf("startWatchSessionForTest: %v", err)
+		}
+		for _, r := range startup {
+			if !r.OK {
+				t.Fatalf("startup regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+			}
+		}
+		coldLookupDelta = worldLookups() - beforeCold
+
+		// .go edit OUTSIDE the world's composed closure.
+		writeFileT(t, filepath.Join(depDir, "dep.go"), "package dep\n\nimport \"strings\"\n\nfunc Value() string { return strings.ToLower(\"EXTRA2\") }\n")
+		dirty := newWatchDirtySet()
+		dirty.dirs[depDir] = true
+		dirty.goDirty = true
+		beforeWorld := codegen.SharedWorldLoads()
+		beforeProj := codegen.ProjectLoadCalls()
+		results, rebuild, err := dirty.regenerate(sess.regenPending)
+		if err != nil {
+			t.Fatalf("regenerate after dep edit: %v", err)
+		}
+		if !rebuild {
+			t.Fatal("regenerate()'s rebuild return must be true for the dep-edit goDirty cycle")
+		}
+		for _, r := range results {
+			if !r.OK {
+				t.Fatalf("dep-edit regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+			}
+		}
+		goEditWorldDelta = uint64(codegen.SharedWorldLoads() - beforeWorld)
+		goEditProjDelta = codegen.ProjectLoadCalls() - beforeProj
+
+		// A second Module — a fresh watch session — over the SAME root and cfg.
+		beforeWorld2 := codegen.SharedWorldLoads()
+		beforeHits := codegen.SharedWorldHits()
+		_, startup2, err := startWatchSessionForTest(cfg)
+		if err != nil {
+			t.Fatalf("second startWatchSessionForTest: %v", err)
+		}
+		for _, r := range startup2 {
+			if !r.OK {
+				t.Fatalf("second session startup regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+			}
+		}
+		secondWorldDelta = uint64(codegen.SharedWorldLoads() - beforeWorld2)
+		secondHitDelta = uint64(codegen.SharedWorldHits() - beforeHits)
+		return coldLookupDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta
+	}
+
+	coldLookupDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta := measure()
+	if coldLookupDelta != 1 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
+		c2, w2, p2, sw2, sh2 := measure()
+		coldLookupDelta = min(coldLookupDelta, c2)
+		goEditWorldDelta = min(goEditWorldDelta, w2)
+		goEditProjDelta = min(goEditProjDelta, p2)
+		secondWorldDelta = min(secondWorldDelta, sw2)
+		secondHitDelta = min(secondHitDelta, sh2)
+	}
+	if coldLookupDelta != 1 {
+		t.Errorf("configured-module cold start performed %d shared-world lookups, want exactly 1 (the configured closure, built once)", coldLookupDelta)
+	}
+	if goEditWorldDelta != 0 {
+		t.Errorf("dep.go edit (outside the composed closure) reloaded the shared world %d times, want 0", goEditWorldDelta)
+	}
+	if goEditProjDelta != goEditLoadBudget {
+		t.Errorf("dep.go edit issued %d packages.Load calls, want exactly %d (one in-place world reload's project-half load)", goEditProjDelta, goEditLoadBudget)
+	}
+	if secondWorldDelta != 0 {
+		t.Errorf("second Module open over the same root/config issued %d shared-world loads, want 0 — the process cache should have served it", secondWorldDelta)
+	}
+	if secondHitDelta < 1 {
+		t.Errorf("second Module open over the same root/config recorded %d shared-world hits, want at least 1 — the process-cache payoff this phase exists for", secondHitDelta)
 	}
 }

@@ -202,17 +202,6 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 		return nil, fmt.Errorf("watch: no module roots resolved from %v", cfg.paths)
 	}
 
-	// Validate the class merger once at session startup so a bad-signature merger
-	// surfaces a clear error instead of silently emitting uncompilable .x.go
-	// files on every regen cycle. The LSP and fmt call codegen.Open directly and
-	// must not pay a packages.Load per call, so this validation lives here and
-	// NOT in codegen.Open or codegen.GenerateDirs (the latter already validates).
-	if cfg.classMerger != nil {
-		if err := codegen.ValidateClassMerger(targets.moduleRoots[0], cfg.classMerger); err != nil {
-			return nil, err
-		}
-	}
-
 	s := &watchSession{
 		cfg:            cfg,
 		root:           targets.moduleRoots[0],
@@ -227,6 +216,25 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 			return nil, err
 		}
 		s.modules[root] = m
+	}
+
+	// Validate the class merger once at session startup so a bad-signature merger
+	// surfaces a clear error instead of silently emitting uncompilable .x.go
+	// files on every regen cycle. This runs against s.root's ALREADY-OPEN,
+	// fully-configured Module (codegen.Module.ValidateConfiguredMergers) rather
+	// than a throwaway probe built from just the ClassMergerRef: a probe scoped
+	// to the merger alone composes a NARROWER shared-world path set than this
+	// Module's own FilterPkgs/Aliases/Renderers, which used to mint a second,
+	// differently-keyed world at every configured-module session startup instead
+	// of sharing the one Generate is about to load anyway (see
+	// TestWatchSession_ConfiguredModuleWorldBudget). The LSP and fmt call
+	// codegen.Open directly and must not pay a packages.Load per call, so this
+	// validation lives here and NOT in codegen.Open or codegen.GenerateDirs (the
+	// latter already validates too, memoized, as a defense-in-depth backstop).
+	if cfg.classMerger != nil {
+		if err := s.modules[s.root].ValidateConfiguredMergers(); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }
