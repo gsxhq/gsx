@@ -114,6 +114,35 @@ func TestSharedWorldServesOutOfModuleGsxImport(t *testing.T) {
 	assertGeneratedEqual(t, controlOut, fastOut)
 }
 
+// TestSharedWorldServesVendoredStdlibImports pins the resolution rule behind
+// resolvedImportPath. A `.gsx` importing net/http makes net/http a load root,
+// and net/http imports its own stdlib-vendored dependencies — written
+// "golang.org/x/net/http/httpproxy", resolved to
+// "vendor/golang.org/x/net/http/httpproxy". Comparing the WRITTEN string
+// against the world's types (keyed by resolved path) reported those as
+// unaccounted for, so any project whose load roots include net/http fell back
+// to the full load on every reload, forever. gsxui is such a project: this was
+// the second of the two shapes its A/B uncovered.
+func TestSharedWorldServesVendoredStdlibImports(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/vendorimp\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, filepath.Join(root, "views"), "card.gsx", "package views\n\nimport \"net/http\"\n\ncomponent Card(r *http.Request) {\n\t<p>{r.URL.Path}</p>\n}\n")
+
+	views := filepath.Join(root, "views")
+	beforeFast, beforeFell := sharedWorldFast.Load(), sharedWorldFellBack.Load()
+	generateConfiguredWorld(t, Options{ModuleRoot: root, ModulePath: "example.com/vendorimp", FilterPkgs: []string{StdImportPath}}, views)
+	if got := sharedWorldFast.Load() - beforeFast; got != 1 {
+		t.Fatalf("shared-world fast path taken %d times for a net/http load root, want 1", got)
+	}
+	if got := sharedWorldFellBack.Load() - beforeFell; got != 0 {
+		t.Fatalf("coverage fallbacks = %d, want 0: a stdlib-vendored import is not an unaccounted package", got)
+	}
+}
+
 // TestSharedWorldKeyFollowsImportsNotEdits pins the churn contract the extended
 // composition buys its keying with: the world key must move ONLY when the set
 // of packages the module needs from outside itself changes. A body edit — the

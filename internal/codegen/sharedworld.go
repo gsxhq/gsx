@@ -163,7 +163,34 @@ func (w *sharedWorld) fresh() bool {
 	return true
 }
 
+// The three verdicts a Module can reach about the shared world: served by it
+// (fast), refused before any load because one world cannot serve the module's
+// per-dir config variance (ineligible), or returned to the full load after the
+// loads because the world came back without types the project needs (fellBack).
+// Together with sharedWorldBackedge they account for every externalImporter
+// call, which is what makes "did this project ride the world?" answerable from
+// outside — the question the gsxui A/B had to add temporary instrumentation to
+// ask. See SharedWorldFastPaths, SharedWorldIneligibleModules,
+// SharedWorldCoverageFallbacks.
 var sharedWorldIneligible, sharedWorldFellBack, sharedWorldFast atomic.Int64
+
+// SharedWorldFastPaths returns the process-wide count of externalImporter
+// resolutions served by the shared world: the project half plus the world's
+// synthetic entries, with no full-mode per-Module load.
+func SharedWorldFastPaths() int64 { return sharedWorldFast.Load() }
+
+// SharedWorldIneligibleModules returns the process-wide count of Modules whose
+// configuration cannot be composed into one world (per-dir class mergers or
+// per-dir non-std filter packages). They take the single full-mode load
+// directly, without paying for a world first.
+func SharedWorldIneligibleModules() int64 { return sharedWorldIneligible.Load() }
+
+// SharedWorldCoverageFallbacks returns the process-wide count of Modules
+// returned to the full load because the world did not carry types the project
+// half needs. coveringWorld composes the module's external references, so this
+// counts only packages that came back from the world load without types — a
+// broken or unresolvable dependency — not ordinary out-of-config imports.
+func SharedWorldCoverageFallbacks() int64 { return sharedWorldFellBack.Load() }
 
 // sharedWorldBackedge counts Modules returned to the full load because the
 // composed world's closure re-entered their main module (see
@@ -540,7 +567,8 @@ func (m *Module) loadExternalGraph(cfg *packages.Config, loadPaths []string) ([]
 		if p == nil {
 			continue
 		}
-		for importPath := range p.Imports {
+		for key, imported := range p.Imports {
+			importPath := resolvedImportPath(key, imported)
 			if world.types[importPath] == nil && !mainModule[importPath] {
 				sharedWorldFellBack.Add(1)
 				return loadPackages(cfg, loadPaths...)
@@ -601,6 +629,23 @@ func (m *Module) coveringWorld(cfg *packages.Config, configPaths []string, pkgs 
 	return world, worldPaths, nil
 }
 
+// resolvedImportPath returns the package path an import RESOLVES to. The
+// Imports map is keyed by the import string as written, which is not the
+// imported package's path whenever the toolchain redirects it: the stdlib's own
+// vendored dependencies are written "golang.org/x/net/http/httpproxy" and
+// resolve to "vendor/golang.org/x/net/http/httpproxy", the form every types map
+// — including sharedWorld.types — is keyed by. Comparing the written string
+// against the world made a project whose load roots include net/http (any
+// `.gsx` importing it) unservable forever, on a path that has nothing to do
+// with the world's composition. The stub packages a reduced load produces
+// carry the resolved path, so this needs no NeedDeps.
+func resolvedImportPath(key string, imported *packages.Package) string {
+	if imported != nil && imported.PkgPath != "" {
+		return imported.PkgPath
+	}
+	return key
+}
+
 // worldGaps returns the sorted external packages the project half references
 // that world does not carry.
 //
@@ -628,8 +673,8 @@ func worldGaps(pkgs []*packages.Package, mainModule map[string]bool, world *shar
 			need(p.PkgPath)
 			continue
 		}
-		for importPath := range p.Imports {
-			need(importPath)
+		for key, imported := range p.Imports {
+			need(resolvedImportPath(key, imported))
 		}
 	}
 	if len(gaps) == 0 {

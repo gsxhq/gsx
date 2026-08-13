@@ -271,8 +271,15 @@ func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string)
 		"package mrg\n\nimport \"strings\"\n\nfunc Merge(classes []string) string { return strings.Join(classes, \" \") }\n")
 	writeFileT(t, filepath.Join(filterDir, "filters.go"),
 		"package filters\n\nimport \"strings\"\n\nfunc Shout(s string) string { return strings.ToUpper(s) + \"!\" }\n")
+	// dep imports a package NO configuration names and the base closure does not
+	// carry (the gsx runtime is stdlib-only; parser is a tool package). That is
+	// gsxui's shape — site/pages/document.gsx importing github.com/gsxhq/vite —
+	// and it is what makes this fixture exercise the world's EXTENSION tier
+	// rather than the config tier alone. Before the extension existed such a
+	// module could not be served at all: it paid the world load, the project-half
+	// load AND the full load, on every cycle.
 	writeFileT(t, filepath.Join(depDir, "dep.go"),
-		"package dep\n\nfunc Value() string { return \"extra\" }\n")
+		"package dep\n\nimport \"github.com/gsxhq/gsx/parser\"\n\nvar _ parser.Mode\n\nfunc Value() string { return \"extra\" }\n")
 	writeFileT(t, filepath.Join(viewsDir, "card.gsx"),
 		"package views\n\nimport \""+modPath+"/dep\"\n\ncomponent Card() {\n\t<div class={ \"card\", dep.Value() }>{dep.Value() |> shout}</div>\n}\n")
 	return modPath, filterPath, mrgDir, depDir, viewsDir
@@ -288,9 +295,12 @@ func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string)
 // opened in this process over the SAME root and configuration must reuse the
 // cached world instead of reloading it.
 //
-//   - cold start (the session's first Generate) issues exactly ONE world
-//     load — the composed {runtime, std, filters, mrg} closure, built once.
-//     Getting this to 1 (not 2) required routing prepareWatchSession's
+//   - cold start (the session's first Generate) issues exactly TWO world
+//     loads, one per tier: the config closure {runtime, std, filters, mrg},
+//     then the extension that covers what the project imports from outside
+//     it (dep/ imports github.com/gsxhq/gsx/parser — gsxui's shape, a package
+//     no configuration names). Each tier is built once and only once.
+//     Getting the config tier to 1 (not 2) required routing prepareWatchSession's
 //     class-merger validation through the session's own already-open Module
 //     (codegen.Module.ValidateConfiguredMergers) instead of a throwaway probe
 //     Module scoped to just the merger: the probe's narrower composition
@@ -352,7 +362,7 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		coldWorldDelta = uint64(codegen.SharedWorldLoads() - beforeCold)
 
 		// .go edit OUTSIDE the world's composed closure.
-		writeFileT(t, filepath.Join(depDir, "dep.go"), "package dep\n\nfunc Value() string { return \"extra2\" }\n")
+		writeFileT(t, filepath.Join(depDir, "dep.go"), "package dep\n\nimport \"github.com/gsxhq/gsx/parser\"\n\nvar _ parser.Mode\n\nfunc Value() string { return \"extra2\" }\n")
 		dirty := newWatchDirtySet()
 		dirty.dirs[depDir] = true
 		dirty.goDirty = true
@@ -391,7 +401,7 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 	}
 
 	coldWorldDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta := measure()
-	if coldWorldDelta != 1 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
+	if coldWorldDelta != 2 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
 		c2, w2, p2, sw2, sh2 := measure()
 		coldWorldDelta = min(coldWorldDelta, c2)
 		goEditWorldDelta = min(goEditWorldDelta, w2)
@@ -399,8 +409,8 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		secondWorldDelta = min(secondWorldDelta, sw2)
 		secondHitDelta = min(secondHitDelta, sh2)
 	}
-	if coldWorldDelta != 1 {
-		t.Errorf("configured-module cold start issued %d shared-world loads, want exactly 1", coldWorldDelta)
+	if coldWorldDelta != 2 {
+		t.Errorf("configured-module cold start issued %d shared-world loads, want exactly 2 (the config tier and the extension that covers dep's out-of-config import)", coldWorldDelta)
 	}
 	if goEditWorldDelta != 0 {
 		t.Errorf("dep.go edit (outside the composed closure) reloaded the shared world %d times, want 0", goEditWorldDelta)
