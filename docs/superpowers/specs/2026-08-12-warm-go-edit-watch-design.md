@@ -127,19 +127,34 @@ disables saved-source intelligence until the server restarts, and per-module
 batching would let one vendored path discard the legitimate refreshes
 delivered with it. A `.go` path with no `go.mod` above it takes the same skip.
 
-**Known limits (one parity, one narrowing).** Escalation is decided from tree
-containment, so two shapes can still generate against stale types until
-something else forces a reopen. A `replace` pointing at a module OUTSIDE the
-watched trees is invisible to the session — it was unwatched before this
-design and is unwatched now, so nothing changes. The in-tree `go.work`
-sibling-consumer shape does change: two module roots where neither contains
-the other, one consuming the other's types, where an authored `.go` edit in
-the producer now stays warm for the producer and leaves the consumer stale.
-Pre-branch that healed only incidentally, because ANY `.go` edit was
-`depDirty`. Closing it properly means resolving `replace` directives and
-`go.work` `use` lists into a consumer graph; until then these two are the
-documented exceptions to "stale generated output is never an acceptable
-trade", and a `go.mod`/`go.sum` touch or a session restart clears them.
+**Known limits (one parity, one closed).** Escalation is decided from tree
+containment, so a shape outside it can still generate against stale types
+until something else forces a reopen. A `replace` pointing at a module
+OUTSIDE the watched trees is invisible to the session — it was unwatched
+before this design and is unwatched now, so nothing changes.
+
+The in-tree `go.work`/`replace` sibling-consumer shape — two module roots
+where neither contains the other, one consuming the other's types — is now
+closed: `moduleConsumesModule` resolves a consumer's `go.mod` `replace`
+directives (filesystem targets only; a versioned replace resolves through
+the proxy/cache and cannot observe a local edit) and `workspaceUsesModule`
+resolves its authoritative `go.work` `use` list, read from the Module's own
+frozen `GOWORK` rather than a filesystem walk. Both sides are
+symlink-normalized before comparing (`EvalSymlinks`, falling back to `Clean`
+when the path doesn't exist yet) — `go env GOWORK`'s answer and the
+session's own lexical module roots resolve differently on darwin's
+symlinked `/var`. `reopenConsumerModules` reopens every linked consumer
+(discarding its retained analysis) and queues its dirs for regeneration.
+Unreadable or unparseable consumer `go.mod` metadata fails toward
+"consuming" (reopen), matching "unsure → escalate"; `reopenConsumerModules`
+itself surfaces a per-module error result rather than silently skipping a
+consumer whose own metadata just broke. Where both mechanisms could fire —
+a nested, contained module that is also a replace/go.work consumer —
+containment escalation wins outright; the consumer pass runs only for
+non-escalated Go edits. Wiring `regenPending`'s per-cycle dirty routing to
+call `reopenConsumerModules` lands separately; until then the live loop
+still heals this shape only incidentally, via a `go.mod`/`go.sum` touch or a
+session restart.
 
 **Preserved invariant.** Any authored-`.go` event still sets `goChanged`
 (via a new `goDirty` flag on the dirty set, since `depDirty` no longer

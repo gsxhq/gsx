@@ -52,6 +52,11 @@ func groupByModule(dirs []string) (groups []moduleGroup, noModule []string) {
 	return groups, noModule
 }
 
+// errNoEnclosingModule reports a directory with no go.mod in any ancestor.
+// Callers that observe broad trees use it to distinguish "not part of any
+// module" (irrelevant to generation) from operational go.mod failures.
+var errNoEnclosingModule = errors.New("no go.mod found above")
+
 // moduleRoot walks up from dir to the nearest go.mod, returning its directory
 // and the declared module path.
 func moduleRoot(dir string) (string, string, error) {
@@ -85,7 +90,7 @@ func moduleRoot(dir string) (string, string, error) {
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
-			return "", "", fmt.Errorf("gen: no go.mod found above %s", dir)
+			return "", "", fmt.Errorf("gen: %w %s", errNoEnclosingModule, dir)
 		}
 		d = parent
 	}
