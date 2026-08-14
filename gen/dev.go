@@ -334,7 +334,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// nothing is dirty on disk. Every exit path threads status/postStatus so
 	// the panel always reflects the outcome of the cycle it triggered.
 	cycle := func(force bool) {
-		if len(dirty.dirs) == 0 && !dirty.depDirty {
+		if dirty.empty() {
 			return
 		}
 		cycleStart := time.Now()
@@ -479,7 +479,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 				schedule()
 				continue
 			}
-			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty, &dirty.goDirty)
+			changed, eventErr := applyWatchEvent(w, ev, sources, dirty)
 			if eventErr != nil {
 				fmt.Fprintf(stderr, "gsx dev: watch event: %v\n", eventErr)
 				shutdownProcesses()

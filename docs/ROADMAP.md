@@ -797,12 +797,27 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   per-package invalidation) is deferred - the measured warm time made it unnecessary.
 - [x] **Warm `.go`-edit dev cycles** (2026-08-12, Phase 1,
   `2026-08-12-warm-go-edit-watch-design.md`) - a `.go` save regenerates only the
-  dependent package closure and does one in-place world reload instead of
-  reopening the whole session; the reason surfaces in the console and dev panel
-  (`full reload: changed Go source …`).
+  dependent package closure instead of reopening the whole session, and the
+  Module - never the watch loop - decides whether the world must reload. Only a
+  graph-changing transition reloads (see Phase 3); when one does, the reason
+  surfaces in the console and dev panel (`full reload: changed Go source …`).
+- [x] **Warm Go-syntax swap** (2026-08-14, Phase 3,
+  `2026-08-12-incremental-saved-go-watch-design.md`, originating in PR #185 by
+  Hossein Bahmani) - a `.go` **body** save now reloads nothing at all: the
+  edited file is re-parsed into the retained FileSet and swapped into the
+  retained package, so the cycle issues **zero** `packages.Load` calls (down
+  from one project-half load) and carries no reload note. Only what the warm
+  tier refuses - package membership, cgo, build constraints, a new import,
+  a package already carrying load errors - still reloads authoritatively, with
+  cmd/go left as the authority on source selection. The same change wires the
+  cross-module consumer reopen: a `replace`/`go.work`-linked sibling module
+  stops serving stale types on the edit itself.
 - [ ] **Cheap world reload** (Phase 2) - extend world sharing to the full
   external closure (keyed by go.mod/go.sum + replace-dirs + vendor mode) so the
-  reload itself gets cheaper, not just narrower.
+  reload itself gets cheaper, not just narrower. Phase 3 removed the reload
+  from ordinary saves entirely, so this now only pays off for the graph-changing
+  transitions that still escalate (and for `go.mod`/`go.sum` edits, which change
+  the world key anyway) - lower priority than when it was written.
 - [x] **Project-scoped shared world** (2026-08-13, Phase 2a,
   `2026-08-13-project-shared-world-design.md`) - a configured module (filters,
   renderers, aliases, or a class merger) composes its out-of-module config

@@ -218,7 +218,7 @@ func Timestamptz(v pg.Timestamptz) gsx.Node {
 	return <time>{v.Label}</time>
 }
 `)
-	results, err := s.regenPending(map[string]bool{rendererDir: true}, false)
+	results, err := s.regenPending(map[string]bool{rendererDir: true}, nil, false)
 	if err != nil {
 		t.Fatalf("regenPending: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestRegenPending_RemovesOrphanOnSoleGsxDeleted(t *testing.T) {
 	if err := os.Remove(gsxPath); err != nil {
 		t.Fatal(err)
 	}
-	results, err := s.regenPending(map[string]bool{viewsDir: true}, false)
+	results, err := s.regenPending(map[string]bool{viewsDir: true}, nil, false)
 	if err != nil {
 		t.Fatalf("regenPending: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestRegenPending_MultiFileDirRegeneratesSiblingAndRemovesOrphan(t *testing.
 	if err := os.Remove(dropPath); err != nil {
 		t.Fatal(err)
 	}
-	results, err := s.regenPending(map[string]bool{viewsDir: true}, false)
+	results, err := s.regenPending(map[string]bool{viewsDir: true}, nil, false)
 	if err != nil {
 		t.Fatalf("regenPending: %v", err)
 	}

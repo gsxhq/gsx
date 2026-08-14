@@ -103,20 +103,27 @@ func TestWatchSession_ColdStartParseWorkIsLinear(t *testing.T) {
 //   - a .gsx body edit must issue ZERO packages.Load calls: the cold external
 //     importer stays cached, and Generate re-type-checks the edited dir from
 //     retained source only.
-//   - a .go body edit forces exactly ONE in-place world reload (Task 1/2's
-//     lazy externalImporter reload), which costs a small constant number of
-//     packages.Load calls — see goEditLoadBudget below for what that constant
-//     comprises. The constant pins that load cost is dir-count-independent
-//     and does not become per-dir or per-cycle; it does NOT by itself
-//     distinguish scoped-closure regen from a full reopen() — on this fixture
-//     a reopen also costs exactly one packages.Load (openModule is lazy, and
-//     the first Generate's "./..." load caches into m.ext for every later
-//     dir). Routing scope — that a .go edit regenerates only the dependent
-//     closure, never the whole module — is separately pinned by
-//     TestWatchSession_GoEditRegeneratesOnlyDependents (asserts results are
-//     scoped to page, never other/).
-//   - a second .go edit cycle must cost the SAME constant: the reload cost
-//     does not grow across repeated cycles.
+//   - a .go BODY edit must also issue ZERO packages.Load calls: the warm
+//     Go-syntax fast path re-parses the edited file into the retained FileSet
+//     and swaps it into the retained package, so no world reload is scheduled
+//     at all (see internal/codegen's refreshGoSyntaxLocked). This row used to
+//     be exactly 1 — the in-place reload's project-half load — and flipping it
+//     to 0 is the whole point of the fast path.
+//   - a second .go body edit cycle must cost the SAME zero: warm cycles do not
+//     accumulate deferred reload work.
+//   - a .go edit the fast path REFUSES (here: adding a file, a compiled-
+//     membership change cmd/go must arbitrate) still forces exactly ONE
+//     in-place world reload — see goEditReloadBudget below for what that
+//     constant comprises. That row is what keeps the two zeros honest: a
+//     regression that simply stopped reloading would pass them both, and it
+//     pins that the reload cost is dir-count-independent rather than per-dir
+//     or per-cycle. It does NOT by itself distinguish scoped-closure regen
+//     from a full reopen() — on this fixture a reopen also costs exactly one
+//     packages.Load (openModule is lazy, and the first Generate's "./..." load
+//     caches into m.ext for every later dir). Routing scope — that a .go edit
+//     regenerates only the dependent closure, never the whole module — is
+//     separately pinned by TestWatchSession_GoEditRegeneratesOnlyDependents
+//     (asserts results are scoped to page, never other/).
 //
 // Deliberately NOT t.Parallel(): codegen.ProjectLoadCalls is a process-wide
 // counter (same discipline as sourceview.InspectCalls above), so a
@@ -127,22 +134,22 @@ func TestWatchSession_ColdStartParseWorkIsLinear(t *testing.T) {
 func TestWatchSession_EditLoadBudget(t *testing.T) {
 	const fillerDirs = 10
 
-	// goEditLoadBudget is the exact number of packages.Load calls ONE in-place
-	// world reload performs on this fixture: loadExternalGraph's project-half
-	// load (sharedworld.go, one call covering "./..." — the WHOLE module in a
-	// single call, not one per dir) plus zero calls for the shared gsx-runtime
-	// closure, which loadSharedWorld already cached fresh from cold start. The
-	// project-half load is the only per-reload cost because this fixture's
-	// Options carry no filters/renderers/aliases/class-merger, so
+	// goEditReloadBudget is the exact number of packages.Load calls ONE
+	// in-place world reload performs on this fixture: loadExternalGraph's
+	// project-half load (sharedworld.go, one call covering "./..." — the WHOLE
+	// module in a single call, not one per dir) plus zero calls for the shared
+	// gsx-runtime closure, which loadSharedWorld already cached fresh from cold
+	// start. The project-half load is the only per-reload cost because this
+	// fixture's Options carry no filters/renderers/aliases/class-merger, so
 	// sharedWorldComposition composes to exactly {runtime, std} (ok=true) and
-	// no fallback full load triggers. It is
-	// independent of fillerDirs: "./..." is one packages.Load call regardless
-	// of how many directories it walks, which is the invariant this test
-	// exists to pin — a regression toward reopen-per-dir would scale with
-	// fillerDirs instead of staying flat.
-	const goEditLoadBudget = 1
+	// no fallback full load triggers. It is independent of fillerDirs:
+	// "./..." is one packages.Load call regardless of how many directories it
+	// walks, which is the invariant this test exists to pin — a regression
+	// toward reopen-per-dir would scale with fillerDirs instead of staying
+	// flat.
+	const goEditReloadBudget = 1
 
-	measure := func() (gsxDelta, goDelta1, goDelta2 uint64) {
+	measure := func() (gsxDelta, goDelta1, goDelta2, addDelta uint64) {
 		root := t.TempDir()
 		writeMod(t, root)
 		writeFileT(t, filepath.Join(root, "dep", "dep.go"),
@@ -189,7 +196,7 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 		writeFileT(t, filepath.Join(depDir, "dep.go"),
 			"package dep\n\nfunc Value() string { return \"v2\" }\n")
 		dirty = newWatchDirtySet()
-		dirty.dirs[depDir] = true
+		dirty.goDirs[depDir] = true
 		dirty.goDirty = true
 		before = codegen.ProjectLoadCalls()
 		results, rebuild, err := dirty.regenerate(sess.regenPending)
@@ -211,7 +218,7 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 		writeFileT(t, filepath.Join(depDir, "dep.go"),
 			"package dep\n\nfunc Value() string { return \"v3\" }\n")
 		dirty = newWatchDirtySet()
-		dirty.dirs[depDir] = true
+		dirty.goDirs[depDir] = true
 		dirty.goDirty = true
 		before = codegen.ProjectLoadCalls()
 		results, rebuild, err = dirty.regenerate(sess.regenPending)
@@ -227,24 +234,49 @@ func TestWatchSession_EditLoadBudget(t *testing.T) {
 			}
 		}
 		goDelta2 = codegen.ProjectLoadCalls() - before
-		return gsxDelta, goDelta1, goDelta2
+
+		// (d) a .go edit the fast path refuses: adding a file to dep/ changes
+		// the package's compiled membership. This row must still pay the one
+		// reload — without it, the two zeros above could be satisfied by never
+		// reloading at all.
+		writeFileT(t, filepath.Join(depDir, "extra.go"),
+			"package dep\n\nfunc Extra() string { return \"e\" }\n")
+		dirty = newWatchDirtySet()
+		dirty.goDirs[depDir] = true
+		dirty.goDirty = true
+		before = codegen.ProjectLoadCalls()
+		results, _, err = dirty.regenerate(sess.regenPending)
+		if err != nil {
+			t.Fatalf("regenerate after adding a file to dep/: %v", err)
+		}
+		for _, r := range results {
+			if !r.OK {
+				t.Fatalf("membership-change regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+			}
+		}
+		addDelta = codegen.ProjectLoadCalls() - before
+		return gsxDelta, goDelta1, goDelta2, addDelta
 	}
 
-	gsxDelta, goDelta1, goDelta2 := measure()
-	if gsxDelta != 0 || goDelta1 != goEditLoadBudget || goDelta2 != goEditLoadBudget {
-		gsxDelta2, goDelta1b, goDelta2b := measure()
+	gsxDelta, goDelta1, goDelta2, addDelta := measure()
+	if gsxDelta != 0 || goDelta1 != 0 || goDelta2 != 0 || addDelta != goEditReloadBudget {
+		gsxDelta2, goDelta1b, goDelta2b, addDeltaB := measure()
 		gsxDelta = min(gsxDelta, gsxDelta2)
 		goDelta1 = min(goDelta1, goDelta1b)
 		goDelta2 = min(goDelta2, goDelta2b)
+		addDelta = min(addDelta, addDeltaB)
 	}
 	if gsxDelta != 0 {
 		t.Errorf(".gsx body edit issued %d packages.Load calls, want 0 — a body-only edit must stay on the cached external importer", gsxDelta)
 	}
-	if goDelta1 != goEditLoadBudget {
-		t.Errorf(".go body edit issued %d packages.Load calls, want exactly %d (one in-place world reload's project-half load)", goDelta1, goEditLoadBudget)
+	if goDelta1 != 0 {
+		t.Errorf(".go body edit issued %d packages.Load calls, want 0 — the warm Go-syntax fast path must swap the re-parsed file into the retained package instead of reloading the world", goDelta1)
 	}
-	if goDelta2 != goEditLoadBudget {
-		t.Errorf("second .go body edit issued %d packages.Load calls, want the same %d as the first — reload cost must not grow across repeated cycles", goDelta2, goEditLoadBudget)
+	if goDelta2 != 0 {
+		t.Errorf("second .go body edit issued %d packages.Load calls, want the same 0 as the first — warm cycles must not accumulate deferred reload work", goDelta2)
+	}
+	if addDelta != goEditReloadBudget {
+		t.Errorf("adding a .go file to the package issued %d packages.Load calls, want exactly %d (one in-place world reload's project-half load) — a membership change must still reload authoritatively", addDelta, goEditReloadBudget)
 	}
 }
 
@@ -346,12 +378,14 @@ func writeConfiguredModuleWorldBudgetFixture(t *testing.T, root, modName string)
 // only inflate a measurement, so taking the min never manufactures a false
 // pass — same reasoning as TestWatchSession_EditLoadBudget's retry.
 func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
-	// goEditLoadBudget mirrors TestWatchSession_EditLoadBudget's constant of
+	// goEditReloadBudget mirrors TestWatchSession_EditLoadBudget's constant of
 	// the same name: loadExternalGraph's project-half load is the only
 	// packages.Load call an in-place world reload performs, whether or not
 	// the module carries a class merger and filter package — sharedWorldComposition
-	// widens the composed PATH SET, not the number of load calls.
-	const goEditLoadBudget = 1
+	// widens the composed PATH SET, not the number of load calls. A dep.go BODY
+	// edit no longer reaches it at all (the warm Go-syntax fast path keeps the
+	// world loaded, so its budget is 0); the reload budget is charged by the
+	// membership-change row below, which the fast path refuses.
 
 	// worldLookups counts loadSharedWorld CALLS: each one increments exactly one
 	// of the two counters, so the sum is order-independent where either counter
@@ -360,7 +394,9 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		return uint64(codegen.SharedWorldLoads() + codegen.SharedWorldHits())
 	}
 
-	measure := func() (coldLookupDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta uint64) {
+	const goEditReloadBudget = 1
+
+	measure := func() (coldLookupDelta, goEditWorldDelta, goEditProjDelta, addProjDelta, secondWorldDelta, secondHitDelta uint64) {
 		root := t.TempDir()
 		modPath, filterPath, _, depDir, viewsDir := writeConfiguredModuleWorldBudgetFixture(t, root, "wwbudget")
 		cfg := watchConfig{
@@ -384,7 +420,7 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		// .go edit OUTSIDE the world's composed closure.
 		writeFileT(t, filepath.Join(depDir, "dep.go"), "package dep\n\nimport \"strings\"\n\nfunc Value() string { return strings.ToLower(\"EXTRA2\") }\n")
 		dirty := newWatchDirtySet()
-		dirty.dirs[depDir] = true
+		dirty.goDirs[depDir] = true
 		dirty.goDirty = true
 		beforeWorld := codegen.SharedWorldLoads()
 		beforeProj := codegen.ProjectLoadCalls()
@@ -403,6 +439,26 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		goEditWorldDelta = uint64(codegen.SharedWorldLoads() - beforeWorld)
 		goEditProjDelta = codegen.ProjectLoadCalls() - beforeProj
 
+		// A membership change in the same out-of-closure package: the fast
+		// path refuses it, so the configured module pays exactly one in-place
+		// reload — and still no shared-world reload, since dep was never part
+		// of the composed closure.
+		writeFileT(t, filepath.Join(depDir, "extra.go"), "package dep\n\nfunc Extra() string { return \"x\" }\n")
+		dirty = newWatchDirtySet()
+		dirty.goDirs[depDir] = true
+		dirty.goDirty = true
+		beforeProj = codegen.ProjectLoadCalls()
+		results, _, err = dirty.regenerate(sess.regenPending)
+		if err != nil {
+			t.Fatalf("regenerate after adding dep/extra.go: %v", err)
+		}
+		for _, r := range results {
+			if !r.OK {
+				t.Fatalf("membership-change regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+			}
+		}
+		addProjDelta = codegen.ProjectLoadCalls() - beforeProj
+
 		// A second Module — a fresh watch session — over the SAME root and cfg.
 		beforeWorld2 := codegen.SharedWorldLoads()
 		beforeHits := codegen.SharedWorldHits()
@@ -417,15 +473,16 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		}
 		secondWorldDelta = uint64(codegen.SharedWorldLoads() - beforeWorld2)
 		secondHitDelta = uint64(codegen.SharedWorldHits() - beforeHits)
-		return coldLookupDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta
+		return coldLookupDelta, goEditWorldDelta, goEditProjDelta, addProjDelta, secondWorldDelta, secondHitDelta
 	}
 
-	coldLookupDelta, goEditWorldDelta, goEditProjDelta, secondWorldDelta, secondHitDelta := measure()
-	if coldLookupDelta != 1 || goEditWorldDelta != 0 || goEditProjDelta != goEditLoadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
-		c2, w2, p2, sw2, sh2 := measure()
+	coldLookupDelta, goEditWorldDelta, goEditProjDelta, addProjDelta, secondWorldDelta, secondHitDelta := measure()
+	if coldLookupDelta != 1 || goEditWorldDelta != 0 || goEditProjDelta != 0 || addProjDelta != goEditReloadBudget || secondWorldDelta != 0 || secondHitDelta < 1 {
+		c2, w2, p2, a2, sw2, sh2 := measure()
 		coldLookupDelta = min(coldLookupDelta, c2)
 		goEditWorldDelta = min(goEditWorldDelta, w2)
 		goEditProjDelta = min(goEditProjDelta, p2)
+		addProjDelta = min(addProjDelta, a2)
 		secondWorldDelta = min(secondWorldDelta, sw2)
 		secondHitDelta = min(secondHitDelta, sh2)
 	}
@@ -435,13 +492,112 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 	if goEditWorldDelta != 0 {
 		t.Errorf("dep.go edit (outside the composed closure) reloaded the shared world %d times, want 0", goEditWorldDelta)
 	}
-	if goEditProjDelta != goEditLoadBudget {
-		t.Errorf("dep.go edit issued %d packages.Load calls, want exactly %d (one in-place world reload's project-half load)", goEditProjDelta, goEditLoadBudget)
+	if goEditProjDelta != 0 {
+		t.Errorf("dep.go body edit issued %d packages.Load calls, want 0 — the warm Go-syntax fast path serves a configured module exactly like an unconfigured one", goEditProjDelta)
+	}
+	if addProjDelta != goEditReloadBudget {
+		t.Errorf("adding dep/extra.go issued %d packages.Load calls, want exactly %d (one in-place world reload's project-half load)", addProjDelta, goEditReloadBudget)
 	}
 	if secondWorldDelta != 0 {
 		t.Errorf("second Module open over the same root/config issued %d shared-world loads, want 0 — the process cache should have served it", secondWorldDelta)
 	}
 	if secondHitDelta < 1 {
 		t.Errorf("second Module open over the same root/config recorded %d shared-world hits, want at least 1 — the process-cache payoff this phase exists for", secondHitDelta)
+	}
+}
+
+// TestWatchSession_MixedSaveRefreshesSharedDirOnce pins regenPending's
+// cross-lane refresh de-duplication — the invariant the accepted double
+// refresh rests on (see regenPending's comment). A directory dirtied on BOTH
+// lanes in one debounce window (an editor save-all over helper.go and
+// c00.gsx) must be re-inventoried by the Go lane only, never a second time by
+// the .gsx lane.
+//
+// Both shapes are measured so the number is self-explaining rather than a
+// magic budget: a .gsx-only save of the same directory already pays exactly
+// TWO directory refreshes — its own lane's, then regenDirs' batch as its own
+// dependent — and the mixed save must pay the same two, not three. A dropped
+// `refreshed[dir]` check is exactly one extra directory refresh.
+//
+// sourceview.RefreshedDirs counts directory refreshes rather than Inspect
+// calls deliberately: since #184's incremental derivation, a re-refresh of an
+// unchanged directory Inspects nothing at all, so an Inspect-delta version of
+// this test cannot fail and would be vacuous (verified by breaking the
+// de-duplication: the Inspect deltas stayed identical).
+//
+// Deliberately NOT t.Parallel(): sourceview.RefreshedDirs is a process-wide
+// counter (see TestWatchSession_ColdStartParseWorkIsLinear's comment for the
+// full reasoning). Foreign traffic can only inflate a measurement, so a breach
+// is retried once in a fresh module and the minimum of each side is taken — a
+// real regression breaches every window.
+func TestWatchSession_MixedSaveRefreshesSharedDirOnce(t *testing.T) {
+	const gsxFiles = 4
+	// One lane refresh plus regenDirs' own batch refresh, per cycle.
+	const refreshesPerCycle = 2
+
+	measure := func() (gsxOnly, mixed uint64) {
+		root := t.TempDir()
+		writeMod(t, root)
+		dir := filepath.Join(root, "views")
+		writeFileT(t, filepath.Join(dir, "helper.go"), "package views\n\nfunc helper() string { return \"v1\" }\n")
+		for i := range gsxFiles {
+			writeFileT(t, filepath.Join(dir, fmt.Sprintf("c%02d.gsx", i)),
+				fmt.Sprintf("package views\n\ncomponent C%02d() {\n\t<p>{helper()}</p>\n}\n", i))
+		}
+
+		sess, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
+		if err != nil {
+			t.Fatalf("startWatchSessionForTest: %v", err)
+		}
+		for _, r := range startup {
+			if !r.OK {
+				t.Fatalf("startup regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+			}
+		}
+
+		run := func(dirty *watchDirtySet) uint64 {
+			before := sourceview.RefreshedDirs()
+			results, _, err := dirty.regenerate(sess.regenPending)
+			if err != nil {
+				t.Fatalf("regenerate: %v", err)
+			}
+			for _, r := range results {
+				if !r.OK {
+					t.Fatalf("regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+				}
+			}
+			return sourceview.RefreshedDirs() - before
+		}
+
+		// (a) .gsx-only save: the pending lane's refresh, then regenDirs'.
+		writeFileT(t, filepath.Join(dir, "c00.gsx"), "package views\n\ncomponent C00() {\n\t<p>v2 {helper()}</p>\n}\n")
+		gsxDirty := newWatchDirtySet()
+		gsxDirty.dirs[dir] = true
+		gsxOnly = run(gsxDirty)
+
+		// (b) save-all: helper.go and c00.gsx together, both lanes seeded
+		// exactly as classifyDirtyFile would from the two events.
+		writeFileT(t, filepath.Join(dir, "helper.go"), "package views\n\nfunc helper() string { return \"v2\" }\n")
+		writeFileT(t, filepath.Join(dir, "c00.gsx"), "package views\n\ncomponent C00() {\n\t<p>v3 {helper()}</p>\n}\n")
+		mixedDirty := newWatchDirtySet()
+		mixedDirty.dirs[dir] = true
+		mixedDirty.goDirs[dir] = true
+		mixedDirty.goDirty = true
+		mixed = run(mixedDirty)
+		return gsxOnly, mixed
+	}
+
+	gsxOnly, mixed := measure()
+	if gsxOnly != refreshesPerCycle || mixed != refreshesPerCycle {
+		gsxOnly2, mixed2 := measure()
+		gsxOnly = min(gsxOnly, gsxOnly2)
+		mixed = min(mixed, mixed2)
+	}
+	if gsxOnly != refreshesPerCycle {
+		t.Errorf(".gsx-only save performed %d directory refreshes, want %d (its lane's, then regenDirs')", gsxOnly, refreshesPerCycle)
+	}
+	if mixed != refreshesPerCycle {
+		t.Errorf("mixed Go+GSX save performed %d directory refreshes, want the same %d as the .gsx-only save: the .gsx lane must not re-inventory a directory the Go lane already committed",
+			mixed, refreshesPerCycle)
 	}
 }

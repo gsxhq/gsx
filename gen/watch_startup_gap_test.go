@@ -44,15 +44,13 @@ func TestArmedWatchSessionQueuesEditBeforeInitialGeneration(t *testing.T) {
 		t.Fatalf("initial generation did not use the post-arm source snapshot:\n%s", generated)
 	}
 
-	pending := map[string]bool{}
-	depDirty := false
-	goDirty := false
+	dirty := newWatchDirtySet()
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
-	for len(pending) == 0 {
+	for len(dirty.dirs) == 0 {
 		select {
 		case event := <-armed.watcher.Events:
-			if _, eventErr := applyWatchEvent(armed.watcher, event, armed.sources, pending, &depDirty, &goDirty); eventErr != nil {
+			if _, eventErr := applyWatchEvent(armed.watcher, event, armed.sources, dirty); eventErr != nil {
 				t.Fatal(eventErr)
 			}
 		case watchErr := <-armed.watcher.Errors:
@@ -62,7 +60,7 @@ func TestArmedWatchSessionQueuesEditBeforeInitialGeneration(t *testing.T) {
 		}
 	}
 
-	results, err := armed.session.regenPending(pending, depDirty)
+	results, err := armed.session.regenPending(dirty.dirs, dirty.goDirs, dirty.depDirty)
 	if err != nil {
 		t.Fatal(err)
 	}

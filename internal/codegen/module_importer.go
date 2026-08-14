@@ -386,7 +386,14 @@ func (m *Module) invalidateConfiguredSourceStateLocked() {
 // pkgResults. A configured module-local renderer seed instead clears the
 // module-wide renderer-dependent state. Assumes m.mu.
 func (m *Module) invalidateLocked(dirs []string) []string {
-	scope := m.affectedLocked(dirs)
+	return m.invalidateScopeLocked(m.affectedLocked(dirs))
+}
+
+// invalidateScopeLocked applies one precomputed invalidation scope. Callers
+// that already hold a scope computed under the same lock hold (e.g. to project
+// it before a refresh) reuse it here instead of paying a second closure walk.
+// Assumes m.mu.
+func (m *Module) invalidateScopeLocked(scope invalidationScope) []string {
 	if scope.whole {
 		m.invalidateConfiguredSourceStateLocked()
 		return scope.sorted()

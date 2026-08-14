@@ -138,7 +138,7 @@ func TestWatchSharedWorld_MergerEditProducesFreshBehavior(t *testing.T) {
 		"package mrg\n\nimport \"strings\"\n\nfunc Merge(classes []string) string { return strings.Join(classes, \",\") }\n")
 
 	dirty := newWatchDirtySet()
-	dirty.dirs[mrgDir] = true
+	dirty.goDirs[mrgDir] = true
 	dirty.goDirty = true
 	beforeWorld := codegen.SharedWorldLoads()
 	results, rebuild, err := dirty.regenerate(sess.regenPending)
@@ -205,7 +205,7 @@ func TestWatchSharedWorld_UnrelatedEditsLeaveWorldCold(t *testing.T) {
 		// set.
 		writeFileT(t, filepath.Join(depDir, "dep.go"), "package dep\n\nfunc Value() string { return \"extra2\" }\n")
 		dirty := newWatchDirtySet()
-		dirty.dirs[depDir] = true
+		dirty.goDirs[depDir] = true
 		dirty.goDirty = true
 		beforeWorld := codegen.SharedWorldLoads()
 		results, rebuild, err := dirty.regenerate(sess.regenPending)

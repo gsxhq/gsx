@@ -9,18 +9,31 @@ import (
 
 // watchDirtySet is the uncommitted source state observed by a watch loop. A
 // regeneration is transactional: an operational failure retains the complete
-// set for the next relevant event. A cycle containing only authored diagnostics
-// is complete and commits the clear; a per-directory operational Err retains the
-// transaction just like a top-level regeneration error. Watch and dev mutate it
-// only on their respective event-loop goroutine.
+// set — dirs, goDirs and depDirty alike — for the next relevant event. A cycle
+// containing only authored diagnostics is complete and commits the clear; a
+// per-directory operational Err retains the transaction just like a top-level
+// regeneration error. Watch and dev mutate it only on their respective
+// event-loop goroutine.
 type watchDirtySet struct {
-	dirs     map[string]bool
+	dirs map[string]bool
+	// goDirs holds the directories whose authored .go source changed (not
+	// go.mod/go.sum). They are tracked apart from dirs because regenPending
+	// routes them differently: a Go dir refreshes through
+	// Module.RefreshGoSourcesAndInvalidate (whose warm syntax swap can keep the
+	// cycle reload-free) and contributes the GSX projection of its PRE-change
+	// closure, while a dirs entry refreshes its own .gsx facts and contributes
+	// Dependents. A directory saved on both paths at once (helper.go + page.gsx
+	// in one editor save-all) appears in both maps and is refreshed exactly
+	// once — see regenPending.
+	goDirs   map[string]bool
 	depDirty bool
-	// goDirty is set when a pending event is an authored .go source change
-	// (not go.mod/go.sum). It does not route through reopen() — regenPending
+	// goDirty is the rebuild latch for the goDirs lane: it stays true for the
+	// whole transaction even when a later partial classification would not
+	// re-seed goDirs. It does not route through reopen() — regenPending
 	// regenerates only the dependent closure — but it still forces a server
 	// rebuild, since the closure's generated .x.go can carry fresh types even
-	// when no .gsx byte changed.
+	// when no .gsx byte changed, and since a warm (reload-free) Go cycle can
+	// legitimately produce no cycleResult at all.
 	goDirty bool
 	effects map[string]*watchEffects
 }
@@ -31,7 +44,15 @@ type watchEffects struct {
 }
 
 func newWatchDirtySet() *watchDirtySet {
-	return &watchDirtySet{dirs: map[string]bool{}, effects: map[string]*watchEffects{}}
+	return &watchDirtySet{dirs: map[string]bool{}, goDirs: map[string]bool{}, effects: map[string]*watchEffects{}}
+}
+
+// empty reports whether the set holds nothing to regenerate. Callers that only
+// run a cycle for observed work (gsx dev) must consult all three lanes: an
+// authored-Go save seeds goDirs alone, and skipping it would strand both the
+// closure regeneration and the server rebuild.
+func (d *watchDirtySet) empty() bool {
+	return len(d.dirs) == 0 && len(d.goDirs) == 0 && !d.depDirty
 }
 
 // regenerate runs one regeneration pass via regen (sess.regenPending), and
@@ -43,11 +64,12 @@ func newWatchDirtySet() *watchDirtySet {
 // cleared when the cycle fails — see the two error returns below — so a
 // retained failed go-cycle retries as a go-cycle and still forces the rebuild
 // once it lands.
-func (d *watchDirtySet) regenerate(regen func(map[string]bool, bool) ([]cycleResult, error)) ([]cycleResult, bool, error) {
+func (d *watchDirtySet) regenerate(regen func(map[string]bool, map[string]bool, bool) ([]cycleResult, error)) ([]cycleResult, bool, error) {
 	dirs := maps.Clone(d.dirs)
+	goDirs := maps.Clone(d.goDirs)
 	depDirty := d.depDirty
 	rebuild := depDirty || d.goDirty
-	results, err := regen(dirs, depDirty)
+	results, err := regen(dirs, goDirs, depDirty)
 	if err != nil {
 		// regenPending may discover a fatal refresh/reopen error after an earlier
 		// directory already mutated generated files. The top-level error keeps the
@@ -66,6 +88,7 @@ func (d *watchDirtySet) regenerate(regen func(map[string]bool, bool) ([]cycleRes
 	}
 	results = d.commitEffects(results)
 	d.dirs = map[string]bool{}
+	d.goDirs = map[string]bool{}
 	d.depDirty = false
 	d.goDirty = false
 	return results, rebuild, nil
@@ -84,9 +107,14 @@ func (d *watchDirtySet) retainOperational(results []cycleResult) {
 			continue
 		}
 		failed = true
-		if result.Dir == "" {
+		switch {
+		case result.Dir == "":
 			d.depDirty = true
-		} else {
+		case d.goDirs[result.Dir]:
+			// Already retained on the lane it arrived on (the whole transaction
+			// survives a failed cycle), so re-seeding it into dirs would only
+			// add a .gsx-path refresh the directory never asked for.
+		default:
 			d.dirs[result.Dir] = true
 		}
 	}

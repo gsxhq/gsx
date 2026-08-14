@@ -616,6 +616,7 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 		}
 		dirSet[absDir] = true
 	}
+	refreshedDirs.Add(uint64(len(dirSet)))
 	// Shallow map clones — shared immutable byte slices; see newManifest.
 	sources := maps.Clone(manifest.sources)
 	pairedPresent := maps.Clone(manifest.pairedPresent)
@@ -726,6 +727,19 @@ var inspectCalls atomic.Uint64
 
 // InspectCalls returns the process-wide count of Inspect invocations.
 func InspectCalls() uint64 { return inspectCalls.Load() }
+
+// refreshedDirs counts the directory refreshes RefreshDirs performs
+// process-wide — one per validated directory per call, whether or not that
+// directory's bytes moved, because the scan and manifest re-derivation run
+// either way. Tests use it to pin how many times a single watch cycle
+// re-inventories the same directory: a dir dirtied on both the authored-Go
+// and .gsx lanes must be refreshed by one lane only. See
+// TestWatchSession_MixedSaveRefreshesSharedDirOnce.
+var refreshedDirs atomic.Uint64
+
+// RefreshedDirs returns the process-wide count of directory refreshes
+// performed by Manifest.RefreshDirs.
+func RefreshedDirs() uint64 { return refreshedDirs.Load() }
 
 // canonicalPathCalls counts canonicalPath invocations process-wide. Tests use
 // it to pin the per-dir complexity of directory-keyed accessors such as

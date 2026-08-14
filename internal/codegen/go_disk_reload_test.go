@@ -139,22 +139,33 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	depDir := filepath.Join(root, "dep")
 	pageDir := filepath.Join(root, "page")
 
-	// Row 1: .go content change -> pending, ReloadGoSource, attributed to
-	// the changed file.
+	// Row 1: .go body edit inside an already-compiled, already-selected file
+	// -> NOT pending. This row DELIBERATELY FLIPPED from
+	// {true ReloadGoSource dep/dep.go} when the warm Go-syntax fast path
+	// landed (refreshGoSyntaxLocked): the one changed file is re-parsed into
+	// the retained FileSet and swapped into the retained package, so cmd/go
+	// never has to re-select anything and no world reload is scheduled. The
+	// ReloadGoSource attribution is still pinned by rows 3/4/9, which change
+	// package MEMBERSHIP — a transition the fast path refuses on principle
+	// (cmd/go stays the authority for file selection). Cases 1/2 above pin
+	// that the swapped syntax is what later analysis actually type-checks.
+	loadsBeforeRow1 := m.externalLoads()
 	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v4\" }\n")
 	_, verdict, err := m.RefreshDiskSourcesAndInvalidate(depDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/dep.go" {
-		t.Fatalf("row 1 verdict = %+v, want {true ReloadGoSource dep/dep.go}", verdict)
+	if verdict.WorldReloadPending {
+		t.Fatalf("row 1 verdict = %+v, want not pending (warm Go-syntax fast path)", verdict)
 	}
-	if got, want := verdict.Describe(), "changed Go source dep/dep.go"; got != want {
-		t.Fatalf("row 1 Describe() = %q, want %q", got, want)
+	if got := verdict.Describe(); got != "" {
+		t.Fatalf("row 1 Describe() = %q, want empty", got)
 	}
-	// Land it so row 2 starts clean.
 	if _, diags, err := m.Generate(pageDir); err != nil || hasDiagErrors(diags) {
-		t.Fatalf("row 1 landing generate: diags=%v err=%v", diags, err)
+		t.Fatalf("row 1 generate: diags=%v err=%v", diags, err)
+	}
+	if got := m.externalLoads(); got != loadsBeforeRow1 {
+		t.Fatalf("row 1 external loads = %d, want the body edit to stay warm at %d", got, loadsBeforeRow1)
 	}
 
 	// Row 2: byte-identical .go rewrite with no prior pending reload -> not
@@ -259,14 +270,17 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	// 7). goSourceReload is a single flag with no memory of which file
 	// tripped it, so once it is pending, a LATER call that finds nothing new
 	// of its own must still attribute to the file that originally set it —
-	// exactly what m.reloadAttribution exists for.
-	write("dep/dep.go", "package dep\n\nfunc Value() string { return \"v5\" }\n")
+	// exactly what m.reloadAttribution exists for. The seed is a membership
+	// change rather than a body edit (as it was before the warm Go-syntax
+	// fast path landed) because only a transition the fast path refuses can
+	// leave goSourceReload pending across calls at all.
+	write("dep/persist.go", "package dep\n\nfunc Persisted() string { return \"persisted\" }\n")
 	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(depDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/dep.go" {
-		t.Fatalf("row 9a verdict = %+v, want {true ReloadGoSource dep/dep.go}", verdict)
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/persist.go" {
+		t.Fatalf("row 9a verdict = %+v, want {true ReloadGoSource dep/persist.go}", verdict)
 	}
 	// Refresh page dir byte-identically, with NO Generate in between: this
 	// call finds nothing new (page.gsx unchanged, no .gsx reload reason), so
@@ -277,11 +291,56 @@ func TestRefreshDiskSourcesMarksGoReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/dep.go" {
-		t.Fatalf("row 9b verdict = %+v, want {true ReloadGoSource dep/dep.go} (persisted from the untouched dep dir)", verdict)
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadGoSource || verdict.Path != "dep/persist.go" {
+		t.Fatalf("row 9b verdict = %+v, want {true ReloadGoSource dep/persist.go} (persisted from the untouched dep dir)", verdict)
 	}
-	if got, want := verdict.Describe(), "changed Go source dep/dep.go"; got != want {
+	if got, want := verdict.Describe(), "changed Go source dep/persist.go"; got != want {
 		t.Fatalf("row 9b Describe() = %q, want %q", got, want)
+	}
+
+	// Row 10: case 5's exclusion discipline, now inside the warm Go-syntax
+	// fast path. The fast path compares the SAME authored-Go file set the
+	// detector above compared, so its paired-output exclusion must also be the
+	// union of both manifests. Here one refresh deletes page.gsx, rewrites its
+	// now-orphaned page.x.go, AND body-edits a real authored helper in the same
+	// dir: the union hides page.x.go on both sides, leaving helper.go as the
+	// only authored change — swappable, so no Go-source reload is scheduled and
+	// the epoch moves once, for the .gsx membership fact alone (whose own
+	// ReloadMembership reason is what schedules the world reload). Consulting
+	// either manifest alone would see page.x.go appear out of nowhere, refuse
+	// the swap, and double-count the epoch — case 5's original bug, one layer
+	// down.
+	if _, diags, err := m.Generate(pageDir); err != nil || hasDiagErrors(diags) {
+		t.Fatalf("row 9 landing generate: diags=%v err=%v", diags, err)
+	}
+	write("page/helper.go", "package page\n\nfunc helperValue() string { return \"h1\" }\n")
+	if _, _, err := m.RefreshDiskSourcesAndInvalidate(pageDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, diags, err := m.Generate(pageDir); err != nil || hasDiagErrors(diags) {
+		t.Fatalf("row 10 helper landing generate: diags=%v err=%v", diags, err)
+	}
+	if m.testGoSourceReload() {
+		t.Fatal("row 10 setup left a Go reload pending")
+	}
+	epoch = m.testSourceManifestEpoch()
+	if err := os.Remove(filepath.Join(pageDir, "page.gsx")); err != nil {
+		t.Fatal(err)
+	}
+	write("page/page.x.go", "package page\n\n// orphaned rewrite again\n")
+	write("page/helper.go", "package page\n\nfunc helperValue() string { return \"h2\" }\n")
+	_, verdict, err = m.RefreshDiskSourcesAndInvalidate(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.testSourceManifestEpoch(); got != epoch+1 {
+		t.Fatalf("row 10 epoch = %d -> %d, want exactly +1 (membership fact only; the warm swap absorbs the helper edit)", epoch, got)
+	}
+	if m.testGoSourceReload() {
+		t.Fatal("row 10 marked a Go reload: the orphaned .x.go must stay excluded on BOTH sides of the fast path's comparison")
+	}
+	if !verdict.WorldReloadPending || verdict.Reason != sourceview.ReloadMembership {
+		t.Fatalf("row 10 verdict = %+v, want the .gsx deletion's own {true ReloadMembership ...}", verdict)
 	}
 }
 

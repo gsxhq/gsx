@@ -23,34 +23,37 @@ func TestSourceTrackerAuthoritativeReconcileFindsMissedChanges(t *testing.T) {
 	if err := os.Remove(removed); err != nil {
 		t.Fatal(err)
 	}
-	pending := map[string]bool{}
-	depDirty := false
-	goDirty := false
-	changedAny, err := tracker.reconcile([]string{root}, pending, &depDirty, &goDirty)
+	dirty := newWatchDirtySet()
+	changedAny, err := tracker.reconcile([]string{root}, dirty)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changedAny || !pending[filepath.Dir(changed)] || !pending[filepath.Dir(removed)] {
-		t.Fatalf("reconciled pending = %v, changed = %v", pending, changedAny)
+	if !changedAny || !dirty.dirs[filepath.Dir(changed)] {
+		t.Fatalf("reconciled dirs = %v, changed = %v", dirty.dirs, changedAny)
 	}
 	// removed is a plain .go file (not go.mod/go.sum): its loss regenerates
-	// the dependent closure in place, so it must set goDirty — NOT depDirty,
-	// which is reserved for module dependency-surface files that require a
-	// full session reopen.
-	if depDirty {
+	// the dependent closure in place, so it lands in the Go lane — goDirs plus
+	// the goDirty rebuild latch, NOT depDirty (reserved for module
+	// dependency-surface files that require a full session reopen) and NOT
+	// dirs, whose .gsx refresh would only re-scan the directory a second time.
+	if dirty.dirs[filepath.Dir(removed)] {
+		t.Fatalf("missed authored Go removal queued %q on the .gsx lane; it belongs to goDirs alone", filepath.Dir(removed))
+	}
+	if !dirty.goDirs[filepath.Dir(removed)] {
+		t.Fatalf("missed authored Go removal did not queue %q into goDirs, got %v", filepath.Dir(removed), dirty.goDirs)
+	}
+	if dirty.depDirty {
 		t.Fatal("missed authored Go removal incorrectly set depDirty")
 	}
-	if !goDirty {
+	if !dirty.goDirty {
 		t.Fatal("missed authored Go removal did not set goDirty")
 	}
 
 	// The tracker commits the authoritative scan, so repeating it is a no-op.
-	pending = map[string]bool{}
-	depDirty = false
-	goDirty = false
-	changedAny, err = tracker.reconcile([]string{root}, pending, &depDirty, &goDirty)
-	if err != nil || changedAny || len(pending) != 0 || depDirty || goDirty {
-		t.Fatalf("second reconcile = (%v, %v, %v, %v, %v), want no-op", changedAny, pending, depDirty, goDirty, err)
+	dirty = newWatchDirtySet()
+	changedAny, err = tracker.reconcile([]string{root}, dirty)
+	if err != nil || changedAny || !dirty.empty() {
+		t.Fatalf("second reconcile = (%v, %v, %v, %v, %v), want no-op", changedAny, dirty.dirs, dirty.goDirs, dirty.depDirty, err)
 	}
 }
 
@@ -81,15 +84,13 @@ func TestExplicitExcludedRootRecreationIsRearmedAndInventoried(t *testing.T) {
 	source := filepath.Join(explicit, "page.gsx")
 	writeTestFile(t, source, "package tmp\n")
 
-	pending := map[string]bool{}
-	depDirty := false
-	goDirty := false
-	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: explicit, Op: fsnotify.Create}, tracker, pending, &depDirty, &goDirty)
+	dirty := newWatchDirtySet()
+	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: explicit, Op: fsnotify.Create}, tracker, dirty)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed || !pending[explicit] {
-		t.Fatalf("explicit recreated root = changed %v, pending %v", changed, pending)
+	if !changed || !dirty.dirs[explicit] {
+		t.Fatalf("explicit recreated root = changed %v, dirs %v", changed, dirty.dirs)
 	}
 }
 
@@ -119,24 +120,22 @@ func TestExplicitRootBelowExcludedAncestorRearmsAcrossAncestorRecreation(t *test
 	if err := os.RemoveAll(excluded); err != nil {
 		t.Fatal(err)
 	}
-	pending := map[string]bool{}
-	depDirty := false
-	goDirty := false
-	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Remove}, tracker, pending, &depDirty, &goDirty)
+	dirty := newWatchDirtySet()
+	changed, err := applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Remove}, tracker, dirty)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed || !pending[explicit] {
-		t.Fatalf("excluded ancestor removal = changed %v, pending %v", changed, pending)
+	if !changed || !dirty.dirs[explicit] {
+		t.Fatalf("excluded ancestor removal = changed %v, dirs %v", changed, dirty.dirs)
 	}
 
 	writeTestFile(t, source, "package selected\n// recreated\n")
-	changed, err = applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Create}, tracker, pending, &depDirty, &goDirty)
+	changed, err = applyWatchEvent(watcher, fsnotify.Event{Name: excluded, Op: fsnotify.Create}, tracker, dirty)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed || !pending[explicit] {
-		t.Fatalf("excluded ancestor recreation = changed %v, pending %v", changed, pending)
+	if !changed || !dirty.dirs[explicit] {
+		t.Fatalf("excluded ancestor recreation = changed %v, dirs %v", changed, dirty.dirs)
 	}
 }
 

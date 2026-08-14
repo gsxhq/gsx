@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -694,17 +695,63 @@ func writeFiles(dir string, files map[string][]byte) ([]string, error) {
 }
 
 // regenPending runs one regeneration pass over the dirty set. When depDirty is
-// set, it reopens every module (full) and returns all per-dir results. Otherwise
-// it invalidates each pending dir (skipping dirs with no remaining .gsx),
-// computes the affected reverse-closure from each Module's import graph, and
-// regenerates those dirs. On a reopen error it returns (nil, err); the caller
-// must preserve pending+depDirty and retry on the next fire.
-func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]cycleResult, error) {
+// set, it reopens every module (full) and returns all per-dir results.
+// Otherwise it runs the two warm lanes and regenerates their union:
+//
+//   - goDirs (authored .go saves) refresh through
+//     Module.RefreshGoSourcesAndInvalidate, batched per module root. That call
+//     projects each dir's PRE-change reverse closure to its GSX dirs before the
+//     refresh commits, decides warm-swap versus authoritative world reload from
+//     the parsed transition itself, and evicts exactly that closure. A body
+//     edit it can prove safe costs zero packages.Load calls.
+//   - pending (.gsx saves) refresh through RefreshDiskSourcesAndInvalidate per
+//     dir and contribute Dependents(dir), unchanged.
+//
+// A dir dirtied on both lanes inside one debounce window (an editor save-all
+// over helper.go and page.gsx) is refreshed exactly once, on the Go lane: the
+// refresh is directory-scoped and commits every source fact in the dir, .gsx
+// and .go alike.
+//
+// On a reopen error it returns (nil, err); the caller must preserve the dirty
+// transaction and retry on the next fire.
+func (s *watchSession) regenPending(pending, goDirs map[string]bool, depDirty bool) ([]cycleResult, error) {
 	if depDirty {
 		return s.reopen()
 	}
-	affected := map[string]bool{}
-	var results []cycleResult
+	// affected maps each dir queued for regeneration to the Module that owns it
+	// (nil when the owner is not already known for free). The owner decides
+	// whether a Go lane's reload note has a carrier — see noted below.
+	affected := map[string]*codegen.Module{}
+	// refreshed marks dirs whose atomic refresh+invalidate already ran this
+	// cycle, so a dir dirtied on both lanes pays one directory refresh.
+	refreshed := map[string]bool{}
+	// swept marks dirs whose orphan sweep already ran this cycle, so a dir the
+	// .gsx lane emptied and swept is not swept (and reported) a second time
+	// when the Go lane's closure also names it.
+	swept := map[string]bool{}
+	// noted marks modules whose world-reload cause already has a carrier this
+	// cycle, so the Go lane's dependent-less fallback below does not duplicate
+	// a note another branch is already surfacing.
+	noted := map[*codegen.Module]bool{}
+
+	// The Go lane first: it commits the whole directory's source facts, so a
+	// dir the .gsx lane also holds finds itself already refreshed below.
+	//
+	// The affected closure regenerates through regenDirs at the end, which
+	// refreshes each of its dirs again as part of its own batch. A dir that
+	// both lanes reach — a package whose own helper.go changed — is therefore
+	// re-inventoried twice in one cycle. That is deliberate, not an oversight:
+	// it is the same second refresh every .gsx cycle has always paid (the
+	// pending lane refreshes a dir, then regenDirs refreshes it again as its
+	// own dependent), it carries no packages.Load (measured 0.25ms for a
+	// single-file dir and 1.2ms for a 12-source dir, against the ~250ms load
+	// it is no longer performing), and it is what recomputes and stamps the
+	// module-wide reload note on the results developers actually see.
+	// Threading a skip-refresh set into regenDirs would buy back that
+	// millisecond and forfeit the note.
+	golane := s.refreshGoDirs(goDirs, affected, refreshed)
+	results := golane.results
+
 	// Sorted, like affectedDirs below: the orphan-only branch can stamp a
 	// reload note on more than one result, and every consumer folds a batch
 	// with "first non-empty wins" — so which cause a developer is shown must
@@ -728,9 +775,20 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 		// which produces a cycleResult of its own and would otherwise carry no
 		// reload attribution (a non-empty dir's own reload note is captured by
 		// the later regenDirs(affectedDirs) call instead).
-		_, verdict, err := m.RefreshDiskSourcesAndInvalidate(dir)
-		if err != nil {
-			return results, fmt.Errorf("refresh saved GSX sources in %s: %w", dir, err)
+		var reload string
+		if refreshed[dir] {
+			// The Go lane already committed this directory's whole source view
+			// this cycle. Its verdict is the one a second refresh would report
+			// (nothing consumed the pending reload in between — the watch loop
+			// is single-goroutine and no analysis has run), so reuse it.
+			reload = golane.reload[m]
+		} else {
+			_, verdict, err := m.RefreshDiskSourcesAndInvalidate(dir)
+			if err != nil {
+				return results, fmt.Errorf("refresh saved GSX sources in %s: %w", dir, err)
+			}
+			refreshed[dir] = true
+			reload = verdict.Describe()
 		}
 		empty := onlyGeneratedRemains(dir)
 		hasDependent := false
@@ -738,7 +796,7 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 			if empty && dep == dir {
 				continue
 			}
-			affected[dep] = true
+			affected[dep] = m
 			hasDependent = true
 		}
 		if empty {
@@ -767,9 +825,12 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 			// actually did something" (see TestWatchSession_GoEditRegeneratesOnlyDependents,
 			// which asserts dep contributes no cycleResult when page, its
 			// dependent, carries the note instead).
-			reload := verdict.Describe()
+			swept[dir] = true
 			if len(removed) > 0 || (reload != "" && !hasDependent) {
 				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true, Reload: reload})
+				if reload != "" {
+					noted[m] = true
+				}
 			}
 			continue
 		}
@@ -782,6 +843,142 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 		affectedDirs = append(affectedDirs, dir)
 	}
 	sort.Strings(affectedDirs)
-	results = append(results, s.regenDirs(affectedDirs)...)
+	regenerate := make([]string, 0, len(affectedDirs))
+	for _, dir := range affectedDirs {
+		if !onlyGeneratedRemains(dir) {
+			regenerate = append(regenerate, dir)
+			noted[affected[dir]] = true
+			continue
+		}
+		// No .gsx left in dir: a deleted package the retained graph still names
+		// (its inventory entry outlives the cold load — the Go lane's closure
+		// projection includes the edited dir itself), or a Go-only dir reached
+		// through the pre-inventory closure fallback. Generating it would fail
+		// the whole cycle on a package the inventory no longer selects, which
+		// retains the transaction and replays the failure forever; sweep any
+		// orphaned generated output instead — the same treatment the .gsx
+		// lane's own empty branch gives a dir it emptied.
+		if swept[dir] {
+			continue
+		}
+		swept[dir] = true
+		removed, rerr := removeOrphanXgo(dir)
+		if rerr != nil {
+			results = append(results, cycleResult{Dir: dir, Err: rerr})
+			continue
+		}
+		if len(removed) > 0 {
+			results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true})
+		}
+	}
+	results = append(results, s.regenDirs(regenerate)...)
+	// A module whose Go lane scheduled a world reload but contributed nothing
+	// to regenDirs (a .gsx-free leaf nothing imports — an unreferenced cmd/
+	// package) has nowhere else to surface the cause: regenDirs stamps the
+	// module-wide note on its own first generated result, and there is none.
+	// Stamp the module's first Go seed dir instead, mirroring the .gsx lane's
+	// orphan-only branch above. A warm cycle has no cause and stamps nothing.
+	for _, m := range golane.modules {
+		if golane.reload[m] == "" || noted[m] {
+			continue
+		}
+		noted[m] = true
+		results = append(results, cycleResult{Dir: golane.seed[m], OK: true, Reload: golane.reload[m]})
+	}
 	return results, nil
+}
+
+// goLaneOutcome is the authored-Go half of one regenPending cycle: the
+// per-module world-reload cause the refresh published (empty when the warm
+// syntax swap kept the module reload-free), the representative seed dir that
+// cause is attributed to, the modules in deterministic root order, and the
+// per-dir failures that must reach the caller as cycle results.
+type goLaneOutcome struct {
+	reload  map[*codegen.Module]string
+	seed    map[*codegen.Module]string
+	modules []*codegen.Module
+	results []cycleResult
+}
+
+// refreshGoDirs refreshes every authored-Go dirty dir through its owning
+// Module, folding the GSX projection of each dir's pre-change reverse closure
+// into affected and marking the dirs it committed in refreshed. Dirs are
+// grouped by module root so one module pays one refresh per cycle regardless
+// of how many of its packages a branch switch touched.
+//
+// A cross-module consumer pass follows the refreshes: an authored-Go edit can
+// change the types a replace-linked or go.work-linked sibling module consumes
+// through its retained external importer, which is warm state the edited
+// module's own invalidation cannot reach.
+func (s *watchSession) refreshGoDirs(goDirs map[string]bool, affected map[string]*codegen.Module, refreshed map[string]bool) goLaneOutcome {
+	out := goLaneOutcome{reload: map[*codegen.Module]string{}, seed: map[*codegen.Module]string{}}
+	if len(goDirs) == 0 {
+		return out
+	}
+	byRoot := map[string][]string{}
+	var roots []string
+	for _, dir := range sortedSet(goDirs) {
+		root, _, err := moduleRoot(dir)
+		if err != nil {
+			if errors.Is(err, errNoEnclosingModule) {
+				// Authored Go outside every module cannot participate in any
+				// watched module's build (a directory replace target must
+				// itself be a module), so this edit cannot affect generated
+				// output. Failing instead of skipping would retain the dirty
+				// set forever and wedge every later cycle on a stray script
+				// file.
+				continue
+			}
+			out.results = append(out.results, cycleResult{Dir: dir, Err: err})
+			continue
+		}
+		if _, seen := byRoot[root]; !seen {
+			roots = append(roots, root)
+		}
+		byRoot[root] = append(byRoot[root], dir)
+	}
+	sort.Strings(roots)
+	for _, root := range roots {
+		dirs := byRoot[root]
+		m, err := s.moduleForDir(root)
+		if err != nil {
+			for _, dir := range dirs {
+				out.results = append(out.results, cycleResult{Dir: dir, Err: err})
+			}
+			continue
+		}
+		gsxDirs, verdict, err := m.RefreshGoSourcesAndInvalidate(dirs...)
+		if err != nil {
+			for _, dir := range dirs {
+				out.results = append(out.results, cycleResult{Dir: dir, Err: fmt.Errorf("refresh saved Go sources in %s: %w", dir, err)})
+			}
+			continue
+		}
+		for _, dir := range dirs {
+			refreshed[dir] = true
+		}
+		for _, dir := range gsxDirs {
+			if _, known := affected[dir]; !known {
+				affected[dir] = m
+			}
+		}
+		out.modules = append(out.modules, m)
+		// dirs arrived in sorted order (sortedSet above), so the attribution
+		// dir is the same on every run.
+		out.seed[m] = dirs[0]
+		out.reload[m] = verdict.Describe()
+	}
+	if len(byRoot) != 0 && len(s.modules) > 1 {
+		crossDirs, crossResults := s.reopenConsumerModules(byRoot)
+		out.results = append(out.results, crossResults...)
+		for _, dir := range crossDirs {
+			if _, known := affected[dir]; !known {
+				// Owner deliberately left nil: a consumer module is never one
+				// of the edited roots (reopenConsumerModules skips those), so
+				// it can hold no Go-lane reload note to carry.
+				affected[dir] = nil
+			}
+		}
+	}
+	return out
 }
