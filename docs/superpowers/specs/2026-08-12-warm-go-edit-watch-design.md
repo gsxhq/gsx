@@ -30,9 +30,13 @@ an in-place, Module-decided reload.
   the owning dir, regenerate **only its dependent closure**, and pay exactly
   one in-place world reload inside that cycle — no session teardown, no
   rediscovery, no regenerate-all. Expected on gsxui: ~4.6s → ~2.5–3s
-  (verified by A/B). Sub-second body edits arrive with Phase 2's cheap
-  reload; a future exported-surface comparison could later eliminate the
-  reload for provably body-only edits (explicitly deferred, not scope).
+  (verified by A/B). **Superseded by Phase 3 (shipped):** a body edit to an
+  already-compiled file now pays *no* reload at all — the retained syntax is
+  re-parsed and swapped in place, and the cycle issues zero `packages.Load`
+  calls. See `2026-08-12-incremental-saved-go-watch-design.md`. The
+  "one in-place reload" figure below is now the cost of a transition the warm
+  tier REFUSES (membership, cgo, build constraints, a new import), not of an
+  ordinary save.
 - Fix the latent LSP watched-files staleness end to end: disk `.go` changes
   must mark the world reload exactly as override transitions already do, and
   must actually *reach* that marking through the LSP — the watched-file
@@ -56,6 +60,8 @@ an in-place, Module-decided reload.
 - Keeping `.go` file creates/deletes warm (Phase 1 escalates them; the
   retained cold load's compiled-file selection cannot absorb membership
   changes without new machinery — revisit only after the verdict API exists).
+  Phase 3 kept this non-goal: cmd/go remains the authority on source
+  selection, so a membership change still reloads.
 - Parallel/incremental per-dir generation (the 100× lever; separate project).
 - Any change to batch `gsx generate` or the on-disk cache.
 
@@ -151,17 +157,25 @@ itself surfaces a per-module error result rather than silently skipping a
 consumer whose own metadata just broke. Where both mechanisms could fire —
 a nested, contained module that is also a replace/go.work consumer —
 containment escalation wins outright; the consumer pass runs only for
-non-escalated Go edits. Wiring `regenPending`'s per-cycle dirty routing to
-call `reopenConsumerModules` lands separately; until then the live loop
-still heals this shape only incidentally, via a `go.mod`/`go.sum` touch or a
-session restart.
+non-escalated Go edits. **Wired in Phase 3:** `regenPending`'s `goDirs` lane
+groups authored-Go dirs by module root and calls `reopenConsumerModules` for
+every non-escalated Go cycle in a multi-module session, so the live loop now
+heals this shape on the edit itself
+(`TestWatchGoEditPropagatesAcrossReplaceLink`).
 
 **Preserved invariant.** Any authored-`.go` event still sets `goChanged`
 (via a new `goDirty` flag on the dirty set, since `depDirty` no longer
 covers it), so the server binary rebuilds and restarts even when zero
 `.x.go` bytes change. Signature-level `.go` edits propagate through the
 in-place world reload the verdict announces; dependents then regenerate
-against fresh types, and hash-gated writes drop no-op disk churn.
+against fresh types, and hash-gated writes drop no-op disk churn. Phase 3
+makes the flag load-bearing rather than belt-and-braces: a warm cycle can now
+legitimately produce no `cycleResult` at all (a Go-only leaf with no GSX
+dependent), and `goDirty` is then the only thing that still rebuilds the
+server. Signature edits still propagate — the warm swap replaces the retained
+syntax, so dependents re-type-check against the new signature without a
+reload (`TestWatchSession_GoEditRegeneratesOnlyDependents` asserts the
+`IntInto` writer change).
 
 **Observability (chosen: console + panel).** The verdict reason threads into
 the `generated`/status events and one console line, e.g.
@@ -219,6 +233,11 @@ via load counters, not wall-clock.
 ## Sequencing
 
 1. Phase 1 PR: verdict API + watch routing + observability + fmt/lint/ci
-   gates + vite-plugin-gsx panel bump.
+   gates + vite-plugin-gsx panel bump. **Shipped, #186.**
 2. Phase 2 PR: external-world reuse across generations (after measurement).
-3. Docs dev-guide + ROADMAP updates ride the PRs.
+   **Shipped, #188** (config-tier project shared world).
+3. Phase 3: warm Go-syntax swap — a body edit reloads nothing at all — plus
+   the cross-module consumer reopen. Designed in
+   `2026-08-12-incremental-saved-go-watch-design.md`, originating in PR #185
+   (Hossein Bahmani). **Shipped.**
+4. Docs dev-guide + ROADMAP updates ride the PRs.
