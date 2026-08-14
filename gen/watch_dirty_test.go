@@ -13,7 +13,7 @@ func TestWatchDirtySetCommitsOnlySuccessfulRegeneration(t *testing.T) {
 	dirty.depDirty = true
 	wantErr := errors.New("saved source temporarily unreadable")
 
-	_, _, err := dirty.regenerate(func(dirs map[string]bool, depDirty bool) ([]cycleResult, error) {
+	_, _, err := dirty.regenerate(func(dirs, goDirs map[string]bool, depDirty bool) ([]cycleResult, error) {
 		if !maps.Equal(dirs, map[string]bool{"/module/ui": true}) || !depDirty {
 			t.Fatalf("first attempt = (%v, %v), want original complete dirty state", dirs, depDirty)
 		}
@@ -30,7 +30,7 @@ func TestWatchDirtySetCommitsOnlySuccessfulRegeneration(t *testing.T) {
 	// receive the complete union and clear it only after succeeding.
 	dirty.dirs["/module/pages"] = true
 	wantResults := []cycleResult{{Dir: "/module/ui", OK: true}, {Dir: "/module/pages", OK: true}}
-	results, goChanged, err := dirty.regenerate(func(dirs map[string]bool, depDirty bool) ([]cycleResult, error) {
+	results, goChanged, err := dirty.regenerate(func(dirs, goDirs map[string]bool, depDirty bool) ([]cycleResult, error) {
 		wantDirs := map[string]bool{"/module/ui": true, "/module/pages": true}
 		if !maps.Equal(dirs, wantDirs) || !depDirty {
 			t.Fatalf("retry = (%v, %v), want (%v, true)", dirs, depDirty, wantDirs)
@@ -55,7 +55,7 @@ func TestWatchDirtySetTreatsDiagnosticCycleAsCompleted(t *testing.T) {
 	dirty := newWatchDirtySet()
 	dirty.dirs["/module/ui"] = true
 
-	results, _, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+	results, _, err := dirty.regenerate(func(map[string]bool, map[string]bool, bool) ([]cycleResult, error) {
 		return []cycleResult{{Dir: "/module/ui", OK: false}}, nil
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestWatchDirtySetRetainsPerDirectoryOperationalFailure(t *testing.T) {
 	dirty.dirs["/module/ui"] = true
 	wantErr := errors.New("write generated output: disk full")
 
-	results, _, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+	results, _, err := dirty.regenerate(func(map[string]bool, map[string]bool, bool) ([]cycleResult, error) {
 		return []cycleResult{{Dir: "/module/ui", OK: false, Err: wantErr}}, nil
 	})
 	if !errors.Is(err, wantErr) {
@@ -94,7 +94,7 @@ func TestWatchDirtySetCarriesFailedFilesystemEffectsIntoSuccessfulCommit(t *test
 	dirty.dirs["/module/b"] = true
 	diskFull := errors.New("disk full")
 
-	results, _, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+	results, _, err := dirty.regenerate(func(map[string]bool, map[string]bool, bool) ([]cycleResult, error) {
 		return []cycleResult{
 			{Dir: "/module/a", Written: []string{"/module/a/a.x.go"}, Removed: []string{"/module/a/old.x.go"}, OK: true},
 			{Dir: "/module/b", Err: diskFull},
@@ -107,7 +107,7 @@ func TestWatchDirtySetCarriesFailedFilesystemEffectsIntoSuccessfulCommit(t *test
 		t.Fatalf("failed partial results were published as committed: %+v", results)
 	}
 
-	results, _, err = dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+	results, _, err = dirty.regenerate(func(map[string]bool, map[string]bool, bool) ([]cycleResult, error) {
 		// The retry is effect-free because the first attempt already changed disk.
 		return []cycleResult{{Dir: "/module/a", OK: true}, {Dir: "/module/b", OK: true}}, nil
 	})
@@ -130,13 +130,13 @@ func TestWatchDirtySetCarriesEffectsReturnedWithTopLevelFailure(t *testing.T) {
 	dirty.dirs["/module/b"] = true
 	refreshErr := errors.New("refresh b")
 
-	results, _, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+	results, _, err := dirty.regenerate(func(map[string]bool, map[string]bool, bool) ([]cycleResult, error) {
 		return []cycleResult{{Dir: "/module/a", Removed: []string{"/module/a/a.x.go"}, OK: true}}, refreshErr
 	})
 	if !errors.Is(err, refreshErr) || len(results) != 0 {
 		t.Fatalf("failed cycle = (%+v, %v), want no committed results and refresh error", results, err)
 	}
-	results, _, err = dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+	results, _, err = dirty.regenerate(func(map[string]bool, map[string]bool, bool) ([]cycleResult, error) {
 		return nil, nil
 	})
 	if err != nil {
@@ -167,7 +167,7 @@ func TestWatchDirtySetGoDirtyForcesRebuildWithoutDepDirty(t *testing.T) {
 	dirty.dirs["/module/dep"] = true
 	dirty.goDirty = true
 
-	results, rebuild, err := dirty.regenerate(func(dirs map[string]bool, depDirty bool) ([]cycleResult, error) {
+	results, rebuild, err := dirty.regenerate(func(dirs, goDirs map[string]bool, depDirty bool) ([]cycleResult, error) {
 		if depDirty {
 			t.Fatalf("goDirty-only cycle passed depDirty=true to regen")
 		}
@@ -204,7 +204,7 @@ func TestWatchDirtySetRetainsGoDirtyAcrossOperationalFailure(t *testing.T) {
 	dirty.goDirty = true
 	wantErr := errors.New("refresh dep: temporarily unreadable")
 
-	_, rebuild, err := dirty.regenerate(func(map[string]bool, bool) ([]cycleResult, error) {
+	_, rebuild, err := dirty.regenerate(func(map[string]bool, map[string]bool, bool) ([]cycleResult, error) {
 		return []cycleResult{{Dir: "/module/dep", Err: wantErr}}, nil
 	})
 	if !errors.Is(err, wantErr) {
@@ -220,7 +220,7 @@ func TestWatchDirtySetRetainsGoDirtyAcrossOperationalFailure(t *testing.T) {
 		t.Fatalf("failed attempt did not retain dirs: %v", dirty.dirs)
 	}
 
-	results, rebuild, err := dirty.regenerate(func(dirs map[string]bool, depDirty bool) ([]cycleResult, error) {
+	results, rebuild, err := dirty.regenerate(func(dirs, goDirs map[string]bool, depDirty bool) ([]cycleResult, error) {
 		if depDirty {
 			t.Fatalf("retained go-cycle retry passed depDirty=true to regen")
 		}

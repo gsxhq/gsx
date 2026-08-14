@@ -39,7 +39,7 @@ import "example.com/dep"
 
 component Page(value dep.Value) { <p>{value}</p> }
 `)
-	results, err := session.regenPending(map[string]bool{pageDir: true}, false)
+	results, err := session.regenPending(map[string]bool{pageDir: true}, nil, false)
 	if err != nil {
 		t.Fatalf("regenPending: %v", err)
 	}

@@ -53,9 +53,9 @@ func TestWatchSession_GoEditRegeneratesOnlyDependents(t *testing.T) {
 		"package dep\n\nfunc Value() string { return \"v2\" }\n")
 
 	// Simulate the watch loop's routing decision directly: a plain .go write
-	// sets goDirty and queues its own dir as pending — see queueWatchSource.
+	// seeds goDirs and the goDirty rebuild latch — see classifyDirtyFile.
 	dirty := newWatchDirtySet()
-	dirty.dirs[depDir] = true
+	dirty.goDirs[depDir] = true
 	dirty.goDirty = true
 
 	results, rebuild, err := dirty.regenerate(sess.regenPending)
@@ -99,11 +99,15 @@ func TestWatchSession_GoEditRegeneratesOnlyDependents(t *testing.T) {
 		}
 	}
 
-	// Observability: page's cycleResult must carry the verdict's Describe()
-	// reason — the reload was forced by dep/dep.go's changed Go source, and
-	// page is the sole (first) result of the cycle for its module.
-	if !strings.Contains(pageResult.Reload, "Go source") {
-		t.Fatalf("pageResult.Reload = %q, want it to contain %q", pageResult.Reload, "Go source")
+	// Observability: a body-only edit to an already-compiled file is exactly
+	// what the warm Go-syntax fast path accepts (Module.refreshGoSyntaxLocked
+	// re-parses dep.go into the retained FileSet and swaps it into the
+	// retained package), so NO world reload happens and there is no cause to
+	// report. cycleResult.Reload must stay empty — a rendered note here would
+	// be a lie about work the cycle did not do. The reload-forcing shape is
+	// pinned at the end of this test.
+	if pageResult.Reload != "" {
+		t.Fatalf("pageResult.Reload = %q, want \"\" — a warm-swapped .go body edit reloads nothing", pageResult.Reload)
 	}
 
 	before, err := os.ReadFile(filepath.Join(pageDir, "page.x.go"))
@@ -119,7 +123,7 @@ func TestWatchSession_GoEditRegeneratesOnlyDependents(t *testing.T) {
 	writeFileT(t, filepath.Join(depDir, "dep.go"),
 		"package dep\n\nfunc Value() int { return 42 }\n")
 
-	dirty.dirs[depDir] = true
+	dirty.goDirs[depDir] = true
 	dirty.goDirty = true
 	results2, rebuild2, err := dirty.regenerate(sess.regenPending)
 	if err != nil {
@@ -144,6 +148,31 @@ func TestWatchSession_GoEditRegeneratesOnlyDependents(t *testing.T) {
 	}
 	if !strings.Contains(string(after), "IntInto") {
 		t.Fatalf("expected an int-typed writer call after the signature change, got:\n%s", after)
+	}
+
+	// Step 7: the reload-forcing shape. Adding a FILE to dep/ changes the
+	// package's compiled membership, which the warm fast path refuses on
+	// principle (cmd/go stays the authority on source selection), so this
+	// cycle DOES schedule an authoritative in-place world reload — and its
+	// cause must reach the developer on the module's first generated result.
+	// Keeping this row is what stops the flipped assertion above from
+	// degenerating into "Reload is never set anywhere".
+	writeFileT(t, filepath.Join(depDir, "extra.go"),
+		"package dep\n\nfunc Extra() string { return \"e\" }\n")
+	dirty.goDirs[depDir] = true
+	dirty.goDirty = true
+	results3, _, err := dirty.regenerate(sess.regenPending)
+	if err != nil {
+		t.Fatalf("regenerate after adding a file to dep/: %v", err)
+	}
+	if len(results3) != 1 || results3[0].Dir != pageDir {
+		t.Fatalf("results3 = %+v, want exactly one cycleResult for page", results3)
+	}
+	if !results3[0].OK {
+		t.Fatalf("page regen after the membership change not OK: err=%v diags=%v", results3[0].Err, results3[0].Diags)
+	}
+	if !strings.Contains(results3[0].Reload, "Go source") {
+		t.Fatalf("results3[0].Reload = %q, want it to contain %q — a membership change must surface its reload cause", results3[0].Reload, "Go source")
 	}
 }
 
@@ -198,26 +227,28 @@ func TestQueueWatchSourceRoutesAuthoredGoAsSourceEvent(t *testing.T) {
 	writeFileT(t, paired, "package sample\n// changed\n")
 	writeFileT(t, unpaired, "package sample\n// changed\n")
 
-	pending := map[string]bool{}
-	var depDirty, goDirty bool
-	if queueWatchSource(paired, tracker, pending, &depDirty, &goDirty) {
+	dirty := newWatchDirtySet()
+	if queueWatchSource(paired, tracker, dirty) {
 		t.Fatal("paired generated output must be ignored entirely (not watchable)")
 	}
-	if depDirty || goDirty || len(pending) != 0 {
-		t.Fatalf("paired generated output must not affect classification state: depDirty=%v goDirty=%v pending=%v", depDirty, goDirty, pending)
+	if !dirty.empty() {
+		t.Fatalf("paired generated output must not affect classification state: %+v", dirty)
 	}
 
-	if !queueWatchSource(unpaired, tracker, pending, &depDirty, &goDirty) {
+	if !queueWatchSource(unpaired, tracker, dirty) {
 		t.Fatal("unpaired .x.go must route as a watchable source event")
 	}
-	if depDirty {
+	if dirty.depDirty {
 		t.Error("unpaired .x.go must NOT be classified as a dep file")
 	}
-	if !goDirty {
+	if !dirty.goDirty {
 		t.Error("unpaired .x.go must set goDirty")
 	}
-	if !pending[root] {
-		t.Errorf("unpaired .x.go must queue its directory as pending, got pending=%v", pending)
+	if !dirty.goDirs[root] {
+		t.Errorf("unpaired .x.go must queue its directory into goDirs, got goDirs=%v", dirty.goDirs)
+	}
+	if dirty.dirs[root] {
+		t.Errorf("unpaired .x.go must NOT queue its directory on the .gsx lane, got dirs=%v", dirty.dirs)
 	}
 }
 
@@ -269,17 +300,24 @@ func TestWatchSession_GsxEditCarriesNoReload(t *testing.T) {
 	}
 }
 
-// TestWatchSession_GoOnlyLeafDirZeroDependentsCarriesReload pins the fix for
-// a dropped-note regression: a .gsx-free package (e.g. a cmd/ leaf nothing
-// imports) whose .go file changes is "empty" per onlyGeneratedRemains (which
-// only checks for a live .gsx, not a leftover .x.go) AND has no dependents
-// to carry the reload note forward via regenDirs — m.Dependents(dir) returns
-// only dir itself, which the empty branch's self-skip then excludes from
-// affected entirely. Before the fix, regenPending's orphan-only branch only
-// produced a cycleResult when len(removed) > 0, so this dir's reload cause —
-// a real, non-empty RefreshVerdict.Describe() — was silently dropped from
-// every consumer (no cycleResult at all, for the whole cycle). The fix fires
-// the branch whenever Describe() is non-empty too, not only on a removal.
+// TestWatchSession_GoOnlyLeafDirZeroDependentsCarriesReload pins the reload
+// note for the one shape that has nowhere else to carry it: a .gsx-free
+// package (e.g. a cmd/ leaf nothing imports) whose .go file changes has no
+// dependent GSX dir at all, so the closure projection is empty and regenDirs
+// — which normally stamps the module-wide note on its own first generated
+// result — never runs for that module. regenPending's Go lane stamps the
+// module's own seed dir in exactly that case.
+//
+// The two shapes are pinned together on purpose:
+//
+//   - a body-only edit is accepted by the warm Go-syntax fast path, reloads
+//     nothing, and therefore has NO cause to carry: the cycle is silent, and a
+//     fabricated "regenerated nothing" result would be noise. (Before the warm
+//     path landed, every .go edit forced a reload and this branch always
+//     fired — that is the expectation this row flips.)
+//   - an edit the fast path refuses (here: adding a file to the package, a
+//     compiled-membership change cmd/go must arbitrate) schedules the
+//     authoritative in-place reload, and its cause MUST surface.
 //
 // other/other.gsx is required for the diff to even be detectable: the go
 // source diff is computed against m.savedSourceManifest, which is only
@@ -311,22 +349,42 @@ func TestWatchSession_GoOnlyLeafDirZeroDependentsCarriesReload(t *testing.T) {
 		}
 	}
 
+	// Warm shape: a body-only edit to an already-compiled file.
 	writeFileT(t, filepath.Join(depDir, "dep.go"),
 		"package dep\n\nfunc Value() string { return \"v2\" }\n")
 
 	dirty := newWatchDirtySet()
-	dirty.dirs[depDir] = true
+	dirty.goDirs[depDir] = true
 	dirty.goDirty = true
 
-	results, _, err := dirty.regenerate(sess.regenPending)
+	results, rebuild, err := dirty.regenerate(sess.regenPending)
 	if err != nil {
 		t.Fatalf("regenerate after go edit to a zero-dependents leaf: %v", err)
 	}
+	if len(results) != 0 {
+		t.Fatalf("results = %+v, want none — the warm swap reloaded nothing and dep/ has no dependent to regenerate", results)
+	}
+	// The cycle is invisible in results, so the rebuild latch is the only
+	// thing that still forces the server binary to pick up dep's new body.
+	if !rebuild {
+		t.Fatal("a warm (silent) go-edit cycle must still report rebuild=true")
+	}
 
+	// Reload-forcing shape: adding a file changes the package's compiled
+	// membership, which the fast path refuses.
+	writeFileT(t, filepath.Join(depDir, "extra.go"),
+		"package dep\n\nfunc Extra() string { return \"e\" }\n")
+	dirty.goDirs[depDir] = true
+	dirty.goDirty = true
+
+	results, _, err = dirty.regenerate(sess.regenPending)
+	if err != nil {
+		t.Fatalf("regenerate after a membership change in a zero-dependents leaf: %v", err)
+	}
 	// Regression guard: the reload cause must reach at least one cycleResult
 	// — a silently empty results slice is exactly the bug being pinned.
 	if len(results) != 1 {
-		t.Fatalf("results = %+v, want exactly one cycleResult (dep itself, via the orphan-only branch)", results)
+		t.Fatalf("results = %+v, want exactly one cycleResult (dep itself, carrying the reload cause)", results)
 	}
 	r := results[0]
 	if r.Dir != depDir {

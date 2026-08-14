@@ -147,7 +147,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 				em.emitError(fsnotify.ErrClosed)
 				return 1
 			}
-			changed, eventErr := applyWatchEvent(w, ev, sources, dirty.dirs, &dirty.depDirty, &dirty.goDirty)
+			changed, eventErr := applyWatchEvent(w, ev, sources, dirty)
 			if eventErr != nil {
 				em.emitError(eventErr)
 				return 1
@@ -263,7 +263,7 @@ func reconcileWatchState(w *fsnotify.Watcher, session *watchSession, sources *so
 	if err := addRequestedRootSentinels(w, sources); err != nil {
 		return false, err
 	}
-	return sources.reconcile(session.watchRoots, dirty.dirs, &dirty.depDirty, &dirty.goDirty)
+	return sources.reconcile(session.watchRoots, dirty)
 }
 
 // applyWatchEvent handles structural directory creation before filtering file
@@ -271,18 +271,18 @@ func reconcileWatchState(w *fsnotify.Watcher, session *watchSession, sources *so
 // fsnotify delivers its directory event, so it is first made recursively
 // watchable and then inventoried through the same exact source classifier used
 // for ordinary file events.
-func applyWatchEvent(w *fsnotify.Watcher, event fsnotify.Event, sources *sourceTracker, pending map[string]bool, depDirty, goDirty *bool) (bool, error) {
+func applyWatchEvent(w *fsnotify.Watcher, event fsnotify.Event, sources *sourceTracker, dirty *watchDirtySet) (bool, error) {
 	if !sources.observed(event.Name) {
 		return false, nil
 	}
 	if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 && sources.requestedStructure(event.Name) {
-		return sources.removeTree(event.Name, pending, depDirty, goDirty), nil
+		return sources.removeTree(event.Name, dirty), nil
 	}
 	if event.Op&fsnotify.Create != 0 {
 		info, err := os.Stat(event.Name)
 		if err == nil && info.IsDir() {
 			if sources.requestedStructure(event.Name) {
-				return queueRequestedBranches(w, event.Name, sources, pending, depDirty, goDirty)
+				return queueRequestedBranches(w, event.Name, sources, dirty)
 			}
 			if excludedDir(event.Name) && !sources.explicitRoot(event.Name) {
 				return false, nil
@@ -290,16 +290,16 @@ func applyWatchEvent(w *fsnotify.Watcher, event fsnotify.Event, sources *sourceT
 			if err := addWatchTree(w, []string{event.Name}); err != nil {
 				return false, err
 			}
-			return queueWatchTree(event.Name, sources, pending, depDirty, goDirty)
+			return queueWatchTree(event.Name, sources, dirty)
 		}
 		if err != nil && !os.IsNotExist(err) {
 			return false, err
 		}
 	}
-	return queueWatchSource(event.Name, sources, pending, depDirty, goDirty), nil
+	return queueWatchSource(event.Name, sources, dirty), nil
 }
 
-func queueRequestedBranches(w *fsnotify.Watcher, created string, sources *sourceTracker, pending map[string]bool, depDirty, goDirty *bool) (bool, error) {
+func queueRequestedBranches(w *fsnotify.Watcher, created string, sources *sourceTracker, dirty *watchDirtySet) (bool, error) {
 	if err := addRequestedRootSentinels(w, sources); err != nil {
 		return false, err
 	}
@@ -318,7 +318,7 @@ func queueRequestedBranches(w *fsnotify.Watcher, created string, sources *source
 		if err := addWatchTree(w, []string{root}); err != nil {
 			return false, err
 		}
-		branchChanged, err := queueWatchTree(root, sources, pending, depDirty, goDirty)
+		branchChanged, err := queueWatchTree(root, sources, dirty)
 		if err != nil {
 			return false, err
 		}
@@ -327,7 +327,7 @@ func queueRequestedBranches(w *fsnotify.Watcher, created string, sources *source
 	return changed, nil
 }
 
-func queueWatchTree(root string, sources *sourceTracker, pending map[string]bool, depDirty, goDirty *bool) (bool, error) {
+func queueWatchTree(root string, sources *sourceTracker, dirty *watchDirtySet) (bool, error) {
 	changed := false
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -339,7 +339,7 @@ func queueWatchTree(root string, sources *sourceTracker, pending map[string]bool
 			}
 			return nil
 		}
-		if queueWatchSource(path, sources, pending, depDirty, goDirty) {
+		if queueWatchSource(path, sources, dirty) {
 			changed = true
 		}
 		return nil
@@ -347,20 +347,28 @@ func queueWatchTree(root string, sources *sourceTracker, pending map[string]bool
 	return changed, err
 }
 
-func queueWatchSource(path string, sources *sourceTracker, pending map[string]bool, depDirty, goDirty *bool) bool {
+func queueWatchSource(path string, sources *sourceTracker, dirty *watchDirtySet) bool {
 	if !watchable(path) || !sources.changed(path) {
 		return false
 	}
-	sources.classifyDirtyFile(path, depDirty, goDirty)
-	pending[filepath.Dir(path)] = true
+	sources.classifyDirtyFile(path, dirty)
 	return true
 }
 
-// classifyDirtyFile marks depDirty for go.mod/go.sum (a full session reopen is
-// required — the module's own import resolution can change) and goDirty for
-// any other authored .go source (an in-place world reload, scoped to the
-// dependent closure, suffices). A .gsx source trips neither: ordinary warm
-// regeneration already picks it up through the pending dir.
+// classifyDirtyFile routes one changed watched source into the dirty set's
+// lanes. go.mod/go.sum set depDirty (a full session reopen is required — the
+// module's own import resolution can change). Any other authored .go source
+// seeds goDirs — and the goDirty rebuild latch — so regenPending refreshes it
+// through Module.RefreshGoSourcesAndInvalidate: the warm syntax swap keeps the
+// cycle reload-free when it can, and the GSX projection of the directory's
+// PRE-change closure is what regenerates. A .gsx source seeds dirs, the
+// ordinary warm pending lane.
+//
+// The lanes are exclusive on purpose. Routing an authored .go dir into dirs as
+// well would refresh the directory a second time through the .gsx path and,
+// for a Go-only directory, walk it through the empty-dir orphan branch every
+// cycle; a directory saved on both paths at once lands in both maps from its
+// own two events, which regenPending handles as one refresh.
 //
 // An authored .go source in a directory the in-place path cannot serve —
 // a nested module the outer one consumes through a go.mod `replace`, a
@@ -370,16 +378,25 @@ func queueWatchSource(path string, sources *sourceTracker, pending map[string]bo
 // The escalation probe is skipped once the cycle is already dep-dirty: the
 // answer cannot change the routing, and a bulk rewrite (a `go mod vendor`, a
 // branch switch) would otherwise pay it per file.
-func (t *sourceTracker) classifyDirtyFile(path string, depDirty, goDirty *bool) {
+func (t *sourceTracker) classifyDirtyFile(path string, dirty *watchDirtySet) {
+	dir := filepath.Dir(path)
 	switch {
 	case isDepFile(path):
-		*depDirty = true
+		dirty.depDirty = true
+		// The module file's own directory still enters the ordinary lane: it is
+		// where a sibling .gsx would live, and the reopen ignores the pending
+		// set anyway. Preserved from the pre-goDirs classification.
+		dirty.dirs[dir] = true
 	case isGoSourceFile(path):
-		if t != nil && !*depDirty && t.session.goEditNeedsReopen(filepath.Dir(path)) {
-			*depDirty = true
+		if t != nil && !dirty.depDirty && t.session.goEditNeedsReopen(dir) {
+			dirty.depDirty = true
+			dirty.dirs[dir] = true
 			return
 		}
-		*goDirty = true
+		dirty.goDirty = true
+		dirty.goDirs[dir] = true
+	default:
+		dirty.dirs[dir] = true
 	}
 }
 
@@ -474,7 +491,7 @@ func sourceInventory(roots []string) (map[string]sourceSnapshot, error) {
 // reconcile replaces the event-derived baseline with an authoritative walk and
 // queues the exact additions, removals, and byte changes. It is used whenever
 // the watcher reports that event delivery may be incomplete.
-func (t *sourceTracker) reconcile(roots []string, pending map[string]bool, depDirty, goDirty *bool) (bool, error) {
+func (t *sourceTracker) reconcile(roots []string, dirty *watchDirtySet) (bool, error) {
 	files, err := sourceInventory(roots)
 	if err != nil {
 		return false, err
@@ -494,8 +511,7 @@ func (t *sourceTracker) reconcile(roots []string, pending map[string]bool, depDi
 			continue
 		}
 		changed = true
-		pending[filepath.Dir(path)] = true
-		t.classifyDirtyFile(path, depDirty, goDirty)
+		t.classifyDirtyFile(path, dirty)
 	}
 	t.files = files
 	return changed, nil
@@ -509,7 +525,7 @@ func (t *sourceTracker) requestedStructure(path string) bool {
 	return t != nil && len(t.requestedBranches[filepath.Clean(path)]) != 0
 }
 
-func (t *sourceTracker) removeTree(root string, pending map[string]bool, depDirty, goDirty *bool) bool {
+func (t *sourceTracker) removeTree(root string, dirty *watchDirtySet) bool {
 	root = filepath.Clean(root)
 	changed := false
 	for path := range t.files {
@@ -517,8 +533,7 @@ func (t *sourceTracker) removeTree(root string, pending map[string]bool, depDirt
 			continue
 		}
 		delete(t.files, path)
-		pending[filepath.Dir(path)] = true
-		t.classifyDirtyFile(path, depDirty, goDirty)
+		t.classifyDirtyFile(path, dirty)
 		changed = true
 	}
 	return changed
