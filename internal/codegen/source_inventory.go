@@ -218,8 +218,8 @@ func (m *Module) RefreshGoSourcesAndInvalidate(dirs ...string) ([]string, Refres
 
 // refreshGoSyntaxLocked replaces retained syntax for common existing active
 // file edits. It returns false unless the complete transition can reuse the
-// published cmd/go package selection; dirs with no authored-Go change at all
-// are a trivially safe no-op. Assumes analysisMu and m.mu.
+// published cmd/go package selection; a dir whose authored Go files are all
+// byte-unchanged is a trivially safe no-op. Assumes analysisMu and m.mu.
 //
 // before is the effective (saved+override) helper-Go manifest published by the
 // previous refresh or cold load; the after side is the one this refresh just
@@ -232,9 +232,25 @@ func (m *Module) refreshGoSyntaxLocked(before *sourceview.Manifest, dirs []strin
 	if before == nil || after == nil || !m.sourceInventoryReady {
 		return false
 	}
+	// Both manifests are keyed by absolute, cleaned paths, and every lookup
+	// below — the paired-output exclusion and the per-dir snapshot maps — keys
+	// on dir identity. Canonicalize once, refusing on error, so the contract is
+	// self-enforcing: a caller passing a relative or unclean dir would
+	// otherwise miss every manifest entry, and an empty-vs-empty comparison
+	// reads as "nothing to swap here" — warm, with the retained syntax left
+	// stale and no reload scheduled.
+	canonical := make([]string, 0, len(dirs))
 	dirSet := make(map[string]bool, len(dirs))
 	for _, dir := range dirs {
-		dirSet[dir] = true
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return false
+		}
+		abs = filepath.Clean(abs)
+		if !dirSet[abs] {
+			dirSet[abs] = true
+			canonical = append(canonical, abs)
+		}
 	}
 	// Union-of-both-manifests paired-output exclusion, the same discipline
 	// goSourceChangesInDirs applies: a .gsx deleted in this very refresh leaves
@@ -249,10 +265,18 @@ func (m *Module) refreshGoSyntaxLocked(before *sourceview.Manifest, dirs []strin
 		file *goast.File
 	}
 	var edits []syntaxEdit
-	for _, dir := range dirs {
+	for _, dir := range canonical {
 		oldFiles := authoredGoSnapshots(before, dir, excluded)
 		newFiles := authoredGoSnapshots(after, dir, excluded)
 		if len(oldFiles) != len(newFiles) {
+			return false
+		}
+		if len(oldFiles) == 0 {
+			// The caller reaches here only for dirs with a DETECTED authored-Go
+			// change, so a dir that resolves into NEITHER manifest is a keying
+			// mismatch, not an empty transition. Refuse rather than report warm:
+			// the authoritative reload is the correct answer to "this dir's Go
+			// source changed and I cannot see it".
 			return false
 		}
 		for path := range oldFiles {

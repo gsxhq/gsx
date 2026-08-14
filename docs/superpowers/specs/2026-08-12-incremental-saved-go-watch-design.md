@@ -96,8 +96,11 @@ func (s *watchSession) regenPending(pending, goDirs map[string]bool, depDirty bo
    Go edit, `reopenConsumerModules` reopens every `replace`/`go.work`-linked
    consumer module and adds its dirs to the affected set (see Phase 1's
    *Known limits*, now closed).
-3. **GSX lane**: unchanged — refresh each pending dir, add `Dependents(dir)`,
-   sweep an emptied dir's orphans.
+3. **GSX lane**: main's loop, with two additions — it skips its own refresh for
+   a dir the Go lane already committed (reusing that lane's verdict for the
+   emptied-dir note) and records what it swept, so the regeneration step below
+   cannot sweep or report the same dir twice. Otherwise unchanged: refresh each
+   pending dir, add `Dependents(dir)`, sweep an emptied dir's orphans.
 4. **Regenerate**: the affected set goes through `regenDirs` (batched refresh,
    `Reload` stamping, refresh-time charging, per-dir error isolation). An
    affected dir with no `.gsx` left is swept instead of generated — a deleted
@@ -195,6 +198,15 @@ seed. That is the intended projection, not a lost edge.
   pending.
 - **One refresh per dir per cycle** on the lanes themselves (see the
   de-duplication note above for `regenDirs`' own batch).
+- **The warm tier's dir contract is self-enforcing.** `refreshGoSyntaxLocked`
+  canonicalizes every dir (`Abs`+`Clean`, refusing on error) and refuses a dir
+  that resolves into neither manifest. Both matter because the failure mode is
+  silent: a dir that misses the manifest keying yields empty snapshot maps on
+  both sides, which reads as "nothing to swap" and returns WARM with the
+  retained syntax left stale. Probed by injecting non-manifest-keyed dirs at
+  the call site — without the guards the codegen suite reports "stale-blind:
+  removed dep.Value produced no diagnostic"; with them the same input takes
+  the conservative reload.
 
 ## Testing
 
@@ -205,7 +217,14 @@ Shipped coverage, `gen` side:
 - Go-only dependency through a Go-only intermediary (`model` → `bridge` →
   `blog` → `site`) regenerates exactly the GSX projection.
 - Warm output is byte-identical to a fresh session's over the same disk.
-- A mixed Go+GSX save-all in one cycle refreshes the shared dir once.
+- A mixed Go+GSX save-all in one cycle refreshes the shared dir once —
+  asserted, not asserted-by-comment: `sourceview.RefreshedDirs` counts
+  directory refreshes, and the mixed save must perform the same **two** (its
+  lane's, then `regenDirs`') as the identical `.gsx`-only save, never three.
+  The counter measures refreshes rather than `Inspect` calls because since
+  #184's incremental derivation a re-refresh of an unchanged dir Inspects
+  nothing, which would make an Inspect-delta test vacuous (verified by
+  breaking the de-duplication).
 - A deleted directory dirtied through both lanes is swept, not regenerated,
   and its importer regenerates with missing-package diagnostics — one
   committed cycle, no operational error.

@@ -505,3 +505,99 @@ func TestWatchSession_ConfiguredModuleWorldBudget(t *testing.T) {
 		t.Errorf("second Module open over the same root/config recorded %d shared-world hits, want at least 1 — the process-cache payoff this phase exists for", secondHitDelta)
 	}
 }
+
+// TestWatchSession_MixedSaveRefreshesSharedDirOnce pins regenPending's
+// cross-lane refresh de-duplication — the invariant the accepted double
+// refresh rests on (see regenPending's comment). A directory dirtied on BOTH
+// lanes in one debounce window (an editor save-all over helper.go and
+// c00.gsx) must be re-inventoried by the Go lane only, never a second time by
+// the .gsx lane.
+//
+// Both shapes are measured so the number is self-explaining rather than a
+// magic budget: a .gsx-only save of the same directory already pays exactly
+// TWO directory refreshes — its own lane's, then regenDirs' batch as its own
+// dependent — and the mixed save must pay the same two, not three. A dropped
+// `refreshed[dir]` check is exactly one extra directory refresh.
+//
+// sourceview.RefreshedDirs counts directory refreshes rather than Inspect
+// calls deliberately: since #184's incremental derivation, a re-refresh of an
+// unchanged directory Inspects nothing at all, so an Inspect-delta version of
+// this test cannot fail and would be vacuous (verified by breaking the
+// de-duplication: the Inspect deltas stayed identical).
+//
+// Deliberately NOT t.Parallel(): sourceview.RefreshedDirs is a process-wide
+// counter (see TestWatchSession_ColdStartParseWorkIsLinear's comment for the
+// full reasoning). Foreign traffic can only inflate a measurement, so a breach
+// is retried once in a fresh module and the minimum of each side is taken — a
+// real regression breaches every window.
+func TestWatchSession_MixedSaveRefreshesSharedDirOnce(t *testing.T) {
+	const gsxFiles = 4
+	// One lane refresh plus regenDirs' own batch refresh, per cycle.
+	const refreshesPerCycle = 2
+
+	measure := func() (gsxOnly, mixed uint64) {
+		root := t.TempDir()
+		writeMod(t, root)
+		dir := filepath.Join(root, "views")
+		writeFileT(t, filepath.Join(dir, "helper.go"), "package views\n\nfunc helper() string { return \"v1\" }\n")
+		for i := range gsxFiles {
+			writeFileT(t, filepath.Join(dir, fmt.Sprintf("c%02d.gsx", i)),
+				fmt.Sprintf("package views\n\ncomponent C%02d() {\n\t<p>{helper()}</p>\n}\n", i))
+		}
+
+		sess, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}})
+		if err != nil {
+			t.Fatalf("startWatchSessionForTest: %v", err)
+		}
+		for _, r := range startup {
+			if !r.OK {
+				t.Fatalf("startup regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+			}
+		}
+
+		run := func(dirty *watchDirtySet) uint64 {
+			before := sourceview.RefreshedDirs()
+			results, _, err := dirty.regenerate(sess.regenPending)
+			if err != nil {
+				t.Fatalf("regenerate: %v", err)
+			}
+			for _, r := range results {
+				if !r.OK {
+					t.Fatalf("regen not OK: dir=%s err=%v diags=%v", r.Dir, r.Err, r.Diags)
+				}
+			}
+			return sourceview.RefreshedDirs() - before
+		}
+
+		// (a) .gsx-only save: the pending lane's refresh, then regenDirs'.
+		writeFileT(t, filepath.Join(dir, "c00.gsx"), "package views\n\ncomponent C00() {\n\t<p>v2 {helper()}</p>\n}\n")
+		gsxDirty := newWatchDirtySet()
+		gsxDirty.dirs[dir] = true
+		gsxOnly = run(gsxDirty)
+
+		// (b) save-all: helper.go and c00.gsx together, both lanes seeded
+		// exactly as classifyDirtyFile would from the two events.
+		writeFileT(t, filepath.Join(dir, "helper.go"), "package views\n\nfunc helper() string { return \"v2\" }\n")
+		writeFileT(t, filepath.Join(dir, "c00.gsx"), "package views\n\ncomponent C00() {\n\t<p>v3 {helper()}</p>\n}\n")
+		mixedDirty := newWatchDirtySet()
+		mixedDirty.dirs[dir] = true
+		mixedDirty.goDirs[dir] = true
+		mixedDirty.goDirty = true
+		mixed = run(mixedDirty)
+		return gsxOnly, mixed
+	}
+
+	gsxOnly, mixed := measure()
+	if gsxOnly != refreshesPerCycle || mixed != refreshesPerCycle {
+		gsxOnly2, mixed2 := measure()
+		gsxOnly = min(gsxOnly, gsxOnly2)
+		mixed = min(mixed, mixed2)
+	}
+	if gsxOnly != refreshesPerCycle {
+		t.Errorf(".gsx-only save performed %d directory refreshes, want %d (its lane's, then regenDirs')", gsxOnly, refreshesPerCycle)
+	}
+	if mixed != refreshesPerCycle {
+		t.Errorf("mixed Go+GSX save performed %d directory refreshes, want the same %d as the .gsx-only save: the .gsx lane must not re-inventory a directory the Go lane already committed",
+			mixed, refreshesPerCycle)
+	}
+}
