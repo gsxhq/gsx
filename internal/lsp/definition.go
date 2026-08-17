@@ -793,10 +793,10 @@ func (s *Server) handleGoDefinition(f frame, path string, sources *requestSource
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
 	graph := s.moduleSymbolGraph(sources, dir)
-	key, found := symbolAt(graph, path, source, off)
+	key, found := symbolDefinitionAt(graph, path, source, off)
 	if !found {
 		graph = packageSymbolGraph(s.pkgs[dir])
-		key, found = symbolAt(graph, path, source, off)
+		key, found = symbolDefinitionAt(graph, path, source, off)
 	}
 	if !found {
 		return s.reply(f.ID, nil)

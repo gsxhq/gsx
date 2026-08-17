@@ -103,12 +103,32 @@ func sortDedupSpans(spans []Span) []Span {
 // At returns the key of the innermost identifier occurrence covering offset
 // in path (definitions preferred over uses on identical spans).
 func (g *SymbolGraph) At(path string, offset int) (ObjectKey, Span, bool) {
+	return g.at(path, offset, false)
+}
+
+// UseAt is At restricted to reference occurrences: the innermost IdentifierUse
+// covering offset, ignoring definitions entirely.
+//
+// An embedded struct field's ident (`type Pages struct { Home }`) is BOTH a
+// field definition and a use of the embedded type, at one identical span. At
+// answers the field — definitions win the tie — which makes go-to-definition a
+// no-op jump onto the cursor itself. UseAt gives the definition handlers the
+// type-side answer without moving the tie-break for hover, rename and
+// references, which all read At and correctly want the field there.
+func (g *SymbolGraph) UseAt(path string, offset int) (ObjectKey, Span, bool) {
+	return g.at(path, offset, true)
+}
+
+func (g *SymbolGraph) at(path string, offset int, usesOnly bool) (ObjectKey, Span, bool) {
 	g.finalize()
 	occ := g.occurrences[path]
 	best := -1
 	for i, o := range occ {
 		if o.span.Start > offset {
 			break
+		}
+		if usesOnly && o.kind != IdentifierUse {
+			continue
 		}
 		if offset < o.span.End || (o.span.Start == o.span.End && offset == o.span.Start) {
 			if best < 0 || (o.span.End-o.span.Start) < (occ[best].span.End-occ[best].span.Start) {

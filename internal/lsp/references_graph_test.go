@@ -15,7 +15,10 @@ import (
 // a hand-written .go sibling.
 const symbolGraphPage = "package page\n\ntype Model struct{ N int }\n\nfunc (m Model) inc() Model { m.N++; return m }\n\ncomponent Card(title string) {\n\t<p>{ title }</p>\n}\n\ncomponent Page(m Model) {\n\t<main><Card title=\"x\"/>{ m.inc().N }</main>\n}\n"
 
-const symbolGraphHelper = "package page\n\nfunc use() { _ = Model{}.inc(); _ = Card }\n"
+// Wrap embeds Model: the `Model` ident there is simultaneously a field
+// definition and a use of the .gsx-declared type, which is the go-definition
+// case symbolDefinitionAt (SymbolGraph.UseAt) exists for.
+const symbolGraphHelper = "package page\n\ntype Wrap struct{ Model }\n\nfunc use() { _ = Model{}.inc(); _ = Card }\n"
 
 // TestSymbolGraphHandlers covers both handlers the module symbol graph feeds —
 // textDocument/references and textDocument/definition from a .go cursor — over
@@ -41,8 +44,9 @@ func TestSymbolGraphHandlers(t *testing.T) {
 			wantFiles     map[string]int // base filename → count, includeDeclaration=true
 		}{
 			// The Model type: declared in the .gsx, used by the method receiver
-			// and result, the Page parameter type and the .go sibling.
-			{"type from gsx decl", uri, symbolGraphPage, "Model struct", 0, map[string]int{"page.gsx": 4, "helper.go": 1}},
+			// and result, the Page parameter type and the .go sibling (twice:
+			// the Wrap embedding and the Model{} composite literal).
+			{"type from gsx decl", uri, symbolGraphPage, "Model struct", 0, map[string]int{"page.gsx": 4, "helper.go": 2}},
 			// A method declared in the .gsx, referenced from the .gsx body and
 			// from the .go sibling.
 			{"method from helper.go", helperURI, symbolGraphHelper, "inc()", 0, map[string]int{"page.gsx": 2, "helper.go": 1}},
@@ -83,7 +87,7 @@ func TestSymbolGraphHandlers(t *testing.T) {
 		for _, location := range referenceLocations(t, out, 8) {
 			got[filepath.Base(uriToPath(location.URI))]++
 		}
-		want := map[string]int{"page.gsx": 3, "helper.go": 1}
+		want := map[string]int{"page.gsx": 3, "helper.go": 2}
 		if !maps.Equal(got, want) {
 			t.Fatalf("references (no declaration) = %v, want %v\n%s", got, want, out)
 		}
@@ -92,9 +96,13 @@ func TestSymbolGraphHandlers(t *testing.T) {
 	t.Run("go definition", func(t *testing.T) {
 		for _, tc := range []struct{ needle, wantFile string }{
 			{"Model{}", "page.gsx"}, // type declared in .gsx
-			{"inc()", "page.gsx"},   // method declared in .gsx
-			{"Card }", "page.gsx"},  // component declared in .gsx
-			{"use()", "helper.go"},  // the graph answers .go declarations too
+			// Embedded field: the ident is a field DEFINITION in helper.go and a
+			// USE of the .gsx type at the same span. Definition must travel to
+			// the type, not sit still on the field it is written on.
+			{"Model }", "page.gsx"},
+			{"inc()", "page.gsx"},  // method declared in .gsx
+			{"Card }", "page.gsx"}, // component declared in .gsx
+			{"use()", "helper.go"}, // the graph answers .go declarations too
 		} {
 			off := strings.Index(symbolGraphHelper, tc.needle)
 			if off < 0 {

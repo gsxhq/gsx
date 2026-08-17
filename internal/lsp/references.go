@@ -109,3 +109,19 @@ func symbolAt(graph *sourceintel.SymbolGraph, path string, source []byte, offset
 	key, _, ok := graph.At(path, offset)
 	return key, ok
 }
+
+// symbolDefinitionAt is symbolAt for go-to-definition: it prefers the USE at
+// the cursor over a definition at the same span. The only ident that is both is
+// an embedded struct field, where the use (the embedded type) is what F12
+// should travel to; every other cursor has at most one of the two, so the
+// preference is a no-op. References and hover keep symbolAt's tie-break.
+func symbolDefinitionAt(graph *sourceintel.SymbolGraph, path string, source []byte, offset int) (sourceintel.ObjectKey, bool) {
+	if graph == nil || !graph.MatchesSource(path, source) {
+		return "", false
+	}
+	if key, _, ok := graph.UseAt(path, offset); ok {
+		return key, true
+	}
+	key, _, ok := graph.At(path, offset)
+	return key, ok
+}
