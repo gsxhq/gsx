@@ -1435,16 +1435,33 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	goFiles = append(goFiles, companionFiles...)
 	if purpose == analysisRetainedPackage {
 		// Hand-written .go siblings enter the package index identity-mapped: the
-		// authored bytes ARE the checked bytes, so every offset maps 1:1. A
-		// size mismatch between the retained syntax and the bytes currently
-		// backing the path means the two disagree (the inventory has not caught
-		// up with an edit yet); the file is then left out entirely rather than
-		// publishing spans against bytes it was not built from — the same
-		// fail-closed rule SourceVersion.Matches enforces for .gsx files.
+		// authored bytes ARE the parsed bytes, so every AST offset is an authored
+		// offset. Publishing that mapping is sound only when THREE things hold,
+		// all checked exactly here:
+		//
+		//  1. the bytes currently backing the path hash to the SHA-256 the
+		//     retained syntax was parsed from (parsedSourceHashes records it at
+		//     ParseFile time, so this compares against the parser's own input,
+		//     not against a second read of the file);
+		//  2. that AST's token.Pos still resolves to the token.File the parser
+		//     stamped, so an fset rebuild cannot silently repoint the positions
+		//     into another file's range;
+		//  3. that token.File's size equals the byte length, so every offset the
+		//     index derives lies inside the source it is keyed by.
+		//
+		// A file failing any of them is left out of the index entirely, rather
+		// than publishing spans against bytes it was not built from — the same
+		// fail-closed rule SourceVersion.Matches enforces for .gsx. m.currentSource
+		// bytes are what the index publishes as the SourceVersion, so it is exactly
+		// those bytes that must hash equal.
 		for _, source := range companionSources {
 			src, known := m.currentSource(source.path)
 			tokenFile := fset.File(source.file.Pos())
-			if !known || tokenFile == nil || tokenFile.Size() != len(src) {
+			hash := sha256.Sum256(src)
+			if !known || tokenFile == nil ||
+				hash != source.hash ||
+				filepath.Clean(tokenFile.Name()) != source.tokenName ||
+				tokenFile.Size() != len(src) {
 				m.mu.Lock()
 				m.companionIndexSkips++
 				m.mu.Unlock()
@@ -1460,7 +1477,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 				SourceMap: sourceMap,
 				SourceVersion: sourceintel.SourceVersion{
 					Size:   len(src),
-					SHA256: sha256.Sum256(src),
+					SHA256: hash,
 				},
 			})
 		}

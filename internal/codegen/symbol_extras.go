@@ -70,7 +70,11 @@ type gsxExtraInput struct {
 	// canonicalByKey maps a logical component key to the object every edge of
 	// that component attaches to (the authored declaration's object). A key
 	// without one contributes no declaration occurrence: an analysis-only body
-	// object is not a stable identity to publish spans against.
+	// object is not a stable identity to publish spans against. Keys reach that
+	// branch for real — a variant family rejected as invalid (mismatched
+	// membership or signature) is republished body-only under isolated keys
+	// (component_variant_semantic.go's publishIsolated with private=true), so
+	// none of its declarations is public.
 	canonicalByKey map[string]types.Object
 	exprMap        map[gsxast.Node]goast.Expr
 	info           *types.Info
@@ -108,9 +112,16 @@ func gsxExtraOccurrences(in gsxExtraInput) []sourceintel.Occurrence {
 		if span, ok := spanAt(element.TagPos+token.Pos(len(element.Tag)-len(local)), len(local)); ok {
 			out = append(out, sourceintel.Occurrence{Span: span, Kind: sourceintel.IdentifierUse, Object: call.Target})
 		}
+		// Only a NAMED binding — the attribute spelling the parameter it binds —
+		// is an authored reference to that parameter. An attrs-bag contributor
+		// binds a forwarded attribute to the bag parameter, which is data flow,
+		// not a mention of the parameter's name; publishing those would make
+		// `gr` on an attrs parameter return every forwarded attribute in the
+		// module. This is the same guard componentParamReferenceFacts (the
+		// rename surface) applies, and for the same reason.
 		for attr, param := range call.Params {
 			name, ok := componentInputAttrName(attr)
-			if !ok || param.Origin == nil {
+			if !ok || param.Origin == nil || name != param.Name {
 				continue
 			}
 			if span, ok := spanAt(attr.Pos(), len(name)); ok {

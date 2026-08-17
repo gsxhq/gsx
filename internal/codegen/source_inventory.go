@@ -2,15 +2,18 @@ package codegen
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	goast "go/ast"
 	"go/parser"
+	"go/token"
 	"go/types"
 	"maps"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gsxhq/gsx/internal/sourceview"
 	"golang.org/x/tools/go/packages"
@@ -24,11 +27,70 @@ type projectSourcePackage struct {
 	pkgPath         string
 	name            string
 	compiledGoFiles []string
-	syntaxByFile    map[string]*goast.File
+	syntaxByFile    map[string]retainedGoSource
 	metadataErrors  []packages.Error
 	invariantErrors []string
 	sizes           types.Sizes
 	goVersion       string
+}
+
+// retainedGoSource is one hand-written Go file exactly as it entered the
+// package: the syntax, the file name the parser stamped on its token.File, and
+// the SHA-256 of the bytes it was parsed from. Syntax and provenance live in
+// one value so they cannot drift apart — a consumer that publishes authored
+// byte spans against this AST (the per-package sourceintel.Index) can prove the
+// bytes it is about to key by are the bytes the AST was built from.
+type retainedGoSource struct {
+	file      *goast.File
+	tokenName string
+	hash      [sha256.Size]byte
+}
+
+// parsedSourceHashes records, for every main-module file go/packages parses,
+// the SHA-256 of the exact bytes handed to the parser. go/packages resolves
+// each file's content itself (overlay entry, else disk read) and passes it to
+// Config.ParseFile, so this hook is the only place the parsed bytes and the
+// resulting *ast.File are both in hand. Files outside the module are not
+// recorded: nothing publishes authored spans for them, and the module closure
+// is large.
+type parsedSourceHashes struct {
+	moduleRoot   string
+	physicalRoot string
+	mu           sync.Mutex
+	byPath       map[string][sha256.Size]byte
+}
+
+func newParsedSourceHashes(moduleRoot, physicalRoot string) *parsedSourceHashes {
+	return &parsedSourceHashes{
+		moduleRoot:   filepath.Clean(moduleRoot),
+		physicalRoot: filepath.Clean(physicalRoot),
+		byPath:       map[string][sha256.Size]byte{},
+	}
+}
+
+// parseFile is packages.Config.ParseFile. It reproduces go/packages' own
+// default parse mode exactly (parser.AllErrors|parser.ParseComments, ast.Object
+// resolution included — see go/packages' newLoader), so installing it changes
+// no retained syntax; it only observes the bytes on the way through. It is
+// called concurrently from the loader's parse pool.
+func (h *parsedSourceHashes) parseFile(fset *token.FileSet, filename string, src []byte) (*goast.File, error) {
+	if _, owned := logicalProjectPath(filename, h.moduleRoot, h.physicalRoot); owned {
+		sum := sha256.Sum256(src)
+		h.mu.Lock()
+		h.byPath[filepath.Clean(filename)] = sum
+		h.mu.Unlock()
+	}
+	return parser.ParseFile(fset, filename, src, parser.AllErrors|parser.ParseComments)
+}
+
+func (h *parsedSourceHashes) lookup(filename string) ([sha256.Size]byte, bool) {
+	if h == nil {
+		return [sha256.Size]byte{}, false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	sum, ok := h.byPath[filepath.Clean(filename)]
+	return sum, ok
 }
 
 // typeCheckEnvironment is the complete target-dependent input to every
@@ -260,9 +322,9 @@ func (m *Module) refreshGoSyntaxLocked(before *sourceview.Manifest, dirs []strin
 	excluded := pairedOutputsInDirs(before, dirSet)
 	maps.Copy(excluded, pairedOutputsInDirs(after, dirSet))
 	type syntaxEdit struct {
-		dir  string
-		path string
-		file *goast.File
+		dir    string
+		path   string
+		source retainedGoSource
 	}
 	var edits []syntaxEdit
 	for _, dir := range canonical {
@@ -312,7 +374,7 @@ func (m *Module) refreshGoSyntaxLocked(before *sourceview.Manifest, dirs []strin
 			if !oldPresent || !newPresent || !sortedContains(pkg.compiledGoFiles, path) {
 				return false
 			}
-			oldFile := pkg.syntaxByFile[path]
+			oldFile := pkg.syntaxByFile[path].file
 			if oldFile == nil || oldFile.Name == nil || !equalBuildConstraints(oldSource, newSource) {
 				return false
 			}
@@ -332,13 +394,17 @@ func (m *Module) refreshGoSyntaxLocked(before *sourceview.Manifest, dirs []strin
 					return false
 				}
 			}
-			edits = append(edits, syntaxEdit{dir: dir, path: path, file: newFile})
+			edits = append(edits, syntaxEdit{dir: dir, path: path, source: retainedGoSource{
+				file:      newFile,
+				tokenName: filepath.Clean(path),
+				hash:      sha256.Sum256(newSource),
+			}})
 		}
 	}
 	for _, edit := range edits {
 		pkg := m.sourcePackages[edit.dir]
 		pkg.syntaxByFile = maps.Clone(pkg.syntaxByFile)
-		pkg.syntaxByFile[edit.path] = edit.file
+		pkg.syntaxByFile[edit.path] = edit.source
 		m.sourcePackages[edit.dir] = pkg
 	}
 	return true
@@ -843,7 +909,7 @@ func moduleOwnsPath(root, path string) (bool, error) { return sourceview.OwnsPat
 
 func pathWithin(root, path string) bool { return sourceview.PathWithin(root, path) }
 
-func projectSourcePackages(loaded []*packages.Package, moduleRoot, physicalRoot, modulePath string, sentinelFiles map[string]bool) map[string]projectSourcePackage {
+func projectSourcePackages(loaded []*packages.Package, moduleRoot, physicalRoot, modulePath string, sentinelFiles map[string]bool, hashes *parsedSourceHashes) map[string]projectSourcePackage {
 	byDir := map[string]projectSourcePackage{}
 	packages.Visit(loaded, nil, func(pkg *packages.Package) {
 		if pkg == nil || pkg.Dir == "" {
@@ -864,12 +930,12 @@ func projectSourcePackages(loaded []*packages.Package, moduleRoot, physicalRoot,
 		if !ok || expectedPath != pkg.PkgPath {
 			return
 		}
-		byDir[dir] = retainedSourcePackage(pkg, sentinelFiles, moduleRoot, physicalRoot)
+		byDir[dir] = retainedSourcePackage(pkg, sentinelFiles, moduleRoot, physicalRoot, hashes)
 	})
 	return byDir
 }
 
-func retainedSourcePackage(pkg *packages.Package, excludedFiles map[string]bool, moduleRoot, physicalRoot string) projectSourcePackage {
+func retainedSourcePackage(pkg *packages.Package, excludedFiles map[string]bool, moduleRoot, physicalRoot string, hashes *parsedSourceHashes) projectSourcePackage {
 	files := make([]string, 0, len(pkg.CompiledGoFiles))
 	for _, path := range pkg.CompiledGoFiles {
 		logical, ok := logicalProjectPath(path, moduleRoot, physicalRoot)
@@ -889,18 +955,30 @@ func retainedSourcePackage(pkg *packages.Package, excludedFiles map[string]bool,
 			metadataErrors = append(metadataErrors, loadErr)
 		}
 	}
-	syntaxByFile := make(map[string]*goast.File, len(pkg.Syntax))
+	syntaxByFile := make(map[string]retainedGoSource, len(pkg.Syntax))
 	for _, file := range pkg.Syntax {
 		if file == nil || pkg.Fset == nil || pkg.Fset.File(file.Pos()) == nil {
 			continue
 		}
-		path := filepath.Clean(pkg.Fset.File(file.Pos()).Name())
+		// tokenName is the name the parser stamped on this file's token.File —
+		// the physical path cmd/go handed ParseFile, and the key the parse-time
+		// hash was recorded under. It is retained so a later consumer can prove
+		// a token.Pos still resolves to THIS file (an fset rebuild reassigns
+		// position ranges; a retained AST left behind by one would otherwise
+		// resolve into a different file's offsets).
+		tokenName := filepath.Clean(pkg.Fset.File(file.Pos()).Name())
+		path := tokenName
 		if logical, ok := logicalProjectPath(path, moduleRoot, physicalRoot); ok {
 			path = logical
 		}
-		if !excludedFiles[path] {
-			syntaxByFile[path] = file
+		if excludedFiles[path] {
+			continue
 		}
+		source := retainedGoSource{file: file, tokenName: tokenName}
+		if sum, ok := hashes.lookup(tokenName); ok {
+			source.hash = sum
+		}
+		syntaxByFile[path] = source
 	}
 	var invariantErrors []string
 	if len(metadataErrors) == 0 {
@@ -911,7 +989,7 @@ func retainedSourcePackage(pkg *packages.Package, excludedFiles map[string]bool,
 			invariantErrors = append(invariantErrors, "loaded module language-version provenance is missing")
 		}
 		for _, path := range files {
-			if syntaxByFile[path] == nil {
+			if syntaxByFile[path].file == nil {
 				invariantErrors = append(invariantErrors, "loaded syntax is missing for "+path)
 			}
 		}

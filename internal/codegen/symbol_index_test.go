@@ -15,8 +15,8 @@ func TestPackageSymbolIndex(t *testing.T) {
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
-	const card = "package x\n\n// Card renders a card.\ntype Card struct{ Title string }\n\nfunc (c Card) title() string { return c.Title }\n\ncomponent (c Card) Render(size int) {\n\t<div>{ c.title() |> upper }{ size }</div>\n}\n\ncomponent Badge(label string) {\n\t<span>{ label }</span>\n}\n\ncomponent tiny() {\n\t<i/>\n}\n"
-	const page = "package x\n\ncomponent Page() {\n\t<main>\n\t\t<Badge label=\"a\"/>\n\t\t<tiny/>\n\t\t<Icon label=\"i\"/>\n\t\t{ Card{Title: \"t\"}.Render(1) }\n\t</main>\n}\n"
+	const card = "package x\n\nimport \"github.com/gsxhq/gsx\"\n\n// Card renders a card.\ntype Card struct{ Title string }\n\nfunc (c Card) title() string { return c.Title }\n\ncomponent (c Card) Render(size int) {\n\t<div>{ c.title() |> upper }{ size }</div>\n}\n\ncomponent Badge(label string) {\n\t<span>{ label }</span>\n}\n\ncomponent tiny() {\n\t<i/>\n}\n\ncomponent Box(caption string, attrs gsx.Attrs) {\n\t<div { attrs... }>{ caption }</div>\n}\n"
+	const page = "package x\n\ncomponent Page() {\n\t<main>\n\t\t<Badge label=\"a\"/>\n\t\t<tiny/>\n\t\t<Icon label=\"i\"/>\n\t\t<Box caption=\"c\" class=\"forwarded\"/>\n\t\t{ Card{Title: \"t\"}.Render(1) }\n\t</main>\n}\n"
 	const helper = "package x\n\nfunc use() Card { c := Card{}; _ = c.title(); _ = Badge; return c }\n"
 	// Build-tag variants: one logical component, two authored declarations. The
 	// inactive one is a go/types redeclaration and gets NO object, so its
@@ -121,6 +121,26 @@ func TestPackageSymbolIndex(t *testing.T) {
 	iconLabelKey := at(pagePath, page, "label=", 1)
 	if f := files(g.References(iconLabelKey)); f["page.gsx"] != 1 || f["icon.gsx"] != 1 {
 		t.Fatalf("Icon label refs = %v (key %q)", f, iconLabelKey)
+	}
+	// An attrs-bag parameter is referenced by its NAME only. `class="forwarded"`
+	// is a bag contributor bound to the same parameter by the call plan, but it
+	// is forwarded data, not an authored mention of `attrs` — it must not be a
+	// reference. `caption=` names its parameter and must be one.
+	// An attrs-bag parameter is referenced by NAME only. `class="forwarded"` is
+	// forwarded data, not an authored mention of `attrs`, and must not become a
+	// reference to it — `gr` on `attrs` would otherwise return every forwarded
+	// attribute in the module. Only the `{ attrs... }` body use counts. (Today
+	// the call plan already keeps forwarded pairs out of ComponentCalls[].Params;
+	// gsxExtraOccurrences' named-binding guard is the second line of defence, and
+	// this assertion pins the contract whichever layer enforces it.)
+	attrsKey := at(cardPath, card, "attrs gsx.Attrs", 0)
+	if f := files(g.References(attrsKey)); f["page.gsx"] != 0 || f["card.gsx"] != 1 {
+		t.Fatalf("attrs refs = %v, want only the `{ attrs... }` body use in card.gsx", f)
+	}
+	// A NAMED binding is a reference: the attr site plus the body use.
+	captionKey := at(pagePath, page, "caption=", 0)
+	if f := files(g.References(captionKey)); f["page.gsx"] != 1 || f["card.gsx"] != 1 {
+		t.Fatalf("caption refs = %v (key %q)", f, captionKey)
 	}
 	// no hand-written sibling was dropped from the index on a bytes/syntax size
 	// disagreement.

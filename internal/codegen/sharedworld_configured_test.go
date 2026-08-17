@@ -223,7 +223,7 @@ func TestSharedWorldRetainsMainModuleConfigDir(t *testing.T) {
 	if len(pkg.compiledGoFiles) != 1 || pkg.compiledGoFiles[0] != mergeFile {
 		t.Fatalf("retained compiled files = %v, want [%s]", pkg.compiledGoFiles, mergeFile)
 	}
-	if pkg.syntaxByFile[mergeFile] == nil {
+	if pkg.syntaxByFile[mergeFile].file == nil {
 		t.Fatalf("retained syntax for %s is missing: LSP nav into the merger would fail", mergeFile)
 	}
 	// The reduced project half must still carry the target-dependent facts every

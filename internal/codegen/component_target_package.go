@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"crypto/sha256"
 	"fmt"
 	goast "go/ast"
 	goparser "go/parser"
@@ -57,6 +58,12 @@ func pairedTargetOutputs(gsxFiles map[string]*gsxast.File) map[string]bool {
 type companionGoFile struct {
 	path string
 	file *goast.File
+	// tokenName and hash are the retained parse-time provenance of file: the
+	// name the parser stamped on its token.File and the SHA-256 of the bytes it
+	// was parsed from. They let a consumer that publishes authored byte spans
+	// against this AST prove exactly which bytes it was built from.
+	tokenName string
+	hash      [sha256.Size]byte
 }
 
 // parseTargetCompanionGoFiles loads the active hand-written Go surface while
@@ -140,11 +147,12 @@ func (m *Module) companionGoSources(dir string, gsxFiles map[string]*gsxast.File
 		if paired[path] {
 			continue
 		}
-		file := packageInfo.syntaxByFile[path]
+		retained := packageInfo.syntaxByFile[path]
+		file := retained.file
 		if file == nil {
 			return nil, nil, fmt.Errorf("codegen: active companion syntax missing for %s", path)
 		}
-		files = append(files, companionGoFile{path: path, file: file})
+		files = append(files, companionGoFile{path: path, file: file, tokenName: retained.tokenName, hash: retained.hash})
 		for _, spec := range file.Imports {
 			if path, err := strconv.Unquote(spec.Path.Value); err == nil {
 				imports = append(imports, path)

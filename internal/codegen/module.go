@@ -697,12 +697,19 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		// packages analyze() type-checks. One fset for the whole Module means an
 		// object from any package — project A, sibling B, or external dep — resolves
 		// unambiguously via m.fset.Position(obj.Pos()).
+		// parsedSourceHashes observes the exact bytes go/packages parses each
+		// main-module file from; retainedSourcePackage keeps the hash next to the
+		// syntax so the per-package source index can prove the two agree. The hook
+		// reproduces go/packages' default parse mode exactly, so nothing else about
+		// the load changes.
+		parsedHashes := newParsedSourceHashes(manifest.ModuleRoot(), manifest.PhysicalRoot())
 		cfg := &packages.Config{
-			Mode:    packages.NeedName | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesSizes | packages.NeedImports | packages.NeedDeps | packages.NeedModule,
-			Fset:    fset,
-			Dir:     m.opts.ModuleRoot,
-			Env:     buildEnv,
-			Overlay: packagesOverlay,
+			Mode:      packages.NeedName | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesSizes | packages.NeedImports | packages.NeedDeps | packages.NeedModule,
+			Fset:      fset,
+			Dir:       m.opts.ModuleRoot,
+			Env:       buildEnv,
+			Overlay:   packagesOverlay,
+			ParseFile: parsedHashes.parseFile,
 		}
 		// Always load the gsx runtime ("github.com/gsxhq/gsx") so that skeleton
 		// type-checking can resolve gsx.Node / gsx.Attrs / etc. The skeleton file
@@ -782,7 +789,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		for _, path := range manifest.SentinelFiles() {
 			sentinelFiles[path] = true
 		}
-		sourcePackages := projectSourcePackages(pkgs, manifest.ModuleRoot(), manifest.PhysicalRoot(), m.opts.ModulePath, sentinelFiles)
+		sourcePackages := projectSourcePackages(pkgs, manifest.ModuleRoot(), manifest.PhysicalRoot(), m.opts.ModulePath, sentinelFiles, parsedHashes)
 		sourcePackageDirs := make(map[string]string, len(sourcePackages))
 		for dir, sourcePackage := range sourcePackages {
 			sourcePackageDirs[sourcePackage.pkgPath] = dir
