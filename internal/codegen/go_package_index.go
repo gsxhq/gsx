@@ -14,13 +14,16 @@ import (
 )
 
 // goPackageAnalysis is the retained type-check of one Go-only main-module
-// package: the package, the types.Info its identifiers resolved through, the
-// exact companion sources it was built from, and whatever the check reported.
-// Unlike the shipping type-only path, the analysis survives its own errors —
-// navigation publishes whatever resolved — so both the recoverable errors and
-// the identity-mapped index derived from it are retained alongside it.
+// package: the package, the exact companion sources it was built from, and
+// whatever the check reported. Unlike the shipping type-only path, the analysis
+// survives its own errors — navigation publishes whatever resolved.
 type goPackageAnalysis struct {
-	pkg   *types.Package
+	pkg *types.Package
+	// info is populated only for the symbol-graph caller (GoPackageIndex): the
+	// importer path re-checks Go-only intermediaries on the generate/watch hot
+	// path and has no consumer for the maps, so it pays neither their heap nor
+	// the checker's recording cost. A cached info-less analysis is re-checked in
+	// place when the graph later needs it.
 	info  *types.Info
 	files []companionGoFile
 	// typeErrs and sourceErr are the check's own verdict, retained so a cached
@@ -34,18 +37,29 @@ type goPackageAnalysis struct {
 
 // goPackageAnalysisWith type-checks one Go-only main-module package inside the
 // shipping declaration universe — retained cmd/go syntax + moduleImporter, no
-// packages.Load — retaining a types.Info so the package's identifiers can join
-// the symbol graph. Unlike shippingGoPackageWith's importer contract, the
-// analysis is retained even when the package has type errors or an import
-// failed (navigation wants whatever resolved); callers that need a sound
-// *types.Package check typeErrs and sourceErr.
-func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter) (*goPackageAnalysis, error) {
+// packages.Load. withInfo asks for the types.Info the symbol graph indexes;
+// the importer path leaves it off (see goPackageAnalysis.info), and a cached
+// info-less analysis is re-checked when a later withInfo caller needs the maps.
+// Unlike shippingGoPackageWith's importer contract, the analysis is retained
+// even when the package has type errors or an import failed (navigation wants
+// whatever resolved); callers that need a sound *types.Package check typeErrs
+// and sourceErr.
+func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter, withInfo bool) (*goPackageAnalysis, error) {
 	dir = filepath.Clean(dir)
 	m.mu.Lock()
 	cached := m.goPkgAnalyses[dir]
+	gsxSource := m.sourceGsxDirs[dir]
 	m.mu.Unlock()
-	if cached != nil {
+	if cached != nil && (!withInfo || cached.info != nil) {
 		return cached, nil
+	}
+	if gsxSource {
+		// The exported entry point (GoPackageIndex) accepts any dir. A gsx package
+		// must never be reconstructed from companionGoSources: with no gsxFiles to
+		// pair against, its own generated .x.go output would enter as ordinary
+		// companion source and be cached as this package's authoritative syntax.
+		// Checked here, once, for every caller.
+		return nil, fmt.Errorf("codegen: %s is a gsx package; use Package for its symbol index", dir)
 	}
 	mi.seen[dir] = true
 	defer delete(mi.seen, dir)
@@ -77,14 +91,17 @@ func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter) (*goPacka
 	// semantic package publication remains gated on the successful check in
 	// shippingGoPackageWith.
 	m.recordImports(dir, importPaths)
-	// Exactly the three maps sourceintel.BuildIndex reads: Defs/Uses carry every
-	// identifier occurrence, Types carries the expression spans hover needs.
-	// Nothing consumes Selections, so the checker is not asked to record it.
-	a := &goPackageAnalysis{files: files, info: &types.Info{
-		Defs:  map[*goast.Ident]types.Object{},
-		Uses:  map[*goast.Ident]types.Object{},
-		Types: map[goast.Expr]types.TypeAndValue{},
-	}}
+	a := &goPackageAnalysis{files: files}
+	if withInfo {
+		// Exactly the two maps the symbol graph reads through
+		// sourceintel.BuildIndex: Defs and Uses carry every identifier occurrence.
+		// Types would only add Expression occurrences, which the graph drops and
+		// which exist for hover on .go buffers — a spec non-goal, gopls owns it.
+		a.info = &types.Info{
+			Defs: map[*goast.Ident]types.Object{},
+			Uses: map[*goast.Ident]types.Object{},
+		}
+	}
 	config := types.Config{
 		Importer:  mi,
 		Sizes:     typeEnvironment.sizes,
@@ -96,8 +113,23 @@ func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter) (*goPacka
 		},
 	}
 	a.pkg = types.NewPackage(sourcePackage.pkgPath, sourcePackage.name)
+	// mi is shared with everything else the current walk imports, and it LATCHES
+	// the first source error it sees (moduleImporter.Import). So a non-nil
+	// sourceErr on entry belongs to some earlier package, and this check cannot
+	// have contributed to it; attributing it here would cache a poisoned
+	// analysis that no invalidation edge of THIS package can ever clear. Only an
+	// error that appears across this check is ours. (The errors are compared to
+	// nil, never to each other: sourceDiagnosticsError is uncomparable.)
+	//
+	// The converse — our own import failing while the latch already holds someone
+	// else's error, so sourceErr stays unattributed — is caught by typeErrs: a
+	// failed import makes the checker report "could not import …" here, and
+	// shippingGoPackageWith refuses to publish a package with type errors.
+	sourceErrLatched := mi.sourceErr != nil
 	_ = types.NewChecker(&config, m.fset, a.pkg, a.info).Files(asts)
-	a.sourceErr = mi.sourceErr
+	if !sourceErrLatched {
+		a.sourceErr = mi.sourceErr
+	}
 	if mi.cycleErr != nil {
 		// A cycle is a property of the importer stack that discovered it, not of
 		// this package's source, so it is reported without caching a partial
@@ -109,6 +141,8 @@ func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter) (*goPacka
 	if m.goPkgAnalyses == nil {
 		m.goPkgAnalyses = map[string]*goPackageAnalysis{}
 	}
+	// Replaces an info-less entry checked earlier by the importer path; both were
+	// built from the same retained sources, so the richer one wins.
 	m.goPkgAnalyses[dir] = a
 	m.goPackageAnalyses++
 	m.mu.Unlock()
@@ -135,7 +169,7 @@ func (m *Module) GoPackageIndex(dir string) (*sourceintel.Index, *types.Package,
 	if err != nil {
 		return nil, nil, err
 	}
-	a, err := m.goPackageAnalysisWith(dir, newModuleImporter(m, ext))
+	a, err := m.goPackageAnalysisWith(dir, newModuleImporter(m, ext), true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -199,35 +233,50 @@ func (m *Module) reverseDependencyGoDirs() ([]string, error) {
 		}
 		return out
 	}
+	// reaches answers "does dir transitively import a gsx package", and also
+	// reports whether the answer leaned on the cycle guard below. cmd/go rejects
+	// import cycles, so a loaded inventory cannot contain one — but this graph is
+	// derived from retained syntax that unpublished overrides may have edited
+	// into a transient cycle, so the guard stays. A provisional false (one that
+	// depends on an edge suppressed because it re-entered the current stack) is
+	// only valid for THAT stack, so it is not memoized; without that rule a root
+	// visited mid-cycle would poison every later root's answer.
 	memo := map[string]bool{}
-	var reaches func(dir string, stack map[string]bool) bool
-	reaches = func(dir string, stack map[string]bool) bool {
+	var reaches func(dir string, stack map[string]bool) (bool, bool)
+	reaches = func(dir string, stack map[string]bool) (bool, bool) {
 		if gsx[dir] {
-			return true
+			return true, false
 		}
 		if reached, ok := memo[dir]; ok {
-			return reached
+			return reached, false
 		}
 		if stack[dir] {
-			return false // an import cycle proves nothing on its own
+			return false, true
 		}
 		stack[dir] = true
-		reached := false
+		reached, provisional := false, false
 		if p, ok := sourcePackages[dir]; ok {
 			for _, dep := range importsOf(p) {
-				if reaches(dep, stack) {
-					reached = true
+				depReached, depProvisional := reaches(dep, stack)
+				if depReached {
+					reached, provisional = true, false
 					break
 				}
+				provisional = provisional || depProvisional
 			}
 		}
 		delete(stack, dir)
-		memo[dir] = reached
-		return reached
+		if !provisional {
+			memo[dir] = reached
+		}
+		return reached, provisional
 	}
 	var out []string
 	for dir := range sourcePackages {
-		if !gsx[dir] && reaches(dir, map[string]bool{}) {
+		if gsx[dir] {
+			continue
+		}
+		if reached, _ := reaches(dir, map[string]bool{}); reached {
 			out = append(out, dir)
 		}
 	}
@@ -239,6 +288,15 @@ func (m *Module) reverseDependencyGoDirs() ([]string, error) {
 // (Package) with every reverse-dependency Go-only package (GoPackageIndex).
 // Un-analyzable dirs are skipped (partial graph), matching find-references'
 // historical tolerance. Returns an error only when nothing could be built.
+//
+// Threading: SymbolGraph holds no lock of its own; each Package/GoPackageIndex
+// call takes analysisMu independently, so a SetOverride landing between two of
+// them yields a graph whose packages were analyzed at different source epochs.
+// That is deliberate — holding analysisMu across the whole merge would block
+// the editor for the length of a module-wide analysis — and it is detectable:
+// every indexed file carries its SourceVersion, so a consumer answering against
+// a buffer checks MatchesSource before publishing a span, exactly as it must
+// for a graph that has simply gone stale since it was built.
 func (m *Module) SymbolGraph(gsxDirs []string) (*sourceintel.SymbolGraph, error) {
 	graph := sourceintel.NewSymbolGraph()
 	added := 0

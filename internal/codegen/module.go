@@ -1482,6 +1482,10 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 // function it calls with the analyzed dir): the ONLY module caches keyed by dir
 // that analyze writes from the patched source are pkgTypes[dir] (line ~1501)
 // and targetDeclProvenance[dir] (line ~1506); both are snapshot/restored below.
+// goPkgAnalyses is keyed only by Go-only dirs (goPackageAnalysisWith rejects a
+// gsx dir outright), so the analyzed dir never has an entry; the entries its
+// Go-only dependencies get are checked from their own real sources, which the
+// patch never touches — shared warmth, like the dependency packages below.
 // targetDeclTypes[dir] is NOT written for the analyzed dir — analyze marks it
 // loading in the componentTargetImporter, so a recursive
 // targetDeclarationPackage(dir) cycle-errors before its write. The import-graph

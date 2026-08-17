@@ -335,6 +335,9 @@ func (m *Module) affectedLocked(seeds []string) invalidationScope {
 	for dir := range m.pkgResults {
 		scope.dirs[dir] = true
 	}
+	for dir := range m.goPkgAnalyses {
+		scope.dirs[dir] = true
+	}
 	addForwardGraphDirs(scope.dirs, m.imports)
 	addForwardGraphDirs(scope.dirs, m.targetImports)
 	addForwardGraphDirs(scope.dirs, m.sourceDeclImports)
@@ -861,7 +864,9 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // GoPackageIndex reads: goPackageAnalysisWith retains a package that failed to
 // check, this publishes one only when it did not.
 func (m *Module) shippingGoPackageWith(dir string, mi *moduleImporter) (*types.Package, error) {
-	a, err := m.goPackageAnalysisWith(dir, mi)
+	// withInfo=false: the importer contract needs the package, not the identifier
+	// maps, and this runs for every Go-only intermediary of every generate cycle.
+	a, err := m.goPackageAnalysisWith(dir, mi, false)
 	if err != nil {
 		return nil, err
 	}
