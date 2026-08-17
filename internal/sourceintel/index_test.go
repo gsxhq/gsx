@@ -316,6 +316,7 @@ func TestIndexDoesNotRetainASTOrSourceBytes(t *testing.T) {
 		"definitions":  reflect.TypeFor[map[types.Object]Span](),
 		"declarations": reflect.TypeFor[map[string][]Declaration](),
 		"sources":      reflect.TypeFor[map[string]SourceVersion](),
+		"canonical":    reflect.TypeFor[func(types.Object) types.Object](),
 	}
 	if got, want := indexValue.NumField(), len(allowedFields); got != want {
 		t.Fatalf("Index has %d concrete fields, want %d", got, want)
@@ -497,6 +498,59 @@ func findIdent(t *testing.T, file *ast.File, name string, ordinal int) *ast.Iden
 		t.Fatalf("identifier %q ordinal %d not found; have %d", name, ordinal, len(matches))
 	}
 	return matches[ordinal]
+}
+
+func TestBuildIndexWithExtraOccurrencesAndCanonical(t *testing.T) {
+	// generated: view.x.go declares Card twice (public + helper); authored view.gsx has one Card.
+	const generated = "package p\n\nfunc Card(name string) {}\nfunc _gsxrenderCard(name string) { _ = name }\n"
+	const authored = "component Card(name string) {}\n"
+	segments := []Segment{
+		{Source: spanForSubstring(authored, "Card", 0), GeneratedStart: strings.Index(generated, "Card"), GeneratedEnd: strings.Index(generated, "Card") + 4, Capabilities: Definition | Hover | Symbol},
+	}
+	info, mapped := parseAndCheckMappedFile(t, generated, authored, segments, nil)
+	public := info.Defs[findIdent(t, mapped.AST, "Card", 0)]
+	helper := info.Defs[findIdent(t, mapped.AST, "_gsxrenderCard", 0)]
+	helperName := info.Defs[findIdent(t, mapped.AST, "name", 1)]
+	publicName := info.Defs[findIdent(t, mapped.AST, "name", 0)]
+	canonical := func(o types.Object) types.Object {
+		switch o {
+		case helper:
+			return public
+		case helperName:
+			return publicName
+		}
+		return o
+	}
+	tagSpan := Span{Path: "view.gsx", Start: 40, End: 44} // pretend <Card/> site elsewhere in view.gsx
+	index := BuildIndexWith(info, []MappedFile{mapped}, BuildOptions{
+		Extra: []Occurrence{
+			{Span: tagSpan, Kind: IdentifierUse, Object: helper},
+			{Span: Span{Path: "other.gsx", Start: 0, End: 4}, Kind: IdentifierUse, Object: helper}, // unknown path: dropped
+		},
+		Canonical: canonical,
+	})
+	occ, ok := index.At("view.gsx", 40)
+	if !ok || occ.Object != public {
+		t.Fatalf("extra occurrence not canonicalised: %+v %v", occ, ok)
+	}
+	if _, ok := index.At("other.gsx", 0); ok {
+		t.Fatal("extra occurrence on an unmapped path must be dropped")
+	}
+	if def, ok := index.Definition(helper); !ok || def != spanForSubstring(authored, "Card", 0) {
+		t.Fatalf("Definition(helper) must resolve through canonical: %+v %v", def, ok)
+	}
+	if _, ok := index.Definition(helperName); ok {
+		t.Fatal("helper param has no authored definition span in this fixture (public param name is not mapped); Definition must not invent one")
+	}
+	seen := 0
+	index.forEachOccurrence(func(path string, o Occurrence) {
+		if path == "view.gsx" && o.Object == public {
+			seen++
+		}
+	})
+	if seen != 2 { // the Def at "Card" plus the extra Use
+		t.Fatalf("forEachOccurrence saw %d public occurrences, want 2", seen)
+	}
 }
 
 func spanForSubstring(source, substring string, ordinal int) Span {
