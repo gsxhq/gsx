@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/lsp"
 )
 
 func TestLSPAnalyzeUsesWarmModule(t *testing.T) {
@@ -25,11 +27,12 @@ func TestLSPAnalyzeUsesWarmModule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pkg.Info == nil || pkg.ExprMap == nil || pkg.GSXFset == nil {
+	if pkg.Info == nil || pkg.ExprMap == nil || pkg.GSXFset == nil || pkg.Types == nil {
 		t.Fatalf("warm-module Analyze returned empty analysis: %+v", pkg)
 	}
-	if _, ok := pkg.CrossIndex[".Home"]; !ok {
-		t.Fatalf("CrossIndex missing .Home: %v", pkg.CrossIndex)
+	key := lsp.ComponentDeclKey{PackagePath: pkg.Types.Path(), ComponentKey: ".Home"}
+	if _, ok := pkg.ComponentDecls[key]; !ok {
+		t.Fatalf("ComponentDecls missing %+v: %v", key, pkg.ComponentDecls)
 	}
 	// No .x.go was written to disk by analysis.
 	if _, err := os.Stat(filepath.Join(pkgDir, "page.x.go")); err == nil {

@@ -70,8 +70,11 @@ func TestLSPDidCloseRestoresSavedOrAbsentSourceInWarmModule(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, ok := warm.CrossIndex[".Disk"]; !ok {
-				t.Fatalf("warm disk analysis components = %v, want .Disk", warm.CrossIndex)
+			if warm.Types == nil {
+				t.Fatal("warm disk analysis has no Types")
+			}
+			if _, ok := warm.ComponentDecls[lsp.ComponentDeclKey{PackagePath: warm.Types.Path(), ComponentKey: ".Disk"}]; !ok {
+				t.Fatalf("warm disk analysis components = %v, want .Disk", warm.ComponentDecls)
 			}
 
 			uri := "file://" + path
@@ -101,11 +104,15 @@ func TestLSPDidCloseRestoresSavedOrAbsentSourceInWarmModule(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, stale := postClose.CrossIndex[test.wantAfterOpen]; stale {
-				t.Fatalf("closed buffer component %s remains authoritative: %v", test.wantAfterOpen, postClose.CrossIndex)
+			if postClose.Types == nil {
+				t.Fatal("post-close analysis has no Types")
 			}
-			if _, ok := postClose.CrossIndex[test.wantAfterClose]; !ok {
-				t.Fatalf("post-close components = %v, want %s", postClose.CrossIndex, test.wantAfterClose)
+			pkgPath := postClose.Types.Path()
+			if _, stale := postClose.ComponentDecls[lsp.ComponentDeclKey{PackagePath: pkgPath, ComponentKey: test.wantAfterOpen}]; stale {
+				t.Fatalf("closed buffer component %s remains authoritative: %v", test.wantAfterOpen, postClose.ComponentDecls)
+			}
+			if _, ok := postClose.ComponentDecls[lsp.ComponentDeclKey{PackagePath: pkgPath, ComponentKey: test.wantAfterClose}]; !ok {
+				t.Fatalf("post-close components = %v, want %s", postClose.ComponentDecls, test.wantAfterClose)
 			}
 		})
 	}

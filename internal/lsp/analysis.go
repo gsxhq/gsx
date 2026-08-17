@@ -11,27 +11,6 @@ import (
 	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
-// CrossRef is one component's cross-boundary entry (see the .go->.gsx design):
-// its name, its .gsx declaration, and every reference, as resolved positions.
-// Decls holds every build-tag variant's declaration position (Decl is the
-// primary/first, kept for back-compat with single-decl callers) — see
-// codegen.CrossRef.Decls (Task 6).
-type CrossRef struct {
-	Name  string
-	Decl  token.Position
-	Decls []token.Position
-	Refs  []token.Position
-}
-
-// NavRef is one navigable Go reference (in a .go file) and the .gsx position it
-// targets. From is the reference site; Name is the identifier text (used for
-// cursor-span checking); To is the .gsx declaration target.
-type NavRef struct {
-	From token.Position
-	Name string
-	To   token.Position
-}
-
 type ComponentParamRole uint8
 
 const (
@@ -139,11 +118,9 @@ type Package struct {
 	// adapter preserves its pointer and package-snapshot lifetime directly.
 	SourceIndex *sourceintel.Index
 
-	Types      *types.Package
-	ExprMap    map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
-	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
-	CrossIndex map[string]CrossRef
-	NavIndex   []NavRef // navigable Go references → .gsx declaration targets
+	Types   *types.Package
+	ExprMap map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
+	Files   map[string]*gsxast.File  // .gsx path → parsed gsx AST
 	// ComponentCalls maps authored elements to exact target and parameter facts.
 	// The package owns this immutable analysis snapshot and its nested maps.
 	ComponentCalls map[*gsxast.Element]ComponentCallFact

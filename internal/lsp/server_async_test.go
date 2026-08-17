@@ -12,6 +12,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // blockingAnalyzer parks inside Analyze until the test releases that specific
@@ -70,7 +71,7 @@ func (a *overrideLifetimeAnalyzer) AnalyzeEphemeralNonBlocking(string, string, [
 	return nil, true, errors.New("not implemented")
 }
 
-func (a *overrideLifetimeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (a *overrideLifetimeAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	return nil, nil
 }
 func (a *overrideLifetimeAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
@@ -110,7 +111,7 @@ func (a *blockingAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (
 	return nil, true, errors.New("not implemented")
 }
 
-func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	return nil, nil
 }
 func (a *blockingAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {

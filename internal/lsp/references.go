@@ -2,24 +2,19 @@ package lsp
 
 import (
 	"encoding/json"
-	"go/token"
 	"path/filepath"
-	"strconv"
-	"strings"
 )
 
 // handleReferences returns every reference to the gsx component under the cursor
-// — .go call sites and .gsx <Card/> tags — from the cross-index. The RESULT
-// always spans both .go and .gsx sites; the cursor that INVOKES it may be on the
-// component's .gsx declaration or on a .go call site. Identifying the component
-// from a .gsx <Card/> tag cursor is deferred (it needs component-tag resolution
-// like definition's D2; the tag's //line column is approximate) — a tag cursor
-// returns empty rather than a flaky off-by-column match.
+// — .go call sites and .gsx <Card/> tags — from the module-wide symbol graph.
 //
-// The whole-module index (AnalyzeModule) is queried first: it is built lazily,
-// cached across requests, and invalidated whenever any document mutates. On
-// AnalyzeModule error the single-package CrossIndex (built by Analyze on didOpen)
-// is used as a fallback so existing in-package references behaviour is preserved.
+// TODO(module-symbol-graph): rewritten in the next commit. This handler used to
+// resolve the cursor against a whole-module cross-reference list built from
+// codegen.CrossRef/NavRef (deleted). AnalyzeModule now returns a
+// *sourceintel.SymbolGraph instead; the graph is still refreshed and cached here
+// so the lazy/invalidate-on-edit plumbing stays exercised, but cursor resolution
+// against it (SymbolGraph.At + Definitions/References) is Task 10/11's job. Until
+// then this always replies with an empty result.
 func (s *Server) handleReferences(f frame) error {
 	var p referenceParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
@@ -31,97 +26,23 @@ func (s *Server) handleReferences(f frame) error {
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
 	sources := s.sourceSnapshot()
-	text, ok := sources.sourceString(path)
-	if !ok {
+	if _, ok := sources.sourceString(path); !ok {
 		return s.reply(f.ID, []Location{})
 	}
-	curLine := p.Position.Line + 1
-	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
-		lineStartOffset(text, p.Position.Line) + 1
 
-	// Whole-module index (lazy, cached, invalidated on edits). A successful
-	// AnalyzeModule — even an empty result — is cached; an error leaves the
-	// cache invalid so the single-package fallback below still answers.
-	if !s.moduleRefsValid {
+	// Whole-module graph (lazy, cached, invalidated on edits). A successful
+	// AnalyzeModule — even an empty graph — is cached; an error leaves the cache
+	// invalid so the next request retries.
+	if !s.moduleGraphValid {
 		s.refreshModuleReferences(sources, filepath.Dir(path))
 	}
 
-	found := identifyCrossRef(s.moduleRefs, path, curLine, curCol)
-	if found == nil {
-		// Fall back to the single-package index (covers AnalyzeModule errors and
-		// any cursor the module index did not resolve).
-		if pkg := s.pkgs[filepath.Dir(path)]; pkg != nil && len(pkg.CrossIndex) > 0 {
-			vals := make([]CrossRef, 0, len(pkg.CrossIndex))
-			for k := range pkg.CrossIndex {
-				vals = append(vals, pkg.CrossIndex[k])
-			}
-			found = identifyCrossRef(vals, path, curLine, curCol)
-		}
-	}
-	if found == nil {
-		return s.reply(f.ID, []Location{})
-	}
-
-	locs := make([]Location, 0, len(found.Refs)+len(found.Decls)+1)
-	for _, r := range found.Refs {
-		if location, ok := sources.locationForResolvedPosition(r, len(found.Name)); ok {
-			locs = append(locs, location)
-		}
-	}
-	if p.Context.IncludeDeclaration {
-		// Emit every build-tag variant's declaration (found.Decls), not just the
-		// primary found.Decl, deduping by filename+offset since Decls always
-		// contains found.Decl too (Decls[0], see codegen.CrossRef).
-		decls := found.Decls
-		if len(decls) == 0 {
-			decls = []token.Position{found.Decl}
-		}
-		seen := map[string]bool{}
-		for _, d := range decls {
-			if !d.IsValid() {
-				continue
-			}
-			k := d.Filename + ":" + strconv.Itoa(d.Offset)
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-			if location, ok := sources.locationForAuthoredPosition(d, len(found.Name)); ok {
-				locs = append(locs, location)
-			}
-		}
-	}
-	return s.reply(f.ID, locs)
+	return s.reply(f.ID, []Location{})
 }
 
 func (s *Server) refreshModuleReferences(sources *requestSourceSnapshot, dir string) {
-	if refs, err := s.analyzer.AnalyzeModule(dir, sources.openGSXOverrides()); err == nil {
-		s.moduleRefs = refs
-		s.moduleRefsValid = true
+	if graph, err := s.analyzer.AnalyzeModule(dir, sources.openGSXOverrides()); err == nil {
+		s.moduleGraph = graph
+		s.moduleGraphValid = true
 	}
-}
-
-// identifyCrossRef finds the component whose declaration (exact NamePos) or a
-// .go reference covers the cursor. .gsx-file refs are skipped for identification
-// — their //line-derived columns are approximate (see the original references
-// comment), so a tag cursor resolves to "no match" rather than an off-column hit.
-func identifyCrossRef(refs []CrossRef, path string, curLine, curCol int) *CrossRef {
-	for i := range refs {
-		cr := refs[i]
-		if posCoversCursor(cr.Decl, path, curLine, curCol, len(cr.Name)) {
-			return &refs[i]
-		}
-		for _, d := range cr.Decls {
-			if posCoversCursor(d, path, curLine, curCol, len(cr.Name)) {
-				return &refs[i]
-			}
-		}
-		for _, r := range cr.Refs {
-			if strings.HasSuffix(r.Filename, ".go") &&
-				posCoversCursor(r, path, curLine, curCol, len(cr.Name)) {
-				return &refs[i]
-			}
-		}
-	}
-	return nil
 }

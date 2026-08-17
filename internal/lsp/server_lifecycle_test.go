@@ -15,6 +15,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // nilAnalyzer satisfies Analyzer and returns nothing.
@@ -29,7 +30,7 @@ func (nilAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package
 	return nil, true, errors.New("not implemented")
 }
 func (nilAnalyzer) ClearOverride(string) ([]string, error) { return nil, nil }
-func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	return nil, nil
 }
 func (nilAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
@@ -292,8 +293,8 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	pkg := &Package{}
 	server.pkgs[first] = pkg
 	primeModuleCaches := func() {
-		server.moduleRefs = []CrossRef{{Name: "ref"}}
-		server.moduleRefsValid = true
+		server.moduleGraph = sourceintel.NewSymbolGraph()
+		server.moduleGraphValid = true
 		server.moduleParams = []ComponentParamRenameFact{{Name: "param"}}
 		server.moduleParamsValid = true
 		server.moduleParamsDir = first
@@ -304,8 +305,8 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	}
 	assertOnlyNonSymbolCachesInvalidated := func(t *testing.T, wantSymbolModules ...string) {
 		t.Helper()
-		if server.moduleRefs != nil || server.moduleRefsValid || server.moduleParams != nil || server.moduleParamsValid || server.moduleParamsDir != "" {
-			t.Fatalf("whole-module caches retained: refs=%v/%v params=%v/%v/%q", server.moduleRefs, server.moduleRefsValid, server.moduleParams, server.moduleParamsValid, server.moduleParamsDir)
+		if server.moduleGraph != nil || server.moduleGraphValid || server.moduleParams != nil || server.moduleParamsValid || server.moduleParamsDir != "" {
+			t.Fatalf("whole-module caches retained: graph=%v/%v params=%v/%v/%q", server.moduleGraph, server.moduleGraphValid, server.moduleParams, server.moduleParamsValid, server.moduleParamsDir)
 		}
 		if len(server.moduleSyms) != len(wantSymbolModules) {
 			t.Fatalf("symbol cache modules = %v, want %v", server.moduleSyms, wantSymbolModules)
@@ -357,7 +358,7 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	if !slices.Equal(server.workspaceFolders, beforeFolders) || !slices.Equal(server.workspaceModules, beforeModules) {
 		t.Fatalf("rejected update partially applied: folders=%v modules=%v", server.workspaceFolders, server.workspaceModules)
 	}
-	if !server.workspaceViewValid || !server.moduleRefsValid || !server.moduleParamsValid || len(server.moduleSyms) != 1 || !server.moduleSyms[second].valid {
+	if !server.workspaceViewValid || !server.moduleGraphValid || !server.moduleParamsValid || len(server.moduleSyms) != 1 || !server.moduleSyms[second].valid {
 		t.Fatal("rejected workspace update invalidated whole-module caches")
 	}
 	if server.pkgs[first] != pkg {

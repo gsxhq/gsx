@@ -20,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/gsxhq/gsx/internal/lsp"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 func TestPerfBaseline(t *testing.T) {
@@ -81,7 +82,7 @@ func TestPerfBaseline(t *testing.T) {
 			mustWrite(filepath.Join(pkgDir, strings.ToLower(compName)+".gsx"), gsxSrc)
 		}
 
-		// Write one .go file referencing all components (creates CrossIndex refs)
+		// Write one .go file referencing all components
 		var refs []string
 		for _, cn := range compNames {
 			refs = append(refs, fmt.Sprintf("\t_ = %s", cn))
@@ -128,7 +129,7 @@ func TestPerfBaseline(t *testing.T) {
 	heapDelta := int64(msAfter.HeapInuse) - int64(msBefore.HeapInuse)
 	allocDelta := int64(msAfter.TotalAlloc) - int64(msBefore.TotalAlloc)
 
-	// ---------- cross-index size ----------
+	// ---------- component-decl index size ----------
 	totalCrossEntries := 0
 	totalSourceIndexFiles := 0
 	totalSourceIndexOccurrences := 0
@@ -136,7 +137,7 @@ func TestPerfBaseline(t *testing.T) {
 	var totalSourceIndexShallowBytes int64
 	for _, pkg := range pkgs {
 		if pkg != nil {
-			totalCrossEntries += len(pkg.CrossIndex)
+			totalCrossEntries += len(pkg.ComponentDecls)
 			stats := pkg.SourceIndex.Stats()
 			totalSourceIndexFiles += stats.Files
 			totalSourceIndexOccurrences += stats.Occurrences
@@ -145,11 +146,12 @@ func TestPerfBaseline(t *testing.T) {
 		}
 	}
 
-	// Approximate slim index size: each CrossRef holds Name(~10B), Decl(token.Position=48B),
-	// Refs ([]token.Position — usually 1-2 .go refs: 48B each).
-	// Use unsafe.Sizeof as a rough bound.
-	var cr lsp.CrossRef
-	crossRefSize := int(unsafe.Sizeof(cr))
+	// Approximate slim index size: each entry is a lsp.ComponentDeclKey (two
+	// strings) mapping to a []sourceintel.VersionedSpan (usually one entry per
+	// component). Use unsafe.Sizeof as a rough bound.
+	var key lsp.ComponentDeclKey
+	var span sourceintel.VersionedSpan
+	crossRefSize := int(unsafe.Sizeof(key)) + int(unsafe.Sizeof(span))
 	slimIndexBytes := totalCrossEntries * crossRefSize
 	_ = slimIndexBytes
 
@@ -165,28 +167,29 @@ func TestPerfBaseline(t *testing.T) {
 	}
 
 	// ---------- definition/references lookup latency (index-only) ----------
-	// Time an ACTUAL CrossIndex map lookup by component key (the real query-path
-	// operation), averaged over many iterations so we time the lookup, not the
-	// clock. The handlers then range the entry's Refs — also O(refs).
+	// Time an ACTUAL ComponentDecls map lookup by component key (the real
+	// query-path operation), averaged over many iterations so we time the
+	// lookup, not the clock. The handlers then range the entry's spans — also
+	// O(decls).
 	var defLatency, refLatency time.Duration
 	for _, pkg := range pkgs {
-		if pkg == nil || len(pkg.CrossIndex) == 0 {
+		if pkg == nil || len(pkg.ComponentDecls) == 0 {
 			continue
 		}
-		var key string
-		for k := range pkg.CrossIndex {
-			key = k
+		var lookupKey lsp.ComponentDeclKey
+		for k := range pkg.ComponentDecls {
+			lookupKey = k
 			break
 		}
 		const iters = 100000
 		start := time.Now()
 		var sink int
 		for range iters {
-			cr := pkg.CrossIndex[key] // real map lookup
-			sink += len(cr.Refs)
+			decls := pkg.ComponentDecls[lookupKey] // real map lookup
+			sink += len(decls)
 		}
 		defLatency = time.Since(start) / iters
-		refLatency = defLatency // same operation (lookup + range over Refs)
+		refLatency = defLatency // same operation (lookup + range over decls)
 		_ = sink
 		break
 	}
@@ -216,9 +219,9 @@ func TestPerfBaseline(t *testing.T) {
 	t.Logf("  total alloc delta       = %s", fmtBytes(allocDelta))
 	t.Logf("  per package (HeapInuse) = %s", fmtBytes(heapDelta/int64(N)))
 
-	t.Logf("=== cross-index (slim) ===")
+	t.Logf("=== component-decl index (slim) ===")
 	t.Logf("  total entries      = %d  (%d components × %d pkgs)", totalCrossEntries, gsxPerPkg, N)
-	t.Logf("  CrossRef struct sz = %d bytes", crossRefSize)
+	t.Logf("  entry struct sz    = %d bytes", crossRefSize)
 	t.Logf("  slim index (est.)  = %s", fmtBytes(int64(slimIndexBytes)))
 	t.Logf("  slim vs heap delta = %.1f%%", 100*float64(slimIndexBytes)/float64(max(heapDelta, 1)))
 	t.Logf("=== authored source index (shallow lower bound) ===")

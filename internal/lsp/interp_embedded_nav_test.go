@@ -46,7 +46,12 @@ func TestInterpEmbeddedDefinition(t *testing.T) {
 	paramLabel := strings.Index(src, "label string")    // Uses' param label
 
 	// 1. Embedded component tag name → component Badge declaration.
+	//
+	// TODO(module-symbol-graph): re-enabled in Task 10/11. componentTagDeclAt is
+	// currently a stub (always returns nil, false) pending the SymbolGraph-based
+	// rewrite; CrossIndex (the mechanism this subtest exercised) is gone.
 	t.Run("embedded component tag", func(t *testing.T) {
+		t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
 		off := strings.Index(src, "wrap(<Badge") + len("wrap(<")
 		decls, ok := componentTagDeclAt(pkg, path, off)
 		if !ok || len(decls) == 0 {

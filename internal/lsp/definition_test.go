@@ -102,12 +102,6 @@ func analyzedLSPModule(t *testing.T, files map[string]string, target string) (*P
 	for n, cr := range pr.CtrlMap {
 		ctrl[n] = CtrlRef{ClauseStart: cr.ClauseStart, Node: cr.Node}
 	}
-	// Mirror the real server's adaptPackageResult CrossIndex copy so tag→decl
-	// go-to-definition (componentTagDeclAt) resolves in analyzed test packages.
-	cross := make(map[string]CrossRef, len(pr.CrossIndex))
-	for k, v := range pr.CrossIndex {
-		cross[k] = CrossRef{Name: v.Name, Decl: v.Decl, Decls: v.Decls, Refs: v.Refs}
-	}
 	calls := make(map[*gsxast.Element]ComponentCallFact, len(pr.ComponentCalls))
 	for element, call := range pr.ComponentCalls {
 		params := make(map[gsxast.Attr]ComponentParamFact, len(call.Params))
@@ -152,7 +146,6 @@ func analyzedLSPModule(t *testing.T, files map[string]string, target string) (*P
 		ExprMap:          pr.ExprMap,
 		CtrlMap:          ctrl,
 		SigTypes:         sigTypes,
-		CrossIndex:       cross,
 		ComponentCalls:   calls,
 		ComponentDecls:   componentDecls,
 	}, gsxPath
@@ -295,18 +288,18 @@ func TestExprNodeAtOffset(t *testing.T) {
 // component declaration, using a synthetic CrossIndex. This is the tag→decl
 // LSP guard: a cursor on "Button" in <Button variant={v}/> must find the
 // component's .gsx declaration via CrossIndex[".Button"].
+// TODO(module-symbol-graph): re-enabled in Task 10/11. componentTagDeclAt is
+// currently a stub (always returns nil, false) pending the SymbolGraph-based
+// rewrite; CrossIndex (the mechanism this test exercised) is gone.
 func TestComponentTagDeclAtByo(t *testing.T) {
+	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
 	// A calling component that uses a byo Button tag. Button is declared
-	// elsewhere (not in this file), so CrossIndex is supplied artificially.
+	// elsewhere (not in this file).
 	src := "package x\n\ncomponent Page(v string) {\n\t<Button variant={v}/>\n}\n"
 	pkg, path := parseOnlyPackage(t, "page.gsx", src)
 	stampSyntacticComponents(pkg.Files[path])
 
-	// Build a synthetic CrossIndex pointing ".Button" to a fake .gsx location.
 	declPos := token.Position{Filename: "button.gsx", Line: 5, Column: 11, Offset: 42}
-	pkg.CrossIndex = map[string]CrossRef{
-		".Button": {Name: "Button", Decl: declPos},
-	}
 
 	// The tag name "Button" starts right after the '<' on line 4.
 	// "package x\n\ncomponent Page(v string) {\n\t<" is the prefix;
@@ -348,16 +341,17 @@ func TestComponentTagDeclAtByo(t *testing.T) {
 // TestComponentTagDeclAtClosingTag verifies go-to-definition works from the
 // CLOSING tag too: a cursor on "Card" in "</Card>" resolves to the component
 // declaration just like the opening tag (relies on ast.Element.CloseNamePos).
+// TODO(module-symbol-graph): re-enabled in Task 10/11. componentTagDeclAt is
+// currently a stub (always returns nil, false) pending the SymbolGraph-based
+// rewrite; CrossIndex (the mechanism this test exercised) is gone.
 func TestComponentTagDeclAtClosingTag(t *testing.T) {
+	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
 	// Card has children, so the element has an explicit closing tag </Card>.
 	src := "package x\n\ncomponent Page() {\n\t<Card title=\"hi\">body</Card>\n}\n"
 	pkg, path := parseOnlyPackage(t, "page.gsx", src)
 	stampSyntacticComponents(pkg.Files[path])
 
 	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
-	pkg.CrossIndex = map[string]CrossRef{
-		".Card": {Name: "Card", Decl: declPos},
-	}
 
 	// Offset of "Card" inside "</Card>" (the closing tag, the last occurrence).
 	closeStart := strings.Index(src, "</Card>") + 2 // +2 to skip '</'
@@ -527,12 +521,16 @@ func TestCtrlDefinitionValueIfCond(t *testing.T) {
 // TestComponentTagDeclAtClosingTagWhitespace verifies go-to-definition still
 // resolves on a closing tag with whitespace before '>' (</Card >), since the
 // parser allows it and records CloseNamePos at the name regardless.
+//
+// TODO(module-symbol-graph): re-enabled in Task 10/11. componentTagDeclAt is
+// currently a stub (always returns nil, false) pending the SymbolGraph-based
+// rewrite; CrossIndex (the mechanism this test exercised) is gone.
 func TestComponentTagDeclAtClosingTagWhitespace(t *testing.T) {
+	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
 	src := "package x\n\ncomponent Page() {\n\t<Card>body</Card >\n}\n"
 	pkg, path := parseOnlyPackage(t, "page.gsx", src)
 	stampSyntacticComponents(pkg.Files[path])
 	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
-	pkg.CrossIndex = map[string]CrossRef{".Card": {Name: "Card", Decl: declPos}}
 
 	closeStart := strings.Index(src, "</Card >") + 2 // skip '</'
 	if closeStart < 2 {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
@@ -62,10 +63,9 @@ type Analyzer interface {
 	// because analyzers may retain warm per-module state between calls.
 	ClearOverride(path string) (affected []string, err error)
 	// AnalyzeModule analyzes every gsx package in the module containing dir and
-	// returns one flat cross-reference list (each component once; Refs span the
-	// whole module). Used by find-references; failure is non-fatal (the server
-	// falls back to the per-package CrossIndex).
-	AnalyzeModule(dir string, override map[string][]byte) ([]CrossRef, error)
+	// returns the merged module-wide symbol graph. Used by find-references;
+	// failure is non-fatal (the server falls back to per-package facts).
+	AnalyzeModule(dir string, override map[string][]byte) (*sourceintel.SymbolGraph, error)
 	// AnalyzeModuleParams returns complete, exact GSX parameter declarations,
 	// semantic body uses, and invocation facts for rename. It must not return
 	// partial families.
@@ -153,8 +153,8 @@ type Server struct {
 	workspaceViewValid    bool
 	pendingClientRequests map[string]func(frame) error
 
-	moduleRefs        []CrossRef                 // whole-module cross-reference index (lazy; find-references)
-	moduleRefsValid   bool                       // false ⇒ rebuild on next references request
+	moduleGraph       *sourceintel.SymbolGraph   // whole-module symbol graph (lazy; find-references)
+	moduleGraphValid  bool                       // false ⇒ rebuild on next references request
 	moduleParams      []ComponentParamRenameFact // complete GSX parameter families (lazy; rename)
 	moduleParamsValid bool                       // false ⇒ rebuild on next rename request
 	moduleParamsDir   string                     // request directory that owns the cached module view
@@ -743,8 +743,8 @@ func (s *Server) invalidateModuleIndexes() {
 }
 
 func (s *Server) invalidateNonSymbolModuleIndexes() {
-	s.moduleRefs = nil
-	s.moduleRefsValid = false
+	s.moduleGraph = nil
+	s.moduleGraphValid = false
 	s.moduleParams = nil
 	s.moduleParamsValid = false
 	s.moduleParamsDir = ""
