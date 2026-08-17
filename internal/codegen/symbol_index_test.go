@@ -206,10 +206,6 @@ func TestPackageSymbolIndex(t *testing.T) {
 	if f := files(g.References(iconLabelKey)); f["page.gsx"] != 1 || f["icon.gsx"] != 1 {
 		t.Fatalf("Icon label refs = %v (key %q)", f, iconLabelKey)
 	}
-	// An attrs-bag parameter is referenced by its NAME only. `class="forwarded"`
-	// is a bag contributor bound to the same parameter by the call plan, but it
-	// is forwarded data, not an authored mention of `attrs` — it must not be a
-	// reference. `caption=` names its parameter and must be one.
 	// An attrs-bag parameter is referenced by NAME only. `class="forwarded"` is
 	// forwarded data, not an authored mention of `attrs`, and must not become a
 	// reference to it — `gr` on `attrs` would otherwise return every forwarded
@@ -226,8 +222,8 @@ func TestPackageSymbolIndex(t *testing.T) {
 	if f := files(g.References(captionKey)); f["page.gsx"] != 1 || f["card.gsx"] != 1 {
 		t.Fatalf("caption refs = %v (key %q)", f, captionKey)
 	}
-	// no hand-written sibling was dropped from the index on a bytes/syntax size
-	// disagreement.
+	// no hand-written sibling was dropped from the index on a hash+token
+	// name+size disagreement (the three-way companion-file guard).
 	if skips := m.companionIndexSkipCount(); skips != 0 {
 		t.Fatalf("companion index skips = %d, want 0", skips)
 	}
@@ -241,8 +237,9 @@ func TestPackageSymbolIndex(t *testing.T) {
 	// One unrelated type error anywhere in the package skips positional call
 	// planning for the WHOLE package (analyze's targetPlanningReady), which is
 	// the ordinary state of a file mid-edit. The tag→component edge must
-	// survive it: it is resolved by name resolution, not from the plan. Rides
-	// this fixture's Module through AnalyzeEphemeral — no second Module open.
+	// survive it: it is projected from the discovery pass's target facts, not
+	// from the plan. Rides this fixture's Module through AnalyzeEphemeral — no
+	// second Module open.
 	t.Run("tag edge survives planning being skipped", func(t *testing.T) {
 		broken := page + "\ncomponent Broken() {\n\t<div>{ undefinedIdent }</div>\n}\n"
 		res, err := m.AnalyzeEphemeral(dir, pagePath, []byte(broken))

@@ -73,8 +73,8 @@ supports tree-sitter.
 |---|---|
 | Diagnostics | Parse, type, and component errors. |
 | Hover | Go types and component signatures. |
-| Go to definition | Go symbols and components across `.gsx` and `.go`. |
-| Find references | Project component calls across `.gsx` and `.go`. |
+| Go to definition | Every Go symbol and component, `.gsx` ↔ `.go`, module-wide (Go-only packages importing gsx packages included). |
+| Find references | Every Go symbol declared or used in `.gsx` — types, funcs, methods, fields, params, locals, components (tag sites and attribute bindings), pipe filters — from `.gsx` or `.go` cursors, module-wide. |
 | Formatting | Canonical `gsx fmt` output and project settings. |
 | Document symbols | File components and top-level Go declarations. |
 | Workspace symbols | Module components and top-level Go declarations. |
@@ -84,8 +84,9 @@ supports tree-sitter.
 Completion returns plain text edits, not snippets. Completing a symbol on a
 package you have not imported — `ui.Button` in a Go expression, or `<ui.Button`
 as a tag — adds the import along with the name. A tag cursor offers only the
-package's component-shaped declarations. References do not include external
-packages. See [Status](./status.md) for the current limits.
+package's component-shaped declarations. Go to definition does not resolve
+into external (non-module) packages; references to external symbols list
+module-local sites only. See [Status](./status.md) for the current limits.
 
 ## Organize imports {#organize-imports-on-save}
 

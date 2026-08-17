@@ -36,7 +36,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. `gsx fmt` treats inline elements as atoms (never break open) and wraps long prose at word gaps (`internal/printer` fill layout, `2026-07-24-fmt-inline-atoms-word-gap-fill-design.md`). |
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
-| Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + find-references + formatting ship; completion and external/non-project references deferred. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
+| Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + module-wide symbol graph (references/definition for every authored Go symbol) + formatting ship; completion and external/non-project definitions deferred. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
 | Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.5.0) + `github.com/gsxhq/vite` (v0.2.0) + browser dev panel + front-door auto-restart. |
 
 ## Done
@@ -536,8 +536,10 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
 - [x] **Workspace symbols** (`workspace/symbol`) - deterministic, module-owned
   inventories across initialized workspace folders and `go.work` modules, with
   open-buffer UTF-16 locations and transactional metadata invalidation.
-- [x] **Find-references** (`textDocument/references`) - `.go` call sites + `.gsx`
-  tag sites for project components discovered during module analysis; external/non-project packages are skipped.
+- [x] **Find-references / .go definition** — module symbol graph
+  (`sourceintel.SymbolGraph`): every Go symbol authored in `.gsx`, `.go`
+  siblings and Go-only importer packages; tag/attr/pipe edges. Spec:
+  docs/superpowers/specs/2026-08-17-module-symbol-graph-design.md
 - [x] **Formatting** (`textDocument/formatting`) - canonical form with
   unused-import removal (reuses `gen.Format` / `gsxfmt.FormatRemovingImports`).
 - [x] **Pipeline-aware definition + hover** (`internal/lsp/pipe.go`) - go-to-def
@@ -765,8 +767,7 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   the exact `.gsx` line (`gen.TestDefinitionCrossModuleValueSourcesPresent`
   upgraded from file-only to exact-line); corpus goldens regenerated
   (directive-only churn, spot-checked).
-- **Deferred:** external/non-project references; references cover project
-  components discovered during module analysis.
+- **Deferred:** definitions inside external/non-project packages.
 
 Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
 `2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.

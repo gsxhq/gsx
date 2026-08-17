@@ -29,7 +29,8 @@ func NewSymbolGraph() *SymbolGraph {
 }
 
 // AddIndex merges one package's index. Occurrences without a keyable object
-// (expressions, universe objects, foreign locals) are skipped.
+// (expressions, universe objects, foreign locals) are skipped. Call once per
+// package — a repeated add double-counts occurrences.
 func (g *SymbolGraph) AddIndex(index *Index, keyer *Keyer) {
 	if index == nil || keyer == nil {
 		return

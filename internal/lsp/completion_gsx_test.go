@@ -241,7 +241,7 @@ func decodeCompletionItems(t *testing.T, out string, id int) []CompletionItem {
 // component in the imported package ("Button").
 //
 // ComponentKey format — VERIFIED against componentObjectKey (definition.go)
-// and crossRefKeyForFunc (gen/lsp.go): a plain function component keys as
+// and codegen.componentKey (analyze.go): a plain function component keys as
 // "."+Name (a LEADING dot marker), not the bare name the plan assumed; a
 // receiver component keys as RecvType+"."+Name. Every key therefore contains
 // a dot — componentTagItems' exclusion rule (plainComponentName) checks the

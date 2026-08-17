@@ -232,8 +232,9 @@ func TestDefinitionCrossPkgExprCall(t *testing.T) {
 // (the "Input" in </components.Input>), not just on the opening tag. This is
 // Bug B (cross-package): the dotted-tag resolver of the day only checked
 // el.Pos() (opening), so a cursor on the closing tag returned null. That
-// resolver is gone — dotted tags are answered from the symbol index now — and
-// this test is what keeps the closing-tag cursor covered across the move.
+// resolver is gone. The symbol index publishes the OPENING tag occurrence
+// only; a closing-tag cursor is answered by the plan-backed D1 branch. This
+// test is what keeps that branch covered across the move.
 func TestDefinitionCrossPkgClosingTag(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
