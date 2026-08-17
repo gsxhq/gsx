@@ -77,11 +77,13 @@ func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter) (*goPacka
 	// semantic package publication remains gated on the successful check in
 	// shippingGoPackageWith.
 	m.recordImports(dir, importPaths)
+	// Exactly the three maps sourceintel.BuildIndex reads: Defs/Uses carry every
+	// identifier occurrence, Types carries the expression spans hover needs.
+	// Nothing consumes Selections, so the checker is not asked to record it.
 	a := &goPackageAnalysis{files: files, info: &types.Info{
-		Defs:       map[*goast.Ident]types.Object{},
-		Uses:       map[*goast.Ident]types.Object{},
-		Types:      map[goast.Expr]types.TypeAndValue{},
-		Selections: map[*goast.SelectorExpr]*types.Selection{},
+		Defs:  map[*goast.Ident]types.Object{},
+		Uses:  map[*goast.Ident]types.Object{},
+		Types: map[goast.Expr]types.TypeAndValue{},
 	}}
 	config := types.Config{
 		Importer:  mi,
@@ -231,4 +233,49 @@ func (m *Module) reverseDependencyGoDirs() ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// SymbolGraph merges the retained analysis of every listed gsx package dir
+// (Package) with every reverse-dependency Go-only package (GoPackageIndex).
+// Un-analyzable dirs are skipped (partial graph), matching find-references'
+// historical tolerance. Returns an error only when nothing could be built.
+func (m *Module) SymbolGraph(gsxDirs []string) (*sourceintel.SymbolGraph, error) {
+	graph := sourceintel.NewSymbolGraph()
+	added := 0
+	var firstErr error
+	for _, dir := range gsxDirs {
+		result, err := m.Package(dir)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		// A diagnostics-only PackageResult carries neither an index nor a checked
+		// package; there is nothing keyable to merge.
+		if result == nil || result.SourceIndex == nil || result.Types == nil {
+			continue
+		}
+		graph.AddIndex(result.SourceIndex, sourceintel.NewKeyer(result.Types))
+		added++
+	}
+	goDirs, err := m.reverseDependencyGoDirs()
+	if err != nil && firstErr == nil {
+		firstErr = err
+	}
+	for _, dir := range goDirs {
+		index, pkg, err := m.GoPackageIndex(dir)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		graph.AddIndex(index, sourceintel.NewKeyer(pkg))
+		added++
+	}
+	if added == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return graph, nil
 }

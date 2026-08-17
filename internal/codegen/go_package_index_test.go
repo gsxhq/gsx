@@ -76,4 +76,38 @@ func TestReverseDependencyGoPackageIndex(t *testing.T) {
 	if m.goPackageAnalysisCount() != before+1 {
 		t.Fatalf("expected re-analysis after dependency invalidation, count %d → %d", before, m.goPackageAnalysisCount())
 	}
+
+	t.Run("module graph", func(t *testing.T) {
+		g, err := m.SymbolGraph([]string{filepath.Join(root, "components"), filepath.Join(root, "app")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		inputGSX := filepath.Join(root, "components", "input.gsx")
+		inputSrc := reverseDepInputSource
+		key, _, ok := g.At(inputGSX, strings.Index(inputSrc, "Input"))
+		if !ok || string(key) != "example.com/rd/components Input" {
+			t.Fatalf("Input key = %q %v", key, ok)
+		}
+		byFile := map[string]int{}
+		for _, s := range g.References(key) {
+			byFile[filepath.Base(s.Path)]++
+		}
+		if byFile["page.gsx"] != 1 || byFile["main.go"] != 1 {
+			t.Fatalf("Input refs = %v; want page.gsx tag + main.go value", byFile)
+		}
+		// main.go cursor → definitions in .gsx
+		mainKey, _, ok := g.At(mainPath, strings.Index(src, "components.Size")+11)
+		if !ok {
+			t.Fatal("main.go Size cursor missed")
+		}
+		defs := g.Definitions(mainKey)
+		if len(defs) != 1 || filepath.Base(defs[0].Path) != "input.gsx" {
+			t.Fatalf("Size defs = %+v", defs)
+		}
+		// Home type: def in page.gsx, ref in main.go
+		homeKey, _, _ := g.At(mainPath, strings.Index(src, "app.Home")+4)
+		if d := g.Definitions(homeKey); len(d) != 1 || filepath.Base(d[0].Path) != "page.gsx" {
+			t.Fatalf("Home defs = %+v", d)
+		}
+	})
 }
