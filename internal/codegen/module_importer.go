@@ -380,6 +380,7 @@ func (m *Module) invalidateConfiguredSourceStateLocked() {
 	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
+	m.goPkgAnalyses = map[string]*goPackageAnalysis{}
 }
 
 // invalidateLocked drops the reverse-closure of ordinary dirs from pkgTypes and
@@ -404,6 +405,7 @@ func (m *Module) invalidateScopeLocked(scope invalidationScope) []string {
 		delete(m.targetDeclProvenance, d)
 		delete(m.configuredDeclTypes, d)
 		delete(m.pkgResults, d)
+		delete(m.goPkgAnalyses, d)
 	}
 	return scope.sorted()
 }
@@ -854,53 +856,19 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // the shipping declaration universe. The retained ASTs are the Go command's
 // active CompiledGoFiles selection from the Module's frozen environment; no
 // generated output, disk reparse, or export-data package participates here.
+//
+// It is the importer contract's soundness-demanding view of the same analysis
+// GoPackageIndex reads: goPackageAnalysisWith retains a package that failed to
+// check, this publishes one only when it did not.
 func (m *Module) shippingGoPackageWith(dir string, mi *moduleImporter) (*types.Package, error) {
-	mi.seen[dir] = true
-	defer delete(mi.seen, dir)
-	sourcePackage, found, ready := m.targetSourcePackage(dir)
-	if !ready || !found {
-		return nil, fmt.Errorf("codegen: shipping source inventory has no Go-only package for %s", dir)
-	}
-	files, importPaths, err := m.parseTargetCompanionGoFiles(dir, nil)
+	a, err := m.goPackageAnalysisWith(dir, mi)
 	if err != nil {
 		return nil, err
 	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("codegen: shipping Go-only package %s has no retained compiled source", dir)
+	if a.sourceErr != nil {
+		return nil, a.sourceErr
 	}
-	if err := m.rejectExternalBackedgeImports(files); err != nil {
-		return nil, err
-	}
-	typeEnvironment, err := m.typeCheckEnvironmentForDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Publish the complete syntactic path before recursive checking. This keeps
-	// invalidation correct even when an imported package currently has an error;
-	// semantic package publication remains gated on the successful check below.
-	m.recordImports(dir, importPaths)
-	var typeErrs []types.Error
-	config := types.Config{
-		Importer:  mi,
-		Sizes:     typeEnvironment.sizes,
-		GoVersion: typeEnvironment.goVersion,
-		Error: func(err error) {
-			if typeErr, ok := err.(types.Error); ok {
-				typeErrs = append(typeErrs, typeErr)
-			}
-		},
-	}
-	pkg := types.NewPackage(sourcePackage.pkgPath, sourcePackage.name)
-	checker := types.NewChecker(&config, m.fset, pkg, nil)
-	_ = checker.Files(files)
-	if mi.sourceErr != nil {
-		return nil, mi.sourceErr
-	}
-	if mi.cycleErr != nil {
-		return nil, mi.cycleErr
-	}
-	if err := typeErrorsAsSourceError(typeErrs); err != nil {
+	if err := typeErrorsAsSourceError(a.typeErrs); err != nil {
 		return nil, err
 	}
 
@@ -908,9 +876,9 @@ func (m *Module) shippingGoPackageWith(dir string, mi *moduleImporter) (*types.P
 	if m.pkgTypes == nil {
 		m.pkgTypes = map[string]*types.Package{}
 	}
-	m.pkgTypes[dir] = pkg
+	m.pkgTypes[filepath.Clean(dir)] = a.pkg
 	m.mu.Unlock()
-	return pkg, nil
+	return a.pkg, nil
 }
 
 // analyzed is the full retained result of analyzing one gsx package: the parsed
@@ -1434,52 +1402,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// generated syntax.
 	goFiles = append(goFiles, companionFiles...)
 	if purpose == analysisRetainedPackage {
-		// Hand-written .go siblings enter the package index identity-mapped: the
-		// authored bytes ARE the parsed bytes, so every AST offset is an authored
-		// offset. Publishing that mapping is sound only when THREE things hold,
-		// all checked exactly here:
-		//
-		//  1. the bytes currently backing the path hash to the SHA-256 the
-		//     retained syntax was parsed from (parsedSourceHashes records it at
-		//     ParseFile time, so this compares against the parser's own input,
-		//     not against a second read of the file);
-		//  2. that AST's token.Pos still resolves to the token.File the parser
-		//     stamped, so an fset rebuild cannot silently repoint the positions
-		//     into another file's range;
-		//  3. that token.File's size equals the byte length, so every offset the
-		//     index derives lies inside the source it is keyed by.
-		//
-		// A file failing any of them is left out of the index entirely, rather
-		// than publishing spans against bytes it was not built from — the same
-		// fail-closed rule SourceVersion.Matches enforces for .gsx. m.currentSource
-		// bytes are what the index publishes as the SourceVersion, so it is exactly
-		// those bytes that must hash equal.
+		// Hand-written .go siblings enter the package index identity-mapped;
+		// identityMappedCompanionFile owns the exact three-way guard that decides
+		// whether the retained syntax may be keyed by the current bytes at all.
 		for _, source := range companionSources {
-			src, known := m.currentSource(source.path)
-			tokenFile := fset.File(source.file.Pos())
-			hash := sha256.Sum256(src)
-			if !known || tokenFile == nil ||
-				hash != source.hash ||
-				filepath.Clean(tokenFile.Name()) != source.tokenName ||
-				tokenFile.Size() != len(src) {
-				m.mu.Lock()
-				m.companionIndexSkips++
-				m.mu.Unlock()
-				continue
-			}
-			sourceMap, mapErr := sourceintel.IdentitySourceMap(source.path, len(src))
+			mappedFile, ok, mapErr := m.identityMappedCompanionFile(source, fset)
 			if mapErr != nil {
 				return nil, mapErr
 			}
-			mappedFiles = append(mappedFiles, sourceintel.MappedFile{
-				AST:       source.file,
-				TokenFile: tokenFile,
-				SourceMap: sourceMap,
-				SourceVersion: sourceintel.SourceVersion{
-					Size:   len(src),
-					SHA256: hash,
-				},
-			})
+			if !ok {
+				continue
+			}
+			mappedFiles = append(mappedFiles, mappedFile)
 		}
 	}
 	if err := m.rejectExternalBackedgeImports(goFiles); err != nil {

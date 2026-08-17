@@ -233,6 +233,7 @@ type Module struct {
 	targetDeclProvenance      componentTargetProvenanceCache      // abs dir -> logical component key -> exact authored declarations
 	configuredDeclTypes       map[string]*types.Package           // abs dir -> configured declaration-universe package cache
 	pkgResults                map[string]*PackageResult           // abs dir -> cached full analysis result (Package path only)
+	goPkgAnalyses             map[string]*goPackageAnalysis       // abs dir -> retained Go-only package analysis (types.Info + identity index for the module symbol graph)
 	parseCache                map[string]parseCacheEntry          // abs .gsx path -> pristine per-file parse; served via ast.CloneFile so unchanged files skip re-parse. Flushed by rebuildFset (its token.Pos values live in m.fset).
 	imports                   map[string][]string                 // dir -> authoritative module-local shipping dependencies (forward edges)
 	importedBy                map[string]map[string]bool          // dep dir -> set of importer dirs (reverse edges)
@@ -254,6 +255,7 @@ type Module struct {
 	fsetRebuildBytes      int            // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount          int            // count of fset rebuilds performed (observability; exposed via rebuilds())
 	sourceIndexBuildCount int            // count of retained semantic index builds (observability; test hook)
+	goPackageAnalyses     int            // count of Go-only package analyses actually performed (observability; test hook)
 	companionIndexSkips   int            // hand-written .go siblings left out of the package index because the retained syntax and the current bytes disagree (observability; test hook)
 	gcImporter            types.Importer // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
 	mu                    sync.Mutex     // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, and gcImporter publication
@@ -1305,6 +1307,7 @@ func (m *Module) rebuildFset() {
 	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
+	m.goPkgAnalyses = map[string]*goPackageAnalysis{}
 	// The parse cache's token.Pos values reference token.File entries in the old
 	// fset; a fresh fset orphans them, so it must be flushed in the same critical
 	// section that replaces the fset.
