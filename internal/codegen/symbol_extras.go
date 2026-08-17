@@ -79,6 +79,145 @@ type gsxExtraInput struct {
 	exprMap        map[gsxast.Node]goast.Expr
 	info           *types.Info
 	gsxFset        *token.FileSet
+	// gsxFiles, pkgScope, objKey and fileScopes are the tag→component edge's
+	// PLANNING-INDEPENDENT inputs: the authored elements, this package's scope,
+	// the set of objects that are components, and per-gsx-file the skeleton's
+	// file scope (its imports). Positional planning is skipped whenever the
+	// package has a type error anywhere (module_importer's targetPlanningReady),
+	// which is the normal mid-edit state, so the tag edge must not be derived
+	// from it — see componentTagOccurrences.
+	gsxFiles   map[string]*gsxast.File
+	pkgScope   *types.Scope
+	objKey     map[types.Object]string
+	fileScopes map[string]*types.Scope // gsx path → skeleton file scope
+}
+
+// componentTagOccurrences publishes one IdentifierUse occurrence per component
+// tag, on the component's own object, at the tag's local-name segment.
+//
+// The tag name is not Go, so no source map carries this edge. It is resolved by
+// the same NAME RESOLUTION the tag itself means — this package's scope for a
+// bare `<Card/>`, the file's imports for a dotted `<ui.Card/>` — and
+// deliberately NOT from the positional call plan: planning is skipped for the
+// WHOLE package whenever a type error sits anywhere in it (analyze's
+// targetPlanningReady), which is the ordinary state of a file being typed.
+// Sourcing the edge from the plan took go-to-definition and find-references on
+// every tag in the package down with one unrelated typo, while the declaration
+// side (componentTargetDeclarationProvenances) stayed deliberately error-tolerant.
+//
+// A planned call fact, where there is one, is the exact callable codegen chose
+// and wins: it is also the only route to the one tag shape name resolution
+// cannot see — a method-receiver tag (`<p.Content/>`), whose qualifier is a
+// local variable, not an import.
+func componentTagOccurrences(in gsxExtraInput, spanAt func(token.Pos, int) (sourceintel.Span, bool)) []sourceintel.Occurrence {
+	var out []sourceintel.Occurrence
+	for path, file := range in.gsxFiles {
+		fileScope := in.fileScopes[path]
+		inspectMarkupWithEmbedded(file, func(node gsxast.Node) bool {
+			element, isElement := node.(*gsxast.Element)
+			if !isElement || !element.IsComponent || element.Tag == "" {
+				return true
+			}
+			object, ok := in.componentTagObject(element, fileScope)
+			if !ok {
+				return true
+			}
+			// A dotted tag (`<pkg.Card/>`) names the component only in its last
+			// segment; the qualifier is the package, which has its own object.
+			local := componentTagLocalName(element.Tag)
+			if span, ok := spanAt(element.TagPos+token.Pos(len(element.Tag)-len(local)), len(local)); ok {
+				out = append(out, sourceintel.Occurrence{Span: span, Kind: sourceintel.IdentifierUse, Object: object})
+			}
+			return true
+		})
+	}
+	return out
+}
+
+func componentTagLocalName(tag string) string {
+	if dot := strings.LastIndexByte(tag, '.'); dot >= 0 {
+		return tag[dot+1:]
+	}
+	return tag
+}
+
+// componentTagObject resolves one component tag to the object it names, by name
+// resolution alone. fileScope is the tag's own file's skeleton scope, which
+// holds exactly that file's imports. The planned call fact is consulted only
+// where name resolution reaches nothing — see componentTagOccurrences.
+func (in gsxExtraInput) componentTagObject(element *gsxast.Element, fileScope *types.Scope) (types.Object, bool) {
+	if object, ok := in.resolvedComponentTagObject(element.Tag, fileScope); ok {
+		return object, true
+	}
+	if call, planned := in.calls[element]; planned && call.Target != nil {
+		return call.Target, true
+	}
+	return nil, false
+}
+
+func (in gsxExtraInput) resolvedComponentTagObject(tag string, fileScope *types.Scope) (types.Object, bool) {
+	local := componentTagLocalName(tag)
+	if local == tag {
+		// Bare tag: this package's scope. objKey membership is what makes the
+		// resolved object a COMPONENT — a same-named plain func, var or type is
+		// not what `<Card/>` lowers to, and must not receive the edge.
+		if in.pkgScope == nil {
+			return nil, false
+		}
+		object := in.pkgScope.Lookup(local)
+		if _, isComponent := in.objKey[object]; !isComponent {
+			return nil, false
+		}
+		return object, true
+	}
+	qualifier := tag[:len(tag)-len(local)-1]
+	if fileScope == nil || strings.ContainsRune(qualifier, '.') {
+		return nil, false
+	}
+	pkgName, _ := fileScope.Lookup(qualifier).(*types.PkgName)
+	if pkgName == nil || pkgName.Imported() == nil {
+		return nil, false
+	}
+	imported := pkgName.Imported()
+	// The imported package must really declare a component of that name.
+	// componentDecls carries every imported package's declaration provenances,
+	// so this is an exact check rather than a name-shape guess: it stops a
+	// method-receiver tag whose receiver happens to be spelled like an import
+	// from claiming an unrelated exported func in that package.
+	if len(in.componentDecls[ComponentDeclKey{PackagePath: imported.Path(), ComponentKey: packageComponentKey(local)}]) == 0 {
+		return nil, false
+	}
+	object, isFunc := imported.Scope().Lookup(local).(*types.Func)
+	if !isFunc {
+		return nil, false
+	}
+	return object, true
+}
+
+// inspectMarkupWithEmbedded is gsxast.Inspect extended over the two embedded
+// part lists Inspect does not descend into (Interp.Embedded and
+// GoBlock.Embedded), so a component tag inside an interpolated or block-level
+// Go expression is walked too. Mirrors the LSP's inspectWithEmbedded, which
+// every element-gated LSP lookup uses.
+func inspectMarkupWithEmbedded(node gsxast.Node, f func(gsxast.Node) bool) {
+	var visit func(gsxast.Node) bool
+	visit = func(n gsxast.Node) bool {
+		if !f(n) {
+			return false
+		}
+		switch t := n.(type) {
+		case *gsxast.Interp:
+			for _, part := range t.Embedded {
+				gsxast.Inspect(part, visit)
+			}
+		case *gsxast.GoBlock:
+			for _, part := range t.Embedded {
+				gsxast.Inspect(part, visit)
+			}
+		}
+		return true
+	}
+	gsxast.Inspect(node, visit)
 }
 
 // gsxExtraOccurrences produces the reference and definition occurrences the Go
@@ -98,19 +237,14 @@ func gsxExtraOccurrences(in gsxExtraInput) []sourceintel.Occurrence {
 		position := in.gsxFset.Position(pos)
 		return sourceintel.Span{Path: position.Filename, Start: position.Offset, End: position.Offset + length}, true
 	}
-	// 1. component tag sites and their attribute→parameter bindings.
+	// 1. component tag sites.
+	out = append(out, componentTagOccurrences(in, spanAt)...)
+	// 2. attribute→parameter bindings. These stay on the positional plan: which
+	// parameter an attribute binds IS the plan's answer, and there is no
+	// planning-independent way to ask it.
 	for element, call := range in.calls {
 		if element == nil || call.Target == nil {
 			continue
-		}
-		// A dotted tag (`<pkg.Card/>`) names the component only in its last
-		// segment; the qualifier is the package, which has its own object.
-		local := element.Tag
-		if dot := strings.LastIndexByte(local, '.'); dot >= 0 {
-			local = local[dot+1:]
-		}
-		if span, ok := spanAt(element.TagPos+token.Pos(len(element.Tag)-len(local)), len(local)); ok {
-			out = append(out, sourceintel.Occurrence{Span: span, Kind: sourceintel.IdentifierUse, Object: call.Target})
 		}
 		// Only a NAMED binding — the attribute spelling the parameter it binds —
 		// is an authored reference to that parameter. An attrs-bag contributor
@@ -129,7 +263,7 @@ func gsxExtraOccurrences(in gsxExtraInput) []sourceintel.Occurrence {
 			}
 		}
 	}
-	// 2. pipe stage names. The lowering emits `alias.Func(` whose bytes differ
+	// 3. pipe stage names. The lowering emits `alias.Func(` whose bytes differ
 	// from the authored `|> name`, so no source map can carry this edge: the
 	// stage's object is found structurally, by peeling the lowered call chain
 	// exactly as the LSP's pipe navigation does.
@@ -161,7 +295,7 @@ func gsxExtraOccurrences(in gsxExtraInput) []sourceintel.Occurrence {
 			}
 		}
 	}
-	// 3. every variant's authored declaration span, on the canonical object.
+	// 4. every variant's authored declaration span, on the canonical object.
 	for key, spans := range in.componentDecls {
 		if key.PackagePath != in.pkgPath {
 			continue // imported components are defined by their own package's index

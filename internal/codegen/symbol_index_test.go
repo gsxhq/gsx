@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
@@ -82,6 +83,10 @@ func TestPackageSymbolIndex(t *testing.T) {
 	if f := files(g.References(badgeKey)); f["page.gsx"] != 1 || f["helper.go"] != 1 {
 		t.Fatalf("Badge refs = %v", f)
 	}
+	// The <Badge/> tag site. The occurrence is resolved from the package scope,
+	// NOT from the positional call plan (symbol_extras.go's
+	// componentTagOccurrences); this pins that the scope-resolved object and the
+	// planned call target are the same symbol on a package that plans cleanly.
 	if k := at(pagePath, page, "Badge", 0); k != badgeKey {
 		t.Fatalf("tag cursor key = %q, want %q", k, badgeKey)
 	}
@@ -152,6 +157,56 @@ func TestPackageSymbolIndex(t *testing.T) {
 	if len(g.Definitions(sizeKey)) != 1 || files(g.References(sizeKey))["card.gsx"] != 1 {
 		t.Fatalf("size: defs=%+v refs=%+v", g.Definitions(sizeKey), g.References(sizeKey))
 	}
+
+	// One unrelated type error anywhere in the package skips positional call
+	// planning for the WHOLE package (analyze's targetPlanningReady), which is
+	// the ordinary state of a file mid-edit. The tag→component edge must
+	// survive it: it is resolved by name resolution, not from the plan. Rides
+	// this fixture's Module through AnalyzeEphemeral — no second Module open.
+	t.Run("tag edge survives planning being skipped", func(t *testing.T) {
+		broken := page + "\ncomponent Broken() {\n\t<div>{ undefinedIdent }</div>\n}\n"
+		res, err := m.AnalyzeEphemeral(dir, pagePath, []byte(broken))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(diagText(res.Diags), "undefinedIdent") {
+			t.Fatalf("fixture no longer carries the unrelated type error: %+v", res.Diags)
+		}
+		if len(res.ComponentCalls) != 0 {
+			t.Fatalf("ComponentCalls = %d, want 0: planning must be OFF for this test to mean anything", len(res.ComponentCalls))
+		}
+		eg := sourceintel.NewSymbolGraph()
+		eg.AddIndex(res.SourceIndex, sourceintel.NewKeyer(res.Types))
+		for _, tc := range []struct{ needle, want string }{
+			{"Badge", "example.com/x Badge"}, // exported same-package tag
+			{"tiny", "example.com/x tiny"},   // lowercase same-package tag
+			{"Icon", "example.com/x Icon"},   // build-tag variant family
+		} {
+			off := nth(broken, "<"+tc.needle, 0) + 1
+			key, span, ok := eg.At(pagePath, off)
+			if !ok || string(key) != tc.want {
+				t.Fatalf("<%s/> tag with planning off: At = %q %+v %v, want %q", tc.needle, key, span, ok, tc.want)
+			}
+			if len(eg.Definitions(key)) == 0 {
+				t.Fatalf("<%s/> tag with planning off: no definitions for %q", tc.needle, key)
+			}
+		}
+		// The attr→parameter edge legitimately goes with the plan (which
+		// parameter an attribute binds IS the plan's answer), so `label=` must
+		// resolve to nothing here rather than to some guessed object.
+		if key, _, ok := eg.At(pagePath, nth(broken, "label=", 0)); ok {
+			t.Fatalf("attr binding resolved to %q with planning off; want no occurrence", key)
+		}
+	})
+}
+
+func diagText(diags []diag.Diagnostic) string {
+	var b strings.Builder
+	for _, d := range diags {
+		b.WriteString(d.Message)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func nth(src, needle string, occurrence int) int {

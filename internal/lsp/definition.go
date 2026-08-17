@@ -571,6 +571,10 @@ func (s *Server) definitionAnswerFromPkg(pkg *Package, path string, source []byt
 	// declaration(s). A single variant replies with a plain Location (unchanged
 	// wire shape); multiple build-tag variants (Task 7) reply with a []Location
 	// so the editor shows a picker — both are valid textDocument/definition results.
+	// This is the branch that answers when the package's positional call planning
+	// was skipped (any unrelated type error does that): the D1 branch above needs
+	// a ComponentCalls fact, which planning is the only producer of, while the
+	// tag→component index edge this branch reads is planning-independent.
 	if decls, ok := componentTagDeclAt(pkg, path, source, off); ok {
 		locs := appendSpanLocations(nil, sources, decls)
 		if len(locs) == 0 {

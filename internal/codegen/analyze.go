@@ -2217,6 +2217,13 @@ func componentKey(c *gsxast.Component) string {
 	return componentKeyWithName(c, c.Name)
 }
 
+// packageComponentKey is componentKey for a receiverless component of a given
+// name — the key a package-qualified tag (`<ui.Card/>`) addresses in another
+// package's declaration provenances.
+func packageComponentKey(name string) string {
+	return componentKeyWithName(&gsxast.Component{Name: name}, name)
+}
+
 func componentKeyWithName(c *gsxast.Component, name string) string {
 	if c.Recv == "" {
 		return "." + name

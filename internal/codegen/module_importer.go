@@ -1734,6 +1734,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	var componentCalls map[*gsxast.Element]ComponentCallFact
 	if purpose == analysisRetainedPackage {
 		componentCalls = componentCallFacts(positionalPlan)
+		// Per-gsx-file skeleton file scope: the imports a dotted component tag's
+		// qualifier resolves through. skelByGsx already holds every file's
+		// type-checked skeleton, so this is map lookups, not a re-parse.
+		tagFileScopes := make(map[string]*types.Scope, len(skelByGsx))
+		for gsxPath, skeleton := range skelByGsx {
+			if scope := info.Scopes[skeleton.skel]; scope != nil {
+				tagFileScopes[gsxPath] = scope
+			}
+		}
 		sourceIndex = sourceintel.BuildIndexWith(info, mappedFiles, sourceintel.BuildOptions{
 			Extra: gsxExtraOccurrences(gsxExtraInput{
 				calls:          componentCalls,
@@ -1743,6 +1752,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 				exprMap:        exprMap,
 				info:           info,
 				gsxFset:        fset,
+				gsxFiles:       gsxFiles,
+				pkgScope:       pkg.Scope(),
+				objKey:         objKey,
+				fileScopes:     tagFileScopes,
 			}),
 			Canonical: componentCanonicalizer(objKey, publicComponentObj),
 		})
