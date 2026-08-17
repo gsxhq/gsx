@@ -57,9 +57,10 @@ func TestTagDefinitionWithTypeErrorElsewhere(t *testing.T) {
 		return map[string]any{"line": line, "character": off - lineStart}
 	}
 
-	in := lspFrame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
-	in += lspFrame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
-		"params": map[string]any{"textDocument": map[string]any{"uri": pageURI, "version": 1, "text": pageSrc, "languageId": "gsx"}}})
+	var b strings.Builder
+	b.WriteString(lspFrame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}))
+	b.WriteString(lspFrame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": pageURI, "version": 1, "text": pageSrc, "languageId": "gsx"}}}))
 	requests := []struct {
 		id            int
 		needle        string
@@ -74,17 +75,18 @@ func TestTagDefinitionWithTypeErrorElsewhere(t *testing.T) {
 		{4, "</main>", 3, "", "a non-component tag name resolves nothing"},
 	}
 	for _, request := range requests {
-		in += lspFrame(map[string]any{"jsonrpc": "2.0", "id": request.id, "method": "textDocument/definition",
-			"params": map[string]any{"textDocument": map[string]any{"uri": pageURI}, "position": cursorAt(request.needle, request.delta)}})
+		b.WriteString(lspFrame(map[string]any{"jsonrpc": "2.0", "id": request.id, "method": "textDocument/definition",
+			"params": map[string]any{"textDocument": map[string]any{"uri": pageURI}, "position": cursorAt(request.needle, request.delta)}}))
 	}
 	// Hover on the same <Card cursor. Tag hover is answered by the AST-only
 	// branch (componentAtTag / renderComponentSig) long before the symbol index
 	// is consulted, so moving the tag EDGE onto the index must leave it byte for
 	// byte alone — including here, with the type error present. Pinned so a later
 	// reordering of the hover cascade cannot quietly change it.
-	in += lspFrame(map[string]any{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover",
-		"params": map[string]any{"textDocument": map[string]any{"uri": pageURI}, "position": cursorAt("<Card", 2)}})
-	in += lspFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	b.WriteString(lspFrame(map[string]any{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover",
+		"params": map[string]any{"textDocument": map[string]any{"uri": pageURI}, "position": cursorAt("<Card", 2)}}))
+	b.WriteString(lspFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+	in := b.String()
 
 	var out, errBuf bytes.Buffer
 	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {

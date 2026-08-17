@@ -1,6 +1,9 @@
 package sourceintel
 
-import "sort"
+import (
+	"maps"
+	"sort"
+)
 
 type keyedOccurrence struct {
 	span Span
@@ -35,9 +38,7 @@ func (g *SymbolGraph) AddIndex(index *Index, keyer *Keyer) {
 	if index == nil || keyer == nil {
 		return
 	}
-	for path, version := range index.sources {
-		g.sources[path] = version
-	}
+	maps.Copy(g.sources, index.sources)
 	index.forEachOccurrence(func(path string, o Occurrence) {
 		if o.Kind == Expression || o.Object == nil {
 			return
