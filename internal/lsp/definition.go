@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pipeshape"
 	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
@@ -432,19 +433,7 @@ func importedPackageByPath(p *types.Package, importPath string) *types.Package {
 // the byte-identical relative-offset bridge go-to-def relies on — they resolve
 // through pipedTarget instead.
 func hasPipeStages(n gsxast.Node) bool {
-	switch e := n.(type) {
-	case *gsxast.Interp:
-		return len(e.Stages) > 0
-	case *gsxast.ExprAttr:
-		return len(e.Stages) > 0
-	case *gsxast.SpreadAttr:
-		return len(e.Stages) > 0
-	case *gsxast.ComposedPart:
-		return len(e.Stages) > 0
-	case *gsxast.ValueArm:
-		return len(e.Stages) > 0
-	}
-	return false
+	return len(pipeshape.Stages(n)) > 0
 }
 
 // isCtrlSpan reports whether the matched span (see exprNodeAtOffset) resolves
