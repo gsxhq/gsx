@@ -42,6 +42,7 @@ the root cause. This design keeps the general one and deletes the partial one.
 - Rename beyond today's component-parameter rename (a later projection of
   this graph).
 - Test files / test package variants (the shared world does not load them).
+- Build-tag variant *loser* declarations of non-component Go objects (see §6).
 - Hover/completion on `.go` buffers (gopls owns those).
 - Suppressing duplicate results when gopls is also attached to `.go`
   buffers. Editors merge multi-server results; the user configures ordering.
@@ -68,7 +69,7 @@ produce — are added from facts codegen already publishes:
 |---|---|---|
 | `<Tag/>`, `<pkg.Tag/>` tag name | the component's `*types.Func` | `ComponentCalls[el].Target` + `el.TagPos` |
 | `attr=` on a component call | the parameter's `*types.Var` | `ComponentCalls[el].Params[attr].Var` + attr name pos |
-| `\|> name` pipe filter | the filter's `*types.Func` | pipe resolution facts; the skeleton must anchor the pipe name exactly (see §6) |
+| `\|> name` pipe filter | the filter's `*types.Func` | structural: walk the lowered skeleton expression (`ExprMap`) stage by stage (`internal/pipeshape`, the same walk the LSP's pipe definition uses); span = the authored `PipeStage.NamePos`+len(Name). The skeleton emits `alias.Func(`, whose bytes differ from the authored name, so byte-identical mapping is impossible by construction |
 
 These are ordinary `IdentifierUse` occurrences on the same objects.
 
@@ -157,13 +158,23 @@ construction in `module_importer.go` where it exists only for the index.
 
 ### 6. Plan-time checks (must be resolved during planning, not skipped)
 
-- Confirm the skeleton anchors the `|> name` pipe identifier under an exact
-  mapping so it is an `Occurrence`. If not, fix the skeleton emission in the
-  same work.
-- Confirm `ComponentCallFact.Params` gives an exact attr-name position for
-  the `attr=` edge (or use `gsxast.Attr` positions through the gsx fset).
-- Confirm `objectpath.For` behaviour for unexported package-level objects
-  and for method values on generic types (`Origin` first).
+Resolved during planning (2026-08-17):
+- Pipe names: byte-identical mapping impossible; structural walk (above).
+- `attr=` position: `attr.Pos()` is the first byte of the attribute name
+  (parser `attrStartPos`); length = `componentInputAttrName(attr)`.
+- `objectpath.For`: succeeds for exported-reachable objects, unexported
+  types + their members, params, fields, type params; fails for unexported
+  package-level funcs/vars/consts (→ bare-name key, identical to what
+  objectpath would emit) and locals (→ per-package ordinal). Generic
+  instance uses return `Origin() != obj`; `Origin` first.
+- Build-tag variant *loser* declarations get no `types.Object` at all
+  (go/types drops redeclarations), so component variant declaration spans
+  enter as extra definition occurrences from `ComponentDecls`; loser
+  declarations of other Go objects are not indexed (limitation).
+- Split public/body component funcs: the body func and its params are
+  canonicalised onto the public declaration's objects at index build
+  (`BuildOptions.Canonical`), so tag sites, attr bindings, Go callers and
+  body uses share one key.
 
 ## Testing
 
