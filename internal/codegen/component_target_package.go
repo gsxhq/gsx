@@ -50,11 +50,39 @@ func pairedTargetOutputs(gsxFiles map[string]*gsxast.File) map[string]bool {
 	return paired
 }
 
+// companionGoFile pairs one retained hand-written Go syntax tree with the
+// logical module path the Go command reported for it (the compiledGoFiles
+// entry). The path is what the source-map/index surface keys spans by, so it
+// must travel with the AST — a token.File name is the physical path.
+type companionGoFile struct {
+	path string
+	file *goast.File
+}
+
 // parseTargetCompanionGoFiles loads the active hand-written Go surface while
 // excluding exactly the generated output paired with each authoritative GSX
 // file. Other .x.go files remain ordinary source; broad extension filtering
 // would hide legitimate hand-written or orphan declarations.
 func (m *Module) parseTargetCompanionGoFiles(dir string, gsxFiles map[string]*gsxast.File) ([]*goast.File, []string, error) {
+	sources, imports, err := m.companionGoSources(dir, gsxFiles)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(sources) == 0 {
+		return nil, imports, nil
+	}
+	files := make([]*goast.File, 0, len(sources))
+	for _, source := range sources {
+		files = append(files, source.file)
+	}
+	return files, imports, nil
+}
+
+// companionGoSources is parseTargetCompanionGoFiles' path-carrying form: the
+// per-package symbol index maps each hand-written sibling onto itself
+// (sourceintel.IdentitySourceMap), which needs the logical path alongside the
+// syntax.
+func (m *Module) companionGoSources(dir string, gsxFiles map[string]*gsxast.File) ([]companionGoFile, []string, error) {
 	if m.opts.SourceOnly {
 		return nil, nil, nil
 	}
@@ -106,7 +134,7 @@ func (m *Module) parseTargetCompanionGoFiles(dir string, gsxFiles map[string]*gs
 	if len(packageInfo.invariantErrors) != 0 {
 		return nil, nil, fmt.Errorf("codegen: incomplete active companion syntax inventory in %s: %s", dir, strings.Join(packageInfo.invariantErrors, "; "))
 	}
-	var files []*goast.File
+	var files []companionGoFile
 	var imports []string
 	for _, path := range packageInfo.compiledGoFiles {
 		if paired[path] {
@@ -116,7 +144,7 @@ func (m *Module) parseTargetCompanionGoFiles(dir string, gsxFiles map[string]*gs
 		if file == nil {
 			return nil, nil, fmt.Errorf("codegen: active companion syntax missing for %s", path)
 		}
-		files = append(files, file)
+		files = append(files, companionGoFile{path: path, file: file})
 		for _, spec := range file.Imports {
 			if path, err := strconv.Unquote(spec.Path.Value); err == nil {
 				imports = append(imports, path)

@@ -954,7 +954,10 @@ type analyzed struct {
 	unusedImports     map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
 	missingImports    map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
 	sourceIndex       *sourceintel.Index             // immutable authored semantic facts harvested from the full skeleton check
-
+	// componentCalls is the published per-element call fact set, derived from
+	// positionalPlan ONCE here: the retained index's tag/attr edges and every
+	// PackageResult consumer read this same map instead of re-deriving it.
+	componentCalls map[*gsxast.Element]ComponentCallFact
 }
 
 // unusedImportForSpecs reports whether e is an unused-import error for one of
@@ -1094,9 +1097,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		return nil, err
 	}
 	gsxFiles, pkgName := parsed.files, parsed.name
-	companionFiles, goImportPaths, err := m.parseTargetCompanionGoFiles(dir, gsxFiles)
+	companionSources, goImportPaths, err := m.companionGoSources(dir, gsxFiles)
 	if err != nil {
 		return nil, err
+	}
+	companionFiles := make([]*goast.File, 0, len(companionSources))
+	for _, source := range companionSources {
+		companionFiles = append(companionFiles, source.file)
 	}
 	// Materialize embedded markup, classify the now-complete JavaScript tree,
 	// and assign stable candidate IDs before any skeleton/probe/emit walk.
@@ -1426,6 +1433,38 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// disk parse would select a different universe and would also discard cgo's
 	// generated syntax.
 	goFiles = append(goFiles, companionFiles...)
+	if purpose == analysisRetainedPackage {
+		// Hand-written .go siblings enter the package index identity-mapped: the
+		// authored bytes ARE the checked bytes, so every offset maps 1:1. A
+		// size mismatch between the retained syntax and the bytes currently
+		// backing the path means the two disagree (the inventory has not caught
+		// up with an edit yet); the file is then left out entirely rather than
+		// publishing spans against bytes it was not built from — the same
+		// fail-closed rule SourceVersion.Matches enforces for .gsx files.
+		for _, source := range companionSources {
+			src, known := m.currentSource(source.path)
+			tokenFile := fset.File(source.file.Pos())
+			if !known || tokenFile == nil || tokenFile.Size() != len(src) {
+				m.mu.Lock()
+				m.companionIndexSkips++
+				m.mu.Unlock()
+				continue
+			}
+			sourceMap, mapErr := sourceintel.IdentitySourceMap(source.path, len(src))
+			if mapErr != nil {
+				return nil, mapErr
+			}
+			mappedFiles = append(mappedFiles, sourceintel.MappedFile{
+				AST:       source.file,
+				TokenFile: tokenFile,
+				SourceMap: sourceMap,
+				SourceVersion: sourceintel.SourceVersion{
+					Size:   len(src),
+					SHA256: sha256.Sum256(src),
+				},
+			})
+		}
+	}
 	if err := m.rejectExternalBackedgeImports(goFiles); err != nil {
 		return nil, err
 	}
@@ -1541,13 +1580,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// markers, even when no eligible target required helper allocation, so a
 	// rejected marker cannot leak into positional emission.
 	refreshLocalDirectTargetFacts(targetFacts, targetPackage, componentPlan)
-	var sourceIndex *sourceintel.Index
-	if purpose == analysisRetainedPackage {
-		sourceIndex = sourceintel.BuildIndex(info, mappedFiles)
-		m.mu.Lock()
-		m.sourceIndexBuildCount++
-		m.mu.Unlock()
-	}
 	if callSites != nil && targetPlanningReady {
 		var planningDiagnostics []diag.Diagnostic
 		positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{
@@ -1616,6 +1648,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	exprMap := map[gsxast.Node]goast.Expr{}
 	compByKey := map[string][]*gsxast.Component{} // logical component key -> component(s); >1 = build-tag variants
 	objKey := map[types.Object]string{}           // every public/private skeleton component object -> logical component key
+	// publicComponentObj is objKey's inverse restricted to the AUTHORED
+	// declaration of each logical component: the object every gsx-only edge
+	// (tag site, attr binding, variant declaration) attaches to.
+	publicComponentObj := map[string]types.Object{}
 	for _, gf := range goFiles {
 		fname := fset.Position(gf.Pos()).Filename
 		comps, ok := compsByXGo[fname]
@@ -1629,12 +1665,19 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		// list, using the same ordered probe stream as ordinary component bodies.
 		harvestEmbeddedElements(gf, gwMarkupsByXGo[fname], info, resolved, exprMap, nil)
 		declLogicalKeys := map[string]string{}
+		// publicDeclKeys is declLogicalKeys restricted to the declaration named
+		// exactly as the component is authored (emission.public). A split
+		// component's analysis-only body declaration is deliberately absent, so
+		// the index can canonicalise every body-side object onto the authored
+		// one (see symbol_extras.go).
+		publicDeclKeys := map[string]string{}
 		for _, c := range comps {
 			logicalKey := componentPlan.logicalKey(c)
 			compByKey[logicalKey] = append(compByKey[logicalKey], c)
 			if emission, ok := componentPlan.emission(c); ok {
 				if emission.public {
 					declLogicalKeys[componentKey(c)] = logicalKey
+					publicDeclKeys[componentKey(c)] = logicalKey
 				}
 				if emission.splitBody && emission.bodyName != "" {
 					declLogicalKeys[componentKeyWithName(c, emission.bodyName)] = logicalKey
@@ -1646,12 +1689,16 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 			if !ok {
 				continue
 			}
-			logicalKey, ok := declLogicalKeys[funcDeclKey(fd)]
+			declKey := funcDeclKey(fd)
+			logicalKey, ok := declLogicalKeys[declKey]
 			if !ok {
 				continue
 			}
 			if obj := info.Defs[fd.Name]; obj != nil {
 				objKey[obj] = logicalKey
+				if _, public := publicDeclKeys[declKey]; public {
+					publicComponentObj[logicalKey] = obj
+				}
 			}
 		}
 	}
@@ -1723,6 +1770,31 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		}
 	}
 
+	// The retained semantic index is built LAST: it consumes the positional plan
+	// (component call sites), the harvested exprMap (pipe stage lowering), the
+	// component object keys and the declaration provenances, all of which are
+	// only final at this point.
+	var sourceIndex *sourceintel.Index
+	var componentCalls map[*gsxast.Element]ComponentCallFact
+	if purpose == analysisRetainedPackage {
+		componentCalls = componentCallFacts(positionalPlan)
+		sourceIndex = sourceintel.BuildIndexWith(info, mappedFiles, sourceintel.BuildOptions{
+			Extra: gsxExtraOccurrences(gsxExtraInput{
+				calls:          componentCalls,
+				componentDecls: componentDecls,
+				pkgPath:        pkgPath,
+				canonicalByKey: publicComponentObj,
+				exprMap:        exprMap,
+				info:           info,
+				gsxFset:        fset,
+			}),
+			Canonical: componentCanonicalizer(objKey, publicComponentObj),
+		})
+		m.mu.Lock()
+		m.sourceIndexBuildCount++
+		m.mu.Unlock()
+	}
+
 	return &analyzed{
 		pkgName:           pkgName,
 		gsxFiles:          gsxFiles,
@@ -1756,6 +1828,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		unusedImports:     unusedImports,
 		missingImports:    missingImports,
 		sourceIndex:       sourceIndex,
+		componentCalls:    componentCalls,
 	}, nil
 }
 

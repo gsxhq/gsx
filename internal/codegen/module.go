@@ -254,6 +254,7 @@ type Module struct {
 	fsetRebuildBytes      int            // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount          int            // count of fset rebuilds performed (observability; exposed via rebuilds())
 	sourceIndexBuildCount int            // count of retained semantic index builds (observability; test hook)
+	companionIndexSkips   int            // hand-written .go siblings left out of the package index because the retained syntax and the current bytes disagree (observability; test hook)
 	gcImporter            types.Importer // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
 	mu                    sync.Mutex     // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, and gcImporter publication
 	analysisMu            sync.Mutex     // serializes Package/Generate/typesPackage (see concurrency contract)
@@ -1320,6 +1321,15 @@ func (m *Module) sourceIndexBuilds() int {
 	return m.sourceIndexBuildCount
 }
 
+// companionIndexSkipCount returns how many hand-written .go siblings were left
+// out of a package index because their retained syntax and their current bytes
+// disagreed on size (test hook; see analyze's companion mapped-file loop).
+func (m *Module) companionIndexSkipCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.companionIndexSkips
+}
+
 // Package returns the full retained analysis for a single gsx package dir,
 // without codegen (Files stays empty; Generate fills it). It populates the
 // FileSets, *types.Info,
@@ -1393,7 +1403,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	res.Filters = filterCandidates(a.table)
 	res.URLPresets = m.urlPresetsFor(dir)
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
-	res.ComponentCalls = componentCallFacts(a.positionalPlan)
+	res.ComponentCalls = a.componentCalls
 	res.ComponentDecls = a.componentDecls
 	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
 	if !a.bag.HasErrors() && len(a.typeErrs) == 0 {
@@ -1576,7 +1586,7 @@ func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*Packa
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
-	res.ComponentCalls = componentCallFacts(a.positionalPlan)
+	res.ComponentCalls = a.componentCalls
 	res.ComponentDecls = a.componentDecls
 	res.Filters = filterCandidates(a.table)
 	res.URLPresets = m.urlPresetsFor(dir)
