@@ -14,7 +14,6 @@ import (
 
 func TestGoToGsxDefinition(t *testing.T) {
 	t.Parallel()
-	t.Skip("TODO(module-symbol-graph): handleGoDefinition lands in the next commit")
 	if testing.Short() {
 		t.Skip("skips module resolution in -short")
 	}

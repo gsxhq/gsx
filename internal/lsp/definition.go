@@ -773,25 +773,43 @@ func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off in
 	return dp, true
 }
 
-// handleGoDefinition answers definition for a cursor in a .go file: if the
-// cursor sits on a reference to a gsx component, jump to that component's .gsx
-// declaration. Otherwise null (gopls handles real Go).
-//
-// TODO(module-symbol-graph): the module-graph rewrite is the next commit; until
-// then this always replies null.
+// handleGoDefinition answers definition for a cursor in a .go file from the
+// module symbol graph: any dir in the module, a Go-only package that imports a
+// gsx package included. The graph answers with everything it knows — a .gsx
+// declaration and a .go one alike; the editor merges this with gopls' answer.
+// A build-tag variant family has one declaration per variant, so the reply is a
+// []Location picker; a single declaration replies with a plain Location.
 func (s *Server) handleGoDefinition(f frame, path string, sources *requestSourceSnapshot) error {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return s.reply(f.ID, nil)
 	}
-	if _, ok := sources.sourceString(path); !ok {
+	text, ok := sources.sourceString(path)
+	if !ok {
 		return s.reply(f.ID, nil)
 	}
-	pkg := s.pkgs[filepath.Dir(path)]
-	if pkg == nil {
-		return s.reply(f.ID, nil) // not a gsx package
+	source, _ := sources.sourceText(path) // same captured source, validated above
+	dir := filepath.Dir(path)
+	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
+
+	graph := s.moduleSymbolGraph(sources, dir)
+	key, found := symbolAt(graph, path, source, off)
+	if !found {
+		graph = packageSymbolGraph(s.pkgs[dir])
+		key, found = symbolAt(graph, path, source, off)
 	}
-	return s.reply(f.ID, nil)
+	if !found {
+		return s.reply(f.ID, nil)
+	}
+	locations := appendSpanLocations(nil, sources, graph.Definitions(key))
+	switch len(locations) {
+	case 0:
+		return s.reply(f.ID, nil)
+	case 1:
+		return s.reply(f.ID, locations[0])
+	default:
+		return s.reply(f.ID, locations)
+	}
 }
 
 // componentTagDeclAt checks whether the byte offset off in the .gsx file at

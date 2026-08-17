@@ -52,7 +52,6 @@ func lspRequest(v any) string {
 // declaration. There is no generated Props type in the verbatim-signature model.
 func TestAPINavCardCall(t *testing.T) {
 	t.Parallel()
-	t.Skip("TODO(module-symbol-graph): handleGoDefinition lands in the next commit")
 	dir, cardSrc, _, renderSrc := setupAPINavModule(t)
 	renderURI := "file://" + filepath.Join(dir, "render.go")
 

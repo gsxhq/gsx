@@ -17,9 +17,9 @@ const symbolGraphPage = "package page\n\ntype Model struct{ N int }\n\nfunc (m M
 
 const symbolGraphHelper = "package page\n\nfunc use() { _ = Model{}.inc(); _ = Card }\n"
 
-// TestSymbolGraphHandlers covers the handlers the module symbol graph feeds,
-// over ONE analyzed module (a codegen.Module open costs ~0.3s; see CLAUDE.md).
-// The .go go-to-definition subtest joins in the next commit.
+// TestSymbolGraphHandlers covers both handlers the module symbol graph feeds —
+// textDocument/references and textDocument/definition from a .go cursor — over
+// ONE analyzed module (a codegen.Module open costs ~0.3s; see CLAUDE.md).
 func TestSymbolGraphHandlers(t *testing.T) {
 	pkg, path := analyzedLSPModule(t, map[string]string{
 		"page/page.gsx":  symbolGraphPage,
@@ -89,4 +89,23 @@ func TestSymbolGraphHandlers(t *testing.T) {
 		}
 	})
 
+	t.Run("go definition", func(t *testing.T) {
+		for _, tc := range []struct{ needle, wantFile string }{
+			{"Model{}", "page.gsx"}, // type declared in .gsx
+			{"inc()", "page.gsx"},   // method declared in .gsx
+			{"Card }", "page.gsx"},  // component declared in .gsx
+			{"use()", "helper.go"},  // the graph answers .go declarations too
+		} {
+			off := strings.Index(symbolGraphHelper, tc.needle)
+			if off < 0 {
+				t.Fatalf("needle %q not in helper.go", tc.needle)
+			}
+			pos := positionForByteOffset(symbolGraphHelper, off, encUTF16)
+			out := drive(t, analyzer, opened+definitionFrame(9, helperURI, pos)+exitFrame())
+			got := definitionLocation(t, out, 9)
+			if got == nil || filepath.Base(uriToPath(got.URI)) != tc.wantFile {
+				t.Fatalf("%s: definition = %+v, want %s\n%s", tc.needle, got, tc.wantFile, out)
+			}
+		}
+	})
 }

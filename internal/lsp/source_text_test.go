@@ -455,7 +455,6 @@ func (*authoritativeLocationAnalyzer) ImportablePackages(string) []ImportablePac
 // reply's range must be computed against the open text (whose UTF-16 columns
 // differ from the saved bytes), not against what is on disk.
 func TestDefinitionUsesUnsavedUTF16Target(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): handleGoDefinition lands in the next commit")
 	dir := t.TempDir()
 	targetPath := filepath.Join(dir, "target.gsx")
 	saved := "package page\n\nvar _ = \"x\"\n\nvar Target = 1\n"
