@@ -34,6 +34,11 @@ var errFake = errors.New("module error")
 type moduleRefsAnalyzer struct {
 	moduleCalls int
 	moduleGraph *sourceintel.SymbolGraph
+	// graphsByDir answers AnalyzeModule per requested directory, standing in for
+	// a workspace whose modules each have their own graph. moduleGraph answers
+	// any directory it has no entry for.
+	graphsByDir map[string]*sourceintel.SymbolGraph
+	moduleDirs  []string
 	moduleErr   error
 	pkg         *Package
 	overrides   []map[string][]byte
@@ -54,13 +59,17 @@ func (a *moduleRefsAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package,
 func (a *moduleRefsAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
 	return nil, true, errFake
 }
-func (a *moduleRefsAnalyzer) AnalyzeModule(_ string, overrides map[string][]byte) (*sourceintel.SymbolGraph, error) {
+func (a *moduleRefsAnalyzer) AnalyzeModule(dir string, overrides map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	a.moduleCalls++
+	a.moduleDirs = append(a.moduleDirs, dir)
 	captured := make(map[string][]byte, len(overrides))
 	for path, source := range overrides {
 		captured[path] = append([]byte(nil), source...)
 	}
 	a.overrides = append(a.overrides, captured)
+	if graph, ok := a.graphsByDir[dir]; ok {
+		return graph, a.moduleErr
+	}
 	return a.moduleGraph, a.moduleErr
 }
 func (a *moduleRefsAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
@@ -299,5 +308,49 @@ func TestReferencesFallbackOnModuleError(t *testing.T) {
 	}
 	if a.moduleCalls == 0 {
 		t.Fatal("AnalyzeModule was never attempted before the fallback")
+	}
+}
+
+// TestReferencesModuleGraphIsKeyedByModule pins that the single cached module
+// graph belongs to one module: a request in a second go.work module is a cache
+// miss that gets its OWN graph, instead of being served the first module's
+// graph (whose MatchesSource guard would fail and silently degrade the answer
+// to the per-package index).
+func TestReferencesModuleGraphIsKeyedByModule(t *testing.T) {
+	root := t.TempDir()
+	first := writeWorkspaceSymbolModule(t, filepath.Join(root, "first"))
+	second := writeWorkspaceSymbolModule(t, filepath.Join(root, "second"))
+	firstPath := filepath.Join(first, "page.gsx")
+	secondPath := filepath.Join(second, "page.gsx")
+	firstSource := "package first\n\nfunc Card() {}\n\nfunc useCard() { _ = Card }\n"
+	secondSource := "package second\n\nfunc Panel() {}\n\nfunc usePanel() { _ = Panel }\n"
+	a := &moduleRefsAnalyzer{graphsByDir: map[string]*sourceintel.SymbolGraph{
+		first:  synthGraph(t, "first", map[string]string{firstPath: firstSource}),
+		second: synthGraph(t, "second", map[string]string{secondPath: secondSource}),
+	}}
+
+	// Both buffers are opened BEFORE either request, so no mutation sits between
+	// them: only the module key can make the second request a cache miss.
+	firstCursor := positionForByteOffset(firstSource, strings.Index(firstSource, "Card"), encUTF16)
+	secondCursor := positionForByteOffset(secondSource, strings.Index(secondSource, "Panel"), encUTF16)
+	out := drive(t, a, workspaceSymbolInitializeFrame(first, second)+
+		didOpenFrame(pathToURI(firstPath), firstSource)+
+		didOpenFrame(pathToURI(secondPath), secondSource)+
+		refsFrame(2, pathToURI(firstPath), firstCursor.Line, firstCursor.Character)+
+		refsFrame(3, pathToURI(secondPath), secondCursor.Line, secondCursor.Character)+
+		exitFrame())
+
+	if a.moduleCalls != 2 {
+		t.Fatalf("AnalyzeModule calls = %d (dirs %v), want one per module", a.moduleCalls, a.moduleDirs)
+	}
+	firstUse := strings.Index(firstSource, "_ = Card") + len("_ = ")
+	wantFirst := Location{URI: pathToURI(firstPath), Range: rangeForSpan(firstSource, firstUse, firstUse+len("Card"), encUTF16)}
+	if locations := referenceLocations(t, out, 2); len(locations) != 1 || locations[0] != wantFirst {
+		t.Fatalf("first-module references = %+v, want [%+v]\n%s", locations, wantFirst, out)
+	}
+	secondUse := strings.Index(secondSource, "_ = Panel") + len("_ = ")
+	wantSecond := Location{URI: pathToURI(secondPath), Range: rangeForSpan(secondSource, secondUse, secondUse+len("Panel"), encUTF16)}
+	if locations := referenceLocations(t, out, 3); len(locations) != 1 || locations[0] != wantSecond {
+		t.Fatalf("second-module references = %+v, want [%+v]\n%s", locations, wantSecond, out)
 	}
 }

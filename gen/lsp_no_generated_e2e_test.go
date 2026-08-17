@@ -78,7 +78,6 @@ component Page(label widgets.Label) {
 		targetSource   string
 		targetPath     string
 		targetName     string
-		targetPoint    bool
 		hoverSubstring string
 		hoverRange     string
 	}
@@ -87,7 +86,7 @@ component Page(label widgets.Label) {
 		{name: "raw Go helper", source: page, path: pagePath, offset: strings.Index(page, "helper(input)"), targetSource: page, targetPath: pagePath, targetName: "helper", hoverSubstring: "func helper(input widgets.Label) widgets.Label"},
 		{name: "component declaration", source: page, path: pagePath, offset: strings.Index(page, "<Card[") + 1, targetSource: page, targetPath: pagePath, targetName: "Card", hoverSubstring: "component Card[T widgets.Labelish](value T)"},
 		{name: "component parameter", source: page, path: pagePath, offset: strings.Index(page, "{value}") + 1, targetSource: page, targetPath: pagePath, targetName: "value", hoverSubstring: "var value T"},
-		{name: "explicit generic type argument", source: page, path: pagePath, offset: strings.Index(page, "Box[widgets.ExternalLabel]") + len("Box[widgets."), targetSource: widgetTypes, targetPath: widgetTypesPath, targetName: "ExternalLabel", targetPoint: true, hoverSubstring: "type widgets.ExternalLabel string"},
+		{name: "explicit generic type argument", source: page, path: pagePath, offset: strings.Index(page, "Box[widgets.ExternalLabel]") + len("Box[widgets."), targetSource: widgetTypes, targetPath: widgetTypesPath, targetName: "ExternalLabel", hoverSubstring: "type widgets.ExternalLabel string"},
 		{name: "cross-package component", source: page, path: pagePath, offset: strings.Index(page, "widgets.Box") + len("widgets."), targetSource: widgets, targetPath: widgetsPath, targetName: "Box", hoverSubstring: "component Box[T Labelish](value T)", hoverRange: "widgets.Box"},
 	}
 
@@ -142,7 +141,7 @@ component Page(label widgets.Label) {
 			results[id] = bytes.Clone(response.Result)
 		}
 		for probeIndex, probe := range probes {
-			assertExactDefinitionResult(t, results[2+probeIndex], probe.targetPath, probe.targetSource, probe.targetName, probe.targetPoint)
+			assertExactDefinitionResult(t, results[2+probeIndex], probe.targetPath, probe.targetSource, probe.targetName)
 			assertHoverResult(t, results[2+len(probes)+probeIndex], probe.hoverSubstring, probe.hoverRange, probe.source, probe.offset)
 		}
 		assertSyntheticDocumentSymbols(t, results[pageSymbolsID], pagePath, page, []syntheticSymbolExpectation{
@@ -327,7 +326,10 @@ type syntheticSymbolExpectation struct {
 	marker string
 }
 
-func assertExactDefinitionResult(t *testing.T, raw json.RawMessage, targetPath, targetSource, targetName string, pointRange bool) {
+// assertExactDefinitionResult pins one definition reply on the declared NAME:
+// every target — same-package or cross-package — selects the identifier, never
+// an empty caret at its declaring position.
+func assertExactDefinitionResult(t *testing.T, raw json.RawMessage, targetPath, targetSource, targetName string) {
 	t.Helper()
 	var locations []lsp.Location
 	if len(raw) > 0 && raw[0] == '{' {
@@ -343,11 +345,7 @@ func assertExactDefinitionResult(t *testing.T, raw json.RawMessage, targetPath, 
 		t.Fatalf("definition = %+v, want one target", locations)
 	}
 	start := declarationNameOffset(t, targetSource, targetName)
-	end := start + len(targetName)
-	if pointRange {
-		end = start
-	}
-	want := lsp.Location{URI: lspTestPathURI(targetPath), Range: sourceRange(targetSource, start, end)}
+	want := lsp.Location{URI: lspTestPathURI(targetPath), Range: sourceRange(targetSource, start, start+len(targetName))}
 	if locations[0] != want {
 		t.Fatalf("definition = %+v, want %+v", locations[0], want)
 	}

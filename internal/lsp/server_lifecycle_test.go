@@ -295,6 +295,7 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	primeModuleCaches := func() {
 		server.moduleGraph = sourceintel.NewSymbolGraph()
 		server.moduleGraphValid = true
+		server.moduleGraphRoot = first
 		server.moduleParams = []ComponentParamRenameFact{{Name: "param"}}
 		server.moduleParamsValid = true
 		server.moduleParamsDir = first
@@ -305,8 +306,9 @@ func TestWorkspaceFolderLifecycleIsTransactionalAndKeepsPackageAnalyses(t *testi
 	}
 	assertOnlyNonSymbolCachesInvalidated := func(t *testing.T, wantSymbolModules ...string) {
 		t.Helper()
-		if server.moduleGraph != nil || server.moduleGraphValid || server.moduleParams != nil || server.moduleParamsValid || server.moduleParamsDir != "" {
-			t.Fatalf("whole-module caches retained: graph=%v/%v params=%v/%v/%q", server.moduleGraph, server.moduleGraphValid, server.moduleParams, server.moduleParamsValid, server.moduleParamsDir)
+		if server.moduleGraph != nil || server.moduleGraphValid || server.moduleGraphRoot != "" ||
+			server.moduleParams != nil || server.moduleParamsValid || server.moduleParamsDir != "" {
+			t.Fatalf("whole-module caches retained: graph=%v/%v/%q params=%v/%v/%q", server.moduleGraph, server.moduleGraphValid, server.moduleGraphRoot, server.moduleParams, server.moduleParamsValid, server.moduleParamsDir)
 		}
 		if len(server.moduleSyms) != len(wantSymbolModules) {
 			t.Fatalf("symbol cache modules = %v, want %v", server.moduleSyms, wantSymbolModules)

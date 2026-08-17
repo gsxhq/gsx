@@ -63,10 +63,23 @@ func appendSpanLocations(locations []Location, sources *requestSourceSnapshot, s
 // successful analysis — even an empty graph — is cached until the next document
 // mutation or watched change; an error leaves the cache invalid so the next
 // request retries.
+//
+// One graph is cached at a time, so it is keyed by the module that owns the
+// request directory: in a go.work workspace a request from a second module is a
+// cache MISS, not a graph the second module's files are absent from. Without
+// the key the first module's graph would answer every later request, fail
+// symbolAt's MatchesSource guard and silently degrade every other module to the
+// per-package index until an unrelated invalidation.
 func (s *Server) moduleSymbolGraph(sources *requestSourceSnapshot, dir string) *sourceintel.SymbolGraph {
-	if !s.moduleGraphValid {
-		s.refreshModuleGraph(sources, dir)
+	if s.moduleGraphValid && s.moduleGraphRoot == s.moduleGraphRootFor(dir) {
+		return s.moduleGraph
 	}
+	// A foreign module's graph is never served to this request: drop it first so
+	// a failed analysis degrades to the per-package index instead.
+	s.moduleGraph = nil
+	s.moduleGraphValid = false
+	s.moduleGraphRoot = ""
+	s.refreshModuleGraph(sources, dir)
 	return s.moduleGraph
 }
 
@@ -74,7 +87,20 @@ func (s *Server) refreshModuleGraph(sources *requestSourceSnapshot, dir string) 
 	if graph, err := s.analyzer.AnalyzeModule(dir, sources.openGSXOverrides()); err == nil {
 		s.moduleGraph = graph
 		s.moduleGraphValid = true
+		s.moduleGraphRoot = s.moduleGraphRootFor(dir)
 	}
+}
+
+// moduleGraphRootFor names the module that owns a request directory: the
+// initialized module root containing it — the identity workspace symbols and
+// path invalidation are keyed by — or, when workspace discovery claims no
+// module for it, the directory itself, so two unclaimed directories never share
+// one cache entry.
+func (s *Server) moduleGraphRootFor(dir string) string {
+	if module := workspaceModuleForPath(s.workspaceModules, dir); module != "" {
+		return module
+	}
+	return filepath.Clean(dir)
 }
 
 // packageSymbolGraph is the degraded, same-package answer for when the module

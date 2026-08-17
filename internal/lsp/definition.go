@@ -18,6 +18,11 @@ import (
 type semanticDefinitionTarget struct {
 	Authored sourceintel.Span
 	Go       token.Position
+	// Object is the go/types object the Go position was resolved from. It is set
+	// only alongside Go — an authored target is already an exact span — and lets
+	// the caller prefer that object's tracked declaration spans over the raw
+	// position, which carries no length.
+	Object types.Object
 }
 
 func semanticDefinition(pkg *Package, path string, source []byte, offset int) (semanticDefinitionTarget, bool) {
@@ -50,7 +55,7 @@ func semanticDefinitionFromSnapshot(pkg *Package, path string, source []byte, of
 	if sources == nil || sources.isPairedGeneratedOutput(goPosition.Filename) {
 		return semanticDefinitionTarget{}, false
 	}
-	return semanticDefinitionTarget{Go: goPosition}, true
+	return semanticDefinitionTarget{Go: goPosition, Object: object}, true
 }
 
 // navSpan is one navigable Go-fragment byte span of a gsx node: pos is the
@@ -635,6 +640,14 @@ func (s *Server) definitionAnswerFromPkg(pkg *Package, path string, source []byt
 				return location, true
 			}
 			return nil, true
+		}
+		// The object declares outside this package's index — a DOTTED component
+		// tag when positional planning was skipped is the common case, since the
+		// tag branch above only picks up same-package tags. Its tracked
+		// declaration spans (ComponentDecls) name the component exactly; the raw
+		// position below carries no length, so it would select an empty range.
+		if result, resolved := objectDefinitionResult(sources, pkg, target.Object); resolved {
+			return result, true
 		}
 		location, ok := sources.locationForExistingFile(target.Go, 0)
 		if !ok {

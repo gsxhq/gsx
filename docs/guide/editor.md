@@ -84,9 +84,11 @@ supports tree-sitter.
 Completion returns plain text edits, not snippets. Completing a symbol on a
 package you have not imported — `ui.Button` in a Go expression, or `<ui.Button`
 as a tag — adds the import along with the name. A tag cursor offers only the
-package's component-shaped declarations. Go to definition does not resolve
-into external (non-module) packages; references to external symbols list
-module-local sites only. See [Status](./status.md) for the current limits.
+package's component-shaped declarations. The symbol graph — find references, and
+go to definition from a `.go` cursor — covers module-local packages, so
+references to an external symbol list module-local sites only; go to definition
+from a `.gsx` cursor still travels into external packages. See
+[Status](./status.md) for the current limits.
 
 ## Organize imports {#organize-imports-on-save}
 

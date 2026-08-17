@@ -22,10 +22,17 @@ type goPackageAnalysis struct {
 	// info is populated only for the symbol-graph caller (GoPackageIndex): the
 	// importer path re-checks Go-only intermediaries on the generate/watch hot
 	// path and has no consumer for the maps, so it pays neither their heap nor
-	// the checker's recording cost. A cached info-less analysis is re-checked in
-	// place when the graph later needs it.
-	info  *types.Info
-	files []companionGoFile
+	// the checker's recording cost. A cached analysis that was never checked
+	// with info (checkedWithInfo false) is re-checked in place when the graph
+	// later needs it.
+	//
+	// info is DROPPED once index is built: the identity index is everything the
+	// graph reads, and Defs+Uses over a whole package is the larger allocation
+	// by far. checkedWithInfo — not a nil info — is therefore the cache-hit
+	// predicate; it holds the invariant "info != nil || index != nil".
+	info            *types.Info
+	checkedWithInfo bool
+	files           []companionGoFile
 	// typeErrs and sourceErr are the check's own verdict, retained so a cached
 	// analysis answers a soundness-demanding caller (shippingGoPackageWith)
 	// exactly as the original check did instead of silently promoting a broken
@@ -38,8 +45,8 @@ type goPackageAnalysis struct {
 // goPackageAnalysisWith type-checks one Go-only main-module package inside the
 // shipping declaration universe — retained cmd/go syntax + moduleImporter, no
 // packages.Load. withInfo asks for the types.Info the symbol graph indexes;
-// the importer path leaves it off (see goPackageAnalysis.info), and a cached
-// info-less analysis is re-checked when a later withInfo caller needs the maps.
+// the importer path leaves it off (see goPackageAnalysis.info), and an analysis
+// cached by that path is re-checked when a later withInfo caller needs the maps.
 // Unlike shippingGoPackageWith's importer contract, the analysis is retained
 // even when the package has type errors or an import failed (navigation wants
 // whatever resolved); callers that need a sound *types.Package check typeErrs
@@ -50,7 +57,7 @@ func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter, withInfo 
 	cached := m.goPkgAnalyses[dir]
 	gsxSource := m.sourceGsxDirs[dir]
 	m.mu.Unlock()
-	if cached != nil && (!withInfo || cached.info != nil) {
+	if cached != nil && (!withInfo || cached.checkedWithInfo) {
 		return cached, nil
 	}
 	if gsxSource {
@@ -91,7 +98,7 @@ func (m *Module) goPackageAnalysisWith(dir string, mi *moduleImporter, withInfo 
 	// semantic package publication remains gated on the successful check in
 	// shippingGoPackageWith.
 	m.recordImports(dir, importPaths)
-	a := &goPackageAnalysis{files: files}
+	a := &goPackageAnalysis{files: files, checkedWithInfo: withInfo}
 	if withInfo {
 		// Exactly the two maps the symbol graph reads through
 		// sourceintel.BuildIndex: Defs and Uses carry every identifier occurrence.
@@ -193,6 +200,12 @@ func (m *Module) GoPackageIndex(dir string) (*sourceintel.Index, *types.Package,
 	index = sourceintel.BuildIndex(a.info, mapped)
 	m.mu.Lock()
 	a.index = index
+	// The index is the graph's only consumer of these maps, and it holds direct
+	// references to every object it needs: retaining Defs+Uses as well would
+	// keep a second, larger copy of the package's identifier table alive for the
+	// life of the Module. checkedWithInfo keeps the cache honest about why info
+	// is nil, so a later withInfo caller is not made to re-check this package.
+	a.info = nil
 	m.mu.Unlock()
 	return index, a.pkg, nil
 }

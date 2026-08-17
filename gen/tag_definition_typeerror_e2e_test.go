@@ -2,10 +2,13 @@ package gen
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/lsp"
 )
 
 // TestTagDefinitionWithTypeErrorElsewhere pins that `gd` on a component tag
@@ -38,7 +41,8 @@ func TestTagDefinitionWithTypeErrorElsewhere(t *testing.T) {
 	}
 	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	must("card.gsx", "package x\n\ncomponent Card(title string) {\n\t<div>{ title }</div>\n}\n")
-	must("ui/panel.gsx", "package ui\n\ncomponent Panel() {\n\t<section/>\n}\n")
+	const panelSrc = "package ui\n\ncomponent Panel() {\n\t<section/>\n}\n"
+	must("ui/panel.gsx", panelSrc)
 	// Broken() does not type-check: undefinedIdent is declared nowhere. The two
 	// tags above it, and their declarations, are otherwise well-formed.
 	pageSrc := "package x\n\nimport \"example.com/x/ui\"\n\ncomponent Page() {\n\t<main><Card title=\"hi\"/><ui.Panel/></main>\n}\n\ncomponent Broken() {\n\t<div>{ undefinedIdent }</div>\n}\n"
@@ -108,5 +112,23 @@ func TestTagDefinitionWithTypeErrorElsewhere(t *testing.T) {
 		if len(got) != len(want) || (len(want) == 1 && got[0] != want[0]) {
 			t.Errorf("gd at %q (%s) = %v, want %v", request.needle, request.why, got, want)
 		}
+	}
+	// The dotted tag must select the declaration's NAME. Its object is foreign to
+	// this package's index, so without the tracked declaration spans the reply
+	// degrades to the raw object position — a zero-length range that highlights
+	// nothing and leaves the editor's peek view empty.
+	nameOff := strings.Index(panelSrc, "Panel")
+	nameLine := strings.Count(panelSrc[:nameOff], "\n")
+	nameChar := nameOff - (strings.LastIndexByte(panelSrc[:nameOff], '\n') + 1)
+	wantRange := lsp.Range{
+		Start: lsp.Position{Line: nameLine, Character: nameChar},
+		End:   lsp.Position{Line: nameLine, Character: nameChar + len("Panel")},
+	}
+	var dotted lsp.Location
+	if err := json.Unmarshal(lspTestResponse(t, s, 3).Result, &dotted); err != nil {
+		t.Fatalf("dotted-tag definition result: %v", err)
+	}
+	if dotted.Range != wantRange {
+		t.Errorf("gd on <ui.Panel range = %+v, want the declaration name %+v", dotted.Range, wantRange)
 	}
 }

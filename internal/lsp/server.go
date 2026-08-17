@@ -155,6 +155,7 @@ type Server struct {
 
 	moduleGraph       *sourceintel.SymbolGraph   // whole-module symbol graph (lazy; find-references)
 	moduleGraphValid  bool                       // false ⇒ rebuild on next references request
+	moduleGraphRoot   string                     // module root (moduleGraphRootFor) the cached graph covers
 	moduleParams      []ComponentParamRenameFact // complete GSX parameter families (lazy; rename)
 	moduleParamsValid bool                       // false ⇒ rebuild on next rename request
 	moduleParamsDir   string                     // request directory that owns the cached module view
@@ -745,6 +746,7 @@ func (s *Server) invalidateModuleIndexes() {
 func (s *Server) invalidateNonSymbolModuleIndexes() {
 	s.moduleGraph = nil
 	s.moduleGraphValid = false
+	s.moduleGraphRoot = ""
 	s.moduleParams = nil
 	s.moduleParamsValid = false
 	s.moduleParamsDir = ""

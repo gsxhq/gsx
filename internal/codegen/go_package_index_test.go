@@ -179,7 +179,7 @@ func TestReverseDependencyGoPackageIndex(t *testing.T) {
 		if utilAnalysis.sourceErr != nil {
 			t.Fatalf("util inherited an unrelated package's import failure: %v", utilAnalysis.sourceErr)
 		}
-		if utilAnalysis.info != nil {
+		if utilAnalysis.info != nil || utilAnalysis.checkedWithInfo {
 			t.Fatal("the importer path retained a types.Info nothing consumes")
 		}
 		if _, err := m.typesPackage(utilDir); err != nil {
@@ -198,8 +198,17 @@ func TestReverseDependencyGoPackageIndex(t *testing.T) {
 		if cmdAnalysis == nil || cmdAnalysis.sourceErr != nil || len(cmdAnalysis.typeErrs) != 0 {
 			t.Fatalf("cmd did not recover: %+v", cmdAnalysis)
 		}
-		if cmdAnalysis.info == nil {
-			t.Fatal("the symbol-graph path did not retain a types.Info")
+		// The graph path checked WITH info; the maps themselves are released as
+		// soon as the index that consumes them exists, so what must survive is the
+		// record that this analysis is graph-ready (info != nil || index != nil).
+		if !cmdAnalysis.checkedWithInfo {
+			t.Fatal("the symbol-graph path did not check with a types.Info")
+		}
+		if cmdAnalysis.info != nil && cmdAnalysis.index != nil {
+			t.Fatal("the types.Info was retained after its index was built")
+		}
+		if cmdAnalysis.info == nil && cmdAnalysis.index == nil {
+			t.Fatal("a graph-ready analysis has neither a types.Info nor an index")
 		}
 	})
 
@@ -209,7 +218,7 @@ func TestReverseDependencyGoPackageIndex(t *testing.T) {
 		m.mu.Lock()
 		cached := m.goPkgAnalyses[utilDir]
 		m.mu.Unlock()
-		if cached == nil || cached.info != nil {
+		if cached == nil || cached.checkedWithInfo {
 			t.Fatalf("precondition: util should hold an info-less analysis, got %+v", cached)
 		}
 		before := m.goPackageAnalysisCount()
@@ -228,6 +237,17 @@ func TestReverseDependencyGoPackageIndex(t *testing.T) {
 		key, _ := sourceintel.NewKeyer(pkg).Key(occurrence.Object)
 		if string(key) != "example.com/rd/util U" {
 			t.Fatalf("U key = %q", key)
+		}
+		// …and the analysis whose info was released once the index existed is a
+		// cache HIT, not a re-check: a dropped types.Info must not read as "never
+		// had one".
+		after := m.goPackageAnalysisCount()
+		again, _, err := m.GoPackageIndex(utilDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.goPackageAnalysisCount() != after || again != index {
+			t.Fatalf("index-backed analysis was re-checked, count %d → %d", after, m.goPackageAnalysisCount())
 		}
 	})
 }
