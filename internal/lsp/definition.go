@@ -571,26 +571,13 @@ func (s *Server) definitionAnswerFromPkg(pkg *Package, path string, source []byt
 	// declaration(s). A single variant replies with a plain Location (unchanged
 	// wire shape); multiple build-tag variants (Task 7) reply with a []Location
 	// so the editor shows a picker — both are valid textDocument/definition results.
-	if decls, ok := componentTagDeclAt(pkg, path, off); ok {
-		nameLength := 0
-		if component, _, _, found := componentAtTag(pkg, path, off); found {
-			nameLength = len(component.Name)
-		}
-		if len(decls) == 1 {
-			location, ok := sources.locationForAuthoredPosition(decls[0], nameLength)
-			if !ok {
-				return nil, true
-			}
-			return location, true
-		}
-		locs := make([]Location, 0, len(decls))
-		for _, d := range decls {
-			if location, ok := sources.locationForAuthoredPosition(d, nameLength); ok {
-				locs = append(locs, location)
-			}
-		}
+	if decls, ok := componentTagDeclAt(pkg, path, source, off); ok {
+		locs := appendSpanLocations(nil, sources, decls)
 		if len(locs) == 0 {
 			return nil, true
+		}
+		if len(locs) == 1 {
+			return locs[0], true
 		}
 		return locs, true
 	}
@@ -790,10 +777,8 @@ func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off in
 // cursor sits on a reference to a gsx component, jump to that component's .gsx
 // declaration. Otherwise null (gopls handles real Go).
 //
-// TODO(module-symbol-graph): rewritten in the next commit. This handler used to
-// walk pkg.NavIndex (built from codegen.NavRef, deleted). Its replacement —
-// resolving the cursor through the module-wide *sourceintel.SymbolGraph — is
-// Task 10/11's job; until then it always replies null.
+// TODO(module-symbol-graph): the module-graph rewrite is the next commit; until
+// then this always replies null.
 func (s *Server) handleGoDefinition(f frame, path string, sources *requestSourceSnapshot) error {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
@@ -809,39 +794,76 @@ func (s *Server) handleGoDefinition(f frame, path string, sources *requestSource
 	return s.reply(f.ID, nil)
 }
 
-// lineStartOffset returns the byte offset of the start of the 0-based line.
-func lineStartOffset(text string, line int) int {
-	off := 0
-	for range line {
-		nl := strings.IndexByte(text[off:], '\n')
-		if nl < 0 {
-			return len(text)
-		}
-		off += nl + 1
-	}
-	return off
-}
-
 // componentTagDeclAt checks whether the byte offset off in the .gsx file at
 // path sits on the name portion of a same-package component element tag (e.g.
-// the "Card" in "<Card .../>", or a lowercase "card" resolving to a
-// package-level declaration — el.IsComponent is the codegen-stamped answer,
-// not a syntactic capital-letter guess). Dotted tags are excluded here (they
-// go through crossPkgTagDeclAt instead). Returns every build-tag variant's
-// declaration position (Task 7) and true when found; (nil, false) if the
-// cursor is not on a component tag.
-//
-// TODO(module-symbol-graph): rewritten in the next commit. This used to look
-// the tag up in pkg.CrossIndex (built from codegen.CrossRef, deleted). Its
-// replacement — resolving via the module-wide *sourceintel.SymbolGraph — is
-// Task 10/11's job; until then this always reports (nil, false).
-func componentTagDeclAt(pkg *Package, path string, _ int) ([]token.Position, bool) {
-	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
+// the "Card" in "<Card .../>" or in its closing "</Card>", or a lowercase
+// "card" resolving to a package-level declaration — el.IsComponent is the
+// codegen-stamped answer, not a syntactic capital-letter guess). Dotted tags
+// are excluded here (they go through crossPkgTagDeclAt instead). The
+// declarations come from the package symbol graph, so a build-tag variant
+// family yields one span per variant. source must be the exact bytes pkg was
+// analyzed from: the index is offset-addressed, so stale bytes name nothing.
+func componentTagDeclAt(pkg *Package, path string, source []byte, off int) ([]sourceintel.Span, bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil || pkg.SourceIndex == nil {
 		return nil, false
 	}
-	f := pkg.Files[path]
-	if f == nil {
+	file := pkg.Files[path]
+	if file == nil {
 		return nil, false
 	}
-	return nil, false
+	nameStart, nameLen, ok := componentTagNameAt(pkg, file, off)
+	if !ok {
+		return nil, false
+	}
+	// The authored tag name is not Go, so the type checker never saw it: the
+	// index carries the tag site as an explicit occurrence of the component's
+	// object (codegen's gsxExtraOccurrences). Resolving the OPENING tag-name
+	// offset serves a cursor on either tag, which is why the walk normalizes
+	// closing tags onto it.
+	graph := packageSymbolGraph(pkg)
+	key, resolved := symbolAt(graph, path, source, nameStart)
+	if !resolved {
+		return nil, false
+	}
+	occurrence, found := pkg.SourceIndex.At(path, nameStart)
+	if !found || occurrence.Span.Start != nameStart || occurrence.Span.End != nameStart+nameLen {
+		return nil, false
+	}
+	if _, isFunc := occurrence.Object.(*types.Func); !isFunc {
+		return nil, false // the offset names something other than the component
+	}
+	spans := graph.Definitions(key)
+	if len(spans) == 0 {
+		return nil, false
+	}
+	return spans, true
+}
+
+// componentTagNameAt reports the OPENING tag-name span of the same-package
+// component element whose opening or closing tag name covers off.
+func componentTagNameAt(pkg *Package, file *gsxast.File, off int) (nameStart, nameLen int, ok bool) {
+	inspectWithEmbedded(file, func(n gsxast.Node) bool {
+		if ok {
+			return false
+		}
+		el, isElement := n.(*gsxast.Element)
+		if !isElement || el.Tag == "" || strings.Contains(el.Tag, ".") || !el.IsComponent {
+			return true
+		}
+		// The opening tag name starts right after the '<'.
+		start := pkg.GSXFset.Position(el.Pos()).Offset + 1
+		onOpen := off >= start && off < start+len(el.Tag)
+		// The closing tag name (the "Card" in "</Card>") resolves the same way,
+		// so go-to-definition works from either end of the element.
+		onClose := false
+		if el.CloseNamePos.IsValid() {
+			closeStart := pkg.GSXFset.Position(el.CloseNamePos).Offset
+			onClose = off >= closeStart && off < closeStart+len(el.Tag)
+		}
+		if onOpen || onClose {
+			nameStart, nameLen, ok = start, len(el.Tag), true
+		}
+		return true
+	})
+	return nameStart, nameLen, ok
 }

@@ -106,14 +106,11 @@ func (a ephemeralCountingAnalyzer) AnalyzeEphemeralNonBlocking(dir, path string,
 	return pkg, true, err
 }
 
-// tagAnsweringPackage hand-builds a Package whose retained facts answer
-// go-to-definition on a same-package component tag (`<Row/>`) — no ephemeral
-// analysis required.
-//
-// TODO(module-symbol-graph): componentTagDeclAt (the mechanism this once used,
-// via CrossIndex) is currently a stub pending the Task 10/11 SymbolGraph-based
-// rewrite, so a Package built by this helper no longer answers a cursor on the
-// "<Row/>" tag itself — see TestDefinitionFallbackNotConsultedWhenPrimaryAnswers.
+// tagAnsweringPackage hand-builds a parse-only Package: it carries the gsx AST
+// but none of the semantic facts nav resolution needs, so every cursor is a
+// primary MISS. The fallback-gate tests that want a primary miss use it; the
+// one that wants a primary hit analyzes a real package (see
+// TestDefinitionFallbackNotConsultedWhenPrimaryAnswers).
 func tagAnsweringPackage(t *testing.T, path, text string) *Package {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -138,11 +135,10 @@ const midEditNavPage = "package x\n\ncomponent Page() {\n\t<Row/>\n}\n\ncomponen
 // zero AnalyzeEphemeral count. It also confirms the primary answer is unchanged
 // (a real Location).
 func TestDefinitionFallbackNotConsultedWhenPrimaryAnswers(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
-	uri := "file:///m/a.gsx"
-	path := "/m/a.gsx"
+	pkg, path := analyzedLSPPackage(t, midEditNavPage)
+	uri := pathToURI(path)
 	count := 0
-	a := ephemeralCountingAnalyzer{analyzed: tagAnsweringPackage(t, path, midEditNavPage), ephCount: &count}
+	a := ephemeralCountingAnalyzer{analyzed: pkg, ephCount: &count}
 
 	// Cursor on the "Row" of "<Row/>" (line 3).
 	rowTagOff := strings.Index(midEditNavPage, "<Row/>") + 2 // on 'o'

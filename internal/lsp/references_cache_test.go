@@ -2,17 +2,26 @@ package lsp
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
 	"go/token"
+	"go/types"
+	"maps"
+	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/sourceintel"
+	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 // errFake is a sentinel error returned by moduleRefsAnalyzer to exercise the
@@ -70,6 +79,83 @@ func (a *moduleRefsAnalyzer) ResolveImport(string, string, string) []string { re
 func (a *moduleRefsAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
 func (a *moduleRefsAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
+// synthIndex type-checks files (whose contents are Go, whatever their
+// extension) as one package and returns an identity-mapped sourceintel.Index
+// over them: every authored byte maps to itself, so a cursor offset in the
+// on-disk/open text addresses the index directly. It builds the index the LSP
+// consumes without a codegen.Module open (~0.3s — see CLAUDE.md), which is
+// what the handler-level tests here need: any keyable symbol will do.
+func synthIndex(t *testing.T, pkgName string, files map[string]string) (*sourceintel.Index, *types.Package) {
+	t.Helper()
+	fset := token.NewFileSet()
+	paths := slices.Sorted(maps.Keys(files))
+	parsed := make([]*ast.File, 0, len(paths))
+	for _, path := range paths {
+		file, err := parser.ParseFile(fset, path, files[path], 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		parsed = append(parsed, file)
+	}
+	info := &types.Info{
+		Types:      map[ast.Expr]types.TypeAndValue{},
+		Defs:       map[*ast.Ident]types.Object{},
+		Uses:       map[*ast.Ident]types.Object{},
+		Implicits:  map[ast.Node]types.Object{},
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+		Scopes:     map[ast.Node]*types.Scope{},
+	}
+	typed, err := new(types.Config).Check(pkgName, fset, parsed, info)
+	if err != nil {
+		t.Fatalf("type-check %s: %v", pkgName, err)
+	}
+	mapped := make([]sourceintel.MappedFile, 0, len(parsed))
+	for i, file := range parsed {
+		source := files[paths[i]]
+		sourceMap, err := sourceintel.IdentitySourceMap(paths[i], len(source))
+		if err != nil {
+			t.Fatalf("identity map %s: %v", paths[i], err)
+		}
+		mapped = append(mapped, sourceintel.MappedFile{
+			AST:           file,
+			TokenFile:     fset.File(file.Pos()),
+			SourceMap:     sourceMap,
+			SourceVersion: sourceintel.SourceVersion{Size: len(source), SHA256: sha256.Sum256([]byte(source))},
+		})
+	}
+	return sourceintel.BuildIndex(info, mapped), typed
+}
+
+// synthPackage is synthIndex adapted to what the server retains per directory:
+// the index plus the parsed .gsx files that mark the package as gsx-authored
+// (what packageSymbolGraph gates the degraded answer on).
+func synthPackage(t *testing.T, pkgName string, files map[string]string) *Package {
+	t.Helper()
+	index, typed := synthIndex(t, pkgName, files)
+	gsxFset := token.NewFileSet()
+	parsed := map[string]*gsxast.File{}
+	for path, source := range files {
+		if !strings.HasSuffix(path, ".gsx") {
+			continue
+		}
+		file, err := gsxparser.ParseFile(gsxFset, path, []byte(source), 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		parsed[path] = file
+	}
+	return &Package{SourceIndex: index, Types: typed, GSXFset: gsxFset, Files: parsed}
+}
+
+// synthGraph is synthIndex keyed into a module-wide graph.
+func synthGraph(t *testing.T, pkgName string, files map[string]string) *sourceintel.SymbolGraph {
+	t.Helper()
+	index, typed := synthIndex(t, pkgName, files)
+	graph := sourceintel.NewSymbolGraph()
+	graph.AddIndex(index, sourceintel.NewKeyer(typed))
+	return graph
+}
+
 // drive runs the given pre-framed messages through a fresh server over the
 // analyzer and returns the raw output. Helper mirrors the existing
 // server_*_test harness.
@@ -115,12 +201,16 @@ func didChangeFrame(uri, text string) string {
 }
 
 func refsFrame(id int, uri string, line, char int) string {
+	return refsFrameDecl(id, uri, line, char, false)
+}
+
+func refsFrameDecl(id int, uri string, line, char int, includeDeclaration bool) string {
 	return jsonFrame(map[string]any{
 		"jsonrpc": "2.0", "id": id, "method": "textDocument/references",
 		"params": map[string]any{
 			"textDocument": map[string]any{"uri": uri},
 			"position":     map[string]any{"line": line, "character": char},
-			"context":      map[string]any{"includeDeclaration": false},
+			"context":      map[string]any{"includeDeclaration": includeDeclaration},
 		},
 	})
 }
@@ -166,7 +256,7 @@ func TestReferencesAnalysisUsesCapturedRequestOverrides(t *testing.T) {
 	sources := server.sourceSnapshot()
 
 	server.docs.update(uri, changed, 2)
-	server.refreshModuleReferences(sources, dir)
+	server.refreshModuleGraph(sources, dir)
 
 	if len(analyzer.overrides) != 1 {
 		t.Fatalf("AnalyzeModule override calls = %d, want 1", len(analyzer.overrides))
@@ -177,27 +267,37 @@ func TestReferencesAnalysisUsesCapturedRequestOverrides(t *testing.T) {
 }
 
 // TestReferencesFallbackOnModuleError verifies that when AnalyzeModule returns
-// an error, handleReferences falls back to the single-package facts.
-//
-// TODO(module-symbol-graph): re-enabled in Task 10/11. handleReferences is
-// currently a stub (always replies empty) pending the SymbolGraph-based
-// rewrite; the single-package fallback this test exercises no longer exists.
+// an error, handleReferences falls back to the retained single-package index:
+// the same-package reference in the sibling file is still reported.
 func TestReferencesFallbackOnModuleError(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
-	uri := "file:///m/a.gsx"
-	text := "package x\n\ncomponent Card() {\n\t<div/>\n}\n"
-	// component Card starts at line 3 (1-based), the name at column 11.
-	decl := token.Position{Filename: "/m/a.gsx", Line: 3, Column: 11}
-	ref := token.Position{Filename: "/m/other.go", Line: 5, Column: 2}
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "a.gsx")
+	refPath := filepath.Join(dir, "other.go")
+	declSource := "package x\n\nfunc Card() {}\n"
+	refSource := "package x\n\nfunc use() { _ = Card }\n"
+	for path, source := range map[string]string{declPath: declSource, refPath: refSource} {
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	a := &moduleRefsAnalyzer{
 		moduleErr: errFake,
-		pkg:       &Package{},
+		pkg:       synthPackage(t, "x", map[string]string{declPath: declSource, refPath: refSource}),
 	}
-	_ = decl
-	_ = ref
-	// Cursor on "Card" (0-based line 2, character 10).
-	out := drive(t, a, initFrame()+didOpenFrame(uri, text)+refsFrame(2, uri, 2, 10)+exitFrame())
-	if !strings.Contains(out, "other.go") {
-		t.Fatalf("fallback path should return single-package ref; out:\n%s", out)
+	uri := pathToURI(declPath)
+	declOffset := strings.Index(declSource, "Card")
+	position := positionForByteOffset(declSource, declOffset, encUTF16)
+
+	out := drive(t, a, initFrame()+didOpenFrame(uri, declSource)+
+		refsFrame(2, uri, position.Line, position.Character)+exitFrame())
+
+	locations := referenceLocations(t, out, 2)
+	refOffset := strings.Index(refSource, "_ = Card") + len("_ = ")
+	want := Location{URI: pathToURI(refPath), Range: rangeForSpan(refSource, refOffset, refOffset+len("Card"), encUTF16)}
+	if len(locations) != 1 || locations[0] != want {
+		t.Fatalf("fallback references = %+v, want [%+v]\n%s", locations, want, out)
+	}
+	if a.moduleCalls == 0 {
+		t.Fatal("AnalyzeModule was never attempted before the fallback")
 	}
 }

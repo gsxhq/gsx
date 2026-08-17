@@ -450,32 +450,36 @@ func (*authoritativeLocationAnalyzer) ResolveImport(string, string, string) []st
 func (*authoritativeLocationAnalyzer) ExportedSymbols(string, string) []ImportSymbol { return nil }
 func (*authoritativeLocationAnalyzer) ImportablePackages(string) []ImportablePackage { return nil }
 
-// TODO(module-symbol-graph): re-enabled in Task 10/11. handleGoDefinition is
-// currently a stub (always replies null) pending the SymbolGraph-based
-// rewrite; NavRef/NavIndex (the mechanism this test exercised) is gone.
+// TestDefinitionUsesUnsavedUTF16Target pins the target side of go-to-definition
+// from a .go cursor: the declaration lives in an UNSAVED .gsx buffer, so the
+// reply's range must be computed against the open text (whose UTF-16 columns
+// differ from the saved bytes), not against what is on disk.
 func TestDefinitionUsesUnsavedUTF16Target(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
+	t.Skip("TODO(module-symbol-graph): handleGoDefinition lands in the next commit")
 	dir := t.TempDir()
 	targetPath := filepath.Join(dir, "target.gsx")
-	saved := "package page\nvar _ = \"x\"; var Target = 1\n"
-	open := "package page\nvar _ = \"\U0001f600\"; var Target = 1\n"
+	saved := "package page\n\nvar _ = \"x\"\n\nvar Target = 1\n"
+	open := "package page\n\nvar _ = \"\U0001f600\"\n\nvar Target = 1\n"
 	if err := os.WriteFile(targetPath, []byte(saved), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	sourcePath := filepath.Join(dir, "source.go")
-	source := "package page\nvar Target int\n"
+	source := "package page\n\nfunc use() { _ = Target }\n"
 	targetStart := strings.Index(open, "Target")
-	sourceStart := strings.Index(source, "Target")
-	a := &authoritativeLocationAnalyzer{pkg: &Package{}}
-	_ = authoredTokenPosition(sourcePath, source, sourceStart)
-	_ = authoredTokenPosition(targetPath, open, targetStart)
+	sourceStart := strings.Index(source, "_ = Target") + len("_ = ")
+	// The graph is built from the OPEN target buffer — exactly what whole-module
+	// analysis sees through the request's overrides.
+	a := &authoritativeLocationAnalyzer{
+		pkg:   &Package{},
+		graph: synthGraph(t, "page", map[string]string{targetPath: open, sourcePath: source}),
+	}
 	targetURI, sourceURI := pathToURI(targetPath), pathToURI(sourcePath)
 	out := drive(t, a, initFrame()+didOpenFrame(targetURI, open)+didOpenFrame(sourceURI, source)+
 		definitionFrame(2, sourceURI, positionForByteOffset(source, sourceStart, encUTF16))+exitFrame())
 	got := definitionLocation(t, out, 2)
 	want := rangeForSpan(open, targetStart, targetStart+len("Target"), encUTF16)
 	if got == nil || got.URI != targetURI || got.Range != want {
-		t.Fatalf("definition = %+v, want open-buffer UTF-16 location %s %+v", got, targetURI, want)
+		t.Fatalf("definition = %+v, want open-buffer UTF-16 location %s %+v\n%s", got, targetURI, want, out)
 	}
 }
 
@@ -582,30 +586,28 @@ component Card(title string) { <span/> }
 	}
 }
 
-// TODO(module-symbol-graph): re-enabled in Task 10/11. handleReferences is
-// currently a stub (always replies empty) pending the SymbolGraph-based
-// rewrite; CrossRef (the mechanism this test exercised) is gone.
+// TestReferencesUseUnsavedUTF16Targets pins the target side of find-references:
+// a use site in an UNSAVED buffer is reported with the open text's UTF-16
+// range, not the saved bytes'.
 func TestReferencesUseUnsavedUTF16Targets(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "page.gsx")
-	saved := "package page\ncomponent Card() {}; x Card\n"
-	open := "package page\ncomponent Card() {}; \"\U0001f600\" Card\n"
+	saved := "package page\n\nfunc Card() {}\n\nvar _ = \"x\"\n\nvar _ = Card\n"
+	open := "package page\n\nfunc Card() {}\n\nvar _ = \"\U0001f600\"\n\nvar _ = Card\n"
 	if err := os.WriteFile(path, []byte(saved), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	declStart := strings.Index(open, "Card")
 	targetStart := strings.LastIndex(open, "Card")
-	decl := authoredTokenPosition(path, open, declStart)
-	_ = authoredTokenPosition(path, open, targetStart)
-	a := &authoritativeLocationAnalyzer{}
+	a := &authoritativeLocationAnalyzer{graph: synthGraph(t, "page", map[string]string{path: open})}
 	uri := pathToURI(path)
+	position := positionForByteOffset(open, declStart, encUTF16)
 	out := drive(t, a, initFrame()+didOpenFrame(uri, open)+
-		refsFrame(2, uri, decl.Line-1, positionForByteOffset(open, declStart, encUTF16).Character)+exitFrame())
+		refsFrame(2, uri, position.Line, position.Character)+exitFrame())
 	locations := referenceLocations(t, out, 2)
 	want := rangeForSpan(open, targetStart, targetStart+len("Card"), encUTF16)
 	if len(locations) != 1 || locations[0].URI != uri || locations[0].Range != want {
-		t.Fatalf("references = %+v, want open-buffer UTF-16 target %s %+v", locations, uri, want)
+		t.Fatalf("references = %+v, want open-buffer UTF-16 target %s %+v\n%s", locations, uri, want, out)
 	}
 }
 

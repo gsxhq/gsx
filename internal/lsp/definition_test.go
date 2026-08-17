@@ -283,95 +283,102 @@ func TestExprNodeAtOffset(t *testing.T) {
 	}
 }
 
-// TestComponentTagDeclAtByo verifies that componentTagDeclAt resolves a byo
-// component tag (one whose sole param is an author struct) to the correct
-// component declaration, using a synthetic CrossIndex. This is the tag→decl
-// LSP guard: a cursor on "Button" in <Button variant={v}/> must find the
-// component's .gsx declaration via CrossIndex[".Button"].
-// TODO(module-symbol-graph): re-enabled in Task 10/11. componentTagDeclAt is
-// currently a stub (always returns nil, false) pending the SymbolGraph-based
-// rewrite; CrossIndex (the mechanism this test exercised) is gone.
-func TestComponentTagDeclAtByo(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
-	// A calling component that uses a byo Button tag. Button is declared
-	// elsewhere (not in this file).
-	src := "package x\n\ncomponent Page(v string) {\n\t<Button variant={v}/>\n}\n"
-	pkg, path := parseOnlyPackage(t, "page.gsx", src)
-	stampSyntacticComponents(pkg.Files[path])
+// componentTagDeclSource is one analyzed package declaring three components
+// and using each from a fourth: a byo-style tag (<Button variant={v}/>), an
+// explicit closing tag (</Card>) and a closing tag with whitespace before '>'
+// (</Panel >). One codegen.Module open serves every componentTagDeclAt case
+// (see CLAUDE.md's test-performance rule).
+const componentTagDeclSource = `package page
 
-	declPos := token.Position{Filename: "button.gsx", Line: 5, Column: 11, Offset: 42}
+import "github.com/gsxhq/gsx"
 
-	// The tag name "Button" starts right after the '<' on line 4.
-	// "package x\n\ncomponent Page(v string) {\n\t<" is the prefix;
-	// the '<' is at offset = len("package x\n\ncomponent Page(v string) {\n\t"), and
-	// "Button" follows immediately after it.
-	tagStart := strings.Index(src, "<Button") + 1 // +1 to skip '<'
-	if tagStart < 1 {
-		t.Fatal("could not find <Button in src")
-	}
-
-	// Cursor on 'B' (first char of the tag name).
-	decls, ok := componentTagDeclAt(pkg, path, tagStart)
-	if !ok {
-		t.Fatalf("componentTagDeclAt returned false for cursor on 'B' of Button tag")
-	}
-	if len(decls) != 1 || decls[0] != declPos {
-		t.Errorf("componentTagDeclAt decls = %+v, want [%+v]", decls, declPos)
-	}
-
-	// Cursor on 't' (middle of the tag name "But|ton") — must also resolve.
-	midCursor := tagStart + 2 // 'B'+'u'+'t' → offset of 't'
-	decls2, ok2 := componentTagDeclAt(pkg, path, midCursor)
-	if !ok2 {
-		t.Fatalf("componentTagDeclAt returned false for cursor in middle of Button tag")
-	}
-	if len(decls2) != 1 || decls2[0] != declPos {
-		t.Errorf("componentTagDeclAt (mid) decls = %+v, want [%+v]", decls2, declPos)
-	}
-
-	// Cursor BEFORE the tag name (on the '<') — must NOT resolve (cursor is not
-	// on the identifier, it is on the '<' delimiter).
-	preCursor := tagStart - 1
-	_, notOK := componentTagDeclAt(pkg, path, preCursor)
-	if notOK {
-		t.Errorf("componentTagDeclAt incorrectly resolved for cursor on '<' before tag name")
-	}
+component Button(variant string) {
+	<button>{ variant }</button>
 }
 
-// TestComponentTagDeclAtClosingTag verifies go-to-definition works from the
-// CLOSING tag too: a cursor on "Card" in "</Card>" resolves to the component
-// declaration just like the opening tag (relies on ast.Element.CloseNamePos).
-// TODO(module-symbol-graph): re-enabled in Task 10/11. componentTagDeclAt is
-// currently a stub (always returns nil, false) pending the SymbolGraph-based
-// rewrite; CrossIndex (the mechanism this test exercised) is gone.
-func TestComponentTagDeclAtClosingTag(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
-	// Card has children, so the element has an explicit closing tag </Card>.
-	src := "package x\n\ncomponent Page() {\n\t<Card title=\"hi\">body</Card>\n}\n"
-	pkg, path := parseOnlyPackage(t, "page.gsx", src)
-	stampSyntacticComponents(pkg.Files[path])
+component Card(title string, children gsx.Node) {
+	<div>{ title }{ children }</div>
+}
 
-	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
+component Panel(children gsx.Node) {
+	<section>{ children }</section>
+}
 
-	// Offset of "Card" inside "</Card>" (the closing tag, the last occurrence).
-	closeStart := strings.Index(src, "</Card>") + 2 // +2 to skip '</'
-	if closeStart < 2 {
-		t.Fatal("could not find </Card> in src")
+component Page(v string) {
+	<div>
+		<Button variant={v}/>
+		<Card title="hi">body</Card>
+		<Panel>body</Panel >
+	</div>
+}
+`
+
+// TestComponentTagDeclAt verifies that componentTagDeclAt resolves a cursor on
+// a same-package component tag name — opening or closing — to that component's
+// authored declaration span, and resolves nothing off the name. This is the
+// tag→decl LSP guard, now answered by the package symbol graph.
+func TestComponentTagDeclAt(t *testing.T) {
+	src := componentTagDeclSource
+	pkg, path := analyzedLSPPackage(t, src)
+	source := []byte(src)
+	declSpan := func(name string) sourceintel.Span {
+		start := strings.Index(src, "component "+name) + len("component ")
+		return sourceintel.Span{Path: path, Start: start, End: start + len(name)}
 	}
 
-	// Cursor on 'C' of the closing tag name.
-	decls, ok := componentTagDeclAt(pkg, path, closeStart)
-	if !ok {
-		t.Fatalf("componentTagDeclAt returned false for cursor on closing tag </Card>")
-	}
-	if len(decls) != 1 || decls[0] != declPos {
-		t.Errorf("closing-tag decls = %+v, want [%+v]", decls, declPos)
-	}
+	// A byo component tag: cursor on the first character of the tag name, and
+	// in its middle, both resolve to the declaration.
+	t.Run("opening tag", func(t *testing.T) {
+		tagStart := strings.Index(src, "<Button") + 1 // +1 to skip '<'
+		want := declSpan("Button")
+		for _, cursor := range []int{tagStart, tagStart + 2} {
+			decls, ok := componentTagDeclAt(pkg, path, source, cursor)
+			if !ok {
+				t.Fatalf("cursor %d: componentTagDeclAt returned false for the Button tag", cursor)
+			}
+			if len(decls) != 1 || decls[0] != want {
+				t.Errorf("cursor %d: decls = %+v, want [%+v]", cursor, decls, want)
+			}
+		}
+		// Cursor BEFORE the tag name (on the '<') — must NOT resolve (the cursor
+		// is on the delimiter, not the identifier).
+		if _, ok := componentTagDeclAt(pkg, path, source, tagStart-1); ok {
+			t.Errorf("componentTagDeclAt incorrectly resolved for cursor on '<' before the tag name")
+		}
+	})
 
-	// Cursor in the middle of the closing tag name ("Ca|rd") — must also resolve.
-	if decls2, ok2 := componentTagDeclAt(pkg, path, closeStart+2); !ok2 || len(decls2) != 1 || decls2[0] != declPos {
-		t.Errorf("closing-tag (mid) ok=%v decls=%+v, want true [%+v]", ok2, decls2, declPos)
-	}
+	// Go-to-definition works from the CLOSING tag too: a cursor on "Card" in
+	// "</Card>" resolves like the opening tag (relies on ast.Element.CloseNamePos).
+	t.Run("closing tag", func(t *testing.T) {
+		closeStart := strings.Index(src, "</Card>") + 2 // +2 to skip '</'
+		want := declSpan("Card")
+		for _, cursor := range []int{closeStart, closeStart + 2} {
+			decls, ok := componentTagDeclAt(pkg, path, source, cursor)
+			if !ok || len(decls) != 1 || decls[0] != want {
+				t.Errorf("cursor %d: ok=%v decls=%+v, want true [%+v]", cursor, ok, decls, want)
+			}
+		}
+	})
+
+	// A closing tag with whitespace before '>' (</Panel >) still resolves: the
+	// parser allows it and records CloseNamePos at the name regardless.
+	t.Run("closing tag whitespace", func(t *testing.T) {
+		closeStart := strings.Index(src, "</Panel >") + 2 // skip '</'
+		want := declSpan("Panel")
+		decls, ok := componentTagDeclAt(pkg, path, source, closeStart+1) // cursor on 'a' of Panel
+		if !ok || len(decls) != 1 || decls[0] != want {
+			t.Errorf("whitespace closing tag: ok=%v decls=%+v, want true [%+v]", ok, decls, want)
+		}
+	})
+
+	// Stale bytes name nothing: the index is offset-addressed, so a source that
+	// is not what the package was analyzed from must fail closed.
+	t.Run("stale source", func(t *testing.T) {
+		tagStart := strings.Index(src, "<Button") + 1
+		if _, ok := componentTagDeclAt(pkg, path, append([]byte("// edited\n"), source...), tagStart); ok {
+			t.Errorf("componentTagDeclAt resolved against stale source; want fail closed")
+		}
+	})
 }
 
 // TestExprNodeAtOffsetByoBody verifies that exprNodeAtOffset works inside a
@@ -515,29 +522,5 @@ func TestCtrlDefinitionValueIfCond(t *testing.T) {
 		if dp.Line != wantLine || dp.Column != wantCol {
 			t.Errorf("cursor %d: definition at %d:%d, want %d:%d (the {{ disabled := }} local)", cursor, dp.Line, dp.Column, wantLine, wantCol)
 		}
-	}
-}
-
-// TestComponentTagDeclAtClosingTagWhitespace verifies go-to-definition still
-// resolves on a closing tag with whitespace before '>' (</Card >), since the
-// parser allows it and records CloseNamePos at the name regardless.
-//
-// TODO(module-symbol-graph): re-enabled in Task 10/11. componentTagDeclAt is
-// currently a stub (always returns nil, false) pending the SymbolGraph-based
-// rewrite; CrossIndex (the mechanism this test exercised) is gone.
-func TestComponentTagDeclAtClosingTagWhitespace(t *testing.T) {
-	t.Skip("TODO(module-symbol-graph): re-enabled in Task 10/11")
-	src := "package x\n\ncomponent Page() {\n\t<Card>body</Card >\n}\n"
-	pkg, path := parseOnlyPackage(t, "page.gsx", src)
-	stampSyntacticComponents(pkg.Files[path])
-	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
-
-	closeStart := strings.Index(src, "</Card >") + 2 // skip '</'
-	if closeStart < 2 {
-		t.Fatal("could not find </Card > in src")
-	}
-	decls, ok := componentTagDeclAt(pkg, path, closeStart+1) // cursor on 'a' of Card
-	if !ok || len(decls) != 1 || decls[0] != declPos {
-		t.Errorf("whitespace closing tag: ok=%v decls=%+v, want true [%+v]", ok, decls, declPos)
 	}
 }
