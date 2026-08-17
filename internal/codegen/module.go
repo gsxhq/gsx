@@ -1409,10 +1409,8 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	res.Diags = a.bag.Sorted()
 	res.Filters = filterCandidates(a.table)
 	res.URLPresets = m.urlPresetsFor(dir)
-	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = a.componentCalls
 	res.ComponentDecls = a.componentDecls
-	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
 	if !a.bag.HasErrors() && len(a.typeErrs) == 0 {
 		res.ComponentParamDecls, err = componentParamDeclarationFacts(
 			a.compByKey, a.objKey, a.compsByXGo, a.goFiles, &a.componentPlan, a.info, a.gsxFset, a.pkg.Path(),
@@ -1442,8 +1440,8 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// *ast.File-keyed entries — prune to that subset before caching.
 	//
 	// Called here, immediately before the cache write, rather than right after
-	// analyze returns: every other a.info consumer above (buildCrossNav,
-	// componentParamDeclarationFacts, componentParamBodyReferenceFacts) runs
+	// analyze returns: every other a.info consumer above
+	// (componentParamDeclarationFacts, componentParamBodyReferenceFacts) runs
 	// first, so none of them ever observes a pruned Info.Scopes. Positioning the
 	// prune any earlier would be a silent trap for a future consumer inserted
 	// between analyze and this line.
@@ -1592,7 +1590,6 @@ func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*Packa
 		SourceIndex:         a.sourceIndex,
 	}
 	res.Diags = a.bag.Sorted()
-	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
 	res.ComponentCalls = a.componentCalls
 	res.ComponentDecls = a.componentDecls
 	res.Filters = filterCandidates(a.table)

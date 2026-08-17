@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 func TestClearOverrideRestoresSavedSourceInWarmModule(t *testing.T) {
@@ -195,12 +198,38 @@ func assertOverrideLifecycleComponents(t *testing.T, m *Module, dir string, want
 	for _, key := range want {
 		wantSet[key] = true
 	}
-	if len(pkg.CrossIndex) != len(wantSet) {
-		t.Fatalf("components = %v, want exactly %v", pkg.CrossIndex, want)
+	// Component bodies are markup, not literal Go syntax, so they never form a
+	// contiguous Go declaration span — mappedDeclarationSpan (and therefore
+	// SourceIndex.Declarations) never records them (verified empirically; only
+	// plain funcs/types show up there). Walk the authored *gsxast.File Decls
+	// instead for the name set, and gate presence on the per-package
+	// SourceIndex/graph actually carrying a keyable definition occurrence at
+	// each Component's NamePos — the same "component X exists" fact the old
+	// CrossIndex entries pinned, now sourced from the one retained index. "." +
+	// Name reproduces the componentKey-style suffix the old CrossIndex
+	// assertions pinned.
+	g := sourceintel.NewSymbolGraph()
+	g.AddIndex(pkg.SourceIndex, sourceintel.NewKeyer(pkg.Types))
+	gotSet := map[string]bool{}
+	for path, file := range pkg.GSXFiles {
+		for _, decl := range file.Decls {
+			component, ok := decl.(*gsxast.Component)
+			if !ok {
+				continue
+			}
+			offset := pkg.GSXFset.Position(component.NamePos).Offset
+			if _, _, ok := g.At(path, offset); !ok {
+				continue
+			}
+			gotSet["."+component.Name] = true
+		}
+	}
+	if len(gotSet) != len(wantSet) {
+		t.Fatalf("components = %v, want exactly %v", gotSet, want)
 	}
 	for key := range wantSet {
-		if _, ok := pkg.CrossIndex[key]; !ok {
-			t.Fatalf("components = %v, missing %s", pkg.CrossIndex, key)
+		if !gotSet[key] {
+			t.Fatalf("components = %v, missing %s", gotSet, key)
 		}
 	}
 }
