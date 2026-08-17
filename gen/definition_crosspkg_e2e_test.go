@@ -230,8 +230,10 @@ func TestDefinitionCrossPkgExprCall(t *testing.T) {
 // TestDefinitionCrossPkgClosingTag verifies that go-to-definition works when
 // the cursor sits on the closing tag of a cross-package component invocation
 // (the "Input" in </components.Input>), not just on the opening tag. This is
-// Bug B (cross-package): crossPkgTagDeclAt previously only checked el.Pos()
-// (opening), so a cursor on the closing tag returned null.
+// Bug B (cross-package): the dotted-tag resolver of the day only checked
+// el.Pos() (opening), so a cursor on the closing tag returned null. That
+// resolver is gone — dotted tags are answered from the symbol index now — and
+// this test is what keeps the closing-tag cursor covered across the move.
 func TestDefinitionCrossPkgClosingTag(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

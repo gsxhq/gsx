@@ -46,6 +46,13 @@ the root cause. This design keeps the general one and deletes the partial one.
 - Hover/completion on `.go` buffers (gopls owns those).
 - Suppressing duplicate results when gopls is also attached to `.go`
   buffers. Editors merge multi-server results; the user configures ordering.
+- Go-to-definition from an embedded-field ident **authored in a `.gsx`**: the
+  ident is both a field definition and a use of the embedded type, and
+  `Index.At`'s tie-break prefers the definition, so the jump is a no-op. The
+  `.go` side is fixed (`SymbolGraph.UseAt`, consulted first by
+  `handleGoDefinition`); the `.gsx` side keeps the pre-existing behavior
+  because the whole `.gsx` cascade resolves through `Index.At`, whose tie-break
+  hover, rename and completion also depend on.
 
 ## Design
 
@@ -67,8 +74,8 @@ produce — are added from facts codegen already publishes:
 
 | authored site | target object | source of the fact |
 |---|---|---|
-| `<Tag/>`, `<pkg.Tag/>` tag name | the component's `*types.Func` | `ComponentCalls[el].Target` + `el.TagPos` |
-| `attr=` on a component call | the parameter's `*types.Var` | `ComponentCalls[el].Params[attr].Var` + attr name pos |
+| `<Tag/>`, `<pkg.Tag/>`, `<recv.Tag/>` tag name | the resolved target object — a package `*types.Func`, a package function `*types.Var`, or a concrete bound method | the **discovery pass**: `callSiteRegistry.records` (disposition `componentSitePlanned`) + `targetFacts[id].origin`, at `el.TagPos` + the local-name segment. Deliberately **not** `ComponentCalls`: positional planning is gated on `targetPlanningReady`, so one unrelated type error anywhere in the package would take every tag edge in it down (see §6) |
+| `attr=` on a component call | the parameter's `*types.Var` | `ComponentCalls[el].Params[attr].Var` + attr name pos. This one legitimately follows the plan: *which* parameter an attribute binds IS the plan's answer, so with planning skipped the edge goes quiet rather than guessing |
 | `\|> name` pipe filter | the filter's `*types.Func` | structural: walk the lowered skeleton expression (`ExprMap`) stage by stage (`internal/pipeshape`, the same walk the LSP's pipe definition uses); span = the authored `PipeStage.NamePos`+len(Name). The skeleton emits `alias.Func(`, whose bytes differ from the authored name, so byte-identical mapping is impossible by construction |
 
 These are ordinary `IdentifierUse` occurrences on the same objects.
@@ -175,6 +182,25 @@ Resolved during planning (2026-08-17):
   canonicalised onto the public declaration's objects at index build
   (`BuildOptions.Canonical`), so tag sites, attr bindings, Go callers and
   body uses share one key.
+
+Found during implementation (2026-08-17), **fixed**:
+- **The tag edge must not depend on positional planning.** Sourcing it from
+  `ComponentCalls` made it a hostage of `targetPlanningReady`
+  (`module_importer.go`): any type error outside a component-target marker
+  skips `planComponentPositionalCalls` for the WHOLE package, so
+  `ComponentCalls` is empty and every `<Tag/>` in it stopped answering `gd`
+  and `gr` — precisely mid-edit, the state an editor spends its time in. A
+  live probe confirmed the regression against `main`, whose AST-derived
+  index answered through it. The fix projects the edge from the **discovery
+  pass** instead (`discoverComponentTargets` + `finalizeComponentIdentity`,
+  both outside that gate, the same pair that stamps `Element.IsComponent`),
+  reading `targetFacts[record.id].origin`. That covers every accepted
+  provenance — package func, package function variable, concrete bound
+  method — with no per-shape resolver and no name-resolution guesswork, and
+  it is the same plan-free records+facts projection
+  `componentTargetQualifiers` already does for unused-import analysis.
+  Agreement with `ComponentCalls[el].Target` on a cleanly-planning package is
+  asserted per tag shape in `TestPackageSymbolIndex`.
 
 ## Testing
 

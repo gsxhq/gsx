@@ -77,6 +77,13 @@ func TestTagDefinitionWithTypeErrorElsewhere(t *testing.T) {
 		in += lspFrame(map[string]any{"jsonrpc": "2.0", "id": request.id, "method": "textDocument/definition",
 			"params": map[string]any{"textDocument": map[string]any{"uri": pageURI}, "position": cursorAt(request.needle, request.delta)}})
 	}
+	// Hover on the same <Card cursor. Tag hover is answered by the AST-only
+	// branch (componentAtTag / renderComponentSig) long before the symbol index
+	// is consulted, so moving the tag EDGE onto the index must leave it byte for
+	// byte alone — including here, with the type error present. Pinned so a later
+	// reordering of the hover cascade cannot quietly change it.
+	in += lspFrame(map[string]any{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover",
+		"params": map[string]any{"textDocument": map[string]any{"uri": pageURI}, "position": cursorAt("<Card", 2)}})
 	in += lspFrame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
@@ -86,6 +93,9 @@ func TestTagDefinitionWithTypeErrorElsewhere(t *testing.T) {
 	s := out.String()
 	if !strings.Contains(s, "undefined: undefinedIdent") {
 		t.Fatalf("fixture no longer carries the unrelated type error this test is about:\n%s", s)
+	}
+	if hover := string(lspTestResponse(t, s, 5).Result); !strings.Contains(hover, "component Card(title string)") {
+		t.Errorf("hover on <Card with a type error present = %s, want the component signature", hover)
 	}
 	for _, request := range requests {
 		got := lspLocationPaths(t, dir, lspTestResponse(t, s, request.id).Result)

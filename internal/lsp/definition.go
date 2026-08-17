@@ -821,8 +821,11 @@ func (s *Server) handleGoDefinition(f frame, path string, sources *requestSource
 // the "Card" in "<Card .../>" or in its closing "</Card>", or a lowercase
 // "card" resolving to a package-level declaration — el.IsComponent is the
 // codegen-stamped answer, not a syntactic capital-letter guess). Dotted tags
-// are excluded here (they go through crossPkgTagDeclAt instead). The
-// declarations come from the package symbol graph, so a build-tag variant
+// are excluded here: a same-package build-tag variant family is what this
+// branch's multi-span picker exists for, and a dotted tag names one imported
+// declaration, which the index-backed semantic branch at the end of the cascade
+// (semanticDefinitionFromSnapshot) already answers from the same occurrence.
+// The declarations come from the package symbol graph, so a build-tag variant
 // family yields one span per variant. source must be the exact bytes pkg was
 // analyzed from: the index is offset-addressed, so stale bytes name nothing.
 func componentTagDeclAt(pkg *Package, path string, source []byte, off int) ([]sourceintel.Span, bool) {
