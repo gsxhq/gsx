@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"go/ast"
@@ -570,6 +571,14 @@ func definitionLocation(t *testing.T, output string, id int) *Location {
 		if string(message["result"]) == "null" {
 			return nil
 		}
+		// A definition reply is a single Location, or — for a build-tag variant
+		// family — a one-per-variant []Location picker.
+		if locations, ok := decodeLocationList(message["result"]); ok {
+			if len(locations) != 1 {
+				t.Fatalf("definition result has %d locations, want one: %s", len(locations), message["result"])
+			}
+			return &locations[0]
+		}
 		var location Location
 		if err := json.Unmarshal(message["result"], &location); err != nil {
 			t.Fatalf("decode definition result: %v", err)
@@ -578,4 +587,17 @@ func definitionLocation(t *testing.T, output string, id int) *Location {
 	}
 	t.Fatalf("no definition response for id %d in:\n%s", id, output)
 	return nil
+}
+
+// decodeLocationList reports whether result is a JSON array of Locations.
+func decodeLocationList(result json.RawMessage) ([]Location, bool) {
+	trimmed := bytes.TrimSpace(result)
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return nil, false
+	}
+	var locations []Location
+	if err := json.Unmarshal(trimmed, &locations); err != nil {
+		return nil, false
+	}
+	return locations, true
 }

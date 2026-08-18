@@ -233,6 +233,7 @@ type Module struct {
 	targetDeclProvenance      componentTargetProvenanceCache      // abs dir -> logical component key -> exact authored declarations
 	configuredDeclTypes       map[string]*types.Package           // abs dir -> configured declaration-universe package cache
 	pkgResults                map[string]*PackageResult           // abs dir -> cached full analysis result (Package path only)
+	goPkgAnalyses             map[string]*goPackageAnalysis       // abs dir -> retained Go-only package analysis (types.Info + identity index for the module symbol graph)
 	parseCache                map[string]parseCacheEntry          // abs .gsx path -> pristine per-file parse; served via ast.CloneFile so unchanged files skip re-parse. Flushed by rebuildFset (its token.Pos values live in m.fset).
 	imports                   map[string][]string                 // dir -> authoritative module-local shipping dependencies (forward edges)
 	importedBy                map[string]map[string]bool          // dep dir -> set of importer dirs (reverse edges)
@@ -254,6 +255,8 @@ type Module struct {
 	fsetRebuildBytes      int            // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount          int            // count of fset rebuilds performed (observability; exposed via rebuilds())
 	sourceIndexBuildCount int            // count of retained semantic index builds (observability; test hook)
+	goPackageAnalyses     int            // count of Go-only package analyses actually performed (observability; test hook)
+	companionIndexSkips   int            // hand-written .go siblings left out of the package index because the retained syntax and the current bytes disagree (observability; test hook)
 	gcImporter            types.Importer // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
 	mu                    sync.Mutex     // guards overrides, ext, both type caches/results/facts, both import graphs, dirty, and gcImporter publication
 	analysisMu            sync.Mutex     // serializes Package/Generate/typesPackage (see concurrency contract)
@@ -696,12 +699,19 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		// packages analyze() type-checks. One fset for the whole Module means an
 		// object from any package — project A, sibling B, or external dep — resolves
 		// unambiguously via m.fset.Position(obj.Pos()).
+		// parsedSourceHashes observes the exact bytes go/packages parses each
+		// main-module file from; retainedSourcePackage keeps the hash next to the
+		// syntax so the per-package source index can prove the two agree. The hook
+		// reproduces go/packages' default parse mode exactly, so nothing else about
+		// the load changes.
+		parsedHashes := newParsedSourceHashes(manifest.ModuleRoot(), manifest.PhysicalRoot())
 		cfg := &packages.Config{
-			Mode:    packages.NeedName | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesSizes | packages.NeedImports | packages.NeedDeps | packages.NeedModule,
-			Fset:    fset,
-			Dir:     m.opts.ModuleRoot,
-			Env:     buildEnv,
-			Overlay: packagesOverlay,
+			Mode:      packages.NeedName | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesSizes | packages.NeedImports | packages.NeedDeps | packages.NeedModule,
+			Fset:      fset,
+			Dir:       m.opts.ModuleRoot,
+			Env:       buildEnv,
+			Overlay:   packagesOverlay,
+			ParseFile: parsedHashes.parseFile,
 		}
 		// Always load the gsx runtime ("github.com/gsxhq/gsx") so that skeleton
 		// type-checking can resolve gsx.Node / gsx.Attrs / etc. The skeleton file
@@ -781,7 +791,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		for _, path := range manifest.SentinelFiles() {
 			sentinelFiles[path] = true
 		}
-		sourcePackages := projectSourcePackages(pkgs, manifest.ModuleRoot(), manifest.PhysicalRoot(), m.opts.ModulePath, sentinelFiles)
+		sourcePackages := projectSourcePackages(pkgs, manifest.ModuleRoot(), manifest.PhysicalRoot(), m.opts.ModulePath, sentinelFiles, parsedHashes)
 		sourcePackageDirs := make(map[string]string, len(sourcePackages))
 		for dir, sourcePackage := range sourcePackages {
 			sourcePackageDirs[sourcePackage.pkgPath] = dir
@@ -1297,6 +1307,7 @@ func (m *Module) rebuildFset() {
 	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
+	m.goPkgAnalyses = map[string]*goPackageAnalysis{}
 	// The parse cache's token.Pos values reference token.File entries in the old
 	// fset; a fresh fset orphans them, so it must be flushed in the same critical
 	// section that replaces the fset.
@@ -1318,6 +1329,15 @@ func (m *Module) sourceIndexBuilds() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.sourceIndexBuildCount
+}
+
+// companionIndexSkipCount returns how many hand-written .go siblings were left
+// out of a package index because their retained syntax and their current bytes
+// disagreed on size (test hook; see analyze's companion mapped-file loop).
+func (m *Module) companionIndexSkipCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.companionIndexSkips
 }
 
 // Package returns the full retained analysis for a single gsx package dir,
@@ -1392,10 +1412,8 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	res.Diags = a.bag.Sorted()
 	res.Filters = filterCandidates(a.table)
 	res.URLPresets = m.urlPresetsFor(dir)
-	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
-	res.ComponentCalls = componentCallFacts(a.positionalPlan)
+	res.ComponentCalls = a.componentCalls
 	res.ComponentDecls = a.componentDecls
-	addLocalComponentCallRefs(res.CrossIndex, res.ComponentCalls, a.gsxFset, a.pkg.Path())
 	if !a.bag.HasErrors() && len(a.typeErrs) == 0 {
 		res.ComponentParamDecls, err = componentParamDeclarationFacts(
 			a.compByKey, a.objKey, a.compsByXGo, a.goFiles, &a.componentPlan, a.info, a.gsxFset, a.pkg.Path(),
@@ -1425,8 +1443,8 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// *ast.File-keyed entries — prune to that subset before caching.
 	//
 	// Called here, immediately before the cache write, rather than right after
-	// analyze returns: every other a.info consumer above (buildCrossNav,
-	// componentParamDeclarationFacts, componentParamBodyReferenceFacts) runs
+	// analyze returns: every other a.info consumer above
+	// (componentParamDeclarationFacts, componentParamBodyReferenceFacts) runs
 	// first, so none of them ever observes a pruned Info.Scopes. Positioning the
 	// prune any earlier would be a silent trap for a future consumer inserted
 	// between analyze and this line.
@@ -1464,6 +1482,10 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 // function it calls with the analyzed dir): the ONLY module caches keyed by dir
 // that analyze writes from the patched source are pkgTypes[dir] (line ~1501)
 // and targetDeclProvenance[dir] (line ~1506); both are snapshot/restored below.
+// goPkgAnalyses is keyed only by Go-only dirs (goPackageAnalysisWith rejects a
+// gsx dir outright), so the analyzed dir never has an entry; the entries its
+// Go-only dependencies get are checked from their own real sources, which the
+// patch never touches — shared warmth, like the dependency packages below.
 // targetDeclTypes[dir] is NOT written for the analyzed dir — analyze marks it
 // loading in the componentTargetImporter, so a recursive
 // targetDeclarationPackage(dir) cycle-errors before its write. The import-graph
@@ -1575,8 +1597,7 @@ func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*Packa
 		SourceIndex:         a.sourceIndex,
 	}
 	res.Diags = a.bag.Sorted()
-	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFiles, a.gsxFset, a.skelFset, a.info)
-	res.ComponentCalls = componentCallFacts(a.positionalPlan)
+	res.ComponentCalls = a.componentCalls
 	res.ComponentDecls = a.componentDecls
 	res.Filters = filterCandidates(a.table)
 	res.URLPresets = m.urlPresetsFor(dir)

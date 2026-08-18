@@ -11,12 +11,18 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pipeshape"
 	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 type semanticDefinitionTarget struct {
 	Authored sourceintel.Span
 	Go       token.Position
+	// Object is the go/types object the Go position was resolved from. It is set
+	// only alongside Go — an authored target is already an exact span — and lets
+	// the caller prefer that object's tracked declaration spans over the raw
+	// position, which carries no length.
+	Object types.Object
 }
 
 func semanticDefinition(pkg *Package, path string, source []byte, offset int) (semanticDefinitionTarget, bool) {
@@ -49,7 +55,7 @@ func semanticDefinitionFromSnapshot(pkg *Package, path string, source []byte, of
 	if sources == nil || sources.isPairedGeneratedOutput(goPosition.Filename) {
 		return semanticDefinitionTarget{}, false
 	}
-	return semanticDefinitionTarget{Go: goPosition}, true
+	return semanticDefinitionTarget{Go: goPosition, Object: object}, true
 }
 
 // navSpan is one navigable Go-fragment byte span of a gsx node: pos is the
@@ -432,19 +438,7 @@ func importedPackageByPath(p *types.Package, importPath string) *types.Package {
 // the byte-identical relative-offset bridge go-to-def relies on — they resolve
 // through pipedTarget instead.
 func hasPipeStages(n gsxast.Node) bool {
-	switch e := n.(type) {
-	case *gsxast.Interp:
-		return len(e.Stages) > 0
-	case *gsxast.ExprAttr:
-		return len(e.Stages) > 0
-	case *gsxast.SpreadAttr:
-		return len(e.Stages) > 0
-	case *gsxast.ComposedPart:
-		return len(e.Stages) > 0
-	case *gsxast.ValueArm:
-		return len(e.Stages) > 0
-	}
-	return false
+	return len(pipeshape.Stages(n)) > 0
 }
 
 // isCtrlSpan reports whether the matched span (see exprNodeAtOffset) resolves
@@ -582,26 +576,17 @@ func (s *Server) definitionAnswerFromPkg(pkg *Package, path string, source []byt
 	// declaration(s). A single variant replies with a plain Location (unchanged
 	// wire shape); multiple build-tag variants (Task 7) reply with a []Location
 	// so the editor shows a picker — both are valid textDocument/definition results.
-	if decls, ok := componentTagDeclAt(pkg, path, off); ok {
-		nameLength := 0
-		if component, _, _, found := componentAtTag(pkg, path, off); found {
-			nameLength = len(component.Name)
-		}
-		if len(decls) == 1 {
-			location, ok := sources.locationForAuthoredPosition(decls[0], nameLength)
-			if !ok {
-				return nil, true
-			}
-			return location, true
-		}
-		locs := make([]Location, 0, len(decls))
-		for _, d := range decls {
-			if location, ok := sources.locationForAuthoredPosition(d, nameLength); ok {
-				locs = append(locs, location)
-			}
-		}
+	// This is the branch that answers when the package's positional call planning
+	// was skipped (any unrelated type error does that): the D1 branch above needs
+	// a ComponentCalls fact, which planning is the only producer of, while the
+	// tag→component index edge this branch reads is planning-independent.
+	if decls, ok := componentTagDeclAt(pkg, path, source, off); ok {
+		locs := appendSpanLocations(nil, sources, decls)
 		if len(locs) == 0 {
 			return nil, true
+		}
+		if len(locs) == 1 {
+			return locs[0], true
 		}
 		return locs, true
 	}
@@ -655,6 +640,14 @@ func (s *Server) definitionAnswerFromPkg(pkg *Package, path string, source []byt
 				return location, true
 			}
 			return nil, true
+		}
+		// The object declares outside this package's index — a DOTTED component
+		// tag when positional planning was skipped is the common case, since the
+		// tag branch above only picks up same-package tags. Its tracked
+		// declaration spans (ComponentDecls) name the component exactly; the raw
+		// position below carries no length, so it would select an empty range.
+		if result, resolved := objectDefinitionResult(sources, pkg, target.Object); resolved {
+			return result, true
 		}
 		location, ok := sources.locationForExistingFile(target.Go, 0)
 		if !ok {
@@ -797,9 +790,13 @@ func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off in
 	return dp, true
 }
 
-// handleGoDefinition answers definition for a cursor in a .go file: if the
-// cursor sits on a reference to a gsx component (per the cross-index), jump to
-// that component's .gsx declaration. Otherwise null (gopls handles real Go).
+// handleGoDefinition answers definition for a cursor in a .go file from the
+// module symbol graph: any dir in the module, a Go-only package that imports a
+// gsx package included. gopls owns .go->.go navigation, so the reply is
+// filtered to .gsx declarations only (filterAuthoredGSX) — otherwise an editor
+// that merges gsx's and gopls' results would show every .go declaration twice.
+// A build-tag variant family has one declaration per variant, so the reply is a
+// []Location picker; a single declaration replies with a plain Location.
 func (s *Server) handleGoDefinition(f frame, path string, sources *requestSourceSnapshot) error {
 	var p textDocumentPositionParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
@@ -809,115 +806,103 @@ func (s *Server) handleGoDefinition(f frame, path string, sources *requestSource
 	if !ok {
 		return s.reply(f.ID, nil)
 	}
-	pkg := s.pkgs[filepath.Dir(path)]
-	if pkg == nil || (len(pkg.NavIndex) == 0 && len(pkg.CrossIndex) == 0) {
-		return s.reply(f.ID, nil) // not a gsx package
-	}
-	curLine := p.Position.Line + 1 // token.Position is 1-based
-	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
-		lineStartOffset(text, p.Position.Line) + 1 // 1-based byte column on the line
-	for _, nr := range pkg.NavIndex {
-		if nr.To.IsValid() && posCoversCursor(nr.From, path, curLine, curCol, len(nr.Name)) {
-			location, ok := sources.locationForAuthoredPosition(nr.To, len(nr.Name))
-			if !ok {
-				return s.reply(f.ID, nil)
-			}
-			return s.reply(f.ID, location)
-		}
-	}
-	return s.reply(f.ID, nil)
-}
+	source, _ := sources.sourceText(path) // same captured source, validated above
+	dir := filepath.Dir(path)
+	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
-// lineStartOffset returns the byte offset of the start of the 0-based line.
-func lineStartOffset(text string, line int) int {
-	off := 0
-	for range line {
-		nl := strings.IndexByte(text[off:], '\n')
-		if nl < 0 {
-			return len(text)
-		}
-		off += nl + 1
+	graph := s.moduleSymbolGraph(sources, dir)
+	key, found := symbolDefinitionAt(graph, path, source, off)
+	if !found {
+		graph = packageSymbolGraph(s.pkgs[dir])
+		key, found = symbolDefinitionAt(graph, path, source, off)
 	}
-	return off
-}
-
-// posCoversCursor reports whether the token.Position r (a reference in a .go
-// file) covers the given cursor (1-based line and byte column). The reference
-// name has length nameLen bytes; the span is [r.Column, r.Column+nameLen).
-// filepath.Base comparison is used so the cross-index path need not be absolute.
-func posCoversCursor(r token.Position, path string, curLine, curCol, nameLen int) bool {
-	if r.Line != curLine {
-		return false
+	if !found {
+		return s.reply(f.ID, nil)
 	}
-	if filepath.Base(r.Filename) != filepath.Base(path) {
-		return false
+	locations := appendSpanLocations(nil, sources, filterAuthoredGSX(graph.Definitions(key)))
+	switch len(locations) {
+	case 0:
+		return s.reply(f.ID, nil)
+	case 1:
+		return s.reply(f.ID, locations[0])
+	default:
+		return s.reply(f.ID, locations)
 	}
-	return curCol >= r.Column && curCol < r.Column+nameLen
 }
 
 // componentTagDeclAt checks whether the byte offset off in the .gsx file at
 // path sits on the name portion of a same-package component element tag (e.g.
-// the "Card" in "<Card .../>", or a lowercase "card" resolving to a
-// package-level declaration — el.IsComponent is the codegen-stamped answer,
-// not a syntactic capital-letter guess). Dotted tags are excluded here (they
-// go through crossPkgTagDeclAt instead). If so, it looks the component up in
-// pkg.CrossIndex by the function-component key "." + tag, and returns every
-// build-tag variant's declaration position (Task 7) and true. Returns (nil,
-// false) if the cursor is not on a component tag.
-func componentTagDeclAt(pkg *Package, path string, off int) ([]token.Position, bool) {
-	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
+// the "Card" in "<Card .../>" or in its closing "</Card>", or a lowercase
+// "card" resolving to a package-level declaration — el.IsComponent is the
+// codegen-stamped answer, not a syntactic capital-letter guess). Dotted tags
+// are excluded here: a same-package build-tag variant family is what this
+// branch's multi-span picker exists for, and a dotted tag names one imported
+// declaration, which the index-backed semantic branch at the end of the cascade
+// (semanticDefinitionFromSnapshot) already answers from the same occurrence.
+// The declarations come from the package symbol graph, so a build-tag variant
+// family yields one span per variant. source must be the exact bytes pkg was
+// analyzed from: the index is offset-addressed, so stale bytes name nothing.
+func componentTagDeclAt(pkg *Package, path string, source []byte, off int) ([]sourceintel.Span, bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil || pkg.SourceIndex == nil {
 		return nil, false
 	}
-	f := pkg.Files[path]
-	if f == nil {
+	file := pkg.Files[path]
+	if file == nil {
 		return nil, false
 	}
-	var result []token.Position
-	found := false
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
-		if found {
+	nameStart, nameLen, ok := componentTagNameAt(pkg, file, off)
+	if !ok {
+		return nil, false
+	}
+	// The authored tag name is not Go, so the type checker never saw it: the
+	// index carries the tag site as an explicit occurrence of the component's
+	// object (codegen's gsxExtraOccurrences). Resolving the OPENING tag-name
+	// offset serves a cursor on either tag, which is why the walk normalizes
+	// closing tags onto it.
+	graph := packageSymbolGraph(pkg)
+	key, resolved := symbolAt(graph, path, source, nameStart)
+	if !resolved {
+		return nil, false
+	}
+	occurrence, found := pkg.SourceIndex.At(path, nameStart)
+	if !found || occurrence.Span.Start != nameStart || occurrence.Span.End != nameStart+nameLen {
+		return nil, false
+	}
+	if _, isFunc := occurrence.Object.(*types.Func); !isFunc {
+		return nil, false // the offset names something other than the component
+	}
+	spans := graph.Definitions(key)
+	if len(spans) == 0 {
+		return nil, false
+	}
+	return spans, true
+}
+
+// componentTagNameAt reports the OPENING tag-name span of the same-package
+// component element whose opening or closing tag name covers off.
+func componentTagNameAt(pkg *Package, file *gsxast.File, off int) (nameStart, nameLen int, ok bool) {
+	inspectWithEmbedded(file, func(n gsxast.Node) bool {
+		if ok {
 			return false
 		}
-		el, ok := n.(*gsxast.Element)
-		if !ok {
+		el, isElement := n.(*gsxast.Element)
+		if !isElement || el.Tag == "" || strings.Contains(el.Tag, ".") || !el.IsComponent {
 			return true
 		}
-		tag := el.Tag
-		if tag == "" || strings.Contains(tag, ".") || !el.IsComponent {
-			// not a same-package function component tag
-			return true
-		}
-		// The opening tag name starts right after the '<': nameStart is the byte
-		// offset of the first character of the tag name in the file.
-		elOff := pkg.GSXFset.Position(el.Pos()).Offset
-		nameStart := elOff + 1 // skip '<'
-		onOpen := off >= nameStart && off < nameStart+len(tag)
-		// The closing tag name (the "Card" in "</Card>") resolves the same way, so
-		// go-to-definition works from either end of the element.
+		// The opening tag name starts right after the '<'.
+		start := pkg.GSXFset.Position(el.Pos()).Offset + 1
+		onOpen := off >= start && off < start+len(el.Tag)
+		// The closing tag name (the "Card" in "</Card>") resolves the same way,
+		// so go-to-definition works from either end of the element.
 		onClose := false
 		if el.CloseNamePos.IsValid() {
 			closeStart := pkg.GSXFset.Position(el.CloseNamePos).Offset
-			onClose = off >= closeStart && off < closeStart+len(tag)
+			onClose = off >= closeStart && off < closeStart+len(el.Tag)
 		}
 		if onOpen || onClose {
-			// Cursor is on the tag name; look up in CrossIndex. Decls carries every
-			// build-tag variant's declaration (Task 6); fall back to the single
-			// primary Decl for CrossRef values that predate Decls (e.g. synthetic
-			// test fixtures built before Task 7).
-			key := "." + tag
-			cr, ok := pkg.CrossIndex[key]
-			if ok {
-				decls := cr.Decls
-				if len(decls) == 0 && cr.Decl.IsValid() {
-					decls = []token.Position{cr.Decl}
-				}
-				if len(decls) > 0 {
-					result = decls
-					found = true
-				}
-			}
+			nameStart, nameLen, ok = start, len(el.Tag), true
 		}
 		return true
 	})
-	return result, found
+	return nameStart, nameLen, ok
 }

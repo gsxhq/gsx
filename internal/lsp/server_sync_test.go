@@ -12,6 +12,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // fakeAnalyzer returns one error diagnostic for the file it is told about.
@@ -22,7 +23,9 @@ type fakeAnalyzer struct {
 func (a fakeAnalyzer) ClearOverride(string) ([]string, error)       { return nil, nil }
 func (a fakeAnalyzer) SetOverride(string, []byte) ([]string, error) { return nil, nil }
 
-func (a fakeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) { return nil, nil }
+func (a fakeAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
+	return nil, nil
+}
 func (a fakeAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {
 	return nil, nil
 }

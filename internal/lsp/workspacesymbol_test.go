@@ -12,6 +12,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 func wsSymFrame(id int, query string) string {
@@ -40,7 +41,7 @@ func (a *wsSymAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Pa
 }
 
 func (a *wsSymAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { return &Package{}, nil }
-func (a *wsSymAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (a *wsSymAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	return nil, nil
 }
 func (a *wsSymAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {

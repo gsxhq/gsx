@@ -6,57 +6,8 @@ import (
 	"go/types"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pipeshape"
 )
-
-// ctxIdent is the reserved ambient render-context identifier the codegen lowering
-// injects as the first argument of a ctx-taking filter. It MUST match codegen's
-// pipeCtxIdent ("ctx"). The value is stable; a real ctx-injected end-to-end guard
-// lands with the filter-resolution wiring (std has no ctx filter today).
-const ctxIdent = "ctx"
-
-// walkPipe peels the N seed-first filter layers of a lowered pipeline expression.
-// The lowering shape is `Func([ctx,] subject, args…)` nested via the subject, so
-// for stage i it returns the filter's Sel ident and its user stage args, and at
-// the bottom the (unwrapped) seed expression. ok=false on any unexpected shape.
-func walkPipe(skel ast.Expr, n int) (selSel []*ast.Ident, selArgs [][]ast.Expr, seed ast.Expr, ok bool) {
-	if n <= 0 {
-		return nil, nil, nil, false
-	}
-	selSel = make([]*ast.Ident, n)
-	selArgs = make([][]ast.Expr, n)
-	cur := skel
-	for i := n - 1; i >= 0; i-- {
-		call, isCall := cur.(*ast.CallExpr)
-		if !isCall {
-			return nil, nil, nil, false
-		}
-		sel, isSel := call.Fun.(*ast.SelectorExpr)
-		if !isSel || len(call.Args) == 0 {
-			return nil, nil, nil, false
-		}
-		selSel[i] = sel.Sel
-		subjIdx := 0
-		if id, isID := call.Args[0].(*ast.Ident); isID && id.Name == ctxIdent {
-			subjIdx = 1 // ctx injected at args[0]
-		}
-		if subjIdx >= len(call.Args) {
-			return nil, nil, nil, false
-		}
-		selArgs[i] = call.Args[subjIdx+1:]
-		cur = call.Args[subjIdx]
-	}
-	return selSel, selArgs, unwrapParens(cur), true
-}
-
-func unwrapParens(e ast.Expr) ast.Expr {
-	for {
-		p, ok := e.(*ast.ParenExpr)
-		if !ok {
-			return e
-		}
-		e = p.X
-	}
-}
 
 // bridgePipeNodeBySeed locates, in pkg.Files[path], the pipeline-carrying node
 // whose seed span (the primary nodeNavSpans span) starts at byte offset seedOff.
@@ -75,7 +26,7 @@ func bridgePipeNodeBySeed(pkg *Package, path string, seedOff int) gsxast.Node {
 		if found != nil {
 			return false
 		}
-		if len(pipeStages(n)) == 0 {
+		if len(pipeshape.Stages(n)) == 0 {
 			return true
 		}
 		spans, _ := nodeNavSpans(n)
@@ -103,7 +54,7 @@ func cursorStageIndex(pkg *Package, node gsxast.Node, off int) (int, bool) {
 		return 0, false
 	}
 	idx := -1
-	for i, st := range pipeStages(node) {
+	for i, st := range pipeshape.Stages(node) {
 		if !st.NamePos.IsValid() {
 			continue
 		}
@@ -131,7 +82,7 @@ func pipeIncomingType(pkg *Package, node gsxast.Node, stageIdx int, filters []Fi
 	if stageIdx == 0 {
 		return pipeSeedType(pkg, node)
 	}
-	stages := pipeStages(node)
+	stages := pipeshape.Stages(node)
 	if stageIdx-1 >= len(stages) {
 		return nil, false
 	}
@@ -148,7 +99,7 @@ func pipeIncomingType(pkg *Package, node gsxast.Node, stageIdx int, filters []Fi
 
 // pipeSeedType returns the type of the pipeline's seed expression. When the
 // lowered skeleton is a nested filter-call chain (every stage resolved) the seed
-// is walkPipe's innermost expression; when the pipeline failed to lower — the
+// is pipeshape.Walk's innermost expression; when the pipeline failed to lower — the
 // common completion case, where the cursor stage is an unknown/partial filter
 // and codegen falls the whole pipeline back to the bare seed (see analyze.go's
 // probeExpr) — ExprMap[node] IS the seed expression. Both are looked up in
@@ -159,7 +110,7 @@ func pipeSeedType(pkg *Package, node gsxast.Node) (types.Type, bool) {
 		return nil, false
 	}
 	seed := skel
-	if _, _, s, ok := walkPipe(skel, len(pipeStages(node))); ok && s != nil {
+	if _, _, s, ok := pipeshape.Walk(skel, len(pipeshape.Stages(node))); ok && s != nil {
 		seed = s
 	}
 	tv, ok := pkg.Info.Types[seed]
@@ -313,22 +264,6 @@ func compatiblePipeFilters(pkg *Package, path string, seedOff, off int, filters 
 	return out, true
 }
 
-func pipeStages(node gsxast.Node) []gsxast.PipeStage {
-	switch e := node.(type) {
-	case *gsxast.Interp:
-		return e.Stages
-	case *gsxast.ExprAttr:
-		return e.Stages
-	case *gsxast.SpreadAttr:
-		return e.Stages
-	case *gsxast.ComposedPart:
-		return e.Stages
-	case *gsxast.ValueArm:
-		return e.Stages
-	}
-	return nil
-}
-
 func useObj(pkg *Package, id *ast.Ident) types.Object {
 	obj := pkg.Info.Uses[id]
 	if obj == nil {
@@ -351,12 +286,12 @@ func identInArgs(args []ast.Expr, pos token.Pos) *ast.Ident {
 // when the cursor is on no resolvable region or the lowered shape is unexpected.
 // It never panics — every assertion is guarded.
 func pipedTarget(pkg *Package, node gsxast.Node, exprPos token.Pos, off int) (types.Object, [2]int, bool) {
-	stages := pipeStages(node)
+	stages := pipeshape.Stages(node)
 	skel := pkg.ExprMap[node]
 	if skel == nil || len(stages) == 0 || pkg.Info == nil || pkg.GSXFset == nil {
 		return nil, [2]int{}, false
 	}
-	selSel, selArgs, seedExpr, ok := walkPipe(skel, len(stages))
+	selSel, selArgs, seedExpr, ok := pipeshape.Walk(skel, len(stages))
 	if !ok {
 		return nil, [2]int{}, false
 	}

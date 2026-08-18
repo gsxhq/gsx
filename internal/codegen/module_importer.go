@@ -335,6 +335,9 @@ func (m *Module) affectedLocked(seeds []string) invalidationScope {
 	for dir := range m.pkgResults {
 		scope.dirs[dir] = true
 	}
+	for dir := range m.goPkgAnalyses {
+		scope.dirs[dir] = true
+	}
 	addForwardGraphDirs(scope.dirs, m.imports)
 	addForwardGraphDirs(scope.dirs, m.targetImports)
 	addForwardGraphDirs(scope.dirs, m.sourceDeclImports)
@@ -380,6 +383,7 @@ func (m *Module) invalidateConfiguredSourceStateLocked() {
 	m.targetDeclProvenance = componentTargetProvenanceCache{}
 	m.configuredDeclTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
+	m.goPkgAnalyses = map[string]*goPackageAnalysis{}
 }
 
 // invalidateLocked drops the reverse-closure of ordinary dirs from pkgTypes and
@@ -404,6 +408,7 @@ func (m *Module) invalidateScopeLocked(scope invalidationScope) []string {
 		delete(m.targetDeclProvenance, d)
 		delete(m.configuredDeclTypes, d)
 		delete(m.pkgResults, d)
+		delete(m.goPkgAnalyses, d)
 	}
 	return scope.sorted()
 }
@@ -854,53 +859,21 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // the shipping declaration universe. The retained ASTs are the Go command's
 // active CompiledGoFiles selection from the Module's frozen environment; no
 // generated output, disk reparse, or export-data package participates here.
+//
+// It is the importer contract's soundness-demanding view of the same analysis
+// GoPackageIndex reads: goPackageAnalysisWith retains a package that failed to
+// check, this publishes one only when it did not.
 func (m *Module) shippingGoPackageWith(dir string, mi *moduleImporter) (*types.Package, error) {
-	mi.seen[dir] = true
-	defer delete(mi.seen, dir)
-	sourcePackage, found, ready := m.targetSourcePackage(dir)
-	if !ready || !found {
-		return nil, fmt.Errorf("codegen: shipping source inventory has no Go-only package for %s", dir)
-	}
-	files, importPaths, err := m.parseTargetCompanionGoFiles(dir, nil)
+	// withInfo=false: the importer contract needs the package, not the identifier
+	// maps, and this runs for every Go-only intermediary of every generate cycle.
+	a, err := m.goPackageAnalysisWith(dir, mi, false)
 	if err != nil {
 		return nil, err
 	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("codegen: shipping Go-only package %s has no retained compiled source", dir)
+	if a.sourceErr != nil {
+		return nil, a.sourceErr
 	}
-	if err := m.rejectExternalBackedgeImports(files); err != nil {
-		return nil, err
-	}
-	typeEnvironment, err := m.typeCheckEnvironmentForDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Publish the complete syntactic path before recursive checking. This keeps
-	// invalidation correct even when an imported package currently has an error;
-	// semantic package publication remains gated on the successful check below.
-	m.recordImports(dir, importPaths)
-	var typeErrs []types.Error
-	config := types.Config{
-		Importer:  mi,
-		Sizes:     typeEnvironment.sizes,
-		GoVersion: typeEnvironment.goVersion,
-		Error: func(err error) {
-			if typeErr, ok := err.(types.Error); ok {
-				typeErrs = append(typeErrs, typeErr)
-			}
-		},
-	}
-	pkg := types.NewPackage(sourcePackage.pkgPath, sourcePackage.name)
-	checker := types.NewChecker(&config, m.fset, pkg, nil)
-	_ = checker.Files(files)
-	if mi.sourceErr != nil {
-		return nil, mi.sourceErr
-	}
-	if mi.cycleErr != nil {
-		return nil, mi.cycleErr
-	}
-	if err := typeErrorsAsSourceError(typeErrs); err != nil {
+	if err := typeErrorsAsSourceError(a.typeErrs); err != nil {
 		return nil, err
 	}
 
@@ -908,9 +881,9 @@ func (m *Module) shippingGoPackageWith(dir string, mi *moduleImporter) (*types.P
 	if m.pkgTypes == nil {
 		m.pkgTypes = map[string]*types.Package{}
 	}
-	m.pkgTypes[dir] = pkg
+	m.pkgTypes[filepath.Clean(dir)] = a.pkg
 	m.mu.Unlock()
-	return pkg, nil
+	return a.pkg, nil
 }
 
 // analyzed is the full retained result of analyzing one gsx package: the parsed
@@ -954,7 +927,10 @@ type analyzed struct {
 	unusedImports     map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
 	missingImports    map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
 	sourceIndex       *sourceintel.Index             // immutable authored semantic facts harvested from the full skeleton check
-
+	// componentCalls is the published per-element call fact set, derived from
+	// positionalPlan ONCE here: the retained index's tag/attr edges and every
+	// PackageResult consumer read this same map instead of re-deriving it.
+	componentCalls map[*gsxast.Element]ComponentCallFact
 }
 
 // unusedImportForSpecs reports whether e is an unused-import error for one of
@@ -1094,9 +1070,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		return nil, err
 	}
 	gsxFiles, pkgName := parsed.files, parsed.name
-	companionFiles, goImportPaths, err := m.parseTargetCompanionGoFiles(dir, gsxFiles)
+	companionSources, goImportPaths, err := m.companionGoSources(dir, gsxFiles)
 	if err != nil {
 		return nil, err
+	}
+	companionFiles := make([]*goast.File, 0, len(companionSources))
+	for _, source := range companionSources {
+		companionFiles = append(companionFiles, source.file)
 	}
 	// Materialize embedded markup, classify the now-complete JavaScript tree,
 	// and assign stable candidate IDs before any skeleton/probe/emit walk.
@@ -1426,6 +1406,21 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// disk parse would select a different universe and would also discard cgo's
 	// generated syntax.
 	goFiles = append(goFiles, companionFiles...)
+	if purpose == analysisRetainedPackage {
+		// Hand-written .go siblings enter the package index identity-mapped;
+		// identityMappedCompanionFile owns the exact three-way guard that decides
+		// whether the retained syntax may be keyed by the current bytes at all.
+		for _, source := range companionSources {
+			mappedFile, ok, mapErr := m.identityMappedCompanionFile(source, fset)
+			if mapErr != nil {
+				return nil, mapErr
+			}
+			if !ok {
+				continue
+			}
+			mappedFiles = append(mappedFiles, mappedFile)
+		}
+	}
 	if err := m.rejectExternalBackedgeImports(goFiles); err != nil {
 		return nil, err
 	}
@@ -1541,13 +1536,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// markers, even when no eligible target required helper allocation, so a
 	// rejected marker cannot leak into positional emission.
 	refreshLocalDirectTargetFacts(targetFacts, targetPackage, componentPlan)
-	var sourceIndex *sourceintel.Index
-	if purpose == analysisRetainedPackage {
-		sourceIndex = sourceintel.BuildIndex(info, mappedFiles)
-		m.mu.Lock()
-		m.sourceIndexBuildCount++
-		m.mu.Unlock()
-	}
 	if callSites != nil && targetPlanningReady {
 		var planningDiagnostics []diag.Diagnostic
 		positionalPlan, planningDiagnostics = planComponentPositionalCalls(componentPositionalPlanningInput{
@@ -1616,6 +1604,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	exprMap := map[gsxast.Node]goast.Expr{}
 	compByKey := map[string][]*gsxast.Component{} // logical component key -> component(s); >1 = build-tag variants
 	objKey := map[types.Object]string{}           // every public/private skeleton component object -> logical component key
+	// publicComponentObj is objKey's inverse restricted to the AUTHORED
+	// declaration of each logical component: the object every gsx-only edge
+	// (tag site, attr binding, variant declaration) attaches to.
+	publicComponentObj := map[string]types.Object{}
 	for _, gf := range goFiles {
 		fname := fset.Position(gf.Pos()).Filename
 		comps, ok := compsByXGo[fname]
@@ -1629,12 +1621,19 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		// list, using the same ordered probe stream as ordinary component bodies.
 		harvestEmbeddedElements(gf, gwMarkupsByXGo[fname], info, resolved, exprMap, nil)
 		declLogicalKeys := map[string]string{}
+		// publicDeclKeys is declLogicalKeys restricted to the declaration named
+		// exactly as the component is authored (emission.public). A split
+		// component's analysis-only body declaration is deliberately absent, so
+		// the index can canonicalise every body-side object onto the authored
+		// one (see symbol_extras.go).
+		publicDeclKeys := map[string]string{}
 		for _, c := range comps {
 			logicalKey := componentPlan.logicalKey(c)
 			compByKey[logicalKey] = append(compByKey[logicalKey], c)
 			if emission, ok := componentPlan.emission(c); ok {
 				if emission.public {
 					declLogicalKeys[componentKey(c)] = logicalKey
+					publicDeclKeys[componentKey(c)] = logicalKey
 				}
 				if emission.splitBody && emission.bodyName != "" {
 					declLogicalKeys[componentKeyWithName(c, emission.bodyName)] = logicalKey
@@ -1646,12 +1645,16 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 			if !ok {
 				continue
 			}
-			logicalKey, ok := declLogicalKeys[funcDeclKey(fd)]
+			declKey := funcDeclKey(fd)
+			logicalKey, ok := declLogicalKeys[declKey]
 			if !ok {
 				continue
 			}
 			if obj := info.Defs[fd.Name]; obj != nil {
 				objKey[obj] = logicalKey
+				if _, public := publicDeclKeys[declKey]; public {
+					publicComponentObj[logicalKey] = obj
+				}
 			}
 		}
 	}
@@ -1723,6 +1726,33 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		}
 	}
 
+	// The retained semantic index is built LAST: it consumes the positional plan
+	// (component call sites), the harvested exprMap (pipe stage lowering), the
+	// component object keys and the declaration provenances, all of which are
+	// only final at this point.
+	var sourceIndex *sourceintel.Index
+	var componentCalls map[*gsxast.Element]ComponentCallFact
+	if purpose == analysisRetainedPackage {
+		componentCalls = componentCallFacts(positionalPlan)
+		sourceIndex = sourceintel.BuildIndexWith(info, mappedFiles, sourceintel.BuildOptions{
+			Extra: gsxExtraOccurrences(gsxExtraInput{
+				calls:          componentCalls,
+				componentDecls: componentDecls,
+				pkgPath:        pkgPath,
+				canonicalByKey: publicComponentObj,
+				exprMap:        exprMap,
+				info:           info,
+				gsxFset:        fset,
+				callSites:      callSites,
+				targetFacts:    targetFacts,
+			}),
+			Canonical: componentCanonicalizer(objKey, publicComponentObj),
+		})
+		m.mu.Lock()
+		m.sourceIndexBuildCount++
+		m.mu.Unlock()
+	}
+
 	return &analyzed{
 		pkgName:           pkgName,
 		gsxFiles:          gsxFiles,
@@ -1756,6 +1786,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		unusedImports:     unusedImports,
 		missingImports:    missingImports,
 		sourceIndex:       sourceIndex,
+		componentCalls:    componentCalls,
 	}, nil
 }
 

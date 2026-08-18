@@ -2,24 +2,19 @@ package lsp
 
 import (
 	"encoding/json"
-	"go/token"
 	"path/filepath"
-	"strconv"
 	"strings"
+
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
-// handleReferences returns every reference to the gsx component under the cursor
-// — .go call sites and .gsx <Card/> tags — from the cross-index. The RESULT
-// always spans both .go and .gsx sites; the cursor that INVOKES it may be on the
-// component's .gsx declaration or on a .go call site. Identifying the component
-// from a .gsx <Card/> tag cursor is deferred (it needs component-tag resolution
-// like definition's D2; the tag's //line column is approximate) — a tag cursor
-// returns empty rather than a flaky off-by-column match.
-//
-// The whole-module index (AnalyzeModule) is queried first: it is built lazily,
-// cached across requests, and invalidated whenever any document mutates. On
-// AnalyzeModule error the single-package CrossIndex (built by Analyze on didOpen)
-// is used as a fallback so existing in-package references behaviour is preserved.
+// handleReferences answers textDocument/references from the module symbol
+// graph: the occurrence under the cursor — in any indexed .gsx or .go file,
+// including a component tag name, an `attr=` binding and a `|> pipe` stage —
+// names an ObjectKey, and the reply is every reference span of that key
+// module-wide, plus its definition spans when includeDeclaration is set. When
+// the module graph cannot be built (or does not cover the cursor's file), the
+// retained per-package index answers same-package requests.
 func (s *Server) handleReferences(f frame) error {
 	var p referenceParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
@@ -28,100 +23,157 @@ func (s *Server) handleReferences(f frame) error {
 	if !s.diskViewValid {
 		return s.reply(f.ID, []Location{})
 	}
-	uri := p.TextDocument.URI
-	path := uriToPath(uri)
+	path := uriToPath(p.TextDocument.URI)
 	sources := s.sourceSnapshot()
 	text, ok := sources.sourceString(path)
 	if !ok {
 		return s.reply(f.ID, []Location{})
 	}
-	curLine := p.Position.Line + 1
-	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
-		lineStartOffset(text, p.Position.Line) + 1
+	source, _ := sources.sourceText(path) // same captured source, validated above
+	dir := filepath.Dir(path)
+	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
-	// Whole-module index (lazy, cached, invalidated on edits). A successful
-	// AnalyzeModule — even an empty result — is cached; an error leaves the
-	// cache invalid so the single-package fallback below still answers.
-	if !s.moduleRefsValid {
-		s.refreshModuleReferences(sources, filepath.Dir(path))
+	graph := s.moduleSymbolGraph(sources, dir)
+	key, found := symbolAt(graph, path, source, off)
+	if !found {
+		graph = packageSymbolGraph(s.pkgs[dir])
+		key, found = symbolAt(graph, path, source, off)
 	}
-
-	found := identifyCrossRef(s.moduleRefs, path, curLine, curCol)
-	if found == nil {
-		// Fall back to the single-package index (covers AnalyzeModule errors and
-		// any cursor the module index did not resolve).
-		if pkg := s.pkgs[filepath.Dir(path)]; pkg != nil && len(pkg.CrossIndex) > 0 {
-			vals := make([]CrossRef, 0, len(pkg.CrossIndex))
-			for k := range pkg.CrossIndex {
-				vals = append(vals, pkg.CrossIndex[k])
-			}
-			found = identifyCrossRef(vals, path, curLine, curCol)
-		}
-	}
-	if found == nil {
+	if !found {
 		return s.reply(f.ID, []Location{})
 	}
 
-	locs := make([]Location, 0, len(found.Refs)+len(found.Decls)+1)
-	for _, r := range found.Refs {
-		if location, ok := sources.locationForResolvedPosition(r, len(found.Name)); ok {
-			locs = append(locs, location)
-		}
+	definitions := graph.Definitions(key)
+	references := graph.References(key)
+	// gopls owns .go->.go navigation; from a .go cursor gsx answers with .gsx
+	// locations only so editors that merge both servers' results don't show a
+	// .go site twice. A .gsx cursor is gsx's alone (gopls is not attached to
+	// .gsx), so it keeps both .gsx and .go locations.
+	if strings.HasSuffix(path, ".go") {
+		definitions = filterAuthoredGSX(definitions)
+		references = filterAuthoredGSX(references)
 	}
+
+	locations := make([]Location, 0)
 	if p.Context.IncludeDeclaration {
-		// Emit every build-tag variant's declaration (found.Decls), not just the
-		// primary found.Decl, deduping by filename+offset since Decls always
-		// contains found.Decl too (Decls[0], see codegen.CrossRef).
-		decls := found.Decls
-		if len(decls) == 0 {
-			decls = []token.Position{found.Decl}
-		}
-		seen := map[string]bool{}
-		for _, d := range decls {
-			if !d.IsValid() {
-				continue
-			}
-			k := d.Filename + ":" + strconv.Itoa(d.Offset)
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-			if location, ok := sources.locationForAuthoredPosition(d, len(found.Name)); ok {
-				locs = append(locs, location)
-			}
-		}
+		locations = appendSpanLocations(locations, sources, definitions)
 	}
-	return s.reply(f.ID, locs)
+	locations = appendSpanLocations(locations, sources, references)
+	return s.reply(f.ID, locations)
 }
 
-func (s *Server) refreshModuleReferences(sources *requestSourceSnapshot, dir string) {
-	if refs, err := s.analyzer.AnalyzeModule(dir, sources.openGSXOverrides()); err == nil {
-		s.moduleRefs = refs
-		s.moduleRefsValid = true
+func appendSpanLocations(locations []Location, sources *requestSourceSnapshot, spans []sourceintel.Span) []Location {
+	for _, span := range spans {
+		if location, ok := sources.locationForSpan(span); ok {
+			locations = append(locations, location)
+		}
+	}
+	return locations
+}
+
+// filterAuthoredGSX keeps only spans in .gsx-authored files. gopls owns
+// .go->.go navigation, so a request from a .go cursor answers with .gsx
+// locations only — otherwise an editor that merges gsx's and gopls' results
+// would show every .go site twice.
+func filterAuthoredGSX(spans []sourceintel.Span) []sourceintel.Span {
+	filtered := spans[:0:0]
+	for _, span := range spans {
+		if strings.HasSuffix(span.Path, ".gsx") {
+			filtered = append(filtered, span)
+		}
+	}
+	return filtered
+}
+
+// moduleSymbolGraph returns the whole-module graph, analyzing it lazily. A
+// successful analysis — even an empty graph — is cached until the next document
+// mutation or watched change; an error leaves the cache invalid so the next
+// request retries.
+//
+// One graph is cached at a time, so it is keyed by the module that owns the
+// request directory: in a go.work workspace a request from a second module is a
+// cache MISS, not a graph the second module's files are absent from. Without
+// the key the first module's graph would answer every later request, fail
+// symbolAt's MatchesSource guard and silently degrade every other module to the
+// per-package index until an unrelated invalidation.
+func (s *Server) moduleSymbolGraph(sources *requestSourceSnapshot, dir string) *sourceintel.SymbolGraph {
+	if s.moduleGraphValid && s.moduleGraphRoot == s.moduleGraphRootFor(dir) {
+		return s.moduleGraph
+	}
+	// A foreign module's graph is never served to this request: drop it first so
+	// a failed analysis degrades to the per-package index instead.
+	s.moduleGraph = nil
+	s.moduleGraphValid = false
+	s.moduleGraphRoot = ""
+	s.refreshModuleGraph(sources, dir)
+	return s.moduleGraph
+}
+
+func (s *Server) refreshModuleGraph(sources *requestSourceSnapshot, dir string) {
+	if graph, err := s.analyzer.AnalyzeModule(dir, sources.openGSXOverrides()); err == nil {
+		s.moduleGraph = graph
+		s.moduleGraphValid = true
+		s.moduleGraphRoot = s.moduleGraphRootFor(dir)
 	}
 }
 
-// identifyCrossRef finds the component whose declaration (exact NamePos) or a
-// .go reference covers the cursor. .gsx-file refs are skipped for identification
-// — their //line-derived columns are approximate (see the original references
-// comment), so a tag cursor resolves to "no match" rather than an off-column hit.
-func identifyCrossRef(refs []CrossRef, path string, curLine, curCol int) *CrossRef {
-	for i := range refs {
-		cr := refs[i]
-		if posCoversCursor(cr.Decl, path, curLine, curCol, len(cr.Name)) {
-			return &refs[i]
-		}
-		for _, d := range cr.Decls {
-			if posCoversCursor(d, path, curLine, curCol, len(cr.Name)) {
-				return &refs[i]
-			}
-		}
-		for _, r := range cr.Refs {
-			if strings.HasSuffix(r.Filename, ".go") &&
-				posCoversCursor(r, path, curLine, curCol, len(cr.Name)) {
-				return &refs[i]
-			}
-		}
+// moduleGraphRootFor names the module that owns a request directory: the
+// initialized module root containing it — the identity workspace symbols and
+// path invalidation are keyed by — or, when workspace discovery claims no
+// module for it, the directory itself, so two unclaimed directories never share
+// one cache entry.
+func (s *Server) moduleGraphRootFor(dir string) string {
+	if module := workspaceModuleForPath(s.workspaceModules, dir); module != "" {
+		return module
 	}
-	return nil
+	return filepath.Clean(dir)
+}
+
+// packageSymbolGraph is the degraded, same-package answer for when the module
+// graph does not cover the cursor, and the decl oracle for a same-package
+// component tag: one package's retained index, keyed on its own types.
+//
+// It is limited to packages this server owns — ones that actually author .gsx
+// files. A package with no .gsx is gopls' alone (a .go cursor there is answered
+// by the module graph only when the package imports a gsx package, which is the
+// coverage the graph is built for); answering it from the retained index would
+// duplicate gopls in packages gsx has no business in.
+//
+// Building the graph costs ~0.26µs per indexed occurrence (measured), so a
+// per-request build is affordable and no cache has to be kept coherent with
+// re-analysis.
+func packageSymbolGraph(pkg *Package) *sourceintel.SymbolGraph {
+	if pkg == nil || pkg.SourceIndex == nil || len(pkg.Files) == 0 {
+		return nil
+	}
+	graph := sourceintel.NewSymbolGraph()
+	graph.AddIndex(pkg.SourceIndex, sourceintel.NewKeyer(pkg.Types))
+	return graph
+}
+
+// symbolAt resolves a cursor to the key of the symbol it names. It is
+// fail-closed on staleness: the graph must have been built from exactly the
+// bytes the request is resolving against, or the offset means nothing.
+func symbolAt(graph *sourceintel.SymbolGraph, path string, source []byte, offset int) (sourceintel.ObjectKey, bool) {
+	if graph == nil || !graph.MatchesSource(path, source) {
+		return "", false
+	}
+	key, _, ok := graph.At(path, offset)
+	return key, ok
+}
+
+// symbolDefinitionAt is symbolAt for go-to-definition: it prefers the USE at
+// the cursor over a definition at the same span. The only ident that is both is
+// an embedded struct field, where the use (the embedded type) is what F12
+// should travel to; every other cursor has at most one of the two, so the
+// preference is a no-op. References and hover keep symbolAt's tie-break.
+func symbolDefinitionAt(graph *sourceintel.SymbolGraph, path string, source []byte, offset int) (sourceintel.ObjectKey, bool) {
+	if graph == nil || !graph.MatchesSource(path, source) {
+		return "", false
+	}
+	if key, _, ok := graph.UseAt(path, offset); ok {
+		return key, true
+	}
+	key, _, ok := graph.At(path, offset)
+	return key, ok
 }

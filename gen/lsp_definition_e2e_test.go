@@ -293,8 +293,11 @@ component (p *Page) Render(label Alias) {
 			wantURI: uri, wantStart: strings.Index(source, "type Alias") + len("type "), wantLength: len("Alias"), wantSource: source,
 		},
 		{
+			// Like every same-package case above, the reply selects the declared
+			// NAME: a cross-package object is resolved through its declaration
+			// spans/name length, not as an empty caret at its position.
 			id: 7, name: "cross-package explicit type argument", cursor: strings.Index(source, "Box[widgets.Label]") + len("Box[widgets."),
-			wantURI: "file://" + dependencyPath, wantStart: strings.Index(dependency, "Label"), wantSource: dependency,
+			wantURI: "file://" + dependencyPath, wantStart: strings.Index(dependency, "Label"), wantLength: len("Label"), wantSource: dependency,
 		},
 		{
 			id: 8, name: "component parameter declaration to self", cursor: strings.Index(source, "value T"),

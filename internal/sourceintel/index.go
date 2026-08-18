@@ -73,6 +73,21 @@ type Index struct {
 	definitions  map[types.Object]Span
 	declarations map[string][]Declaration
 	sources      map[string]SourceVersion
+	canonical    func(types.Object) types.Object // nil = identity
+}
+
+// BuildOptions extends BuildIndex with facts the type checker cannot see.
+type BuildOptions struct {
+	// Extra occurrences (component tag sites, attribute→parameter bindings,
+	// pipe stage names, build-tag variant declarations). An occurrence whose
+	// path is not one of files' source paths is dropped: version gating
+	// (MatchesSource) must hold for every indexed path.
+	Extra []Occurrence
+	// Canonical maps analysis-only helper objects (a split component's body
+	// func and its parameters) onto the authored object they stand for. It is
+	// applied to every harvested and extra object and inside Definition, so
+	// callers may pass either object.
+	Canonical func(types.Object) types.Object
 }
 
 // IndexStats describes the logical entries retained directly by an Index.
@@ -119,11 +134,16 @@ func (i *Index) Stats() IndexStats {
 }
 
 func BuildIndex(info *types.Info, files []MappedFile) *Index {
+	return BuildIndexWith(info, files, BuildOptions{})
+}
+
+func BuildIndexWith(info *types.Info, files []MappedFile, opts BuildOptions) *Index {
 	index := &Index{
 		occurrences:  make(map[string][]Occurrence),
 		definitions:  make(map[types.Object]Span),
 		declarations: make(map[string][]Declaration),
 		sources:      make(map[string]SourceVersion),
+		canonical:    opts.Canonical,
 	}
 	for _, file := range files {
 		if file.SourceMap == nil {
@@ -135,6 +155,21 @@ func BuildIndex(info *types.Info, files []MappedFile) *Index {
 		}
 		index.harvestOccurrences(info, file)
 		index.harvestDeclarations(info, file)
+	}
+	for _, o := range opts.Extra {
+		if o.Object == nil || o.Kind == Expression {
+			continue
+		}
+		if _, ok := index.sources[o.Span.Path]; !ok {
+			continue
+		}
+		o.Object = index.canon(o.Object)
+		index.addOccurrence(o)
+		if o.Kind == IdentifierDefinition {
+			if _, exists := index.definitions[Origin(o.Object)]; !exists {
+				index.definitions[Origin(o.Object)] = o.Span
+			}
+		}
 	}
 	for path, occurrences := range index.occurrences {
 		index.occurrences[path] = indexOccurrences(occurrences)
@@ -200,6 +235,7 @@ func (i *Index) addIdentifier(file MappedFile, ident *ast.Ident, kind Occurrence
 	if !ok {
 		return
 	}
+	object = i.canon(object)
 	i.addOccurrence(Occurrence{
 		Span:   span,
 		Kind:   kind,
@@ -212,6 +248,24 @@ func (i *Index) addIdentifier(file MappedFile, ident *ast.Ident, kind Occurrence
 
 func (i *Index) addOccurrence(occurrence Occurrence) {
 	i.occurrences[occurrence.Span.Path] = append(i.occurrences[occurrence.Span.Path], occurrence)
+}
+
+// canon applies the Index's Canonical mapping (nil = identity).
+func (i *Index) canon(object types.Object) types.Object {
+	if i.canonical == nil || object == nil {
+		return object
+	}
+	return i.canonical(object)
+}
+
+// forEachOccurrence visits every indexed occurrence (identifier and expression),
+// per path in map order. Used by SymbolGraph.
+func (i *Index) forEachOccurrence(fn func(path string, o Occurrence)) {
+	for path, occurrences := range i.occurrences {
+		for _, o := range occurrences {
+			fn(path, o)
+		}
+	}
 }
 
 func indexOccurrences(occurrences []Occurrence) []Occurrence {
@@ -279,6 +333,7 @@ func (i *Index) addFunctionDeclaration(info *types.Info, file MappedFile, declar
 	if object == nil {
 		return
 	}
+	object = i.canon(object)
 	nameSpan, ok := mappedNodeSpan(file, declaration.Name, Symbol)
 	if !ok {
 		return
@@ -335,6 +390,7 @@ func (i *Index) addNamedDeclaration(info *types.Info, file MappedFile, name *ast
 	if object == nil {
 		return
 	}
+	object = i.canon(object)
 	nameSpan, ok := mappedNodeSpan(file, name, Symbol)
 	if !ok {
 		return
@@ -458,7 +514,7 @@ func occurrencePreferred(candidate, current Occurrence) bool {
 }
 
 func (i *Index) Definition(object types.Object) (Span, bool) {
-	span, ok := i.definitions[Origin(object)]
+	span, ok := i.definitions[Origin(i.canon(object))]
 	return span, ok
 }
 

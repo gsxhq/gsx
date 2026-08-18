@@ -106,9 +106,11 @@ func (a ephemeralCountingAnalyzer) AnalyzeEphemeralNonBlocking(dir, path string,
 	return pkg, true, err
 }
 
-// tagAnsweringPackage hand-builds a Package whose retained facts answer
-// go-to-definition on a same-package component tag (`<Row/>`) via CrossIndex —
-// no ephemeral analysis required.
+// tagAnsweringPackage hand-builds a parse-only Package: it carries the gsx AST
+// but none of the semantic facts nav resolution needs, so every cursor is a
+// primary MISS. The fallback-gate tests that want a primary miss use it; the
+// one that wants a primary hit analyzes a real package (see
+// TestDefinitionFallbackNotConsultedWhenPrimaryAnswers).
 func tagAnsweringPackage(t *testing.T, path, text string) *Package {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -117,16 +119,11 @@ func tagAnsweringPackage(t *testing.T, path, text string) *Package {
 		t.Fatal(err)
 	}
 	stampSyntacticComponents(f)
-	rowNameOff := strings.Index(text, "component Row") + len("component ")
-	decl := token.Position{Filename: path, Offset: rowNameOff}
 	return &Package{
 		GSXFset: fset,
 		Fset:    fset,
 		Info:    &types.Info{},
 		Files:   map[string]*gsxast.File{path: f},
-		CrossIndex: map[string]CrossRef{
-			".Row": {Name: "Row", Decl: decl, Decls: []token.Position{decl}},
-		},
 	}
 }
 
@@ -138,10 +135,10 @@ const midEditNavPage = "package x\n\ncomponent Page() {\n\t<Row/>\n}\n\ncomponen
 // zero AnalyzeEphemeral count. It also confirms the primary answer is unchanged
 // (a real Location).
 func TestDefinitionFallbackNotConsultedWhenPrimaryAnswers(t *testing.T) {
-	uri := "file:///m/a.gsx"
-	path := "/m/a.gsx"
+	pkg, path := analyzedLSPPackage(t, midEditNavPage)
+	uri := pathToURI(path)
 	count := 0
-	a := ephemeralCountingAnalyzer{analyzed: tagAnsweringPackage(t, path, midEditNavPage), ephCount: &count}
+	a := ephemeralCountingAnalyzer{analyzed: pkg, ephCount: &count}
 
 	// Cursor on the "Row" of "<Row/>" (line 3).
 	rowTagOff := strings.Index(midEditNavPage, "<Row/>") + 2 // on 'o'

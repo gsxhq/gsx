@@ -544,7 +544,7 @@ func componentNameItems(pkg *Package, pkgPath string, text string, start, end in
 // plainComponentName extracts the bare name from a plain (non-receiver)
 // ComponentKey — "."+Name, the leading-dot marker codegen.componentKey uses
 // so a package-level function component can never collide with a method of
-// the same name (see componentObjectKey/crossRefKeyForFunc). A receiver
+// the same name (see componentObjectKey/sourceintel.Keyer.Key). A receiver
 // component key is RecvType+"."+Name (dot NOT at index 0) and is rejected.
 func plainComponentName(key string) (string, bool) {
 	if key == "" || key[0] != '.' {

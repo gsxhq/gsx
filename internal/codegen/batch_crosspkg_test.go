@@ -3,7 +3,10 @@ package codegen
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // writeCrossPkgModule writes a 2-package module: root package x imports
@@ -30,7 +33,7 @@ func writeCrossPkgModule(t *testing.T) (string, string) {
 	return root, filepath.Join(root, "components")
 }
 
-// TestCrossPkgReferencesRouted verified that cross-package CrossRef entries are
+// TestCrossPkgReferencesRouted verified that cross-package reference entries are
 // populated when the declaring and referencing packages are both analyzed
 // together. This property is now exercised by TestAnalyzeModuleCrossPkg in
 // gen/references_crosspkg_test.go, which covers the same scenario via the LSP
@@ -55,14 +58,17 @@ func TestSingleDirReferencesNoRegression(t *testing.T) {
 	}
 	// Single-package analysis over components: root package was never analyzed,
 	// so Input has no refs from root (.gsx tag or .go call site).
+	g := sourceintel.NewSymbolGraph()
+	g.AddIndex(pr.SourceIndex, sourceintel.NewKeyer(pr.Types))
+	inputPath := filepath.Join(componentsDir, "input.gsx")
+	inputSrc := "package components\n\ncomponent Input(name string) {\n\t<input name={ name }/>\n}\n"
+	key, _, ok := g.At(inputPath, strings.Index(inputSrc, "Input"))
+	if !ok {
+		t.Fatalf("no key at Input declaration")
+	}
 	var refs []string
-	for _, cr := range pr.CrossIndex {
-		if cr.Name != "Input" {
-			continue
-		}
-		for _, r := range cr.Refs {
-			refs = append(refs, filepath.Base(r.Filename))
-		}
+	for _, r := range g.References(key) {
+		refs = append(refs, filepath.Base(r.Path))
 	}
 	if len(refs) != 0 {
 		t.Errorf("single-dir analysis over components alone should have no Input refs; got %v", refs)

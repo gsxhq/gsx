@@ -89,8 +89,10 @@ func refFrame(v any) string {
 	return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
 }
 
-// TestReferencesFromGoCursor: references invoked from a .go call site (cursor on
-// Card in main.go) returns both the .go and .gsx use sites.
+// TestReferencesFromGoCursor: references invoked from a .go call site (cursor
+// on Card in main.go) returns .gsx use sites only — gopls owns .go->.go, so
+// main.go's own use site (which would otherwise duplicate gopls' answer) is
+// filtered out.
 func TestReferencesFromGoCursor(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -112,15 +114,20 @@ func TestReferencesFromGoCursor(t *testing.T) {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	s := out.String()
-	if !strings.Contains(s, "main.go") || !strings.Contains(s, "page.gsx") {
-		t.Fatalf("references from .go cursor missing a site; out:\n%s", s)
+	if !strings.Contains(s, "page.gsx") {
+		t.Fatalf("references from .go cursor missing the .gsx site; out:\n%s", s)
+	}
+	if strings.Contains(s, "main.go") {
+		t.Fatalf("references from .go cursor returned a .go location (gopls owns .go->.go); out:\n%s", s)
 	}
 }
 
-// TestReferencesTagCursorEmpty documents the deferred case: references from a
-// .gsx <Card/> TAG cursor returns empty (component-tag resolution is a follow-up;
-// invoke references from the declaration or a .go site instead).
-func TestReferencesTagCursorEmpty(t *testing.T) {
+// TestReferencesFromTagCursor: references invoked from a .gsx <Card/> TAG
+// cursor returns the same set as from the declaration — the .go use site and
+// the tag itself. The module symbol graph carries the tag site as an
+// occurrence of the component's object, so the old tag-cursor deferral (an
+// empty reply) is gone.
+func TestReferencesFromTagCursor(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip()
@@ -140,8 +147,13 @@ func TestReferencesTagCursorEmpty(t *testing.T) {
 	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
-	if !strings.Contains(out.String(), `"id":2,"result":[]`) {
-		t.Fatalf("references from a .gsx tag cursor should be empty (deferred); out:\n%s", out.String())
+	s := out.String()
+	if !strings.Contains(s, "main.go") || !strings.Contains(s, "page.gsx") {
+		t.Fatalf("references from a .gsx tag cursor missing a site; out:\n%s", s)
+	}
+	// includeDeclaration=false: the card.gsx declaration must not be listed.
+	if strings.Contains(s, "card.gsx") {
+		t.Fatalf("references without includeDeclaration listed the declaration; out:\n%s", s)
 	}
 }
 

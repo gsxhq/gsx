@@ -254,8 +254,24 @@ func TestModulePackageRetainsAnalysis(t *testing.T) {
 	if pr.Info == nil || pr.Types == nil || pr.ExprMap == nil || pr.GSXFset == nil || pr.Fset == nil {
 		t.Fatalf("retained analysis not populated: %+v", pr)
 	}
-	if _, ok := pr.CrossIndex[".Home"]; !ok {
-		t.Fatalf("CrossIndex missing .Home: %v", pr.CrossIndex)
+	pagePath := filepath.Join(pageDir, "page.gsx")
+	if pr.SourceIndex == nil {
+		t.Fatal("PackageResult.SourceIndex is nil")
+	}
+	// Home's body is markup, not literal Go syntax, so it never forms a
+	// contiguous Go declaration span (SourceIndex.Declarations only covers
+	// plain funcs/types) — its identifier is still a keyable definition
+	// occurrence, resolved through the graph exactly like the deleted
+	// CrossIndex[".Home"] entry was.
+	g := sourceintel.NewSymbolGraph()
+	g.AddIndex(pr.SourceIndex, sourceintel.NewKeyer(pr.Types))
+	homeOffset := strings.Index("package page\n\ncomponent Home(name string) {\n\t<h1>Hi {name}</h1>\n}\n", "Home")
+	key, _, ok := g.At(pagePath, homeOffset)
+	if !ok {
+		t.Fatal("SourceIndex/graph has no key at Home's declaration")
+	}
+	if defs := g.Definitions(key); len(defs) != 1 || filepath.Base(defs[0].Path) != "page.gsx" {
+		t.Fatalf("Home definitions = %+v, want one in page.gsx", defs)
 	}
 }
 

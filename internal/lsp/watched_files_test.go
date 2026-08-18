@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 type watchedWorkspaceSymbolAnalyzer struct {
@@ -158,7 +159,7 @@ func (a *watchedFilesAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([
 	return append([]ComponentParamRenameFact(nil), a.renameFacts...), nil
 }
 
-func (a *watchedFilesAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (a *watchedFilesAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	a.moduleCalls++
 	return nil, nil
 }

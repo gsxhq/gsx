@@ -10,6 +10,7 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -44,7 +45,7 @@ func (symbolFileAnalyzer) AnalyzeEphemeral(string, string, []byte) (*Package, er
 func (symbolFileAnalyzer) AnalyzeEphemeralNonBlocking(string, string, []byte) (*Package, bool, error) {
 	return nil, true, errors.New("not implemented")
 }
-func (symbolFileAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (symbolFileAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	return nil, nil
 }
 func (symbolFileAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {

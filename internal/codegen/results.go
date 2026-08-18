@@ -10,29 +10,6 @@ import (
 	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
-// CrossRef is one component's cross-boundary entry: its name, its .gsx
-// declaration, and every reference (resolved positions — .go call sites stay
-// .go; .gsx <Card/> tags map to .gsx via the skeleton's child-tag //line).
-// Name's length bounds the cursor-on-reference span check in the LSP.
-//
-// Decls holds every build-tag variant's declaration position (sorted by
-// filename then offset); Decl is kept equal to Decls[0] as the primary
-// position for callers that only care about "the" declaration.
-type CrossRef struct {
-	Name  string
-	Decl  token.Position
-	Decls []token.Position
-	Refs  []token.Position
-}
-
-// NavRef is one navigable Go reference (in a .go or skeleton file) and the .gsx
-// position it targets. From is the reference site; To is the .gsx declaration.
-type NavRef struct {
-	From token.Position
-	Name string // identifier text, for the cursor-span length check in the LSP
-	To   token.Position
-}
-
 // ComponentParamRole is the semantic role of an authored callable parameter.
 // It is published for retained tooling facts only; generated code continues to
 // consume the private componentSignatureModel role directly.
@@ -150,10 +127,8 @@ type PackageResult struct {
 	// Info. It shares PackageResult's snapshot lifetime and invalidation.
 	SourceIndex *sourceintel.Index
 
-	ExprMap    map[gsxast.Node]goast.Expr
-	GSXFiles   map[string]*gsxast.File
-	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
-	NavIndex   []NavRef            // navigable Go references → .gsx declaration targets
+	ExprMap  map[gsxast.Node]goast.Expr
+	GSXFiles map[string]*gsxast.File
 	// ComponentCalls maps each successfully planned component element to its
 	// exact callable target and bound-parameter identities. It is the retained
 	// definition/hover surface for markup calls; consumers must not reconstruct

@@ -14,6 +14,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
 
 // countingAnalyzer behaves like fakeAnalyzer (one diag for its file) but counts
@@ -42,7 +43,7 @@ func (a *countingAnalyzer) SetOverride(path string, _ []byte) ([]string, error) 
 	return []string{filepath.Dir(path)}, nil
 }
 
-func (a *countingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+func (a *countingAnalyzer) AnalyzeModule(string, map[string][]byte) (*sourceintel.SymbolGraph, error) {
 	return nil, nil
 }
 func (a *countingAnalyzer) AnalyzeModuleParams(string, map[string][]byte) ([]ComponentParamRenameFact, error) {

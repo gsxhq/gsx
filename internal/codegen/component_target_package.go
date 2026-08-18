@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"crypto/sha256"
 	"fmt"
 	goast "go/ast"
 	goparser "go/parser"
@@ -15,6 +16,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
@@ -50,11 +52,93 @@ func pairedTargetOutputs(gsxFiles map[string]*gsxast.File) map[string]bool {
 	return paired
 }
 
+// companionGoFile pairs one retained hand-written Go syntax tree with the
+// logical module path the Go command reported for it (the compiledGoFiles
+// entry). The path is what the source-map/index surface keys spans by, so it
+// must travel with the AST — a token.File name is the physical path.
+type companionGoFile struct {
+	path string
+	file *goast.File
+	// tokenName and hash are the retained parse-time provenance of file: the
+	// name the parser stamped on its token.File and the SHA-256 of the bytes it
+	// was parsed from. They let a consumer that publishes authored byte spans
+	// against this AST prove exactly which bytes it was built from.
+	tokenName string
+	hash      [sha256.Size]byte
+}
+
+// identityMappedCompanionFile maps one retained hand-written Go sibling onto
+// itself (sourceintel.IdentitySourceMap) for a symbol index: the authored bytes
+// ARE the parsed bytes, so every AST offset is an authored offset. Publishing
+// that mapping is sound only when THREE things hold, all checked exactly here:
+//
+//  1. the bytes currently backing the path hash to the SHA-256 the retained
+//     syntax was parsed from (parsedSourceHashes records it at ParseFile time,
+//     so this compares against the parser's own input, not against a second
+//     read of the file);
+//  2. that AST's token.Pos still resolves to the token.File the parser stamped,
+//     so an fset rebuild cannot silently repoint the positions into another
+//     file's range;
+//  3. that token.File's size equals the byte length, so every offset the index
+//     derives lies inside the source it is keyed by.
+//
+// A file failing any of them is reported as not mappable (ok=false, counted in
+// companionIndexSkips) and must be left out of the index entirely, rather than
+// publishing spans against bytes it was not built from — the same fail-closed
+// rule SourceVersion.Matches enforces for .gsx. The returned SourceVersion is
+// the currentSource bytes, so it is exactly those bytes that had to hash equal.
+func (m *Module) identityMappedCompanionFile(source companionGoFile, fset *token.FileSet) (sourceintel.MappedFile, bool, error) {
+	src, known := m.currentSource(source.path)
+	tokenFile := fset.File(source.file.Pos())
+	hash := sha256.Sum256(src)
+	if !known || tokenFile == nil ||
+		hash != source.hash ||
+		filepath.Clean(tokenFile.Name()) != source.tokenName ||
+		tokenFile.Size() != len(src) {
+		m.mu.Lock()
+		m.companionIndexSkips++
+		m.mu.Unlock()
+		return sourceintel.MappedFile{}, false, nil
+	}
+	sourceMap, err := sourceintel.IdentitySourceMap(source.path, len(src))
+	if err != nil {
+		return sourceintel.MappedFile{}, false, err
+	}
+	return sourceintel.MappedFile{
+		AST:       source.file,
+		TokenFile: tokenFile,
+		SourceMap: sourceMap,
+		SourceVersion: sourceintel.SourceVersion{
+			Size:   len(src),
+			SHA256: hash,
+		},
+	}, true, nil
+}
+
 // parseTargetCompanionGoFiles loads the active hand-written Go surface while
 // excluding exactly the generated output paired with each authoritative GSX
 // file. Other .x.go files remain ordinary source; broad extension filtering
 // would hide legitimate hand-written or orphan declarations.
 func (m *Module) parseTargetCompanionGoFiles(dir string, gsxFiles map[string]*gsxast.File) ([]*goast.File, []string, error) {
+	sources, imports, err := m.companionGoSources(dir, gsxFiles)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(sources) == 0 {
+		return nil, imports, nil
+	}
+	files := make([]*goast.File, 0, len(sources))
+	for _, source := range sources {
+		files = append(files, source.file)
+	}
+	return files, imports, nil
+}
+
+// companionGoSources is parseTargetCompanionGoFiles' path-carrying form: the
+// per-package symbol index maps each hand-written sibling onto itself
+// (sourceintel.IdentitySourceMap), which needs the logical path alongside the
+// syntax.
+func (m *Module) companionGoSources(dir string, gsxFiles map[string]*gsxast.File) ([]companionGoFile, []string, error) {
 	if m.opts.SourceOnly {
 		return nil, nil, nil
 	}
@@ -106,17 +190,18 @@ func (m *Module) parseTargetCompanionGoFiles(dir string, gsxFiles map[string]*gs
 	if len(packageInfo.invariantErrors) != 0 {
 		return nil, nil, fmt.Errorf("codegen: incomplete active companion syntax inventory in %s: %s", dir, strings.Join(packageInfo.invariantErrors, "; "))
 	}
-	var files []*goast.File
+	var files []companionGoFile
 	var imports []string
 	for _, path := range packageInfo.compiledGoFiles {
 		if paired[path] {
 			continue
 		}
-		file := packageInfo.syntaxByFile[path]
+		retained := packageInfo.syntaxByFile[path]
+		file := retained.file
 		if file == nil {
 			return nil, nil, fmt.Errorf("codegen: active companion syntax missing for %s", path)
 		}
-		files = append(files, file)
+		files = append(files, companionGoFile{path: path, file: file, tokenName: retained.tokenName, hash: retained.hash})
 		for _, spec := range file.Imports {
 			if path, err := strconv.Unquote(spec.Path.Value); err == nil {
 				imports = append(imports, path)

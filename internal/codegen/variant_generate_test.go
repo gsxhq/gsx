@@ -8,8 +8,31 @@ import (
 	"strings"
 	"testing"
 
+	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceintel"
 )
+
+// componentDeclOffsets returns the byte offsets (in path's source) of every
+// *gsxast.Component decl named name directly authored in path — the gsx-file
+// counterpart of SourceIndex.Declarations, which does not cover component
+// declarations (their bodies are markup, never a contiguous Go decl span, so
+// mappedDeclarationSpan never records them).
+func componentDeclOffsets(pkg *PackageResult, path, name string) []int {
+	file, ok := pkg.GSXFiles[path]
+	if !ok {
+		return nil
+	}
+	var offsets []int
+	for _, decl := range file.Decls {
+		component, ok := decl.(*gsxast.Component)
+		if !ok || component.Name != name {
+			continue
+		}
+		offsets = append(offsets, pkg.GSXFset.Position(component.NamePos).Offset)
+	}
+	return offsets
+}
 
 // hasError reports whether diags contains an Error-severity diagnostic.
 func hasError(diags []diag.Diagnostic) bool {
@@ -193,33 +216,35 @@ func variantNavProbe(r Receiver) {
 	if signatureMembers != 2 {
 		t.Fatalf("Card members with signature type refs = %d, want both receiver spellings", signatureMembers)
 	}
-	cardEntries := 0
-	for _, cross := range pkg.CrossIndex {
-		if cross.Name != "Card" {
-			continue
-		}
-		cardEntries++
-		if len(cross.Decls) != 2 || len(cross.Refs) == 0 {
-			t.Fatalf("Card cross-index = %+v, want both alias declarations and the method-value tag reference", cross)
-		}
+	g := sourceintel.NewSymbolGraph()
+	g.AddIndex(pkg.SourceIndex, sourceintel.NewKeyer(pkg.Types))
+	companionPath := filepath.Join(dir, "companion.go")
+	const companionSrc = `package views
+
+func variantNavProbe(r Receiver) {
+	_ = r.Card
+	_ = r.Card("x")
+}
+`
+	cardKey, _, ok := g.At(companionPath, strings.Index(companionSrc, "r.Card\n")+2)
+	if !ok {
+		t.Fatal("no key at companion.go r.Card reference")
 	}
-	if cardEntries != 1 {
-		t.Fatalf("Card cross-index entries = %d, want one semantic family", cardEntries)
+	defs := g.Definitions(cardKey)
+	defFiles := map[string]bool{}
+	for _, d := range defs {
+		defFiles[filepath.Base(d.Path)] = true
 	}
-	navTargets := map[string]string{"Card": "card_a.gsx"}
-	for _, nav := range pkg.NavIndex {
-		if !strings.HasSuffix(nav.From.Filename, "companion.go") {
-			continue
-		}
-		if wantFile, ok := navTargets[nav.Name]; ok {
-			if !strings.HasSuffix(nav.To.Filename, wantFile) {
-				t.Fatalf("%s nav target = %s, want %s", nav.Name, nav.To.Filename, wantFile)
-			}
-			delete(navTargets, nav.Name)
-		}
+	if len(defs) != 2 || !defFiles["card_a.gsx"] || !defFiles["card_b.gsx"] {
+		t.Fatalf("Card definitions = %+v, want both alias declarations (card_a.gsx, card_b.gsx)", defs)
 	}
-	if len(navTargets) != 0 {
-		t.Fatalf("public component navigation targets missing: %v; all refs: %+v", navTargets, pkg.NavIndex)
+	if len(g.References(cardKey)) == 0 {
+		t.Fatalf("Card references empty, want the method-value tag reference")
+	}
+	// Primary variant (sorted first: filename order) is card_a.gsx — the same
+	// target the deleted NavIndex pinned for companion.go's r.Card use.
+	if got := filepath.Base(defs[0].Path); got != "card_a.gsx" {
+		t.Fatalf("Card primary definition = %s, want card_a.gsx", got)
 	}
 }
 
@@ -372,9 +397,25 @@ func TestInvalidComponentVariantSignaturesNeverGraduate(t *testing.T) {
 			if !foundDuplicate {
 				t.Fatalf("diagnostics = %v, want unprovable variant family rejected", pkg.Diags)
 			}
-			for key, cross := range pkg.CrossIndex {
-				if cross.Name == "Icon" && len(cross.Decls) > 1 {
-					t.Fatalf("invalid family graduated as shared identity %q: %+v", key, cross)
+			// A rejected variant family (mismatched membership or signature)
+			// publishes NO declaration occurrence for either member — see
+			// symbol_extras.go's gsxExtraOccurrences comment: canonicalByKey has
+			// no entry for an isolated key, "so none of its declarations is
+			// public." So an unresolved g.At here is the expected, correct
+			// outcome; the bug this guards against is the family wrongly
+			// graduating, which would instead publish ONE shared key with
+			// Definitions in both files.
+			g := sourceintel.NewSymbolGraph()
+			g.AddIndex(pkg.SourceIndex, sourceintel.NewKeyer(pkg.Types))
+			for _, name := range []string{"icon_a.gsx", "icon_b.gsx"} {
+				path := filepath.Join(dir, name)
+				offset := strings.Index(files[name], "component Icon") + len("component ")
+				key, _, ok := g.At(path, offset)
+				if !ok {
+					continue
+				}
+				if defs := g.Definitions(key); len(defs) > 1 {
+					t.Fatalf("invalid family graduated as shared identity %q: %+v", key, defs)
 				}
 			}
 		})
@@ -400,9 +441,21 @@ func TestNonLocalReceiverCannotJoinLocalVariantFamily(t *testing.T) {
 	if !foundIllegalReceiver {
 		t.Fatalf("diagnostics = %v, want authored non-local receiver error", pkg.Diags)
 	}
-	for key, cross := range pkg.CrossIndex {
-		if cross.Name == "Card" && len(cross.Decls) > 1 {
-			t.Fatalf("non-local receiver joined local identity %q: %+v", key, cross)
+	g := sourceintel.NewSymbolGraph()
+	g.AddIndex(pkg.SourceIndex, sourceintel.NewKeyer(pkg.Types))
+	for _, path := range []string{filepath.Join(dir, "card_a.gsx"), filepath.Join(dir, "card_b.gsx")} {
+		offsets := componentDeclOffsets(pkg, path, "Card")
+		if len(offsets) == 0 {
+			t.Fatalf("no Card declaration recorded for %s", filepath.Base(path))
+		}
+		for _, offset := range offsets {
+			key, _, ok := g.At(path, offset)
+			if !ok {
+				t.Fatalf("no key for Card declaration in %s", filepath.Base(path))
+			}
+			if defs := g.Definitions(key); len(defs) > 1 {
+				t.Fatalf("non-local receiver joined local identity %q: %+v", key, defs)
+			}
 		}
 	}
 }
@@ -440,18 +493,29 @@ func TestUnresolvedSameSpellingMethodDeclarationsKeepDistinctLSPIdentities(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	cardEntries := 0
-	for key, cross := range pkg.CrossIndex {
-		if cross.Name != "Card" {
-			continue
+	g := sourceintel.NewSymbolGraph()
+	g.AddIndex(pkg.SourceIndex, sourceintel.NewKeyer(pkg.Types))
+	var cardKeys []sourceintel.ObjectKey
+	for _, path := range []string{filepath.Join(dir, "card_a.gsx"), filepath.Join(dir, "card_b.gsx")} {
+		offsets := componentDeclOffsets(pkg, path, "Card")
+		if len(offsets) == 0 {
+			t.Fatalf("no Card declaration recorded for %s", filepath.Base(path))
 		}
-		cardEntries++
-		if !strings.HasPrefix(key, "!unresolved-receiver:") || len(cross.Decls) != 1 {
-			t.Fatalf("Card identity %q = %+v, want one opaque declaration", key, cross)
+		for _, offset := range offsets {
+			key, _, ok := g.At(path, offset)
+			if !ok {
+				t.Fatalf("no key for Card declaration in %s", filepath.Base(path))
+			}
+			cardKeys = append(cardKeys, key)
 		}
 	}
-	if cardEntries != 2 {
-		t.Fatalf("Card CrossIndex entries = %d, want unresolved declarations isolated", cardEntries)
+	if len(cardKeys) != 2 || cardKeys[0] == cardKeys[1] {
+		t.Fatalf("Card identities = %v, want two distinct isolated declarations", cardKeys)
+	}
+	for _, key := range cardKeys {
+		if defs := g.Definitions(key); len(defs) != 1 {
+			t.Fatalf("Card identity %q = %+v, want one opaque declaration", key, defs)
+		}
 	}
 	signatureMembers := 0
 	for component, refs := range pkg.SigTypes {
@@ -513,10 +577,12 @@ var leaked _gsxtargetprops1
 	if !foundUndefined {
 		t.Fatalf("diagnostics = %v, want authored private-name reference to remain undefined", pkg.Diags)
 	}
-	for _, nav := range pkg.NavIndex {
-		if strings.HasSuffix(nav.From.Filename, "companion.go") && nav.Name == "_gsxtargetprops1" {
-			t.Fatalf("analysis-only declaration became a navigation target: %+v", nav)
-		}
+	g := sourceintel.NewSymbolGraph()
+	g.AddIndex(pkg.SourceIndex, sourceintel.NewKeyer(pkg.Types))
+	companionPath := filepath.Join(dir, "companion.go")
+	const companionSrc = "package views\n\nvar leaked _gsxtargetprops1\n"
+	if key, _, ok := g.At(companionPath, strings.Index(companionSrc, "_gsxtargetprops1")); ok {
+		t.Fatalf("analysis-only declaration became a navigation target: key=%q", key)
 	}
 }
 
