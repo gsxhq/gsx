@@ -41,7 +41,7 @@ go build -o "$RECBIN" "$HERE/recorder.go"               || { echo "build recorde
 if [ ! -f "$APP/go.mod" ]; then
   echo "==> scaffold app (one-time; pass --fresh to redo)"
   rm -rf "$APP"; mkdir -p "$APP"
-  "$BIN" init --module reloadprobe "$APP" </dev/null >/dev/null 2>&1 || { echo "gsx init failed"; exit 2; }
+  "$BIN" new --module reloadprobe "$APP" </dev/null >/dev/null 2>&1 || { echo "gsx new failed"; exit 2; }
   printf '\nreplace github.com/gsxhq/gsx => %s\n' "$REPO" >> "$APP/go.mod"
   ( cd "$APP" && GOFLAGS=-mod=mod go mod tidy ) >/dev/null 2>&1     || { echo "go mod tidy failed"; exit 2; }
 fi
