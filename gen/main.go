@@ -272,7 +272,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 				FilterPkgs: merged.filterPkgs,
 			}
 		}
-		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, fmtOpts, workDir)
+		return runFmt(os.Stdin, stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, fmtOpts, workDir)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr, workDir)
 	case "lsp":
@@ -611,7 +611,7 @@ Usage:
 Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
 	dev [flags]           warm generate + build-then-swap server + browser reload (dev loop)
-	fmt [paths...]        format .gsx files (canonical, idempotent)
+	fmt [paths...]        format .gsx files (canonical, idempotent; -stdin-filename reads stdin)
 	init [dir]            scaffold a gsx + Vite starter app (--template, --module)
 	clean --cache         remove the gsx cache directory
 	info                  list the resolved pipeline filters
