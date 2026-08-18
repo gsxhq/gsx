@@ -218,6 +218,7 @@ no path, the command formats `.`. Hidden directories, `.git`, `vendor`,
 | `-imports=goimports` | Remove unused imports and normalize import declarations. This is the default. |
 | `-imports=gofmt` | Format existing imports without removing, merging, or regrouping them. |
 | `-no-imports` | Alias for `-imports=gofmt`. |
+| `-stdin-filename=PATH` | Read the source from stdin and treat it as `PATH`. |
 
 The `goimports` mode cannot add a missing import; it organizes imports already
 present in the `.gsx` file. A CLI import mode overrides the
@@ -246,6 +247,20 @@ Author layout still wins: breaking the line right after an opening tag's `>`
 keeps that element block-formatted, even if its content would otherwise fit
 inline.
 
+### Formatting stdin
+
+`-stdin-filename` formats content that is not on disk. `PATH` names the file
+in `-l`/`-d` output and error messages and selects its `gsx.toml`,
+`.editorconfig`, and package for import analysis — nothing is read from it,
+and it need not exist. Path arguments and `-w` are rejected in this mode.
+
+A pre-commit hook uses it to check the **staged** blob rather than the working
+copy:
+
+```bash
+git show ":$f" | gsx fmt -l -stdin-filename "$f"
+```
+
 ### Check formatting in CI
 
 `-l` and `-d` exit `1` when any file differs, so either works as a CI check:
@@ -254,8 +269,14 @@ inline.
 gsx fmt -l .
 ```
 
-Parse, analysis, and write failures also exit `1`. Invalid flags, import-mode
-combinations, or paths exit `2`; otherwise formatting exits `0`.
+| Exit | Meaning |
+|------|---------|
+| `0` | Nothing failed; with `-l`/`-d`, nothing differs. |
+| `1` | With `-l`/`-d` only: at least one file differs and nothing failed. |
+| `2` | Something failed: a usage error (invalid flag, import-mode combination, or path) or a read, parse, analysis, or write failure on any file. |
+
+A failure wins over a difference, so a script can tell "run `-w`" from "this
+file is broken".
 
 ## `gsx info` {#info}
 

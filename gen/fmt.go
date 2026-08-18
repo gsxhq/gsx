@@ -28,6 +28,7 @@ import (
 //	-d         write a unified diff of the changes to stdout
 //	-imports   import handling: "goimports" (default) or "gofmt"
 //	-no-imports  alias for -imports gofmt
+//	-stdin-filename PATH  format standard input as if it were the file at PATH
 //
 // Import handling has two modes, resolved per directory (a CLI flag, when
 // given, overrides every directory's gsx.toml):
@@ -43,35 +44,57 @@ import (
 // for .gsx files, skipping the same junk dirs as discovery (.git, hidden dirs,
 // vendor, node_modules, testdata). No args formats "." recursively.
 //
+// With -stdin-filename PATH the source is read from stdin instead and treated
+// as the content of PATH: PATH names the file in -l/-d output and error
+// messages and anchors every per-file context (gsx.toml, .editorconfig, and
+// the package whose imports are analyzed), but nothing is read from it — the
+// analysis sees the stdin bytes in place of whatever is on disk at PATH. This
+// is how a pre-commit hook formats a STAGED blob rather than the working copy.
+// Path args and -w are usage errors in this mode.
+//
 // Exit codes:
 //
-//	0  success: all files parsed, and for default/-w no errors occurred
-//	1  a parse error on any file, OR (with -l or -d) any file differs
-//	2  a usage error: an unparseable flag, an invalid -imports value, or
-//	   -imports goimports combined with -no-imports
+//	0  success: nothing failed, and (with -l or -d) nothing differs
+//	1  (only with -l or -d) at least one file differs, and nothing failed
+//	2  something failed: a usage error (unparseable flag, invalid -imports
+//	   value, -imports goimports with -no-imports, a nonexistent path), or a
+//	   read/parse/write failure on any file, or a Go parse diagnostic
 //
-// The -l/-d non-zero-on-difference choice is deliberately CI-friendly: it lets
-// a build fail when sources are not canonically formatted (like `gofmt -l` used
-// as a check), unlike gofmt's own -l which always exits 0. Default and -w exit 0
-// on success regardless of how many files changed.
+// "differs" and "failed" are distinct so a script can tell "run -w" from
+// "this file is broken"; a failure wins over a difference. Exiting non-zero on
+// difference at all is deliberately CI-friendly (like `gofmt -l` used as a
+// gate), unlike gofmt's own -l which always exits 0. Default and -w exit 0 on
+// success regardless of how many files changed.
 //
 // All logic lives here (runFmt returns an int) so tests can drive it without
 // os.Exit.
-func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter, opts codegen.Options, workDir string) int {
+func runFmt(stdin io.Reader, stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter, opts codegen.Options, workDir string) int {
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		write       bool
-		list        bool
-		diff        bool
-		noImports   bool
-		importsFlag string
+		write         bool
+		list          bool
+		diff          bool
+		noImports     bool
+		importsFlag   string
+		stdinFilename string
 	)
 	fs.BoolVar(&write, "w", false, "write result to (source) file instead of stdout")
 	fs.BoolVar(&list, "l", false, "list files whose formatting differs")
 	fs.BoolVar(&diff, "d", false, "display diffs instead of rewriting files")
 	fs.StringVar(&importsFlag, "imports", "", `import handling: "goimports" (default; remove unused + merge/dedup/group) or "gofmt" (format only)`)
 	fs.BoolVar(&noImports, "no-imports", false, `alias for -imports gofmt`)
+	fs.StringVar(&stdinFilename, "stdin-filename", "", "format standard input as if it were this .gsx `path` (nothing is read from the path); excludes path args and -w")
+	fs.Usage = func() {
+		fmt.Fprint(stderr, "usage: gsx fmt [flags] [path ...]\n       gsx fmt [flags] -stdin-filename path < source\n\nFlags:\n")
+		fs.PrintDefaults()
+		fmt.Fprint(stderr, `
+Exit codes:
+  0  nothing failed and (with -l or -d) nothing differs
+  1  with -l or -d: at least one file differs, and nothing failed
+  2  a usage error, or a read/parse/write failure on any file
+`)
+	}
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -99,13 +122,46 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 		cliMode = gsxfmt.ImportsGofmt
 	}
 
-	// Anchor relative path arguments (and the default ".") at workDir so fmt never
-	// consults the process-global cwd.
-	paths := absPaths(workDir, fs.Args())
-	files, err := gsxFiles(paths)
-	if err != nil {
-		fmt.Fprintf(stderr, "gsx: %v\n", err)
-		return 2
+	// Sources are read through this indirection so stdin mode can substitute
+	// the piped bytes for the named file without touching the disk.
+	readSource := os.ReadFile
+	// overlay carries the stdin bytes (keyed by absolute path) into the
+	// unused-import analysis, which otherwise reads the package from disk.
+	var overlay map[string][]byte
+
+	var files []string
+	if stdinFilename != "" {
+		if len(fs.Args()) > 0 {
+			fmt.Fprintf(stderr, "gsx: -stdin-filename cannot be combined with path arguments\n")
+			return 2
+		}
+		if write {
+			fmt.Fprintf(stderr, "gsx: cannot use -w with standard input\n")
+			return 2
+		}
+		if !strings.HasSuffix(stdinFilename, ".gsx") {
+			fmt.Fprintf(stderr, "gsx: -stdin-filename: %q is not a .gsx path\n", stdinFilename)
+			return 2
+		}
+		src, err := io.ReadAll(stdin)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: reading standard input: %v\n", err)
+			return 2
+		}
+		path := absPaths(workDir, []string{stdinFilename})[0]
+		files = []string{path}
+		overlay = map[string][]byte{path: src}
+		readSource = func(string) ([]byte, error) { return src, nil }
+	} else {
+		// Anchor relative path arguments (and the default ".") at workDir so fmt
+		// never consults the process-global cwd.
+		paths := absPaths(workDir, fs.Args())
+		var err error
+		files, err = gsxFiles(paths)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", err)
+			return 2
+		}
 	}
 
 	// Mode is resolved per directory (gsx.toml is discovered by walking up from
@@ -133,21 +189,23 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 	var unusedByPath map[string][]gsxfmt.ImportRef
 	var goDiags map[string][]diag.Diagnostic
 	if len(removalFiles) > 0 {
-		unusedByPath, goDiags = analyzeUnusedImports(removalFiles, opts)
+		unusedByPath, goDiags = analyzeUnusedImports(removalFiles, overlay, opts)
 	}
 
-	exit := 0
+	// failed and differs are tracked separately and folded into the exit code
+	// at the end (a failure wins): see the exit-code table above.
+	failed, differs := false, false
 	// The analyzer's Go parse errors are reported, but never stop formatting: the
 	// invalid Go passes through verbatim and the markup around it still canonicalizes.
-	if reportGoDiagnostics(stderr, files, goDiags) {
-		exit = 1
+	if reportGoDiagnostics(stderr, files, goDiags, readSource) {
+		failed = true
 	}
 	ec := newEditorConfigResolver()
 	for _, path := range files {
-		orig, err := os.ReadFile(path)
+		orig, err := readSource(path)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
-			exit = 1
+			failed = true
 			continue
 		}
 		abs, _ := filepath.Abs(path)
@@ -164,7 +222,7 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 		})
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
-			exit = 1
+			failed = true
 			continue
 		}
 		changed := !bytes.Equal(orig, formatted)
@@ -172,12 +230,12 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 		case list:
 			if changed {
 				fmt.Fprintln(stdout, path)
-				exit = 1
+				differs = true
 			}
 		case diff:
 			if changed {
 				fmt.Fprint(stdout, unifiedDiff(path, orig, formatted))
-				exit = 1
+				differs = true
 			}
 		case write:
 			if changed {
@@ -187,14 +245,20 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 				}
 				if werr := os.WriteFile(path, formatted, mode); werr != nil {
 					fmt.Fprintf(stderr, "%s: %v\n", path, werr)
-					exit = 1
+					failed = true
 				}
 			}
 		default:
 			stdout.Write(formatted)
 		}
 	}
-	return exit
+	switch {
+	case failed:
+		return 2
+	case differs:
+		return 1
+	}
+	return 0
 }
 
 // Format returns the canonical, idempotent formatting of a single .gsx source
@@ -292,13 +356,18 @@ func importsModeFor(dir string) gsxfmt.ImportsMode {
 // carries the resolved codegen config so skeletons match what `generate` emits;
 // a zero/builtin opts still works (buildSkeleton tolerates unknown filters).
 //
+// overlay (absolute path → bytes) substitutes in-memory sources for files on
+// disk before analysis, so -stdin-filename analyzes the piped content rather
+// than the working copy. It goes through Module.SetOverride — the same buffer
+// mechanism the LSP uses — so it is scoped to that Module and never written.
+//
 // It also returns, per absolute .gsx path, the Go parse diagnostics the skeleton
 // surfaced. gsx copies user Go through as an opaque blob, so Go that is invalid
 // only in context (an `import` after a declaration, say) is caught nowhere else in
 // the fmt path; the skeleton's //line directives have already resolved each
 // position back to its .gsx origin. Only genuine parse failures become diagnostics;
 // a project that will not load yields none, so it can never make `gsx fmt` fail.
-func analyzeUnusedImports(files []string, opts codegen.Options) (map[string][]gsxfmt.ImportRef, map[string][]diag.Diagnostic) {
+func analyzeUnusedImports(files []string, overlay map[string][]byte, opts codegen.Options) (map[string][]gsxfmt.ImportRef, map[string][]diag.Diagnostic) {
 	out := map[string][]gsxfmt.ImportRef{}
 	diags := map[string][]diag.Diagnostic{}
 	dirSet := map[string]bool{}
@@ -317,6 +386,9 @@ func analyzeUnusedImports(files []string, opts codegen.Options) (map[string][]gs
 		m, err := codegen.Open(o)
 		if err != nil {
 			continue // not loadable → syntactic-only fallback (no removal, no diagnostics)
+		}
+		for path, src := range overlay {
+			m.SetOverride(path, src)
 		}
 		for _, dir := range g.dirs {
 			absDir, err := filepath.Abs(dir)
@@ -366,7 +438,9 @@ func analyzeUnusedImports(files []string, opts codegen.Options) (map[string][]gs
 //
 // Diagnostics for files outside the format set are dropped: the skeleton is
 // per-package, and `gsx fmt a.gsx` must not report on its untouched siblings.
-func reportGoDiagnostics(stderr io.Writer, files []string, byPath map[string][]diag.Diagnostic) bool {
+// readSource supplies the lines the rich renderer quotes, so stdin mode quotes
+// the bytes it analyzed rather than the working copy.
+func reportGoDiagnostics(stderr io.Writer, files []string, byPath map[string][]diag.Diagnostic, readSource func(string) ([]byte, error)) bool {
 	if len(byPath) == 0 {
 		return false
 	}
@@ -393,7 +467,7 @@ func reportGoDiagnostics(stderr io.Writer, files []string, byPath map[string][]d
 	})
 	if isTTY(stderr) {
 		diag.RenderRich(stderr, all, func(name string) ([]byte, bool) {
-			b, e := os.ReadFile(name)
+			b, e := readSource(name)
 			return b, e == nil
 		})
 	} else {

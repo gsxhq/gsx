@@ -16,7 +16,7 @@ func fmtCapture(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	wd, _ := os.Getwd()
-	code := runFmt(&out, &errb, args, nil, nil, codegen.Options{Classifier: attrclass.Builtin()}, wd)
+	code := runFmt(nil, &out, &errb, args, nil, nil, codegen.Options{Classifier: attrclass.Builtin()}, wd)
 	return code, out.String(), errb.String()
 }
 
@@ -145,7 +145,7 @@ func TestFmtWriteIdempotent(t *testing.T) {
 	}
 }
 
-// TestFmtParseError proves a parse-error file is reported to stderr and exits 1,
+// TestFmtParseError proves a parse-error file is reported to stderr and exits 2,
 // while other files in the same invocation still format.
 func TestFmtParseError(t *testing.T) {
 	t.Parallel()
@@ -159,8 +159,8 @@ func TestFmtParseError(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, errb := fmtCapture(t, []string{bad, good})
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1 (stderr=%q)", code, errb)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (stderr=%q)", code, errb)
 	}
 	if !strings.Contains(errb, "bad.gsx") {
 		t.Errorf("stderr missing bad file: %q", errb)
@@ -353,7 +353,7 @@ func TestFmtTwoDirsOneModule(t *testing.T) {
 	bPath := writeFile(t, filepath.Join(dir, "b"), "b.gsx", bSrc)
 
 	refs, _ := analyzeUnusedImports(
-		[]string{aPath, bPath},
+		[]string{aPath, bPath}, nil,
 		codegen.Options{Classifier: attrclass.Builtin()},
 	)
 
@@ -387,7 +387,7 @@ func TestFmtKeepsTypeArgAndAttrExprImports(t *testing.T) {
 	page := writeFile(t, filepath.Join(dir, "views"), "views.gsx", src)
 
 	refs, _ := analyzeUnusedImports(
-		[]string{page},
+		[]string{page}, nil,
 		codegen.Options{Classifier: attrclass.Builtin()},
 	)
 	abs, _ := filepath.Abs(page)
@@ -444,7 +444,7 @@ func TestFmtGoimportsMergesAndDedups(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := runFmt(&out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+	if code := runFmt(nil, &out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
 		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 	}
 	got := readFile(t, p)
@@ -471,7 +471,7 @@ func TestFmtImportsGofmtLeavesImportsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := runFmt(&out, &errb, []string{"-w", "-imports", "gofmt", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+	if code := runFmt(nil, &out, &errb, []string{"-w", "-imports", "gofmt", p}, nil, nil, codegen.Options{}, dir); code != 0 {
 		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 	}
 	got := readFile(t, p)
@@ -498,7 +498,7 @@ func TestFmtNoImportsIsGofmtAlias(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out, errb bytes.Buffer
-		if code := runFmt(&out, &errb, append(args, p), nil, nil, codegen.Options{}, dir); code != 0 {
+		if code := runFmt(nil, &out, &errb, append(args, p), nil, nil, codegen.Options{}, dir); code != 0 {
 			t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 		}
 		return readFile(t, p)
@@ -514,7 +514,7 @@ func TestFmtImportsFlagConflict(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
-	code := runFmt(&out, &errb, []string{"-imports", "goimports", "-no-imports", dir}, nil, nil, codegen.Options{}, dir)
+	code := runFmt(nil, &out, &errb, []string{"-imports", "goimports", "-no-imports", dir}, nil, nil, codegen.Options{}, dir)
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2; stderr=%s", code, errb.String())
 	}
@@ -529,7 +529,7 @@ func TestFmtImportsFlagInvalid(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
-	code := runFmt(&out, &errb, []string{"-imports", "gofumpt", dir}, nil, nil, codegen.Options{}, dir)
+	code := runFmt(nil, &out, &errb, []string{"-imports", "gofumpt", dir}, nil, nil, codegen.Options{}, dir)
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
@@ -557,7 +557,7 @@ func TestFmtConfigGofmtModeHonored(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := runFmt(&out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+	if code := runFmt(nil, &out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
 		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(readFile(t, p), "\"bytes\"") {
