@@ -96,41 +96,51 @@ back to the default.
 
 ### Fetching a template {#new-from}
 
-A template backed by a module path (like `saas`) is downloaded from the
-module proxy the same way `go get` resolves a dependency: `GOPROXY` (default
-`https://proxy.golang.org`) is consulted, the module's latest version is
-fetched as a zip, and its files are personalized in place — the module path
-is rewritten throughout `go.mod`, `.go`/`.gsx` imports, and `package.json`'s
-`name`. A `gsx-template.json` manifest at the template's root, if present,
-can also strip files (build tooling that doesn't belong in a fresh scaffold,
-for example) and ask for generated `.env` secrets.
+A template backed by a module path (like `saas`) is fetched from the module
+proxy (`GOPROXY`, default `https://proxy.golang.org`) at its latest version
+and personalized in place: the module path is rewritten in `go.mod`, in
+`.go`/`.gsx` imports and `gsx.toml`, and `package.json`'s `name` is set to
+the new module's basename. `GOPROXY=off` (or one with no `http(s)://` entry)
+disables fetching — use `--from` with a local directory instead.
 
-`GOPROXY=off`, or a `GOPROXY` with no `http://`/`https://` entry, disables
-fetching. Use `--from` for a local checkout instead, or to fetch a template
-outside the registry:
+`--from` overrides `--template`'s source and is told apart the way the `go`
+command tells a local path from an import path:
 
 ```bash
-gsx new myapp --from ../my-template
-gsx new myapp --from example.com/org/template
+gsx new myapp --from ../my-template          # ./, ../ or absolute ⇒ local directory (must exist)
+gsx new myapp --from example.com/org/template # anything else ⇒ module path, fetched
 ```
 
-`--from` accepts a local directory (read directly, no network) or a module
-path (fetched like a registry template). It overrides `--template`'s source
-but reuses the same personalization.
+A local directory is read the way `go` would publish it as a module: `.git`
+and other VCS directories, nested modules, vendored packages and symlinks are
+omitted. Anything else a checkout carries that shouldn't ship — `node_modules/`,
+a local `.env` — belongs in the manifest's `strip` list.
 
-The target module path — the target directory's basename by default, or
-`--module`'s value — is validated the same way `go mod init` validates one
-(`golang.org/x/mod/module.CheckImportPath`), so the flagship one-liner above
-works with zero other flags: a bare directory-name module like `myapp` is
-accepted for a fetched or `--from` template exactly as it already is for the
-embedded `simple` template. Only genuinely malformed input (stray whitespace,
-disallowed punctuation, reserved Windows device names) is rejected. Pass
-`--module` explicitly when you want a real, publishable path instead of the
-directory-basename default.
+#### `gsx-template.json` {#template-manifest}
 
-`new` exits `0` on success, `2` for invalid usage (including a missing
-directory argument, a bad `--from` path, or an invalid target module path) or
-an existing protected project file, and `1` when fetching, scaffolding, or a
+An optional manifest at the template root (never copied itself):
+
+```json
+{
+  "strip": ["docs/", ".github/", "node_modules/", "*.md"],
+  "env": { "APP_SECRET": "secret-hex-32", "APP_ENV": "literal:dev" }
+}
+```
+
+`strip` patterns are `path.Match` globs tested against each file's path and
+every ancestor directory, so `docs/`, `docs` and `docs/*` all remove the
+subtree; `*.md` removes root-level markdown only. `env` entries are appended
+to the scaffold's `.env` (keys already present are left alone):
+`secret-hex-32` generates a fresh 32-byte hex secret, `literal:<v>` writes
+`<v>`.
+
+The target module path (the directory basename, or `--module`) is validated
+like `go mod init` does, so a bare `myapp` is accepted; pass `--module` for a
+publishable path.
+
+`new` exits `0` on success, `2` for invalid usage (a missing or extra
+directory argument, a bad `--from` value, an invalid target module path) or an
+existing protected project file, and `1` when fetching, scaffolding, or a
 setup command fails.
 
 ## `gsx init` {#gsx-init}

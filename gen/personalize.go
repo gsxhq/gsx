@@ -71,13 +71,12 @@ func validateNewModule(mod string) error {
 //     before copying — the manifest file itself is always stripped) and env
 //     entries (written to destDir/.env after the copy).
 //  3. *.go, *.gsx, and gsx.toml files (at any depth, not just the root) have
-//     the quoted old-module-path prefix in their import/filter strings
-//     rewritten to newModule — a plain byte replace of `"<old>` to `"<new>`,
-//     anchored on the opening quote so it catches both the bare `"<old>"`
-//     import and any subpackage `"<old>/sub/pkg"` while never touching a
-//     string that merely contains oldModule as a substring elsewhere (see the
-//     oldQuoted/newQuoted comment below). package.json's "name" is set to the
-//     new module's basename.
+//     every quoted reference to the old module path — the bare `"<old>"`
+//     import and any subpackage `"<old>/sub/pkg"` — rewritten to newModule
+//     (see replaceModuleRefs for the exact boundary rule; a sibling module
+//     such as `"<old>-extras"` is never touched). package.json's "name" is
+//     set to the new module's basename, in place, preserving the rest of the
+//     document byte-for-byte.
 //  4. *.go files are additionally run through go/format.Source after the
 //     rewrite: the new module path can sort differently than the old one
 //     within its (unchanged) gofmt import group — e.g. an own-module import
@@ -94,13 +93,20 @@ func validateNewModule(mod string) error {
 // «»/text-template rendering or the dot-/transformName renaming: a fetched
 // template is a literal repo, not a Go text/template source tree, so its
 // files are copied byte-for-byte except for the targeted rewrites above.
+//
+// src is read the way golang.org/x/mod/zip publishes a module directory
+// (omitFromTemplate): VCS directories, nested modules, vendored packages and
+// non-regular files (symlinks) are omitted. A proxy zip has already had that
+// policy applied, so for a fetched template it is a no-op; for a --from
+// local checkout it is what keeps the template repo's .git/ (and a
+// developer's symlinked node_modules) out of the new project. Anything else
+// a checkout carries that shouldn't ship — node_modules/, a local .env — is
+// the manifest's strip list's job.
+//
 // Each file's permission bits are preserved from the source (floored at
-// 0o644), so an executable script in the template stays executable — though
-// this only has anything to preserve for a --from local checkout: module
-// zips fetched from the proxy carry no permission bits at all (see
-// golang.org/x/mod/zip's format documentation: "File permissions and
-// timestamps are ignored"), so a fetched template's files always come back
-// as the floor, 0o644.
+// 0o644), so an executable script in a --from checkout stays executable;
+// proxy zips carry no permission bits, so a fetched template's files always
+// come back as the floor.
 func personalize(src fs.FS, destDir, newModule string) error {
 	gomodData, err := fs.ReadFile(src, "go.mod")
 	if err != nil {
@@ -133,19 +139,17 @@ func personalize(src fs.FS, destDir, newModule string) error {
 		return err
 	}
 
-	// oldQuoted/newQuoted anchor the rewrite on the opening quote of a Go
-	// import string or a gsx.toml value, e.g. `"oldmod`. Matching this prefix
-	// (rather than the bare module path) catches both the exact `"oldmod"`
-	// import and any subpackage import `"oldmod/sub/pkg"` in one pass, since
-	// ReplaceAll only requires a prefix match after the quote — and the
-	// leading quote is what keeps this from rewriting some unrelated string
-	// that merely happens to contain oldModule as a substring.
-	oldQuoted := []byte(`"` + oldModule)
-	newQuoted := []byte(`"` + newModule)
+	// rewrite rewrites every quoted reference to the old module path (the
+	// bare `"old"` import and any subpackage `"old/sub"`) to the new one; see
+	// replaceModuleRefs for the boundary rule.
+	rewrite := func(raw []byte) []byte { return replaceModuleRefs(raw, oldModule, newModule) }
 
 	walkErr := fs.WalkDir(src, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if omitted, skip := omitFromTemplate(src, p, d); omitted {
+			return skip
 		}
 		if d.IsDir() {
 			return nil
@@ -184,7 +188,7 @@ func personalize(src fs.FS, destDir, newModule string) error {
 			if err != nil {
 				return err
 			}
-			rewritten := bytes.ReplaceAll(raw, oldQuoted, newQuoted)
+			rewritten := rewrite(raw)
 			// Re-sort imports disturbed by the module rename (see point 4 of
 			// the doc comment above). A parse failure here means the
 			// template's Go source was already malformed, or uses syntax the
@@ -203,7 +207,7 @@ func personalize(src fs.FS, destDir, newModule string) error {
 			if err != nil {
 				return err
 			}
-			out = bytes.ReplaceAll(raw, oldQuoted, newQuoted)
+			out = rewrite(raw)
 		default:
 			raw, err := fs.ReadFile(src, p)
 			if err != nil {
@@ -244,42 +248,102 @@ func readTemplateManifest(src fs.FS) (templateManifest, error) {
 }
 
 // shouldStrip reports whether the slash-separated path rel (as produced by
-// fs.WalkDir) should be omitted from the copy: the manifest file itself is
-// always stripped; a strip pattern ending in "/" strips that whole subtree; a
-// bare pattern is matched with path.Match against rel.
+// fs.WalkDir) should be omitted from the copy. The manifest file itself is
+// always stripped. Each strip pattern is a path.Match glob tested against
+// rel and against every ancestor directory of rel, so a pattern that names
+// a directory — `docs`, `docs/`, or `docs/*` — strips its whole subtree, and
+// `*.md` strips only root-level markdown files (path.Match's `*` never
+// crosses a `/`). A trailing `/` is accepted as directory sugar and ignored
+// for matching.
 func shouldStrip(rel string, manifest templateManifest) bool {
 	if rel == "gsx-template.json" {
 		return true
 	}
 	for _, pattern := range manifest.Strip {
-		if dir, ok := strings.CutSuffix(pattern, "/"); ok {
-			if rel == dir || strings.HasPrefix(rel, dir+"/") {
-				return true
-			}
+		pattern = strings.TrimSuffix(pattern, "/")
+		if pattern == "" {
 			continue
 		}
-		if ok, _ := path.Match(pattern, rel); ok {
-			return true
+		for p := rel; p != "." && p != ""; p = path.Dir(p) {
+			if ok, _ := path.Match(pattern, p); ok {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// rewritePackageJSON sets "name" to the new module's basename and
-// re-marshals with a 2-space indent (encoding/json sorts object keys
-// alphabetically on marshal, so field order is not preserved — an accepted
-// tradeoff for a mechanical rewrite of a fetched template's package.json).
+// rewritePackageJSON sets the top-level "name" to the new module's basename
+// by splicing the new value over the old one in place — key order, indent,
+// and every other byte of the document are preserved (a fetched template's
+// package.json should still diff cleanly against upstream). It walks the
+// document with a streaming json.Decoder to locate the top-level "name"
+// value's byte range; a document with no top-level "name" gets one inserted
+// right after the opening brace.
 func rewritePackageJSON(raw []byte, newModule string) ([]byte, error) {
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, err
-	}
-	m["name"] = path.Base(newModule)
-	out, err := json.MarshalIndent(m, "", "  ")
+	name, err := json.Marshal(path.Base(newModule))
 	if err != nil {
 		return nil, err
 	}
-	return append(out, '\n'), nil
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	if tok != json.Delim('{') {
+		return nil, fmt.Errorf("top-level value is %v, want an object", tok)
+	}
+	afterBrace := dec.InputOffset()
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return nil, fmt.Errorf("object key is %v, want a string", keyTok)
+		}
+		if key != "name" {
+			// Consume (and discard) the whole value, whatever its shape.
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		// InputOffset after the key token sits just past the key string;
+		// the value starts after the ':' and any whitespace. Decode the
+		// value into a RawMessage to find its end, then locate its start
+		// by scanning forward from the key over the separator.
+		valueStartHint := dec.InputOffset()
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, err
+		}
+		end := dec.InputOffset()
+		start := bytes.Index(raw[valueStartHint:end], value)
+		if start < 0 {
+			return nil, errors.New("could not locate \"name\" value")
+		}
+		start += int(valueStartHint)
+		out := make([]byte, 0, len(raw)-len(value)+len(name))
+		out = append(out, raw[:start]...)
+		out = append(out, name...)
+		out = append(out, raw[end:]...)
+		return out, nil
+	}
+	// No top-level "name": insert one after the opening brace, followed by
+	// a comma when the object has other members.
+	rest := bytes.TrimLeft(raw[afterBrace:], " \t\r\n")
+	sep := ""
+	if len(rest) > 0 && rest[0] != '}' {
+		sep = ","
+	}
+	out := make([]byte, 0, len(raw)+len(name)+16)
+	out = append(out, raw[:afterBrace]...)
+	out = append(out, []byte("\n  \"name\": "+string(name)+sep)...)
+	out = append(out, raw[afterBrace:]...)
+	return out, nil
 }
 
 // applyEnvSecrets resolves each manifest env entry ("secret-hex-32" ⇒ a fresh
@@ -293,21 +357,14 @@ func applyEnvSecrets(destDir string, env map[string]string) error {
 	}
 	envPath := filepath.Join(destDir, ".env")
 	existing := map[string]bool{}
+	for _, kv := range loadDotEnv(destDir) {
+		if k, _, ok := strings.Cut(kv, "="); ok {
+			existing[k] = true
+		}
+	}
 	existingContent, err := os.ReadFile(envPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-	} else {
-		for _, line := range strings.Split(string(existingContent), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			if k, _, ok := strings.Cut(line, "="); ok {
-				existing[k] = true
-			}
-		}
+	if err != nil && !os.IsNotExist(err) {
+		return err
 	}
 
 	keys := make([]string, 0, len(env))
@@ -364,4 +421,83 @@ func resolveEnvValue(spec string) (string, error) {
 		return hex.EncodeToString(b), nil
 	}
 	return "", fmt.Errorf("unknown env value spec %q (want \"secret-hex-32\" or \"literal:<value>\")", spec)
+}
+
+// replaceModuleRefs rewrites every quoted reference to oldModule in raw — a
+// `"` followed by oldModule and then either a closing `"` (the bare import)
+// or a `/` (a subpackage path) — to newModule. The opening quote is what
+// distinguishes an import/filter string from prose that merely mentions the
+// path; the terminating `"`/`/` is what keeps a sibling module sharing the
+// prefix (`"<old>-extras/x"`, `"<old>s/util"`) intact.
+func replaceModuleRefs(raw []byte, oldModule, newModule string) []byte {
+	needle := []byte(`"` + oldModule)
+	var out []byte
+	for {
+		i := bytes.Index(raw, needle)
+		if i < 0 {
+			break
+		}
+		end := i + len(needle)
+		if end < len(raw) && (raw[end] == '"' || raw[end] == '/') {
+			out = append(out, raw[:i]...)
+			out = append(out, '"')
+			out = append(out, newModule...)
+		} else {
+			out = append(out, raw[:end]...)
+		}
+		raw = raw[end:]
+	}
+	if out == nil {
+		return raw
+	}
+	return append(out, raw...)
+}
+
+// omitFromTemplate applies golang.org/x/mod/zip's module-directory
+// publication policy to one WalkDir entry (p is the slash path relative to
+// the template root): VCS directories (.bzr/.git/.hg/.svn), nested modules
+// (a non-root directory holding a go.mod), files under a vendor/ tree other
+// than vendor/modules.txt, and non-regular files are omitted. It returns
+// omitted=true with the value the WalkDir callback should return (SkipDir
+// for a directory, nil for a file).
+func omitFromTemplate(src fs.FS, p string, d fs.DirEntry) (omitted bool, skip error) {
+	if p == "." {
+		return false, nil
+	}
+	if d.IsDir() {
+		switch path.Base(p) {
+		case ".bzr", ".git", ".hg", ".svn":
+			return true, fs.SkipDir
+		}
+		if info, err := fs.Stat(src, path.Join(p, "go.mod")); err == nil && !info.IsDir() {
+			return true, fs.SkipDir
+		}
+		return false, nil
+	}
+	if !d.Type().IsRegular() {
+		return true, nil
+	}
+	if isVendoredPath(p) {
+		return true, nil
+	}
+	return false, nil
+}
+
+// isVendoredPath mirrors x/mod/zip's (go1.24+) vendor rule: a file whose
+// path contains a "vendor" element that is followed by at least one more
+// directory element — i.e. a file inside a vendored *package* — is omitted,
+// as is vendor/modules.txt.
+func isVendoredPath(p string) bool {
+	if p == "vendor/modules.txt" {
+		return true
+	}
+	var i int
+	if strings.HasPrefix(p, "vendor/") {
+		i = len("vendor/")
+	} else if j := strings.Index(p, "/vendor/"); j >= 0 {
+		i = j + len("/vendor/")
+	} else {
+		return false
+	}
+	return strings.Contains(p[i:], "/")
 }

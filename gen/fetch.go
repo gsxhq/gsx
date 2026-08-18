@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -85,10 +86,16 @@ func fetchModuleFS(ctx context.Context, proxyBase, modulePath, version string) (
 	// Module zip entries are rooted at "<module>@<version>/..." using the
 	// module path and version exactly as written (not the proxy-escaped
 	// forms) — see golang.org/x/mod/zip's format documentation.
+	// fs.Sub only validates the prefix's syntax, never its presence, so
+	// check for the module root explicitly: a zip rooted elsewhere would
+	// otherwise surface much later as a bare "go.mod: file does not exist".
 	prefix := modulePath + "@" + resolved
 	sub, err := fs.Sub(zr, prefix)
 	if err != nil {
-		return nil, "", fmt.Errorf("%s: module zip missing expected %s/ prefix: %w", zipURL, prefix, err)
+		return nil, "", fmt.Errorf("%s: module zip prefix %s/: %w", zipURL, prefix, err)
+	}
+	if _, err := fs.Stat(sub, "go.mod"); err != nil {
+		return nil, "", fmt.Errorf("%s: module zip has no %s/go.mod: %w", zipURL, prefix, err)
 	}
 	return sub, resolved, nil
 }
@@ -127,6 +134,9 @@ func fetchBytes(ctx context.Context, rawURL string) ([]byte, error) {
 func localTemplateFS(dir string) (fs.FS, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("--from %s: no such directory", dir)
+		}
 		return nil, fmt.Errorf("--from %s: %w", dir, err)
 	}
 	if !info.IsDir() {

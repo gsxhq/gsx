@@ -473,3 +473,22 @@ func TestInitScaffoldCompiles(t *testing.T) {
 	run("go", "run", "github.com/gsxhq/gsx/cmd/gsx", "generate", ".")
 	run("go", "build", "./...")
 }
+
+func TestInitRejectsFetchedTemplate(t *testing.T) {
+	dir := t.TempDir()
+	code, _, errb := initNI(t, dir, "--template", "saas")
+	if code != 2 || !strings.Contains(errb, "gsx new") || strings.Contains(errb, "  saas") {
+		t.Fatalf("exit %d, stderr %q", code, errb)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		t.Fatal("nothing should have been scaffolded")
+	}
+}
+
+func TestInitRejectsExtraPositional(t *testing.T) {
+	dir := t.TempDir()
+	code, _, errb := initNI(t, dir, "a", "b")
+	if code != 2 || !strings.Contains(errb, "unexpected argument") {
+		t.Fatalf("exit %d, stderr %q", code, errb)
+	}
+}

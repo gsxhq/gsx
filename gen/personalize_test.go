@@ -135,7 +135,7 @@ func TestPersonalizeStripsManifestGlobs(t *testing.T) {
 
 func dotEnvValue(t *testing.T, env, key string) string {
 	t.Helper()
-	for _, line := range strings.Split(env, "\n") {
+	for line := range strings.SplitSeq(env, "\n") {
 		if k, v, ok := strings.Cut(line, "="); ok && k == key {
 			return v
 		}
@@ -377,5 +377,145 @@ func Index() string {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("personalized pages/projects.go is not gofmt-clean:\n--- got ---\n%s\n--- gofmt ---\n%s", got, want)
+	}
+}
+
+func TestReplaceModuleRefsBoundary(t *testing.T) {
+	t.Parallel()
+	const old = "example.com/app"
+	in := `import (
+	"example.com/app"
+	"example.com/app/pages"
+	"example.com/apple/x"
+	"example.com/app-extras/y"
+	"example.com/apps/z"
+	"other.com/example.com/app"
+)
+const s = "example.com/app is great"
+const u = "https://example.com/app"
+`
+	got := string(replaceModuleRefs([]byte(in), old, "myapp"))
+	want := `import (
+	"myapp"
+	"myapp/pages"
+	"example.com/apple/x"
+	"example.com/app-extras/y"
+	"example.com/apps/z"
+	"other.com/example.com/app"
+)
+const s = "example.com/app is great"
+const u = "https://example.com/app"
+`
+	if got != want {
+		t.Fatalf("replaceModuleRefs:\n got: %s\nwant: %s", got, want)
+	}
+	// Untouched input is returned as-is.
+	if out := replaceModuleRefs([]byte("nothing here"), old, "x"); string(out) != "nothing here" {
+		t.Fatalf("no-op rewrite changed bytes: %q", out)
+	}
+	// Prefix at the very end of the input (no terminator) is left alone.
+	if out := replaceModuleRefs([]byte(`"example.com/app`), old, "x"); string(out) != `"example.com/app` {
+		t.Fatalf("unterminated ref rewritten: %q", out)
+	}
+}
+
+func TestPersonalizeOmitsVCSSubmodulesAndSymlinks(t *testing.T) {
+	t.Parallel()
+	src := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(src, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/tpl\n\ngo 1.26\n")
+	write("main.go", "package main\n")
+	write(".git/HEAD", "ref: refs/heads/main\n")
+	write(".git/objects/ab/cd", "x")
+	write("sub/go.mod", "module example.com/tpl/sub\n")
+	write("sub/x.go", "package sub\n")
+	write("vendor/modules.txt", "# x\n")
+	write("vendor/example.com/dep/dep.go", "package dep\n")
+	write("real/data.txt", "hello\n")
+	if err := os.Symlink(filepath.Join(src, "real"), filepath.Join(src, "linkdir")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(src, "main.go"), filepath.Join(src, "linkfile.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := t.TempDir()
+	if err := personalize(os.DirFS(src), dest, "myapp"); err != nil {
+		t.Fatalf("personalize: %v", err)
+	}
+	for _, rel := range []string{".git/HEAD", ".git", "sub/x.go", "sub/go.mod", "vendor/modules.txt", "vendor/example.com/dep/dep.go", "linkdir", "linkfile.go"} {
+		if _, err := os.Lstat(filepath.Join(dest, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s should have been omitted from the scaffold", rel)
+		}
+	}
+	for _, rel := range []string{"go.mod", "main.go", "real/data.txt"} {
+		if _, err := os.Stat(filepath.Join(dest, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s should have been copied: %v", rel, err)
+		}
+	}
+}
+
+func TestShouldStripSubtreeAndGlobs(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		pattern string
+		rel     string
+		want    bool
+	}{
+		{"docs/*", "docs/README.md", true},
+		{"docs/*", "docs/guide/intro.md", true},
+		{"docs/", "docs/guide/intro.md", true},
+		{"docs", "docs/guide/intro.md", true},
+		{"docs", "docsx/a.md", false},
+		{"*.md", "README.md", true},
+		{"*.md", "docs/README.md", false},
+		{"**/*.md", "docs/a/b.md", false}, // path.Match has no **: two stars are one segment
+		{".github/", ".github/workflows/ci.yml", true},
+		{"", "anything", false},
+	}
+	for _, c := range cases {
+		got := shouldStrip(c.rel, templateManifest{Strip: []string{c.pattern}})
+		if got != c.want {
+			t.Errorf("shouldStrip(%q, pattern %q) = %v, want %v", c.rel, c.pattern, got, c.want)
+		}
+	}
+	if !shouldStrip("gsx-template.json", templateManifest{}) {
+		t.Error("manifest itself must always be stripped")
+	}
+}
+
+func TestRewritePackageJSONPreservesDocument(t *testing.T) {
+	t.Parallel()
+	in := "{\n  \"private\": true,\n  \"name\":   \"old-name\",\n  \"scripts\": {\n    \"build\": \"tsc && vite build <x>\"\n  },\n  \"version\": \"1.0.0\"\n}\n"
+	got, err := rewritePackageJSON([]byte(in), "github.com/me/myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"private\": true,\n  \"name\":   \"myapp\",\n  \"scripts\": {\n    \"build\": \"tsc && vite build <x>\"\n  },\n  \"version\": \"1.0.0\"\n}\n"
+	if string(got) != want {
+		t.Fatalf("rewritePackageJSON:\n got: %s\nwant: %s", got, want)
+	}
+
+	// No top-level "name": one is inserted; a nested "name" is not mistaken
+	// for it.
+	in2 := "{\n  \"scripts\": {\"name\": \"nested\"}\n}\n"
+	got2, err := rewritePackageJSON([]byte(in2), "myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got2), "{\n  \"name\": \"myapp\",") || !strings.Contains(string(got2), `"name": "nested"`) {
+		t.Fatalf("insert path:\n%s", got2)
+	}
+	if _, err := rewritePackageJSON([]byte("[]"), "myapp"); err == nil {
+		t.Fatal("array document should be rejected")
 	}
 }

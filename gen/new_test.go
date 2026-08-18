@@ -261,6 +261,16 @@ func TestNewFromLocalFixture(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "docs", "README.md")); err == nil {
 		t.Fatal("docs/README.md should have been stripped by gsx-template.json")
 	}
+	if _, err := os.Stat(filepath.Join(target, "docs", "guide", "intro.md")); err == nil {
+		t.Fatal("docs/guide/intro.md should have been stripped: docs/* strips the whole subtree")
+	}
+	pageGsx, err := os.ReadFile(filepath.Join(target, "pages", "x.gsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pageGsx), `"myapp/pages/parts"`) {
+		t.Fatalf("x.gsx import not rewritten: %s", pageGsx)
+	}
 	if _, err := os.Stat(filepath.Join(target, "gsx-template.json")); err == nil {
 		t.Fatal("the gsx-template.json manifest itself should have been stripped")
 	}
@@ -423,5 +433,41 @@ func TestNewFetchesModuleTemplateViaGOPROXY(t *testing.T) {
 	}
 	if !strings.Contains(string(mainGo), `"myapp/pages"`) {
 		t.Fatalf("main.go import not rewritten: %s", mainGo)
+	}
+}
+
+func TestNewRejectsExtraPositional(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	code, _, errb := newNI(t, dir, "saas", "myapp")
+	if code != 2 || !strings.Contains(errb, `unexpected argument "myapp"`) {
+		t.Fatalf("exit %d, stderr %q", code, errb)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "myapp")); err == nil {
+		t.Fatal("myapp must not be created")
+	}
+}
+
+func TestNewFromMissingLocalDirIsUsageError(t *testing.T) {
+	dir := t.TempDir()
+	// Never let a stray GOPROXY route these to the network: the point is
+	// that a path-shaped or malformed --from is decided syntactically.
+	t.Setenv("GOPROXY", "off")
+	for _, from := range []string{"./missing", "../missing", filepath.Join(dir, "missing")} {
+		code, _, errb := newNI(t, dir, "myapp", "--from", from)
+		if code != 2 || !strings.Contains(errb, "--from") {
+			t.Errorf("--from %q: exit %d, stderr %q", from, code, errb)
+		}
+	}
+	// A bare word that isn't a module path (no dotted first element) is
+	// rejected up front with a hint to use the ./ form.
+	code, _, errb := newNI(t, dir, "myapp", "--from", "tpl-typo")
+	if code != 2 || !strings.Contains(errb, "use ./tpl-typo") {
+		t.Fatalf("exit %d, stderr %q", code, errb)
+	}
+	// A module-shaped --from reaches the proxy stage (here: GOPROXY=off ⇒ 2).
+	code, _, errb = newNI(t, dir, "myapp", "--from", "example.com/org/tpl")
+	if code != 2 || !strings.Contains(errb, "GOPROXY=off") {
+		t.Fatalf("exit %d, stderr %q", code, errb)
 	}
 }

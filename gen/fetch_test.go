@@ -242,3 +242,24 @@ func TestProxyBaseFromEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchModuleFSRejectsMisrootedZip(t *testing.T) {
+	t.Parallel()
+	zipData := buildTestZip(t, map[string]string{
+		"other.com/x@v0.1.0/go.mod": "module other.com/x\n",
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/example.com/tmpl/@latest", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"Version": "v0.1.0"})
+	})
+	mux.HandleFunc("/example.com/tmpl/@v/v0.1.0.zip", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(zipData)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	_, _, err := fetchModuleFS(context.Background(), server.URL, "example.com/tmpl", "latest")
+	if err == nil || !strings.Contains(err.Error(), "example.com/tmpl@v0.1.0/go.mod") {
+		t.Fatalf("expected a mis-rooted zip error naming the missing prefix, got %v", err)
+	}
+}

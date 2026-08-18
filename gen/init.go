@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/build"
 	"io"
 	"io/fs"
 	"os"
@@ -18,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"golang.org/x/mod/module"
 )
 
 //go:embed all:templates/init
@@ -140,32 +143,42 @@ func runNew(args []string, stdin io.Reader, stdout, stderr io.Writer, workDir st
 	return newWith(args, stdin, stdout, stderr, isTTYReader(stdin), execStep, workDir)
 }
 
-// splitDirFlags partitions args into flag tokens and (at most) one positional
-// directory argument, so flags may appear before or after the positional arg.
-// It is shared by initWith (which rejects a non-empty dir) and newWith (which
-// requires or prompts for one). --from is only defined on new's flag set, but
-// recognizing its value-consuming shape here is harmless for init (an
-// unexpected --from there is still rejected by ifs.Parse, just with its value
-// token correctly grouped alongside it rather than misread as the dir).
-func splitDirFlags(args []string) (dir string, flagArgs []string) {
-	valueFlag := map[string]bool{
-		"-template": true, "--template": true,
-		"-module": true, "--module": true,
-		"-from": true, "--from": true,
+// splitDirFlags partitions args into flag tokens and at most one positional
+// directory argument, so flags may appear before or after the positional
+// arg. Which flags consume a following value token is derived from fset
+// itself (a non-boolean flag given as `-name value`), so a flag added to the
+// set can never be misread as the dir. A second positional is a usage error
+// (returned as err) rather than silently winning: `gsx new saas myapp` must
+// not quietly scaffold myapp with the default template.
+func splitDirFlags(fset *flag.FlagSet, args []string) (dir string, flagArgs []string, err error) {
+	takesValue := func(tok string) bool {
+		name := strings.TrimLeft(tok, "-")
+		if strings.Contains(name, "=") {
+			return false
+		}
+		f := fset.Lookup(name)
+		if f == nil {
+			return false
+		}
+		bf, isBool := f.Value.(interface{ IsBoolFlag() bool })
+		return !isBool || !bf.IsBoolFlag()
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if strings.HasPrefix(a, "-") {
+		if strings.HasPrefix(a, "-") && a != "-" {
 			flagArgs = append(flagArgs, a)
-			if valueFlag[a] && !strings.Contains(a, "=") && i+1 < len(args) {
+			if takesValue(a) && i+1 < len(args) {
 				flagArgs = append(flagArgs, args[i+1])
 				i++
 			}
-		} else {
-			dir = a
+			continue
 		}
+		if dir != "" {
+			return "", nil, fmt.Errorf("unexpected argument %q (only one directory may be given)", a)
+		}
+		dir = a
 	}
-	return dir, flagArgs
+	return dir, flagArgs, nil
 }
 
 // initFlagSet builds the flag.FlagSet shared by init and new: -template,
@@ -188,25 +201,48 @@ func initFlagSet(name string, stderr io.Writer) (fset *flag.FlagSet, templateNam
 	return fset, templateName, module, force, yes
 }
 
-// lookupTemplate resolves templateName in the registry, printing the
-// available-templates listing to stderr on a miss.
-func lookupTemplate(templateName string, stderr io.Writer) (initTemplate, bool) {
-	tpl, ok := templates[templateName]
-	if !ok {
-		fmt.Fprintf(stderr, "gsx: unknown template %q. Available:\n", templateName)
-		for _, t := range templateList() {
-			fmt.Fprintf(stderr, "  %-12s %s\n", t.name, t.desc)
+// lookupTemplate resolves templateName among the offered templates (init
+// offers only embeddedTemplates; new offers the full templateList), printing
+// the offered listing to stderr on a miss.
+func lookupTemplate(templateName string, offered []initTemplate, stderr io.Writer) (initTemplate, bool) {
+	for _, t := range offered {
+		if t.name == templateName {
+			return t, true
 		}
 	}
-	return tpl, ok
+	if _, registered := templates[templateName]; registered {
+		fmt.Fprintf(stderr, "gsx: template %q must be fetched; use 'gsx new <dir> --template %s'. Available here:\n", templateName, templateName)
+	} else {
+		fmt.Fprintf(stderr, "gsx: unknown template %q. Available:\n", templateName)
+	}
+	for _, t := range offered {
+		fmt.Fprintf(stderr, "  %-12s %s\n", t.name, t.desc)
+	}
+	return initTemplate{}, false
+}
+
+// embeddedTemplates is templateList restricted to templates compiled into
+// the binary — the only ones init (which never fetches) can scaffold.
+func embeddedTemplates() []initTemplate {
+	var out []initTemplate
+	for _, t := range templateList() {
+		if t.module == "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // initWith is the cwd-only `gsx init` core: it scaffolds directly into
 // workDir and never accepts a positional directory argument (that's `gsx
 // new`'s job).
 func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
-	dir, flagArgs := splitDirFlags(args)
 	fset, templateName, module, force, yes := initFlagSet("init", stderr)
+	dir, flagArgs, err := splitDirFlags(fset, args)
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx: init: %v\n", err)
+		return 2
+	}
 	if err := fset.Parse(flagArgs); err != nil {
 		return 2
 	}
@@ -215,7 +251,8 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 		return 2
 	}
 
-	tpl, ok := lookupTemplate(*templateName, stderr)
+	// init never fetches: only embedded templates are offered or accepted.
+	tpl, ok := lookupTemplate(*templateName, embeddedTemplates(), stderr)
 	if !ok {
 		return 2
 	}
@@ -251,13 +288,16 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 // go.mod without --force) must exit 2 without ever hitting the module proxy;
 // see checkNotExisting and validateNewModule.
 func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
-	dir, flagArgs := splitDirFlags(args)
 	fset, templateName, module, force, yes := initFlagSet("new", stderr)
-	// --from <dir-or-module> overrides --template's source: a path that
-	// exists on disk is fetched via localTemplateFS, otherwise it's treated
-	// as a module path fetched at latest via fetchModuleFS.
+	// --from <dir-or-module> overrides --template's source; see
+	// resolveTemplateSource for how the two forms are told apart.
 	var from string
-	fset.StringVar(&from, "from", "", "fetch a template from a module path or local directory (overrides --template)")
+	fset.StringVar(&from, "from", "", "fetch a template from a local directory (./path, ../path, /abs) or a module path (overrides --template)")
+	dir, flagArgs, err := splitDirFlags(fset, args)
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx: new: %v\n", err)
+		return 2
+	}
 	if err := fset.Parse(flagArgs); err != nil {
 		return 2
 	}
@@ -268,7 +308,7 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 		}
 	})
 	if from == "" && explicitTemplate {
-		if _, ok := lookupTemplate(*templateName, stderr); !ok {
+		if _, ok := lookupTemplate(*templateName, templateList(), stderr); !ok {
 			return 2
 		}
 	}
@@ -290,7 +330,7 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 			name = promptTemplate(reader, stdout, defaultTemplate)
 		}
 		var ok bool
-		tpl, ok = lookupTemplate(name, stderr)
+		tpl, ok = lookupTemplate(name, templateList(), stderr)
 		if !ok {
 			return 2
 		}
@@ -326,36 +366,41 @@ func newWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interacti
 }
 
 // resolveTemplateSource decides where new's scaffold content comes from. An
-// explicit --from wins outright: a path that exists on disk as a directory is
-// read via localTemplateFS; anything else is treated as a module path and
-// fetched at latest via fetchModuleFS. Without --from, an embedded template
-// (tpl.module == "", e.g. simple) needs no fetch — (nil, 0) tells the caller
-// to fall back to tpl.root — while a registry entry with a module (e.g. saas)
-// is fetched the same way a module --from would be.
+// explicit --from wins outright and is told apart syntactically, the same way
+// the go command separates a local path from an import path: a value that is
+// absolute or begins with ./ or ../ (build.IsLocalImport) is a local
+// directory and must exist (exit 2 otherwise); anything else is a module
+// path, validated with module.CheckPath before any network access (exit 2
+// when it isn't one), then fetched at latest via fetchModuleFS. Without
+// --from, an embedded template (tpl.module == "", e.g. simple) needs no
+// fetch — (nil, 0) tells the caller to fall back to tpl.root — while a
+// registry entry with a module (e.g. saas) is fetched the same way a module
+// --from would be.
 //
 // On failure the error is printed to stderr here (not returned) so the
-// caller can propagate a plain exit code: 2 for a bad --from directory or an
-// invalid GOPROXY (both are the user's input, not a network failure), 1 for
-// an actual fetch/proxy operational failure.
+// caller can propagate a plain exit code: 2 for a bad --from value or an
+// invalid GOPROXY (the user's input, not a network failure), 1 for an actual
+// fetch/proxy operational failure.
 func resolveTemplateSource(workDir, from string, tpl initTemplate, stderr io.Writer) (fs.FS, int) {
 	modulePath := from
-	if from != "" {
-		fromAbs := absAgainst(workDir, from)
-		if info, statErr := os.Stat(fromAbs); statErr == nil && info.IsDir() {
-			src, err := localTemplateFS(fromAbs)
-			if err != nil {
-				fmt.Fprintf(stderr, "gsx: %v\n", err)
-				return nil, 2
-			}
-			return src, 0
-		}
-		// Not an existing local directory: fall through to the module-fetch
-		// path below, treating --from's value as the module to fetch.
-	} else {
+	switch {
+	case from == "":
 		if tpl.module == "" {
 			return nil, 0
 		}
 		modulePath = tpl.module
+	case build.IsLocalImport(from) || filepath.IsAbs(from):
+		src, err := localTemplateFS(absAgainst(workDir, from))
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", err)
+			return nil, 2
+		}
+		return src, 0
+	default:
+		if err := module.CheckPath(from); err != nil {
+			fmt.Fprintf(stderr, "gsx: --from %q is neither a local directory (use ./%s) nor a module path: %v\n", from, from, err)
+			return nil, 2
+		}
 	}
 
 	proxyBase, err := proxyBaseFromEnv()
@@ -509,7 +554,7 @@ func promptTemplate(reader *bufio.Reader, stdout io.Writer, def string) string {
 		}
 		return "", false
 	}
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		fmt.Fprintf(stdout, "Select a template [%s]: ", def)
 		line, _ := reader.ReadString('\n')
 		if name, ok := resolve(strings.TrimSpace(line)); ok {
