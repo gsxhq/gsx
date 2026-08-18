@@ -89,8 +89,10 @@ func refFrame(v any) string {
 	return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
 }
 
-// TestReferencesFromGoCursor: references invoked from a .go call site (cursor on
-// Card in main.go) returns both the .go and .gsx use sites.
+// TestReferencesFromGoCursor: references invoked from a .go call site (cursor
+// on Card in main.go) returns .gsx use sites only — gopls owns .go->.go, so
+// main.go's own use site (which would otherwise duplicate gopls' answer) is
+// filtered out.
 func TestReferencesFromGoCursor(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -112,8 +114,11 @@ func TestReferencesFromGoCursor(t *testing.T) {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	s := out.String()
-	if !strings.Contains(s, "main.go") || !strings.Contains(s, "page.gsx") {
-		t.Fatalf("references from .go cursor missing a site; out:\n%s", s)
+	if !strings.Contains(s, "page.gsx") {
+		t.Fatalf("references from .go cursor missing the .gsx site; out:\n%s", s)
+	}
+	if strings.Contains(s, "main.go") {
+		t.Fatalf("references from .go cursor returned a .go location (gopls owns .go->.go); out:\n%s", s)
 	}
 }
 

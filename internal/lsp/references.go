@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 
 	"github.com/gsxhq/gsx/internal/sourceintel"
 )
@@ -42,11 +43,22 @@ func (s *Server) handleReferences(f frame) error {
 		return s.reply(f.ID, []Location{})
 	}
 
+	definitions := graph.Definitions(key)
+	references := graph.References(key)
+	// gopls owns .go->.go navigation; from a .go cursor gsx answers with .gsx
+	// locations only so editors that merge both servers' results don't show a
+	// .go site twice. A .gsx cursor is gsx's alone (gopls is not attached to
+	// .gsx), so it keeps both .gsx and .go locations.
+	if strings.HasSuffix(path, ".go") {
+		definitions = filterAuthoredGSX(definitions)
+		references = filterAuthoredGSX(references)
+	}
+
 	locations := make([]Location, 0)
 	if p.Context.IncludeDeclaration {
-		locations = appendSpanLocations(locations, sources, graph.Definitions(key))
+		locations = appendSpanLocations(locations, sources, definitions)
 	}
-	locations = appendSpanLocations(locations, sources, graph.References(key))
+	locations = appendSpanLocations(locations, sources, references)
 	return s.reply(f.ID, locations)
 }
 
@@ -57,6 +69,20 @@ func appendSpanLocations(locations []Location, sources *requestSourceSnapshot, s
 		}
 	}
 	return locations
+}
+
+// filterAuthoredGSX keeps only spans in .gsx-authored files. gopls owns
+// .go->.go navigation, so a request from a .go cursor answers with .gsx
+// locations only — otherwise an editor that merges gsx's and gopls' results
+// would show every .go site twice.
+func filterAuthoredGSX(spans []sourceintel.Span) []sourceintel.Span {
+	filtered := spans[:0:0]
+	for _, span := range spans {
+		if strings.HasSuffix(span.Path, ".gsx") {
+			filtered = append(filtered, span)
+		}
+	}
+	return filtered
 }
 
 // moduleSymbolGraph returns the whole-module graph, analyzing it lazily. A

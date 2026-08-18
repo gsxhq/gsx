@@ -48,8 +48,10 @@ func TestSymbolGraphHandlers(t *testing.T) {
 			// the Wrap embedding and the Model{} composite literal).
 			{"type from gsx decl", uri, symbolGraphPage, "Model struct", 0, map[string]int{"page.gsx": 4, "helper.go": 2}},
 			// A method declared in the .gsx, referenced from the .gsx body and
-			// from the .go sibling.
-			{"method from helper.go", helperURI, symbolGraphHelper, "inc()", 0, map[string]int{"page.gsx": 2, "helper.go": 1}},
+			// from the .go sibling. Cursor is in the .go file: gopls owns
+			// .go->.go, so the reply is .gsx locations only — the .go site
+			// (which would otherwise appear here too) is filtered out.
+			{"method from helper.go", helperURI, symbolGraphHelper, "inc()", 0, map[string]int{"page.gsx": 2}},
 			// The component: cursor on the <Card/> TAG (the deferral is gone) —
 			// the declaration, the tag site and the .go value reference.
 			{"component from tag cursor", uri, symbolGraphPage, "<Card", 1, map[string]int{"page.gsx": 2, "helper.go": 1}},
@@ -74,6 +76,16 @@ func TestSymbolGraphHandlers(t *testing.T) {
 				}
 				if !maps.Equal(got, tc.wantFiles) {
 					t.Fatalf("references = %v, want %v\n%s", got, tc.wantFiles, out)
+				}
+				// gopls owns .go->.go: a request from a .go cursor must never
+				// surface a .go location, regardless of what the table above
+				// expects file-by-file.
+				if tc.fromURI == helperURI {
+					for _, location := range referenceLocations(t, out, 7) {
+						if strings.HasSuffix(uriToPath(location.URI), ".go") {
+							t.Fatalf("references from .go cursor returned a .go location: %+v\n%s", location, out)
+						}
+					}
 				}
 			})
 		}
@@ -102,7 +114,10 @@ func TestSymbolGraphHandlers(t *testing.T) {
 			{"Model }", "page.gsx"},
 			{"inc()", "page.gsx"},  // method declared in .gsx
 			{"Card }", "page.gsx"}, // component declared in .gsx
-			{"use()", "helper.go"}, // the graph answers .go declarations too
+			// use() is declared only in helper.go — no .gsx declaration exists,
+			// so a .go-cursor request (gopls owns .go->.go) filters it away and
+			// answers null.
+			{"use()", ""},
 		} {
 			off := strings.Index(symbolGraphHelper, tc.needle)
 			if off < 0 {
@@ -111,6 +126,12 @@ func TestSymbolGraphHandlers(t *testing.T) {
 			pos := positionForByteOffset(symbolGraphHelper, off, encUTF16)
 			out := drive(t, analyzer, opened+definitionFrame(9, helperURI, pos)+exitFrame())
 			got := definitionLocation(t, out, 9)
+			if tc.wantFile == "" {
+				if got != nil {
+					t.Fatalf("%s: definition = %+v, want null (.go-only declaration filtered)\n%s", tc.needle, got, out)
+				}
+				continue
+			}
 			if got == nil || filepath.Base(uriToPath(got.URI)) != tc.wantFile {
 				t.Fatalf("%s: definition = %+v, want %s\n%s", tc.needle, got, tc.wantFile, out)
 			}

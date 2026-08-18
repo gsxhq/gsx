@@ -73,8 +73,8 @@ supports tree-sitter.
 |---|---|
 | Diagnostics | Parse, type, and component errors. |
 | Hover | Go types and component signatures. |
-| Go to definition | Every Go symbol and component, `.gsx` ↔ `.go`, module-wide (Go-only packages importing gsx packages included). |
-| Find references | Every Go symbol declared or used in `.gsx` — types, funcs, methods, fields, params, locals, components (tag sites and attribute bindings), pipe filters — from `.gsx` or `.go` cursors, module-wide. |
+| Go to definition | Every Go symbol and component, `.gsx` ↔ `.go`, module-wide (Go-only packages importing gsx packages included). From a `.go` file, gsx returns `.gsx` locations; gopls answers `.go`. |
+| Find references | Every Go symbol declared or used in `.gsx` — types, funcs, methods, fields, params, locals, components (tag sites and attribute bindings), pipe filters — from `.gsx` or `.go` cursors, module-wide. From a `.go` file, gsx returns `.gsx` locations; gopls answers `.go`. |
 | Formatting | Canonical `gsx fmt` output and project settings. |
 | Document symbols | File components and top-level Go declarations. |
 | Workspace symbols | Module components and top-level Go declarations. |

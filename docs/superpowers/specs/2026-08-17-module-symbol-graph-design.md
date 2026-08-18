@@ -130,12 +130,15 @@ server caches it exactly as `moduleRefs`/`moduleRefsValid` are cached today
 - **references** — cursor in `.gsx` or `.go` (any module dir): occurrence at
   `(path, offset)` from the per-package index (or the graph's per-file
   occurrence table for reverse-dep dirs) → key → all definitions (when
-  `includeDeclaration`) + references, module-wide. The tag-cursor deferral
-  is removed.
+  `includeDeclaration`) + references, module-wide, filtered to `.gsx`
+  locations when the cursor is in a `.go` file (same gopls-ownership rule as
+  definition, below). The tag-cursor deferral is removed.
 - **definition from `.go`** — any dir in the module: occurrence → key →
-  definition spans. Uniform rule: *the graph answers with everything it
-  knows* — `.gsx` and `.go` targets alike; no "only if declared in `.gsx`"
-  branch.
+  definition spans, filtered to `.gsx` locations only. gopls owns
+  `.go`->`.go` navigation, so a `.go`-cursor reply that also included `.go`
+  targets would duplicate gopls' answer in an editor that merges both
+  servers' results; `.gsx` cursors are gsx's alone (gopls is not attached to
+  `.gsx`) and keep both `.gsx` and `.go` locations.
 - **definition/hover from `.gsx`** — unchanged (already reads the
   per-package index).
 - Degradation: when the module graph is unavailable (analysis error) the

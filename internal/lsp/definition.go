@@ -792,8 +792,9 @@ func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off in
 
 // handleGoDefinition answers definition for a cursor in a .go file from the
 // module symbol graph: any dir in the module, a Go-only package that imports a
-// gsx package included. The graph answers with everything it knows — a .gsx
-// declaration and a .go one alike; the editor merges this with gopls' answer.
+// gsx package included. gopls owns .go->.go navigation, so the reply is
+// filtered to .gsx declarations only (filterAuthoredGSX) — otherwise an editor
+// that merges gsx's and gopls' results would show every .go declaration twice.
 // A build-tag variant family has one declaration per variant, so the reply is a
 // []Location picker; a single declaration replies with a plain Location.
 func (s *Server) handleGoDefinition(f frame, path string, sources *requestSourceSnapshot) error {
@@ -818,7 +819,7 @@ func (s *Server) handleGoDefinition(f frame, path string, sources *requestSource
 	if !found {
 		return s.reply(f.ID, nil)
 	}
-	locations := appendSpanLocations(nil, sources, graph.Definitions(key))
+	locations := appendSpanLocations(nil, sources, filterAuthoredGSX(graph.Definitions(key)))
 	switch len(locations) {
 	case 0:
 		return s.reply(f.ID, nil)

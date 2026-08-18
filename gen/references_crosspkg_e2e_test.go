@@ -103,7 +103,8 @@ func TestReferencesCrossPkgFromDecl(t *testing.T) {
 
 // TestReferencesCrossPkgFromGoCursor invokes textDocument/references with the
 // cursor on the `Input` identifier in use.go (`components.Input`) and asserts
-// the result includes both cross-package reference sites.
+// the result includes the cross-package .gsx reference site only — gopls owns
+// .go->.go, so use.go's own reference site is filtered out.
 func TestReferencesCrossPkgFromGoCursor(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -145,8 +146,8 @@ func TestReferencesCrossPkgFromGoCursor(t *testing.T) {
 	if !strings.Contains(s, "post.gsx") {
 		t.Errorf("cross-pkg references from .go cursor missing post.gsx; out:\n%s", s)
 	}
-	if !strings.Contains(s, "use.go") {
-		t.Errorf("cross-pkg references from .go cursor missing use.go; out:\n%s", s)
+	if strings.Contains(s, "use.go") {
+		t.Errorf("cross-pkg references from .go cursor returned a .go location (gopls owns .go->.go); out:\n%s", s)
 	}
 }
 
@@ -234,10 +235,17 @@ func TestCrossPkgFromGoOnlyPackage(t *testing.T) {
 	}
 	stream := out.String()
 
+	// Cursor is in cmd/main.go: gopls owns .go->.go, so the reply carries the
+	// .gsx sites only — use.go and cmd/main.go's own reference are filtered.
 	refs := lspLocationPaths(t, root, lspTestResponse(t, stream, 2).Result)
-	for _, want := range []string{"components/input.gsx", "post.gsx", "use.go", "cmd/main.go"} {
+	for _, want := range []string{"components/input.gsx", "post.gsx"} {
 		if !slices.Contains(refs, want) {
 			t.Errorf("references from the Go-only cmd package missing %s; got %v", want, refs)
+		}
+	}
+	for _, unwanted := range []string{"use.go", "cmd/main.go"} {
+		if slices.Contains(refs, unwanted) {
+			t.Errorf("references from the Go-only cmd package returned a .go location %s (gopls owns .go->.go); got %v", unwanted, refs)
 		}
 	}
 
