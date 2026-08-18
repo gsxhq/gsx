@@ -72,7 +72,7 @@ is [`gsx init`](#gsx-init)'s job.
 Two templates ship today: `simple` is a stock `net/http` + gsx + Vite
 starter, embedded in the `gsx` binary. `saas` is the flagship full-stack
 starter — auth, dashboard, CRUD, SQLite, htmx — fetched from
-`github.com/gsxhq/template` on first use.
+`github.com/gsxhq/saas-template` on first use.
 
 In a terminal, running `gsx new` with no directory prompts for a project name
 and, unless `--template` (or `--from`) was given explicitly, then shows a
@@ -85,7 +85,7 @@ gsx new
 ```text
 Project name [gsx-app]: myapp
 Select a template:
-  1) saas          Full-stack SaaS starter: auth, dashboard, CRUD, SQLite, htmx (fetched from github.com/gsxhq/template)
+  1) saas          Full-stack SaaS starter: auth, dashboard, CRUD, SQLite, htmx (fetched from github.com/gsxhq/saas-template)
   2) simple        Stock net/http ServeMux + gsx + Vite dev loop.
 Select a template [simple]:
 ```

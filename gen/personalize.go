@@ -80,7 +80,7 @@ func validateNewModule(mod string) error {
 //  4. *.go files are additionally run through go/format.Source after the
 //     rewrite: the new module path can sort differently than the old one
 //     within its (unchanged) gofmt import group — e.g. an own-module import
-//     that used to sort as "github.com/gsxhq/template/..." now sorts under
+//     that used to sort as "github.com/gsxhq/saas-template/..." now sorts under
 //     "example.com/...", which is a valid position in a *different* place in
 //     the block than the byte replace left it. format.Source's ast.SortImports
 //     re-sorts within each existing blank-line-separated group, which is

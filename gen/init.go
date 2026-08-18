@@ -51,7 +51,7 @@ type initTemplate struct {
 const defaultTemplate = "simple"
 
 // templates is the registry. saas lists first (order 0): it's the flagship
-// one-liner this plan exists to deliver. Its module, github.com/gsxhq/template,
+// one-liner this plan exists to deliver. Its module, github.com/gsxhq/saas-template,
 // may not exist yet while this plan executes — every code path exercising it
 // is tested against local fixtures and --from, never the real proxy.
 var templates = map[string]initTemplate{
@@ -63,8 +63,8 @@ var templates = map[string]initTemplate{
 	},
 	"saas": {
 		name:   "saas",
-		desc:   "Full-stack SaaS starter: auth, dashboard, CRUD, SQLite, htmx (fetched from github.com/gsxhq/template)",
-		module: "github.com/gsxhq/template",
+		desc:   "Full-stack SaaS starter: auth, dashboard, CRUD, SQLite, htmx (fetched from github.com/gsxhq/saas-template)",
+		module: "github.com/gsxhq/saas-template",
 		order:  0,
 	},
 }

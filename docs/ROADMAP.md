@@ -798,7 +798,7 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   numbered template picker (`promptTemplate`) over the registry, ordered so a
   flagship entry lists first; the registry's `simple` (embedded, rendered
   through the `«»`/`transformName` pipeline) sits alongside `saas` (fetched
-  from `github.com/gsxhq/template`, the SaaS starter this plan exists to
+  from `github.com/gsxhq/saas-template`, the SaaS starter this plan exists to
   deliver). A fetched template, or a local checkout via `--from <dir>`, is
   personalized in place rather than rendered: `go.mod`'s module path is
   rewritten with the `golang.org/x/mod/modfile` write API (validated first
