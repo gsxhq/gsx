@@ -1,0 +1,34 @@
+# fly.toml — deploys the gsx playground render service (gsx-playground.fly.dev).
+#
+# The build context is the gsx repo ROOT, not this directory: the Dockerfile
+# copies the whole module so visitor code compiles against the live gsx tree.
+# Deploy from the repo root (CI does exactly this):
+#   flyctl deploy -c playground/server/fly.toml --ha=false .
+# --ha=false keeps a single machine; the default would create a spare.
+
+app = "gsx-playground"
+primary_region = "lhr"
+
+[build]
+  # Relative to this file; the build context is the WORKING_DIRECTORY passed to
+  # flyctl deploy (the repo root), not this directory.
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # "suspend" (not "stop") snapshots the machine's memory on idle, so the
+  # warmed workspace pool survives and resume takes ~100-300ms instead of a
+  # cold boot. Fly falls back to stop if the machine is ineligible (>2GiB).
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# One shared vCPU serves visitor builds one at a time in practice (measured:
+# 0.8s for one build, 7.5s each for four concurrent ones), so the server runs
+# a two-workspace pool (Dockerfile CMD). Two concurrent builds peak well under
+# 1GB. Auto-suspend keeps the bill at cents/month inside the Legacy Hobby
+# machine allowance even though a 24/7 1GB machine would cost ~$6/month.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

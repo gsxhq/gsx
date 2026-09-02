@@ -1,0 +1,10 @@
+# Build context for playground/server/Dockerfile is the repo root (COPY . /gsx).
+# Keep VCS metadata and agent scratch dirs out of the image.
+.git
+.worktrees
+.claude
+.claire
+.codex
+.remember
+.superpowers
+node_modules

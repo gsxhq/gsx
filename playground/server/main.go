@@ -1,5 +1,5 @@
 // Command gsxplayground is a local prototype of the gsx docs render API (the
-// future Cloud Run /render handler). It runs the AUTHENTIC gsx pipeline:
+// /render handler). It runs the AUTHENTIC gsx pipeline:
 // write the edited .gsx into a prepared fixed module, run `gsx generate --json`
 // (structured diagnostics) and `go run`, and return the rendered HTML + the
 // generated Go.
@@ -48,7 +48,8 @@ func main() {
 		log.Fatalf("setup: %v", err)
 	}
 
-	// PORT env is set by Cloud Run; fall back to -addr flag.
+	// PORT env, when the platform sets one, wins over -addr (Fly does not set it;
+	// fly.toml's internal_port matches the -addr default).
 	listenAddr := *addr
 	if port := os.Getenv("PORT"); port != "" {
 		listenAddr = ":" + port
