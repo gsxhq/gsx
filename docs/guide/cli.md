@@ -11,7 +11,8 @@ gsx [global flags] <command> [arguments]
 
 | Task | Command |
 |------|---------|
-| Create a starter project | `gsx init [dir]` |
+| Create a new project directory | `gsx new <dir>` |
+| Scaffold a starter into the current directory | `gsx init` |
 | Generate, build, and reload while editing | `gsx dev [dir]` |
 | Generate `.x.go` files | `gsx generate [paths...]` |
 | Format `.gsx` files | `gsx fmt [paths...]` |
@@ -42,33 +43,140 @@ gsx -q generate
 gsx generate -v ./views
 ```
 
-## `gsx init` {#gsx-init}
+## `gsx new` {#gsx-new}
 
-Create the `simple` gsx + Vite starter in a new directory:
+Create a new project directory — the fastest way to start a gsx project:
 
 ```bash
-gsx init myapp
+gsx new myapp
 ```
 
 ```text
-gsx init [dir] [flags]
+gsx new <dir> [flags]
 ```
 
 | Flag | Effect |
 |------|--------|
-| `--template simple` | Select the starter template. `simple` is the only current template. |
+| `--template name` | Select the starter template by name. Omit it in a terminal to get the interactive picker. |
 | `--module path` | Set the Go module path. The default is the target directory name. |
+| `--from dir-or-module` | Fetch the template from a local checkout or a module path instead of the registry. Overrides `--template`. |
+| `--force` | Overwrite an existing `go.mod` or `package.json`. |
+| `--yes`, `-y` | Run setup commands without prompting. |
+
+`dir` is required (positionally, or via the interactive prompt below); a
+non-interactive `gsx new` with no directory is a usage error — creating `.`
+is [`gsx init`](#gsx-init)'s job.
+
+### Templates and the picker {#new-templates}
+
+Two templates ship today: `simple` is a stock `net/http` + gsx + Vite
+starter, embedded in the `gsx` binary. `saas` is the flagship full-stack
+starter — auth, dashboard, CRUD, SQLite, htmx — fetched from
+`github.com/gsxhq/saas-template` on first use.
+
+In a terminal, running `gsx new` with no directory prompts for a project name
+and, unless `--template` (or `--from`) was given explicitly, then shows a
+numbered picker:
+
+```bash
+gsx new
+```
+
+```text
+Project name [gsx-app]: myapp
+Select a template:
+  1) saas          Full-stack SaaS starter: auth, dashboard, CRUD, SQLite, htmx (fetched from github.com/gsxhq/saas-template)
+  2) simple        Stock net/http ServeMux + gsx + Vite dev loop.
+Select a template [simple]:
+```
+
+Press Enter to accept the default, type a number, or type a template name
+directly. An invalid answer reprints the list and reprompts once, then falls
+back to the default.
+
+### Fetching a template {#new-from}
+
+A template backed by a module path (like `saas`) is fetched from the module
+proxy (`GOPROXY`, default `https://proxy.golang.org`) at its latest version
+and personalized in place: the module path is rewritten in `go.mod`, in
+`.go`/`.gsx` imports and `gsx.toml`, and `package.json`'s `name` is set to
+the new module's basename. `GOPROXY=off` (or one with no `http(s)://` entry)
+disables fetching — use `--from` with a local directory instead.
+
+`--from` overrides `--template`'s source and is told apart the way the `go`
+command tells a local path from an import path:
+
+```bash
+gsx new myapp --from ../my-template          # ./, ../ or absolute ⇒ local directory (must exist)
+gsx new myapp --from example.com/org/template # anything else ⇒ module path, fetched
+```
+
+A local directory is read the way `go` would publish it as a module: `.git`
+and other VCS directories, nested modules, vendored packages and symlinks are
+omitted. Anything else a checkout carries that shouldn't ship — `node_modules/`,
+a local `.env` — belongs in the manifest's `strip` list.
+
+#### `gsx-template.json` {#template-manifest}
+
+An optional manifest at the template root (never copied itself):
+
+```json
+{
+  "strip": ["docs/", ".github/", "node_modules/", "*.md"],
+  "env": { "APP_SECRET": "secret-hex-32", "APP_ENV": "literal:dev" }
+}
+```
+
+`strip` patterns are `path.Match` globs tested against each file's path and
+every ancestor directory, so `docs/`, `docs` and `docs/*` all remove the
+subtree; `*.md` removes root-level markdown only. `env` entries are appended
+to the scaffold's `.env` (keys already present are left alone):
+`secret-hex-32` generates a fresh 32-byte hex secret, `literal:<v>` writes
+`<v>`.
+
+The target module path (the directory basename, or `--module`) is validated
+like `go mod init` does, so a bare `myapp` is accepted; pass `--module` for a
+publishable path.
+
+`new` exits `0` on success, `2` for invalid usage (a missing or extra
+directory argument, a bad `--from` value, an invalid target module path) or an
+existing protected project file, and `1` when fetching, scaffolding, or a
+setup command fails.
+
+## `gsx init` {#gsx-init}
+
+Scaffold the `simple` gsx + Vite starter into the **current directory**:
+
+```bash
+gsx init
+```
+
+```text
+gsx init [flags]
+```
+
+`init` never takes a directory argument — it always scaffolds into the
+directory you run it from (or `-C`'s target). Use [`gsx new <dir>`](#gsx-new)
+to create a new project directory instead; passing one to `init` is a usage
+error that names the redirect:
+
+```text
+$ gsx init myapp
+gsx: init scaffolds into the current directory; use 'gsx new <dir>' to create a project directory
+```
+
+| Flag | Effect |
+|------|--------|
+| `--template simple` | Select the starter template. `simple` is the only template `init` can scaffold — `init` never fetches; see [`gsx new`](#new-from) for fetched templates. |
+| `--module path` | Set the Go module path. The default is the current directory's name. |
 | `--force` | Overwrite an existing `go.mod` or `package.json`. |
 | `--yes`, `-y` | Run setup commands without prompting. |
 
 ### Interactive setup {#interactive-mode-terminal}
 
-In a terminal, `gsx init` asks for a project name when `dir` is omitted. It
-then scaffolds the project and asks before running each setup command.
-
-```bash
-gsx init
-```
+In a terminal, `gsx init` scaffolds the project immediately — there is no
+project-name prompt, since the target is always the current directory — then
+asks before running each setup command.
 
 Press Enter, `y`, or `yes` to run a step. Skipping one step does not skip the
 remaining steps.
@@ -78,15 +186,16 @@ remaining steps.
 Use `--yes` when a script should scaffold and run every setup command:
 
 ```bash
-gsx init myapp --module example.com/acme/myapp --yes
+gsx init --module example.com/acme/myapp --yes
 ```
 
 When standard input is a pipe or regular file (not a character device) and
 `--yes` is omitted, `init` scaffolds the files, then prints the setup commands
 instead of running them.
 
-`init` exits `0` on success, `2` for invalid usage or an existing protected
-project file, and `1` when scaffolding or a setup command fails.
+`init` exits `0` on success, `2` for invalid usage (including a positional
+directory argument, which is `new`'s job) or an existing protected project
+file, and `1` when scaffolding or a setup command fails.
 
 ## `gsx dev` {#gsx-dev}
 

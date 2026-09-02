@@ -1,0 +1,4 @@
+{
+  "strip": ["docs/*"],
+  "env": {"APP_SECRET": "secret-hex-32"}
+}

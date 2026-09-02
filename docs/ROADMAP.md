@@ -35,9 +35,9 @@ generator/CLI may use `golang.org/x/tools`.
 | Codegen | [~] interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional, explicit JS/CSS attr literals `` js`...` `` / `` css`...` `` + URL attr classification) + pipeline `\|>` + verbatim component signatures with declared `children`/`attrs` roles + method components + named slots + attribute fallthrough + node-input promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. `gsx fmt` treats inline elements as atoms (never break open) and wraps long prose at word gaps (`internal/printer` fill layout, `2026-07-24-fmt-inline-atoms-word-gap-fill-design.md`). |
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
-| CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
+| CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `new` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + module-wide symbol graph (references/definition for every authored Go symbol) + formatting ship; completion deferred, and so is intelligence sourced FROM external/non-project packages' own files (they are not indexed), while go-to-definition from a `.gsx` cursor INTO them works. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
-| Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.5.0) + `github.com/gsxhq/vite` (v0.2.0) + browser dev panel + front-door auto-restart. |
+| Developer experience (Vite + `new`/`init`) | [x] `gsx new`/`gsx init` scaffold (create-dir + cwd-only split, interactive template picker, fetched/`--from` templates) + `@gsxhq/vite-plugin-gsx` (npm v0.5.0) + `github.com/gsxhq/vite` (v0.2.0) + browser dev panel + front-door auto-restart. |
 
 ## Done
 
@@ -776,19 +776,40 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
 Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
 `2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.
 
-## Developer experience - Vite + `init`
+## Developer experience - Vite + `new`/`init`
 
 A complete, ready-to-run dev loop across three coordinated, independently-versioned
 pieces. Save → warm generate → build-then-swap Go server → browser reloads.
 
-- [x] **`gsx init` scaffold** (`gen/init.go`, `gen/templates/init/simple/`) -
-  scaffolds a `net/http.ServeMux` Go server (graceful shutdown for development
-  swaps), a `.gsx` component, a Vite config (front-door proxy +
-  `@gsxhq/vite-plugin-gsx` + `devFallback`), embedded `public/*.svg`, and `.env`
-  ports. Its `npm run dev` script invokes `go tool gsx dev`. Interactive
-  (TTY prompts → runs `go mod tidy` / `npm install`) or non-interactive (`--yes`).
-  Flags accepted in any position. Dev serves CSS via Vite JS with a **FOUC loading
+- [x] **`gsx new`/`gsx init` scaffold** (`gen/init.go`, `gen/new_test.go`,
+  `gen/templates/init/simple/`) - `gsx new <dir>` creates a new project
+  directory (positional arg, or an interactive project-name prompt when bare);
+  `gsx init` scaffolds the current directory only and rejects a positional dir
+  with a redirect message pointing at `new`. Both scaffold a
+  `net/http.ServeMux` Go server (graceful shutdown for development swaps), a
+  `.gsx` component, a Vite config (front-door proxy + `@gsxhq/vite-plugin-gsx`
+  + `devFallback`), embedded `public/*.svg`, and `.env` ports. Its
+  `npm run dev` script invokes `go tool gsx dev`. Interactive (TTY prompts →
+  runs `go mod tidy` / `npm install`) or non-interactive (`--yes`). Flags
+  accepted in any position. Dev serves CSS via Vite JS with a **FOUC loading
   gate** so the first paint isn't unstyled.
+- [x] **`gsx new` template picker + fetched templates** (`gen/init.go`,
+  `gen/fetch.go`, `gen/personalize.go`) - bare interactive `gsx new` offers a
+  numbered template picker (`promptTemplate`) over the registry, ordered so a
+  flagship entry lists first; the registry's `simple` (embedded, rendered
+  through the `«»`/`transformName` pipeline) sits alongside `saas` (fetched
+  from `github.com/gsxhq/saas-template`, the SaaS starter this plan exists to
+  deliver). A fetched template, or a local checkout via `--from <dir>`, is
+  personalized in place rather than rendered: `go.mod`'s module path is
+  rewritten with the `golang.org/x/mod/modfile` write API (validated first
+  with `module.CheckImportPath` — the same rule `go mod init` applies, so
+  the flagship `gsx new myapp --from ...` one-liner works with zero other
+  flags), `.go`/`.gsx`/`gsx.toml` import strings (at any depth, not just the
+  template root) and `package.json`'s `name` are rewritten to match, an optional
+  `gsx-template.json` manifest can strip files and ask for generated
+  `crypto/rand` `.env` secrets. `--from` also accepts a module path (fetched
+  the same way), so a template's own repo can smoke-test itself with
+  `gsx new --from . <tmp>` against its own HEAD with no registry entry needed.
 - [x] **`gsx dev`** - owns the warm generator, build-then-swap Go server,
   Vite child process, browser diagnostics/reload, `.env` restarts, and clean
   process-tree teardown. Build artifacts and optional default logs live in a
@@ -1744,7 +1765,7 @@ vocabulary remains a design aspiration, not the current API.
   Playground" `#try=` deep-link (std-base64 of `{s:source,i:invoke}`); multi-file
   examples ride the Go-Playground txtar format (`-- file --` separators).
 - [x] **Per-topic Syntax and usage pages - SHIPPED.** The guide now has 20 per-topic pages under `docs/guide/syntax/`, each with runnable examples sourced directly from golden-tested `examples/*.txtar` fixtures. `docs/guide/syntax.md` serves as a lightweight overview hub linking to all topic pages.
-- [x] **Getting Started guide - SHIPPED.** Narrative onboarding using `gsx init`
+- [x] **Getting Started guide - SHIPPED.** Narrative onboarding using `gsx new`
   (scaffold → `npm run dev` / `go tool gsx dev` → first live-reload edit → error
   recovery → production build), including alternative package-manager setup.
 

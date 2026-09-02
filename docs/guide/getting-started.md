@@ -24,11 +24,11 @@ files and runs neither Vite nor Node. Skip it by writing your own `main.go` with
 
 ## Create a project
 
-Install gsx and scaffold the starter:
+Install gsx and scaffold a new project directory:
 
 ```sh
 go install github.com/gsxhq/gsx/cmd/gsx@latest
-gsx init hello-gsx --yes
+gsx new hello-gsx --yes
 cd hello-gsx
 ```
 
@@ -37,6 +37,13 @@ scaffolding to check which binary your shell found.
 
 `--yes` also adds gsx as a Go tool, tidies the module, and installs the Vite
 dependencies.
+
+Run `gsx new` with no arguments in a terminal for an interactive prompt (a
+project name, then a template picker) instead. Already have a directory you
+want to scaffold into in place? Use [`gsx init`](./cli.md#gsx-init), which
+scaffolds the current directory rather than creating a new one. See the
+[CLI reference](./cli.md#gsx-new) for the full `new`/`init` split, the
+template picker, and fetching a template with `--from`.
 
 ## Start the development server
 
