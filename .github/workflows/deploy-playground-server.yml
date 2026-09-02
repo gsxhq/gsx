@@ -18,7 +18,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: playground-server-deploy
@@ -26,8 +25,7 @@ concurrency:
 
 env:
   GO_VERSION: '1.26.1'
-  ALLOWED_ORIGIN: https://gsxhq.github.io
-  ARTIFACT_REPOSITORY: gsx
+  PLAYGROUND_URL: https://gsx-playground.fly.dev
 
 jobs:
   deploy:
@@ -44,58 +42,19 @@ jobs:
       - name: Verify playground server
         run: make ci-playground
 
-      - uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-          token_format: access_token
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
 
-      - uses: google-github-actions/setup-gcloud@v3
-
-      - name: Configure Docker auth
-        run: gcloud auth configure-docker "${{ vars.CLOUD_RUN_REGION }}-docker.pkg.dev" --quiet
-
-      - name: Build and push image
+      # Built on this runner (--local-only) and pushed to registry.fly.io, so no
+      # remote builder machine is spun up in the org. --ha=false keeps the app at
+      # one machine. FLY_API_TOKEN is a deploy token scoped to the gsx-playground
+      # app (see playground/server/deploy.md).
+      - name: Deploy to Fly.io
         env:
-          IMAGE: ${{ vars.CLOUD_RUN_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            -f playground/server/Dockerfile \
-            -t "$IMAGE" \
-            .
-          docker push "$IMAGE"
-
-      - name: Deploy to Cloud Run
-        env:
-          IMAGE: ${{ vars.CLOUD_RUN_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
-          RUNTIME_SERVICE_ACCOUNT: gsx-playground-sandbox@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
-        run: |
-          gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" \
-            --project "${{ vars.GCP_PROJECT_ID }}" \
-            --region "${{ vars.CLOUD_RUN_REGION }}" \
-            --image "$IMAGE" \
-            --service-account "$RUNTIME_SERVICE_ACCOUNT" \
-            --allow-unauthenticated \
-            --memory 1Gi \
-            --cpu 1 \
-            --concurrency 4 \
-            --timeout 30 \
-            --min-instances 0 \
-            --max-instances 3 \
-            --set-env-vars "ALLOWED_ORIGIN=$ALLOWED_ORIGIN"
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy -c playground/server/fly.toml --local-only --ha=false .
 
       - name: Smoke test deployed renderer
-        env:
-          SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
-          PROJECT: ${{ vars.GCP_PROJECT_ID }}
-          REGION: ${{ vars.CLOUD_RUN_REGION }}
         run: |
-          url="$(gcloud run services describe "$SERVICE" \
-            --project "$PROJECT" \
-            --region "$REGION" \
-            --format 'value(status.url)')"
-
           cat > /tmp/spread-attrs.json <<'JSON'
           {
             "gsx": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(extra gsx.Attrs) {\n\t<div { extra... }>content</div>\n}\n",
@@ -103,7 +62,7 @@ jobs:
           }
           JSON
 
-          python3 - "$url" <<'PY'
+          python3 - "$PLAYGROUND_URL" <<'PY'
           import json
           import sys
           import urllib.request

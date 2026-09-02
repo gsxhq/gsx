@@ -344,7 +344,7 @@ func writeShim(viewDir, invoke string) {
 // renderIn performs one render cycle in the given workspace.
 func renderIn(resolver *gen.BundledResolver, gocache string, ws *workspace, in renderReq) renderResp {
 	start := time.Now()
-	// 25s leaves headroom under Cloud Run's 30s request timeout.
+	// 25s leaves headroom under the 30s the deploy smoke test allows per request.
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 

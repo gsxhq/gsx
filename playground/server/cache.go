@@ -11,7 +11,7 @@ import (
 // content. Renders are a pure function of (gsx, invoke) given the fixed module
 // and gsx version, so caching is safe — identical requests (the presets every
 // visitor loads, undo/redo, re-runs) return instantly without touching the
-// toolchain. It is per-instance and in-memory; a fresh Cloud Run instance warms
+// toolchain. It is per-instance and in-memory; a fresh machine warms
 // its own cache (see seedPresets).
 type respCache struct {
 	mu  sync.Mutex
