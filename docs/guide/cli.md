@@ -351,5 +351,7 @@ single uncached generation run.
 
 ## Stability {#status}
 
-The CLI is alpha. This page lists the commands that are available now; see
-[Status](./status.md) for the broader shipped surface.
+The CLI is alpha and ships in tagged releases with the runtime (one module, one
+tag; see [Releases and versioning](./status.md#releases-and-versioning)). This
+page lists the commands that are available now; see [Status](./status.md) for
+the broader shipped surface.

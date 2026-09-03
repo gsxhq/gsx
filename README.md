@@ -2,8 +2,9 @@
 
 A JSX-like templating language for Go, compiled to plain Go that streams HTML.
 
-> **Status — alpha.** gsx is used in production today, while language and API
-> compatibility may change before 1.0. See [Status](docs/guide/status.md) and
+> **Status — alpha, tagged.** gsx is used in production today and ships tagged
+> releases from `v0.1.0`; language and API compatibility may change before 1.0.
+> See [Status](docs/guide/status.md), the [changelog](CHANGELOG.md), and the
 > [Roadmap](docs/ROADMAP.md).
 
 ## What is gsx
