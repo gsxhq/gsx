@@ -33,7 +33,9 @@ cd hello-gsx
 ```
 
 If another program named `gsx` is installed, run `gsx version` before
-scaffolding to check which binary your shell found.
+scaffolding to check which binary your shell found. `@latest` is the newest
+tagged release; to pin one, use its tag instead (see
+[Releases and versioning](./status.md#releases-and-versioning)).
 
 `--yes` also adds gsx as a Go tool, tidies the module, and installs the Vite
 dependencies.

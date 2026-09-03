@@ -6,6 +6,10 @@ Living high-level status. Update as subsystems land. Detailed design lives in
 Module: `github.com/gsxhq/gsx` · runtime is **standard-library only**; the
 generator/CLI may use `golang.org/x/tools`.
 
+**Releases:** tagged from `v0.1.0` (`2026-09-03`); one tag covers runtime + CLI.
+Pre-1.0 minor bumps may break, patch bumps do not. Notes in `CHANGELOG.md`,
+policy in `docs/guide/status.md#releases-and-versioning`.
+
 **Status key:** [x] done · [~] partial / in progress · [ ] not started.
 
 ## Current component contract
@@ -37,7 +41,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + module-wide symbol graph (references/definition for every authored Go symbol) + formatting ship; completion deferred, and so is intelligence sourced FROM external/non-project packages' own files (they are not indexed), while go-to-definition from a `.gsx` cursor INTO them works. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
-| Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.5.0) + `github.com/gsxhq/vite` (v0.2.0) + browser dev panel + front-door auto-restart. |
+| Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm 0.11.1) + `github.com/gsxhq/vite` (v0.3.2) + browser dev panel + front-door auto-restart. |
 
 ## Done
 
