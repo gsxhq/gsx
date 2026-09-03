@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// namedFlag is a named bool: Spread classifies it by underlying kind, so Bool must too.
-type namedFlag bool
-
 // stringerFlag is a bool with a String method: anyRenderVal checks Stringer
 // FIRST, so it renders as the string "on"/"off" and never toggles.
 type stringerFlag bool
@@ -22,7 +19,9 @@ func (f stringerFlag) String() string {
 }
 
 // boolValueTable is the value → state contract shared by TestAttrsBool and the
-// Spread agreement test below.
+// Spread agreement test below. Every value here is one Spread can render.
+// spreadFlag (toggle_test.go) is the package's named-bool fixture: Spread
+// classifies it by underlying kind, so Bool must too.
 var boolValueTable = []struct {
 	name string
 	val  any
@@ -33,8 +32,8 @@ var boolValueTable = []struct {
 	{"false", false, false},
 	{"Toggle(true)", Toggle(true), true},
 	{"Toggle(false)", Toggle(false), false},
-	{"namedFlag(true)", namedFlag(true), true},
-	{"namedFlag(false)", namedFlag(false), false},
+	{"spreadFlag(true)", spreadFlag(true), true},
+	{"spreadFlag(false)", spreadFlag(false), false},
 	{"stringerFlag(false)", stringerFlag(false), true},
 	{"empty string", "", true},
 	{"string false", "false", true},
@@ -91,16 +90,28 @@ func TestAttrsBool(t *testing.T) {
 		t.Error("invalid attribute name should be false")
 	}
 
-	// class/style resolve through their aggregates.
+	// A value Spread cannot render (it fails the render) is never on either.
+	if (Attrs{{Key: "disabled", Value: struct{}{}}}).Bool("disabled") {
+		t.Error("unsupported value type should be false")
+	}
+	if (Attrs{{Key: "disabled", Value: (*int)(nil)}}).Bool("disabled") {
+		t.Error("typed nil pointer should be false")
+	}
+
+	// class/style read their raw last pair, not Get's string aggregate: Spread
+	// decides a Toggle's presence before aggregating.
+	if (Attrs{{Key: "class", Value: "a"}, {Key: "class", Value: Toggle(false)}}).Bool("class") {
+		t.Error("class ending in Toggle(false) should be false")
+	}
 	if !(Attrs{{Key: "class", Value: "a"}, {Key: "class", Value: "b"}}).Bool("class") {
-		t.Error("class aggregate should be true")
+		t.Error("class of strings should be true")
 	}
 }
 
 // TestAttrsBoolAgreesWithSpread pins Bool to the renderer: on every name where a
 // bool renders bare, Bool(key) is true exactly when Spread writes the attribute.
 func TestAttrsBoolAgreesWithSpread(t *testing.T) {
-	names := []string{"disabled", "hidden", "data-open", "x-cloak", "checked"}
+	names := []string{"disabled", "hidden", "data-open", "x-cloak", "checked", "class", "style"}
 	bags := map[string]Attrs{}
 	for _, tc := range boolValueTable {
 		bags[tc.name] = Attrs{{Key: "K", Value: tc.val}}
@@ -120,12 +131,53 @@ func TestAttrsBoolAgreesWithSpread(t *testing.T) {
 				}
 				bag[i] = kv
 			}
+			if (name == "class" || name == "style") && aggregateStringifies(bag, name) {
+				// class/style are string aggregates: Spread stringifies a plain
+				// bool or a nil INTO the aggregate (class="a false") before its
+				// presence rule runs, so on those two keys only Toggle carries
+				// presence. Bool reads the pair itself.
+				continue
+			}
 			var buf bytes.Buffer
-			W(&buf).Spread(context.Background(), "div", bag, AttrSinks{}, nil)
-			rendered := strings.Contains(buf.String(), " "+name)
+			w := W(&buf)
+			w.Spread(context.Background(), "div", bag, AttrSinks{}, nil)
+			if err := w.Err(); err != nil {
+				t.Fatalf("%s %s: Spread error: %v", name, label, err)
+			}
+			// No value in the table contains whitespace, so Fields yields one
+			// token per attribute: a bare `name` or `name="…"`. An exact token
+			// match keeps a longer name sharing the prefix (data-open-x) from
+			// counting as rendered.
+			out := buf.String()
+			rendered := false
+			for tok := range strings.FieldsSeq(out) {
+				if tok == name || strings.HasPrefix(tok, name+`="`) {
+					rendered = true
+				}
+			}
 			if got := bag.Bool(name); got != rendered {
-				t.Errorf("%s %s: Bool = %v but Spread wrote %q", name, label, got, buf.String())
+				t.Errorf("%s %s: Bool = %v but Spread wrote %q", name, label, got, out)
 			}
 		}
 	}
+}
+
+// aggregateStringifies reports whether the last pair for key is a value the
+// class/style aggregate turns into text before Spread's presence rule can see
+// it: nil, or a bool-kinded value that is not a Toggle.
+func aggregateStringifies(bag Attrs, key string) bool {
+	for i := len(bag) - 1; i >= 0; i-- {
+		if bag[i].Key != key {
+			continue
+		}
+		if _, isToggle := bag[i].Value.(Toggle); isToggle {
+			return false
+		}
+		if bag[i].Value == nil {
+			return true
+		}
+		_, k, ok := anyRenderVal(bag[i].Value)
+		return ok && k == kindBool
+	}
+	return false
 }

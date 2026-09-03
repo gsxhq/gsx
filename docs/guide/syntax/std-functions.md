@@ -66,8 +66,9 @@ answers the second question and is the right guard for defaults:
 `{ if !attrs.Has("type") { type="button" } }` lets a caller override with any
 value, including `false`. `Bool` answers "is it on?" for styling by state:
 `disabled={false}` is `false`, and so is `aria-pressed={false}` even though that
-one renders as `aria-pressed="false"`. `Get` returns the raw value when you need
-to see the distinction yourself.
+one renders as `aria-pressed="false"` (see
+[Boolean attributes](./attributes.md#boolean-attributes)). `Get` returns the raw
+value when you need to see the distinction yourself.
 
 #### Transform bags
 
