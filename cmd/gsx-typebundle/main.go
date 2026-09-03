@@ -121,7 +121,7 @@ func main() {
 		list = append(list, p)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Path() < list[j].Path() })
-	data, err := typebundle.Write(fset, target, list)
+	data, err := typebundle.Write(target, list)
 	if err != nil {
 		fatal("write bundle: %v", err)
 	}

@@ -142,10 +142,14 @@ type Bundle struct {
 // target captured by the producer. Target acquisition and packages.Load must
 // share one immutable command environment; Write intentionally does not infer
 // provenance from the opaque types.Sizes interface.
-func Write(fset *token.FileSet, target Target, pkgs []*types.Package) ([]byte, error) {
-	if fset == nil {
-		return nil, fmt.Errorf("typebundle: FileSet is required")
-	}
+//
+// The bundle carries NO source positions: it is a type universe, not a source
+// map, and no reader consults object positions. Encoding them would embed the
+// producer's absolute GOROOT and module-cache paths, making the artifact differ
+// per host — the committed playground bundle must regenerate byte-identically
+// on any machine for its drift gate (make ci-playbundle) to hold. gcexportdata
+// writes every position as "none" when given a nil FileSet.
+func Write(target Target, pkgs []*types.Package) ([]byte, error) {
 	if _, err := target.Sizes(); err != nil {
 		return nil, err
 	}
@@ -176,7 +180,7 @@ func Write(fset *token.FileSet, target Target, pkgs []*types.Package) ([]byte, e
 		return filtered[i].Path() < filtered[j].Path()
 	})
 	var payload bytes.Buffer
-	if err := gcexportdata.WriteBundle(&payload, fset, filtered); err != nil {
+	if err := gcexportdata.WriteBundle(&payload, nil, filtered); err != nil {
 		return nil, err
 	}
 	payloadBytes := payload.Bytes()
