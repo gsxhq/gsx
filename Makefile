@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format reload-probe test-go127rc1
+.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-playbundle ci-format reload-probe test-go127rc1
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -34,6 +34,7 @@ test:
 # playground build+test and the ~1s format check overlap for free.
 ci:
 	$(MAKE) ci-examples
+	$(MAKE) ci-playbundle
 	$(MAKE) -j3 ci-gomod ci-playground ci-format
 
 # Fast inner-loop check: the SAME checks as `ci` PLUS `lint` (which `ci` omits —
@@ -101,6 +102,20 @@ cover:
 
 cover-html: cover
 	go tool cover -html=cover.out
+
+# Regenerate the playground's embedded type bundle (the gsx runtime's export data
+# the WASM playground type-checks snippets against) and fail if it drifts from
+# what's committed — otherwise a new runtime symbol (a method on Attrs, a type
+# like Toggle) is undefined in the playground until someone notices. Serial like
+# ci-examples: the bundle is `//go:embed`ded, so its regeneration must not race
+# the test build. The bundle records the toolchain version, so it must be
+# regenerated with the Go pinned in ci.yml (GO_VERSION) or it will drift.
+ci-playbundle:
+	go generate ./playground/playbundle
+	@if ! git diff --exit-code -- playground/playbundle/playground.typebundle; then \
+		echo "playground.typebundle is stale — run 'go generate ./playground/playbundle' and commit the result"; \
+		exit 1; \
+	fi
 
 examples:
 	go run ./cmd/gsx-examples
