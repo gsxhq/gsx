@@ -56,7 +56,8 @@ built-in type before boxing it.
 | `Class` | `func (a Attrs) Class() string` | Join `class` values. |
 | `Style` | `func (a Attrs) Style() string` | Join `style` values. |
 | `Get` | `func (a Attrs) Get(key string) (any, bool)` | Get the last value. |
-| `Has` | `func (a Attrs) Has(key string) bool` | Test for a key. |
+| `Has` | `func (a Attrs) Has(key string) bool` | Test for a key. Present even when its value is `false`. |
+| `Bool` | `func (a Attrs) Bool(key string) bool` | Boolean state of a key, as the spread renders it: `Toggle`/`bool` decide, `nil` or absent is `false`, anything else is `true`. |
 
 #### Transform bags
 

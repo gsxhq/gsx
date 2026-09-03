@@ -125,6 +125,10 @@ func (a Attrs) Get(key string) (any, bool) {
 // Has reports whether key is present. It scans directly rather than delegating to
 // Get: Get collapses class/style by calling Class()/Style(), and routing Has
 // through it would recurse.
+//
+// Presence is not state: a name={expr} attribute is present even when expr is
+// false, because the pair must stay in the bag for last-wins overrides. For a
+// boolean attribute like disabled, use Bool.
 func (a Attrs) Has(key string) bool {
 	for i := len(a) - 1; i >= 0; i-- {
 		if a[i].Key == key {
@@ -132,6 +136,35 @@ func (a Attrs) Has(key string) bool {
 		}
 	}
 	return false
+}
+
+// Bool reports the boolean state key resolves to in this bag: the state the
+// leaf spread would render, computed the way Spread computes it. The last pair
+// for key decides (like Get, exact-match, so a case-variant duplicate is a
+// different key). A Toggle or bool-kinded value yields itself; an absent key, a
+// nil value, or a structurally invalid name that Spread never writes yields
+// false; any other value yields true — "", "false", a RawJS, a number — because
+// the platform treats disabled="" and disabled="false" alike.
+//
+// It answers state, not output: aria-pressed={false} is false here even though
+// the attribute renders as aria-pressed="false". It sees only the bag: a forced
+// root attribute that owns the name at the leaf is not consulted. For "did the
+// caller supply this key at all", use Has.
+func (a Attrs) Bool(key string) bool {
+	if !validAttrName(key) {
+		return false
+	}
+	v, ok := a.Get(key)
+	if !ok || v == nil {
+		return false
+	}
+	// Toggle is a named bool, so anyRenderVal classifies it as kindBool with its
+	// own value — the same classifier Spread applies after its Toggle short-circuit.
+	s, k, ok := anyRenderVal(v)
+	if ok && k == kindBool {
+		return s == "true"
+	}
+	return true
 }
 
 // GetFold is Get with Unicode simple-fold key matching through strings.EqualFold

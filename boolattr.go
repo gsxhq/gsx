@@ -12,5 +12,6 @@ package gsx
 //
 // gsx also uses Toggle internally when a syntactically bare attribute must
 // travel through an Attrs bag, carrying its authored presence to the leaf
-// independent of what the name tables say.
+// independent of what the name tables say. A component reading that state
+// back out of a bag uses Attrs.Bool, which resolves Toggle and bool alike.
 type Toggle bool
