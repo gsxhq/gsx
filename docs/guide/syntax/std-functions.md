@@ -56,8 +56,18 @@ built-in type before boxing it.
 | `Class` | `func (a Attrs) Class() string` | Join `class` values. |
 | `Style` | `func (a Attrs) Style() string` | Join `style` values. |
 | `Get` | `func (a Attrs) Get(key string) (any, bool)` | Get the last value. |
-| `Has` | `func (a Attrs) Has(key string) bool` | Test for a key. Present even when its value is `false`. |
+| `Has` | `func (a Attrs) Has(key string) bool` | Did the caller supply the key? Present even when its value is `false`. |
 | `Bool` | `func (a Attrs) Bool(key string) bool` | Boolean state of a key, as the spread renders it: `Toggle`/`bool` decide, `nil` or absent is `false`, anything else is `true`. |
+
+**Presence vs state.** `disabled={expr}` is in the bag whatever `expr` is; the
+`false` pair must stay so a later spread can override an earlier `true`, and so
+a component can tell "caller said `false`" from "caller said nothing". `Has`
+answers the second question and is the right guard for defaults:
+`{ if !attrs.Has("type") { type="button" } }` lets a caller override with any
+value, including `false`. `Bool` answers "is it on?" for styling by state:
+`disabled={false}` is `false`, and so is `aria-pressed={false}` even though that
+one renders as `aria-pressed="false"`. `Get` returns the raw value when you need
+to see the distinction yourself.
 
 #### Transform bags
 
