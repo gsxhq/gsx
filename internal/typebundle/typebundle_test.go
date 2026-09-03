@@ -67,7 +67,7 @@ func TestBundleTargetEnvelopeIsExactAndCrossArchitecture(t *testing.T) {
 	}
 	pkg := types.NewPackage("example.com/empty", "empty")
 	pkg.MarkComplete()
-	data, err := Write(token.NewFileSet(), target, []*types.Package{pkg})
+	data, err := Write(target, []*types.Package{pkg})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestBundleEnvelopeRejectsMissingMalformedAndUnknownTarget(t *testing.T) {
 			mutate(&target)
 			pkg := types.NewPackage("example.com/empty", "empty")
 			pkg.MarkComplete()
-			if _, err := Write(token.NewFileSet(), target, []*types.Package{pkg}); err == nil {
+			if _, err := Write(target, []*types.Package{pkg}); err == nil {
 				t.Fatal("Write accepted invalid target")
 			}
 		})
@@ -148,7 +148,7 @@ func TestBundleEnvelopeRejectsMissingMalformedAndUnknownTarget(t *testing.T) {
 func TestReadRejectsUnsupportedProducerTarget(t *testing.T) {
 	pkg := types.NewPackage("example.com/empty", "empty")
 	pkg.MarkComplete()
-	data, err := Write(token.NewFileSet(), testTarget(), []*types.Package{pkg})
+	data, err := Write(testTarget(), []*types.Package{pkg})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestWriteRejectsDuplicatePackagePaths(t *testing.T) {
 	first.MarkComplete()
 	second := types.NewPackage("example.com/duplicate", "duplicate")
 	second.MarkComplete()
-	if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{first, second}); err == nil {
+	if _, err := Write(testTarget(), []*types.Package{first, second}); err == nil {
 		t.Fatal("Write accepted duplicate package paths")
 	}
 }
@@ -220,14 +220,14 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		root := types.NewPackage("example.com/root", "root")
 		root.SetImports([]*types.Package{dependency})
 		root.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "not transitively closed") {
+		if _, err := Write(testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "not transitively closed") {
 			t.Fatalf("Write error = %v, want transitive-closure rejection", err)
 		}
 	})
 
 	t.Run("incomplete package", func(t *testing.T) {
 		incomplete := types.NewPackage("example.com/incomplete", "incomplete")
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{incomplete}); err == nil || !strings.Contains(err.Error(), "incomplete") {
+		if _, err := Write(testTarget(), []*types.Package{incomplete}); err == nil || !strings.Contains(err.Error(), "incomplete") {
 			t.Fatalf("Write error = %v, want incomplete-package rejection", err)
 		}
 	})
@@ -240,7 +240,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		root := types.NewPackage("example.com/root", "root")
 		root.SetImports([]*types.Package{imported})
 		root.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{root, listed}); err == nil || !strings.Contains(err.Error(), "different package identity") {
+		if _, err := Write(testTarget(), []*types.Package{root, listed}); err == nil || !strings.Contains(err.Error(), "different package identity") {
 			t.Fatalf("Write error = %v, want identity-coherence rejection", err)
 		}
 	})
@@ -251,7 +251,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		root := types.NewPackage("example.com/root", "root")
 		root.SetImports([]*types.Package{dependency, dependency})
 		root.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{root, dependency}); err == nil || !strings.Contains(err.Error(), "duplicate import") {
+		if _, err := Write(testTarget(), []*types.Package{root, dependency}); err == nil || !strings.Contains(err.Error(), "duplicate import") {
 			t.Fatalf("Write error = %v, want duplicate-import rejection", err)
 		}
 	})
@@ -259,7 +259,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 	t.Run("forged top-level unsafe package", func(t *testing.T) {
 		forged := types.NewPackage("unsafe", "unsafe")
 		forged.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{forged}); err == nil || !strings.Contains(err.Error(), "types.Unsafe") {
+		if _, err := Write(testTarget(), []*types.Package{forged}); err == nil || !strings.Contains(err.Error(), "types.Unsafe") {
 			t.Fatalf("Write error = %v, want forged unsafe identity rejection", err)
 		}
 	})
@@ -270,7 +270,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		root := types.NewPackage("example.com/root", "root")
 		root.SetImports([]*types.Package{forged})
 		root.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "types.Unsafe") {
+		if _, err := Write(testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "types.Unsafe") {
 			t.Fatalf("Write error = %v, want forged unsafe import identity rejection", err)
 		}
 	})
@@ -279,7 +279,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		t.Run("invalid package name "+name, func(t *testing.T) {
 			pkg := types.NewPackage("example.com/invalid-name", name)
 			pkg.MarkComplete()
-			if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{pkg}); err == nil || !strings.Contains(err.Error(), "package name") {
+			if _, err := Write(testTarget(), []*types.Package{pkg}); err == nil || !strings.Contains(err.Error(), "package name") {
 				t.Fatalf("Write error = %v, want invalid package-name rejection", err)
 			}
 		})
@@ -289,7 +289,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		pkg := types.NewPackage("example.com/self", "self")
 		pkg.SetImports([]*types.Package{pkg})
 		pkg.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{pkg}); err == nil || !strings.Contains(err.Error(), "import cycle") {
+		if _, err := Write(testTarget(), []*types.Package{pkg}); err == nil || !strings.Contains(err.Error(), "import cycle") {
 			t.Fatalf("Write error = %v, want self-import-cycle rejection", err)
 		}
 	})
@@ -301,7 +301,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		beta.SetImports([]*types.Package{alpha})
 		alpha.MarkComplete()
 		beta.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{alpha, beta}); err == nil || !strings.Contains(err.Error(), "import cycle") {
+		if _, err := Write(testTarget(), []*types.Package{alpha, beta}); err == nil || !strings.Contains(err.Error(), "import cycle") {
 			t.Fatalf("Write error = %v, want mutual-import-cycle rejection", err)
 		}
 	})
@@ -312,7 +312,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		root := types.NewPackage("example.com/root", "root")
 		root.Scope().Insert(types.NewVar(token.NoPos, foreign, "Leaked", types.Typ[types.Int]))
 		root.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{root, foreign}); err == nil || !strings.Contains(err.Error(), "owned by") {
+		if _, err := Write(testTarget(), []*types.Package{root, foreign}); err == nil || !strings.Contains(err.Error(), "owned by") {
 			t.Fatalf("Write error = %v, want foreign scope-owner rejection", err)
 		}
 	})
@@ -326,7 +326,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		root := types.NewPackage("example.com/root", "root")
 		root.Scope().Insert(types.NewVar(token.NoPos, root, "Value", valueType))
 		root.MarkComplete()
-		if _, err := Write(token.NewFileSet(), testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "semantic package set") {
+		if _, err := Write(testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "semantic package set") {
 			t.Fatalf("Write error = %v, want hidden semantic-dependency rejection", err)
 		}
 	})
@@ -335,7 +335,7 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 func TestReadRejectsTrailingBundlePayload(t *testing.T) {
 	pkg := types.NewPackage("example.com/empty", "empty")
 	pkg.MarkComplete()
-	data, err := Write(token.NewFileSet(), testTarget(), []*types.Package{pkg})
+	data, err := Write(testTarget(), []*types.Package{pkg})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,11 +357,11 @@ func TestWriteCanonicalizesTargetTagOrder(t *testing.T) {
 	sorted.ToolTags = []string{"tool.alpha", "tool.zeta"}
 	sorted.ReleaseTags = []string{"go1.25", "go1.26"}
 
-	first, err := Write(token.NewFileSet(), unsorted, []*types.Package{pkg})
+	first, err := Write(unsorted, []*types.Package{pkg})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Write(token.NewFileSet(), sorted, []*types.Package{pkg})
+	second, err := Write(sorted, []*types.Package{pkg})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,11 +383,11 @@ func TestWriteCanonicalizesPackageOrder(t *testing.T) {
 	beta := types.NewPackage("example.com/beta", "beta")
 	beta.MarkComplete()
 
-	first, err := Write(token.NewFileSet(), testTarget(), []*types.Package{beta, alpha})
+	first, err := Write(testTarget(), []*types.Package{beta, alpha})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Write(token.NewFileSet(), testTarget(), []*types.Package{alpha, beta})
+	second, err := Write(testTarget(), []*types.Package{alpha, beta})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +455,7 @@ func TestBundleRoundTripNoSubprocess(t *testing.T) {
 		t.Fatal("packages.Load returned no target type sizes")
 	}
 	target := testTarget()
-	data, err := Write(fset, target, pkgs)
+	data, err := Write(target, pkgs)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}

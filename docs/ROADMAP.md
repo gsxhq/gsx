@@ -511,6 +511,13 @@ render goldens.
     `2026-07-16-gsx-bool-attr-semantics-design.md`. **Deferred:** a custom-element
     hint (a hyphenated tag with a bool value not in the list renders `="true"` —
     warn "use `gsx.Toggle` for a toggle") — helpfulness, not correctness.
+    **Read side** (`2026-09-03`, #194/#195): `Attrs.Bool(key)` reports the state
+    the leaf spread would render, using Spread's own classifier (Toggle/bool-kinded
+    → itself; absent/nil/invalid name/unrenderable → false; else true). `Has`
+    stays presence-only because the `false` pair must remain in the bag for
+    last-wins overrides and for codegen's caller-wins guard. A change to
+    `RendersBare`, `Toggle` handling or `anyRenderVal` must keep `Bool` in
+    lockstep — `TestAttrsBoolAgreesWithSpread` is the gate.
 
 ## Language server (`gsx lsp`)
 

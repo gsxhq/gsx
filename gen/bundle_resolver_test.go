@@ -104,7 +104,7 @@ func buildSpikeBundle(t *testing.T) []byte {
 		ToolchainVersion: "go1.26", LanguageVersion: "go1.26",
 		BuildTags: []string{}, ToolTags: []string{"test.tool"}, ReleaseTags: []string{"go1.26"},
 	}
-	data, err := typebundle.Write(fset, target, pkgs)
+	data, err := typebundle.Write(target, pkgs)
 	if err != nil {
 		t.Fatalf("typebundle.Write: %v", err)
 	}
