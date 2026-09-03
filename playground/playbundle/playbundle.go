@@ -16,7 +16,7 @@ import (
 	"github.com/gsxhq/gsx/gen"
 )
 
-//go:generate go run github.com/gsxhq/gsx/cmd/gsx-typebundle -compiler=gc -goos=linux -goarch=amd64 -cgo=0 -language-version=go1.26.1 -o playground.typebundle
+//go:generate go run github.com/gsxhq/gsx/cmd/gsx-typebundle -compiler=gc -goos=linux -goarch=amd64 -cgo=0 -language-version=go1.27.1 -o playground.typebundle
 
 //go:embed playground.typebundle
 var bundle []byte

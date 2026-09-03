@@ -27,13 +27,13 @@ const envelopeMagic = "GSXTYPEBUNDLE\x00\x02"
 // language merely defers failure until every snippet is type-checked. The
 // toolchain parity test makes a Go upgrade fail closed until this contract and
 // its generated archive are updated together.
-const maxLanguageVersion = "go1.26"
+const maxLanguageVersion = "go1.27"
 
 // maxToolchainVersion is the newest producer whose opaque export payload this
 // reader accepts. gcexportdata owns that payload format; accepting a bundle
 // written by a newer Go toolchain would claim compatibility this pinned reader
 // has not verified. The toolchain parity test makes upgrades explicit.
-const maxToolchainVersion = "go1.26.1"
+const maxToolchainVersion = "go1.27.1"
 
 // Target is the authoritative build context and language contract represented
 // by a bundle. ToolchainVersion describes the go command that selected and

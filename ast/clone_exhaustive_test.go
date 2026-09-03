@@ -247,7 +247,7 @@ func assertClonedDistinct(t *testing.T, label string, orig, clone *ast.File, poi
 	}
 	ov := reflect.ValueOf(origNode)
 	cv := reflect.ValueOf(cloneNode)
-	if ov.Kind() != reflect.Ptr || cv.Kind() != reflect.Ptr {
+	if ov.Kind() != reflect.Pointer || cv.Kind() != reflect.Pointer {
 		t.Fatalf("expected pointer-kind original/clone for %s, got %s/%s", label, ov.Kind(), cv.Kind())
 	}
 	if ov.Pointer() == cv.Pointer() {

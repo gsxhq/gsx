@@ -113,7 +113,7 @@ func TestBundleEnvelopeRejectsMissingMalformedAndUnknownTarget(t *testing.T) {
 		"unknown GOOS":         func(target *Target) { target.GOOS = "definitely-not-a-goos" },
 		"invalid OS arch pair": func(target *Target) { target.GOOS, target.GOARCH = "plan9", "arm64" },
 		"unknown toolchain":    func(target *Target) { target.ToolchainVersion = "devel unknown" },
-		"future toolchain":     func(target *Target) { target.ToolchainVersion = "go1.27" },
+		"future toolchain":     func(target *Target) { target.ToolchainVersion = "go1.28" },
 		"missing language":     func(target *Target) { target.LanguageVersion = "" },
 		"language lacks minor": func(target *Target) { target.LanguageVersion = "go1" },
 		"future language": func(target *Target) {
@@ -155,7 +155,7 @@ func TestReadRejectsUnsupportedProducerTarget(t *testing.T) {
 
 	for name, mutate := range map[string]func(*Target){
 		"non-gc compiler":  func(target *Target) { target.Compiler = "gccgo" },
-		"future toolchain": func(target *Target) { target.ToolchainVersion = "go1.27" },
+		"future toolchain": func(target *Target) { target.ToolchainVersion = "go1.28" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			forged := rewriteEnvelopeTarget(t, data, mutate)

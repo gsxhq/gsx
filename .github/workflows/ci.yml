@@ -23,8 +23,8 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: '1.26.1'
-  GOLANGCI_LINT_VERSION: 'v2.10.1'
+  GO_VERSION: '1.27.1'
+  GOLANGCI_LINT_VERSION: 'v2.13.2'
 
 jobs:
   build-test:
@@ -114,28 +114,3 @@ jobs:
           install-only: true
       - name: Run lint
         run: make lint
-
-  go-1-27-rc1:
-    name: Go 1.27 RC1 (generic-method tests)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    # Non-blocking next-release lane: runs the go1.27-gated generic-method tests
-    # with skip promoted to failure. continue-on-error keeps release-candidate
-    # breakage from blocking merges; the lane exists so the generic-method path
-    # is actually executed somewhere before GO_VERSION reaches 1.27.
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: Cache Go 1.27 RC1 SDK
-        uses: actions/cache@v4
-        with:
-          path: ~/sdk/go1.27rc1
-          key: go1.27rc1-${{ runner.os }}-${{ runner.arch }}
-      - name: Install Go 1.27 RC1
-        run: |
-          go install golang.org/dl/go1.27rc1@latest
-          go1.27rc1 download
-      - name: Run generic-method tests under Go 1.27 RC1
-        run: make test-go127rc1

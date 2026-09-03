@@ -10,7 +10,7 @@ Runtime (root package) is **standard-library only** — keep it dependency-free;
 Run `make ci` — it mirrors `.github/workflows/ci.yml` (build/vet/test both modules, examples drift, `gofmt` + `gsx fmt`).
 It is the authoritative, uncached run (`-count=1`); GitHub CI runs the same. `make check` is the same checks plus `lint` with the test cache left on — use it as a **pre-merge dry run**, not as an inner loop. For the inner loop run the single affected test; see **Test performance** below.
 
-Pin Go to `GO_VERSION` in `ci.yml` (currently 1.26.1); a different minor re-introduces gofmt drift.
+Pin Go to `GO_VERSION` in `ci.yml` (currently 1.27.1): your PATH-local `go` must be that exact version — a different minor re-introduces gofmt drift, and the `internal/typebundle` parity test fails closed until its reader caps and the regenerated `playground.typebundle` match. Never add a `toolchain` directive to `go.mod`: codegen refuses toolchain switching (`go_overlay.go`), so it would break every module load for anyone whose PATH `go` differs. The `go 1.26.1` directive is the *dependents'* minimum and moves separately.
 The CI `docs` job (VitePress, clones `gsxhq/gsxhq.github.io`) isn't in `make ci` — only matters when editing `docs/guide/**`.
 Literal `{{ }}` in `docs/guide/**` prose must be wrapped in a `::: v-pre` block — VitePress parses `{{ }}` as a Vue interpolation and the build fails otherwise.
 

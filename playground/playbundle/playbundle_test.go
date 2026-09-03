@@ -13,8 +13,8 @@ func TestEmbeddedBundleTargetsPlaygroundServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := typeUniverse.Target
-	if target.Compiler != "gc" || target.GOOS != "linux" || target.GOARCH != "amd64" || target.CGOEnabled || target.LanguageVersion != "go1.26.1" || target.ToolchainVersion != "go1.26.1" {
-		t.Fatalf("embedded target = %#v, want gc/linux/amd64 cgo=0 toolchain/language go1.26.1", target)
+	if target.Compiler != "gc" || target.GOOS != "linux" || target.GOARCH != "amd64" || target.CGOEnabled || target.LanguageVersion != "go1.27.1" || target.ToolchainVersion != "go1.27.1" {
+		t.Fatalf("embedded target = %#v, want gc/linux/amd64 cgo=0 toolchain/language go1.27.1", target)
 	}
 }
 

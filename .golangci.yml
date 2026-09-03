@@ -26,6 +26,13 @@ linters:
       checks:
         - SA*
         - QF*
+    modernize:
+      # slicesbackward rewrites `for i := len(s)-1; i >= 0; i--` to
+      # `range slices.Backward(s)`. Measured under go1.27.1 on the runtime's
+      # Attrs.Has/Get (render-time hot path): 4.9 → 6.7 ns/op, +35-40% — the
+      # range-over-func iterator is not flattened. Style is not worth that.
+      disable:
+        - slicesbackward
 
 issues:
   max-issues-per-linter: 0

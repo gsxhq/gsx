@@ -39,7 +39,7 @@ func collectPtrNodes(n ast.Node) map[ast.Node]bool {
 		if x == nil {
 			return false
 		}
-		if reflect.ValueOf(x).Kind() == reflect.Ptr {
+		if reflect.ValueOf(x).Kind() == reflect.Pointer {
 			set[x] = true
 		}
 		return true

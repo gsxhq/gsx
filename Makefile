@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-playbundle ci-format reload-probe test-go127rc1
+.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-playbundle ci-format reload-probe
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -66,10 +66,13 @@ reload-probe:
 # 85-package / 205k-line gsx runtime closure is re-parsed and re-type-checked
 # once per test Module (803 loads across the two packages). See CLAUDE.md
 # "Test performance" before adding tests that open a codegen.Module.
+# GSX_REQUIRE_GENERIC_METHODS=1 promotes the go1.27 generic-method tests from
+# skip to FAILURE, so the lane can never green-light while silently testing
+# nothing (GO_VERSION in ci.yml is 1.27.1; the same PATH-local go is expected here).
 ci-gomod:
 	go build ./...
 	go vet ./...
-	go test ./... $(COUNT) $(PARALLEL)
+	GSX_REQUIRE_GENERIC_METHODS=1 go test ./... $(COUNT) $(PARALLEL)
 
 # playground/server is a separate Go module.
 ci-playground:
@@ -119,14 +122,3 @@ ci-playbundle:
 
 examples:
 	go run ./cmd/gsx-examples
-
-# Runs the go1.27-gated generic-methods tests under the Go 1.27 RC1 toolchain, with
-# skip promoted to FAILURE (GSX_REQUIRE_GENERIC_METHODS=1) so the lane can
-# never green-light while silently testing nothing. Requires go1.27rc1:
-#   go install golang.org/dl/go1.27rc1@latest && go1.27rc1 download
-test-go127rc1:
-	@command -v go1.27rc1 >/dev/null 2>&1 || { \
-		echo "go1.27rc1 not found — install with:"; \
-		echo "  go install golang.org/dl/go1.27rc1@latest && go1.27rc1 download"; \
-		exit 1; }
-	GOTOOLCHAIN=local GSX_REQUIRE_GENERIC_METHODS=1 go1.27rc1 test ./internal/codegen -run 'Go127|GenericMethod' -count=1 -v

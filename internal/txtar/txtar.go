@@ -12,6 +12,7 @@ package txtar
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 )
 
@@ -99,7 +100,7 @@ func fixNL(data []byte) []byte {
 		return data
 	}
 	if data[len(data)-1] != '\n' {
-		data = append(data[:len(data):len(data)], '\n')
+		data = append(slices.Clip(data), '\n')
 	}
 	return data
 }
