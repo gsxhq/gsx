@@ -2,7 +2,6 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/gsxhq/gsx.svg)](https://pkg.go.dev/github.com/gsxhq/gsx)
 [![CI](https://github.com/gsxhq/gsx/actions/workflows/ci.yml/badge.svg)](https://github.com/gsxhq/gsx/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gsxhq/gsx)](https://goreportcard.com/report/github.com/gsxhq/gsx)
 [![Release](https://img.shields.io/github/v/release/gsxhq/gsx)](https://github.com/gsxhq/gsx/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/gsxhq/gsx)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
