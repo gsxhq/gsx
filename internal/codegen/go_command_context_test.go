@@ -165,8 +165,17 @@ func TestGoCommandContextRetainedEnvironmentMatchesFreshFrozenQuery(t *testing.T
 	if got := canonical["GOENV"]; got != "" {
 		t.Fatalf("canonical GOENV = %q, want cmd/go's empty report for disabled GOENV", got)
 	}
-	if _, ok := canonical["GOPACKAGESDRIVER"]; ok {
-		t.Fatal("canonical environment invented non-go-env GOPACKAGESDRIVER key")
+	// The canonical environment mirrors cmd/go's report and never invents a
+	// key. cmd/go started reporting GOPACKAGESDRIVER in go1.27 (go1.26's
+	// `go env` omits it), so the key is present exactly when the fresh query
+	// reports it — and then it carries the frozen "off" control.
+	freshDriver, freshHas := fresh["GOPACKAGESDRIVER"]
+	canonicalDriver, canonicalHas := canonical["GOPACKAGESDRIVER"]
+	if canonicalHas != freshHas {
+		t.Fatalf("canonical GOPACKAGESDRIVER present = %v, cmd/go reports it = %v; the canonical environment must mirror cmd/go, never invent keys", canonicalHas, freshHas)
+	}
+	if canonicalHas && (canonicalDriver != "off" || freshDriver != "off") {
+		t.Fatalf("GOPACKAGESDRIVER canonical = %q, fresh = %q, want the frozen \"off\"", canonicalDriver, freshDriver)
 	}
 }
 
