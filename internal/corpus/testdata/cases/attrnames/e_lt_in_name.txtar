@@ -1,0 +1,8 @@
+# error: `<` cannot start or continue an attribute name
+-- input.gsx --
+package p
+
+component X() { <div a<b> }
+-- diagnostics.golden --
+3:23: expected attribute name, got '<'
+unexpected EOF, expected </b>

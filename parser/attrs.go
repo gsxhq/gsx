@@ -341,7 +341,11 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	attrStartPos := p.posAt(attrStart)
 	p.i = scanAttrName(p.src, p.i)
 	if p.i == attrStart {
-		return nil, p.errorf(p.pos(), "expected attribute name, got %q", string(p.peek()))
+		got := "invalid UTF-8"
+		if r, _, ok := validRuneAt(p.src, p.i); ok {
+			got = strconv.QuoteRune(r)
+		}
+		return nil, p.errorf(p.pos(), "expected attribute name, got %s", got)
 	}
 	name := p.src[attrStart:p.i]
 	nameEnd := p.i

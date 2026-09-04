@@ -6,6 +6,15 @@ attrmap/nil_prop	diag gen render
 attrmap/prop_binding	diag gen render
 attrmap/spread_undefined_error	diag render
 attrmap/tuple_map_compose	diag(error)
+attrnames/component_bag_route	diag render
+attrnames/cond_attr	diag render
+attrnames/e_backtick_in_name	diag(error)
+attrnames/e_c1_control_in_name	diag(error)
+attrnames/e_close_brace_in_name	diag(error)
+attrnames/e_lt_in_name	diag(error)
+attrnames/e_noncharacter_in_name	diag(error)
+attrnames/punct_names	diag render
+attrnames/switch_attr	diag render
 attrs/attr_error_autounwrap	diag gen render
 attrs/attr_error_autounwrap_nested	diag gen render
 attrs/bare_presence_fallthrough	diag gen render
@@ -1013,4 +1022,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1015 cases (render: 865, error: 112, gen-pinned: 566)
+TOTAL: 1024 cases (render: 869, error: 117, gen-pinned: 566)

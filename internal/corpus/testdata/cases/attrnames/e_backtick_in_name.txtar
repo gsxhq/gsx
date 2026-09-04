@@ -1,0 +1,8 @@
+# error: a backtick opens a gsx value literal, so `style`color:red`` (missing
+# `=`) stays a diagnostic instead of scanning as a boolean attribute
+-- input.gsx --
+package p
+
+component X() { <div style`color:red`> }
+-- diagnostics.golden --
+3:27: expected attribute name, got '`'
