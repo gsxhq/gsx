@@ -551,25 +551,13 @@ func lastValidAttrIndexes(attrs Attrs) map[string]int {
 	return last
 }
 
-// validAttrName reports whether k is a structurally safe HTML attribute name: non-empty
-// and free of whitespace, control bytes, and the characters that could break out of the
-// tag or the name (" ' < > = / &). Names like "hx-on::click", ":class", "@click.away",
-// "data-x", and "_" pass.
+// validAttrName reports whether k is a well-formed HTML attribute name — the
+// same rule the parser scans names with (htmlattr.NameRune), so a bag key the
+// compiler would accept in source is a key the leaf emits, and any other key
+// is dropped (including `{`, `}`, a backtick, and invalid UTF-8). Names like "hx-on::click", ":class", "@click.away", ".prop",
+// "?disabled", "[prop]", "(event)", "data-x", and "_" pass.
 func validAttrName(k string) bool {
-	if k == "" {
-		return false
-	}
-	for i := 0; i < len(k); i++ {
-		c := k[i]
-		if c <= ' ' || c == 0x7f {
-			return false
-		}
-		switch c {
-		case '"', '\'', '<', '>', '=', '/', '&':
-			return false
-		}
-	}
-	return true
+	return htmlattr.ValidName(k)
 }
 
 // toStr renders an attribute/class value to a string.

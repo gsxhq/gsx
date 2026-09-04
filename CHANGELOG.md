@@ -4,6 +4,16 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **Language** — attribute names follow the HTML rule (any characters except
+  controls, space, `"`, `'`, `>`, `/`, `=`, noncharacters, plus gsx's `<`,
+  `{`, `}`, `` ` ``); there is no distinct first character, so `.prop`,
+  `?disabled`, `#ref`, `[prop]`, `(event)` and `on:click|mod` parse. The
+  runtime spread keeps bag keys by the same rule: it now accepts `&`, and drops
+  C1 controls, noncharacters, `{`, `}`, backticks and invalid UTF-8 that it
+  previously emitted.
+
 ## v0.1.0 — 2026-09-03
 
 First tagged release. Everything the [Status](docs/guide/status.md) page lists as

@@ -1,0 +1,27 @@
+Layout fact: punctuation-led attribute names (`.prop`, `?attr`, `#ref`,
+`[prop]`, `(event)`, `on:click|mod`) are ordinary attribute atoms — printed
+verbatim, spaced like any other attribute, and reflowed with the tag.
+-- input.gsx --
+package main
+
+component C(v string, on bool) {
+	<div   .prop="x"  ?disabled={on}   #ref [a]={v} (b)="c" on:click|preventDefault={v}   .bare>x</div>
+	<Leaf .prop="x" ?disabled [target]={v}/>
+}
+-- fmt.golden --
+package main
+
+component C(v string, on bool) {
+	<div
+		.prop="x"
+		?disabled={on}
+		#ref
+		[a]={v}
+		(b)="c"
+		on:click|preventDefault={v}
+		.bare
+	>
+		x
+	</div>
+	<Leaf .prop="x" ?disabled [target]={v}/>
+}
