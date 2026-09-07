@@ -1,0 +1,7 @@
+# error: `}` is tag structure, never an attribute-name rune
+-- input.gsx --
+package p
+
+component X() { <div }x> }
+-- diagnostics.golden --
+3:22: expected attribute name, got '}'

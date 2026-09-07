@@ -1,0 +1,18 @@
+# A punctuation-led attribute name on a COMPONENT tag is not a Go identifier,
+# so it routes through the attrs bag like any other non-prop name, and the
+# runtime spread keeps it (validAttrName is the same rule the parser uses).
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+component Leaf(label string, attrs gsx.Attrs) { <span { attrs... }>{ label }</span> }
+
+component Page(v string) {
+	<Leaf label="a" .prop="x" ?disabled [target]={v} (click)="go()"/>
+}
+-- invoke --
+Page("val")
+-- diagnostics.golden --
+-- render.golden --
+<span .prop="x" ?disabled [target]="val" (click)="go()">a</span>

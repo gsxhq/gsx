@@ -1,0 +1,14 @@
+# Punctuation-led names inside a `{ switch … }` attribute body.
+-- input.gsx --
+package demo
+
+component Page(n int) {
+	<input { switch n { case 1: ?disabled .one="x" case 2: [two]="y" default: (other)="z" } }/>
+	<input { switch n + 1 { case 1: ?disabled .one="x" case 2: [two]="y" default: (other)="z" } }/>
+	<input { switch n + 2 { case 1: ?disabled .one="x" case 2: [two]="y" default: (other)="z" } }/>
+}
+-- invoke --
+Page(1)
+-- diagnostics.golden --
+-- render.golden --
+<input ?disabled .one="x"><input [two]="y"><input (other)="z">

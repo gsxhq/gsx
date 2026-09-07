@@ -1,0 +1,20 @@
+# Attribute names follow the HTML authoring rule: any rune except controls,
+# space, `"`, `'`, `>`, `/`, `=`, and noncharacters — minus `{`, `}` (gsx tag
+# structure) and `<` (an HTML tokenizer parse error). Framework spellings
+# that start with punctuation — Lit `.prop`/`?attr`, Angular `#ref`/`*ngIf`/
+# `[prop]`/`(event)`, Svelte `on:click|mod`, Vue `#slot` — all parse, in
+# string, expression, and bare-presence form, and are emitted verbatim. (A
+# backtick is also excluded: it opens the f/js/css value literals.)
+-- input.gsx --
+package demo
+
+component Page(v string, on bool) {
+	<div .prop="x" .p.q={v} .bare>dot</div>
+	<input ?disabled={on} ?readonly="" #ref *ngIf="cond" [prop]="a" (event)="b" $x !y a&b/>
+	<button on:click|preventDefault={v} x-on:keyup.enter.prevent="go" données="é" ~tilde ^caret %pct +plus ,comma ;semi>go</button>
+}
+-- invoke --
+Page("val", true)
+-- diagnostics.golden --
+-- render.golden --
+<div .prop="x" .p.q="val" .bare>dot</div><input ?disabled ?readonly="" #ref *ngIf="cond" [prop]="a" (event)="b" $x !y a&b><button on:click|preventDefault="val" x-on:keyup.enter.prevent="go" données="é" ~tilde ^caret %pct +plus ,comma ;semi>go</button>

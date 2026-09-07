@@ -10,6 +10,15 @@ literals when an attribute contains interpolated text, JavaScript, or CSS.
 <div style=css`color:@{color}`>...</div>
 ```
 
+## Attribute names
+
+Names follow the HTML rule: any characters except controls, space, `"`, `'`,
+`>`, `/`, `=`, noncharacters, and gsx's `<`, `{`, `}`, `` ` ``. There is no
+special first character, so
+framework spellings such as `.prop`, `?disabled`, `#ref`, `[prop]`,
+`(event)`, `@click.away` and `on:click|preventDefault` are ordinary names.
+On a component tag, a name that is not a Go identifier goes to `attrs`.
+
 ## Expression attributes
 
 Use `name={expr}` to bind a Go value.

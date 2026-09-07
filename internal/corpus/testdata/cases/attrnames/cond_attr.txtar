@@ -1,0 +1,13 @@
+# Punctuation-led names inside a `{ if … }` attribute body.
+-- input.gsx --
+package demo
+
+component Page(on bool) {
+	<input { if on { ?disabled .prop="x" [a]="b" } else { (event)="c" } }/>
+	<input { if !on { ?disabled .prop="x" [a]="b" } else { (event)="c" } }/>
+}
+-- invoke --
+Page(true)
+-- diagnostics.golden --
+-- render.golden --
+<input ?disabled .prop="x" [a]="b"><input (event)="c">

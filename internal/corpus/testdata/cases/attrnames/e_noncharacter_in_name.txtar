@@ -1,0 +1,7 @@
+# error: a noncharacter (U+FFFE) is not an attribute-name rune
+-- input.gsx --
+package p
+
+component X() { <div a￾b> }
+-- diagnostics.golden --
+3:23: expected attribute name, got '\ufffe'

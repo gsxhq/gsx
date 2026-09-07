@@ -153,6 +153,11 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 		"x onmouseover=y", // space → could inject a second attribute
 		">",               // > breaks tag structure
 		"a/b",             // / is a prohibited character
+		"a{b",             // { and } are gsx tag structure
+		"a<b",             // < is a tokenizer parse error inside a name
+		"a`b",             // backtick opens a gsx value literal
+		"a\u0085b",        // C1 control
+		"a\ufffeb",        // Unicode noncharacter
 	}
 	// Empty key is also invalid; check separately since strings.Contains("", "") is always true.
 	emptyKeyBag := Attrs{{Key: "", Value: "evil"}}
@@ -167,6 +172,13 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 		"@click.away",
 		"data-x",
 		"_",
+		".prop",
+		"?disabled",
+		"#ref",
+		"[prop]",
+		"(event)",
+		"on:click|preventDefault",
+		"a&b",
 	}
 
 	bag := make(Attrs, 0, len(unsafe)+len(kept))

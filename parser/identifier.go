@@ -3,6 +3,8 @@ package parser
 import (
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/gsxhq/gsx/internal/htmlattr"
 )
 
 // goIdentifierStart reports the exact first-rune rule from the Go spec:
@@ -59,8 +61,10 @@ func scanGoIdentifier(src string, start int) int {
 	}
 }
 
+// attrNameRune is the HTML attribute-name rule shared with the runtime; see
+// htmlattr.NameRune for the exact set and the three gsx exclusions.
 func attrNameRune(r rune) bool {
-	return goIdentifierContinue(r) || r == ':' || r == '@' || r == '.' || r == '-'
+	return htmlattr.NameRune(r)
 }
 
 func tagNameRune(r rune) bool {

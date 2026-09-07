@@ -1,0 +1,7 @@
+# error: a C1 control (U+0085) is not an attribute-name rune
+-- input.gsx --
+package p
+
+component X() { <div ab> }
+-- diagnostics.golden --
+3:23: expected attribute name, got '\u0085'
