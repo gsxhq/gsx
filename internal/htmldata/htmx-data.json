@@ -188,12 +188,16 @@
       "name": "hx-disable",
       "description": {
         "kind": "markdown",
-        "value": "disables htmx processing for the given node and any children nodes"
+        "value": "Meaning differs by version. htmx 2: disables htmx processing for the given node and any children nodes (htmx 4 spells this `hx-ignore`). htmx 4: adds `disabled` to the selected elements while a request is in flight (the htmx 2 `hx-disabled-elt` behaviour)."
       },
       "references": [
         {
           "name": "htmx Reference",
           "url": "https://htmx.org/attributes/hx-disable/"
+        },
+        {
+          "name": "htmx 4 Reference",
+          "url": "https://four.htmx.org/attributes/hx-disable/"
         }
       ]
     },
@@ -201,7 +205,7 @@
       "name": "hx-disabled-elt",
       "description": {
         "kind": "markdown",
-        "value": "adds the `disabled` attribute to the specified elements while a request is in flight"
+        "value": "htmx 2 only. Removed in htmx 4: use `hx-disable`.\n\nadds the `disabled` attribute to the specified elements while a request is in flight"
       },
       "references": [
         {
@@ -214,7 +218,7 @@
       "name": "hx-disinherit",
       "description": {
         "kind": "markdown",
-        "value": "control and disable automatic attribute inheritance for child nodes"
+        "value": "htmx 2 only. Removed in htmx 4: inheritance is explicit in htmx 4 via the `:inherited` attribute suffix.\n\ncontrol and disable automatic attribute inheritance for child nodes"
       },
       "references": [
         {
@@ -240,7 +244,7 @@
       "name": "hx-ext",
       "description": {
         "kind": "markdown",
-        "value": "extensions to use for this element"
+        "value": "htmx 2 only. Removed in htmx 4: include extension scripts directly.\n\nextensions to use for this element"
       },
       "references": [
         {
@@ -266,7 +270,7 @@
       "name": "hx-history",
       "description": {
         "kind": "markdown",
-        "value": "prevent sensitive data being saved to the history cache"
+        "value": "htmx 2 only. Removed in htmx 4: htmx 4 no longer caches history in localStorage.\n\nprevent sensitive data being saved to the history cache"
       },
       "references": [
         {
@@ -318,7 +322,7 @@
       "name": "hx-inherit",
       "description": {
         "kind": "markdown",
-        "value": "control and enable automatic attribute inheritance for child nodes if it has been disabled by default"
+        "value": "htmx 2 only. Removed in htmx 4: inheritance is explicit in htmx 4 via the `:inherited` attribute suffix.\n\ncontrol and enable automatic attribute inheritance for child nodes if it has been disabled by default"
       },
       "references": [
         {
@@ -331,7 +335,7 @@
       "name": "hx-params",
       "description": {
         "kind": "markdown",
-        "value": "filters the parameters that will be submitted with a request"
+        "value": "htmx 2 only. Removed in htmx 4: configure request parameters in the `htmx:config:request` event.\n\nfilters the parameters that will be submitted with a request"
       },
       "references": [
         {
@@ -370,7 +374,7 @@
       "name": "hx-prompt",
       "description": {
         "kind": "markdown",
-        "value": "shows a `prompt()` before submitting a request"
+        "value": "htmx 2 only. Removed in htmx 4: load the `hx-prompt` extension or use `hx-on`.\n\nshows a `prompt()` before submitting a request"
       },
       "references": [
         {
@@ -409,7 +413,7 @@
       "name": "hx-request",
       "description": {
         "kind": "markdown",
-        "value": "configures various aspects of the request"
+        "value": "htmx 2 only. Removed in htmx 4: use `hx-config`.\n\nconfigures various aspects of the request"
       },
       "references": [
         {
@@ -448,12 +452,142 @@
       "name": "hx-vars",
       "description": {
         "kind": "markdown",
-        "value": "adds values dynamically to the parameters to submit with the request (deprecated, please use `hx-vals`)"
+        "value": "htmx 2 only. Removed in htmx 4: use `hx-vals` with the `js:` prefix.\n\nadds values dynamically to the parameters to submit with the request (deprecated, please use `hx-vals`)"
       },
       "references": [
         {
           "name": "htmx Reference",
           "url": "https://htmx.org/attributes/hx-vars/"
+        }
+      ]
+    },
+    {
+      "name": "hx-action",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. specifies the URL that receives the request; mirrors the native form `action` attribute and pairs with `hx-method`"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-action/"
+        }
+      ]
+    },
+    {
+      "name": "hx-method",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. specifies the HTTP method for the request issued to `hx-action`"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-method/"
+        }
+      ]
+    },
+    {
+      "name": "hx-query",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. issues a `QUERY` request to the specified URL"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-query/"
+        }
+      ]
+    },
+    {
+      "name": "hx-config",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. configures request behaviour (timeout, credentials, cache, redirect, referrer, integrity) using HCON or JSON"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-config/"
+        }
+      ]
+    },
+    {
+      "name": "hx-ignore",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. disables htmx processing for the element and its children (the htmx 2 `hx-disable` behaviour)"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-ignore/"
+        }
+      ]
+    },
+    {
+      "name": "hx-status",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. handles responses differently by status code"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-status/"
+        }
+      ]
+    },
+    {
+      "name": "hx-morph-skip",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. freezes an element during a morph swap: neither its attributes nor its children are updated"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-morph-skip/"
+        }
+      ]
+    },
+    {
+      "name": "hx-morph-skip-children",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. updates an element's attributes during a morph swap but leaves its children alone"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-morph-skip-children/"
+        }
+      ]
+    },
+    {
+      "name": "hx-preload",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. preloads content before the user triggers the request"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-preload/"
+        }
+      ]
+    },
+    {
+      "name": "hx-pending",
+      "description": {
+        "kind": "markdown",
+        "value": "htmx 4 only. shows custom content while a request is in flight"
+      },
+      "references": [
+        {
+          "name": "htmx Reference",
+          "url": "https://four.htmx.org/attributes/hx-pending/"
         }
       ]
     }

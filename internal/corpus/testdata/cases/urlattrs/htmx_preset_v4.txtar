@@ -1,0 +1,26 @@
+# The "htmx" preset also covers the htmx 4 request-URL attributes: hx-action
+# (the URL paired with hx-method) and hx-query (the QUERY method), plus the
+# explicit-inheritance spellings htmx 4 reads through the same lookup
+# (name:inherited, name:append, name:inherited:append). Each is sanitized
+# exactly like hx-get, both as a static attribute (classified at generate time)
+# and through a bag (routed by the runtime preset predicate at the spread leaf).
+# hx-method names the verb, not a URL, so it stays a plain attribute and the
+# value passes through untouched.
+-- gsx.toml --
+url_presets = ["htmx"]
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Form(u string, m string) {
+	<form hx-action={u} hx-method={m}>x</form>
+	<a hx-query={u}>y</a>
+	<div hx-action:inherited={u} hx-get:append={u} hx-post:inherited:append={u}>z</div>
+	<button { gsx.Attrs{{Key: "hx-action:inherited", Value: u}, {Key: "hx-method", Value: m}, {Key: "hx-query:append", Value: u}}... }>w</button>
+}
+-- invoke --
+Form("javascript:alert(1)", "post")
+-- diagnostics.golden --
+-- render.golden --
+<form hx-action="about:invalid#gsx" hx-method="post">x</form><a hx-query="about:invalid#gsx">y</a><div hx-action:inherited="about:invalid#gsx" hx-get:append="about:invalid#gsx" hx-post:inherited:append="about:invalid#gsx">z</div><button hx-action:inherited="about:invalid#gsx" hx-method="post" hx-query:append="about:invalid#gsx">w</button>

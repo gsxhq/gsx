@@ -336,11 +336,9 @@ func loadConfig(path string) (config, error) {
 		}
 	}
 	for _, name := range tc.URLPresets {
-		rules, ok := attrclass.Preset(name)
-		if !ok {
+		if _, ok := attrclass.Preset(name); !ok {
 			return config{}, fmt.Errorf("%s: url_presets: unknown preset %q (known: %s)", path, name, strings.Join(attrclass.PresetNames(), ", "))
 		}
-		cfg.urlRules = cfg.urlRules.Merge(rules.URL)
 		cfg.urlPresets = append(cfg.urlPresets, name)
 	}
 	if tc.Minify != nil {

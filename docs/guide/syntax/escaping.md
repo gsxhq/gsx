@@ -27,8 +27,9 @@ a dynamic value cannot break out of the quoted attribute.
 
 URL attributes include `href`, `src`, `action`, `formaction`, `poster`, `cite`,
 `ping`, `data`, `background`, `manifest`, `xlink:href`, `srcset`, and
-`imagesrcset`. The htmx method attributes `hx-get`, `hx-post`, `hx-put`,
-`hx-delete`, and `hx-patch` join this set when you enable the `htmx` URL preset;
+`imagesrcset`. The htmx request attributes `hx-get`, `hx-post`, `hx-put`,
+`hx-delete`, `hx-patch`, `hx-query`, and `hx-action`, with their `:inherited`
+and `:append` spellings, join this set when you enable the `htmx` URL preset;
 see [Config](../config.md#url_presets-named-opt-in-rulesets).
 
 Relative URLs and the `http`, `https`, `mailto`, and `tel` schemes pass through.

@@ -2,10 +2,13 @@
 // generated from the vendored @vscode/web-custom-data browsers.html-data.json
 // (MIT, LICENSE.vendored). Regenerate after replacing the JSON:
 //
-// HTMXAttributes is transcribed from the htmx documented attribute reference
-// at https://htmx.org/reference/ (the "Core Attribute Reference" and
-// "Additional Attribute Reference" tables), stored in htmx-data.json using
-// the same custom-data schema.
+// HTMXAttributes is transcribed from the htmx documented attribute references
+// at https://htmx.org/reference/ (htmx 2: the "Core Attribute Reference" and
+// "Additional Attribute Reference" tables) and https://four.htmx.org/reference/
+// (htmx 4), stored in htmx-data.json using the same custom-data schema. The
+// table is the union of both versions so completions serve either: an
+// attribute one version lacks says so in the first line of its Doc, and
+// hx-disable, whose meaning changed, documents both.
 //
 //go:generate go run ./gen
 package htmldata

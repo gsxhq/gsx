@@ -347,21 +347,21 @@ func WithURLAttrsOn(tag string, rules RuleSet) Option {
 	}
 }
 
-// WithURLPreset enables one or more named URL-attribute presets, appending each
-// preset's URL rules onto the config (additive over the built-in floor, exactly
-// like WithURLAttrs). The only preset today is "htmx", which re-classifies the
-// five htmx method attributes (hx-get/post/put/delete/patch) as URL sinks — they
-// are OFF by default. An unknown preset name is recorded as a config error so the
-// run fails with a clear message instead of silently doing nothing.
+// WithURLPreset enables one or more named URL-attribute presets (additive over
+// the built-in floor, exactly like WithURLAttrs). A preset is a predicate the
+// classifier and the runtime spread leaf apply by name. The only preset today
+// is "htmx", which classifies the htmx request-URL attributes
+// (hx-get/post/put/delete/patch, hx-query, hx-action, and their :inherited /
+// :append spellings) as URL sinks — they are OFF by default. An unknown preset
+// name is recorded as a config error so the run fails with a clear message
+// instead of silently doing nothing.
 func WithURLPreset(names ...string) Option {
 	return func(cfg *config) {
 		for _, name := range names {
-			rules, ok := attrclass.Preset(name)
-			if !ok {
+			if _, ok := attrclass.Preset(name); !ok {
 				cfg.errs = append(cfg.errs, fmt.Errorf("WithURLPreset: unknown preset %q (known: %s)", name, strings.Join(attrclass.PresetNames(), ", ")))
 				continue
 			}
-			cfg.urlRules = cfg.urlRules.Merge(rules.URL)
 			cfg.urlPresets = append(cfg.urlPresets, name)
 		}
 	}

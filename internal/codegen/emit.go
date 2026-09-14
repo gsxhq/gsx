@@ -3227,8 +3227,45 @@ func emitSpreadCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier
 			fields = append(fields, f.name+": "+goStringSliceLit(f.vals))
 		}
 	}
+	// A preset is a predicate compiled into the runtime; only its flag is
+	// emitted, so a preset's coverage can change without touching generated
+	// code.
+	if flags := presetFlagsExpr(cls.Presets()); flags != "" {
+		fields = append(fields, "Presets: "+flags)
+	}
 	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, _gsxrt.AttrSinks{%s}, %s)\n",
 		strconv.Quote(tag), expr, strings.Join(fields, ", "), excludedExpr)
+}
+
+// presetFlags maps a url preset name to the gsx.URLPreset constant that selects
+// its predicate at the spread leaf. Every name attrclass.PresetNames reports
+// must appear here; TestPresetFlagsCoverEveryPreset pins that.
+var presetFlags = map[string]string{
+	"htmx": "PresetHTMX",
+}
+
+// presetFlagsExpr renders the enabled presets as a _gsxrt.URLPreset expression
+// ("" when none are enabled), in a stable order independent of configuration
+// order so generated code does not churn when url_presets is reordered.
+func presetFlagsExpr(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	consts := make([]string, 0, len(names))
+	for _, n := range names {
+		c, ok := presetFlags[n]
+		if !ok {
+			panic(fmt.Sprintf("codegen: url preset %q has no runtime flag", n))
+		}
+		if !slices.Contains(consts, c) {
+			consts = append(consts, c)
+		}
+	}
+	slices.Sort(consts)
+	for i, c := range consts {
+		consts[i] = "_gsxrt." + c
+	}
+	return strings.Join(consts, "|")
 }
 
 // urlConstantBlocked reports whether the runtime URL sanitizer for method

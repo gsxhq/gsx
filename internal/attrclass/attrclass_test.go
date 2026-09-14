@@ -85,6 +85,7 @@ func TestFingerprintStable(t *testing.T) {
 			URL:     RuleSet{Names: []string{"data-href"}},
 			URLTags: map[string]RuleSet{"img": {Names: []string{"data-src"}}},
 		},
+		"presets": {URL: RuleSet{Names: []string{"data-href"}}, Presets: []string{"htmx"}},
 	} {
 		if New(base).Fingerprint() == New(changed).Fingerprint() {
 			t.Errorf("changing %s must change the fingerprint", name)
@@ -93,32 +94,58 @@ func TestFingerprintStable(t *testing.T) {
 }
 
 func TestPreset(t *testing.T) {
-	// The "htmx" preset re-enables the five htmx method attrs as URL rules —
-	// the five EXACT names, never a "hx-" prefix (which would wrongly capture
-	// hx-swap/hx-target/hx-trigger, none of which are URLs).
+	// A preset is a named predicate compiled into htmlattr, not a name list:
+	// Preset returns its identity, which is what travels to the spread leaf
+	// and into the fingerprint. The htmx predicate covers the request-URL
+	// attributes of htmx 2 and htmx 4 in every spelling htmx 4 reads (see
+	// htmlattr.HTMXURL for the exhaustive pin).
 	rules, ok := Preset("htmx")
 	if !ok {
 		t.Fatal(`Preset("htmx") not found`)
 	}
-	want := Rules{URL: RuleSet{Names: []string{
-		"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch",
-	}}}
+	want := Rules{Presets: []string{"htmx"}}
 	if !reflect.DeepEqual(rules, want) {
 		t.Errorf(`Preset("htmx") = %+v, want %+v`, rules, want)
 	}
 
-	// A classifier built from the preset's rules classifies the method attrs as
-	// URL again, but leaves the non-URL hx-* attrs plain.
+	// A classifier built from the preset classifies every spelling of the
+	// request-URL attrs as URL, but leaves the non-URL hx-* attrs plain —
+	// including their own inherited spellings, and hx-method, which names the
+	// verb rather than a URL.
 	c := New(rules)
-	for _, n := range []string{"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch"} {
+	for _, n := range []string{"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch", "hx-query", "hx-action",
+		"hx-get:inherited", "hx-action:append", "hx-post:inherited:append", "HX-GET"} {
 		if got := c.Context("div", n); got != CtxURL {
 			t.Errorf("with htmx preset: Context(%q) = %v, want CtxURL", n, got)
 		}
 	}
-	for _, n := range []string{"hx-swap", "hx-target", "hx-trigger"} {
+	for _, n := range []string{"hx-swap", "hx-target", "hx-trigger", "hx-method", "hx-target:inherited", "hx-confirm:inherited:append"} {
 		if got := c.Context("div", n); got != CtxPlain {
 			t.Errorf("with htmx preset: Context(%q) = %v, want CtxPlain (not a URL attr)", n, got)
 		}
+	}
+	if got := c.Presets(); !reflect.DeepEqual(got, []string{"htmx"}) {
+		t.Errorf("Presets() = %v, want [htmx]", got)
+	}
+	if got := Builtin().Presets(); got != nil {
+		t.Errorf("Builtin().Presets() = %v, want nil", got)
+	}
+
+	// The preset is NOT expanded into the user URL rules codegen ships as
+	// data: the spread leaf gets the preset flag instead.
+	if got := c.UserURLRules("div"); !got.Empty() {
+		t.Errorf("UserURLRules(div) = %+v, want empty (preset travels as identity, not names)", got)
+	}
+
+	// Presets merge and dedupe like every other rule.
+	merged := Rules{URL: RuleSet{Names: []string{"data-href"}}}.Merge(rules).Merge(rules)
+	if want := (Rules{URL: RuleSet{Names: []string{"data-href"}}, Presets: []string{"htmx"}}); !reflect.DeepEqual(merged, want) {
+		t.Errorf("Merge = %+v, want %+v", merged, want)
+	}
+	// An unknown preset name in Rules is a validation error, so a hand-built
+	// Rules value cannot silently enable nothing.
+	if err := (Rules{Presets: []string{"nope"}}).Valid(); err == nil {
+		t.Error("Rules{Presets: [nope]}.Valid() = nil, want error")
 	}
 
 	// Unknown preset → (zero, false).

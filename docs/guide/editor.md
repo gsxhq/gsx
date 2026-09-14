@@ -79,7 +79,7 @@ supports tree-sitter.
 | Document symbols | File components and top-level Go declarations. |
 | Workspace symbols | Module components and top-level Go declarations. |
 | Code actions | Organize imports and choose missing imports. |
-| Completion | Go identifiers and members, pipe filters, component tags and attributes, HTML tags/attributes/values, and `hx-*` attributes when htmx is enabled. |
+| Completion | Go identifiers and members, pipe filters, component tags and attributes, HTML tags/attributes/values, and `hx-*` attributes when the `htmx` URL preset is enabled. The `hx-*` table covers htmx 2 and htmx 4; an attribute only one version has says so in its hover text. |
 
 Completion returns plain text edits, not snippets. Completing a symbol on a
 package you have not imported — `ui.Button` in a Go expression, or `<ui.Button`
