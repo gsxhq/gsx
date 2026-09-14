@@ -24,6 +24,14 @@ syntax or APIs; a patch bump does not. See
 - **Editor** — `hx-*` completion is the union of the htmx 2 and htmx 4
   attribute tables; an attribute only one version has says so in its hover
   text, and `hx-disable` documents both meanings. (#199)
+- **Toolchain** — `gsx.toml` resolves per module: `generate`, `dev` and `fmt`
+  still walk into nested Go modules, but each module is configured from the
+  `gsx.toml` found walking up from ITS root, so a nested module's own file is
+  honoured instead of ignored. A nested module without one inherits the
+  ancestor file as before; when that file names a package the nested module
+  cannot import (a `class_merger`, filter or renderer of the outer module),
+  the error now names the inherited file, the module, and the per-module
+  `gsx.toml` that fixes it. (#200)
 
 ## v0.1.0 — 2026-09-03
 

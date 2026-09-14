@@ -67,37 +67,51 @@ func (r cycleResult) durationMs() int64 { return r.DurMs }
 // loaded". root is the primary module root, used only for the startup banner.
 type watchSession struct {
 	cfg            watchConfig
-	root           string                     // primary module root (startup banner only)
-	roots          []string                   // every module root the session spans
-	requestedRoots []string                   // exact user-selected trees; never excluded as descendants
-	watchRoots     []string                   // requested trees plus their owning module trees
-	modules        map[string]*codegen.Module // module root -> warm Module
+	root           string                          // primary module root (startup banner only)
+	roots          []string                        // every module root the session spans
+	requestedRoots []string                        // exact user-selected trees; never excluded as descendants
+	watchRoots     []string                        // requested trees plus their owning module trees
+	modules        map[string]*codegen.Module      // module root -> warm Module
+	configs        map[string]moduleGenerateConfig // module root -> the config its Module was opened with
 }
 
 // openModule constructs a fresh *codegen.Module for the given module root,
-// threading all watchConfig options (filters, aliases, classifier, minifiers)
-// into codegen.Open. It does not perform any analysis; analysis is
-// lazy and triggered by the first Generate call.
+// configured from the session's per-module config source (that module's own
+// gsx.toml under the CLI; the explicit watchConfig fields otherwise), and
+// records the config for error attribution. It does not perform any analysis;
+// analysis is lazy and triggered by the first Generate call.
 func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 	_, modPath, err := moduleRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	return codegen.Open(codegen.Options{
-		ModuleRoot:   root,
-		ModulePath:   modPath,
-		FilterPkgs:   s.cfg.filterPkgs,
-		Aliases:      s.cfg.aliases,
-		Renderers:    s.cfg.renderers,
-		Classifier:   s.cfg.cls,
-		CSSMin:       s.cfg.cssMin,
-		JSMin:        s.cfg.jsMin,
-		JSONMin:      s.cfg.jsonMin,
-		CSSMinify:    s.cfg.cssMinify,
-		JSMinify:     s.cfg.jsMinify,
-		VerbatimTags: s.cfg.verbatimTags,
-		ClassMerger:  s.cfg.classMerger,
-	})
+	config, err := s.cfg.moduleConfigFunc()(root)
+	if err != nil {
+		return nil, err
+	}
+	opts := config.codegenOptions()
+	opts.ModuleRoot = root
+	opts.ModulePath = modPath
+	m, err := codegen.Open(opts)
+	if err != nil {
+		return nil, err
+	}
+	s.configs[root] = config
+	return m, nil
+}
+
+// annotateModuleError attributes a configured-package failure in dir to the
+// gsx.toml its module inherited, if any (see annotateConfigError).
+func (s *watchSession) annotateModuleError(err error, dir string) error {
+	var cpe *codegen.ConfiguredPackageError
+	if err == nil || !errors.As(err, &cpe) {
+		return err
+	}
+	root, modPath, rootErr := moduleRoot(dir)
+	if rootErr != nil {
+		return err
+	}
+	return annotateConfigError(err, root, modPath, s.configs[root])
 }
 
 // moduleForDir returns the warm Module for dir's enclosing module root. If the
@@ -210,6 +224,7 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 		requestedRoots: append([]string(nil), targets.requestedRoots...),
 		watchRoots:     append([]string(nil), targets.watchRoots...),
 		modules:        map[string]*codegen.Module{},
+		configs:        map[string]moduleGenerateConfig{},
 	}
 	for _, root := range s.roots {
 		m, err := s.openModule(root)
@@ -232,9 +247,9 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 	// codegen.Open directly and must not pay a packages.Load per call, so this
 	// validation lives here and NOT in codegen.Open or codegen.GenerateDirs (the
 	// latter already validates too, memoized, as a defense-in-depth backstop).
-	if cfg.classMerger != nil {
+	if s.configs[s.root].classMerger != nil {
 		if err := s.modules[s.root].ValidateConfiguredMergers(); err != nil {
-			return nil, err
+			return nil, s.annotateModuleError(err, s.root)
 		}
 	}
 	return s, nil
@@ -640,6 +655,7 @@ func (s *watchSession) generateDir(m *codegen.Module, dir string) cycleResult {
 	// runs unconditionally (mirrors writeDirOutcome in gen/cache.go).
 	removed, remErr := removeOrphanXgo(dir)
 	out, diags, gerr := m.Generate(dir)
+	gerr = s.annotateModuleError(gerr, dir)
 	files := make(map[string][]byte, len(out))
 	for gsxPath, b := range out {
 		files[strings.TrimSuffix(gsxPath, ".gsx")+".x.go"] = b

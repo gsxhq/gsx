@@ -189,7 +189,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	t.Setenv("GSXCACHE", t.TempDir())
 
 	// cold: both miss and generate
-	res, report, err := generateCachedWithReport([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	res, report, err := generateCachedReportFixed([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	}
 
 	// warm no-op: both hit; restores are skipped when on-disk matches.
-	res, report, err = generateCachedWithReport([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	res, report, err = generateCachedReportFixed([]string{tmp}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,10 +250,10 @@ func TestCacheIgnoresUnrelatedBrokenPackage(t *testing.T) {
 	}
 	t.Setenv("GSXCACHE", t.TempDir())
 
-	if _, _, err := generateCachedWithReport([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
+	if _, _, err := generateCachedReportFixed([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
 		t.Fatalf("seed cache for selected views: %v", err)
 	}
-	_, report, err := generateCachedWithReport([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	_, report, err := generateCachedReportFixed([]string{viewsDir}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatalf("warm cache for selected views: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestCacheWarmHitAvoidsSemanticPackagesLoad(t *testing.T) {
 	}
 	goCommands := enableGoCommandLog(t)
 
-	_, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	_, report, err := generateCachedReportFixed([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestCacheGraphFailureRegeneratesSelectedDirsWithoutStore(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "graph-failed")
 	t.Setenv("GSX_FAIL_GRAPH_MARKER", marker)
 
-	res, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	res, report, err := generateCachedReportFixed([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatalf("graph-failure fallback: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestCachePartialMainModuleCgoPreservesSiblingHit(t *testing.T) {
 	}
 	t.Setenv("GSXCACHE", t.TempDir())
 
-	_, coldReport, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	_, coldReport, err := generateCachedReportFixed([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatalf("cold partial-cgo generate: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestCachePartialMainModuleCgoPreservesSiblingHit(t *testing.T) {
 		}
 	}
 
-	res, warmReport, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	res, warmReport, err := generateCachedReportFixed([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatalf("warm partial-cgo generate: %v", err)
 	}
@@ -488,10 +488,10 @@ func TestCacheWarmHitWithStdlibCgo(t *testing.T) {
 	}
 
 	t.Setenv("GSXCACHE", t.TempDir())
-	if _, _, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
+	if _, _, err := generateCachedReportFixed([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
 		t.Fatalf("cold cached generate: %v", err)
 	}
-	_, report, err := generateCachedWithReport([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	_, report, err := generateCachedReportFixed([]string{root}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatalf("warm cached generate: %v", err)
 	}

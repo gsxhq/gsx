@@ -16,7 +16,7 @@ func fmtCapture(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	wd, _ := os.Getwd()
-	code := runFmt(nil, &out, &errb, args, nil, nil, codegen.Options{Classifier: attrclass.Builtin()}, wd)
+	code := runFmt(nil, &out, &errb, args, nil, nil, fixedFmtOptions(codegen.Options{Classifier: attrclass.Builtin()}), wd)
 	return code, out.String(), errb.String()
 }
 
@@ -354,7 +354,7 @@ func TestFmtTwoDirsOneModule(t *testing.T) {
 
 	refs, _ := analyzeUnusedImports(
 		[]string{aPath, bPath}, nil,
-		codegen.Options{Classifier: attrclass.Builtin()},
+		fixedFmtOptions(codegen.Options{Classifier: attrclass.Builtin()}),
 	)
 
 	aAbs, _ := filepath.Abs(aPath)
@@ -388,7 +388,7 @@ func TestFmtKeepsTypeArgAndAttrExprImports(t *testing.T) {
 
 	refs, _ := analyzeUnusedImports(
 		[]string{page}, nil,
-		codegen.Options{Classifier: attrclass.Builtin()},
+		fixedFmtOptions(codegen.Options{Classifier: attrclass.Builtin()}),
 	)
 	abs, _ := filepath.Abs(page)
 	if len(refs[abs]) != 1 || refs[abs][0].Path != "bytes" {
@@ -444,7 +444,7 @@ func TestFmtGoimportsMergesAndDedups(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := runFmt(nil, &out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+	if code := runFmt(nil, &out, &errb, []string{"-w", p}, nil, nil, fixedFmtOptions(codegen.Options{}), dir); code != 0 {
 		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 	}
 	got := readFile(t, p)
@@ -471,7 +471,7 @@ func TestFmtImportsGofmtLeavesImportsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := runFmt(nil, &out, &errb, []string{"-w", "-imports", "gofmt", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+	if code := runFmt(nil, &out, &errb, []string{"-w", "-imports", "gofmt", p}, nil, nil, fixedFmtOptions(codegen.Options{}), dir); code != 0 {
 		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 	}
 	got := readFile(t, p)
@@ -498,7 +498,7 @@ func TestFmtNoImportsIsGofmtAlias(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out, errb bytes.Buffer
-		if code := runFmt(nil, &out, &errb, append(args, p), nil, nil, codegen.Options{}, dir); code != 0 {
+		if code := runFmt(nil, &out, &errb, append(args, p), nil, nil, fixedFmtOptions(codegen.Options{}), dir); code != 0 {
 			t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 		}
 		return readFile(t, p)
@@ -514,7 +514,7 @@ func TestFmtImportsFlagConflict(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
-	code := runFmt(nil, &out, &errb, []string{"-imports", "goimports", "-no-imports", dir}, nil, nil, codegen.Options{}, dir)
+	code := runFmt(nil, &out, &errb, []string{"-imports", "goimports", "-no-imports", dir}, nil, nil, fixedFmtOptions(codegen.Options{}), dir)
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2; stderr=%s", code, errb.String())
 	}
@@ -529,7 +529,7 @@ func TestFmtImportsFlagInvalid(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
-	code := runFmt(nil, &out, &errb, []string{"-imports", "gofumpt", dir}, nil, nil, codegen.Options{}, dir)
+	code := runFmt(nil, &out, &errb, []string{"-imports", "gofumpt", dir}, nil, nil, fixedFmtOptions(codegen.Options{}), dir)
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
@@ -557,7 +557,7 @@ func TestFmtConfigGofmtModeHonored(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := runFmt(nil, &out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+	if code := runFmt(nil, &out, &errb, []string{"-w", p}, nil, nil, fixedFmtOptions(codegen.Options{}), dir); code != 0 {
 		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(readFile(t, p), "\"bytes\"") {

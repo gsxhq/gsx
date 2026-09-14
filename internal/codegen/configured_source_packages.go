@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"fmt"
 	"go/types"
 
 	"golang.org/x/tools/go/packages"
@@ -30,7 +29,7 @@ func (m *Module) configuredSourcePackages(requests []configuredPackageRequest) (
 	resolver := newConfiguredSourceDeclResolver(m, external)
 	for _, request := range requests {
 		if request.path == "" {
-			return nil, nil, fmt.Errorf("codegen: %s has an empty package path", request.where)
+			return nil, nil, &ConfiguredPackageError{Where: request.where, Path: request.path, Reason: "has an empty package path"}
 		}
 		if _, done := byPath[request.path]; done {
 			continue
@@ -50,7 +49,7 @@ func (m *Module) configuredSourcePackages(requests []configuredPackageRequest) (
 			}
 			pkg, resolveErr := resolver.packageForDir(dir)
 			if resolveErr != nil {
-				return nil, nil, fmt.Errorf("codegen: %s type resolution failed: %w", request.where, resolveErr)
+				return nil, nil, &ConfiguredPackageError{Where: request.where, Path: request.path, Reason: "type resolution failed", Err: resolveErr}
 			}
 			byPath[request.path] = pkg
 			if gsxOwned {
@@ -59,22 +58,22 @@ func (m *Module) configuredSourcePackages(requests []configuredPackageRequest) (
 			continue
 		}
 		if localDeps := m.externalBackedgeFor(request.path); len(localDeps) != 0 {
-			return nil, nil, fmt.Errorf("codegen: %s crosses the external-to-main-module semantic boundary: %w", request.where,
-				&externalMainModuleBackedgeError{path: request.path, localDeps: localDeps})
+			return nil, nil, &ConfiguredPackageError{Where: request.where, Path: request.path, Reason: "crosses the external-to-main-module semantic boundary",
+				Err: &externalMainModuleBackedgeError{path: request.path, localDeps: localDeps}}
 		}
 
 		m.mu.Lock()
 		errs := append([]packages.Error(nil), m.extErrs[request.path]...)
 		m.mu.Unlock()
 		if len(errs) != 0 {
-			return nil, nil, fmt.Errorf("codegen: %s type resolution failed: %s", request.where, errs[0])
+			return nil, nil, &ConfiguredPackageError{Where: request.where, Path: request.path, Reason: "type resolution failed", Err: errs[0]}
 		}
 		pkg, importErr := resolver.Import(request.path)
 		if importErr != nil {
-			return nil, nil, fmt.Errorf("codegen: %s was not loaded: %w", request.where, importErr)
+			return nil, nil, &ConfiguredPackageError{Where: request.where, Path: request.path, Reason: "was not loaded", Err: importErr}
 		}
 		if pkg == nil {
-			return nil, nil, fmt.Errorf("codegen: %s has no type information", request.where)
+			return nil, nil, &ConfiguredPackageError{Where: request.where, Path: request.path, Reason: "has no type information"}
 		}
 		byPath[request.path] = pkg
 	}

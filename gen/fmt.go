@@ -68,7 +68,7 @@ import (
 //
 // All logic lives here (runFmt returns an int) so tests can drive it without
 // os.Exit.
-func runFmt(stdin io.Reader, stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter, opts codegen.Options, workDir string) int {
+func runFmt(stdin io.Reader, stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter, opts fmtOptionsFunc, workDir string) int {
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -353,8 +353,9 @@ func importsModeFor(dir string) gsxfmt.ImportsMode {
 // It opens ONE codegen.Module per module (not per directory) and reuses it across
 // that module's directories. Directories not in a module, or that fail to open,
 // are skipped (those files are then formatted without import removal). opts
-// carries the resolved codegen config so skeletons match what `generate` emits;
-// a zero/builtin opts still works (buildSkeleton tolerates unknown filters).
+// yields each module's resolved codegen config so skeletons match what
+// `generate` emits for that module; a zero/builtin result still works
+// (buildSkeleton tolerates unknown filters).
 //
 // overlay (absolute path → bytes) substitutes in-memory sources for files on
 // disk before analysis, so -stdin-filename analyzes the piped content rather
@@ -367,7 +368,7 @@ func importsModeFor(dir string) gsxfmt.ImportsMode {
 // the fmt path; the skeleton's //line directives have already resolved each
 // position back to its .gsx origin. Only genuine parse failures become diagnostics;
 // a project that will not load yields none, so it can never make `gsx fmt` fail.
-func analyzeUnusedImports(files []string, overlay map[string][]byte, opts codegen.Options) (map[string][]gsxfmt.ImportRef, map[string][]diag.Diagnostic) {
+func analyzeUnusedImports(files []string, overlay map[string][]byte, opts fmtOptionsFunc) (map[string][]gsxfmt.ImportRef, map[string][]diag.Diagnostic) {
 	out := map[string][]gsxfmt.ImportRef{}
 	diags := map[string][]diag.Diagnostic{}
 	dirSet := map[string]bool{}
@@ -380,7 +381,7 @@ func analyzeUnusedImports(files []string, overlay map[string][]byte, opts codege
 	}
 	groups, _ := groupByModule(dirs)
 	for _, g := range groups {
-		o := opts
+		o := opts(g.root)
 		o.ModuleRoot = g.root
 		o.ModulePath = g.modPath
 		m, err := codegen.Open(o)

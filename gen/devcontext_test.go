@@ -31,7 +31,7 @@ func TestRunDevContextCancelShutsDownCleanly(t *testing.T) {
 	// upstream: gsx manages no Go child; --no-web below: no front door either.
 	writeFile(t, proj, "gsx.toml", "[dev]\nupstream = \"http://127.0.0.1:1\"\n")
 
-	merged, configPath, err := resolveConfig(config{}, proj)
+	_, configPath, err := resolveConfig(config{}, proj)
 	if err != nil {
 		t.Fatalf("resolveConfig: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestRunDevContextCancelShutsDownCleanly(t *testing.T) {
 
 	done := make(chan int, 1)
 	go func() {
-		done <- runDevContext(ctx, []string{"--no-web"}, outW, errW, merged, devTomlFor(configPath), proj)
+		done <- runDevContext(ctx, []string{"--no-web"}, outW, errW, config{}, devTomlFor(configPath), proj)
 	}()
 
 	// Wait for the loop to be entered (the watching banner), then cancel.

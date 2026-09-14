@@ -34,6 +34,24 @@ A nearer file replaces an ancestor file completely. Config files are not
 merged, and gsx never continues above the project boundary to find a global
 config.
 
+### Nested modules
+
+`gsx generate`, `gsx dev` and `gsx fmt` walk into nested Go modules (a
+subdirectory with its own `go.mod`), so one command can cover a repository
+of example or demo modules. Each module is generated against its own
+resolved config: the walk above starts at that module's root, not at the
+command's working directory. A nested module with its own `gsx.toml` uses
+that file; without one it inherits the nearest ancestor file inside the
+repository, exactly as a single module would.
+
+Inheritance works when every package the ancestor file names (filters,
+renderers, `class_merger`) is importable from the nested module, for example a
+repo-root `gsx.toml` whose filters live in the library every example
+requires. When a named package is not importable from the nested module, the
+command fails and names the inherited file, the module it was applied to, and
+the fix: add a `gsx.toml` to the nested module. An empty file opts that
+module out of inheritance.
+
 For those three commands, malformed TOML, unknown keys, and invalid values are
 hard configuration errors. `gsx fmt` instead discovers configuration from each
 file's directory and falls back to `.editorconfig` or built-in formatting when

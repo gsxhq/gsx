@@ -14,12 +14,30 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
+// generateCached generates paths with ONE explicit configuration for every
+// module (no gsx.toml discovery): the programmatic Generate API and tests.
 func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify, verbatimTags bool, classMerger *codegen.ClassMergerRef) (Result, error) {
-	result, _, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, verbatimTags, classMerger)
+	result, _, err := generateCachedWithReport(paths, fixedModuleConfig(moduleGenerateConfig{
+		filterPkgs:   filterPkgs,
+		aliases:      aliases,
+		renderers:    renderers,
+		classifier:   cls,
+		useCache:     useCache,
+		cssMin:       cssMin,
+		jsMin:        jsMin,
+		jsonMin:      jsonMin,
+		cssMinify:    cssMinify,
+		jsMinify:     jsMinify,
+		verbatimTags: verbatimTags,
+		classMerger:  classMerger,
+	}))
 	return result, err
 }
 
-func generateCachedWithReport(paths, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, useCache bool, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify, verbatimTags bool, classMerger *codegen.ClassMergerRef) (Result, cacheReport, error) {
+// generateCachedWithReport discovers the .gsx package dirs under paths, groups
+// them by enclosing module, and generates each module under the configuration
+// moduleConfig yields for its root.
+func generateCachedWithReport(paths []string, moduleConfig moduleConfigFunc) (Result, cacheReport, error) {
 	var res Result
 	var report cacheReport
 	dirs, err := discoverDirs(paths)
@@ -55,21 +73,12 @@ func generateCachedWithReport(paths, filterPkgs []string, aliases []codegen.Filt
 	for _, d := range noModule {
 		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
-	config := moduleGenerateConfig{
-		filterPkgs:   filterPkgs,
-		aliases:      aliases,
-		renderers:    renderers,
-		classifier:   cls,
-		useCache:     useCache,
-		cssMin:       cssMin,
-		jsMin:        jsMin,
-		jsonMin:      jsonMin,
-		cssMinify:    cssMinify,
-		jsMinify:     jsMinify,
-		verbatimTags: verbatimTags,
-		classMerger:  classMerger,
-	}
 	for _, g := range groups {
+		config, err := moduleConfig(g.root)
+		if err != nil {
+			res.Errs = append(res.Errs, fmt.Errorf("gen: module %s: %w", g.root, err))
+			continue
+		}
 		report.Modules = append(report.Modules, generateModule(g, config, &res))
 	}
 
@@ -94,7 +103,9 @@ func generateModule(g moduleGroup, config moduleGenerateConfig, out *Result) (mo
 	var result Result
 	defer func() {
 		out.Written = append(out.Written, result.Written...)
-		out.Errs = append(out.Errs, result.Errs...)
+		for _, err := range result.Errs {
+			out.Errs = append(out.Errs, annotateConfigError(err, g.root, g.modPath, config))
+		}
 		out.Diags = append(out.Diags, result.Diags...)
 		out.UpToDate += result.UpToDate
 		out.Removed = append(out.Removed, result.Removed...)
