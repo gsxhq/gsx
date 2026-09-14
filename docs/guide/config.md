@@ -205,7 +205,9 @@ it with `*` to register the pointer type; value and pointer registrations are
 separate.
 
 For a renderer implemented in `.gsx` and returning semantic markup, see the
-[Package renderers pattern](./patterns/package-renderers.md).
+[Package renderers pattern](./patterns/package-renderers.md). For translating
+i18n keys with a renderer that reads the locale from the request context, see
+[Translation keys](./patterns/i18n-keys.md).
 
 A renderer must be an exported top-level function with one of these shapes:
 
