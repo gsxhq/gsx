@@ -236,8 +236,15 @@ func(context.Context, T) R
 func(context.Context, T) (R, error)
 ```
 
-`T` must exactly match the registered key. `R` must be directly renderable;
-renderers run once and do not chain. A returned error stops rendering.
+`T` must exactly match the registered key. `R` is any type gsx renders
+natively: `string` and string-kinded types, `[]byte`, `[]string`, integers,
+floats, `bool`, `fmt.Stringer`, `gsx.Node`, or `[]gsx.Node`. Renderers run once
+and do not chain, so `R` may not itself have a renderer. A returned error stops
+rendering.
+
+Attributes accept only strings, numbers, booleans and `fmt.Stringer`, so a type
+whose renderer returns `gsx.Node` can be written in content positions only;
+using it in an attribute is a compile-time diagnostic.
 
 The renderer applies when the type is written in text, attributes, and other
 rendering positions. It does not change ordinary Go component arguments. See

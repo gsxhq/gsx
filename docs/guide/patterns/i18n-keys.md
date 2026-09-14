@@ -94,6 +94,46 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+## Returning markup
+
+A renderer may return `gsx.Node` instead of a string, so it can own markup. A
+`.gsx` renderer in the same package can make missing translations visible
+during review:
+
+```gsx
+package i18n
+
+import (
+	"context"
+
+	"github.com/gsxhq/gsx"
+)
+
+// Rich is a translation key for content positions.
+type Rich string
+
+func Label(ctx context.Context, k Rich) gsx.Node {
+	if t, ok := ctx.Value(ctxKey{}).(Translator); ok {
+		if s, ok := t.Lookup(string(k)); ok {
+			return <>{s}</>
+		}
+	}
+	return <span class="i18n-missing" data-key={string(k)}>{string(k)}</span>
+}
+```
+
+```toml
+[renderers]
+"example.com/app/i18n.Key" = "example.com/app/i18n.Translate"
+"example.com/app/i18n.Rich" = "example.com/app/i18n.Label"
+```
+
+`{i18n.Rich("greeting")}` renders `Hallo` for a German request and
+`<span class="i18n-missing" data-key="greeting">greeting</span>` when the key is
+untranslated. A `gsx.Node` cannot render into an attribute, and a type has one
+renderer, so `Rich` is a second type: `Key` keeps serving `title`, `aria-label`
+and other attributes.
+
 ## Messages with arguments
 
 A `Key` carries no arguments. For messages such as "3 items selected",
