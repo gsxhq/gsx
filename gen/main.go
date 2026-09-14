@@ -219,27 +219,32 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		// Only generate and info consume gsx.toml; config-agnostic commands
+		// Only generate, dev and info consume gsx.toml; config-agnostic commands
 		// (version/help/clean/fmt/lsp) must not load it, so a malformed config
-		// can't break them. resolveConfig discovers+loads+merges (opts on top).
-		merged, _, err := resolveConfig(cfg, workDir)
-		if err != nil {
+		// can't break them. The working directory's config is resolved here so
+		// a malformed file is a usage error (exit 2) before any work; each
+		// discovered module then resolves its OWN gsx.toml inside runGenerate
+		// (discoveredModuleConfig), since one walk may span several modules.
+		if _, _, err := resolveConfig(cfg, workDir); err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.hasCustomMinifier(), merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.effectiveJSONMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.serialization == SerializationVerbatim, merged.classMerger, workDir)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg, workDir)
 	case "dev":
 		devWorkDir := workDir
 		if len(cmdArgs) > 0 && !strings.HasPrefix(cmdArgs[0], "-") {
 			devWorkDir = absPaths(workDir, cmdArgs[:1])[0]
 			cmdArgs = cmdArgs[1:]
 		}
-		merged, configPath, err := resolveConfig(cfg, devWorkDir)
+		// The [dev] table comes from the working directory's gsx.toml (resolved
+		// here, so a malformed file is a usage error); codegen config is
+		// resolved per module inside the watch session.
+		_, configPath, err := resolveConfig(cfg, devWorkDir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runDev(cmdArgs, stdout, stderr, merged, devTomlFor(configPath), devWorkDir)
+		return runDev(cmdArgs, stdout, stderr, cfg, devTomlFor(configPath), devWorkDir)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
@@ -259,14 +264,18 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		//
 		// The syntactic unused-import analysis is best-effort: resolveConfig
 		// only feeds it (Classifier/Aliases/FilterPkgs — the knobs
-		// that affect skeleton import references). ClassMerger and minify are
-		// emit-only and are deliberately omitted, to avoid an unwanted extra
-		// package load. On a malformed config we fall back to the builtin
+		// that affect skeleton import references), resolved per module root
+		// since one fmt walk may span several modules. ClassMerger and minify
+		// are emit-only and are deliberately omitted, to avoid an unwanted
+		// extra package load. On a malformed config we fall back to the builtin
 		// classifier; files using named filters still skeletonize fine
 		// (buildSkeleton tolerates unknown filters).
-		fmtOpts := codegen.Options{Classifier: attrclass.Builtin()}
-		if merged, _, cerr := resolveConfig(cfg, workDir); cerr == nil {
-			fmtOpts = codegen.Options{
+		fmtOpts := func(root string) codegen.Options {
+			merged, _, cerr := resolveConfig(cfg, root)
+			if cerr != nil {
+				return codegen.Options{Classifier: attrclass.Builtin()}
+			}
+			return codegen.Options{
 				Classifier: merged.classifier(),
 				Aliases:    merged.aliases,
 				FilterPkgs: merged.filterPkgs,
@@ -380,7 +389,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // registered renderer's package now joins the module's ONE packages.Load and
 // its rendererTable is harvested, but nothing yet CONSULTS that table at a
 // render boundary — that consumer lands in a later slice.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache, customMinifier bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cssMin, jsMin, jsonMin func(string) (string, error), cssMinify, jsMinify, verbatimTags bool, classMerger *codegen.ClassMergerRef, workDir string) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, optCfg config, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -420,16 +429,14 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return runWatch(watchConfig{
 			paths: paths, format: formatFlag,
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
-			filterPkgs: filterPkgs, aliases: aliases, renderers: renderers, cls: cls,
-			cssMin: cssMin, jsMin: jsMin, jsonMin: jsonMin, cssMinify: cssMinify, jsMinify: jsMinify,
-			verbatimTags: verbatimTags,
-			classMerger:  classMerger,
+			moduleConfig: discoveredModuleConfig(optCfg, false),
 		})
 	}
-	// Bypass the cache when --no-cache is set OR when a custom minifier is
-	// configured: user funcs are not hashable, unlike built-in full minifiers.
-	useCache := !nocacheFlag && !customMinifier
-	res, report, err := generateCachedWithReport(paths, filterPkgs, aliases, renderers, cls, useCache, cssMin, jsMin, jsonMin, cssMinify, jsMinify, verbatimTags, classMerger)
+	// Each discovered module resolves its own gsx.toml (walking up from its
+	// root) under optCfg. The cache is bypassed when --no-cache is set OR when
+	// a custom minifier is configured: user funcs are not hashable, unlike
+	// built-in full minifiers.
+	res, report, err := generateCachedWithReport(paths, discoveredModuleConfig(optCfg, nocacheFlag))
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.

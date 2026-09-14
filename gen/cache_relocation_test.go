@@ -44,7 +44,7 @@ func TestCacheSharedAcrossCheckoutPaths(t *testing.T) {
 
 	first := t.TempDir()
 	writeRelocatableModule(t, first)
-	_, report, err := generateCachedWithReport([]string{first}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	_, report, err := generateCachedReportFixed([]string{first}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestCacheSharedAcrossCheckoutPaths(t *testing.T) {
 
 	second := t.TempDir()
 	writeRelocatableModule(t, second)
-	_, report, err = generateCachedWithReport([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	_, report, err = generateCachedReportFixed([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestCacheSharedAcrossCheckoutPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(second, "v", "v.gsx"), []byte("package v\n\ncomponent A(name string) { <p>Hi {name}</p> }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, report, err = generateCachedWithReport([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	_, report, err = generateCachedReportFixed([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestCacheDistinguishesRelativeReplaceTargets(t *testing.T) {
 	}
 
 	first := mkCheckout(t.TempDir(), repoRoot)
-	if _, report, err := generateCachedWithReport([]string{first}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
+	if _, report, err := generateCachedReportFixed([]string{first}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
 		t.Fatal(err)
 	} else if hits, misses, _ := report.counts(); hits != 0 || misses != 1 {
 		t.Fatalf("first checkout cold: hits=%d misses=%d, want 0/1", hits, misses)
@@ -120,7 +120,7 @@ func TestCacheDistinguishesRelativeReplaceTargets(t *testing.T) {
 	// real runtime via symlink so generation succeeds — what matters is that
 	// the resolved target path differs).
 	second := mkCheckout(t.TempDir(), repoRoot)
-	if _, report, err := generateCachedWithReport([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
+	if _, report, err := generateCachedReportFixed([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil); err != nil {
 		t.Fatal(err)
 	} else if hits, misses, _ := report.counts(); hits != 0 || misses != 1 {
 		t.Fatalf("relative replace to a different resolved target: hits=%d misses=%d, want 0/1 (identical go.mod bytes must not alias distinct runtimes)", hits, misses)

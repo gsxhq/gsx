@@ -23,6 +23,9 @@ type moduleGenerateConfig struct {
 	jsMinify     bool
 	verbatimTags bool
 	classMerger  *codegen.ClassMergerRef
+	// configPath is the gsx.toml these knobs were resolved from ("" when none
+	// or when the config is programmatic); see moduleGenerateConfig.inheritedFrom.
+	configPath string
 }
 
 type cachePreparation struct {
@@ -98,22 +101,10 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 	if err != nil {
 		return prep, report, fmt.Errorf("gen: build source manifest: %w", err)
 	}
-	prep.genOpts = codegen.Options{
-		ModulePath:       g.modPath,
-		GoCommandContext: prep.goContext,
-		SourceManifest:   prep.manifest,
-		FilterPkgs:       config.filterPkgs,
-		Aliases:          config.aliases,
-		Renderers:        config.renderers,
-		Classifier:       config.classifier,
-		CSSMin:           config.cssMin,
-		JSMin:            config.jsMin,
-		JSONMin:          config.jsonMin,
-		CSSMinify:        config.cssMinify,
-		JSMinify:         config.jsMinify,
-		VerbatimTags:     config.verbatimTags,
-		ClassMerger:      config.classMerger,
-	}
+	prep.genOpts = config.codegenOptions()
+	prep.genOpts.ModulePath = g.modPath
+	prep.genOpts.GoCommandContext = prep.goContext
+	prep.genOpts.SourceManifest = prep.manifest
 
 	if !cacheAdmitted {
 		return prep, report, nil

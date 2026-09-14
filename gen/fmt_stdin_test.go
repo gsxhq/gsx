@@ -16,7 +16,7 @@ func fmtCaptureStdin(t *testing.T, stdin string, args []string) (int, string, st
 	t.Helper()
 	var out, errb bytes.Buffer
 	wd, _ := os.Getwd()
-	code := runFmt(strings.NewReader(stdin), &out, &errb, args, nil, nil, codegen.Options{Classifier: attrclass.Builtin()}, wd)
+	code := runFmt(strings.NewReader(stdin), &out, &errb, args, nil, nil, fixedFmtOptions(codegen.Options{Classifier: attrclass.Builtin()}), wd)
 	return code, out.String(), errb.String()
 }
 
@@ -97,7 +97,7 @@ func TestFmtStdin(t *testing.T) {
 	})
 	t.Run("relative filename resolves against workDir", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		code := runFmt(strings.NewReader(unformattedGsx), &out, &errb, []string{"-l", "-stdin-filename", "hi.gsx"}, nil, nil, codegen.Options{Classifier: attrclass.Builtin()}, dir)
+		code := runFmt(strings.NewReader(unformattedGsx), &out, &errb, []string{"-l", "-stdin-filename", "hi.gsx"}, nil, nil, fixedFmtOptions(codegen.Options{Classifier: attrclass.Builtin()}), dir)
 		if code != 1 || out.String() != p+"\n" {
 			t.Errorf("exit = %d, stdout = %q; want 1 and %q", code, out.String(), p+"\n")
 		}

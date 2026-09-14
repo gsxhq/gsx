@@ -1302,6 +1302,18 @@ vocabulary remains a design aspiration, not the current API.
   malformed `gsx.toml` falls back to the std baseline; opts are layered over the
   file (opts win). Spec/plan `2026-06-25-gsx-lsp-reads-config-design.md` /
   `2026-06-26-gsx-lsp-reads-config.md`.
+- [x] **`gsx.toml` resolves per module** - SHIPPED (2026-09-14, #200). The
+  generate/dev/fmt walk still descends into nested Go modules (one command
+  covers a repo of example sub-modules, each generated against its own
+  go.mod), but config used to be resolved once from the working directory and
+  applied to every module, so a nested module's own `gsx.toml` was ignored
+  and an outer `class_merger` was forced on it. Now each module group resolves
+  `gsx.toml` walking up from ITS root (`gen.discoveredModuleConfig`); a nested
+  module without one inherits the ancestor file exactly as before
+  (structpages' shared repo-root filters keep working), and when an inherited
+  file names a package the nested module cannot import, the error
+  (`codegen.ConfiguredPackageError`, attributed in `gen.annotateConfigError`)
+  names the file, the module, and the per-module `gsx.toml` that fixes it.
 - [ ] **`[gsx] command` + generate/info/lsp delegation** - a `gsx.toml`
   `[gsx] command = ["./bin/gsx"]` declaring the project's gsx, so the stock binary
   can `syscall.Exec` into it (single process, full fidelity incl. code-only

@@ -38,6 +38,31 @@ type watchConfig struct {
 	jsMinify     bool
 	verbatimTags bool
 	classMerger  *codegen.ClassMergerRef
+	// moduleConfig, when set, configures each module the session spans from
+	// ITS gsx.toml (the CLI's discoveredModuleConfig). When nil the explicit
+	// fields above configure every module identically (tests, programmatic).
+	moduleConfig moduleConfigFunc
+}
+
+// moduleConfigFunc returns the session's per-module config source; see the
+// moduleConfig field.
+func (cfg watchConfig) moduleConfigFunc() moduleConfigFunc {
+	if cfg.moduleConfig != nil {
+		return cfg.moduleConfig
+	}
+	return fixedModuleConfig(moduleGenerateConfig{
+		filterPkgs:   cfg.filterPkgs,
+		aliases:      cfg.aliases,
+		renderers:    cfg.renderers,
+		classifier:   cfg.cls,
+		cssMin:       cfg.cssMin,
+		jsMin:        cfg.jsMin,
+		jsonMin:      cfg.jsonMin,
+		cssMinify:    cfg.cssMinify,
+		jsMinify:     cfg.jsMinify,
+		verbatimTags: cfg.verbatimTags,
+		classMerger:  cfg.classMerger,
+	})
 }
 
 func runWatch(cfg watchConfig) int { return runWatchWithStop(cfg, nil) }

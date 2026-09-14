@@ -41,16 +41,18 @@ func genDevToken() (string, error) {
 // server, supervises Vite, watches sources + .env, and drives the browser. It
 // returns 0 on clean shutdown (SIGINT/SIGTERM), 1 on a fatal startup error.
 // runDev is the production entry: the session ends on SIGINT/SIGTERM.
-func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev, workDir string) int {
+func runDev(args []string, stdout, stderr io.Writer, optCfg config, td *tomlDev, workDir string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runDevContext(ctx, args, stdout, stderr, merged, td, workDir)
+	return runDevContext(ctx, args, stdout, stderr, optCfg, td, workDir)
 }
 
 // runDevContext is runDev with the session lifetime supplied by the caller:
 // cancel ctx and the loop shuts down exactly as a SIGINT would. The seam
-// exists so the dev loop can be driven (and torn down) in-process.
-func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer, merged config, td *tomlDev, workDir string) int {
+// exists so the dev loop can be driven (and torn down) in-process. optCfg is
+// the compiled-in option layer; each module the session spans resolves its own
+// gsx.toml under it (discoveredModuleConfig).
+func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer, optCfg config, td *tomlDev, workDir string) int {
 	// --- flags ---
 	fs := flag.NewFlagSet("dev", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -123,12 +125,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// --- warm watch session: arm observation before the initial snapshot ---
 	wcfg := watchConfig{
 		paths: []string{workDir}, stdout: stdout, stderr: stderr,
-		filterPkgs: merged.filterPkgs, aliases: merged.aliases, renderers: merged.renderers,
-		cls:    merged.classifier(),
-		cssMin: merged.effectiveCSSMin(), jsMin: merged.effectiveJSMin(), jsonMin: merged.effectiveJSONMin(),
-		cssMinify: merged.cssMinLevel.enabled(), jsMinify: merged.jsMinLevel.enabled(),
-		verbatimTags: merged.serialization == SerializationVerbatim,
-		classMerger:  merged.classMerger,
+		moduleConfig: discoveredModuleConfig(optCfg, false),
 	}
 	armed, err := armWatchSession(wcfg)
 	if err != nil {

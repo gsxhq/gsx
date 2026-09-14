@@ -70,7 +70,7 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 	for _, pkg := range pkgs {
 		loadedByPath[pkg.PkgPath] = pkg
 	}
-	if err := checkLoadedPkg(loadedByPath["github.com/gsxhq/gsx"], "cached resolver runtime package \"github.com/gsxhq/gsx\"", moduleDir); err != nil {
+	if err := checkLoadedPkg(loadedByPath["github.com/gsxhq/gsx"], "cached resolver runtime package \"github.com/gsxhq/gsx\"", "github.com/gsxhq/gsx", moduleDir); err != nil {
 		return nil, err
 	}
 	for _, path := range filterPkgs {
@@ -84,7 +84,7 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 		}
 	}
 	for _, path := range allowImports {
-		if err := checkLoadedPkg(loadedByPath[path], fmt.Sprintf("cached resolver allowed import %q", path), moduleDir); err != nil {
+		if err := checkLoadedPkg(loadedByPath[path], fmt.Sprintf("cached resolver allowed import %q", path), path, moduleDir); err != nil {
 			return nil, err
 		}
 	}

@@ -176,7 +176,7 @@ func TestRealisticCacheColdWarm(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("GSXCACHE", cacheRoot)
 	generate := func() (Result, cacheReport, error) {
-		return generateCachedWithReport(
+		return generateCachedReportFixed(
 			[]string{fixture.pagesDir}, nil, nil, nil,
 			attrclass.Builtin(), true,
 			nil, nil, nil, true, true, false, nil,
@@ -374,7 +374,7 @@ component Card() {
 			fixture := newRealisticCacheFixture(t)
 			t.Setenv("GSXCACHE", t.TempDir())
 			generate := func() (Result, cacheReport, error) {
-				return generateCachedWithReport(
+				return generateCachedReportFixed(
 					[]string{fixture.pagesDir}, nil, nil, nil,
 					attrclass.Builtin(), true,
 					nil, nil, nil, true, true, false, nil,
@@ -452,7 +452,7 @@ func BenchmarkGenerateCachedNoop(b *testing.B) {
 	fixture := newRealisticCacheFixture(b)
 	b.Setenv("GSXCACHE", b.TempDir())
 	generate := func() (Result, cacheReport, error) {
-		return generateCachedWithReport(
+		return generateCachedReportFixed(
 			[]string{fixture.pagesDir}, nil, nil, nil,
 			attrclass.Builtin(), true,
 			nil, nil, nil, true, true, false, nil,

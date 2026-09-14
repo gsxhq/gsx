@@ -343,7 +343,7 @@ func checkFilterPkg(pkg *packages.Package, path, dir, aliasName string) error {
 	if aliasName != "" {
 		where = fmt.Sprintf("WithFilter %q: package %q", aliasName, path)
 	}
-	return checkLoadedPkg(pkg, where, dir)
+	return checkLoadedPkg(pkg, where, path, dir)
 }
 
 // checkRendererPkg is checkFilterPkg's renderer counterpart: it frames the
@@ -351,7 +351,7 @@ func checkFilterPkg(pkg *packages.Package, path, dir, aliasName string) error {
 // the package in, since nothing else in the config may mention it.
 func checkRendererPkg(pkg *packages.Package, path, dir, typeKey string) error {
 	where := fmt.Sprintf("renderer for %q: package %q", typeKey, path)
-	return checkLoadedPkg(pkg, where, dir)
+	return checkLoadedPkg(pkg, where, path, dir)
 }
 
 // checkLoadedPkg is the shared load-level validation for every package pulled
@@ -359,14 +359,15 @@ func checkRendererPkg(pkg *packages.Package, path, dir, typeKey string) error {
 // best-effort non-nil Types even when pkg.Errors is populated, so a broken
 // package must be rejected HERE with the caller-supplied framing — admitting
 // its partial types would surface later as a misleading "func not found".
-func checkLoadedPkg(pkg *packages.Package, where, dir string) error {
+// Every failure is a *ConfiguredPackageError naming path.
+func checkLoadedPkg(pkg *packages.Package, where, path, dir string) error {
 	switch {
 	case pkg == nil:
-		return fmt.Errorf("codegen: %s not found in %s", where, dir)
+		return &ConfiguredPackageError{Where: where, Path: path, Reason: "not found in " + dir}
 	case len(pkg.Errors) > 0:
-		return fmt.Errorf("codegen: %s type resolution failed: %s", where, pkg.Errors[0])
+		return &ConfiguredPackageError{Where: where, Path: path, Reason: "type resolution failed", Err: pkg.Errors[0]}
 	case pkg.Types == nil:
-		return fmt.Errorf("codegen: %s has no type information", where)
+		return &ConfiguredPackageError{Where: where, Path: path, Reason: "has no type information"}
 	}
 	return nil
 }
