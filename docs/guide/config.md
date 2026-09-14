@@ -277,15 +277,24 @@ them.
 
 ### Presets `url_presets` {#url_presets-named-opt-in-rulesets}
 
-Use the `htmx` preset when htmx method attributes carry application URLs:
+Use the `htmx` preset when htmx request attributes carry application URLs:
 
 ```toml
 url_presets = ["htmx"]
 ```
 
-It classifies `hx-get`, `hx-post`, `hx-put`, `hx-delete`, and `hx-patch` as URL
-attributes. Other htmx attributes such as `hx-target`, `hx-swap`, and
-`hx-trigger` stay plain. Unknown preset names are configuration errors.
+It classifies `hx-get`, `hx-post`, `hx-put`, `hx-delete`, `hx-patch`,
+`hx-query`, and `hx-action` as URL attributes, in each of the spellings htmx 4
+reads: the plain name, `:inherited`, `:append`, and `:inherited:append`
+(for example `hx-action:inherited`). One preset serves htmx 2 and htmx 4; the
+htmx 4 only names are never used by an htmx 2 page, so enabling them costs
+nothing there. Other htmx attributes such as `hx-target`, `hx-swap`,
+`hx-trigger`, and `hx-method` stay plain. Unknown preset names are
+configuration errors.
+
+The preset matches attribute names exactly. If htmx is configured with a
+custom `prefix` or `metaCharacter`, list the renamed attributes under
+[`[url_attrs]`](#url_attrs-user-declared-url-attributes) yourself.
 
 `url_presets` is top-level, so place it before `[filters]`, `[formatter]`, or
 any other table.

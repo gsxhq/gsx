@@ -1,6 +1,9 @@
 package htmldata
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGeneratedTable(t *testing.T) {
 	if len(Tags) < 100 {
@@ -65,9 +68,11 @@ func TestGeneratedTable(t *testing.T) {
 }
 
 func TestHTMXAttributes(t *testing.T) {
-	const wantCount = 35
+	// Union of the htmx 2 reference (35 attributes) and the ten attributes
+	// htmx 4 added, so completions serve either major version.
+	const wantCount = 45
 	if len(HTMXAttributes) != wantCount {
-		t.Fatalf("HTMXAttributes = %d, want %d (transcribed from htmx.org/reference/ core + additional attribute tables)", len(HTMXAttributes), wantCount)
+		t.Fatalf("HTMXAttributes = %d, want %d (union of htmx.org/reference/ and four.htmx.org/reference/ attribute tables)", len(HTMXAttributes), wantCount)
 	}
 
 	byName := make(map[string]Attribute, len(HTMXAttributes))
@@ -92,5 +97,59 @@ func TestHTMXAttributes(t *testing.T) {
 	}
 	if swapOOB.Doc == "" {
 		t.Fatal("hx-swap-oob has no doc")
+	}
+
+	// htmx 4 additions are present and marked as htmx 4 only, linking to the
+	// four.htmx.org reference.
+	for _, n := range []string{
+		"hx-action", "hx-method", "hx-config", "hx-ignore", "hx-status", "hx-query",
+		"hx-morph-skip", "hx-morph-skip-children", "hx-preload", "hx-pending",
+	} {
+		a, ok := byName[n]
+		if !ok {
+			t.Errorf("%s missing from HTMXAttributes (htmx 4 attribute)", n)
+			continue
+		}
+		if !strings.HasPrefix(a.Doc, "htmx 4 only.") {
+			t.Errorf("%s Doc = %q, want an \"htmx 4 only.\" lead", n, a.Doc)
+		}
+		if !strings.Contains(a.Doc, "https://four.htmx.org/attributes/"+n+"/") {
+			t.Errorf("%s Doc = %q, want a four.htmx.org reference link", n, a.Doc)
+		}
+	}
+
+	// Attributes htmx 4 removed stay offered (htmx 2 sites still use them) but
+	// say so up front, naming the htmx 4 replacement where one exists.
+	removed := map[string]string{
+		"hx-disinherit":   "",
+		"hx-inherit":      "",
+		"hx-vars":         "hx-vals",
+		"hx-params":       "",
+		"hx-request":      "hx-config",
+		"hx-history":      "",
+		"hx-ext":          "",
+		"hx-prompt":       "",
+		"hx-disabled-elt": "hx-disable",
+	}
+	for n, repl := range removed {
+		a, ok := byName[n]
+		if !ok {
+			t.Errorf("%s missing from HTMXAttributes (htmx 2 attribute)", n)
+			continue
+		}
+		if !strings.HasPrefix(a.Doc, "htmx 2 only. Removed in htmx 4") {
+			t.Errorf("%s Doc = %q, want an \"htmx 2 only. Removed in htmx 4\" lead", n, a.Doc)
+		}
+		if repl != "" && !strings.Contains(a.Doc, "`"+repl+"`") {
+			t.Errorf("%s Doc = %q, want it to name the htmx 4 replacement %s", n, a.Doc, repl)
+		}
+	}
+
+	// hx-disable changed meaning between versions; its doc states both.
+	disable := byName["hx-disable"]
+	for _, want := range []string{"htmx 2:", "htmx 4:", "`hx-ignore`", "`hx-disabled-elt`"} {
+		if !strings.Contains(disable.Doc, want) {
+			t.Errorf("hx-disable Doc = %q, want it to contain %q", disable.Doc, want)
+		}
 	}
 }

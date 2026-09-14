@@ -981,6 +981,7 @@ urlattrs/bag_src_image_percent	diag render
 urlattrs/bag_src_image_split	diag gen render
 urlattrs/element_custom_rule	diag gen render
 urlattrs/htmx_preset	diag gen render
+urlattrs/htmx_preset_v4	diag render
 urlattrs/hx_default_plain	diag gen render
 urlattrs/nested_literal_url_hole	diag gen render
 urlattrs/reserved_attrs_href_nav	diag gen render
@@ -1022,4 +1023,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1024 cases (render: 869, error: 117, gen-pinned: 566)
+TOTAL: 1025 cases (render: 870, error: 117, gen-pinned: 566)

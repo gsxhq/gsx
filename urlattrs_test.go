@@ -39,3 +39,25 @@ func TestAttrSinksCannotDowngradeTheFloor(t *testing.T) {
 		t.Errorf("zero AttrSinks sinkFor(meta, content) = %v, want htmlattr.SinkRefresh", got)
 	}
 }
+
+// TestAttrSinksPreset checks that an enabled preset routes its attributes
+// through the predicate rather than through a name list: every spelling
+// htmx 4 reads for a request URL takes the strict navigational sink, other
+// hx-* names stay unclassified, and the zero value enables no preset.
+func TestAttrSinksPreset(t *testing.T) {
+	on := AttrSinks{Presets: PresetHTMX}
+	for _, key := range []string{"hx-get", "hx-action", "hx-query", "hx-post:inherited", "hx-get:append", "hx-action:inherited:append", "HX-DELETE"} {
+		if got := on.sinkFor("button", key); got != htmlattr.SinkNav {
+			t.Errorf("with PresetHTMX: sinkFor(button, %q) = %v, want htmlattr.SinkNav", key, got)
+		}
+	}
+	for _, key := range []string{"hx-method", "hx-target", "hx-target:inherited", "hx-swap"} {
+		if got := on.sinkFor("button", key); got != htmlattr.SinkNone {
+			t.Errorf("with PresetHTMX: sinkFor(button, %q) = %v, want htmlattr.SinkNone", key, got)
+		}
+	}
+	var off AttrSinks
+	if got := off.sinkFor("button", "hx-get"); got != htmlattr.SinkNone {
+		t.Errorf("zero AttrSinks: sinkFor(button, hx-get) = %v, want htmlattr.SinkNone (preset off)", got)
+	}
+}

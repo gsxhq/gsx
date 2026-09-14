@@ -3,7 +3,8 @@ package gsx
 import "github.com/gsxhq/gsx/internal/htmlattr"
 
 // AttrSinks carries a project's OWN attribute-classification delta for a spread:
-// the url_attrs rules from gsx.toml, plus any preset they enabled. The built-in
+// the url_attrs rules from gsx.toml as name lists, plus any preset they enabled
+// as a flag. The built-in
 // floor and its tag scoping are not repeated here — Spread applies those itself
 // from the table above — so a project that configures nothing passes the zero
 // value and generated code stays free of the built-in name list.
@@ -23,6 +24,30 @@ type AttrSinks struct {
 	Refresh  []string // → RefreshContentVal
 	Prefixes []string // name prefixes → URLVal (strict)
 	Suffixes []string // name suffixes → URLVal (strict)
+	// Presets are the url presets the project enabled. A preset is a predicate
+	// compiled into the runtime (see URLPreset), so generated code carries only
+	// its flag: no name list to serialize per spread site, and no drift between
+	// what codegen classified statically and what the leaf sanitizes.
+	Presets URLPreset
+}
+
+// URLPreset is a bit set of the named url presets (gsx.toml url_presets). Each
+// flag selects a predicate over attribute names; a matching name takes the
+// strict navigational sink, exactly like a project's own url_attrs rule. Flags
+// are compile-time identities, so generated code cannot name a preset the
+// runtime does not know.
+type URLPreset uint8
+
+const (
+	// PresetHTMX is the "htmx" preset: htmlattr.HTMXURL — the htmx request-URL
+	// attributes (hx-get/post/put/delete/patch, hx-query, hx-action) in every
+	// spelling htmx 4 reads (plain, :inherited, :append, :inherited:append).
+	PresetHTMX URLPreset = 1 << iota
+)
+
+// matches reports whether key is a URL attribute under any enabled preset.
+func (p URLPreset) matches(key string) bool {
+	return p&PresetHTMX != 0 && htmlattr.HTMXURL(key)
 }
 
 // sinkFor returns the sink for key on tag: the built-in floor first (it is the
@@ -40,7 +65,8 @@ func (s AttrSinks) sinkFor(tag, key string) htmlattr.URLSink {
 	case attrNameExcluded(key, s.Refresh):
 		return htmlattr.SinkRefresh
 	case attrNameExcluded(key, s.Nav) ||
-		URLPrefixMatch(key, s.Prefixes) || URLSuffixMatch(key, s.Suffixes):
+		URLPrefixMatch(key, s.Prefixes) || URLSuffixMatch(key, s.Suffixes) ||
+		s.Presets.matches(key):
 		return htmlattr.SinkNav
 	}
 	return htmlattr.SinkNone

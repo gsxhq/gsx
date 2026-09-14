@@ -1,6 +1,7 @@
 // Command gen regenerates table.gen.go from browsers.html-data.json
 // (@vscode/web-custom-data, MIT — see LICENSE.vendored) and htmx-data.json
-// (transcribed from https://htmx.org/reference/, same custom-data schema).
+// (transcribed from https://htmx.org/reference/ and
+// https://four.htmx.org/reference/, same custom-data schema).
 //
 // It also regenerates internal/htmlattr's truefalseattrs.gen.go from the same
 // vscode data — see writePlatformAttrs.
@@ -206,8 +207,8 @@ func main() {
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("// HTMXAttributes are the hx-* attributes transcribed from\n")
-	buf.WriteString("// https://htmx.org/reference/ (core + additional attribute tables),\n")
-	buf.WriteString("// sorted by Name.\n")
+	buf.WriteString("// https://htmx.org/reference/ (htmx 2, core + additional attribute tables)\n")
+	buf.WriteString("// and https://four.htmx.org/reference/ (htmx 4), sorted by Name.\n")
 	buf.WriteString("var HTMXAttributes = []Attribute{\n")
 	for _, a := range htmxAttrs {
 		fmt.Fprintf(&buf, "\t{Name: %q, Doc: %q, ValueSet: %q},\n", a.Name, a.Doc, a.ValueSet)

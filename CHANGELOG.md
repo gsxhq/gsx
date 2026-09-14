@@ -13,6 +13,17 @@ syntax or APIs; a patch bump does not. See
   runtime spread keeps bag keys by the same rule: it now accepts `&`, and drops
   C1 controls, noncharacters, `{`, `}`, backticks and invalid UTF-8 that it
   previously emitted.
+- **Escaping** — the `htmx` URL preset covers htmx 4: `hx-query` and
+  `hx-action` join the five method attributes, and every name is also
+  sanitized in its `:inherited`, `:append` and `:inherited:append` spellings,
+  which htmx 4 reads through the same lookup. One preset serves htmx 2 and 4.
+- **Runtime** — a url preset is now a predicate compiled into the runtime:
+  `gsx.AttrSinks` gains `Presets gsx.URLPreset`, and generated spread sites
+  carry `Presets: _gsxrt.PresetHTMX` instead of a name list, so a preset's
+  coverage can change without touching generated code.
+- **Editor** — `hx-*` completion is the union of the htmx 2 and htmx 4
+  attribute tables; an attribute only one version has says so in its hover
+  text, and `hx-disable` documents both meanings. (#199)
 
 ## v0.1.0 — 2026-09-03
 

@@ -176,12 +176,12 @@ func loadCase(path string) (*caseDoc, error) {
 				if !ok {
 					return nil, fmt.Errorf("gsx.toml: url_presets: unknown preset %q", name)
 				}
-				rules.URL = rules.URL.Merge(pr.URL)
+				rules = rules.Merge(pr)
 			}
 			if err := rules.Valid(); err != nil {
 				return nil, fmt.Errorf("gsx.toml: %w", err)
 			}
-			if !rules.URL.Empty() || len(rules.URLTags) > 0 {
+			if !rules.URL.Empty() || len(rules.URLTags) > 0 || len(rules.Presets) > 0 {
 				c.classifier = attrclass.New(rules)
 			}
 			if tc.Serialization != "" {

@@ -3,8 +3,12 @@
 // extend it additively via declarative Rules, wired through gen.Main. Rules are
 // DECLARATIVE on purpose: classification must be fully enumerable, because the
 // set has to travel to the spread leaf as data and has to be hashable into the
-// codegen cache key. The same Classifier is consulted by the parser (JS facet,
-// to split @{ } holes) and by codegen (all facets, for context-aware escaping).
+// codegen cache key. A named preset keeps that property while matching by
+// predicate: the predicate is compiled into htmlattr and the runtime, and only
+// the preset's NAME travels — as a flag to the spread leaf and as a string
+// into the fingerprint. The same Classifier is consulted by the parser (JS
+// facet, to split @{ } holes) and by codegen (all facets, for context-aware
+// escaping).
 package attrclass
 
 import (
@@ -128,11 +132,46 @@ type Rules struct {
 	URL     RuleSet            `json:"url,omitzero"`
 	CSS     RuleSet            `json:"css,omitzero"`
 	URLTags map[string]RuleSet `json:"urlTags,omitempty"`
+	// Presets names the enabled url presets (see Preset). A preset classifies
+	// by a predicate in htmlattr rather than by listed names; its name is the
+	// enumerable, hashable identity that stands in for the predicate here.
+	Presets []string `json:"presets,omitempty"`
+}
+
+// Merge returns the union of r and other: every RuleSet merged, tag scopes
+// merged per element, presets appended without duplicates. Rules are additive,
+// so merging is how a preset, a config file and a programmatic option compose.
+func (r Rules) Merge(other Rules) Rules {
+	out := Rules{
+		JS:      r.JS.Merge(other.JS),
+		URL:     r.URL.Merge(other.URL),
+		CSS:     r.CSS.Merge(other.CSS),
+		Presets: append([]string(nil), r.Presets...),
+	}
+	if len(r.URLTags) > 0 || len(other.URLTags) > 0 {
+		out.URLTags = make(map[string]RuleSet, len(r.URLTags)+len(other.URLTags))
+		for _, src := range []map[string]RuleSet{r.URLTags, other.URLTags} {
+			for tag, set := range src {
+				out.URLTags[tag] = out.URLTags[tag].Merge(set)
+			}
+		}
+	}
+	for _, p := range other.Presets {
+		if !slices.Contains(out.Presets, p) {
+			out.Presets = append(out.Presets, p)
+		}
+	}
+	return out
 }
 
 // Valid checks every set, naming the context so a config error points at the
-// offending table.
+// offending table, and rejects a preset name no predicate exists for.
 func (r Rules) Valid() error {
+	for _, p := range r.Presets {
+		if _, ok := presets[p]; !ok {
+			return fmt.Errorf("url_presets: unknown preset %q (known: %s)", p, strings.Join(PresetNames(), ", "))
+		}
+	}
 	for _, group := range []struct {
 		ctx string
 		set RuleSet
@@ -193,8 +232,8 @@ func (c *Classifier) Context(tag, name string) Context {
 	}
 
 	// 2. User declarative rules — the global sets, plus the URL rules this
-	// element scopes.
-	if c.rules.URL.matches(ln) || c.rules.URLTags[strings.ToLower(tag)].matches(ln) {
+	// element scopes — and the enabled presets' predicates.
+	if c.rules.URL.matches(ln) || c.rules.URLTags[strings.ToLower(tag)].matches(ln) || c.presetURL(ln) {
 		return CtxURL
 	}
 	if c.rules.CSS.matches(ln) {
@@ -250,25 +289,55 @@ func (c *Classifier) UserURLRules(tag string) RuleSet {
 	}
 }
 
-// presets maps a named opt-in ruleset to the classification Rules it contributes.
-// Presets compose additively over the built-in floor, exactly like user rules;
-// they are enabled via gen.WithURLPreset / gsx.toml url_presets.
+// presets maps a preset name to its URL predicate over an already-lowercased
+// attribute name. Presets compose additively over the built-in floor, exactly
+// like user rules; they are enabled via gen.WithURLPreset / gsx.toml
+// url_presets. Each predicate lives in htmlattr so the runtime spread leaf
+// (gsx.AttrSinks) applies the identical test; adding a preset here means adding
+// its gsx.URLPreset flag and codegen's name→flag mapping too.
 //
-// "htmx": the five htmx method attributes as URL rules, matched by EXACT name.
-// A "hx-" prefix would be wrong — it would also classify hx-swap/hx-target/
-// hx-trigger (and every other hx-* attribute), none of which carry URLs.
-var presets = map[string]Rules{
-	"htmx": {URL: RuleSet{Names: []string{
-		"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch",
-	}}},
+// "htmx": htmlattr.HTMXURL — the htmx request-URL attributes of htmx 2 and 4
+// (hx-get/post/put/delete/patch, hx-query, hx-action) in every spelling htmx 4
+// reads (plain, :inherited, :append, :inherited:append). A "hx-" prefix would
+// be wrong — it would also classify hx-swap/hx-target/hx-trigger, none of
+// which carry URLs.
+var presets = map[string]func(lname string) bool{
+	"htmx": htmlattr.HTMXURL,
 }
 
-// Preset returns the classification Rules contributed by the named preset and
-// true, or the zero Rules and false when no preset by that name exists. Callers
-// (gen config, corpus harness) surface an unknown name as a clear config error.
+// presetURL reports whether an enabled preset classifies lname as a URL. An
+// unknown name is a programming error — Rules.Valid rejects it at every config
+// boundary — so it fails loudly rather than classifying nothing.
+func (c *Classifier) presetURL(lname string) bool {
+	for _, p := range c.rules.Presets {
+		f, ok := presets[p]
+		if !ok {
+			panic(fmt.Sprintf("attrclass: unknown url preset %q", p))
+		}
+		if f(lname) {
+			return true
+		}
+	}
+	return false
+}
+
+// Presets returns the enabled preset names in configuration order — the
+// identity codegen ships to the spread leaf as gsx.URLPreset flags.
+func (c *Classifier) Presets() []string {
+	if c == nil {
+		return nil
+	}
+	return c.rules.Presets
+}
+
+// Preset returns the Rules that enable the named preset and true, or the zero
+// Rules and false when no preset by that name exists. Callers (gen config,
+// corpus harness) surface an unknown name as a clear config error.
 func Preset(name string) (Rules, bool) {
-	r, ok := presets[name]
-	return r, ok
+	if _, ok := presets[name]; !ok {
+		return Rules{}, false
+	}
+	return Rules{Presets: []string{name}}, true
 }
 
 // PresetNames returns the known preset names, sorted — for listing valid choices

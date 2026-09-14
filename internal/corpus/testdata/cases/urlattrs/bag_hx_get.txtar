@@ -60,7 +60,7 @@ func _gsxrenderCtrl(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p ctrlProps) err
 	_gsxgw.S("<button")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
-	_gsxgw.Spread(ctx, "button", _gsxv0, _gsxrt.AttrSinks{Nav: []string{"hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put"}}, []string{"class", "style"})
+	_gsxgw.Spread(ctx, "button", _gsxv0, _gsxrt.AttrSinks{Presets: _gsxrt.PresetHTMX}, []string{"class", "style"})
 	_gsxgw.S(">go</button>")
 	return _gsxgw.Err()
 }
