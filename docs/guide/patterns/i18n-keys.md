@@ -140,3 +140,13 @@ A `Key` carries no arguments. For messages such as "3 items selected",
 register a second type, for example `type Msg struct { Key Key; Args []any }`,
 with a renderer that looks the key up and formats it. Value and pointer
 registrations are separate, so register the shape you write in markup.
+
+## Library strings
+
+A component library can use the same recipe for the strings its components
+write themselves: declare one key type in a leaf package shipped with the
+components, and let the consumer register the renderer. The type needs its
+own package, because the generated component code imports the renderer's
+package and the renderer names the type. Renderers bind at `gsx generate` in
+the consuming module, so this reaches vendored source, not an imported Go
+dependency. [gsxui](https://github.com/gsxhq/gsxui) does this with `i18n.T`.
