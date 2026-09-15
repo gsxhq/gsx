@@ -4,7 +4,7 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.1.1 — 2026-09-15
 
 - **Language** — attribute names follow the HTML rule (any characters except
   controls, space, `"`, `'`, `>`, `/`, `=`, noncharacters, plus gsx's `<`,
