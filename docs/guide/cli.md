@@ -323,7 +323,7 @@ gsx lsp
 ```
 
 You normally do not run this command yourself. See [Editor setup](./editor.md)
-for VS Code, Neovim, and generic client configuration.
+for VS Code, Neovim, Zed, and generic client configuration.
 
 ## `gsx version` {#version}
 

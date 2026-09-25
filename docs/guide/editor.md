@@ -52,6 +52,17 @@ The grammar includes Go directly. Only JavaScript and CSS regions are injected,
 so install those two parsers to highlight `<script>`, `<style>`, `js` literals,
 and `css` literals.
 
+## Zed
+
+The community [gsx-zed](https://github.com/gbarr/gsx-zed) extension supplies
+highlighting from tree-sitter-gsx and starts `gsx lsp`. It is not in the Zed
+extension registry yet: clone the repository, then run **zed: install dev
+extension** from the command palette and select the clone.
+
+The extension launches the first `gsx` on `PATH` and has no path setting, so
+make sure `gsx version` prints the compiler (see
+[Troubleshooting](#troubleshooting-the-gsx-binary)).
+
 ## Other editors
 
 Configure any LSP client with these values:
@@ -133,4 +144,4 @@ Both outputs are directories. When `GOBIN` is non-empty, use `<GOBIN>/gsx`.
 Otherwise use `<GOPATH>/bin/gsx`. Replace the bracketed value with the command's
 output and enter that concrete executable path in your editor setting. The VS
 Code extension performs the compiler check itself and skips unrelated binaries;
-generic LSP clients do not.
+the Zed extension and generic LSP clients do not.
