@@ -133,6 +133,27 @@ literal in `class` would run the CSS filter over a class string, collapsing an
 ordinary `bg-primary/20` to `ZgotmplZ`. Attributes that compose nothing
 (`data-*`, `onclick`, …) are unrestricted.
 
+## What the CSS value filter rejects
+
+Static CSS is never filtered. A dynamic value — `style={expr}`, a
+non-literal `style={...}` entry, or a `css` / `<style>` `@{...}` hole — becomes
+`ZgotmplZ` when it contains any of `( ) ; / " ' @ [ ] { } < > \` or a
+backtick, a `--` run, or `expression` / `mozbinding`. The filter is ported from
+`html/template` and cannot tell a trusted `var(--token)` from an injected
+`url(...)`, so ordinary CSS is rejected too:
+
+```gsx
+<div style={ "background:" + v }>…</div>   // v = "var(--color-warning)" → ZgotmplZ
+```
+
+Keep the syntax static and interpolate only the varying part:
+
+```gsx
+<div style=css`background: var(--color-@{tone})`>…</div>   // tone = "warning"
+```
+
+Use `gsx.RawCSS` only when the whole value is CSS you control.
+
 ## `<style>` blocks
 
 Use a `<style>` block for component CSS. Interpolate Go values with `@{...}`.
