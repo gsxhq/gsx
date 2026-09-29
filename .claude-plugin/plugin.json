@@ -1,0 +1,12 @@
+{
+  "name": "gsx",
+  "description": "Skills for writing idiomatic gsx (JSX-like Go templates): contextual js/css/f literals, class/style composition, component APIs, whitespace, and templ migration",
+  "version": "0.1.0",
+  "author": {
+    "name": "Jackie Li"
+  },
+  "homepage": "https://gsxhq.github.io",
+  "repository": "https://github.com/gsxhq/gsx",
+  "license": "MIT",
+  "keywords": ["gsx", "go", "templates", "htmx", "alpine"]
+}
