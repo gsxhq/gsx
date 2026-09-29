@@ -79,7 +79,7 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 	}
 	// splitFields fills the codegen-only overlay of every Go-expression field
 	// markup node m carries (never replacing an existing one) and walks each
-	// overlay's markup parts so nested elements are split and gated in turn.
+	// overlay's markup parts so nested elements are split in turn.
 	splitFields := func(m gsxast.Markup) {
 		gsxast.MarkupGoFields(m, func(f gsxast.GoField) {
 			// A literal that is an attribute's whole value has its own lowering.
@@ -147,9 +147,6 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 				walk(node.Segments)
 			case *gsxast.Element:
 				splitFields(node)
-				if !gateNestedLiteralAttrs(node.Attrs, bag) {
-					syntaxOK = false
-				}
 				walkMarkupAttrs(node.Attrs, walk)
 				walk(node.Children)
 			case *gsxast.Fragment:
@@ -164,22 +161,13 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 				walk(node.Children)
 			case *gsxast.ForMarkup:
 				splitFields(node)
-				if !gateNestedLiteralHeaders(node, bag) {
-					syntaxOK = false
-				}
 				walk(node.Body)
 			case *gsxast.IfMarkup:
 				splitFields(node)
-				if !gateNestedLiteralHeaders(node, bag) {
-					syntaxOK = false
-				}
 				walk(node.Then)
 				walk(node.Else)
 			case *gsxast.SwitchMarkup:
 				splitFields(node)
-				if !gateNestedLiteralHeaders(node, bag) {
-					syntaxOK = false
-				}
 				for _, clause := range node.Cases {
 					walk(clause.Body)
 				}
@@ -1566,9 +1554,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			}
 		case *gsxast.ForMarkup:
 			emitSkeletonClauseLine(sb, fset, t.ClausePos, len("for ")) // 4
-			ctrlOff[t] = sb.Len() + len("for ")
 			writeSkeletonGenerated(sb, "for ")
-			if err := writeSkeletonAuthoredAt(sb, fset, t.ClausePos, t.Clause, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+			if err := writeControlText(sb, ps, t, t.Clause, t.ClausePos, t.ClauseEmbedded); err != nil {
 				return err
 			}
 			writeSkeletonGenerated(sb, " {\n")
@@ -1578,9 +1565,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			emitSkeletonClauseLine(sb, fset, t.CondPos, len("if ")) // 3
-			ctrlOff[t] = sb.Len() + len("if ")
 			writeSkeletonGenerated(sb, "if ")
-			if err := writeSkeletonAuthoredAt(sb, fset, t.CondPos, t.Cond, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+			if err := writeControlText(sb, ps, t, t.Cond, t.CondPos, t.CondEmbedded); err != nil {
 				return err
 			}
 			writeSkeletonGenerated(sb, " {\n")
@@ -1597,13 +1583,13 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			}
 			sb.WriteString("\n")
 		case *gsxast.SwitchMarkup:
-			if strings.TrimSpace(t.Tag) != "" {
+			tagged := strings.TrimSpace(t.Tag) != ""
+			if tagged {
 				emitSkeletonClauseLine(sb, fset, t.TagPos, len("switch "))
-				ctrlOff[t] = sb.Len() + len("switch ")
 			}
 			writeSkeletonGenerated(sb, "switch ")
-			if strings.TrimSpace(t.Tag) != "" {
-				if err := writeSkeletonAuthoredAt(sb, fset, t.TagPos, t.Tag, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+			if tagged {
+				if err := writeControlText(sb, ps, t, t.Tag, t.TagPos, t.TagEmbedded); err != nil {
 					return err
 				}
 			}
@@ -1613,9 +1599,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					sb.WriteString("default:\n")
 				} else {
 					emitSkeletonClauseLine(sb, fset, cc.ListPos, len("case "))
-					ctrlOff[cc] = sb.Len() + len("case ")
 					writeSkeletonGenerated(sb, "case ")
-					if err := writeSkeletonAuthoredAt(sb, fset, cc.ListPos, cc.List, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+					if err := writeControlText(sb, ps, cc, cc.List, cc.ListPos, cc.ListEmbedded); err != nil {
 						return err
 					}
 					writeSkeletonGenerated(sb, ":\n")
@@ -1643,8 +1628,9 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// The block carries one or more f`/js`/css` literals: reconstruct it
 				// from its split parts with the same splice an Interp.Embedded seed
 				// uses (writeProbeGoParts). Element parts never reach here: they set
-				// UnsupportedMarkup above.
-				ctrlOff[t] = sb.Len()
+				// UnsupportedMarkup above. No ctrlOff entry, as for a split control
+				// header (writeControlText): the spliced IIFEs break the
+				// relative-offset CtrlMap bridge.
 				if err := writeProbeGoParts(sb, t.Embedded, ps); err != nil {
 					return err
 				}
@@ -3053,13 +3039,14 @@ func emitCondLiveness(sb skeletonWriter, ps probeScope, node gsxast.Node, cond s
 }
 
 // writeControlText writes one control expression (an if condition, switch tag
-// or case list) at the current skeleton position. Verbatim text records its
-// ctrlOff entry (keyed by node), the CtrlMap bridge that maps a cursor by
-// relative offset. A split expression (embedded non-nil) is written through
-// writeProbeGoParts instead, and records no ctrlOff entry: its literal and
-// element IIFEs make skeleton offsets diverge from source offsets after the
-// first construct, so a relative-offset bridge would resolve the wrong
-// identifier.
+// or case list, markup or attribute-level, or a for clause) at the current
+// skeleton position. Verbatim text records its ctrlOff entry (keyed by node),
+// the CtrlMap bridge that maps a cursor by relative offset. A split expression
+// (embedded non-nil) is written through writeProbeGoParts instead, and records
+// no ctrlOff entry: its literal and element IIFEs make skeleton offsets diverge
+// from source offsets after the first construct, so a relative-offset bridge
+// would resolve the wrong identifier. writeProbeGoParts maps each GoText run
+// into the SourceIndex, which the LSP falls back to for such a header.
 func writeControlText(sb skeletonWriter, ps probeScope, node gsxast.Node, text string, pos token.Pos, embedded []gsxast.GoPart) error {
 	if embedded != nil {
 		return writeProbeGoParts(sb, embedded, ps)

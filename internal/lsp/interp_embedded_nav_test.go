@@ -13,6 +13,8 @@ import (
 // interp-embedded-literals branch created: a <tag>/<> literal and a prefixed
 // backtick literal used in operand position INSIDE a body `{ }` interpolation,
 // where they ride in Interp.Embedded rather than the direct body-child path.
+// The last two lines put a literal in a control-flow header and a
+// conditional-attribute condition (their CondEmbedded overlays).
 const interpEmbeddedSrc = `package page
 
 import "github.com/gsxhq/gsx"
@@ -28,8 +30,21 @@ component Badge(count int, name string) {
 component Uses(n int, label string) {
 	<div>{ wrap(<Badge count={n} name={label}/>) }</div>
 	<p>{ emphasize(f` + "`hi @{label}`" + `) }</p>
+	{ if emphasize(f` + "`x-@{n}`" + `) != label {
+		<i>h</i>
+	} }
+	<i { if emphasize(f` + "`y-@{n}`" + `) != label { title="t" } }></i>
 }
 `
+
+// splitHeaderLabelCursors are cursors on the plain-Go identifier `label`
+// AFTER a nested literal in a header: the markup if and the cond-attr cond.
+func splitHeaderLabelCursors(src string) map[string]int {
+	return map[string]int{
+		"if header":      strings.Index(src, "`x-@{n}`) != label") + len("`x-@{n}`) != "),
+		"cond-attr cond": strings.Index(src, "`y-@{n}`) != label") + len("`y-@{n}`) != "),
+	}
+}
 
 // TestInterpEmbeddedDefinition asserts go-to-definition descends into
 // Interp.Embedded: an embedded component tag jumps to its declaration, an
@@ -86,6 +101,21 @@ func TestInterpEmbeddedDefinition(t *testing.T) {
 		}
 	})
 
+	// A plain-Go identifier after a nested literal in a split header
+	// resolves through the SourceIndex (the header has no CtrlMap entry).
+	for name, off := range splitHeaderLabelCursors(src) {
+		t.Run(name, func(t *testing.T) {
+			uri := pathToURI(path)
+			cursor := positionForByteOffset(src, off, encUTF16)
+			out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, src)+definitionFrame(2, uri, cursor)+exitFrame())
+			got := definitionLocation(t, out, 2)
+			want := rangeForSpan(src, paramLabel, paramLabel+len("label"), encUTF16)
+			if got == nil || got.URI != uri || got.Range != want {
+				t.Fatalf("definition = %+v, want %s at %+v; output:\n%s", got, uri, want, out)
+			}
+		})
+	}
+
 	// 3. @{ } hole inside an embedded f-literal: `f`hi @{label}`` → param label.
 	t.Run("embedded f-literal hole", func(t *testing.T) {
 		off := strings.Index(src, "@{label}") + len("@{")
@@ -130,6 +160,20 @@ func TestInterpEmbeddedHover(t *testing.T) {
 			t.Fatalf("prop ident hover obj = %v, want n", obj)
 		}
 	})
+
+	// A plain-Go identifier after a nested literal in a split header hovers
+	// through the SourceIndex (the header has no CtrlMap entry).
+	for name, off := range splitHeaderLabelCursors(src) {
+		t.Run(name, func(t *testing.T) {
+			uri := pathToURI(path)
+			cursor := positionForByteOffset(src, off, encUTF16)
+			out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, src)+hoverFrame(2, uri, cursor)+exitFrame())
+			got := hoverResult(t, out, 2)
+			if got == nil || !strings.Contains(got.Contents.Value, "var label string") {
+				t.Fatalf("hover = %+v, want var label string; output:\n%s", got, out)
+			}
+		})
+	}
 
 	// 3. Embedded f-literal hole hover → resolved object.
 	t.Run("embedded f-literal hole hover", func(t *testing.T) {

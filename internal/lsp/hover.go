@@ -174,16 +174,21 @@ func (s *Server) hoverAnswerFromPkg(pkg *Package, path string, source []byte, of
 			// switch tag or case list, in-tag conditional-attribute cond, class guard
 			// cond, or value-form control expression — hovers like the same identifier
 			// in Go. Checked before the pipeline path: a ComposedPart's `: cond` guard is
-			// a ctrl span even when the part's expr carries a pipeline.
+			// a ctrl span even when the part's expr carries a pipeline. A span with no
+			// CtrlMap entry (a header carrying a nested literal or element, whose
+			// spliced probe breaks the relative-offset bridge) falls through to the
+			// SourceIndex, which maps each plain-Go run of it exactly.
 			if isCtrlSpan(node, exprPos) {
-				if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
-					rng, ok := rangeAt(idStart, idStart+idLen)
-					if !ok {
-						return nil, true
+				if _, bridged := pkg.CtrlMap[node]; bridged {
+					if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
+						rng, ok := rangeAt(idStart, idStart+idLen)
+						if !ok {
+							return nil, true
+						}
+						return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
 					}
-					return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
+					return nil, true
 				}
-				return nil, true
 			} else if hasPipeStages(node) {
 				if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
 					rng, ok := rangeAt(span[0], span[1])

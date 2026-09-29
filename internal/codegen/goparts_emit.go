@@ -23,10 +23,15 @@ type lowerCtx struct {
 	// elements reports whether ec carries a component emit environment. When
 	// false (the zero value) an element/fragment part is rejected with the
 	// positioned unsupported-node diagnostic below; ec is then ignored.
-	elements  bool
-	hasCtx    bool
-	canHoist  bool
-	errReturn string // "return _gsxerr" or "return nil, _gsxerr"
+	elements bool
+	hasCtx   bool
+	// noErrChannel is empty where an error-carrying hole can hoist its
+	// `if err != nil { <errReturn> }` into a statement before the consuming
+	// one. Elsewhere it is the remedy the goexpr-literal-error diagnostic
+	// gives for such a hole (goExprLiteralErrorRemedy, caseListErrRemedy,
+	// forClauseErrRemedy), and js`/css` holes lower inline with no temps.
+	noErrChannel string
+	errReturn    string // "return _gsxerr" or "return nil, _gsxerr"
 	// owner is the node whose Go-expression field is being lowered; it
 	// positions the diagnostics that concern the field as a whole (a rejected
 	// element part, an unknown part kind).
@@ -37,7 +42,7 @@ type lowerCtx struct {
 //
 // GoText runs are spliced verbatim; each prefixed literal lowers to its Go
 // value via emitGoExprEmbeddedInterp (string / RawJS / RawCSS) under the
-// position's hasCtx / canHoist / errReturn; each element or fragment lowers to
+// position's hasCtx / noErrChannel / errReturn; each element or fragment lowers to
 // its gsx.Node closure via emitElementValue / emitFragmentValue when
 // lc.elements is set. Any statement a hole needs (tuple unwrap, error return,
 // temp) is written to hoistBuf before this returns, so it precedes the
@@ -71,7 +76,7 @@ func lowerGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx) (stri
 				lc.bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 				return "", false
 			}
-			if !emitGoExprEmbeddedInterp(hoistBuf, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.hasCtx, lc.canHoist, lc.errReturn) {
+			if !emitGoExprEmbeddedInterp(hoistBuf, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.hasCtx, lc.noErrChannel, lc.errReturn) {
 				return "", false
 			}
 		default:
@@ -87,12 +92,12 @@ func (lc lowerCtx) rejectElement() {
 }
 
 // attrLowerCtx is the lowerCtx for the Go-expression fields of an element's or
-// component tag's attributes inside a component body: element parts lower
-// against ec, ctx is in scope, and error-carrying holes hoist before the
-// attribute's own write. A site inside an AttrsCond branch thunk overrides
+// component tag's attributes, and of control-flow headers, inside a component
+// body: element parts lower against ec, ctx is in scope, and error-carrying
+// holes hoist before the attribute's own write (or the header's statement). A site inside an AttrsCond branch thunk overrides
 // errReturn with the thunk's "return nil, _gsxerr".
 func attrLowerCtx(resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) lowerCtx {
-	return lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, ec: ec, elements: true, hasCtx: true, canHoist: true, errReturn: "return _gsxerr"}
+	return lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, ec: ec, elements: true, hasCtx: true, errReturn: "return _gsxerr"}
 }
 
 // field returns one Go-expression field's value text, trimmed: its split

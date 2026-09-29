@@ -402,7 +402,7 @@ func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx
 		}
 		return readyPositionalValue(expr, nil)
 	case gsxast.EmbeddedJS:
-		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
+		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), "", false)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
@@ -412,7 +412,7 @@ func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx
 		}
 		return readyPositionalValue(ctx.rt.rt()+".RawJS("+lowering.expr+")", nil)
 	case gsxast.EmbeddedCSS:
-		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
+		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), "", false)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
@@ -462,6 +462,12 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 	if len(node.branches) != 2 {
 		return positionalValueLowering{outcome: positionalLoweringUnsupported}
 	}
+	// The condition's hoists go to b, before the AttrsCond call. An else-if is
+	// lowered inside the else branch thunk, so its hoists run only when reached.
+	condExpr, ok := ctx.lowerCtx().field(b, cond.Cond, cond.CondEmbedded, cond)
+	if !ok {
+		return diagnosedPositionalValue()
+	}
 	thenLowering := positionalAttrsBranchThunk(node.branches[0], plan, ctx)
 	if thenLowering.outcome != positionalLoweringReady {
 		return thenLowering
@@ -479,7 +485,7 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 		}
 		maps.Copy(used, elseLowering.used)
 	}
-	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), strings.TrimSpace(cond.Cond), thenLowering.expr, elseExpr)
+	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), condExpr, thenLowering.expr, elseExpr)
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
 	fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
@@ -516,12 +522,25 @@ func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node comp
 	// scope (name is new, so `:=` is legal whether or not _gsxerr already
 	// exists), which is what ctx.errorReturn() refers to.
 	fmt.Fprintf(b, "%s, _gsxerr := %s.Attrs(nil), error(nil)\n", name, ctx.rt.rt())
-	fmt.Fprintf(b, "switch %s {\n", strings.TrimSpace(sw.Tag))
+	// The tag's hoists precede the `switch`; case lists are evaluated lazily
+	// and have no error channel.
+	lc := ctx.lowerCtx()
+	tag, ok := lc.field(b, sw.Tag, sw.TagEmbedded, sw)
+	if !ok {
+		return diagnosedPositionalValue()
+	}
+	fmt.Fprintf(b, "switch %s {\n", tag)
+	caseLC := lc
+	caseLC.noErrChannel = caseListErrRemedy
 	for i, cc := range sw.Cases {
 		if cc.Default {
 			b.WriteString("default:\n")
 		} else {
-			fmt.Fprintf(b, "case %s:\n", cc.List)
+			list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+			if !ok {
+				return diagnosedPositionalValue()
+			}
+			fmt.Fprintf(b, "case %s:\n", list)
 		}
 		fmt.Fprintf(b, "%s, _gsxerr = (%s)()\n", name, thunks[i])
 	}

@@ -293,13 +293,13 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 					// plain Go string concat; js`…`/css`…` lower to _gsxrt.RawJS/RawCSS
 					// wrapping the same concat with per-hole contextual escaping
 					// (JSCtx-selected escaper / StyleValue-FilterCSS semantics).
-					// Expression positions have no statement context: exprPos forbids
-					// hoists, so error-carrying holes are rejected (see embeddedHoleExpr)
-					// and concat order is source order.
+					// Expression positions have no statement context: a non-empty
+					// noErrChannel forbids hoists, so error-carrying holes are rejected
+					// (see embeddedHoleExpr) and concat order is source order.
 					if len(p.Stages) > 0 {
 						bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 						partsOK = false
-					} else if !emitGoExprEmbeddedInterp(&wbuf, &wbuf, p, resolved, table, imports, rt, &interpTemp, bag, false, false, "return _gsxerr") {
+					} else if !emitGoExprEmbeddedInterp(&wbuf, &wbuf, p, resolved, table, imports, rt, &interpTemp, bag, false, goExprLiteralErrorRemedy, "return _gsxerr") {
 						partsOK = false
 					}
 				default:
@@ -918,7 +918,11 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 			return true
 		}
-		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
+		cond, ok := lc.field(b, t.Cond, t.CondEmbedded, t)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "\t\tif %s {\n", cond)
 		if !emitBranch(t.Then) {
 			return false
 		}
@@ -941,7 +945,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 	// branch's names to the dynamic drop slice.
 	postRuns := map[*ast.CondAttr][]condRun{}
 	dropVar := ""
-	emitPostCondSelectors := func() {
+	emitPostCondSelectors := func() bool {
 		var post []*ast.CondAttr
 		for i, a := range attrs {
 			if i <= splitIdx {
@@ -952,7 +956,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 		}
 		if len(post) == 0 {
-			return
+			return true
 		}
 		dropVar = fmt.Sprintf("_gsxv%d", *interpTemp)
 		*interpTemp++
@@ -970,8 +974,11 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if len(bools) > 0 {
 				fmt.Fprintf(b, "\t\tvar %s bool\n", strings.Join(bools, ", "))
 			}
-			emitPostCondSelector(b, root, dropVar)
+			if !emitPostCondSelector(b, root, dropVar, lc) {
+				return false
+			}
 		}
+		return true
 	}
 
 	// emitSpread emits the post-cond selectors, the class merge, style merge,
@@ -979,7 +986,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 	// dynamic drop slice when post-spread cond-attrs exist). Called once, at
 	// the split position.
 	emitSpread := func() bool {
-		emitPostCondSelectors()
+		if !emitPostCondSelectors() {
+			return false
+		}
 		// If the root had NO class attr at all, emit a merged class in attr position —
 		// writes class only when the bag contributes a non-empty token set. An
 		// EmbeddedText class literal (embedClass) is emitted in place by Walk 1
@@ -1203,7 +1212,7 @@ type condBranchPlan struct {
 
 // condSelNode mirrors one *ast.CondAttr for selector emission.
 type condSelNode struct {
-	cond      string
+	attr      *ast.CondAttr
 	then, els condBranchPlan
 }
 
@@ -1241,7 +1250,7 @@ func planPostCond(t *ast.CondAttr, runs *[]condRun, bools *[]string, interpTemp 
 		}
 		return bp
 	}
-	n := &condSelNode{cond: t.Cond}
+	n := &condSelNode{attr: t}
 	n.then = planBranch(t.Then)
 	n.els = planBranch(t.Else)
 	return n
@@ -1250,9 +1259,10 @@ func planPostCond(t *ast.CondAttr, runs *[]condRun, bools *[]string, interpTemp 
 // emitPostCondSelector writes the run-once branch selector for a planned
 // post-spread cond-attr: the original if/else structure evaluates each
 // condition exactly once; a taken branch sets its bool temp and appends its
-// direct leaf names to the dynamic drop slice.
-func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string) {
-	emitBranch := func(bp condBranchPlan) {
+// direct leaf names to the dynamic drop slice. A condition's hoists precede its
+// `if`; a nested cond-attr's land inside the enclosing branch.
+func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string, lc lowerCtx) bool {
+	emitBranch := func(bp condBranchPlan) bool {
 		if bp.boolVar != "" {
 			fmt.Fprintf(b, "\t\t%s = true\n", bp.boolVar)
 			quoted := make([]string, len(bp.names))
@@ -1262,16 +1272,28 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string) {
 			fmt.Fprintf(b, "\t\t%s = append(%s, %s)\n", dropVar, dropVar, strings.Join(quoted, ", "))
 		}
 		for _, nested := range bp.nested {
-			emitPostCondSelector(b, nested, dropVar)
+			if !emitPostCondSelector(b, nested, dropVar, lc) {
+				return false
+			}
 		}
+		return true
 	}
-	fmt.Fprintf(b, "\t\tif %s {\n", n.cond)
-	emitBranch(n.then)
+	cond, ok := lc.field(b, n.attr.Cond, n.attr.CondEmbedded, n.attr)
+	if !ok {
+		return false
+	}
+	fmt.Fprintf(b, "\t\tif %s {\n", cond)
+	if !emitBranch(n.then) {
+		return false
+	}
 	if n.els.boolVar != "" || len(n.els.nested) > 0 {
 		b.WriteString("\t\t} else {\n")
-		emitBranch(n.els)
+		if !emitBranch(n.els) {
+			return false
+		}
 	}
 	b.WriteString("\t\t}\n")
+	return true
 }
 
 // hasAttrsMethodSet reports whether t already supports the method-bearing bag
@@ -1997,7 +2019,15 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		}
 	case *ast.ForMarkup:
 		emitLine(b, fset, t.Pos())
-		fmt.Fprintf(b, "for %s {\n", t.Clause)
+		// A for clause's condition and post statement run every iteration, so
+		// no single statement point can take an error-carrying hole's hoist.
+		lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec)
+		lc.noErrChannel = forClauseErrRemedy
+		clause, ok := lc.field(b, t.Clause, t.ClauseEmbedded, t)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "for %s {\n", clause)
 		for _, c := range t.Body {
 			if !genNode(b, c, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan) {
 				return false
@@ -2006,7 +2036,14 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		b.WriteString("}\n")
 	case *ast.IfMarkup:
 		emitLine(b, fset, t.Pos())
-		fmt.Fprintf(b, "if %s {\n", t.Cond)
+		// The condition's hoists precede the `if`. An else-if is an IfMarkup
+		// nested in Else, emitted inside `else {}`, so its hoists run only when
+		// that branch is reached.
+		cond, ok := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec).field(b, t.Cond, t.CondEmbedded, t)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "if %s {\n", cond)
 		for _, c := range t.Then {
 			if !genNode(b, c, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan) {
 				return false
@@ -2025,12 +2062,25 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		b.WriteString("\n")
 	case *ast.SwitchMarkup:
 		emitLine(b, fset, t.Pos())
-		fmt.Fprintf(b, "switch %s {\n", t.Tag)
+		// The tag's hoists precede the `switch`. Case lists are evaluated
+		// lazily, case by case, so they have no error channel.
+		lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec)
+		tag, ok := lc.field(b, t.Tag, t.TagEmbedded, t)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "switch %s {\n", tag)
+		caseLC := lc
+		caseLC.noErrChannel = caseListErrRemedy
 		for _, cc := range t.Cases {
 			if cc.Default {
 				b.WriteString("default:\n")
 			} else {
-				fmt.Fprintf(b, "case %s:\n", cc.List)
+				list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+				if !ok {
+					return false
+				}
+				fmt.Fprintf(b, "case %s:\n", list)
 			}
 			for _, c := range cc.Body {
 				if !genNode(b, c, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan) {
@@ -2056,9 +2106,9 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// preprocessComponentCallSites). Reconstruct it with the same lowering an
 		// Interp.Embedded seed uses. ctx IS in scope (the render closure), but a
 		// statement hoist has no slot inside the reconstructed statement, so
-		// canHoist=false rejects error-carrying holes for f`/js`/css` alike.
+		// noErrChannel rejects error-carrying holes for f`/js`/css` alike.
 		// Element parts never reach here: they set UnsupportedMarkup above.
-		expr, ok := lowerGoParts(b, t.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, hasCtx: true, canHoist: false, errReturn: "return _gsxerr", owner: t})
+		expr, ok := lowerGoParts(b, t.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, hasCtx: true, noErrChannel: goExprLiteralErrorRemedy, errReturn: "return _gsxerr", owner: t})
 		if !ok {
 			return false
 		}
@@ -2173,7 +2223,7 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		// from b), so error-carrying holes hoist; elements lower to gsx.Func
 		// values against ec.
 		var lok bool
-		expr, lok = lowerGoParts(b, n.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, ec: ec, elements: true, hasCtx: true, canHoist: true, errReturn: "return _gsxerr", owner: n})
+		expr, lok = lowerGoParts(b, n.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, ec: ec, elements: true, hasCtx: true, errReturn: "return _gsxerr", owner: n})
 		if !lok {
 			return false
 		}
@@ -2271,7 +2321,7 @@ func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast
 		return true
 	}
 	emitLine(b, fset, n.Pos())
-	concat, ok := embeddedValueExpr(b, n.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false, "unsupported-node", "body interpolation literal")
+	concat, ok := embeddedValueExpr(b, n.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "", false, "unsupported-node", "body interpolation literal")
 	if !ok {
 		return false
 	}
@@ -2489,8 +2539,8 @@ func emitValueIfChain(b *bytes.Buffer, vi *ast.ValueIf, cond, tmp string, armExp
 // is lowered through lc with its hoists written before the `switch`. A case
 // list cannot hoist: cases are evaluated lazily one by one, so no single
 // statement point precedes exactly the evaluation of one list. An
-// error-carrying hole there is rejected (lowerCtx.canHoist false →
-// goexpr-literal-error).
+// error-carrying hole there is rejected with a goexpr-literal-error
+// (caseListErrRemedy).
 func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr func(*ast.ValueArm) (string, bool), lc lowerCtx) bool {
 	tag, ok := lc.field(b, vs.Tag, vs.TagEmbedded, vs)
 	if !ok {
@@ -2498,13 +2548,13 @@ func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr f
 	}
 	fmt.Fprintf(b, "\t\tswitch %s {\n", tag)
 	caseLC := lc
-	caseLC.canHoist = false
+	caseLC.noErrChannel = caseListErrRemedy
 	for _, c := range vs.Cases {
 		if c.Default {
 			b.WriteString("\t\tdefault:\n")
 		} else {
-			// canHoist=false: nothing is written to b (a hole that would
-			// need a statement is rejected instead).
+			// No error channel: nothing is written to b (a hole that
+			// would need a statement is rejected instead).
 			list, ok := caseLC.field(b, c.List, c.ListEmbedded, c)
 			if !ok {
 				return false
@@ -3058,7 +3108,13 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// else-if is a *CondAttr in Else, handled by the recursive emitAttr below.
 		// (No //line for the cond: emitAttr has no fset, the wrapper is a pure
 		// control construct, and each nested attr emit carries its own line map.)
-		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
+		// The condition's hoists precede the `if`; an else-if's land inside
+		// `else {}`, so they run only when that branch is reached.
+		cond, ok := lc.field(b, t.Cond, t.CondEmbedded, t)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "\t\tif %s {\n", cond)
 		for _, inner := range t.Then {
 			if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 				return false
@@ -3078,13 +3134,24 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// Same statement position as the CondAttr `if` above, so a real Go
 		// `switch` is valid here. Emitting the tag once (rather than lowering to
 		// an `==` chain) is the whole point: a tag that is a call must be
-		// evaluated exactly once, as Go does.
-		fmt.Fprintf(b, "\t\tswitch %s {\n", t.Tag)
+		// evaluated exactly once, as Go does. The tag's hoists precede the
+		// `switch`; case lists are evaluated lazily and have no error channel.
+		tag, ok := lc.field(b, t.Tag, t.TagEmbedded, t)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "\t\tswitch %s {\n", tag)
+		caseLC := lc
+		caseLC.noErrChannel = caseListErrRemedy
 		for _, cc := range t.Cases {
 			if cc.Default {
 				b.WriteString("\t\tdefault:\n")
 			} else {
-				fmt.Fprintf(b, "\t\tcase %s:\n", cc.List)
+				list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+				if !ok {
+					return false
+				}
+				fmt.Fprintf(b, "\t\tcase %s:\n", list)
 			}
 			for _, inner := range cc.Body {
 				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
@@ -3491,7 +3558,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 // which operates on unescaped tokens/declarations before its one final
 // escape).
 func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
-	return embeddedValueExpr(b, a.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
+	return embeddedValueExpr(b, a.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
 }
 
 // componentEmbeddedTextValueExpr materializes an f-literal as an unescaped Go
@@ -3531,7 +3598,7 @@ func componentEmbeddedTextValueExpr(
 			}
 		case *ast.Interp:
 			var hoist bytes.Buffer
-			expr, ok := holeStringExpr(&hoist, s, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false)
+			expr, ok := holeStringExpr(&hoist, s, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
 			if !ok {
 				return "", false
 			}
@@ -3607,11 +3674,11 @@ func componentEmbeddedTextValueExpr(
 // closure, "return nil, _gsxerr" in an (Attrs, error) cond-attr thunk) — every
 // hole hoist (pipeline, tuple, renderer, AttrString) uses it. errCode/errDesc
 // position and word the "unsupported segment" diagnostic for the caller's
-// context (attribute vs. body literal). rejectErr/rejectCtx are forwarded to
+// context (attribute vs. body literal). noErrChannel/rejectCtx are forwarded to
 // holeStringExpr: they gate the Go-expression-position rejections for the f`
-// path (see holeStringExpr) and are false for the render-closure body/attribute
-// callers, which keep hoisting.
-func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, rejectErr, rejectCtx bool, errCode, errDesc string) (string, bool) {
+// path (see holeStringExpr) and are empty/false for the render-closure
+// body/attribute callers, which keep hoisting.
+func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool, errCode, errDesc string) (string, bool) {
 	parts := make([]string, 0, len(segs))
 	for _, seg := range segs {
 		switch s := seg.(type) {
@@ -3621,7 +3688,7 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 			}
 			parts = append(parts, strconv.Quote(s.Value))
 		case *ast.Interp:
-			p, ok := holeStringExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, rejectErr, rejectCtx)
+			p, ok := holeStringExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 			if !ok {
 				return "", false
 			}
@@ -3641,11 +3708,12 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 // Go-expression position — a top-level GoWithElements value, a `{{ }}`
 // GoBlock, or an Interp.Embedded part — to one self-contained Go value. f`
 // assembles a plain Go string concat (embeddedValueExpr); js`/css` wrap the
-// JS/CSS-escaped concat in _gsxrt.RawJS/_gsxrt.RawCSS. exprPos=!canHoist
-// (passed to the JS/CSS assemblers, same as the f` path) forbids per-hole
-// statement hoists where there is no clean hoist channel, so error-carrying
-// holes are rejected in embeddedHoleExpr and the concat stays source-ordered;
-// where canHoist is true, the assemblers instead materialize each dynamic
+// JS/CSS-escaped concat in _gsxrt.RawJS/_gsxrt.RawCSS. A non-empty
+// noErrChannel (passed to the JS/CSS assemblers, same as the f` path) forbids
+// per-hole statement hoists where there is no clean hoist channel, so
+// error-carrying holes are rejected in embeddedHoleExpr with noErrChannel as
+// the remedy and the concat stays source-ordered; where noErrChannel is
+// empty, the assemblers instead materialize each dynamic
 // hole to a source-ordered `_gsxvN` temp in hoistBuf, with error shapes
 // hoisting through errReturn (the enclosing function's error return:
 // "return _gsxerr" in a render closure) — the same fold-path lowering an
@@ -3660,22 +3728,22 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 // pipeline (p.Stages) first, since the two sites word/position that
 // diagnostic differently.
 //
-// hasCtx / canHoist describe the CONTAINER's render context, and gate the
+// hasCtx / noErrChannel describe the CONTAINER's render context, and gate the
 // no-render-context rejections uniformly across f`/js`/css`:
 //   - hasCtx=false (a top-level GoWithElements value — no ambient `ctx`) rejects
 //     ctx-taking filters/renderers (rejectCtx), which would reference an
 //     undefined `ctx`.
-//   - canHoist=false (no clean pre-statement hoist channel — a top-level value,
-//     or a `{{ }}` GoBlock whose reconstruction interleaves GoText into hoistBuf)
-//     rejects error-carrying holes (rejectErr / exprPos) for f`/js`/css` alike.
+//   - a non-empty noErrChannel (no clean pre-statement hoist channel — a
+//     top-level value, a `{{ }}` GoBlock whose reconstruction interleaves GoText
+//     into hoistBuf, a case list or a for clause) rejects error-carrying holes
+//     for f`/js`/css` alike, with noErrChannel as the diagnostic's remedy.
 //
-// The in-closure Interp.Embedded and component-value sites pass (true, true) and
+// The in-closure Interp.Embedded and component-value sites pass (true, "") and
 // keep hoisting/threading ctx exactly as before.
-func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, hasCtx, canHoist bool, errReturn string) bool {
-	exprPos := !canHoist
+func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, hasCtx bool, noErrChannel, errReturn string) bool {
 	switch p.Lang {
 	case ast.EmbeddedJS:
-		val, ok := embeddedJSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, !hasCtx)
+		val, ok := embeddedJSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, !hasCtx)
 		if !ok {
 			return false
 		}
@@ -3684,7 +3752,7 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 		valBuf.WriteString(val)
 		valBuf.WriteByte(')')
 	case ast.EmbeddedCSS:
-		val, ok := embeddedCSSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, !hasCtx)
+		val, ok := embeddedCSSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, !hasCtx)
 		if !ok {
 			return false
 		}
@@ -3693,7 +3761,7 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 		valBuf.WriteString(val)
 		valBuf.WriteByte(')')
 	default:
-		val, ok := embeddedValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, !canHoist, !hasCtx, "unsupported-node", "backtick literal value")
+		val, ok := embeddedValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, !hasCtx, "unsupported-node", "backtick literal value")
 		if !ok {
 			return false
 		}
@@ -3708,7 +3776,7 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 // literal appears in the hole) is reassembled from its parts: GoText runs
 // verbatim, each nested literal lowered to its Go value — the same
 // lowerGoParts splice genInterp performs for a body interp's seed. Capability flags derive from the containing
-// hole's own rejection flags (hasCtx = !rejectCtx, canHoist = !rejectErr) so a
+// hole's own rejection flags (hasCtx = !rejectCtx, the same noErrChannel) so a
 // nested literal's holes obey the same position rules as the hole that contains
 // them: an error-carrying hole inside a nested literal at a top-level value
 // position still fails with the goexpr-literal-error diagnostic. A whole-literal
@@ -3718,11 +3786,11 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 // hoistBuf BEFORE this returns, so it precedes the statement that consumes the
 // assembled expression, exactly as holeStringExpr's own hoists do. errReturn is
 // the enclosing function's error-return statement, which those hoists use.
-func assembleHoleSeed(hoistBuf *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, rejectErr, rejectCtx bool) (string, bool) {
+func assembleHoleSeed(hoistBuf *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool) (string, bool) {
 	if n.Embedded == nil {
 		return strings.TrimSpace(n.Expr), true
 	}
-	expr, ok := lowerGoParts(hoistBuf, n.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, bag: bag, hasCtx: !rejectCtx, canHoist: !rejectErr, errReturn: errReturn, owner: n})
+	expr, ok := lowerGoParts(hoistBuf, n.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, bag: bag, hasCtx: !rejectCtx, noErrChannel: noErrChannel, errReturn: errReturn, owner: n})
 	if !ok {
 		return "", false
 	}
@@ -3746,27 +3814,28 @@ func assembleHoleSeed(hoistBuf *bytes.Buffer, n *ast.Interp, resolved map[ast.No
 // signature; every hoist emitted here (pipeline, tuple, renderer, AttrString)
 // uses it, so the same lowering serves the render closure ("return _gsxerr")
 // and an (Attrs, error) cond-attr thunk ("return nil, _gsxerr").
-// rejectErr / rejectCtx bring the f`-literal (plain-string) path to parity with
-// embeddedHoleExpr's js`/css` exprPos rejections: they are set at a Go-expression
-// position where a hole cannot safely lower. rejectErr (no clean statement hoist
-// channel — a top-level value or a `{{ }}` GoBlock, whose reconstruction
-// interleaves GoText into the hoist buffer) rejects every error-carrying shape (a
+// noErrChannel / rejectCtx bring the f`-literal (plain-string) path to parity
+// with embeddedHoleExpr's js`/css` rejections: they are set at a Go-expression
+// position where a hole cannot safely lower. A non-empty noErrChannel (no clean
+// statement hoist channel — a top-level value, a `{{ }}` GoBlock, whose
+// reconstruction interleaves GoText into the hoist buffer, a case list or a for
+// clause) is the remedy text for rejecting every error-carrying shape (a
 // pipeline (R, error) stage, a (T, error) seed, an error-returning renderer, or a
 // mixed type-parameter value whose rt.AttrString conversion returns
 // (string, error)). rejectCtx (no ambient `ctx` — a top-level value only) rejects
 // a ctx-taking filter or renderer, whose lowering references an undefined `ctx`.
-// Both default to false for the URL/class/style merge callers, whose hoists land
+// Both default to empty/false for the URL/class/style merge callers, whose hoists land
 // in a real render-closure statement context.
-func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, rejectErr, rejectCtx bool) (string, bool) {
+func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool) (string, bool) {
 	// A hole carrying a nested prefixed literal (n.Embedded != nil) is
 	// reassembled from its parts; a plain hole is its Expr verbatim. Nested-hole
 	// hoists land in b before this returns, ahead of the consuming stmt.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, errReturn, rejectErr, rejectCtx)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 	if !sok {
 		return "", false
 	}
-	if rejectErr && pipelineHasErr(n.Stages, table) {
-		bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses an error-returning filter (|>); "+goExprLiteralErrorRemedy, pipeSourceText(n.Expr, n.Stages))
+	if noErrChannel != "" && pipelineHasErr(n.Stages, table) {
+		bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses an error-returning filter (|>); %s", pipeSourceText(n.Expr, n.Stages), noErrChannel)
 		return "", false
 	}
 	if rejectCtx && pipelineWantsCtx(n.Stages, table) {
@@ -3797,16 +3866,16 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return "", false
 		}
-		if rejectErr {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } returns %s; "+goExprLiteralErrorRemedy, expr, t)
+		if noErrChannel != "" {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } returns %s; %s", expr, t, noErrChannel)
 			return "", false
 		}
 		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
 		t = elemT
 	}
 	if e, ok := table.renderers[rendererKey(t)]; ok {
-		if rejectErr && e.hasErr {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } is rendered by an error-returning renderer; "+goExprLiteralErrorRemedy, n.Expr)
+		if noErrChannel != "" && e.hasErr {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } is rendered by an error-returning renderer; %s", n.Expr, noErrChannel)
 			return "", false
 		}
 		if rejectCtx && e.wantsCtx {
@@ -3821,11 +3890,11 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 	case catStringSlice:
 		return rt.st() + ".Join(" + expr + ", \" \")", true
 	case catAnyMixed:
-		if rejectErr {
+		if noErrChannel != "" {
 			// A mixed type-parameter value routes through rt.AttrString, which
 			// returns (string, error) and must hoist that error — impossible
 			// without a statement context.
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } is a mixed type-parameter value (its runtime conversion can fail); "+goExprLiteralErrorRemedy, n.Expr)
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } is a mixed type-parameter value (its runtime conversion can fail); %s", n.Expr, noErrChannel)
 			return "", false
 		}
 		return hoistTupleReturning(b, rt.rt()+".AttrString("+expr+")", interpTemp, errReturn), true
@@ -3903,7 +3972,7 @@ func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	// An attribute literal is inside the render closure (ctx binds, b is a clean
 	// hoist channel), so a nested literal's holes may hoist and take ctx.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "", false)
 	if !sok {
 		return false
 	}
@@ -3944,7 +4013,7 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	// An attribute literal is inside the render closure (ctx binds, b is a clean
 	// hoist channel), so a nested literal's holes may hoist and take ctx.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "", false)
 	if !sok {
 		return false
 	}
@@ -3984,7 +4053,7 @@ func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]ty
 func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	// An attribute literal is inside the render closure (ctx binds, b is a clean
 	// hoist channel), so a nested literal's holes may hoist and take ctx.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "", false)
 	if !sok {
 		return false
 	}
@@ -4051,21 +4120,20 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 // the error-return statement matching the enclosing function's signature (see
 // holeStringExpr); every hoist emitted here uses it.
 //
-// exprPos is set where NO statement hoist channel exists — a top-level
-// GoWithElements value or a `{{ }}` GoBlock (whose reconstruction interleaves
-// GoText into the hoist buffer): there the whole literal must lower to ONE
+// noErrChannel is non-empty where NO statement hoist channel exists — a
+// top-level GoWithElements value, a `{{ }}` GoBlock (whose reconstruction
+// interleaves GoText into the hoist buffer), a case list or a for clause:
+// there the whole literal must lower to ONE
 // self-contained Go expression, so there is no statement context to hoist
 // into and no error channel to route a filter/renderer/tuple error through.
 // Every hole that WOULD need a statement hoist — a pipeline stage that
 // returns (R, error), a (T, error) tuple seed, or a renderer that returns
 // (R, error) — is rejected with a positioned "goexpr-literal-error"
-// diagnostic instead (goExprLiteralErrorRemedy names both ways out: handle
-// the error in Go before the literal, or move the literal to an attribute
-// position, where the render closure DOES have an error-returning statement
-// context). Pure pipes (no error stage) and pure renderers lower to nested
+// diagnostic instead, whose remedy is noErrChannel (goExprLiteralErrorRemedy,
+// caseListErrRemedy or forClauseErrRemedy). Pure pipes (no error stage) and pure renderers lower to nested
 // calls, which are valid expressions, so they remain allowed. In-closure
 // Go-expression sites (an Interp.Embedded part or a braced component-prop
-// binding, canHoist=true in emitGoExprEmbeddedInterp) pass exprPos=false and
+// binding) pass an empty noErrChannel and
 // hoist error-carrying holes exactly like an f` hole at the same site.
 //
 // rejectCtx is the ctx-availability counterpart: set ONLY where the literal has
@@ -4075,18 +4143,17 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 // (goExprCtxRemedy). Positions that DO bind `ctx` (Interp.Embedded, a `{{ }}`
 // GoBlock, a component-value slot) pass false and keep such holes, since
 // `<pkg>.<Fn>(ctx, …)` is a valid expression there.
-func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, exprPos, rejectCtx bool) (string, types.Type, bool) {
+func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool) (string, types.Type, bool) {
 	// A hole carrying a nested prefixed literal (n.Embedded != nil) is
 	// reassembled from its parts; a plain hole is its Expr verbatim. Nested-hole
-	// hoists land in b before this returns, ahead of the consuming stmt. exprPos
-	// is the error-rejection flag (rejectErr) at this Go-expression site.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, rejectCtx)
+	// hoists land in b before this returns, ahead of the consuming stmt.
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 	if !sok {
 		return "", nil, false
 	}
 	if len(n.Stages) > 0 {
-		if exprPos && pipelineHasErr(n.Stages, table) {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses an error-returning filter (|>); "+goExprLiteralErrorRemedy, pipeSourceText(n.Expr, n.Stages))
+		if noErrChannel != "" && pipelineHasErr(n.Stages, table) {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses an error-returning filter (|>); %s", pipeSourceText(n.Expr, n.Stages), noErrChannel)
 			return "", nil, false
 		}
 		if rejectCtx && pipelineWantsCtx(n.Stages, table) {
@@ -4116,16 +4183,16 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "contextual attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return "", nil, false
 		}
-		if exprPos {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } returns %s; "+goExprLiteralErrorRemedy, expr, t)
+		if noErrChannel != "" {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } returns %s; %s", expr, t, noErrChannel)
 			return "", nil, false
 		}
 		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
 		t = elem
 	}
 	if e, ok := table.renderers[rendererKey(t)]; ok {
-		if exprPos && e.hasErr {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } is rendered by an error-returning renderer; "+goExprLiteralErrorRemedy, n.Expr)
+		if noErrChannel != "" && e.hasErr {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } is rendered by an error-returning renderer; %s", n.Expr, noErrChannel)
 			return "", nil, false
 		}
 		if rejectCtx && e.wantsCtx {
@@ -4138,14 +4205,24 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 }
 
 // goExprLiteralErrorRemedy is the shared second half of every
-// "goexpr-literal-error" diagnostic (embeddedHoleExpr's three exprPos
-// rejections): it names the reason (no error channel exists in an arbitrary
+// "goexpr-literal-error" diagnostic at a top-level value or a {{ }} block
+// (embeddedHoleExpr's and holeStringExpr's rejections): it names the reason (no error channel exists in an arbitrary
 // Go-expression position — a var initializer, call argument, or {{ }} block
 // is one expression, not a statement sequence to hoist an early-return into)
 // and both remedies (handle the error in Go before the value ever reaches the
 // literal, or move the literal into an attribute position, where the render
 // closure IS a statement sequence with an error return).
 const goExprLiteralErrorRemedy = "a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position"
+
+// caseListErrRemedy and forClauseErrRemedy are the goexpr-literal-error
+// remedies for an error-carrying hole in a literal nested in a case list or a
+// for clause: a case list is evaluated lazily, case by case, and a for
+// condition/post statement runs every iteration, so neither has one statement
+// point to hoist the error return into.
+const (
+	caseListErrRemedy  = "a case list has no statement to return the error from (cases are evaluated lazily) — compute the value before the switch"
+	forClauseErrRemedy = "a for clause has no statement to return the error from (its condition and post statement run every iteration) — compute the value before the loop"
+)
 
 // pipeSourceText reconstructs a hole's `seed |> stage1 |> stage2(args) …`
 // source text for diagnostic messages, so a rejection names the actual
@@ -4207,13 +4284,14 @@ const goExprCtxRemedy = "a js`/css`/f` literal in Go-expression position has no 
 // embeddedJSValueExpr assembles a js`…` literal's segments (static text + @{ }
 // holes) into one Go string-concat expression, each hole JS-escaped by its
 // JSCtx. segs is the raw segment list (an EmbeddedAttr's or a Go-expression
-// EmbeddedInterp's Segments). exprPos selects the Go-expression lowering: when
-// true, no per-hole `_gsxvN :=` temp is materialized (the concat is inlined,
+// EmbeddedInterp's Segments). A non-empty noErrChannel selects the
+// Go-expression lowering: no per-hole `_gsxvN :=` temp is materialized (the concat is inlined,
 // which is naturally source-ordered because nothing hoists) and error-carrying
-// holes are rejected in embeddedHoleExpr; when false (the attribute/bag fold
+// holes are rejected in embeddedHoleExpr; when empty (the attribute/bag fold
 // path) each dynamic hole is materialized to a temp at its source position, so a
 // later hole's tuple/renderer/pipeline hoist cannot reorder its evaluation.
-func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, exprPos, rejectCtx bool) (string, bool) {
+func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool) (string, bool) {
+	exprPos := noErrChannel != ""
 	parts := make([]string, 0, len(segs))
 	for _, seg := range segs {
 		switch s := seg.(type) {
@@ -4222,7 +4300,7 @@ func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.No
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, rejectCtx)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 			if !ok {
 				return "", false
 			}
@@ -4292,10 +4370,11 @@ func stringifyJSExpr(expr string, t types.Type, n ast.Node, bag *diag.Bag) (stri
 
 // embeddedCSSValueExpr assembles a css`…` literal's segments into one Go
 // string-concat expression, each hole reduced to a CSS-safe string (gsx.RawCSS
-// passthrough, otherwise gsx.FilterCSS). segs / exprPos mirror
-// embeddedJSValueExpr: exprPos inlines the concat (no per-hole temp) and rejects
+// passthrough, otherwise gsx.FilterCSS). segs / noErrChannel mirror
+// embeddedJSValueExpr: a non-empty noErrChannel inlines the concat (no per-hole temp) and rejects
 // error-carrying holes; the fold path materializes each dynamic hole to a temp.
-func embeddedCSSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, exprPos, rejectCtx bool) (string, bool) {
+func embeddedCSSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool) (string, bool) {
+	exprPos := noErrChannel != ""
 	parts := make([]string, 0, len(segs))
 	for _, seg := range segs {
 		switch s := seg.(type) {
@@ -4304,7 +4383,7 @@ func embeddedCSSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.N
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, rejectCtx)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 			if !ok {
 				return "", false
 			}
@@ -4600,7 +4679,7 @@ func composedLiteralSegmentsExpr(b *bytes.Buffer, segments []ast.Markup, style b
 	// A class f`…` literal is an ordinary interpolated text value: each hole is
 	// HTML-escaped by embeddedValueExpr, and the joined string is then merged
 	// as one class contribution.
-	return embeddedValueExpr(b, segments, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false,
+	return embeddedValueExpr(b, segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false,
 		"invalid-tuple", "class f literal interpolation")
 }
 
@@ -4615,7 +4694,7 @@ func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved ma
 		case *ast.Interp:
 			// A hole carrying a nested literal (s.Embedded) is reassembled from
 			// its parts, exactly as holeStringExpr does for a class f`…` hole.
-			expr, ok := assembleHoleSeed(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false)
+			expr, ok := assembleHoleSeed(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
 			if !ok {
 				return "", false
 			}
@@ -5406,8 +5485,15 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 // Either way this returns ONE expression: the *ast.CondAttr call site hoists it
 // with hoistTuple in emit mode, or wraps it in _gsxunwrap(...) in probe mode —
 // emit ≡ probe, differing only by that tolerance wrap, never by structure.
-func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
+func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
+	// The condition's hoists go to b, before the AttrsCond call. A nested
+	// cond-attr (an else-if included) is lowered with b = the enclosing
+	// branch thunk's buffer, so its hoists run only when that branch is taken.
+	cond, ok := lc.field(b, t.Cond, t.CondEmbedded, t)
+	if !ok {
+		return "", nil, errBagDiagReported
+	}
 
 	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
 	// lit, nil }` thunk. tb is thunk-LOCAL: any hoist wrap writes into it, so the
@@ -5440,7 +5526,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 		maps.Copy(usedPkgs, elseUsed)
 		elseArg = elseThunk
 	}
-	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), usedPkgs, nil
+	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, cond, thenThunk, elseArg), usedPkgs, nil
 }
 
 // condBranchAttrs builds a <rtPkg>.Attrs expression from one conditional-attr
@@ -5585,7 +5671,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			parts = append(parts, expr)
 		case *ast.CondAttr:
 			materializePrior()
-			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp, ctx, lc)
+			condExpr, used, cerr := condAttrsExpr(b, t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp, ctx, lc)
 			if cerr != nil {
 				return "", nil, cerr
 			}
@@ -5755,9 +5841,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			case ast.EmbeddedText:
 				val, ok = embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			case ast.EmbeddedJS:
-				val, ok = embeddedJSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false)
+				val, ok = embeddedJSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
 			case ast.EmbeddedCSS:
-				val, ok = embeddedCSSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false)
+				val, ok = embeddedCSSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
 			}
 			if !ok {
 				// The value assembler has already emitted the positioned

@@ -1,0 +1,27 @@
+# An error-carrying hole in a literal nested in a for clause has no hoist
+# point (the condition and post statement run every iteration), so it is
+# rejected with a positioned goexpr-literal-error.
+-- input.gsx --
+package demo
+
+import "errors"
+
+func ok(s string) bool { return s != "" }
+func lookup(i int) (string, error) {
+	if i > 2 {
+		return "", errors.New("done")
+	}
+	return "L", nil
+}
+
+component Page() {
+	{ for i := 0; ok(f`@{lookup(i)}`); i++ {
+		<b>x</b>
+	} }
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+14:22: @{ lookup(i) } returns (string, error); a for clause has no statement to return the error from (its condition and post statement run every iteration) — compute the value before the loop
+-- render.golden --
+-- generated.x.go.golden --

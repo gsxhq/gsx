@@ -1772,13 +1772,11 @@ func TestMaterializeSplitsGoFieldOverlays(t *testing.T) {
 	first := file.Decls[0].(*gsxast.Component).Body[0].(*gsxast.Element)
 	first.Attrs = append(first.Attrs, &gsxast.ExprAttr{Name: "data-w", Expr: "f`whole-@{id}`", ExprPos: first.Attrs[0].(*gsxast.ExprAttr).ExprPos})
 	bag := diag.NewBag(fset)
-	if materializeEmbeddedMarkup(file, attrclass.Builtin(), fset, bag) {
-		t.Fatal("materialize succeeded; the nested-literal gate must still reject these positions")
+	if !materializeEmbeddedMarkup(file, attrclass.Builtin(), fset, bag) {
+		t.Fatal("materialize failed")
 	}
 	for _, d := range bag.Sorted() {
-		if d.Code != "nested-literal" {
-			t.Errorf("unexpected diagnostic %s: %s", d.Code, d.Message)
-		}
+		t.Errorf("unexpected diagnostic %s: %s", d.Code, d.Message)
 	}
 
 	wantSplit := map[string]bool{

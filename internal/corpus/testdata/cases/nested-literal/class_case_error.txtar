@@ -20,6 +20,6 @@ component Page(id int) {
 -- invoke --
 Page(1)
 -- diagnostics.golden --
-14:56: @{ lookup(id) } returns (string, error); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+14:56: @{ lookup(id) } returns (string, error); a case list has no statement to return the error from (cases are evaluated lazily) — compute the value before the switch
 -- render.golden --
 -- generated.x.go.golden --
