@@ -5,11 +5,11 @@
 package demo
 
 component Page() {
-	<p>{f`a-@{undefinedP}` |> upper}</p>
-	<a title={f`b-@{undefinedQ}` |> upper}></a>
-	<p>{f`c-@{undefinedR}`}</p>
+	<p>{ f`a-@{undefinedP}` |> upper }</p>
+	<a title={ f`b-@{undefinedQ}` |> upper }></a>
+	<p>{ f`c-@{undefinedR}` }</p>
 }
 -- diagnostics.golden --
-4:12: undefined: undefinedP
-5:18: undefined: undefinedQ
-6:12: undefined: undefinedR
+4:13: undefined: undefinedP
+5:19: undefined: undefinedQ
+6:13: undefined: undefinedR

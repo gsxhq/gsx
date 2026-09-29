@@ -154,6 +154,43 @@ func TestIndexOccurrencesWithinRange(t *testing.T) {
 	}
 }
 
+func TestIndexGeneratedPosMapsAuthoredOffsetsThroughCompletionSegments(t *testing.T) {
+	const generated = "package p\n\nvar a, b = 1, 2\n"
+	// authored "a" (0) spells generated `a`, a hover-only span (5) `b`, and
+	// authored "b" (10) the literal `1`.
+	const authored = "a____x____b"
+	aGen := strings.Index(generated, "a,")
+	bGen := strings.Index(generated, "b =")
+	oneGen := strings.Index(generated, "1")
+	_, mapped := parseAndCheckMappedFile(t, generated, authored, []Segment{
+		{Source: Span{Path: "view.gsx", Start: 0, End: 1}, GeneratedStart: aGen, GeneratedEnd: aGen + 1, Capabilities: Definition | Completion},
+		{Source: Span{Path: "view.gsx", Start: 5, End: 6}, GeneratedStart: bGen, GeneratedEnd: bGen + 1, Capabilities: Hover},
+		{Source: Span{Path: "view.gsx", Start: 10, End: 11}, GeneratedStart: oneGen, GeneratedEnd: oneGen + 1, Capabilities: Completion},
+	}, nil)
+	index := BuildIndex(nil, []MappedFile{mapped})
+	base := mapped.TokenFile.Pos(0)
+	for _, tc := range []struct {
+		offset int
+		want   int // generated offset, -1 = unmapped
+	}{
+		{0, aGen}, {1, aGen + 1}, {3, -1}, {5, -1}, {10, oneGen}, {11, oneGen + 1}, {12, -1},
+	} {
+		got, ok := index.GeneratedPos("view.gsx", tc.offset)
+		if tc.want < 0 {
+			if ok {
+				t.Errorf("GeneratedPos(%d) = %d, want unmapped", tc.offset, got-base)
+			}
+			continue
+		}
+		if !ok || got != base+token.Pos(tc.want) {
+			t.Errorf("GeneratedPos(%d) = (%d, %t), want generated offset %d", tc.offset, got-base, ok, tc.want)
+		}
+	}
+	if _, ok := index.GeneratedPos("other.gsx", 0); ok {
+		t.Error("GeneratedPos(unindexed path) mapped")
+	}
+}
+
 func TestBuildIndexDefinitionsUseOriginIdentity(t *testing.T) {
 	const source = `package p
 
@@ -344,6 +381,7 @@ func TestIndexDoesNotRetainASTOrSourceBytes(t *testing.T) {
 		"declarations": reflect.TypeFor[map[string][]Declaration](),
 		"sources":      reflect.TypeFor[map[string]SourceVersion](),
 		"canonical":    reflect.TypeFor[func(types.Object) types.Object](),
+		"generated":    reflect.TypeFor[map[string][]generatedAnchor](),
 	}
 	if got, want := indexValue.NumField(), len(allowedFields); got != want {
 		t.Fatalf("Index has %d concrete fields, want %d", got, want)

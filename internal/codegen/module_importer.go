@@ -1384,7 +1384,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// purely to keep its identifiers and filter imports live and type-checked —
 	// the bag has no single interp node to harvest onto, and counting it would
 	// shift every later interp's harvested type by one slot.
-
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath, analysisPreludeSource(pkgName), goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)

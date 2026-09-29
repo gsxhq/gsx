@@ -220,6 +220,10 @@ func zeroSpans(n ast.Node) {
 				}
 			case *ast.EmbeddedInterp:
 				v.LeadingBreak = false
+				for i := range v.Stages {
+					v.Stages[i].NamePos = 0
+					v.Stages[i].ArgsPos = 0
+				}
 			case *ast.OrderedAttrsAttr:
 				for i := range v.Pairs {
 					ast.SetSpan(&v.Pairs[i], 0, 0)

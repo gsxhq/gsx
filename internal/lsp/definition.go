@@ -452,12 +452,20 @@ func hasPipeStages(n gsxast.Node) bool {
 // A pipeline stage after a split seed is outside the field's text and keeps
 // its pipedTarget bridge.
 func inSplitField(pkg *Package, node gsxast.Node, off int) bool {
+	return splitFieldCovers(pkg, node, off, false)
+}
+
+// splitFieldCovers is inSplitField with a choice of whether the field's end
+// offset counts as inside: a completion cursor sits just past the last byte
+// it completes, a navigation cursor on a byte.
+func splitFieldCovers(pkg *Package, node gsxast.Node, off int, includeEnd bool) bool {
 	covers := func(pos token.Pos, src string) bool {
 		if !pos.IsValid() {
 			return false
 		}
 		start := pkg.GSXFset.Position(pos).Offset
-		return off >= start && off < start+len(src)
+		end := start + len(src)
+		return off >= start && (off < end || includeEnd && off == end)
 	}
 	split := false
 	gsxast.GoFields(node, func(field gsxast.GoField) {

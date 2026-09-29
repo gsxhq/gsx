@@ -1597,8 +1597,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			}
 			sb.WriteString("}\n")
 		case *gsxast.GoBlock:
-			switch {
-			case t.Embedded == nil:
+			if t.Embedded == nil {
 				// No embedded literal: the whole block is verbatim Go (unchanged).
 				emitSkeletonClauseLine(sb, fset, t.CodePos, 0)
 				ctrlOff[t] = sb.Len()
@@ -1606,7 +1605,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					return err
 				}
 				sb.WriteString("\n")
-			default:
+			} else {
 				// The block carries one or more f`/js`/css` literals or element
 				// literals: reconstruct it from its split parts with the same
 				// splice an Interp.Embedded seed uses (writeProbeGoParts). No
@@ -1850,10 +1849,11 @@ func writeSkeletonProbeExpr(sb skeletonWriter, fset *token.FileSet, seedPos toke
 // placeholder: every successful branch of the real emit-time holeStringExpr
 // (string(x), strconv.Format*, (x).String()) also yields exactly `string`,
 // so the seed has emit's static type — all lowerPipe's stage lowering (and
-// thus resolved[node]) depends on. The placeholder deliberately does not re-reference the hole's expression: the
-// hole's own probe (emitProbes over the same segments) already type-checks
-// it, keeps its identifiers live and harvests its type, and a second
-// reference would report each of its type errors twice.
+// thus resolved[node]) depends on. The placeholder deliberately does not
+// re-reference the hole's expression: the hole's own probe (emitProbes over
+// the same segments) already type-checks it, keeps its identifiers live and
+// harvests its type, and a second reference would report each of its type
+// errors twice.
 func embeddedProbeSeed(segments []gsxast.Markup) string {
 	parts := make([]string, 0, len(segments))
 	for _, seg := range segments {
