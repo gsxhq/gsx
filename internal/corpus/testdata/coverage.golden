@@ -613,6 +613,7 @@ nested-literal/control_flow_hoist	diag gen render
 nested-literal/control_flow_hoist_error	diag gen render
 nested-literal/css_hole_thunk_error	diag gen render
 nested-literal/for_error	diag gen render
+nested-literal/generic_in_component_input	diag render
 nested-literal/goblock_element	diag gen render
 nested-literal/goblock_element_script_binding	diag render
 nested-literal/goblock_element_type_args	diag render
@@ -1055,4 +1056,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1057 cases (render: 897, error: 122, gen-pinned: 591)
+TOTAL: 1058 cases (render: 898, error: 122, gen-pinned: 591)

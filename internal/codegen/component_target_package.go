@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -394,13 +395,20 @@ func harvestComponentTargetExpressionFacts(
 		// context. CheckExpr neither reconstructs nor reparses source, and therefore
 		// recovers the authored TypeAndValue while resolving locals against the
 		// already-checked package's scope tree.
+		//
+		// A nested construct's probe body is not part of this operand: the
+		// package check owns its diagnostics, including the omitted inference
+		// error of an inferred generic target in a nested element, and the
+		// operand's type depends only on the probe's signature. So the recheck
+		// sees each probe body as just its final return.
+		checked := withOpaqueEmbeddedProbes(expr)
 		exactInfo := &types.Info{Types: make(map[goast.Expr]types.TypeAndValue)}
-		if err := types.CheckExpr(fset, pkg, expr.Pos(), expr, exactInfo); err != nil {
+		if err := types.CheckExpr(fset, pkg, expr.Pos(), checked, exactInfo); err != nil {
 			// The package check already owns expression diagnostics. An invalid
 			// expression has no authoritative standalone operand fact to publish.
 			continue
 		}
-		tv, ok := exactInfo.Types[expr]
+		tv, ok := exactInfo.Types[checked]
 		if !ok {
 			continue
 		}
@@ -413,4 +421,84 @@ func harvestComponentTargetExpressionFacts(
 		facts[node] = fact
 	}
 	return facts
+}
+
+// withOpaqueEmbeddedProbes returns expr with the body of every nested
+// literal or element probe (the `_gsxelem(N)`-tagged IIFEs, see
+// isEmbeddedElemProbeFuncLit) reduced to its final return statement, which
+// reads nothing the body declares (`return nil`, or the literal's constant
+// seed). The nodes on the path to a reduced body are shallow copies; expr
+// itself is never mutated, and is returned as is when it holds no probe.
+func withOpaqueEmbeddedProbes(expr goast.Expr) goast.Expr {
+	out, _ := reduceEmbeddedProbeBodies(reflect.ValueOf(expr))
+	return out.Interface().(goast.Expr)
+}
+
+var goastNodeType = reflect.TypeFor[goast.Node]()
+
+// reduceEmbeddedProbeBodies rewrites v (a go/ast node value: an interface or a
+// pointer to a node struct) and reports whether anything below it changed.
+func reduceEmbeddedProbeBodies(v reflect.Value) (reflect.Value, bool) {
+	if !v.IsValid() || v.IsNil() {
+		return v, false
+	}
+	if fl, ok := v.Interface().(*goast.FuncLit); ok && isEmbeddedElemProbeFuncLit(fl) {
+		opaque := *fl
+		body := *fl.Body
+		body.List = body.List[len(body.List)-1:]
+		opaque.Body = &body
+		return reflect.ValueOf(&opaque), true
+	}
+	ptr := v
+	if v.Kind() == reflect.Interface {
+		ptr = v.Elem()
+	}
+	if ptr.Kind() != reflect.Pointer || ptr.Elem().Kind() != reflect.Struct {
+		return v, false
+	}
+	var copied reflect.Value
+	elem := ptr.Elem()
+	for i := range elem.NumField() {
+		field := elem.Field(i)
+		if !field.CanInterface() {
+			continue
+		}
+		switch {
+		case (field.Kind() == reflect.Interface || field.Kind() == reflect.Pointer) && field.Type().Implements(goastNodeType):
+			next, changed := reduceEmbeddedProbeBodies(field)
+			if !changed {
+				continue
+			}
+			if !copied.IsValid() {
+				copied = reflect.New(elem.Type())
+				copied.Elem().Set(elem)
+			}
+			copied.Elem().Field(i).Set(next)
+		case field.Kind() == reflect.Slice && field.Type().Elem().Implements(goastNodeType):
+			var list reflect.Value
+			for j := range field.Len() {
+				next, changed := reduceEmbeddedProbeBodies(field.Index(j))
+				if !changed {
+					continue
+				}
+				if !list.IsValid() {
+					list = reflect.MakeSlice(field.Type(), field.Len(), field.Len())
+					reflect.Copy(list, field)
+				}
+				list.Index(j).Set(next)
+			}
+			if !list.IsValid() {
+				continue
+			}
+			if !copied.IsValid() {
+				copied = reflect.New(elem.Type())
+				copied.Elem().Set(elem)
+			}
+			copied.Elem().Field(i).Set(list)
+		}
+	}
+	if !copied.IsValid() {
+		return v, false
+	}
+	return copied, true
 }

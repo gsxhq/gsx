@@ -2,7 +2,7 @@
 # hole's own line:column, in every Go-expression position: an attribute
 # value, a class part, a cond-attr header, a control-flow header, a {{ }}
 # block and a body interpolation; also for a js` literal and inside a nested
-# element's attribute.
+# element's attribute, also when that element is in a component input.
 -- input.gsx --
 package demo
 
@@ -25,6 +25,11 @@ component Page() {
 	{{ s := string(js`go(@{undefinedG})`) }}
 	<p>{s}</p>
 	<a h={wrapN(<b title={undefinedH}/>)}></a>
+	<Holder h={wrapN(<b title={undefinedI}/>)}/>
+}
+
+component Holder(h string) {
+	<i>{ h }</i>
 }
 -- diagnostics.golden --
 10:21: undefined: undefinedA
@@ -35,3 +40,4 @@ component Page() {
 18:16: undefined: undefinedF
 19:25: undefined: undefinedG
 21:25: undefined: undefinedH
+22:30: undefined: undefinedI
