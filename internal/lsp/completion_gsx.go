@@ -787,7 +787,7 @@ func elementAtTagOffset(eph *Package, path string, tagOff int) *gsxast.Element {
 		return nil
 	}
 	var found *gsxast.Element
-	inspectWithEmbedded(eph.Files[path], func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(eph.Files[path], func(n gsxast.Node) bool {
 		if found != nil {
 			return false
 		}

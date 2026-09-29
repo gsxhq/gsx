@@ -105,3 +105,35 @@ func MarkupGoFields(m Markup, fn func(GoField)) {
 		}
 	}
 }
+
+// InspectEmbedded walks node like Inspect, and also descends every codegen
+// overlay: an *Interp's or *GoBlock's Embedded parts and each Go-expression
+// field's overlay (see GoFields), right after the owning node. Inspect treats
+// those fields as leaves, which is right for the parser, printer and
+// formatter; tooling over a codegen-analyzed tree needs the nested literal
+// holes and elements as real nodes. Nested overlays are descended too.
+func InspectEmbedded(node Node, f func(Node) bool) {
+	var visit func(Node) bool
+	visit = func(n Node) bool {
+		if !f(n) {
+			return false
+		}
+		GoFields(n, func(field GoField) {
+			for _, part := range *field.Embedded {
+				Inspect(part, visit)
+			}
+		})
+		switch t := n.(type) {
+		case *Interp:
+			for _, part := range t.Embedded {
+				Inspect(part, visit)
+			}
+		case *GoBlock:
+			for _, part := range t.Embedded {
+				Inspect(part, visit)
+			}
+		}
+		return true
+	}
+	Inspect(node, visit)
+}

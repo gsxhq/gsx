@@ -3,6 +3,7 @@ package lsp
 import (
 	"go/token"
 	"go/types"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,6 +24,12 @@ func wrap(n gsx.Node) gsx.Node { return n }
 
 func emphasize(s string) string { return "*" + s + "*" }
 
+func ok(s string) bool { return s != "" }
+
+func wrapS(s string) string { return s }
+
+func wrapN(n gsx.Node) string { return "n" }
+
 component Badge(count int, name string) {
 	<b>{name}: {count}</b>
 }
@@ -34,15 +41,88 @@ component Uses(n int, label string) {
 		<i>h</i>
 	} }
 	<i { if emphasize(f` + "`y-@{n}`" + `) != label { title="t" } }></i>
+	<p>{ emphasize(f` + "`w-@{n}`" + `) + label }</p>
+	<a title={wrapS(f` + "`/z/@{n}`" + `) + label}></a>
+	<a title={wrapS(f` + "`p-@{n}`" + `) + label |> truncate(n)}></a>
+	<a class={ "c", wrapS(f` + "`k-@{n}`" + `) + label }></a>
+	<a class={ "c", if ok(f` + "`e-@{n}`" + `) && ok(label) { "a" } }></a>
+	{ if ok(f` + "`q-@{n}`" + `) && ok(label) {
+		<i>q</i>
+	} }
+	<a h={wrapN(<b title={label}/>) + label}></a>
+	{{ hv := wrapN(<b title={label}/>) + label }}
+	<p>{hv}</p>
 }
 `
 
-// splitHeaderLabelCursors are cursors on the plain-Go identifier `label`
-// AFTER a nested literal in a header: the markup if and the cond-attr cond.
-func splitHeaderLabelCursors(src string) map[string]int {
-	return map[string]int{
-		"if header":      strings.Index(src, "`x-@{n}`) != label") + len("`x-@{n}`) != "),
-		"cond-attr cond": strings.Index(src, "`y-@{n}`) != label") + len("`y-@{n}`) != "),
+// nestedNavRow is one cursor inside (or after) a nested construct in a
+// Go-expression field, with the declaration it must navigate to and the
+// hover text it must show.
+type nestedNavRow struct {
+	name      string
+	off       int    // cursor byte offset
+	declStart int    // declaration byte offset
+	declLen   int    // declaration name length
+	hover     string // substring the hover must contain
+}
+
+// nestedNavRows are cursors on a plain-Go identifier AFTER a nested
+// construct, on an identifier INSIDE a nested hole or element attribute, and
+// on a callee before the construct, one family per row group: body
+// interpolation, attribute value, class part, value-form header, cond-attr
+// header, control-flow header, {{ }} block element.
+func nestedNavRows(src string) []nestedNavRow {
+	after := func(anchor, prefix string) int {
+		i := strings.Index(src, anchor)
+		if i < 0 {
+			panic("anchor not found: " + anchor)
+		}
+		return i + len(prefix)
+	}
+	paramN := strings.Index(src, "n int, label string")
+	paramLabel := strings.Index(src, "label string")
+	fn := func(name string) int { return strings.Index(src, "func "+name+"(") + len("func ") }
+	label := func(name string, off int) nestedNavRow {
+		return nestedNavRow{name, off, paramLabel, len("label"), "var label string"}
+	}
+	n := func(name string, off int) nestedNavRow {
+		return nestedNavRow{name, off, paramN, len("n"), "var n int"}
+	}
+	callee := func(name string, off int, f, sig string) nestedNavRow {
+		return nestedNavRow{name, off, fn(f), len(f), sig}
+	}
+	return []nestedNavRow{
+		label("if header: ident after literal", after("`x-@{n}`) != label", "`x-@{n}`) != ")),
+		label("cond-attr cond: ident after literal", after("`y-@{n}`) != label", "`y-@{n}`) != ")),
+
+		n("body interp: ident inside hole", after("`w-@{n}`", "`w-@{")),
+		label("body interp: ident after literal", after("`w-@{n}`) + label", "`w-@{n}`) + ")),
+
+		callee("attr value: callee before literal", after("title={wrapS(", "title={"), "wrapS", "func wrapS(s string) string"),
+		n("attr value: ident inside hole", after("`/z/@{n}`", "`/z/@{")),
+		label("attr value: ident after literal", after("`/z/@{n}`) + label", "`/z/@{n}`) + ")),
+
+		label("piped attr value: ident after literal", after("`p-@{n}`) + label", "`p-@{n}`) + ")),
+		n("piped attr value: stage arg", after("|> truncate(n)", "|> truncate(")),
+
+		n("class part: ident inside hole", after("`k-@{n}`", "`k-@{")),
+		label("class part: ident after literal", after("`k-@{n}`) + label", "`k-@{n}`) + ")),
+
+		callee("value-form header: callee after literal", after("`e-@{n}`) && ok(", "`e-@{n}`) && "), "ok", "func ok(s string) bool"),
+		label("value-form header: ident after literal", after("`e-@{n}`) && ok(label", "`e-@{n}`) && ok(")),
+		n("value-form header: ident inside hole", after("`e-@{n}`", "`e-@{")),
+
+		callee("control-flow header: callee after literal", after("`q-@{n}`) && ok(", "`q-@{n}`) && "), "ok", "func ok(s string) bool"),
+		label("control-flow header: ident after literal", after("`q-@{n}`) && ok(label", "`q-@{n}`) && ok(")),
+		n("control-flow header: ident inside hole", after("`q-@{n}`", "`q-@{")),
+
+		callee("attr value element: callee before element", after("h={wrapN(", "h={"), "wrapN", "func wrapN(n gsx.Node) string"),
+		label("attr value element: ident in element attr", after("h={wrapN(<b title={label}", "h={wrapN(<b title={")),
+		label("attr value element: ident after element", after("h={wrapN(<b title={label}/>) + label", "h={wrapN(<b title={label}/>) + ")),
+
+		callee("go block element: callee before element", after("hv := wrapN(", "hv := "), "wrapN", "func wrapN(n gsx.Node) string"),
+		label("go block element: ident in element attr", after("hv := wrapN(<b title={label}", "hv := wrapN(<b title={")),
+		label("go block element: ident after element", after("hv := wrapN(<b title={label}/>) + label", "hv := wrapN(<b title={label}/>) + ")),
 	}
 }
 
@@ -101,20 +181,52 @@ func TestInterpEmbeddedDefinition(t *testing.T) {
 		}
 	})
 
-	// A plain-Go identifier after a nested literal in a split header
-	// resolves through the SourceIndex (the header has no CtrlMap entry).
-	for name, off := range splitHeaderLabelCursors(src) {
-		t.Run(name, func(t *testing.T) {
+	// Go-to-definition inside a nested construct, and on plain Go around it,
+	// in every Go-expression family (handler-driven: the full cascade).
+	for _, row := range nestedNavRows(src) {
+		t.Run(row.name, func(t *testing.T) {
 			uri := pathToURI(path)
-			cursor := positionForByteOffset(src, off, encUTF16)
+			cursor := positionForByteOffset(src, row.off, encUTF16)
 			out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, src)+definitionFrame(2, uri, cursor)+exitFrame())
 			got := definitionLocation(t, out, 2)
-			want := rangeForSpan(src, paramLabel, paramLabel+len("label"), encUTF16)
+			want := rangeForSpan(src, row.declStart, row.declStart+row.declLen, encUTF16)
 			if got == nil || got.URI != uri || got.Range != want {
 				t.Fatalf("definition = %+v, want %s at %+v; output:\n%s", got, uri, want, out)
 			}
 		})
 	}
+
+	// Find-references on a parameter lists its uses in the plain-Go runs of
+	// split fields, inside nested holes and in nested element attributes.
+	t.Run("references to a parameter", func(t *testing.T) {
+		uri := pathToURI(path)
+		body := strings.Index(src, "component Uses")
+		var want []Range
+		for i := body; ; {
+			j := strings.Index(src[i:], "label")
+			if j < 0 {
+				break
+			}
+			at := i + j
+			i = at + len("label")
+			if at == paramLabel {
+				continue
+			}
+			want = append(want, rangeForSpan(src, at, at+len("label"), encUTF16))
+		}
+		cursor := positionForByteOffset(src, paramLabel, encUTF16)
+		out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, src)+refsFrame(2, uri, cursor.Line, cursor.Character)+exitFrame())
+		var got []Range
+		for _, location := range referenceLocations(t, out, 2) {
+			if location.URI != uri {
+				t.Fatalf("reference in %s, want %s", location.URI, uri)
+			}
+			got = append(got, location.Range)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("references = %+v\nwant %+v", got, want)
+		}
+	})
 
 	// 3. @{ } hole inside an embedded f-literal: `f`hi @{label}`` → param label.
 	t.Run("embedded f-literal hole", func(t *testing.T) {
@@ -161,16 +273,16 @@ func TestInterpEmbeddedHover(t *testing.T) {
 		}
 	})
 
-	// A plain-Go identifier after a nested literal in a split header hovers
-	// through the SourceIndex (the header has no CtrlMap entry).
-	for name, off := range splitHeaderLabelCursors(src) {
-		t.Run(name, func(t *testing.T) {
+	// Hover inside a nested construct, and on plain Go around it, in every
+	// Go-expression family (handler-driven).
+	for _, row := range nestedNavRows(src) {
+		t.Run(row.name, func(t *testing.T) {
 			uri := pathToURI(path)
-			cursor := positionForByteOffset(src, off, encUTF16)
+			cursor := positionForByteOffset(src, row.off, encUTF16)
 			out := drive(t, &moduleRefsAnalyzer{pkg: pkg}, initFrame()+didOpenFrame(uri, src)+hoverFrame(2, uri, cursor)+exitFrame())
 			got := hoverResult(t, out, 2)
-			if got == nil || !strings.Contains(got.Contents.Value, "var label string") {
-				t.Fatalf("hover = %+v, want var label string; output:\n%s", got, out)
+			if got == nil || !strings.Contains(got.Contents.Value, row.hover) {
+				t.Fatalf("hover = %+v, want %q; output:\n%s", got, row.hover, out)
 			}
 		})
 	}

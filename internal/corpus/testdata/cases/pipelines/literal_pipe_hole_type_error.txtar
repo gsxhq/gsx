@@ -1,0 +1,15 @@
+# A type error inside a hole of a literal carrying a whole-literal pipeline
+# is reported once, at the hole: the pipeline's seed probe does not
+# re-reference the hole expression.
+-- input.gsx --
+package demo
+
+component Page() {
+	<p>{f`a-@{undefinedP}` |> upper}</p>
+	<a title={f`b-@{undefinedQ}` |> upper}></a>
+	<p>{f`c-@{undefinedR}`}</p>
+}
+-- diagnostics.golden --
+4:12: undefined: undefinedP
+5:18: undefined: undefinedQ
+6:12: undefined: undefinedR

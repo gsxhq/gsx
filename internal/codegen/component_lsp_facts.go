@@ -326,14 +326,21 @@ func componentCallBlockedNames(element *gsxast.Element, renamed gsxast.Attr) []s
 
 // componentParamBodyReferenceFacts publishes exact authored references inside
 // component bodies. Identity comes exclusively from go/types objects in the
-// type-checked skeleton. Positions come exclusively from the byte-identical
-// source bridges already retained for definition/hover (ExprMap and CtrlMap).
-// No source text or identifier spelling participates in discovery.
+// type-checked skeleton. Positions come exclusively from the source bridges
+// already retained for definition/hover: the byte-identical ExprMap and
+// CtrlMap bridges, and — for a Go-expression field codegen split around a
+// nested literal or element, whose probe splices the construct between its
+// plain-Go runs so no relative-offset bridge applies — the SourceIndex, which
+// maps each plain-Go run exactly. The construct's holes and element attributes
+// are ExprMap nodes of their own. No source text or identifier spelling
+// participates in discovery.
 func componentParamBodyReferenceFacts(
 	declarations []ComponentParamDeclFact,
 	objKey map[types.Object]string,
 	expressions map[gsxast.Node]goast.Expr,
 	controls map[gsxast.Node]ctrlRef,
+	files map[string]*gsxast.File,
+	index *sourceintel.Index,
 	info *types.Info,
 	fset *token.FileSet,
 ) []ComponentParamRefFact {
@@ -368,6 +375,21 @@ func componentParamBodyReferenceFacts(
 	}
 
 	var facts []ComponentParamRefFact
+	appendRef := func(variable *types.Var, ref token.Pos) {
+		declaration, ok := byOrigin[variable.Origin()]
+		if !ok {
+			return
+		}
+		facts = append(facts, ComponentParamRefFact{
+			PackagePath:  declaration.PackagePath,
+			ComponentKey: declaration.ComponentKey,
+			Ordinal:      declaration.Ordinal,
+			Name:         declaration.Name,
+			Role:         declaration.Role,
+			Origin:       declaration.Origin,
+			Ref:          fset.Position(ref),
+		})
+	}
 	appendRefs := func(node goast.Node, skeletonStart, sourceStart token.Pos, sourceLen int) {
 		if node == nil || !skeletonStart.IsValid() || !sourceStart.IsValid() || sourceLen < 0 {
 			return
@@ -381,41 +403,31 @@ func componentParamBodyReferenceFacts(
 			if relative < 0 || relative+len(identifier.Name) > sourceLen {
 				return true
 			}
-			variable, ok := info.Uses[identifier].(*types.Var)
-			if !ok {
-				return true
+			if variable, ok := info.Uses[identifier].(*types.Var); ok {
+				appendRef(variable, sourceStart+token.Pos(relative))
 			}
-			declaration, ok := byOrigin[variable.Origin()]
-			if !ok {
-				return true
-			}
-			facts = append(facts, ComponentParamRefFact{
-				PackagePath:  declaration.PackagePath,
-				ComponentKey: declaration.ComponentKey,
-				Ordinal:      declaration.Ordinal,
-				Name:         declaration.Name,
-				Role:         declaration.Role,
-				Origin:       declaration.Origin,
-				Ref:          fset.Position(sourceStart + token.Pos(relative)),
-			})
 			return true
 		})
 	}
 
 	for node, expression := range expressions {
-		sourceStart, sourceText, stages, ok := componentExpressionSource(node)
+		sourceStart, sourceText, stages, split, ok := componentExpressionSource(node)
 		if !ok || expression == nil {
 			continue
 		}
 		if len(stages) == 0 {
-			appendRefs(expression, expression.Pos(), sourceStart, len(sourceText))
+			if !split {
+				appendRefs(expression, expression.Pos(), sourceStart, len(sourceText))
+			}
 			continue
 		}
 		stageArgs, seed, ok := componentPipeSourceExpressions(expression, len(stages))
 		if !ok || seed == nil {
 			continue
 		}
-		appendRefs(seed, seed.Pos(), sourceStart, len(sourceText))
+		if !split {
+			appendRefs(seed, seed.Pos(), sourceStart, len(sourceText))
+		}
 		for index, stage := range stages {
 			if !stage.HasArgs || !stage.ArgsPos.IsValid() || len(stageArgs[index]) == 0 {
 				continue
@@ -432,6 +444,18 @@ func componentParamBodyReferenceFacts(
 			continue
 		}
 		appendRefs(control.Node, control.ClauseStart, sourceStart, len(ctrlClauseText(node)))
+	}
+	if index != nil {
+		for _, file := range files {
+			forEachSplitGoText(file, func(text gsxast.GoText) {
+				start := fset.Position(text.Pos())
+				for _, occurrence := range index.OccurrencesWithin(start.Filename, start.Offset, start.Offset+len(text.Src)) {
+					if variable, ok := occurrence.Object.(*types.Var); ok && occurrence.Kind == sourceintel.IdentifierUse {
+						appendRef(variable, text.Pos()+token.Pos(occurrence.Span.Start-start.Offset))
+					}
+				}
+			})
+		}
 	}
 
 	sort.Slice(facts, func(i, j int) bool {
@@ -452,24 +476,53 @@ func componentParamBodyReferenceFacts(
 	return facts
 }
 
-func componentExpressionSource(node gsxast.Node) (token.Pos, string, []gsxast.PipeStage, bool) {
+// componentExpressionSource returns an ExprMap node's seed text, its
+// position, its pipeline stages, and whether codegen split the seed around a
+// nested construct (a non-nil Embedded overlay).
+func componentExpressionSource(node gsxast.Node) (pos token.Pos, text string, stages []gsxast.PipeStage, split, ok bool) {
 	switch expression := node.(type) {
 	case *gsxast.Interp:
-		return expression.ExprPos, expression.Expr, expression.Stages, true
+		return expression.ExprPos, expression.Expr, expression.Stages, expression.Embedded != nil, true
 	case *gsxast.ExprAttr:
-		return expression.ExprPos, expression.Expr, expression.Stages, true
+		return expression.ExprPos, expression.Expr, expression.Stages, expression.Embedded != nil, true
 	case *gsxast.SpreadAttr:
-		return expression.ExprPos, expression.Expr, expression.Stages, true
+		return expression.ExprPos, expression.Expr, expression.Stages, expression.Embedded != nil, true
 	case *gsxast.OrderedPair:
-		return expression.Pos(), expression.Value, nil, true
+		return expression.Pos(), expression.Value, nil, expression.Embedded != nil, true
 	case *gsxast.ComposedPart:
 		if expression.CF == nil && expression.LiteralSegments == nil {
-			return expression.ExprPos, expression.Expr, expression.Stages, true
+			return expression.ExprPos, expression.Expr, expression.Stages, expression.ExprEmbedded != nil, true
 		}
 	case *gsxast.ValueArm:
-		return expression.ExprPos, expression.Expr, expression.Stages, true
+		return expression.ExprPos, expression.Expr, expression.Stages, expression.Embedded != nil, true
 	}
-	return token.NoPos, "", nil, false
+	return token.NoPos, "", nil, false, false
+}
+
+// forEachSplitGoText calls fn for every plain-Go run of every Go-expression
+// field in file that codegen split around a nested construct, including
+// fields nested inside another field's constructs.
+func forEachSplitGoText(file *gsxast.File, fn func(gsxast.GoText)) {
+	visitParts := func(parts []gsxast.GoPart) {
+		for _, part := range parts {
+			if text, ok := part.(gsxast.GoText); ok && text.Pos().IsValid() {
+				fn(text)
+			}
+		}
+	}
+	gsxast.InspectEmbedded(file, func(node gsxast.Node) bool {
+		if node == nil {
+			return false
+		}
+		gsxast.GoFields(node, func(field gsxast.GoField) { visitParts(*field.Embedded) })
+		switch n := node.(type) {
+		case *gsxast.Interp:
+			visitParts(n.Embedded)
+		case *gsxast.GoBlock:
+			visitParts(n.Embedded)
+		}
+		return true
+	})
 }
 
 func componentPipeSourceExpressions(expression goast.Expr, stageCount int) ([][]goast.Expr, goast.Expr, bool) {

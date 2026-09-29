@@ -138,7 +138,7 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 	}
 	var found gsxast.Node
 	var foundPos token.Pos
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(f, func(n gsxast.Node) bool {
 		if n == nil {
 			return false
 		}
@@ -441,6 +441,39 @@ func hasPipeStages(n gsxast.Node) bool {
 	return len(pipeshape.Stages(n)) > 0
 }
 
+// inSplitField reports whether off falls in the Go text of one of node's
+// fields that codegen split around a nested construct (a non-nil Embedded
+// overlay: an f`/js`/css` literal or an element inside the Go expression).
+// Such a field's probe splices each construct's IIFE between its plain-Go
+// runs, so the ExprMap/CtrlMap relative-offset bridges do not apply to it (a
+// split header records no CtrlMap entry at all). Its plain-Go runs are
+// resolved through the SourceIndex, which maps each run exactly, and the
+// construct's holes and element attributes are nodes with their own spans.
+// A pipeline stage after a split seed is outside the field's text and keeps
+// its pipedTarget bridge.
+func inSplitField(pkg *Package, node gsxast.Node, off int) bool {
+	covers := func(pos token.Pos, src string) bool {
+		if !pos.IsValid() {
+			return false
+		}
+		start := pkg.GSXFset.Position(pos).Offset
+		return off >= start && off < start+len(src)
+	}
+	split := false
+	gsxast.GoFields(node, func(field gsxast.GoField) {
+		if *field.Embedded != nil && covers(field.Pos, field.Src) {
+			split = true
+		}
+	})
+	switch n := node.(type) {
+	case *gsxast.Interp:
+		split = split || (n.Embedded != nil && covers(n.ExprPos, n.Expr))
+	case *gsxast.GoBlock:
+		split = split || (n.Embedded != nil && covers(n.CodePos, n.Code))
+	}
+	return split
+}
+
 // isCtrlSpan reports whether the matched span (see exprNodeAtOffset) resolves
 // through the CtrlMap bridge — a control-flow clause emitted verbatim in
 // statement position — rather than the ExprMap expression bridge. For a
@@ -692,7 +725,7 @@ type resolvedDefinitionTarget struct {
 
 func exprDefinitionTargetAt(pkg *Package, path string, off int) (resolvedDefinitionTarget, bool) {
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
-	if node == nil {
+	if node == nil || inSplitField(pkg, node, off) {
 		return resolvedDefinitionTarget{}, false
 	}
 	if isCtrlSpan(node, exprPos) {
@@ -881,7 +914,7 @@ func componentTagDeclAt(pkg *Package, path string, source []byte, off int) ([]so
 // componentTagNameAt reports the OPENING tag-name span of the same-package
 // component element whose opening or closing tag name covers off.
 func componentTagNameAt(pkg *Package, file *gsxast.File, off int) (nameStart, nameLen int, ok bool) {
-	inspectWithEmbedded(file, func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(file, func(n gsxast.Node) bool {
 		if ok {
 			return false
 		}

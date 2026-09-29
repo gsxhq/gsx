@@ -80,7 +80,7 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 	var innerEl *gsxast.Element
 	innerElSpan := 1 << 30
 
-	inspectWithEmbedded(r.parsed, func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(r.parsed, func(n gsxast.Node) bool {
 		if n == nil {
 			return false
 		}

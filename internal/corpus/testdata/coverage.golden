@@ -620,6 +620,7 @@ nested-literal/header_init	diag gen render
 nested-literal/header_init_error	diag gen render
 nested-literal/supported_forms	diag gen render
 nested-literal/tagless_switch_init	diag gen render
+nested-literal/type_error	diag(error)
 nested-literal/value_form_thunk_tuple	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
@@ -770,6 +771,7 @@ pipelines/class_pipeline	diag gen render
 pipelines/default_generic	diag gen render
 pipelines/diag_literal_in_stage_args	diag(error)
 pipelines/join	diag render
+pipelines/literal_pipe_hole_type_error	diag(error)
 pipelines/loop_var	diag render
 pipelines/param	diag render
 pipelines/param_arg	diag render
@@ -1051,4 +1053,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1053 cases (render: 896, error: 119, gen-pinned: 591)
+TOTAL: 1055 cases (render: 896, error: 121, gen-pinned: 591)

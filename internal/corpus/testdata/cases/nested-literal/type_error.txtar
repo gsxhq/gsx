@@ -1,0 +1,37 @@
+# A type error inside a nested literal's hole is reported once, at the
+# hole's own line:column, in every Go-expression position: an attribute
+# value, a class part, a cond-attr header, a control-flow header, a {{ }}
+# block and a body interpolation; also for a js` literal and inside a nested
+# element's attribute.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func wrapN(n gsx.Node) string { return "n" }
+func wrap(s string) string { return s }
+func ok(s string) bool     { return s != "" }
+
+component Page() {
+	<a title={wrap(f`@{undefinedA}`)}></a>
+	<a class={ "c", wrap(f`k-@{undefinedB}`) }></a>
+	<a { if ok(f`@{undefinedC}`) { title="t" } }></a>
+	{ if ok(f`@{undefinedD}`) {
+		<b>x</b>
+	} }
+	{{ v := wrap(f`@{undefinedE}`) }}
+	<p>{v}</p>
+	<p>{ wrap(f`@{undefinedF}`) }</p>
+	{{ s := string(js`go(@{undefinedG})`) }}
+	<p>{s}</p>
+	<a h={wrapN(<b title={undefinedH}/>)}></a>
+}
+-- diagnostics.golden --
+10:21: undefined: undefinedA
+11:29: undefined: undefinedB
+12:17: undefined: undefinedC
+13:14: undefined: undefinedD
+16:19: undefined: undefinedE
+18:16: undefined: undefinedF
+19:25: undefined: undefinedG
+21:25: undefined: undefinedH

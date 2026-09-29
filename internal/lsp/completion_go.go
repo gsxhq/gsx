@@ -12,7 +12,7 @@ import (
 // isReservedGsxInternal reports whether name is a gsx-generated internal that
 // must never be offered as a completion candidate. The `_gsx` prefix is
 // reserved repo-wide for generated code: the skeleton package scope declares
-// _gsxuse/_gsxuseq/_gsxusen/_gsxcompsig/_gsxunwrap/_gsxstr/_gsxelem, file
+// _gsxuse/_gsxuseq/_gsxusen/_gsxcompsig/_gsxunwrap/_gsxelem, file
 // scopes bind the _gsxrt/_gsxctx runtime imports as PkgNames, and body
 // closures declare _gsxbody. Accepting any of them inserts a reserved
 // identifier that poisons the file's own analysis, so every enumeration path
@@ -767,7 +767,7 @@ func ephemeralNodeByStart(eph *Package, path string, startOff int) gsxast.Node {
 		return nil
 	}
 	var found gsxast.Node
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(f, func(n gsxast.Node) bool {
 		if found != nil || n == nil {
 			return found == nil
 		}

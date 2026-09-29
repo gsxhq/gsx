@@ -320,12 +320,26 @@ func TestPackagePublishesSemanticComponentParameterBodyRefs(t *testing.T) {
 	dir, module := openTestModule(t, map[string]string{
 		"card.gsx": `package views
 
+import "github.com/gsxhq/gsx"
+
+func wrapS(s string) string { return s }
+
+func ok(s string) bool { return s != "" }
+
+func wrapN(n gsx.Node) string { return "n" }
+
 component Card(title string, items []string, limit int) {
 	<div data-title={title}>
 		{{ copied := title }}
 		{ if title != "" { <p>{copied}</p> } }
 		<ul>{ for _, title := range items { <li>{title}</li> } }</ul>
 		<p>{ title |> truncate(limit) }</p>
+		<a title={wrapS(f` + "`z-@{limit}`" + `) + title}></a>
+		{ if ok(f` + "`q-@{limit}`" + `) && ok(title) { <i>q</i> } }
+		<a h={wrapN(<b title={title}/>) + title}></a>
+		<p>{ wrapS(f` + "`w-@{limit}`" + `) + title }</p>
+		{{ hv := wrapN(<b title={title}/>) + title }}
+		<p>{hv}</p>
 	</div>
 }
 `,
@@ -338,14 +352,29 @@ component Card(title string, items []string, limit int) {
 		t.Fatalf("unexpected diagnostics: %v", result.Diags)
 	}
 	counts := map[string]int{}
+	seen := map[token.Position]bool{}
 	for _, ref := range result.ComponentParamRefs {
 		counts[ref.Name]++
 		if filepath.Base(ref.Ref.Filename) != "card.gsx" {
 			t.Fatalf("body ref position = %+v, want card.gsx", ref.Ref)
 		}
+		source, err := os.ReadFile(ref.Ref.Filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(source[ref.Ref.Offset:min(ref.Ref.Offset+len(ref.Name), len(source))]); got != ref.Name {
+			t.Errorf("body ref %s at %d:%d spells %q", ref.Name, ref.Ref.Line, ref.Ref.Column, got)
+		}
+		if seen[ref.Ref] {
+			t.Errorf("body ref %s at %d:%d published twice", ref.Name, ref.Ref.Line, ref.Ref.Column)
+		}
+		seen[ref.Ref] = true
 	}
-	if counts["title"] != 4 || counts["items"] != 1 || counts["limit"] != 1 {
-		t.Fatalf("semantic body refs = %v, want title=4, items=1, limit=1; loop-local title must be excluded", counts)
+	// The five lines after the pipeline split their Go expressions around a
+	// nested literal or element: title is used after the construct in each and
+	// inside the nested elements' attributes; limit inside each literal's hole.
+	if counts["title"] != 11 || counts["items"] != 1 || counts["limit"] != 4 {
+		t.Fatalf("semantic body refs = %v, want title=11, items=1, limit=4; loop-local title must be excluded", counts)
 	}
 }
 

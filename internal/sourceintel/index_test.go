@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"math/bits"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -124,6 +125,32 @@ func TestIndexAtUsesBoundedPointStabbingLookup(t *testing.T) {
 	}
 	if got, ok, _ := index.at(path, outer.Span.End); ok {
 		t.Fatalf("at(outer end) = (%#v, true), want half-open exclusion", got)
+	}
+}
+
+func TestIndexOccurrencesWithinRange(t *testing.T) {
+	const path = "view.gsx"
+	occurrence := func(start, end int, kind OccurrenceKind) Occurrence {
+		return Occurrence{Span: Span{Path: path, Start: start, End: end}, Kind: kind}
+	}
+	before := occurrence(0, 4, IdentifierUse)
+	straddlesStart := occurrence(8, 12, Expression)
+	first := occurrence(10, 13, IdentifierUse)
+	enclosing := occurrence(10, 20, Expression)
+	second := occurrence(15, 20, IdentifierUse)
+	straddlesEnd := occurrence(18, 22, IdentifierUse)
+	after := occurrence(20, 24, IdentifierUse)
+	index := &Index{occurrences: map[string][]Occurrence{
+		path: indexOccurrences([]Occurrence{after, second, straddlesEnd, enclosing, first, straddlesStart, before}),
+	}}
+
+	got := index.OccurrencesWithin(path, 10, 20)
+	want := []Occurrence{first, enclosing, second}
+	if !slices.Equal(got, want) {
+		t.Fatalf("OccurrencesWithin(10, 20) = %+v, want %+v", got, want)
+	}
+	if got := index.OccurrencesWithin("other.gsx", 0, 100); len(got) != 0 {
+		t.Fatalf("OccurrencesWithin(unindexed path) = %+v, want none", got)
 	}
 }
 

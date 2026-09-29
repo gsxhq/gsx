@@ -1089,7 +1089,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				return err
 			}
 			if len(t.Stages) > 0 {
-				seed := embeddedProbeSeed(t.Segments, table, usedFilters, bag)
+				seed := embeddedProbeSeed(t.Segments)
 				emitSkeletonLine(sb, fset, t.Pos())
 				writeSkeletonGenerated(sb, "_gsxuse(")
 				if err := writeSkeletonProbeExpr(sb, fset, token.NoPos, seed, t.Stages, table, usedFilters, t, bag); err != nil {
@@ -1313,7 +1313,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if probeErr != nil {
 						return
 					}
-					seed := embeddedProbeSeed(ea.Segments, table, usedFilters, bag)
+					seed := embeddedProbeSeed(ea.Segments)
 					emitSkeletonLine(sb, fset, ea.Pos())
 					writeSkeletonGenerated(sb, "_gsxuse(")
 					if err := writeSkeletonProbeExpr(sb, fset, token.NoPos, seed, ea.Stages, table, usedFilters, ea, bag); err != nil {
@@ -1495,7 +1495,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if probeErr != nil {
 						return
 					}
-					seed := embeddedProbeSeed(ea.Segments, table, usedFilters, bag)
+					seed := embeddedProbeSeed(ea.Segments)
 					emitSkeletonLine(sb, fset, ea.Pos())
 					writeSkeletonGenerated(sb, "_gsxuse(")
 					if err := writeSkeletonProbeExpr(sb, fset, token.NoPos, seed, ea.Stages, table, usedFilters, ea, bag); err != nil {
@@ -1702,7 +1702,7 @@ func emitSkeletonBlockLine(sb skeletonWriter, fset *token.FileSet, pos token.Pos
 //
 // probeExpr is the SINGLE choke point every pipe stage's Args passes through
 // before skeleton assembly, across every context (top-level interp/expr-attr
-// pipelines, a literal's own whole-pipe, a hole's own pipe via holeProbeSeed,
+// pipelines, a literal's own whole-pipe, a hole's own pipe,
 // class-part/CF-arm pipelines, spread pipelines) — every caller hands it its
 // own `.Stages`. A prefixed embedded literal (f`/js`/css`) inside a stage's
 // Args (`x |> printf(f`%s!`)`) is NOT lowerable: st.Args is spliced VERBATIM
@@ -1840,28 +1840,21 @@ func writeSkeletonProbeExpr(sb skeletonWriter, fset *token.FileSet, seedPos toke
 
 // embeddedProbeSeed builds the Go source text probed as the SEED for a
 // whole-literal pipeline's `lowerPipe(seed, stages)` call — an
-// EmbeddedInterp's or EmbeddedAttr's node-level `|> f` — mirroring, at the
-// TYPE level, what codegen's embeddedTextValueExpr (emit.go) assembles from
-// the SAME segments: static *Text becomes the identical quoted string
-// literal, joined with " + ".
+// EmbeddedInterp's or EmbeddedAttr's node-level `|> f` — and as the return
+// value of a Go-expression literal's probe IIFE. It mirrors, at the TYPE
+// level, what codegen's embeddedTextValueExpr (emit.go) assembles from the
+// SAME segments: static *Text becomes the identical quoted string literal,
+// joined with " + ".
 //
-// Each *Interp hole becomes _gsxstr(holeProbe), where holeProbe is the SAME
-// probeExpr the individual-hole probe already uses (so a hole's own
-// pipeline/tuple handling is identical, and it stays live/harvested exactly
-// as it would be probed on its own). _gsxstr(any, ...any) string is a
-// package-level skeleton helper (module_importer.go) that always yields a
-// `string` — this is not an approximation: every successful branch of the
-// REAL emit-time holeStringExpr (string(x), strconv.Format*, (x).String())
-// ALSO always yields a Go expression of exactly the built-in `string` type.
-// So this seed and codegen's later, precisely-typed seed differ only in
-// WHICH string-producing snippet appears per hole, never in the resulting
-// static type — the seed's overall type is string either way, which is all
-// lowerPipe's stage lowering (and thus resolved[node]) depends on. This lets
-// the probe resolve the node's piped RESULT type without first knowing each
-// hole's real type, which is impossible at skeleton-build time (hole types
-// are only known once THIS SAME skeleton has been type-checked and
-// harvested — a later, one-shot step, not available mid-build).
-func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters map[string]string, bag *diag.Bag) string {
+// Each *Interp hole becomes `*new(string)`, a non-constant `string`
+// placeholder: every successful branch of the real emit-time holeStringExpr
+// (string(x), strconv.Format*, (x).String()) also yields exactly `string`,
+// so the seed has emit's static type — all lowerPipe's stage lowering (and
+// thus resolved[node]) depends on. The placeholder deliberately does not re-reference the hole's expression: the
+// hole's own probe (emitProbes over the same segments) already type-checks
+// it, keeps its identifiers live and harvests its type, and a second
+// reference would report each of its type errors twice.
+func embeddedProbeSeed(segments []gsxast.Markup) string {
 	parts := make([]string, 0, len(segments))
 	for _, seg := range segments {
 		switch s := seg.(type) {
@@ -1871,60 +1864,13 @@ func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters m
 			}
 			parts = append(parts, strconv.Quote(s.Value))
 		case *gsxast.Interp:
-			parts = append(parts, "_gsxstr("+holeProbeSeed(s, table, usedFilters, bag)+")")
+			parts = append(parts, "*new(string)")
 		}
 	}
 	if len(parts) == 0 {
 		return `""`
 	}
 	return strings.Join(parts, " + ")
-}
-
-// holeProbeSeed reconstructs one hole's Go expression at the TYPE level for
-// embeddedProbeSeed, mirroring emit's assembleHoleSeed (emit.go): a plain hole
-// is its Expr (via probeExpr, honoring its own `|>` pipeline); a hole carrying a
-// nested prefixed literal (Interp.Embedded, seated by preprocessComponentCallSites)
-// splices GoText verbatim and each nested literal as WRAP(embeddedProbeSeed(
-// parts)) — the SAME WRAP embeddedProbeType gives that literal in emit, so the
-// reconstructed seed has emit's exact static type (emit ≡ probe). A hole's own
-// pipeline then applies over the reassembled seed, matching holeStringExpr /
-// embeddedHoleExpr, which seed lowerPipe with the assembled expr. Element /
-// Fragment parts cannot be a string seed and are rejected by emit's
-// assembleHoleSeed with a positioned diagnostic; here they lower to a valid Go
-// value placeholder (a nil-returning `_gsxrt.Node` IIFE) rather than the raw
-// markup Expr — splicing the raw `<tag>` would produce invalid Go and abort the
-// skeleton parse with a cryptic cascade BEFORE emit's positioned diagnostic can
-// surface. The placeholder keeps the skeleton valid so exactly emit's one
-// "element literals are not supported…" diagnostic reaches the user. It consumes
-// no `_gsxelem` index and needs no probing: the element's own interps are
-// already probed via the enclosing literal's emitProbes Element/Fragment case
-// (the `_gsxuse` path), and emit rejects the hole regardless, so its harvested
-// type is never read.
-func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]string, bag *diag.Bag) string {
-	if n.Embedded == nil {
-		probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters, n, bag)
-		return probe
-	}
-	var sb strings.Builder
-	for _, part := range n.Embedded {
-		switch p := part.(type) {
-		case gsxast.GoText:
-			sb.WriteString(p.Src)
-		case *gsxast.EmbeddedInterp:
-			_, wrapOpen, wrapClose := embeddedProbeType(p.Lang)
-			sb.WriteString(wrapOpen)
-			sb.WriteString(embeddedProbeSeed(p.Segments, table, usedFilters, bag))
-			sb.WriteString(wrapClose)
-		default:
-			// *Element/*Fragment: unsupported in a string-seed hole. Emit's
-			// assembleHoleSeed rejects the whole hole on the first such part with a
-			// positioned diagnostic, so return a type-valid placeholder for the
-			// entire hole and let that single emit diagnostic surface.
-			return "func() _gsxrt.Node { return nil }()"
-		}
-	}
-	probe, _ := probeExpr(strings.TrimSpace(sb.String()), n.Stages, table, usedFilters, n, bag)
-	return probe
 }
 
 // embeddedProbeType returns the probe IIFE's return type and the seed wrapper
@@ -1977,7 +1923,7 @@ func probeEmbeddedInterpIIFE(sb skeletonWriter, segs []gsxast.Markup, lang gsxas
 	if err := emitProbes(sb, segs, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, false); err != nil {
 		return err
 	}
-	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs, table, usedFilters, bag), wrapClose)
+	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs), wrapClose)
 	return nil
 }
 

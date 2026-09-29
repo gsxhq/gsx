@@ -513,6 +513,24 @@ func occurrencePreferred(candidate, current Occurrence) bool {
 	return candidate.Kind < current.Kind
 }
 
+// OccurrencesWithin returns the occurrences in path whose span lies inside
+// [start, end), in source order.
+func (i *Index) OccurrencesWithin(path string, start, end int) []Occurrence {
+	occurrences := i.occurrences[path]
+	first := sort.Search(len(occurrences), func(k int) bool { return occurrences[k].Span.Start >= start })
+	var within []Occurrence
+	for _, occurrence := range occurrences[first:] {
+		if occurrence.Span.Start >= end {
+			break
+		}
+		if occurrence.Span.End <= end {
+			occurrence.subtreeMaxEnd = 0
+			within = append(within, occurrence)
+		}
+	}
+	return within
+}
+
 func (i *Index) Definition(object types.Object) (Span, bool) {
 	span, ok := i.definitions[Origin(i.canon(object))]
 	return span, ok
