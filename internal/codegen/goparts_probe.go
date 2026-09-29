@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"go/token"
+	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
@@ -150,4 +151,51 @@ func writeEmbeddedProbe(sb skeletonWriter, parts []gsxast.GoPart, stages []gsxas
 		ps.targetRegistry.adjustFrom(targetMarkerStart, probeStart+seedOffset)
 	}
 	return nil
+}
+
+// writeFieldProbe writes the probe expression of one Go-expression field (no
+// surrounding wrapper): its split overlay through writeEmbeddedProbe when the
+// analysis split found a nested construct, else the verbatim text through
+// writeSkeletonProbeExpr.
+func (ps probeScope) writeFieldProbe(sb skeletonWriter, pos token.Pos, src string, embedded []gsxast.GoPart, stages []gsxast.PipeStage, owner gsxast.Node) error {
+	if embedded != nil {
+		return writeEmbeddedProbe(sb, embedded, stages, owner, ps)
+	}
+	return writeSkeletonProbeExpr(sb, ps.fset, pos, src, stages, ps.table, ps.usedFilters, owner, ps.bag)
+}
+
+// writeCanonicalFieldProbe writes `helper(<field probe>)\n`, the field form of
+// writeSkeletonCanonicalProbe.
+func (ps probeScope) writeCanonicalFieldProbe(sb skeletonWriter, helper string, pos token.Pos, src string, embedded []gsxast.GoPart, stages []gsxast.PipeStage, owner gsxast.Node) error {
+	writeSkeletonGenerated(sb, helper+"(")
+	if err := ps.writeFieldProbe(sb, pos, src, embedded, stages, owner); err != nil {
+		return err
+	}
+	writeSkeletonGenerated(sb, ")\n")
+	return nil
+}
+
+// embeddedStandInSeed returns parts as Go text with every nested construct
+// replaced by a zero value of the exact static type its probe IIFE has
+// (string, RawJS, RawCSS, or Node — embeddedProbeType / writeProbeElementIIFE).
+// The result has the same static type as the full probe but registers nothing:
+// it serves a second, harvest-only reference to a field whose full probe (with
+// its IIFEs, gw entries and component-target bindings) is written exactly once
+// elsewhere.
+func embeddedStandInSeed(parts []gsxast.GoPart) (string, error) {
+	var b strings.Builder
+	for _, part := range parts {
+		switch p := part.(type) {
+		case gsxast.GoText:
+			b.WriteString(p.Src)
+		case *gsxast.Element, *gsxast.Fragment:
+			b.WriteString("*new(_gsxrt.Node)")
+		case *gsxast.EmbeddedInterp:
+			retType, _, _ := embeddedProbeType(p.Lang)
+			b.WriteString("*new(" + retType + ")")
+		default:
+			return "", fmt.Errorf("codegen: unsupported embedded interpolation part %T", part)
+		}
+	}
+	return b.String(), nil
 }

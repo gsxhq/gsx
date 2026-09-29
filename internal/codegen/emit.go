@@ -815,7 +815,7 @@ func emitFragmentValue(b *bytes.Buffer, fr *ast.Fragment, currentPkg *types.Pack
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{ attrs... }` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
-func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
+func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection, lc lowerCtx) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ComposedAttr  // composed class={ … }
@@ -888,10 +888,10 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			// Unguarded: forced (post-spread), or no single static name (Cond) — no
 			// caller-wins shadow target. (A SpreadAttr at the split position is
 			// consumed below, not here.)
-			return emitAttr(b, attrs, a, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce)
+			return emitAttr(b, attrs, a, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc)
 		}
 		fmt.Fprintf(b, "\t\tif !%s.Has(%s) {\n", bagExpr, strconv.Quote(name))
-		if !emitAttr(b, attrs, a, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
+		if !emitAttr(b, attrs, a, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 			return false
 		}
 		b.WriteString("\t\t}\n")
@@ -1005,7 +1005,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", styleStr, bagExpr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
-				if !emitAttr(b, attrs, staticStyle, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
+				if !emitAttr(b, attrs, staticStyle, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 					return false
 				}
 			} else {
@@ -1113,7 +1113,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if i == splitIdx {
 				continue
 			}
-			spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag)
+			spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag, lc)
 			if !ok {
 				return false
 			}
@@ -1168,7 +1168,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			for _, run := range postRuns[t] {
 				fmt.Fprintf(b, "\t\tif %s {\n", run.boolVar)
 				for _, leaf := range run.leaves {
-					if !emitAttr(b, attrs, leaf, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
+					if !emitAttr(b, attrs, leaf, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 						return false
 					}
 				}
@@ -1334,11 +1334,12 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	// assignable to gsx.Attrs but lacking that method set (notably a variadic
 	// []gsx.Attr parameter) is converted into the same temp at this semantic
 	// boundary. Already-method-bearing gsx.Attrs values retain the direct fast path.
+	lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, newInterpEmitCtx(currentPkg, importAliases, boundNames, typeArgAliases, cls, mergeExpr, enclosingAttrsBound, positionalPlan))
 	spread := el.Attrs[splitIdx].(*ast.SpreadAttr)
 	bagExpr := strings.TrimSpace(spread.Expr)
-	needsHoist := bagExpr != "attrs" || len(spread.Stages) > 0
+	needsHoist := spread.Embedded != nil || bagExpr != "attrs" || len(spread.Stages) > 0
 	if needsHoist {
-		expr, ok := spreadAttrExpr(spread, table, imports, b, interpTemp, bag)
+		expr, ok := spreadAttrExpr(spread, table, imports, b, interpTemp, bag, lc)
 		if !ok {
 			return false
 		}
@@ -1359,7 +1360,7 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	if ni != nil {
 		ni.extra = []string{bagExpr}
 	}
-	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, rt, interpTemp, cls, el.Tag, bag, mergeExpr, bagExpr, ni) {
+	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, rt, interpTemp, cls, el.Tag, bag, mergeExpr, bagExpr, ni, lc) {
 		return false
 	}
 	ni.emitGuard(b)
@@ -1445,7 +1446,8 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 	if !rejectURLSinkLiterals(el.Attrs) {
 		return false
 	}
-	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold)
+	lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, newInterpEmitCtx(currentPkg, importAliases, boundNames, typeArgAliases, cls, mergeExpr, enclosingAttrsBound, positionalPlan))
+	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold, lc)
 	if err != nil {
 		if errors.Is(err, errBagDiagReported) {
 			return false // embeddedTextValueExpr already reported it
@@ -1889,6 +1891,7 @@ func rootStyleString(b *bytes.Buffer, styleAttr *ast.ComposedAttr, staticStyle *
 // thread down to genChildComponent for the method-vs-package disambiguation of a
 // dotted child-component tag.
 func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, enclosingAttrsBound bool, positionalPlan componentPositionalPackagePlan) bool {
+	ec := newInterpEmitCtx(currentPkg, importAliases, boundNames, typeArgAliases, cls, mergeExpr, enclosingAttrsBound, positionalPlan)
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -1896,11 +1899,11 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// Renders verbatim — Text holds the full `<!DOCTYPE …>` source.
 		emitS(b, t.Text)
 	case *ast.Marker:
-		if !genPIOpen(b, "marker", t.Name, table, imports, interpTemp, bag, resolved) {
+		if !genPIOpen(b, "marker", t.Name, table, imports, interpTemp, bag, resolved, attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec)) {
 			return false
 		}
 	case *ast.MarkerRegion:
-		if !genPIOpen(b, "start", t.Name, table, imports, interpTemp, bag, resolved) {
+		if !genPIOpen(b, "start", t.Name, table, imports, interpTemp, bag, resolved, attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec)) {
 			return false
 		}
 		for _, c := range t.Children {
@@ -1948,8 +1951,9 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		}
 		emitS(b, "<"+t.Tag)
 		ni := newNonceInjection(b, t.Tag, t.Attrs, rt, interpTemp, nil)
+		lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec)
 		for _, a := range t.Attrs {
-			if !emitAttr(b, t.Attrs, a, resolved, table, imports, rt, interpTemp, cls, t.Tag, bag, mergeExpr, ni) {
+			if !emitAttr(b, t.Attrs, a, resolved, table, imports, rt, interpTemp, cls, t.Tag, bag, mergeExpr, ni, lc) {
 				return false
 			}
 		}
@@ -1982,28 +1986,8 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		}
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
-		ec := interpEmitCtx{
-			currentPkg:          currentPkg,
-			importAliases:       importAliases,
-			boundNames:          boundNames,
-			typeArgAliases:      typeArgAliases,
-			cls:                 cls,
-			mergeExpr:           mergeExpr,
-			enclosingAttrsBound: enclosingAttrsBound,
-			positionalPlan:      positionalPlan,
-		}
 		return genInterp(b, t, resolved, table, imports, rt, interpTemp, fset, bag, ec)
 	case *ast.EmbeddedInterp:
-		ec := interpEmitCtx{
-			currentPkg:          currentPkg,
-			importAliases:       importAliases,
-			boundNames:          boundNames,
-			typeArgAliases:      typeArgAliases,
-			cls:                 cls,
-			mergeExpr:           mergeExpr,
-			enclosingAttrsBound: enclosingAttrsBound,
-			positionalPlan:      positionalPlan,
-		}
 		return emitEmbeddedInterp(b, t, resolved, table, imports, rt, interpTemp, fset, bag, ec)
 	case *ast.Fragment:
 		for _, c := range t.Children {
@@ -2112,6 +2096,20 @@ type interpEmitCtx struct {
 	// interpolation's embedded element is diagnosed identically to one in
 	// ordinary child-element position.
 	enclosingAttrsBound bool
+}
+
+// newInterpEmitCtx bundles a component body's element-emission environment.
+func newInterpEmitCtx(currentPkg *types.Package, importAliases, boundNames, typeArgAliases map[string]string, cls *attrclass.Classifier, mergeExpr string, enclosingAttrsBound bool, positionalPlan componentPositionalPackagePlan) interpEmitCtx {
+	return interpEmitCtx{
+		currentPkg:          currentPkg,
+		importAliases:       importAliases,
+		boundNames:          boundNames,
+		typeArgAliases:      typeArgAliases,
+		cls:                 cls,
+		mergeExpr:           mergeExpr,
+		enclosingAttrsBound: enclosingAttrsBound,
+		positionalPlan:      positionalPlan,
+	}
 }
 
 // soleGoExprLiteral reports whether parts — an Interp.Embedded split — is
@@ -2915,12 +2913,12 @@ func emitJSString(b *bytes.Buffer, method, expr string, t types.Type, n ast.Node
 // the bag with code "unresolved-pipeline" and ok=false. b and interpTemp hoist a
 // mid-stage (R, error) filter via emitPipeWrap (all callers are emit-only element
 // contexts; no probe variant of this path exists).
-func spreadAttrExpr(a *ast.SpreadAttr, table funcTables, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
-	expr := strings.TrimSpace(a.Expr)
-	if len(a.Stages) == 0 {
-		return expr, true
+func spreadAttrExpr(a *ast.SpreadAttr, table funcTables, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag, lc lowerCtx) (string, bool) {
+	expr, ok := lc.field(b, a.Expr, a.Embedded, a)
+	if !ok || len(a.Stages) == 0 {
+		return expr, ok
 	}
-	lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, emitPipeWrap(b, interpTemp))
+	lowered, usedPkgs, err := lowerPipe(expr, a.Stages, table, emitPipeWrap(b, interpTemp))
 	if err != nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return "", false
@@ -2934,7 +2932,7 @@ func spreadAttrExpr(a *ast.SpreadAttr, table funcTables, imports map[string]bool
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
-func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr string, nonce *nonceInjection) bool {
+func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr string, nonce *nonceInjection, lc lowerCtx) bool {
 	switch t := a.(type) {
 	case *ast.StaticAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
@@ -2943,7 +2941,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 		nonce.markExplicit(b, t.Name)
 	case *ast.ExprAttr:
-		if !emitExprAttr(b, attrs, t, resolved, table, imports, rt, interpTemp, cls, tag, bag) {
+		if !emitExprAttr(b, attrs, t, resolved, table, imports, rt, interpTemp, cls, tag, bag, lc) {
 			return false
 		}
 		nonce.markExplicit(b, t.Name)
@@ -2987,7 +2985,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// still a leaf URL sink: it routes through Spread (excluded=nil, so
 		// nothing is force-owned) so URL-classified keys sanitize regardless of
 		// provenance/nesting, exactly like a top-level element spread.
-		spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag)
+		spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag, lc)
 		if !ok {
 			return false
 		}
@@ -3007,14 +3005,14 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// control construct, and each nested attr emit carries its own line map.)
 		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
 		for _, inner := range t.Then {
-			if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
+			if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 				return false
 			}
 		}
 		if len(t.Else) > 0 {
 			b.WriteString("\t\t} else {\n")
 			for _, inner := range t.Else {
-				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
+				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 					return false
 				}
 			}
@@ -3034,7 +3032,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 				fmt.Fprintf(b, "\t\tcase %s:\n", cc.List)
 			}
 			for _, inner := range cc.Body {
-				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce) {
+				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 					return false
 				}
 			}
@@ -4608,13 +4606,17 @@ func htmlAttrEscape(s string) string {
 // emitExprAttr emits an expr attribute value. URL attrs keep URL sanitization;
 // all other expr attrs use ordinary attribute rendering. Explicit js`...` and
 // css`...` literals opt into JS/CSS contextual rendering instead.
-func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
+func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, lc lowerCtx) bool {
 	// (1) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
-	// the bare trimmed expr.
-	expr := strings.TrimSpace(a.Expr)
+	// the bare trimmed expr (its nested literals/elements lowered in place,
+	// hoisting into b ahead of this attribute's write).
+	expr, ok := lc.field(b, a.Expr, a.Embedded, a)
+	if !ok {
+		return false
+	}
 	if len(a.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(expr, a.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -4726,7 +4728,7 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 // folded into the surrounding constant run; a dynamic one goes through the
 // runtime PI-name sink, which errors on a value it cannot represent. Escaping is
 // chosen by the node, never by attrclass name classification.
-func genPIOpen(b *bytes.Buffer, target string, name ast.Attr, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
+func genPIOpen(b *bytes.Buffer, target string, name ast.Attr, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
 	switch a := name.(type) {
 	case *ast.StaticAttr:
 		if strings.ContainsAny(a.Value, ">\"") {
@@ -4741,7 +4743,7 @@ func genPIOpen(b *bytes.Buffer, target string, name ast.Attr, table funcTables, 
 		// Emit the value expression through the PIName sink. Follows the existing
 		// ExprAttr value path (pipeline stages, (T, error) unwrapping) used by
 		// emitExprAttr for URL sinks — reused rather than re-derived.
-		if !emitPIName(b, a, table, imports, interpTemp, bag, resolved) {
+		if !emitPIName(b, a, table, imports, interpTemp, bag, resolved, lc) {
 			return false
 		}
 		emitS(b, `">`)
@@ -4765,10 +4767,13 @@ func genPIOpen(b *bytes.Buffer, target string, name ast.Attr, table funcTables, 
 // after the renderer step; anything else is a positioned gsx diagnostic here
 // rather than a Go type error naming the internal `_gsxgw.PIName`. The runtime
 // PIName sink is what rejects '>' and '"' at render time.
-func emitPIName(b *bytes.Buffer, a *ast.ExprAttr, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
-	expr := strings.TrimSpace(a.Expr)
+func emitPIName(b *bytes.Buffer, a *ast.ExprAttr, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
+	expr, ok := lc.field(b, a.Expr, a.Embedded, a)
+	if !ok {
+		return false
+	}
 	if len(a.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(expr, a.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -5250,7 +5255,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 // Either way this returns ONE expression: the *ast.CondAttr call site hoists it
 // with hoistTuple in emit mode, or wraps it in _gsxunwrap(...) in probe mode —
 // emit ≡ probe, differing only by that tolerance wrap, never by structure.
-func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int, ctx bagContext) (string, map[string]string, error) {
+func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
 
 	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
@@ -5262,7 +5267,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 		if !probeWrap {
 			wrap = thunkPipeWrap(&tb, interpTemp)
 		}
-		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx)
+		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
 		if err != nil {
 			return "", nil, err
 		}
@@ -5315,8 +5320,8 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 // interpTemp/resolved and the same wrap are threaded through, so CF (if/
 // switch), plain-tuple, and ordered class parts inside a branch hoist their
 // errors into the enclosing thunk precisely like the non-branch case.
-func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext) (string, map[string]string, error) {
-	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", ctx)
+func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
+	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", ctx, lc)
 }
 
 // bagContext tells composeBag which caller it is lowering for, so a residual
@@ -5357,7 +5362,8 @@ var errBagDiagReported = errors.New("bag diagnostic already reported")
 // imports, and reporting any positioned diagnostic to bag). In probe mode that
 // arm emits a string placeholder instead (the hole's type is harvested by a
 // separate _gsxuse probe), so imports/rt/bag go unused there.
-func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string, ctx bagContext) (string, map[string]string, error) {
+func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
+	lc.errReturn, lc.interpTemp = errReturn, interpTemp
 	var entries []string
 	usedPkgs := map[string]string{}
 	var parts []string
@@ -5395,13 +5401,29 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		materializePrior()
 		return wrap(expr)
 	}
+	// lowerBagField lowers a contributor's Go-expression field in place. Its
+	// hoists (an error-carrying hole) run before the contributor's value, so
+	// contributors already encountered are materialized first, exactly as
+	// orderedWrap does for a fallible pipeline stage.
+	lowerBagField := func(src string, embedded []ast.GoPart, owner ast.Node) (string, bool) {
+		var hoist bytes.Buffer
+		expr, ok := lc.field(&hoist, src, embedded, owner)
+		if ok && hoist.Len() != 0 {
+			materializePrior()
+			b.Write(hoist.Bytes())
+		}
+		return expr, ok
+	}
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.SpreadAttr:
 			flush()
-			expr := strings.TrimSpace(t.Expr)
+			expr, ok := lowerBagField(t.Expr, t.Embedded, t)
+			if !ok {
+				return "", nil, errBagDiagReported
+			}
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, orderedWrap)
+				lowered, used, perr := lowerPipe(expr, t.Stages, table, orderedWrap)
 				if perr != nil {
 					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -5412,7 +5434,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			parts = append(parts, expr)
 		case *ast.CondAttr:
 			materializePrior()
-			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp, ctx)
+			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp, ctx, lc)
 			if cerr != nil {
 				return "", nil, cerr
 			}
@@ -5430,9 +5452,12 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			}
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), value))
 		case *ast.ExprAttr:
-			val := strings.TrimSpace(t.Expr)
+			val, ok := lowerBagField(t.Expr, t.Embedded, t)
+			if !ok {
+				return "", nil, errBagDiagReported
+			}
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, orderedWrap)
+				lowered, used, perr := lowerPipe(val, t.Stages, table, orderedWrap)
 				if perr != nil {
 					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}

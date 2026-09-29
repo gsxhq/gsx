@@ -1,41 +1,21 @@
-# A gsx literal or element literal nested inside a Go expression is lowered
-# only in body `{ }` interpolations and `{{ }}` blocks. Every attribute-side
-# Go-expression position reports one positioned nested-literal diagnostic at
-# the construct, instead of a raw go/parser "missing ','" from the skeleton.
+# A gsx literal nested inside a conditional-attribute condition or an in-tag
+# switch header is not lowered yet: each reports one positioned nested-literal
+# diagnostic at the construct, instead of a raw go/parser "missing ','" from
+# the skeleton. (Attribute values, spreads and attrs-literal values lower: see
+# nested-literal/attrs.txtar.)
 -- input.gsx --
 package demo
 
-import "github.com/gsxhq/gsx"
-
-func wrap(s string) string        { return s }
-func wrapN(n gsx.Node) gsx.Node   { return n }
-func bag(v string) gsx.Attrs      { return gsx.Attrs{{Key: "data-v", Value: v}} }
-func ok(s string) bool            { return s != "" }
-
-component Slot(h gsx.Node, t string, attrs gsx.Attrs) {
-	<div { attrs... }>{ h }{ t }</div>
-}
+func wrap(s string) string { return s }
+func ok(s string) bool     { return s != "" }
 
 component Page(id int) {
-	<i title={wrap(f`/z/@{id}`)} data-go={wrap(js`go(@{id})`)}></i>
-	<Slot t={wrap(f`t-@{id}`)} data-q={wrap(f`q-@{id}`)}/>
-	<Slot h={wrapN(<b>{ id }</b>)}/>
-	<i { bag(f`v-@{id}`)... }></i>
-	<Slot attrs={{ "data-k": wrap(f`k-@{id}`) }}/>
 	<i { if ok(f`c-@{id}`) { title={wrap(f`t-@{id}`)} } }></i>
 	<i { switch wrap(f`s-@{id}`) { case "a": title="y" } }></i>
 }
 -- invoke --
 Page(1)
 -- diagnostics.golden --
-15:17: an f literal inside a Go expression is not supported in an attribute value yet; assign it to a variable in a {{ }} block first
-15:45: a js literal inside a Go expression is not supported in an attribute value yet; assign it to a variable in a {{ }} block first
-16:16: an f literal inside a Go expression is not supported in an attribute value yet; assign it to a variable in a {{ }} block first
-16:42: an f literal inside a Go expression is not supported in an attribute value yet; assign it to a variable in a {{ }} block first
-17:17: an element literal inside a Go expression is not supported in an attribute value yet; build it in a Go function and call that
-18:11: an f literal inside a Go expression is not supported in a spread yet; assign it to a variable in a {{ }} block first
-19:27: an f literal inside a Go expression is not supported in an attrs literal value yet; assign it to a variable in a {{ }} block first
-20:13: an f literal inside a Go expression is not supported in a conditional-attribute condition yet; assign it to a variable in a {{ }} block first
-20:39: an f literal inside a Go expression is not supported in an attribute value yet; assign it to a variable in a {{ }} block first
-21:19: an f literal inside a Go expression is not supported in a switch header yet; assign it to a variable in a {{ }} block first
+7:13: an f literal inside a Go expression is not supported in a conditional-attribute condition yet; assign it to a variable in a {{ }} block first
+8:19: an f literal inside a Go expression is not supported in a switch header yet; assign it to a variable in a {{ }} block first
 -- render.golden --

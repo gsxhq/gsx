@@ -1047,6 +1047,7 @@ func writeSkeletonComponentSignature(sb skeletonWriter, c *gsxast.Component, dec
 // target identity bindings in these same lexical scopes while retaining the
 // ordinary operand, liveness, and slot probes below each component target.
 func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, targetRegistry *componentTargetMarkerRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int, enclosingAttrsBound bool) error {
+	ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targetRegistry: targetRegistry, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -1058,7 +1059,6 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// harvest maps its post-pipe type onto resolved[t].
 				emitSkeletonLine(sb, fset, t.Pos())
 				writeSkeletonGenerated(sb, "_gsxuse(")
-				ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targetRegistry: targetRegistry, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
 				if err := writeEmbeddedProbe(sb, t.Embedded, t.Stages, t, ps); err != nil {
 					return err
 				}
@@ -1165,7 +1165,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					// probe remains authoritative for errors inside the authored
 					// expression (including missing imports). It must not be quiet: the
 					// removed Props-literal probe no longer provides a duplicate error.
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 						return err
 					}
 				}
@@ -1183,7 +1183,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					// canonical gsx.Attrs assignment would falsely reject a defined bag.
 					// The non-quiet variadic probe both harvests the exact type and owns
 					// expression diagnostics; semantic validation proves the bag family.
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, sa.ExprPos, sa.Expr, sa.Stages, table, usedFilters, sa, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", sa.ExprPos, sa.Expr, sa.Embedded, sa.Stages, sa); err != nil {
 						spreadProbeErr = err
 					}
 				})
@@ -1201,8 +1201,9 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 						continue
 					}
 					for i := range oa.Pairs {
-						emitSkeletonLine(sb, fset, oa.Pairs[i].Pos())
-						if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, oa.Pairs[i].Pos(), oa.Pairs[i].Value, nil, table, usedFilters, &oa.Pairs[i], bag); err != nil {
+						pair := &oa.Pairs[i]
+						emitSkeletonLine(sb, fset, pair.Pos())
+						if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", pair.ValuePos, pair.Value, pair.Embedded, nil, pair); err != nil {
 							return err
 						}
 					}
@@ -1289,7 +1290,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 						return
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 						branchProbeErr = err
 					}
 				})
@@ -1360,7 +1361,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 						return
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 						probeErr = err
 					}
 				})
@@ -1376,7 +1377,20 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if probeErr != nil {
 						return
 					}
-					probe, err := probeExpr(sa.Expr, sa.Stages, table, usedFilters, sa, bag)
+					// A split spread's full probe (IIFEs, gw entries, target
+					// bindings) must be written exactly once — below, in the
+					// reporting assignment — so this quiet harvest reference uses
+					// type-identical stand-ins for its nested constructs.
+					seed := sa.Expr
+					if sa.Embedded != nil {
+						standIn, err := embeddedStandInSeed(sa.Embedded)
+						if err != nil {
+							probeErr = err
+							return
+						}
+						seed = standIn
+					}
+					probe, err := probeExpr(seed, sa.Stages, table, usedFilters, sa, bag)
 					if err != nil {
 						probeErr = err
 						return
@@ -1391,7 +1405,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					// k-th-probe→k-th-node harvest alignment.
 					emitSkeletonLine(sb, fset, sa.Pos())
 					writeSkeletonGenerated(sb, "var _ _gsxrt.Attrs = (")
-					if err := writeSkeletonProbeExpr(sb, fset, sa.ExprPos, sa.Expr, sa.Stages, table, usedFilters, sa, bag); err != nil {
+					if err := ps.writeFieldProbe(sb, sa.ExprPos, sa.Expr, sa.Embedded, sa.Stages, sa); err != nil {
 						probeErr = err
 						return
 					}
@@ -1510,7 +1524,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			// handling. A static name needs no probe.
 			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
 				emitSkeletonLine(sb, fset, ea.Pos())
-				if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+				if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 					return err
 				}
 			}
@@ -1519,7 +1533,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			// content — matching collectExprs' Marker/MarkerRegion ordering.
 			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
 				emitSkeletonLine(sb, fset, ea.Pos())
-				if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+				if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 					return err
 				}
 			}
@@ -1611,7 +1625,6 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// uses (writeProbeGoParts). Element parts never reach here: they set
 				// UnsupportedMarkup above.
 				ctrlOff[t] = sb.Len()
-				ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targetRegistry: targetRegistry, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
 				if err := writeProbeGoParts(sb, t.Embedded, ps); err != nil {
 					return err
 				}

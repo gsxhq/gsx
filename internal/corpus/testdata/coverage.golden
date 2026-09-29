@@ -599,6 +599,9 @@ nested-literal-gate/attrs	diag render
 nested-literal-gate/class_style	diag render
 nested-literal-gate/control_flow	diag render
 nested-literal-gate/supported_forms	diag gen render
+nested-literal/attrs	diag gen render
+nested-literal/attrs_error	diag gen render
+nested-literal/attrs_hoist	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
 nestedforward/case_d_hoist	diag gen render
@@ -1027,4 +1030,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1029 cases (render: 874, error: 117, gen-pinned: 567)
+TOTAL: 1032 cases (render: 877, error: 117, gen-pinned: 570)

@@ -67,6 +67,15 @@ func (ctx positionalEmitContext) errorReturn() string {
 	return "return _gsxerr"
 }
 
+// lowerCtx is the lowerCtx for a component input's Go-expression fields: the
+// attribute context, with hoists returning through ctx's error return (the
+// AttrsCond branch thunk's "return nil, _gsxerr" inside a branch).
+func (ctx positionalEmitContext) lowerCtx() lowerCtx {
+	lc := attrLowerCtx(ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.fset, ctx.bag, newInterpEmitCtx(ctx.currentPkg, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.cls, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan))
+	lc.errReturn = ctx.errorReturn()
+	return lc
+}
+
 func (ctx positionalEmitContext) pipeWrap(b *bytes.Buffer) func(string) string {
 	return pipeWrapReturning(b, ctx.interpTemp, ctx.errorReturn())
 }
@@ -113,7 +122,7 @@ func emitPositionalComponentCall(
 		expr, used := valueLowering.expr, valueLowering.used
 		if exprAttr, ok := value.node.(*gsxast.ExprAttr); ok && value.attrsNode == nil && len(exprAttr.Stages) != 0 {
 			var err error
-			expr, used, err = lowerPipe(exprAttr.Expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements))
+			expr, used, err = lowerPipe(expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements))
 			if err != nil {
 				ctx.bag.Errorf(exprAttr.Pos(), exprAttr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return false
@@ -283,7 +292,11 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 	case *gsxast.BoolAttr:
 		return readyPositionalValue("true", nil)
 	case *gsxast.ExprAttr:
-		return readyPositionalValue(strings.TrimSpace(node.Expr), nil)
+		expr, ok := ctx.lowerCtx().field(b, node.Expr, node.Embedded, node)
+		if !ok {
+			return diagnosedPositionalValue()
+		}
+		return readyPositionalValue(expr, nil)
 	case *gsxast.MarkupAttr:
 		expr, ok := positionalSlotClosure(node.Value, ctx)
 		if !ok {
@@ -332,7 +345,7 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 			}
 			return readyPositionalValue(fmt.Sprintf("%s.Attrs{{Key: %s, Value: %s}}", ctx.rt.rt(), strconv.Quote(embedded.Name), lowering.expr), nil)
 		}
-		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond)
+		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond, ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node.attr, err, ctx)
 			return diagnosedPositionalValue()
@@ -341,11 +354,14 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 	case componentAttrsStreamContributor:
 		switch attr := node.attr.(type) {
 		case *gsxast.ExprAttr:
-			expr := strings.TrimSpace(attr.Expr)
+			expr, ok := ctx.lowerCtx().field(b, attr.Expr, attr.Embedded, attr)
+			if !ok {
+				return diagnosedPositionalValue()
+			}
 			used := map[string]string(nil)
 			if len(attr.Stages) != 0 {
 				var err error
-				expr, used, err = lowerPipe(attr.Expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
+				expr, used, err = lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
 				if err != nil {
 					ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return diagnosedPositionalValue()
@@ -572,7 +588,10 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 	entries := make([]string, 0, len(attr.Pairs))
 	for i := range attr.Pairs {
 		pair := &attr.Pairs[i]
-		expr := strings.TrimSpace(pair.Value)
+		expr, ok := ctx.lowerCtx().field(b, pair.Value, pair.Embedded, pair)
+		if !ok {
+			return diagnosedPositionalValue()
+		}
 		fact, hasFact := plan.expressionFacts.get(pair)
 		// The pair value's semantic type drives renderer application below. A
 		// (T, error) authored value is unwrapped first (matching every other

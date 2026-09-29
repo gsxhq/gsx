@@ -22,21 +22,15 @@ func gateNestedLiteralAttrs(attrs []gsxast.Attr, bag *diag.Bag) bool {
 	ok := true
 	var anchor gsxast.Node
 	check := func(src string, pos token.Pos, where string) {
-		if !gateNestedLiteral(src, pos, anchor, where, false, bag) {
+		if !gateNestedLiteral(src, pos, anchor, where, bag) {
 			ok = false
 		}
 	}
 	for _, a := range attrs {
 		anchor = a
+		// Attribute values, spreads and attrs-literal pair values are lowered
+		// (their Embedded overlays); only the positions below are still gated.
 		switch t := a.(type) {
-		case *gsxast.ExprAttr:
-			// A braced literal that is the whole value (`title={f`…`}`,
-			// `h={js`…`}`) has its own lowering.
-			if !gateNestedLiteral(t.Expr, t.ExprPos, t, "an attribute value", true, bag) {
-				ok = false
-			}
-		case *gsxast.SpreadAttr:
-			check(t.Expr, t.ExprPos, "a spread")
 		case *gsxast.ComposedAttr:
 			for i := range t.Parts {
 				part := &t.Parts[i]
@@ -58,13 +52,6 @@ func gateNestedLiteralAttrs(attrs []gsxast.Attr, bag *diag.Bag) bool {
 				if !gateNestedLiteralAttrs(cc.Body, bag) {
 					ok = false
 				}
-			}
-		case *gsxast.OrderedAttrsAttr:
-			for i := range t.Pairs {
-				// A pair carries no value offset: NoPos anchors the report at
-				// the pair itself.
-				anchor = &t.Pairs[i]
-				check(t.Pairs[i].Value, token.NoPos, "an attrs literal value")
 			}
 		}
 	}
@@ -93,13 +80,13 @@ func gateValueCF(cf *gsxast.ValueCF, where string, check func(string, token.Pos,
 func gateNestedLiteralHeaders(node gsxast.Markup, bag *diag.Bag) bool {
 	switch n := node.(type) {
 	case *gsxast.IfMarkup:
-		return gateNestedLiteral(n.Cond, n.CondPos, n, "an if header", false, bag)
+		return gateNestedLiteral(n.Cond, n.CondPos, n, "an if header", bag)
 	case *gsxast.ForMarkup:
-		return gateNestedLiteral(n.Clause, n.ClausePos, n, "a for clause", false, bag)
+		return gateNestedLiteral(n.Clause, n.ClausePos, n, "a for clause", bag)
 	case *gsxast.SwitchMarkup:
-		ok := gateNestedLiteral(n.Tag, n.TagPos, n, "a switch header", false, bag)
+		ok := gateNestedLiteral(n.Tag, n.TagPos, n, "a switch header", bag)
 		for _, cc := range n.Cases {
-			if !gateNestedLiteral(cc.List, cc.ListPos, cc, "a case list", false, bag) {
+			if !gateNestedLiteral(cc.List, cc.ListPos, cc, "a case list", bag) {
 				ok = false
 			}
 		}
@@ -111,17 +98,13 @@ func gateNestedLiteralHeaders(node gsxast.Markup, bag *diag.Bag) bool {
 // gateNestedLiteral reports each gsx construct nested in the Go expression src
 // (whose first byte is at pos) and returns whether there were none. When pos
 // is NoPos — src is not a verbatim source slice — reports anchor at the owning
-// node. When allowWhole is set, a single literal spanning all of src is not
-// nested.
-func gateNestedLiteral(src string, pos token.Pos, anchor gsxast.Node, where string, allowWhole bool, bag *diag.Bag) bool {
+// node.
+func gateNestedLiteral(src string, pos token.Pos, anchor gsxast.Node, where string, bag *diag.Bag) bool {
 	if src == "" {
 		return true
 	}
 	cs := gsxparser.EmbeddedConstructs(src)
 	if len(cs) == 0 {
-		return true
-	}
-	if allowWhole && isWholeLiteral(src) {
 		return true
 	}
 	for _, c := range cs {

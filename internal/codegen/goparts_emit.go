@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
@@ -83,4 +84,26 @@ func lowerGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx) (stri
 
 func (lc lowerCtx) rejectElement() {
 	lc.bag.Errorf(lc.owner.Pos(), lc.owner.End(), "unsupported-node", "element literals are not supported inside this interpolation position; bind the element to a variable in a {{ }} block or use a { } child position")
+}
+
+// attrLowerCtx is the lowerCtx for the Go-expression fields of an element's or
+// component tag's attributes inside a component body: element parts lower
+// against ec, ctx is in scope, and error-carrying holes hoist before the
+// attribute's own write. A site inside an AttrsCond branch thunk overrides
+// errReturn with the thunk's "return nil, _gsxerr".
+func attrLowerCtx(resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) lowerCtx {
+	return lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, ec: ec, elements: true, hasCtx: true, canHoist: true, errReturn: "return _gsxerr"}
+}
+
+// field returns one Go-expression field's value text, trimmed: its split
+// overlay lowered through lowerGoParts (hoists go to hoistBuf) when the
+// analysis split found a nested construct, else src verbatim. owner positions
+// the field-level diagnostics.
+func (lc lowerCtx) field(hoistBuf *bytes.Buffer, src string, embedded []ast.GoPart, owner ast.Node) (string, bool) {
+	if embedded == nil {
+		return strings.TrimSpace(src), true
+	}
+	lc.owner = owner
+	expr, ok := lowerGoParts(hoistBuf, embedded, lc)
+	return strings.TrimSpace(expr), ok
 }
