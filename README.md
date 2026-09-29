@@ -62,6 +62,16 @@ component Card(title string, featured bool, children gsx.Node) {
   rendered output).
 - **Roadmap & status** — [docs/ROADMAP.md](docs/ROADMAP.md).
 
+## AI coding agents
+
+This repo is a Claude Code plugin with skills for writing idiomatic gsx
+([`skills/`](skills/)):
+
+    /plugin marketplace add gsxhq/gsx
+    /plugin install gsx@gsx
+
+Other agents can load `skills/gsx/SKILL.md` directly.
+
 ## Documentation site
 
 The public docs site — <https://gsxhq.github.io/> — is built with VitePress in the

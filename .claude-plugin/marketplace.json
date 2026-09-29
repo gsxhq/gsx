@@ -1,0 +1,17 @@
+{
+  "name": "gsx",
+  "owner": {
+    "name": "Jackie Li"
+  },
+  "description": "Marketplace for the gsx Claude Code plugin",
+  "plugins": [
+    {
+      "name": "gsx",
+      "source": "./",
+      "description": "Skills for writing idiomatic gsx (JSX-like Go templates)",
+      "homepage": "https://gsxhq.github.io",
+      "repository": "https://github.com/gsxhq/gsx",
+      "license": "MIT"
+    }
+  ]
+}

@@ -6,7 +6,11 @@ description: Use when migrating templ components to gsx — covers the component
 # Migrating templ components to gsx
 
 Patterns from migrating a production templ UI to gsx.
-The corpus at `internal/corpus/testdata/cases/` is the canonical syntax reference.
+
+**REQUIRED:** use the `gsx` skill for the target idioms. A migration that only
+changes syntax carries templ habits over — class helpers, string-built JS and
+CSS, Props structs, `{ Comp(...) }` calls — and the `gsx` skill's rewrite table
+is what to convert them to.
 
 ## Component declarations
 
@@ -304,13 +308,13 @@ literals are typed Go values (`gsx.RawJS`/`gsx.RawCSS`). Use them for Alpine
 expressions, event handlers, `x-model`, `hx-on:*`, and CSS-valued attrs; keep
 non-code Alpine strings plain (`x-ref`, `x-transition:*`, `x-teleport="body"`).
 
-**JS-dev gotcha:** don't write a dynamic JS expression as a plain `{ }` attr —
-`attr={ goExpr }` serializes the Go value *as a JS literal*, so a string comes
-out quoted and Alpine runs a dead string:
+**Injection gotcha:** never build a JS expression as a plain `{ }` attr. gsx
+does not infer JavaScript from the attribute name — `attr={ goExpr }` is only
+HTML-escaped, so a `'` in the data closes the JS string and runs:
 
 ```gsx
-@click={ fmt.Sprintf("tab='%s'", id) }   // WRONG — renders a quoted dead string
-@click=js`tab = @{id}`                    // RIGHT
+@click={ fmt.Sprintf("tab='%s'", id) }   // WRONG — id "x');alert(1);('" executes
+@click=js`tab = @{id}`                    // RIGHT — @{id} is JS-encoded and quoted
 ```
 
 A Go value that is already a JS expression fragment is `gsx.RawJS` — pass it
