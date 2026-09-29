@@ -1,0 +1,19 @@
+# A `_gsx` identifier inside a hole of a literal nested in an element literal
+# nested in a body interpolation or {{ }} block is Go and is reported. A raw
+# scan of the whole expression misses it: the backtick literal lexes as one
+# string token.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func wrapN(n gsx.Node) gsx.Node { return n }
+
+component Page() {
+	{ wrapN(<b>{ f`@{_gsxbaz}` }</b>) }
+	{{ n := wrapN(<b>{ f`@{_gsxqux}` }</b>) }}
+	{ n }
+}
+-- diagnostics.golden --
+8:19: identifier "_gsxbaz" uses the reserved _gsx prefix (reserved for generated code)
+9:25: identifier "_gsxqux" uses the reserved _gsx prefix (reserved for generated code)

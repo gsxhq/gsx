@@ -1,0 +1,20 @@
+# The reserved-prefix scan reads a split {{ }} block or body interpolation
+# through its overlay, so text inside a nested element literal is markup, not
+# Go: `_gsxfoo` in element text is not an identifier and must not be reported.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func wrapN(n gsx.Node) gsx.Node { return n }
+
+component Page() {
+	{{ n := wrapN(<p>_gsxfoo text</p>) }}
+	{ n }
+	{ wrapN(<i>_gsxbar text</i>) }
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p>_gsxfoo text</p><i>_gsxbar text</i>

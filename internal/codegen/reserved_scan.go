@@ -91,16 +91,21 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 	// through the overlay: its Go text runs plus the nodes nested in it, whose
 	// @{ } holes a raw scan of the field misses (a backtick literal lexes as one
 	// string token).
+	// An *Interp's or *GoBlock's split is scanned the same way, so element
+	// text inside a nested element literal is never lexed as Go.
 	var visit func(gsxast.Node) bool
+	overlay := func(src string, pos token.Pos, parts []gsxast.GoPart) {
+		if parts == nil {
+			scan(src, pos)
+			return
+		}
+		for _, part := range parts {
+			gsxast.Inspect(part, visit)
+		}
+	}
 	fields := func(n gsxast.Node) {
 		gsxast.GoFields(n, func(f gsxast.GoField) {
-			if *f.Embedded == nil {
-				scan(f.Src, f.Pos)
-				return
-			}
-			for _, part := range *f.Embedded {
-				gsxast.Inspect(part, visit)
-			}
+			overlay(f.Src, f.Pos, *f.Embedded)
 		})
 	}
 	visit = func(n gsxast.Node) bool {
@@ -129,9 +134,9 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 		case gsxast.GoText:
 			scan(x.Src, x.Pos())
 		case *gsxast.GoBlock:
-			scan(x.Code, x.CodePos)
+			overlay(x.Code, x.CodePos, x.Embedded)
 		case *gsxast.Interp:
-			scan(x.Expr, x.ExprPos)
+			overlay(x.Expr, x.ExprPos, x.Embedded)
 			stages(x.Stages)
 		case *gsxast.ExprAttr:
 			stages(x.Stages)

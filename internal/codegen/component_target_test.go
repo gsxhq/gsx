@@ -796,6 +796,24 @@ component Page() { <ui.Missing/> }
 	}
 }
 
+// A body interpolation inside an element literal nested in a component-tag
+// attribute value is harvested through its split: strings is used only inside
+// a literal hole there, which a raw scan of the interpolation misses (the
+// backtick literal lexes as one string token).
+func TestComponentTargetQualifiersSeeNestedInterpHoles(t *testing.T) {
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "page.gsx", "package p\ncomponent Page() { <ui.Card h={wrapN(<b>{ wrapS(f`@{strings.ToUpper(\"x\")}`) }</b>)}/> }\n")
+	bag := diag.NewBag(fset)
+	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"page.gsx": file}, map[string]bool{"Page": true}, fset, attrclass.Builtin(), bag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualifiers := componentTargetQualifiers(preprocessed.registry, nil, "page.gsx")
+	if !qualifiers["ui"] || !qualifiers["strings"] {
+		t.Fatalf("qualifiers = %v, want ui and strings", qualifiers)
+	}
+}
+
 func targetTestImporter() types.Importer {
 	namedInterface := func(pkg *types.Package, name string) *types.Named {
 		object := types.NewTypeName(token.NoPos, pkg, name, nil)

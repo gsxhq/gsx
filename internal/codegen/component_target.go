@@ -992,6 +992,17 @@ func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string
 	scanQualifierRoots(element.TypeArgs, qualifiers)
 	overlayDepth := 0
 	var visit func(gsxast.Node) bool
+	scanOverlay := func(src string, parts []gsxast.GoPart) {
+		if parts == nil {
+			scanQualifierRoots(src, qualifiers)
+			return
+		}
+		overlayDepth++
+		for _, part := range parts {
+			gsxast.Inspect(part, visit)
+		}
+		overlayDepth--
+	}
 	scanFields := func(n gsxast.Node) {
 		switch n.(type) {
 		case *gsxast.IfMarkup, *gsxast.ForMarkup, *gsxast.SwitchMarkup, *gsxast.CaseClause:
@@ -1002,15 +1013,7 @@ func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string
 			}
 		}
 		gsxast.GoFields(n, func(f gsxast.GoField) {
-			if *f.Embedded == nil {
-				scanQualifierRoots(f.Src, qualifiers)
-				return
-			}
-			overlayDepth++
-			for _, part := range *f.Embedded {
-				gsxast.Inspect(part, visit)
-			}
-			overlayDepth--
+			scanOverlay(f.Src, *f.Embedded)
 		})
 	}
 	visit = func(n gsxast.Node) bool {
@@ -1023,7 +1026,7 @@ func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string
 		case *gsxast.SpreadAttr:
 			scanStageQualifierRoots(n.Stages, qualifiers)
 		case *gsxast.Interp:
-			scanQualifierRoots(n.Expr, qualifiers)
+			scanOverlay(n.Expr, n.Embedded)
 			scanStageQualifierRoots(n.Stages, qualifiers)
 		case *gsxast.EmbeddedAttr:
 			scanStageQualifierRoots(n.Stages, qualifiers)

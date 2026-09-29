@@ -862,6 +862,8 @@ reserved/funclit_param_shadow_ok	diag gen render
 reserved/goblock_consumes_attrs	diag gen render
 reserved/if_else_branch_shadow	diag gen render
 reserved/plain_func_attrs_param_ok	diag gen render
+reserved/prefix_nested_element_text_ok	diag render
+reserved/prefix_nested_hole_rejected	diag(error)
 reserved/range_shadow_ok	diag gen render
 reserved/shadow_and_free_mixed	diag gen render
 reserved/struct_key_not_trigger	diag gen render
@@ -1053,4 +1055,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1055 cases (render: 896, error: 121, gen-pinned: 591)
+TOTAL: 1057 cases (render: 897, error: 122, gen-pinned: 591)
