@@ -57,16 +57,19 @@ types `gsx.RawJS` and `gsx.RawCSS` instead of becoming strings. See
 [Contextual literals as Go values](./javascript.md#contextual-literals-as-go-values).
 
 ::: v-pre
-Inside a larger Go expression — `wrap(f`…`)` — a literal is supported in body
-`{ }` interpolations, `{{ }}` blocks and top-level Go. Other positions
-(attribute values, spreads, class/style parts, control-flow headers) report a
-`nested-literal` error for now; bind the literal in a `{{ }}` block first. A
-literal that is the whole attribute value, `title={f`…`}`, is not nested.
+A literal or element literal nested inside a larger Go expression —
+`wrap(f`…`)` — works in every Go-expression position (attribute values,
+spreads, class/style parts, control-flow headers, and more), with the same
+evaluation order and laziness as Go:
 
 ```gsx
-{{ href := f`/items/@{id}` }}
-<a href={withLocale(href)}>…</a>
+<a href={withLocale(f`/items/@{id}`)}>…</a>
 ```
+
+An error-carrying hole inside the literal is returned from `Render`, except
+on the right of `&&`/`||`, inside a func literal, in a `for` clause, in a
+`case` list, or in a `{{ }}` block — compute the value before the expression
+in those.
 :::
 
 ## Fields and typed values

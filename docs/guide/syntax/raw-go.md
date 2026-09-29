@@ -11,9 +11,8 @@ A `{{ statements }}` GoBlock runs a Go statement list without rendering output. 
 <!--@include: ./_generated/raw-go/010-go-code-block.md-->
 
 ::: v-pre
-A GoBlock can assign `f`, `js`, and `css` literals. Element and fragment
-literals are not supported inside `{{ }}`; create those in an ordinary Go
-expression position instead.
+A GoBlock can bind `f`, `js`, `css`, element, and fragment literals, producing
+a `gsx.Node` for an element or fragment: `{{ n := wrap(<b>{ x }</b>) }}`.
 :::
 
 Use `{ expression }` when a value should render instead. See [Interpolation](./interpolation.md) for expressions and escaping.
