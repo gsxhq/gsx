@@ -1,0 +1,15 @@
+# A `<tag>` element literal inside a {{ }} Go block binds an ordinary Go
+# variable of type gsx.Node: left unused, go/types reports it at the binding,
+# positioned in the .gsx source like any other {{ }} local.
+-- input.gsx --
+package demo
+
+component Page() {
+	{{ x := <div/> }}
+	<p>done</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:5: declared and not used: x
+-- render.golden --

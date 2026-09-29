@@ -390,8 +390,8 @@ fragment-literals/var	diag gen render
 goblock-literal/css_literal	diag gen render
 goblock-literal/diag_element_in_nested_hole	diag render
 goblock-literal/diag_whole_pipe_goblock	diag render
-goblock-literal/element_rejected	diag render
-goblock-literal/element_rejected_used_later	diag render
+goblock-literal/element_unused	diag render
+goblock-literal/element_value	diag render
 goblock-literal/f_literal	diag gen render
 goblock-literal/motivating_attrs	diag gen render
 goblock-literal/nested_literal_hole	diag gen render
@@ -596,7 +596,6 @@ multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
 multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
-nested-literal-gate/supported_forms	diag gen render
 nested-literal/attrs	diag gen render
 nested-literal/attrs_error	diag gen render
 nested-literal/attrs_hoist	diag gen render
@@ -614,8 +613,10 @@ nested-literal/control_flow_hoist	diag gen render
 nested-literal/control_flow_hoist_error	diag gen render
 nested-literal/css_hole_thunk_error	diag gen render
 nested-literal/for_error	diag gen render
+nested-literal/goblock_element	diag gen render
 nested-literal/header_init	diag gen render
 nested-literal/header_init_error	diag gen render
+nested-literal/supported_forms	diag gen render
 nested-literal/tagless_switch_init	diag gen render
 nested-literal/value_form_thunk_tuple	diag gen render
 nestedforward/attrsonly_callee	diag gen render
@@ -1046,4 +1047,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1048 cases (render: 893, error: 117, gen-pinned: 589)
+TOTAL: 1049 cases (render: 894, error: 117, gen-pinned: 590)

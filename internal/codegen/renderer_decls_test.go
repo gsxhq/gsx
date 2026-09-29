@@ -136,12 +136,6 @@ func TestRendererDeclResolverRunsCanonicalPreprocessor(t *testing.T) {
 			wantCode:   "jsx-script-close",
 			wantSource: "jsx",
 		},
-		{
-			name:       "unsupported Go block element",
-			body:       `{{ value := <div/> }}`,
-			wantCode:   "unsupported-node",
-			wantSource: "codegen",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -104,31 +104,11 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 	}
 	splitGoBlock := func(block *gsxast.GoBlock) {
 		if block.Embedded != nil {
-			if block.UnsupportedMarkup == nil {
-				block.UnsupportedMarkup = firstDirectGoBlockMarkup(block.Embedded)
-			}
 			return
 		}
-		if !maySplit(block.Code) || !block.CodePos.IsValid() {
-			return
-		}
-		parts, errs := gsxparser.SplitGoExprElements(fset, block.Code, block.CodePos, cls)
-		if unsupported := firstDirectGoBlockMarkup(parts); unsupported != nil {
+		if parts, ok := splitGoField(block.Code, block.CodePos); ok {
 			block.Embedded = parts
-			block.UnsupportedMarkup = unsupported
-			return
 		}
-		if len(errs) > 0 {
-			syntaxOK = false
-			for _, err := range errs {
-				bag.Report(err.Pos, err.End, diag.Error, "parse-error", "parser", "%s", err.Msg)
-			}
-			return
-		}
-		if len(parts) == 0 {
-			return
-		}
-		block.Embedded = parts
 	}
 	walkParts = func(parts []gsxast.GoPart) {
 		for _, part := range parts {
@@ -173,9 +153,7 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 				}
 			case *gsxast.GoBlock:
 				splitGoBlock(node)
-				if node.UnsupportedMarkup == nil {
-					walkParts(node.Embedded)
-				}
+				walkParts(node.Embedded)
 			}
 		}
 	}
@@ -189,6 +167,14 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 		}
 	}
 	return syntaxOK
+}
+
+// isWholeLiteral reports whether src is exactly one prefixed literal (an
+// f, js or css literal, either delimiter) and nothing else: a braced
+// attribute value of that shape has its own lowering and is not nested.
+func isWholeLiteral(src string) bool {
+	cs := gsxparser.EmbeddedConstructs(src)
+	return len(cs) == 1 && !cs[0].IsElement && cs[0].Off == 0 && cs[0].End == len(strings.TrimRight(src, " \t\r\n"))
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
@@ -1612,10 +1598,6 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			sb.WriteString("}\n")
 		case *gsxast.GoBlock:
 			switch {
-			case t.UnsupportedMarkup != nil:
-				// preprocessComponentCallSites owns the single positioned
-				// unsupported-node diagnostic. Skip this whole block so its
-				// incomplete Go cannot produce misleading probe errors.
 			case t.Embedded == nil:
 				// No embedded literal: the whole block is verbatim Go (unchanged).
 				emitSkeletonClauseLine(sb, fset, t.CodePos, 0)
@@ -1625,10 +1607,9 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				}
 				sb.WriteString("\n")
 			default:
-				// The block carries one or more f`/js`/css` literals: reconstruct it
-				// from its split parts with the same splice an Interp.Embedded seed
-				// uses (writeProbeGoParts). Element parts never reach here: they set
-				// UnsupportedMarkup above. No ctrlOff entry, as for a split control
+				// The block carries one or more f`/js`/css` literals or element
+				// literals: reconstruct it from its split parts with the same splice
+				// an Interp.Embedded seed uses (writeProbeGoParts). No ctrlOff entry, as for a split control
 				// header (writeControlText): the spliced IIFEs break the
 				// relative-offset CtrlMap bridge.
 				if err := writeProbeGoParts(sb, t.Embedded, ps); err != nil {
@@ -1997,20 +1978,6 @@ func probeEmbeddedInterpIIFE(sb skeletonWriter, segs []gsxast.Markup, lang gsxas
 		return err
 	}
 	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs, table, usedFilters, bag), wrapClose)
-	return nil
-}
-
-// firstDirectGoBlockMarkup returns the first direct `<tag>` element or fragment
-// literal in a split `{{ }}` block. materializeEmbeddedMarkup calls it once and
-// stores the result on GoBlock.UnsupportedMarkup; every later consumer reads
-// that annotation instead of independently reimplementing this policy.
-func firstDirectGoBlockMarkup(parts []gsxast.GoPart) gsxast.GoPart {
-	for _, p := range parts {
-		switch p.(type) {
-		case *gsxast.Element, *gsxast.Fragment:
-			return p
-		}
-	}
 	return nil
 }
 
@@ -2941,77 +2908,6 @@ func walkEmbeddedAttrStages(attrs []gsxast.Attr, fn func(*gsxast.EmbeddedAttr)) 
 		case *gsxast.SwitchAttr:
 			for _, cc := range at.Cases {
 				walkEmbeddedAttrStages(cc.Body, fn)
-			}
-		}
-	}
-}
-
-// collectClauseSrc visits markup in depth-first source order and feeds every Go
-// control-flow clause source (for clause, if cond, switch tag, case list, GoBlock
-// code) to add. These fragments are emitted verbatim, so the idents they
-// reference must be in scope wherever the markup renders.
-func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
-	for _, n := range nodes {
-		switch t := n.(type) {
-		case *gsxast.Element:
-			// Recurse children for BOTH plain elements and child components: a
-			// component's slot content renders in THIS parent scope, so a control-flow
-			// clause inside the slot (e.g. `for ... range items`) references a parent
-			// local and must be bound. A component's MARKUP-attr (named slot) values
-			// also render in this parent scope, so recurse them too. (A component's
-			// SIMPLE attrs are props, not slot content, so they are not visited.)
-			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-				collectClauseSrc(value, add)
-			})
-			collectClauseSrc(t.Children, add)
-		case *gsxast.Fragment:
-			collectClauseSrc(t.Children, add)
-		case *gsxast.MarkerRegion:
-			// Like a fragment: a region's children render in this same scope, so a
-			// control-flow clause inside one references locals bound here.
-			collectClauseSrc(t.Children, add)
-		case *gsxast.ForMarkup:
-			add(t.Clause)
-			collectClauseSrc(t.Body, add)
-		case *gsxast.IfMarkup:
-			add(t.Cond)
-			collectClauseSrc(t.Then, add)
-			collectClauseSrc(t.Else, add)
-		case *gsxast.SwitchMarkup:
-			add(t.Tag)
-			for _, cc := range t.Cases {
-				add(cc.List)
-				collectClauseSrc(cc.Body, add)
-			}
-		case *gsxast.GoBlock:
-			if t.UnsupportedMarkup != nil {
-				// The package preprocessor rejects and excludes this whole block.
-				// It must not contribute hidden parameter-use facts.
-				continue
-			}
-			add(t.Code)
-			// The verbatim Code fed above hides each embedded literal's @{…} holes
-			// inside a raw string, so the normal Go-expression analysis cannot see an
-			// ident referenced ONLY there (`{{ x := js`f(@{param})` }}`). Feed each hole's expr (and
-			// its filter args) explicitly, mirroring usedParams' Interp.Embedded
-			// handling, so such a param/local is still bound in the render closure.
-			for _, part := range t.Embedded {
-				lit, ok := part.(*gsxast.EmbeddedInterp)
-				if !ok {
-					continue
-				}
-				for _, seg := range lit.Segments {
-					hole, ok := seg.(*gsxast.Interp)
-					if !ok {
-						continue
-					}
-					add(hole.Expr)
-					for _, st := range hole.Stages {
-						if st.Args != "" {
-							add(st.Args)
-						}
-					}
-				}
 			}
 		}
 	}

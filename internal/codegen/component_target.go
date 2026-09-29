@@ -238,7 +238,7 @@ func (r *componentTargetMarkerRegistry) emitBinding(sb skeletonWriter, element *
 	}
 	record := r.callSites.records[site-1]
 	if record.disposition != componentSiteCandidate {
-		return fmt.Errorf("codegen: preserved call site %d entered target discovery", site)
+		return fmt.Errorf("codegen: non-candidate call site %d entered target discovery", site)
 	}
 	if _, duplicate := r.bySite[site]; duplicate {
 		return fmt.Errorf("codegen: target call site %d was emitted more than once", site)
@@ -324,10 +324,6 @@ func (r *componentTargetMarkerRegistry) validateComplete() error {
 		case componentSiteCandidate:
 			if !emitted {
 				return fmt.Errorf("codegen: planned call site %d <%s> has no target marker", record.id, record.element.Tag)
-			}
-		case componentSitePreservedInvalidRegion:
-			if emitted {
-				return fmt.Errorf("codegen: preserved call site %d <%s> has a target marker", record.id, record.element.Tag)
 			}
 		default:
 			return fmt.Errorf("codegen: call site %d has unknown disposition %d", record.id, record.disposition)
@@ -782,9 +778,6 @@ func (r *callSiteRegistry) finalizeComponentIdentity(facts map[callSiteID]compon
 		if record.element.IsComponent {
 			return fmt.Errorf("codegen: call site %d <%s> was stamped before semantic finalization", record.id, record.element.Tag)
 		}
-		if record.disposition == componentSitePreservedInvalidRegion {
-			continue
-		}
 		if record.disposition != componentSiteCandidate {
 			return fmt.Errorf("codegen: call site %d <%s> has non-candidate disposition %d before finalization", record.id, record.element.Tag, record.disposition)
 		}
@@ -915,7 +908,6 @@ const (
 	componentSitePlanned
 	componentSiteLeaf
 	componentSiteRejected
-	componentSitePreservedInvalidRegion
 )
 
 type callSiteRecord struct {
@@ -1285,13 +1277,7 @@ func collectMaterializedComponentCandidates(file *gsxast.File, declNames map[str
 					walk(clause.Body, exclusions, reportDiagnostics)
 				}
 			case *gsxast.GoBlock:
-				// Direct element/fragment parts make the entire block an
-				// unsupported preserve region. Still record candidate classifications
-				// while leaving every semantic stamp false, but suppress secondary
-				// validation diagnostics; the registry collector owns the block's one
-				// rejection.
-				blockDiagnostics := reportDiagnostics && node.UnsupportedMarkup == nil
-				walkParts(node.Embedded, exclusions, blockDiagnostics)
+				walkParts(node.Embedded, exclusions, reportDiagnostics)
 			}
 		}
 	}
@@ -1431,18 +1417,6 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidate
 					}
 				}
 			case *gsxast.GoBlock:
-				first := node.UnsupportedMarkup
-				if first != nil {
-					bag.Errorf(first.Pos(), first.End(), "unsupported-node", "element literals inside {{ }} blocks are not supported yet")
-					for _, part := range node.Embedded {
-						if element, ok := part.(*gsxast.Element); ok {
-							if err := r.add(path, element, componentCandidateNone, componentSitePreservedInvalidRegion); err != nil {
-								return err
-							}
-						}
-					}
-					continue
-				}
 				if err := walkParts(node.Embedded); err != nil {
 					return err
 				}

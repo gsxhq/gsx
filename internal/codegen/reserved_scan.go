@@ -129,9 +129,7 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 		case gsxast.GoText:
 			scan(x.Src, x.Pos())
 		case *gsxast.GoBlock:
-			if x.UnsupportedMarkup == nil {
-				scan(x.Code, x.CodePos)
-			}
+			scan(x.Code, x.CodePos)
 		case *gsxast.Interp:
 			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)

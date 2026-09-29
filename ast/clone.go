@@ -119,9 +119,6 @@ func cloneMarkup(m Markup) Markup {
 	case *GoBlock:
 		n := *v
 		n.Embedded = cloneGoParts(v.Embedded)
-		if v.UnsupportedMarkup != nil {
-			n.UnsupportedMarkup = cloneGoPart(v.UnsupportedMarkup)
-		}
 		return &n
 	case *IfMarkup:
 		n := *v

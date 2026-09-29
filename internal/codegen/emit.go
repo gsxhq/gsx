@@ -2103,24 +2103,21 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		closeHeaderBlock(b, block)
 	case *ast.GoBlock:
 		emitLine(b, fset, t.Pos())
-		if t.UnsupportedMarkup != nil {
-			// The package preprocessor records and diagnoses this unsupported
-			// region once. Refuse to emit it; reconstructing only a prefix would
-			// silently produce invalid or incomplete Go.
-			return false
-		}
 		if t.Embedded == nil {
 			b.WriteString(t.Code)
 			b.WriteString("\n")
 			break
 		}
-		// The block carries embedded f`/js`/css` literals (analyze's split; see
-		// preprocessComponentCallSites). Reconstruct it with the same lowering an
-		// Interp.Embedded seed uses. ctx IS in scope (the render closure), but a
-		// statement hoist has no slot inside the reconstructed statement, so
-		// noErrChannel rejects error-carrying holes for f`/js`/css` alike.
-		// Element parts never reach here: they set UnsupportedMarkup above.
-		expr, ok := lowerGoParts(b, t.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, hasCtx: true, noErrChannel: goExprLiteralErrorRemedy, errReturn: "return _gsxerr", owner: t})
+		// The block carries embedded f`/js`/css` literals or element literals
+		// (analyze's split; see preprocessComponentCallSites). Reconstruct it
+		// with the same lowering an Interp.Embedded seed uses: an element is its
+		// gsx.Node closure. ctx IS in scope (the render closure), but a statement
+		// hoist has no slot inside the reconstructed statement, so noErrChannel
+		// rejects error-carrying holes for f`/js`/css` alike.
+		lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec)
+		lc.noErrChannel = goExprLiteralErrorRemedy
+		lc.owner = t
+		expr, ok := lowerGoParts(b, t.Embedded, lc)
 		if !ok {
 			return false
 		}

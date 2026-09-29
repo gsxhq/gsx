@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1364,11 +1365,13 @@ component Page(on bool) {
 	}
 }
 
-func TestAssignCallSitesPreservesUnsupportedGoBlock(t *testing.T) {
+// Component tags inside an element or fragment literal in a {{ }} block are
+// ordinary call-site candidates, exactly like those in a { } interpolation.
+func TestAssignCallSitesPlansGoBlockElements(t *testing.T) {
 	fset := token.NewFileSet()
 	file := parseTargetTestFile(t, fset, "views.gsx", `package views
 component Page() {
-	{{ first := <Direct><Nested/></Direct>; second := <Second/> }}
+	{{ first := <Direct><Nested/></Direct>; second := <><Second/></> }}
 	<Planned/>
 }
 `)
@@ -1380,8 +1383,9 @@ component Page() {
 	if !preprocessed.analysisReady() {
 		t.Fatalf("unexpected preprocessing diagnostics: %+v", bag.Sorted())
 	}
-	registry := preprocessed.registry
-
+	if diags := bag.Sorted(); len(diags) != 0 {
+		t.Fatalf("diagnostics=%+v, want none", diags)
+	}
 	var block *gsxast.GoBlock
 	gsxast.Inspect(file, func(node gsxast.Node) bool {
 		if got, ok := node.(*gsxast.GoBlock); ok {
@@ -1394,111 +1398,15 @@ component Page() {
 	}
 	var blockElements []*gsxast.Element
 	targetTestEmbeddedElements(block.Embedded, &blockElements)
-	if len(blockElements) != 3 {
-		t.Fatalf("GoBlock elements=%d, want Direct, Nested, Second", len(blockElements))
-	}
-	byTag := map[string]*gsxast.Element{}
+	var tags []string
 	for _, el := range blockElements {
-		byTag[el.Tag] = el
-		if el.IsComponent {
-			t.Errorf("unsupported <%s> received a semantic component stamp", el.Tag)
+		tags = append(tags, el.Tag)
+		if record := registryRecordFor(t, preprocessed.registry, el); record.disposition != componentSiteCandidate {
+			t.Errorf("<%s> disposition=%d, want candidate", el.Tag, record.disposition)
 		}
 	}
-	for _, tag := range []string{"Direct", "Second"} {
-		record := registryRecordFor(t, registry, byTag[tag])
-		if record.disposition != componentSitePreservedInvalidRegion {
-			t.Errorf("%s disposition=%d, want preserve", tag, record.disposition)
-		}
-	}
-	if _, ok := registry.byElement[byTag["Nested"]]; ok {
-		t.Fatal("nested call inside unsupported GoBlock entered registry")
-	}
-	planned := targetTestElements(file, "Planned")
-	if len(planned) != 1 || registryRecordFor(t, registry, planned[0]).disposition != componentSiteCandidate {
-		t.Fatal("supported sibling call was not planned")
-	}
-	diags := bag.Sorted()
-	if len(diags) != 1 || diags[0].Code != "unsupported-node" {
-		t.Fatalf("diagnostics=%+v, want one unsupported-node", diags)
-	}
-}
-
-func TestAssignCallSitesPreservesUnsupportedGoBlockFragmentAsOneRegion(t *testing.T) {
-	fset := token.NewFileSet()
-	file := parseTargetTestFile(t, fset, "views.gsx", `package views
-component item(value string) {
-	{{ _gsxhidden := <><script>let @{value} = 1</script><item/><div[int]/></>; attrs := <Second/> }}
-	<Planned/>
-}
-`)
-	bag := diag.NewBag(fset)
-	preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"views.gsx": file}, map[string]bool{"item": true}, fset, attrclass.Builtin(), bag)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !preprocessed.analysisReady() {
-		t.Fatalf("unexpected preprocessing failure: %+v", bag.Sorted())
-	}
-
-	var block *gsxast.GoBlock
-	gsxast.Inspect(file, func(node gsxast.Node) bool {
-		if got, ok := node.(*gsxast.GoBlock); ok {
-			block = got
-		}
-		return true
-	})
-	if block == nil {
-		t.Fatal("GoBlock not found")
-	}
-	if _, ok := block.UnsupportedMarkup.(*gsxast.Fragment); !ok {
-		t.Fatalf("UnsupportedMarkup=%T, want first direct fragment", block.UnsupportedMarkup)
-	}
-	if reserved := checkReservedDecls(file); len(reserved) != 0 {
-		t.Fatalf("unsupported block leaked reserved-prefix facts: %+v", reserved)
-	}
-	var component *gsxast.Component
-	for _, decl := range file.Decls {
-		if got, ok := decl.(*gsxast.Component); ok {
-			component = got
-			break
-		}
-	}
-	if component == nil {
-		t.Fatal("component not found")
-	}
-	if reserved := checkReservedBodyBindings(component); len(reserved) != 0 {
-		t.Fatalf("unsupported block leaked body-binding facts: %+v", reserved)
-	}
-	var clauseSrc []string
-	collectClauseSrc(component.Body, func(src string) { clauseSrc = append(clauseSrc, src) })
-	if len(clauseSrc) != 0 {
-		t.Fatalf("unsupported block leaked clause facts: %q", clauseSrc)
-	}
-	var blockElements []*gsxast.Element
-	targetTestEmbeddedElements(block.Embedded, &blockElements)
-	byTag := make(map[string]*gsxast.Element)
-	for _, element := range blockElements {
-		byTag[element.Tag] = element
-	}
-	for _, nested := range []string{"script", "item", "div"} {
-		if byTag[nested] == nil {
-			t.Fatalf("nested <%s> not materialized", nested)
-		}
-		if _, exists := preprocessed.registry.byElement[byTag[nested]]; exists {
-			t.Fatalf("nested <%s> inside unsupported fragment entered registry", nested)
-		}
-	}
-	second := byTag["Second"]
-	if second == nil || registryRecordFor(t, preprocessed.registry, second).disposition != componentSitePreservedInvalidRegion {
-		t.Fatal("direct <Second> was not preserved as part of the unsupported block")
-	}
-	planned := targetTestElements(file, "Planned")
-	if len(planned) != 1 || registryRecordFor(t, preprocessed.registry, planned[0]).disposition != componentSiteCandidate {
-		t.Fatal("supported sibling call was not planned")
-	}
-	diags := bag.Sorted()
-	if len(diags) != 1 || diags[0].Code != "unsupported-node" {
-		t.Fatalf("diagnostics=%+v, want one unsupported-node at the fragment", diags)
+	if want := []string{"Direct", "Nested", "Second"}; !slices.Equal(tags, want) {
+		t.Fatalf("GoBlock elements=%q, want %q", tags, want)
 	}
 }
 
@@ -1666,37 +1574,39 @@ component Page(value string) {
 	}
 }
 
-func TestPreprocessUnsupportedGoBlockHasSingleDiagnostic(t *testing.T) {
+func TestPreprocessGoBlockElementDiagnosticsMatchInterpolation(t *testing.T) {
 	cases := []struct {
 		name      string
 		component string
-		block     string
+		element   string
 	}{
-		{name: "script", component: "Page", block: `{{ x := <script>let @{value} = 1</script> }}`},
-		{name: "self reference", component: "item", block: `{{ x := <item/> }}`},
-		{name: "leaf type args", component: "Page", block: `{{ x := <div[int]/> }}`},
-		{name: "nested malformed expression", component: "Page", block: `{{ x := <div>{wrap(<Broken></Other>)}</div> }}`},
-		{name: "later malformed direct element", component: "Page", block: `{{ first := <Direct/>; second := <Broken></Other> }}`},
+		{name: "script", component: "Page", element: `<script>let @{value} = 1</script>`},
+		{name: "self reference", component: "item", element: `<item/>`},
+		{name: "leaf type args", component: "Page", element: `<div[int]/>`},
+		{name: "nested malformed expression", component: "Page", element: `<div>{wrap(<Broken></Other>)}</div>`},
+	}
+	codes := func(t *testing.T, component, body string) []string {
+		t.Helper()
+		fset := token.NewFileSet()
+		src := "package views\ncomponent " + component + "(value string) {\n" + body + "\n}\n"
+		file := parseTargetTestFile(t, fset, "views.gsx", src)
+		bag := diag.NewBag(fset)
+		if _, err := preprocessComponentCallSites(map[string]*gsxast.File{"views.gsx": file}, map[string]bool{component: true}, fset, attrclass.Builtin(), bag); err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, d := range bag.Sorted() {
+			out = append(out, d.Code+": "+d.Message)
+		}
+		return out
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fset := token.NewFileSet()
-			src := "package views\ncomponent " + tc.component + "(value string) {\n" + tc.block + "\n}\n"
-			file := parseTargetTestFile(t, fset, "views.gsx", src)
-			bag := diag.NewBag(fset)
-			preprocessed, err := preprocessComponentCallSites(map[string]*gsxast.File{"views.gsx": file}, map[string]bool{tc.component: true}, fset, attrclass.Builtin(), bag)
-			if err != nil {
-				t.Fatal(err)
-			}
-			registry := preprocessed.registry
-			diags := bag.Sorted()
-			if len(diags) != 1 || diags[0].Code != "unsupported-node" {
-				t.Fatalf("diagnostics=%+v, want exactly one unsupported-node", diags)
-			}
-			for _, record := range registry.records {
-				if record.disposition != componentSitePreservedInvalidRegion {
-					t.Fatalf("record=%+v, unsupported block must not contain planned sites", record)
-				}
+			block := codes(t, tc.component, "{{ x := "+tc.element+" }}")
+			interp := codes(t, tc.component, "{ wrap("+tc.element+") }")
+			t.Logf("diagnostics: %q", block)
+			if !slices.Equal(block, interp) {
+				t.Fatalf("{{ }} diagnostics=%q, want the interpolation's %q", block, interp)
 			}
 		})
 	}
@@ -1709,6 +1619,7 @@ func TestPreprocessMalformedEmbeddedMarkupFailsClosed(t *testing.T) {
 	}{
 		{name: "interpolation", body: `{ wrap(<Broken></Other>) }`},
 		{name: "GoBlock", body: `{{ value := <Broken></Other> }}`},
+		{name: "GoBlock later element", body: `{{ first := <Direct/>; second := <Broken></Other> }}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1748,7 +1659,7 @@ func TestPreprocessMalformedEmbeddedMarkupFailsClosed(t *testing.T) {
 
 // The split fills the codegen-only overlay of every Go-expression field that
 // nests a construct — byte-exactly positioned, recursing into elements nested
-// in an overlay — while the nested-literal gate still rejects each position.
+// in an overlay.
 func TestMaterializeSplitsGoFieldOverlays(t *testing.T) {
 	src := "package views\n" +
 		"component Page(id int) {\n" +
@@ -2069,7 +1980,7 @@ func TestPreprocessRejectsRepeatedPassBeforeDiagnostics(t *testing.T) {
 	file := parseTargetTestFile(t, fset, "views.gsx", `package views
 component item() {
 	<item/>
-	{{ value := <Bad/> }}
+	{{ value := <item/> }}
 }
 `)
 	files := map[string]*gsxast.File{"views.gsx": file}
@@ -2083,7 +1994,7 @@ component item() {
 		t.Fatalf("first preprocess=%+v, diagnostics=%+v", first, firstBag.Sorted())
 	}
 	if got := len(firstBag.Sorted()); got != 2 {
-		t.Fatalf("first diagnostics=%+v, want self-reference warning and unsupported-node", firstBag.Sorted())
+		t.Fatalf("first diagnostics=%+v, want two self-reference warnings", firstBag.Sorted())
 	}
 
 	secondBag := diag.NewBag(fset)

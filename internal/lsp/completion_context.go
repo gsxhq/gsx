@@ -114,9 +114,9 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 		// `}}`), so the nodeNavSpans loop below cannot place a cursor sitting in
 		// the brace interior. Classify that interior as a Go statement context
 		// anchored at CodePos. Guarded to genuinely-empty blocks (no embedded
-		// literal, no unsupported markup) so a GoBlock carrying elements still
-		// routes its inner tags/attrs through the normal rules.
-		if gb, ok := n.(*gsxast.GoBlock); ok && gb.Code == "" && gb.Embedded == nil && gb.UnsupportedMarkup == nil && gb.CodePos.IsValid() {
+		// literal or element) so a GoBlock carrying elements still routes its
+		// inner tags/attrs through the normal rules.
+		if gb, ok := n.(*gsxast.GoBlock); ok && gb.Code == "" && gb.Embedded == nil && gb.CodePos.IsValid() {
 			inner0 := posOff(gb.Pos()) + len("{{")
 			inner1 := posOff(gb.End()) - len("}}")
 			if off >= inner0 && off <= inner1 {

@@ -540,20 +540,12 @@ func (*EmbeddedInterp) goPartNode() {}
 // round-trip source of truth (the printer prints from Code, never Embedded);
 // Embedded is the same GoText/*EmbeddedInterp/*Element/*Fragment split
 // SplitGoExprElements produces for a GoWithElements or Interp.Embedded, used
-// only by codegen to type-probe and lower the embedded literals.
-//
-// UnsupportedMarkup is populated by that same preprocessor with the first
-// direct *Element or *Fragment part when the block contains markup. Markup in
-// a GoBlock is not supported: the annotation makes every later consumer use
-// the one preprocessing decision instead of independently rediscovering the
-// unsupported shape. It remains nil for supported blocks, including blocks
-// whose embedded prefixed literals contain markup only inside their holes.
+// only by codegen to type-probe and lower the embedded literals and elements.
 type GoBlock struct {
 	span
-	Code              string
-	CodePos           token.Pos // first char of Code text in source (NoPos if unavailable)
-	Embedded          []GoPart
-	UnsupportedMarkup GoPart
+	Code     string
+	CodePos  token.Pos // first char of Code text in source (NoPos if unavailable)
+	Embedded []GoPart
 }
 
 func (*GoBlock) markupNode() {}

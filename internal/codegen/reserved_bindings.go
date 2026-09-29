@@ -69,7 +69,7 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 		for _, n := range nodes {
 			switch t := n.(type) {
 			case *ast.GoBlock:
-				if t.UnsupportedMarkup != nil || !topScope || !t.CodePos.IsValid() {
+				if !topScope || !t.CodePos.IsValid() {
 					continue
 				}
 				for _, b := range fragmentBindings(t.Code, fragStmts) {

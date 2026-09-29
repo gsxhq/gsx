@@ -206,7 +206,7 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 				ok = false
 			}
 		case *ast.GoBlock:
-			if v.UnsupportedMarkup == nil && !resolveGoParts(v.Embedded, bag) {
+			if !resolveGoParts(v.Embedded, bag) {
 				ok = false
 			}
 		}

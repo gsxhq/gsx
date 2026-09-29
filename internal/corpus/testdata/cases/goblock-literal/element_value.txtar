@@ -1,0 +1,14 @@
+# A `<tag>` element literal inside a {{ }} Go block binds a gsx.Node that a
+# later { } child position renders.
+-- input.gsx --
+package demo
+
+component Page() {
+	{{ x := <div/> }}
+	<p>{x}</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p><div></div></p>

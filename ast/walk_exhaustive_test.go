@@ -202,7 +202,6 @@ func switchGSXTypes(sw *goast.TypeSwitchStmt, quals map[string]bool) []string {
 // it is either fixed or consciously registered here, and a stale entry is
 // reported as stale. Keys are "<module-relative file>:<enclosing func name>".
 var goPartSwitchFunctions = map[string]string{
-	"internal/codegen/analyze.go:firstDirectGoBlockMarkup":     "classifies a {{ }} block's GoPart split for the unsupported-markup annotation",
 	"internal/codegen/parenstrip.go:parenWrappable":            "asks whether a GoWithElements part is a paren-wrappable gsx value",
 	"internal/codegen/rebase.go:rebaseGoParts":                 "re-bases the embedded literals of a GoBlock/Interp GoPart split",
 	"internal/codegen/tagresolve.go:reconstructGoWithElements": "validates the GoPart kinds of a GoWithElements reconstruction",
