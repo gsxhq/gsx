@@ -1,5 +1,5 @@
 # An error-carrying hole in a literal nested in a for clause has no hoist
-# point (the condition and post statement run every iteration), so it is
+# point (a for header is not a single statement), so it is
 # rejected with a positioned goexpr-literal-error.
 -- input.gsx --
 package demo
@@ -22,6 +22,6 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-14:22: @{ lookup(i) } returns (string, error); a for clause has no statement to return the error from (its condition and post statement run every iteration) — compute the value before the loop
+14:22: @{ lookup(i) } returns (string, error); a for clause has no statement to return the error from — compute the value before the loop
 -- render.golden --
 -- generated.x.go.golden --

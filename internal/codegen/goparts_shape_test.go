@@ -22,6 +22,7 @@ func TestAnalyzeFieldConditionalLiterals(t *testing.T) {
 		{"if header with init", syntaxIfHeader, "s := f(); ok(", ")", ""},
 		{"if header rhs", syntaxIfHeader, "s := f(); s != \"\" && ok(", ")", logicalRHSErrRemedy},
 		{"switch tag", syntaxSwitchHeader, "g(", ")", ""},
+		{"tagless switch with init", syntaxSwitchHeader, "n := g(", ");", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -159,7 +159,7 @@ func analyzeField(parts []ast.GoPart, syntax fieldSyntax) (fieldShape, error) {
 			}
 		case *goast.SwitchStmt:
 			if s.Init != nil {
-				init, rest = s.Init, s.Tag
+				init, rest = s.Init, s.Tag // Tag is nil in a tagless switch
 			}
 		case *goast.TypeSwitchStmt:
 			if s.Init != nil {
@@ -167,10 +167,13 @@ func analyzeField(parts []ast.GoPart, syntax fieldSyntax) (fieldShape, error) {
 			}
 		}
 		if init != nil {
-			if rest == nil {
-				return shape, fmt.Errorf("header has an init statement but no condition or tag")
+			shape.initEnd = int(init.End()) - base
+			// A tagless switch with an init statement (`switch x := f(); {`)
+			// has an empty tag: everything after the init is separator.
+			shape.bodyStart = len(m.text)
+			if rest != nil {
+				shape.bodyStart = int(rest.Pos()) - base
 			}
-			shape.initEnd, shape.bodyStart = int(init.End())-base, int(rest.Pos())-base
 		}
 	}
 

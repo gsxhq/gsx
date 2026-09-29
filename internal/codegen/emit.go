@@ -4231,11 +4231,12 @@ const goExprLiteralErrorRemedy = "a js`/css`/f` literal in Go-expression positio
 // caseListErrRemedy and forClauseErrRemedy are the goexpr-literal-error
 // remedies for an error-carrying hole in a literal nested in a case list or a
 // for clause: a case list is evaluated lazily, case by case, and a for
-// condition/post statement runs every iteration, so neither has one statement
-// point to hoist the error return into.
+// condition/post statement runs every iteration (a clause is not split into
+// its range expression or init), so neither has one statement point to hoist
+// the error return into.
 const (
 	caseListErrRemedy  = "a case list has no statement to return the error from (cases are evaluated lazily) — compute the value before the switch"
-	forClauseErrRemedy = "a for clause has no statement to return the error from (its condition and post statement run every iteration) — compute the value before the loop"
+	forClauseErrRemedy = "a for clause has no statement to return the error from — compute the value before the loop"
 )
 
 // pipeSourceText reconstructs a hole's `seed |> stage1 |> stage2(args) …`

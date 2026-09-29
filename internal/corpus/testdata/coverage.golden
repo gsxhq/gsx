@@ -616,6 +616,7 @@ nested-literal/css_hole_thunk_error	diag gen render
 nested-literal/for_error	diag gen render
 nested-literal/header_init	diag gen render
 nested-literal/header_init_error	diag gen render
+nested-literal/tagless_switch_init	diag gen render
 nested-literal/value_form_thunk_tuple	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
@@ -1045,4 +1046,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1047 cases (render: 892, error: 117, gen-pinned: 588)
+TOTAL: 1048 cases (render: 893, error: 117, gen-pinned: 589)
