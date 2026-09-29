@@ -39,6 +39,7 @@ write it again. New and edited lines use the gsx form.
 | two copies of an element that differ in one attribute, class or word | one element: `disabled={closed}`, `class={ …, "text-yellow-500": starred }`, `{ if on { fill="currentColor" } else { fill="none" } }`, `{ if on { Starred } else { Star } }` |
 | `aria-pressed={strconv.FormatBool(b)}`, if/else writing `"true"`/`"false"` | `aria-pressed={b}` |
 | `{ fmt.Sprintf("%d", n) }`, `strconv.Itoa(n) + " comments"`, `cmp.Or(x, "—")`, a `labelFor(x) string` helper | `{ n } comments`, `{ x \|> default("—") }`, the project's filters and renderers (`gsx info` lists them) |
+| `must(f())`, or `{{ v, err := f(); if err != nil { return err } }}` for a value used once | the call in the hole: `id={lookupID(ctx, key)}`, ``href=f`/t/@{lookupID(ctx, key)}` ``; `(T, error)` unwraps everywhere and the error returns from `Render` |
 | `{ Card(CardProps{…}) }`, `{ Badge("x", "green") }` | `<Card title="x">…</Card>`, `<Badge tone="green">x</Badge>` |
 | `type ButtonProps struct{ Type, Disabled, HxPost, Class, Label string… }` | `component Button(variant string, children gsx.Node, attrs gsx.Attrs)`, see Components |
 | `gsx.Raw("<!-- note -->")`, `{{ /* note */ }}` | `// note` at line start, or `{/* note */}` |

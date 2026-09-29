@@ -108,27 +108,27 @@ url = "example.com/app/routes.URLFor"   # func(ctx, page any, args ...any) (stri
 
 Delete thin wrappers that only forward to the real helper.
 
-## No `must()` — move the error to the hole
+## No `must()` — put the fallible call in the hole
 
-templ code often wraps fallible helpers in `must(...)`. In gsx an attribute or
-interpolation hole unwraps `(T, error)`, and a `{{ }}` block may
-`return err` — it runs inside the render closure:
+templ code wraps fallible helpers in `must(...)`. gsx unwraps a `(T, error)`
+result in every expression position — text, native attributes, component
+inputs, `f`/`js`/`css` holes, pipeline stages — hoisting the call ahead of the
+write and returning the error from `Render`. Delete `must()` and pass the call
+straight through:
 
 ```gsx
-<form action={formAction(ctx, p)} method="post">   // formAction returns (string, error)
-
-component Card(key string) {
-	{{
-		id, err := lookupID(ctx, key)
-		if err != nil {
-			return err
-		}
-	}}
-	<Inner id={id}/>
-}
+<form action={formAction(ctx, p)} method="post">
+<Inner id={lookupID(ctx, key)}/>
+<a href=f`/items/@{lookupID(ctx, key)}`>…</a>
 ```
 
-Never add a `must()` or `panic` helper to a component.
+Don't pre-compute into a `{{ }}` block with `if err != nil { return err }` for
+a value used once; the hole already does that. Reach for the block only when
+one result feeds several holes and must be computed once, or when the error
+needs wrapping. A helper called with `ctx` across many templates is better
+registered as a filter (the leading `context.Context` is injected):
+`{ key |> lookupID }`. To handle an error locally instead of returning it, use
+an `if` init: `{ if id, err := lookupID(ctx, key); err == nil { … } }`.
 
 ## THE CHILDREN-BOUNDARY RULE (decides migration order)
 
