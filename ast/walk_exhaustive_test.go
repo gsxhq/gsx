@@ -202,6 +202,7 @@ func switchGSXTypes(sw *goast.TypeSwitchStmt, quals map[string]bool) []string {
 // it is either fixed or consciously registered here, and a stale entry is
 // reported as stale. Keys are "<module-relative file>:<enclosing func name>".
 var goPartSwitchFunctions = map[string]string{
+	"internal/codegen/emit.go:rawTextHoleExpr":                 "rejects the element/fragment parts of a <script>/<style> hole's GoPart split",
 	"internal/codegen/parenstrip.go:parenWrappable":            "asks whether a GoWithElements part is a paren-wrappable gsx value",
 	"internal/codegen/rebase.go:rebaseGoParts":                 "re-bases the embedded literals of a GoBlock/Interp GoPart split",
 	"internal/codegen/tagresolve.go:reconstructGoWithElements": "validates the GoPart kinds of a GoWithElements reconstruction",
@@ -210,7 +211,7 @@ var goPartSwitchFunctions = map[string]string{
 	"internal/jsx/jsx.go:resolveGoParts":                       "classifies the js` literals of a GoBlock/Interp GoPart split",
 	"internal/printer/printer.go:goExprValue":                  "builds the doc for one non-GoText GoWithElements part",
 	"internal/printer/printer.go:goWithElements":               "decides which GoWithElements parts are paren-strip eligible",
-	"internal/wsnorm/wsnorm.go:Normalize":                      "normalizes the element/fragment parts of a GoWithElements decl",
+	"internal/wsnorm/wsnorm.go:NormalizeGoParts":               "normalizes the element/fragment parts of a Go-expression split",
 	"parser/goexpr.go:markupKind":                              "names a parsed markup for the not-a-Go-expression-value error",
 	"parser/goexpr.go:splitGoElements":                         "admits *Element/*Fragment as top-level Go-expression values, rejecting all other markup",
 	"parser/goexpr.go:SplitGoExprElements":                     "admits *Element/*Fragment as embedded Go-expression values, rejecting all other markup",
