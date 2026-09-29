@@ -1746,6 +1746,96 @@ func TestPreprocessMalformedEmbeddedMarkupFailsClosed(t *testing.T) {
 	}
 }
 
+// The split fills the codegen-only overlay of every Go-expression field that
+// nests a construct — byte-exactly positioned, recursing into elements nested
+// in an overlay — while the nested-literal gate still rejects each position.
+func TestMaterializeSplitsGoFieldOverlays(t *testing.T) {
+	src := "package views\n" +
+		"component Page(id int) {\n" +
+		"\t<i title={wrap(f`t-@{id}`)} { bag(f`v-@{id}`)... }></i>\n" +
+		"\t<i class={ wrap(f`c-@{id}`), \"on\": ok(f`d-@{id}`), if ok(f`e-@{id}`) { wrap(f`g-@{id}`) } }></i>\n" +
+		"\t<i style={ switch wrap(f`s-@{id}`) { case wrap(f`k-@{id}`): \"a:b\" } }></i>\n" +
+		"\t<C attrs={{ \"k\": wrap(f`p-@{id}`), \"n\":\n\t\twrap(f`q-@{id}`) }}/>\n" +
+		"\t<i { if ok(f`ca-@{id}`) { title=\"x\" } }></i>\n" +
+		"\t<i { switch wrap(f`sa-@{id}`) { case wrap(f`sc-@{id}`): title=\"y\" } }></i>\n" +
+		"\t{ if ok(f`if-@{id}`) { <b/> } }\n" +
+		"\t{ for _, s := range list(f`for-@{id}`) { <b>{ s }</b> } }\n" +
+		"\t{ switch wrap(f`sw-@{id}`) { case wrap(f`cs-@{id}`): <b/> } }\n" +
+		"\t<?marker name={wrap(f`m-@{id}`)}>\n" +
+		"\t<i title={wrapN(<b title={wrap(f`inner-@{id}`)}/>)}></i>\n" +
+		"}\n"
+	fset := token.NewFileSet()
+	file := parseTargetTestFile(t, fset, "views.gsx", src)
+	// The parser yields a whole-literal ExprAttr only on a stage-parse
+	// fallback; inject one (reusing a valid position) to pin that it stays
+	// unsplit.
+	first := file.Decls[0].(*gsxast.Component).Body[0].(*gsxast.Element)
+	first.Attrs = append(first.Attrs, &gsxast.ExprAttr{Name: "data-w", Expr: "f`whole-@{id}`", ExprPos: first.Attrs[0].(*gsxast.ExprAttr).ExprPos})
+	bag := diag.NewBag(fset)
+	if materializeEmbeddedMarkup(file, attrclass.Builtin(), fset, bag) {
+		t.Fatal("materialize succeeded; the nested-literal gate must still reject these positions")
+	}
+	for _, d := range bag.Sorted() {
+		if d.Code != "nested-literal" {
+			t.Errorf("unexpected diagnostic %s: %s", d.Code, d.Message)
+		}
+	}
+
+	wantSplit := map[string]bool{
+		"wrap(f`t-@{id}`)": true, "f`whole-@{id}`": false, "bag(f`v-@{id}`)": true,
+		"wrap(f`c-@{id}`)": true, "ok(f`d-@{id}`)": true, "ok(f`e-@{id}`)": true, "wrap(f`g-@{id}`)": true,
+		"wrap(f`s-@{id}`)": true, "wrap(f`k-@{id}`)": true,
+		"wrap(f`p-@{id}`)": true, "wrap(f`q-@{id}`)": true,
+		"ok(f`ca-@{id}`)": true, "wrap(f`sa-@{id}`)": true, "wrap(f`sc-@{id}`)": true,
+		"ok(f`if-@{id}`)": true, "_, s := range list(f`for-@{id}`)": true,
+		"wrap(f`sw-@{id}`)": true, "wrap(f`cs-@{id}`)": true,
+		"wrap(f`m-@{id}`)":                         true,
+		"wrapN(<b title={wrap(f`inner-@{id}`)}/>)": true, "wrap(f`inner-@{id}`)": true,
+	}
+	seen := map[string]bool{}
+	var visit func(gsxast.Node) bool
+	visit = func(n gsxast.Node) bool {
+		gsxast.GoFields(n, func(f gsxast.GoField) {
+			text := strings.TrimSpace(f.Src)
+			want, listed := wantSplit[text]
+			if !listed {
+				return
+			}
+			seen[text] = true
+			overlay := *f.Embedded
+			if !want {
+				if overlay != nil {
+					t.Errorf("%q: whole-literal attribute value was split: %#v", text, overlay)
+				}
+				return
+			}
+			construct := false
+			for _, part := range overlay {
+				switch part := part.(type) {
+				case gsxast.GoText:
+					off := fset.Position(part.Pos()).Offset
+					if got := src[off : off+len(part.Src)]; got != part.Src {
+						t.Errorf("%q: GoText %q is positioned at %q", text, part.Src, got)
+					}
+				case *gsxast.EmbeddedInterp, *gsxast.Element:
+					construct = true
+				}
+				gsxast.Inspect(part, visit)
+			}
+			if !construct {
+				t.Errorf("%q: overlay has no nested construct: %#v", text, overlay)
+			}
+		})
+		return true
+	}
+	gsxast.Inspect(file, visit)
+	for text := range wantSplit {
+		if !seen[text] {
+			t.Errorf("field %q not reached", text)
+		}
+	}
+}
+
 func TestPreprocessMalformedGoWithElementsFailsClosed(t *testing.T) {
 	fset := token.NewFileSet()
 	file := parseTargetTestFile(t, fset, "views.gsx", `package views

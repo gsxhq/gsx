@@ -37,9 +37,11 @@ var errSkipComponent = errors.New("skip component")
 // fail closed before later analysis stages.
 //
 // Materialized markup can recursively contain another splittable expression,
-// so the walk covers every []Markup-bearing field plus Interp.Embedded and
-// GoBlock.Embedded. The following preprocessing stage runs JSX classification
-// over this complete expanded tree.
+// so the walk covers every []Markup-bearing field plus Interp.Embedded,
+// GoBlock.Embedded and every Go-expression field's codegen-only overlay
+// (ExprAttr.Embedded, IfMarkup.CondEmbedded, … — see gsxast.GoFields). The
+// following preprocessing stage runs JSX classification over this complete
+// expanded tree.
 func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet, bag *diag.Bag) bool {
 	var walk func([]gsxast.Markup)
 	var walkParts func([]gsxast.GoPart)
@@ -55,22 +57,50 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 		return ok
 	}
 
-	splitInterp := func(interp *gsxast.Interp) {
-		if interp.Embedded != nil || !maySplit(interp.Expr) || !interp.ExprPos.IsValid() {
-			return
+	// splitGoField splits the Go expression src, whose first byte is at pos,
+	// at its nested constructs. It returns nil parts when src has none (or pos
+	// is unavailable), and false after reporting positioned split errors.
+	splitGoField := func(src string, pos token.Pos) ([]gsxast.GoPart, bool) {
+		if !maySplit(src) || !pos.IsValid() {
+			return nil, true
 		}
-		parts, errs := gsxparser.SplitGoExprElements(fset, interp.Expr, interp.ExprPos, cls)
+		parts, errs := gsxparser.SplitGoExprElements(fset, src, pos, cls)
 		if len(errs) > 0 {
 			syntaxOK = false
 			for _, err := range errs {
 				bag.Report(err.Pos, err.End, diag.Error, "parse-error", "parser", "%s", err.Msg)
 			}
-			return
+			return nil, false
 		}
 		if len(parts) == 0 {
+			return nil, true
+		}
+		return parts, true
+	}
+	// splitFields fills the codegen-only overlay of every Go-expression field
+	// markup node m carries (never replacing an existing one) and walks each
+	// overlay's markup parts so nested elements are split and gated in turn.
+	splitFields := func(m gsxast.Markup) {
+		gsxast.MarkupGoFields(m, func(f gsxast.GoField) {
+			// A literal that is an attribute's whole value has its own lowering.
+			if _, isAttr := f.Owner.(*gsxast.ExprAttr); isAttr && isWholeLiteral(f.Src) {
+				return
+			}
+			if *f.Embedded == nil {
+				if parts, ok := splitGoField(f.Src, f.Pos); ok {
+					*f.Embedded = parts
+				}
+			}
+			walkParts(*f.Embedded)
+		})
+	}
+	splitInterp := func(interp *gsxast.Interp) {
+		if interp.Embedded != nil {
 			return
 		}
-		interp.Embedded = parts
+		if parts, ok := splitGoField(interp.Expr, interp.ExprPos); ok {
+			interp.Embedded = parts
+		}
 	}
 	splitGoBlock := func(block *gsxast.GoBlock) {
 		if block.Embedded != nil {
@@ -116,6 +146,7 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 			case *gsxast.EmbeddedInterp:
 				walk(node.Segments)
 			case *gsxast.Element:
+				splitFields(node)
 				if !gateNestedLiteralAttrs(node.Attrs, bag) {
 					syntaxOK = false
 				}
@@ -123,24 +154,29 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 				walk(node.Children)
 			case *gsxast.Fragment:
 				walk(node.Children)
+			case *gsxast.Marker:
+				splitFields(node)
 			case *gsxast.MarkerRegion:
+				splitFields(node)
 				// A region's children carry ordinary `{ }` / `{{ }}` nodes whose
 				// embedded f`/js`/css` literals must be split here; without this the
 				// literal stays inside the raw Go text and go/parser rejects it.
-				// (Marker is void — no children.)
 				walk(node.Children)
 			case *gsxast.ForMarkup:
+				splitFields(node)
 				if !gateNestedLiteralHeaders(node, bag) {
 					syntaxOK = false
 				}
 				walk(node.Body)
 			case *gsxast.IfMarkup:
+				splitFields(node)
 				if !gateNestedLiteralHeaders(node, bag) {
 					syntaxOK = false
 				}
 				walk(node.Then)
 				walk(node.Else)
 			case *gsxast.SwitchMarkup:
+				splitFields(node)
 				if !gateNestedLiteralHeaders(node, bag) {
 					syntaxOK = false
 				}

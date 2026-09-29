@@ -125,15 +125,18 @@ func cloneMarkup(m Markup) Markup {
 		return &n
 	case *IfMarkup:
 		n := *v
+		n.CondEmbedded = cloneGoParts(v.CondEmbedded)
 		n.Then = cloneMarkups(v.Then)
 		n.Else = cloneMarkups(v.Else)
 		return &n
 	case *ForMarkup:
 		n := *v
+		n.ClauseEmbedded = cloneGoParts(v.ClauseEmbedded)
 		n.Body = cloneMarkups(v.Body)
 		return &n
 	case *SwitchMarkup:
 		n := *v
+		n.TagEmbedded = cloneGoParts(v.TagEmbedded)
 		n.Cases = cloneCaseClauses(v.Cases)
 		return &n
 	default:
@@ -148,6 +151,7 @@ func cloneCaseClauses(in []*CaseClause) []*CaseClause {
 	out := make([]*CaseClause, len(in))
 	for i, c := range in {
 		n := *c
+		n.ListEmbedded = cloneGoParts(c.ListEmbedded)
 		n.Body = cloneMarkups(c.Body)
 		out[i] = &n
 	}
@@ -161,6 +165,7 @@ func cloneAttrCaseClauses(in []*AttrCaseClause) []*AttrCaseClause {
 	out := make([]*AttrCaseClause, len(in))
 	for i, c := range in {
 		n := *c
+		n.ListEmbedded = cloneGoParts(c.ListEmbedded)
 		n.Body = cloneAttrs(c.Body)
 		out[i] = &n
 	}
@@ -186,6 +191,7 @@ func cloneAttr(a Attr) Attr {
 	case *ExprAttr:
 		n := *v
 		n.Stages = clonePipeStages(v.Stages)
+		n.Embedded = cloneGoParts(v.Embedded)
 		return &n
 	case *BoolAttr:
 		n := *v
@@ -193,6 +199,7 @@ func cloneAttr(a Attr) Attr {
 	case *SpreadAttr:
 		n := *v
 		n.Stages = clonePipeStages(v.Stages)
+		n.Embedded = cloneGoParts(v.Embedded)
 		return &n
 	case *MarkupAttr:
 		n := *v
@@ -205,11 +212,13 @@ func cloneAttr(a Attr) Attr {
 		return &n
 	case *CondAttr:
 		n := *v
+		n.CondEmbedded = cloneGoParts(v.CondEmbedded)
 		n.Then = cloneAttrs(v.Then)
 		n.Else = cloneAttrs(v.Else)
 		return &n
 	case *SwitchAttr:
 		n := *v
+		n.TagEmbedded = cloneGoParts(v.TagEmbedded)
 		n.Cases = cloneAttrCaseClauses(v.Cases)
 		return &n
 	case *ComposedAttr:
@@ -269,6 +278,8 @@ func cloneComposedParts(in []ComposedPart) []ComposedPart {
 func cloneComposedPart(p ComposedPart) ComposedPart {
 	// p is already a value copy; deep-copy its mutable slices/pointers.
 	p.Stages = clonePipeStages(p.Stages)
+	p.ExprEmbedded = cloneGoParts(p.ExprEmbedded)
+	p.CondEmbedded = cloneGoParts(p.CondEmbedded)
 	p.LiteralSegments = cloneMarkups(p.LiteralSegments)
 	if p.CF != nil {
 		p.CF = cloneValueCF(p.CF)
@@ -289,6 +300,7 @@ func cloneValueCF(cf *ValueCF) *ValueCF {
 
 func cloneValueIf(vi *ValueIf) *ValueIf {
 	n := *vi
+	n.CondEmbedded = cloneGoParts(vi.CondEmbedded)
 	if vi.Then != nil {
 		n.Then = cloneValueArm(vi.Then)
 	}
@@ -303,10 +315,12 @@ func cloneValueIf(vi *ValueIf) *ValueIf {
 
 func cloneValueSwitch(vs *ValueSwitch) *ValueSwitch {
 	n := *vs
+	n.TagEmbedded = cloneGoParts(vs.TagEmbedded)
 	if vs.Cases != nil {
 		n.Cases = make([]*ValueSwitchCase, len(vs.Cases))
 		for i, c := range vs.Cases {
 			cn := *c
+			cn.ListEmbedded = cloneGoParts(c.ListEmbedded)
 			if c.Value != nil {
 				cn.Value = cloneValueArm(c.Value)
 			}
@@ -319,6 +333,7 @@ func cloneValueSwitch(vs *ValueSwitch) *ValueSwitch {
 func cloneValueArm(va *ValueArm) *ValueArm {
 	n := *va
 	n.Stages = clonePipeStages(va.Stages)
+	n.Embedded = cloneGoParts(va.Embedded)
 	n.Segments = cloneMarkups(va.Segments)
 	return &n
 }
@@ -327,10 +342,13 @@ func cloneOrderedPairs(in []OrderedPair) []OrderedPair {
 	if in == nil {
 		return nil
 	}
-	// OrderedPair carries only immutable leaves; a fresh backing array is all
-	// that is needed so &out[i] differs from the pristine tree's pointers.
+	// A fresh backing array makes &out[i] differ from the pristine tree's
+	// pointers; the codegen-only Embedded overlay is the one mutable field.
 	out := make([]OrderedPair, len(in))
-	copy(out, in)
+	for i := range in {
+		out[i] = in[i]
+		out[i].Embedded = cloneGoParts(in[i].Embedded)
+	}
 	return out
 }
 

@@ -223,6 +223,7 @@ func zeroSpans(n ast.Node) {
 			case *ast.OrderedAttrsAttr:
 				for i := range v.Pairs {
 					ast.SetSpan(&v.Pairs[i], 0, 0)
+					v.Pairs[i].ValuePos = 0
 				}
 			}
 		}

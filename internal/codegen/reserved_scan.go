@@ -87,7 +87,24 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 		}
 	}
 
-	gsxast.Inspect(file, func(n gsxast.Node) bool {
+	// A Go-expression field whose codegen split filled its overlay is scanned
+	// through the overlay: its Go text runs plus the nodes nested in it, whose
+	// @{ } holes a raw scan of the field misses (a backtick literal lexes as one
+	// string token).
+	var visit func(gsxast.Node) bool
+	fields := func(n gsxast.Node) {
+		gsxast.GoFields(n, func(f gsxast.GoField) {
+			if *f.Embedded == nil {
+				scan(f.Src, f.Pos)
+				return
+			}
+			for _, part := range *f.Embedded {
+				gsxast.Inspect(part, visit)
+			}
+		})
+	}
+	visit = func(n gsxast.Node) bool {
+		fields(n)
 		switch x := n.(type) {
 		case *gsxast.Component:
 			// Type parameters live in the function scope and may legally use most
@@ -119,47 +136,21 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)
 		case *gsxast.ExprAttr:
-			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)
 		case *gsxast.SpreadAttr:
-			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)
-		case *gsxast.IfMarkup:
-			scan(x.Cond, x.CondPos)
-		case *gsxast.ForMarkup:
-			scan(x.Clause, x.ClausePos)
-		case *gsxast.SwitchMarkup:
-			scan(x.Tag, x.TagPos)
-		case *gsxast.CaseClause:
-			scan(x.List, x.ListPos)
-		case *gsxast.CondAttr:
-			scan(x.Cond, x.CondPos)
-		case *gsxast.SwitchAttr:
-			scan(x.Tag, x.TagPos)
-		case *gsxast.AttrCaseClause:
-			scan(x.List, x.ListPos)
 		case *gsxast.ComposedPart:
-			scan(x.Expr, x.ExprPos)
-			scan(x.Cond, x.CondPos)
 			stages(x.Stages)
 		case *gsxast.ValueArm:
-			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)
-		case *gsxast.ValueIf:
-			scan(x.Cond, x.CondPos)
-		case *gsxast.ValueSwitch:
-			scan(x.Tag, x.TagPos)
-		case *gsxast.ValueSwitchCase:
-			scan(x.List, x.ListPos)
-		case *gsxast.OrderedPair:
-			scan(x.Value, x.Pos())
 		case *gsxast.EmbeddedAttr:
 			stages(x.Stages)
 		case *gsxast.EmbeddedInterp:
 			stages(x.Stages)
 		}
 		return true
-	})
+	}
+	gsxast.Inspect(file, visit)
 	return out
 }
 

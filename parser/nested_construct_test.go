@@ -88,3 +88,40 @@ func TestNestedConstructHeadersParse(t *testing.T) {
 		t.Errorf("if cond = %q, want %q", cond, want)
 	}
 }
+
+// OrderedPair.ValuePos is the byte-exact base of Value, which the codegen
+// split of a nested literal in an ordered-attrs value needs; a value starting
+// on the line after its colon must still anchor at its first byte.
+func TestOrderedPairValuePos(t *testing.T) {
+	src := "package v\n\ncomponent A() {\n" +
+		"\t<C attrs={{ \"k\": wrap(f`a`), \"n\":\n\t\twrapN(<b/>) }}/>\n" +
+		"}\n"
+	fset := token.NewFileSet()
+	f, errs := ParseFile(fset, "x.gsx", src, 0)
+	if errs != nil {
+		t.Fatalf("ParseFile: %v", errs)
+	}
+	var pairs []ast.OrderedPair
+	ast.Inspect(f, func(n ast.Node) bool {
+		if oa, ok := n.(*ast.OrderedAttrsAttr); ok {
+			pairs = oa.Pairs
+		}
+		return true
+	})
+	want := []string{"wrap(", "wrapN("}
+	if len(pairs) != len(want) {
+		t.Fatalf("got %d pairs, want %d", len(pairs), len(want))
+	}
+	for i, pr := range pairs {
+		if !pr.ValuePos.IsValid() {
+			t.Fatalf("pair %d: ValuePos is NoPos", i)
+		}
+		off := fset.Position(pr.ValuePos).Offset
+		if !strings.HasPrefix(src[off:], want[i]) {
+			t.Errorf("pair %d: src[ValuePos:] = %q, want prefix %q", i, src[off:min(off+10, len(src))], want[i])
+		}
+		if got := src[off : off+len(pr.Value)]; got != pr.Value {
+			t.Errorf("pair %d: src[ValuePos:+len(Value)] = %q, want %q", i, got, pr.Value)
+		}
+	}
+}

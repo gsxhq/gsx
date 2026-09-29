@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/gsxhq/gsx/ast"
 )
@@ -1120,9 +1121,15 @@ func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, err
 			valueEnd--
 		}
 
+		// ValuePos is byte-exact for Value (rawValue is TrimSpace'd, so the
+		// left trim here must match it exactly).
+		valueRest := src[colon+1 : segEnd]
+		valuePosOff := colon + 1 + len(valueRest) - len(strings.TrimLeftFunc(valueRest, unicode.IsSpace))
+
 		var pr ast.OrderedPair
 		pr.Key = key
 		pr.Value = rawValue
+		pr.ValuePos = p.posAt(base + valuePosOff)
 		ast.SetSpan(&pr, p.posAt(base+valueStart), p.posAt(base+valueEnd))
 		pairs = append(pairs, pr)
 	}

@@ -23,13 +23,21 @@ import (
 // segments recurse normally: nav reaches them as the SAME node types (and thus
 // the SAME resolution) a body child would have. Nested embedding (an embedded
 // interp that itself carries Embedded) is handled because the shared visit
-// closure re-descends on every *Interp/*GoBlock it meets.
+// closure re-descends on every *Interp/*GoBlock it meets. The same holds for
+// every other Go-expression field's codegen-only overlay (attribute values,
+// spreads, class/style parts, conditional and control-flow headers — see
+// gsxast.GoFields), descended right after its owning node.
 func inspectWithEmbedded(node gsxast.Node, f func(gsxast.Node) bool) {
 	var visit func(gsxast.Node) bool
 	visit = func(n gsxast.Node) bool {
 		if !f(n) {
 			return false
 		}
+		gsxast.GoFields(n, func(field gsxast.GoField) {
+			for _, part := range *field.Embedded {
+				gsxast.Inspect(part, visit)
+			}
+		})
 		switch t := n.(type) {
 		case *gsxast.Interp:
 			for _, part := range t.Embedded {

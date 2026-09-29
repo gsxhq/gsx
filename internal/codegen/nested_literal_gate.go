@@ -121,7 +121,7 @@ func gateNestedLiteral(src string, pos token.Pos, anchor gsxast.Node, where stri
 	if len(cs) == 0 {
 		return true
 	}
-	if allowWhole && len(cs) == 1 && !cs[0].IsElement && cs[0].Off == 0 && cs[0].End == len(strings.TrimRight(src, " \t\r\n")) {
+	if allowWhole && isWholeLiteral(src) {
 		return true
 	}
 	for _, c := range cs {
@@ -138,6 +138,14 @@ func gateNestedLiteral(src string, pos token.Pos, anchor gsxast.Node, where stri
 			"%s literal inside a Go expression is not supported in %s yet; assign it to a variable in a {{ }} block first", literalArticle(src[c.Off:]), where)
 	}
 	return false
+}
+
+// isWholeLiteral reports whether src is exactly one prefixed literal (an
+// f, js or css literal, either delimiter) and nothing else: a braced
+// attribute value of that shape has its own lowering and is not nested.
+func isWholeLiteral(src string) bool {
+	cs := gsxparser.EmbeddedConstructs(src)
+	return len(cs) == 1 && !cs[0].IsElement && cs[0].Off == 0 && cs[0].End == len(strings.TrimRight(src, " \t\r\n"))
 }
 
 // literalArticle names the literal starting s with its article: "an f", "a
