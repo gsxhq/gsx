@@ -2363,9 +2363,11 @@ func probePipeWrap(call string) string { return "_gsxunwrap(" + call + ")" }
 // before the class/style part list and returns the temp name. style=true wraps
 // each arm value with styleDeclExpr (CSS-value filtering for dynamic arms).
 // resolved maps each *ast.ValueArm to its harvest type; when an arm's type is
-// a (T, error) tuple, armExpr calls hoistTuple to emit the unwrap inline. lc
-// lowers nested literals and elements in the control expressions and arms
-// (see emitValueIf / emitValueSwitch); an arm's hoists land inside its branch.
+// a (T, error) tuple, armExpr emits the unwrap inline. lc lowers nested
+// literals and elements in the control expressions and arms (see emitValueIf /
+// emitValueSwitch); an arm's hoists land inside its branch. Every hoist (tuple,
+// pipeline stage, renderer, literal-arm hole) returns through lc.errReturn, so
+// an arm inside an AttrsCond thunk returns `nil, _gsxerr`.
 func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, style bool, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) (string, bool) {
 	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 	*interpTemp++
@@ -2376,13 +2378,13 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 		// declaration for style), hence no styleDeclExpr wrap and no renderer
 		// pass — exactly how composedParts treats a literal part.
 		if a.Segments != nil {
-			return composedLiteralSegmentsExpr(b, a.Segments, a.Pos(), a.End(), style, resolved, table, imports, rt, interpTemp, bag)
+			return composedLiteralSegmentsExpr(b, a.Segments, style, resolved, table, imports, rt, interpTemp, bag, lc.errReturn)
 		}
 		seed, ok := lc.field(b, a.Expr, a.Embedded, a)
 		if !ok {
 			return "", false
 		}
-		expr, used, err := lowerComposedPartSeed(seed, a.Stages, table, emitPipeWrap(b, interpTemp))
+		expr, used, err := lowerComposedPartSeed(seed, a.Stages, table, pipeWrapReturning(b, interpTemp, lc.errReturn))
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return "", false
@@ -2391,9 +2393,10 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 			imports[path] = true
 		}
 		// If the arm's harvest type is a (T, error) tuple, unwrap it inline.
-		// hoistTuple writes `_gsxvN, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`
-		// into b at this point — which is AFTER the if/case label and BEFORE the
-		// _gsxvN = ... assignment, so the hoist lands inside the correct block.
+		// hoistTupleReturning writes `_gsxvN, _gsxerr := expr; if _gsxerr != nil
+		// { <lc.errReturn> }` into b at this point — which is AFTER the if/case
+		// label and BEFORE the _gsxvN = ... assignment, so the hoist lands inside
+		// the correct block.
 		if t := resolved[a]; t != nil {
 			if tup, isTuple := t.(*types.Tuple); isTuple {
 				elemT, ok := tupleUnwrapType(tup)
@@ -2405,7 +2408,7 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 					bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "%s value-form arm %q returns %s; only (T, error) is supported", kind, a.Expr, t)
 					return "", false
 				}
-				expr = hoistTuple(b, expr, interpTemp)
+				expr = hoistTupleReturning(b, expr, interpTemp, lc.errReturn)
 				t = elemT
 			}
 			// The arm's value is assigned directly to the CF's own temp var
@@ -2413,7 +2416,7 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 			// no extra position-preserving capture is needed here — unlike
 			// composedParts' plain-part list, which joins several parts into ONE
 			// final call.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, lc.errReturn)
 		}
 		if style {
 			expr = styleDeclExpr(expr, rt, len(a.Stages) > 0)
@@ -3713,12 +3716,13 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 // (lowerCtx.elements unset) are both rejected — element values are gsx.Node closures, which no
 // attribute-literal hole can render. Any hoist emitted by a nested hole lands in
 // hoistBuf BEFORE this returns, so it precedes the statement that consumes the
-// assembled expression, exactly as holeStringExpr's own hoists do.
-func assembleHoleSeed(hoistBuf *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, rejectErr, rejectCtx bool) (string, bool) {
+// assembled expression, exactly as holeStringExpr's own hoists do. errReturn is
+// the enclosing function's error-return statement, which those hoists use.
+func assembleHoleSeed(hoistBuf *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, rejectErr, rejectCtx bool) (string, bool) {
 	if n.Embedded == nil {
 		return strings.TrimSpace(n.Expr), true
 	}
-	expr, ok := lowerGoParts(hoistBuf, n.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, bag: bag, hasCtx: !rejectCtx, canHoist: !rejectErr, errReturn: "return _gsxerr", owner: n})
+	expr, ok := lowerGoParts(hoistBuf, n.Embedded, lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, bag: bag, hasCtx: !rejectCtx, canHoist: !rejectErr, errReturn: errReturn, owner: n})
 	if !ok {
 		return "", false
 	}
@@ -3757,7 +3761,7 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 	// A hole carrying a nested prefixed literal (n.Embedded != nil) is
 	// reassembled from its parts; a plain hole is its Expr verbatim. Nested-hole
 	// hoists land in b before this returns, ahead of the consuming stmt.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, rejectErr, rejectCtx)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, errReturn, rejectErr, rejectCtx)
 	if !sok {
 		return "", false
 	}
@@ -3899,7 +3903,7 @@ func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	// An attribute literal is inside the render closure (ctx binds, b is a clean
 	// hoist channel), so a nested literal's holes may hoist and take ctx.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, false, false)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false)
 	if !sok {
 		return false
 	}
@@ -3940,7 +3944,7 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	// An attribute literal is inside the render closure (ctx binds, b is a clean
 	// hoist channel), so a nested literal's holes may hoist and take ctx.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, false, false)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false)
 	if !sok {
 		return false
 	}
@@ -3980,7 +3984,7 @@ func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]ty
 func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	// An attribute literal is inside the render closure (ctx binds, b is a clean
 	// hoist channel), so a nested literal's holes may hoist and take ctx.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, false, false)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false)
 	if !sok {
 		return false
 	}
@@ -4076,7 +4080,7 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 	// reassembled from its parts; a plain hole is its Expr verbatim. Nested-hole
 	// hoists land in b before this returns, ahead of the consuming stmt. exprPos
 	// is the error-rejection flag (rejectErr) at this Go-expression site.
-	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, exprPos, rejectCtx)
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, rejectCtx)
 	if !sok {
 		return "", nil, false
 	}
@@ -4485,7 +4489,7 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 			continue
 		}
 		if p.LiteralSegments != nil {
-			val, ok := composedLiteralPartExpr(b, p, style, resolved, table, imports, rt, interpTemp, bag)
+			val, ok := composedLiteralPartExpr(b, p, style, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			if !ok {
 				return nil, false
 			}
@@ -4580,25 +4584,27 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 // has already rejected the other language, so this only has to pick the
 // lowering. Each hole is escaped by its own context's sanitizer either way, so
 // composing a literal never widens what a hole may contribute.
-func composedLiteralPartExpr(b *bytes.Buffer, p *ast.ComposedPart, style bool, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
-	return composedLiteralSegmentsExpr(b, p.LiteralSegments, p.Pos(), p.End(), style, resolved, table, imports, rt, interpTemp, bag)
+func composedLiteralPartExpr(b *bytes.Buffer, p *ast.ComposedPart, style bool, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
+	return composedLiteralSegmentsExpr(b, p.LiteralSegments, style, resolved, table, imports, rt, interpTemp, bag, errReturn)
 }
 
 // composedLiteralSegmentsExpr is composedLiteralPartExpr over bare segments, so
 // a *ast.ValueArm literal can reuse the identical lowering its non-arm
 // counterpart uses — one path, so an arm and a plain part can never diverge.
-func composedLiteralSegmentsExpr(b *bytes.Buffer, segments []ast.Markup, pos, end token.Pos, style bool, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+// errReturn is the enclosing function's error-return statement; every hole
+// hoist (nested literal, pipeline, tuple, renderer) uses it.
+func composedLiteralSegmentsExpr(b *bytes.Buffer, segments []ast.Markup, style bool, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
 	if style {
-		return cssLiteralStylePartExpr(b, segments, resolved, table, imports, rt, interpTemp, bag)
+		return cssLiteralStylePartExpr(b, segments, resolved, table, imports, rt, interpTemp, bag, errReturn)
 	}
 	// A class f`…` literal is an ordinary interpolated text value: each hole is
 	// HTML-escaped by embeddedValueExpr, and the joined string is then merged
 	// as one class contribution.
-	return embeddedValueExpr(b, segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", false, false,
+	return embeddedValueExpr(b, segments, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false,
 		"invalid-tuple", "class f literal interpolation")
 }
 
-func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
 	parts := make([]string, 0, len(segments))
 	for _, seg := range segments {
 		switch s := seg.(type) {
@@ -4609,12 +4615,12 @@ func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved ma
 		case *ast.Interp:
 			// A hole carrying a nested literal (s.Embedded) is reassembled from
 			// its parts, exactly as holeStringExpr does for a class f`…` hole.
-			expr, ok := assembleHoleSeed(b, s, resolved, table, imports, rt, interpTemp, bag, false, false)
+			expr, ok := assembleHoleSeed(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, false, false)
 			if !ok {
 				return "", false
 			}
 			if len(s.Stages) > 0 {
-				lowered, usedPkgs, err := lowerPipe(expr, s.Stages, table, emitPipeWrap(b, interpTemp))
+				lowered, usedPkgs, err := lowerPipe(expr, s.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
 				if err != nil {
 					bag.Errorf(s.Pos(), s.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return "", false
@@ -4631,12 +4637,12 @@ func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved ma
 					bag.Errorf(s.Pos(), s.End(), "invalid-tuple", "style css literal interpolation %q returns %s; only (T, error) is supported", expr, t)
 					return "", false
 				}
-				expr = hoistTuple(b, expr, interpTemp)
+				expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
 				t = elemT
 			}
 			// Renderer FIRST: StyleValue(any) would otherwise fmt.Sprint the raw
 			// registered-type value instead of the author's rendered string.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
 			parts = append(parts, rt.rt()+".StyleValue("+expr+")")
 		default:
 			bag.Errorf(seg.Pos(), seg.End(), "unsupported-style-part", "css literal style parts may contain only text and @{ } interpolations, got %T", seg)
@@ -5157,6 +5163,21 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 		fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
 		return tmp
 	}
+	// literalExpr lowers an f`…` class literal (a part or a value-form arm)
+	// through the element path's composedLiteralSegmentsExpr, folding any
+	// imported package into usedPkgs. Its diagnostics are already positioned
+	// in the bag. Probe mode stubs it like any other part value (#85).
+	literalExpr := func(segments []ast.Markup) (string, bool) {
+		if probeWrap {
+			return `""`, true
+		}
+		scratch := map[string]bool{}
+		expr, ok := composedLiteralSegmentsExpr(b, segments, false, resolved, table, scratch, lc.rt, interpTemp, lc.bag, lc.errReturn)
+		for path := range scratch {
+			usedPkgs[path] = path
+		}
+		return expr, ok
+	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
@@ -5165,6 +5186,13 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
 			var lowerErr error
 			armExpr := func(arm *ast.ValueArm) (string, bool) {
+				if arm.Segments != nil {
+					expr, ok := literalExpr(arm.Segments)
+					if !ok {
+						lowerErr = errBagDiagReported
+					}
+					return expr, ok
+				}
 				seed, ok := lc.field(b, arm.Expr, arm.Embedded, arm)
 				if !ok {
 					lowerErr = errBagDiagReported
@@ -5230,6 +5258,30 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: strings.TrimPrefix(lowerErr.Error(), "codegen: ")}
 			}
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, tmp))
+			continue
+		}
+		if p.LiteralSegments != nil {
+			// Same shape as composedParts' literal part: the value is used in
+			// place; an ordered guard is pinned in a temp.
+			val, ok := literalExpr(p.LiteralSegments)
+			if !ok {
+				return "", nil, errBagDiagReported
+			}
+			if p.Cond == "" {
+				parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, val))
+				continue
+			}
+			cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
+			if !ok {
+				return "", nil, errBagDiagReported
+			}
+			if ordered {
+				condTmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, cond)
+				cond = condTmp
+			}
+			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, val, cond))
 			continue
 		}
 		seed, ok := lc.field(b, p.Expr, p.ExprEmbedded, p)

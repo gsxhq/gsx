@@ -87,6 +87,7 @@ buildtags/method_variant	diag render
 buildtags/redeclare_within_file	diag(error)
 buildtags/variant_diff_sig	diag(error)
 buildtags/variant_same_sig	diag render
+class/bag_literal_part	diag gen render
 class/body_local_in_class	diag gen render
 class/body_local_pipe_class	diag gen render
 class/caller_wins_classstyle	diag render
@@ -605,6 +606,8 @@ nested-literal/class_case_error	diag gen render
 nested-literal/class_hoist	diag gen render
 nested-literal/class_hoist_error	diag gen render
 nested-literal/class_style	diag gen render
+nested-literal/css_hole_thunk_error	diag gen render
+nested-literal/value_form_thunk_tuple	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
 nestedforward/case_d_hoist	diag gen render
@@ -1033,4 +1036,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1035 cases (render: 880, error: 117, gen-pinned: 574)
+TOTAL: 1038 cases (render: 883, error: 117, gen-pinned: 577)
