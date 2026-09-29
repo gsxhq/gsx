@@ -67,10 +67,7 @@ func Page(id string, w string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0 := _gsxrt.EscapeJSVal(id)
-		_gsxa2 := _gsxrt.RawJS("open(" + _gsxv0 + ")")
-		_gsxv1 := _gsxrt.FilterCSS(string(w))
-		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxa2, _gsxrt.RawCSS("width:"+_gsxv1+"px")))
+		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxrt.RawJS("open("+_gsxrt.EscapeJSVal(id)+")"), _gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(string(w))+"px")))
 		return _gsxgw.Err()
 	})
 }

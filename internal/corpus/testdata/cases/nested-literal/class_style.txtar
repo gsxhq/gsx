@@ -124,29 +124,28 @@ func Page(id int, u *U) _gsxrt.Node {
 //line input.gsx:18:2
 		_gsxgw.S("<i")
 		_gsxv14 := "color: red"
-		_gsxv15 := _gsxrt.FilterCSS(_gsxsc.FormatInt(int64(id), 10))
-		_gsxv16 := wrapCSS(_gsxrt.RawCSS("width:" + _gsxv15 + "px"))
+		_gsxv15 := wrapCSS(_gsxrt.RawCSS("width:" + _gsxrt.FilterCSS(_gsxsc.FormatInt(int64(id), 10)) + "px"))
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Style(_gsxv14), _gsxrt.Style(_gsxrt.StyleValue(_gsxv16)))
+		_gsxgw.Style(_gsxrt.Style(_gsxv14), _gsxrt.Style(_gsxrt.StyleValue(_gsxv15)))
 		_gsxgw.S("\"></i>")
 //line input.gsx:19:2
 		_gsxgw.S("<i")
-		var _gsxv17 string
+		var _gsxv16 string
 		if id > 0 {
-			_gsxv17 = "top:" + _gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10))) + "px"
+			_gsxv16 = "top:" + _gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10))) + "px"
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Style("height:"+_gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10)))+"px"), _gsxrt.Style(_gsxv17))
+		_gsxgw.Style(_gsxrt.Style("height:"+_gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10)))+"px"), _gsxrt.Style(_gsxv16))
 		_gsxgw.S("\"></i>")
 //line input.gsx:20:2
 		_gsxgw.S("<i")
-		_gsxv18 := "x"
-		var _gsxv19 string
+		_gsxv17 := "x"
+		var _gsxv18 string
 		if id > 0 {
-			_gsxv19 = "y-" + string(wrap(_gsxsc.FormatInt(int64(id), 10)))
+			_gsxv18 = "y-" + string(wrap(_gsxsc.FormatInt(int64(id), 10)))
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv18), _gsxrt.Class(_gsxv19))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv17), _gsxrt.Class(_gsxv18))
 		_gsxgw.S("\"></i>")
 		return _gsxgw.Err()
 	})

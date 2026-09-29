@@ -137,10 +137,8 @@ func Page(id int, u *U) _gsxrt.Node {
 //line input.gsx:32:2
 		_gsxgw.S("<i title=\"")
 		_gsxgw.AttrValue(string(wrap("/z/" + _gsxsc.FormatInt(int64(id), 10))))
-		_gsxgw.S("\"")
-		_gsxv0 := _gsxrt.EscapeJSVal(id)
-		_gsxgw.S(" data-go=\"")
-		_gsxgw.AttrValue(string(string(_gsxrt.RawJS("go(" + _gsxv0 + ")"))))
+		_gsxgw.S("\" data-go=\"")
+		_gsxgw.AttrValue(string(string(_gsxrt.RawJS("go(" + _gsxrt.EscapeJSVal(id) + ")"))))
 		_gsxgw.S("\"></i>")
 //line input.gsx:33:2
 		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, nil, wrap("t-"+_gsxsc.FormatInt(int64(id), 10)), _gsxrt.Attrs{{Key: "data-q", Value: wrap("q-" + _gsxsc.FormatInt(int64(id), 10))}}))
@@ -165,11 +163,11 @@ func Page(id int, u *U) _gsxrt.Node {
 			return _gsxgw.Err()
 		})), "", nil))
 //line input.gsx:36:2
-		_gsxv1 := bag("v-" + _gsxsc.FormatInt(int64(id), 10))
+		_gsxv0 := bag("v-" + _gsxsc.FormatInt(int64(id), 10))
 		_gsxgw.S("<i")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
-		_gsxgw.StyleMerged("", _gsxv1.Style())
-		_gsxgw.Spread(ctx, "i", _gsxv1, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, "i", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:37:2
 		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, nil, "", _gsxrt.Attrs{{Key: "data-k", Value: wrap("k-" + _gsxsc.FormatInt(int64(id), 10))}}))
@@ -182,21 +180,21 @@ func Page(id int, u *U) _gsxrt.Node {
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:39:2
-		_gsxv2, _gsxerr := _gsxrt.AttrsCond(u != nil, func() (_gsxrt.Attrs, error) {
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond(u != nil, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-n", Value: wrap("n-" + string(u.Name))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, nil, "", _gsxv2))
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, nil, "", _gsxv1))
 //line input.gsx:40:2
 		_gsxgw.S("<i")
-		_gsxv3, _gsxerr := lookup(id)
+		_gsxv2, _gsxerr := lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" data-l=\"")
-		_gsxgw.AttrValue(string(wrap("l-" + string(_gsxv3))))
+		_gsxgw.AttrValue(string(wrap("l-" + string(_gsxv2))))
 		_gsxgw.S("\"></i>")
 //line input.gsx:41:2
 		_gsxgw.NodeResult(_gsxrenderLink(ctx, _gsxgw, _gsxrt.Attrs{{Key: "href", Value: wrap("javascript:" + _gsxsc.FormatInt(int64(id), 10))}}))

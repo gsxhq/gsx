@@ -518,17 +518,27 @@ func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node comp
 	}
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
-	// A short var decl keeps _gsxerr shared with any sibling lowering in this
-	// scope (name is new, so `:=` is legal whether or not _gsxerr already
-	// exists), which is what ctx.errorReturn() refers to.
-	fmt.Fprintf(b, "%s, _gsxerr := %s.Attrs(nil), error(nil)\n", name, ctx.rt.rt())
 	// The tag's hoists precede the `switch`; case lists are evaluated lazily
 	// and have no error channel.
 	lc := ctx.lowerCtx()
-	tag, ok := lc.field(b, sw.Tag, sw.TagEmbedded, sw)
+	var pre bytes.Buffer
+	tag, block, ok := lc.header(&pre, sw.Tag, sw.TagEmbedded, sw)
 	if !ok {
 		return diagnosedPositionalValue()
 	}
+	// A short var decl keeps _gsxerr shared with any sibling lowering in this
+	// scope (name is new, so `:=` is legal whether or not _gsxerr already
+	// exists), which is what ctx.errorReturn() refers to. Inside a header
+	// block (an init statement before hoists) a hoist may declare its own
+	// _gsxerr, so the arms then report through a dedicated error temp that
+	// is checked after the block.
+	errVar := "_gsxerr"
+	if block {
+		errVar = fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
+		*ctx.interpTemp++
+	}
+	fmt.Fprintf(b, "%s, %s := %s.Attrs(nil), error(nil)\n", name, errVar, ctx.rt.rt())
+	b.Write(pre.Bytes())
 	fmt.Fprintf(b, "switch %s {\n", tag)
 	caseLC := lc
 	caseLC.noErrChannel = caseListErrRemedy
@@ -542,10 +552,15 @@ func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node comp
 			}
 			fmt.Fprintf(b, "case %s:\n", list)
 		}
-		fmt.Fprintf(b, "%s, _gsxerr = (%s)()\n", name, thunks[i])
+		fmt.Fprintf(b, "%s, %s = (%s)()\n", name, errVar, thunks[i])
 	}
 	b.WriteString("}\n")
-	fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
+	closeHeaderBlock(b, block)
+	if block {
+		fmt.Fprintf(b, "if _gsxerr := %s; _gsxerr != nil { %s }\n", errVar, ctx.errorReturn())
+	} else {
+		fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
+	}
 	return readyPositionalValue(name, used)
 }
 

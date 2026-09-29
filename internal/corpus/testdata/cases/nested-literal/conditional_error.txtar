@@ -1,0 +1,48 @@
+# An error-carrying hole may hoist only out of a literal evaluated
+# unconditionally in its Go expression. On the right of && or ||, or inside a
+# func literal, the literal may never run, so the hole is rejected with a
+# positioned goexpr-literal-error: in an if header, a body interpolation, a
+# conditional-attribute condition and an attribute value.
+-- input.gsx --
+package demo
+
+import "errors"
+
+type U struct{ Name string }
+
+func ok(s string) bool        { return s != "" }
+func pick(b bool) string      { return "x" }
+func call(f func() bool) bool { return f() }
+func lookup(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("empty")
+	}
+	return s, nil
+}
+
+component Header(u *U) {
+	{ if u != nil && ok(f`@{lookup(u.Name)}`) {
+		<b>x</b>
+	} }
+}
+
+component Body(u *U) {
+	<p>{ pick(u == nil || ok(f`@{lookup(u.Name)}`)) }</p>
+}
+
+component Cond(u *U) {
+	<i { if u != nil && ok(f`@{lookup(u.Name)}`) { title="y" } }></i>
+}
+
+component FuncLit(u *U) {
+	<i title={pick(call(func() bool { return ok(f`@{lookup(u.Name)}`) }))}></i>
+}
+-- invoke --
+Header(nil)
+-- diagnostics.golden --
+18:25: @{ lookup(u.Name) } returns (string, error); a literal on the right of && or || may be skipped, so its error cannot be returned before the expression — compute the value first
+24:30: @{ lookup(u.Name) } returns (string, error); a literal on the right of && or || may be skipped, so its error cannot be returned before the expression — compute the value first
+28:28: @{ lookup(u.Name) } returns (string, error); a literal on the right of && or || may be skipped, so its error cannot be returned before the expression — compute the value first
+32:49: @{ lookup(u.Name) } returns (string, error); a literal inside a func literal is evaluated only when the func runs, so its error cannot be returned before the expression — compute the value first
+-- render.golden --
+-- generated.x.go.golden --

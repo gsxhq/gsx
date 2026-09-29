@@ -81,8 +81,7 @@ func Page(id int, u *U) _gsxrt.Node {
 			_gsxgw.S("</b>")
 		}
 //line input.gsx:17:2
-		_gsxv0 := _gsxrt.EscapeJSVal(id)
-		switch string(_gsxrt.RawJS("s(" + _gsxv0 + ")")) {
+		switch string(_gsxrt.RawJS("s(" + _gsxrt.EscapeJSVal(id) + ")")) {
 		case "s( 1 )":
 //line input.gsx:19:3
 			_gsxgw.S("<b>js</b>")

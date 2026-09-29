@@ -918,7 +918,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 			return true
 		}
-		cond, ok := lc.field(b, t.Cond, t.CondEmbedded, t)
+		cond, block, ok := lc.header(b, t.Cond, t.CondEmbedded, t)
 		if !ok {
 			return false
 		}
@@ -933,6 +933,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 		}
 		b.WriteString("\t\t}\n")
+		closeHeaderBlock(b, block)
 		return true
 	}
 
@@ -1278,7 +1279,7 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string, lc lo
 		}
 		return true
 	}
-	cond, ok := lc.field(b, n.attr.Cond, n.attr.CondEmbedded, n.attr)
+	cond, block, ok := lc.header(b, n.attr.Cond, n.attr.CondEmbedded, n.attr)
 	if !ok {
 		return false
 	}
@@ -1293,7 +1294,16 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string, lc lo
 		}
 	}
 	b.WriteString("\t\t}\n")
+	closeHeaderBlock(b, block)
 	return true
+}
+
+// closeHeaderBlock closes the block lowerCtx.header opened around an
+// if/switch whose init statement precedes its condition's hoists.
+func closeHeaderBlock(b *bytes.Buffer, block bool) {
+	if block {
+		b.WriteString("\t\t}\n")
+	}
 }
 
 // hasAttrsMethodSet reports whether t already supports the method-bearing bag
@@ -2039,7 +2049,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// The condition's hoists precede the `if`. An else-if is an IfMarkup
 		// nested in Else, emitted inside `else {}`, so its hoists run only when
 		// that branch is reached.
-		cond, ok := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec).field(b, t.Cond, t.CondEmbedded, t)
+		cond, block, ok := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec).header(b, t.Cond, t.CondEmbedded, t)
 		if !ok {
 			return false
 		}
@@ -2060,12 +2070,13 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 			b.WriteString("}")
 		}
 		b.WriteString("\n")
+		closeHeaderBlock(b, block)
 	case *ast.SwitchMarkup:
 		emitLine(b, fset, t.Pos())
 		// The tag's hoists precede the `switch`. Case lists are evaluated
 		// lazily, case by case, so they have no error channel.
 		lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, ec)
-		tag, ok := lc.field(b, t.Tag, t.TagEmbedded, t)
+		tag, block, ok := lc.header(b, t.Tag, t.TagEmbedded, t)
 		if !ok {
 			return false
 		}
@@ -2089,6 +2100,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 			}
 		}
 		b.WriteString("}\n")
+		closeHeaderBlock(b, block)
 	case *ast.GoBlock:
 		emitLine(b, fset, t.Pos())
 		if t.UnsupportedMarkup != nil {
@@ -2488,11 +2500,12 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 // condition hoists is emitted as `else { <hoists>; if … }`, so those hoists run
 // only when that branch is reached; without hoists it stays `else if`.
 func emitValueIf(b *bytes.Buffer, vi *ast.ValueIf, tmp string, armExpr func(*ast.ValueArm) (string, bool), lc lowerCtx) bool {
-	cond, ok := lc.field(b, vi.Cond, vi.CondEmbedded, vi)
-	if !ok {
+	cond, block, ok := lc.header(b, vi.Cond, vi.CondEmbedded, vi)
+	if !ok || !emitValueIfChain(b, vi, cond, tmp, armExpr, lc) {
 		return false
 	}
-	return emitValueIfChain(b, vi, cond, tmp, armExpr, lc)
+	closeHeaderBlock(b, block)
+	return true
 }
 
 // emitValueIfChain is emitValueIf with vi's condition already lowered to cond.
@@ -2506,7 +2519,7 @@ func emitValueIfChain(b *bytes.Buffer, vi *ast.ValueIf, cond, tmp string, armExp
 	switch {
 	case vi.ElseIf != nil:
 		var hoist bytes.Buffer
-		elseCond, ok := lc.field(&hoist, vi.ElseIf.Cond, vi.ElseIf.CondEmbedded, vi.ElseIf)
+		elseCond, _, ok := lc.headerInBlock(&hoist, vi.ElseIf.Cond, vi.ElseIf.CondEmbedded, vi.ElseIf)
 		if !ok {
 			return false
 		}
@@ -2542,7 +2555,7 @@ func emitValueIfChain(b *bytes.Buffer, vi *ast.ValueIf, cond, tmp string, armExp
 // error-carrying hole there is rejected with a goexpr-literal-error
 // (caseListErrRemedy).
 func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr func(*ast.ValueArm) (string, bool), lc lowerCtx) bool {
-	tag, ok := lc.field(b, vs.Tag, vs.TagEmbedded, vs)
+	tag, block, ok := lc.header(b, vs.Tag, vs.TagEmbedded, vs)
 	if !ok {
 		return false
 	}
@@ -2568,6 +2581,7 @@ func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr f
 		fmt.Fprintf(b, "\t\t\t%s = %s\n", tmp, e)
 	}
 	b.WriteString("\t\t}\n")
+	closeHeaderBlock(b, block)
 	return true
 }
 
@@ -3110,7 +3124,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// control construct, and each nested attr emit carries its own line map.)
 		// The condition's hoists precede the `if`; an else-if's land inside
 		// `else {}`, so they run only when that branch is reached.
-		cond, ok := lc.field(b, t.Cond, t.CondEmbedded, t)
+		cond, block, ok := lc.header(b, t.Cond, t.CondEmbedded, t)
 		if !ok {
 			return false
 		}
@@ -3129,6 +3143,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 			}
 		}
 		b.WriteString("\t\t}\n")
+		closeHeaderBlock(b, block)
 		return true
 	case *ast.SwitchAttr:
 		// Same statement position as the CondAttr `if` above, so a real Go
@@ -3136,7 +3151,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// an `==` chain) is the whole point: a tag that is a call must be
 		// evaluated exactly once, as Go does. The tag's hoists precede the
 		// `switch`; case lists are evaluated lazily and have no error channel.
-		tag, ok := lc.field(b, t.Tag, t.TagEmbedded, t)
+		tag, block, ok := lc.header(b, t.Tag, t.TagEmbedded, t)
 		if !ok {
 			return false
 		}
@@ -3160,6 +3175,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 			}
 		}
 		b.WriteString("\t\t}\n")
+		closeHeaderBlock(b, block)
 		return true
 	case *ast.OrderedAttrsAttr:
 		bag.Errorf(a.Pos(), a.End(), "unsupported-attr",
@@ -3679,29 +3695,27 @@ func componentEmbeddedTextValueExpr(
 // path (see holeStringExpr) and are empty/false for the render-closure
 // body/attribute callers, which keep hoisting.
 func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool, errCode, errDesc string) (string, bool) {
-	parts := make([]string, 0, len(segs))
+	c := literalConcat{b: b, interpTemp: interpTemp}
 	for _, seg := range segs {
 		switch s := seg.(type) {
 		case *ast.Text:
 			if s.Value == "" {
 				continue
 			}
-			parts = append(parts, strconv.Quote(s.Value))
+			c.static(strconv.Quote(s.Value))
 		case *ast.Interp:
-			p, ok := holeStringExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
+			var hoists bytes.Buffer
+			p, ok := holeStringExpr(&hoists, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 			if !ok {
 				return "", false
 			}
-			parts = append(parts, p)
+			c.dynamic(&hoists, p)
 		default:
 			bag.Errorf(seg.Pos(), seg.End(), errCode, "%s may contain only text and @{ } interpolations, got %T", errDesc, seg)
 			return "", false
 		}
 	}
-	if len(parts) == 0 {
-		return `""`, true
-	}
-	return strings.Join(parts, " + "), true
+	return c.String(), true
 }
 
 // emitGoExprEmbeddedInterp lowers a prefixed literal (f`/js`/css`) in a
@@ -4284,23 +4298,19 @@ const goExprCtxRemedy = "a js`/css`/f` literal in Go-expression position has no 
 // embeddedJSValueExpr assembles a js`…` literal's segments (static text + @{ }
 // holes) into one Go string-concat expression, each hole JS-escaped by its
 // JSCtx. segs is the raw segment list (an EmbeddedAttr's or a Go-expression
-// EmbeddedInterp's Segments). A non-empty noErrChannel selects the
-// Go-expression lowering: no per-hole `_gsxvN :=` temp is materialized (the concat is inlined,
-// which is naturally source-ordered because nothing hoists) and error-carrying
-// holes are rejected in embeddedHoleExpr; when empty (the attribute/bag fold
-// path) each dynamic hole is materialized to a temp at its source position, so a
-// later hole's tuple/renderer/pipeline hoist cannot reorder its evaluation.
+// EmbeddedInterp's Segments). The holes lower in place (literalConcat); a
+// non-empty noErrChannel rejects error-carrying holes in embeddedHoleExpr.
 func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool) (string, bool) {
-	exprPos := noErrChannel != ""
-	parts := make([]string, 0, len(segs))
+	c := literalConcat{b: b, interpTemp: interpTemp}
 	for _, seg := range segs {
 		switch s := seg.(type) {
 		case *ast.Text:
 			if s.Value != "" {
-				parts = append(parts, strconv.Quote(s.Value))
+				c.static(strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
+			var hoists bytes.Buffer
+			expr, typ, ok := embeddedHoleExpr(&hoists, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 			if !ok {
 				return "", false
 			}
@@ -4333,27 +4343,49 @@ func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.No
 				bag.Errorf(s.Pos(), s.End(), "unsafe-js-context", "JS attribute interpolation %q has no JS context", s.Expr)
 				return "", false
 			}
-			if exprPos {
-				// Expression position: nothing can hoist (error-carrying holes are
-				// rejected above), so append the escaped expression inline — the
-				// concat is already source-ordered.
-				parts = append(parts, escaped)
-				break
-			}
-			// Evaluate every dynamic hole at its source position. A later hole may
-			// emit tuple/renderer error-handling statements while it is lowered;
-			// retaining this expression inline until final concatenation would move
-			// that later evaluation ahead of this one.
-			name := fmt.Sprintf("_gsxv%d", *interpTemp)
-			*interpTemp++
-			fmt.Fprintf(b, "\t\t%s := %s\n", name, escaped)
-			parts = append(parts, name)
+			c.dynamic(&hoists, escaped)
 		}
 	}
-	if len(parts) == 0 {
-		return `""`, true
+	return c.String(), true
+}
+
+// literalConcat assembles a literal's static and dynamic parts into one Go
+// string concatenation, evaluated in place. A dynamic part stays inline; only
+// when a later hole must write statements first (a tuple, error-filter or
+// renderer hoist) are the earlier, still-inline dynamic parts pinned to
+// `_gsxvN` temps ahead of those statements, so evaluation stays left to right.
+type literalConcat struct {
+	b          *bytes.Buffer
+	interpTemp *int
+	parts      []string
+	inline     []int // indexes of dynamic parts not yet pinned
+}
+
+func (c *literalConcat) static(quoted string) {
+	c.parts = append(c.parts, quoted)
+}
+
+// dynamic appends expr, whose hole's lowering wrote hoists (possibly none).
+func (c *literalConcat) dynamic(hoists *bytes.Buffer, expr string) {
+	if hoists.Len() > 0 {
+		for _, i := range c.inline {
+			name := fmt.Sprintf("_gsxv%d", *c.interpTemp)
+			*c.interpTemp++
+			fmt.Fprintf(c.b, "\t\t%s := %s\n", name, c.parts[i])
+			c.parts[i] = name
+		}
+		c.inline = c.inline[:0]
+		c.b.Write(hoists.Bytes())
 	}
-	return strings.Join(parts, " + "), true
+	c.inline = append(c.inline, len(c.parts))
+	c.parts = append(c.parts, expr)
+}
+
+func (c *literalConcat) String() string {
+	if len(c.parts) == 0 {
+		return `""`
+	}
+	return strings.Join(c.parts, " + ")
 }
 
 func stringifyJSExpr(expr string, t types.Type, n ast.Node, bag *diag.Bag) (string, bool) {
@@ -4371,19 +4403,18 @@ func stringifyJSExpr(expr string, t types.Type, n ast.Node, bag *diag.Bag) (stri
 // embeddedCSSValueExpr assembles a css`…` literal's segments into one Go
 // string-concat expression, each hole reduced to a CSS-safe string (gsx.RawCSS
 // passthrough, otherwise gsx.FilterCSS). segs / noErrChannel mirror
-// embeddedJSValueExpr: a non-empty noErrChannel inlines the concat (no per-hole temp) and rejects
-// error-carrying holes; the fold path materializes each dynamic hole to a temp.
+// embeddedJSValueExpr, and the holes lower in place the same way.
 func embeddedCSSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn, noErrChannel string, rejectCtx bool) (string, bool) {
-	exprPos := noErrChannel != ""
-	parts := make([]string, 0, len(segs))
+	c := literalConcat{b: b, interpTemp: interpTemp}
 	for _, seg := range segs {
 		switch s := seg.(type) {
 		case *ast.Text:
 			if s.Value != "" {
-				parts = append(parts, strconv.Quote(s.Value))
+				c.static(strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
+			var hoists bytes.Buffer
+			expr, typ, ok := embeddedHoleExpr(&hoists, s, resolved, table, imports, rt, interpTemp, bag, errReturn, noErrChannel, rejectCtx)
 			if !ok {
 				return "", false
 			}
@@ -4397,20 +4428,10 @@ func embeddedCSSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.N
 				}
 				value = rt.rt() + ".FilterCSS(" + str + ")"
 			}
-			if exprPos {
-				parts = append(parts, value)
-				break
-			}
-			name := fmt.Sprintf("_gsxv%d", *interpTemp)
-			*interpTemp++
-			fmt.Fprintf(b, "\t\t%s := %s\n", name, value)
-			parts = append(parts, name)
+			c.dynamic(&hoists, value)
 		}
 	}
-	if len(parts) == 0 {
-		return `""`, true
-	}
-	return strings.Join(parts, " + "), true
+	return c.String(), true
 }
 
 // emitJSAttrValue selects the runtime JS *Attr escaper by JS context, mirroring

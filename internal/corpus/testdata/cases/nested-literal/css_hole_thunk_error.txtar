@@ -73,62 +73,61 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 	}
 //line input.gsx:18:2
 	_gsxv0 := a
-	_gsxv3, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
+	_gsxv2, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
 		_gsxv1, _gsxerr := lookup(id)
 		if _gsxerr != nil {
 			return nil, _gsxerr
 		}
-		_gsxv2 := _gsxrt.FilterCSS(string(wrap(string(_gsxv1))))
-		return _gsxrt.Attrs{{Key: "style", Value: "h:" + _gsxv2 + "px"}}, nil
+		return _gsxrt.Attrs{{Key: "style", Value: "h:" + _gsxrt.FilterCSS(string(wrap(string(_gsxv1)))) + "px"}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr
 	}
-	_gsxv4 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv3)
+	_gsxv3 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv2)
 	_gsxgw.S("<i")
-	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv4.Class())
-	_gsxgw.StyleMerged("", _gsxv4.Style())
-	_gsxgw.Spread(ctx, "i", _gsxv4, _gsxrt.AttrSinks{}, []string{"class", "style"})
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
+	_gsxgw.StyleMerged("", _gsxv3.Style())
+	_gsxgw.Spread(ctx, "i", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></i>")
 //line input.gsx:19:2
-	_gsxv5 := a
-	_gsxv7, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
-		_gsxv6, _gsxerr := lookup(id)
+	_gsxv4 := a
+	_gsxv6, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
+		_gsxv5, _gsxerr := lookup(id)
 		if _gsxerr != nil {
 			return nil, _gsxerr
 		}
-		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style("a: b"), _gsxrt.Style("w:"+_gsxrt.StyleValue(_gsxv6)+"px"))}}, nil
+		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style("a: b"), _gsxrt.Style("w:"+_gsxrt.StyleValue(_gsxv5)+"px"))}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr
 	}
-	_gsxv8 := _gsxrt.ConcatAttrs(_gsxv5, _gsxv7)
+	_gsxv7 := _gsxrt.ConcatAttrs(_gsxv4, _gsxv6)
 	_gsxgw.S("<i")
-	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv8.Class())
-	_gsxgw.StyleMerged("", _gsxv8.Style())
-	_gsxgw.Spread(ctx, "i", _gsxv8, _gsxrt.AttrSinks{}, []string{"class", "style"})
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv7.Class())
+	_gsxgw.StyleMerged("", _gsxv7.Style())
+	_gsxgw.Spread(ctx, "i", _gsxv7, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></i>")
 //line input.gsx:20:2
-	_gsxv9 := a
-	_gsxv12, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
-		var _gsxv10 string
+	_gsxv8 := a
+	_gsxv11, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
+		var _gsxv9 string
 		if id != 2 {
-			_gsxv11, _gsxerr := lookup(id)
+			_gsxv10, _gsxerr := lookup(id)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			_gsxv10 = "t:" + _gsxrt.StyleValue(wrap(string(_gsxv11))) + "px"
+			_gsxv9 = "t:" + _gsxrt.StyleValue(wrap(string(_gsxv10))) + "px"
 		}
-		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxv10))}}, nil
+		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxv9))}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr
 	}
-	_gsxv13 := _gsxrt.ConcatAttrs(_gsxv9, _gsxv12)
+	_gsxv12 := _gsxrt.ConcatAttrs(_gsxv8, _gsxv11)
 	_gsxgw.S("<i")
-	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv13.Class())
-	_gsxgw.StyleMerged("", _gsxv13.Style())
-	_gsxgw.Spread(ctx, "i", _gsxv13, _gsxrt.AttrSinks{}, []string{"class", "style"})
+	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv12.Class())
+	_gsxgw.StyleMerged("", _gsxv12.Style())
+	_gsxgw.Spread(ctx, "i", _gsxv12, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></i>")
 	return _gsxgw.Err()
 }

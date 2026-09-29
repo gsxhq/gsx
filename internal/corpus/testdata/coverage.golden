@@ -607,11 +607,15 @@ nested-literal/class_hoist_error	diag gen render
 nested-literal/class_style	diag gen render
 nested-literal/cond_attrs	diag gen render
 nested-literal/cond_attrs_hoist	diag gen render
+nested-literal/conditional_error	diag gen render
+nested-literal/conditional_left	diag gen render
 nested-literal/control_flow	diag gen render
 nested-literal/control_flow_hoist	diag gen render
 nested-literal/control_flow_hoist_error	diag gen render
 nested-literal/css_hole_thunk_error	diag gen render
 nested-literal/for_error	diag gen render
+nested-literal/header_init	diag gen render
+nested-literal/header_init_error	diag gen render
 nested-literal/value_form_thunk_tuple	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
@@ -1041,4 +1045,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1043 cases (render: 888, error: 117, gen-pinned: 584)
+TOTAL: 1047 cases (render: 892, error: 117, gen-pinned: 588)

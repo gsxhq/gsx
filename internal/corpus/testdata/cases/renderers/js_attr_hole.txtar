@@ -73,12 +73,11 @@ func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S(")\">inline</button>")
 //line input.gsx:12:2
 		_gsxv0 := a
-		_gsxv1 := _gsxrt.EscapeJSVal(_gsxf0.PgJS((val)))
-		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "@click", Value: "save(" + _gsxv1 + ")"}}, b)
+		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "@click", Value: "save(" + _gsxrt.EscapeJSVal(_gsxf0.PgJS((val))) + ")"}}, b)
 		_gsxgw.S("<button")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
-		_gsxgw.StyleMerged("", _gsxv2.Style())
-		_gsxgw.Spread(ctx, "button", _gsxv2, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
+		_gsxgw.StyleMerged("", _gsxv1.Style())
+		_gsxgw.Spread(ctx, "button", _gsxv1, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">fold</button>")
 		return _gsxgw.Err()
 	})

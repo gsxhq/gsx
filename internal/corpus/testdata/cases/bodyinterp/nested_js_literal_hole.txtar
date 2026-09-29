@@ -35,8 +35,7 @@ func Row(who string) _gsxrt.Node {
 //line input.gsx:4:5
 		_gsxgw.S("a ")
 //line input.gsx:4:11
-		_gsxv0 := _gsxrt.EscapeJSVal(who)
-		_gsxgw.Text(string(string(_gsxrt.RawJS("f(" + _gsxv0 + ")"))))
+		_gsxgw.Text(string(string(_gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(who) + ")"))))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

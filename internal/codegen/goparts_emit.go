@@ -47,7 +47,47 @@ type lowerCtx struct {
 // lc.elements is set. Any statement a hole needs (tuple unwrap, error return,
 // temp) is written to hoistBuf before this returns, so it precedes the
 // statement consuming the returned expression. The result is untrimmed.
+//
+// Where the position hoists, a literal evaluated conditionally within the
+// field (fieldShape: right of && / ||, inside a func literal) gets no error
+// channel: its error-carrying holes are rejected instead of hoisted.
 func lowerGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx) (string, bool) {
+	var conditional map[ast.GoPart]string
+	if lc.noErrChannel == "" && hasEmbeddedLiteral(parts) {
+		shape, ok := lc.analyze(parts)
+		if !ok {
+			return "", false
+		}
+		conditional = shape.conditional
+	}
+	return lowerShapedGoParts(hoistBuf, parts, lc, conditional)
+}
+
+// hasEmbeddedLiteral reports whether parts holds a prefixed literal.
+func hasEmbeddedLiteral(parts []ast.GoPart) bool {
+	for _, part := range parts {
+		if _, ok := part.(*ast.EmbeddedInterp); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// analyze parses parts, the overlay of lc.owner's field, into its shape. A
+// parse failure is an internal error: the same text type-checked in the
+// skeleton, with each construct as an operand of the same grammar.
+func (lc lowerCtx) analyze(parts []ast.GoPart) (fieldShape, bool) {
+	shape, err := analyzeField(parts, fieldSyntaxOf(lc.owner))
+	if err != nil {
+		lc.bag.Errorf(lc.owner.Pos(), lc.owner.End(), "unsupported-node", "codegen: cannot parse the Go around a nested literal: %v", err)
+		return shape, false
+	}
+	return shape, true
+}
+
+// lowerShapedGoParts is lowerGoParts with the conditional-literal remedies of
+// the enclosing field already computed.
+func lowerShapedGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx, conditional map[ast.GoPart]string) (string, bool) {
 	var eb bytes.Buffer
 	for _, part := range parts {
 		switch p := part.(type) {
@@ -76,7 +116,11 @@ func lowerGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx) (stri
 				lc.bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 				return "", false
 			}
-			if !emitGoExprEmbeddedInterp(hoistBuf, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.hasCtx, lc.noErrChannel, lc.errReturn) {
+			noErrChannel := lc.noErrChannel
+			if remedy, ok := conditional[p]; ok {
+				noErrChannel = remedy
+			}
+			if !emitGoExprEmbeddedInterp(hoistBuf, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.hasCtx, noErrChannel, lc.errReturn) {
 				return "", false
 			}
 		default:
@@ -111,4 +155,66 @@ func (lc lowerCtx) field(hoistBuf *bytes.Buffer, src string, embedded []ast.GoPa
 	lc.owner = owner
 	expr, ok := lowerGoParts(hoistBuf, embedded, lc)
 	return strings.TrimSpace(expr), ok
+}
+
+// header lowers an if condition or a switch tag (with its optional init
+// statement) owned by owner; hoists precede the statement. When the header has
+// an init statement and anything hoists, the init must run before the
+// condition's hoists (which may use its variables): header then opens a block,
+// `{\n<init hoists><init>\n<cond hoists>`, and returns block=true; the caller
+// emits its if/switch with the returned text and closes the block
+// (closeHeaderBlock). The Go spec's implicit block of an if/switch makes this
+// equivalent. Without hoists the output is exactly lc.field's.
+func (lc lowerCtx) header(b *bytes.Buffer, src string, embedded []ast.GoPart, owner ast.Node) (text string, block, ok bool) {
+	var pre bytes.Buffer
+	text, block, ok = lc.headerInBlock(&pre, src, embedded, owner)
+	if block {
+		b.WriteString("{\n")
+	}
+	b.Write(pre.Bytes())
+	return text, block, ok
+}
+
+// headerInBlock is header for a caller that already emits the statement as
+// the first one of its own fresh block (an else-if written as `else { … }`):
+// it writes the init statement and hoists to b without opening a block, and
+// reports whether it wrote the init statement there.
+func (lc lowerCtx) headerInBlock(b *bytes.Buffer, src string, embedded []ast.GoPart, owner ast.Node) (text string, initHoisted, ok bool) {
+	if embedded == nil || lc.noErrChannel != "" {
+		text, ok = lc.field(b, src, embedded, owner)
+		return text, false, ok
+	}
+	lc.owner = owner
+	shape, ok := lc.analyze(embedded)
+	if !ok {
+		return "", false, false
+	}
+	if shape.initEnd < 0 {
+		expr, ok := lowerShapedGoParts(b, embedded, lc, shape.conditional)
+		return strings.TrimSpace(expr), false, ok
+	}
+	m := shape.masked
+	var initHoists, condHoists bytes.Buffer
+	init, ok := lowerShapedGoParts(&initHoists, m.split(0, shape.initEnd), lc, shape.conditional)
+	if !ok {
+		return "", false, false
+	}
+	// Between the init statement and the condition there is only `;` and
+	// layout: no construct, so nothing is written to initHoists.
+	sep, ok := lowerShapedGoParts(&initHoists, m.split(shape.initEnd, shape.bodyStart), lc, nil)
+	if !ok {
+		return "", false, false
+	}
+	cond, ok := lowerShapedGoParts(&condHoists, m.split(shape.bodyStart, len(m.text)), lc, shape.conditional)
+	if !ok {
+		return "", false, false
+	}
+	if initHoists.Len() == 0 && condHoists.Len() == 0 {
+		return strings.TrimSpace(init + sep + cond), false, true
+	}
+	b.Write(initHoists.Bytes())
+	b.WriteString(strings.TrimSpace(init))
+	b.WriteString("\n")
+	b.Write(condHoists.Bytes())
+	return strings.TrimSpace(cond), true, true
 }
