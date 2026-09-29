@@ -18,7 +18,9 @@ interpolations are lowered.
 
 **Goal.** In every position below, a nested construct means exactly what it
 means in a body `{ wrap(f`…`) }`: same static type, same escaping, same
-error propagation, and the surrounding Go evaluates in its authored order.
+error propagation, and the surrounding Go evaluates in its authored order —
+except that an error-carrying hole (see below) is evaluated before the rest of
+the expression containing it, because its hoisted statement runs first.
 
 | Family | Fields |
 |---|---|
@@ -47,7 +49,9 @@ Every nested construct lowers **as an expression at its own position**:
 Nothing is evaluated ahead of its node, so conditional attribute branches,
 value-form arms, `else if` conditions, case lists and `for` conditions keep
 Go's evaluation order and laziness. A nested literal in a false branch or an
-unmatched case never evaluates its holes.
+unmatched case never evaluates its holes. The one exception to order is an
+error-carrying hole: its hoisted statement runs before the other operands of
+the field it sits in (full left-to-right pinning is a ROADMAP deferral).
 
 ### Error-carrying holes
 

@@ -1083,6 +1083,15 @@ vocabulary remains a design aspiration, not the current API.
   An error-carrying hole is returned from `Render` except on the right of
   `&&`/`||`, inside a func literal, in a `for` clause, or in a `case` list
   (each a positioned diagnostic).
+- [ ] **Left-to-right order around error-carrying holes** - a hoisted
+  `(T, error)` hole in a nested literal runs before every operand to its left
+  in the same field (`{ join(f`a-@{F1()}`, f`b-@{F2()}`) }` calls F2 first when
+  F2 errors-returns). Real fix: pin the operands Go evaluates before the
+  hoisting literal (calls/receives to its left, from `fieldShape`'s masked AST)
+  into temps ahead of the hoist, as `literalConcat` already does inside one
+  literal. Same class: `positionalOrderedAttrsExpr` later-pair hoists and
+  unpinned literal class/style parts in ordered mode. Documented as the
+  exception in the guide (`syntax/interpolation.md`).
 - [ ] **Skeleton-parse caching** - the one surviving item from the 2026-07-23
   analysis-architecture probe: cache the target + shipping skeleton parses per
   unchanged file (as the pristine gsx parse cache already does), reclaiming

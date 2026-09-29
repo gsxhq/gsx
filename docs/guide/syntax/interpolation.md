@@ -59,8 +59,9 @@ types `gsx.RawJS` and `gsx.RawCSS` instead of becoming strings. See
 ::: v-pre
 A literal or element literal nested inside a larger Go expression —
 `wrap(f`…`)` — works in every Go-expression position (attribute values,
-spreads, class/style parts, control-flow headers, and more), with the same
-evaluation order and laziness as Go:
+spreads, class/style parts, control-flow headers, and more). It evaluates in
+place, in Go's order and with Go's laziness, except that an error-carrying hole
+runs before the rest of the expression that contains it:
 
 ```gsx
 <a href={withLocale(f`/items/@{id}`)}>…</a>

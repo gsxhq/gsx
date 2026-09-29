@@ -19,7 +19,7 @@ type lowerCtx struct {
 	interpTemp *int
 	fset       *token.FileSet
 	bag        *diag.Bag
-	ec         interpEmitCtx // element/fragment emission; zero → elements rejected
+	ec         interpEmitCtx // element/fragment emission; used only when elements
 	// elements reports whether ec carries a component emit environment. When
 	// false (the zero value) an element/fragment part is rejected with the
 	// positioned unsupported-node diagnostic below; ec is then ignored.
