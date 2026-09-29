@@ -997,7 +997,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// properties). The empty-bag case takes the else branch → byte-identical output.
 		switch {
 		case styleAttr != nil || staticStyle != nil:
-			styleStr, styleParts, ok := rootStyleString(b, styleAttr, staticStyle, table, imports, rt, interpTemp, bag, resolved)
+			styleStr, styleParts, ok := rootStyleString(b, styleAttr, staticStyle, table, imports, rt, interpTemp, bag, resolved, lc)
 			if !ok {
 				return false
 			}
@@ -1079,7 +1079,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		switch t := a.(type) {
 		case *ast.ComposedAttr:
 			if t == classAttr {
-				if !emitRootComposedClass(b, t, table, imports, rt, interpTemp, bag, mergeExpr, bagExpr, resolved) {
+				if !emitRootComposedClass(b, t, table, imports, rt, interpTemp, bag, mergeExpr, bagExpr, resolved, lc) {
 					return false
 				}
 				continue
@@ -1670,8 +1670,8 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 // class: ` class="` + gw.Class(<existing parts…>, gsx.Class(attrs.Class()))
 // + `"`. Mirrors emitComposedAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
-func emitRootComposedClass(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), "return _gsxerr")
+func emitRootComposedClass(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), lc)
 	if !ok {
 		return false
 	}
@@ -1871,12 +1871,12 @@ func (ni *nonceInjection) emitGuard(b *bytes.Buffer) {
 // b and interpTemp are needed when any part is a value-form CF (if/switch): the
 // hoisted var+switch statements are written to b before the StyleMerged call.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
-func rootStyleString(b *bytes.Buffer, styleAttr *ast.ComposedAttr, staticStyle *ast.StaticAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, []string, bool) {
+func rootStyleString(b *bytes.Buffer, styleAttr *ast.ComposedAttr, staticStyle *ast.StaticAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) (string, []string, bool) {
 	switch {
 	case staticStyle != nil:
 		return strconv.Quote(staticStyle.Value), nil, true
 	case styleAttr != nil:
-		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), "return _gsxerr")
+		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), lc)
 		if !ok {
 			return "", nil, false
 		}
@@ -2363,8 +2363,10 @@ func probePipeWrap(call string) string { return "_gsxunwrap(" + call + ")" }
 // before the class/style part list and returns the temp name. style=true wraps
 // each arm value with styleDeclExpr (CSS-value filtering for dynamic arms).
 // resolved maps each *ast.ValueArm to its harvest type; when an arm's type is
-// a (T, error) tuple, armExpr calls hoistTuple to emit the unwrap inline.
-func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, style bool, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, bool) {
+// a (T, error) tuple, armExpr calls hoistTuple to emit the unwrap inline. lc
+// lowers nested literals and elements in the control expressions and arms
+// (see emitValueIf / emitValueSwitch); an arm's hoists land inside its branch.
+func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, style bool, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) (string, bool) {
 	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 	*interpTemp++
 	fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
@@ -2376,7 +2378,11 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 		if a.Segments != nil {
 			return composedLiteralSegmentsExpr(b, a.Segments, a.Pos(), a.End(), style, resolved, table, imports, rt, interpTemp, bag)
 		}
-		expr, used, err := lowerComposedPartSeed(ast.ComposedPart{Expr: a.Expr, Stages: a.Stages}, table, emitPipeWrap(b, interpTemp))
+		seed, ok := lc.field(b, a.Expr, a.Embedded, a)
+		if !ok {
+			return "", false
+		}
+		expr, used, err := lowerComposedPartSeed(seed, a.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return "", false
@@ -2415,16 +2421,30 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 		return expr, true
 	}
 	if cf.If != nil {
-		return tmp, emitValueIf(b, cf.If, tmp, armExpr)
+		return tmp, emitValueIf(b, cf.If, tmp, armExpr, lc)
 	}
-	return tmp, emitValueSwitch(b, cf.Switch, tmp, armExpr)
+	return tmp, emitValueSwitch(b, cf.Switch, tmp, armExpr, lc)
 }
 
 // emitValueIf emits an `if … { _gsxvN = arm } [else if … | else { … }]` block.
 // armExpr is called AFTER writing the if/else-if header so any hoist statements
 // it writes (e.g. for tuple unwrap) land inside the block, before the assignment.
-func emitValueIf(b *bytes.Buffer, vi *ast.ValueIf, tmp string, armExpr func(*ast.ValueArm) (string, bool)) bool {
-	fmt.Fprintf(b, "\t\tif %s {\n", vi.Cond)
+//
+// Each condition is lowered through lc (nested literals and elements). The
+// first condition's hoists are written before the `if`. An `else if` whose
+// condition hoists is emitted as `else { <hoists>; if … }`, so those hoists run
+// only when that branch is reached; without hoists it stays `else if`.
+func emitValueIf(b *bytes.Buffer, vi *ast.ValueIf, tmp string, armExpr func(*ast.ValueArm) (string, bool), lc lowerCtx) bool {
+	cond, ok := lc.field(b, vi.Cond, vi.CondEmbedded, vi)
+	if !ok {
+		return false
+	}
+	return emitValueIfChain(b, vi, cond, tmp, armExpr, lc)
+}
+
+// emitValueIfChain is emitValueIf with vi's condition already lowered to cond.
+func emitValueIfChain(b *bytes.Buffer, vi *ast.ValueIf, cond, tmp string, armExpr func(*ast.ValueArm) (string, bool), lc lowerCtx) bool {
+	fmt.Fprintf(b, "\t\tif %s {\n", cond)
 	e, ok := armExpr(vi.Then)
 	if !ok {
 		return false
@@ -2432,10 +2452,24 @@ func emitValueIf(b *bytes.Buffer, vi *ast.ValueIf, tmp string, armExpr func(*ast
 	fmt.Fprintf(b, "\t\t\t%s = %s\n\t\t}", tmp, e)
 	switch {
 	case vi.ElseIf != nil:
-		b.WriteString(" else ")
-		if !emitValueIf(b, vi.ElseIf, tmp, armExpr) {
+		var hoist bytes.Buffer
+		elseCond, ok := lc.field(&hoist, vi.ElseIf.Cond, vi.ElseIf.CondEmbedded, vi.ElseIf)
+		if !ok {
 			return false
 		}
+		if hoist.Len() == 0 {
+			b.WriteString(" else ")
+			if !emitValueIfChain(b, vi.ElseIf, elseCond, tmp, armExpr, lc) {
+				return false
+			}
+			break
+		}
+		b.WriteString(" else {\n")
+		b.Write(hoist.Bytes())
+		if !emitValueIfChain(b, vi.ElseIf, elseCond, tmp, armExpr, lc) {
+			return false
+		}
+		b.WriteString("\t\t}")
 	case vi.Else != nil:
 		b.WriteString(" else {\n")
 		ee, ok := armExpr(vi.Else)
@@ -2448,13 +2482,31 @@ func emitValueIf(b *bytes.Buffer, vi *ast.ValueIf, tmp string, armExpr func(*ast
 	return true
 }
 
-func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr func(*ast.ValueArm) (string, bool)) bool {
-	fmt.Fprintf(b, "\t\tswitch %s {\n", vs.Tag)
+// emitValueSwitch emits a `switch … { case …: _gsxvN = arm … }` block. The tag
+// is lowered through lc with its hoists written before the `switch`. A case
+// list cannot hoist: cases are evaluated lazily one by one, so no single
+// statement point precedes exactly the evaluation of one list. An
+// error-carrying hole there is rejected (lowerCtx.canHoist false →
+// goexpr-literal-error).
+func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr func(*ast.ValueArm) (string, bool), lc lowerCtx) bool {
+	tag, ok := lc.field(b, vs.Tag, vs.TagEmbedded, vs)
+	if !ok {
+		return false
+	}
+	fmt.Fprintf(b, "\t\tswitch %s {\n", tag)
+	caseLC := lc
+	caseLC.canHoist = false
 	for _, c := range vs.Cases {
 		if c.Default {
 			b.WriteString("\t\tdefault:\n")
 		} else {
-			fmt.Fprintf(b, "\t\tcase %s:\n", c.List)
+			// canHoist=false: nothing is written to b (a hole that would
+			// need a statement is rejected instead).
+			list, ok := caseLC.field(b, c.List, c.ListEmbedded, c)
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "\t\tcase %s:\n", list)
 		}
 		e, ok := armExpr(c.Value)
 		if !ok {
@@ -2969,11 +3021,11 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
 		if cls.Context(tag, t.Name) == attrclass.CtxCSS {
-			if !emitStyleAttr(b, t, table, imports, rt, interpTemp, bag, resolved) {
+			if !emitStyleAttr(b, t, table, imports, rt, interpTemp, bag, resolved, lc) {
 				return false
 			}
 		} else {
-			if !emitComposedAttr(b, t, table, imports, rt, interpTemp, bag, mergeExpr, resolved) {
+			if !emitComposedAttr(b, t, table, imports, rt, interpTemp, bag, mergeExpr, resolved, lc) {
 				return false
 			}
 		}
@@ -4317,8 +4369,14 @@ func emitJSAttrValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, 
 // never piped, so callers lower only the part's Expr/Stages, not its Cond. b and
 // interpTemp hoist a mid-stage (R, error) filter via emitPipeWrap (the element
 // class/style path is emit-only; the probe path harvests via probeExpr instead).
-func composedPartExpr(p ast.ComposedPart, a *ast.ComposedAttr, table funcTables, imports map[string]bool, wrap func(string) string, bag *diag.Bag) (string, bool) {
-	lowered, usedPkgs, err := lowerComposedPartSeed(p, table, wrap)
+// A seed with a nested literal or element (ExprEmbedded) is lowered through lc
+// first, its hoists written to b.
+func composedPartExpr(b *bytes.Buffer, p *ast.ComposedPart, a *ast.ComposedAttr, table funcTables, imports map[string]bool, wrap func(string) string, bag *diag.Bag, lc lowerCtx) (string, bool) {
+	seed, ok := lc.field(b, p.Expr, p.ExprEmbedded, p)
+	if !ok {
+		return "", false
+	}
+	lowered, usedPkgs, err := lowerComposedPartSeed(seed, p.Stages, table, wrap)
 	if err != nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return "", false
@@ -4329,8 +4387,9 @@ func composedPartExpr(p ast.ComposedPart, a *ast.ComposedAttr, table funcTables,
 	return lowered, true
 }
 
-// lowerComposedPartSeed returns one composable class/style part's value expression:
-// its trimmed seed when no `|>` pipeline is present, or the nested filter-call
+// lowerComposedPartSeed returns one composable class/style part's value expression
+// from its (already field-lowered) seed and stages:
+// the trimmed seed when no `|>` pipeline is present, or the nested filter-call
 // lowering (the SAME lowerPipe every other value context uses) plus the used
 // filter packages (alias→pkgPath) when Stages is present. It is the bag-free core
 // shared by the root/element emitters (composedPartExpr, which folds usedPkgs into
@@ -4341,11 +4400,11 @@ func composedPartExpr(p ast.ComposedPart, a *ast.ComposedAttr, table funcTables,
 // probePipeWrap in skeleton mode, or thunkPipeWrap inside a cond-attr branch
 // thunk — always non-nil (the buffer each hoisting wrap closes over is the
 // caller's; see classEntryExpr's doc).
-func lowerComposedPartSeed(p ast.ComposedPart, table funcTables, wrap func(string) string) (string, map[string]string, error) {
-	if len(p.Stages) == 0 {
-		return strings.TrimSpace(p.Expr), nil, nil
+func lowerComposedPartSeed(seed string, stages []ast.PipeStage, table funcTables, wrap func(string) string) (string, map[string]string, error) {
+	if len(stages) == 0 {
+		return strings.TrimSpace(seed), nil, nil
 	}
-	return lowerPipe(p.Expr, p.Stages, table, wrap)
+	return lowerPipe(seed, stages, table, wrap)
 }
 
 // emitComposedAttr lowers a composable `class={ … }` to the open ` class="`, a
@@ -4353,8 +4412,8 @@ func lowerComposedPartSeed(p ast.ComposedPart, table funcTables, wrap func(strin
 // gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
 // tokens through the passed merge func and writes the attr-escaped value.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
-func emitComposedAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), "return _gsxerr")
+func emitComposedAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), lc)
 	if !ok {
 		return false
 	}
@@ -4370,8 +4429,8 @@ func emitComposedAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, im
 // untrusted data cannot inject declarations or break out. gw.Style joins the
 // included parts with "; " and attr-escapes the result.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
-func emitStyleAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), "return _gsxerr")
+func emitStyleAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), lc)
 	if !ok {
 		return false
 	}
@@ -4390,11 +4449,17 @@ func composedPartsOrdered(a *ast.ComposedAttr, resolved map[ast.Node]types.Type)
 		if _, ok := resolved[p].(*types.Tuple); ok {
 			return true
 		}
+		// A nested literal's error-carrying holes hoist statements at the
+		// part's position, so earlier parts must already be pinned.
+		if p.ExprEmbedded != nil || p.CondEmbedded != nil {
+			return true
+		}
 	}
 	return false
 }
 
-func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool, wrap func(string) string, errReturn string) ([]string, bool) {
+func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool, wrap func(string) string, lc lowerCtx) ([]string, bool) {
+	errReturn := lc.errReturn
 	parts := make([]string, 0, len(a.Parts))
 	ordered := composedPartsOrdered(a, resolved)
 	partConstructor := "Class"
@@ -4412,7 +4477,7 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
-			tmp, ok := hoistValueCF(b, p.CF, table, imports, rt, interpTemp, style, bag, resolved)
+			tmp, ok := hoistValueCF(b, p.CF, table, imports, rt, interpTemp, style, bag, resolved, lc)
 			if !ok {
 				return nil, false
 			}
@@ -4428,7 +4493,10 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 				parts = append(parts, partExpr(val))
 				continue
 			}
-			cond := strings.TrimSpace(p.Cond)
+			cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
+			if !ok {
+				return nil, false
+			}
 			if ordered {
 				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 				*interpTemp++
@@ -4438,7 +4506,7 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 			parts = append(parts, conditionalPartExpr(val, cond))
 			continue
 		}
-		expr, ok := composedPartExpr(*p, a, table, imports, wrap, bag)
+		expr, ok := composedPartExpr(b, p, a, table, imports, wrap, bag, lc)
 		if !ok {
 			return nil, false
 		}
@@ -4491,7 +4559,10 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 			parts = append(parts, partExpr(val))
 			continue
 		}
-		cond := strings.TrimSpace(p.Cond)
+		cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
+		if !ok {
+			return nil, false
+		}
 		if ordered {
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
@@ -4536,9 +4607,14 @@ func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved ma
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr := strings.TrimSpace(s.Expr)
+			// A hole carrying a nested literal (s.Embedded) is reassembled from
+			// its parts, exactly as holeStringExpr does for a class f`…` hole.
+			expr, ok := assembleHoleSeed(b, s, resolved, table, imports, rt, interpTemp, bag, false, false)
+			if !ok {
+				return "", false
+			}
 			if len(s.Stages) > 0 {
-				lowered, usedPkgs, err := lowerPipe(s.Expr, s.Stages, table, emitPipeWrap(b, interpTemp))
+				lowered, usedPkgs, err := lowerPipe(expr, s.Stages, table, emitPipeWrap(b, interpTemp))
 				if err != nil {
 					bag.Errorf(s.Pos(), s.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return "", false
@@ -5040,7 +5116,11 @@ func isCallExpr(rawVal string) bool {
 // `imports map[string]bool`, but usedPkgs (alias->pkgPath) is this
 // function's only import-bookkeeping channel back to the caller — bridged
 // through a scratch map whose keys are ignored, same as condBranchAttrs.
-func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string, errReturn string) (string, map[string]string, error) {
+//
+// lc lowers nested literals and elements in part values, guards, value-form
+// control expressions and arms (emit mode only), writing their hoists to b; a
+// lowering failure is already positioned in the bag (errBagDiagReported).
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string, errReturn string, lc lowerCtx) (string, map[string]string, error) {
 	parts := make([]string, 0, len(a.Parts))
 	usedPkgs := map[string]string{}
 	ordered := !probeWrap && composedPartsOrdered(a, resolved)
@@ -5085,7 +5165,12 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
 			var lowerErr error
 			armExpr := func(arm *ast.ValueArm) (string, bool) {
-				expr, used, err := lowerComposedPartSeed(ast.ComposedPart{Expr: arm.Expr, Stages: arm.Stages}, table, wrap)
+				seed, ok := lc.field(b, arm.Expr, arm.Embedded, arm)
+				if !ok {
+					lowerErr = errBagDiagReported
+					return "", false
+				}
+				expr, used, err := lowerComposedPartSeed(seed, arm.Stages, table, wrap)
 				if err != nil {
 					lowerErr = &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: err.Error()}
 					return "", false
@@ -5131,21 +5216,27 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 			}
 			var cfOK bool
 			if p.CF.If != nil {
-				cfOK = emitValueIf(b, p.CF.If, tmp, armExpr)
+				cfOK = emitValueIf(b, p.CF.If, tmp, armExpr, lc)
 			} else {
-				cfOK = emitValueSwitch(b, p.CF.Switch, tmp, armExpr)
+				cfOK = emitValueSwitch(b, p.CF.Switch, tmp, armExpr, lc)
 			}
 			if !cfOK {
-				msg := "value-form CF arm lowering failed"
-				if lowerErr != nil {
-					msg = strings.TrimPrefix(lowerErr.Error(), "codegen: ")
+				// armExpr records every failure of its own in lowerErr; a
+				// failure without one is a control expression's lowering,
+				// already reported to the bag.
+				if lowerErr == nil || lowerErr == errBagDiagReported {
+					return "", nil, errBagDiagReported
 				}
-				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
+				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: strings.TrimPrefix(lowerErr.Error(), "codegen: ")}
 			}
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, tmp))
 			continue
 		}
-		expr, used, err := lowerComposedPartSeed(*p, table, wrap)
+		seed, ok := lc.field(b, p.Expr, p.ExprEmbedded, p)
+		if !ok {
+			return "", nil, errBagDiagReported
+		}
+		expr, used, err := lowerComposedPartSeed(seed, p.Stages, table, wrap)
 		if err != nil {
 			msg := strings.TrimPrefix(err.Error(), "codegen: ")
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
@@ -5202,9 +5293,13 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
 					expr = tmp
 				}
+				cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
+				if !ok {
+					return "", nil, errBagDiagReported
+				}
 				condTmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, strings.TrimSpace(p.Cond))
+				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, cond)
 				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, condTmp))
 			} else {
 				if probeWrap {
@@ -5215,7 +5310,11 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 				} else {
 					expr = applyClassRenderer(expr, resolved[p])
 				}
-				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, strings.TrimSpace(p.Cond)))
+				cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
+				if !ok {
+					return "", nil, errBagDiagReported
+				}
+				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, cond))
 			}
 		}
 	}
@@ -5543,7 +5642,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				// branch thunk that means `return nil, _gsxerr` — so a renderer,
 				// tuple, or mid-pipe (R, error) hoist emits the right arity. The
 				// component path, with its probe pass, still rejects style below.
-				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, orderedWrap, errReturn)
+				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, orderedWrap, lc)
 				if !ok {
 					// composedParts already reported the positioned diagnostic.
 					return "", nil, errBagDiagReported
@@ -5561,7 +5660,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				}
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, orderedWrap, errReturn)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, orderedWrap, errReturn, lc)
 			if eerr != nil {
 				return "", nil, eerr
 			}

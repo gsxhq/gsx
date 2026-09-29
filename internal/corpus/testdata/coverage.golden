@@ -596,12 +596,15 @@ multispread/two_bags_source_order	diag gen render
 multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
 nested-literal-gate/attrs	diag render
-nested-literal-gate/class_style	diag render
 nested-literal-gate/control_flow	diag render
 nested-literal-gate/supported_forms	diag gen render
 nested-literal/attrs	diag gen render
 nested-literal/attrs_error	diag gen render
 nested-literal/attrs_hoist	diag gen render
+nested-literal/class_case_error	diag gen render
+nested-literal/class_hoist	diag gen render
+nested-literal/class_hoist_error	diag gen render
+nested-literal/class_style	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
 nestedforward/case_d_hoist	diag gen render
@@ -1030,4 +1033,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1032 cases (render: 877, error: 117, gen-pinned: 570)
+TOTAL: 1035 cases (render: 880, error: 117, gen-pinned: 574)

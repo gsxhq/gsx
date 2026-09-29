@@ -28,19 +28,10 @@ func gateNestedLiteralAttrs(attrs []gsxast.Attr, bag *diag.Bag) bool {
 	}
 	for _, a := range attrs {
 		anchor = a
-		// Attribute values, spreads and attrs-literal pair values are lowered
-		// (their Embedded overlays); only the positions below are still gated.
+		// Attribute values, spreads, attrs-literal pair values and class/style
+		// parts (with their guards and value-form if/switch) are lowered (their
+		// Embedded overlays); only the positions below are still gated.
 		switch t := a.(type) {
-		case *gsxast.ComposedAttr:
-			for i := range t.Parts {
-				part := &t.Parts[i]
-				where := "a " + t.Name + " part"
-				check(part.Expr, part.ExprPos, where)
-				check(part.Cond, part.CondPos, "a "+t.Name+" condition")
-				if part.CF != nil {
-					gateValueCF(part.CF, where, check)
-				}
-			}
 		case *gsxast.CondAttr:
 			check(t.Cond, t.CondPos, "a conditional-attribute condition")
 			thenOK, elseOK := gateNestedLiteralAttrs(t.Then, bag), gateNestedLiteralAttrs(t.Else, bag)
@@ -56,24 +47,6 @@ func gateNestedLiteralAttrs(attrs []gsxast.Attr, bag *diag.Bag) bool {
 		}
 	}
 	return ok
-}
-
-func gateValueCF(cf *gsxast.ValueCF, where string, check func(string, token.Pos, string)) {
-	if cf.If != nil {
-		for vi := cf.If; vi != nil; vi = vi.ElseIf {
-			check(vi.Cond, vi.CondPos, "an if condition")
-		}
-	} else if cf.Switch != nil {
-		check(cf.Switch.Tag, cf.Switch.TagPos, "a switch header")
-		for _, c := range cf.Switch.Cases {
-			check(c.List, c.ListPos, "a case list")
-		}
-	}
-	for _, arm := range valueFormArms(cf) {
-		if arm.Segments == nil {
-			check(arm.Expr, arm.ExprPos, where)
-		}
-	}
 }
 
 // gateNestedLiteralHeaders checks the Go header of a control-flow node.

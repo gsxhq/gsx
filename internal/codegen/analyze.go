@@ -1235,14 +1235,14 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 									continue // literal arm: its holes are probed via walkMarkupAttrs
 								}
 								emitSkeletonLine(sb, fset, arm.Pos())
-								if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, arm.ExprPos, arm.Expr, arm.Stages, table, usedFilters, arm, bag); err != nil {
+								if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", arm.ExprPos, arm.Expr, arm.Embedded, arm.Stages, arm); err != nil {
 									classProbeErr = err
 									return
 								}
 							}
 						} else if ca.Parts[i].LiteralSegments == nil {
 							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
-							if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters, &ca.Parts[i], bag); err != nil {
+							if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].ExprEmbedded, ca.Parts[i].Stages, &ca.Parts[i]); err != nil {
 								classProbeErr = err
 								return
 							}
@@ -1263,13 +1263,23 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// These yield empty-bodied `if cond {}` / `switch {}` blocks (not
 				// _gsxuse calls), leaving the k-th probe → k-th node harvest alignment
 				// undisturbed, and record ctrlOff entries for LSP go-to-definition.
+				var livenessErr error
 				walkLivenessAttrExprs(t.Attrs, func(cf *gsxast.ValueCF) {
-					emitValueCFControl(sb, fset, cf, ctrlOff)
-				}, func(node gsxast.Node, cond string, condPos token.Pos) {
-					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitValueCFControl(sb, ps, cf)
+					}
+				}, func(node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart) {
+					if livenessErr == nil {
+						livenessErr = emitCondLiveness(sb, ps, node, cond, condPos, condEmbedded)
+					}
 				}, func(sa *gsxast.SwitchAttr) {
-					emitSwitchAttrControl(sb, fset, sa, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitSwitchAttrControl(sb, ps, sa)
+					}
 				})
+				if livenessErr != nil {
+					return livenessErr
+				}
 				// Probe ExprAttr values nested in a component cond-attr branch
 				// (`{ if C { attr={expr} } }`) with _gsxuseq, AFTER the parts probes —
 				// matching collectExprs's walkBranchAttrExprs pass exactly (Then→Else,
@@ -1438,7 +1448,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 									continue // literal arm: its holes are probed via walkMarkupAttrs
 								}
 								emitSkeletonLine(sb, fset, arm.Pos())
-								if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, arm.ExprPos, arm.Expr, arm.Stages, table, usedFilters, arm, bag); err != nil {
+								if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", arm.ExprPos, arm.Expr, arm.Embedded, arm.Stages, arm); err != nil {
 									leafClassProbeErr = err
 									return
 								}
@@ -1450,7 +1460,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 							// (expr)`); the cond guard itself (if any) still needs its
 							// own liveness reference — see walkLivenessAttrExprs.
 							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
-							if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters, &ca.Parts[i], bag); err != nil {
+							if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].ExprEmbedded, ca.Parts[i].Stages, &ca.Parts[i]); err != nil {
 								leafClassProbeErr = err
 								return
 							}
@@ -1475,13 +1485,23 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// conditional part's cond guard is still referenced via fnCond,
 				// just not its value expr. Spreads are excluded too because their
 				// _gsxuseq probes above also keep them live.
+				var livenessErr error
 				walkLivenessAttrExprs(t.Attrs, func(cf *gsxast.ValueCF) {
-					emitValueCFControl(sb, fset, cf, ctrlOff)
-				}, func(node gsxast.Node, cond string, condPos token.Pos) {
-					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitValueCFControl(sb, ps, cf)
+					}
+				}, func(node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart) {
+					if livenessErr == nil {
+						livenessErr = emitCondLiveness(sb, ps, node, cond, condPos, condEmbedded)
+					}
 				}, func(sa *gsxast.SwitchAttr) {
-					emitSwitchAttrControl(sb, fset, sa, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitSwitchAttrControl(sb, ps, sa)
+					}
 				})
+				if livenessErr != nil {
+					return livenessErr
+				}
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
 				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
 				// _gsxuse maps to the k-th collected node.
@@ -1848,15 +1868,6 @@ func writeSkeletonProbeExpr(sb skeletonWriter, fset *token.FileSet, seedPos toke
 	if len(seen) != len(rewrites) {
 		return fmt.Errorf("codegen: authored probe rewrite did not preserve every source boundary")
 	}
-	return nil
-}
-
-func writeSkeletonCanonicalProbe(sb skeletonWriter, helper string, fset *token.FileSet, seedPos token.Pos, seed string, stages []gsxast.PipeStage, table funcTables, usedFilters map[string]string, owner gsxast.Node, bag *diag.Bag) error {
-	writeSkeletonGenerated(sb, helper+"(")
-	if err := writeSkeletonProbeExpr(sb, fset, seedPos, seed, stages, table, usedFilters, owner, bag); err != nil {
-		return err
-	}
-	writeSkeletonGenerated(sb, ")\n")
 	return nil
 }
 
@@ -2838,7 +2849,7 @@ func walkComposedAttrs(attrs []gsxast.Attr, fn func(*gsxast.ComposedAttr)) {
 // case lists are only legal in statement position) the same way. Both forms
 // are invisible to the k-th-probe→k-th-node type-harvest alignment, unlike
 // _gsxuse.
-func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos), fnSwitch func(sa *gsxast.SwitchAttr)) {
+func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart), fnSwitch func(sa *gsxast.SwitchAttr)) {
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *gsxast.ComposedAttr:
@@ -2847,7 +2858,7 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), f
 			for i := range at.Parts {
 				p := &at.Parts[i]
 				if p.LiteralSegments != nil {
-					fnCond(p, p.Cond, p.CondPos)
+					fnCond(p, p.Cond, p.CondPos, p.CondEmbedded)
 					continue
 				}
 				if p.CF != nil {
@@ -2855,11 +2866,11 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), f
 					continue
 				}
 				if p.Cond != "" {
-					fnCond(p, p.Cond, p.CondPos)
+					fnCond(p, p.Cond, p.CondPos, p.CondEmbedded)
 				}
 			}
 		case *gsxast.CondAttr:
-			fnCond(at, at.Cond, at.CondPos)
+			fnCond(at, at.Cond, at.CondPos, at.CondEmbedded)
 			walkLivenessAttrExprs(at.Then, fnCF, fnCond, fnSwitch)
 			walkLivenessAttrExprs(at.Else, fnCF, fnCond, fnSwitch)
 		case *gsxast.SwitchAttr:
@@ -3025,16 +3036,36 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 // compensated //line and a ctrlOff entry keyed by node — the CtrlMap bridge
 // the LSP uses for go-to-definition/hover inside the condition. Used for
 // in-tag conditional-attribute conds (*CondAttr), class/style `: cond` guards
-// (*ComposedPart), and value-form if conditions (*ValueIf).
-func emitCondLiveness(sb skeletonWriter, fset *token.FileSet, node gsxast.Node, cond string, condPos token.Pos, ctrlOff map[gsxast.Node]int) {
+// (*ComposedPart), and value-form if conditions (*ValueIf). A condition with a
+// nested literal or element (condEmbedded) is written through
+// writeControlText.
+func emitCondLiveness(sb skeletonWriter, ps probeScope, node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart) error {
 	if strings.TrimSpace(cond) == "" {
-		return
+		return nil
 	}
-	emitSkeletonClauseLine(sb, fset, condPos, len("if "))
-	ctrlOff[node] = sb.Len() + len("if ")
+	emitSkeletonClauseLine(sb, ps.fset, condPos, len("if "))
 	writeSkeletonGenerated(sb, "if ")
-	_ = writeSkeletonAuthoredAt(sb, fset, condPos, cond, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+	if err := writeControlText(sb, ps, node, cond, condPos, condEmbedded); err != nil {
+		return err
+	}
 	writeSkeletonGenerated(sb, " {\n}\n")
+	return nil
+}
+
+// writeControlText writes one control expression (an if condition, switch tag
+// or case list) at the current skeleton position. Verbatim text records its
+// ctrlOff entry (keyed by node), the CtrlMap bridge that maps a cursor by
+// relative offset. A split expression (embedded non-nil) is written through
+// writeProbeGoParts instead, and records no ctrlOff entry: its literal and
+// element IIFEs make skeleton offsets diverge from source offsets after the
+// first construct, so a relative-offset bridge would resolve the wrong
+// identifier.
+func writeControlText(sb skeletonWriter, ps probeScope, node gsxast.Node, text string, pos token.Pos, embedded []gsxast.GoPart) error {
+	if embedded != nil {
+		return writeProbeGoParts(sb, embedded, ps)
+	}
+	ps.ctrlOff[node] = sb.Len()
+	return writeSkeletonAuthoredAt(sb, ps.fset, pos, text, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
 }
 
 // emitValueCFControl writes the empty-bodied skeleton statement(s) that
@@ -3054,30 +3085,34 @@ func emitCondLiveness(sb skeletonWriter, fset *token.FileSet, node gsxast.Node, 
 // list (keyed by its *ValueSwitchCase) the same way. That is the same CtrlMap
 // bridge IfMarkup uses, making go-to-definition (and positioned type errors)
 // work inside value-form control expressions.
-func emitValueCFControl(sb skeletonWriter, fset *token.FileSet, cf *gsxast.ValueCF, ctrlOff map[gsxast.Node]int) {
+func emitValueCFControl(sb skeletonWriter, ps probeScope, cf *gsxast.ValueCF) error {
 	if cf.If != nil {
 		for vi := cf.If; vi != nil; vi = vi.ElseIf {
-			emitCondLiveness(sb, fset, vi, vi.Cond, vi.CondPos, ctrlOff)
+			if err := emitCondLiveness(sb, ps, vi, vi.Cond, vi.CondPos, vi.CondEmbedded); err != nil {
+				return err
+			}
 		}
-		return
+		return nil
 	}
 	if vs := cf.Switch; vs != nil {
 		cases := make([]switchLivenessCase, len(vs.Cases))
 		for i, c := range vs.Cases {
-			cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, isDefault: c.Default}
+			cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, listEmbedded: c.ListEmbedded, isDefault: c.Default}
 		}
-		emitSwitchLiveness(sb, fset, vs, vs.Tag, vs.TagPos, cases, ctrlOff)
+		return emitSwitchLiveness(sb, ps, vs, vs.Tag, vs.TagPos, vs.TagEmbedded, cases)
 	}
+	return nil
 }
 
 // switchLivenessCase is one case arm of either switch form, reduced to what the
 // liveness skeleton needs. It lets *ValueSwitchCase and *AttrCaseClause — which
 // differ only in what their bodies hold — share one skeleton emitter.
 type switchLivenessCase struct {
-	node      gsxast.Node
-	list      string
-	listPos   token.Pos
-	isDefault bool
+	node         gsxast.Node
+	list         string
+	listPos      token.Pos
+	listEmbedded []gsxast.GoPart
+	isDefault    bool
 }
 
 // emitSwitchLiveness writes the empty-bodied `switch <tag> { case <list>: … }`
@@ -3088,15 +3123,16 @@ type switchLivenessCase struct {
 // none of which are legal as a bare expression. ctrlOff is keyed by the tag
 // node and by each case node, which is the CtrlMap bridge go-to-definition and
 // positioned type errors use inside the control expressions.
-func emitSwitchLiveness(sb skeletonWriter, fset *token.FileSet, tagNode gsxast.Node, tag string, tagPos token.Pos, cases []switchLivenessCase, ctrlOff map[gsxast.Node]int) {
+func emitSwitchLiveness(sb skeletonWriter, ps probeScope, tagNode gsxast.Node, tag string, tagPos token.Pos, tagEmbedded []gsxast.GoPart, cases []switchLivenessCase) error {
 	tagged := strings.TrimSpace(tag) != ""
 	if tagged {
-		emitSkeletonClauseLine(sb, fset, tagPos, len("switch "))
-		ctrlOff[tagNode] = sb.Len() + len("switch ")
+		emitSkeletonClauseLine(sb, ps.fset, tagPos, len("switch "))
 	}
 	writeSkeletonGenerated(sb, "switch ")
 	if tagged {
-		_ = writeSkeletonAuthoredAt(sb, fset, tagPos, strings.TrimSpace(tag), sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+		if err := writeControlText(sb, ps, tagNode, strings.TrimSpace(tag), tagPos, tagEmbedded); err != nil {
+			return err
+		}
 	}
 	writeSkeletonGenerated(sb, " {\n")
 	for _, c := range cases {
@@ -3104,24 +3140,26 @@ func emitSwitchLiveness(sb skeletonWriter, fset *token.FileSet, tagNode gsxast.N
 			sb.WriteString("default:\n")
 			continue
 		}
-		emitSkeletonClauseLine(sb, fset, c.listPos, len("case "))
-		ctrlOff[c.node] = sb.Len() + len("case ")
+		emitSkeletonClauseLine(sb, ps.fset, c.listPos, len("case "))
 		writeSkeletonGenerated(sb, "case ")
-		_ = writeSkeletonAuthoredAt(sb, fset, c.listPos, c.list, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+		if err := writeControlText(sb, ps, c.node, c.list, c.listPos, c.listEmbedded); err != nil {
+			return err
+		}
 		writeSkeletonGenerated(sb, ":\n")
 	}
 	sb.WriteString("}\n")
+	return nil
 }
 
 // emitSwitchAttrControl is emitSwitchLiveness for an in-tag `{ switch … }`
 // attribute group. Its arms hold attributes, whose own exprs are harvested by
 // the walks in this file; only the tag and case lists need the skeleton.
-func emitSwitchAttrControl(sb skeletonWriter, fset *token.FileSet, sa *gsxast.SwitchAttr, ctrlOff map[gsxast.Node]int) {
+func emitSwitchAttrControl(sb skeletonWriter, ps probeScope, sa *gsxast.SwitchAttr) error {
 	cases := make([]switchLivenessCase, len(sa.Cases))
 	for i, c := range sa.Cases {
-		cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, isDefault: c.Default}
+		cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, listEmbedded: c.ListEmbedded, isDefault: c.Default}
 	}
-	emitSwitchLiveness(sb, fset, sa, sa.Tag, sa.TagPos, cases, ctrlOff)
+	return emitSwitchLiveness(sb, ps, sa, sa.Tag, sa.TagPos, sa.TagEmbedded, cases)
 }
 
 // valueFormArms returns the arm value-expression nodes of a value-form part in

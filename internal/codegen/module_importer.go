@@ -1966,7 +1966,7 @@ func stripGsxunwrap(s string) string {
 }
 
 // gsxProbeWrapperPrefixes are the skeleton's harvest-probe call names
-// (writeSkeletonCanonicalProbe et al. in analyze.go) that can leak into a raw
+// (probeScope.writeCanonicalFieldProbe et al.) that can leak into a raw
 // go/types error message the same way _gsxunwrap does. Ordinarily a type
 // error positioned inside one of these calls is suppressed entirely (analyze:
 // quietSpans, harvestProbeSpans) because the native operand context reports

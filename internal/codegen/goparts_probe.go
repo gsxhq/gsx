@@ -164,8 +164,8 @@ func (ps probeScope) writeFieldProbe(sb skeletonWriter, pos token.Pos, src strin
 	return writeSkeletonProbeExpr(sb, ps.fset, pos, src, stages, ps.table, ps.usedFilters, owner, ps.bag)
 }
 
-// writeCanonicalFieldProbe writes `helper(<field probe>)\n`, the field form of
-// writeSkeletonCanonicalProbe.
+// writeCanonicalFieldProbe writes `helper(<field probe>)\n` for one
+// Go-expression field.
 func (ps probeScope) writeCanonicalFieldProbe(sb skeletonWriter, helper string, pos token.Pos, src string, embedded []gsxast.GoPart, stages []gsxast.PipeStage, owner gsxast.Node) error {
 	writeSkeletonGenerated(sb, helper+"(")
 	if err := ps.writeFieldProbe(sb, pos, src, embedded, stages, owner); err != nil {
