@@ -1074,6 +1074,18 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **Nested literals in the remaining Go-expression positions** - an
+  `f`/`js`/`css` literal or element literal *inside* a Go expression is lowered
+  only in body `{ }` interpolations and `{{ }}` blocks (element literals: body
+  only). Attribute values (native, component, attrs bag), spreads, ordered-attrs
+  values, class/style parts and guards, value-form headers and arms,
+  conditional-attribute headers and control-flow headers report a positioned
+  `nested-literal` diagnostic (2026-09-29; corpus `nested-literal-gate/*`).
+  Previously these failed with a raw go/parser "missing ','" from the skeleton,
+  or "expected `{` after `if`" for headers. Closing it means an `Embedded`
+  split on each of those AST fields plus every consumer that emits them, the
+  way `Interp.Embedded` works. A braced literal that is the whole value
+  (`title={f`…`}`) was never nested and works.
 - [ ] **Skeleton-parse caching** - the one surviving item from the 2026-07-23
   analysis-architecture probe: cache the target + shipping skeleton parses per
   unchanged file (as the pristine gsx parse cache already does), reclaiming

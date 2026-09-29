@@ -1,0 +1,33 @@
+# Control-flow headers: the parser delimits past a nested literal's @{ }
+# braces (scanToBlockBrace skips literal and element spans), and codegen
+# reports the unsupported position instead of "expected `{` after `if`".
+-- input.gsx --
+package demo
+
+func wrap(s string) string { return s }
+func ok(s string) bool     { return s != "" }
+
+component Page(id int) {
+	{ if s := wrap(f`q-@{id}`); s != "" {
+		<b>{ s }</b>
+	} }
+	{ for _, s := range []string{wrap(f`r-@{id}`)} {
+		<b>{ s }</b>
+	} }
+	{ switch wrap(js`s(@{id})`) {
+	case "x":
+		<b>x</b>
+	} }
+	{ switch {
+	case ok(css`a:@{id}`):
+		<b>y</b>
+	} }
+}
+-- invoke --
+Page(1)
+-- diagnostics.golden --
+7:17: an f literal inside a Go expression is not supported in an if header yet; assign it to a variable in a {{ }} block first
+10:36: an f literal inside a Go expression is not supported in a for clause yet; assign it to a variable in a {{ }} block first
+13:16: a js literal inside a Go expression is not supported in a switch header yet; assign it to a variable in a {{ }} block first
+18:10: a css literal inside a Go expression is not supported in a case list yet; assign it to a variable in a {{ }} block first
+-- render.golden --

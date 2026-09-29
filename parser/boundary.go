@@ -276,37 +276,55 @@ func skipQuotedOrComment(src string, i int) (int, bool) {
 // composite-literal disambiguation to go/parser, so bare composite literals in a
 // `for … range` clause are handled correctly. ok is false if none parse.
 func scanToBlockBrace(src string, from int, keyword string) (int, bool) {
-	sub := src[from:]
-	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(sub))
-	var s scanner.Scanner
-	s.Init(file, []byte(sub), func(token.Position, string) {}, scanner.ScanComments)
-
+	// A gsx literal or element literal in the header is not Go: its holes and
+	// children carry braces, and go/parser rejects it. Skip each one's span and
+	// resume tokenizing past it (the scanGoParts discipline), and mask them
+	// before asking go/parser whether the header is complete. Whether such a
+	// header is then supported is codegen's call, not the delimiter's.
 	depth := 0
-	for {
-		pos, tok, _ := s.Scan()
-		if tok == token.EOF {
-			return 0, false
-		}
-		switch tok {
-		case token.LPAREN, token.LBRACK:
-			depth++
-		case token.RPAREN, token.RBRACK:
-			depth--
-		case token.LBRACE:
-			if depth == 0 {
-				b := from + fset.Position(pos).Offset
-				if blockHeaderParses(keyword + " " + src[from:b]) {
-					return b, true
+	expectOperand := true
+	base := from
+	for base < len(src) {
+		fset := token.NewFileSet()
+		file := fset.AddFile("", fset.Base(), len(src)-base)
+		var s scanner.Scanner
+		s.Init(file, []byte(src[base:]), func(token.Position, string) {}, scanner.ScanComments)
+		resumed := false
+		for !resumed {
+			pos, tok, _ := s.Scan()
+			if tok == token.EOF {
+				return 0, false
+			}
+			off := base + fset.Position(pos).Offset
+			if tok == token.STRING && (src[off] == '`' || src[off] == '"') && langPrefixStart(src, off) >= 0 {
+				base, _ = embeddedLiteralEndHoleAware(src, off+1, src[off])
+				expectOperand = false
+				resumed = true
+				continue
+			}
+			if expectOperand && tok == token.LSS && byteBeginsTag(src, off+1) {
+				base = elementSpanEnd(src, off)
+				expectOperand = false
+				resumed = true
+				continue
+			}
+			switch tok {
+			case token.LPAREN, token.LBRACK:
+				depth++
+			case token.RPAREN, token.RBRACK:
+				depth--
+			case token.LBRACE:
+				if depth == 0 && blockHeaderParses(keyword+" "+maskEmbeddedConstructs(src[from:off])) {
+					return off, true
 				}
 				depth++ // composite-literal brace; descend into it
-			} else {
-				depth++
+			case token.RBRACE:
+				depth--
 			}
-		case token.RBRACE:
-			depth--
+			expectOperand = tokenExpectsOperandAfter(tok)
 		}
 	}
+	return 0, false
 }
 
 // blockHeaderParses reports whether `header {}` is a valid Go control-flow

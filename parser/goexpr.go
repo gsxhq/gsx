@@ -391,6 +391,65 @@ func scanGoParts(src string) []goSplitItem {
 	return items
 }
 
+// EmbeddedConstruct is an operand-position gsx construct inside a Go
+// expression: a prefixed literal (f`/js`/css`, either delimiter) or an
+// element/fragment literal. [Off, End) is its byte span in the scanned source.
+type EmbeddedConstruct struct {
+	Off, End  int
+	IsElement bool
+}
+
+// EmbeddedConstructs returns, in source order, every operand-position gsx
+// literal and element literal in the Go expression src (the scanGoParts
+// stream, with each span's end).
+func EmbeddedConstructs(src string) []EmbeddedConstruct {
+	if !strings.ContainsRune(src, '<') && !containsEmbeddedLiteralPrefix(src) {
+		return nil
+	}
+	items := scanGoParts(src)
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]EmbeddedConstruct, 0, len(items))
+	for _, it := range items {
+		c := EmbeddedConstruct{Off: it.Off, IsElement: !it.IsLiteral}
+		if it.IsLiteral {
+			d := it.Off
+			for src[d] != '`' && src[d] != '"' {
+				d++
+			}
+			c.End, _ = embeddedLiteralEndHoleAware(src, d+1, src[d])
+		} else {
+			c.End = elementSpanEnd(src, it.Off)
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// maskEmbeddedConstructs returns src with each EmbeddedConstruct replaced by a
+// same-length Go operand — a blank string literal for a prefixed literal, nil
+// for an element — so go/parser can check the surrounding Go and any error
+// offset still indexes src.
+func maskEmbeddedConstructs(src string) string {
+	cs := EmbeddedConstructs(src)
+	if len(cs) == 0 {
+		return src
+	}
+	b := []byte(src)
+	for _, c := range cs {
+		for i := c.Off; i < c.End; i++ {
+			b[i] = ' '
+		}
+		if c.IsElement {
+			copy(b[c.Off:], "nil")
+		} else {
+			b[c.Off], b[c.End-1] = '"', '"'
+		}
+	}
+	return string(b)
+}
+
 // wholeLiteralPipeMsg is W1's diagnostic for a `|>` gsx pipe chain found
 // directly after a value-position literal (f`/js`/css`, either delimiter).
 // gsx's pipe syntax has no meaning applied to a WHOLE literal there — only

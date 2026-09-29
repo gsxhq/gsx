@@ -207,8 +207,11 @@ func leadingSpaceLen(s string) int {
 	return len(s) - len(strings.TrimLeft(s, " \t\r\n"))
 }
 
+// validateGoExpr checks expr as Go, with nested gsx literals and element
+// literals masked: those are gsx constructs, and whether their position
+// supports them is reported by codegen with a positioned diagnostic.
 func validateGoExpr(expr string) error {
-	_, err := goparser.ParseExpr(expr)
+	_, err := goparser.ParseExpr(maskEmbeddedConstructs(expr))
 	return err
 }
 
