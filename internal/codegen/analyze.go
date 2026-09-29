@@ -21,6 +21,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/goexprshape"
 	"github.com/gsxhq/gsx/internal/sourceintel"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -75,6 +76,10 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 		if len(parts) == 0 {
 			return nil, true
 		}
+		// The parse cache normalized the authored tree before this split
+		// existed; its element literals get the same whitespace rules as an
+		// element literal in top-level Go.
+		wsnorm.NormalizeGoParts(parts)
 		return parts, true
 	}
 	// splitFields fills the codegen-only overlay of every Go-expression field

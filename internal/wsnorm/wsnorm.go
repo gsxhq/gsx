@@ -39,20 +39,26 @@ func Normalize(f *ast.File) {
 		case *ast.Component:
 			v.Body = normalizeMarkup(v.Body, false)
 		case *ast.GoWithElements:
-			for _, part := range v.Parts {
-				switch p := part.(type) {
-				case *ast.Element:
-					// Mirrors normalizeMarkup's own *ast.Element case: a
-					// Go-embedded element starts a fresh (preserve=false)
-					// context, same as a top-level component body element.
-					p.Children = normalizeMarkup(p.Children, IsPreserveTag(p.Tag))
-					normalizeAttrs(p.Attrs)
-				case *ast.Fragment:
-					// A fragment has no wrapper tag; its children normalize in a
-					// fresh (preserve=false) context, same as a body fragment.
-					p.Children = normalizeMarkup(p.Children, false)
-				}
-			}
+			NormalizeGoParts(v.Parts)
+		}
+	}
+}
+
+// NormalizeGoParts normalizes, in place, each element or fragment literal in a
+// Go expression split into parts: a top-level GoWithElements region, or a
+// codegen split of a Go-expression field nested anywhere in markup. Either way
+// the Go expression is a fresh (preserve=false) context, so a literal in a
+// <pre> body's interpolation collapses like one in top-level Go. Text and
+// prefixed-literal parts are untouched.
+func NormalizeGoParts(parts []ast.GoPart) {
+	for _, part := range parts {
+		switch p := part.(type) {
+		case *ast.Element:
+			// Mirrors normalizeMarkup's own *ast.Element case.
+			p.Children = normalizeMarkup(p.Children, IsPreserveTag(p.Tag))
+			normalizeAttrs(p.Attrs)
+		case *ast.Fragment:
+			p.Children = normalizeMarkup(p.Children, false)
 		}
 	}
 }

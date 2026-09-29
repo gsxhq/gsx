@@ -623,6 +623,9 @@ nested-literal/supported_forms	diag gen render
 nested-literal/tagless_switch_init	diag gen render
 nested-literal/type_error	diag(error)
 nested-literal/value_form_thunk_tuple	diag gen render
+nested-literal/wsnorm_attr	diag gen render
+nested-literal/wsnorm_body	diag gen render
+nested-literal/wsnorm_goblock	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
 nestedforward/case_d_hoist	diag gen render
@@ -1056,4 +1059,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1058 cases (render: 898, error: 122, gen-pinned: 591)
+TOTAL: 1061 cases (render: 901, error: 122, gen-pinned: 594)
