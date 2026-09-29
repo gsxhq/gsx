@@ -294,37 +294,25 @@ func canonGo(n ast.Node) {
 			canonGo(c)
 		}
 	case *ast.Interp:
-		v.Expr = fmtExpr(v.Expr)
+		v.Expr = canonGoField(v.Expr, exprField, fmtExpr)
 		for i := range v.Stages {
 			if v.Stages[i].HasArgs {
 				v.Stages[i].Args = fmtArgs(v.Stages[i].Args)
 			}
 		}
 	case *ast.GoBlock:
-		// A `{{ }}` block carrying an embedded literal is not parseable Go, so
+		// A `{{ }}` block carrying an embedded value is not parseable Go, so
 		// fmtStmts leaves it verbatim; the printer instead lays it out through the
-		// literal-aware fmtGoBlockCode. The normalizer MUST apply the SAME pass, or
+		// value-aware fmtGoBlockCode. The normalizer MUST apply the SAME pass, or
 		// it reads the printer's gofmt reflow as an AST change — the identical
 		// reason the GoWithElements case above mirrors fmtGoExprParts.
-		if s, lits, ok := (&printer{width: 80, tabWidth: pretty.DefaultTabWidth}).fmtGoBlockCode(v.Code); ok {
-			// A multi-line js`/css` literal is carried in s as a marker; the printer
-			// re-indents its body, which the emit-side rebase strips back. Replace
-			// each marker with the body's whitespace-agnostic token signature so the
-			// comparison checks token-equivalence (the re-indenter's contract), not
-			// the byte-identity it deliberately breaks — mirroring canonEmbeddedBodies.
-			for marker, lit := range lits {
-				sig := jsfmt.TokenSignature
-				if lit.Lang == ast.EmbeddedCSS {
-					sig = cssfmt.TokenSignature
-				}
-				s = strings.Replace(s, marker, embeddedSignature(lit.Segments, sig), 1)
-			}
-			v.Code = s
+		if s, values, ok := canonPrinter.fmtGoBlockCode(v.Code); ok {
+			v.Code = canonGoValues(s, values)
 		} else {
 			v.Code = fmtStmts(v.Code)
 		}
 	case *ast.IfMarkup:
-		v.Cond = fmtExpr(v.Cond)
+		v.Cond = canonGoField(v.Cond, ifField, fmtExpr)
 		for _, m := range v.Then {
 			canonGo(m)
 		}
@@ -332,15 +320,15 @@ func canonGo(n ast.Node) {
 			canonGo(m)
 		}
 	case *ast.ForMarkup:
-		v.Clause = fmtClause(v.Clause)
+		v.Clause = canonGoField(v.Clause, forField, fmtClause)
 		for _, m := range v.Body {
 			canonGo(m)
 		}
 	case *ast.SwitchMarkup:
-		v.Tag = fmtExpr(v.Tag)
+		v.Tag = canonGoField(v.Tag, switchField, fmtExpr)
 		for _, c := range v.Cases {
 			if !c.Default {
-				c.List = fmtCaseList(c.List)
+				c.List = canonGoField(c.List, caseField, fmtCaseList)
 			}
 			for _, m := range c.Body {
 				canonGo(m)
@@ -349,10 +337,46 @@ func canonGo(n ast.Node) {
 	}
 }
 
+// canonPrinter is the printer configuration the Go-fragment normalizer
+// formats with (the corpus is printed at width 80).
+var canonPrinter = &printer{width: 80, tabWidth: pretty.DefaultTabWidth}
+
+// canonGoField mirrors goFieldDoc: a Go field holding gsx values is
+// normalized through the same placeholder round-trip the printer lays it out
+// with, anything else through plain.
+func canonGoField(src string, form goFieldForm, plain func(string) string) string {
+	if s, values, ok := canonPrinter.fmtGoField(src, form); ok {
+		return canonGoValues(s, values)
+	}
+	return plain(src)
+}
+
+// canonGoValues replaces each value marker in s: a multi-line js`/css`
+// literal with its body's whitespace-agnostic token signature (the printer
+// re-indents the body, which the emit-side rebase strips back — mirroring
+// canonEmbeddedBodies), and an element or fragment with its printed text,
+// which is a function of its (normalized) AST alone.
+func canonGoValues(s string, values map[string]goValue) string {
+	for marker, v := range values {
+		var rep string
+		if v.lit != nil {
+			sig := jsfmt.TokenSignature
+			if v.lit.Lang == ast.EmbeddedCSS {
+				sig = cssfmt.TokenSignature
+			}
+			rep = embeddedSignature(v.lit.Segments, sig)
+		} else {
+			rep = pretty.Print(v.doc, 1<<30, pretty.DefaultTabWidth)
+		}
+		s = strings.Replace(s, marker, rep, 1)
+	}
+	return s
+}
+
 func canonGoAttr(a ast.Attr) {
 	switch v := a.(type) {
 	case *ast.ExprAttr:
-		v.Expr = fmtExpr(v.Expr)
+		v.Expr = canonGoField(v.Expr, exprField, fmtExpr)
 		for i := range v.Stages {
 			if v.Stages[i].HasArgs {
 				v.Stages[i].Args = fmtArgs(v.Stages[i].Args)
@@ -366,18 +390,18 @@ func canonGoAttr(a ast.Attr) {
 				canonValueCF(v.Parts[i].CF)
 				continue
 			}
-			v.Parts[i].Expr = fmtExpr(v.Parts[i].Expr)
+			v.Parts[i].Expr = canonGoField(v.Parts[i].Expr, exprField, fmtExpr)
 			for j := range v.Parts[i].Stages {
 				if v.Parts[i].Stages[j].HasArgs {
 					v.Parts[i].Stages[j].Args = fmtArgs(v.Parts[i].Stages[j].Args)
 				}
 			}
 			if v.Parts[i].Cond != "" {
-				v.Parts[i].Cond = fmtExpr(v.Parts[i].Cond)
+				v.Parts[i].Cond = canonGoField(v.Parts[i].Cond, exprField, fmtExpr)
 			}
 		}
 	case *ast.CondAttr:
-		v.Cond = fmtExpr(v.Cond)
+		v.Cond = canonGoField(v.Cond, ifField, fmtExpr)
 		for _, t := range v.Then {
 			canonGoAttr(t)
 		}
@@ -409,7 +433,7 @@ func canonValueCF(cf *ast.ValueCF) {
 }
 
 func canonValueIf(vi *ast.ValueIf) {
-	vi.Cond = fmtExpr(vi.Cond)
+	vi.Cond = canonGoField(vi.Cond, ifField, fmtExpr)
 	if vi.Then != nil {
 		canonValueArm(vi.Then)
 	}
@@ -423,11 +447,11 @@ func canonValueIf(vi *ast.ValueIf) {
 
 func canonValueSwitch(vs *ast.ValueSwitch) {
 	if vs.Tag != "" {
-		vs.Tag = fmtExpr(vs.Tag)
+		vs.Tag = canonGoField(vs.Tag, switchField, fmtExpr)
 	}
 	for _, c := range vs.Cases {
 		if !c.Default {
-			c.List = fmtCaseList(c.List)
+			c.List = canonGoField(c.List, caseField, fmtCaseList)
 		}
 		if c.Value != nil {
 			canonValueArm(c.Value)
@@ -436,7 +460,7 @@ func canonValueSwitch(vs *ast.ValueSwitch) {
 }
 
 func canonValueArm(a *ast.ValueArm) {
-	a.Expr = fmtExpr(a.Expr)
+	a.Expr = canonGoField(a.Expr, exprField, fmtExpr)
 	for i := range a.Stages {
 		if a.Stages[i].HasArgs {
 			a.Stages[i].Args = fmtArgs(a.Stages[i].Args)

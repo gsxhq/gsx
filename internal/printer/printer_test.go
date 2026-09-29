@@ -1415,7 +1415,7 @@ component C() {
 }
 
 // TestAttrExprRawStringVerbatim pins the same raw-string safety on the
-// attribute-value path (fmtExprDoc): multiline() previously re-indented the
+// attribute-value path (goFieldDoc): multiline() previously re-indented the
 // raw string's interior lines, silently changing the attribute's value.
 func TestAttrExprRawStringVerbatim(t *testing.T) {
 	src := `package p
