@@ -442,7 +442,7 @@ func reduceEmbeddedProbeBodies(v reflect.Value) (reflect.Value, bool) {
 	if !v.IsValid() || v.IsNil() {
 		return v, false
 	}
-	if fl, ok := v.Interface().(*goast.FuncLit); ok && isEmbeddedElemProbeFuncLit(fl) {
+	if fl, ok := reflect.TypeAssert[*goast.FuncLit](v); ok && isEmbeddedElemProbeFuncLit(fl) {
 		opaque := *fl
 		body := *fl.Body
 		body.List = body.List[len(body.List)-1:]
