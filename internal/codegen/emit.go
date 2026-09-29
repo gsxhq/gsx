@@ -1405,13 +1405,13 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	}
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
+			if !genStyleChild(b, c, resolved, table, imports, rt, interpTemp, fset, bag) {
 				return false
 			}
 		}
 	} else if strings.EqualFold(el.Tag, "script") {
 		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, table, imports, interpTemp, bag) {
+			if !genScriptChild(b, c, resolved, table, imports, rt, interpTemp, fset, bag) {
 				return false
 			}
 		}
@@ -1999,13 +1999,13 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		}
 		if strings.EqualFold(t.Tag, "style") {
 			for _, c := range t.Children {
-				if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
+				if !genStyleChild(b, c, resolved, table, imports, rt, interpTemp, fset, bag) {
 					return false
 				}
 			}
 		} else if strings.EqualFold(t.Tag, "script") {
 			for _, c := range t.Children {
-				if !genScriptChild(b, c, resolved, table, imports, interpTemp, bag) {
+				if !genScriptChild(b, c, resolved, table, imports, rt, interpTemp, fset, bag) {
 					return false
 				}
 			}
@@ -2844,13 +2844,13 @@ func emitS(b *bytes.Buffer, s string) {
 // genStyleChild emits one child of a <style> element. Text is raw CSS (verbatim);
 // an Interp is rendered in CSS context (auto-sanitized). <style> bodies contain
 // only Text and @{ } interps (parser guarantee).
-func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitCSSInterp(b, t, resolved, table, imports, interpTemp, bag)
+		return emitCSSInterp(b, t, resolved, table, imports, rt, interpTemp, fset, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-style-node", "<style> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -2858,10 +2858,13 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 }
 
 // emitCSSInterp renders a <style> interpolation value in CSS block context.
-func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
-	expr := strings.TrimSpace(n.Expr)
+func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+	expr, ok := rawTextHoleExpr(b, n, "<style>", lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, hasCtx: true, errReturn: "return _gsxerr", owner: n})
+	if !ok {
+		return false
+	}
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -2888,6 +2891,26 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 	}
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitRenderCSS(b, expr, t, n, bag)
+}
+
+// rawTextHoleExpr returns the Go expression of a <script>/<style> @{ } hole.
+// A split hole lowers in place like a body interpolation: a nested literal
+// keeps its Go value (string, RawJS, RawCSS), which then goes through the
+// hole's own escaper, and an error-carrying hole inside it hoists. An element
+// literal has no JavaScript or CSS value, so it is rejected at its position.
+func rawTextHoleExpr(b *bytes.Buffer, n *ast.Interp, where string, lc lowerCtx) (string, bool) {
+	if n.Embedded == nil {
+		return strings.TrimSpace(n.Expr), true
+	}
+	for _, part := range n.Embedded {
+		switch part.(type) {
+		case *ast.Element, *ast.Fragment:
+			lc.bag.Errorf(part.Pos(), part.End(), "unsupported-node", "an element literal has no value in a %s hole; render it outside the %s element", where, where)
+			return "", false
+		}
+	}
+	expr, ok := lowerGoParts(b, n.Embedded, lc)
+	return strings.TrimSpace(expr), ok
 }
 
 // emitRenderCSS writes a value in CSS block context (inside <style>): RawCSS and
@@ -2924,13 +2947,13 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *
 // (verbatim); an Interp is rendered through the JS escaper selected by its
 // JSCtx (set by internal/jsx). Comment-context holes were already un-split to
 // Text by jsx.ResolveScripts, so they arrive here as Text.
-func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitJSInterp(b, t, resolved, table, imports, interpTemp, bag)
+		return emitJSInterp(b, t, resolved, table, imports, rt, interpTemp, fset, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-script-node", "<script> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -2940,10 +2963,13 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 // emitJSInterp renders a <script> interpolation value through the runtime JS
 // escaper chosen by its JSCtx. It mirrors emitCSSInterp's pipeline-stage handling
 // and (T, error) tuple auto-unwrap.
-func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
-	expr := strings.TrimSpace(n.Expr)
+func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+	expr, ok := rawTextHoleExpr(b, n, "<script>", lowerCtx{resolved: resolved, table: table, imports: imports, rt: rt, interpTemp: interpTemp, fset: fset, bag: bag, hasCtx: true, errReturn: "return _gsxerr", owner: n})
+	if !ok {
+		return false
+	}
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
