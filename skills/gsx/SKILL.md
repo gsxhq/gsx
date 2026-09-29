@@ -63,6 +63,18 @@ Why these matter:
 - **Value-form `if`/`switch` works only inside `class={…}` and `style={…}`
   lists.** For any other attribute use a conditional attribute block:
   `{ if c { data-state="open" } else { data-state="closed" } }`.
+- **Fallible calls go in the hole.** A `(T, error)` call is hoisted ahead of
+  the write and unwrapped in every expression position: text, native
+  attributes, component inputs, `f`/`js`/`css` holes, pipeline stages,
+  class/style parts. Holes evaluate in source order, and the first non-nil
+  error stops rendering and returns from `Render`. So no `must()`, no
+  string-returning wrapper that swallows the error, and no `{{ }}` pre-compute
+  for a value used once. Use a `{{ v, err := f(); if err != nil { return err } }}`
+  block only when one result feeds several holes or the error needs wrapping.
+  Use an `if` init to handle an error in place:
+  `{ if v, err := f(); err != nil { <p>unavailable</p> } else { … } }`. A
+  helper taking `ctx` that many templates call belongs in a filter, which gets
+  `ctx` injected: `{ key |> lookupID }`.
 - **Bool attributes:** `true`/`false` render as the strings `"true"`/`"false"`
   only on `aria-*`, `contenteditable`, `spellcheck`, `draggable`. Everywhere
   else a bool means presence: `data-open={b}` renders bare `data-open` or
@@ -141,6 +153,7 @@ component TicketPanel(t Ticket, closed bool) {
 - "A small helper returning the class or label string is cleaner"
 - "Build the line in Go so whitespace can't bite"
 - "Duplicate the element, it's only two branches"
+- "Compute it in a `{{ }}` block first / wrap it in `must()`" (for a value used once)
 - "I used the literal, so it's idiomatic" (while the hole still holds `var(…)`)
 - "Adding attrs to that component is out of scope, I'll write a plain button"
 - "That injection / `ZgotmplZ` predates my task"
