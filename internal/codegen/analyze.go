@@ -1051,123 +1051,18 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 		switch t := n.(type) {
 		case *gsxast.Interp:
 			if t.Embedded != nil {
-				// The seed carried operand-position <tag>/<> literals (e.g.
-				// `wrap(<b/>)`): build the probe expression by splicing each
-				// embedded element/fragment's inline IIFE (the SAME _gsxelem(N)
-				// marker + probe form the top-level GoWithElements loop emits) in
-				// between the verbatim GoText runs, then _gsxuse the whole
-				// expression so harvest maps its type (e.g. wrap's return type) onto
-				// resolved[t]. The element's own interps are probed INSIDE its IIFE
-				// so they resolve against THIS enclosing component scope (recvVar /
-				// recvTypeName threaded through unchanged), matching emit's closure
-				// capture. Indices are reserved BEFORE probing each element so
-				// nested embedded tags take later indices — harvestEmbeddedElements
-				// resolves them off the shared gw slice for free.
-				targetMarkerStart := 0
-				if targetRegistry != nil {
-					targetMarkerStart = len(targetRegistry.ordered)
-				}
-				eb := newSkeletonWriterChild(sb)
-				for _, part := range t.Embedded {
-					switch p := part.(type) {
-					case gsxast.GoText:
-						emitSkeletonBlockLine(eb, fset, p.Pos())
-						if err := writeSkeletonAuthoredAt(eb, fset, p.Pos(), p.Src, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
-							return err
-						}
-					case *gsxast.Element:
-						markup := []gsxast.Markup{p}
-						idx := len(*gw)
-						*gw = append(*gw, markup)
-						eb.WriteString("func() _gsxrt.Node {\n")
-						fmt.Fprintf(eb, "_gsxelem(%d)\n", idx)
-						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(eb, markup, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
-							return err
-						}
-						eb.WriteString("return nil\n}()")
-					case *gsxast.Fragment:
-						idx := len(*gw)
-						*gw = append(*gw, p.Children)
-						eb.WriteString("func() _gsxrt.Node {\n")
-						fmt.Fprintf(eb, "_gsxelem(%d)\n", idx)
-						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(eb, p.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
-							return err
-						}
-						eb.WriteString("return nil\n}()")
-					case *gsxast.EmbeddedInterp:
-						// A prefixed backtick literal (f`/js`/css`) inside this interp's
-						// seed expression → a Go VALUE. Same probe IIFE the top-level
-						// GoWithElements loop splices: its holes resolve against this
-						// enclosing component's scope (recvVar / recvTypeName threaded
-						// through) and are harvested off gw[N], while the outer interp's
-						// _gsxuse stays aligned (the marked IIFE is skipped by
-						// harvestBody). The return type MUST match emit's lowering
-						// (emit ≡ probe): f` → string, js` → _gsxrt.RawJS, css` →
-						// _gsxrt.RawCSS — so wrap(...) etc. type-check against the exact
-						// type the literal produces.
-						if len(p.Stages) > 0 {
-							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
-						}
-						if err := probeEmbeddedInterpIIFE(eb, p.Segments, p.Lang, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp); err != nil {
-							return err
-						}
-					default:
-						return fmt.Errorf("codegen: unsupported embedded interpolation part %T", part)
-					}
-				}
-				// Run the assembled seed through t.Stages via the SAME probeExpr /
-				// lowerPipe path the non-embedded interp uses, so resolved[t] is the
-				// POST-pipe type — matching genInterp, which lowers the pipeline over
-				// the spliced seed too (emit ≡ probe). A Stages-less embedded interp
-				// yields the seed unchanged, preserving prior behavior.
-				seed := eb.String()
-				var mappedBoundary componentTargetSeedBoundary
-				hasMappedChild := false
-				if mapped, ok := eb.(*skeletonSourceWriter); ok && mapped.enabled && (len(mapped.segments) != 0 || len(mapped.regions) != 0) {
-					mappedBoundary = componentTargetSeedBoundary{open: "\x00gsx-mapped-seed-open\x00", close: "\x00gsx-mapped-seed-close\x00"}
-					seed = mappedBoundary.open + seed + mappedBoundary.close
-					hasMappedChild = true
-				}
-				var boundary componentTargetSeedBoundary
-				hasTargetMarkers := targetRegistry != nil && len(targetRegistry.ordered) > targetMarkerStart
-				if hasTargetMarkers {
-					seed, boundary = markComponentTargetSeed(targetRegistry.ordered[targetMarkerStart].site, seed)
-				}
-				probe, err := probeExpr(seed, t.Stages, table, usedFilters, t, bag)
-				if err != nil {
-					return err
-				}
-				seedOffset := 0
-				if hasTargetMarkers {
-					probe, seedOffset, err = unmarkComponentTargetSeed(probe, boundary)
-					if err != nil {
-						return err
-					}
-				}
-				if hasMappedChild {
-					probe, seedOffset, err = unmarkComponentTargetSeed(probe, mappedBoundary)
-					if err != nil {
-						return err
-					}
-				}
+				// The seed carried operand-position <tag>/<> literals or prefixed
+				// f`/js`/css` literals (e.g. `wrap(<b/>)`): splice each construct's
+				// tagged probe IIFE between the verbatim GoText runs and run the
+				// result through t.Stages, then _gsxuse the whole expression so
+				// harvest maps its post-pipe type onto resolved[t].
 				emitSkeletonLine(sb, fset, t.Pos())
 				writeSkeletonGenerated(sb, "_gsxuse(")
-				probeStart := sb.Len()
-				if hasMappedChild {
-					writeSkeletonGenerated(sb, probe[:seedOffset])
-					if err := appendSkeletonWriter(sb, eb); err != nil {
-						return err
-					}
-					writeSkeletonGenerated(sb, probe[seedOffset+len(eb.String()):])
-				} else {
-					writeSkeletonGenerated(sb, probe)
+				ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targetRegistry: targetRegistry, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
+				if err := writeEmbeddedProbe(sb, t.Embedded, t.Stages, t, ps); err != nil {
+					return err
 				}
 				writeSkeletonGenerated(sb, ")\n")
-				if hasTargetMarkers {
-					targetRegistry.adjustFrom(targetMarkerStart, probeStart+seedOffset)
-				}
 				continue
 			}
 			const probePrefixLen = len("_gsxuse(") // 8
@@ -1712,27 +1607,13 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				sb.WriteString("\n")
 			default:
 				// The block carries one or more f`/js`/css` literals: reconstruct it
-				// from its split parts. Each GoText run gets a fresh block-form
-				// //line anchor (positions must keep mapping to .gsx source once an
-				// IIFE splice shifts byte offsets), and each *EmbeddedInterp becomes
-				// the SAME Lang-typed probe IIFE the GoWithElements/Interp.Embedded
-				// sites splice (probeEmbeddedInterpIIFE — one lowering, three sites).
+				// from its split parts with the same splice an Interp.Embedded seed
+				// uses (writeProbeGoParts). Element parts never reach here: they set
+				// UnsupportedMarkup above.
 				ctrlOff[t] = sb.Len()
-				for _, part := range t.Embedded {
-					switch p := part.(type) {
-					case gsxast.GoText:
-						emitSkeletonBlockLine(sb, fset, p.Pos())
-						if err := writeSkeletonAuthoredAt(sb, fset, p.Pos(), p.Src, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
-							return err
-						}
-					case *gsxast.EmbeddedInterp:
-						if len(p.Stages) > 0 {
-							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
-						}
-						if err := probeEmbeddedInterpIIFE(sb, p.Segments, p.Lang, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp); err != nil {
-							return err
-						}
-					}
+				ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targetRegistry: targetRegistry, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
+				if err := writeProbeGoParts(sb, t.Embedded, ps); err != nil {
+					return err
 				}
 				sb.WriteString("\n")
 			}
