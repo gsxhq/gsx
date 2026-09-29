@@ -1608,10 +1608,10 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				sb.WriteString("\n")
 			default:
 				// The block carries one or more f`/js`/css` literals or element
-				// literals: reconstruct it from its split parts with the same splice
-				// an Interp.Embedded seed uses (writeProbeGoParts). No ctrlOff entry, as for a split control
-				// header (writeControlText): the spliced IIFEs break the
-				// relative-offset CtrlMap bridge.
+				// literals: reconstruct it from its split parts with the same
+				// splice an Interp.Embedded seed uses (writeProbeGoParts). No
+				// ctrlOff entry, as for a split control header (writeControlText):
+				// the spliced IIFEs break the relative-offset CtrlMap bridge.
 				if err := writeProbeGoParts(sb, t.Embedded, ps); err != nil {
 					return err
 				}

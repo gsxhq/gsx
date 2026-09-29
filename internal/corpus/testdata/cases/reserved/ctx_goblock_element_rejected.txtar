@@ -1,0 +1,18 @@
+# A body-scope `ctx` binding in a {{ }} block that also holds an element
+# literal is reserved like any other: `ctx, q :=` redeclares nothing to Go (q
+# is new), so without the check the later render context would silently be the
+# user's value. The element before the binding pins that the diagnostic
+# position survives the masked parse.
+-- input.gsx --
+package views
+
+import "context"
+
+type key struct{}
+
+component Page(id int) {
+	{{ n := <b>{ id }</b>; ctx, q := context.WithValue(ctx, key{}, "shadow"), 1 }}
+	<p>{ n }{ q }</p>
+}
+-- diagnostics.golden --
+8:25: identifier "ctx" is reserved (the ambient context) — rename it

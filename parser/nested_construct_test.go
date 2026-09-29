@@ -54,7 +54,7 @@ func TestEmbeddedConstructs(t *testing.T) {
 			t.Errorf("construct %d = %q (element %v), want %q (element %v)", i, text, got[i].IsElement, w.text, w.isElement)
 		}
 	}
-	masked := maskEmbeddedConstructs(src)
+	masked := MaskEmbeddedConstructs(src)
 	if len(masked) != len(src) {
 		t.Fatalf("mask changed length: %d -> %d", len(src), len(masked))
 	}

@@ -427,11 +427,11 @@ func EmbeddedConstructs(src string) []EmbeddedConstruct {
 	return out
 }
 
-// maskEmbeddedConstructs returns src with each EmbeddedConstruct replaced by a
+// MaskEmbeddedConstructs returns src with each EmbeddedConstruct replaced by a
 // same-length Go operand — a blank string literal for a prefixed literal, nil
 // for an element — so go/parser can check the surrounding Go and any error
 // offset still indexes src.
-func maskEmbeddedConstructs(src string) string {
+func MaskEmbeddedConstructs(src string) string {
 	cs := EmbeddedConstructs(src)
 	if len(cs) == 0 {
 		return src

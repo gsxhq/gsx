@@ -1,0 +1,14 @@
+# Type arguments on a plain element literal in a {{ }} block are rejected at
+# the element, as they are anywhere else.
+-- input.gsx --
+package demo
+
+component Page() {
+	{{ d := <div[int]/> }}
+	<p>{ d }</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:10: type arguments on HTML element <div>: type args are only valid on component tags
+-- render.golden --

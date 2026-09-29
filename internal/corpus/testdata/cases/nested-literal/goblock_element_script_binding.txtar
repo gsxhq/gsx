@@ -1,0 +1,18 @@
+# A <script> element literal in a {{ }} block is classified like one anywhere
+# else: a hole in JS binding position is rejected at the hole.
+-- input.gsx --
+package demo
+
+component Page(name string) {
+	{{
+		s := <script>
+			let @{ name } = 1
+		</script>
+	}}
+	<p>{ s }</p>
+}
+-- invoke --
+Page("x")
+-- diagnostics.golden --
+6:9: @{ } here is a JavaScript binding/lvalue position (assignment target, declaration or member name); only a gsx.RawJS value may be spliced here — wrap it as gsx.RawJS(...) if the bytes are trusted, or use it where a value is expected
+-- render.golden --

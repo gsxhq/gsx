@@ -212,7 +212,7 @@ func leadingSpaceLen(s string) int {
 // literals masked: those are gsx constructs, and whether their position
 // supports them is reported by codegen with a positioned diagnostic.
 func validateGoExpr(expr string) error {
-	_, err := goparser.ParseExpr(maskEmbeddedConstructs(expr))
+	_, err := goparser.ParseExpr(MaskEmbeddedConstructs(expr))
 	return err
 }
 

@@ -391,7 +391,7 @@ goblock-literal/css_literal	diag gen render
 goblock-literal/diag_element_in_nested_hole	diag render
 goblock-literal/diag_whole_pipe_goblock	diag render
 goblock-literal/element_unused	diag render
-goblock-literal/element_value	diag render
+goblock-literal/element_value	diag gen render
 goblock-literal/f_literal	diag gen render
 goblock-literal/motivating_attrs	diag gen render
 goblock-literal/nested_literal_hole	diag gen render
@@ -614,6 +614,8 @@ nested-literal/control_flow_hoist_error	diag gen render
 nested-literal/css_hole_thunk_error	diag gen render
 nested-literal/for_error	diag gen render
 nested-literal/goblock_element	diag gen render
+nested-literal/goblock_element_script_binding	diag render
+nested-literal/goblock_element_type_args	diag render
 nested-literal/header_init	diag gen render
 nested-literal/header_init_error	diag gen render
 nested-literal/supported_forms	diag gen render
@@ -851,6 +853,8 @@ reserved/children_value_unplaced	diag(error)
 reserved/closure_over_attrs	diag gen render
 reserved/component_child_shadow_ok	diag gen render
 reserved/component_child_shadow_with_outer_free	diag gen render
+reserved/ctx_goblock_element_rejected	diag(error)
+reserved/ctx_goblock_literal_rejected	diag(error)
 reserved/ctx_shortvar_rejected	diag(error)
 reserved/funclit_param_shadow_ok	diag gen render
 reserved/goblock_consumes_attrs	diag gen render
@@ -1047,4 +1051,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1049 cases (render: 894, error: 117, gen-pinned: 590)
+TOTAL: 1053 cases (render: 896, error: 119, gen-pinned: 591)

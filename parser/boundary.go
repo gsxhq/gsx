@@ -314,7 +314,7 @@ func scanToBlockBrace(src string, from int, keyword string) (int, bool) {
 			case token.RPAREN, token.RBRACK:
 				depth--
 			case token.LBRACE:
-				if depth == 0 && blockHeaderParses(keyword+" "+maskEmbeddedConstructs(src[from:off])) {
+				if depth == 0 && blockHeaderParses(keyword+" "+MaskEmbeddedConstructs(src[from:off])) {
 					return off, true
 				}
 				depth++ // composite-literal brace; descend into it

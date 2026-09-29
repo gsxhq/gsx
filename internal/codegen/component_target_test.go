@@ -1574,15 +1574,16 @@ component Page(value string) {
 	}
 }
 
+// Preprocessing diagnostics of an element literal in a {{ }} block are those
+// of the same element in a { } interpolation. (Diagnostics raised later, at
+// analysis, are pinned by the nested-literal/goblock_element_* corpus cases.)
 func TestPreprocessGoBlockElementDiagnosticsMatchInterpolation(t *testing.T) {
 	cases := []struct {
 		name      string
 		component string
 		element   string
 	}{
-		{name: "script", component: "Page", element: `<script>let @{value} = 1</script>`},
 		{name: "self reference", component: "item", element: `<item/>`},
-		{name: "leaf type args", component: "Page", element: `<div[int]/>`},
 		{name: "nested malformed expression", component: "Page", element: `<div>{wrap(<Broken></Other>)}</div>`},
 	}
 	codes := func(t *testing.T, component, body string) []string {
