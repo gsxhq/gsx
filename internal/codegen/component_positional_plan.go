@@ -591,15 +591,17 @@ func aggregateNestedComponentFacts(root gsxast.Node, facts expressionFactSet) (o
 
 // nestedComponentFactBearingNode mirrors the authoritative expression probes
 // in analyze.go. A plain class/style expression is probed on its ComposedPart;
-// value-form control flow is probed on each ValueArm instead; a composed CSS
-// literal has no ComposedPart expression and delegates to its Interp holes.
-// Ordered attrs likewise publish one fact per OrderedPair. This function only
-// identifies facts that analysis actually publishes: callers must not invent a
-// type when any required fact is absent.
+// value-form control flow is probed on each ValueArm instead; a literal part
+// or literal arm (f`…`/css`…`) has no expression of its own and delegates to
+// its Interp holes. Ordered attrs likewise publish one fact per OrderedPair.
+// This function only identifies facts that analysis actually publishes:
+// callers must not invent a type when any required fact is absent.
 func nestedComponentFactBearingNode(node gsxast.Node) bool {
 	switch node := node.(type) {
-	case *gsxast.Interp, *gsxast.OrderedPair, *gsxast.ValueArm:
+	case *gsxast.Interp, *gsxast.OrderedPair:
 		return true
+	case *gsxast.ValueArm:
+		return node.Segments == nil
 	case *gsxast.ComposedPart:
 		return node.CF == nil && node.LiteralSegments == nil
 	default:

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 // reserved_bindings.go — the body-scope reservation check for the ambient
@@ -24,7 +25,8 @@ import (
 // eliminates.
 //
 // The emitter is the scope oracle (verified against emit.go's genNode):
-//   - GoBlock            → emits `t.Code` verbatim (emit.go:1975-1977), no block.
+//   - GoBlock            → emits `t.Code` (its embedded literals and elements
+//     lowered in place), no block.
 //   - Fragment (`<>…</>`) → emits its children inline (emit.go:1925-1930), no block.
 //   - PLAIN Element (`<div>…`) → writes the open tag, then emits its children
 //     inline (emit.go:1911-1917), no block — a plain element does NOT open a Go
@@ -69,10 +71,17 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 		for _, n := range nodes {
 			switch t := n.(type) {
 			case *ast.GoBlock:
-				if t.UnsupportedMarkup != nil || !topScope || !t.CodePos.IsValid() {
+				if !topScope || !t.CodePos.IsValid() {
 					continue
 				}
-				for _, b := range fragmentBindings(t.Code, fragStmts) {
+				code := t.Code
+				if t.Embedded != nil {
+					// Embedded literals and elements are not Go: parse the block
+					// with each one masked by a same-length operand, so binding
+					// offsets still index Code.
+					code = gsxparser.MaskEmbeddedConstructs(code)
+				}
+				for _, b := range fragmentBindings(code, fragStmts) {
 					// fragmentBindings is still shared with the pre-cutover free-use
 					// analyzer, so it returns attrs/children as well. They are ordinary
 					// authored parameters or locals now; only ambient ctx remains reserved.

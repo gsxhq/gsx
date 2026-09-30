@@ -87,6 +87,7 @@ buildtags/method_variant	diag render
 buildtags/redeclare_within_file	diag(error)
 buildtags/variant_diff_sig	diag(error)
 buildtags/variant_same_sig	diag render
+class/bag_literal_part	diag gen render
 class/body_local_in_class	diag gen render
 class/body_local_pipe_class	diag gen render
 class/caller_wins_classstyle	diag render
@@ -389,8 +390,8 @@ fragment-literals/var	diag gen render
 goblock-literal/css_literal	diag gen render
 goblock-literal/diag_element_in_nested_hole	diag render
 goblock-literal/diag_whole_pipe_goblock	diag render
-goblock-literal/element_rejected	diag render
-goblock-literal/element_rejected_used_later	diag render
+goblock-literal/element_unused	diag render
+goblock-literal/element_value	diag gen render
 goblock-literal/f_literal	diag gen render
 goblock-literal/motivating_attrs	diag gen render
 goblock-literal/nested_literal_hole	diag gen render
@@ -595,10 +596,39 @@ multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
 multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
-nested-literal-gate/attrs	diag render
-nested-literal-gate/class_style	diag render
-nested-literal-gate/control_flow	diag render
-nested-literal-gate/supported_forms	diag gen render
+nested-literal/attrs	diag gen render
+nested-literal/attrs_error	diag gen render
+nested-literal/attrs_hoist	diag gen render
+nested-literal/case_list_error	diag gen render
+nested-literal/class_case_error	diag gen render
+nested-literal/class_hoist	diag gen render
+nested-literal/class_hoist_error	diag gen render
+nested-literal/class_style	diag gen render
+nested-literal/cond_attrs	diag gen render
+nested-literal/cond_attrs_hoist	diag gen render
+nested-literal/conditional_error	diag gen render
+nested-literal/conditional_left	diag gen render
+nested-literal/control_flow	diag gen render
+nested-literal/control_flow_hoist	diag gen render
+nested-literal/control_flow_hoist_error	diag gen render
+nested-literal/css_hole_thunk_error	diag gen render
+nested-literal/for_error	diag gen render
+nested-literal/generic_in_component_input	diag render
+nested-literal/goblock_element	diag gen render
+nested-literal/goblock_element_script_binding	diag render
+nested-literal/goblock_element_type_args	diag render
+nested-literal/header_init	diag gen render
+nested-literal/header_init_error	diag gen render
+nested-literal/script_hole	diag gen render
+nested-literal/script_hole_element_error	diag(error)
+nested-literal/style_hole	diag gen render
+nested-literal/supported_forms	diag gen render
+nested-literal/tagless_switch_init	diag gen render
+nested-literal/type_error	diag(error)
+nested-literal/value_form_thunk_tuple	diag gen render
+nested-literal/wsnorm_attr	diag gen render
+nested-literal/wsnorm_body	diag gen render
+nested-literal/wsnorm_goblock	diag gen render
 nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
 nestedforward/case_d_hoist	diag gen render
@@ -748,6 +778,7 @@ pipelines/class_pipeline	diag gen render
 pipelines/default_generic	diag gen render
 pipelines/diag_literal_in_stage_args	diag(error)
 pipelines/join	diag render
+pipelines/literal_pipe_hole_type_error	diag(error)
 pipelines/loop_var	diag render
 pipelines/param	diag render
 pipelines/param_arg	diag render
@@ -831,11 +862,15 @@ reserved/children_value_unplaced	diag(error)
 reserved/closure_over_attrs	diag gen render
 reserved/component_child_shadow_ok	diag gen render
 reserved/component_child_shadow_with_outer_free	diag gen render
+reserved/ctx_goblock_element_rejected	diag(error)
+reserved/ctx_goblock_literal_rejected	diag(error)
 reserved/ctx_shortvar_rejected	diag(error)
 reserved/funclit_param_shadow_ok	diag gen render
 reserved/goblock_consumes_attrs	diag gen render
 reserved/if_else_branch_shadow	diag gen render
 reserved/plain_func_attrs_param_ok	diag gen render
+reserved/prefix_nested_element_text_ok	diag render
+reserved/prefix_nested_hole_rejected	diag(error)
 reserved/range_shadow_ok	diag gen render
 reserved/shadow_and_free_mixed	diag gen render
 reserved/struct_key_not_trigger	diag gen render
@@ -1027,4 +1062,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1029 cases (render: 874, error: 117, gen-pinned: 567)
+TOTAL: 1064 cases (render: 903, error: 123, gen-pinned: 596)

@@ -106,3 +106,132 @@ func TestCloneFileIndependentAndEqual(t *testing.T) {
 		t.Fatal("mutating the clone's Element.IsComponent leaked into the original tree")
 	}
 }
+
+// TestCloneFileCopiesEmbeddedOverlays pins that every codegen-only
+// Go-expression overlay (see Interp.Embedded) is deep-copied: the codegen
+// split writes these slices and their nested nodes, so a shared backing array
+// or node pointer would let one analysis contaminate the cached pristine tree.
+func TestCloneFileCopiesEmbeddedOverlays(t *testing.T) {
+	overlay := func() []ast.GoPart {
+		return []ast.GoPart{
+			ast.GoText{Src: "wrap("},
+			&ast.EmbeddedInterp{Lang: ast.EmbeddedText, Segments: []ast.Markup{&ast.Text{Value: "a"}}},
+		}
+	}
+	elem := func(attrs ...ast.Attr) *ast.File {
+		return &ast.File{Decls: []ast.Decl{&ast.Component{Body: []ast.Markup{&ast.Element{Tag: "div", Attrs: attrs}}}}}
+	}
+	body := func(m ast.Markup) *ast.File {
+		return &ast.File{Decls: []ast.Decl{&ast.Component{Body: []ast.Markup{m}}}}
+	}
+	firstAttr := func(f *ast.File) ast.Attr {
+		return f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Attrs[0]
+	}
+	firstMarkup := func(f *ast.File) ast.Markup {
+		return f.Decls[0].(*ast.Component).Body[0]
+	}
+	composed := func(p ast.ComposedPart) *ast.File {
+		return elem(&ast.ComposedAttr{Name: "class", Parts: []ast.ComposedPart{p}})
+	}
+	firstPart := func(f *ast.File) *ast.ComposedPart {
+		return &firstAttr(f).(*ast.ComposedAttr).Parts[0]
+	}
+
+	cases := []struct {
+		name  string
+		build func() *ast.File
+		get   func(*ast.File) []ast.GoPart
+	}{
+		{"ExprAttr.Embedded",
+			func() *ast.File { return elem(&ast.ExprAttr{Name: "title", Embedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstAttr(f).(*ast.ExprAttr).Embedded }},
+		{"SpreadAttr.Embedded",
+			func() *ast.File { return elem(&ast.SpreadAttr{Embedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstAttr(f).(*ast.SpreadAttr).Embedded }},
+		{"OrderedPair.Embedded",
+			func() *ast.File {
+				return elem(&ast.OrderedAttrsAttr{Name: "attrs", Pairs: []ast.OrderedPair{{Key: "k", Embedded: overlay()}}})
+			},
+			func(f *ast.File) []ast.GoPart { return firstAttr(f).(*ast.OrderedAttrsAttr).Pairs[0].Embedded }},
+		{"ComposedPart.ExprEmbedded",
+			func() *ast.File { return composed(ast.ComposedPart{ExprEmbedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstPart(f).ExprEmbedded }},
+		{"ComposedPart.CondEmbedded",
+			func() *ast.File { return composed(ast.ComposedPart{CondEmbedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstPart(f).CondEmbedded }},
+		{"ValueArm.Embedded",
+			func() *ast.File {
+				return composed(ast.ComposedPart{CF: &ast.ValueCF{If: &ast.ValueIf{Then: &ast.ValueArm{Embedded: overlay()}}}})
+			},
+			func(f *ast.File) []ast.GoPart { return firstPart(f).CF.If.Then.Embedded }},
+		{"ValueIf.CondEmbedded",
+			func() *ast.File {
+				return composed(ast.ComposedPart{CF: &ast.ValueCF{If: &ast.ValueIf{CondEmbedded: overlay(), Then: &ast.ValueArm{}}}})
+			},
+			func(f *ast.File) []ast.GoPart { return firstPart(f).CF.If.CondEmbedded }},
+		{"ValueSwitch.TagEmbedded",
+			func() *ast.File {
+				return composed(ast.ComposedPart{CF: &ast.ValueCF{Switch: &ast.ValueSwitch{TagEmbedded: overlay()}}})
+			},
+			func(f *ast.File) []ast.GoPart { return firstPart(f).CF.Switch.TagEmbedded }},
+		{"ValueSwitchCase.ListEmbedded",
+			func() *ast.File {
+				return composed(ast.ComposedPart{CF: &ast.ValueCF{Switch: &ast.ValueSwitch{Cases: []*ast.ValueSwitchCase{{ListEmbedded: overlay()}}}}})
+			},
+			func(f *ast.File) []ast.GoPart { return firstPart(f).CF.Switch.Cases[0].ListEmbedded }},
+		{"CondAttr.CondEmbedded",
+			func() *ast.File { return elem(&ast.CondAttr{CondEmbedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstAttr(f).(*ast.CondAttr).CondEmbedded }},
+		{"SwitchAttr.TagEmbedded",
+			func() *ast.File { return elem(&ast.SwitchAttr{TagEmbedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstAttr(f).(*ast.SwitchAttr).TagEmbedded }},
+		{"AttrCaseClause.ListEmbedded",
+			func() *ast.File {
+				return elem(&ast.SwitchAttr{Cases: []*ast.AttrCaseClause{{ListEmbedded: overlay()}}})
+			},
+			func(f *ast.File) []ast.GoPart { return firstAttr(f).(*ast.SwitchAttr).Cases[0].ListEmbedded }},
+		{"IfMarkup.CondEmbedded",
+			func() *ast.File { return body(&ast.IfMarkup{CondEmbedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstMarkup(f).(*ast.IfMarkup).CondEmbedded }},
+		{"ForMarkup.ClauseEmbedded",
+			func() *ast.File { return body(&ast.ForMarkup{ClauseEmbedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstMarkup(f).(*ast.ForMarkup).ClauseEmbedded }},
+		{"SwitchMarkup.TagEmbedded",
+			func() *ast.File { return body(&ast.SwitchMarkup{TagEmbedded: overlay()}) },
+			func(f *ast.File) []ast.GoPart { return firstMarkup(f).(*ast.SwitchMarkup).TagEmbedded }},
+		{"CaseClause.ListEmbedded",
+			func() *ast.File {
+				return body(&ast.SwitchMarkup{Cases: []*ast.CaseClause{{ListEmbedded: overlay()}}})
+			},
+			func(f *ast.File) []ast.GoPart { return firstMarkup(f).(*ast.SwitchMarkup).Cases[0].ListEmbedded }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			orig := tc.build()
+			clone := ast.CloneFile(orig)
+			o, c := tc.get(orig), tc.get(clone)
+			if len(c) != 2 {
+				t.Fatalf("clone overlay has %d parts, want 2", len(c))
+			}
+			oInterp := o[1].(*ast.EmbeddedInterp)
+			cInterp, ok := c[1].(*ast.EmbeddedInterp)
+			if !ok {
+				t.Fatalf("clone overlay part 1 is %T, want *ast.EmbeddedInterp", c[1])
+			}
+			if cInterp == oInterp {
+				t.Fatal("clone shares the *EmbeddedInterp pointer with the original")
+			}
+			if cInterp.Segments[0] == oInterp.Segments[0] {
+				t.Fatal("clone shares the nested literal's segment with the original")
+			}
+			c[0] = ast.GoText{Src: "mutated("}
+			c[1] = &ast.EmbeddedInterp{Lang: ast.EmbeddedJS}
+			if got := o[0].(ast.GoText).Src; got != "wrap(" {
+				t.Fatalf("mutating the clone's overlay leaked into the original: part 0 = %q", got)
+			}
+			if o[1] != oInterp {
+				t.Fatal("mutating the clone's overlay replaced the original's part 1")
+			}
+		})
+	}
+}

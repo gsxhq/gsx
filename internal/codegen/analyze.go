@@ -21,6 +21,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/goexprshape"
 	"github.com/gsxhq/gsx/internal/sourceintel"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -37,9 +38,11 @@ var errSkipComponent = errors.New("skip component")
 // fail closed before later analysis stages.
 //
 // Materialized markup can recursively contain another splittable expression,
-// so the walk covers every []Markup-bearing field plus Interp.Embedded and
-// GoBlock.Embedded. The following preprocessing stage runs JSX classification
-// over this complete expanded tree.
+// so the walk covers every []Markup-bearing field plus Interp.Embedded,
+// GoBlock.Embedded and every Go-expression field's codegen-only overlay
+// (ExprAttr.Embedded, IfMarkup.CondEmbedded, … — see gsxast.GoFields). The
+// following preprocessing stage runs JSX classification over this complete
+// expanded tree.
 func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet, bag *diag.Bag) bool {
 	var walk func([]gsxast.Markup)
 	var walkParts func([]gsxast.GoPart)
@@ -55,50 +58,62 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 		return ok
 	}
 
-	splitInterp := func(interp *gsxast.Interp) {
-		if interp.Embedded != nil || !maySplit(interp.Expr) || !interp.ExprPos.IsValid() {
-			return
+	// splitGoField splits the Go expression src, whose first byte is at pos,
+	// at its nested constructs. It returns nil parts when src has none (or pos
+	// is unavailable), and false after reporting positioned split errors.
+	splitGoField := func(src string, pos token.Pos) ([]gsxast.GoPart, bool) {
+		if !maySplit(src) || !pos.IsValid() {
+			return nil, true
 		}
-		parts, errs := gsxparser.SplitGoExprElements(fset, interp.Expr, interp.ExprPos, cls)
+		parts, errs := gsxparser.SplitGoExprElements(fset, src, pos, cls)
 		if len(errs) > 0 {
 			syntaxOK = false
 			for _, err := range errs {
 				bag.Report(err.Pos, err.End, diag.Error, "parse-error", "parser", "%s", err.Msg)
 			}
-			return
+			return nil, false
 		}
 		if len(parts) == 0 {
+			return nil, true
+		}
+		// The parse cache normalized the authored tree before this split
+		// existed; its element literals get the same whitespace rules as an
+		// element literal in top-level Go.
+		wsnorm.NormalizeGoParts(parts)
+		return parts, true
+	}
+	// splitFields fills the codegen-only overlay of every Go-expression field
+	// markup node m carries (never replacing an existing one) and walks each
+	// overlay's markup parts so nested elements are split in turn.
+	splitFields := func(m gsxast.Markup) {
+		gsxast.MarkupGoFields(m, func(f gsxast.GoField) {
+			// A literal that is an attribute's whole value has its own lowering.
+			if _, isAttr := f.Owner.(*gsxast.ExprAttr); isAttr && isWholeLiteral(f.Src) {
+				return
+			}
+			if *f.Embedded == nil {
+				if parts, ok := splitGoField(f.Src, f.Pos); ok {
+					*f.Embedded = parts
+				}
+			}
+			walkParts(*f.Embedded)
+		})
+	}
+	splitInterp := func(interp *gsxast.Interp) {
+		if interp.Embedded != nil {
 			return
 		}
-		interp.Embedded = parts
+		if parts, ok := splitGoField(interp.Expr, interp.ExprPos); ok {
+			interp.Embedded = parts
+		}
 	}
 	splitGoBlock := func(block *gsxast.GoBlock) {
 		if block.Embedded != nil {
-			if block.UnsupportedMarkup == nil {
-				block.UnsupportedMarkup = firstDirectGoBlockMarkup(block.Embedded)
-			}
 			return
 		}
-		if !maySplit(block.Code) || !block.CodePos.IsValid() {
-			return
-		}
-		parts, errs := gsxparser.SplitGoExprElements(fset, block.Code, block.CodePos, cls)
-		if unsupported := firstDirectGoBlockMarkup(parts); unsupported != nil {
+		if parts, ok := splitGoField(block.Code, block.CodePos); ok {
 			block.Embedded = parts
-			block.UnsupportedMarkup = unsupported
-			return
 		}
-		if len(errs) > 0 {
-			syntaxOK = false
-			for _, err := range errs {
-				bag.Report(err.Pos, err.End, diag.Error, "parse-error", "parser", "%s", err.Msg)
-			}
-			return
-		}
-		if len(parts) == 0 {
-			return
-		}
-		block.Embedded = parts
 	}
 	walkParts = func(parts []gsxast.GoPart) {
 		for _, part := range parts {
@@ -116,42 +131,34 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 			case *gsxast.EmbeddedInterp:
 				walk(node.Segments)
 			case *gsxast.Element:
-				if !gateNestedLiteralAttrs(node.Attrs, bag) {
-					syntaxOK = false
-				}
+				splitFields(node)
 				walkMarkupAttrs(node.Attrs, walk)
 				walk(node.Children)
 			case *gsxast.Fragment:
 				walk(node.Children)
+			case *gsxast.Marker:
+				splitFields(node)
 			case *gsxast.MarkerRegion:
+				splitFields(node)
 				// A region's children carry ordinary `{ }` / `{{ }}` nodes whose
 				// embedded f`/js`/css` literals must be split here; without this the
 				// literal stays inside the raw Go text and go/parser rejects it.
-				// (Marker is void — no children.)
 				walk(node.Children)
 			case *gsxast.ForMarkup:
-				if !gateNestedLiteralHeaders(node, bag) {
-					syntaxOK = false
-				}
+				splitFields(node)
 				walk(node.Body)
 			case *gsxast.IfMarkup:
-				if !gateNestedLiteralHeaders(node, bag) {
-					syntaxOK = false
-				}
+				splitFields(node)
 				walk(node.Then)
 				walk(node.Else)
 			case *gsxast.SwitchMarkup:
-				if !gateNestedLiteralHeaders(node, bag) {
-					syntaxOK = false
-				}
+				splitFields(node)
 				for _, clause := range node.Cases {
 					walk(clause.Body)
 				}
 			case *gsxast.GoBlock:
 				splitGoBlock(node)
-				if node.UnsupportedMarkup == nil {
-					walkParts(node.Embedded)
-				}
+				walkParts(node.Embedded)
 			}
 		}
 	}
@@ -165,6 +172,14 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 		}
 	}
 	return syntaxOK
+}
+
+// isWholeLiteral reports whether src is exactly one prefixed literal (an
+// f, js or css literal, either delimiter) and nothing else: a braced
+// attribute value of that shape has its own lowering and is not nested.
+func isWholeLiteral(src string) bool {
+	cs := gsxparser.EmbeddedConstructs(src)
+	return len(cs) == 1 && !cs[0].IsElement && cs[0].Off == 0 && cs[0].End == len(strings.TrimRight(src, " \t\r\n"))
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
@@ -1011,127 +1026,22 @@ func writeSkeletonComponentSignature(sb skeletonWriter, c *gsxast.Component, dec
 // target identity bindings in these same lexical scopes while retaining the
 // ordinary operand, liveness, and slot probes below each component target.
 func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, targetRegistry *componentTargetMarkerRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int, enclosingAttrsBound bool) error {
+	ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targetRegistry: targetRegistry, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
 			if t.Embedded != nil {
-				// The seed carried operand-position <tag>/<> literals (e.g.
-				// `wrap(<b/>)`): build the probe expression by splicing each
-				// embedded element/fragment's inline IIFE (the SAME _gsxelem(N)
-				// marker + probe form the top-level GoWithElements loop emits) in
-				// between the verbatim GoText runs, then _gsxuse the whole
-				// expression so harvest maps its type (e.g. wrap's return type) onto
-				// resolved[t]. The element's own interps are probed INSIDE its IIFE
-				// so they resolve against THIS enclosing component scope (recvVar /
-				// recvTypeName threaded through unchanged), matching emit's closure
-				// capture. Indices are reserved BEFORE probing each element so
-				// nested embedded tags take later indices — harvestEmbeddedElements
-				// resolves them off the shared gw slice for free.
-				targetMarkerStart := 0
-				if targetRegistry != nil {
-					targetMarkerStart = len(targetRegistry.ordered)
-				}
-				eb := newSkeletonWriterChild(sb)
-				for _, part := range t.Embedded {
-					switch p := part.(type) {
-					case gsxast.GoText:
-						emitSkeletonBlockLine(eb, fset, p.Pos())
-						if err := writeSkeletonAuthoredAt(eb, fset, p.Pos(), p.Src, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
-							return err
-						}
-					case *gsxast.Element:
-						markup := []gsxast.Markup{p}
-						idx := len(*gw)
-						*gw = append(*gw, markup)
-						eb.WriteString("func() _gsxrt.Node {\n")
-						fmt.Fprintf(eb, "_gsxelem(%d)\n", idx)
-						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(eb, markup, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
-							return err
-						}
-						eb.WriteString("return nil\n}()")
-					case *gsxast.Fragment:
-						idx := len(*gw)
-						*gw = append(*gw, p.Children)
-						eb.WriteString("func() _gsxrt.Node {\n")
-						fmt.Fprintf(eb, "_gsxelem(%d)\n", idx)
-						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(eb, p.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
-							return err
-						}
-						eb.WriteString("return nil\n}()")
-					case *gsxast.EmbeddedInterp:
-						// A prefixed backtick literal (f`/js`/css`) inside this interp's
-						// seed expression → a Go VALUE. Same probe IIFE the top-level
-						// GoWithElements loop splices: its holes resolve against this
-						// enclosing component's scope (recvVar / recvTypeName threaded
-						// through) and are harvested off gw[N], while the outer interp's
-						// _gsxuse stays aligned (the marked IIFE is skipped by
-						// harvestBody). The return type MUST match emit's lowering
-						// (emit ≡ probe): f` → string, js` → _gsxrt.RawJS, css` →
-						// _gsxrt.RawCSS — so wrap(...) etc. type-check against the exact
-						// type the literal produces.
-						if len(p.Stages) > 0 {
-							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
-						}
-						if err := probeEmbeddedInterpIIFE(eb, p.Segments, p.Lang, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp); err != nil {
-							return err
-						}
-					default:
-						return fmt.Errorf("codegen: unsupported embedded interpolation part %T", part)
-					}
-				}
-				// Run the assembled seed through t.Stages via the SAME probeExpr /
-				// lowerPipe path the non-embedded interp uses, so resolved[t] is the
-				// POST-pipe type — matching genInterp, which lowers the pipeline over
-				// the spliced seed too (emit ≡ probe). A Stages-less embedded interp
-				// yields the seed unchanged, preserving prior behavior.
-				seed := eb.String()
-				var mappedBoundary componentTargetSeedBoundary
-				hasMappedChild := false
-				if mapped, ok := eb.(*skeletonSourceWriter); ok && mapped.enabled && (len(mapped.segments) != 0 || len(mapped.regions) != 0) {
-					mappedBoundary = componentTargetSeedBoundary{open: "\x00gsx-mapped-seed-open\x00", close: "\x00gsx-mapped-seed-close\x00"}
-					seed = mappedBoundary.open + seed + mappedBoundary.close
-					hasMappedChild = true
-				}
-				var boundary componentTargetSeedBoundary
-				hasTargetMarkers := targetRegistry != nil && len(targetRegistry.ordered) > targetMarkerStart
-				if hasTargetMarkers {
-					seed, boundary = markComponentTargetSeed(targetRegistry.ordered[targetMarkerStart].site, seed)
-				}
-				probe, err := probeExpr(seed, t.Stages, table, usedFilters, t, bag)
-				if err != nil {
-					return err
-				}
-				seedOffset := 0
-				if hasTargetMarkers {
-					probe, seedOffset, err = unmarkComponentTargetSeed(probe, boundary)
-					if err != nil {
-						return err
-					}
-				}
-				if hasMappedChild {
-					probe, seedOffset, err = unmarkComponentTargetSeed(probe, mappedBoundary)
-					if err != nil {
-						return err
-					}
-				}
+				// The seed carried operand-position <tag>/<> literals or prefixed
+				// f`/js`/css` literals (e.g. `wrap(<b/>)`): splice each construct's
+				// tagged probe IIFE between the verbatim GoText runs and run the
+				// result through t.Stages, then _gsxuse the whole expression so
+				// harvest maps its post-pipe type onto resolved[t].
 				emitSkeletonLine(sb, fset, t.Pos())
 				writeSkeletonGenerated(sb, "_gsxuse(")
-				probeStart := sb.Len()
-				if hasMappedChild {
-					writeSkeletonGenerated(sb, probe[:seedOffset])
-					if err := appendSkeletonWriter(sb, eb); err != nil {
-						return err
-					}
-					writeSkeletonGenerated(sb, probe[seedOffset+len(eb.String()):])
-				} else {
-					writeSkeletonGenerated(sb, probe)
+				if err := writeEmbeddedProbe(sb, t.Embedded, t.Stages, t, ps); err != nil {
+					return err
 				}
 				writeSkeletonGenerated(sb, ")\n")
-				if hasTargetMarkers {
-					targetRegistry.adjustFrom(targetMarkerStart, probeStart+seedOffset)
-				}
 				continue
 			}
 			const probePrefixLen = len("_gsxuse(") // 8
@@ -1184,7 +1094,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				return err
 			}
 			if len(t.Stages) > 0 {
-				seed := embeddedProbeSeed(t.Segments, table, usedFilters, bag)
+				seed := embeddedProbeSeed(t.Segments)
 				emitSkeletonLine(sb, fset, t.Pos())
 				writeSkeletonGenerated(sb, "_gsxuse(")
 				if err := writeSkeletonProbeExpr(sb, fset, token.NoPos, seed, t.Stages, table, usedFilters, t, bag); err != nil {
@@ -1234,7 +1144,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					// probe remains authoritative for errors inside the authored
 					// expression (including missing imports). It must not be quiet: the
 					// removed Props-literal probe no longer provides a duplicate error.
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 						return err
 					}
 				}
@@ -1252,7 +1162,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					// canonical gsx.Attrs assignment would falsely reject a defined bag.
 					// The non-quiet variadic probe both harvests the exact type and owns
 					// expression diagnostics; semantic validation proves the bag family.
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, sa.ExprPos, sa.Expr, sa.Stages, table, usedFilters, sa, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", sa.ExprPos, sa.Expr, sa.Embedded, sa.Stages, sa); err != nil {
 						spreadProbeErr = err
 					}
 				})
@@ -1270,8 +1180,9 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 						continue
 					}
 					for i := range oa.Pairs {
-						emitSkeletonLine(sb, fset, oa.Pairs[i].Pos())
-						if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, oa.Pairs[i].Pos(), oa.Pairs[i].Value, nil, table, usedFilters, &oa.Pairs[i], bag); err != nil {
+						pair := &oa.Pairs[i]
+						emitSkeletonLine(sb, fset, pair.Pos())
+						if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", pair.ValuePos, pair.Value, pair.Embedded, nil, pair); err != nil {
 							return err
 						}
 					}
@@ -1303,14 +1214,14 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 									continue // literal arm: its holes are probed via walkMarkupAttrs
 								}
 								emitSkeletonLine(sb, fset, arm.Pos())
-								if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, arm.ExprPos, arm.Expr, arm.Stages, table, usedFilters, arm, bag); err != nil {
+								if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", arm.ExprPos, arm.Expr, arm.Embedded, arm.Stages, arm); err != nil {
 									classProbeErr = err
 									return
 								}
 							}
 						} else if ca.Parts[i].LiteralSegments == nil {
 							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
-							if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters, &ca.Parts[i], bag); err != nil {
+							if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].ExprEmbedded, ca.Parts[i].Stages, &ca.Parts[i]); err != nil {
 								classProbeErr = err
 								return
 							}
@@ -1331,13 +1242,23 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// These yield empty-bodied `if cond {}` / `switch {}` blocks (not
 				// _gsxuse calls), leaving the k-th probe → k-th node harvest alignment
 				// undisturbed, and record ctrlOff entries for LSP go-to-definition.
+				var livenessErr error
 				walkLivenessAttrExprs(t.Attrs, func(cf *gsxast.ValueCF) {
-					emitValueCFControl(sb, fset, cf, ctrlOff)
-				}, func(node gsxast.Node, cond string, condPos token.Pos) {
-					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitValueCFControl(sb, ps, cf)
+					}
+				}, func(node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart) {
+					if livenessErr == nil {
+						livenessErr = emitCondLiveness(sb, ps, node, cond, condPos, condEmbedded)
+					}
 				}, func(sa *gsxast.SwitchAttr) {
-					emitSwitchAttrControl(sb, fset, sa, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitSwitchAttrControl(sb, ps, sa)
+					}
 				})
+				if livenessErr != nil {
+					return livenessErr
+				}
 				// Probe ExprAttr values nested in a component cond-attr branch
 				// (`{ if C { attr={expr} } }`) with _gsxuseq, AFTER the parts probes —
 				// matching collectExprs's walkBranchAttrExprs pass exactly (Then→Else,
@@ -1358,7 +1279,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 						return
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 						branchProbeErr = err
 					}
 				})
@@ -1397,7 +1318,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if probeErr != nil {
 						return
 					}
-					seed := embeddedProbeSeed(ea.Segments, table, usedFilters, bag)
+					seed := embeddedProbeSeed(ea.Segments)
 					emitSkeletonLine(sb, fset, ea.Pos())
 					writeSkeletonGenerated(sb, "_gsxuse(")
 					if err := writeSkeletonProbeExpr(sb, fset, token.NoPos, seed, ea.Stages, table, usedFilters, ea, bag); err != nil {
@@ -1429,7 +1350,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 						return
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
-					if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+					if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 						probeErr = err
 					}
 				})
@@ -1445,7 +1366,20 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if probeErr != nil {
 						return
 					}
-					probe, err := probeExpr(sa.Expr, sa.Stages, table, usedFilters, sa, bag)
+					// A split spread's full probe (IIFEs, gw entries, target
+					// bindings) must be written exactly once — below, in the
+					// reporting assignment — so this quiet harvest reference uses
+					// type-identical stand-ins for its nested constructs.
+					seed := sa.Expr
+					if sa.Embedded != nil {
+						standIn, err := embeddedStandInSeed(sa.Embedded)
+						if err != nil {
+							probeErr = err
+							return
+						}
+						seed = standIn
+					}
+					probe, err := probeExpr(seed, sa.Stages, table, usedFilters, sa, bag)
 					if err != nil {
 						probeErr = err
 						return
@@ -1460,7 +1394,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					// k-th-probe→k-th-node harvest alignment.
 					emitSkeletonLine(sb, fset, sa.Pos())
 					writeSkeletonGenerated(sb, "var _ _gsxrt.Attrs = (")
-					if err := writeSkeletonProbeExpr(sb, fset, sa.ExprPos, sa.Expr, sa.Stages, table, usedFilters, sa, bag); err != nil {
+					if err := ps.writeFieldProbe(sb, sa.ExprPos, sa.Expr, sa.Embedded, sa.Stages, sa); err != nil {
 						probeErr = err
 						return
 					}
@@ -1493,7 +1427,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 									continue // literal arm: its holes are probed via walkMarkupAttrs
 								}
 								emitSkeletonLine(sb, fset, arm.Pos())
-								if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, arm.ExprPos, arm.Expr, arm.Stages, table, usedFilters, arm, bag); err != nil {
+								if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", arm.ExprPos, arm.Expr, arm.Embedded, arm.Stages, arm); err != nil {
 									leafClassProbeErr = err
 									return
 								}
@@ -1505,7 +1439,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 							// (expr)`); the cond guard itself (if any) still needs its
 							// own liveness reference — see walkLivenessAttrExprs.
 							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
-							if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters, &ca.Parts[i], bag); err != nil {
+							if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ca.Parts[i].ExprPos, ca.Parts[i].Expr, ca.Parts[i].ExprEmbedded, ca.Parts[i].Stages, &ca.Parts[i]); err != nil {
 								leafClassProbeErr = err
 								return
 							}
@@ -1530,13 +1464,23 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// conditional part's cond guard is still referenced via fnCond,
 				// just not its value expr. Spreads are excluded too because their
 				// _gsxuseq probes above also keep them live.
+				var livenessErr error
 				walkLivenessAttrExprs(t.Attrs, func(cf *gsxast.ValueCF) {
-					emitValueCFControl(sb, fset, cf, ctrlOff)
-				}, func(node gsxast.Node, cond string, condPos token.Pos) {
-					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitValueCFControl(sb, ps, cf)
+					}
+				}, func(node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart) {
+					if livenessErr == nil {
+						livenessErr = emitCondLiveness(sb, ps, node, cond, condPos, condEmbedded)
+					}
 				}, func(sa *gsxast.SwitchAttr) {
-					emitSwitchAttrControl(sb, fset, sa, ctrlOff)
+					if livenessErr == nil {
+						livenessErr = emitSwitchAttrControl(sb, ps, sa)
+					}
 				})
+				if livenessErr != nil {
+					return livenessErr
+				}
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
 				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
 				// _gsxuse maps to the k-th collected node.
@@ -1556,7 +1500,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if probeErr != nil {
 						return
 					}
-					seed := embeddedProbeSeed(ea.Segments, table, usedFilters, bag)
+					seed := embeddedProbeSeed(ea.Segments)
 					emitSkeletonLine(sb, fset, ea.Pos())
 					writeSkeletonGenerated(sb, "_gsxuse(")
 					if err := writeSkeletonProbeExpr(sb, fset, token.NoPos, seed, ea.Stages, table, usedFilters, ea, bag); err != nil {
@@ -1579,7 +1523,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			// handling. A static name needs no probe.
 			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
 				emitSkeletonLine(sb, fset, ea.Pos())
-				if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+				if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 					return err
 				}
 			}
@@ -1588,7 +1532,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			// content — matching collectExprs' Marker/MarkerRegion ordering.
 			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
 				emitSkeletonLine(sb, fset, ea.Pos())
-				if err := writeSkeletonCanonicalProbe(sb, "_gsxuse", fset, ea.ExprPos, ea.Expr, ea.Stages, table, usedFilters, ea, bag); err != nil {
+				if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 					return err
 				}
 			}
@@ -1601,9 +1545,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			}
 		case *gsxast.ForMarkup:
 			emitSkeletonClauseLine(sb, fset, t.ClausePos, len("for ")) // 4
-			ctrlOff[t] = sb.Len() + len("for ")
 			writeSkeletonGenerated(sb, "for ")
-			if err := writeSkeletonAuthoredAt(sb, fset, t.ClausePos, t.Clause, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+			if err := writeControlText(sb, ps, t, t.Clause, t.ClausePos, t.ClauseEmbedded); err != nil {
 				return err
 			}
 			writeSkeletonGenerated(sb, " {\n")
@@ -1613,9 +1556,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			emitSkeletonClauseLine(sb, fset, t.CondPos, len("if ")) // 3
-			ctrlOff[t] = sb.Len() + len("if ")
 			writeSkeletonGenerated(sb, "if ")
-			if err := writeSkeletonAuthoredAt(sb, fset, t.CondPos, t.Cond, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+			if err := writeControlText(sb, ps, t, t.Cond, t.CondPos, t.CondEmbedded); err != nil {
 				return err
 			}
 			writeSkeletonGenerated(sb, " {\n")
@@ -1632,13 +1574,13 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			}
 			sb.WriteString("\n")
 		case *gsxast.SwitchMarkup:
-			if strings.TrimSpace(t.Tag) != "" {
+			tagged := strings.TrimSpace(t.Tag) != ""
+			if tagged {
 				emitSkeletonClauseLine(sb, fset, t.TagPos, len("switch "))
-				ctrlOff[t] = sb.Len() + len("switch ")
 			}
 			writeSkeletonGenerated(sb, "switch ")
-			if strings.TrimSpace(t.Tag) != "" {
-				if err := writeSkeletonAuthoredAt(sb, fset, t.TagPos, t.Tag, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+			if tagged {
+				if err := writeControlText(sb, ps, t, t.Tag, t.TagPos, t.TagEmbedded); err != nil {
 					return err
 				}
 			}
@@ -1648,9 +1590,8 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					sb.WriteString("default:\n")
 				} else {
 					emitSkeletonClauseLine(sb, fset, cc.ListPos, len("case "))
-					ctrlOff[cc] = sb.Len() + len("case ")
 					writeSkeletonGenerated(sb, "case ")
-					if err := writeSkeletonAuthoredAt(sb, fset, cc.ListPos, cc.List, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
+					if err := writeControlText(sb, ps, cc, cc.List, cc.ListPos, cc.ListEmbedded); err != nil {
 						return err
 					}
 					writeSkeletonGenerated(sb, ":\n")
@@ -1661,12 +1602,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			}
 			sb.WriteString("}\n")
 		case *gsxast.GoBlock:
-			switch {
-			case t.UnsupportedMarkup != nil:
-				// preprocessComponentCallSites owns the single positioned
-				// unsupported-node diagnostic. Skip this whole block so its
-				// incomplete Go cannot produce misleading probe errors.
-			case t.Embedded == nil:
+			if t.Embedded == nil {
 				// No embedded literal: the whole block is verbatim Go (unchanged).
 				emitSkeletonClauseLine(sb, fset, t.CodePos, 0)
 				ctrlOff[t] = sb.Len()
@@ -1674,29 +1610,14 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					return err
 				}
 				sb.WriteString("\n")
-			default:
-				// The block carries one or more f`/js`/css` literals: reconstruct it
-				// from its split parts. Each GoText run gets a fresh block-form
-				// //line anchor (positions must keep mapping to .gsx source once an
-				// IIFE splice shifts byte offsets), and each *EmbeddedInterp becomes
-				// the SAME Lang-typed probe IIFE the GoWithElements/Interp.Embedded
-				// sites splice (probeEmbeddedInterpIIFE — one lowering, three sites).
-				ctrlOff[t] = sb.Len()
-				for _, part := range t.Embedded {
-					switch p := part.(type) {
-					case gsxast.GoText:
-						emitSkeletonBlockLine(sb, fset, p.Pos())
-						if err := writeSkeletonAuthoredAt(sb, fset, p.Pos(), p.Src, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion); err != nil {
-							return err
-						}
-					case *gsxast.EmbeddedInterp:
-						if len(p.Stages) > 0 {
-							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
-						}
-						if err := probeEmbeddedInterpIIFE(sb, p.Segments, p.Lang, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp); err != nil {
-							return err
-						}
-					}
+			} else {
+				// The block carries one or more f`/js`/css` literals or element
+				// literals: reconstruct it from its split parts with the same
+				// splice an Interp.Embedded seed uses (writeProbeGoParts). No
+				// ctrlOff entry, as for a split control header (writeControlText):
+				// the spliced IIFEs break the relative-offset CtrlMap bridge.
+				if err := writeProbeGoParts(sb, t.Embedded, ps); err != nil {
+					return err
 				}
 				sb.WriteString("\n")
 			}
@@ -1785,7 +1706,7 @@ func emitSkeletonBlockLine(sb skeletonWriter, fset *token.FileSet, pos token.Pos
 //
 // probeExpr is the SINGLE choke point every pipe stage's Args passes through
 // before skeleton assembly, across every context (top-level interp/expr-attr
-// pipelines, a literal's own whole-pipe, a hole's own pipe via holeProbeSeed,
+// pipelines, a literal's own whole-pipe, a hole's own pipe,
 // class-part/CF-arm pipelines, spread pipelines) — every caller hands it its
 // own `.Stages`. A prefixed embedded literal (f`/js`/css`) inside a stage's
 // Args (`x |> printf(f`%s!`)`) is NOT lowerable: st.Args is spliced VERBATIM
@@ -1921,39 +1842,24 @@ func writeSkeletonProbeExpr(sb skeletonWriter, fset *token.FileSet, seedPos toke
 	return nil
 }
 
-func writeSkeletonCanonicalProbe(sb skeletonWriter, helper string, fset *token.FileSet, seedPos token.Pos, seed string, stages []gsxast.PipeStage, table funcTables, usedFilters map[string]string, owner gsxast.Node, bag *diag.Bag) error {
-	writeSkeletonGenerated(sb, helper+"(")
-	if err := writeSkeletonProbeExpr(sb, fset, seedPos, seed, stages, table, usedFilters, owner, bag); err != nil {
-		return err
-	}
-	writeSkeletonGenerated(sb, ")\n")
-	return nil
-}
-
 // embeddedProbeSeed builds the Go source text probed as the SEED for a
 // whole-literal pipeline's `lowerPipe(seed, stages)` call — an
-// EmbeddedInterp's or EmbeddedAttr's node-level `|> f` — mirroring, at the
-// TYPE level, what codegen's embeddedTextValueExpr (emit.go) assembles from
-// the SAME segments: static *Text becomes the identical quoted string
-// literal, joined with " + ".
+// EmbeddedInterp's or EmbeddedAttr's node-level `|> f` — and as the return
+// value of a Go-expression literal's probe IIFE. It mirrors, at the TYPE
+// level, what codegen's embeddedTextValueExpr (emit.go) assembles from the
+// SAME segments: static *Text becomes the identical quoted string literal,
+// joined with " + ".
 //
-// Each *Interp hole becomes _gsxstr(holeProbe), where holeProbe is the SAME
-// probeExpr the individual-hole probe already uses (so a hole's own
-// pipeline/tuple handling is identical, and it stays live/harvested exactly
-// as it would be probed on its own). _gsxstr(any, ...any) string is a
-// package-level skeleton helper (module_importer.go) that always yields a
-// `string` — this is not an approximation: every successful branch of the
-// REAL emit-time holeStringExpr (string(x), strconv.Format*, (x).String())
-// ALSO always yields a Go expression of exactly the built-in `string` type.
-// So this seed and codegen's later, precisely-typed seed differ only in
-// WHICH string-producing snippet appears per hole, never in the resulting
-// static type — the seed's overall type is string either way, which is all
-// lowerPipe's stage lowering (and thus resolved[node]) depends on. This lets
-// the probe resolve the node's piped RESULT type without first knowing each
-// hole's real type, which is impossible at skeleton-build time (hole types
-// are only known once THIS SAME skeleton has been type-checked and
-// harvested — a later, one-shot step, not available mid-build).
-func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters map[string]string, bag *diag.Bag) string {
+// Each *Interp hole becomes `*new(string)`, a non-constant `string`
+// placeholder: every successful branch of the real emit-time holeStringExpr
+// (string(x), strconv.Format*, (x).String()) also yields exactly `string`,
+// so the seed has emit's static type — all lowerPipe's stage lowering (and
+// thus resolved[node]) depends on. The placeholder deliberately does not
+// re-reference the hole's expression: the hole's own probe (emitProbes over
+// the same segments) already type-checks it, keeps its identifiers live and
+// harvests its type, and a second reference would report each of its type
+// errors twice.
+func embeddedProbeSeed(segments []gsxast.Markup) string {
 	parts := make([]string, 0, len(segments))
 	for _, seg := range segments {
 		switch s := seg.(type) {
@@ -1963,60 +1869,13 @@ func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters m
 			}
 			parts = append(parts, strconv.Quote(s.Value))
 		case *gsxast.Interp:
-			parts = append(parts, "_gsxstr("+holeProbeSeed(s, table, usedFilters, bag)+")")
+			parts = append(parts, "*new(string)")
 		}
 	}
 	if len(parts) == 0 {
 		return `""`
 	}
 	return strings.Join(parts, " + ")
-}
-
-// holeProbeSeed reconstructs one hole's Go expression at the TYPE level for
-// embeddedProbeSeed, mirroring emit's assembleHoleSeed (emit.go): a plain hole
-// is its Expr (via probeExpr, honoring its own `|>` pipeline); a hole carrying a
-// nested prefixed literal (Interp.Embedded, seated by preprocessComponentCallSites)
-// splices GoText verbatim and each nested literal as WRAP(embeddedProbeSeed(
-// parts)) — the SAME WRAP embeddedProbeType gives that literal in emit, so the
-// reconstructed seed has emit's exact static type (emit ≡ probe). A hole's own
-// pipeline then applies over the reassembled seed, matching holeStringExpr /
-// embeddedHoleExpr, which seed lowerPipe with the assembled expr. Element /
-// Fragment parts cannot be a string seed and are rejected by emit's
-// assembleHoleSeed with a positioned diagnostic; here they lower to a valid Go
-// value placeholder (a nil-returning `_gsxrt.Node` IIFE) rather than the raw
-// markup Expr — splicing the raw `<tag>` would produce invalid Go and abort the
-// skeleton parse with a cryptic cascade BEFORE emit's positioned diagnostic can
-// surface. The placeholder keeps the skeleton valid so exactly emit's one
-// "element literals are not supported…" diagnostic reaches the user. It consumes
-// no `_gsxelem` index and needs no probing: the element's own interps are
-// already probed via the enclosing literal's emitProbes Element/Fragment case
-// (the `_gsxuse` path), and emit rejects the hole regardless, so its harvested
-// type is never read.
-func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]string, bag *diag.Bag) string {
-	if n.Embedded == nil {
-		probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters, n, bag)
-		return probe
-	}
-	var sb strings.Builder
-	for _, part := range n.Embedded {
-		switch p := part.(type) {
-		case gsxast.GoText:
-			sb.WriteString(p.Src)
-		case *gsxast.EmbeddedInterp:
-			_, wrapOpen, wrapClose := embeddedProbeType(p.Lang)
-			sb.WriteString(wrapOpen)
-			sb.WriteString(embeddedProbeSeed(p.Segments, table, usedFilters, bag))
-			sb.WriteString(wrapClose)
-		default:
-			// *Element/*Fragment: unsupported in a string-seed hole. Emit's
-			// assembleHoleSeed rejects the whole hole on the first such part with a
-			// positioned diagnostic, so return a type-valid placeholder for the
-			// entire hole and let that single emit diagnostic surface.
-			return "func() _gsxrt.Node { return nil }()"
-		}
-	}
-	probe, _ := probeExpr(strings.TrimSpace(sb.String()), n.Stages, table, usedFilters, n, bag)
-	return probe
 }
 
 // embeddedProbeType returns the probe IIFE's return type and the seed wrapper
@@ -2069,21 +1928,7 @@ func probeEmbeddedInterpIIFE(sb skeletonWriter, segs []gsxast.Markup, lang gsxas
 	if err := emitProbes(sb, segs, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, false); err != nil {
 		return err
 	}
-	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs, table, usedFilters, bag), wrapClose)
-	return nil
-}
-
-// firstDirectGoBlockMarkup returns the first direct `<tag>` element or fragment
-// literal in a split `{{ }}` block. materializeEmbeddedMarkup calls it once and
-// stores the result on GoBlock.UnsupportedMarkup; every later consumer reads
-// that annotation instead of independently reimplementing this policy.
-func firstDirectGoBlockMarkup(parts []gsxast.GoPart) gsxast.GoPart {
-	for _, p := range parts {
-		switch p.(type) {
-		case *gsxast.Element, *gsxast.Fragment:
-			return p
-		}
-	}
+	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs), wrapClose)
 	return nil
 }
 
@@ -2908,7 +2753,7 @@ func walkComposedAttrs(attrs []gsxast.Attr, fn func(*gsxast.ComposedAttr)) {
 // case lists are only legal in statement position) the same way. Both forms
 // are invisible to the k-th-probe→k-th-node type-harvest alignment, unlike
 // _gsxuse.
-func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos), fnSwitch func(sa *gsxast.SwitchAttr)) {
+func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart), fnSwitch func(sa *gsxast.SwitchAttr)) {
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *gsxast.ComposedAttr:
@@ -2917,7 +2762,7 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), f
 			for i := range at.Parts {
 				p := &at.Parts[i]
 				if p.LiteralSegments != nil {
-					fnCond(p, p.Cond, p.CondPos)
+					fnCond(p, p.Cond, p.CondPos, p.CondEmbedded)
 					continue
 				}
 				if p.CF != nil {
@@ -2925,11 +2770,11 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), f
 					continue
 				}
 				if p.Cond != "" {
-					fnCond(p, p.Cond, p.CondPos)
+					fnCond(p, p.Cond, p.CondPos, p.CondEmbedded)
 				}
 			}
 		case *gsxast.CondAttr:
-			fnCond(at, at.Cond, at.CondPos)
+			fnCond(at, at.Cond, at.CondPos, at.CondEmbedded)
 			walkLivenessAttrExprs(at.Then, fnCF, fnCond, fnSwitch)
 			walkLivenessAttrExprs(at.Else, fnCF, fnCond, fnSwitch)
 		case *gsxast.SwitchAttr:
@@ -3019,92 +2864,42 @@ func walkEmbeddedAttrStages(attrs []gsxast.Attr, fn func(*gsxast.EmbeddedAttr)) 
 	}
 }
 
-// collectClauseSrc visits markup in depth-first source order and feeds every Go
-// control-flow clause source (for clause, if cond, switch tag, case list, GoBlock
-// code) to add. These fragments are emitted verbatim, so the idents they
-// reference must be in scope wherever the markup renders.
-func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
-	for _, n := range nodes {
-		switch t := n.(type) {
-		case *gsxast.Element:
-			// Recurse children for BOTH plain elements and child components: a
-			// component's slot content renders in THIS parent scope, so a control-flow
-			// clause inside the slot (e.g. `for ... range items`) references a parent
-			// local and must be bound. A component's MARKUP-attr (named slot) values
-			// also render in this parent scope, so recurse them too. (A component's
-			// SIMPLE attrs are props, not slot content, so they are not visited.)
-			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-				collectClauseSrc(value, add)
-			})
-			collectClauseSrc(t.Children, add)
-		case *gsxast.Fragment:
-			collectClauseSrc(t.Children, add)
-		case *gsxast.MarkerRegion:
-			// Like a fragment: a region's children render in this same scope, so a
-			// control-flow clause inside one references locals bound here.
-			collectClauseSrc(t.Children, add)
-		case *gsxast.ForMarkup:
-			add(t.Clause)
-			collectClauseSrc(t.Body, add)
-		case *gsxast.IfMarkup:
-			add(t.Cond)
-			collectClauseSrc(t.Then, add)
-			collectClauseSrc(t.Else, add)
-		case *gsxast.SwitchMarkup:
-			add(t.Tag)
-			for _, cc := range t.Cases {
-				add(cc.List)
-				collectClauseSrc(cc.Body, add)
-			}
-		case *gsxast.GoBlock:
-			if t.UnsupportedMarkup != nil {
-				// The package preprocessor rejects and excludes this whole block.
-				// It must not contribute hidden parameter-use facts.
-				continue
-			}
-			add(t.Code)
-			// The verbatim Code fed above hides each embedded literal's @{…} holes
-			// inside a raw string, so the normal Go-expression analysis cannot see an
-			// ident referenced ONLY there (`{{ x := js`f(@{param})` }}`). Feed each hole's expr (and
-			// its filter args) explicitly, mirroring usedParams' Interp.Embedded
-			// handling, so such a param/local is still bound in the render closure.
-			for _, part := range t.Embedded {
-				lit, ok := part.(*gsxast.EmbeddedInterp)
-				if !ok {
-					continue
-				}
-				for _, seg := range lit.Segments {
-					hole, ok := seg.(*gsxast.Interp)
-					if !ok {
-						continue
-					}
-					add(hole.Expr)
-					for _, st := range hole.Stages {
-						if st.Args != "" {
-							add(st.Args)
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
 // emitCondLiveness writes the empty-bodied `if <cond> {\n}` statement that
 // keeps a guard condition's identifiers live in the skeleton, with a
 // compensated //line and a ctrlOff entry keyed by node — the CtrlMap bridge
 // the LSP uses for go-to-definition/hover inside the condition. Used for
 // in-tag conditional-attribute conds (*CondAttr), class/style `: cond` guards
-// (*ComposedPart), and value-form if conditions (*ValueIf).
-func emitCondLiveness(sb skeletonWriter, fset *token.FileSet, node gsxast.Node, cond string, condPos token.Pos, ctrlOff map[gsxast.Node]int) {
+// (*ComposedPart), and value-form if conditions (*ValueIf). A condition with a
+// nested literal or element (condEmbedded) is written through
+// writeControlText.
+func emitCondLiveness(sb skeletonWriter, ps probeScope, node gsxast.Node, cond string, condPos token.Pos, condEmbedded []gsxast.GoPart) error {
 	if strings.TrimSpace(cond) == "" {
-		return
+		return nil
 	}
-	emitSkeletonClauseLine(sb, fset, condPos, len("if "))
-	ctrlOff[node] = sb.Len() + len("if ")
+	emitSkeletonClauseLine(sb, ps.fset, condPos, len("if "))
 	writeSkeletonGenerated(sb, "if ")
-	_ = writeSkeletonAuthoredAt(sb, fset, condPos, cond, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+	if err := writeControlText(sb, ps, node, cond, condPos, condEmbedded); err != nil {
+		return err
+	}
 	writeSkeletonGenerated(sb, " {\n}\n")
+	return nil
+}
+
+// writeControlText writes one control expression (an if condition, switch tag
+// or case list, markup or attribute-level, or a for clause) at the current
+// skeleton position. Verbatim text records its ctrlOff entry (keyed by node),
+// the CtrlMap bridge that maps a cursor by relative offset. A split expression
+// (embedded non-nil) is written through writeProbeGoParts instead, and records
+// no ctrlOff entry: its literal and element IIFEs make skeleton offsets diverge
+// from source offsets after the first construct, so a relative-offset bridge
+// would resolve the wrong identifier. writeProbeGoParts maps each GoText run
+// into the SourceIndex, which the LSP falls back to for such a header.
+func writeControlText(sb skeletonWriter, ps probeScope, node gsxast.Node, text string, pos token.Pos, embedded []gsxast.GoPart) error {
+	if embedded != nil {
+		return writeProbeGoParts(sb, embedded, ps)
+	}
+	ps.ctrlOff[node] = sb.Len()
+	return writeSkeletonAuthoredAt(sb, ps.fset, pos, text, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
 }
 
 // emitValueCFControl writes the empty-bodied skeleton statement(s) that
@@ -3124,30 +2919,34 @@ func emitCondLiveness(sb skeletonWriter, fset *token.FileSet, node gsxast.Node, 
 // list (keyed by its *ValueSwitchCase) the same way. That is the same CtrlMap
 // bridge IfMarkup uses, making go-to-definition (and positioned type errors)
 // work inside value-form control expressions.
-func emitValueCFControl(sb skeletonWriter, fset *token.FileSet, cf *gsxast.ValueCF, ctrlOff map[gsxast.Node]int) {
+func emitValueCFControl(sb skeletonWriter, ps probeScope, cf *gsxast.ValueCF) error {
 	if cf.If != nil {
 		for vi := cf.If; vi != nil; vi = vi.ElseIf {
-			emitCondLiveness(sb, fset, vi, vi.Cond, vi.CondPos, ctrlOff)
+			if err := emitCondLiveness(sb, ps, vi, vi.Cond, vi.CondPos, vi.CondEmbedded); err != nil {
+				return err
+			}
 		}
-		return
+		return nil
 	}
 	if vs := cf.Switch; vs != nil {
 		cases := make([]switchLivenessCase, len(vs.Cases))
 		for i, c := range vs.Cases {
-			cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, isDefault: c.Default}
+			cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, listEmbedded: c.ListEmbedded, isDefault: c.Default}
 		}
-		emitSwitchLiveness(sb, fset, vs, vs.Tag, vs.TagPos, cases, ctrlOff)
+		return emitSwitchLiveness(sb, ps, vs, vs.Tag, vs.TagPos, vs.TagEmbedded, cases)
 	}
+	return nil
 }
 
 // switchLivenessCase is one case arm of either switch form, reduced to what the
 // liveness skeleton needs. It lets *ValueSwitchCase and *AttrCaseClause — which
 // differ only in what their bodies hold — share one skeleton emitter.
 type switchLivenessCase struct {
-	node      gsxast.Node
-	list      string
-	listPos   token.Pos
-	isDefault bool
+	node         gsxast.Node
+	list         string
+	listPos      token.Pos
+	listEmbedded []gsxast.GoPart
+	isDefault    bool
 }
 
 // emitSwitchLiveness writes the empty-bodied `switch <tag> { case <list>: … }`
@@ -3158,15 +2957,16 @@ type switchLivenessCase struct {
 // none of which are legal as a bare expression. ctrlOff is keyed by the tag
 // node and by each case node, which is the CtrlMap bridge go-to-definition and
 // positioned type errors use inside the control expressions.
-func emitSwitchLiveness(sb skeletonWriter, fset *token.FileSet, tagNode gsxast.Node, tag string, tagPos token.Pos, cases []switchLivenessCase, ctrlOff map[gsxast.Node]int) {
+func emitSwitchLiveness(sb skeletonWriter, ps probeScope, tagNode gsxast.Node, tag string, tagPos token.Pos, tagEmbedded []gsxast.GoPart, cases []switchLivenessCase) error {
 	tagged := strings.TrimSpace(tag) != ""
 	if tagged {
-		emitSkeletonClauseLine(sb, fset, tagPos, len("switch "))
-		ctrlOff[tagNode] = sb.Len() + len("switch ")
+		emitSkeletonClauseLine(sb, ps.fset, tagPos, len("switch "))
 	}
 	writeSkeletonGenerated(sb, "switch ")
 	if tagged {
-		_ = writeSkeletonAuthoredAt(sb, fset, tagPos, strings.TrimSpace(tag), sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+		if err := writeControlText(sb, ps, tagNode, strings.TrimSpace(tag), tagPos, tagEmbedded); err != nil {
+			return err
+		}
 	}
 	writeSkeletonGenerated(sb, " {\n")
 	for _, c := range cases {
@@ -3174,24 +2974,26 @@ func emitSwitchLiveness(sb skeletonWriter, fset *token.FileSet, tagNode gsxast.N
 			sb.WriteString("default:\n")
 			continue
 		}
-		emitSkeletonClauseLine(sb, fset, c.listPos, len("case "))
-		ctrlOff[c.node] = sb.Len() + len("case ")
+		emitSkeletonClauseLine(sb, ps.fset, c.listPos, len("case "))
 		writeSkeletonGenerated(sb, "case ")
-		_ = writeSkeletonAuthoredAt(sb, fset, c.listPos, c.list, sourceintel.Definition|sourceintel.Hover|sourceintel.Completion)
+		if err := writeControlText(sb, ps, c.node, c.list, c.listPos, c.listEmbedded); err != nil {
+			return err
+		}
 		writeSkeletonGenerated(sb, ":\n")
 	}
 	sb.WriteString("}\n")
+	return nil
 }
 
 // emitSwitchAttrControl is emitSwitchLiveness for an in-tag `{ switch … }`
 // attribute group. Its arms hold attributes, whose own exprs are harvested by
 // the walks in this file; only the tag and case lists need the skeleton.
-func emitSwitchAttrControl(sb skeletonWriter, fset *token.FileSet, sa *gsxast.SwitchAttr, ctrlOff map[gsxast.Node]int) {
+func emitSwitchAttrControl(sb skeletonWriter, ps probeScope, sa *gsxast.SwitchAttr) error {
 	cases := make([]switchLivenessCase, len(sa.Cases))
 	for i, c := range sa.Cases {
-		cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, isDefault: c.Default}
+		cases[i] = switchLivenessCase{node: c, list: c.List, listPos: c.ListPos, listEmbedded: c.ListEmbedded, isDefault: c.Default}
 	}
-	emitSwitchLiveness(sb, fset, sa, sa.Tag, sa.TagPos, cases, ctrlOff)
+	return emitSwitchLiveness(sb, ps, sa, sa.Tag, sa.TagPos, sa.TagEmbedded, cases)
 }
 
 // valueFormArms returns the arm value-expression nodes of a value-form part in

@@ -36,6 +36,9 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Element:
+			if err := minifyGoFields(v, ext); err != nil {
+				return err
+			}
 			if strings.EqualFold(v.Tag, "style") {
 				mc, err := minifyStyleChildren(v.Children, ext)
 				if err != nil {
@@ -57,13 +60,23 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 			if err := minifyMarkup(v.Children, ext); err != nil {
 				return err
 			}
+		case *ast.Marker:
+			if err := minifyGoFields(v, ext); err != nil {
+				return err
+			}
 		case *ast.MarkerRegion:
 			// A `<?start>…<?end>` region wraps ordinary markup: a <style> inside it
-			// must minify like one inside a <div>. (Marker is void — no children.)
+			// must minify like one inside a <div>.
+			if err := minifyGoFields(v, ext); err != nil {
+				return err
+			}
 			if err := minifyMarkup(v.Children, ext); err != nil {
 				return err
 			}
 		case *ast.IfMarkup:
+			if err := minifyGoFields(v, ext); err != nil {
+				return err
+			}
 			if err := minifyMarkup(v.Then, ext); err != nil {
 				return err
 			}
@@ -71,10 +84,16 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 				return err
 			}
 		case *ast.ForMarkup:
+			if err := minifyGoFields(v, ext); err != nil {
+				return err
+			}
 			if err := minifyMarkup(v.Body, ext); err != nil {
 				return err
 			}
 		case *ast.SwitchMarkup:
+			if err := minifyGoFields(v, ext); err != nil {
+				return err
+			}
 			for i := range v.Cases {
 				if err := minifyMarkup(v.Cases[i].Body, ext); err != nil {
 					return err
@@ -111,6 +130,19 @@ func minifyCSSInterp(v *ast.EmbeddedInterp, ext func(string) (string, error)) er
 		v.Segments = mc
 	}
 	return nil
+}
+
+// minifyGoFields minifies the css` literals in every Go-expression overlay
+// markup node n itself carries (attribute values, headers, a PI name — see
+// ast.MarkupGoFields), exactly as for an Interp's Embedded split.
+func minifyGoFields(n ast.Markup, ext func(string) (string, error)) error {
+	var err error
+	ast.MarkupGoFields(n, func(f ast.GoField) {
+		if err == nil {
+			err = minifyGoParts(*f.Embedded, ext)
+		}
+	})
+	return err
 }
 
 // minifyGoParts minifies the css` literals in a GoBlock's or Interp's Embedded

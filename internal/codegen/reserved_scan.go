@@ -87,7 +87,29 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 		}
 	}
 
-	gsxast.Inspect(file, func(n gsxast.Node) bool {
+	// A Go-expression field whose codegen split filled its overlay is scanned
+	// through the overlay: its Go text runs plus the nodes nested in it, whose
+	// @{ } holes a raw scan of the field misses (a backtick literal lexes as one
+	// string token).
+	// An *Interp's or *GoBlock's split is scanned the same way, so element
+	// text inside a nested element literal is never lexed as Go.
+	var visit func(gsxast.Node) bool
+	overlay := func(src string, pos token.Pos, parts []gsxast.GoPart) {
+		if parts == nil {
+			scan(src, pos)
+			return
+		}
+		for _, part := range parts {
+			gsxast.Inspect(part, visit)
+		}
+	}
+	fields := func(n gsxast.Node) {
+		gsxast.GoFields(n, func(f gsxast.GoField) {
+			overlay(f.Src, f.Pos, *f.Embedded)
+		})
+	}
+	visit = func(n gsxast.Node) bool {
+		fields(n)
 		switch x := n.(type) {
 		case *gsxast.Component:
 			// Type parameters live in the function scope and may legally use most
@@ -112,54 +134,26 @@ func checkReservedDecls(file *gsxast.File) []reservedDecl {
 		case gsxast.GoText:
 			scan(x.Src, x.Pos())
 		case *gsxast.GoBlock:
-			if x.UnsupportedMarkup == nil {
-				scan(x.Code, x.CodePos)
-			}
+			overlay(x.Code, x.CodePos, x.Embedded)
 		case *gsxast.Interp:
-			scan(x.Expr, x.ExprPos)
+			overlay(x.Expr, x.ExprPos, x.Embedded)
 			stages(x.Stages)
 		case *gsxast.ExprAttr:
-			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)
 		case *gsxast.SpreadAttr:
-			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)
-		case *gsxast.IfMarkup:
-			scan(x.Cond, x.CondPos)
-		case *gsxast.ForMarkup:
-			scan(x.Clause, x.ClausePos)
-		case *gsxast.SwitchMarkup:
-			scan(x.Tag, x.TagPos)
-		case *gsxast.CaseClause:
-			scan(x.List, x.ListPos)
-		case *gsxast.CondAttr:
-			scan(x.Cond, x.CondPos)
-		case *gsxast.SwitchAttr:
-			scan(x.Tag, x.TagPos)
-		case *gsxast.AttrCaseClause:
-			scan(x.List, x.ListPos)
 		case *gsxast.ComposedPart:
-			scan(x.Expr, x.ExprPos)
-			scan(x.Cond, x.CondPos)
 			stages(x.Stages)
 		case *gsxast.ValueArm:
-			scan(x.Expr, x.ExprPos)
 			stages(x.Stages)
-		case *gsxast.ValueIf:
-			scan(x.Cond, x.CondPos)
-		case *gsxast.ValueSwitch:
-			scan(x.Tag, x.TagPos)
-		case *gsxast.ValueSwitchCase:
-			scan(x.List, x.ListPos)
-		case *gsxast.OrderedPair:
-			scan(x.Value, x.Pos())
 		case *gsxast.EmbeddedAttr:
 			stages(x.Stages)
 		case *gsxast.EmbeddedInterp:
 			stages(x.Stages)
 		}
 		return true
-	})
+	}
+	gsxast.Inspect(file, visit)
 	return out
 }
 

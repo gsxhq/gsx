@@ -1384,17 +1384,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// purely to keep its identifiers and filter imports live and type-checked —
 	// the bag has no single interp node to harvest onto, and counting it would
 	// shift every later interp's harvested type by one slot.
-	//
-	// _gsxstr is the whole-literal-pipe seed-probe's per-hole placeholder
-	// conversion (see analyze.go's embeddedProbeSeed): it always returns
-	// `string`, mirroring how EVERY successful branch of the real emit-time
-	// holeStringExpr (string(x), strconv.Format*, (x).String()) ALSO always
-	// yields a `string`-typed expression — so a seed built with _gsxstr
-	// type-checks to the exact same static type as codegen's precisely-typed
-	// seed, without needing each hole's real type known yet (impossible at
-	// skeleton-build time). Its trailing `...any` tolerates a bare (no-pipe)
-	// hole expression that itself returns a (T, error) tuple, exactly like
-	// _gsxunwrap's shape.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath, analysisPreludeSource(pkgName), goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
@@ -1966,7 +1955,7 @@ func stripGsxunwrap(s string) string {
 }
 
 // gsxProbeWrapperPrefixes are the skeleton's harvest-probe call names
-// (writeSkeletonCanonicalProbe et al. in analyze.go) that can leak into a raw
+// (probeScope.writeCanonicalFieldProbe et al.) that can leak into a raw
 // go/types error message the same way _gsxunwrap does. Ordinarily a type
 // error positioned inside one of these calls is suppressed entirely (analyze:
 // quietSpans, harvestProbeSpans) because the native operand context reports

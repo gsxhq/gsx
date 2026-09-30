@@ -67,6 +67,15 @@ func (ctx positionalEmitContext) errorReturn() string {
 	return "return _gsxerr"
 }
 
+// lowerCtx is the lowerCtx for a component input's Go-expression fields: the
+// attribute context, with hoists returning through ctx's error return (the
+// AttrsCond branch thunk's "return nil, _gsxerr" inside a branch).
+func (ctx positionalEmitContext) lowerCtx() lowerCtx {
+	lc := attrLowerCtx(ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.fset, ctx.bag, newInterpEmitCtx(ctx.currentPkg, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.cls, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan))
+	lc.errReturn = ctx.errorReturn()
+	return lc
+}
+
 func (ctx positionalEmitContext) pipeWrap(b *bytes.Buffer) func(string) string {
 	return pipeWrapReturning(b, ctx.interpTemp, ctx.errorReturn())
 }
@@ -113,7 +122,7 @@ func emitPositionalComponentCall(
 		expr, used := valueLowering.expr, valueLowering.used
 		if exprAttr, ok := value.node.(*gsxast.ExprAttr); ok && value.attrsNode == nil && len(exprAttr.Stages) != 0 {
 			var err error
-			expr, used, err = lowerPipe(exprAttr.Expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements))
+			expr, used, err = lowerPipe(expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements))
 			if err != nil {
 				ctx.bag.Errorf(exprAttr.Pos(), exprAttr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return false
@@ -283,7 +292,11 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 	case *gsxast.BoolAttr:
 		return readyPositionalValue("true", nil)
 	case *gsxast.ExprAttr:
-		return readyPositionalValue(strings.TrimSpace(node.Expr), nil)
+		expr, ok := ctx.lowerCtx().field(b, node.Expr, node.Embedded, node)
+		if !ok {
+			return diagnosedPositionalValue()
+		}
+		return readyPositionalValue(expr, nil)
 	case *gsxast.MarkupAttr:
 		expr, ok := positionalSlotClosure(node.Value, ctx)
 		if !ok {
@@ -294,13 +307,13 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 		return positionalOrderedAttrsExpr(b, node, plan, ctx)
 	case *gsxast.ComposedAttr:
 		if node.Name == "style" {
-			expr, _, ok := rootStyleString(b, node, nil, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.resolved)
+			expr, _, ok := rootStyleString(b, node, nil, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.resolved, ctx.lowerCtx())
 			if !ok {
 				return diagnosedPositionalValue()
 			}
 			return readyPositionalValue(expr, nil)
 		}
-		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.pipeWrap(b), ctx.errorReturn())
+		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.pipeWrap(b), ctx.errorReturn(), ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node, err, ctx)
 			return diagnosedPositionalValue()
@@ -332,7 +345,7 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 			}
 			return readyPositionalValue(fmt.Sprintf("%s.Attrs{{Key: %s, Value: %s}}", ctx.rt.rt(), strconv.Quote(embedded.Name), lowering.expr), nil)
 		}
-		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond)
+		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond, ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node.attr, err, ctx)
 			return diagnosedPositionalValue()
@@ -341,11 +354,14 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 	case componentAttrsStreamContributor:
 		switch attr := node.attr.(type) {
 		case *gsxast.ExprAttr:
-			expr := strings.TrimSpace(attr.Expr)
+			expr, ok := ctx.lowerCtx().field(b, attr.Expr, attr.Embedded, attr)
+			if !ok {
+				return diagnosedPositionalValue()
+			}
 			used := map[string]string(nil)
 			if len(attr.Stages) != 0 {
 				var err error
-				expr, used, err = lowerPipe(attr.Expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
+				expr, used, err = lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
 				if err != nil {
 					ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return diagnosedPositionalValue()
@@ -386,7 +402,7 @@ func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx
 		}
 		return readyPositionalValue(expr, nil)
 	case gsxast.EmbeddedJS:
-		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
+		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), "", false)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
@@ -396,7 +412,7 @@ func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx
 		}
 		return readyPositionalValue(ctx.rt.rt()+".RawJS("+lowering.expr+")", nil)
 	case gsxast.EmbeddedCSS:
-		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), false, false)
+		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), "", false)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
@@ -446,6 +462,12 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 	if len(node.branches) != 2 {
 		return positionalValueLowering{outcome: positionalLoweringUnsupported}
 	}
+	// The condition's hoists go to b, before the AttrsCond call. An else-if is
+	// lowered inside the else branch thunk, so its hoists run only when reached.
+	condExpr, ok := ctx.lowerCtx().field(b, cond.Cond, cond.CondEmbedded, cond)
+	if !ok {
+		return diagnosedPositionalValue()
+	}
 	thenLowering := positionalAttrsBranchThunk(node.branches[0], plan, ctx)
 	if thenLowering.outcome != positionalLoweringReady {
 		return thenLowering
@@ -463,7 +485,7 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 		}
 		maps.Copy(used, elseLowering.used)
 	}
-	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), strings.TrimSpace(cond.Cond), thenLowering.expr, elseExpr)
+	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), condExpr, thenLowering.expr, elseExpr)
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
 	fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
@@ -496,21 +518,49 @@ func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node comp
 	}
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
+	// The tag's hoists precede the `switch`; case lists are evaluated lazily
+	// and have no error channel.
+	lc := ctx.lowerCtx()
+	var pre bytes.Buffer
+	tag, block, ok := lc.header(&pre, sw.Tag, sw.TagEmbedded, sw)
+	if !ok {
+		return diagnosedPositionalValue()
+	}
 	// A short var decl keeps _gsxerr shared with any sibling lowering in this
 	// scope (name is new, so `:=` is legal whether or not _gsxerr already
-	// exists), which is what ctx.errorReturn() refers to.
-	fmt.Fprintf(b, "%s, _gsxerr := %s.Attrs(nil), error(nil)\n", name, ctx.rt.rt())
-	fmt.Fprintf(b, "switch %s {\n", strings.TrimSpace(sw.Tag))
+	// exists), which is what ctx.errorReturn() refers to. Inside a header
+	// block (an init statement before hoists) a hoist may declare its own
+	// _gsxerr, so the arms then report through a dedicated error temp that
+	// is checked after the block.
+	errVar := "_gsxerr"
+	if block {
+		errVar = fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
+		*ctx.interpTemp++
+	}
+	fmt.Fprintf(b, "%s, %s := %s.Attrs(nil), error(nil)\n", name, errVar, ctx.rt.rt())
+	b.Write(pre.Bytes())
+	fmt.Fprintf(b, "switch %s {\n", tag)
+	caseLC := lc
+	caseLC.noErrChannel = caseListErrRemedy
 	for i, cc := range sw.Cases {
 		if cc.Default {
 			b.WriteString("default:\n")
 		} else {
-			fmt.Fprintf(b, "case %s:\n", cc.List)
+			list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+			if !ok {
+				return diagnosedPositionalValue()
+			}
+			fmt.Fprintf(b, "case %s:\n", list)
 		}
-		fmt.Fprintf(b, "%s, _gsxerr = (%s)()\n", name, thunks[i])
+		fmt.Fprintf(b, "%s, %s = (%s)()\n", name, errVar, thunks[i])
 	}
 	b.WriteString("}\n")
-	fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
+	closeHeaderBlock(b, block)
+	if block {
+		fmt.Fprintf(b, "if _gsxerr := %s; _gsxerr != nil { %s }\n", errVar, ctx.errorReturn())
+	} else {
+		fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
+	}
 	return readyPositionalValue(name, used)
 }
 
@@ -572,7 +622,10 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 	entries := make([]string, 0, len(attr.Pairs))
 	for i := range attr.Pairs {
 		pair := &attr.Pairs[i]
-		expr := strings.TrimSpace(pair.Value)
+		expr, ok := ctx.lowerCtx().field(b, pair.Value, pair.Embedded, pair)
+		if !ok {
+			return diagnosedPositionalValue()
+		}
 		fact, hasFact := plan.expressionFacts.get(pair)
 		// The pair value's semantic type drives renderer application below. A
 		// (T, error) authored value is unwrapped first (matching every other

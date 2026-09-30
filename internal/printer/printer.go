@@ -30,7 +30,6 @@ import (
 	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
-	"github.com/gsxhq/gsx/parser"
 )
 
 // Fprint writes the canonical gsx rendering of f to w, wrapping lists that
@@ -637,7 +636,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 // attrDoc renders one attribute as a Doc. Conditional attributes are rendered
 // with their `{ if … { … } }` body broken across lines (templ-style), emitting
 // a BreakParent so the enclosing opening-tag group breaks. ExprAttr and
-// ComposedAttr use fmtExprDoc so long or comment-bearing values can be multi-line.
+// ComposedAttr use goFieldDoc so long or comment-bearing values can be multi-line.
 func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 	switch v := a.(type) {
 	case *ast.CondAttr:
@@ -664,7 +663,7 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		}
 		return pretty.Concat(pretty.Text("// "), pretty.Text(v.Text), pretty.BreakParent)
 	case *ast.ExprAttr:
-		val := []pretty.Doc{fmtExprDoc(v.Expr)}
+		val := []pretty.Doc{p.goFieldDoc(v.Expr, exprField, fmtExprPreserving)}
 		for _, s := range v.Stages {
 			val = append(val, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 		}
@@ -713,16 +712,16 @@ func (p *printer) composedPartDoc(part ast.ComposedPart) pretty.Doc {
 	if part.LiteralSegments != nil {
 		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(part.LiteralLang, part.LiteralSegments, embeddedDelim(part.LiteralDoubleQuoted)))}
 		if part.Cond != "" {
-			seg = append(seg, pretty.Text(": "), multiline(fmtExpr(part.Cond)))
+			seg = append(seg, pretty.Text(": "), p.goFieldDoc(part.Cond, exprField, fmtExpr))
 		}
 		return pretty.Concat(seg...)
 	}
-	seg := []pretty.Doc{fmtExprDoc(part.Expr)}
+	seg := []pretty.Doc{p.goFieldDoc(part.Expr, exprField, fmtExprPreserving)}
 	for _, s := range part.Stages {
 		seg = append(seg, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 	}
 	if part.Cond != "" {
-		seg = append(seg, pretty.Text(": "), multiline(fmtExpr(part.Cond)))
+		seg = append(seg, pretty.Text(": "), p.goFieldDoc(part.Cond, exprField, fmtExpr))
 	}
 	return pretty.Concat(seg...)
 }
@@ -736,7 +735,7 @@ func (p *printer) valueCFDoc(cf *ast.ValueCF) pretty.Doc {
 
 func (p *printer) valueIfChain(i *ast.ValueIf) pretty.Doc {
 	parts := []pretty.Doc{
-		pretty.Text("if "), multiline(fmtExpr(i.Cond)),
+		pretty.Text("if "), p.goFieldDoc(i.Cond, ifField, fmtExpr),
 		pretty.Text(" {"), p.valueArmBody(i.Then), pretty.Text("}"),
 	}
 	switch {
@@ -760,7 +759,7 @@ func (p *printer) valueArmDoc(a *ast.ValueArm) pretty.Doc {
 		// arm and a plain part print identically.
 		return pretty.Text(embeddedLiteralString(a.Lang, a.Segments, embeddedDelim(a.DoubleQuoted)))
 	}
-	seg := []pretty.Doc{fmtExprDoc(a.Expr)}
+	seg := []pretty.Doc{p.goFieldDoc(a.Expr, exprField, fmtExprPreserving)}
 	for _, s := range a.Stages {
 		seg = append(seg, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 	}
@@ -770,14 +769,14 @@ func (p *printer) valueArmDoc(a *ast.ValueArm) pretty.Doc {
 func (p *printer) valueSwitchDoc(s *ast.ValueSwitch) pretty.Doc {
 	head := []pretty.Doc{pretty.Text("switch")}
 	if s.Tag != "" {
-		head = append(head, pretty.Text(" "), multiline(fmtExpr(s.Tag)))
+		head = append(head, pretty.Text(" "), p.goFieldDoc(s.Tag, switchField, fmtExpr))
 	}
 	head = append(head, pretty.Text(" {"))
 	cases := make([]pretty.Doc, 0, len(s.Cases))
 	for _, c := range s.Cases {
 		label := pretty.Text("default:")
 		if !c.Default {
-			label = pretty.Concat(pretty.Text("case "), multiline(fmtCaseList(c.List)), pretty.Text(":"))
+			label = pretty.Concat(pretty.Text("case "), p.goFieldDoc(c.List, caseField, fmtCaseList), pretty.Text(":"))
 		}
 		cases = append(cases,
 			pretty.Line, label,
@@ -799,7 +798,7 @@ func wrapAttrValue(name string, sep pretty.Doc, value pretty.Doc) pretty.Doc {
 }
 
 func (p *printer) condAttrChainDoc(c *ast.CondAttr) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("if "), multiline(fmtExpr(c.Cond)), pretty.Text(" {"),
+	parts := []pretty.Doc{pretty.Text("if "), p.goFieldDoc(c.Cond, ifField, fmtExpr), pretty.Text(" {"),
 		p.condAttrListDoc(c.Then), pretty.Text("}")}
 	if len(c.Else) == 0 {
 		return pretty.Concat(parts...)
@@ -820,14 +819,14 @@ func (p *printer) condAttrChainDoc(c *ast.CondAttr) pretty.Doc {
 // their label, mirroring condAttrChainDoc's one-attr-per-line body.
 func (p *printer) switchAttrDoc(s *ast.SwitchAttr) pretty.Doc {
 	parts := []pretty.Doc{pretty.Text("switch")}
-	if tag := fmtExpr(s.Tag); strings.TrimSpace(tag) != "" {
-		parts = append(parts, pretty.Text(" "), multiline(tag))
+	if strings.TrimSpace(s.Tag) != "" {
+		parts = append(parts, pretty.Text(" "), p.goFieldDoc(s.Tag, switchField, fmtExpr))
 	}
 	parts = append(parts, pretty.Text(" {"))
 	for _, cc := range s.Cases {
 		label := pretty.Text("default:")
 		if !cc.Default {
-			label = pretty.Concat(pretty.Text("case "), multiline(fmtExpr(cc.List)), pretty.Text(":"))
+			label = pretty.Concat(pretty.Text("case "), p.goFieldDoc(cc.List, caseField, fmtExpr), pretty.Text(":"))
 		}
 		parts = append(parts, pretty.HardLine, label, p.attrCaseBodyDoc(cc.Body))
 	}
@@ -992,7 +991,7 @@ func (p *printer) markerRegion(r *ast.MarkerRegion) pretty.Doc {
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("{ "), fmtExprDoc(i.Expr)}
+	parts := []pretty.Doc{pretty.Text("{ "), p.goFieldDoc(i.Expr, exprField, fmtExprPreserving)}
 	for _, s := range i.Stages {
 		parts = append(parts, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 	}
@@ -1024,88 +1023,59 @@ func pipeStageStr(s ast.PipeStage) string {
 }
 
 func (p *printer) goBlock(b *ast.GoBlock) pretty.Doc {
-	s, lits := p.goBlockCode(b.Code)
-	// A single-statement block with no multi-line js`/css` literal stays inline:
-	// `{{ stmt }}`. A block carrying such a literal always breaks (its body is
-	// multi-line even when the surrounding statement is not).
-	if !strings.Contains(s, "\n") && len(lits) == 0 {
-		return pretty.Concat(pretty.Text("{{ "), pretty.Text(s), pretty.Text(" }}"))
+	s, values := p.goBlockCode(b.Code)
+	// A single-statement block with no multi-line value stays inline:
+	// `{{ stmt }}`. A block carrying a multi-line js`/css` literal or element
+	// always breaks (its body is multi-line even when the statement is not).
+	if !strings.Contains(s, "\n") && goValuesFlat(values) {
+		return pretty.Concat(pretty.Text("{{ "), p.goTextDoc(s, values, false), pretty.Text(" }}"))
 	}
 	// A multi-statement block breaks like a Go block body: `{{` alone on its line,
 	// the statements indented one level deeper, `}}` alone on its own line at the
-	// block's column. Raw-string interior newlines stay embedded in their segment,
-	// except a js`/css` literal (carried as a marker in s) whose body is re-indented
-	// under the statement it opens on.
-	segs := splitOutsideRawStrings(s)
-	inner := make([]pretty.Doc, 0, len(segs)*2)
-	for _, seg := range segs {
-		if strings.TrimSpace(seg) == "" {
-			// A blank line between statements: a bare newline, no managed indent
-			// (so it never carries trailing tabs — idempotence).
-			inner = append(inner, pretty.Text("\n"))
-			continue
-		}
-		if docs, ok := p.goBlockLiteralSeg(seg, lits); ok {
-			inner = append(inner, docs...)
-			continue
-		}
-		inner = append(inner, pretty.HardLine, pretty.Text(strings.TrimRight(seg, " \t")))
-	}
+	// block's column. Raw-string interior newlines stay embedded in their segment;
+	// a value carried as a marker in s is laid out under the line it opens on.
 	return pretty.Concat(
 		pretty.Text("{{"),
-		pretty.Indent(pretty.Concat(inner...)),
+		pretty.Indent(p.goTextDoc(s, values, true)),
 		pretty.BreakParent,
 		pretty.HardLine, pretty.Text("}}"),
 	)
 }
 
-// goBlockLitMarker is the sentinel a multi-line js`/css` literal is replaced by
-// in the gofmt-normalized block text, so gofmt positions the statement and the
-// printer can re-indent the literal's body under it. prefix is a collision-free
-// identifier prefix (grown by fmtGoBlockCode until absent from the verbatim Go
-// text — never assumed unique, mirroring the rebase/minify sentinels); the `z`
-// terminates the index so the marker stays a single Go identifier, harmless to
-// the raw-string scanner in splitOutsideRawStrings.
-func goBlockLitMarker(prefix string, n int) string { return fmt.Sprintf("%s%dz", prefix, n) }
-
-// goBlockLiteralSeg renders a statement segment that carries a multi-line
-// js`/css` literal marker: the text up to the marker (e.g. "\t\tValue: ") on the
-// opening line, the literal's re-indented body one level under that line's
-// Go-structural indent, and the closing delimiter plus any trailing text. Returns
-// ok=false when the segment holds no known marker.
-func (p *printer) goBlockLiteralSeg(seg string, lits map[string]*ast.EmbeddedInterp) ([]pretty.Doc, bool) {
-	for marker, lit := range lits {
-		pre, rest, found := strings.Cut(seg, marker)
-		if !found {
-			continue
+// goValuesFlat reports whether every marked value renders on one line.
+func goValuesFlat(values map[string]goValue) bool {
+	for _, v := range values {
+		if v.multiline() {
+			return false
 		}
-		post := strings.TrimRight(rest, " \t")
-		lines, ok := p.embeddedInterpLines(lit)
-		if !ok {
-			return nil, false
-		}
-		// litTabs is the Go-structural indent of the line the literal opens on
-		// (the leading tabs of pre); the body sits one level deeper. HardLine adds
-		// the block's managed base to every line, so absolute = base + litTabs(+1).
-		litTabs := 0
-		for litTabs < len(pre) && pre[litTabs] == '\t' {
-			litTabs++
-		}
-		delim := embeddedDelim(lit.DoubleQuoted)
-		opener := embeddedLangName(lit.Lang) + string(delim)
-		var cb strings.Builder
-		cb.WriteByte(delim)
-		for _, st := range lit.Stages {
-			cb.WriteString(" |> ")
-			cb.WriteString(pipeStageStr(st))
-		}
-		return goBlockLiteralDocs(pre+opener, lines, cb.String()+post, litTabs), true
 	}
-	return nil, false
+	return true
 }
 
-// goBlockLiteralDocs lays out a multi-line js`/css` literal body inside a {{ }}
-// block. opener is the pre-text plus the opening delimiter (attached to the
+// goBlockLiteralDocs renders the line that opens a multi-line js`/css`
+// literal: pre (the Go text up to the literal, e.g. "\t\tValue: ") on the
+// opening line, the literal's re-indented body one level under that line's
+// Go-structural indent (litTabs), and the closing delimiter. The result starts
+// with a HardLine. A literal the formatter cannot re-indent is relayed
+// verbatim.
+func (p *printer) goBlockLiteralDocs(pre string, lit *ast.EmbeddedInterp, litTabs int) []pretty.Doc {
+	lines, ok := p.embeddedInterpLines(lit)
+	if !ok {
+		return []pretty.Doc{pretty.HardLine, pretty.Text(pre + embeddedLiteralString(lit.Lang, lit.Segments, embeddedDelim(lit.DoubleQuoted)))}
+	}
+	delim := embeddedDelim(lit.DoubleQuoted)
+	opener := embeddedLangName(lit.Lang) + string(delim)
+	var cb strings.Builder
+	cb.WriteByte(delim)
+	for _, st := range lit.Stages {
+		cb.WriteString(" |> ")
+		cb.WriteString(pipeStageStr(st))
+	}
+	return literalLineDocs(pre+opener, lines, cb.String(), litTabs)
+}
+
+// literalLineDocs lays out a multi-line js`/css` literal body inside a Go
+// region. opener is the pre-text plus the opening delimiter (attached to the
 // literal's line); lines are the re-indented body logical lines; closer is the
 // closing delimiter plus trailing Go text. litTabs is the literal line's
 // Go-structural indent; the body baked at litTabs+1 tabs and the closer at
@@ -1114,7 +1084,7 @@ func (p *printer) goBlockLiteralSeg(seg string, lits map[string]*ast.EmbeddedInt
 // Layout mirrors embeddedAttrValueDoc: a leading blank logical line means the
 // body opened on its own line → block layout (delimiters alone, body one level
 // under); otherwise inline (opener hugs the first body line, closer the last).
-func goBlockLiteralDocs(opener string, lines []string, closer string, litTabs int) []pretty.Doc {
+func literalLineDocs(opener string, lines []string, closer string, litTabs int) []pretty.Doc {
 	block := len(lines) > 0 && lines[0] == ""
 	for len(lines) > 0 && lines[0] == "" {
 		lines = lines[1:]
@@ -1182,21 +1152,18 @@ func (p *printer) embeddedInterpLines(v *ast.EmbeddedInterp) ([]string, bool) {
 }
 
 // goBlockCode returns the canonical statement text of a `{{ }}` block. A block
-// carrying an embedded f`/js`/css` literal is not, on its own, parseable Go —
-// fmtStmts' go/format call rejects it and relays the raw text verbatim, so the
-// block's indentation is never normalized. goBlockCode restores parseability with
-// the same placeholder round-trip fmtGoExprParts uses (formatGoParts), so gofmt
-// lays the statements out and the literals splice back in, hole expressions
-// reformatted. A block with no embedded literal (fmtGoBlockCode finds no value
-// part, or the literal split fails) falls back to the plain fmtStmts path. Both
-// paths yield a canonical body string that goBlock lays out at the block's
-// indent (inline for a single statement, one level deeper for several). It also
-// returns the multi-line js`/css` literals carried in the string as markers,
-// keyed by marker, so goBlock can re-indent each literal's body under the
-// statement it opens on; nil on the plain path.
-func (p *printer) goBlockCode(code string) (string, map[string]*ast.EmbeddedInterp) {
-	if s, lits, ok := p.fmtGoBlockCode(code); ok {
-		return s, lits
+// carrying an embedded gsx value is not, on its own, parseable Go — fmtStmts'
+// go/format call rejects it and relays the raw text verbatim, so the block's
+// indentation is never normalized. goBlockCode restores parseability with the
+// same placeholder round-trip fmtGoExprParts uses (formatGoParts), so gofmt
+// lays the statements out and the values splice back in. A block with no
+// embedded value (or whose split fails) falls back to the plain fmtStmts path.
+// It also returns the values carried in the string as markers (see
+// fmtGoPartsText), so goBlock lays each out under the statement it opens on;
+// nil on the plain path.
+func (p *printer) goBlockCode(code string) (string, map[string]goValue) {
+	if s, values, ok := p.fmtGoBlockCode(code); ok {
+		return s, values
 	}
 	return fmtStmts(code), nil
 }
@@ -1209,94 +1176,25 @@ const (
 	goBlockWrapperSuffix = "\n}\n"
 )
 
-// fmtGoBlockCode formats a `{{ }}` block whose Code embeds one or more
-// f`/js`/css` literals, returning the gofmt-normalized statements as a canonical
-// string (literals re-rendered with their hole expressions reformatted). It
-// splits Code into GoText/*EmbeddedInterp parts with the SAME splitter codegen
-// uses (parser.SplitGoExprElements — the formatter works from Code, never the
-// codegen-populated GoBlock.Embedded overlay), runs the shared placeholder
-// round-trip under a func-body wrapper, then re-concatenates the formatted
-// GoText and the re-rendered literals. Because gofmt strips the incoming
-// indentation, the result is stable whether Code arrives verbatim from source
-// or with the markup indentation the printer bakes into a re-parsed block — the
-// property the faithfulness normalizer relies on to converge (see corpus_test's
-// canonGo). ok is false — leaving the caller on the plain fmtStmts path — when
-// the block holds no embedded literal, when the split fails, or when go/format
-// rejects the substituted source.
-func (p *printer) fmtGoBlockCode(code string) (string, map[string]*ast.EmbeddedInterp, bool) {
-	parts, ok := splitGoBlockParts(code)
+// fmtGoBlockCode formats a `{{ }}` block whose Code embeds one or more gsx
+// values, returning the gofmt-normalized statements with value markers. It
+// splits Code with the SAME splitter codegen uses (parser.SplitGoExprElements —
+// the formatter works from Code, never the codegen-populated GoBlock.Embedded
+// overlay) and runs the shared placeholder round-trip under a func-body
+// wrapper. Because gofmt strips the incoming indentation and each element is
+// printed from its AST, the result is stable whether Code arrives verbatim
+// from source or with the markup indentation the printer bakes into a
+// re-parsed block — the property the faithfulness normalizer relies on to
+// converge (see corpus_test's canonGo). ok is false — leaving the caller on
+// the plain fmtStmts path — when the block holds no embedded value, when the
+// split fails, or when go/format rejects the substituted source.
+func (p *printer) fmtGoBlockCode(code string) (string, map[string]goValue, bool) {
+	parts, ok := splitGoParts(code)
 	if !ok || len(parts) == 0 {
 		return "", nil, false
 	}
 	strip := func(out []byte) (string, bool) { return extractFuncBody(string(out)) }
-	formatted, _, ok := p.formatGoParts(parts, goBlockWrapperPrefix, goBlockWrapperSuffix, strip)
-	if !ok {
-		return "", nil, false
-	}
-	// A collision-free marker prefix, grown until absent from all verbatim Go
-	// text (the only non-marker content in the assembled string) — so a Go string
-	// literal that happens to hold the marker text can never be mistaken for a
-	// literal opener by goBlockLiteralSeg's Cut. Mirrors the rebase/minify
-	// sentinels; never an assumed-unique sentinel.
-	litPrefix := "gsxǁblockǁlit"
-	var scan strings.Builder
-	for _, part := range formatted {
-		if gt, ok := part.(ast.GoText); ok {
-			scan.WriteString(gt.Src)
-		}
-	}
-	for strings.Contains(scan.String(), litPrefix) {
-		litPrefix += "q"
-	}
-
-	var b strings.Builder
-	var lits map[string]*ast.EmbeddedInterp
-	for _, part := range formatted {
-		if gt, ok := part.(ast.GoText); ok {
-			b.WriteString(gt.Src)
-			continue
-		}
-		// A multi-line js`/css` literal is carried as a marker so goBlock can
-		// re-indent its body under the statement it opens on; gofmt already
-		// positioned the marker's placeholder. Every other literal (element,
-		// single-line js`/css`, f`) renders flat verbatim exactly as goExprValue
-		// does — the same doc formatGoParts measured for its placeholder width; a
-		// leaf Text whose interior newlines multiline reproduces without indent.
-		if ei, ok := part.(*ast.EmbeddedInterp); ok &&
-			(ei.Lang == ast.EmbeddedJS || ei.Lang == ast.EmbeddedCSS) &&
-			embeddedSegmentsMultiline(ei.Segments) {
-			if lits == nil {
-				lits = map[string]*ast.EmbeddedInterp{}
-			}
-			marker := goBlockLitMarker(litPrefix, len(lits))
-			lits[marker] = ei
-			b.WriteString(marker)
-			continue
-		}
-		doc, ok := p.goExprValue(part)
-		if !ok {
-			return "", nil, false
-		}
-		b.WriteString(pretty.Print(doc, 1<<30, p.tabWidth))
-	}
-	return b.String(), lits, true
-}
-
-// splitGoBlockParts splits a GoBlock's Code into interleaved GoText and embedded
-// literal parts, using a fresh FileSet (the printer holds no shared one, and the
-// split only needs Code-relative positions — the reformatted holes read from the
-// EmbeddedInterp segments, not absolute source positions). It returns (nil,
-// true) when Code holds no embedded literal (the plain-Go fast path) and (nil,
-// false) when the split reports a parse error, so the caller can fall back to
-// the verbatim relay.
-func splitGoBlockParts(code string) ([]ast.GoPart, bool) {
-	fset := gotoken.NewFileSet()
-	f := fset.AddFile("", fset.Base(), len(code))
-	parts, errs := parser.SplitGoExprElements(fset, code, f.Pos(0), nil)
-	if len(errs) > 0 {
-		return nil, false
-	}
-	return parts, true
+	return p.fmtGoPartsText(parts, goBlockWrapperPrefix, goBlockWrapperSuffix, strip)
 }
 
 // ifMarkup renders `{ if cond { … }[ else …] }` as a group: short → one line,
@@ -1306,7 +1204,7 @@ func (p *printer) ifMarkup(i *ast.IfMarkup) pretty.Doc {
 }
 
 func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("if "), multiline(fmtExpr(i.Cond)), pretty.Text(" {"), p.cfBody(i.Then, i.ThenMultiline), pretty.Text("}")}
+	parts := []pretty.Doc{pretty.Text("if "), p.goFieldDoc(i.Cond, ifField, fmtExpr), pretty.Text(" {"), p.cfBody(i.Then, i.ThenMultiline), pretty.Text("}")}
 	if len(i.Else) == 0 {
 		return pretty.Concat(parts...)
 	}
@@ -1322,7 +1220,7 @@ func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
 
 func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
 	return pretty.Group(pretty.Concat(
-		pretty.Text("{ for "), multiline(fmtClause(f.Clause)), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline), pretty.Text("} }")))
+		pretty.Text("{ for "), p.goFieldDoc(f.Clause, forField, fmtClause), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline), pretty.Text("} }")))
 }
 
 // cfBody renders a control-flow body between an already-emitted `{` and a
@@ -1386,7 +1284,7 @@ func (p *printer) cfBodyInner(nodes []ast.Markup) pretty.Doc {
 func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 	head := []pretty.Doc{pretty.Text("{ switch")}
 	if s.Tag != "" {
-		head = append(head, pretty.Text(" "), multiline(fmtExpr(s.Tag)))
+		head = append(head, pretty.Text(" "), p.goFieldDoc(s.Tag, switchField, fmtExpr))
 	}
 	head = append(head, pretty.Text(" {"))
 
@@ -1396,7 +1294,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		for _, c := range s.Cases {
 			label := pretty.Text("default:")
 			if !c.Default {
-				label = pretty.Concat(pretty.Text("case "), multiline(fmtCaseList(c.List)), pretty.Text(":"))
+				label = pretty.Concat(pretty.Text("case "), p.goFieldDoc(c.List, caseField, fmtCaseList), pretty.Text(":"))
 			}
 			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 		}
@@ -1410,7 +1308,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 	for _, c := range s.Cases {
 		label := pretty.Text("default:")
 		if !c.Default {
-			label = pretty.Concat(pretty.Text("case "), multiline(fmtCaseList(c.List)), pretty.Text(":"))
+			label = pretty.Concat(pretty.Text("case "), p.goFieldDoc(c.List, caseField, fmtCaseList), pretty.Text(":"))
 		}
 		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}
@@ -2835,12 +2733,6 @@ func fmtExprPreserving(src string) string {
 		return fmtExpr(src)
 	}
 	return strings.TrimRight(body, "\n")
-}
-
-// fmtExprDoc returns a Doc for a Go expression value, multi-line when gofmt
-// wraps it (HardLine-joined; comments preserved).
-func fmtExprDoc(src string) pretty.Doc {
-	return multiline(fmtExprPreserving(src))
 }
 
 // extractFuncBody returns the contents of `func _m() {\n…\n}` with the func-body

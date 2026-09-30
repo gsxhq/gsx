@@ -64,8 +64,7 @@ func Page(c string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := _gsxrt.FilterCSS(string(_gsxv0))
-		_gsxgw.Node(ctx, show(_gsxrt.RawCSS("color:"+_gsxv1)))
+		_gsxgw.Node(ctx, show(_gsxrt.RawCSS("color:"+_gsxrt.FilterCSS(string(_gsxv0)))))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

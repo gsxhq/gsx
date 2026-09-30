@@ -420,6 +420,7 @@ type ExprAttr struct {
 	Name, Expr string
 	ExprPos    token.Pos // position of the first char of Expr in source (for go-to-definition)
 	Stages     []PipeStage
+	Embedded   []GoPart // codegen-only overlay; see Interp.Embedded
 }
 
 func (*ExprAttr) attrNode() {}
@@ -441,8 +442,9 @@ type SpreadAttr struct {
 	// ExprPos is the position of the first char of Expr in source, for LSP
 	// cursor mapping. It is NoPos when Expr's text differs from the source
 	// bytes (a parenthesized pipeline unwrapped by the parser).
-	ExprPos token.Pos
-	Stages  []PipeStage
+	ExprPos  token.Pos
+	Stages   []PipeStage
+	Embedded []GoPart // codegen-only overlay; see Interp.Embedded
 }
 
 func (*SpreadAttr) attrNode() {}
@@ -538,20 +540,12 @@ func (*EmbeddedInterp) goPartNode() {}
 // round-trip source of truth (the printer prints from Code, never Embedded);
 // Embedded is the same GoText/*EmbeddedInterp/*Element/*Fragment split
 // SplitGoExprElements produces for a GoWithElements or Interp.Embedded, used
-// only by codegen to type-probe and lower the embedded literals.
-//
-// UnsupportedMarkup is populated by that same preprocessor with the first
-// direct *Element or *Fragment part when the block contains markup. Markup in
-// a GoBlock is not supported: the annotation makes every later consumer use
-// the one preprocessing decision instead of independently rediscovering the
-// unsupported shape. It remains nil for supported blocks, including blocks
-// whose embedded prefixed literals contain markup only inside their holes.
+// only by codegen to type-probe and lower the embedded literals and elements.
 type GoBlock struct {
 	span
-	Code              string
-	CodePos           token.Pos // first char of Code text in source (NoPos if unavailable)
-	Embedded          []GoPart
-	UnsupportedMarkup GoPart
+	Code     string
+	CodePos  token.Pos // first char of Code text in source (NoPos if unavailable)
+	Embedded []GoPart
 }
 
 func (*GoBlock) markupNode() {}
@@ -561,10 +555,11 @@ func (*GoBlock) markupNode() {}
 // `else` puts its body in Else; no else clause leaves Else nil.
 type IfMarkup struct {
 	span
-	Cond    string
-	CondPos token.Pos // first char of Cond text in source (NoPos if unavailable)
-	Then    []Markup
-	Else    []Markup
+	Cond         string
+	CondPos      token.Pos // first char of Cond text in source (NoPos if unavailable)
+	CondEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Then         []Markup
+	Else         []Markup
 	// ThenMultiline/ElseMultiline record that the source placed a line break
 	// immediately after the then/else body's opening `{`. The formatter preserves
 	// that vertical layout (keeping an inline-only body block-formatted) instead of
@@ -579,9 +574,10 @@ func (*IfMarkup) markupNode() {}
 // ForMarkup is `{ for Clause { Body } }`. Clause is the raw Go for/range clause.
 type ForMarkup struct {
 	span
-	Clause    string
-	ClausePos token.Pos // first char of Clause text in source (NoPos if unavailable)
-	Body      []Markup
+	Clause         string
+	ClausePos      token.Pos // first char of Clause text in source (NoPos if unavailable)
+	ClauseEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Body           []Markup
 	// BodyMultiline records that the source placed a line break immediately after
 	// the body's opening `{`; the formatter preserves that vertical layout.
 	BodyMultiline bool
@@ -592,9 +588,10 @@ func (*ForMarkup) markupNode() {}
 // SwitchMarkup is `{ switch Tag { Cases } }`. Tag is "" for a tagless switch.
 type SwitchMarkup struct {
 	span
-	Tag    string
-	TagPos token.Pos // first char of Tag in source (NoPos for a tagless switch)
-	Cases  []*CaseClause
+	Tag         string
+	TagPos      token.Pos // first char of Tag in source (NoPos for a tagless switch)
+	TagEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Cases       []*CaseClause
 }
 
 func (*SwitchMarkup) markupNode() {}
@@ -604,10 +601,11 @@ func (*SwitchMarkup) markupNode() {}
 // raw Go case expression(s); Default is true for the `default:` arm (List == "").
 type CaseClause struct {
 	span
-	List    string
-	ListPos token.Pos // first char of List in source (NoPos for `default:`)
-	Default bool
-	Body    []Markup
+	List         string
+	ListPos      token.Pos // first char of List in source (NoPos for `default:`)
+	ListEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Default      bool
+	Body         []Markup
 	// BodyMultiline records that the source placed a line break immediately
 	// after the `case …:`/`default:` colon; the formatter preserves that
 	// vertical layout (keeping an inline-only body block-formatted) instead of
@@ -619,10 +617,11 @@ type CaseClause struct {
 // Then and Else are attribute lists; an `else if` is Else = []Attr{<*CondAttr>}.
 type CondAttr struct {
 	span
-	Cond    string
-	CondPos token.Pos // first char of Cond text in source (NoPos if unavailable)
-	Then    []Attr
-	Else    []Attr
+	Cond         string
+	CondPos      token.Pos // first char of Cond text in source (NoPos if unavailable)
+	CondEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Then         []Attr
+	Else         []Attr
 }
 
 func (*CondAttr) attrNode() {}
@@ -638,9 +637,10 @@ func (*CondAttr) attrNode() {}
 // silently duplicate names.
 type SwitchAttr struct {
 	span
-	Tag    string
-	TagPos token.Pos // first char of Tag in source (NoPos for a tagless switch)
-	Cases  []*AttrCaseClause
+	Tag         string
+	TagPos      token.Pos // first char of Tag in source (NoPos for a tagless switch)
+	TagEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Cases       []*AttrCaseClause
 }
 
 func (*SwitchAttr) attrNode() {}
@@ -651,10 +651,11 @@ func (*SwitchAttr) attrNode() {}
 // expression(s); Default is true for the `default:` arm (List == "").
 type AttrCaseClause struct {
 	span
-	List    string
-	ListPos token.Pos // first char of List in source (NoPos for `default:`)
-	Default bool
-	Body    []Attr
+	List         string
+	ListPos      token.Pos // first char of List in source (NoPos for `default:`)
+	ListEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Default      bool
+	Body         []Attr
 }
 
 // Deliberately no BodyMultiline counterpart to CaseClause: an attribute switch
@@ -681,12 +682,14 @@ type ComposedPart struct {
 	// ExprPos is the first byte of Expr, the pipeline seed. ExprPos through
 	// ExprEnd() is the exact expression-only source span. It is NoPos for
 	// CSS-literal and value-form parts, which have no Expr.
-	ExprPos token.Pos
-	Cond    string
+	ExprPos      token.Pos
+	ExprEmbedded []GoPart // codegen-only overlay; see Interp.Embedded
+	Cond         string
 	// CondPos is the position of the first char of the `: cond` guard text in
 	// source (NoPos when Cond == "").
-	CondPos token.Pos
-	Stages  []PipeStage
+	CondPos      token.Pos
+	CondEmbedded []GoPart // codegen-only overlay; see Interp.Embedded
+	Stages       []PipeStage
 	// LiteralSegments is set for a prefixed backtick literal part: css`…` in
 	// style={…}, f`…` in class={…}. Each attribute accepts the literal whose
 	// language matches its own value context, and nothing else.
@@ -732,9 +735,10 @@ func (*ComposedAttr) attrNode() {}
 // outside an arm — branching never widens what a hole may contribute.
 type ValueArm struct {
 	span
-	Expr    string
-	ExprPos token.Pos // first char of Expr (the pipe seed) in source
-	Stages  []PipeStage
+	Expr     string
+	ExprPos  token.Pos // first char of Expr (the pipe seed) in source
+	Stages   []PipeStage
+	Embedded []GoPart // codegen-only overlay; see Interp.Embedded
 
 	Segments []Markup
 	// Lang is the literal's language (EmbeddedCSS for style, EmbeddedText for
@@ -750,30 +754,33 @@ type ValueArm struct {
 // (an `else if` chain) or Else (a final `else { … }`), or neither.
 type ValueIf struct {
 	span
-	Cond    string
-	CondPos token.Pos
-	Then    *ValueArm
-	ElseIf  *ValueIf
-	Else    *ValueArm
+	Cond         string
+	CondPos      token.Pos
+	CondEmbedded []GoPart // codegen-only overlay; see Interp.Embedded
+	Then         *ValueArm
+	ElseIf       *ValueIf
+	Else         *ValueArm
 }
 
 // ValueSwitch is the value-producing `switch [Tag] { case … default … }`.
 // Tag is "" for a tagless switch.
 type ValueSwitch struct {
 	span
-	Tag    string
-	TagPos token.Pos // first char of Tag in source (NoPos for a tagless switch)
-	Cases  []*ValueSwitchCase
+	Tag         string
+	TagPos      token.Pos // first char of Tag in source (NoPos for a tagless switch)
+	TagEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Cases       []*ValueSwitchCase
 }
 
 // ValueSwitchCase is one `case List:` / `default:` arm of a ValueSwitch. List is
 // the raw Go case expression(s); Default is true for `default:` (List == "").
 type ValueSwitchCase struct {
 	span
-	List    string
-	ListPos token.Pos // first char of List in source (NoPos for `default:`)
-	Default bool
-	Value   *ValueArm
+	List         string
+	ListPos      token.Pos // first char of List in source (NoPos for `default:`)
+	ListEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
+	Default      bool
+	Value        *ValueArm
 }
 
 // ValueCF is the value-form control-flow attached to a ComposedPart. Exactly one of
@@ -793,6 +800,9 @@ type OrderedPair struct {
 	span
 	Key   string
 	Value string
+	// ValuePos is the position of the first non-space byte of Value in source.
+	ValuePos token.Pos
+	Embedded []GoPart // codegen-only overlay; see Interp.Embedded
 }
 
 // OrderedAttrsAttr is name={{ "k1": v1, "k2": v2 }} — an ordered attribute bag

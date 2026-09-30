@@ -1,0 +1,19 @@
+# An element literal in a <script> or <style> @{ } hole has no JavaScript or
+# CSS value; it is rejected at its own position.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func wrapN(n gsx.Node) gsx.Node { return n }
+
+component Script() {
+	<script>var x = @{ wrapN(<b>x</b>) };</script>
+}
+
+component Style() {
+	<style>p { width: @{ wrapN(<>y</>) }; }</style>
+}
+-- diagnostics.golden --
+8:27: an element literal has no value in a <script> hole; render it outside the <script> element
+12:29: an element literal has no value in a <style> hole; render it outside the <style> element

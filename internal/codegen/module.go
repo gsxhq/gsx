@@ -1423,7 +1423,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 		res.ComponentParamRefs = componentParamReferenceFacts(res.ComponentCalls, res.ComponentParamDecls, a.gsxFset)
 		res.ComponentParamRefs = append(res.ComponentParamRefs, componentParamBodyReferenceFacts(
-			res.ComponentParamDecls, a.objKey, a.exprMap, a.ctrlMap, a.info, a.gsxFset,
+			res.ComponentParamDecls, a.objKey, a.exprMap, a.ctrlMap, a.gsxFiles, a.sourceIndex, a.info, a.gsxFset,
 		)...)
 	}
 	// Unused imports come from analyze's syntactic classifier (unusedFromSkeletons,

@@ -1,0 +1,33 @@
+# An inferred generic component inside an element literal nested in a
+# component input value infers its type arguments like it does in a body
+# interpolation, directly and under a further element.
+-- input.gsx --
+package demo
+
+import (
+	"fmt"
+
+	"github.com/gsxhq/gsx"
+)
+
+func wrapN(n gsx.Node) gsx.Node { return n }
+
+component Gen2[T any](v T) {
+	<s>{ fmt.Sprint(v) }</s>
+}
+
+component Holder(h gsx.Node, attrs gsx.Attrs) {
+	<div { attrs... }>{ h }</div>
+}
+
+component Page(s string, n int) {
+	<Holder h={wrapN(<Gen2 v={s}/>)}/>
+	<Holder h={wrapN(<b><Gen2 v={n}/></b>)}/>
+	<Holder h={wrapN(<Gen2 v="lit"/>)}/>
+	<Holder data-x="1" h={wrapN(<Holder h={wrapN(<Gen2 v={s}/>)}/>)}/>
+}
+-- invoke --
+Page("s", 2)
+-- diagnostics.golden --
+-- render.golden --
+<div><s>s</s></div><div><b><s>2</s></b></div><div><s>lit</s></div><div data-x="1"><div><s>s</s></div></div>

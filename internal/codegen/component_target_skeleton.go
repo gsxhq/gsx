@@ -71,7 +71,6 @@ func analysisPreludeSource(pkgName string) string {
 		"func _gsxusen(...any) {}\n" +
 		"func _gsxcompsig(any) {}\n" +
 		"func _gsxunwrap[T any](v T, _ ...any) T { return v }\n" +
-		"func _gsxstr(any, ...any) string { return \"\" }\n" +
 		"func _gsxelem(int) {}\n"
 }
 

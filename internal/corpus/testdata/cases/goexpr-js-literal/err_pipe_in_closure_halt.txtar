@@ -57,8 +57,7 @@ func Page(csv string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := _gsxrt.EscapeJSVal(_gsxv0)
-		_gsxgw.Node(ctx, take(_gsxrt.RawJS("load("+_gsxv1+")")))
+		_gsxgw.Node(ctx, take(_gsxrt.RawJS("load("+_gsxrt.EscapeJSVal(_gsxv0)+")")))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

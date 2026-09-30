@@ -22,7 +22,7 @@ func bridgePipeNodeBySeed(pkg *Package, path string, seedOff int) gsxast.Node {
 		return nil
 	}
 	var found gsxast.Node
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(f, func(n gsxast.Node) bool {
 		if found != nil {
 			return false
 		}

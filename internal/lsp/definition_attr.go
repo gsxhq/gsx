@@ -21,7 +21,7 @@ func componentTargetAtOffset(pkg *Package, path string, off int) (componentTarge
 		return componentTargetCursor{}, false
 	}
 	var found componentTargetCursor
-	inspectWithEmbedded(pkg.Files[path], func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(pkg.Files[path], func(n gsxast.Node) bool {
 		if found.element != nil {
 			return false
 		}
@@ -77,7 +77,7 @@ func componentAttrAtOffset(pkg *Package, path string, off int) (componentAttrCur
 		return componentAttrCursor{}, false
 	}
 	var found componentAttrCursor
-	inspectWithEmbedded(pkg.Files[path], func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(pkg.Files[path], func(n gsxast.Node) bool {
 		if found.element != nil {
 			return false
 		}

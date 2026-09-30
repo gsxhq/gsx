@@ -73,8 +73,7 @@ func Page(id string) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := _gsxrt.EscapeJSVal(_gsxv0)
-		_gsxgw.NodeResult(_gsxrenderWide(ctx, _gsxgw, _gsxrt.RawJS("go("+_gsxv1+")")))
+		_gsxgw.NodeResult(_gsxrenderWide(ctx, _gsxgw, _gsxrt.RawJS("go("+_gsxrt.EscapeJSVal(_gsxv0)+")")))
 		return _gsxgw.Err()
 	})
 }

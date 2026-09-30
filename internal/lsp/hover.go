@@ -168,22 +168,27 @@ func (s *Server) hoverAnswerFromPkg(pkg *Package, path string, source []byte, of
 			return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
 		}
 
+		// The Go text of a field split around a nested construct resolves
+		// through the SourceIndex below (see inSplitField).
 		node, exprPos := exprNodeAtOffset(pkg, path, off)
-		if node != nil {
+		if node != nil && !inSplitField(pkg, node, off) {
 			// H3: an identifier inside a CtrlMap-bridged span — a for/if/{{ }} clause,
 			// switch tag or case list, in-tag conditional-attribute cond, class guard
 			// cond, or value-form control expression — hovers like the same identifier
 			// in Go. Checked before the pipeline path: a ComposedPart's `: cond` guard is
-			// a ctrl span even when the part's expr carries a pipeline.
+			// a ctrl span even when the part's expr carries a pipeline. A span with no
+			// CtrlMap entry falls through to the SourceIndex, as definition does.
 			if isCtrlSpan(node, exprPos) {
-				if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
-					rng, ok := rangeAt(idStart, idStart+idLen)
-					if !ok {
-						return nil, true
+				if _, bridged := pkg.CtrlMap[node]; bridged {
+					if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
+						rng, ok := rangeAt(idStart, idStart+idLen)
+						if !ok {
+							return nil, true
+						}
+						return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
 					}
-					return Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng}, true
+					return nil, true
 				}
-				return nil, true
 			} else if hasPipeStages(node) {
 				if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
 					rng, ok := rangeAt(span[0], span[1])
@@ -333,7 +338,7 @@ func componentAtTag(pkg *Package, path string, off int) (comp *gsxast.Component,
 		return nil, 0, 0, false
 	}
 	tag := ""
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(f, func(n gsxast.Node) bool {
 		if tag != "" {
 			return false
 		}

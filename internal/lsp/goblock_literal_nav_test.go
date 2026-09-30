@@ -79,7 +79,7 @@ func TestExprPositionCSSLiteralHoleDefinition(t *testing.T) {
 // TestNestedLiteralHoleDefinition asserts go-to-definition from an @{ } hole
 // belonging to a NESTED f-literal — one written inside another literal's own
 // @{ } hole, e.g. f`a @{ f`b @{who}` }` — resolves to the enclosing
-// component's parameter. inspectWithEmbedded re-descends every *Interp
+// component's parameter. gsxast.InspectEmbedded re-descends every *Interp
 // (including one seated inside a Interp.Embedded segment), so the nested
 // hole's own Interp.Embedded should resolve exactly like a top-level one; this
 // pins that W3c body-position nesting (Task 5) without requiring any

@@ -43,23 +43,30 @@ func rebaseMarkup(nodes []ast.Markup, doJS, doCSS bool) {
 				rebaseMarkup(v.Children, doJS, doCSS)
 			}
 			rebaseAttrs(v.Attrs, doJS, doCSS)
+			rebaseGoFields(v, doJS, doCSS)
 		case *ast.EmbeddedInterp:
 			v.Segments = rebaseBody(v.Segments, v.Lang)
 		case *ast.Fragment:
 			rebaseMarkup(v.Children, doJS, doCSS)
+		case *ast.Marker:
+			rebaseGoFields(v, doJS, doCSS)
 		case *ast.MarkerRegion:
 			// A region wraps ordinary markup, so a <script>/<style> inside it must
 			// be re-based like one inside a <div> — otherwise `gsx fmt` (which
 			// indents the body to its new markup depth) would change the RENDERED
-			// asset. (Its Name is only ever a StaticAttr or ExprAttr, neither of
-			// which rebaseAttrs touches, so there is nothing else to do here.)
+			// asset. (Its Name is only ever a StaticAttr or ExprAttr: only the
+			// latter's Go-expression overlay can carry a body.)
+			rebaseGoFields(v, doJS, doCSS)
 			rebaseMarkup(v.Children, doJS, doCSS)
 		case *ast.IfMarkup:
+			rebaseGoFields(v, doJS, doCSS)
 			rebaseMarkup(v.Then, doJS, doCSS)
 			rebaseMarkup(v.Else, doJS, doCSS)
 		case *ast.ForMarkup:
+			rebaseGoFields(v, doJS, doCSS)
 			rebaseMarkup(v.Body, doJS, doCSS)
 		case *ast.SwitchMarkup:
+			rebaseGoFields(v, doJS, doCSS)
 			for i := range v.Cases {
 				rebaseMarkup(v.Cases[i].Body, doJS, doCSS)
 			}
@@ -90,6 +97,15 @@ func rebaseGoParts(parts []ast.GoPart, doJS, doCSS bool) {
 			rebaseMarkup([]ast.Markup{v}, doJS, doCSS)
 		}
 	}
+}
+
+// rebaseGoFields re-bases the embedded literals in every Go-expression overlay
+// markup node m itself carries (attribute values, headers, a PI name — see
+// ast.MarkupGoFields), exactly as for an Interp's Embedded split.
+func rebaseGoFields(m ast.Markup, doJS, doCSS bool) {
+	ast.MarkupGoFields(m, func(f ast.GoField) {
+		rebaseGoParts(*f.Embedded, doJS, doCSS)
+	})
 }
 
 func rebaseAttrs(attrs []ast.Attr, doJS, doCSS bool) {

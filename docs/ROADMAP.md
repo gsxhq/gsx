@@ -1074,18 +1074,24 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
-- [ ] **Nested literals in the remaining Go-expression positions** - an
-  `f`/`js`/`css` literal or element literal *inside* a Go expression is lowered
-  only in body `{ }` interpolations and `{{ }}` blocks (element literals: body
-  only). Attribute values (native, component, attrs bag), spreads, ordered-attrs
-  values, class/style parts and guards, value-form headers and arms,
-  conditional-attribute headers and control-flow headers report a positioned
-  `nested-literal` diagnostic (2026-09-29; corpus `nested-literal-gate/*`).
-  Previously these failed with a raw go/parser "missing ','" from the skeleton,
-  or "expected `{` after `if`" for headers. Closing it means an `Embedded`
-  split on each of those AST fields plus every consumer that emits them, the
-  way `Interp.Embedded` works. A braced literal that is the whole value
-  (`title={f`…`}`) was never nested and works.
+- [x] **Nested literals in the remaining Go-expression positions** - SHIPPED
+  (2026-09-29; corpus `nested-literal/`). An `f`/`js`/`css` literal or element
+  literal nested inside a Go expression now lowers in every Go-expression
+  position (attribute values, spreads, attrs literals, class/style parts and
+  guards, value-form if/switch, conditional attributes, control-flow headers),
+  with the same evaluation order and laziness as a body `{ }` interpolation.
+  An error-carrying hole is returned from `Render` except on the right of
+  `&&`/`||`, inside a func literal, in a `for` clause, or in a `case` list
+  (each a positioned diagnostic).
+- [ ] **Left-to-right order around error-carrying holes** - a hoisted
+  `(T, error)` hole in a nested literal runs before every operand to its left
+  in the same field (`{ join(f`a-@{F1()}`, f`b-@{F2()}`) }` calls F2 first when
+  F2 errors-returns). Real fix: pin the operands Go evaluates before the
+  hoisting literal (calls/receives to its left, from `fieldShape`'s masked AST)
+  into temps ahead of the hoist, as `literalConcat` already does inside one
+  literal. Same class: `positionalOrderedAttrsExpr` later-pair hoists and
+  unpinned literal class/style parts in ordered mode. Documented as the
+  exception in the guide (`syntax/interpolation.md`).
 - [ ] **Skeleton-parse caching** - the one surviving item from the 2026-07-23
   analysis-architecture probe: cache the target + shipping skeleton parses per
   unchanged file (as the pristine gsx parse cache already does), reclaiming
@@ -1113,17 +1119,11 @@ vocabulary remains a design aspiration, not the current API.
   keeps `braced := v.Braced || len(v.Stages) > 0` and a closer `|> stage` loop,
   but the parser rejects whole-literal pipelines on `` js`/css` `` literals, so
   `v.Stages` is always empty on that path. Harmless; remove or comment for clarity.
-- [ ] **Element literals inside `{{ }}` Go blocks** - a `<tag>`/`<>` element
-  literal written in a body `{{ }}` Go block (`{{ x := <div/> }}`) is a
-  positioned `unsupported-node` diagnostic ("element literals inside {{ }}
-  blocks are not supported yet"), not lowered. `{{ }}` blocks DO support
-  embedded `` f`/js`/css` `` literals (split → typed probe → per-hole escaped
-  lowering, same as an `{ }` interpolation body); only element literals remain
-  out. Closing it means giving the skeleton GoBlock split the same
-  element-materialization + `emitElementValue` splice `Interp.Embedded` already
-  has, plus deciding what a rendered element assigned to a Go local even means
-  in statement position. Operand-position element literals inside an `{ }`
-  interpolation body (`{ wrap(<b/>) }`) are unaffected and fully supported.
+- [x] **Element literals inside `{{ }}` Go blocks** - SHIPPED (2026-09-29;
+  corpus `nested-literal/goblock_element.txtar`). A `<tag>`/`<>` element or
+  fragment literal bound in a body `{{ }}` Go block (`{{ n := <div/> }}`)
+  lowers to a `gsx.Node` value, the same as one in an `{ }` interpolation
+  operand position.
 - [x] **`[renderers]` targeting `gsx.RawJS`/`gsx.RawCSS`** - DECIDED
   (2026-07-13): allowed as intended power-user behavior. A registered renderer
   for `gsx.RawJS`/`gsx.RawCSS` replaces the verbatim passthrough and applies

@@ -12,7 +12,7 @@ import (
 // isReservedGsxInternal reports whether name is a gsx-generated internal that
 // must never be offered as a completion candidate. The `_gsx` prefix is
 // reserved repo-wide for generated code: the skeleton package scope declares
-// _gsxuse/_gsxuseq/_gsxusen/_gsxcompsig/_gsxunwrap/_gsxstr/_gsxelem, file
+// _gsxuse/_gsxuseq/_gsxusen/_gsxcompsig/_gsxunwrap/_gsxelem, file
 // scopes bind the _gsxrt/_gsxctx runtime imports as PkgNames, and body
 // closures declare _gsxbody. Accepting any of them inserts a reserved
 // identifier that poisons the file's own analysis, so every enumeration path
@@ -235,12 +235,12 @@ func scopeCandidates(pkg *Package, scope *types.Scope, pos token.Pos) []scopedOb
 }
 
 // goCompletionItems builds the completion list for a Go cursor. skel is the
-// bridged skeleton expression (nil for the GoBlock/GoChunk bridges, which have
-// no skeleton selector to walk — see statementMemberItems below); pos is the
-// cursor's skeleton position (invalid for the GoChunk bridge). DISPATCH: when
-// the cursor at pos sits on the Sel of a selector `X.Sel` in skel, the member
-// path enumerates X's members (fields/methods, or an imported package's
-// exported names); when skel is nil and statementCtx is set, the AUTHORED-text
+// bridged skeleton expression (nil for the CtrlMap/GoChunk/split-field
+// bridges, which have no skeleton selector to walk — see statementMemberItems
+// below); pos is the cursor's skeleton position (invalid for the GoChunk
+// bridge). DISPATCH: when the cursor at pos sits on the Sel of a selector
+// `X.Sel` in skel, the member path enumerates X's members (fields/methods, or
+// an imported package's exported names); when skel is nil, the AUTHORED-text
 // member path (statementMemberItems) takes over for a `.`-cursor; otherwise the
 // scope path enumerates every visible object via scopeCandidates and, when
 // statementCtx is set (GoBlock/GoChunk positions), appends the Go statement
@@ -263,9 +263,9 @@ func goCompletionItems(pkg *Package, scope *types.Scope, skel ast.Expr, pos toke
 	if items, ok := memberCompletionItems(pkg, skel, pos, expected, text, start, end, enc, source); ok {
 		return items // member path: committed even when empty (no scope fallback)
 	}
-	if statementCtx {
+	if skel == nil {
 		if items, ok := statementMemberItems(pkg, path, text, start, end, enc, source); ok {
-			return items // statement member path: committed even when empty
+			return items // authored member path: committed even when empty
 		}
 	}
 	qf := qualifierFor(pkg)
@@ -514,9 +514,9 @@ func valueMemberItems(pkg *Package, recv types.Type, expected types.Type, text s
 	return items
 }
 
-// statementMemberItems resolves a member cursor in a GoBlock/GoChunk STATEMENT
-// position — a context with no skeleton selector for memberCompletionItems to
-// walk. It detects the member position directly from AUTHORED text:
+// statementMemberItems resolves a member cursor in a GoBlock/GoChunk statement,
+// a control-flow header, or a field split around a nested construct — every
+// context with no skeleton selector for memberCompletionItems to walk. It detects the member position directly from AUTHORED text:
 // text[start-1] == '.' (start is the completion token's start from
 // completionTokenSpan, which never includes the dot itself). The receiver's
 // type is then resolved via pkg.SourceIndex.At, the SAME offset-keyed,
@@ -681,6 +681,29 @@ func goCompletionBridge(eph *Package, cc completionContext, exprStartOff, off in
 		return nil, nil, token.NoPos, false, false
 	}
 
+	// A field split around a nested literal or element: its probe splices the
+	// construct between its plain-Go runs, so no relative-offset bridge
+	// applies. Map the cursor through the recorded source mapping instead —
+	// the generated position that spells the authored byte (every plain-Go run
+	// and hole is a Completion-capable segment). There is no skeleton
+	// selector to walk, so member completion resolves its receiver through
+	// the SourceIndex (statementMemberItems).
+	if splitFieldCovers(eph, node, off, true) {
+		if eph.SourceIndex == nil {
+			return nil, nil, token.NoPos, false, false
+		}
+		skelPos, found := eph.SourceIndex.GeneratedPos(path, off)
+		if !found {
+			return nil, nil, token.NoPos, false, false
+		}
+		scope = innermostScopeAt(eph, skelPos)
+		if scope == nil {
+			return nil, nil, token.NoPos, false, false
+		}
+		_, isBlock := node.(*gsxast.GoBlock)
+		return scope, nil, skelPos, isBlock, true
+	}
+
 	if isCtrlSpan(node, matchedSpanPos(node, exprStartOff, eph)) {
 		cr, found := eph.CtrlMap[node]
 		if !found || cr.Node == nil {
@@ -767,7 +790,7 @@ func ephemeralNodeByStart(eph *Package, path string, startOff int) gsxast.Node {
 		return nil
 	}
 	var found gsxast.Node
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
+	gsxast.InspectEmbedded(f, func(n gsxast.Node) bool {
 		if found != nil || n == nil {
 			return found == nil
 		}

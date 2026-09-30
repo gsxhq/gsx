@@ -1,0 +1,25 @@
+# An error-carrying hole in a literal nested in a value-form case list has no
+# hoist point (case lists evaluate lazily, case by case), so it is rejected
+# with a positioned goexpr-literal-error.
+-- input.gsx --
+package demo
+
+import "errors"
+
+func ok(s string) bool { return s != "" }
+func lookup(id int) (string, error) {
+	if id < 0 {
+		return "", errors.New("bad id")
+	}
+	return "L", nil
+}
+
+component Page(id int) {
+	<i class={ "x", switch { case id == 1: "n" case ok(f`@{lookup(id)}`): "m" } }></i>
+}
+-- invoke --
+Page(1)
+-- diagnostics.golden --
+14:56: @{ lookup(id) } returns (string, error); a case list has no statement to return the error from (cases are evaluated lazily) — compute the value before the switch
+-- render.golden --
+-- generated.x.go.golden --

@@ -1,0 +1,15 @@
+# Same as ctx_goblock_element_rejected with an f literal in the block: the
+# binding is reserved, positioned after the masked literal.
+-- input.gsx --
+package views
+
+import "context"
+
+type key struct{}
+
+component Page(id int) {
+	{{ s := f`v-@{id}`; ctx, q := context.WithValue(ctx, key{}, s), 1 }}
+	<p>{ q }</p>
+}
+-- diagnostics.golden --
+8:22: identifier "ctx" is reserved (the ambient context) — rename it

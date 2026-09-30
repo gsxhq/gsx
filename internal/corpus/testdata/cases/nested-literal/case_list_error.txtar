@@ -1,0 +1,47 @@
+# An error-carrying hole in a literal nested in a case list has no hoist point
+# (case lists evaluate lazily, case by case): a markup switch, an in-tag
+# attribute switch and a component-tag attribute switch each report a
+# positioned goexpr-literal-error.
+-- input.gsx --
+package demo
+
+import (
+	"errors"
+
+	"github.com/gsxhq/gsx"
+)
+
+func ok(s string) bool { return s != "" }
+func lookup(id int) (string, error) {
+	if id < 0 {
+		return "", errors.New("bad id")
+	}
+	return "L", nil
+}
+
+component Box(attrs gsx.Attrs) {
+	<b { attrs... }>box</b>
+}
+
+component Markup(id int) {
+	{ switch {
+	case ok(f`@{lookup(id)}`):
+		<b>x</b>
+	} }
+}
+
+component Attr(id int) {
+	<i { switch { case ok(f`@{lookup(id)}`): title="y" } }></i>
+}
+
+component Comp(id int) {
+	<Box { switch { case ok(f`@{lookup(id)}`): title="y" } }/>
+}
+-- invoke --
+Markup(1)
+-- diagnostics.golden --
+23:13: @{ lookup(id) } returns (string, error); a case list has no statement to return the error from (cases are evaluated lazily) — compute the value before the switch
+29:27: @{ lookup(id) } returns (string, error); a case list has no statement to return the error from (cases are evaluated lazily) — compute the value before the switch
+33:29: @{ lookup(id) } returns (string, error); a case list has no statement to return the error from (cases are evaluated lazily) — compute the value before the switch
+-- render.golden --
+-- generated.x.go.golden --

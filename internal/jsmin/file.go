@@ -69,17 +69,30 @@ func minifyMarkup(nodes []ast.Markup, m Minifiers) error {
 			if err := minifyJSAttrs(v.Attrs, m); err != nil {
 				return err
 			}
+			if err := minifyGoFields(v, m); err != nil {
+				return err
+			}
 		case *ast.Fragment:
 			if err := minifyMarkup(v.Children, m); err != nil {
 				return err
 			}
+		case *ast.Marker:
+			if err := minifyGoFields(v, m); err != nil {
+				return err
+			}
 		case *ast.MarkerRegion:
 			// A `<?start>…<?end>` region wraps ordinary markup: a <script> inside it
-			// must minify like one inside a <div>. (Marker is void — no children.)
+			// must minify like one inside a <div>.
+			if err := minifyGoFields(v, m); err != nil {
+				return err
+			}
 			if err := minifyMarkup(v.Children, m); err != nil {
 				return err
 			}
 		case *ast.IfMarkup:
+			if err := minifyGoFields(v, m); err != nil {
+				return err
+			}
 			if err := minifyMarkup(v.Then, m); err != nil {
 				return err
 			}
@@ -87,10 +100,16 @@ func minifyMarkup(nodes []ast.Markup, m Minifiers) error {
 				return err
 			}
 		case *ast.ForMarkup:
+			if err := minifyGoFields(v, m); err != nil {
+				return err
+			}
 			if err := minifyMarkup(v.Body, m); err != nil {
 				return err
 			}
 		case *ast.SwitchMarkup:
+			if err := minifyGoFields(v, m); err != nil {
+				return err
+			}
 			for i := range v.Cases {
 				if err := minifyMarkup(v.Cases[i].Body, m); err != nil {
 					return err
@@ -114,6 +133,19 @@ func minifyMarkup(nodes []ast.Markup, m Minifiers) error {
 		}
 	}
 	return nil
+}
+
+// minifyGoFields minifies the js` literals in every Go-expression overlay
+// markup node n itself carries (attribute values, headers, a PI name — see
+// ast.MarkupGoFields), exactly as for an Interp's Embedded split.
+func minifyGoFields(n ast.Markup, m Minifiers) error {
+	var err error
+	ast.MarkupGoFields(n, func(f ast.GoField) {
+		if err == nil {
+			err = minifyGoParts(*f.Embedded, m)
+		}
+	})
+	return err
 }
 
 // minifyGoParts minifies the js` literals in a GoBlock's or Interp's Embedded

@@ -238,7 +238,7 @@ func (r *componentTargetMarkerRegistry) emitBinding(sb skeletonWriter, element *
 	}
 	record := r.callSites.records[site-1]
 	if record.disposition != componentSiteCandidate {
-		return fmt.Errorf("codegen: preserved call site %d entered target discovery", site)
+		return fmt.Errorf("codegen: non-candidate call site %d entered target discovery", site)
 	}
 	if _, duplicate := r.bySite[site]; duplicate {
 		return fmt.Errorf("codegen: target call site %d was emitted more than once", site)
@@ -324,10 +324,6 @@ func (r *componentTargetMarkerRegistry) validateComplete() error {
 		case componentSiteCandidate:
 			if !emitted {
 				return fmt.Errorf("codegen: planned call site %d <%s> has no target marker", record.id, record.element.Tag)
-			}
-		case componentSitePreservedInvalidRegion:
-			if emitted {
-				return fmt.Errorf("codegen: preserved call site %d <%s> has a target marker", record.id, record.element.Tag)
 			}
 		default:
 			return fmt.Errorf("codegen: call site %d has unknown disposition %d", record.id, record.disposition)
@@ -782,9 +778,6 @@ func (r *callSiteRegistry) finalizeComponentIdentity(facts map[callSiteID]compon
 		if record.element.IsComponent {
 			return fmt.Errorf("codegen: call site %d <%s> was stamped before semantic finalization", record.id, record.element.Tag)
 		}
-		if record.disposition == componentSitePreservedInvalidRegion {
-			continue
-		}
 		if record.disposition != componentSiteCandidate {
 			return fmt.Errorf("codegen: call site %d <%s> has non-candidate disposition %d before finalization", record.id, record.element.Tag, record.disposition)
 		}
@@ -915,7 +908,6 @@ const (
 	componentSitePlanned
 	componentSiteLeaf
 	componentSiteRejected
-	componentSitePreservedInvalidRegion
 )
 
 type callSiteRecord struct {
@@ -986,56 +978,80 @@ func componentTargetQualifiers(registry *callSiteRegistry, facts map[callSiteID]
 // gsxast.Inspect so every Go-expression carrier (ExprAttr, OrderedAttrsAttr
 // pairs, SpreadAttr, EmbeddedAttr holes, CondAttr branches, ComposedAttr parts,
 // value-form control flow, pipeline stage args) is covered uniformly.
+//
+// A Go-expression field whose codegen split filled its overlay is scanned
+// through the overlay instead of its raw text: the Go text between nested
+// constructs, and everything authored inside each construct (a literal's @{ }
+// holes, a nested element's tag, type arguments, attributes and children),
+// which the raw scan would cover only partly (a backtick literal lexes as one
+// string token).
 func harvestElementQualifierRoots(element *gsxast.Element, qualifiers map[string]bool) {
 	if element == nil {
 		return
 	}
 	scanQualifierRoots(element.TypeArgs, qualifiers)
-	for _, attr := range element.Attrs {
-		gsxast.Inspect(attr, func(n gsxast.Node) bool {
-			switch n := n.(type) {
-			case *gsxast.ExprAttr:
-				scanQualifierRoots(n.Expr, qualifiers)
-				scanStageQualifierRoots(n.Stages, qualifiers)
-			case *gsxast.SpreadAttr:
-				scanQualifierRoots(n.Expr, qualifiers)
-				scanStageQualifierRoots(n.Stages, qualifiers)
-			case *gsxast.OrderedPair:
-				scanQualifierRoots(n.Value, qualifiers)
-			case *gsxast.Interp:
-				scanQualifierRoots(n.Expr, qualifiers)
-				scanStageQualifierRoots(n.Stages, qualifiers)
-			case *gsxast.EmbeddedAttr:
-				scanStageQualifierRoots(n.Stages, qualifiers)
-			case *gsxast.EmbeddedInterp:
-				scanStageQualifierRoots(n.Stages, qualifiers)
-			case *gsxast.CondAttr:
-				scanQualifierRoots(n.Cond, qualifiers)
-			case *gsxast.SwitchAttr:
-				scanQualifierRoots(n.Tag, qualifiers)
-			case *gsxast.AttrCaseClause:
-				scanQualifierRoots(n.List, qualifiers)
-			case *gsxast.ComposedPart:
-				scanQualifierRoots(n.Expr, qualifiers)
-				scanQualifierRoots(n.Cond, qualifiers)
-				scanStageQualifierRoots(n.Stages, qualifiers)
-			case *gsxast.ValueArm:
-				scanQualifierRoots(n.Expr, qualifiers)
-				scanStageQualifierRoots(n.Stages, qualifiers)
-			case *gsxast.ValueIf:
-				scanQualifierRoots(n.Cond, qualifiers)
-			case *gsxast.ValueSwitch:
-				scanQualifierRoots(n.Tag, qualifiers)
-			case *gsxast.ValueSwitchCase:
-				scanQualifierRoots(n.List, qualifiers)
-			case *gsxast.Element:
-				// A component tag nested inside a markup attribute value is its own
-				// registry record, so its attrs are harvested there; keep only its
-				// type arguments conservatively here.
-				scanQualifierRoots(n.TypeArgs, qualifiers)
+	overlayDepth := 0
+	var visit func(gsxast.Node) bool
+	scanOverlay := func(src string, parts []gsxast.GoPart) {
+		if parts == nil {
+			scanQualifierRoots(src, qualifiers)
+			return
+		}
+		overlayDepth++
+		for _, part := range parts {
+			gsxast.Inspect(part, visit)
+		}
+		overlayDepth--
+	}
+	scanFields := func(n gsxast.Node) {
+		switch n.(type) {
+		case *gsxast.IfMarkup, *gsxast.ForMarkup, *gsxast.SwitchMarkup, *gsxast.CaseClause:
+			// Headers in a markup attribute value are outside this harvest;
+			// inside an overlay they replace part of the raw Go-text scan.
+			if overlayDepth == 0 {
+				return
 			}
-			return true
+		}
+		gsxast.GoFields(n, func(f gsxast.GoField) {
+			scanOverlay(f.Src, *f.Embedded)
 		})
+	}
+	visit = func(n gsxast.Node) bool {
+		scanFields(n)
+		switch n := n.(type) {
+		case gsxast.GoText:
+			scanQualifierRoots(n.Src, qualifiers)
+		case *gsxast.ExprAttr:
+			scanStageQualifierRoots(n.Stages, qualifiers)
+		case *gsxast.SpreadAttr:
+			scanStageQualifierRoots(n.Stages, qualifiers)
+		case *gsxast.Interp:
+			scanOverlay(n.Expr, n.Embedded)
+			scanStageQualifierRoots(n.Stages, qualifiers)
+		case *gsxast.EmbeddedAttr:
+			scanStageQualifierRoots(n.Stages, qualifiers)
+		case *gsxast.EmbeddedInterp:
+			scanStageQualifierRoots(n.Stages, qualifiers)
+		case *gsxast.ComposedPart:
+			scanStageQualifierRoots(n.Stages, qualifiers)
+		case *gsxast.ValueArm:
+			scanStageQualifierRoots(n.Stages, qualifiers)
+		case *gsxast.Element:
+			// A component tag nested inside a markup attribute value is its own
+			// registry record, so its attrs are harvested there; keep only its
+			// type arguments conservatively here. Inside an overlay the element
+			// was authored in Go text, so its tag qualifier is kept too.
+			scanQualifierRoots(n.TypeArgs, qualifiers)
+			if overlayDepth > 0 {
+				if qualifier, _, ok := strings.Cut(n.Tag, "."); ok && token.IsIdentifier(qualifier) {
+					qualifiers[qualifier] = true
+				}
+			}
+		}
+		return true
+	}
+	for _, attr := range element.Attrs {
+		gsxast.Inspect(attr, visit)
 	}
 }
 
@@ -1221,42 +1237,50 @@ func collectMaterializedComponentCandidates(file *gsxast.File, declNames map[str
 		}
 	}
 	walk = func(nodes []gsxast.Markup, exclusions componentExclusions, reportDiagnostics bool) {
+		// walkFields walks the markup parts of every Go-expression overlay the
+		// node itself carries (attribute values, headers, a PI name).
+		walkFields := func(node gsxast.Markup) {
+			gsxast.MarkupGoFields(node, func(f gsxast.GoField) {
+				walkParts(*f.Embedded, exclusions, reportDiagnostics)
+			})
+		}
 		for _, node := range nodes {
 			switch node := node.(type) {
 			case *gsxast.Element:
 				recordComponentCandidate(candidates, node, declNames, exclusions, bag, reportDiagnostics)
+				walkFields(node)
 				walkMarkupAttrs(node.Attrs, func(value []gsxast.Markup) { walk(value, exclusions, reportDiagnostics) })
 				walk(node.Children, exclusions, reportDiagnostics)
 			case *gsxast.Fragment:
 				walk(node.Children, exclusions, reportDiagnostics)
+			case *gsxast.Marker:
+				walkFields(node)
 			case *gsxast.MarkerRegion:
 				// A region's temporary content is ordinary markup rendered in the
 				// enclosing scope, so a component tag inside it must be classified
 				// like one inside a <div>. (Its Name is only ever a StaticAttr or
 				// ExprAttr — parsePIName enforces that — so there is no markup-attr
-				// value to walk. *gsxast.Marker is void and needs no case.)
+				// value to walk, only the name's Go-expression overlay.)
+				walkFields(node)
 				walk(node.Children, exclusions, reportDiagnostics)
 			case *gsxast.Interp:
 				walkParts(node.Embedded, exclusions, reportDiagnostics)
 			case *gsxast.EmbeddedInterp:
 				walk(node.Segments, exclusions, reportDiagnostics)
 			case *gsxast.ForMarkup:
+				walkFields(node)
 				walk(node.Body, exclusions, reportDiagnostics)
 			case *gsxast.IfMarkup:
+				walkFields(node)
 				walk(node.Then, exclusions, reportDiagnostics)
 				walk(node.Else, exclusions, reportDiagnostics)
 			case *gsxast.SwitchMarkup:
+				walkFields(node)
 				for _, clause := range node.Cases {
 					walk(clause.Body, exclusions, reportDiagnostics)
 				}
 			case *gsxast.GoBlock:
-				// Direct element/fragment parts make the entire block an
-				// unsupported preserve region. Still record candidate classifications
-				// while leaving every semantic stamp false, but suppress secondary
-				// validation diagnostics; the registry collector owns the block's one
-				// rejection.
-				blockDiagnostics := reportDiagnostics && node.UnsupportedMarkup == nil
-				walkParts(node.Embedded, exclusions, blockDiagnostics)
+				walkParts(node.Embedded, exclusions, reportDiagnostics)
 			}
 		}
 	}
@@ -1306,6 +1330,17 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidate
 		}
 		return nil
 	}
+	// walkFields walks the markup parts of every Go-expression overlay a node
+	// itself carries (attribute values, headers, a PI name).
+	walkFields := func(node gsxast.Markup) error {
+		var err error
+		gsxast.MarkupGoFields(node, func(f gsxast.GoField) {
+			if err == nil {
+				err = walkParts(*f.Embedded)
+			}
+		})
+		return err
+	}
 	walk = func(nodes []gsxast.Markup) error {
 		for _, node := range nodes {
 			switch node := node.(type) {
@@ -1316,6 +1351,9 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidate
 					}
 				} else if node.TypeArgs != "" {
 					r.leafTypeArgs = append(r.leafTypeArgs, node)
+				}
+				if err := walkFields(node); err != nil {
+					return err
 				}
 				var attrErr error
 				walkMarkupAttrs(node.Attrs, func(value []gsxast.Markup) {
@@ -1333,10 +1371,17 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidate
 				if err := walk(node.Children); err != nil {
 					return err
 				}
+			case *gsxast.Marker:
+				if err := walkFields(node); err != nil {
+					return err
+				}
 			case *gsxast.MarkerRegion:
 				// Same reason as collectMaterializedComponentCandidates' region case:
 				// a component tag in a region's temporary content is a real call site
 				// and must get a call-site ID like any other.
+				if err := walkFields(node); err != nil {
+					return err
+				}
 				if err := walk(node.Children); err != nil {
 					return err
 				}
@@ -1349,10 +1394,16 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidate
 					return err
 				}
 			case *gsxast.ForMarkup:
+				if err := walkFields(node); err != nil {
+					return err
+				}
 				if err := walk(node.Body); err != nil {
 					return err
 				}
 			case *gsxast.IfMarkup:
+				if err := walkFields(node); err != nil {
+					return err
+				}
 				if err := walk(node.Then); err != nil {
 					return err
 				}
@@ -1360,24 +1411,15 @@ func (r *callSiteRegistry) collectFile(path string, file *gsxast.File, candidate
 					return err
 				}
 			case *gsxast.SwitchMarkup:
+				if err := walkFields(node); err != nil {
+					return err
+				}
 				for _, clause := range node.Cases {
 					if err := walk(clause.Body); err != nil {
 						return err
 					}
 				}
 			case *gsxast.GoBlock:
-				first := node.UnsupportedMarkup
-				if first != nil {
-					bag.Errorf(first.Pos(), first.End(), "unsupported-node", "element literals inside {{ }} blocks are not supported yet")
-					for _, part := range node.Embedded {
-						if element, ok := part.(*gsxast.Element); ok {
-							if err := r.add(path, element, componentCandidateNone, componentSitePreservedInvalidRegion); err != nil {
-								return err
-							}
-						}
-					}
-					continue
-				}
 				if err := walkParts(node.Embedded); err != nil {
 					return err
 				}

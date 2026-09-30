@@ -74,6 +74,17 @@ type Index struct {
 	declarations map[string][]Declaration
 	sources      map[string]SourceVersion
 	canonical    func(types.Object) types.Object // nil = identity
+	// generated holds, per authored path, every Completion-capable segment as
+	// its authored span and the generated position of its first byte, sorted by
+	// authored start (see GeneratedPos).
+	generated map[string][]generatedAnchor
+}
+
+// generatedAnchor is one Completion-capable segment: authored bytes
+// [start, end) are spelled byte for byte from generated position pos.
+type generatedAnchor struct {
+	start, end int
+	pos        token.Pos
 }
 
 // BuildOptions extends BuildIndex with facts the type checker cannot see.
@@ -130,6 +141,10 @@ func (i *Index) Stats() IndexStats {
 	for path := range i.sources {
 		stats.ShallowBytesLowerBound += int64(unsafe.Sizeof(path)) + int64(unsafe.Sizeof(SourceVersion{}))
 	}
+	for path, anchors := range i.generated {
+		stats.ShallowBytesLowerBound += int64(unsafe.Sizeof(path)) + int64(unsafe.Sizeof(anchors))
+		stats.ShallowBytesLowerBound += int64(len(anchors)) * int64(unsafe.Sizeof(generatedAnchor{}))
+	}
 	return stats
 }
 
@@ -144,12 +159,16 @@ func BuildIndexWith(info *types.Info, files []MappedFile, opts BuildOptions) *In
 		declarations: make(map[string][]Declaration),
 		sources:      make(map[string]SourceVersion),
 		canonical:    opts.Canonical,
+		generated:    make(map[string][]generatedAnchor),
 	}
 	for _, file := range files {
 		if file.SourceMap == nil {
 			continue
 		}
 		index.sources[file.SourceMap.sourcePath] = file.SourceVersion
+		if file.TokenFile != nil {
+			index.addGeneratedAnchors(file)
+		}
 		if info == nil || file.AST == nil || file.TokenFile == nil {
 			continue
 		}
@@ -173,6 +192,14 @@ func BuildIndexWith(info *types.Info, files []MappedFile, opts BuildOptions) *In
 	}
 	for path, occurrences := range index.occurrences {
 		index.occurrences[path] = indexOccurrences(occurrences)
+	}
+	for _, anchors := range index.generated {
+		sort.SliceStable(anchors, func(a, b int) bool {
+			if anchors[a].start != anchors[b].start {
+				return anchors[a].start < anchors[b].start
+			}
+			return anchors[a].pos < anchors[b].pos
+		})
 	}
 	for path := range index.declarations {
 		declarations := index.declarations[path]
@@ -511,6 +538,60 @@ func occurrencePreferred(candidate, current Occurrence) bool {
 		return candidate.Span.Start > current.Span.Start
 	}
 	return candidate.Kind < current.Kind
+}
+
+func (i *Index) addGeneratedAnchors(file MappedFile) {
+	for _, segment := range file.SourceMap.segments {
+		if segment.Capabilities&Completion == 0 || segment.GeneratedEnd > file.TokenFile.Size() {
+			continue
+		}
+		i.generated[segment.Source.Path] = append(i.generated[segment.Source.Path], generatedAnchor{
+			start: segment.Source.Start,
+			end:   segment.Source.End,
+			pos:   file.TokenFile.Pos(segment.GeneratedStart),
+		})
+	}
+}
+
+// GeneratedPos maps an authored byte offset to the generated position that
+// spells it, through the Completion-capable segment covering it. A segment's
+// end offset is covered too: a completion cursor sits just past the last byte
+// it completes. When segments abut, the one starting at offset wins; when one
+// authored span is spelled more than once, the first generated copy wins.
+func (i *Index) GeneratedPos(path string, offset int) (token.Pos, bool) {
+	anchors := i.generated[path]
+	next := sort.Search(len(anchors), func(k int) bool { return anchors[k].start > offset })
+	for k := next - 1; k >= 0; k-- {
+		anchor := anchors[k]
+		if offset > anchor.end {
+			continue
+		}
+		// Prefer the first generated copy among segments sharing this start.
+		for k > 0 && anchors[k-1].start == anchor.start && offset <= anchors[k-1].end {
+			k--
+			anchor = anchors[k]
+		}
+		return anchor.pos + token.Pos(offset-anchor.start), true
+	}
+	return token.NoPos, false
+}
+
+// OccurrencesWithin returns the occurrences in path whose span lies inside
+// [start, end), in source order.
+func (i *Index) OccurrencesWithin(path string, start, end int) []Occurrence {
+	occurrences := i.occurrences[path]
+	first := sort.Search(len(occurrences), func(k int) bool { return occurrences[k].Span.Start >= start })
+	var within []Occurrence
+	for _, occurrence := range occurrences[first:] {
+		if occurrence.Span.Start >= end {
+			break
+		}
+		if occurrence.Span.End <= end {
+			occurrence.subtreeMaxEnd = 0
+			within = append(within, occurrence)
+		}
+	}
+	return within
 }
 
 func (i *Index) Definition(object types.Object) (Span, bool) {

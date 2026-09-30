@@ -86,6 +86,19 @@ func resolveGoParts(parts []ast.GoPart, bag *diag.Bag) bool {
 	return ok
 }
 
+// resolveGoFields classifies the literals nested in every Go-expression
+// overlay markup node m itself carries (attribute values, headers, a PI name —
+// see ast.MarkupGoFields), exactly as for an Interp's Embedded split.
+func resolveGoFields(m ast.Markup, bag *diag.Bag) bool {
+	ok := true
+	ast.MarkupGoFields(m, func(f ast.GoField) {
+		if !resolveGoParts(*f.Embedded, bag) {
+			ok = false
+		}
+	})
+	return ok
+}
+
 // ResolveScriptsErr is the backward-compatible error-returning wrapper for tests
 // and callers that do not yet hold a *diag.Bag.
 func ResolveScriptsErr(f *ast.File) error {
@@ -115,6 +128,9 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 			if !resolveAttrList(v.Attrs, bag) {
 				ok = false
 			}
+			if !resolveGoFields(v, bag) {
+				ok = false
+			}
 			if strings.EqualFold(v.Tag, "script") {
 				if !resolveScript(v, bag) {
 					ok = false
@@ -136,15 +152,24 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 			if !resolveMarkup(v.Children, bag) {
 				ok = false
 			}
+		case *ast.Marker:
+			if !resolveGoFields(v, bag) {
+				ok = false
+			}
 		case *ast.MarkerRegion:
 			// A `<?start>…<?end>` region wraps ordinary markup: a <script> inside it
 			// needs its holes classified like one inside a <div>, or emit rejects
-			// them with the "no JS context" internal-error diagnostic. (Marker is
-			// void — no children.)
+			// them with the "no JS context" internal-error diagnostic.
+			if !resolveGoFields(v, bag) {
+				ok = false
+			}
 			if !resolveMarkup(v.Children, bag) {
 				ok = false
 			}
 		case *ast.IfMarkup:
+			if !resolveGoFields(v, bag) {
+				ok = false
+			}
 			if !resolveMarkup(v.Then, bag) {
 				ok = false
 			}
@@ -152,10 +177,16 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 				ok = false
 			}
 		case *ast.ForMarkup:
+			if !resolveGoFields(v, bag) {
+				ok = false
+			}
 			if !resolveMarkup(v.Body, bag) {
 				ok = false
 			}
 		case *ast.SwitchMarkup:
+			if !resolveGoFields(v, bag) {
+				ok = false
+			}
 			for i := range v.Cases {
 				if !resolveMarkup(v.Cases[i].Body, bag) {
 					ok = false
@@ -175,7 +206,7 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 				ok = false
 			}
 		case *ast.GoBlock:
-			if v.UnsupportedMarkup == nil && !resolveGoParts(v.Embedded, bag) {
+			if !resolveGoParts(v.Embedded, bag) {
 				ok = false
 			}
 		}

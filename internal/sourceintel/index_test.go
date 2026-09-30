@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"math/bits"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -124,6 +125,69 @@ func TestIndexAtUsesBoundedPointStabbingLookup(t *testing.T) {
 	}
 	if got, ok, _ := index.at(path, outer.Span.End); ok {
 		t.Fatalf("at(outer end) = (%#v, true), want half-open exclusion", got)
+	}
+}
+
+func TestIndexOccurrencesWithinRange(t *testing.T) {
+	const path = "view.gsx"
+	occurrence := func(start, end int, kind OccurrenceKind) Occurrence {
+		return Occurrence{Span: Span{Path: path, Start: start, End: end}, Kind: kind}
+	}
+	before := occurrence(0, 4, IdentifierUse)
+	straddlesStart := occurrence(8, 12, Expression)
+	first := occurrence(10, 13, IdentifierUse)
+	enclosing := occurrence(10, 20, Expression)
+	second := occurrence(15, 20, IdentifierUse)
+	straddlesEnd := occurrence(18, 22, IdentifierUse)
+	after := occurrence(20, 24, IdentifierUse)
+	index := &Index{occurrences: map[string][]Occurrence{
+		path: indexOccurrences([]Occurrence{after, second, straddlesEnd, enclosing, first, straddlesStart, before}),
+	}}
+
+	got := index.OccurrencesWithin(path, 10, 20)
+	want := []Occurrence{first, enclosing, second}
+	if !slices.Equal(got, want) {
+		t.Fatalf("OccurrencesWithin(10, 20) = %+v, want %+v", got, want)
+	}
+	if got := index.OccurrencesWithin("other.gsx", 0, 100); len(got) != 0 {
+		t.Fatalf("OccurrencesWithin(unindexed path) = %+v, want none", got)
+	}
+}
+
+func TestIndexGeneratedPosMapsAuthoredOffsetsThroughCompletionSegments(t *testing.T) {
+	const generated = "package p\n\nvar a, b = 1, 2\n"
+	// authored "a" (0) spells generated `a`, a hover-only span (5) `b`, and
+	// authored "b" (10) the literal `1`.
+	const authored = "a____x____b"
+	aGen := strings.Index(generated, "a,")
+	bGen := strings.Index(generated, "b =")
+	oneGen := strings.Index(generated, "1")
+	_, mapped := parseAndCheckMappedFile(t, generated, authored, []Segment{
+		{Source: Span{Path: "view.gsx", Start: 0, End: 1}, GeneratedStart: aGen, GeneratedEnd: aGen + 1, Capabilities: Definition | Completion},
+		{Source: Span{Path: "view.gsx", Start: 5, End: 6}, GeneratedStart: bGen, GeneratedEnd: bGen + 1, Capabilities: Hover},
+		{Source: Span{Path: "view.gsx", Start: 10, End: 11}, GeneratedStart: oneGen, GeneratedEnd: oneGen + 1, Capabilities: Completion},
+	}, nil)
+	index := BuildIndex(nil, []MappedFile{mapped})
+	base := mapped.TokenFile.Pos(0)
+	for _, tc := range []struct {
+		offset int
+		want   int // generated offset, -1 = unmapped
+	}{
+		{0, aGen}, {1, aGen + 1}, {3, -1}, {5, -1}, {10, oneGen}, {11, oneGen + 1}, {12, -1},
+	} {
+		got, ok := index.GeneratedPos("view.gsx", tc.offset)
+		if tc.want < 0 {
+			if ok {
+				t.Errorf("GeneratedPos(%d) = %d, want unmapped", tc.offset, got-base)
+			}
+			continue
+		}
+		if !ok || got != base+token.Pos(tc.want) {
+			t.Errorf("GeneratedPos(%d) = (%d, %t), want generated offset %d", tc.offset, got-base, ok, tc.want)
+		}
+	}
+	if _, ok := index.GeneratedPos("other.gsx", 0); ok {
+		t.Error("GeneratedPos(unindexed path) mapped")
 	}
 }
 
@@ -317,6 +381,7 @@ func TestIndexDoesNotRetainASTOrSourceBytes(t *testing.T) {
 		"declarations": reflect.TypeFor[map[string][]Declaration](),
 		"sources":      reflect.TypeFor[map[string]SourceVersion](),
 		"canonical":    reflect.TypeFor[func(types.Object) types.Object](),
+		"generated":    reflect.TypeFor[map[string][]generatedAnchor](),
 	}
 	if got, want := indexValue.NumField(), len(allowedFields); got != want {
 		t.Fatalf("Index has %d concrete fields, want %d", got, want)

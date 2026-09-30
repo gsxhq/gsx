@@ -76,64 +76,63 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S(">branch</div>")
 //line input.gsx:10:2
 		_gsxv5 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
-		_gsxv7, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			_gsxv6 := _gsxrt.FilterCSS(string(gap))
-			return _gsxrt.Attrs{{Key: "style", Value: "margin:" + _gsxv6}}, nil
+		_gsxv6, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "style", Value: "margin:" + _gsxrt.FilterCSS(string(gap))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv8 := _gsxrt.ConcatAttrs(_gsxv5, _gsxv7)
+		_gsxv7 := _gsxrt.ConcatAttrs(_gsxv5, _gsxv6)
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv8.Class())
-		_gsxgw.StyleMerged("", _gsxv8.Style())
-		_gsxgw.Spread(ctx, "div", _gsxv8, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv7.Class())
+		_gsxgw.StyleMerged("", _gsxv7.Style())
+		_gsxgw.Spread(ctx, "div", _gsxv7, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">css</div>")
 //line input.gsx:11:2
-		_gsxv9 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("base"))}}
-		_gsxv10, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
+		_gsxv8 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("base"))}}
+		_gsxv9, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(strings.ToUpper("on")))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv11 := _gsxrt.ConcatAttrs(_gsxv9, _gsxv10)
+		_gsxv10 := _gsxrt.ConcatAttrs(_gsxv8, _gsxv9)
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv11.Class())
-		_gsxgw.StyleMerged("", _gsxv11.Style())
-		_gsxgw.Spread(ctx, "div", _gsxv11, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv10.Class())
+		_gsxgw.StyleMerged("", _gsxv10.Style())
+		_gsxgw.Spread(ctx, "div", _gsxv10, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">class</div>")
 //line input.gsx:12:2
-		_gsxv12 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
-		_gsxv14, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			_gsxv13, _gsxerr := decl("margin:0")
+		_gsxv11 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
+		_gsxv13, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
+			_gsxv12, _gsxerr := decl("margin:0")
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv13)))}}, nil
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv12)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv15 := _gsxrt.ConcatAttrs(_gsxv12, _gsxv14)
+		_gsxv14 := _gsxrt.ConcatAttrs(_gsxv11, _gsxv13)
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv15.Class())
-		_gsxgw.StyleMerged("", _gsxv15.Style())
-		_gsxgw.Spread(ctx, "div", _gsxv15, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv14.Class())
+		_gsxgw.StyleMerged("", _gsxv14.Style())
+		_gsxgw.Spread(ctx, "div", _gsxv14, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">tuple</div>")
 //line input.gsx:13:2
-		_gsxv16 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
-		_gsxv17, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
+		_gsxv15 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
+		_gsxv16, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxstd.Upper(("margin:" + gap)))))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv18 := _gsxrt.ConcatAttrs(_gsxv16, _gsxv17)
+		_gsxv17 := _gsxrt.ConcatAttrs(_gsxv15, _gsxv16)
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv18.Class())
-		_gsxgw.StyleMerged("", _gsxv18.Style())
-		_gsxgw.Spread(ctx, "div", _gsxv18, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv17.Class())
+		_gsxgw.StyleMerged("", _gsxv17.Style())
+		_gsxgw.Spread(ctx, "div", _gsxv17, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">pipeline</div>")
 		return _gsxgw.Err()
 	})

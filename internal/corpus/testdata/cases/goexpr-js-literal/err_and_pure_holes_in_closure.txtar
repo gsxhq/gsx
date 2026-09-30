@@ -54,13 +54,12 @@ func Page(a string, b string) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<p>")
 //line input.gsx:8:5
-		_gsxv0 := _gsxrt.EscapeJSVal(a)
-		_gsxv1, _gsxerr := _gsxf0.Parse((b))
+		_gsxv1 := _gsxrt.EscapeJSVal(a)
+		_gsxv0, _gsxerr := _gsxf0.Parse((b))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv2 := _gsxrt.EscapeJSVal(_gsxv1)
-		_gsxgw.Node(ctx, take(_gsxrt.RawJS("f("+_gsxv0+", "+_gsxv2+")")))
+		_gsxgw.Node(ctx, take(_gsxrt.RawJS("f("+_gsxv1+", "+_gsxrt.EscapeJSVal(_gsxv0)+")")))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

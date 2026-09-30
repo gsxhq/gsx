@@ -7,6 +7,8 @@ import (
 
 	"go/token"
 
+	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/diag"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -133,4 +135,27 @@ func firstReservedName(src string) string {
 
 func isIdentByte(b byte) bool {
 	return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+}
+
+// A `_gsx` identifier inside a nested literal's @{ } hole lexes as part of one
+// string token in the raw field text; once the codegen split fills the field's
+// overlay, the scan reaches the hole at its exact source position.
+func TestReservedPrefixInGoFieldOverlayHole(t *testing.T) {
+	src := "package views\ncomponent C() { <b id={ wrap(f`x-@{_gsxhole}`) }/> }\n"
+	fset := token.NewFileSet()
+	f, err := gsxparser.ParseFile(fset, "views.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if rds := checkReservedDecls(f); len(rds) != 0 {
+		t.Fatalf("raw field text unexpectedly reported %v", rds)
+	}
+	materializeEmbeddedMarkup(f, attrclass.Builtin(), fset, diag.NewBag(fset))
+	rds := checkReservedDecls(f)
+	if len(rds) != 1 || rds[0].name != "_gsxhole" {
+		t.Fatalf("reserved decls after split = %v, want _gsxhole", rds)
+	}
+	if got, want := fset.Position(rds[0].pos).Offset, strings.Index(src, "_gsxhole"); got != want {
+		t.Fatalf("_gsxhole reported at offset %d, want %d", got, want)
+	}
 }
