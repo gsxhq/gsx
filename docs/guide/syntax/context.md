@@ -10,6 +10,20 @@ Pass `ctx` to an ordinary typed helper that owns the key and fallback behavior.
 
 An unexported key type avoids collisions with keys from other packages. Context works well for request-scoped concerns such as authentication, locale, request IDs, tracing, and feature flags.
 
+## Derive a context
+
+Rebind `ctx` in a `{{ }}` block with `=`, or with `:=` alongside at least one new name:
+
+```gsx
+component Traced() {
+	{{ ctx, span := tracer.Start(ctx, "traced"); defer span.End() }}
+	{{ ctx, cancel := context.WithCancel(ctx); defer cancel() }}
+	<Report/>
+}
+```
+
+The derived `ctx` applies to everything after it in the same block, including child components; a `defer` runs when the component finishes rendering. Declaring a new `ctx` (`var ctx`, or `ctx := x` with no other new name) is rejected.
+
 ## Prefer parameters for application data
 
 Use explicit, typed [component parameters](./props.md) for data that directly determines what a component renders; the declaration and call site then show the dependency. Reserve context for values that are genuinely ambient across a request.

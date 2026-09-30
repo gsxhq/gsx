@@ -228,3 +228,27 @@ being ordinary Go; one diagnostic example — concise per standing feedback),
 cross-referenced from `composition.md` (attrs) and the `{children}` docs.
 ROADMAP: one entry. Perf note for the plan: stage 2 runs only on token hits
 (~10% of components in the study), on fragments already in memory.
+
+## Amendment (2026-09-30): deriving `ctx`
+
+Maintainer decision: shadowing `ctx` is valid as long as it is not a *new*
+declaration in the body scope. A body-scope `:=` that names `ctx` and at least
+one other non-blank identifier (`ctx, cancel := context.WithCancel(ctx)`) is,
+to Go, an assignment to the ambient `ctx` plus new declarations, so the
+reservation check no longer reports it (`derivesCtx`); if none of the other
+names is new, Go's "no new variables" is the backstop. Still reported: `var` /
+`const` / `type ctx`, and a `:=` whose only non-blank name is `ctx` (never
+compiles at top scope). The derived `ctx` applies to what follows in the same
+Go scope; nested-scope shadows are unchanged.
+
+Emit ≡ probe for ctx: the skeleton now references `ctx` wherever emitted code
+passes it — typed (`var _ _gsxctx.Context = ctx`) at the syntactically certain
+sites (child-component calls, element spreads and folded bags, auto-nonce
+`<script>`/`<style>`: `leafElementEmitsCtx`), untyped (`_ = ctx`) at the
+type-dependent ones (every text hole, which renders a `gsx.Node` via
+`Node(ctx, …)`; any render boundary when a ctx-taking renderer is registered),
+and a component's slot-probe block rebinds `ctx` like the slot closure's own
+parameter. Before this, a nested `ctx, err := child(ctx, …)` consumed only by
+`<Show/>` was falsely reported "declared and not used". The untyped sites can
+only over-count a use; a genuinely unused shadow there falls through to the Go
+build (soundness over completeness).

@@ -258,6 +258,15 @@ condmerge/nonforwarding_merge_url_static	diag gen render
 condmerge/nonforwarding_unchanged	diag gen render
 condmerge/root_style_css_embedded_hole	diag render
 condmerge/root_style_css_embedded_static	diag render
+context/derive_body_scope	diag render
+context/derive_defer	diag render
+context/derive_error	diag render
+context/derive_goblock_literals	diag render
+context/nested_shadow	diag render
+context/nested_shadow_renderer	diag render
+context/shadow_non_context_component	diag(error)
+context/shadow_non_context_text	diag render
+context/slot_rebinds_ctx	diag(error)
 control_flow/for	diag render
 control_flow/goblock	diag render
 control_flow/if_init_error_handling	diag gen render
@@ -862,9 +871,11 @@ reserved/children_value_unplaced	diag(error)
 reserved/closure_over_attrs	diag gen render
 reserved/component_child_shadow_ok	diag gen render
 reserved/component_child_shadow_with_outer_free	diag gen render
+reserved/ctx_const_rejected	diag(error)
 reserved/ctx_goblock_element_rejected	diag(error)
 reserved/ctx_goblock_literal_rejected	diag(error)
 reserved/ctx_shortvar_rejected	diag(error)
+reserved/ctx_var_rejected	diag(error)
 reserved/funclit_param_shadow_ok	diag gen render
 reserved/goblock_consumes_attrs	diag gen render
 reserved/if_else_branch_shadow	diag gen render
@@ -1062,4 +1073,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1064 cases (render: 903, error: 123, gen-pinned: 596)
+TOTAL: 1075 cases (render: 910, error: 127, gen-pinned: 596)

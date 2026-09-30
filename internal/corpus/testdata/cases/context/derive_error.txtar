@@ -1,0 +1,34 @@
+# An error from a body-scope derivation propagates out of Render: the output
+# before the derivation is written, nothing after it is.
+-- ctxval.go --
+package views
+
+import (
+	"context"
+	"errors"
+)
+
+type key struct{}
+
+func child(ctx context.Context, v string) (context.Context, error) {
+	if v == "bad" {
+		return nil, errors.New("child: bad value")
+	}
+	return context.WithValue(ctx, key{}, v), nil
+}
+
+func val(ctx context.Context) string { s, _ := ctx.Value(key{}).(string); return s }
+-- input.gsx --
+package views
+
+component Page() {
+	<p>before</p>
+	{{ ctx, err := child(ctx, "bad"); if err != nil { return err } }}
+	<p>after { val(ctx) }</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p>before</p>
+[render error] child: bad value

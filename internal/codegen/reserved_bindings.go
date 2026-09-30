@@ -24,6 +24,11 @@ import (
 // — flagging it would reject correct code, the exact bug class this feature
 // eliminates.
 //
+// A top-scope `ctx, cancel := context.WithCancel(ctx)` is not a binding of ctx
+// at all: ctx is already declared there, so Go assigns it and declares cancel.
+// That derivation idiom is legal and not reported (derivesCtx); only a new
+// declaration of ctx is.
+//
 // The emitter is the scope oracle (verified against emit.go's genNode):
 //   - GoBlock            → emits `t.Code` (its embedded literals and elements
 //     lowered in place), no block.

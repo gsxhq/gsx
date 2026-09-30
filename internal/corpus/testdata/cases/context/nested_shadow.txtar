@@ -1,0 +1,161 @@
+# A derivation in a NESTED scope (an if/for/switch body) is an ordinary Go
+# shadow: it applies only inside that block. Each block's derived ctx is
+# consumed only by something gsx itself passes ctx to — a child component
+# call, slot content, a rendered gsx.Node, placed children, a <script>/<style>
+# nonce, a ctx-taking filter, an element spread — so the type-check skeleton
+# must reference ctx at each of those exactly where the emitted code does, or
+# it reports a false "declared and not used: ctx". The trailing <Show/> in
+# Page proves the shadow did not leak.
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "context"
+
+type key struct{}
+
+// Tag appends the ctx value; the ctx argument is injected by gsx.
+func Tag(ctx context.Context, s string) string {
+	v, _ := ctx.Value(Key).(string)
+	return s + "@" + v
+}
+
+// Key is the context key the views derive under.
+var Key any = key{}
+-- ctxval.go --
+package views
+
+import (
+	"context"
+
+	"corpustest/cases/context_nested_shadow/filters"
+)
+
+func child(ctx context.Context, v string) (context.Context, error) {
+	return context.WithValue(ctx, filters.Key, v), nil
+}
+
+func val(ctx context.Context) string { s, _ := ctx.Value(filters.Key).(string); return s }
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Show() {
+	<i>{ val(ctx) }</i>
+}
+
+component Wrap(children gsx.Node) {
+	<u>{ children }</u>
+}
+
+component Bag(attrs gsx.Attrs) {
+	<s { attrs... }>{ val(ctx) }</s>
+}
+
+component IfComponent() {
+	{ if true {
+		{{ ctx, err := child(ctx, "if"); if err != nil { return err } }}
+		<Show/>
+	} }
+}
+
+component ForComponent() {
+	{ for range 1 {
+		{{ ctx, err := child(ctx, "for"); if err != nil { return err } }}
+		<Show/>
+	} }
+}
+
+component SwitchComponent() {
+	{ switch {
+	case true:
+		{{ ctx, err := child(ctx, "switch"); if err != nil { return err } }}
+		<Show/>
+	} }
+}
+
+component SlotContent() {
+	{ if true {
+		{{ ctx, err := child(ctx, "slot"); if err != nil { return err } }}
+		<Wrap><Show/></Wrap>
+	} }
+}
+
+component ComponentCondAttr() {
+	{ if true {
+		{{ ctx, err := child(ctx, "cond"); if err != nil { return err } }}
+		<Bag { if true { data-a="1" } }/>
+	} }
+}
+
+component NodeValue(n gsx.Node) {
+	{ if true {
+		{{ ctx, err := child(ctx, "node"); if err != nil { return err } }}
+		{ n }
+	} }
+}
+
+component ElementLiteral() {
+	{ if true {
+		{{ ctx, err := child(ctx, "literal"); if err != nil { return err } }}
+		{ <b>{ val(ctx) }</b> }
+	} }
+}
+
+component Children(children gsx.Node) {
+	{ if true {
+		{{ ctx, err := child(ctx, "children"); if err != nil { return err } }}
+		{ children }
+	} }
+}
+
+component Script() {
+	{ if true {
+		{{ ctx, err := child(ctx, "script"); if err != nil { return err } }}
+		<script>var a = 1</script>
+	} }
+}
+
+component Style() {
+	{ if true {
+		{{ ctx, err := child(ctx, "style"); if err != nil { return err } }}
+		<style>a { color: red }</style>
+	} }
+}
+
+component Filter() {
+	{ if true {
+		{{ ctx, err := child(ctx, "filter"); if err != nil { return err } }}
+		<p>{ "x" |> tag }</p>
+	} }
+}
+
+component Spread(a gsx.Attrs) {
+	{ if true {
+		{{ ctx, err := child(ctx, "spread"); if err != nil { return err } }}
+		<p { a... }>x</p>
+	} }
+}
+
+component Page() {
+	<IfComponent/>
+	<ForComponent/>
+	<SwitchComponent/>
+	<SlotContent/>
+	<ComponentCondAttr/>
+	<NodeValue n={ <Show/> }/>
+	<ElementLiteral/>
+	<Children><Show/></Children>
+	<Script/>
+	<Style/>
+	<Filter/>
+	<Spread a={ gsx.Attrs{{"id", "s"}} }/>
+	<Show/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<i>if</i><i>for</i><i>switch</i><u><i>slot</i></u><s data-a="1">cond</s><i>node</i><b>literal</b><i>children</i><script>var a = 1</script><style>a{color: red}</style><p>x@filter</p><p id="s">x</p><i></i>

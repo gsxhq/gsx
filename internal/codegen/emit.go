@@ -1764,6 +1764,43 @@ func nonceEligibleTag(tag string) bool {
 	return strings.EqualFold(tag, "script") || strings.EqualFold(tag, "style")
 }
 
+// leafElementEmitsCtx reports whether genNode's emission of the non-component
+// element el passes the ambient render ctx, decided on syntax alone so the
+// type-check skeleton can mirror the reference (emit ≡ probe): a folded bag
+// (elementFolds) and every element spread, at any cond/switch depth, render
+// through emitSpreadCall's `_gsxgw.Spread(ctx, …)`, and an auto-nonce
+// <script>/<style> (newNonceInjection's eligibility) writes
+// `_gsxgw.Nonce(ctx)`. A ctx-taking renderer is type-directed and not
+// covered here.
+func leafElementEmitsCtx(el *ast.Element) bool {
+	if elementFolds(el.Attrs) || attrsHaveSpread(el.Attrs) {
+		return true
+	}
+	return nonceEligibleTag(el.Tag) && !slices.ContainsFunc(el.Attrs, attrIsExplicitNonce)
+}
+
+// attrsHaveSpread reports whether attrs carries an element spread at any
+// cond-attr or switch-attr depth.
+func attrsHaveSpread(attrs []ast.Attr) bool {
+	for _, a := range attrs {
+		switch t := a.(type) {
+		case *ast.SpreadAttr:
+			return true
+		case *ast.CondAttr:
+			if attrsHaveSpread(t.Then) || attrsHaveSpread(t.Else) {
+				return true
+			}
+		case *ast.SwitchAttr:
+			for _, cc := range t.Cases {
+				if attrsHaveSpread(cc.Body) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func hasConditionalExplicitNonce(attrs []ast.Attr) bool {
 	for _, a := range attrs {
 		if c, ok := a.(*ast.CondAttr); ok {

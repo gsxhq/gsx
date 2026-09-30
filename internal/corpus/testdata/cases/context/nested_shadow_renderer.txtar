@@ -1,0 +1,68 @@
+# A nested-scope derivation consumed only by a ctx-taking renderer. Whether a
+# render boundary calls the renderer (and so passes ctx) depends on the value's
+# type, which the type-check skeleton cannot know before type-checking — so in a
+# project whose registry holds a ctx-taking renderer, the skeleton references
+# ctx at every render boundary that might apply one (text holes, leaf-element
+# attribute values). The emitted code passes the derived ctx to the renderer.
+-- gsx.toml --
+[renderers]
+"./pg.Text" = "./rend.PgText"
+-- pg/pg.go --
+package pg
+
+type Text struct{ String string }
+
+type Key struct{}
+-- rend/rend.go --
+package rend
+
+import (
+	"context"
+
+	"corpustest/cases/context_nested_shadow_renderer/pg"
+)
+
+func PgText(ctx context.Context, t pg.Text) string {
+	v, _ := ctx.Value(pg.Key{}).(string)
+	return t.String + "@" + v
+}
+-- ctxval.go --
+package views
+
+import (
+	"context"
+
+	"corpustest/cases/context_nested_shadow_renderer/pg"
+)
+
+func child(ctx context.Context, v string) (context.Context, error) {
+	return context.WithValue(ctx, pg.Key{}, v), nil
+}
+-- input.gsx --
+package views
+
+import "corpustest/cases/context_nested_shadow_renderer/pg"
+
+component Text(t pg.Text) {
+	{ if true {
+		{{ ctx, err := child(ctx, "text"); if err != nil { return err } }}
+		<p>{ t }</p>
+	} }
+}
+
+component Attr(t pg.Text) {
+	{ if true {
+		{{ ctx, err := child(ctx, "attr"); if err != nil { return err } }}
+		<p data-t={ t }>x</p>
+	} }
+}
+
+component Page() {
+	<Text t={ pg.Text{String: "a"} }/>
+	<Attr t={ pg.Text{String: "b"} }/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p>a@text</p><p data-t="b@attr">x</p>

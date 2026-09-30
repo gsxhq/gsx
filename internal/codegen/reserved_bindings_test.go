@@ -72,6 +72,24 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 		{"shortvar_attrs", `{{ attrs := 1 }}`, nil},
 		{"shortvar_children", `{{ children := 1 }}`, nil},
 		{"shortvar_ctx", `{{ ctx := 1 }}`, []string{"ctx"}},
+		// Deriving a child context: a `:=` that also declares another name is,
+		// to Go, an ASSIGNMENT to the ambient ctx plus new declarations — legal,
+		// never flagged, wherever ctx sits on the LHS.
+		{"derive_ctx_err", `{{ ctx, err := child(ctx, "b"); if err != nil { return err } }}`, nil},
+		{"derive_ctx_cancel", `{{ ctx, cancel := context.WithCancel(ctx); defer cancel() }}`, nil},
+		{"derive_ctx_second", `{{ span, ctx := start(ctx) }}`, nil},
+		{"derive_ctx_three", `{{ a, ctx, b := f(ctx) }}`, nil},
+		// A blank is not a new name: `ctx, _ :=` still declares only ctx, which
+		// Go rejects ("no new variables") — the worded diagnostic stays.
+		{"shortvar_ctx_blank", `{{ ctx, _ := f() }}`, []string{"ctx"}},
+		{"var_ctx", `{{ var ctx = f() }}`, []string{"ctx"}},
+		{"var_ctx_multi", `{{ var ctx, other int }}`, []string{"ctx"}},
+		{"const_ctx", `{{ const ctx = "x" }}`, []string{"ctx"}},
+		{"type_ctx", `{{ type ctx int }}`, []string{"ctx"}},
+		{"assign_ctx", `{{ ctx = with(ctx) }}`, nil},
+		// The masked parse still sees the derivation after an element literal.
+		{"derive_ctx_after_element", `{{ n := <b>x</b>; ctx, q := with(ctx), n }}`, nil},
+		{"var_ctx_after_element", `{{ n := <b>x</b>; var ctx = with(ctx, n) }}`, []string{"ctx"}},
 		{"tuple_attrs", `{{ attrs, ok := f() }}`, nil},
 		{"var_attrs", `{{ var attrs int }}`, nil},
 		{"const_attrs", `{{ const attrs = "x" }}`, nil},
@@ -96,6 +114,7 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 		{"nested_under_for", `{ for _, x := range xs { {{ attrs := 1 }} } }`, nil},
 		{"nested_under_if", `{ if cond { {{ attrs := 1 }} } }`, nil},
 		{"nested_under_if_else", `{ if cond { <br/> } else { {{ ctx := 1 }} } }`, nil},
+		{"nested_derive_under_if", `{ if cond { {{ ctx, err := child(ctx, "c") }} } }`, nil},
 		{"nested_under_switch", `{ switch x { case 1: {{ attrs := 1 }} } }`, nil},
 		// The range-var shadow idiom: the clause binds `attrs`, not a GoBlock —
 		// clause bindings are nested by construction and are not reported.

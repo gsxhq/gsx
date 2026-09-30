@@ -1030,6 +1030,13 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
+			// A hole renders through `_gsxgw.Node(ctx, …)` when its value is a
+			// gsx.Node (or slice of them), and through a ctx-taking renderer
+			// when one is registered for its type — both decided by the type
+			// this probe is about to establish. Reference ctx unconditionally:
+			// a probe that omitted a reference emit makes would falsely report
+			// a nested `ctx, err := …` shadow as unused.
+			writeProbeCtxUse(sb)
 			if t.Embedded != nil {
 				// The seed carried operand-position <tag>/<> literals or prefixed
 				// f`/js`/css` literals (e.g. `wrap(<b/>)`): splice each construct's
@@ -1094,6 +1101,9 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				return err
 			}
 			if len(t.Stages) > 0 {
+				if table.renderers.wantsCtx() {
+					writeProbeCtxUse(sb)
+				}
 				seed := embeddedProbeSeed(t.Segments)
 				emitSkeletonLine(sb, fset, t.Pos())
 				writeSkeletonGenerated(sb, "_gsxuse(")
@@ -1105,6 +1115,15 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 		case *gsxast.Element:
 			candidateProbe := targetRegistry != nil && targetRegistry.hasCandidate(t)
 			if t.IsComponent || candidateProbe {
+				// Every child-component call passes the ambient ctx as a
+				// context.Context (`_gsxrender…(ctx, _gsxgw, …)` /
+				// `_gsxgw.Node(ctx, …)`). A discovery candidate may still resolve
+				// to a plain element, so it only keeps ctx live.
+				if t.IsComponent {
+					writeProbeCtxPass(sb, fset, t.Pos())
+				} else {
+					writeProbeCtxUse(sb)
+				}
 				if candidateProbe {
 					if err := targetRegistry.emitBinding(sb, t, fset); err != nil {
 						return err
@@ -1299,12 +1318,20 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// Go block so the shadow lands in a nested scope, restoring emit ≡
 				// probe. Braces open no _gsxuse/_gsxuseq probe and carry no //line, so
 				// the k-th-probe→k-th-node harvest alignment is undisturbed.
+				//
+				// A slot closure also binds its OWN `ctx` parameter (the ctx the
+				// component renders its children with), so a markup-attr slot
+				// block rebinds ctx too; embedded-attribute holes are evaluated in
+				// the caller's closure and see the caller's ctx.
 				var probeErr error
-				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+				walkMarkupAttrValues(t.Attrs, func(value []gsxast.Markup, slot bool) {
 					if probeErr != nil {
 						return
 					}
 					sb.WriteString("{\n")
+					if slot {
+						writeProbeSlotCtx(sb)
+					}
 					probeErr = emitProbes(sb, value, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
 					sb.WriteString("}\n")
 				})
@@ -1334,12 +1361,21 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// as a named slot value above — wrap in a Go block so a reserved-name
 				// shadow does not collide with the enclosing authored attrs parameter.
 				sb.WriteString("{\n")
+				writeProbeSlotCtx(sb)
 				childErr := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
 				sb.WriteString("}\n")
 				if childErr != nil {
 					return childErr
 				}
 			} else {
+				// A spread, a folded bag and an auto-nonce pass ctx (exact, see
+				// leafElementEmitsCtx); a ctx-taking renderer may, at any attribute
+				// value, depending on the value's type.
+				if leafElementEmitsCtx(t) {
+					writeProbeCtxPass(sb, fset, t.Pos())
+				} else if table.renderers.wantsCtx() && attrsHaveRenderBoundary(t.Attrs) {
+					writeProbeCtxUse(sb)
+				}
 				// Probe each attr-expr (top-level and CondAttr-nested) FLAT, in the
 				// SAME canonical order collectExprs walks, so the k-th _gsxuse maps to
 				// the k-th collected node. The nested exprs type-check regardless of
@@ -1522,6 +1558,9 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			// harvest populates resolved[ea] for emitPIName's pipeline/(T, error)
 			// handling. A static name needs no probe.
 			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
+				if table.renderers.wantsCtx() {
+					writeProbeCtxUse(sb)
+				}
 				emitSkeletonLine(sb, fset, ea.Pos())
 				if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 					return err
@@ -1531,6 +1570,9 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			// Same Name probe as *gsxast.Marker, then the region's temporary
 			// content — matching collectExprs' Marker/MarkerRegion ordering.
 			if ea, ok := t.Name.(*gsxast.ExprAttr); ok {
+				if table.renderers.wantsCtx() {
+					writeProbeCtxUse(sb)
+				}
 				emitSkeletonLine(sb, fset, ea.Pos())
 				if err := ps.writeCanonicalFieldProbe(sb, "_gsxuse", ea.ExprPos, ea.Expr, ea.Embedded, ea.Stages, ea); err != nil {
 					return err
@@ -1624,6 +1666,50 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 		}
 	}
 	return nil
+}
+
+// writeProbeCtxPass mirrors, at a node whose emitted code always passes the
+// ambient ctx to a context.Context parameter, that exact use: Go's "declared
+// and not used" is syntactic, so the reference is what keeps a nested-scope
+// `ctx, err := child(ctx)` shadow alive exactly when the emitted code consumes
+// it, and the typed assignment reports a non-Context shadow where the emitted
+// call would fail to compile. The `ctx` operand is the first token under a
+// //line anchored at the node, so that error maps to the node exactly (no
+// semicolon is inserted after the trailing `=`).
+func writeProbeCtxPass(sb skeletonWriter, fset *token.FileSet, pos token.Pos) {
+	writeSkeletonGenerated(sb, "var _ _gsxctx.Context =\n")
+	emitSkeletonLine(sb, fset, pos)
+	writeSkeletonGenerated(sb, "ctx\n")
+}
+
+// writeProbeCtxUse keeps ctx live at a node whose emitted code may pass it
+// depending on a type this very skeleton establishes (a hole rendering a
+// gsx.Node, a ctx-taking renderer). Such a site references ctx
+// unconditionally and untyped: the probe can over-count a use (the Go build
+// stays the backstop for a genuinely unused shadow) but never under-count one
+// or reject a shadow the emitted code would not pass.
+func writeProbeCtxUse(sb skeletonWriter) {
+	writeSkeletonGenerated(sb, "_ = ctx\n")
+}
+
+// writeProbeSlotCtx mirrors a slot closure's own `ctx context.Context`
+// parameter (emitSlotClosure) at the top of the probe block standing in for it.
+func writeProbeSlotCtx(sb skeletonWriter) {
+	writeSkeletonGenerated(sb, "var ctx _gsxctx.Context\n_ = ctx\n")
+}
+
+// attrsHaveRenderBoundary reports whether a leaf element's attrs carry any
+// value a registered renderer could apply to — anything but a static, bare
+// boolean or comment attribute.
+func attrsHaveRenderBoundary(attrs []gsxast.Attr) bool {
+	for _, a := range attrs {
+		switch a.(type) {
+		case *gsxast.StaticAttr, *gsxast.BoolAttr, *gsxast.CommentAttr:
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // emitSkeletonComponentNameLine anchors the skeleton's `func … Name(` declaration
@@ -2797,19 +2883,26 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, fnCF func(cf *gsxast.ValueCF), f
 // walks) so the markup-value recursion order cannot drift — exactly as
 // walkAttrExprs unifies the CondAttr recursion.
 func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
+	walkMarkupAttrValues(attrs, func(value []gsxast.Markup, _ bool) { fn(value) })
+}
+
+// walkMarkupAttrValues is walkMarkupAttrs reporting, per value, whether it is
+// a MarkupAttr's markup (slot=true — on a component tag it lowers into a slot
+// closure) or an embedded literal's hole segments.
+func walkMarkupAttrValues(attrs []gsxast.Attr, fn func(value []gsxast.Markup, slot bool)) {
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *gsxast.MarkupAttr:
-			fn(t.Value)
+			fn(t.Value, true)
 		case *gsxast.EmbeddedAttr:
 			// Explicit embedded-language attribute values carry @{ } interps that
 			// need types — yield their Segments so they are collected and probed in
 			// the SAME order by collectExprs and emitProbes.
-			fn(t.Segments)
+			fn(t.Segments, false)
 		case *gsxast.ComposedAttr:
 			for i := range t.Parts {
 				if t.Parts[i].LiteralSegments != nil {
-					fn(t.Parts[i].LiteralSegments)
+					fn(t.Parts[i].LiteralSegments, false)
 					continue
 				}
 				// A value-form part's LITERAL arms carry @{ } interps too, and
@@ -2820,17 +2913,17 @@ func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
 				if t.Parts[i].CF != nil {
 					for _, arm := range valueFormArms(t.Parts[i].CF) {
 						if arm.Segments != nil {
-							fn(arm.Segments)
+							fn(arm.Segments, false)
 						}
 					}
 				}
 			}
 		case *gsxast.CondAttr:
-			walkMarkupAttrs(t.Then, fn)
-			walkMarkupAttrs(t.Else, fn)
+			walkMarkupAttrValues(t.Then, fn)
+			walkMarkupAttrValues(t.Else, fn)
 		case *gsxast.SwitchAttr:
 			for _, cc := range t.Cases {
-				walkMarkupAttrs(cc.Body, fn)
+				walkMarkupAttrValues(cc.Body, fn)
 			}
 		}
 	}

@@ -44,6 +44,18 @@ func (t rendererTable) forPackage(pkgPath string) rendererTable {
 	return out
 }
 
+// wantsCtx reports whether any registered renderer takes the ambient render
+// ctx, i.e. whether a render boundary's emitted code may pass ctx depending on
+// the boundary value's type.
+func (t rendererTable) wantsCtx() bool {
+	for _, entry := range t {
+		if entry.wantsCtx {
+			return true
+		}
+	}
+	return false
+}
+
 // rendererKey returns the canonical registry key for t: "pkgPath.TypeName" for
 // a named type, "*pkgPath.TypeName" for a pointer to one, "" for anything that
 // can never match a registration (basic/unnamed types, generic instantiations,

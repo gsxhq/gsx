@@ -1,0 +1,52 @@
+# Deriving a child context at body scope: `ctx, err := child(ctx, …)` declares
+# err and ASSIGNS the ambient ctx, so everything after it in the body — text
+# holes, child components, slot content, and an element literal built BEFORE
+# the derivation but rendered after it — sees the derived value; everything
+# before it sees the old one. A plain `ctx = …` assignment works the same way.
+-- ctxval.go --
+package views
+
+import (
+	"context"
+	"errors"
+)
+
+type key struct{}
+
+func withV(ctx context.Context, v string) context.Context {
+	return context.WithValue(ctx, key{}, v)
+}
+
+func child(ctx context.Context, v string) (context.Context, error) {
+	if v == "" {
+		return nil, errors.New("child: empty value")
+	}
+	return context.WithValue(ctx, key{}, v), nil
+}
+
+func val(ctx context.Context) string { s, _ := ctx.Value(key{}).(string); return s }
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Show() {
+	<i>{ val(ctx) }</i>
+}
+
+component Wrap(children gsx.Node) {
+	<u>{ children }</u>
+}
+
+component Page() {
+	{{ ctx = withV(ctx, "a") }}
+	{{ early := <b>{ val(ctx) }</b> }}
+	<p>{ val(ctx) }<Show/><Wrap><Show/></Wrap></p>
+	{{ ctx, err := child(ctx, "b"); if err != nil { return err } }}
+	<p>{ val(ctx) }<Show/><Wrap><Show/></Wrap>{ early }</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p>a<i>a</i><u><i>a</i></u></p><p>b<i>b</i><u><i>b</i></u><b>b</b></p>

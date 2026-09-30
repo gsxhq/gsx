@@ -46,7 +46,7 @@ func fragmentBindings(src string, kind fragKind) []boundIdent {
 func collectStmtBindings(statement goast.Stmt, collect func(*goast.Ident)) {
 	switch statement := statement.(type) {
 	case *goast.AssignStmt:
-		if statement.Tok == token.DEFINE {
+		if statement.Tok == token.DEFINE && !derivesCtx(statement) {
 			for _, left := range statement.Lhs {
 				if id, ok := left.(*goast.Ident); ok {
 					collect(id)
@@ -71,4 +71,21 @@ func collectStmtBindings(statement goast.Stmt, collect func(*goast.Ident)) {
 	case *goast.LabeledStmt:
 		collectStmtBindings(statement.Stmt, collect)
 	}
+}
+
+// derivesCtx reports whether a `:=` names some identifier other than ctx and
+// the blank on its left. In the render closure's top scope ctx is already
+// declared (the closure parameter), so such a statement is, to Go, an
+// assignment to the ambient ctx plus declarations of the other names — the
+// `ctx, cancel := context.WithCancel(ctx)` derivation idiom — and must not be
+// reported. If none of the other names is actually new, Go's own "no new
+// variables" error is the backstop. A `:=` whose only non-blank name is ctx
+// can never compile at top scope, so it keeps the worded diagnostic.
+func derivesCtx(statement *goast.AssignStmt) bool {
+	for _, left := range statement.Lhs {
+		if id, ok := left.(*goast.Ident); ok && id.Name != "ctx" && id.Name != "_" {
+			return true
+		}
+	}
+	return false
 }

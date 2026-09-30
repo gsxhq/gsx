@@ -1,0 +1,14 @@
+# A body-scope `const ctx` declares a new ctx in the render closure's top scope
+# (where the ambient ctx is the closure parameter): reserved, positioned at the
+# declared ident.
+-- input.gsx --
+package views
+
+component Page() {
+	{{ const ctx = "x" }}
+	<div>ok</div>
+}
+-- diagnostics.golden --
+4:11: identifier "ctx" is reserved (the ambient context) — rename it
+4:11: ctx redeclared in this block
+4:19: 	other declaration of ctx
