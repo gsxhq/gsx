@@ -1,0 +1,14 @@
+# A numeric value in a switch-attribute arm renders through the numeric
+# scratch buffer, so the enclosing render scope must declare it — including a
+# type switch arm whose bound variable is numeric.
+-- input.gsx --
+package views
+
+component C(n int, x any) {
+	<i { switch n { case 1: data-n={n} } } { switch v := x.(type) { case float64: data-f={v * 2} } }/>
+}
+-- invoke --
+C(1, 1.5)
+-- diagnostics.golden --
+-- render.golden --
+<i data-n="1" data-f="3"></i>

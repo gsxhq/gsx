@@ -2850,7 +2850,7 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 }
 
 // attrsUseNumericScratch reports whether any of an element's attrs (recursing into
-// { if … } cond-attr branches) emits a numeric value through emitAttrValue — the
+// { if … } / { switch … } attribute-group branches) emits a numeric value through emitAttrValue — the
 // only attribute path that writes via _gsxnum. It mirrors emitExprAttr /
 // emitEmbeddedTextAttr routing:
 //   - a plain attr={n} with numeric value, UNLESS in URL context (routed to
@@ -2888,6 +2888,12 @@ func attrsUseNumericScratch(tag string, attrs []ast.Attr, resolved map[ast.Node]
 		case *ast.CondAttr:
 			if attrsUseNumericScratch(tag, at.Then, resolved, table, cls) || attrsUseNumericScratch(tag, at.Else, resolved, table, cls) {
 				return true
+			}
+		case *ast.SwitchAttr:
+			for _, cc := range at.Cases {
+				if attrsUseNumericScratch(tag, cc.Body, resolved, table, cls) {
+					return true
+				}
 			}
 		}
 	}
