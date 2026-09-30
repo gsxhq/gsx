@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"bytes"
+	"fmt"
 	"go/token"
 	"go/types"
 	"strings"
@@ -217,4 +218,86 @@ func (lc lowerCtx) headerInBlock(b *bytes.Buffer, src string, embedded []ast.GoP
 	b.WriteString("\n")
 	b.Write(condHoists.Bytes())
 	return strings.TrimSpace(cond), true, true
+}
+
+// condHeaderHasInit reports whether the if header of t carries an init
+// statement, parsing it (its split overlay, constructs masked) as Go. A header
+// that does not parse is an internal error — the same text type-checked in the
+// skeleton — reported at t (ok=false).
+func (lc lowerCtx) condHeaderHasInit(t *ast.CondAttr) (hasInit, ok bool) {
+	parts := t.CondEmbedded
+	if parts == nil {
+		parts = []ast.GoPart{ast.GoText{Src: t.Cond}}
+	}
+	shape, err := analyzeField(parts, syntaxIfHeader)
+	if err != nil {
+		lc.bag.Errorf(t.Pos(), t.End(), "unsupported-node", "codegen: cannot parse the conditional attribute header: %v", err)
+		return false, false
+	}
+	return shape.initEnd >= 0, true
+}
+
+// attrsCondHeader is a conditional attrs contributor's lowered if header, for
+// the (Attrs, error) expression selecting between its branch thunks.
+type attrsCondHeader struct {
+	rtPkg string
+	text  string
+	// init holds the header's init statement (preceded by its hoists and
+	// followed by the condition's) when the header has one and anything
+	// hoists; it is nil for a header without an init statement.
+	init *bytes.Buffer
+}
+
+// lowerAttrsCondHeader lowers t's if header. Without an init statement the
+// condition lowers in place, its hoists going to b, and expr yields
+// AttrsCond(cond, then, else). With one, AttrsCond — an expression — cannot
+// hold the statement: the header lowers into the body of the func literal expr
+// yields instead (hoists there return through its (Attrs, error) result).
+func (lc lowerCtx) lowerAttrsCondHeader(b *bytes.Buffer, t *ast.CondAttr, rtPkg string) (attrsCondHeader, bool) {
+	hasInit, ok := lc.condHeaderHasInit(t)
+	if !ok {
+		return attrsCondHeader{}, false
+	}
+	h := attrsCondHeader{rtPkg: rtPkg}
+	if !hasInit {
+		h.text, ok = lc.field(b, t.Cond, t.CondEmbedded, t)
+		return h, ok
+	}
+	h.init = &bytes.Buffer{}
+	lc.errReturn = "return nil, _gsxerr"
+	h.text, _, ok = lc.headerInBlock(h.init, t.Cond, t.CondEmbedded, t)
+	return h, ok
+}
+
+// attrsBranchCode is one lowered branch of a conditional attrs contributor.
+type attrsBranchCode struct {
+	thunk  string // `func() (Attrs, error) { <body>; return <bag>, nil }`
+	inline string // the thunk's body statements through its return
+}
+
+// expr returns the (Attrs, error) expression evaluating the taken branch; els
+// is the zero attrsBranchCode when there is no else branch. Without an init
+// statement it is AttrsCond(cond, then, else) over the branch thunks. With
+// one it is an immediately invoked func literal running the header as a real
+// Go if with each branch's statements inline, so the init runs once, before
+// the condition, its variables are in scope in the condition and both
+// branches, and only the taken branch is evaluated — AttrsCond's laziness.
+func (h attrsCondHeader) expr(then, els attrsBranchCode) string {
+	if h.init == nil {
+		elsThunk := "nil"
+		if els.thunk != "" {
+			elsThunk = els.thunk
+		}
+		return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", h.rtPkg, h.text, then.thunk, elsThunk)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "func() (%s.Attrs, error) {\n", h.rtPkg)
+	b.Write(h.init.Bytes())
+	fmt.Fprintf(&b, "if %s {\n%s}", h.text, then.inline)
+	if els.thunk == "" {
+		b.WriteString("\nreturn nil, nil\n}()")
+	} else {
+		fmt.Fprintf(&b, " else {\n%s}\n}()", els.inline)
+	}
+	return b.String()
 }

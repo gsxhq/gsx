@@ -27,6 +27,14 @@ attrs/cond_attr_else_if_other	diag render
 attrs/cond_attr_else_if_two	diag render
 attrs/cond_attr_else_typed_exprs_false	diag render
 attrs/cond_attr_else_typed_exprs_true	diag render
+attrs/cond_attr_init_component	diag gen render
+attrs/cond_attr_init_error_component	diag gen render
+attrs/cond_attr_init_error_folding	diag gen render
+attrs/cond_attr_init_error_native	diag gen render
+attrs/cond_attr_init_folding	diag gen render
+attrs/cond_attr_init_lazy_error	diag render
+attrs/cond_attr_init_native	diag gen render
+attrs/cond_attr_init_scope_error	diag(error)
 attrs/cond_attr_interleaved	diag render
 attrs/cond_attr_param_only_in_branch	diag render
 attrs/dup_iteration	diag gen render
@@ -64,6 +72,7 @@ attrswitch/component_tag	diag render
 attrswitch/composed_arms	diag render
 attrswitch/css_literal_arm	diag render
 attrswitch/fallthrough_rejected	ast diag(error)
+attrswitch/init	diag gen render
 attrswitch/nested_if	diag render
 attrswitch/nested_switch	diag render
 attrswitch/no_default	diag render
@@ -561,7 +570,6 @@ lowertags/wrapper_composition	diag render
 lowertags/wrapper_self_exclusion	diag gen render
 methods/method_only_file_generates	diag
 methods/method_reserved_recv_var_ctx	diag(error)
-methods/method_tag_local_receiver	diag gen render
 methods/method_unnamed_receiver_error	diag(error)
 methods/render_method_and_function_mixed	diag render
 methods/render_method_invocation_chain	diag render
@@ -1075,4 +1083,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1077 cases (render: 912, error: 127, gen-pinned: 597)
+TOTAL: 1085 cases (render: 919, error: 128, gen-pinned: 603)

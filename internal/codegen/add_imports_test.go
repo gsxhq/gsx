@@ -470,8 +470,8 @@ type diagPos struct {
 // corpus, e.g. internal/corpus/testdata/cases/fallthrough/caller_wins.txtar's
 // `{ attrs... }`). Unlike the child-prop case (TestMissingImportsPosMatchesDiagnostic),
 // analyze.go emits the spread's _gsxuseq(...) harvest probe BEFORE the native
-// `var _ _gsxrt.Attrs = (...)` recheck (see analyze.go's walkSpreadAttrs
-// emission, ~1649), so ast.Inspect visits the probe copy FIRST. The
+// `var _ _gsxrt.Attrs = (...)` recheck (see the leaf-spread probe in
+// analyze.go's emitAttrProbes), so ast.Inspect visits the probe copy FIRST. The
 // (Name, Symbol) dedupe alone would therefore keep the probe copy — the
 // inHarvestProbe filter is what makes it skip ahead to the native copy
 // instead, which is where the shipped "undefined: fmt" diagnostic anchors.
