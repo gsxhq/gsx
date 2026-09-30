@@ -51,17 +51,19 @@ type lowerCtx struct {
 //
 // Where the position hoists, a literal evaluated conditionally within the
 // field (fieldShape: right of && / ||, inside a func literal) gets no error
-// channel: its error-carrying holes are rejected instead of hoisted.
+// channel: its error-carrying holes are rejected instead of hoisted, and a
+// hoisting literal first pins the operands Go evaluates before it
+// (fieldPins).
 func lowerGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx) (string, bool) {
-	var conditional map[ast.GoPart]string
+	var shape *fieldShape
 	if lc.noErrChannel == "" && hasEmbeddedLiteral(parts) {
-		shape, ok := lc.analyze(parts)
+		s, ok := lc.analyze(parts)
 		if !ok {
 			return "", false
 		}
-		conditional = shape.conditional
+		shape = &s
 	}
-	return lowerShapedGoParts(hoistBuf, parts, lc, conditional)
+	return lowerShapedGoParts(hoistBuf, parts, lc, shape)
 }
 
 // hasEmbeddedLiteral reports whether parts holds a prefixed literal.
@@ -86,32 +88,43 @@ func (lc lowerCtx) analyze(parts []ast.GoPart) (fieldShape, bool) {
 	return shape, true
 }
 
-// lowerShapedGoParts is lowerGoParts with the conditional-literal remedies of
-// the enclosing field already computed.
-func lowerShapedGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx, conditional map[ast.GoPart]string) (string, bool) {
-	var eb bytes.Buffer
+// lowerShapedGoParts is lowerGoParts with the shape of the enclosing field
+// already computed: nil where the position cannot hoist (no literal can then
+// write a statement). parts may be a slice of the field (an if/switch header's
+// init statement or condition); only that slice's operands are pinned.
+func lowerShapedGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx, shape *fieldShape) (string, bool) {
+	var conditional map[ast.GoPart]string
+	pins := fieldPins{lc: lc, hoistBuf: hoistBuf}
+	if shape != nil {
+		conditional = shape.conditional
+		pins.evals = shape.evals
+	}
 	for _, part := range parts {
 		switch p := part.(type) {
 		case ast.GoText:
-			eb.WriteString(p.Src)
+			pins.add(p, p.Src, true)
 		case *ast.Element:
 			if !lc.elements {
 				lc.rejectElement()
 				return "", false
 			}
 			ec := lc.ec
+			var eb bytes.Buffer
 			if !emitElementValue(&eb, p, ec.currentPkg, lc.resolved, lc.table, lc.imports, lc.rt, ec.importAliases, ec.boundNames, ec.typeArgAliases, lc.interpTemp, lc.fset, ec.cls, lc.bag, ec.mergeExpr, ec.enclosingAttrsBound, ec.positionalPlan) {
 				return "", false
 			}
+			pins.add(p, eb.String(), false)
 		case *ast.Fragment:
 			if !lc.elements {
 				lc.rejectElement()
 				return "", false
 			}
 			ec := lc.ec
+			var eb bytes.Buffer
 			if !emitFragmentValue(&eb, p, ec.currentPkg, lc.resolved, lc.table, lc.imports, lc.rt, ec.importAliases, ec.boundNames, ec.typeArgAliases, lc.interpTemp, lc.fset, ec.cls, lc.bag, ec.mergeExpr, ec.enclosingAttrsBound, ec.positionalPlan) {
 				return "", false
 			}
+			pins.add(p, eb.String(), false)
 		case *ast.EmbeddedInterp:
 			if len(p.Stages) > 0 {
 				lc.bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
@@ -121,15 +134,27 @@ func lowerShapedGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx,
 			if remedy, ok := conditional[p]; ok {
 				noErrChannel = remedy
 			}
-			if !emitGoExprEmbeddedInterp(hoistBuf, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.hasCtx, noErrChannel, lc.errReturn) {
+			var hoists, eb bytes.Buffer
+			if !emitGoExprEmbeddedInterp(&hoists, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.hasCtx, noErrChannel, lc.errReturn) {
 				return "", false
 			}
+			if hoists.Len() > 0 {
+				if shape == nil {
+					lc.bag.Errorf(p.Pos(), p.End(), "unsupported-node", "codegen: internal: a nested literal hoisted a statement at a position without a field analysis")
+					return "", false
+				}
+				if !pins.before(p) {
+					return "", false
+				}
+				hoistBuf.Write(hoists.Bytes())
+			}
+			pins.add(p, eb.String(), false)
 		default:
 			lc.bag.Errorf(lc.owner.Pos(), lc.owner.End(), "unsupported-node", "unsupported embedded interpolation part %T", part)
 			return "", false
 		}
 	}
-	return eb.String(), true
+	return pins.String(), true
 }
 
 func (lc lowerCtx) rejectElement() {
@@ -191,22 +216,22 @@ func (lc lowerCtx) headerInBlock(b *bytes.Buffer, src string, embedded []ast.GoP
 		return "", false, false
 	}
 	if shape.initEnd < 0 {
-		expr, ok := lowerShapedGoParts(b, embedded, lc, shape.conditional)
+		expr, ok := lowerShapedGoParts(b, embedded, lc, &shape)
 		return strings.TrimSpace(expr), false, ok
 	}
 	m := shape.masked
 	var initHoists, condHoists bytes.Buffer
-	init, ok := lowerShapedGoParts(&initHoists, m.split(0, shape.initEnd), lc, shape.conditional)
+	init, ok := lowerShapedGoParts(&initHoists, m.split(0, shape.initEnd), lc, &shape)
 	if !ok {
 		return "", false, false
 	}
 	// Between the init statement and the condition there is only `;` and
 	// layout: no construct, so nothing is written to initHoists.
-	sep, ok := lowerShapedGoParts(&initHoists, m.split(shape.initEnd, shape.bodyStart), lc, nil)
+	sep, ok := lowerShapedGoParts(&initHoists, m.split(shape.initEnd, shape.bodyStart), lc, &shape)
 	if !ok {
 		return "", false, false
 	}
-	cond, ok := lowerShapedGoParts(&condHoists, m.split(shape.bodyStart, len(m.text)), lc, shape.conditional)
+	cond, ok := lowerShapedGoParts(&condHoists, m.split(shape.bodyStart, len(m.text)), lc, &shape)
 	if !ok {
 		return "", false, false
 	}

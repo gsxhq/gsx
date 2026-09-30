@@ -18,9 +18,9 @@ interpolations are lowered.
 
 **Goal.** In every position below, a nested construct means exactly what it
 means in a body `{ wrap(f`…`) }`: same static type, same escaping, same
-error propagation, and the surrounding Go evaluates in its authored order —
-except that an error-carrying hole (see below) is evaluated before the rest of
-the expression containing it, because its hoisted statement runs first.
+error propagation, and the surrounding Go evaluates in its authored order
+(including around an error-carrying hole — see *Evaluation order around a
+hoisted hole*).
 
 | Family | Fields |
 |---|---|
@@ -49,9 +49,28 @@ Every nested construct lowers **as an expression at its own position**:
 Nothing is evaluated ahead of its node, so conditional attribute branches,
 value-form arms, `else if` conditions, case lists and `for` conditions keep
 Go's evaluation order and laziness. A nested literal in a false branch or an
-unmatched case never evaluates its holes. The one exception to order is an
-error-carrying hole: its hoisted statement runs before the other operands of
-the field it sits in (full left-to-right pinning is a ROADMAP deferral).
+unmatched case never evaluates its holes. An error-carrying hole's hoisted
+statement runs ahead of its field, so the operands Go evaluates before it are
+pinned first (next section).
+
+### Evaluation order around a hoisted hole
+
+*Amendment, 2026-09-30.* The Go spec evaluates an expression's calls, method
+calls, receives and logical operations in lexical left-to-right order. Before a
+literal's hoist is written, every such operand of the same field that ends
+before the literal is pinned to a `_gsxvN` temp in source order and replaced
+by it (`fieldPins`, the field-level form of `literalConcat`'s rule inside one
+literal): outermost operands only, a literal with a hole counting as one, none
+inside a func literal. For an if/switch header only the init statement's or
+the condition's own operands are pinned, since the init statement already runs
+first. Which calls are conversions or constants (not pinned: they evaluate
+nothing, and a temp would retype an untyped constant), and whether a logical
+operation is an untyped boolean the context converts to a defined boolean type
+(its temp is compared with `true` to stay untyped), comes from go/types: the
+skeleton subtree of each such field mirrors its masked parse, so
+`harvestEvalFacts` aligns the two and records facts by source span. A
+multi-value call is only ever the sole argument of an enclosing call, so it is
+never pinned itself. Without a hoist nothing changes.
 
 ### Error-carrying holes
 
@@ -155,5 +174,5 @@ instead of `len(text)` offset arithmetic, as body interpolations already do.
 One branch (`nested-literal-lowering`) stacked on #213, in phases that each
 keep `make ci` green: shared helpers + value fields → class/style + value-form
 → conditional attributes + control flow → `{{ }}` elements → LSP → docs
-(interpolation.md caveat removed; ROADMAP deferral closed; the gsx skill needs
-no change).
+(the gsx skill needs no change). The order-around-a-hoist amendment removed the
+interpolation.md caveat and closed its ROADMAP deferral.

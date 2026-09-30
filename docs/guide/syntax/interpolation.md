@@ -60,17 +60,16 @@ types `gsx.RawJS` and `gsx.RawCSS` instead of becoming strings. See
 A literal or element literal nested inside a larger Go expression —
 `wrap(f`…`)` — works in every Go-expression position (attribute values,
 spreads, class/style parts, control-flow headers, and more). It evaluates in
-place, in Go's order and with Go's laziness, except that an error-carrying hole
-runs before the rest of the expression that contains it:
+place, in Go's order and with Go's laziness:
 
 ```gsx
 <a href={withLocale(f`/items/@{id}`)}>…</a>
 ```
 
-An error-carrying hole inside the literal is returned from `Render`, except
-on the right of `&&`/`||`, inside a func literal, in a `for` clause, in a
-`case` list, or in a `{{ }}` block — compute the value before the expression
-in those.
+An error-carrying hole inside the literal is returned from `Render` (calls to
+its left still run first, as in Go), except on the right of `&&`/`||`, inside
+a func literal, in a `for` clause, in a `case` list, or in a `{{ }}` block —
+compute the value before the expression in those.
 :::
 
 ## Fields and typed values

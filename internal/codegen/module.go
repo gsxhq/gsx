@@ -1406,7 +1406,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 && !a.bag.HasErrors() {
 		for _, f := range a.gsxFiles {
-			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, false, a.merger, a.componentPlan, a.positionalPlan, true)
+			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, false, a.merger, a.componentPlan, a.positionalPlan, a.evalFacts, true)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -1650,7 +1650,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// matching gate/comment in Package above.
 	if len(a.typeErrs) == 0 && !bag.HasErrors() {
 		for path, f := range a.gsxFiles {
-			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, m.verbatimTagsFor(dir), a.merger, a.componentPlan, a.positionalPlan, false)
+			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.JSONMin, m.opts.CSSMinify, m.opts.JSMinify, m.verbatimTagsFor(dir), a.merger, a.componentPlan, a.positionalPlan, a.evalFacts, false)
 			if !ok {
 				continue
 			}

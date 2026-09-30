@@ -1083,15 +1083,19 @@ vocabulary remains a design aspiration, not the current API.
   An error-carrying hole is returned from `Render` except on the right of
   `&&`/`||`, inside a func literal, in a `for` clause, or in a `case` list
   (each a positioned diagnostic).
-- [ ] **Left-to-right order around error-carrying holes** - a hoisted
-  `(T, error)` hole in a nested literal runs before every operand to its left
-  in the same field (`{ join(f`a-@{F1()}`, f`b-@{F2()}`) }` calls F2 first when
-  F2 errors-returns). Real fix: pin the operands Go evaluates before the
-  hoisting literal (calls/receives to its left, from `fieldShape`'s masked AST)
-  into temps ahead of the hoist, as `literalConcat` already does inside one
-  literal. Same class: `positionalOrderedAttrsExpr` later-pair hoists and
-  unpinned literal class/style parts in ordered mode. Documented as the
-  exception in the guide (`syntax/interpolation.md`).
+- [x] **Left-to-right order around error-carrying holes** - SHIPPED
+  (2026-09-30; corpus `nested-literal/eval_order_*`). Before a nested
+  literal's hole hoists, the calls, receives and logical operations to its
+  left in the same field are pinned to temps in source order (`fieldPins`),
+  with go/types facts (`harvestEvalFacts`) keeping conversions and constants in
+  place. Spec amendment in `2026-09-29-nested-literal-lowering-design.md`.
+- [ ] **Hoist order across the pairs of one attrs literal** - the same rule
+  one level up: in `attrs={{ "a": F(), "b": E() }}`, a later pair's hoist
+  (a `(T, error)` value, with or without a nested literal) runs before an
+  earlier pair's value (`positionalOrderedAttrsExpr`). Same class: unpinned
+  literal class/style parts in ordered mode. Fix: pin the earlier pairs'
+  non-constant values before a later pair's hoist, as `fieldPins` does inside
+  a field.
 - [ ] **Skeleton-parse caching** - the one surviving item from the 2026-07-23
   analysis-architecture probe: cache the target + shipping skeleton parses per
   unchanged file (as the pristine gsx parse cache already does), reclaiming
