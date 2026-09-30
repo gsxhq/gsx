@@ -22,7 +22,7 @@ component Traced() {
 }
 ```
 
-The derived `ctx` applies to everything after it in the same block, including child components; a `defer` runs when the component finishes rendering. Declaring a new `ctx` (`var ctx`, or `ctx := x` with no other new name) is rejected.
+The derived `ctx` applies to everything rendered after it in the component, including child components, up to the end of the enclosing `if`/`for`/`switch` body or component children; plain elements don't scope it. A `defer` runs when the component finishes rendering. Declaring a new `ctx` (`var ctx`, or `ctx := x` with no other new name) is rejected.
 
 ## Prefer parameters for application data
 

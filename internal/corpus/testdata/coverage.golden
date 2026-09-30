@@ -262,6 +262,7 @@ context/derive_body_scope	diag render
 context/derive_defer	diag render
 context/derive_error	diag render
 context/derive_goblock_literals	diag render
+context/derive_scope_boundaries	diag render
 context/nested_shadow	diag render
 context/nested_shadow_renderer	diag render
 context/shadow_non_context_component	diag(error)
@@ -1073,4 +1074,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1075 cases (render: 910, error: 127, gen-pinned: 596)
+TOTAL: 1076 cases (render: 911, error: 127, gen-pinned: 596)
