@@ -214,6 +214,10 @@ func zeroSpans(n ast.Node) {
 				for _, m := range v.Segments {
 					zeroSpans(m)
 				}
+				for i := range v.Stages {
+					v.Stages[i].NamePos = 0
+					v.Stages[i].ArgsPos = 0
+				}
 			case *ast.EmbeddedInterp:
 				v.LeadingBreak = false
 			case *ast.OrderedAttrsAttr:

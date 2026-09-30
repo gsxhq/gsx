@@ -116,6 +116,9 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 			case *gsxast.EmbeddedInterp:
 				walk(node.Segments)
 			case *gsxast.Element:
+				if !gateNestedLiteralAttrs(node.Attrs, bag) {
+					syntaxOK = false
+				}
 				walkMarkupAttrs(node.Attrs, walk)
 				walk(node.Children)
 			case *gsxast.Fragment:
@@ -127,11 +130,20 @@ func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fse
 				// (Marker is void — no children.)
 				walk(node.Children)
 			case *gsxast.ForMarkup:
+				if !gateNestedLiteralHeaders(node, bag) {
+					syntaxOK = false
+				}
 				walk(node.Body)
 			case *gsxast.IfMarkup:
+				if !gateNestedLiteralHeaders(node, bag) {
+					syntaxOK = false
+				}
 				walk(node.Then)
 				walk(node.Else)
 			case *gsxast.SwitchMarkup:
+				if !gateNestedLiteralHeaders(node, bag) {
+					syntaxOK = false
+				}
 				for _, clause := range node.Cases {
 					walk(clause.Body)
 				}
