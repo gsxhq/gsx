@@ -242,9 +242,10 @@ func (lc lowerCtx) condHeaderHasInit(t *ast.CondAttr) (hasInit, ok bool) {
 type attrsCondHeader struct {
 	rtPkg string
 	text  string
-	// init holds the header's init statement (preceded by its hoists and
-	// followed by the condition's) when the header has one and anything
-	// hoists; it is nil for a header without an init statement.
+	// init is non-nil exactly when the header has an init statement. It then
+	// holds the init (preceded by its hoists and followed by the condition's)
+	// when anything hoists; otherwise it is empty and text is the whole
+	// `init; cond` header.
 	init *bytes.Buffer
 }
 

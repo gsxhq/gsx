@@ -2849,9 +2849,9 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 	return false
 }
 
-// attrsUseNumericScratch reports whether any of an element's attrs (recursing into
-// { if … } / { switch … } attribute-group branches) emits a numeric value through emitAttrValue — the
-// only attribute path that writes via _gsxnum. It mirrors emitExprAttr /
+// attrsUseNumericScratch reports whether any of an element's attrs (recursing
+// into { if … } / { switch … } attribute-group branches) emits a numeric value
+// through emitAttrValue — the only attribute path that writes via _gsxnum. It mirrors emitExprAttr /
 // emitEmbeddedTextAttr routing:
 //   - a plain attr={n} with numeric value, UNLESS in URL context (routed to
 //     gw.URL, which is string-only — a numeric there would not compile anyway);
