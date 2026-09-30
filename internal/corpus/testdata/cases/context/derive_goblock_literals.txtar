@@ -1,0 +1,31 @@
+# A derivation in a {{ }} block that also holds an element literal and an f
+# literal: the reservation check parses the block with the literals masked and
+# still sees `ctx, q :=` as a derivation (q is new), not a declaration of ctx.
+-- ctxval.go --
+package views
+
+import "context"
+
+type key struct{}
+
+func val(ctx context.Context) string { s, _ := ctx.Value(key{}).(string); return s }
+-- input.gsx --
+package views
+
+import "context"
+
+component Show() {
+	<i>{ val(ctx) }</i>
+}
+
+component Page(id int) {
+	{{ n := <b>{ id }</b>; ctx, q := context.WithValue(ctx, key{}, "el"), 1 }}
+	<p>{ n }{ q }<Show/></p>
+	{{ s := f`v-@{id}`; ctx, r := context.WithValue(ctx, key{}, s), 2 }}
+	<p>{ r }<Show/></p>
+}
+-- invoke --
+Page(7)
+-- diagnostics.golden --
+-- render.golden --
+<p><b>7</b>1<i>el</i></p><p>2<i>v-7</i></p>

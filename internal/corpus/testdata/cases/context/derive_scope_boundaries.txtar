@@ -1,0 +1,44 @@
+# Where a derivation stops: a plain element opens no Go scope (its children
+# emit inline), so a derivation inside <div> still applies after </div>; a
+# component's children are a slot closure with its own ctx, so a derivation
+# there ends at </Wrap>.
+-- ctxval.go --
+package views
+
+import "context"
+
+type key struct{}
+
+func child(ctx context.Context, v string) (context.Context, error) {
+	return context.WithValue(ctx, key{}, v), nil
+}
+
+func val(ctx context.Context) string { s, _ := ctx.Value(key{}).(string); return s }
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Show() {
+	<i>{ val(ctx) }</i>
+}
+
+component Wrap(children gsx.Node) {
+	<u>{ children }</u>
+}
+
+component SlotScoped() {
+	<Wrap>{{ ctx, err := child(ctx, "in-slot"); if err != nil { return err } }}<Show/></Wrap>
+	<Show/>
+}
+
+component Page() {
+	<SlotScoped/>
+	<div>{{ ctx, err := child(ctx, "in-div"); if err != nil { return err } }}<Show/></div>
+	<Show/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<u><i>in-slot</i></u><i></i><div><i>in-div</i></div><i>in-div</i>

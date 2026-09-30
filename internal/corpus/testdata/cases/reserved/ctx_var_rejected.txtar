@@ -1,0 +1,16 @@
+# A body-scope `var ctx` declares a new ctx in the render closure's top scope:
+# reserved even when its type is context.Context (deriving a context uses
+# assignment or a `ctx, x :=` derivation instead).
+-- input.gsx --
+package views
+
+import "context"
+
+component Page() {
+	{{ var ctx context.Context = context.Background() }}
+	<div>{ ctx.Err() == nil }</div>
+}
+-- diagnostics.golden --
+6:9: identifier "ctx" is reserved (the ambient context) — rename it
+6:9: ctx redeclared in this block
+6:19: 	other declaration of ctx

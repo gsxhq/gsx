@@ -1,0 +1,30 @@
+# A component's slot content renders inside a closure with its OWN ctx
+# parameter (the ctx the component renders its children with), so a
+# nested-scope ctx shadow of another type is not visible there: the emitted
+# `mine(ctx)` sees a context.Context. The skeleton mirrors the slot's ctx and
+# reports the mismatch at generate time instead of leaving it to go build.
+-- input.gsx --
+package views
+
+import (
+	"context"
+
+	"github.com/gsxhq/gsx"
+)
+
+type myCtx struct{ context.Context }
+
+func mine(c *myCtx) string { return "m" }
+
+component Wrap(children gsx.Node) {
+	<u>{ children }</u>
+}
+
+component Page() {
+	{ if true {
+		{{ ctx := &myCtx{ctx} }}
+		<Wrap><p>{ mine(ctx) }</p></Wrap>
+	} }
+}
+-- diagnostics.golden --
+20:19: cannot use ctx (variable of interface type context.Context) as *myCtx value in argument to mine: need type assertion

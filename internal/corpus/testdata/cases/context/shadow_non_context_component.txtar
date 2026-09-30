@@ -1,0 +1,17 @@
+# A child-component call passes the current ctx as a context.Context, so a
+# nested shadow of another type (here a range variable named ctx) cannot reach
+# one: reported at the component tag.
+-- input.gsx --
+package views
+
+component Show() {
+	<i>x</i>
+}
+
+component Page() {
+	{ for _, ctx := range []string{"a"} {
+		<Show/>
+	} }
+}
+-- diagnostics.golden --
+9:3: cannot use ctx (variable of type string) as context.Context value in variable declaration: string does not implement context.Context (missing method Deadline)

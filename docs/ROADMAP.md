@@ -1188,6 +1188,14 @@ vocabulary remains a design aspiration, not the current API.
   func-literal params, component-children closures) remain legal Go,
   unflagged. Soundness over completeness: exotic binding shapes the check
   misses fall through to the Go compiler's own errors, the backstop.
+- [x] **Deriving `ctx` in a component body** - SHIPPED (2026-09-30, amendment
+  to `2026-07-13-reserved-identifiers-design.md`). `{{ ctx, cancel :=
+  context.WithCancel(ctx); defer cancel() }}` (a `:=` with another new name)
+  is an assignment to the ambient ctx and is no longer rejected; `var`/`const`
+  ctx and a lone `ctx :=` still are. The skeleton now references `ctx` where
+  emit passes it (component calls, spreads, nonce, text holes, ctx renderers),
+  fixing a false `declared and not used: ctx` for a nested derivation consumed
+  only by a child component.
 - [ ] **Reserved-identifier diagnostic polish** - DEFERRED (found by the final
   reserved-identifiers review, 2026-07-13). Two cosmetic inconsistencies in the
   `reserved-identifier` diagnostics, neither of which gates a correct program

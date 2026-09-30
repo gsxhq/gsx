@@ -1,0 +1,15 @@
+# A nested shadow of another type consumed only by a text hole is ordinary Go:
+# the hole renders the string; gsx passes ctx to nothing here.
+-- input.gsx --
+package views
+
+component Page() {
+	{ for _, ctx := range []string{"a", "b"} {
+		<p>{ ctx }</p>
+	} }
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p>a</p><p>b</p>

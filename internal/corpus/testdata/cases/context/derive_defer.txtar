@@ -1,0 +1,80 @@
+# The span and cancel derivations: each `ctx, x := f(ctx)` in a body {{ }}
+# rebinds the ambient ctx for the rest of the body, and each `defer` runs when
+# the component's render closure returns — after its child components have
+# rendered. The log (shared through ctx) is printed by the parent after <Traced/>
+# returns: start, the leaf's render, then the span's End. During render the
+# cancel ctx is still live.
+-- trace.go --
+package views
+
+import (
+	"context"
+	"strings"
+)
+
+type logKey struct{}
+
+type recLog struct{ entries []string }
+
+func withLog(ctx context.Context) context.Context {
+	return context.WithValue(ctx, logKey{}, &recLog{})
+}
+
+func note(ctx context.Context, s string) string {
+	l := ctx.Value(logKey{}).(*recLog)
+	l.entries = append(l.entries, s)
+	return ""
+}
+
+func logged(ctx context.Context) string {
+	return strings.Join(ctx.Value(logKey{}).(*recLog).entries, ",")
+}
+
+type spanKey struct{}
+
+type span struct {
+	ctx  context.Context
+	name string
+}
+
+func (s *span) End() { note(s.ctx, "end "+s.name) }
+
+func trace(ctx context.Context, name string) (context.Context, *span) {
+	note(ctx, "start "+name)
+	ctx = context.WithValue(ctx, spanKey{}, name)
+	return ctx, &span{ctx: ctx, name: name}
+}
+
+func spanName(ctx context.Context) string { s, _ := ctx.Value(spanKey{}).(string); return s }
+
+func state(ctx context.Context) string {
+	if ctx.Err() != nil {
+		return "cancelled"
+	}
+	return "live"
+}
+-- input.gsx --
+package views
+
+import "context"
+
+component Leaf() {
+	<i>{ spanName(ctx) }:{ state(ctx) }{ note(ctx, "leaf") }</i>
+}
+
+component Traced() {
+	{{ ctx, span := trace(ctx, "x"); defer span.End() }}
+	{{ ctx, cancel := context.WithCancel(ctx); defer cancel() }}
+	<Leaf/>
+}
+
+component Page() {
+	{{ ctx = withLog(ctx) }}
+	<Traced/>
+	<p>{ logged(ctx) }</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<i>x:live</i><p>start x,leaf,end x</p>

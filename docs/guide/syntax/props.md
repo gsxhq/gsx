@@ -110,7 +110,7 @@ non-variadic `attrs gsx.Attrs` when a signature also has variadic `children`.
 
 | Name | Role |
 |---|---|
-| `ctx` | Ambient render context; it is not declared as a component parameter. |
+| `ctx` | Ambient render context; it is not declared as a component parameter, but a body can [derive](./context.md#derive-a-context) it. |
 | `children` | Body input; declare `children gsx.Node` or `children ...gsx.Node`. |
 | `attrs` | Ordered fallthrough input; declare one of the supported attrs-bag types. |
 
