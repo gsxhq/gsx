@@ -47,6 +47,11 @@ component (p *Page) Render(label Alias) {
 	<Card[Alias] value={label}/>
 	<widgets.Box[widgets.Label] value={widgets.Label(label)}/>
 	<p>{around(label)} {p != nil}</p>
+	{{ row := p }}<row.Row label={label}/>
+}
+
+component (p *Page) Row(label Alias) {
+	<i>{label}</i>
 }
 `
 	const widgets = `package widgets
@@ -127,6 +132,8 @@ component Box[T Labelish](value T) {
 		{name: "Go text before nested markup", cursor: nth(page, "local :=", 0), wantSpan: span("local", 0)},
 		{name: "Go text inside nested markup", cursor: nth(page, "Label(local)", 0) + len("Label("), wantSpan: span("local", 0)},
 		{name: "Go text after nested markup", cursor: nth(page, "return local", 0) + len("return "), wantSpan: span("local", 0)},
+		// Editor go-to-def on the receiver still resolves to the method (D2 covers the whole tag; tracked follow-up).
+		{name: "source index records bound-method tag receiver", cursor: nth(page, "<row.Row", 0) + len("<"), wantSpan: span("row", 0)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -146,6 +153,15 @@ component Box[T Labelish](value T) {
 		})
 	}
 
+	t.Run("bound-method tag target", func(t *testing.T) {
+		cursor, ok := componentTargetAtOffset(pkg, path, nth(page, "<row.Row", 0)+len("<row."))
+		if !ok {
+			t.Fatal("componentTargetAtOffset returned no bound-method call")
+		}
+		if len(cursor.fact.TargetDecls) != 1 || cursor.fact.TargetDecls[0].Span != span("Row", 1) {
+			t.Fatalf("target declarations = %+v, want Row declaration %+v", cursor.fact.TargetDecls, span("Row", 1))
+		}
+	})
 	t.Run("stale source", func(t *testing.T) {
 		if got, ok := semanticDefinition(pkg, path, []byte(page+"\n"), nth(page, "helper", 1)); ok {
 			t.Fatalf("semanticDefinition(stale source) = %+v, want no target", got)

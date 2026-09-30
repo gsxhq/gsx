@@ -21,7 +21,7 @@ type probeScope struct {
 	usedFilters         map[string]string
 	fset                *token.FileSet
 	ctrlOff             map[gsxast.Node]int
-	targetRegistry      *componentTargetMarkerRegistry
+	targets             *componentTargetProbes
 	gw                  *[][]gsxast.Markup
 	bag                 *diag.Bag
 	cfTemp              *int
@@ -61,7 +61,7 @@ func writeProbeGoParts(eb skeletonWriter, parts []gsxast.GoPart, ps probeScope) 
 			if len(p.Stages) > 0 {
 				return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 			}
-			if err := probeEmbeddedInterpIIFE(eb, p.Segments, p.Lang, ps.table, ps.recvVar, ps.recvTypeName, ps.usedFilters, ps.fset, ps.ctrlOff, ps.targetRegistry, ps.gw, ps.bag, ps.cfTemp); err != nil {
+			if err := probeEmbeddedInterpIIFE(eb, p.Segments, p.Lang, ps.table, ps.recvVar, ps.recvTypeName, ps.usedFilters, ps.fset, ps.ctrlOff, ps.targets, ps.gw, ps.bag, ps.cfTemp); err != nil {
 				return err
 			}
 		default:
@@ -80,7 +80,7 @@ func writeProbeElementIIFE(eb skeletonWriter, markup []gsxast.Markup, ps probeSc
 	eb.WriteString("func() _gsxrt.Node {\n")
 	fmt.Fprintf(eb, "_gsxelem(%d)\n", idx)
 	eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-	if err := emitProbes(eb, markup, ps.table, ps.recvVar, ps.recvTypeName, ps.usedFilters, ps.fset, ps.ctrlOff, ps.targetRegistry, ps.gw, ps.bag, ps.cfTemp, ps.enclosingAttrsBound); err != nil {
+	if err := emitProbes(eb, markup, ps.table, ps.recvVar, ps.recvTypeName, ps.usedFilters, ps.fset, ps.ctrlOff, ps.targets, ps.gw, ps.bag, ps.cfTemp, ps.enclosingAttrsBound); err != nil {
 		return err
 	}
 	eb.WriteString("return nil\n}()")
@@ -99,9 +99,10 @@ func writeProbeElementIIFE(eb skeletonWriter, markup []gsxast.Markup, ps probeSc
 // Only the probe expression is written: the caller owns the surrounding
 // `_gsxuse(` … `)` (or other consuming form) and line anchor.
 func writeEmbeddedProbe(sb skeletonWriter, parts []gsxast.GoPart, stages []gsxast.PipeStage, owner gsxast.Node, ps probeScope) error {
+	targetRegistry := ps.targets.markerRegistry()
 	targetMarkerStart := 0
-	if ps.targetRegistry != nil {
-		targetMarkerStart = len(ps.targetRegistry.ordered)
+	if targetRegistry != nil {
+		targetMarkerStart = len(targetRegistry.ordered)
 	}
 	eb := newSkeletonWriterChild(sb)
 	if err := writeProbeGoParts(eb, parts, ps); err != nil {
@@ -116,9 +117,9 @@ func writeEmbeddedProbe(sb skeletonWriter, parts []gsxast.GoPart, stages []gsxas
 		hasMappedChild = true
 	}
 	var boundary componentTargetSeedBoundary
-	hasTargetMarkers := ps.targetRegistry != nil && len(ps.targetRegistry.ordered) > targetMarkerStart
+	hasTargetMarkers := targetRegistry != nil && len(targetRegistry.ordered) > targetMarkerStart
 	if hasTargetMarkers {
-		seed, boundary = markComponentTargetSeed(ps.targetRegistry.ordered[targetMarkerStart].site, seed)
+		seed, boundary = markComponentTargetSeed(targetRegistry.ordered[targetMarkerStart].site, seed)
 	}
 	probe, err := probeExpr(seed, stages, ps.table, ps.usedFilters, owner, ps.bag)
 	if err != nil {
@@ -148,7 +149,7 @@ func writeEmbeddedProbe(sb skeletonWriter, parts []gsxast.GoPart, stages []gsxas
 		writeSkeletonGenerated(sb, probe)
 	}
 	if hasTargetMarkers {
-		ps.targetRegistry.adjustFrom(targetMarkerStart, probeStart+seedOffset)
+		targetRegistry.adjustFrom(targetMarkerStart, probeStart+seedOffset)
 	}
 	return nil
 }

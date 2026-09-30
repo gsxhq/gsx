@@ -1195,6 +1195,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 			if err := callSites.finalizeComponentIdentity(targetFacts, targetRuntime, fset, bag); err != nil {
 				return nil, err
 			}
+			componentPlan.boundReceivers, err = callSites.boundMethodReceivers(targetFacts)
+			if err != nil {
+				return nil, err
+			}
 		}
 	} else if callSites != nil {
 		if err := callSites.finalizeComponentIdentity(nil, runtimeContract{}, fset, bag); err != nil {
