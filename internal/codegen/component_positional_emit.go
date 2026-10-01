@@ -618,25 +618,28 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		// every other render boundary — so a renderer-typed value in an
 		// attrs={{…}} bag renders identically to the same value inline. Without
 		// this the raw value reaches the Attrs pair and renders via Go %v.
+		rendered := false
 		if valueType != nil {
-			expr, _ = applyRenderer(&stmts, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
+			authored := expr
+			expr, valueType = applyRenderer(&stmts, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
+			rendered = expr != authored
 		}
-		// A style pair: a non-constant value is sanitized where the bag is
-		// built, with the filter a style={expr} value gets (StyleValue: a
-		// gsx.RawCSS passes, anything else runs the CSS value filter); a
-		// string constant is authored text, carried as gsx.RawCSS past the
-		// filter the leaf applies to every other bag style (Attrs.Style). A
-		// nil and a statically gsx.RawCSS value (a css`…` literal, an explicit
-		// vouch) stay as written.
+		// A style pair: the value is trusted only when the emitted expression
+		// is the author's own string constant, untransformed — carried as
+		// gsx.RawCSS past the filter the leaf applies to every other bag style
+		// (Attrs.Style). Anything else — a dynamic value, or whatever a
+		// renderer produced from a constant (it may read ctx, or return a
+		// number) — is sanitized here with the filter a style={expr} value
+		// gets (StyleValue: a gsx.RawCSS passes, anything else is stringified
+		// like any attribute value and runs the CSS value filter). A nil and a
+		// statically gsx.RawCSS value (a css`…` literal, a renderer returning
+		// RawCSS, an explicit vouch) stay as written.
 		if htmlattr.SameName(pair.Key, "style") {
 			switch {
-			case !hasFact:
-				expr = ctx.rt.rt() + ".StyleValue(" + expr + ")"
-			case fact.tv.Value != nil:
-				if fact.tv.Value.Kind() == constant.String && !isRawCSS(valueType) {
-					expr = trustedCSS(ctx.rt.rt(), expr)
-				}
-			case !fact.isNil && !isRawCSS(valueType):
+			case hasFact && fact.isNil && !rendered, valueType != nil && isRawCSS(valueType):
+			case hasFact && !rendered && fact.tv.Value != nil && fact.tv.Value.Kind() == constant.String:
+				expr = trustedCSS(ctx.rt.rt(), expr)
+			default:
 				expr = ctx.rt.rt() + ".StyleValue(" + expr + ")"
 			}
 		}
