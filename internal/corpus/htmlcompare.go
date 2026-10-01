@@ -1,7 +1,9 @@
 package corpus
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"slices"
 	"strings"
@@ -9,7 +11,20 @@ import (
 	"golang.org/x/net/html"
 )
 
+// htmlStructuralDiff compares two HTML documents structurally (attribute order
+// and insignificant whitespace ignored). A duplicate attribute name on any
+// element of either side is itself a divergence: the HTML tokenizer keeps only
+// the first occurrence, so the tree comparison alone would never see the second.
 func htmlStructuralDiff(got, want string) (string, error) {
+	for _, side := range []struct{ name, src string }{{"got", got}, {"want", want}} {
+		dup, err := duplicateAttr(side.src)
+		if err != nil {
+			return "", fmt.Errorf("scan %s HTML: %w", side.name, err)
+		}
+		if dup != "" {
+			return fmt.Sprintf("%s: %s", side.name, dup), nil
+		}
+	}
 	gotTree, err := html.Parse(strings.NewReader(got))
 	if err != nil {
 		return "", fmt.Errorf("parse got HTML: %w", err)
@@ -96,4 +111,169 @@ func nodeLabel(n *html.Node) string {
 		return n.Data
 	}
 	return fmt.Sprintf("node(type=%d)", n.Type)
+}
+
+// duplicateAttr reports the first start tag in src that carries the same
+// attribute name twice, or "" when there is none. The html.Tokenizer drops
+// repeated names while tokenizing, so it is used only to find start tags (it
+// tracks raw-text elements such as <script>); each tag's raw bytes are then
+// re-scanned for attribute names.
+func duplicateAttr(src string) (string, error) {
+	z := html.NewTokenizer(strings.NewReader(src))
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			if err := z.Err(); !errors.Is(err, io.EOF) {
+				return "", err
+			}
+			return "", nil
+		case html.StartTagToken, html.SelfClosingTagToken:
+			raw := string(z.Raw())
+			names := rawTagAttrNames(raw)
+			seen := make(map[string]bool, len(names))
+			for _, n := range names {
+				if seen[n] {
+					return fmt.Sprintf("duplicate attribute %q in %s", n, raw), nil
+				}
+				seen[n] = true
+			}
+		}
+	}
+}
+
+// rawTagAttrNames returns the attribute names of one raw start tag ("<tag
+// ...>"), in source order and including repeats, following the WHATWG
+// tokenizer's tag-name, attribute-name and attribute-value states. Names are
+// ASCII-lowercased as the tokenizer does.
+func rawTagAttrNames(raw string) []string {
+	const (
+		tagName = iota
+		beforeName
+		inName
+		afterName
+		beforeValue
+		dqValue
+		sqValue
+		unquotedValue
+		afterQuotedValue
+		selfClosing
+	)
+	isSpace := func(c byte) bool { return c == '\t' || c == '\n' || c == '\f' || c == ' ' || c == '\r' }
+	var names []string
+	var cur []byte
+	flush := func() {
+		if cur != nil {
+			names = append(names, string(cur))
+			cur = nil
+		}
+	}
+	lower := func(c byte) byte {
+		if 'A' <= c && c <= 'Z' {
+			return c + 'a' - 'A'
+		}
+		return c
+	}
+	state := tagName
+	for i := 1; i < len(raw); i++ { // raw[0] is '<'
+		c := raw[i]
+	reconsume:
+		switch state {
+		case tagName:
+			switch {
+			case isSpace(c):
+				state = beforeName
+			case c == '/':
+				state = selfClosing
+			case c == '>':
+				return names
+			}
+		case beforeName:
+			switch {
+			case isSpace(c):
+			case c == '/' || c == '>':
+				state = afterName
+				goto reconsume
+			default: // includes '=', which starts a name of "="
+				flush()
+				cur = []byte{lower(c)}
+				state = inName
+			}
+		case inName:
+			switch {
+			case isSpace(c) || c == '/' || c == '>':
+				state = afterName
+				goto reconsume
+			case c == '=':
+				state = beforeValue
+			default:
+				cur = append(cur, lower(c))
+			}
+		case afterName:
+			switch {
+			case isSpace(c):
+			case c == '/':
+				state = selfClosing
+			case c == '=':
+				state = beforeValue
+			case c == '>':
+				flush()
+				return names
+			default:
+				flush()
+				cur = []byte{lower(c)}
+				state = inName
+			}
+		case beforeValue:
+			switch {
+			case isSpace(c):
+			case c == '"':
+				state = dqValue
+			case c == '\'':
+				state = sqValue
+			case c == '>':
+				flush()
+				return names
+			default:
+				state = unquotedValue
+			}
+		case dqValue:
+			if c == '"' {
+				state = afterQuotedValue
+			}
+		case sqValue:
+			if c == '\'' {
+				state = afterQuotedValue
+			}
+		case unquotedValue:
+			switch {
+			case isSpace(c):
+				state = beforeName
+			case c == '>':
+				flush()
+				return names
+			}
+		case afterQuotedValue:
+			switch {
+			case isSpace(c):
+				state = beforeName
+			case c == '/':
+				state = selfClosing
+			case c == '>':
+				flush()
+				return names
+			default:
+				state = beforeName
+				goto reconsume
+			}
+		case selfClosing:
+			if c == '>' {
+				flush()
+				return names
+			}
+			state = beforeName
+			goto reconsume
+		}
+	}
+	flush()
+	return names
 }
