@@ -108,6 +108,10 @@ The spread's source position controls scalar attributes:
 - Attributes in an `{ if … }` or `{ switch … }` group follow the group's
   position.
 
+As in HTML, names that differ only in ASCII case are the same attribute: a
+caller's `TYPE` overrides `type`, a `CLASS` composes with `class`, and one
+attribute renders, spelled as the winner wrote it.
+
 ### Derived bags
 
 The spread can use any expression that produces `gsx.Attrs`:

@@ -44,3 +44,46 @@ func ValidName(k string) bool {
 	}
 	return true
 }
+
+// SameName reports whether a and b name the same HTML attribute. The HTML
+// tokenizer lowercases ASCII letters in attribute names — and only those, even
+// in foreign content, before SVG/MathML names like viewBox are adjusted — so
+// two names are one attribute exactly when they are equal after ASCII case
+// folding. Non-ASCII bytes compare exactly: unlike strings.EqualFold, the
+// Kelvin sign is not "k". Every place gsx decides that one attribute
+// overrides, suppresses or merges with another compares names with it.
+func SameName(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if lowerASCII(a[i]) != lowerASCII(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// FoldName returns name's canonical spelling under SameName (ASCII letters
+// lowercased, every other byte unchanged), for use as a map key:
+// SameName(a, b) == (FoldName(a) == FoldName(b)). A name with no ASCII
+// uppercase letter is returned as is, without allocating.
+func FoldName(name string) string {
+	for i := 0; i < len(name); i++ {
+		if 'A' <= name[i] && name[i] <= 'Z' {
+			b := []byte(name)
+			for j := i; j < len(b); j++ {
+				b[j] = lowerASCII(b[j])
+			}
+			return string(b)
+		}
+	}
+	return name
+}
+
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}

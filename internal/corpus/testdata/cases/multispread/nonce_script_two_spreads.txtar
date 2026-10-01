@@ -51,7 +51,7 @@ func NonceTwoSpreads(p gsx.Attrs, q gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
 		_gsxgw.Spread(ctx, "script", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		if !_gsxv0.Has("nonce") {
+		if !_gsxv0.HasName("nonce") {
 			_gsxgw.Nonce(ctx)
 		}
 		_gsxgw.S(">init()</script>")

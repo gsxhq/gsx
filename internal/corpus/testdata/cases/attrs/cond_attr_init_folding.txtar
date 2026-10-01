@@ -64,13 +64,13 @@ func If(v string, attrs gsx.Attrs) _gsxrt.Node {
 //line input.gsx:11:2
 		_gsxgw.S("<div")
 		if s := wrap(v); s != "" {
-			if !attrs.Has("title") {
+			if !attrs.HasName("title") {
 				_gsxgw.S(" title=\"")
 				_gsxgw.AttrValue(string(s))
 				_gsxgw.S("\"")
 			}
 		} else {
-			if !attrs.Has("data-empty") {
+			if !attrs.HasName("data-empty") {
 				_gsxgw.S(" data-empty=\"")
 				_gsxgw.AttrValue(string(s + "!"))
 				_gsxgw.S("\"")

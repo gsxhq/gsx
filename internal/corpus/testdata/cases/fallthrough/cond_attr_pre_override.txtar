@@ -44,10 +44,10 @@ func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, active bool, attr
 //line input.gsx:6:2
 	_gsxgw.S("<button")
 	if active {
-		if !attrs.Has("id") {
+		if !attrs.HasName("id") {
 			_gsxgw.S(" id=\"mine\"")
 		}
-		if !attrs.Has("data-k") {
+		if !attrs.HasName("data-k") {
 			_gsxgw.S(" data-k=\"v\"")
 		}
 	}

@@ -77,11 +77,11 @@ func _gsxrenderPre(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, n int, attrs gsx.
 	_gsxgw.S("<b")
 	switch n {
 	case 1:
-		if !attrs.Has("data-d") {
+		if !attrs.HasName("data-d") {
 			_gsxgw.S(" data-d=\"z!\"")
 		}
 	default:
-		if !attrs.Has("data-e") {
+		if !attrs.HasName("data-e") {
 			_gsxgw.S(" data-e=\"def\"")
 		}
 	}
@@ -237,7 +237,7 @@ func _gsxrenderNested(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, n int, on bool
 	if on {
 		switch n {
 		case 1:
-			if !attrs.Has("data-p") {
+			if !attrs.HasName("data-p") {
 				_gsxgw.S(" data-p=\"pre\"")
 			}
 		}

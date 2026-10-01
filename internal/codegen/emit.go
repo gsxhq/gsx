@@ -798,12 +798,12 @@ func emitFragmentValue(b *bytes.Buffer, fr *ast.Fragment, currentPkg *types.Pack
 // emitFallthroughAttrs emits the caller-wins attribute section (between `<tag`
 // and the closing `>` / `/>`) for MANUAL mode (emitManualSpreadElement). splitIdx
 // is the position of the author's `{ attrs... }` — scalar attrs BEFORE it are
-// overridable (guarded `if !Has(name)`, caller-wins); scalar attrs AFTER it are
+// overridable (guarded `if !HasName(name)`, caller-wins); scalar attrs AFTER it are
 // FORCED (emitted UNGUARDED so the root always wins) and their names are excluded
 // from the bag spread so a same-named bag entry can never emit (root wins).
 //
 // Cond-attrs follow the same positional rule: a pre-spread `{ if … }` emits
-// each branch leaf under a `!Has(name)` guard inside its branch; a post-spread
+// each branch leaf under a `!HasName(name)` guard inside its branch; a post-spread
 // one is evaluated exactly ONCE before the spread — branch bodies record the
 // taken branch in a bool temp and append their leaf names to a dynamic drop
 // slice the spread excludes — and its leaves render after the spread under
@@ -891,7 +891,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			// consumed below, not here.)
 			return emitAttr(b, attrs, a, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc)
 		}
-		fmt.Fprintf(b, "\t\tif !%s.Has(%s) {\n", bagExpr, strconv.Quote(name))
+		fmt.Fprintf(b, "\t\tif !%s.HasName(%s) {\n", bagExpr, strconv.Quote(name))
 		if !emitAttr(b, attrs, a, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 			return false
 		}
@@ -902,7 +902,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 	// emitGroupGuarded emits a PRE-spread if/switch attribute group with every
 	// branch leaf caller-overridable: the branch structure is preserved
 	// (conditions and the switch tag evaluate once, in place, with else-if and
-	// case-list short-circuit), each leaf wrapped in the same `!Has(name)`
+	// case-list short-circuit), each leaf wrapped in the same `!HasName(name)`
 	// guard as a plain pre-spread scalar.
 	var emitGroupGuarded func(g ast.Attr) bool
 	emitBranch := func(as []ast.Attr) bool {
@@ -1033,7 +1033,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if !ok {
 				return false
 			}
-			fmt.Fprintf(b, "\t\tif %s.Has(\"style\") {\n", bagExpr)
+			fmt.Fprintf(b, "\t\tif %s.HasName(\"style\") {\n", bagExpr)
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", styleStr, bagExpr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
@@ -1058,7 +1058,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if !ok {
 				return false
 			}
-			fmt.Fprintf(b, "\t\tif %s.Has(\"style\") {\n", bagExpr)
+			fmt.Fprintf(b, "\t\tif %s.HasName(\"style\") {\n", bagExpr)
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", ownStyle, bagExpr)
 			b.WriteString("\t\t} else {\n")
 			if !emitEmbeddedTextAttr(b, embedStyle, resolved, table, imports, rt, interpTemp, cls, tag, bag) {
@@ -1472,9 +1472,9 @@ func attrGroupBranches(a ast.Attr) [][]ast.Attr {
 // operations used by the forwarding leaf. The analyzer separately validates
 // every element spread against gsx.Attrs, so a valid methodless type here is an
 // assignable slice form such as a variadic []gsx.Attr parameter; it needs an
-// explicit conversion before the leaf emits Has/Class/Style calls.
+// explicit conversion before the leaf emits HasName/Class/Style calls.
 func hasAttrsMethodSet(t types.Type) bool {
-	return lookupMethod(t, "Has") != nil &&
+	return lookupMethod(t, "HasName") != nil &&
 		lookupMethod(t, "Class") != nil &&
 		lookupMethod(t, "Style") != nil
 }
@@ -1522,7 +1522,7 @@ func emitOpenTagEnd(b *bytes.Buffer, el *ast.Element, verbatim bool, bag *diag.B
 func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, enclosingAttrsBound bool, positionalPlan componentPositionalPackagePlan) bool {
 	// The bag expression: the bare `attrs` local is used directly; a DERIVED bag
 	// (`attrs.Without(…)`, `attrs.Merge(…)`, a pipeline) is evaluated exactly
-	// once into a hoisted temp so the caller-wins guards (.Has), the class/style
+	// once into a hoisted temp so the caller-wins guards (.HasName), the class/style
 	// merges (.Class()/.Style()) and the spread all read the same value and side
 	// effects don't repeat. A spread subject accepted by the analyzer as
 	// assignable to gsx.Attrs but lacking that method set (notably a variadic
@@ -1979,7 +1979,7 @@ func attrsContainExplicitNonce(attrs []ast.Attr) bool {
 
 func attrIsExplicitNonce(a ast.Attr) bool {
 	if name, ok := rootAttrName(a); ok {
-		return strings.EqualFold(name, "nonce")
+		return htmlattr.SameName(name, "nonce")
 	}
 	return false
 }
@@ -2000,7 +2000,7 @@ type nonceInjection struct {
 // newNonceInjection decides eligibility and, for an eligible element, writes
 // the hoisted `var _gsxvN gsx.Attrs` declarations to b (they must precede the
 // attr emits: a spread inside an untaken cond branch leaves its temp nil, and
-// a nil Attrs.Has is false, so the guard stays correct). skip excludes one
+// a nil Attrs.HasName is false, so the guard stays correct). skip excludes one
 // attr from the spread walk — the MANUAL `{ attrs... }` bag spread, which is
 // consumed by emitFallthroughAttrs and guarded via extra instead.
 func newNonceInjection(b *bytes.Buffer, tag string, attrs []ast.Attr, rt rtImports, interpTemp *int, skip ast.Attr) *nonceInjection {
@@ -2053,7 +2053,7 @@ func (ni *nonceInjection) tempFor(s *ast.SpreadAttr) (string, bool) {
 }
 
 func (ni *nonceInjection) markExplicit(b *bytes.Buffer, name string) {
-	if ni == nil || ni.explicit == "" || !strings.EqualFold(name, "nonce") {
+	if ni == nil || ni.explicit == "" || !htmlattr.SameName(name, "nonce") {
 		return
 	}
 	fmt.Fprintf(b, "\t\t%s = true\n", ni.explicit)
@@ -2071,10 +2071,10 @@ func (ni *nonceInjection) emitGuard(b *bytes.Buffer) {
 		guards = append(guards, "!"+ni.explicit)
 	}
 	for _, e := range ni.extra {
-		guards = append(guards, "!"+e+".Has(\"nonce\")")
+		guards = append(guards, "!"+e+".HasName(\"nonce\")")
 	}
 	for _, tmp := range ni.order {
-		guards = append(guards, "!"+tmp+".Has(\"nonce\")")
+		guards = append(guards, "!"+tmp+".HasName(\"nonce\")")
 	}
 	if len(guards) == 0 {
 		b.WriteString("\t\t_gsxgw.Nonce(ctx)\n")

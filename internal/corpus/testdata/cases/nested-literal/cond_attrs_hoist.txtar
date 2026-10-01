@@ -123,7 +123,7 @@ func Page(id int, a gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 			return _gsxerr
 		}
 		if ok(string(_gsxv4)) {
-			if !_gsxv3.Has("title") {
+			if !_gsxv3.HasName("title") {
 				_gsxgw.S(" title=\"pre\"")
 			}
 		} else {
@@ -132,7 +132,7 @@ func Page(id int, a gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 				return _gsxerr
 			}
 			if ok(string(_gsxv5)) {
-				if !_gsxv3.Has("title") {
+				if !_gsxv3.HasName("title") {
 					_gsxgw.S(" title=\"z\"")
 				}
 			}

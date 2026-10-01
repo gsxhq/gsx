@@ -1,6 +1,10 @@
 package gsx
 
-import "github.com/gsxhq/gsx/internal/htmlattr"
+import (
+	"strings"
+
+	"github.com/gsxhq/gsx/internal/htmlattr"
+)
 
 // AttrSinks carries a project's OWN attribute-classification delta for a spread:
 // the url_attrs rules from gsx.toml as name lists, plus any preset they enabled
@@ -58,16 +62,29 @@ func (s AttrSinks) sinkFor(tag, key string) htmlattr.URLSink {
 		return sink
 	}
 	switch {
-	case attrNameExcluded(key, s.Image):
+	case urlNameIn(key, s.Image):
 		return htmlattr.SinkImage
-	case attrNameExcluded(key, s.Srcset):
+	case urlNameIn(key, s.Srcset):
 		return htmlattr.SinkSrcset
-	case attrNameExcluded(key, s.Refresh):
+	case urlNameIn(key, s.Refresh):
 		return htmlattr.SinkRefresh
-	case attrNameExcluded(key, s.Nav) ||
+	case urlNameIn(key, s.Nav) ||
 		URLPrefixMatch(key, s.Prefixes) || URLSuffixMatch(key, s.Suffixes) ||
 		s.Presets.matches(key):
 		return htmlattr.SinkNav
 	}
 	return htmlattr.SinkNone
+}
+
+// urlNameIn reports whether key matches a project URL-sink name under Unicode
+// simple folding (strings.EqualFold), like the built-in floor's lowercasing.
+// That is broader than HTML's ASCII-only name folding (htmlattr.SameName), so
+// it can only route more keys through a sanitizing sink, never fewer.
+func urlNameIn(key string, names []string) bool {
+	for _, n := range names {
+		if strings.EqualFold(key, n) {
+			return true
+		}
+	}
+	return false
 }

@@ -47,7 +47,7 @@ func Page(hot bool, extra gsx.Attrs) _gsxrt.Node {
 			_gsxv0 = extra
 			_gsxgw.Spread(ctx, "script", _gsxv0, _gsxrt.AttrSinks{}, nil)
 		}
-		if !_gsxv0.Has("nonce") {
+		if !_gsxv0.HasName("nonce") {
 			_gsxgw.Nonce(ctx)
 		}
 		_gsxgw.S(">init()</script>")

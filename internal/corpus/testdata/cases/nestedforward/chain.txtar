@@ -59,7 +59,7 @@ func _gsxrenderC(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) er
 	_gsxgw.S("<div class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("c-root"), _gsxrt.Class(attrs.Class()))
 	_gsxgw.S("\"")
-	if !attrs.Has("data-scalar") {
+	if !attrs.HasName("data-scalar") {
 		_gsxgw.S(" data-scalar=\"c-default\"")
 	}
 	_gsxgw.StyleMerged("", attrs.Style())

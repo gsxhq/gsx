@@ -360,7 +360,7 @@ func TestSpread(t *testing.T) {
 		{Key: "data-url-x", Value: "javascript:alert(1)"}, // prefix → strict nav sink, sanitized
 		{Key: "class", Value: "c"},                        // excluded → skipped (merged separately)
 		{Key: "id", Value: "forced"},                      // excluded (forced) → skipped
-		{Key: "HREF", Value: "javascript:alert(2)"},       // case-variant nav → sanitized, not smuggled
+		{Key: "HREF", Value: "javascript:alert(2)"},       // case-variant of href → one attribute: last wins, sanitized
 		{Key: "data-n", Value: "last"},                    // scalar duplicate → last-wins
 		{Key: "aria-x", Value: RawURL("app://ok")},        // RawURL but not URL-classified → plain string, escaped verbatim
 		{Key: "action", Value: RawURL("app://vouch")},     // RawURL through nav sink → verbatim
@@ -378,8 +378,9 @@ func TestSpread(t *testing.T) {
 	}
 	// One pass, bag order preserved: URL keys render in position; the duplicate
 	// data-n is last-wins so it renders at its LAST slot (like Spread); class/style
-	// /id excluded; the case-variant HREF sanitized in place.
-	want := ` href="/nav" src="data:image/png;base64,AAAA"` +
+	// /id excluded; HREF is the same attribute as href, so it wins (last) and
+	// renders sanitized at its own slot under its own spelling.
+	want := ` src="data:image/png;base64,AAAA"` +
 		` data-url-x="about:invalid#gsx" HREF="about:invalid#gsx" data-n="last"` +
 		` aria-x="app://ok" action="app://vouch" checked`
 	if got != want {
@@ -501,5 +502,73 @@ func TestSpreadAggregatesClassStyle(t *testing.T) {
 func TestToStrBytes(t *testing.T) {
 	if got := toStr([]byte("hi")); got != "hi" {
 		t.Errorf("toStr([]byte) = %q, want %q", got, "hi")
+	}
+}
+
+// TestSpreadCaseVariantNames pins that Spread treats keys differing only in
+// ASCII case as one attribute, as the HTML tokenizer does: the last pair wins
+// and renders under its own spelling, case-variant class/style keys aggregate
+// into one class/style, and a forced (excluded) name suppresses every case
+// variant. Non-ASCII case variants stay distinct names.
+func TestSpreadCaseVariantNames(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		bag      Attrs
+		excluded []string
+		want     string
+	}{
+		{"scalar last wins", Attrs{{Key: "data-d", Value: "a"}, {Key: "DATA-D", Value: "b"}}, nil, ` DATA-D="b"`},
+		{"scalar lower wins", Attrs{{Key: "Title", Value: "a"}, {Key: "title", Value: "b"}}, nil, ` title="b"`},
+		{"url last wins", Attrs{{Key: "href", Value: "/a"}, {Key: "HREF", Value: "javascript:x"}}, nil, ` HREF="about:invalid#gsx"`},
+		{"bool toggles once", Attrs{{Key: "disabled", Value: Toggle(true)}, {Key: "DISABLED", Value: Toggle(false)}}, nil, ``},
+		{"class aggregates", Attrs{{Key: "class", Value: "a"}, {Key: "CLASS", Value: "b"}}, nil, ` CLASS="a b"`},
+		{"style aggregates", Attrs{{Key: "Style", Value: "color:red"}, {Key: "style", Value: "top:0"}}, nil, ` style="color:red; top:0"`},
+		{"excluded folds", Attrs{{Key: "ID", Value: "x"}, {Key: "Class", Value: "c"}}, []string{"id", "class", "style"}, ``},
+		{"non-ASCII distinct", Attrs{{Key: "data-é", Value: "1"}, {Key: "data-É", Value: "2"}}, nil, ` data-é="1" data-É="2"`},
+		{"kelvin is not k", Attrs{{Key: "k", Value: "1"}, {Key: "\u212a", Value: "2"}}, nil, " k=\"1\" \u212a=\"2\""},
+	} {
+		var buf bytes.Buffer
+		gw := W(&buf)
+		gw.Spread(context.Background(), "a", tc.bag, AttrSinks{}, tc.excluded)
+		if err := gw.Err(); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := buf.String(); got != tc.want {
+			t.Errorf("%s: Spread = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestAttrsNameComparison pins the two key comparisons: HasName, Class and
+// Style follow rendering (ASCII case-insensitive), while Has, Get, Bool and
+// Without stay key-exact.
+func TestAttrsNameComparison(t *testing.T) {
+	a := Attrs{{Key: "HREF", Value: "/x"}, {Key: "CLASS", Value: "b"}, {Key: "class", Value: "a"}, {Key: "Style", Value: "top:0"}, {Key: "DISABLED", Value: true}}
+	if !a.HasName("href") || !a.HasName("Href") || a.HasName("src") {
+		t.Errorf("HasName must match ASCII case variants only")
+	}
+	if a.Has("href") || !a.Has("HREF") {
+		t.Errorf("Has must be key-exact")
+	}
+	if _, ok := a.Get("href"); ok {
+		t.Errorf("Get must be key-exact")
+	}
+	if v, _ := a.Get("class"); v != "a" {
+		t.Errorf(`Get("class") = %v, want the exact-key aggregate "a"`, v)
+	}
+	if _, ok := a.Get("style"); ok {
+		t.Errorf(`Get("style") must not see a "Style" pair`)
+	}
+	if a.Bool("disabled") || !a.Bool("DISABLED") {
+		t.Errorf("Bool must be key-exact")
+	}
+	if got := a.Without("href"); len(got) != len(a) {
+		t.Errorf("Without must be key-exact, dropped %d pairs", len(a)-len(got))
+	}
+	if got := a.Class(); got != "b a" {
+		t.Errorf("Class() = %q, want %q", got, "b a")
+	}
+	if got := a.Style(); got != "top:0" {
+		t.Errorf("Style() = %q, want %q", got, "top:0")
 	}
 }

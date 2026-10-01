@@ -70,7 +70,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, a
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<div")
-	if !attrs.Has("data-label") {
+	if !attrs.HasName("data-label") {
 		_gsxgw.S(" data-label=\"")
 		_gsxgw.AttrValue(string(label))
 		_gsxgw.S("\"")

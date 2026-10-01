@@ -53,7 +53,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, a
 	}
 //line input.gsx:5:50
 	_gsxgw.S("<input")
-	if !attrs.Has("aria-label") {
+	if !attrs.HasName("aria-label") {
 		_gsxgw.S(" aria-label=\"")
 		_gsxgw.AttrValue(string(label))
 		_gsxgw.S("\"")

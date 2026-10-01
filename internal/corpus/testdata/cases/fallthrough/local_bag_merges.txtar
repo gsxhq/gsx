@@ -36,7 +36,7 @@ func Page() _gsxrt.Node {
 //line input.gsx:7:2
 		_gsxv0 := b
 		_gsxgw.S("<span")
-		if !_gsxv0.Has("a") {
+		if !_gsxv0.HasName("a") {
 			_gsxgw.S(" a=\"b\"")
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())

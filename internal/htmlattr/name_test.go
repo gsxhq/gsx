@@ -28,3 +28,37 @@ func TestValidName(t *testing.T) {
 		}
 	}
 }
+
+func TestSameName(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"href", "href", true},
+		{"href", "HREF", true},
+		{"Data-X", "data-x", true},
+		{"viewBox", "viewbox", true},
+		{"@Click.Away", "@click.away", true},
+		{"href", "hre", false},
+		{"href", "src", false},
+		{"k", "K", false},           // Kelvin sign: strings.EqualFold folds it, HTML does not
+		{"data-é", "data-É", false}, // non-ASCII letters compare exactly
+		{"data-é", "DATA-é", true},  // only the ASCII part folds
+		{"ſ", "s", false},           // long s
+		{"[", "{", false},           // 0x5B vs 0x7B differ by 0x20 but are not letters
+		{"", "", true},
+	} {
+		if got := SameName(tc.a, tc.b); got != tc.want {
+			t.Errorf("SameName(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+		if got := FoldName(tc.a) == FoldName(tc.b); got != tc.want {
+			t.Errorf("FoldName(%q) == FoldName(%q) is %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+	if got := FoldName("Data-É-X"); got != "data-É-x" {
+		t.Errorf("FoldName = %q", got)
+	}
+	if n := testing.AllocsPerRun(10, func() { _ = FoldName("data-x") }); n != 0 {
+		t.Errorf("FoldName on a lowercase name allocates %v times", n)
+	}
+}

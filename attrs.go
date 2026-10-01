@@ -24,6 +24,12 @@ type Attr struct {
 // ORDER (no sort) so callers control attribute order (e.g. Datastar data-* directives);
 // duplicate scalar keys are last-wins, matching JSX-style override order.
 //
+// Keys are compared two ways. Rendering — Spread, Class, Style, HasName and the
+// generated override guards — treats keys that differ only in ASCII case as one
+// attribute, as the HTML tokenizer does: "HREF" and "href" collide, the winner's
+// spelling renders, and "CLASS"/"Style" aggregate into the class/style. The
+// lookup accessors Has, Get, Bool, Without and Take match keys exactly.
+//
 // Security contract: keys are HTML attribute NAMES emitted (after a validity check,
 // see Spread) without entity-encoding — they must come from generated code or
 // trusted developer input, never from untrusted strings. Values are HTML-attribute-
@@ -67,52 +73,60 @@ func (m AttrMap) ToAttrs() Attrs {
 	return out
 }
 
-// Class returns the bag's class string. DUPLICATE-KEY RULE: it AGGREGATES — the values
-// of ALL "class" pairs are joined (space-separated, each trimmed), so no class is
-// silently dropped. It does NOT merge/dedupe tokens; the single outer codegen-emitted
-// class site applies the configured merger exactly once over this plus the root's parts.
+// Class returns the bag's class string, as it renders. DUPLICATE-KEY RULE: it
+// AGGREGATES — the values of ALL class pairs are joined (space-separated, each
+// trimmed), so no class is silently dropped. A key is a class pair when it names
+// the class attribute in any ASCII case ("class", "CLASS"), as in HTML. It does
+// NOT merge/dedupe tokens; the single outer codegen-emitted class site applies
+// the configured merger exactly once over this plus the root's parts.
 func (a Attrs) Class() string {
-	var out string
-	for _, kv := range a {
-		if kv.Key == "class" {
-			out = joinAttrStrings("class", out, strings.TrimSpace(toStr(kv.Value)))
-		}
-	}
-	return out
+	return a.aggregate("class", htmlattr.SameName)
 }
 
-// Style returns the bag's style declaration. DUPLICATE-KEY RULE: AGGREGATES — the
-// values of ALL "style" pairs are joined ("; "-separated).
+// Style returns the bag's style declaration, as it renders. DUPLICATE-KEY RULE:
+// AGGREGATES — the values of ALL style pairs (any ASCII case) are joined
+// ("; "-separated).
 func (a Attrs) Style() string {
+	return a.aggregate("style", htmlattr.SameName)
+}
+
+// aggregate joins the values of every pair whose key matches name ("class" or
+// "style") under same, with that attribute's separator.
+func (a Attrs) aggregate(name string, same func(key, name string) bool) string {
 	var out string
 	for _, kv := range a {
-		if kv.Key == "style" {
-			out = joinAttrStrings("style", out, toStr(kv.Value))
+		if !same(kv.Key, name) {
+			continue
 		}
+		v := toStr(kv.Value)
+		if name == "class" {
+			v = strings.TrimSpace(v)
+		}
+		out = joinAttrStrings(name, out, v)
 	}
 	return out
 }
 
-// Get returns the value for key and whether it was present.
+// exactKey is the key-exact matcher of the lookup accessors.
+func exactKey(key, name string) bool { return key == name }
+
+// Get returns the value for key and whether it was present. Keys match
+// EXACTLY: Get("href") does not see an "HREF" pair, although rendering treats
+// the two as one attribute (see Attrs).
 //
 // DUPLICATE-KEY RULE: LAST occurrence wins for scalar keys, matching JSX-style
 // override order — EXCEPT "class" and "style", which COLLAPSE. A bag has one
-// class and one style, so Get returns the aggregate (Class()/Style()), agreeing
-// with what renders and with Merge. Last-wins there would report only the final
-// contribution and read as though the earlier ones had been dropped, even though
-// every one of them renders.
+// class and one style, so Get returns the aggregate of every pair keyed exactly
+// "class" (or "style"), agreeing with Merge. Last-wins there would report only
+// the final contribution and read as though the earlier ones had been dropped,
+// even though every one of them renders.
 func (a Attrs) Get(key string) (any, bool) {
 	switch key {
-	case "class":
+	case "class", "style":
 		if !a.Has(key) {
 			return nil, false
 		}
-		return a.Class(), true
-	case "style":
-		if !a.Has(key) {
-			return nil, false
-		}
-		return a.Style(), true
+		return a.aggregate(key, exactKey), true
 	}
 	for i := len(a) - 1; i >= 0; i-- {
 		if a[i].Key == key {
@@ -122,9 +136,10 @@ func (a Attrs) Get(key string) (any, bool) {
 	return nil, false
 }
 
-// Has reports whether key is present. It scans directly rather than delegating to
-// Get: Get collapses class/style by calling Class()/Style(), and routing Has
-// through it would recurse.
+// Has reports whether key is present, matching EXACTLY: Has("href") is false for
+// a bag holding only "HREF", although that pair renders as the href attribute
+// (HasName answers that). It scans directly rather than delegating to Get: Get
+// collapses class/style through Has, and routing Has through it would recurse.
 //
 // Presence is not state: a name={expr} attribute is present even when expr is
 // false, because the pair must stay in the bag for last-wins overrides. For a
@@ -138,10 +153,24 @@ func (a Attrs) Has(key string) bool {
 	return false
 }
 
+// HasName reports whether the bag carries a pair that renders as the attribute
+// name: a key equal to name in ASCII case ("HREF" for "href"), the comparison
+// Spread dedupes with. Generated forwarding elements guard a caller-overridable
+// attribute with it, so a case-variant bag key overrides it rather than
+// rendering beside it.
+func (a Attrs) HasName(name string) bool {
+	for i := len(a) - 1; i >= 0; i-- {
+		if htmlattr.SameName(a[i].Key, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // Bool reports the boolean state key resolves to in this bag: the state the
 // leaf spread would render, computed the way Spread computes it. The last pair
-// for key decides (exact-match like Get, so a case-variant duplicate is a
-// different key). A Toggle or bool-kinded value yields itself; any other
+// for key decides (an EXACT key match like Get, so a case-variant pair is a
+// different key here, although Spread renders the two as one attribute). A Toggle or bool-kinded value yields itself; any other
 // renderable value yields true — "", "false", a RawJS, a number — because the
 // platform treats disabled="" and disabled="false" alike. Whatever Spread never
 // writes yields false: an absent key, a nil value, a structurally invalid name,
@@ -184,8 +213,8 @@ func (a Attrs) Bool(key string) bool {
 // (last occurrence wins). key must already be lowercase. Exported for any caller — hand-written
 // bag manipulation, tests — that needs to look up a bag key the same
 // case-insensitive way a sanitizing sink does (a case-variant key like HREF
-// must not smuggle an unsanitized value past it); Spread itself
-// folds case via its own attrNameExcluded helper rather than calling GetFold.
+// must not smuggle an unsanitized value past it). Its Unicode fold is broader
+// than rendering's ASCII-only name comparison (see Attrs).
 func (a Attrs) GetFold(key string) (any, bool) {
 	for i := len(a) - 1; i >= 0; i-- {
 		if strings.EqualFold(a[i].Key, key) {
@@ -197,6 +226,8 @@ func (a Attrs) GetFold(key string) (any, bool) {
 
 // Without returns a copy of a without ANY pair whose key is in keys (a is not mutated);
 // the order of the rest is preserved. An empty result (or empty input) yields nil.
+// Keys match EXACTLY: Without("href") keeps an "HREF" pair, which still renders as
+// href; WithoutFold drops case variants too.
 func (a Attrs) Without(keys ...string) Attrs {
 	if len(a) == 0 {
 		return nil
@@ -354,8 +385,10 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 // spread write that only covered the forwarding bag. Generated code emits
 // exactly one call per element spread, after the class/style merge site.
 //
-// It walks a in slice order, honoring lastValidAttrIndexes (scalar last-wins) and
-// validAttrName (structurally unsafe names dropped). excluded carries the names a
+// It walks a in slice order, honoring lastValidAttrIndexes (scalar last-wins, keys
+// that differ only in ASCII case being one attribute whose last pair wins and
+// renders under its own spelling) and validAttrName (structurally unsafe names
+// dropped). excluded carries the names a
 // FORCED root attr owns at this element (class/style — merged separately; static
 // forced names — always; a post-spread conditional's names — only when its branch
 // was taken, which is why codegen passes the runtime drop slice); such a key is
@@ -388,7 +421,7 @@ func (gw *Writer) Spread(ctx context.Context, tag string, a Attrs, sinks AttrSin
 	}
 	last := lastValidAttrIndexes(a)
 	for i, kv := range a {
-		if !validAttrName(kv.Key) || last[kv.Key] != i {
+		if !validAttrName(kv.Key) || last[htmlattr.FoldName(kv.Key)] != i {
 			continue
 		}
 		if attrNameExcluded(kv.Key, excluded) {
@@ -407,10 +440,10 @@ func (gw *Writer) Spread(ctx context.Context, tag string, a Attrs, sinks AttrSin
 		// forwarding-residual caller excludes both — the merge site owns them —
 		// so this only fires for a standalone spread that carries them (e.g. a
 		// nested cond-attr spread).
-		switch kv.Key {
-		case "class":
+		switch {
+		case htmlattr.SameName(kv.Key, "class"):
 			kv.Value = a.Class()
-		case "style":
+		case htmlattr.SameName(kv.Key, "style"):
 			kv.Value = a.Style()
 		}
 		// Classify ONCE: anyRenderVal is reflect-based (and copies for []byte),
@@ -470,14 +503,12 @@ func (gw *Writer) Spread(ctx context.Context, tag string, a Attrs, sinks AttrSin
 	}
 }
 
-// attrNameExcluded reports whether key matches any name in excluded through
-// Unicode simple folding (strings.EqualFold), so a force-owned name
-// suppresses a case-variant bag key. Spread uses it both for the
-// excluded (force-owned) set and, via the same fold, for its URL-classified
-// name sets — the same fold semantics GetFold/WithoutFold expose publicly.
+// attrNameExcluded reports whether key names the same attribute as any name in
+// excluded (htmlattr.SameName), so a force-owned name suppresses a case-variant
+// bag key.
 func attrNameExcluded(key string, excluded []string) bool {
 	for _, e := range excluded {
-		if strings.EqualFold(key, e) {
+		if htmlattr.SameName(key, e) {
 			return true
 		}
 	}
@@ -541,11 +572,13 @@ func removeAttrAfter(attrs Attrs, key string, keep int) Attrs {
 	return out
 }
 
+// lastValidAttrIndexes maps each valid name, folded (htmlattr.FoldName), to the
+// index of its last pair.
 func lastValidAttrIndexes(attrs Attrs) map[string]int {
 	last := make(map[string]int, len(attrs))
 	for i, kv := range attrs {
 		if validAttrName(kv.Key) {
-			last[kv.Key] = i
+			last[htmlattr.FoldName(kv.Key)] = i
 		}
 	}
 	return last

@@ -142,7 +142,7 @@ func Panel(variant string, children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line panel.gsx:6:2
 		_gsxgw.S("<section")
-		if !attrs.Has("data-variant") {
+		if !attrs.HasName("data-variant") {
 			_gsxgw.S(" data-variant=\"")
 			_gsxgw.AttrValue(string(variant))
 			_gsxgw.S("\"")

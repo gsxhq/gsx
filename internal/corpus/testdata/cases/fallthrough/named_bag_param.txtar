@@ -42,7 +42,7 @@ func _gsxrenderChip(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, extra gsx.Attrs)
 //line input.gsx:6:2
 	_gsxv0 := extra
 	_gsxgw.S("<span")
-	if !_gsxv0.Has("a") {
+	if !_gsxv0.HasName("a") {
 		_gsxgw.S(" a=\"b\"")
 	}
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
