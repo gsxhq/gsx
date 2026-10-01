@@ -344,6 +344,13 @@ dquote-literals/f_body_interp	diag gen render
 dquote-literals/f_escaped_quote	diag gen render
 dquote-literals/f_value_var	diag gen render
 dquote-literals/js_attr_backtick_content	diag gen render
+dupattr/case_variant_class_merges	diag gen render
+dupattr/case_variant_style_f_rejected	diag(error)
+dupattr/case_variant_style_filtered	diag gen render
+dupattr/class_style_no_warn	diag gen render
+dupattr/warn_conditional	diag(error)
+dupattr/warn_plain	diag(error)
+dupattr/warn_spread	diag(error)
 element-literals/call-arg	diag gen render
 element-literals/component-tag	diag gen render
 element-literals/func-local	diag gen render
@@ -1113,4 +1120,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1115 cases (render: 949, error: 128, gen-pinned: 631)
+TOTAL: 1122 cases (render: 952, error: 132, gen-pinned: 634)

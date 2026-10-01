@@ -828,25 +828,25 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.ComposedAttr:
-			switch t.Name {
-			case "class":
+			switch {
+			case htmlattr.SameName(t.Name, "class"):
 				classAttr = t
-			case "style":
+			case htmlattr.SameName(t.Name, "style"):
 				styleAttr = t
 			}
 		case *ast.StaticAttr:
-			switch t.Name {
-			case "class":
+			switch {
+			case htmlattr.SameName(t.Name, "class"):
 				staticClass = t
-			case "style":
+			case htmlattr.SameName(t.Name, "style"):
 				staticStyle = t
 			}
 		case *ast.EmbeddedAttr:
 			if t.Lang == ast.EmbeddedText {
-				switch t.Name {
-				case "class":
+				switch {
+				case htmlattr.SameName(t.Name, "class"):
 					embedClass = t
-				case "style":
+				case htmlattr.SameName(t.Name, "style"):
 					embedStyle = t
 				}
 			}
@@ -1735,10 +1735,10 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 				class += maxClass
 				style += maxStyle
 			}
-			switch name {
-			case "class":
+			switch {
+			case htmlattr.SameName(name, "class"):
 				class++
-			case "style":
+			case htmlattr.SameName(name, "style"):
 				style++
 			}
 		}
@@ -1791,11 +1791,11 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 			}
 			switch t := a.(type) {
 			case *ast.ComposedAttr:
-				if t.Name == "class" || t.Name == "style" {
+				if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 					return true
 				}
 			case *ast.StaticAttr:
-				if t.Name == "class" || t.Name == "style" {
+				if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 					return true
 				}
 			case *ast.EmbeddedAttr:
@@ -1805,7 +1805,7 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 				// rather than the inline emitFallthroughAttrs path — which would emit
 				// the conditional style as a SECOND, duplicate attribute. Mirrors the
 				// breadth of D3's old rootAttrName check (name only, any Lang).
-				if t.Name == "class" || t.Name == "style" {
+				if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 					return true
 				}
 			}
@@ -1836,11 +1836,11 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.ComposedAttr:
-			if t.Name == "class" || t.Name == "style" {
+			if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 				return true
 			}
 		case *ast.StaticAttr:
-			if t.Name == "class" || t.Name == "style" {
+			if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 				return true
 			}
 		case *ast.EmbeddedAttr:
@@ -1848,7 +1848,7 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 			// class=js"…" must gate the lone-cond fold too, otherwise the inline path
 			// emits it as a SEPARATE attribute alongside the folded bag's — a silent
 			// duplicate. Folding routes both through the shared leaf bag.
-			if t.Name == "class" || t.Name == "style" {
+			if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 				return true
 			}
 		}
@@ -2151,6 +2151,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		if t.IsComponent {
 			return genChildComponent(b, t, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan)
 		}
+		warnDuplicateAttrs(bag, t)
 		// MANUAL fallthrough: EVERY element spread `{ x... }` is a leaf sink — it
 		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
 		// machinery regardless of the bag's provenance (declared forwarding param,
@@ -5916,7 +5917,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 			// statements (ordered among its own parts by seqPins). Pin everything
 			// already encountered before entering those lowering paths.
 			materializePrior()
-			if t.Name == "style" && ctx == bagElementFold {
+			if htmlattr.SameName(t.Name, "style") && ctx == bagElementFold {
 				// A composable/conditional style={ … } on a folded element: lower it
 				// exactly like the inline element path (composedParts with style=true —
 				// CSS-filtering each dynamic declaration, trusting string literals)
@@ -5935,7 +5936,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), trustedCSS(rtPkg, rtPkg+".StyleString("+strings.Join(parts, ", ")+")")))
 				break
 			}
-			if t.Name != "class" {
+			if !htmlattr.SameName(t.Name, "class") {
 				var msg string
 				switch ctx {
 				case bagElementFold:

@@ -1,0 +1,15 @@
+Layout fact: a case variant of class/style (`CLASS={…}`, `Style={…}`) parses
+as the composed class/style it names, and prints exactly like `class={…}` /
+`style={…}`, keeping its authored spelling.
+-- input.gsx --
+package main
+
+component C(a string, b string, on bool) {
+	<div   CLASS={  a,   b:on }   Style={ a }  class={ "x" }>x</div>
+}
+-- fmt.golden --
+package main
+
+component C(a string, b string, on bool) {
+	<div CLASS={ a, b: on } Style={ a } class={ "x" }>x</div>
+}

@@ -1,0 +1,8 @@
+# STYLE is the style attribute, so it takes css`…` literals only: an f`…`
+# literal would escape its holes for HTML and skip the CSS value filter.
+-- input.gsx --
+package views
+
+component C(v string) { <div STYLE=f`color: @{v}`>x</div> }
+-- diagnostics.golden --
+3:36: f literals are not valid in STYLE=…; STYLE takes css`…` literals

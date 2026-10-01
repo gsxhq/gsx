@@ -1,0 +1,15 @@
+# On a forwarding element the bag guards only against the bag: an authored
+# pre-spread ID and a post-spread id both render (warned). An element that
+# folds its attributes into one bag (two spreads) keeps only the last of each
+# name, so it is not warned.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component C(a gsx.Attrs, b gsx.Attrs) {
+	<i ID="x" { a... } id="y">1</i>
+	<i id="x" { a... } { b... } ID="y">2</i>
+}
+-- diagnostics.golden --
+6:21: warning: attribute "id" is already set on this element; the browser keeps the first one

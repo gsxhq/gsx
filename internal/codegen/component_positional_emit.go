@@ -12,6 +12,7 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/htmlattr"
 )
 
 type positionalEmitContext struct {
@@ -306,7 +307,7 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 	case *gsxast.OrderedAttrsAttr:
 		return positionalOrderedAttrsExpr(b, node, plan, ctx)
 	case *gsxast.ComposedAttr:
-		if node.Name == "style" {
+		if htmlattr.SameName(node.Name, "style") {
 			expr, _, ok := rootStyleString(b, node, nil, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.resolved, ctx.lowerCtx())
 			if !ok {
 				return diagnosedPositionalValue()

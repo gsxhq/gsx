@@ -108,9 +108,17 @@ The spread's source position controls scalar attributes:
 - Attributes in an `{ if … }` or `{ switch … }` group follow the group's
   position.
 
-As in HTML, names that differ only in ASCII case are the same attribute: a
-caller's `TYPE` overrides `type`, a `CLASS` composes with `class`, and one
-attribute renders, spelled as the winner wrote it.
+As in HTML, names that differ only in ASCII case are the same attribute. A
+bag's `TYPE` overrides or yields to `type` by the rules above, and one
+attribute renders, spelled as the winner wrote it. `CLASS` and `Style`, in a
+bag or written on the element, compose with `class` and `style`.
+
+Writing the same attribute twice on one element (`id="a" ID="b"`, or a static
+`title` plus a `title` in an `{ if … }`) renders both, and the browser keeps the
+first, so gsx reports a `duplicate-attribute` warning. Branches of one
+`{ if … }` or `{ switch … }` never render together and are not reported. An
+element with two or more spreads folds all its attributes into one bag, where
+the last of each name wins, so it is not reported either.
 
 ### Derived bags
 

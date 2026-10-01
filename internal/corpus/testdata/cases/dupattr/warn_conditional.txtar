@@ -1,0 +1,20 @@
+# A static attribute plus a same-name attribute in an in-tag if/switch both
+# render when the branch is taken (gsx has no override idiom there), as do
+# two groups that each set the name: warned. Branches of ONE group are
+# mutually exclusive and are never duplicates.
+-- input.gsx --
+package views
+
+component C(c bool, d bool, n int) {
+	<i title="a" { if c { TITLE="b" } }>1</i>
+	<i { if c { title="a" } } { if d { title="b" } }>2</i>
+	<i { switch n { case 1: title="a" default: title="b" } } title="z">3</i>
+	<i { if c { title="a" } else if d { title="b" } else { title="c" } }>4</i>
+	<i { switch n { case 1: title="a" case 2: TITLE="b" default: Title="c" } }>5</i>
+	<i { if c { title="a" { if d { title="b" } } } }>6</i>
+}
+-- diagnostics.golden --
+4:24: warning: attribute "TITLE" is already set on this element; the browser keeps the first one
+5:37: warning: attribute "title" is already set on this element; the browser keeps the first one
+6:59: warning: attribute "title" is already set on this element; the browser keeps the first one
+9:33: warning: attribute "title" is already set on this element; the browser keeps the first one
