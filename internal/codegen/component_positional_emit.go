@@ -602,20 +602,13 @@ func positionalAttrsBranch(nodes []componentAttrsStreamNode, plan componentPosit
 		parts = append(parts, lowering.expr)
 		maps.Copy(used, lowering.used)
 	}
-	expr := attrsExpr(parts)
-	var thunk strings.Builder
-	fmt.Fprintf(&thunk, "func() (%s.Attrs, error) {\n", ctx.rt.rt())
-	for line := range strings.SplitSeq(strings.TrimSuffix(body.String(), "\n"), "\n") {
-		if line != "" {
-			thunk.WriteString("\t")
-			thunk.WriteString(line)
-			thunk.WriteByte('\n')
-		}
-	}
-	fmt.Fprintf(&thunk, "\treturn %s, nil\n} ", expr)
+	// The body is used verbatim: a hoisted statement can hold a user's
+	// multi-line raw string, so generated text is never re-indented (gofmt
+	// formats the file).
+	inline := fmt.Sprintf("%sreturn %s, nil\n", body.String(), attrsExpr(parts))
 	code := attrsBranchCode{
-		thunk:  strings.TrimSpace(thunk.String()),
-		inline: fmt.Sprintf("%sreturn %s, nil\n", body.String(), expr),
+		thunk:  fmt.Sprintf("func() (%s.Attrs, error) {\n%s}", ctx.rt.rt(), inline),
+		inline: inline,
 	}
 	return code, readyPositionalValue(code.thunk, used)
 }

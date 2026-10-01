@@ -77,6 +77,7 @@ attrswitch/nested_if	diag render
 attrswitch/nested_switch	diag render
 attrswitch/no_default	diag render
 attrswitch/numeric_arm	diag render
+attrswitch/raw_string_branch	diag render
 attrswitch/spread_after	diag render
 attrswitch/spread_before	diag render
 attrswitch/tagged	diag render
@@ -1084,4 +1085,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1086 cases (render: 920, error: 128, gen-pinned: 603)
+TOTAL: 1087 cases (render: 921, error: 128, gen-pinned: 603)

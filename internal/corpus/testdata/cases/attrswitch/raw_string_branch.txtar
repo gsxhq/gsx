@@ -1,0 +1,37 @@
+# A multi-line raw string in a component-tag if-branch or switch-arm value
+# reaches the bag byte-exact — an empty line and a leading-tab line included —
+# whether the value is plain or a hoisted (T, error) call.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func check(s string) (string, error) { return s, nil }
+
+component Box(attrs gsx.Attrs) { <pre { attrs... }/> }
+
+component C(on bool, n int) {
+	<Box { if on { data-t={check(`one
+
+	tab`)} data-p={`two
+
+	tab`} } }/>
+	<Box { switch n { case 1: data-t={check(`one
+
+	tab`)} data-p={`two
+
+	tab`} } }/>
+}
+-- invoke --
+C(true, 1)
+-- diagnostics.golden --
+-- render.golden --
+<pre data-t="one
+
+	tab" data-p="two
+
+	tab"></pre><pre data-t="one
+
+	tab" data-p="two
+
+	tab"></pre>
