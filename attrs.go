@@ -80,25 +80,30 @@ func (m AttrMap) ToAttrs() Attrs {
 // NOT merge/dedupe tokens; the single outer codegen-emitted class site applies
 // the configured merger exactly once over this plus the root's parts.
 func (a Attrs) Class() string {
-	return a.aggregate("class", htmlattr.SameName)
+	return a.aggregate("class", htmlattr.SameName, toStr)
 }
 
 // Style returns the bag's style declaration, as it renders. DUPLICATE-KEY RULE:
 // AGGREGATES — the values of ALL style pairs (any ASCII case) are joined
-// ("; "-separated).
+// ("; "-separated). Each value is sanitized for the style attribute exactly like
+// a style={expr} value (StyleValue): a gsx.RawCSS value is the author's vouch
+// and passes verbatim; any other value goes through the CSS value filter, so a
+// value that could inject a declaration or a url(…) renders as ZgotmplZ.
+// Generated code carries the style of a static style="…", a composed
+// style={…} or a css`…` literal into a bag as RawCSS, sanitized part by part.
 func (a Attrs) Style() string {
-	return a.aggregate("style", htmlattr.SameName)
+	return a.aggregate("style", htmlattr.SameName, StyleValue)
 }
 
 // aggregate joins the values of every pair whose key matches name ("class" or
-// "style") under same, with that attribute's separator.
-func (a Attrs) aggregate(name string, same func(key, name string) bool) string {
+// "style") under same, each rendered by value, with that attribute's separator.
+func (a Attrs) aggregate(name string, same func(key, name string) bool, value func(any) string) string {
 	var out string
 	for _, kv := range a {
 		if !same(kv.Key, name) {
 			continue
 		}
-		v := toStr(kv.Value)
+		v := value(kv.Value)
 		if name == "class" {
 			v = strings.TrimSpace(v)
 		}
@@ -117,16 +122,17 @@ func exactKey(key, name string) bool { return key == name }
 // DUPLICATE-KEY RULE: LAST occurrence wins for scalar keys, matching JSX-style
 // override order — EXCEPT "class" and "style", which COLLAPSE. A bag has one
 // class and one style, so Get returns the aggregate of every pair keyed exactly
-// "class" (or "style"), agreeing with Merge. Last-wins there would report only
-// the final contribution and read as though the earlier ones had been dropped,
-// even though every one of them renders.
+// "class" (or "style"). Last-wins there would report only the final
+// contribution and read as though the earlier ones had been dropped, even
+// though every one of them renders. The values are raw: Get("style") does not
+// apply the CSS value filter that Style and rendering apply.
 func (a Attrs) Get(key string) (any, bool) {
 	switch key {
 	case "class", "style":
 		if !a.Has(key) {
 			return nil, false
 		}
-		return a.aggregate(key, exactKey), true
+		return a.aggregate(key, exactKey, toStr), true
 	}
 	for i := len(a) - 1; i >= 0; i-- {
 		if a[i].Key == key {

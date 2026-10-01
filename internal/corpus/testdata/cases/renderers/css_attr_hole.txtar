@@ -73,7 +73,7 @@ func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("\">inline</div>")
 //line input.gsx:12:2
 		_gsxv0 := a
-		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "data-style", Value: "color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor((val))))}}, b)
+		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "data-style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor((val)))))}}, b)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())

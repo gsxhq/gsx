@@ -939,6 +939,8 @@ script/value_pipeline	diag gen render
 script/value_pipeline_chain	diag render
 script/value_pipeline_param	diag gen render
 script/value_tuple	diag gen render
+security/bag_style_filtered	diag gen render
+security/bag_style_filtered_spread	diag gen render
 security/base_href_url	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
@@ -1111,4 +1113,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1113 cases (render: 947, error: 128, gen-pinned: 629)
+TOTAL: 1115 cases (render: 949, error: 128, gen-pinned: 631)
