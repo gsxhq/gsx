@@ -36,9 +36,9 @@ func Box(a bool) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}})
+		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}})
 		_gsxv3, _gsxerr := _gsxrt.AttrsCond(a, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("margin:0")}}, nil
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("margin:0")}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

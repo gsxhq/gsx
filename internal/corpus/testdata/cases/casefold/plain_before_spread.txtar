@@ -31,10 +31,10 @@ func Box(attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		if !attrs.HasName("title") {
+		if !attrs.Has("title") {
 			_gsxgw.S(" title=\"mine\"")
 		}
-		if !attrs.HasName("data-d") {
+		if !attrs.Has("data-d") {
 			_gsxgw.S(" data-d=\"mine\"")
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

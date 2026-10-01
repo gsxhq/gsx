@@ -32,7 +32,7 @@ func Box(attrs gsx.Attrs) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		if attrs.HasName("style") {
+		if attrs.Has("style") {
 			_gsxgw.StyleMerged("color:red; margin:0", attrs.Style())
 		} else {
 			_gsxgw.S(" style=\"color:red; margin:0\"")

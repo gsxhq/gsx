@@ -48,7 +48,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, link string, car
 //line input.gsx:6:2
 	_gsxv0 := cardAttrs
 	_gsxgw.S("<a")
-	if !_gsxv0.HasName("href") {
+	if !_gsxv0.Has("href") {
 		_gsxgw.S(" href=\"")
 		_gsxgw.URL(string(link))
 		_gsxgw.S("\"")

@@ -60,7 +60,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 //line input.gsx:17:10
 			_gsxv0 := _gsxrt.Attrs(drop(attrs, "id"))
 			_gsxgw.S("<svg")
-			if !_gsxv0.HasName("stroke-width") {
+			if !_gsxv0.Has("stroke-width") {
 				_gsxgw.S(" stroke-width=\"2\"")
 			}
 			_gsxgw.S(" class=\"")

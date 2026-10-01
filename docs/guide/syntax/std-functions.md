@@ -53,11 +53,10 @@ built-in type before boxing it.
 
 | Name | Signature | Use |
 |---|---|---|
-| `Class` | `func (a Attrs) Class() string` | Join `class` values, matching the name in any ASCII case. |
-| `Style` | `func (a Attrs) Style() string` | Join `style` values, matching the name in any ASCII case. |
+| `Class` | `func (a Attrs) Class() string` | Join `class` values. |
+| `Style` | `func (a Attrs) Style() string` | Join `style` values. |
 | `Get` | `func (a Attrs) Get(key string) (any, bool)` | Get the last value. |
 | `Has` | `func (a Attrs) Has(key string) bool` | Did the caller supply the key? Present even when its value is `false`. |
-| `HasName` | `func (a Attrs) HasName(name string) bool` | Does any key render as this attribute? Like `Has`, but `HREF` counts for `href`. |
 | `Bool` | `func (a Attrs) Bool(key string) bool` | Boolean state of a key, as the spread renders it: `Toggle`/`bool` decide, `nil` or absent is `false`, anything else is `true`. |
 
 **Presence vs state.** `disabled={expr}` is in the bag whatever `expr` is; the
@@ -71,9 +70,8 @@ one renders as `aria-pressed="false"` (see
 [Boolean attributes](./attributes.md#boolean-attributes)). `Get` returns the raw
 value when you need to see the distinction yourself.
 
-`Get`, `Has`, `Bool` and `Without` match keys exactly. Rendering treats keys
-that differ only in ASCII case as one attribute, and so do `Class`, `Style` and
-`HasName`.
+Keys are HTML attribute names and every accessor matches them as the browser
+does, ignoring ASCII case: `Has("href")` sees an `HREF` key.
 
 #### Transform bags
 

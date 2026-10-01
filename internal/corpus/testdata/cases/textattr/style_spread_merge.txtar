@@ -29,7 +29,7 @@ func Box(w int, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		if !attrs.HasName("style") {
+		if !attrs.Has("style") {
 			_gsxgw.S(" style=\"width:")
 			_gsxgw.AttrValue(_gsxrt.StyleValue(_gsxsc.FormatInt(int64(w), 10)))
 			_gsxgw.S("px\"")

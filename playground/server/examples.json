@@ -123,7 +123,7 @@
     "name": "Class & style merging",
     "category": "Styling",
     "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(children gsx.Node, attrs gsx.Attrs) {\n\t<div class=\"card\" style=\"color: red\" { attrs... }>{ children }</div>\n}\n",
-    "invoke": "Card(nil, gsx.Attrs{{Key: \"class\", Value: \"featured\"}, {Key: \"style\", Value: gsx.RawCSS(\"color: blue; margin: 0\")}})"
+    "invoke": "Card(nil, gsx.Attrs{{Key: \"class\", Value: \"featured\"}, {Key: \"style\", Value: \"color: blue; margin: 0\"}})"
   },
   {
     "name": "Filter arguments",

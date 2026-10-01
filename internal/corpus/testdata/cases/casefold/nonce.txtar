@@ -47,7 +47,7 @@ func Page(attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, "script", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		if !attrs.HasName("nonce") {
+		if !attrs.Has("nonce") {
 			_gsxgw.Nonce(ctx)
 		}
 		_gsxgw.S(">init()</script>")

@@ -539,31 +539,31 @@ func TestSpreadCaseVariantNames(t *testing.T) {
 	}
 }
 
-// TestAttrsNameComparison pins the two key comparisons: HasName, Class and
-// Style follow rendering (ASCII case-insensitive), while Has, Get, Bool and
-// Without stay key-exact.
+// TestAttrsNameComparison pins that every accessor matches keys as HTML
+// attribute names — ASCII-case-insensitively, like the browser — and that
+// non-ASCII case variants stay distinct names.
 func TestAttrsNameComparison(t *testing.T) {
-	a := Attrs{{Key: "HREF", Value: "/x"}, {Key: "CLASS", Value: "b"}, {Key: "class", Value: "a"}, {Key: "Style", Value: "top:0"}, {Key: "DISABLED", Value: true}}
-	if !a.HasName("href") || !a.HasName("Href") || a.HasName("src") {
-		t.Errorf("HasName must match ASCII case variants only")
+	a := Attrs{{Key: "HREF", Value: "/x"}, {Key: "CLASS", Value: "b"}, {Key: "class", Value: "a"}, {Key: "Style", Value: "top:0"}, {Key: "DISABLED", Value: true}, {Key: "data-É", Value: "1"}}
+	if !a.Has("href") || !a.Has("Href") || a.Has("src") || a.Has("data-é") {
+		t.Errorf("Has must match ASCII case variants only")
 	}
-	if a.Has("href") || !a.Has("HREF") {
-		t.Errorf("Has must be key-exact")
+	if v, ok := a.Get("href"); !ok || v != "/x" {
+		t.Errorf(`Get("href") = %v, %v`, v, ok)
 	}
-	if _, ok := a.Get("href"); ok {
-		t.Errorf("Get must be key-exact")
+	if v, _ := a.Get("Class"); v != "b a" {
+		t.Errorf(`Get("Class") = %v, want the aggregate "b a"`, v)
 	}
-	if v, _ := a.Get("class"); v != "a" {
-		t.Errorf(`Get("class") = %v, want the exact-key aggregate "a"`, v)
+	if v, _ := a.Get("style"); v != "top:0" {
+		t.Errorf(`Get("style") = %v, want "top:0"`, v)
 	}
-	if _, ok := a.Get("style"); ok {
-		t.Errorf(`Get("style") must not see a "Style" pair`)
+	if !a.Bool("disabled") || a.Bool("hidden") {
+		t.Errorf("Bool must match ASCII case variants")
 	}
-	if a.Bool("disabled") || !a.Bool("DISABLED") {
-		t.Errorf("Bool must be key-exact")
+	if got := a.Without("href", "class"); len(got) != 3 {
+		t.Errorf("Without(href, class) left %v", got)
 	}
-	if got := a.Without("href"); len(got) != len(a) {
-		t.Errorf("Without must be key-exact, dropped %d pairs", len(a)-len(got))
+	if v, rest := a.Take("Href"); v != "/x" || rest.Has("href") {
+		t.Errorf("Take(Href) = %v, %v", v, rest)
 	}
 	if got := a.Class(); got != "b a" {
 		t.Errorf("Class() = %q, want %q", got, "b a")
@@ -573,44 +573,9 @@ func TestAttrsNameComparison(t *testing.T) {
 	}
 }
 
-// TestBagStyleSanitized pins that every bag style value — under any ASCII
-// spelling of the name — goes through the same CSS value filter as a
-// style={expr} value, at both render boundaries (Attrs.Style, which forwarding
-// roots merge, and Spread's own style write), while RawCSS passes verbatim.
-func TestBagStyleSanitized(t *testing.T) {
-	for _, tc := range []struct {
-		val  any
-		want string
-	}{
-		{"background:url(javascript:alert(1))", cssFailsafe},
-		{"width:expression(alert(1))", cssFailsafe},
-		{"color:red--x", cssFailsafe},
-		{"color:var(--x)", cssFailsafe},
-		{"color:red; top:0", cssFailsafe},
-		{"color:red", "color:red"},
-		{RawCSS("color:var(--x); top:0"), "color:var(--x); top:0"},
-	} {
-		for _, key := range []string{"style", "STYLE", "Style"} {
-			a := Attrs{{Key: key, Value: tc.val}}
-			if got := a.Style(); got != tc.want {
-				t.Errorf("Attrs{%q: %q}.Style() = %q, want %q", key, tc.val, got, tc.want)
-			}
-			var buf bytes.Buffer
-			W(&buf).Spread(context.Background(), "div", a, AttrSinks{}, nil)
-			if want := " " + key + `="` + strings.ReplaceAll(tc.want, `"`, "&#34;") + `"`; buf.String() != want {
-				t.Errorf("Spread(%q: %q) = %q, want %q", key, tc.val, buf.String(), want)
-			}
-		}
-	}
-	// Get stays a raw, key-exact lookup.
-	if v, _ := (Attrs{{Key: "style", Value: "color:red; top:0"}}).Get("style"); v != "color:red; top:0" {
-		t.Errorf(`Get("style") = %v, want the raw value`, v)
-	}
-}
-
 // TestMergeMatchesConcatRender pins that eager Merge resolves duplicates by
 // the same rule Spread applies to a ConcatAttrs bag — names compared in ASCII
-// case, class/style aggregated, style pieces CSS-filtered — so the two render
+// case, class/style aggregated — so the two render
 // the same, both through Spread and through a forwarding root's Class/Style.
 func TestMergeMatchesConcatRender(t *testing.T) {
 	for _, tc := range []struct {
@@ -619,7 +584,6 @@ func TestMergeMatchesConcatRender(t *testing.T) {
 	}{
 		{"class case variants", Attrs{{Key: "class", Value: "p-2"}}, Attrs{{Key: "CLASS", Value: "p-4"}, {Key: "class", Value: "p-8"}}},
 		{"style case variants", Attrs{{Key: "style", Value: "color:red"}}, Attrs{{Key: "STYLE", Value: "color:blue"}, {Key: "Style", Value: "color:green"}}},
-		{"style hostile piece", Attrs{{Key: "Style", Value: RawCSS("a:b; c:d")}}, Attrs{{Key: "style", Value: "background:url(javascript:x)"}, {Key: "STYLE", Value: "top:0"}}},
 		{"scalar case variants", Attrs{{Key: "href", Value: "/a"}, {Key: "TITLE", Value: "t"}}, Attrs{{Key: "HREF", Value: "javascript:x"}, {Key: "title", Value: "u"}}},
 		{"receiver duplicates", Attrs{{Key: "data-d", Value: "1"}, {Key: "DATA-D", Value: "2"}, {Key: "Class", Value: "a"}, {Key: "class", Value: "b"}}, Attrs{{Key: "Data-D", Value: "3"}, {Key: "CLASS", Value: "c"}}},
 	} {

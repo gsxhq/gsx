@@ -78,7 +78,7 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 		if _gsxerr != nil {
 			return nil, _gsxerr
 		}
-		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("h:" + _gsxrt.FilterCSS(string(wrap(string(_gsxv1)))) + "px")}}, nil
+		return _gsxrt.Attrs{{Key: "style", Value: "h:" + _gsxrt.FilterCSS(string(wrap(string(_gsxv1)))) + "px"}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr
@@ -97,7 +97,7 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 		if _gsxerr != nil {
 			return nil, _gsxerr
 		}
-		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxv6), _gsxrt.Style("w:"+_gsxrt.StyleValue(_gsxv5)+"px")))}}, nil
+		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxv6), _gsxrt.Style("w:"+_gsxrt.StyleValue(_gsxv5)+"px"))}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr
@@ -119,7 +119,7 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 			}
 			_gsxv10 = "t:" + _gsxrt.StyleValue(wrap(string(_gsxv11))) + "px"
 		}
-		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxv10)))}}, nil
+		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxv10))}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr

@@ -27,7 +27,7 @@ func Box(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		if !attrs.HasName("id") {
+		if !attrs.Has("id") {
 			_gsxgw.S(" id=\"x\"")
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

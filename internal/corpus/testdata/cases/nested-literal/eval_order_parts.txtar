@@ -245,7 +245,7 @@ func Page(on bool) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv28 := _gsxrt.ConcatAttrs(_gsxv25, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv27)), _gsxrt.Style("width:"+_gsxrt.StyleValue(_gsxv26)+"px")))}})
+		_gsxv28 := _gsxrt.ConcatAttrs(_gsxv25, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv27)), _gsxrt.Style("width:"+_gsxrt.StyleValue(_gsxv26)+"px"))}})
 		_gsxgw.S("<i")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv28.Class())
 		_gsxgw.StyleMerged("", _gsxv28.Style())

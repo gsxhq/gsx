@@ -31,7 +31,7 @@ func Btn(attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button")
-		if !attrs.HasName("disabled") {
+		if !attrs.Has("disabled") {
 			_gsxgw.BoolAttr("disabled", true)
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

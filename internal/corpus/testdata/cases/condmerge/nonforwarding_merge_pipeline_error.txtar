@@ -42,13 +42,13 @@ func Box(on bool, gap string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
+		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
 		_gsxv2, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			_gsxv1, _gsxerr := _gsxf0.Decl((gap))
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv1))))}}, nil
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxv1)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

@@ -40,7 +40,7 @@ func Page(color string) _gsxrt.Node {
 		_gsxv0 := s
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		if _gsxv0.HasName("style") {
+		if _gsxv0.Has("style") {
 			_gsxgw.StyleMerged("margin:0", _gsxv0.Style())
 		} else {
 			_gsxgw.S(" style=\"margin:0\"")

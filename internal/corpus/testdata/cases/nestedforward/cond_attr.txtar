@@ -48,7 +48,7 @@ func _gsxrenderIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, name string, att
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<span")
-	if !attrs.HasName("data-name") {
+	if !attrs.Has("data-name") {
 		_gsxgw.S(" data-name=\"")
 		_gsxgw.AttrValue(string(name))
 		_gsxgw.S("\"")

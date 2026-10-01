@@ -33,11 +33,11 @@ func Box(n int, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<div")
 		switch n {
 		case 1:
-			if !attrs.HasName("title") {
+			if !attrs.Has("title") {
 				_gsxgw.S(" title=\"one\"")
 			}
 		default:
-			if !attrs.HasName("title") {
+			if !attrs.Has("title") {
 				_gsxgw.S(" title=\"other\"")
 			}
 		}

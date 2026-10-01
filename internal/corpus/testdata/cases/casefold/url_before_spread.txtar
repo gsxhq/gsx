@@ -32,7 +32,7 @@ func Link(link string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<a")
-		if !attrs.HasName("href") {
+		if !attrs.Has("href") {
 			_gsxgw.S(" href=\"")
 			_gsxgw.URL(string(link))
 			_gsxgw.S("\"")

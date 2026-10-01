@@ -51,7 +51,7 @@ func _gsxrenderIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, name string, att
 	_gsxgw.S("<span class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("icon"), _gsxrt.Class(attrs.Class()))
 	_gsxgw.S("\"")
-	if !attrs.HasName("data-name") {
+	if !attrs.Has("data-name") {
 		_gsxgw.S(" data-name=\"")
 		_gsxgw.AttrValue(string(name))
 		_gsxgw.S("\"")
