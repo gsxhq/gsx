@@ -110,8 +110,8 @@ func FuzzAttrsFoldMatchesReference(f *testing.F) {
 var foldKeyAlphabet = []string{"class", "style", "href", "id", "data-x", "disabled"}
 
 // foldValAlphabet is the fixed value alphabet: empty, plain and whitespace
-// bearing strings, plus both boolean values.
-var foldValAlphabet = []any{"", "a", "b", "x y", " a ", true, false}
+// bearing strings, both boolean values, and a value the CSS filter rejects.
+var foldValAlphabet = []any{"", "a", "b", "x y", " a ", true, false, "url(x)"}
 
 // decodeContribs deterministically decodes data into a sequence of
 // contributors (each either a plain bag or, for an untaken conditional, an
@@ -162,7 +162,9 @@ func decodeContribs(data []byte) []Attrs {
 // then keep exactly one entry per key at the position of its LAST
 // occurrence — a plain scalar keeps its last value; "class"/"style" instead
 // aggregate EVERY occurrence across the whole flattened sequence (join " "
-// for class, after trimming each piece; join "; " for style, untrimmed).
+// for class, after trimming each piece; join "; " for style, untrimmed, each
+// piece through the CSS value filter, the joined declaration carried as RawCSS
+// so the reduced bag renders it as already sanitized).
 //
 // This never calls ConcatAttrs, Attrs.Merge, Attrs.Class, or Attrs.Style —
 // it reimplements the rule from scratch — so it can actually disagree with
@@ -191,7 +193,7 @@ func referenceLastWins(contribs []Attrs) Attrs {
 		case "class":
 			val = refJoinAll(flat, "class", " ", true)
 		case "style":
-			val = refJoinAll(flat, "style", "; ", false)
+			val = RawCSS(refJoinAll(flat, "style", "; ", false))
 		}
 		out = append(out, Attr{Key: kv.Key, Value: val})
 	}
@@ -215,6 +217,9 @@ func refJoinAll(flat Attrs, key, sep string, trim bool) string {
 		}
 		if trim {
 			piece = strings.TrimSpace(piece)
+		}
+		if key == "style" {
+			piece = cssValueFilter(piece)
 		}
 		switch {
 		case out == "":

@@ -70,6 +70,10 @@ one renders as `aria-pressed="false"` (see
 [Boolean attributes](./attributes.md#boolean-attributes)). `Get` returns the raw
 value when you need to see the distinction yourself.
 
+Keys are HTML attribute names and every accessor matches them as the browser
+does, ignoring ASCII case: `Has("href")` sees an `HREF` key. `Get("style")` returns
+the style already CSS-filtered, as `gsx.RawCSS`, so it can go back into a bag.
+
 #### Transform bags
 
 | Name | Signature | Use |

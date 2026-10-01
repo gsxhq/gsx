@@ -828,25 +828,25 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.ComposedAttr:
-			switch t.Name {
-			case "class":
+			switch {
+			case htmlattr.SameName(t.Name, "class"):
 				classAttr = t
-			case "style":
+			case htmlattr.SameName(t.Name, "style"):
 				styleAttr = t
 			}
 		case *ast.StaticAttr:
-			switch t.Name {
-			case "class":
+			switch {
+			case htmlattr.SameName(t.Name, "class"):
 				staticClass = t
-			case "style":
+			case htmlattr.SameName(t.Name, "style"):
 				staticStyle = t
 			}
 		case *ast.EmbeddedAttr:
 			if t.Lang == ast.EmbeddedText {
-				switch t.Name {
-				case "class":
+				switch {
+				case htmlattr.SameName(t.Name, "class"):
 					embedClass = t
-				case "style":
+				case htmlattr.SameName(t.Name, "style"):
 					embedStyle = t
 				}
 			}
@@ -1642,7 +1642,7 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 		return false
 	}
 	lc := attrLowerCtx(resolved, table, imports, rt, interpTemp, fset, bag, newInterpEmitCtx(currentPkg, importAliases, boundNames, typeArgAliases, cls, mergeExpr, enclosingAttrsBound, positionalPlan))
-	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold, lc)
+	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold, lc)
 	if err != nil {
 		if errors.Is(err, errBagDiagReported) {
 			return false // embeddedTextValueExpr already reported it
@@ -1735,10 +1735,10 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 				class += maxClass
 				style += maxStyle
 			}
-			switch name {
-			case "class":
+			switch {
+			case htmlattr.SameName(name, "class"):
 				class++
-			case "style":
+			case htmlattr.SameName(name, "style"):
 				style++
 			}
 		}
@@ -1791,11 +1791,11 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 			}
 			switch t := a.(type) {
 			case *ast.ComposedAttr:
-				if t.Name == "class" || t.Name == "style" {
+				if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 					return true
 				}
 			case *ast.StaticAttr:
-				if t.Name == "class" || t.Name == "style" {
+				if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 					return true
 				}
 			case *ast.EmbeddedAttr:
@@ -1805,7 +1805,7 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 				// rather than the inline emitFallthroughAttrs path — which would emit
 				// the conditional style as a SECOND, duplicate attribute. Mirrors the
 				// breadth of D3's old rootAttrName check (name only, any Lang).
-				if t.Name == "class" || t.Name == "style" {
+				if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 					return true
 				}
 			}
@@ -1836,11 +1836,11 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.ComposedAttr:
-			if t.Name == "class" || t.Name == "style" {
+			if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 				return true
 			}
 		case *ast.StaticAttr:
-			if t.Name == "class" || t.Name == "style" {
+			if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 				return true
 			}
 		case *ast.EmbeddedAttr:
@@ -1848,7 +1848,7 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 			// class=js"…" must gate the lone-cond fold too, otherwise the inline path
 			// emits it as a SEPARATE attribute alongside the folded bag's — a silent
 			// duplicate. Folding routes both through the shared leaf bag.
-			if t.Name == "class" || t.Name == "style" {
+			if htmlattr.SameName(t.Name, "class") || htmlattr.SameName(t.Name, "style") {
 				return true
 			}
 		}
@@ -1979,7 +1979,7 @@ func attrsContainExplicitNonce(attrs []ast.Attr) bool {
 
 func attrIsExplicitNonce(a ast.Attr) bool {
 	if name, ok := rootAttrName(a); ok {
-		return strings.EqualFold(name, "nonce")
+		return htmlattr.SameName(name, "nonce")
 	}
 	return false
 }
@@ -2053,7 +2053,7 @@ func (ni *nonceInjection) tempFor(s *ast.SpreadAttr) (string, bool) {
 }
 
 func (ni *nonceInjection) markExplicit(b *bytes.Buffer, name string) {
-	if ni == nil || ni.explicit == "" || !strings.EqualFold(name, "nonce") {
+	if ni == nil || ni.explicit == "" || !htmlattr.SameName(name, "nonce") {
 		return
 	}
 	fmt.Fprintf(b, "\t\t%s = true\n", ni.explicit)
@@ -2151,6 +2151,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		if t.IsComponent {
 			return genChildComponent(b, t, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan)
 		}
+		warnDuplicateAttrs(bag, t)
 		// MANUAL fallthrough: EVERY element spread `{ x... }` is a leaf sink — it
 		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
 		// machinery regardless of the bag's provenance (declared forwarding param,
@@ -4698,10 +4699,9 @@ func composedPartExpr(b *bytes.Buffer, p *ast.ComposedPart, a *ast.ComposedAttr,
 // imports) and the component-class path (classEntryExpr, which threads usedPkgs
 // up as an *attrError-positioned diagnostic instead). The `: cond` guard is never
 // piped, so only the part's Expr/Stages are lowered. wrap is the lowerPipe hook
-// for a mid-stage (R, error) filter: callers pass emitPipeWrap in emit mode,
-// probePipeWrap in skeleton mode, or thunkPipeWrap inside a cond-attr branch
-// thunk — always non-nil (the buffer each hoisting wrap closes over is the
-// caller's; see classEntryExpr's doc).
+// for a mid-stage (R, error) filter: callers pass pipeWrapReturning with the
+// enclosing function's error return — always non-nil (the buffer the wrap
+// closes over is the caller's; see classEntryExpr's doc).
 func lowerComposedPartSeed(seed string, stages []ast.PipeStage, table funcTables, wrap func(string) string) (string, map[string]string, error) {
 	if len(stages) == 0 {
 		return strings.TrimSpace(seed), nil, nil
@@ -5370,28 +5370,21 @@ func isCallExpr(rawVal string) bool {
 // in composedParts, the parts are one evaluation sequence settled through
 // seqPins.
 //
-// probeWrap (skeleton mode) stubs part values with "" so the skeleton never
-// imposes gsx.Class's string constraint (#85), unwraps calls with _gsxunwrap
-// instead of hoisting, applies no renderer and pins nothing.
-//
 // lc lowers nested literals and elements in part values, guards, value-form
-// control expressions and arms (emit mode only); a lowering failure is
-// already positioned in the bag (errBagDiagReported).
-func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, errReturn string, lc lowerCtx) (string, map[string]string, error) {
+// control expressions and arms; a lowering failure is already positioned in
+// the bag (errBagDiagReported).
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, errReturn string, lc lowerCtx) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
-	seq := seqPins{out: b, interpTemp: interpTemp, off: probeWrap}
+	seq := seqPins{out: b, interpTemp: interpTemp}
 	var stmts bytes.Buffer
-	wrap := probePipeWrap
-	if !probeWrap {
-		wrap = pipeWrapReturning(&stmts, interpTemp, errReturn)
-	}
+	wrap := pipeWrapReturning(&stmts, interpTemp, errReturn)
 	// applyClassRenderer applies the registered [renderers] entry for t (if
 	// any) to expr, folding any imported renderer package into usedPkgs. A
-	// no-op in probe mode or when t is unresolved. applyRenderer wants an
+	// no-op when t is unresolved. applyRenderer wants an
 	// `imports map[string]bool`; usedPkgs is this function's only import
 	// channel, bridged through a scratch map.
 	applyClassRenderer := func(expr string, t types.Type) string {
-		if probeWrap || t == nil {
+		if t == nil {
 			return expr
 		}
 		scratch := map[string]bool{}
@@ -5404,11 +5397,8 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 	// literalExpr lowers an f`…` class literal (a part or a value-form arm)
 	// through the element path's composedLiteralSegmentsExpr, folding any
 	// imported package into usedPkgs. Its diagnostics are already positioned
-	// in the bag. Probe mode stubs it like any other part value (#85).
+	// in the bag.
 	literalExpr := func(segments []ast.Markup) (string, bool) {
-		if probeWrap {
-			return `""`, true
-		}
 		scratch := map[string]bool{}
 		expr, ok := composedLiteralSegmentsExpr(&stmts, segments, false, resolved, table, scratch, lc.rt, interpTemp, lc.bag, lc.errReturn)
 		for path := range scratch {
@@ -5416,8 +5406,8 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 		}
 		return expr, ok
 	}
-	// unwrapValue hoists a (T, error) part or arm value (emit mode) and
-	// applies its renderer.
+	// unwrapValue hoists a (T, error) part or arm value and applies its
+	// renderer.
 	unwrapValue := func(n ast.Node, src, expr string, what string) (string, error) {
 		t := resolved[n]
 		if tup, isTuple := t.(*types.Tuple); isTuple {
@@ -5471,21 +5461,11 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 					return "", false
 				}
 				maps.Copy(usedPkgs, used)
-				switch {
-				case probeWrap && isCallExpr(expr):
-					// Skeleton mode: _gsxunwrap keeps `_gsxvN = _gsxunwrap(cls(v))`
-					// compiling whether cls returns T or (T, error).
-					expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
-				case probeWrap:
-					// Non-call arm expr: stub with "" (#85).
-					expr = `""`
-				default:
-					// The hoist lands after the if/case label, before the
-					// `_gsxvN =` assignment, inside the arm's block.
-					if expr, err = unwrapValue(arm, arm.Expr, expr, "class value-form arm"); err != nil {
-						lowerErr = err
-						return "", false
-					}
+				// The hoist lands after the if/case label, before the
+				// `_gsxvN =` assignment, inside the arm's block.
+				if expr, err = unwrapValue(arm, arm.Expr, expr, "class value-form arm"); err != nil {
+					lowerErr = err
+					return "", false
 				}
 				return expr, true
 			}
@@ -5529,13 +5509,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 			}
 			maps.Copy(usedPkgs, used)
-			if probeWrap {
-				// Stub EVERY part value (call or not) with "" so the skeleton
-				// never imposes gsx.Class's string constraint (#85): liveness
-				// and type harvest ride the per-part probes, and the emitted
-				// gsx.Class re-imposes it.
-				lowered = `""`
-			} else if lowered, err = unwrapValue(p, p.Expr, lowered, "class part"); err != nil {
+			if lowered, err = unwrapValue(p, p.Expr, lowered, "class part"); err != nil {
 				return "", nil, err
 			}
 			expr = lowered
@@ -5587,14 +5561,10 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 // A header with an init statement lowers to the equivalent immediately invoked
 // func literal instead (attrsCondHeader.expr), with the same result shape.
 //
-// probeWrap=true (analyze skeleton) lowers each branch with probePipeWrap so a
-// mid/final (R, error) stage stays a single _gsxunwrap(...) expression instead
-// of a hoist (the skeleton is compile-only and never executed, so laziness
-// doesn't matter there); probeWrap=false (real emit) hoists via thunkPipeWrap.
-// Either way this returns ONE expression: the *ast.CondAttr call site hoists it
-// with hoistTuple in emit mode, or wraps it in _gsxunwrap(...) in probe mode —
-// emit ≡ probe, differing only by that tolerance wrap, never by structure.
-func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
+// Each branch hoists a mid/final (R, error) stage via thunkPipeWrap into its
+// own thunk. This returns ONE expression, which the *ast.CondAttr call site
+// hoists with hoistTupleReturning.
+func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
 	// The condition's hoists go to b, before the AttrsCond call. A nested
 	// cond-attr (an else-if included) is lowered with b = the enclosing
@@ -5605,7 +5575,7 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 	}
 
 	branchThunk := func(attrs []ast.Attr) (attrsBranchCode, map[string]string, error) {
-		return attrsBranchThunk(attrs, interpTemp, probeWrap, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
+		return attrsBranchThunk(attrs, interpTemp, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
 	}
 
 	thenCode, thenUsed, err := branchThunk(t.Then)
@@ -5629,13 +5599,9 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 // { ...; return lit, nil }` thunk. tb is thunk-LOCAL: any hoist wrap writes
 // into it, so the hoisted statements land inside this thunk's own body, not
 // the caller's.
-func attrsBranchThunk(attrs []ast.Attr, interpTemp *int, probeWrap bool, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext, lc lowerCtx) (attrsBranchCode, map[string]string, error) {
+func attrsBranchThunk(attrs []ast.Attr, interpTemp *int, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext, lc lowerCtx) (attrsBranchCode, map[string]string, error) {
 	var tb bytes.Buffer
-	wrap := probePipeWrap
-	if !probeWrap {
-		wrap = thunkPipeWrap(&tb, interpTemp)
-	}
-	lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
+	lit, used, err := condBranchAttrs(&tb, interpTemp, thunkPipeWrap(&tb, interpTemp), attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
 	if err != nil {
 		return attrsBranchCode{}, nil, err
 	}
@@ -5707,10 +5673,9 @@ func emitAttrsSwitch(b *bytes.Buffer, sw *ast.SwitchAttr, thunks []string, rtPkg
 // expression (its own ConcatAttrs part), recursing through condAttrsExpr for
 // nested conds.
 //
-// wrap is the lowerPipe hook for an error-returning stage in a branch pipeline —
-// always non-nil (probePipeWrap in probe mode, thunkPipeWrap in emit mode): the
-// ExprAttr path lowers every pipeline through it, hoisting (emit) or unwrapping
-// (probe) any error-returning stage, final or not (lowerPipe only wraps
+// wrap is the lowerPipe hook for an error-returning stage in a branch pipeline
+// (thunkPipeWrap): the ExprAttr path lowers every pipeline through it,
+// hoisting any error-returning stage, final or not (lowerPipe only wraps
 // non-final stages, so a final error stage is wrapped again here explicitly).
 // The same wrap also hoists a PLAIN (no-pipeline) ExprAttr value once resolved
 // confirms it is a (T, error) tuple call — mirroring positional call lowering's
@@ -5719,17 +5684,23 @@ func emitAttrsSwitch(b *bytes.Buffer, sw *ast.SwitchAttr, thunks []string, rtPkg
 // with no later pass to defer to).
 // b/interpTemp are the THUNK-LOCAL buffer/counter from condAttrsExpr, so a
 // hoist lands inside the enclosing thunk body, not the caller's statement
-// stream. probeWrap distinguishes skeleton (resolved is nil; any CALL expr is
-// unconditionally _gsxunwrap'd, generic over arity) from real emit (resolved
-// gates the hoist).
+// stream.
 //
 // The composable-class part of a branch reuses classEntryExpr exactly like
 // the element-level positional call path: the same thunk-local b/
 // interpTemp/resolved and the same wrap are threaded through, so CF (if/
 // switch), plain-tuple, and ordered class parts inside a branch hoist their
 // errors into the enclosing thunk precisely like the non-branch case.
-func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
-	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", ctx, lc)
+func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
+	return composeBag(b, interpTemp, wrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", ctx, lc)
+}
+
+// trustedCSS wraps expr, a CSS value codegen sanitized part by part (a composed
+// style's StyleString, a css`…` literal's FilterCSS'd holes) or the author
+// wrote statically, as gsx.RawCSS, so a bag carries it past the CSS value
+// filter Attrs.Style applies to every other style value at the leaf.
+func trustedCSS(rtPkg, expr string) string {
+	return rtPkg + ".RawCSS(" + expr + ")"
 }
 
 // bagContext tells composeBag which caller it is lowering for, so a residual
@@ -5767,10 +5738,8 @@ var errBagDiagReported = errors.New("bag diagnostic already reported")
 // which lowers `name=f"…@{expr}…"` (and, in the element-fold context,
 // js"…@{}…"/css"…@{}…") into the bag via the embedded*ValueExpr assemblers
 // (assembling the segments, hoisting into b, recording strconv/etc. into
-// imports, and reporting any positioned diagnostic to bag). In probe mode that
-// arm emits a string placeholder instead (the hole's type is harvested by a
-// separate _gsxuse probe), so imports/rt/bag go unused there.
-func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
+// imports, and reporting any positioned diagnostic to bag).
+func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string, ctx bagContext, lc lowerCtx) (string, map[string]string, error) {
 	lc.errReturn, lc.interpTemp = errReturn, interpTemp
 	var entries []string
 	usedPkgs := map[string]string{}
@@ -5790,9 +5759,6 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 	// those statements cannot move the later expression ahead of source order.
 	materializePrior := func() {
 		flush()
-		if probeWrap {
-			return
-		}
 		if len(parts) == 0 {
 			return
 		}
@@ -5824,8 +5790,8 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 	}
 	// pipeBagValue lowers a contributor's `|>` pipeline over val, its seed.
 	// The final stage is never wrapped by lowerPipe; it is wrapped here too
-	// when it returns (R, error), so a final tuple hoists (emit) / unwraps
-	// (probe) instead of sitting raw in the bag literal.
+	// when it returns (R, error), so a final tuple hoists instead of sitting
+	// raw in the bag literal.
 	pipeBagValue := func(val string, stages []ast.PipeStage, owner ast.Node) (string, error) {
 		lowered, used, perr := lowerPipe(val, stages, table, orderedWrap)
 		if perr != nil {
@@ -5843,14 +5809,10 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 	// type (resolved[owner], unwrapped from (T, error)) is one, BEFORE the
 	// value enters the Attrs bag as `any` — the last point codegen still
 	// knows its concrete registered type; the runtime Spread only sees `any`
-	// and falls back to fmt.Sprint (or the URL sink's own toStr). Skipped in
-	// probe mode: resolved is nil there, and the skeleton never dispatches
-	// through a renderer. applyRenderer's imports are bridged into usedPkgs
-	// (alias->pkgPath, deduped on the path) through a scratch map.
+	// and falls back to fmt.Sprint (or the URL sink's own toStr).
+	// applyRenderer's imports are bridged into usedPkgs (alias->pkgPath,
+	// deduped on the path) through a scratch map.
 	renderBagValue := func(val string, owner ast.Node) string {
-		if probeWrap {
-			return val
-		}
 		attrType := resolved[owner]
 		if tup, isTuple := attrType.(*types.Tuple); isTuple {
 			if elemT, ok := tupleUnwrapType(tup); ok {
@@ -5887,16 +5849,12 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			parts = append(parts, expr)
 		case *ast.CondAttr:
 			materializePrior()
-			condExpr, used, cerr := condAttrsExpr(b, t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp, ctx, lc)
+			condExpr, used, cerr := condAttrsExpr(b, t, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, interpTemp, ctx, lc)
 			if cerr != nil {
 				return "", nil, cerr
 			}
 			maps.Copy(usedPkgs, used)
-			if probeWrap {
-				condExpr = fmt.Sprintf("_gsxunwrap(%s)", condExpr)
-			} else {
-				condExpr = hoistTupleReturning(b, condExpr, interpTemp, errReturn)
-			}
+			condExpr = hoistTupleReturning(b, condExpr, interpTemp, errReturn)
 			parts = append(parts, condExpr)
 		case *ast.SwitchAttr:
 			// A statement (emitAttrsSwitch), so contributors already
@@ -5904,7 +5862,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			materializePrior()
 			thunks := make([]string, len(t.Cases))
 			for i, cc := range t.Cases {
-				code, used, err := attrsBranchThunk(cc.Body, interpTemp, probeWrap, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
+				code, used, err := attrsBranchThunk(cc.Body, interpTemp, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
 				if err != nil {
 					return "", nil, err
 				}
@@ -5917,8 +5875,14 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			}
 			parts = append(parts, name)
 		case *ast.StaticAttr:
+			// An authored static value is trusted: a style is carried as RawCSS
+			// past the leaf's CSS value filter (Attrs.Style), and on a folded
+			// element any other name as RawURL past the URL sinks.
 			value := strconv.Quote(t.Value)
-			if ctx == bagElementFold {
+			switch {
+			case htmlattr.SameName(t.Name, "style"):
+				value = trustedCSS(rtPkg, value)
+			case ctx == bagElementFold:
 				value = fmt.Sprintf("%s.RawURL(%s)", rtPkg, value)
 			}
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), value))
@@ -5933,18 +5897,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 					return "", nil, err
 				}
 				val = lowered
-			} else if probeWrap {
-				// Plain tuple-returning call, no pipeline: mirror positional call lowering's
-				// ExprAttr handling — the skeleton unconditionally wraps any CALL
-				// expr with _gsxunwrap(...) (generic over T vs (T, error), no type
-				// info needed) so the probe compiles regardless of the callee's
-				// return arity.
-				if isCallExpr(val) {
-					val = fmt.Sprintf("_gsxunwrap(%s)", val)
-				}
 			} else if tup, isTuple := resolved[t].(*types.Tuple); isTuple {
-				// Emit mode: resolved says the plain call actually returns
-				// (T, error); hoist it the same way a pipeline's final stage would.
+				// A plain call resolved as (T, error): hoist it the same way a
+				// pipeline's final stage would.
 				if _, ok := tupleUnwrapType(tup); !ok {
 					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "invalid-tuple", msg: fmt.Sprintf("attribute %q value %q returns %s; only (T, error) is supported", t.Name, t.Expr, tup)}
 				}
@@ -5962,7 +5917,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			// statements (ordered among its own parts by seqPins). Pin everything
 			// already encountered before entering those lowering paths.
 			materializePrior()
-			if t.Name == "style" && ctx == bagElementFold {
+			if htmlattr.SameName(t.Name, "style") && ctx == bagElementFold {
 				// A composable/conditional style={ … } on a folded element: lower it
 				// exactly like the inline element path (composedParts with style=true —
 				// CSS-filtering each dynamic declaration, trusting string literals)
@@ -5978,10 +5933,10 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 					// composedParts already reported the positioned diagnostic.
 					return "", nil, errBagDiagReported
 				}
-				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s.StyleString(%s)}", strconv.Quote(t.Name), rtPkg, strings.Join(parts, ", ")))
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), trustedCSS(rtPkg, rtPkg+".StyleString("+strings.Join(parts, ", ")+")")))
 				break
 			}
-			if t.Name != "class" {
+			if !htmlattr.SameName(t.Name, "class") {
 				var msg string
 				switch ctx {
 				case bagElementFold:
@@ -5991,7 +5946,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				}
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, errReturn, lc)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, errReturn, lc)
 			if eerr != nil {
 				return "", nil, eerr
 			}
@@ -6003,13 +5958,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			if len(t.Stages) > 0 {
 				// A whole-literal pipeline (f` only; the parser rejects one on
 				// js`/css`): the segments assemble into one string, piped and
-				// rendered like a piped expression attribute. The skeleton
-				// probes the pipeline on its own (_gsxuse), so the probe bag
-				// holds a string placeholder.
-				if probeWrap {
-					entries = append(entries, fmt.Sprintf("{Key: %s, Value: \"\"}", strconv.Quote(t.Name)))
-					break
-				}
+				// rendered like a piped expression attribute.
 				var hoist bytes.Buffer
 				concat, ok := embeddedTextValueExpr(&hoist, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
 				if !ok {
@@ -6028,7 +5977,11 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			}
 			// A hole-free embedded literal forwards to the bag as raw text.
 			if text, static := embeddedStaticText(t); static {
-				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
+				value := strconv.Quote(text)
+				if t.Lang == ast.EmbeddedCSS && htmlattr.SameName(t.Name, "style") {
+					value = trustedCSS(rtPkg, value)
+				}
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), value))
 				break
 			}
 			// A hole-bearing element literal enters the shared bag as an assembled
@@ -6043,14 +5996,6 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			if probeWrap {
-				// Skeleton: the hole's own type is harvested by a separate _gsxuse
-				// probe (walkMarkupAttrs), and the props/bag literal here is a
-				// compile-only `_ =` statement that never runs, so a string
-				// placeholder type-checks the bag without needing resolved.
-				entries = append(entries, fmt.Sprintf("{Key: %s, Value: \"\"}", strconv.Quote(t.Name)))
-				break
-			}
 			// Hole lowering can emit tuple, pipeline, or renderer hoists directly.
 			// Evaluate all earlier bag contributors before those statements.
 			materializePrior()
@@ -6063,6 +6008,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				val, ok = embeddedJSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
 			case ast.EmbeddedCSS:
 				val, ok = embeddedCSSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
+				if htmlattr.SameName(t.Name, "style") {
+					val = trustedCSS(rtPkg, val)
+				}
 			}
 			if !ok {
 				// The value assembler has already emitted the positioned

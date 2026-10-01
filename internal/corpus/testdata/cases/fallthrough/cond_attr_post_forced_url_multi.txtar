@@ -22,6 +22,7 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
+6:61: warning: attribute "formaction" is already set on this element; the browser keeps the first one
 -- render.golden --
 <button formaction="/x">x</button><button formaction="/y">x</button><button formaction="about:invalid#gsx">x</button>
 -- generated.x.go.golden --

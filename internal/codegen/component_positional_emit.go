@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"fmt"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"maps"
@@ -12,6 +13,7 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/htmlattr"
 )
 
 type positionalEmitContext struct {
@@ -306,14 +308,14 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 	case *gsxast.OrderedAttrsAttr:
 		return positionalOrderedAttrsExpr(b, node, plan, ctx)
 	case *gsxast.ComposedAttr:
-		if node.Name == "style" {
+		if htmlattr.SameName(node.Name, "style") {
 			expr, _, ok := rootStyleString(b, node, nil, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.resolved, ctx.lowerCtx())
 			if !ok {
 				return diagnosedPositionalValue()
 			}
 			return readyPositionalValue(expr, nil)
 		}
-		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.errorReturn(), ctx.lowerCtx())
+		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.errorReturn(), ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node, err, ctx)
 			return diagnosedPositionalValue()
@@ -345,7 +347,7 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 			}
 			return readyPositionalValue(fmt.Sprintf("%s.Attrs{{Key: %s, Value: %s}}", ctx.rt.rt(), strconv.Quote(embedded.Name), lowering.expr), nil)
 		}
-		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond, ctx.lowerCtx())
+		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond, ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node.attr, err, ctx)
 			return diagnosedPositionalValue()
@@ -616,8 +618,30 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		// every other render boundary — so a renderer-typed value in an
 		// attrs={{…}} bag renders identically to the same value inline. Without
 		// this the raw value reaches the Attrs pair and renders via Go %v.
+		rendered := false
 		if valueType != nil {
-			expr, _ = applyRenderer(&stmts, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
+			authored := expr
+			expr, valueType = applyRenderer(&stmts, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
+			rendered = expr != authored
+		}
+		// A style pair: the value is trusted only when the emitted expression
+		// is the author's own string constant, untransformed — carried as
+		// gsx.RawCSS past the filter the leaf applies to every other bag style
+		// (Attrs.Style). Anything else — a dynamic value, or whatever a
+		// renderer produced from a constant (it may read ctx, or return a
+		// number) — is sanitized here with the filter a style={expr} value
+		// gets (StyleValue: a gsx.RawCSS passes, anything else is stringified
+		// like any attribute value and runs the CSS value filter). A nil and a
+		// statically gsx.RawCSS value (a css`…` literal, a renderer returning
+		// RawCSS, an explicit vouch) stay as written.
+		if htmlattr.SameName(pair.Key, "style") {
+			switch {
+			case hasFact && fact.isNil && !rendered, valueType != nil && isRawCSS(valueType):
+			case hasFact && !rendered && fact.tv.Value != nil && fact.tv.Value.Kind() == constant.String:
+				expr = trustedCSS(ctx.rt.rt(), expr)
+			default:
+				expr = ctx.rt.rt() + ".StyleValue(" + expr + ")"
+			}
 		}
 		seq.settle(&stmts)
 		keys = append(keys, pair.Key)

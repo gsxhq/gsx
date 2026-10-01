@@ -80,9 +80,13 @@ func TestAttrsBool(t *testing.T) {
 		t.Error(`aria-pressed="false" (a string) should be true`)
 	}
 
-	// Exact-match like Get: a case variant is a different key.
-	if (Attrs{{Key: "Disabled", Value: true}}).Bool("disabled") {
-		t.Error("Bool must not fold case")
+	// Names match like the browser (ASCII case-insensitively), as in Get: the
+	// last pair naming the attribute decides.
+	if !(Attrs{{Key: "Disabled", Value: true}}).Bool("disabled") {
+		t.Error("Bool must fold ASCII case")
+	}
+	if (Attrs{{Key: "disabled", Value: true}, {Key: "DISABLED", Value: Toggle(false)}}).Bool("disabled") {
+		t.Error("Bool must take the last case-variant pair")
 	}
 
 	// A structurally invalid name never renders, so it is never on.

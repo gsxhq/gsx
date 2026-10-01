@@ -120,7 +120,7 @@ page.Render(gsx.WithNonce(r.Context(), nonce), w)
 ```
 
 An authored `nonce` attribute wins. That includes a conditional `nonce` when
-its branch is active and a key spelled exactly `"nonce"` in a spread
+its branch is active and a `nonce` key, in any ASCII case, in a spread
 `gsx.Attrs` bag. An empty or absent context nonce emits no attribute. Nonce
 values are attribute-escaped, and `gsx.NonceFromContext` retrieves the current
 value when markup outside gsx needs it.
@@ -139,3 +139,8 @@ have already validated for the named context.
 | `gsx.RawURL(url)` | Skip URL scheme checks; attribute escaping still applies |
 | `gsx.RawJS(code)` | Emit trusted JavaScript without JavaScript encoding |
 | `gsx.RawCSS(css)` | Emit trusted CSS without CSS value filtering |
+
+A `style` value in a spread `gsx.Attrs` bag runs the same CSS value filter as
+`style={expr}`, so a multi-declaration string becomes `ZgotmplZ`. Wrap CSS you
+trust in `gsx.RawCSS` when you build a bag yourself; gsx marks the static and
+`css`-literal styles it puts in bags this way.

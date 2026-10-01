@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/htmlattr"
 )
 
 // splitComposed splits the inner source of a `class={ … }` / `style={ … }`
@@ -172,10 +173,10 @@ func hasEmbeddedLiteralPrefix(s string) bool {
 // it takes the text literal f`…`; style={…} composes declarations, so it takes
 // css`…`. Every other attribute composes nothing and accepts no literal part.
 func composedLiteralLang(name string) (ast.EmbeddedLang, bool) {
-	switch name {
-	case "class":
+	switch {
+	case htmlattr.SameName(name, "class"):
 		return ast.EmbeddedText, true
-	case "style":
+	case htmlattr.SameName(name, "style"):
 		return ast.EmbeddedCSS, true
 	}
 	return 0, false
@@ -184,10 +185,10 @@ func composedLiteralLang(name string) (ast.EmbeddedLang, bool) {
 // composedLiteralPrefix names the literal form composedLiteralLang accepts, for
 // diagnostics.
 func composedLiteralPrefix(name string) string {
-	switch name {
-	case "class":
+	switch {
+	case htmlattr.SameName(name, "class"):
 		return "f`…`"
-	case "style":
+	case htmlattr.SameName(name, "style"):
 		return "css`…`"
 	}
 	return "no"
@@ -422,7 +423,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		if p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
 			return p.parseOrderedAttrsLiteral(name, attrStartPos)
 		}
-		if name == "class" || name == "style" {
+		if isComposableName(name) {
 			return p.parseComposedAttr(name, attrStartPos)
 		}
 		return p.parseAttrBraceValue(name, attrStartPos)
@@ -465,7 +466,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 		// fallthrough/forwarding merge machinery recognizes it, not a plain
 		// ExprAttr (which would silently drop the component's own contribution
 		// when a caller forwards class/style via an attrs bag).
-		if name == "class" || name == "style" {
+		if isComposableName(name) {
 			return p.parseComposedAttr(name, attrStartPos)
 		}
 		return p.parseAttrBraceValue(name, attrStartPos)
@@ -563,7 +564,7 @@ func (p *parser) parseBareBacktickAttrValue(name string, attrStartPos token.Pos)
 	end++ // past closing '`'
 	expr := p.src[open:end]
 	p.i = end
-	if name == "class" || name == "style" {
+	if isComposableName(name) {
 		part := ast.ComposedPart{Expr: expr, ExprPos: exprPos}
 		ast.SetSpan(&part, exprPos, p.posAt(end))
 		ca := &ast.ComposedAttr{Name: name, Parts: []ast.ComposedPart{part}}
@@ -1134,4 +1135,12 @@ func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, err
 		pairs = append(pairs, pr)
 	}
 	return pairs, nil
+}
+
+// isComposableName reports whether name is the class or style attribute in any
+// ASCII case — the attributes whose braced value composes (ComposedAttr) and
+// whose literal language is fixed (composedLiteralLang). HTML names fold ASCII
+// case, so CLASS and Style are the same attributes and parse the same way.
+func isComposableName(name string) bool {
+	return htmlattr.SameName(name, "class") || htmlattr.SameName(name, "style")
 }

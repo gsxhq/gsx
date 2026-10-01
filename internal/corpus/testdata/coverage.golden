@@ -99,6 +99,22 @@ buildtags/method_variant	diag render
 buildtags/redeclare_within_file	diag(error)
 buildtags/variant_diff_sig	diag(error)
 buildtags/variant_same_sig	diag render
+casefold/bool_after_spread	diag gen render
+casefold/bool_before_spread	diag gen render
+casefold/class_merge	diag gen render
+casefold/class_merge_no_root	diag gen render
+casefold/component_forwarding	diag gen render
+casefold/cond_after_spread	diag gen render
+casefold/cond_before_spread	diag gen render
+casefold/nonce	diag gen render
+casefold/plain_after_spread	diag gen render
+casefold/plain_before_spread	diag gen render
+casefold/style_merge	diag gen render
+casefold/switch_after_spread	diag gen render
+casefold/switch_before_spread	diag gen render
+casefold/two_bags	diag gen render
+casefold/url_after_spread	diag gen render
+casefold/url_before_spread	diag gen render
 class/bag_literal_part	diag gen render
 class/body_local_in_class	diag gen render
 class/body_local_pipe_class	diag gen render
@@ -328,6 +344,13 @@ dquote-literals/f_body_interp	diag gen render
 dquote-literals/f_escaped_quote	diag gen render
 dquote-literals/f_value_var	diag gen render
 dquote-literals/js_attr_backtick_content	diag gen render
+dupattr/case_variant_class_merges	diag gen render
+dupattr/case_variant_style_f_rejected	diag(error)
+dupattr/case_variant_style_filtered	diag gen render
+dupattr/class_style_no_warn	diag gen render
+dupattr/warn_conditional	diag(error)
+dupattr/warn_plain	diag(error)
+dupattr/warn_spread	diag(error)
 element-literals/call-arg	diag gen render
 element-literals/component-tag	diag gen render
 element-literals/func-local	diag gen render
@@ -923,6 +946,11 @@ script/value_pipeline	diag gen render
 script/value_pipeline_chain	diag render
 script/value_pipeline_param	diag gen render
 script/value_tuple	diag gen render
+security/attrs_literal_style_filtered	diag gen render
+security/attrs_literal_style_renderer	diag gen render
+security/bag_style_filtered	diag gen render
+security/bag_style_filtered_spread	diag gen render
+security/bag_style_static_trusted	diag gen render
 security/base_href_url	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
@@ -1095,4 +1123,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1097 cases (render: 931, error: 128, gen-pinned: 613)
+TOTAL: 1125 cases (render: 955, error: 132, gen-pinned: 637)
