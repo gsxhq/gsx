@@ -572,6 +572,7 @@ lowertags/wrapper_composition	diag render
 lowertags/wrapper_self_exclusion	diag gen render
 methods/method_only_file_generates	diag
 methods/method_reserved_recv_var_ctx	diag(error)
+methods/method_tag_local_receiver	diag gen render
 methods/method_unnamed_receiver_error	diag(error)
 methods/render_method_and_function_mixed	diag render
 methods/render_method_invocation_chain	diag render
@@ -1085,4 +1086,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1087 cases (render: 921, error: 128, gen-pinned: 603)
+TOTAL: 1088 cases (render: 922, error: 128, gen-pinned: 604)
