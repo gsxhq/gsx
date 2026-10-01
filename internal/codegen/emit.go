@@ -899,26 +899,31 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		return true
 	}
 
-	// emitCondGuarded emits a PRE-spread cond-attr with every branch leaf
-	// caller-overridable: the branch structure is preserved (conditions evaluate
-	// once, in place, with else-if short-circuit), each leaf wrapped in the same
-	// `!Has(name)` guard as a plain pre-spread scalar.
-	var emitCondGuarded func(t *ast.CondAttr) bool
-	emitCondGuarded = func(t *ast.CondAttr) bool {
-		emitBranch := func(as []ast.Attr) bool {
-			for _, inner := range as {
-				if nested, ok := inner.(*ast.CondAttr); ok {
-					if !emitCondGuarded(nested) {
-						return false
-					}
-					continue
-				}
-				if !emitScalar(inner, true) {
+	// emitGroupGuarded emits a PRE-spread if/switch attribute group with every
+	// branch leaf caller-overridable: the branch structure is preserved
+	// (conditions and the switch tag evaluate once, in place, with else-if and
+	// case-list short-circuit), each leaf wrapped in the same `!Has(name)`
+	// guard as a plain pre-spread scalar.
+	var emitGroupGuarded func(g ast.Attr) bool
+	emitBranch := func(as []ast.Attr) bool {
+		for _, inner := range as {
+			if isAttrGroup(inner) {
+				if !emitGroupGuarded(inner) {
 					return false
 				}
+				continue
 			}
-			return true
+			if !emitScalar(inner, true) {
+				return false
+			}
 		}
+		return true
+	}
+	emitGroupGuarded = func(g ast.Attr) bool {
+		if sw, ok := g.(*ast.SwitchAttr); ok {
+			return emitSwitchAttrStmt(b, sw, lc, func(cc *ast.AttrCaseClause) bool { return emitBranch(cc.Body) })
+		}
+		t := g.(*ast.CondAttr)
 		cond, block, ok := lc.header(b, t.Cond, t.CondEmbedded, t)
 		if !ok {
 			return false
@@ -938,23 +943,23 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		return true
 	}
 
-	// POST-spread cond-attrs force their taken branch's leaves. Planning walks
-	// each one once: every branch with direct leaves gets a bool temp, and the
-	// leaves are collected into source-ordered runs (a nested cond-attr splits
-	// its parent's run so output order matches the original emission order).
-	// The selector — emitted just before the spread — evaluates the branch
-	// structure exactly once, setting the bools and appending the taken
+	// POST-spread if/switch groups force their taken branch's leaves. Planning
+	// walks each one once: every branch with direct leaves gets a bool temp,
+	// and the leaves are collected into source-ordered runs (a nested group
+	// splits its parent's run so output order matches the original emission
+	// order). The selector — emitted just before the spread — evaluates the
+	// branch structure exactly once, setting the bools and appending the taken
 	// branch's names to the dynamic drop slice.
-	postRuns := map[*ast.CondAttr][]condRun{}
+	postRuns := map[ast.Attr][]condRun{}
 	dropVar := ""
 	emitPostCondSelectors := func() bool {
-		var post []*ast.CondAttr
+		var post []ast.Attr
 		for i, a := range attrs {
 			if i <= splitIdx {
 				continue
 			}
-			if t, ok := a.(*ast.CondAttr); ok {
-				post = append(post, t)
+			if isAttrGroup(a) {
+				post = append(post, a)
 			}
 		}
 		if len(post) == 0 {
@@ -1153,8 +1158,8 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			continue
 		}
 		if i < splitIdx {
-			if ca, ok := a.(*ast.CondAttr); ok {
-				if !emitCondGuarded(ca) {
+			if isAttrGroup(a) {
+				if !emitGroupGuarded(a) {
 					return false
 				}
 				continue
@@ -1191,7 +1196,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 		case *ast.SpreadAttr:
 			continue
-		case *ast.CondAttr:
+		case *ast.CondAttr, *ast.SwitchAttr:
 			for _, run := range postRuns[t] {
 				if run.fnVar != "" {
 					fmt.Fprintf(b, "\t\tif %s != nil {\n", run.fnVar)
@@ -1233,10 +1238,11 @@ type condRun struct {
 	leaves  []ast.Attr
 }
 
-// condBranchPlan is one branch (Then or Else list) of a planned post-spread
-// cond-attr: the bool temp set when the branch is taken ("" when the branch
-// has no direct leaves), the direct leaf names it forces out of the spread,
-// and any nested cond-attrs (planned recursively, in source order).
+// condBranchPlan is one branch (an if group's Then or Else list, a switch
+// group's case arm) of a planned post-spread group: the bool temp set when the
+// branch is taken ("" when the branch has no direct leaves), the direct leaf
+// names it forces out of the spread, and any nested groups (planned
+// recursively, in source order).
 type condBranchPlan struct {
 	boolVar string
 	names   []string
@@ -1244,33 +1250,52 @@ type condBranchPlan struct {
 	fnRuns  []int // indexes into the runs of the branch's scoped runs (condRun.fnVar)
 }
 
-// condSelNode mirrors one *ast.CondAttr for selector emission.
+// condSelNode mirrors one if (*ast.CondAttr: branches Then, Else) or switch
+// (*ast.SwitchAttr: one branch per case) attribute group for selector
+// emission.
 type condSelNode struct {
-	attr      *ast.CondAttr
-	then, els condBranchPlan
+	attr     ast.Attr
+	branches []condBranchPlan
 }
 
-// planPostCond walks one post-spread cond-attr allocating branch bool temps
-// (appended to bools) and collecting its leaves into source-ordered runs
-// (appended to runs; a nested cond-attr splits the enclosing run so the
+// planPostCond walks one post-spread if/switch group allocating branch bool
+// temps (appended to bools) and collecting its leaves into source-ordered runs
+// (appended to runs; a nested group splits the enclosing run so the
 // post-spread emission order matches the original branch-body order).
 // Validation has already rejected class/style and spread leaves, so every
-// non-cond leaf has a static rootAttrName. scoped reports an enclosing header
-// with an init statement; under one (or t's own), each run gets a closure temp
+// non-group leaf has a static rootAttrName. scoped reports an enclosing header
+// whose names the leaves may read — an init statement, or a type switch's
+// bound variable; under one (or g's own), each run gets a closure temp
 // (appended to fns) instead of a branch bool — see condRun.
-func planPostCond(t *ast.CondAttr, scoped bool, runs *[]condRun, bools, fns *[]string, interpTemp *int, lc lowerCtx) (*condSelNode, bool) {
-	hasInit, ok := lc.condHeaderHasInit(t)
-	if !ok {
-		return nil, false
+func planPostCond(g ast.Attr, scoped bool, runs *[]condRun, bools, fns *[]string, interpTemp *int, lc lowerCtx) (*condSelNode, bool) {
+	var branchBodies [][]ast.Attr
+	var headerScopes bool
+	switch t := g.(type) {
+	case *ast.CondAttr:
+		hasInit, ok := lc.condHeaderHasInit(t)
+		if !ok {
+			return nil, false
+		}
+		headerScopes = hasInit
+		branchBodies = [][]ast.Attr{t.Then, t.Else}
+	case *ast.SwitchAttr:
+		binds, ok := lc.switchHeaderBinds(t)
+		if !ok {
+			return nil, false
+		}
+		headerScopes = binds
+		for _, cc := range t.Cases {
+			branchBodies = append(branchBodies, cc.Body)
+		}
 	}
-	scoped = scoped || hasInit
+	scoped = scoped || headerScopes
 	planBranch := func(as []ast.Attr) (condBranchPlan, bool) {
 		var bp condBranchPlan
 		curIdx := -1 // index into *runs of the open run, -1 = none
 		for _, a := range as {
-			if nested, ok := a.(*ast.CondAttr); ok {
+			if isAttrGroup(a) {
 				curIdx = -1
-				n, ok := planPostCond(nested, scoped, runs, bools, fns, interpTemp, lc)
+				n, ok := planPostCond(a, scoped, runs, bools, fns, interpTemp, lc)
 				if !ok {
 					return bp, false
 				}
@@ -1302,22 +1327,24 @@ func planPostCond(t *ast.CondAttr, scoped bool, runs *[]condRun, bools, fns *[]s
 		}
 		return bp, true
 	}
-	n := &condSelNode{attr: t}
-	if n.then, ok = planBranch(t.Then); !ok {
-		return nil, false
-	}
-	if n.els, ok = planBranch(t.Else); !ok {
-		return nil, false
+	n := &condSelNode{attr: g}
+	for _, body := range branchBodies {
+		bp, ok := planBranch(body)
+		if !ok {
+			return nil, false
+		}
+		n.branches = append(n.branches, bp)
 	}
 	return n, true
 }
 
 // emitPostCondSelector writes the run-once branch selector for a planned
-// post-spread cond-attr: the original if/else structure evaluates each
-// condition exactly once; a taken branch sets its bool temp (or assigns each
-// scoped run its closure, whose leaves emitLeaves renders) and appends its
-// direct leaf names to the dynamic drop slice. A condition's hoists precede its
-// `if`; a nested cond-attr's land inside the enclosing branch.
+// post-spread group: the original if/else or switch structure evaluates each
+// condition (or the tag and case lists) exactly once; a taken branch sets its
+// bool temp (or assigns each scoped run its closure, whose leaves emitLeaves
+// renders) and appends its direct leaf names to the dynamic drop slice. A
+// header's hoists precede its `if`/`switch`; a nested group's land inside the
+// enclosing branch.
 func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, runs []condRun, dropVar string, lc lowerCtx, emitLeaves func(*bytes.Buffer, []ast.Attr) bool) bool {
 	emitBranch := func(bp condBranchPlan) bool {
 		if bp.boolVar != "" {
@@ -1344,17 +1371,27 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, runs []condRun, dropV
 		}
 		return true
 	}
-	cond, block, ok := lc.header(b, n.attr.Cond, n.attr.CondEmbedded, n.attr)
+	if sw, ok := n.attr.(*ast.SwitchAttr); ok {
+		// Every case is written, empty arms included: the case lists are
+		// evaluated in order until one matches, exactly as authored.
+		arm := 0
+		return emitSwitchAttrStmt(b, sw, lc, func(*ast.AttrCaseClause) bool {
+			arm++
+			return emitBranch(n.branches[arm-1])
+		})
+	}
+	t := n.attr.(*ast.CondAttr)
+	cond, block, ok := lc.header(b, t.Cond, t.CondEmbedded, t)
 	if !ok {
 		return false
 	}
 	fmt.Fprintf(b, "\t\tif %s {\n", cond)
-	if !emitBranch(n.then) {
+	if !emitBranch(n.branches[0]) {
 		return false
 	}
-	if len(n.els.names) > 0 || len(n.els.nested) > 0 {
+	if els := n.branches[1]; len(els.names) > 0 || len(els.nested) > 0 {
 		b.WriteString("\t\t} else {\n")
-		if !emitBranch(n.els) {
+		if !emitBranch(els) {
 			return false
 		}
 	}
@@ -1369,6 +1406,66 @@ func closeHeaderBlock(b *bytes.Buffer, block bool) {
 	if block {
 		b.WriteString("\t\t}\n")
 	}
+}
+
+// emitSwitchAttrStmt writes an in-tag `{ switch … }` attribute group as a
+// real Go switch statement, arm writing each case's body. Emitting the tag
+// once (rather than lowering to an `==` chain) is the point: a tag that is a
+// call is evaluated exactly once, and every arm shape Go allows (case lists,
+// a tagless switch, a type switch and its bound variable) lowers unchanged.
+// The tag's hoists precede the `switch`; case lists are evaluated lazily and
+// have no error channel.
+func emitSwitchAttrStmt(b *bytes.Buffer, t *ast.SwitchAttr, lc lowerCtx, arm func(cc *ast.AttrCaseClause) bool) bool {
+	tag, block, ok := lc.header(b, t.Tag, t.TagEmbedded, t)
+	if !ok {
+		return false
+	}
+	fmt.Fprintf(b, "\t\tswitch %s {\n", tag)
+	caseLC := lc
+	caseLC.noErrChannel = caseListErrRemedy
+	for _, cc := range t.Cases {
+		if cc.Default {
+			b.WriteString("\t\tdefault:\n")
+		} else {
+			list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "\t\tcase %s:\n", list)
+		}
+		if !arm(cc) {
+			return false
+		}
+	}
+	b.WriteString("\t\t}\n")
+	closeHeaderBlock(b, block)
+	return true
+}
+
+// isAttrGroup reports whether a is an in-tag if/switch attribute group.
+func isAttrGroup(a ast.Attr) bool {
+	switch a.(type) {
+	case *ast.CondAttr, *ast.SwitchAttr:
+		return true
+	}
+	return false
+}
+
+// attrGroupBranches returns the mutually exclusive attribute lists of an
+// if/switch attribute group — an if's Then and Else, a switch's case arms —
+// and nil for any other attribute.
+func attrGroupBranches(a ast.Attr) [][]ast.Attr {
+	switch t := a.(type) {
+	case *ast.CondAttr:
+		return [][]ast.Attr{t.Then, t.Else}
+	case *ast.SwitchAttr:
+		branches := make([][]ast.Attr, len(t.Cases))
+		for i, cc := range t.Cases {
+			branches[i] = cc.Body
+		}
+		return branches
+	}
+	return nil
 }
 
 // hasAttrsMethodSet reports whether t already supports the method-bearing bag
@@ -1514,15 +1611,16 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 	// escaped value verbatim). Reject rather than silently diverge from the
 	// inline rendering of the same attribute. Cond-attr branches fold into the
 	// same bag (they inherit bagElementFold through condAttrsExpr), so the
-	// scan descends into them.
+	// scan descends into if and switch branches.
 	var rejectURLSinkLiterals func(attrs []ast.Attr) bool
 	rejectURLSinkLiterals = func(attrs []ast.Attr) bool {
 		for _, a := range attrs {
-			switch t := a.(type) {
-			case *ast.CondAttr:
-				if !rejectURLSinkLiterals(t.Then) || !rejectURLSinkLiterals(t.Else) {
+			for _, branch := range attrGroupBranches(a) {
+				if !rejectURLSinkLiterals(branch) {
 					return false
 				}
+			}
+			switch t := a.(type) {
 			case *ast.EmbeddedAttr:
 				if t.Lang == ast.EmbeddedText {
 					continue
@@ -1578,40 +1676,39 @@ func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 }
 
 // firstTwoSpreadAttrs returns the first two spread attrs on an element in
-// depth-first source order, descending into cond-attr branches, plus the
-// enclosing cond-attr condition of the FIRST spread (empty when it is
-// top-level). It is the fold trigger's probe: `second` being non-nil tells the
-// caller (elementFolds) to use the full-fold path, while
-// firstCond lets elementFolds detect a lone cond-NESTED spread (empty firstCond
-// = top-level spread; non-empty = nested in a `{ if … { { x... } } }`).
-func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstCond string) {
-	var visit func(list []ast.Attr, cond string)
-	visit = func(list []ast.Attr, cond string) {
+// depth-first source order, descending into if/switch attribute branches,
+// plus whether the FIRST spread is nested in such a branch. It is the fold
+// trigger's probe: `second` being non-nil tells the caller (elementFolds) to
+// use the full-fold path, while firstNested lets elementFolds detect a lone
+// group-NESTED spread (e.g. `{ if … { { x... } } }`).
+func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstNested bool) {
+	var visit func(list []ast.Attr, nested bool)
+	visit = func(list []ast.Attr, nested bool) {
 		for _, a := range list {
 			if second != nil {
 				return
 			}
-			switch t := a.(type) {
-			case *ast.SpreadAttr:
+			if t, ok := a.(*ast.SpreadAttr); ok {
 				if first == nil {
-					first, firstCond = t, cond
+					first, firstNested = t, nested
 				} else {
 					second = t
 				}
-			case *ast.CondAttr:
-				visit(t.Then, t.Cond)
-				visit(t.Else, "!("+t.Cond+")")
+				continue
+			}
+			for _, branch := range attrGroupBranches(a) {
+				visit(branch, true)
 			}
 		}
 	}
-	visit(attrs, "")
-	return first, second, firstCond
+	visit(attrs, false)
+	return first, second, firstNested
 }
 
 // classStyleContributorCounts counts, per name, the maximum number of
 // class/style leaves that can contribute to an element's final composable value
-// in a single render. A CondAttr's branches are mutually exclusive, so it
-// contributes the larger of its branch counts, not their sum — a lone
+// in a single render. An if/switch group's branches are mutually exclusive, so
+// it contributes the largest of its branch counts, not their sum — a lone
 // `{ if c { class="a" } else { class="b" } }` yields at most one class and must
 // not trigger the fold. This is a shape analysis only; conditions are never
 // evaluated. A bare bool `class`/`style` is not a contributor: the bag's
@@ -1629,11 +1726,14 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 				name = t.Name
 			case *ast.EmbeddedAttr:
 				name = t.Name
-			case *ast.CondAttr:
-				thenClass, thenStyle := walk(t.Then)
-				elseClass, elseStyle := walk(t.Else)
-				class += max(thenClass, elseClass)
-				style += max(thenStyle, elseStyle)
+			case *ast.CondAttr, *ast.SwitchAttr:
+				var maxClass, maxStyle int
+				for _, branch := range attrGroupBranches(a) {
+					c, s := walk(branch)
+					maxClass, maxStyle = max(maxClass, c), max(maxStyle, s)
+				}
+				class += maxClass
+				style += maxStyle
 			}
 			switch name {
 			case "class":
@@ -1671,26 +1771,25 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 // entry), so a folded element's attrs must never be scanned as needing the
 // scratch buffer, while a non-folded lone-cond element (inline path) may.
 func elementFolds(attrs []ast.Attr) bool {
-	first, second, firstCond := firstTwoSpreadAttrs(attrs)
+	first, second, firstNested := firstTwoSpreadAttrs(attrs)
 	class, style := classStyleContributorCounts(attrs)
 	return class > 1 || style > 1 || second != nil ||
-		(first != nil && firstCond != "" && hasRootClassStyle(attrs)) ||
+		(first != nil && firstNested && hasRootClassStyle(attrs)) ||
 		(first != nil && hasCondClassStyle(attrs)) // D3 lift: spread + cond-attr class/style
 }
 
-// hasCondClassStyle reports whether attrs carries a class/style leaf inside a
-// cond-attr branch (any depth, incl. else-if). Such a shape is what D3 used to
+// hasCondClassStyle reports whether attrs carries a class/style leaf inside an
+// if/switch attribute branch (any depth, incl. else-if). Such a shape is what D3 used to
 // reject on a forwarding element; routing it through the fold merges it via an
 // AttrsCond bag entry aggregated at the leaf.
 func hasCondClassStyle(attrs []ast.Attr) bool {
 	var walk func(as []ast.Attr) bool
 	walk = func(as []ast.Attr) bool {
 		for _, a := range as {
+			if slices.ContainsFunc(attrGroupBranches(a), walk) {
+				return true
+			}
 			switch t := a.(type) {
-			case *ast.CondAttr:
-				if walk(t.Then) || walk(t.Else) {
-					return true
-				}
 			case *ast.ComposedAttr:
 				if t.Name == "class" || t.Name == "style" {
 					return true
@@ -1713,13 +1812,11 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 		}
 		return false
 	}
-	// Only cond-attr-nested class/style counts (a top-level class/style is not a
-	// D3 case); so walk begins one level down, at each top-level CondAttr.
+	// Only group-nested class/style counts (a top-level class/style is not a
+	// D3 case); so walk begins one level down, at each top-level if/switch.
 	for _, a := range attrs {
-		if c, ok := a.(*ast.CondAttr); ok {
-			if walk(c.Then) || walk(c.Else) {
-				return true
-			}
+		if slices.ContainsFunc(attrGroupBranches(a), walk) {
+			return true
 		}
 	}
 	return false
@@ -1764,7 +1861,7 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 // + `"`. Mirrors emitComposedAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
 func emitRootComposedClass(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), lc)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, lc)
 	if !ok {
 		return false
 	}
@@ -1864,10 +1961,8 @@ func attrsHaveSpread(attrs []ast.Attr) bool {
 
 func hasConditionalExplicitNonce(attrs []ast.Attr) bool {
 	for _, a := range attrs {
-		if c, ok := a.(*ast.CondAttr); ok {
-			if attrsContainExplicitNonce(c.Then) || attrsContainExplicitNonce(c.Else) {
-				return true
-			}
+		if slices.ContainsFunc(attrGroupBranches(a), attrsContainExplicitNonce) {
+			return true
 		}
 	}
 	return false
@@ -1875,10 +1970,7 @@ func hasConditionalExplicitNonce(attrs []ast.Attr) bool {
 
 func attrsContainExplicitNonce(attrs []ast.Attr) bool {
 	for _, a := range attrs {
-		if attrIsExplicitNonce(a) {
-			return true
-		}
-		if c, ok := a.(*ast.CondAttr); ok && (attrsContainExplicitNonce(c.Then) || attrsContainExplicitNonce(c.Else)) {
+		if attrIsExplicitNonce(a) || slices.ContainsFunc(attrGroupBranches(a), attrsContainExplicitNonce) {
 			return true
 		}
 	}
@@ -1894,7 +1986,7 @@ func attrIsExplicitNonce(a ast.Attr) bool {
 
 // nonceInjection carries the state for auto-injecting the context CSP nonce
 // into a <script>/<style> open tag: one hoisted gsx.Attrs temp per spread
-// attr (at any depth, including cond-attr branches) so the post-attr guard
+// attr (at any depth, including if/switch branches) so the post-attr guard
 // can ask each spread whether it already carried a "nonce" key. A nil
 // *nonceInjection means "not eligible" (not script/style, or the author
 // wrote an explicit nonce) and every method is a nil-safe no-op.
@@ -1933,15 +2025,14 @@ func newNonceInjection(b *bytes.Buffer, tag string, attrs []ast.Attr, rt rtImpor
 			if a == skip {
 				continue
 			}
-			switch t := a.(type) {
-			case *ast.SpreadAttr:
+			if t, ok := a.(*ast.SpreadAttr); ok {
 				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 				*interpTemp++
 				ni.temps[t] = tmp
 				ni.order = append(ni.order, tmp)
-			case *ast.CondAttr:
-				walk(t.Then)
-				walk(t.Else)
+			}
+			for _, branch := range attrGroupBranches(a) {
+				walk(branch)
 			}
 		}
 	}
@@ -2006,7 +2097,7 @@ func rootStyleString(b *bytes.Buffer, styleAttr *ast.ComposedAttr, staticStyle *
 	case staticStyle != nil:
 		return strconv.Quote(staticStyle.Value), nil, true
 	case styleAttr != nil:
-		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), lc)
+		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true, lc)
 		if !ok {
 			return "", nil, false
 		}
@@ -3274,36 +3365,15 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		return true
 	case *ast.SwitchAttr:
 		// Same statement position as the CondAttr `if` above, so a real Go
-		// `switch` is valid here. Emitting the tag once (rather than lowering to
-		// an `==` chain) is the whole point: a tag that is a call must be
-		// evaluated exactly once, as Go does. The tag's hoists precede the
-		// `switch`; case lists are evaluated lazily and have no error channel.
-		tag, block, ok := lc.header(b, t.Tag, t.TagEmbedded, t)
-		if !ok {
-			return false
-		}
-		fmt.Fprintf(b, "\t\tswitch %s {\n", tag)
-		caseLC := lc
-		caseLC.noErrChannel = caseListErrRemedy
-		for _, cc := range t.Cases {
-			if cc.Default {
-				b.WriteString("\t\tdefault:\n")
-			} else {
-				list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
-				if !ok {
-					return false
-				}
-				fmt.Fprintf(b, "\t\tcase %s:\n", list)
-			}
+		// `switch` is valid here (see emitSwitchAttrStmt).
+		return emitSwitchAttrStmt(b, t, lc, func(cc *ast.AttrCaseClause) bool {
 			for _, inner := range cc.Body {
 				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 					return false
 				}
 			}
-		}
-		b.WriteString("\t\t}\n")
-		closeHeaderBlock(b, block)
-		return true
+			return true
+		})
 	case *ast.OrderedAttrsAttr:
 		bag.Errorf(a.Pos(), a.End(), "unsupported-attr",
 			"ordered-attrs {{ }} is only valid as the value of a declared gsx.Attrs component prop, not plain-element attribute %q; declare a gsx.Attrs prop and spread it with { prop... }",
@@ -4645,7 +4715,7 @@ func lowerComposedPartSeed(seed string, stages []ast.PipeStage, table funcTables
 // tokens through the passed merge func and writes the attr-escaped value.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
 func emitComposedAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), lc)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, lc)
 	if !ok {
 		return false
 	}
@@ -4662,7 +4732,7 @@ func emitComposedAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, im
 // included parts with "; " and attr-escapes the result.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
 func emitStyleAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), lc)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true, lc)
 	if !ok {
 		return false
 	}
@@ -4672,73 +4742,69 @@ func emitStyleAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 	return true
 }
 
-func composedPartsOrdered(a *ast.ComposedAttr, resolved map[ast.Node]types.Type) bool {
-	for i := range a.Parts {
-		p := &a.Parts[i]
-		if p.CF != nil {
-			return true
-		}
-		if _, ok := resolved[p].(*types.Tuple); ok {
-			return true
-		}
-		// A nested literal's error-carrying holes hoist statements at the
-		// part's position, so earlier parts must already be pinned.
-		if p.ExprEmbedded != nil || p.CondEmbedded != nil {
-			return true
-		}
-	}
-	return false
-}
-
-func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool, wrap func(string) string, lc lowerCtx) ([]string, bool) {
+// composedParts lowers each part of a composable class/style list to its
+// gsx.Class/ClassIf (Style/StyleIf) constructor call, in source order. The
+// parts are one evaluation sequence: each value and guard is lowered into its
+// own statement buffer and settled through seqPins, so a later part's hoisted
+// statement (a nested literal's error hole, a (T, error) value, a fallible
+// pipeline stage or renderer, a value-form if/switch) first pins the earlier
+// values still pending in the consuming call.
+func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool, lc lowerCtx) ([]string, bool) {
 	errReturn := lc.errReturn
-	parts := make([]string, 0, len(a.Parts))
-	ordered := composedPartsOrdered(a, resolved)
 	partConstructor := "Class"
 	conditionalPartConstructor := "ClassIf"
 	if style {
 		partConstructor = "Style"
 		conditionalPartConstructor = "StyleIf"
 	}
-	partExpr := func(value string) string {
-		return fmt.Sprintf("%s.%s(%s)", rt.rt(), partConstructor, value)
+	type slot struct {
+		val, cond  int // seqPins indexes; cond < 0 when unguarded
+		styleValue bool
 	}
-	conditionalPartExpr := func(value, cond string) string {
-		return fmt.Sprintf("%s.%s(%s, %s)", rt.rt(), conditionalPartConstructor, value, cond)
+	seq := seqPins{out: b, interpTemp: interpTemp}
+	var stmts bytes.Buffer
+	slots := make([]slot, 0, len(a.Parts))
+	// guard lowers a part's `: cond` and records it after its value.
+	guard := func(p *ast.ComposedPart) (int, bool) {
+		if p.Cond == "" {
+			return -1, true
+		}
+		cond, ok := lc.field(&stmts, p.Cond, p.CondEmbedded, p)
+		if !ok {
+			return 0, false
+		}
+		seq.settle(&stmts)
+		return seq.add(cond, ""), true
 	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
-			tmp, ok := hoistValueCF(b, p.CF, table, imports, rt, interpTemp, style, bag, resolved, lc)
+			seq.pin()
+			tmp, ok := hoistValueCF(&stmts, p.CF, table, imports, rt, interpTemp, style, bag, resolved, lc)
 			if !ok {
 				return nil, false
 			}
-			parts = append(parts, partExpr(tmp))
+			seq.settle(&stmts)
+			slots = append(slots, slot{val: seq.add(tmp, ""), cond: -1})
 			continue
 		}
 		if p.LiteralSegments != nil {
-			val, ok := composedLiteralPartExpr(b, p, style, resolved, table, imports, rt, interpTemp, bag, errReturn)
+			val, ok := composedLiteralPartExpr(&stmts, p, style, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			if !ok {
 				return nil, false
 			}
-			if p.Cond == "" {
-				parts = append(parts, partExpr(val))
-				continue
-			}
-			cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-			if !ok {
+			seq.settle(&stmts)
+			s := slot{val: seq.add(val, "")}
+			if s.cond, ok = guard(p); !ok {
 				return nil, false
 			}
-			if ordered {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, cond)
-				cond = tmp
-			}
-			parts = append(parts, conditionalPartExpr(val, cond))
+			slots = append(slots, s)
 			continue
 		}
-		expr, ok := composedPartExpr(b, p, a, table, imports, wrap, bag, lc)
+		if _, isTuple := resolved[p].(*types.Tuple); isTuple {
+			seq.pin() // a (T, error) part always hoists
+		}
+		expr, ok := composedPartExpr(&stmts, p, a, table, imports, pipeWrapReturning(&stmts, interpTemp, errReturn), bag, lc)
 		if !ok {
 			return nil, false
 		}
@@ -4753,55 +4819,30 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 				bag.Errorf(p.Pos(), p.End(), "invalid-tuple", "%s part %q returns %s; only (T, error) is supported", kind, p.Expr, t)
 				return nil, false
 			}
-			expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
+			expr = hoistTupleReturning(&stmts, expr, interpTemp, errReturn)
 			t = elemT
-			// The part's own tuple hoist already lands expr in a position-
-			// preserving temp; applyRenderer may turn it back into a bare call
-			// (a no-error renderer), which — since composedPartsOrdered forces
-			// ordered=true whenever ANY part is itself tuple-typed — must be
-			// re-captured to stay pinned at this source position, exactly like
-			// the ordered branch below does for a non-tuple part. A renderer
-			// registry miss, or a hasErr renderer (already a hoisted temp),
-			// leaves expr as a bare identifier and skips the extra capture.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
-			if isCallExpr(expr) {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-				expr = tmp
-			}
-		} else {
-			// Renderer FIRST (mirrors every other render boundary), THEN the
-			// ordered capture — so a renderer's call (or its own error hoist)
-			// evaluates at this part's SOURCE position, not deferred to the
-			// final gw.Class/ClassJoin call site.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
-			if ordered {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-				expr = tmp
-			}
 		}
-		val := expr
-		if style && (len(p.Stages) > 0 || !isStringLiteralExpr(strings.TrimSpace(p.Expr))) {
-			val = rt.rt() + ".StyleValue(" + expr + ")"
-		}
-		if p.Cond == "" {
-			parts = append(parts, partExpr(val))
-			continue
-		}
-		cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-		if !ok {
+		// Renderer FIRST (mirrors every other render boundary): its call, or
+		// its own error hoist, belongs to this part's source position.
+		expr, _ = applyRenderer(&stmts, expr, t, table, imports, interpTemp, errReturn)
+		seq.settle(&stmts)
+		s := slot{val: seq.add(expr, ""), styleValue: style && (len(p.Stages) > 0 || !isStringLiteralExpr(strings.TrimSpace(p.Expr)))}
+		if s.cond, ok = guard(p); !ok {
 			return nil, false
 		}
-		if ordered {
-			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-			*interpTemp++
-			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, cond)
-			cond = tmp
+		slots = append(slots, s)
+	}
+	parts := make([]string, 0, len(slots))
+	for _, s := range slots {
+		val := seq.val(s.val)
+		if s.styleValue {
+			val = rt.rt() + ".StyleValue(" + val + ")"
 		}
-		parts = append(parts, conditionalPartExpr(val, cond))
+		if s.cond < 0 {
+			parts = append(parts, fmt.Sprintf("%s.%s(%s)", rt.rt(), partConstructor, val))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s.%s(%s, %s)", rt.rt(), conditionalPartConstructor, val, seq.val(s.cond)))
+		}
 	}
 	return parts, true
 }
@@ -5319,77 +5360,46 @@ func isCallExpr(rawVal string) bool {
 // usedPkgs (alias→pkgPath) reports the filter packages any lowered part references
 // so the caller imports them; an unknown filter surfaces as an *attrError
 // positioned at the ComposedAttr.
-// b and interpTemp are needed to hoist value-form CF (if/switch) parts: the
-// hoisted var+if/switch statements are written to b before the containing call.
-// b is always a real buffer: at element level it is the render closure's
-// statement buffer; inside a component conditional-attr branch (condBranchAttrs)
-// it is that branch's thunk-LOCAL buffer, so a hoisted statement lands inside
-// the enclosing `func() (rtPkg.Attrs, error) { ... }` thunk rather than the
-// caller's statement stream.
-// wrap is the lowerPipe hook for a mid-stage (R, error) filter in a class
-// part's pipeline, and is also reused directly to hoist a tuple-returning
-// PLAIN part (no pipeline) once resolved confirms it: probePipeWrap in probe
-// mode; at element level, emitPipeWrap(b, interpTemp) (single-value
-// `return _gsxerr`); inside a cond-attr branch thunk, thunkPipeWrap(b,
-// interpTemp) (two-value `return nil, _gsxerr`, since the enclosing thunk's
-// signature is (Attrs, error)). The caller selects the variant that matches
-// its own enclosing return arity — classEntryExpr itself stays agnostic to
-// that choice, hoisting exclusively through wrap.
 //
-// errReturn enables [renderers] application at this component-class-prop
-// boundary, mirroring positional component-call lowering: a part value whose
-// type is registered is converted to its renderer's string BEFORE it becomes
-// a <rtPkg>.Class(...)/.ClassIf(...) argument — the SAME string constraint
-// gsx.Class(s string) imposes at element level (composedParts). Non-empty
-// errReturn is the applyRenderer error-return matching the caller's own
-// arity ("return _gsxerr" from the element-level call path;
-// "return nil, _gsxerr" from condBranchAttrs' thunk). Pass "" to disable: the
-// probe (skeleton never dispatches renderers; also gated on probeWrap) and
-// genSkippedTagSink's discarded nullary func literal (mirrors
-// the discarded-call path's own "" precedent). applyRenderer wants an
-// `imports map[string]bool`, but usedPkgs (alias->pkgPath) is this
-// function's only import-bookkeeping channel back to the caller — bridged
-// through a scratch map whose keys are ignored, same as condBranchAttrs.
+// Statements (value-form if/switch parts, (T, error) parts, mid-pipeline
+// (R, error) stages, fallible renderers, nested literals' error holes) are
+// written to b before the containing call: the render closure's statement
+// buffer at element level, or a conditional-attr branch's thunk-LOCAL buffer
+// (condBranchAttrs). errReturn is the error return matching that enclosing
+// function ("return _gsxerr", or "return nil, _gsxerr" in a branch thunk). As
+// in composedParts, the parts are one evaluation sequence settled through
+// seqPins.
+//
+// probeWrap (skeleton mode) stubs part values with "" so the skeleton never
+// imposes gsx.Class's string constraint (#85), unwraps calls with _gsxunwrap
+// instead of hoisting, applies no renderer and pins nothing.
 //
 // lc lowers nested literals and elements in part values, guards, value-form
-// control expressions and arms (emit mode only), writing their hoists to b; a
-// lowering failure is already positioned in the bag (errBagDiagReported).
-func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string, errReturn string, lc lowerCtx) (string, map[string]string, error) {
-	parts := make([]string, 0, len(a.Parts))
+// control expressions and arms (emit mode only); a lowering failure is
+// already positioned in the bag (errBagDiagReported).
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, errReturn string, lc lowerCtx) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
-	ordered := !probeWrap && composedPartsOrdered(a, resolved)
+	seq := seqPins{out: b, interpTemp: interpTemp, off: probeWrap}
+	var stmts bytes.Buffer
+	wrap := probePipeWrap
+	if !probeWrap {
+		wrap = pipeWrapReturning(&stmts, interpTemp, errReturn)
+	}
 	// applyClassRenderer applies the registered [renderers] entry for t (if
-	// any) to expr, folding any imported renderer package into usedPkgs.
-	// A no-op in probe mode, when disabled (errReturn == ""), or when t is
-	// unresolved — the same disable conditions component-call lowering uses.
+	// any) to expr, folding any imported renderer package into usedPkgs. A
+	// no-op in probe mode or when t is unresolved. applyRenderer wants an
+	// `imports map[string]bool`; usedPkgs is this function's only import
+	// channel, bridged through a scratch map.
 	applyClassRenderer := func(expr string, t types.Type) string {
-		if probeWrap || errReturn == "" || t == nil {
+		if probeWrap || t == nil {
 			return expr
 		}
 		scratch := map[string]bool{}
-		rendered, _ := applyRenderer(b, expr, t, table, scratch, interpTemp, errReturn)
+		rendered, _ := applyRenderer(&stmts, expr, t, table, scratch, interpTemp, errReturn)
 		for path := range scratch {
 			usedPkgs[path] = path
 		}
 		return rendered
-	}
-	// captureIfCall re-pins a possibly-rewritten (by applyClassRenderer) call
-	// expression at its current source position with a fresh temp — needed
-	// only after a tuple part's OWN hoist already produced a bare identifier
-	// that applyClassRenderer then turned back into a call (a no-error
-	// renderer): composedPartsOrdered forces ordered=true whenever any part is
-	// itself tuple-typed, so that call must not float down to the final
-	// ClassJoin(...) argument list. A registry miss, or a hasErr renderer
-	// (already its own hoisted temp), leaves expr a bare identifier and this
-	// is a no-op.
-	captureIfCall := func(expr string) string {
-		if !isCallExpr(expr) {
-			return expr
-		}
-		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-		return tmp
 	}
 	// literalExpr lowers an f`…` class literal (a part or a value-form arm)
 	// through the element path's composedLiteralSegmentsExpr, folding any
@@ -5400,18 +5410,47 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 			return `""`, true
 		}
 		scratch := map[string]bool{}
-		expr, ok := composedLiteralSegmentsExpr(b, segments, false, resolved, table, scratch, lc.rt, interpTemp, lc.bag, lc.errReturn)
+		expr, ok := composedLiteralSegmentsExpr(&stmts, segments, false, resolved, table, scratch, lc.rt, interpTemp, lc.bag, lc.errReturn)
 		for path := range scratch {
 			usedPkgs[path] = path
 		}
 		return expr, ok
 	}
+	// unwrapValue hoists a (T, error) part or arm value (emit mode) and
+	// applies its renderer.
+	unwrapValue := func(n ast.Node, src, expr string, what string) (string, error) {
+		t := resolved[n]
+		if tup, isTuple := t.(*types.Tuple); isTuple {
+			elemT, ok := tupleUnwrapType(tup)
+			if !ok {
+				return "", &attrError{pos: n.Pos(), end: n.End(), code: "invalid-tuple", msg: fmt.Sprintf("%s %q returns %s; only (T, error) is supported", what, src, t)}
+			}
+			expr = wrap(expr)
+			t = elemT
+		}
+		return applyClassRenderer(expr, t), nil
+	}
+	type slot struct{ val, cond int } // seqPins indexes; cond < 0 when unguarded
+	slots := make([]slot, 0, len(a.Parts))
+	// guard lowers a part's `: cond` and records it after its value.
+	guard := func(p *ast.ComposedPart) (int, error) {
+		if p.Cond == "" {
+			return -1, nil
+		}
+		cond, ok := lc.field(&stmts, p.Cond, p.CondEmbedded, p)
+		if !ok {
+			return 0, errBagDiagReported
+		}
+		seq.settle(&stmts)
+		return seq.add(cond, ""), nil
+	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
+			seq.pin()
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
-			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
+			fmt.Fprintf(&stmts, "\t\tvar %s string\n", tmp)
 			var lowerErr error
 			armExpr := func(arm *ast.ValueArm) (string, bool) {
 				if arm.Segments != nil {
@@ -5421,7 +5460,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 					}
 					return expr, ok
 				}
-				seed, ok := lc.field(b, arm.Expr, arm.Embedded, arm)
+				seed, ok := lc.field(&stmts, arm.Expr, arm.Embedded, arm)
 				if !ok {
 					lowerErr = errBagDiagReported
 					return "", false
@@ -5432,49 +5471,29 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 					return "", false
 				}
 				maps.Copy(usedPkgs, used)
-				if probeWrap && isCallExpr(expr) {
-					// Skeleton mode: wrap call exprs with _gsxunwrap so the
-					// assignment _gsxvN = _gsxunwrap(cls(v)) compiles even when
-					// cls returns (T, error). resolved is nil in skeleton mode, so
-					// the emit-mode check below is skipped.
+				switch {
+				case probeWrap && isCallExpr(expr):
+					// Skeleton mode: _gsxunwrap keeps `_gsxvN = _gsxunwrap(cls(v))`
+					// compiling whether cls returns T or (T, error).
 					expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
-				} else if probeWrap {
-					// Non-call arm expr: stub with "" (#85) — the _gsxvN string
-					// assignment must not impose the string constraint in the
-					// skeleton.
+				case probeWrap:
+					// Non-call arm expr: stub with "" (#85).
 					expr = `""`
-				} else if !probeWrap {
-					// Emit mode: consult resolved to detect and hoist (T, error)
-					// tuples. wrap writes the hoist into b at this point — after the
-					// if/case label and before the _gsxvN = assignment — so it lands
-					// inside the correct block, with the errReturn arity (single-
-					// value at element level, two-value inside a cond-attr thunk)
-					// the caller already baked into wrap.
-					if t := resolved[arm]; t != nil {
-						if tup, isTuple := t.(*types.Tuple); isTuple {
-							elemT, ok := tupleUnwrapType(tup)
-							if !ok {
-								lowerErr = &attrError{pos: arm.Pos(), end: arm.End(), code: "invalid-tuple", msg: fmt.Sprintf("class value-form arm %q returns %s; only (T, error) is supported", arm.Expr, t)}
-								return "", false
-							}
-							expr = wrap(expr)
-							t = elemT
-						}
-						// The arm's value is assigned directly to the CF's own
-						// tmp var inside this if/switch branch, so no extra
-						// position-preserving capture is needed here (unlike the
-						// plain-part list below, which joins several parts into
-						// ONE final ClassJoin(...) call).
-						expr = applyClassRenderer(expr, t)
+				default:
+					// The hoist lands after the if/case label, before the
+					// `_gsxvN =` assignment, inside the arm's block.
+					if expr, err = unwrapValue(arm, arm.Expr, expr, "class value-form arm"); err != nil {
+						lowerErr = err
+						return "", false
 					}
 				}
 				return expr, true
 			}
 			var cfOK bool
 			if p.CF.If != nil {
-				cfOK = emitValueIf(b, p.CF.If, tmp, armExpr, lc)
+				cfOK = emitValueIf(&stmts, p.CF.If, tmp, armExpr, lc)
 			} else {
-				cfOK = emitValueSwitch(b, p.CF.Switch, tmp, armExpr, lc)
+				cfOK = emitValueSwitch(&stmts, p.CF.Switch, tmp, armExpr, lc)
 			}
 			if !cfOK {
 				// armExpr records every failure of its own in lowerErr; a
@@ -5485,117 +5504,56 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 				}
 				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: strings.TrimPrefix(lowerErr.Error(), "codegen: ")}
 			}
-			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, tmp))
+			seq.settle(&stmts)
+			slots = append(slots, slot{val: seq.add(tmp, ""), cond: -1})
 			continue
 		}
+		var expr string
 		if p.LiteralSegments != nil {
-			// Same shape as composedParts' literal part: the value is used in
-			// place; an ordered guard is pinned in a temp.
 			val, ok := literalExpr(p.LiteralSegments)
 			if !ok {
 				return "", nil, errBagDiagReported
 			}
-			if p.Cond == "" {
-				parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, val))
-				continue
+			expr = val
+		} else {
+			if _, isTuple := resolved[p].(*types.Tuple); isTuple {
+				seq.pin() // a (T, error) part always hoists
 			}
-			cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
+			seed, ok := lc.field(&stmts, p.Expr, p.ExprEmbedded, p)
 			if !ok {
 				return "", nil, errBagDiagReported
 			}
-			if ordered {
-				condTmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, cond)
-				cond = condTmp
+			lowered, used, err := lowerComposedPartSeed(seed, p.Stages, table, wrap)
+			if err != nil {
+				msg := strings.TrimPrefix(err.Error(), "codegen: ")
+				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 			}
-			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, val, cond))
-			continue
-		}
-		seed, ok := lc.field(b, p.Expr, p.ExprEmbedded, p)
-		if !ok {
-			return "", nil, errBagDiagReported
-		}
-		expr, used, err := lowerComposedPartSeed(seed, p.Stages, table, wrap)
-		if err != nil {
-			msg := strings.TrimPrefix(err.Error(), "codegen: ")
-			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
-		}
-		maps.Copy(usedPkgs, used)
-		if p.Cond == "" {
-			// Unconditional plain part: in probe mode stub EVERY part value expr
-			// (call or not) with "" so the skeleton never imposes gsx.Class's
-			// string constraint — a bare identifier/selector of a non-string
-			// (e.g. registered) type must not fail the skeleton's own
-			// type-check (#85). Liveness and type harvest ride the counted
-			// per-part probes (_gsxuseq, emitProbes); the string constraint IS
-			// re-imposed by gsx.Class in the emitted code, so a wrong type
-			// still fails to compile there — the stub only defers that check
-			// out of the skeleton so the clean emit-time "invalid-tuple"
-			// diagnostic can fire first for ALL non-(T,error) tuples.
-			//
-			// In emit mode, check resolved for a tuple and hoist it.
+			maps.Copy(usedPkgs, used)
 			if probeWrap {
-				expr = `""`
-			} else {
-				t := resolved[p]
-				if tup, isAny := t.(*types.Tuple); isAny {
-					elemT, ok2 := tupleUnwrapType(tup)
-					if !ok2 {
-						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
-					}
-					expr = wrap(expr)
-					expr = captureIfCall(applyClassRenderer(expr, elemT))
-				} else {
-					expr = applyClassRenderer(expr, t)
-					if ordered {
-						tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-						*interpTemp++
-						fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-						expr = tmp
-					}
-				}
+				// Stub EVERY part value (call or not) with "" so the skeleton
+				// never imposes gsx.Class's string constraint (#85): liveness
+				// and type harvest ride the per-part probes, and the emitted
+				// gsx.Class re-imposes it.
+				lowered = `""`
+			} else if lowered, err = unwrapValue(p, p.Expr, lowered, "class part"); err != nil {
+				return "", nil, err
 			}
-			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
+			expr = lowered
+		}
+		seq.settle(&stmts)
+		s := slot{val: seq.add(expr, "")}
+		var err error
+		if s.cond, err = guard(p); err != nil {
+			return "", nil, err
+		}
+		slots = append(slots, s)
+	}
+	parts := make([]string, 0, len(slots))
+	for _, s := range slots {
+		if s.cond < 0 {
+			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, seq.val(s.val)))
 		} else {
-			if !probeWrap && ordered {
-				if t, isTuple := resolved[p].(*types.Tuple); isTuple {
-					elemT, ok := tupleUnwrapType(t)
-					if !ok {
-						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
-					}
-					expr = wrap(expr)
-					expr = captureIfCall(applyClassRenderer(expr, elemT))
-				} else {
-					expr = applyClassRenderer(expr, resolved[p])
-					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-					*interpTemp++
-					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-					expr = tmp
-				}
-				cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-				if !ok {
-					return "", nil, errBagDiagReported
-				}
-				condTmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, cond)
-				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, condTmp))
-			} else {
-				if probeWrap {
-					// Same #85 stub as the unconditional arm: the value expr
-					// must not impose the string constraint in the skeleton.
-					// The cond expr is a bool guard and stays as-is.
-					expr = `""`
-				} else {
-					expr = applyClassRenderer(expr, resolved[p])
-				}
-				cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-				if !ok {
-					return "", nil, errBagDiagReported
-				}
-				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, cond))
-			}
+			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, seq.val(s.val), seq.val(s.cond)))
 		}
 	}
 	// Raw join (no merger): the bag's class is consumed via Attrs.Class() and
@@ -5646,21 +5604,8 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 		return "", nil, errBagDiagReported
 	}
 
-	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
-	// lit, nil }` thunk. tb is thunk-LOCAL: any hoist wrap writes into it, so the
-	// hoisted statements land inside this thunk's own body, not the caller's.
 	branchThunk := func(attrs []ast.Attr) (attrsBranchCode, map[string]string, error) {
-		var tb bytes.Buffer
-		wrap := probePipeWrap
-		if !probeWrap {
-			wrap = thunkPipeWrap(&tb, interpTemp)
-		}
-		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
-		if err != nil {
-			return attrsBranchCode{}, nil, err
-		}
-		body := fmt.Sprintf("%s\t\treturn %s, nil\n", tb.String(), lit)
-		return attrsBranchCode{thunk: fmt.Sprintf("func() (%s.Attrs, error) {\n%s\t}", rtPkg, body), inline: body}, used, nil
+		return attrsBranchThunk(attrs, interpTemp, probeWrap, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
 	}
 
 	thenCode, thenUsed, err := branchThunk(t.Then)
@@ -5678,6 +5623,81 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 		maps.Copy(usedPkgs, elseUsed)
 	}
 	return header.expr(thenCode, elseCode), usedPkgs, nil
+}
+
+// attrsBranchThunk builds one if/switch branch's `func() (rtPkg.Attrs, error)
+// { ...; return lit, nil }` thunk. tb is thunk-LOCAL: any hoist wrap writes
+// into it, so the hoisted statements land inside this thunk's own body, not
+// the caller's.
+func attrsBranchThunk(attrs []ast.Attr, interpTemp *int, probeWrap bool, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext, lc lowerCtx) (attrsBranchCode, map[string]string, error) {
+	var tb bytes.Buffer
+	wrap := probePipeWrap
+	if !probeWrap {
+		wrap = thunkPipeWrap(&tb, interpTemp)
+	}
+	lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
+	if err != nil {
+		return attrsBranchCode{}, nil, err
+	}
+	body := fmt.Sprintf("%s\t\treturn %s, nil\n", tb.String(), lit)
+	return attrsBranchCode{thunk: fmt.Sprintf("func() (%s.Attrs, error) {\n%s\t}", rtPkg, body), inline: body}, used, nil
+}
+
+// emitAttrsSwitch writes an in-tag `{ switch … }` attrs contributor as a real
+// Go switch statement and returns the temp holding its bag. The if form
+// composes into one AttrsCond expression; the switch form is a statement for
+// the reason the element emitter's is (emitSwitchAttrStmt): the tag is
+// evaluated exactly once and every arm shape Go allows lowers unchanged. Each
+// arm calls only its own branch thunk (thunks[i] for case i), so only the
+// taken arm's attrs are built, and an unmatched switch leaves the nil bag, as
+// an `if` without `else` does. errReturn is the enclosing function's error
+// return.
+func emitAttrsSwitch(b *bytes.Buffer, sw *ast.SwitchAttr, thunks []string, rtPkg, errReturn string, lc lowerCtx) (string, bool) {
+	name := fmt.Sprintf("_gsxv%d", *lc.interpTemp)
+	*lc.interpTemp++
+	// The tag's hoists precede the `switch`; case lists are evaluated lazily
+	// and have no error channel.
+	var pre bytes.Buffer
+	tagExpr, block, ok := lc.header(&pre, sw.Tag, sw.TagEmbedded, sw)
+	if !ok {
+		return "", false
+	}
+	// A short var decl keeps _gsxerr shared with any sibling lowering in this
+	// scope (name is new, so `:=` is legal whether or not _gsxerr already
+	// exists), which is what errReturn refers to. Inside a header block (an
+	// init statement before hoists) a hoist may declare its own _gsxerr, so
+	// the arms then report through a dedicated error temp checked after the
+	// block.
+	errVar := "_gsxerr"
+	if block {
+		errVar = fmt.Sprintf("_gsxv%d", *lc.interpTemp)
+		*lc.interpTemp++
+	}
+	fmt.Fprintf(b, "%s, %s := %s.Attrs(nil), error(nil)\n", name, errVar, rtPkg)
+	b.Write(pre.Bytes())
+	fmt.Fprintf(b, "switch %s {\n", tagExpr)
+	caseLC := lc
+	caseLC.noErrChannel = caseListErrRemedy
+	for i, cc := range sw.Cases {
+		if cc.Default {
+			b.WriteString("default:\n")
+		} else {
+			list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+			if !ok {
+				return "", false
+			}
+			fmt.Fprintf(b, "case %s:\n", list)
+		}
+		fmt.Fprintf(b, "%s, %s = (%s)()\n", name, errVar, thunks[i])
+	}
+	b.WriteString("}\n")
+	closeHeaderBlock(b, block)
+	if block {
+		fmt.Fprintf(b, "if _gsxerr := %s; _gsxerr != nil { %s }\n", errVar, errReturn)
+	} else {
+		fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", errReturn)
+	}
+	return name, true
 }
 
 // condBranchAttrs builds a <rtPkg>.Attrs expression from one conditional-attr
@@ -5802,6 +5822,51 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		}
 		return expr, ok
 	}
+	// pipeBagValue lowers a contributor's `|>` pipeline over val, its seed.
+	// The final stage is never wrapped by lowerPipe; it is wrapped here too
+	// when it returns (R, error), so a final tuple hoists (emit) / unwraps
+	// (probe) instead of sitting raw in the bag literal.
+	pipeBagValue := func(val string, stages []ast.PipeStage, owner ast.Node) (string, error) {
+		lowered, used, perr := lowerPipe(val, stages, table, orderedWrap)
+		if perr != nil {
+			msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+			return "", &attrError{pos: owner.Pos(), end: owner.End(), code: "unresolved-pipeline", msg: msg}
+		}
+		maps.Copy(usedPkgs, used)
+		last := stages[len(stages)-1]
+		if e, ok := table.filters.lookup(last.Name); ok && e.hasErr {
+			lowered = orderedWrap(lowered)
+		}
+		return lowered, nil
+	}
+	// renderBagValue applies a registered [renderers] entry, if the value's
+	// type (resolved[owner], unwrapped from (T, error)) is one, BEFORE the
+	// value enters the Attrs bag as `any` — the last point codegen still
+	// knows its concrete registered type; the runtime Spread only sees `any`
+	// and falls back to fmt.Sprint (or the URL sink's own toStr). Skipped in
+	// probe mode: resolved is nil there, and the skeleton never dispatches
+	// through a renderer. applyRenderer's imports are bridged into usedPkgs
+	// (alias->pkgPath, deduped on the path) through a scratch map.
+	renderBagValue := func(val string, owner ast.Node) string {
+		if probeWrap {
+			return val
+		}
+		attrType := resolved[owner]
+		if tup, isTuple := attrType.(*types.Tuple); isTuple {
+			if elemT, ok := tupleUnwrapType(tup); ok {
+				attrType = elemT
+			}
+		}
+		if _, ok := table.renderers[rendererKey(attrType)]; ok {
+			materializePrior()
+		}
+		scratch := map[string]bool{}
+		val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, errReturn)
+		for path := range scratch {
+			usedPkgs[path] = path
+		}
+		return val
+	}
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.SpreadAttr:
@@ -5833,6 +5898,24 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				condExpr = hoistTupleReturning(b, condExpr, interpTemp, errReturn)
 			}
 			parts = append(parts, condExpr)
+		case *ast.SwitchAttr:
+			// A statement (emitAttrsSwitch), so contributors already
+			// encountered are evaluated first.
+			materializePrior()
+			thunks := make([]string, len(t.Cases))
+			for i, cc := range t.Cases {
+				code, used, err := attrsBranchThunk(cc.Body, interpTemp, probeWrap, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
+				if err != nil {
+					return "", nil, err
+				}
+				maps.Copy(usedPkgs, used)
+				thunks[i] = code.thunk
+			}
+			name, ok := emitAttrsSwitch(b, t, thunks, rtPkg, errReturn, lc)
+			if !ok {
+				return "", nil, errBagDiagReported
+			}
+			parts = append(parts, name)
 		case *ast.StaticAttr:
 			value := strconv.Quote(t.Value)
 			if ctx == bagElementFold {
@@ -5845,18 +5928,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				return "", nil, errBagDiagReported
 			}
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(val, t.Stages, table, orderedWrap)
-				if perr != nil {
-					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
-				}
-				maps.Copy(usedPkgs, used)
-				// The final stage is never wrapped by lowerPipe; wrap it here too
-				// when it returns (R, error), so a final tuple hoists (emit) /
-				// unwraps (probe) instead of sitting raw in the bag literal.
-				last := t.Stages[len(t.Stages)-1]
-				if e, ok := table.filters.lookup(last.Name); ok && e.hasErr {
-					lowered = orderedWrap(lowered)
+				lowered, err := pipeBagValue(val, t.Stages, t)
+				if err != nil {
+					return "", nil, err
 				}
 				val = lowered
 			} else if probeWrap {
@@ -5876,39 +5950,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				}
 				val = orderedWrap(val)
 			}
-			if !probeWrap {
-				// Apply a registered [renderers] entry, if the attr's value type is
-				// one, BEFORE the value enters the Attrs bag as `any` — this is the
-				// last point codegen still knows the value's concrete registered
-				// type; once it's `Value: val` in the literal, the runtime Spread
-				// only sees `any` and falls back to fmt.Sprint (or the URL sink's
-				// own toStr), never a registered renderer. Skipped entirely in
-				// probe/skeleton mode: resolved is nil there (any lookup returns the
-				// zero types.Type), and the skeleton never dispatches through a
-				// renderer call anyway — it only needs to type-check.
-				attrType := resolved[t]
-				if tup, isTuple := attrType.(*types.Tuple); isTuple {
-					if elemT, ok := tupleUnwrapType(tup); ok {
-						attrType = elemT
-					}
-				}
-				if _, ok := table.renderers[rendererKey(attrType)]; ok {
-					materializePrior()
-				}
-				// applyRenderer wants an `imports map[string]bool`, but this deep in
-				// the bag-literal lowering the only import bookkeeping channel back
-				// to the caller is usedPkgs (map[string]string, alias->pkgPath,
-				// consumed only by its values — see positional call lowering's
-				// `for _, path := range usedPkgs { imports[path] = true }`). Bridge
-				// through a scratch map and fold pkgPath in as both key and value;
-				// the key is never read downstream, only deduped on.
-				scratch := map[string]bool{}
-				val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, errReturn)
-				for path := range scratch {
-					usedPkgs[path] = path
-				}
-			}
-			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), renderBagValue(val, t)))
 		case *ast.BoolAttr:
 			entries = append(entries, fmt.Sprintf(
 				"{Key: %s, Value: %s.Toggle(true)}",
@@ -5917,7 +5959,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			))
 		case *ast.ComposedAttr:
 			// Class/style lowering may emit value-form, tuple, or renderer
-			// statements directly rather than through orderedWrap. Pin everything
+			// statements (ordered among its own parts by seqPins). Pin everything
 			// already encountered before entering those lowering paths.
 			materializePrior()
 			if t.Name == "style" && ctx == bagElementFold {
@@ -5926,12 +5968,12 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				// CSS-filtering each dynamic declaration, trusting string literals)
 				// but as the VALUE form (gsx.StyleString, the "; "-join without the
 				// attr-escape gw.Style applies) so the leaf's Attrs.Style() aggregates
-				// it and the single leaf write escapes once. orderedWrap/errReturn
-				// carry the enclosing position's shape — inside an AttrsCond
+				// it and the single leaf write escapes once. lc.errReturn
+				// carries the enclosing position's shape — inside an AttrsCond
 				// branch thunk that means `return nil, _gsxerr` — so a renderer,
 				// tuple, or mid-pipe (R, error) hoist emits the right arity. The
 				// component path, with its probe pass, still rejects style below.
-				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, orderedWrap, lc)
+				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, lc)
 				if !ok {
 					// composedParts already reported the positioned diagnostic.
 					return "", nil, errBagDiagReported
@@ -5949,7 +5991,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				}
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, orderedWrap, errReturn, lc)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, errReturn, lc)
 			if eerr != nil {
 				return "", nil, eerr
 			}
@@ -5958,6 +6000,32 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
+			if len(t.Stages) > 0 {
+				// A whole-literal pipeline (f` only; the parser rejects one on
+				// js`/css`): the segments assemble into one string, piped and
+				// rendered like a piped expression attribute. The skeleton
+				// probes the pipeline on its own (_gsxuse), so the probe bag
+				// holds a string placeholder.
+				if probeWrap {
+					entries = append(entries, fmt.Sprintf("{Key: %s, Value: \"\"}", strconv.Quote(t.Name)))
+					break
+				}
+				var hoist bytes.Buffer
+				concat, ok := embeddedTextValueExpr(&hoist, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
+				if !ok {
+					return "", nil, errBagDiagReported
+				}
+				if hoist.Len() != 0 {
+					materializePrior()
+					b.Write(hoist.Bytes())
+				}
+				val, err := pipeBagValue(concat, t.Stages, t)
+				if err != nil {
+					return "", nil, err
+				}
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), renderBagValue(val, t)))
+				break
+			}
 			// A hole-free embedded literal forwards to the bag as raw text.
 			if text, static := embeddedStaticText(t); static {
 				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))

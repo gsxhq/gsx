@@ -253,3 +253,93 @@ func (f *fieldPins) String() string {
 	}
 	return f.render(f.pieces[0].start, f.pieces[len(f.pieces)-1].end)
 }
+
+// seqPins keeps source order across the separately lowered values of one
+// attribute: the parts of a class/style list, the pairs of an attrs literal.
+// They are one attribute, so one evaluation sequence, but each value is
+// lowered on its own and may write statements — an error-carrying hole, a
+// (T, error) value, a fallible pipeline stage or renderer, a value-form
+// if/switch — that run before the call consuming every value. Each value is
+// lowered into its own statement buffer; settle writes that buffer, first
+// pinning every earlier value still pending in the consuming call to a
+// `_gsxvN` temp, in source order: fieldPins' rule across the values (as
+// composeBag's materializePrior does across a bag's contributors). Nothing is
+// pinned where no later value writes a statement.
+type seqPins struct {
+	out        *bytes.Buffer
+	interpTemp *int
+	off        bool // skeleton probe: never executed, nothing to order
+	vals       []seqValue
+	pending    []int // indexes into vals, in source order
+}
+
+// seqValue is one value's expression and, where its temp needs a different
+// spelling to keep the value's meaning, the expression the temp is bound to.
+type seqValue struct {
+	expr, pinExpr string
+	pinned        bool
+}
+
+// add records a lowered value, pending in the consuming call, and returns its
+// index for val. pinExpr is what a temp is bound to ("" = expr).
+func (s *seqPins) add(expr, pinExpr string) int {
+	s.vals = append(s.vals, seqValue{expr: expr, pinExpr: pinExpr})
+	i := len(s.vals) - 1
+	if !isGeneratedTemp(expr) {
+		s.pending = append(s.pending, i)
+	}
+	return i
+}
+
+// settle writes stmts, the statements the next value's lowering produced,
+// after pinning every pending value when there are any; stmts is reset.
+func (s *seqPins) settle(stmts *bytes.Buffer) {
+	if stmts.Len() == 0 {
+		return
+	}
+	s.pin()
+	s.out.Write(stmts.Bytes())
+	stmts.Reset()
+}
+
+// pin pins every pending value now, ahead of a value whose lowering always
+// writes a statement first (a value-form if/switch declares its temp).
+func (s *seqPins) pin() {
+	if s.off {
+		return
+	}
+	for _, i := range s.pending {
+		v := &s.vals[i]
+		rhs := v.pinExpr
+		if rhs == "" {
+			rhs = v.expr
+		}
+		name := fmt.Sprintf("_gsxv%d", *s.interpTemp)
+		*s.interpTemp++
+		fmt.Fprintf(s.out, "\t\t%s := %s\n", name, rhs)
+		v.expr, v.pinned = name, true
+	}
+	s.pending = s.pending[:0]
+}
+
+// val returns value i's expression: its temp once pinned.
+func (s *seqPins) val(i int) string { return s.vals[i].expr }
+
+// pinned reports whether value i was pinned (to its pinExpr, when set).
+func (s *seqPins) pinned(i int) bool { return s.vals[i].pinned }
+
+// isGeneratedTemp reports whether expr is a codegen temp (`_gsxvN`, a
+// reserved name bound once by a hoisted statement): it evaluates nothing, so
+// it needs no pin.
+func isGeneratedTemp(expr string) bool {
+	digits, ok := strings.CutPrefix(expr, "_gsxv")
+	if !ok || digits == "" {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
