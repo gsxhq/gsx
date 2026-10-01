@@ -5690,6 +5690,51 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		}
 		return expr, ok
 	}
+	// pipeBagValue lowers a contributor's `|>` pipeline over val, its seed.
+	// The final stage is never wrapped by lowerPipe; it is wrapped here too
+	// when it returns (R, error), so a final tuple hoists (emit) / unwraps
+	// (probe) instead of sitting raw in the bag literal.
+	pipeBagValue := func(val string, stages []ast.PipeStage, owner ast.Node) (string, error) {
+		lowered, used, perr := lowerPipe(val, stages, table, orderedWrap)
+		if perr != nil {
+			msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+			return "", &attrError{pos: owner.Pos(), end: owner.End(), code: "unresolved-pipeline", msg: msg}
+		}
+		maps.Copy(usedPkgs, used)
+		last := stages[len(stages)-1]
+		if e, ok := table.filters.lookup(last.Name); ok && e.hasErr {
+			lowered = orderedWrap(lowered)
+		}
+		return lowered, nil
+	}
+	// renderBagValue applies a registered [renderers] entry, if the value's
+	// type (resolved[owner], unwrapped from (T, error)) is one, BEFORE the
+	// value enters the Attrs bag as `any` — the last point codegen still
+	// knows its concrete registered type; the runtime Spread only sees `any`
+	// and falls back to fmt.Sprint (or the URL sink's own toStr). Skipped in
+	// probe mode: resolved is nil there, and the skeleton never dispatches
+	// through a renderer. applyRenderer's imports are bridged into usedPkgs
+	// (alias->pkgPath, deduped on the path) through a scratch map.
+	renderBagValue := func(val string, owner ast.Node) string {
+		if probeWrap {
+			return val
+		}
+		attrType := resolved[owner]
+		if tup, isTuple := attrType.(*types.Tuple); isTuple {
+			if elemT, ok := tupleUnwrapType(tup); ok {
+				attrType = elemT
+			}
+		}
+		if _, ok := table.renderers[rendererKey(attrType)]; ok {
+			materializePrior()
+		}
+		scratch := map[string]bool{}
+		val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, errReturn)
+		for path := range scratch {
+			usedPkgs[path] = path
+		}
+		return val
+	}
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.SpreadAttr:
@@ -5733,18 +5778,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				return "", nil, errBagDiagReported
 			}
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(val, t.Stages, table, orderedWrap)
-				if perr != nil {
-					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
-				}
-				maps.Copy(usedPkgs, used)
-				// The final stage is never wrapped by lowerPipe; wrap it here too
-				// when it returns (R, error), so a final tuple hoists (emit) /
-				// unwraps (probe) instead of sitting raw in the bag literal.
-				last := t.Stages[len(t.Stages)-1]
-				if e, ok := table.filters.lookup(last.Name); ok && e.hasErr {
-					lowered = orderedWrap(lowered)
+				lowered, err := pipeBagValue(val, t.Stages, t)
+				if err != nil {
+					return "", nil, err
 				}
 				val = lowered
 			} else if probeWrap {
@@ -5764,39 +5800,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				}
 				val = orderedWrap(val)
 			}
-			if !probeWrap {
-				// Apply a registered [renderers] entry, if the attr's value type is
-				// one, BEFORE the value enters the Attrs bag as `any` — this is the
-				// last point codegen still knows the value's concrete registered
-				// type; once it's `Value: val` in the literal, the runtime Spread
-				// only sees `any` and falls back to fmt.Sprint (or the URL sink's
-				// own toStr), never a registered renderer. Skipped entirely in
-				// probe/skeleton mode: resolved is nil there (any lookup returns the
-				// zero types.Type), and the skeleton never dispatches through a
-				// renderer call anyway — it only needs to type-check.
-				attrType := resolved[t]
-				if tup, isTuple := attrType.(*types.Tuple); isTuple {
-					if elemT, ok := tupleUnwrapType(tup); ok {
-						attrType = elemT
-					}
-				}
-				if _, ok := table.renderers[rendererKey(attrType)]; ok {
-					materializePrior()
-				}
-				// applyRenderer wants an `imports map[string]bool`, but this deep in
-				// the bag-literal lowering the only import bookkeeping channel back
-				// to the caller is usedPkgs (map[string]string, alias->pkgPath,
-				// consumed only by its values — see positional call lowering's
-				// `for _, path := range usedPkgs { imports[path] = true }`). Bridge
-				// through a scratch map and fold pkgPath in as both key and value;
-				// the key is never read downstream, only deduped on.
-				scratch := map[string]bool{}
-				val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, errReturn)
-				for path := range scratch {
-					usedPkgs[path] = path
-				}
-			}
-			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), renderBagValue(val, t)))
 		case *ast.BoolAttr:
 			entries = append(entries, fmt.Sprintf(
 				"{Key: %s, Value: %s.Toggle(true)}",
@@ -5846,6 +5850,32 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
+			if len(t.Stages) > 0 {
+				// A whole-literal pipeline (f` only; the parser rejects one on
+				// js`/css`): the segments assemble into one string, piped and
+				// rendered like a piped expression attribute. The skeleton
+				// probes the pipeline on its own (_gsxuse), so the probe bag
+				// holds a string placeholder.
+				if probeWrap {
+					entries = append(entries, fmt.Sprintf("{Key: %s, Value: \"\"}", strconv.Quote(t.Name)))
+					break
+				}
+				var hoist bytes.Buffer
+				concat, ok := embeddedTextValueExpr(&hoist, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
+				if !ok {
+					return "", nil, errBagDiagReported
+				}
+				if hoist.Len() != 0 {
+					materializePrior()
+					b.Write(hoist.Bytes())
+				}
+				val, err := pipeBagValue(concat, t.Stages, t)
+				if err != nil {
+					return "", nil, err
+				}
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), renderBagValue(val, t)))
+				break
+			}
 			// A hole-free embedded literal forwards to the bag as raw text.
 			if text, static := embeddedStaticText(t); static {
 				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
