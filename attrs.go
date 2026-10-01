@@ -176,8 +176,9 @@ func (a Attrs) HasName(name string) bool {
 // Bool reports the boolean state key resolves to in this bag: the state the
 // leaf spread would render, computed the way Spread computes it. The last pair
 // for key decides (an EXACT key match like Get, so a case-variant pair is a
-// different key here, although Spread renders the two as one attribute). A Toggle or bool-kinded value yields itself; any other
-// renderable value yields true — "", "false", a RawJS, a number — because the
+// different key here, although Spread renders the two as one attribute). A
+// Toggle or bool-kinded value yields itself; any other renderable value yields
+// true — "", "false", a RawJS, a number — because the
 // platform treats disabled="" and disabled="false" alike. Whatever Spread never
 // writes yields false: an absent key, a nil value, a structurally invalid name,
 // or a value Spread cannot render (a struct, a typed nil pointer — a render
@@ -311,40 +312,55 @@ func URLPrefixMatch(key string, prefixes []string) bool {
 }
 
 // Take returns Get(key)'s last value and a copy of a without ALL occurrences of key.
+// Like Get and Without it matches key EXACTLY, so a case-variant pair stays in
+// the returned bag.
 func (a Attrs) Take(key string) (any, Attrs) {
 	v, _ := a.Get(key)
 	return v, a.Without(key)
 }
 
-// Merge returns a new bag combining a and other, preserving order. For each pair in
-// other: a "class"/"style" value is CONCATENATED onto the first such pair already in
-// the result (or appended if none). Any other key OVERWRITES the last existing
-// occurrence in place and drops earlier duplicates, so the incoming bag wins under the
-// last-wins scalar rule; absent keys append.
+// Merge returns a new bag combining a and other, preserving order. Keys are
+// compared the way rendering compares them — names that differ only in ASCII
+// case are one attribute (see Attrs) — so Merge resolves exactly what the leaf
+// would. For each pair in other: a class or style value (any ASCII spelling) is
+// CONCATENATED onto the first such pair already in the result, which takes the
+// incoming spelling (or appended if none). Any other key OVERWRITES the last
+// existing occurrence in place — taking the incoming spelling — and drops
+// earlier duplicates, so the incoming bag wins under the last-wins scalar rule;
+// absent keys append. Style pieces are sanitized as they join, each exactly as
+// Attrs.Style renders it (RawCSS verbatim, anything else through the CSS value
+// filter), and the joined declaration is carried as RawCSS.
 //
 // Merge is for userland eager composition, where you want duplicates resolved
 // immediately rather than at render time. Generated call sites use ConcatAttrs instead
 // (one allocation, no eager scan) because Spread resolves duplicates at render
-// time anyway; see ConcatAttrs for why the two are observably equivalent there.
+// time anyway; see ConcatAttrs for why the two render the same.
 func (a Attrs) Merge(other Attrs) Attrs {
 	out := make(Attrs, len(a))
 	copy(out, a)
 	for _, kv := range other {
-		if kv.Key == "class" || kv.Key == "style" {
-			out = mergeClassStyleAttr(out, kv)
-			continue
+		switch {
+		case htmlattr.SameName(kv.Key, "class"):
+			out = mergeAggregateAttr(out, kv, "class", toStr)
+		case htmlattr.SameName(kv.Key, "style"):
+			out = mergeAggregateAttr(out, kv, "style", StyleValue)
+		default:
+			out = mergeScalarAttr(out, kv)
 		}
-		out = mergeScalarAttr(out, kv)
 	}
 	return out
 }
 
 // ConcatAttrs concatenates bags in order into one new bag, preserving every
 // pair (duplicates included). It does NOT dedupe or class-merge: rendering
-// resolves duplicates at the leaf (Spread is last-wins on scalar
-// keys and aggregates class/style), and Get/Has are last-wins by contract — so
-// concatenation is observably equivalent to eager Merge for every consumer
-// of the documented Attrs semantics. Generated call sites use it instead of
+// resolves duplicates at the leaf (Spread is last-wins on scalar keys and
+// aggregates class/style, matching names case-insensitively in ASCII), and
+// eager Merge resolves them by the same rule — so a concatenated and a merged
+// bag render the same attributes, values and spellings. Two things differ: a
+// merged class/style sits at its first pair's position where the leaf writes
+// it at the last (forwarding roots write class/style at their own merge site,
+// so only a standalone spread shows this), and the key-exact lookups Get/Has
+// see Merge's collapsed spelling. Generated call sites use it instead of
 // .Merge() chains (one allocation instead of one per link). nil segments are
 // skipped; a zero-entry result is nil.
 func ConcatAttrs(bags ...Attrs) Attrs {
@@ -521,10 +537,13 @@ func attrNameExcluded(key string, excluded []string) bool {
 	return false
 }
 
+// mergeScalarAttr overwrites the last pair naming kv's attribute (SameName)
+// with kv, spelling included, and drops the earlier ones; kv appends when the
+// attribute is absent.
 func mergeScalarAttr(out Attrs, kv Attr) Attrs {
 	idx := -1
 	for i := len(out) - 1; i >= 0; i-- {
-		if out[i].Key == kv.Key {
+		if htmlattr.SameName(out[i].Key, kv.Key) {
 			idx = i
 			break
 		}
@@ -532,14 +551,19 @@ func mergeScalarAttr(out Attrs, kv Attr) Attrs {
 	if idx < 0 {
 		return append(out, kv)
 	}
-	out[idx].Value = kv.Value
-	return removeAttrBefore(out, kv.Key, idx)
+	out[idx] = kv
+	return removeNamedAttrs(out, kv.Key, func(i int) bool { return i < idx })
 }
 
-func mergeClassStyleAttr(out Attrs, kv Attr) Attrs {
+// mergeAggregateAttr folds kv, a pair of the aggregating attribute name
+// ("class" or "style"), into the first pair of that attribute: that pair takes
+// kv's spelling and the join of its own, every later pair's and kv's values,
+// each rendered by piece, and the later pairs are dropped. A style join is carried
+// as RawCSS, its pieces having been sanitized by piece (StyleValue).
+func mergeAggregateAttr(out Attrs, kv Attr, name string, piece func(any) string) Attrs {
 	idx := -1
 	for i := range out {
-		if out[i].Key == kv.Key {
+		if htmlattr.SameName(out[i].Key, name) {
 			idx = i
 			break
 		}
@@ -547,30 +571,28 @@ func mergeClassStyleAttr(out Attrs, kv Attr) Attrs {
 	if idx < 0 {
 		return append(out, kv)
 	}
+	joined := piece(out[idx].Value)
 	for i := idx + 1; i < len(out); i++ {
-		if out[i].Key == kv.Key {
-			out[idx].Value = joinAttrStrings(kv.Key, toStr(out[idx].Value), toStr(out[i].Value))
+		if htmlattr.SameName(out[i].Key, name) {
+			joined = joinAttrStrings(name, joined, piece(out[i].Value))
 		}
 	}
-	out[idx].Value = joinAttrStrings(kv.Key, toStr(out[idx].Value), toStr(kv.Value))
-	return removeAttrAfter(out, kv.Key, idx)
-}
-
-func removeAttrBefore(attrs Attrs, key string, keep int) Attrs {
-	out := attrs[:0]
-	for i, kv := range attrs {
-		if kv.Key == key && i < keep {
-			continue
-		}
-		out = append(out, kv)
+	joined = joinAttrStrings(name, joined, piece(kv.Value))
+	out[idx].Key = kv.Key // the last contributor's spelling renders, as at the leaf
+	if name == "style" {
+		out[idx].Value = RawCSS(joined)
+	} else {
+		out[idx].Value = joined
 	}
-	return out
+	return removeNamedAttrs(out, name, func(i int) bool { return i > idx })
 }
 
-func removeAttrAfter(attrs Attrs, key string, keep int) Attrs {
+// removeNamedAttrs drops, in place, every pair naming name's attribute
+// (SameName) at an index drop selects.
+func removeNamedAttrs(attrs Attrs, name string, drop func(i int) bool) Attrs {
 	out := attrs[:0]
 	for i, kv := range attrs {
-		if kv.Key == key && i > keep {
+		if drop(i) && htmlattr.SameName(kv.Key, name) {
 			continue
 		}
 		out = append(out, kv)

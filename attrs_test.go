@@ -607,3 +607,34 @@ func TestBagStyleSanitized(t *testing.T) {
 		t.Errorf(`Get("style") = %v, want the raw value`, v)
 	}
 }
+
+// TestMergeMatchesConcatRender pins that eager Merge resolves duplicates by
+// the same rule Spread applies to a ConcatAttrs bag — names compared in ASCII
+// case, class/style aggregated, style pieces CSS-filtered — so the two render
+// the same, both through Spread and through a forwarding root's Class/Style.
+func TestMergeMatchesConcatRender(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a, b Attrs
+	}{
+		{"class case variants", Attrs{{Key: "class", Value: "p-2"}}, Attrs{{Key: "CLASS", Value: "p-4"}, {Key: "class", Value: "p-8"}}},
+		{"style case variants", Attrs{{Key: "style", Value: "color:red"}}, Attrs{{Key: "STYLE", Value: "color:blue"}, {Key: "Style", Value: "color:green"}}},
+		{"style hostile piece", Attrs{{Key: "Style", Value: RawCSS("a:b; c:d")}}, Attrs{{Key: "style", Value: "background:url(javascript:x)"}, {Key: "STYLE", Value: "top:0"}}},
+		{"scalar case variants", Attrs{{Key: "href", Value: "/a"}, {Key: "TITLE", Value: "t"}}, Attrs{{Key: "HREF", Value: "javascript:x"}, {Key: "title", Value: "u"}}},
+		{"receiver duplicates", Attrs{{Key: "data-d", Value: "1"}, {Key: "DATA-D", Value: "2"}, {Key: "Class", Value: "a"}, {Key: "class", Value: "b"}}, Attrs{{Key: "Data-D", Value: "3"}, {Key: "CLASS", Value: "c"}}},
+	} {
+		merged, concat := tc.a.Merge(tc.b), ConcatAttrs(tc.a, tc.b)
+		if m, c := merged.Class(), concat.Class(); m != c {
+			t.Errorf("%s: Merge Class %q != Concat Class %q", tc.name, m, c)
+		}
+		if m, c := merged.Style(), concat.Style(); m != c {
+			t.Errorf("%s: Merge Style %q != Concat Style %q", tc.name, m, c)
+		}
+		var mb, cb bytes.Buffer
+		W(&mb).Spread(context.Background(), "a", merged, AttrSinks{}, []string{"class"})
+		W(&cb).Spread(context.Background(), "a", concat, AttrSinks{}, []string{"class"})
+		if mb.String() != cb.String() {
+			t.Errorf("%s: Merge renders %q, Concat renders %q", tc.name, mb.String(), cb.String())
+		}
+	}
+}
