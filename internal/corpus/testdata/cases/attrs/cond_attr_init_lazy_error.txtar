@@ -1,0 +1,64 @@
+# An if-attribute init statement is evaluated once, and branch values are lazy:
+# a value that would panic on a nil pointer is only evaluated when the init's
+# variable passes the guard, on every emission path (native element,
+# spread-folding element, component tag). An error from an init-scoped (T,
+# error) branch value propagates out of Render.
+-- input.gsx --
+package views
+
+import (
+	"errors"
+	"github.com/gsxhq/gsx"
+)
+
+type user struct{ Name string }
+
+var calls int
+
+func find(ok bool) *user {
+	calls++
+	if ok {
+		return &user{Name: "ann"}
+	}
+	return nil
+}
+
+func check(u *user) (string, error) {
+	if u.Name == "bad" {
+		return "", errors.New("bad user")
+	}
+	return u.Name, nil
+}
+
+component Box(attrs gsx.Attrs) { <b { attrs... }/> }
+
+component Native(ok bool) { <i { if u := find(ok); u != nil { title={u.Name} } }/> }
+
+component Folding(ok bool, attrs gsx.Attrs) { <i { if u := find(ok); u != nil { title={u.Name} } } { attrs... }/> }
+
+component Tag(ok bool) { <Box { if u := find(ok); u != nil { title={u.Name} } }/> }
+
+component Err(u0 *user) { <Box { if u := u0; u != nil { title={check(u)} } }/> }
+
+component NativeErr(u0 *user) { <i { if u := u0; u != nil { title={check(u)} } }/> }
+
+component Count() { <s data-calls={calls}/> }
+
+component All() {
+	{ Native(true) }
+	{ Native(false) }
+	{ Folding(true, nil) }
+	{ Folding(false, nil) }
+	{ Tag(true) }
+	{ Tag(false) }
+	{ Count() }
+	{ Err(nil) }
+	{ NativeErr(&user{Name: "ok"}) }
+	{ Err(&user{Name: "bad"}) }
+}
+-- invoke --
+All()
+-- diagnostics.golden --
+-- render.golden --
+<i title="ann"></i><i></i><i title="ann"></i><i></i><b title="ann"></b><b></b><s data-calls="6"></s><b></b><i title="ok"></i>
+[render error] bad user

@@ -80,6 +80,11 @@ one or more attributes.
 An `else` branch works too:
 `{ if active { class="active" } else { class="idle" } }`.
 
+A header may carry an init statement, scoped as in Go — its variables are
+visible to the condition, every branch and any `else if`:
+`{ if u := find(id); u != nil { title={u.Name} } }`. Only the taken branch's
+values are evaluated.
+
 `{ switch … }` is the switch counterpart, for when one of several mutually
 exclusive attribute sets applies:
 
@@ -97,8 +102,9 @@ exclusive attribute sets applies:
 ```
 
 It takes the same shapes Go's `switch` does — a tag expression, multi-value
-case lists, a tagless `switch { case cond: … }`, and `default` — and evaluates
-its tag exactly once. `fallthrough` is not supported: an attribute list is not
+case lists, a tagless `switch { case cond: … }`, an init statement, a type
+switch (`switch v := x.(type)`), and `default` — and evaluates its tag exactly
+once. `fallthrough` is not supported: an attribute list is not
 a statement list, so falling through would emit two arms' attributes and
 duplicate names. List the shared attributes in each `case` instead.
 

@@ -1,0 +1,23 @@
+# An if-attribute header's init variable carries its declared type into the
+# branch values on every emission path, so a misuse is reported at the value
+# (not as an undefined name), and an init variable no header or branch reads is
+# "declared and not used", exactly as in Go.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Box(attrs gsx.Attrs) { <b { attrs... }/> }
+
+component Native(v string) { <i { if s := v; s != "" { title={s - 1} } }/> }
+
+component Folding(v string, attrs gsx.Attrs) { <i { attrs... } { if s := v; s != "" { title={s - 1} } }/> }
+
+component Tag(v string) { <Box { if s := v; s != "" { title={s - 1} } }/> }
+
+component Unused(v string) { <Box { if s := v; true { title="x" } }/> }
+-- diagnostics.golden --
+7:64: invalid operation: s - 1 (mismatched types string and untyped int)
+9:95: invalid operation: s - 1 (mismatched types string and untyped int)
+11:63: invalid operation: s - 1 (mismatched types string and untyped int)
+13:40: declared and not used: s

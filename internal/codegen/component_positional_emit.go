@@ -464,28 +464,28 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 	}
 	// The condition's hoists go to b, before the AttrsCond call. An else-if is
 	// lowered inside the else branch thunk, so its hoists run only when reached.
-	condExpr, ok := ctx.lowerCtx().field(b, cond.Cond, cond.CondEmbedded, cond)
+	header, ok := ctx.lowerCtx().lowerAttrsCondHeader(b, cond, ctx.rt.rt())
 	if !ok {
 		return diagnosedPositionalValue()
 	}
-	thenLowering := positionalAttrsBranchThunk(node.branches[0], plan, ctx)
+	thenCode, thenLowering := positionalAttrsBranch(node.branches[0], plan, ctx)
 	if thenLowering.outcome != positionalLoweringReady {
 		return thenLowering
 	}
-	elseExpr := "nil"
+	var elseCode attrsBranchCode
 	used := thenLowering.used
 	if len(node.branches[1]) != 0 {
-		elseLowering := positionalAttrsBranchThunk(node.branches[1], plan, ctx)
+		var elseLowering positionalValueLowering
+		elseCode, elseLowering = positionalAttrsBranch(node.branches[1], plan, ctx)
 		if elseLowering.outcome != positionalLoweringReady {
 			return elseLowering
 		}
-		elseExpr = elseLowering.expr
 		if used == nil {
 			used = make(map[string]string)
 		}
 		maps.Copy(used, elseLowering.used)
 	}
-	expr := fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", ctx.rt.rt(), condExpr, thenLowering.expr, elseExpr)
+	expr := header.expr(thenCode, elseCode)
 	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 	*ctx.interpTemp++
 	fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
@@ -509,7 +509,7 @@ func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node comp
 	thunks := make([]string, len(sw.Cases))
 	used := map[string]string{}
 	for i := range sw.Cases {
-		lowering := positionalAttrsBranchThunk(node.branches[i], plan, ctx)
+		_, lowering := positionalAttrsBranch(node.branches[i], plan, ctx)
 		if lowering.outcome != positionalLoweringReady {
 			return lowering
 		}
@@ -564,7 +564,9 @@ func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node comp
 	return readyPositionalValue(name, used)
 }
 
-func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
+// positionalAttrsBranch lowers one branch of a conditional attrs contributor
+// to its (Attrs, error) code; the ready lowering's expr is the branch thunk.
+func positionalAttrsBranch(nodes []componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) (attrsBranchCode, positionalValueLowering) {
 	var body bytes.Buffer
 	ctx.errReturn = "return nil, _gsxerr"
 	parts := make([]string, 0, len(nodes))
@@ -583,7 +585,7 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 		var statements bytes.Buffer
 		lowering := positionalAttrsValueExpr(&statements, node, plan, ctx)
 		if lowering.outcome != positionalLoweringReady {
-			return lowering
+			return attrsBranchCode{}, lowering
 		}
 		// The lowering buffer is authoritative for eager statement work, just as
 		// it is for the outer positional call. If this contributor emitted any,
@@ -600,18 +602,15 @@ func positionalAttrsBranchThunk(nodes []componentAttrsStreamNode, plan component
 		parts = append(parts, lowering.expr)
 		maps.Copy(used, lowering.used)
 	}
-	expr := attrsExpr(parts)
-	var thunk strings.Builder
-	fmt.Fprintf(&thunk, "func() (%s.Attrs, error) {\n", ctx.rt.rt())
-	for line := range strings.SplitSeq(strings.TrimSuffix(body.String(), "\n"), "\n") {
-		if line != "" {
-			thunk.WriteString("\t")
-			thunk.WriteString(line)
-			thunk.WriteByte('\n')
-		}
+	// The body is used verbatim: a hoisted statement can hold a user's
+	// multi-line raw string, so generated text is never re-indented (gofmt
+	// formats the file).
+	inline := fmt.Sprintf("%sreturn %s, nil\n", body.String(), attrsExpr(parts))
+	code := attrsBranchCode{
+		thunk:  fmt.Sprintf("func() (%s.Attrs, error) {\n%s}", ctx.rt.rt(), inline),
+		inline: inline,
 	}
-	fmt.Fprintf(&thunk, "\treturn %s, nil\n} ", expr)
-	return readyPositionalValue(strings.TrimSpace(thunk.String()), used)
+	return code, readyPositionalValue(code.thunk, used)
 }
 
 func positionalSlotClosure(nodes []gsxast.Markup, ctx positionalEmitContext) (string, bool) {

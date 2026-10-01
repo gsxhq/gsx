@@ -967,15 +967,31 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			quotedBase[i] = strconv.Quote(n)
 		}
 		fmt.Fprintf(b, "\t\t%s := []string{%s}\n", dropVar, strings.Join(quotedBase, ", "))
+		// A scoped run's closure renders its leaves where the selector
+		// assigns it, inside the header's scope.
+		emitLeaves := func(b *bytes.Buffer, leaves []ast.Attr) bool {
+			for _, leaf := range leaves {
+				if !emitAttr(b, attrs, leaf, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
+					return false
+				}
+			}
+			return true
+		}
 		for _, t := range post {
 			var runs []condRun
-			var bools []string
-			root := planPostCond(t, &runs, &bools, interpTemp)
+			var bools, fns []string
+			root, ok := planPostCond(t, false, &runs, &bools, &fns, interpTemp, lc)
+			if !ok {
+				return false
+			}
 			postRuns[t] = runs
 			if len(bools) > 0 {
 				fmt.Fprintf(b, "\t\tvar %s bool\n", strings.Join(bools, ", "))
 			}
-			if !emitPostCondSelector(b, root, dropVar, lc) {
+			if len(fns) > 0 {
+				fmt.Fprintf(b, "\t\tvar %s func() error\n", strings.Join(fns, ", "))
+			}
+			if !emitPostCondSelector(b, root, runs, dropVar, lc, emitLeaves) {
 				return false
 			}
 		}
@@ -1176,6 +1192,12 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			continue
 		case *ast.CondAttr:
 			for _, run := range postRuns[t] {
+				if run.fnVar != "" {
+					fmt.Fprintf(b, "\t\tif %s != nil {\n", run.fnVar)
+					fmt.Fprintf(b, "\t\t\tif _gsxerr := %s(); _gsxerr != nil {\n\t\t\t\t%s\n\t\t\t}\n", run.fnVar, lc.errReturn)
+					b.WriteString("\t\t}\n")
+					continue
+				}
 				fmt.Fprintf(b, "\t\tif %s {\n", run.boolVar)
 				for _, leaf := range run.leaves {
 					if !emitAttr(b, attrs, leaf, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
@@ -1196,8 +1218,17 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 // condRun is one source-ordered segment of leaf attrs from a post-spread
 // cond-attr, tagged with the bool temp recording whether its branch was taken.
 // The leaves render after the bag spread under `if <boolVar>`.
+//
+// A run under a header with an init statement (its own cond-attr's or an
+// enclosing one's) is scoped instead: its leaves may read the init's
+// variables, which exist only inside the selector's if. fnVar then replaces
+// boolVar — the taken branch's selector assigns it a closure rendering the
+// leaves, created in scope, and the run calls it after the spread — so the
+// init and condition still run once, before the spread, and the leaves render
+// lazily in their original position.
 type condRun struct {
 	boolVar string
+	fnVar   string
 	leaves  []ast.Attr
 }
 
@@ -1209,6 +1240,7 @@ type condBranchPlan struct {
 	boolVar string
 	names   []string
 	nested  []*condSelNode
+	fnRuns  []int // indexes into the runs of the branch's scoped runs (condRun.fnVar)
 }
 
 // condSelNode mirrors one *ast.CondAttr for selector emission.
@@ -1222,50 +1254,82 @@ type condSelNode struct {
 // (appended to runs; a nested cond-attr splits the enclosing run so the
 // post-spread emission order matches the original branch-body order).
 // Validation has already rejected class/style and spread leaves, so every
-// non-cond leaf has a static rootAttrName.
-func planPostCond(t *ast.CondAttr, runs *[]condRun, bools *[]string, interpTemp *int) *condSelNode {
-	planBranch := func(as []ast.Attr) condBranchPlan {
+// non-cond leaf has a static rootAttrName. scoped reports an enclosing header
+// with an init statement; under one (or t's own), each run gets a closure temp
+// (appended to fns) instead of a branch bool — see condRun.
+func planPostCond(t *ast.CondAttr, scoped bool, runs *[]condRun, bools, fns *[]string, interpTemp *int, lc lowerCtx) (*condSelNode, bool) {
+	hasInit, ok := lc.condHeaderHasInit(t)
+	if !ok {
+		return nil, false
+	}
+	scoped = scoped || hasInit
+	planBranch := func(as []ast.Attr) (condBranchPlan, bool) {
 		var bp condBranchPlan
 		curIdx := -1 // index into *runs of the open run, -1 = none
 		for _, a := range as {
 			if nested, ok := a.(*ast.CondAttr); ok {
 				curIdx = -1
-				bp.nested = append(bp.nested, planPostCond(nested, runs, bools, interpTemp))
+				n, ok := planPostCond(nested, scoped, runs, bools, fns, interpTemp, lc)
+				if !ok {
+					return bp, false
+				}
+				bp.nested = append(bp.nested, n)
 				continue
 			}
 			name, ok := rootAttrName(a)
 			if !ok {
 				continue // unreachable after validation; defensive
 			}
-			if bp.boolVar == "" {
+			if bp.boolVar == "" && !scoped {
 				bp.boolVar = fmt.Sprintf("_gsxv%d", *interpTemp)
 				*interpTemp++
 				*bools = append(*bools, bp.boolVar)
 			}
 			bp.names = append(bp.names, name)
 			if curIdx < 0 {
-				*runs = append(*runs, condRun{boolVar: bp.boolVar})
+				run := condRun{boolVar: bp.boolVar}
+				if scoped {
+					run.fnVar = fmt.Sprintf("_gsxv%d", *interpTemp)
+					*interpTemp++
+					*fns = append(*fns, run.fnVar)
+					bp.fnRuns = append(bp.fnRuns, len(*runs))
+				}
+				*runs = append(*runs, run)
 				curIdx = len(*runs) - 1
 			}
 			(*runs)[curIdx].leaves = append((*runs)[curIdx].leaves, a)
 		}
-		return bp
+		return bp, true
 	}
 	n := &condSelNode{attr: t}
-	n.then = planBranch(t.Then)
-	n.els = planBranch(t.Else)
-	return n
+	if n.then, ok = planBranch(t.Then); !ok {
+		return nil, false
+	}
+	if n.els, ok = planBranch(t.Else); !ok {
+		return nil, false
+	}
+	return n, true
 }
 
 // emitPostCondSelector writes the run-once branch selector for a planned
 // post-spread cond-attr: the original if/else structure evaluates each
-// condition exactly once; a taken branch sets its bool temp and appends its
+// condition exactly once; a taken branch sets its bool temp (or assigns each
+// scoped run its closure, whose leaves emitLeaves renders) and appends its
 // direct leaf names to the dynamic drop slice. A condition's hoists precede its
 // `if`; a nested cond-attr's land inside the enclosing branch.
-func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string, lc lowerCtx) bool {
+func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, runs []condRun, dropVar string, lc lowerCtx, emitLeaves func(*bytes.Buffer, []ast.Attr) bool) bool {
 	emitBranch := func(bp condBranchPlan) bool {
 		if bp.boolVar != "" {
 			fmt.Fprintf(b, "\t\t%s = true\n", bp.boolVar)
+		}
+		for _, i := range bp.fnRuns {
+			fmt.Fprintf(b, "\t\t%s = func() error {\n", runs[i].fnVar)
+			if !emitLeaves(b, runs[i].leaves) {
+				return false
+			}
+			b.WriteString("\t\treturn nil\n\t\t}\n")
+		}
+		if len(bp.names) > 0 {
 			quoted := make([]string, len(bp.names))
 			for i, name := range bp.names {
 				quoted[i] = strconv.Quote(name)
@@ -1273,7 +1337,7 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string, lc lo
 			fmt.Fprintf(b, "\t\t%s = append(%s, %s)\n", dropVar, dropVar, strings.Join(quoted, ", "))
 		}
 		for _, nested := range bp.nested {
-			if !emitPostCondSelector(b, nested, dropVar, lc) {
+			if !emitPostCondSelector(b, nested, runs, dropVar, lc, emitLeaves) {
 				return false
 			}
 		}
@@ -1287,7 +1351,7 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string, lc lo
 	if !emitBranch(n.then) {
 		return false
 	}
-	if n.els.boolVar != "" || len(n.els.nested) > 0 {
+	if len(n.els.names) > 0 || len(n.els.nested) > 0 {
 		b.WriteString("\t\t} else {\n")
 		if !emitBranch(n.els) {
 			return false
@@ -1519,10 +1583,6 @@ func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 // caller (elementFolds) to use the full-fold path, while
 // firstCond lets elementFolds detect a lone cond-NESTED spread (empty firstCond
 // = top-level spread; non-empty = nested in a `{ if … { { x... } } }`).
-//
-// Named distinctly from analyze.go's walkSpreadAttrs (a callback-style visitor
-// over every spread, used by probe/collect passes) to avoid redeclaring that
-// existing function in the same package.
 func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstCond string) {
 	var visit func(list []ast.Attr, cond string)
 	visit = func(list []ast.Attr, cond string) {
@@ -2789,9 +2849,9 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 	return false
 }
 
-// attrsUseNumericScratch reports whether any of an element's attrs (recursing into
-// { if … } cond-attr branches) emits a numeric value through emitAttrValue — the
-// only attribute path that writes via _gsxnum. It mirrors emitExprAttr /
+// attrsUseNumericScratch reports whether any of an element's attrs (recursing
+// into { if … } / { switch … } attribute-group branches) emits a numeric value
+// through emitAttrValue — the only attribute path that writes via _gsxnum. It mirrors emitExprAttr /
 // emitEmbeddedTextAttr routing:
 //   - a plain attr={n} with numeric value, UNLESS in URL context (routed to
 //     gw.URL, which is string-only — a numeric there would not compile anyway);
@@ -2828,6 +2888,12 @@ func attrsUseNumericScratch(tag string, attrs []ast.Attr, resolved map[ast.Node]
 		case *ast.CondAttr:
 			if attrsUseNumericScratch(tag, at.Then, resolved, table, cls) || attrsUseNumericScratch(tag, at.Else, resolved, table, cls) {
 				return true
+			}
+		case *ast.SwitchAttr:
+			for _, cc := range at.Cases {
+				if attrsUseNumericScratch(tag, cc.Body, resolved, table, cls) {
+					return true
+				}
 			}
 		}
 	}
@@ -5559,6 +5625,8 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 // argument is the bare literal `nil` (not a thunk) when there is no else
 // branch. A nested CondAttr recursively builds another AttrsCond inside the
 // selected outer thunk, preserving laziness and the thunk-local error return.
+// A header with an init statement lowers to the equivalent immediately invoked
+// func literal instead (attrsCondHeader.expr), with the same result shape.
 //
 // probeWrap=true (analyze skeleton) lowers each branch with probePipeWrap so a
 // mid/final (R, error) stage stays a single _gsxunwrap(...) expression instead
@@ -5572,7 +5640,7 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 	// The condition's hoists go to b, before the AttrsCond call. A nested
 	// cond-attr (an else-if included) is lowered with b = the enclosing
 	// branch thunk's buffer, so its hoists run only when that branch is taken.
-	cond, ok := lc.field(b, t.Cond, t.CondEmbedded, t)
+	header, ok := lc.lowerAttrsCondHeader(b, t, rtPkg)
 	if !ok {
 		return "", nil, errBagDiagReported
 	}
@@ -5580,7 +5648,7 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
 	// lit, nil }` thunk. tb is thunk-LOCAL: any hoist wrap writes into it, so the
 	// hoisted statements land inside this thunk's own body, not the caller's.
-	branchThunk := func(attrs []ast.Attr) (string, map[string]string, error) {
+	branchThunk := func(attrs []ast.Attr) (attrsBranchCode, map[string]string, error) {
 		var tb bytes.Buffer
 		wrap := probePipeWrap
 		if !probeWrap {
@@ -5588,27 +5656,27 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 		}
 		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
 		if err != nil {
-			return "", nil, err
+			return attrsBranchCode{}, nil, err
 		}
-		thunk := fmt.Sprintf("func() (%s.Attrs, error) {\n%s\t\treturn %s, nil\n\t}", rtPkg, tb.String(), lit)
-		return thunk, used, nil
+		body := fmt.Sprintf("%s\t\treturn %s, nil\n", tb.String(), lit)
+		return attrsBranchCode{thunk: fmt.Sprintf("func() (%s.Attrs, error) {\n%s\t}", rtPkg, body), inline: body}, used, nil
 	}
 
-	thenThunk, thenUsed, err := branchThunk(t.Then)
+	thenCode, thenUsed, err := branchThunk(t.Then)
 	if err != nil {
 		return "", nil, err
 	}
 	maps.Copy(usedPkgs, thenUsed)
-	elseArg := "nil"
+	var elseCode attrsBranchCode
 	if len(t.Else) > 0 {
-		elseThunk, elseUsed, err := branchThunk(t.Else)
+		var elseUsed map[string]string
+		elseCode, elseUsed, err = branchThunk(t.Else)
 		if err != nil {
 			return "", nil, err
 		}
 		maps.Copy(usedPkgs, elseUsed)
-		elseArg = elseThunk
 	}
-	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, cond, thenThunk, elseArg), usedPkgs, nil
+	return header.expr(thenCode, elseCode), usedPkgs, nil
 }
 
 // condBranchAttrs builds a <rtPkg>.Attrs expression from one conditional-attr
