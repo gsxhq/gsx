@@ -1648,9 +1648,8 @@ func emitSkeletonClauseLine(sb skeletonWriter, fset *token.FileSet, pos token.Po
 //
 // Column accuracy: interpolation expression columns are now exact via
 // Interp.ExprPos + compensated //line (col = exprCol - len("_gsxuse(")).
-// Component-prop and pipeline-staged probes remain coarse: synthesized
-// props-literal fields and rewritten pipeline expressions have no faithful
-// source column, so they still emit //line at the node's Pos().
+// Pipeline-staged probes remain coarse: a rewritten pipeline expression has
+// no faithful source column, so it still emits //line at the node's Pos().
 func emitSkeletonLine(sb skeletonWriter, fset *token.FileSet, pos token.Pos) {
 	if fset == nil || !pos.IsValid() {
 		return

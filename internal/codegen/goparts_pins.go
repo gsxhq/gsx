@@ -268,7 +268,6 @@ func (f *fieldPins) String() string {
 type seqPins struct {
 	out        *bytes.Buffer
 	interpTemp *int
-	off        bool // skeleton probe: never executed, nothing to order
 	vals       []seqValue
 	pending    []int // indexes into vals, in source order
 }
@@ -305,9 +304,6 @@ func (s *seqPins) settle(stmts *bytes.Buffer) {
 // pin pins every pending value now, ahead of a value whose lowering always
 // writes a statement first (a value-form if/switch declares its temp).
 func (s *seqPins) pin() {
-	if s.off {
-		return
-	}
 	for _, i := range s.pending {
 		v := &s.vals[i]
 		rhs := v.pinExpr

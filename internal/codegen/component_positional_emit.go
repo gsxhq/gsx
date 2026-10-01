@@ -313,7 +313,7 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 			}
 			return readyPositionalValue(expr, nil)
 		}
-		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.errorReturn(), ctx.lowerCtx())
+		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.errorReturn(), ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node, err, ctx)
 			return diagnosedPositionalValue()
@@ -345,7 +345,7 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 			}
 			return readyPositionalValue(fmt.Sprintf("%s.Attrs{{Key: %s, Value: %s}}", ctx.rt.rt(), strconv.Quote(embedded.Name), lowering.expr), nil)
 		}
-		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), false, []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond, ctx.lowerCtx())
+		expr, used, err := composeBag(b, ctx.interpTemp, ctx.pipeWrap(b), []gsxast.Attr{node.attr}, ctx.rt.rt(), plan.call.call.Tag, classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, ctx.imports, ctx.rt, ctx.bag, ctx.errorReturn(), bagComponentCond, ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node.attr, err, ctx)
 			return diagnosedPositionalValue()
