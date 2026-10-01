@@ -113,18 +113,38 @@ func Folding(x string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:15:48
 		_gsxgw.S("<i")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, "i", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxv0 := []string{"class", "style"}
+		var _gsxv1, _gsxv2 func() error
 		switch v := wrap(x); v {
 		case "A":
-			_gsxgw.S(" data-a=\"")
-			_gsxgw.AttrValue(string(v))
-			_gsxgw.S("\"")
+			_gsxv1 = func() error {
+				_gsxgw.S(" data-a=\"")
+				_gsxgw.AttrValue(string(v))
+				_gsxgw.S("\"")
+				return nil
+			}
+			_gsxv0 = append(_gsxv0, "data-a")
 		default:
-			_gsxgw.S(" data-d=\"")
-			_gsxgw.AttrValue(string(v + "!"))
-			_gsxgw.S("\"")
+			_gsxv2 = func() error {
+				_gsxgw.S(" data-d=\"")
+				_gsxgw.AttrValue(string(v + "!"))
+				_gsxgw.S("\"")
+				return nil
+			}
+			_gsxv0 = append(_gsxv0, "data-d")
+		}
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, "i", attrs, _gsxrt.AttrSinks{}, _gsxv0)
+		if _gsxv1 != nil {
+			if _gsxerr := _gsxv1(); _gsxerr != nil {
+				return _gsxerr
+			}
+		}
+		if _gsxv2 != nil {
+			if _gsxerr := _gsxv2(); _gsxerr != nil {
+				return _gsxerr
+			}
 		}
 		_gsxgw.S("></i>")
 		return _gsxgw.Err()
@@ -136,21 +156,21 @@ func Tag(x string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:17:27
-		_gsxv0, _gsxerr := _gsxrt.Attrs(nil), error(nil)
+		_gsxv3, _gsxerr := _gsxrt.Attrs(nil), error(nil)
 		switch v := wrap(x); {
 		case v == "A":
-			_gsxv0, _gsxerr = (func() (_gsxrt.Attrs, error) {
+			_gsxv3, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-a", Value: v}}, nil
 			})()
 		default:
-			_gsxv0, _gsxerr = (func() (_gsxrt.Attrs, error) {
+			_gsxv3, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-d", Value: v + "!"}}, nil
 			})()
 		}
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv0))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv3))
 		return _gsxgw.Err()
 	})
 }
@@ -182,16 +202,36 @@ func TypeFolding(x any, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:21:49
 		_gsxgw.S("<i")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
-		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, "i", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
+		_gsxv4 := []string{"class", "style"}
+		var _gsxv5, _gsxv6 func() error
 		switch v := x.(type) {
 		case int:
-			_gsxgw.S(" data-int=\"")
-			_gsxgw.AttrValue(string(strconv.Itoa(v + 1)))
-			_gsxgw.S("\"")
+			_gsxv5 = func() error {
+				_gsxgw.S(" data-int=\"")
+				_gsxgw.AttrValue(string(strconv.Itoa(v + 1)))
+				_gsxgw.S("\"")
+				return nil
+			}
+			_gsxv4 = append(_gsxv4, "data-int")
 		default:
-			_gsxgw.S(" data-other=\"y\"")
+			_gsxv6 = func() error {
+				_gsxgw.S(" data-other=\"y\"")
+				return nil
+			}
+			_gsxv4 = append(_gsxv4, "data-other")
+		}
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, "i", attrs, _gsxrt.AttrSinks{}, _gsxv4)
+		if _gsxv5 != nil {
+			if _gsxerr := _gsxv5(); _gsxerr != nil {
+				return _gsxerr
+			}
+		}
+		if _gsxv6 != nil {
+			if _gsxerr := _gsxv6(); _gsxerr != nil {
+				return _gsxerr
+			}
 		}
 		_gsxgw.S("></i>")
 		return _gsxgw.Err()
@@ -203,21 +243,21 @@ func TypeTag(x any) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:23:28
-		_gsxv1, _gsxerr := _gsxrt.Attrs(nil), error(nil)
+		_gsxv7, _gsxerr := _gsxrt.Attrs(nil), error(nil)
 		switch v := x.(type) {
 		case int:
-			_gsxv1, _gsxerr = (func() (_gsxrt.Attrs, error) {
+			_gsxv7, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-int", Value: strconv.Itoa(v + 1)}}, nil
 			})()
 		case string:
-			_gsxv1, _gsxerr = (func() (_gsxrt.Attrs, error) {
+			_gsxv7, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-str", Value: v + "!"}}, nil
 			})()
 		}
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv1))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv7))
 		return _gsxgw.Err()
 	})
 }

@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"fmt"
+	goast "go/ast"
 	"go/token"
 	"go/types"
 	"strings"
@@ -260,6 +261,29 @@ func (lc lowerCtx) condHeaderHasInit(t *ast.CondAttr) (hasInit, ok bool) {
 		return false, false
 	}
 	return shape.initEnd >= 0, true
+}
+
+// switchHeaderBinds reports whether t's switch header declares names its arms
+// may read: an init statement, or a type switch's bound variable.
+func (lc lowerCtx) switchHeaderBinds(t *ast.SwitchAttr) (binds, ok bool) {
+	parts := t.TagEmbedded
+	if parts == nil {
+		parts = []ast.GoPart{ast.GoText{Src: t.Tag}}
+	}
+	shape, err := analyzeField(parts, syntaxSwitchHeader)
+	if err != nil {
+		lc.bag.Errorf(t.Pos(), t.End(), "unsupported-node", "codegen: cannot parse the switch attribute header: %v", err)
+		return false, false
+	}
+	if shape.initEnd >= 0 {
+		return true, true
+	}
+	ts, isType := shape.root.(*goast.TypeSwitchStmt)
+	if !isType {
+		return false, true
+	}
+	_, assigns := ts.Assign.(*goast.AssignStmt)
+	return assigns, true
 }
 
 // attrsCondHeader is a conditional attrs contributor's lowered if header, for

@@ -82,6 +82,7 @@ attrswitch/spread_after	diag render
 attrswitch/spread_before	diag render
 attrswitch/tagged	diag render
 attrswitch/tagless	diag render
+attrswitch/url_sink_tag	diag gen render
 bodyinterp/bare_backtick_no_interp	diag gen render
 bodyinterp/escaped_hole	diag gen render
 bodyinterp/f_body_is_markup_template	diag gen render
@@ -397,6 +398,7 @@ fallthrough/reserved_param_attrs	diag
 fallthrough/second_spread_rejected	diag gen render
 fallthrough/source_order	diag render
 fallthrough/static_class_merge	diag render
+fallthrough/switch_attr_positional	diag gen render
 fallthrough/without_class_root_wins	diag render
 filterimport/user_plain_import_and_filter	diag gen render
 filterimport/user_plain_import_no_filter	diag gen render
@@ -1091,4 +1093,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1093 cases (render: 927, error: 128, gen-pinned: 609)
+TOTAL: 1095 cases (render: 929, error: 128, gen-pinned: 611)

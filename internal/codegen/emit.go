@@ -899,26 +899,31 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		return true
 	}
 
-	// emitCondGuarded emits a PRE-spread cond-attr with every branch leaf
-	// caller-overridable: the branch structure is preserved (conditions evaluate
-	// once, in place, with else-if short-circuit), each leaf wrapped in the same
-	// `!Has(name)` guard as a plain pre-spread scalar.
-	var emitCondGuarded func(t *ast.CondAttr) bool
-	emitCondGuarded = func(t *ast.CondAttr) bool {
-		emitBranch := func(as []ast.Attr) bool {
-			for _, inner := range as {
-				if nested, ok := inner.(*ast.CondAttr); ok {
-					if !emitCondGuarded(nested) {
-						return false
-					}
-					continue
-				}
-				if !emitScalar(inner, true) {
+	// emitGroupGuarded emits a PRE-spread if/switch attribute group with every
+	// branch leaf caller-overridable: the branch structure is preserved
+	// (conditions and the switch tag evaluate once, in place, with else-if and
+	// case-list short-circuit), each leaf wrapped in the same `!Has(name)`
+	// guard as a plain pre-spread scalar.
+	var emitGroupGuarded func(g ast.Attr) bool
+	emitBranch := func(as []ast.Attr) bool {
+		for _, inner := range as {
+			if isAttrGroup(inner) {
+				if !emitGroupGuarded(inner) {
 					return false
 				}
+				continue
 			}
-			return true
+			if !emitScalar(inner, true) {
+				return false
+			}
 		}
+		return true
+	}
+	emitGroupGuarded = func(g ast.Attr) bool {
+		if sw, ok := g.(*ast.SwitchAttr); ok {
+			return emitSwitchAttrStmt(b, sw, lc, func(cc *ast.AttrCaseClause) bool { return emitBranch(cc.Body) })
+		}
+		t := g.(*ast.CondAttr)
 		cond, block, ok := lc.header(b, t.Cond, t.CondEmbedded, t)
 		if !ok {
 			return false
@@ -938,23 +943,23 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		return true
 	}
 
-	// POST-spread cond-attrs force their taken branch's leaves. Planning walks
-	// each one once: every branch with direct leaves gets a bool temp, and the
-	// leaves are collected into source-ordered runs (a nested cond-attr splits
-	// its parent's run so output order matches the original emission order).
-	// The selector — emitted just before the spread — evaluates the branch
-	// structure exactly once, setting the bools and appending the taken
+	// POST-spread if/switch groups force their taken branch's leaves. Planning
+	// walks each one once: every branch with direct leaves gets a bool temp,
+	// and the leaves are collected into source-ordered runs (a nested group
+	// splits its parent's run so output order matches the original emission
+	// order). The selector — emitted just before the spread — evaluates the
+	// branch structure exactly once, setting the bools and appending the taken
 	// branch's names to the dynamic drop slice.
-	postRuns := map[*ast.CondAttr][]condRun{}
+	postRuns := map[ast.Attr][]condRun{}
 	dropVar := ""
 	emitPostCondSelectors := func() bool {
-		var post []*ast.CondAttr
+		var post []ast.Attr
 		for i, a := range attrs {
 			if i <= splitIdx {
 				continue
 			}
-			if t, ok := a.(*ast.CondAttr); ok {
-				post = append(post, t)
+			if isAttrGroup(a) {
+				post = append(post, a)
 			}
 		}
 		if len(post) == 0 {
@@ -1153,8 +1158,8 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			continue
 		}
 		if i < splitIdx {
-			if ca, ok := a.(*ast.CondAttr); ok {
-				if !emitCondGuarded(ca) {
+			if isAttrGroup(a) {
+				if !emitGroupGuarded(a) {
 					return false
 				}
 				continue
@@ -1191,7 +1196,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 		case *ast.SpreadAttr:
 			continue
-		case *ast.CondAttr:
+		case *ast.CondAttr, *ast.SwitchAttr:
 			for _, run := range postRuns[t] {
 				if run.fnVar != "" {
 					fmt.Fprintf(b, "\t\tif %s != nil {\n", run.fnVar)
@@ -1233,10 +1238,11 @@ type condRun struct {
 	leaves  []ast.Attr
 }
 
-// condBranchPlan is one branch (Then or Else list) of a planned post-spread
-// cond-attr: the bool temp set when the branch is taken ("" when the branch
-// has no direct leaves), the direct leaf names it forces out of the spread,
-// and any nested cond-attrs (planned recursively, in source order).
+// condBranchPlan is one branch (an if group's Then or Else list, a switch
+// group's case arm) of a planned post-spread group: the bool temp set when the
+// branch is taken ("" when the branch has no direct leaves), the direct leaf
+// names it forces out of the spread, and any nested groups (planned
+// recursively, in source order).
 type condBranchPlan struct {
 	boolVar string
 	names   []string
@@ -1244,33 +1250,52 @@ type condBranchPlan struct {
 	fnRuns  []int // indexes into the runs of the branch's scoped runs (condRun.fnVar)
 }
 
-// condSelNode mirrors one *ast.CondAttr for selector emission.
+// condSelNode mirrors one if (*ast.CondAttr: branches Then, Else) or switch
+// (*ast.SwitchAttr: one branch per case) attribute group for selector
+// emission.
 type condSelNode struct {
-	attr      *ast.CondAttr
-	then, els condBranchPlan
+	attr     ast.Attr
+	branches []condBranchPlan
 }
 
-// planPostCond walks one post-spread cond-attr allocating branch bool temps
-// (appended to bools) and collecting its leaves into source-ordered runs
-// (appended to runs; a nested cond-attr splits the enclosing run so the
+// planPostCond walks one post-spread if/switch group allocating branch bool
+// temps (appended to bools) and collecting its leaves into source-ordered runs
+// (appended to runs; a nested group splits the enclosing run so the
 // post-spread emission order matches the original branch-body order).
 // Validation has already rejected class/style and spread leaves, so every
-// non-cond leaf has a static rootAttrName. scoped reports an enclosing header
-// with an init statement; under one (or t's own), each run gets a closure temp
+// non-group leaf has a static rootAttrName. scoped reports an enclosing header
+// whose names the leaves may read — an init statement, or a type switch's
+// bound variable; under one (or g's own), each run gets a closure temp
 // (appended to fns) instead of a branch bool — see condRun.
-func planPostCond(t *ast.CondAttr, scoped bool, runs *[]condRun, bools, fns *[]string, interpTemp *int, lc lowerCtx) (*condSelNode, bool) {
-	hasInit, ok := lc.condHeaderHasInit(t)
-	if !ok {
-		return nil, false
+func planPostCond(g ast.Attr, scoped bool, runs *[]condRun, bools, fns *[]string, interpTemp *int, lc lowerCtx) (*condSelNode, bool) {
+	var branchBodies [][]ast.Attr
+	var headerScopes bool
+	switch t := g.(type) {
+	case *ast.CondAttr:
+		hasInit, ok := lc.condHeaderHasInit(t)
+		if !ok {
+			return nil, false
+		}
+		headerScopes = hasInit
+		branchBodies = [][]ast.Attr{t.Then, t.Else}
+	case *ast.SwitchAttr:
+		binds, ok := lc.switchHeaderBinds(t)
+		if !ok {
+			return nil, false
+		}
+		headerScopes = binds
+		for _, cc := range t.Cases {
+			branchBodies = append(branchBodies, cc.Body)
+		}
 	}
-	scoped = scoped || hasInit
+	scoped = scoped || headerScopes
 	planBranch := func(as []ast.Attr) (condBranchPlan, bool) {
 		var bp condBranchPlan
 		curIdx := -1 // index into *runs of the open run, -1 = none
 		for _, a := range as {
-			if nested, ok := a.(*ast.CondAttr); ok {
+			if isAttrGroup(a) {
 				curIdx = -1
-				n, ok := planPostCond(nested, scoped, runs, bools, fns, interpTemp, lc)
+				n, ok := planPostCond(a, scoped, runs, bools, fns, interpTemp, lc)
 				if !ok {
 					return bp, false
 				}
@@ -1302,22 +1327,24 @@ func planPostCond(t *ast.CondAttr, scoped bool, runs *[]condRun, bools, fns *[]s
 		}
 		return bp, true
 	}
-	n := &condSelNode{attr: t}
-	if n.then, ok = planBranch(t.Then); !ok {
-		return nil, false
-	}
-	if n.els, ok = planBranch(t.Else); !ok {
-		return nil, false
+	n := &condSelNode{attr: g}
+	for _, body := range branchBodies {
+		bp, ok := planBranch(body)
+		if !ok {
+			return nil, false
+		}
+		n.branches = append(n.branches, bp)
 	}
 	return n, true
 }
 
 // emitPostCondSelector writes the run-once branch selector for a planned
-// post-spread cond-attr: the original if/else structure evaluates each
-// condition exactly once; a taken branch sets its bool temp (or assigns each
-// scoped run its closure, whose leaves emitLeaves renders) and appends its
-// direct leaf names to the dynamic drop slice. A condition's hoists precede its
-// `if`; a nested cond-attr's land inside the enclosing branch.
+// post-spread group: the original if/else or switch structure evaluates each
+// condition (or the tag and case lists) exactly once; a taken branch sets its
+// bool temp (or assigns each scoped run its closure, whose leaves emitLeaves
+// renders) and appends its direct leaf names to the dynamic drop slice. A
+// header's hoists precede its `if`/`switch`; a nested group's land inside the
+// enclosing branch.
 func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, runs []condRun, dropVar string, lc lowerCtx, emitLeaves func(*bytes.Buffer, []ast.Attr) bool) bool {
 	emitBranch := func(bp condBranchPlan) bool {
 		if bp.boolVar != "" {
@@ -1344,17 +1371,27 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, runs []condRun, dropV
 		}
 		return true
 	}
-	cond, block, ok := lc.header(b, n.attr.Cond, n.attr.CondEmbedded, n.attr)
+	if sw, ok := n.attr.(*ast.SwitchAttr); ok {
+		// Every case is written, empty arms included: the case lists are
+		// evaluated in order until one matches, exactly as authored.
+		arm := 0
+		return emitSwitchAttrStmt(b, sw, lc, func(*ast.AttrCaseClause) bool {
+			arm++
+			return emitBranch(n.branches[arm-1])
+		})
+	}
+	t := n.attr.(*ast.CondAttr)
+	cond, block, ok := lc.header(b, t.Cond, t.CondEmbedded, t)
 	if !ok {
 		return false
 	}
 	fmt.Fprintf(b, "\t\tif %s {\n", cond)
-	if !emitBranch(n.then) {
+	if !emitBranch(n.branches[0]) {
 		return false
 	}
-	if len(n.els.names) > 0 || len(n.els.nested) > 0 {
+	if els := n.branches[1]; len(els.names) > 0 || len(els.nested) > 0 {
 		b.WriteString("\t\t} else {\n")
-		if !emitBranch(n.els) {
+		if !emitBranch(els) {
 			return false
 		}
 	}
@@ -1369,6 +1406,49 @@ func closeHeaderBlock(b *bytes.Buffer, block bool) {
 	if block {
 		b.WriteString("\t\t}\n")
 	}
+}
+
+// emitSwitchAttrStmt writes an in-tag `{ switch … }` attribute group as a
+// real Go switch statement, arm writing each case's body. Emitting the tag
+// once (rather than lowering to an `==` chain) is the point: a tag that is a
+// call is evaluated exactly once, and every arm shape Go allows (case lists,
+// a tagless switch, a type switch and its bound variable) lowers unchanged.
+// The tag's hoists precede the `switch`; case lists are evaluated lazily and
+// have no error channel.
+func emitSwitchAttrStmt(b *bytes.Buffer, t *ast.SwitchAttr, lc lowerCtx, arm func(cc *ast.AttrCaseClause) bool) bool {
+	tag, block, ok := lc.header(b, t.Tag, t.TagEmbedded, t)
+	if !ok {
+		return false
+	}
+	fmt.Fprintf(b, "\t\tswitch %s {\n", tag)
+	caseLC := lc
+	caseLC.noErrChannel = caseListErrRemedy
+	for _, cc := range t.Cases {
+		if cc.Default {
+			b.WriteString("\t\tdefault:\n")
+		} else {
+			list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "\t\tcase %s:\n", list)
+		}
+		if !arm(cc) {
+			return false
+		}
+	}
+	b.WriteString("\t\t}\n")
+	closeHeaderBlock(b, block)
+	return true
+}
+
+// isAttrGroup reports whether a is an in-tag if/switch attribute group.
+func isAttrGroup(a ast.Attr) bool {
+	switch a.(type) {
+	case *ast.CondAttr, *ast.SwitchAttr:
+		return true
+	}
+	return false
 }
 
 // hasAttrsMethodSet reports whether t already supports the method-bearing bag
@@ -3274,36 +3354,15 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		return true
 	case *ast.SwitchAttr:
 		// Same statement position as the CondAttr `if` above, so a real Go
-		// `switch` is valid here. Emitting the tag once (rather than lowering to
-		// an `==` chain) is the whole point: a tag that is a call must be
-		// evaluated exactly once, as Go does. The tag's hoists precede the
-		// `switch`; case lists are evaluated lazily and have no error channel.
-		tag, block, ok := lc.header(b, t.Tag, t.TagEmbedded, t)
-		if !ok {
-			return false
-		}
-		fmt.Fprintf(b, "\t\tswitch %s {\n", tag)
-		caseLC := lc
-		caseLC.noErrChannel = caseListErrRemedy
-		for _, cc := range t.Cases {
-			if cc.Default {
-				b.WriteString("\t\tdefault:\n")
-			} else {
-				list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
-				if !ok {
-					return false
-				}
-				fmt.Fprintf(b, "\t\tcase %s:\n", list)
-			}
+		// `switch` is valid here (see emitSwitchAttrStmt).
+		return emitSwitchAttrStmt(b, t, lc, func(cc *ast.AttrCaseClause) bool {
 			for _, inner := range cc.Body {
 				if !emitAttr(b, attrs, inner, resolved, table, imports, rt, interpTemp, cls, tag, bag, mergeExpr, nonce, lc) {
 					return false
 				}
 			}
-		}
-		b.WriteString("\t\t}\n")
-		closeHeaderBlock(b, block)
-		return true
+			return true
+		})
 	case *ast.OrderedAttrsAttr:
 		bag.Errorf(a.Pos(), a.End(), "unsupported-attr",
 			"ordered-attrs {{ }} is only valid as the value of a declared gsx.Attrs component prop, not plain-element attribute %q; declare a gsx.Attrs prop and spread it with { prop... }",
