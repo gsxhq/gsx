@@ -140,6 +140,7 @@ have already validated for the named context.
 | `gsx.RawJS(code)` | Emit trusted JavaScript without JavaScript encoding |
 | `gsx.RawCSS(css)` | Emit trusted CSS without CSS value filtering |
 
-A `style` value you put in a `gsx.Attrs` bag in Go is trusted the same way as
-`gsx.RawCSS`: a spread writes it as given. Route untrusted CSS through
-`style={expr}` or a `css` literal, which filter it.
+A `style` value in a spread `gsx.Attrs` bag runs the same CSS value filter as
+`style={expr}`, so a multi-declaration string becomes `ZgotmplZ`. Wrap CSS you
+trust in `gsx.RawCSS` when you build a bag yourself; gsx marks the static and
+`css`-literal styles it puts in bags this way.

@@ -5695,6 +5695,14 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 	return composeBag(b, interpTemp, wrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", ctx, lc)
 }
 
+// trustedCSS wraps expr, a CSS value codegen sanitized part by part (a composed
+// style's StyleString, a css`…` literal's FilterCSS'd holes) or the author
+// wrote statically, as gsx.RawCSS, so a bag carries it past the CSS value
+// filter Attrs.Style applies to every other style value at the leaf.
+func trustedCSS(rtPkg, expr string) string {
+	return rtPkg + ".RawCSS(" + expr + ")"
+}
+
 // bagContext tells composeBag which caller it is lowering for, so a residual
 // rejection is worded for the right surface. The two are genuinely different:
 // the component path folds a conditional-attr branch's attrs into a child's
@@ -5867,8 +5875,14 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 			}
 			parts = append(parts, name)
 		case *ast.StaticAttr:
+			// An authored static value is trusted: a style is carried as RawCSS
+			// past the leaf's CSS value filter (Attrs.Style), and on a folded
+			// element any other name as RawURL past the URL sinks.
 			value := strconv.Quote(t.Value)
-			if ctx == bagElementFold {
+			switch {
+			case htmlattr.SameName(t.Name, "style"):
+				value = trustedCSS(rtPkg, value)
+			case ctx == bagElementFold:
 				value = fmt.Sprintf("%s.RawURL(%s)", rtPkg, value)
 			}
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), value))
@@ -5919,7 +5933,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 					// composedParts already reported the positioned diagnostic.
 					return "", nil, errBagDiagReported
 				}
-				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s.StyleString(%s)}", strconv.Quote(t.Name), rtPkg, strings.Join(parts, ", ")))
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), trustedCSS(rtPkg, rtPkg+".StyleString("+strings.Join(parts, ", ")+")")))
 				break
 			}
 			if !htmlattr.SameName(t.Name, "class") {
@@ -5963,7 +5977,11 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 			}
 			// A hole-free embedded literal forwards to the bag as raw text.
 			if text, static := embeddedStaticText(t); static {
-				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
+				value := strconv.Quote(text)
+				if t.Lang == ast.EmbeddedCSS && htmlattr.SameName(t.Name, "style") {
+					value = trustedCSS(rtPkg, value)
+				}
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), value))
 				break
 			}
 			// A hole-bearing element literal enters the shared bag as an assembled
@@ -5990,6 +6008,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 				val, ok = embeddedJSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
 			case ast.EmbeddedCSS:
 				val, ok = embeddedCSSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
+				if htmlattr.SameName(t.Name, "style") {
+					val = trustedCSS(rtPkg, val)
+				}
 			}
 			if !ok {
 				// The value assembler has already emitted the positioned

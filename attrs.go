@@ -81,25 +81,31 @@ func (m AttrMap) ToAttrs() Attrs {
 // NOT merge/dedupe tokens; the single outer codegen-emitted class site applies
 // the configured merger exactly once over this plus the root's parts.
 func (a Attrs) Class() string {
-	return a.aggregate("class")
+	return a.aggregate("class", toStr)
 }
 
 // Style returns the bag's style declaration, as it renders. DUPLICATE-KEY RULE:
 // AGGREGATES — the values of ALL style pairs (any ASCII case) are joined
-// ("; "-separated).
+// ("; "-separated). Each value is sanitized for the style attribute exactly like
+// a style={expr} value (StyleValue): a gsx.RawCSS value is the author's vouch
+// and passes verbatim; any other value goes through the CSS value filter, so a
+// value that could inject a declaration or a url(…) renders as ZgotmplZ.
+// Generated code carries the style of a static style="…", a composed
+// style={…} or a css`…` literal into a bag as RawCSS, sanitized part by part.
 func (a Attrs) Style() string {
-	return a.aggregate("style")
+	return a.aggregate("style", StyleValue)
 }
 
 // aggregate joins the values of every pair naming the attribute name ("class"
-// or "style", htmlattr.SameName), with that attribute's separator.
-func (a Attrs) aggregate(name string) string {
+// or "style", htmlattr.SameName), each rendered by value, with that
+// attribute's separator.
+func (a Attrs) aggregate(name string, value func(any) string) string {
 	var out string
 	for _, kv := range a {
 		if !htmlattr.SameName(kv.Key, name) {
 			continue
 		}
-		v := toStr(kv.Value)
+		v := value(kv.Value)
 		if name == "class" {
 			v = strings.TrimSpace(v)
 		}
@@ -115,7 +121,8 @@ func (a Attrs) aggregate(name string) string {
 // DUPLICATE-KEY RULE: LAST occurrence wins for scalar keys, matching JSX-style
 // override order — EXCEPT class and style, which COLLAPSE. A bag has one class
 // and one style, so Get returns what Class()/Style() return — the aggregate of
-// every pair naming that attribute — agreeing with what renders. Last-wins there would report only the final
+// every pair naming that attribute, the style CSS-filtered as it renders —
+// agreeing with what renders. Last-wins there would report only the final
 // contribution and read as though the earlier ones had been dropped, even
 // though every one of them renders.
 func (a Attrs) Get(key string) (any, bool) {
@@ -313,7 +320,9 @@ func (a Attrs) Take(key string) (any, Attrs) {
 // incoming spelling (or appended if none). Any other key OVERWRITES the last
 // existing occurrence in place — taking the incoming spelling — and drops
 // earlier duplicates, so the incoming bag wins under the last-wins scalar rule;
-// absent keys append.
+// absent keys append. Style pieces are sanitized as they join, each exactly as
+// Attrs.Style renders it (RawCSS verbatim, anything else through the CSS value
+// filter), and the joined declaration is carried as RawCSS.
 //
 // Merge is for userland eager composition, where you want duplicates resolved
 // immediately rather than at render time. Generated call sites use ConcatAttrs instead
@@ -325,9 +334,9 @@ func (a Attrs) Merge(other Attrs) Attrs {
 	for _, kv := range other {
 		switch {
 		case htmlattr.SameName(kv.Key, "class"):
-			out = mergeAggregateAttr(out, kv, "class")
+			out = mergeAggregateAttr(out, kv, "class", toStr)
 		case htmlattr.SameName(kv.Key, "style"):
-			out = mergeAggregateAttr(out, kv, "style")
+			out = mergeAggregateAttr(out, kv, "style", StyleValue)
 		default:
 			out = mergeScalarAttr(out, kv)
 		}
@@ -542,8 +551,9 @@ func mergeScalarAttr(out Attrs, kv Attr) Attrs {
 // mergeAggregateAttr folds kv, a pair of the aggregating attribute name
 // ("class" or "style"), into the first pair of that attribute: that pair takes
 // kv's spelling and the join of its own, every later pair's and kv's values,
-// and the later pairs are dropped.
-func mergeAggregateAttr(out Attrs, kv Attr, name string) Attrs {
+// each rendered by piece, and the later pairs are dropped. A style join is
+// carried as RawCSS, its pieces having been sanitized by piece (StyleValue).
+func mergeAggregateAttr(out Attrs, kv Attr, name string, piece func(any) string) Attrs {
 	idx := -1
 	for i := range out {
 		if htmlattr.SameName(out[i].Key, name) {
@@ -554,14 +564,19 @@ func mergeAggregateAttr(out Attrs, kv Attr, name string) Attrs {
 	if idx < 0 {
 		return append(out, kv)
 	}
-	joined := toStr(out[idx].Value)
+	joined := piece(out[idx].Value)
 	for i := idx + 1; i < len(out); i++ {
 		if htmlattr.SameName(out[i].Key, name) {
-			joined = joinAttrStrings(name, joined, toStr(out[i].Value))
+			joined = joinAttrStrings(name, joined, piece(out[i].Value))
 		}
 	}
+	joined = joinAttrStrings(name, joined, piece(kv.Value))
 	out[idx].Key = kv.Key // the last contributor's spelling renders, as at the leaf
-	out[idx].Value = joinAttrStrings(name, joined, toStr(kv.Value))
+	if name == "style" {
+		out[idx].Value = RawCSS(joined)
+	} else {
+		out[idx].Value = joined
+	}
 	return removeNamedAttrs(out, name, func(i int) bool { return i > idx })
 }
 

@@ -584,6 +584,7 @@ func TestMergeMatchesConcatRender(t *testing.T) {
 	}{
 		{"class case variants", Attrs{{Key: "class", Value: "p-2"}}, Attrs{{Key: "CLASS", Value: "p-4"}, {Key: "class", Value: "p-8"}}},
 		{"style case variants", Attrs{{Key: "style", Value: "color:red"}}, Attrs{{Key: "STYLE", Value: "color:blue"}, {Key: "Style", Value: "color:green"}}},
+		{"style hostile piece", Attrs{{Key: "Style", Value: RawCSS("a:b; c:d")}}, Attrs{{Key: "style", Value: "background:url(javascript:x)"}, {Key: "STYLE", Value: "top:0"}}},
 		{"scalar case variants", Attrs{{Key: "href", Value: "/a"}, {Key: "TITLE", Value: "t"}}, Attrs{{Key: "HREF", Value: "javascript:x"}, {Key: "title", Value: "u"}}},
 		{"receiver duplicates", Attrs{{Key: "data-d", Value: "1"}, {Key: "DATA-D", Value: "2"}, {Key: "Class", Value: "a"}, {Key: "class", Value: "b"}}, Attrs{{Key: "Data-D", Value: "3"}, {Key: "CLASS", Value: "c"}}},
 	} {
@@ -600,5 +601,40 @@ func TestMergeMatchesConcatRender(t *testing.T) {
 		if mb.String() != cb.String() {
 			t.Errorf("%s: Merge renders %q, Concat renders %q", tc.name, mb.String(), cb.String())
 		}
+	}
+}
+
+// TestBagStyleSanitized pins that every bag style value — under any ASCII
+// spelling of the name — goes through the same CSS value filter as a
+// style={expr} value, at both render boundaries (Attrs.Style, which forwarding
+// roots merge, and Spread's own style write), while RawCSS passes verbatim.
+func TestBagStyleSanitized(t *testing.T) {
+	for _, tc := range []struct {
+		val  any
+		want string
+	}{
+		{"background:url(javascript:alert(1))", cssFailsafe},
+		{"width:expression(alert(1))", cssFailsafe},
+		{"color:red--x", cssFailsafe},
+		{"color:var(--x)", cssFailsafe},
+		{"color:red; top:0", cssFailsafe},
+		{"color:red", "color:red"},
+		{RawCSS("color:var(--x); top:0"), "color:var(--x); top:0"},
+	} {
+		for _, key := range []string{"style", "STYLE", "Style"} {
+			a := Attrs{{Key: key, Value: tc.val}}
+			if got := a.Style(); got != tc.want {
+				t.Errorf("Attrs{%q: %q}.Style() = %q, want %q", key, tc.val, got, tc.want)
+			}
+			var buf bytes.Buffer
+			W(&buf).Spread(context.Background(), "div", a, AttrSinks{}, nil)
+			if want := " " + key + `="` + strings.ReplaceAll(tc.want, `"`, "&#34;") + `"`; buf.String() != want {
+				t.Errorf("Spread(%q: %q) = %q, want %q", key, tc.val, buf.String(), want)
+			}
+		}
+	}
+	// Get("style") is the rendered aggregate, like Style().
+	if v, _ := (Attrs{{Key: "STYLE", Value: "color:red; top:0"}}).Get("style"); v != cssFailsafe {
+		t.Errorf(`Get("style") = %v, want the filtered aggregate`, v)
 	}
 }

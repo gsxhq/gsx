@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"fmt"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"maps"
@@ -620,14 +621,24 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		if valueType != nil {
 			expr, _ = applyRenderer(&stmts, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
 		}
-		// A style pair's non-constant value is sanitized here, where the bag
-		// is built, with the filter a style={expr} value gets (StyleValue: a
-		// gsx.RawCSS passes, anything else runs the CSS value filter). The
-		// leaf writes a bag's style as given, so this is its only filter. A
-		// constant (authored text), a nil and a statically gsx.RawCSS value
-		// (a css`…` literal, an explicit vouch) stay as written.
-		if htmlattr.SameName(pair.Key, "style") && (!hasFact || (fact.tv.Value == nil && !fact.isNil && !isRawCSS(valueType))) {
-			expr = ctx.rt.rt() + ".StyleValue(" + expr + ")"
+		// A style pair: a non-constant value is sanitized where the bag is
+		// built, with the filter a style={expr} value gets (StyleValue: a
+		// gsx.RawCSS passes, anything else runs the CSS value filter); a
+		// string constant is authored text, carried as gsx.RawCSS past the
+		// filter the leaf applies to every other bag style (Attrs.Style). A
+		// nil and a statically gsx.RawCSS value (a css`…` literal, an explicit
+		// vouch) stay as written.
+		if htmlattr.SameName(pair.Key, "style") {
+			switch {
+			case !hasFact:
+				expr = ctx.rt.rt() + ".StyleValue(" + expr + ")"
+			case fact.tv.Value != nil:
+				if fact.tv.Value.Kind() == constant.String && !isRawCSS(valueType) {
+					expr = trustedCSS(ctx.rt.rt(), expr)
+				}
+			case !fact.isNil && !isRawCSS(valueType):
+				expr = ctx.rt.rt() + ".StyleValue(" + expr + ")"
+			}
 		}
 		seq.settle(&stmts)
 		keys = append(keys, pair.Key)

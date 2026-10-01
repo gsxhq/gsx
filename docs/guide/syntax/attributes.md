@@ -120,11 +120,9 @@ Spread a `gsx.Attrs` bag with `{ bag... }`; entries render in slice order.
 - Source order is kept.
 - A `bool` takes the same rule as an element attribute: presence, except on the names whose HTML values are `"true"`/`"false"` (`aria-*`, `contenteditable`, `spellcheck`, `draggable`). `gsx.Toggle(b)` forces presence on any name.
 - Spread values are escaped for the destination attribute; URL and `srcset`
-  destinations also run scheme sanitization.
-- A `style` value is written as the bag holds it. A non-constant `style` in a
-  <code v-pre>{{ }}</code> literal is CSS-filtered like `style={expr}` when the bag is built,
-  but a `style` you put in a `gsx.Attrs` yourself is trusted like
-  `gsx.RawCSS`; pass untrusted CSS through `style={expr}` or a `css` literal.
+  destinations also run scheme sanitization, and a `style` value runs the same
+  CSS filter as `style={expr}`. For trusted multi-declaration CSS in a bag you
+  build yourself, use `gsx.RawCSS`.
 - `gsx.AttrMap.ToAttrs()` sorts map keys.
 
 **Treat keys as trusted code.** Build `gsx.Attr` and `gsx.Attrs` keys only from

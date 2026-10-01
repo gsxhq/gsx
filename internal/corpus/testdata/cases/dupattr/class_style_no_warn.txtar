@@ -36,7 +36,7 @@ func C(x string) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv1, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">1</i>")
 //line input.gsx:5:2
-		_gsxv2 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}, {Key: "STYLE", Value: _gsxrt.RawURL("top:0")}}
+		_gsxv2 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}, {Key: "STYLE", Value: _gsxrt.RawCSS("top:0")}}
 		_gsxgw.S("<i")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 		_gsxgw.StyleMerged("", _gsxv2.Style())
