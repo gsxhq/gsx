@@ -620,6 +620,15 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		if valueType != nil {
 			expr, _ = applyRenderer(&stmts, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
 		}
+		// A style pair's non-constant value is sanitized here, where the bag
+		// is built, with the filter a style={expr} value gets (StyleValue: a
+		// gsx.RawCSS passes, anything else runs the CSS value filter). The
+		// leaf writes a bag's style as given, so this is its only filter. A
+		// constant (authored text), a nil and a statically gsx.RawCSS value
+		// (a css`…` literal, an explicit vouch) stay as written.
+		if htmlattr.SameName(pair.Key, "style") && (!hasFact || (fact.tv.Value == nil && !fact.isNil && !isRawCSS(valueType))) {
+			expr = ctx.rt.rt() + ".StyleValue(" + expr + ")"
+		}
 		seq.settle(&stmts)
 		keys = append(keys, pair.Key)
 		entries = append(entries, seq.add(expr, fmt.Sprintf("%s.Attr{Key: %s, Value: %s}", ctx.rt.rt(), strconv.Quote(pair.Key), expr)))
