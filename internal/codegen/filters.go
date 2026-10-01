@@ -155,6 +155,12 @@ type funcTables struct {
 	// canonical default. Stamped per generateFile call (see generateFile), so
 	// funcTables construction/caching sites never carry it.
 	verbatimTags bool
+	// evalFacts are the go/types facts of the calls and logical operations in
+	// Go-expression fields holding a nested literal (harvestEvalFacts), which
+	// fieldPins consults to keep evaluation order around a hoisted hole. Like
+	// verbatimTags it rides funcTables to reach every lowering site and is
+	// stamped per generateFile call.
+	evalFacts map[evalKey]evalFact
 }
 
 // stdImportPath is the gsx built-in filter package. It is always available

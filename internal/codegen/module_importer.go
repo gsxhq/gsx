@@ -913,6 +913,7 @@ type analyzed struct {
 	targetErrs        []types.Error     // target-phase-fatal type errors retained privately until exact call planning becomes authoritative
 	targetDiagnostics []diag.Diagnostic // target-phase-fatal source diagnostics retained on the same private boundary
 	resolved          map[gsxast.Node]types.Type
+	evalFacts         map[evalKey]evalFact // go/types facts of nested-literal fields' operands (harvestEvalFacts)
 	exprMap           map[gsxast.Node]goast.Expr
 	ctrlMap           map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
 	sigTypes          map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
@@ -1217,6 +1218,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// onto the markup's nodes. Kept SEPARATE from compsByXGo (these are not
 	// components) so LSP/SigTypeRef consumers of compsByXGo never see them.
 	gwMarkupsByXGo := map[string][][]gsxast.Markup{}
+	gsxByXGo := map[string]*gsxast.File{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	// targetImports are import specs referenced by the exact component-target
 	// syntax but intentionally absent from the operand skeleton. They remain
@@ -1344,6 +1346,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		}
 		compsByXGo[absXpath] = comps
 		gwMarkupsByXGo[absXpath] = gwMarkups
+		gsxByXGo[absXpath] = f
 		ctrlOffByXGo[absXpath] = ctrlOff
 		targetQualifiers := componentTargetQualifiers(callSites, targetFacts, path)
 		if len(targetQualifiers) != 0 {
@@ -1594,6 +1597,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	// Generate, exprMap surfaced by Package). Build the component cross-index
 	// inputs (compByKey / objKey).
 	resolved := map[gsxast.Node]types.Type{}
+	evalFacts := map[evalKey]evalFact{}
 	exprMap := map[gsxast.Node]goast.Expr{}
 	compByKey := map[string][]*gsxast.Component{} // logical component key -> component(s); >1 = build-tag variants
 	objKey := map[types.Object]string{}           // every public/private skeleton component object -> logical component key
@@ -1613,6 +1617,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		// marked IIFE's probe calls back onto the embedded value's own markup
 		// list, using the same ordered probe stream as ordinary component bodies.
 		harvestEmbeddedElements(gf, gwMarkupsByXGo[fname], info, resolved, exprMap, nil)
+		harvestEvalFacts(gsxByXGo[fname], gf, gwMarkupsByXGo[fname], info, evalFacts)
 		declLogicalKeys := map[string]string{}
 		// publicDeclKeys is declLogicalKeys restricted to the declaration named
 		// exactly as the component is authored (emission.public). A split
@@ -1765,6 +1770,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		targetErrs:        targetErrs,
 		targetDiagnostics: targetDiagnostics,
 		resolved:          resolved,
+		evalFacts:         evalFacts,
 		exprMap:           exprMap,
 		ctrlMap:           ctrlMap,
 		sigTypes:          sigTypes,

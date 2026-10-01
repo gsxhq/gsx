@@ -1,6 +1,8 @@
 package codegen
 
 import (
+	"go/token"
+	"slices"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -55,5 +57,62 @@ func TestAnalyzeFieldHeaderInit(t *testing.T) {
 	init := m.split(0, shape.initEnd)
 	if len(init) != 3 || init[1] != ast.GoPart(lit) || init[2].(ast.GoText).Src != ")" {
 		t.Errorf("init parts = %#v", init)
+	}
+}
+
+// TestAnalyzeFieldEvals pins the operands fieldPins may pin: calls,
+// receives, logical operations and literals with a hole, in source order,
+// with their .gsx spans; nothing inside a func literal; a split keeps spans.
+func TestAnalyzeFieldEvals(t *testing.T) {
+	const base = token.Pos(100)
+	before, litSrc, after := "join(<-ch, f(g()), func() { h() }, a() && b, f`x`, ", "f`@{v}`", ") + T(x)"
+	src := before + litSrc + after
+	text := func(pos, end token.Pos, s string) ast.GoPart {
+		gt := ast.GoText{Src: s}
+		ast.SetSpan(&gt, pos, end)
+		return gt
+	}
+	static := &ast.EmbeddedInterp{}
+	lit := &ast.EmbeddedInterp{Segments: []ast.Markup{&ast.Interp{Expr: "v"}}}
+	staticAt := base + token.Pos(len("join(<-ch, f(g()), func() { h() }, a() && b, "))
+	ast.SetSpan(static, staticAt, staticAt+token.Pos(len("f`x`")))
+	litAt := base + token.Pos(len(before))
+	ast.SetSpan(lit, litAt, litAt+token.Pos(len(litSrc)))
+	parts := []ast.GoPart{
+		text(base, staticAt, src[:staticAt-base]),
+		static,
+		text(static.End(), litAt, src[static.End()-base:litAt-base]),
+		lit,
+		text(lit.End(), base+token.Pos(len(src)), after),
+	}
+	shape, err := analyzeField(parts, syntaxExpr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type got struct {
+		kind evalKind
+		src  string
+	}
+	var evals []got
+	for _, e := range shape.evals {
+		evals = append(evals, got{e.kind, src[e.start-base : e.end-base]})
+	}
+	want := []got{
+		{evalCall, src[:len(src)-len(" + T(x)")]},
+		{evalRecv, "<-ch"},
+		{evalCall, "f(g())"},
+		{evalCall, "g()"},
+		{evalLogical, "a() && b"},
+		{evalCall, "a()"},
+		{evalLiteral, litSrc},
+		{evalCall, "T(x)"},
+	}
+	if !slices.Equal(evals, want) {
+		t.Errorf("evals =\n%v\nwant\n%v", evals, want)
+	}
+	for _, part := range shape.masked.split(0, len("join(")) {
+		if part.Pos() != base || part.End() != base+token.Pos(len("join(")) {
+			t.Errorf("split span = [%d, %d), want [%d, %d)", part.Pos(), part.End(), base, base+5)
+		}
 	}
 }
