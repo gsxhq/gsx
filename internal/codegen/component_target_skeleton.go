@@ -43,6 +43,10 @@ type componentTargetPlan struct {
 	families          []componentVariantFamily
 	invalidMembership bool
 	directPrepared    bool
+	// boundReceivers is set once component identity is final: each planned
+	// bound-method call's receiver byte length within its tag. The shipping
+	// skeleton references those receivers exactly as emit evaluates them.
+	boundReceivers map[*gsxast.Element]int
 }
 
 func (p componentTargetPlan) emission(component *gsxast.Component) (componentTargetEmission, bool) {
@@ -157,7 +161,7 @@ func emitExactTargetComponent(
 		builder.WriteString("_gsxbody := func(ctx _gsxctx.Context) error {\n")
 		controlOffsets := make(map[gsxast.Node]int)
 		controlTemp := 0
-		if err := emitProbes(builder, component.Body, table, "", "", usedFilters, fset, controlOffsets, targets, goWithElements, bag, &controlTemp, hasAttrs); err != nil {
+		if err := emitProbes(builder, component.Body, table, "", "", usedFilters, fset, controlOffsets, targets.probes(), goWithElements, bag, &controlTemp, hasAttrs); err != nil {
 			return err
 		}
 		builder.WriteString("return nil\n}\n_ = _gsxbody\nreturn nil\n}\n")
@@ -241,7 +245,7 @@ func emitTargetGoWithElements(
 				fmt.Fprintf(builder, "_gsxelem(%d)\n", index)
 				builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				controlTemp := 0
-				if err := emitProbes(builder, markup, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets, goWithElements, bag, &controlTemp, false); err != nil {
+				if err := emitProbes(builder, markup, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets.probes(), goWithElements, bag, &controlTemp, false); err != nil {
 					return err
 				}
 			}
@@ -254,7 +258,7 @@ func emitTargetGoWithElements(
 				fmt.Fprintf(builder, "_gsxelem(%d)\n", index)
 				builder.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				controlTemp := 0
-				if err := emitProbes(builder, part.Children, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets, goWithElements, bag, &controlTemp, false); err != nil {
+				if err := emitProbes(builder, part.Children, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets.probes(), goWithElements, bag, &controlTemp, false); err != nil {
 					return err
 				}
 			}
@@ -275,7 +279,7 @@ func emitTargetGoWithElements(
 				return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 			}
 			controlTemp := 0
-			if err := probeEmbeddedInterpIIFE(builder, part.Segments, part.Lang, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets, goWithElements, bag, &controlTemp); err != nil {
+			if err := probeEmbeddedInterpIIFE(builder, part.Segments, part.Lang, table, "", "", usedFilters, fset, map[gsxast.Node]int{}, targets.probes(), goWithElements, bag, &controlTemp); err != nil {
 				return err
 			}
 		default:

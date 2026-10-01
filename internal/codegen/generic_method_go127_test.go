@@ -32,6 +32,8 @@ component (p Page) Box[T string | int](value T) {
 component (p Page) Render() {
 	<p.Box[int] value={7} />
 	<p.Box value={7} />
+	{{ m := Page{} }}<m.Box[int] value={8} />
+	{{ n := Page{} }}<n.Box value={8} />
 }
 `)
 	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
@@ -66,5 +68,12 @@ component (p Page) Render() {
 	const wantCall = "p.Box[int](7)"
 	if n := strings.Count(got, wantCall); n != 2 {
 		t.Fatalf("want 2 occurrences of %q (one per call site), got %d:\n%s", wantCall, n, got)
+	}
+	// A local receiver used only by the tag must stay live in the probe: both
+	// the explicit and the inferred instantiation lower to a call on it.
+	for _, want := range []string{"m.Box[int](8)", "n.Box[int](8)"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated source missing local-receiver call %q:\n%s", want, got)
+		}
 	}
 }

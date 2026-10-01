@@ -69,6 +69,11 @@ type componentTargetFact struct {
 
 	usesImportedQualifier bool
 	declaration           componentTargetDeclarationProvenance
+
+	// receiverLen is, for a concrete bound method value (<m.Meth>, <x.y.Meth>),
+	// the byte length of the receiver operand (m, x.y) at the start of the
+	// authored tag; zero for every other provenance.
+	receiverLen int
 }
 
 func (f componentTargetFact) effectiveSignature() *types.Signature {
@@ -222,6 +227,75 @@ func newComponentTargetMarkerRegistry(callSites *callSiteRegistry) (*componentTa
 
 func componentTargetMarkerName(site callSiteID) string {
 	return fmt.Sprintf("_gsxtarget%d", site)
+}
+
+// componentTargetProbes is what one skeleton's probe walk knows about
+// component-tag targets. Target discovery carries the marker registry and binds
+// every candidate target in its lexical scope. The shipping skeleton carries
+// the finalized bound-method receivers instead: it leaves target validation to
+// discovery, but emit evaluates a bound method's receiver (<m.Meth/> lowers to
+// m.Meth(…)), so the probe must reference that receiver too or a local used
+// only as a tag receiver is a synthetic "declared and not used".
+type componentTargetProbes struct {
+	markers        *componentTargetMarkerRegistry
+	boundReceivers map[*gsxast.Element]int
+}
+
+func (r *componentTargetMarkerRegistry) probes() *componentTargetProbes {
+	if r == nil {
+		return nil
+	}
+	return &componentTargetProbes{markers: r}
+}
+
+func (p *componentTargetProbes) markerRegistry() *componentTargetMarkerRegistry {
+	if p == nil {
+		return nil
+	}
+	return p.markers
+}
+
+// boundReceiver returns the receiver operand of a planned bound-method target
+// (m for <m.Meth/>, x.y for <x.y.Meth/>).
+func (p *componentTargetProbes) boundReceiver(element *gsxast.Element) (string, bool) {
+	if p == nil {
+		return "", false
+	}
+	n, ok := p.boundReceivers[element]
+	if !ok {
+		return "", false
+	}
+	return element.Tag[:n], true
+}
+
+// boundMethodReceivers maps every planned call site whose target is a concrete
+// bound method value to its receiver's byte length within the tag. It reads
+// the final dispositions, so it must follow finalizeComponentIdentity.
+func (r *callSiteRegistry) boundMethodReceivers(facts map[callSiteID]componentTargetFact) (map[*gsxast.Element]int, error) {
+	if r == nil {
+		return nil, nil
+	}
+	if !r.finalized {
+		return nil, fmt.Errorf("codegen: bound-method receivers read before component identity finalization")
+	}
+	var receivers map[*gsxast.Element]int
+	for _, record := range r.records {
+		if record.disposition != componentSitePlanned {
+			continue
+		}
+		fact, ok := facts[record.id]
+		if !ok {
+			return nil, fmt.Errorf("codegen: planned call site %d <%s> has no semantic target fact", record.id, record.element.Tag)
+		}
+		if fact.provenance != targetConcreteMethodValue {
+			continue
+		}
+		if receivers == nil {
+			receivers = make(map[*gsxast.Element]int)
+		}
+		receivers[record.element] = fact.receiverLen
+	}
+	return receivers, nil
 }
 
 func (r *componentTargetMarkerRegistry) hasCandidate(element *gsxast.Element) bool {
@@ -660,6 +734,11 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 					provenanceMessage = "component target method does not have a callable signature"
 				} else {
 					fact.provenance = targetConcreteMethodValue
+					receiverLen, err := boundReceiverLen(marker, shape.selector)
+					if err != nil {
+						return nil, nil, err
+					}
+					fact.receiverLen = receiverLen
 				}
 			}
 		case fact.object == nil:
@@ -748,6 +827,22 @@ func harvestComponentTargetFacts(files []*goast.File, fset *token.FileSet, info 
 		facts[marker.site] = fact
 	}
 	return facts, unrelated, nil
+}
+
+// boundReceiverLen measures the receiver operand of a bound-method target from
+// the parsed marker expression: the selector's X starts where the target starts
+// (a selector chain, optionally instantiated, is left-anchored), and the whole
+// selector lies within the tag segment that opens the marker's raw span, so
+// X.End()-expr.Pos() is a byte length within element.Tag.
+func boundReceiverLen(marker *componentTargetMarker, selector *goast.SelectorExpr) (int, error) {
+	if marker.expr.Pos() != selector.X.Pos() {
+		return 0, fmt.Errorf("codegen: bound-method target <%s> does not start with its receiver", marker.element.Tag)
+	}
+	n := int(selector.X.End() - marker.expr.Pos())
+	if n <= 0 || n >= len(marker.element.Tag) || marker.element.Tag[n] != '.' {
+		return 0, fmt.Errorf("codegen: bound-method target <%s> receiver span %d does not end at the tag's selector", marker.element.Tag, n)
+	}
+	return n, nil
 }
 
 func incompleteComponentResult(sig *types.Signature) bool {

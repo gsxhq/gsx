@@ -380,6 +380,10 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 	// genComponent will re-encounter the same error at emit time and record a
 	// positioned diagnostic via the bag. Any OTHER error is a real infrastructure
 	// failure and must abort the whole skeleton build.
+	var targets *componentTargetProbes
+	if mode == skeletonFull && plan != nil && len(plan.boundReceivers) != 0 {
+		targets = &componentTargetProbes{boundReceivers: plan.boundReceivers}
+	}
 	var validComps []*gsxast.Component
 	for _, c := range comps {
 		emission := componentTargetEmission{public: true}
@@ -394,7 +398,7 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 		if err != nil {
 			continue
 		}
-		if err := emitComponentSkeleton(compBuf, c, declaration, table, usedFilters, fset, ctrlOff, &gwMarkups, bag, mode, emission); err != nil {
+		if err := emitComponentSkeleton(compBuf, c, declaration, table, usedFilters, fset, ctrlOff, &gwMarkups, bag, mode, emission, targets); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
@@ -558,7 +562,7 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 				fmt.Fprintf(compBuf, "_gsxelem(%d)\n", idx)
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				elemCFTemp := 0
-				if err := emitProbes(compBuf, markup, table, "", "", usedFilters, fset, ctrlOff, nil, &gwMarkups, bag, &elemCFTemp, false); err != nil {
+				if err := emitProbes(compBuf, markup, table, "", "", usedFilters, fset, ctrlOff, targets, &gwMarkups, bag, &elemCFTemp, false); err != nil {
 					return "", nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
@@ -575,7 +579,7 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 				fmt.Fprintf(compBuf, "_gsxelem(%d)\n", idx)
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				fragCFTemp := 0
-				if err := emitProbes(compBuf, p.Children, table, "", "", usedFilters, fset, ctrlOff, nil, &gwMarkups, bag, &fragCFTemp, false); err != nil {
+				if err := emitProbes(compBuf, p.Children, table, "", "", usedFilters, fset, ctrlOff, targets, &gwMarkups, bag, &fragCFTemp, false); err != nil {
 					return "", nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
@@ -606,7 +610,7 @@ func buildSkeletonWithRecorder(file *gsxast.File, table funcTables, fset *token.
 					return "", nil, nil, nil, nil, fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 				}
 				segCFTemp := 0
-				if err := probeEmbeddedInterpIIFE(compBuf, p.Segments, p.Lang, table, "", "", usedFilters, fset, ctrlOff, nil, &gwMarkups, bag, &segCFTemp); err != nil {
+				if err := probeEmbeddedInterpIIFE(compBuf, p.Segments, p.Lang, table, "", "", usedFilters, fset, ctrlOff, targets, &gwMarkups, bag, &segCFTemp); err != nil {
 					return "", nil, nil, nil, nil, err
 				}
 			default:
@@ -881,25 +885,25 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature plus probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declaration componentDeclaration, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode, emission componentTargetEmission) error {
+func emitComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declaration componentDeclaration, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode, emission componentTargetEmission, targets *componentTargetProbes) error {
 	if !emission.splitBody {
 		if !emission.public {
 			return fmt.Errorf("codegen: unsplit component %s has no public skeleton declaration", c.Name)
 		}
-		return emitNamedComponentSkeleton(sb, c, declaration, c.Name, true, table, usedFilters, fset, ctrlOff, gw, bag, mode)
+		return emitNamedComponentSkeleton(sb, c, declaration, c.Name, true, table, usedFilters, fset, ctrlOff, gw, bag, mode, targets)
 	}
 	if emission.bodyName == "" {
 		return fmt.Errorf("codegen: split component %s has no analysis body name", c.Name)
 	}
 	if emission.public {
-		if err := emitNamedComponentSkeleton(sb, c, declaration, c.Name, false, table, usedFilters, fset, ctrlOff, gw, bag, mode); err != nil {
+		if err := emitNamedComponentSkeleton(sb, c, declaration, c.Name, false, table, usedFilters, fset, ctrlOff, gw, bag, mode, targets); err != nil {
 			return err
 		}
 	}
-	return emitNamedComponentSkeleton(sb, c, declaration, emission.bodyName, true, table, usedFilters, fset, ctrlOff, gw, bag, mode)
+	return emitNamedComponentSkeleton(sb, c, declaration, emission.bodyName, true, table, usedFilters, fset, ctrlOff, gw, bag, mode, targets)
 }
 
-func emitNamedComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declaration componentDeclaration, declarationName string, probeBody bool, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode) error {
+func emitNamedComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declaration componentDeclaration, declarationName string, probeBody bool, table funcTables, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, gw *[][]gsxast.Markup, bag *diag.Bag, mode skeletonMode, targets *componentTargetProbes) error {
 	var err error
 	var recvVar, recvTypeName string
 	if c.Recv != "" {
@@ -955,7 +959,7 @@ func emitNamedComponentSkeleton(sb skeletonWriter, c *gsxast.Component, declarat
 	// keeps the closure itself used for components that never reference ctx.
 	sb.WriteString("\t_gsxbody := func(ctx _gsxctx.Context) error {\n")
 	cfTemp := 0
-	if err := emitProbes(sb, c.Body, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, nil, gw, bag, &cfTemp, hasAttrs); err != nil {
+	if err := emitProbes(sb, c.Body, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, &cfTemp, hasAttrs); err != nil {
 		return err
 	}
 	sb.WriteString("\t\treturn nil\n\t}\n\t_ = _gsxbody\n\treturn nil\n}\n")
@@ -1022,11 +1026,12 @@ func writeSkeletonComponentSignature(sb skeletonWriter, c *gsxast.Component, dec
 // unique and never collide across sibling component tags in the same block
 // (fix #69). A fresh counter is started at each entry point that begins a new
 // skeleton function/buffer; recursive calls thread the received counter through.
-// targetRegistry is nil for the shipping skeleton. A non-nil registry emits
+// targets carries the target marker registry during discovery, which emits
 // target identity bindings in these same lexical scopes while retaining the
-// ordinary operand, liveness, and slot probes below each component target.
-func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, targetRegistry *componentTargetMarkerRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int, enclosingAttrsBound bool) error {
-	ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targetRegistry: targetRegistry, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
+// ordinary operand, liveness, and slot probes below each component target. The
+// shipping skeleton's targets carry only the planned bound-method receivers.
+func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, targets *componentTargetProbes, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int, enclosingAttrsBound bool) error {
+	ps := probeScope{table: table, recvVar: recvVar, recvTypeName: recvTypeName, usedFilters: usedFilters, fset: fset, ctrlOff: ctrlOff, targets: targets, gw: gw, bag: bag, cfTemp: cfTemp, enclosingAttrsBound: enclosingAttrsBound}
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -1097,7 +1102,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 			// call codegen's emitEmbeddedInterp will build (via
 			// embeddedTextValueExpr + lowerPipe), so resolved[t] ends up the
 			// exact type codegen emits (emit ≡ probe).
-			if err := emitProbes(sb, t.Segments, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Segments, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			if len(t.Stages) > 0 {
@@ -1113,6 +1118,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				writeSkeletonGenerated(sb, ")\n")
 			}
 		case *gsxast.Element:
+			targetRegistry := targets.markerRegistry()
 			candidateProbe := targetRegistry != nil && targetRegistry.hasCandidate(t)
 			if t.IsComponent || candidateProbe {
 				// Every child-component call passes the ambient ctx as a
@@ -1123,6 +1129,17 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					writeProbeCtxPass(sb, fset, t.Pos())
 				} else {
 					writeProbeCtxUse(sb)
+				}
+				// Emit evaluates a bound method's receiver (<m.Meth/> lowers to
+				// m.Meth(…)); reference it so a local used only as a tag receiver
+				// stays live. The target itself stays discovery's to check.
+				if receiver, ok := targets.boundReceiver(t); ok {
+					writeSkeletonGenerated(sb, "_ = ")
+					emitSkeletonBlockLine(sb, fset, t.TagPos)
+					if err := writeSkeletonAuthoredAt(sb, fset, t.TagPos, receiver, sourceintel.Definition|sourceintel.Hover); err != nil {
+						return err
+					}
+					writeSkeletonGenerated(sb, "\n")
 				}
 				if candidateProbe {
 					if err := targetRegistry.emitBinding(sb, t, fset); err != nil {
@@ -1332,7 +1349,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if slot {
 						writeProbeSlotCtx(sb)
 					}
-					probeErr = emitProbes(sb, value, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
+					probeErr = emitProbes(sb, value, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound)
 					sb.WriteString("}\n")
 				})
 				if probeErr != nil {
@@ -1362,7 +1379,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				// shadow does not collide with the enclosing authored attrs parameter.
 				sb.WriteString("{\n")
 				writeProbeSlotCtx(sb)
-				childErr := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
+				childErr := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound)
 				sb.WriteString("}\n")
 				if childErr != nil {
 					return childErr
@@ -1524,7 +1541,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound)
+					probeErr = emitProbes(sb, value, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound)
 				})
 				if probeErr != nil {
 					return probeErr
@@ -1548,7 +1565,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 			}
@@ -1578,11 +1595,11 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					return err
 				}
 			}
-			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
@@ -1592,7 +1609,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				return err
 			}
 			writeSkeletonGenerated(sb, " {\n")
-			if err := emitProbes(sb, t.Body, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Body, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
@@ -1603,13 +1620,13 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 				return err
 			}
 			writeSkeletonGenerated(sb, " {\n")
-			if err := emitProbes(sb, t.Then, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+			if err := emitProbes(sb, t.Then, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+				if err := emitProbes(sb, t.Else, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -1638,7 +1655,7 @@ func emitProbes(sb skeletonWriter, nodes []gsxast.Markup, table funcTables, recv
 					}
 					writeSkeletonGenerated(sb, ":\n")
 				}
-				if err := emitProbes(sb, cc.Body, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
+				if err := emitProbes(sb, cc.Body, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 			}
@@ -2001,7 +2018,7 @@ func embeddedProbeType(lang gsxast.EmbeddedLang) (retType, wrapOpen, wrapClose s
 // (recvVar/recvTypeName). Its parameter list mirrors emitProbes so any of the
 // three sites can call it with its own scope. The whole-literal-pipeline guard
 // (p.Stages) stays at each call site, which words that diagnostic per-context.
-func probeEmbeddedInterpIIFE(sb skeletonWriter, segs []gsxast.Markup, lang gsxast.EmbeddedLang, table funcTables, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, targetRegistry *componentTargetMarkerRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
+func probeEmbeddedInterpIIFE(sb skeletonWriter, segs []gsxast.Markup, lang gsxast.EmbeddedLang, table funcTables, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, targets *componentTargetProbes, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
 	idx := len(*gw)
 	*gw = append(*gw, segs)
 	retType, wrapOpen, wrapClose := embeddedProbeType(lang)
@@ -2011,7 +2028,7 @@ func probeEmbeddedInterpIIFE(sb skeletonWriter, segs []gsxast.Markup, lang gsxas
 	// Expression-position literal segments carry only text + Go-expr holes, never
 	// component-call markup, so no `{ attrs... }` fallthrough can appear here:
 	// enclosingAttrsBound is irrelevant, pass false (the pre-#104 behavior).
-	if err := emitProbes(sb, segs, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targetRegistry, gw, bag, cfTemp, false); err != nil {
+	if err := emitProbes(sb, segs, table, recvVar, recvTypeName, usedFilters, fset, ctrlOff, targets, gw, bag, cfTemp, false); err != nil {
 		return err
 	}
 	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs), wrapClose)
