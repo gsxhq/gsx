@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/types"
+	"slices"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -178,8 +179,8 @@ func (f *fieldPins) pin(e evalNode, lit ast.GoPart) bool {
 	if e.kind == evalLogical {
 		if fact.untypedBool && !isBoolType(fact.typ) {
 			// The operation's value is an untyped boolean the context
-			// converts to another boolean type; the temp is a typed bool. A
-			// comparison yields an untyped boolean again.
+			// converts to another boolean type; the temp is a typed bool.
+			// Comparisons "yield an untyped boolean value" (Go spec).
 			ref = "(" + name + " == true)"
 		}
 	}
@@ -197,7 +198,7 @@ func (f *fieldPins) pin(e evalNode, lit ast.GoPart) bool {
 			break
 		}
 	}
-	f.pinned = append(f.pinned[:at], append([]pinnedSpan{{start: int(e.start), end: int(e.end), ref: ref}}, f.pinned[at:]...)...)
+	f.pinned = slices.Insert(f.pinned, at, pinnedSpan{start: int(e.start), end: int(e.end), ref: ref})
 	return true
 }
 

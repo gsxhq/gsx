@@ -69,8 +69,9 @@ operation is an untyped boolean the context converts to a defined boolean type
 (its temp is compared with `true` to stay untyped), comes from go/types: the
 skeleton subtree of each such field mirrors its masked parse, so
 `harvestEvalFacts` aligns the two and records facts by source span. A
-multi-value call is only ever the sole argument of an enclosing call, so it is
-never pinned itself. Without a hoist nothing changes.
+multi-value call is either the sole argument of an enclosing call (which is
+what gets pinned) or the whole right-hand side of an init statement (where
+nothing in the same slice follows it), so it is never pinned itself. Without a hoist nothing changes.
 
 ### Error-carrying holes
 
