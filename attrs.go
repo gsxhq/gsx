@@ -120,9 +120,11 @@ func (a Attrs) aggregate(name string, value func(any) string) string {
 //
 // DUPLICATE-KEY RULE: LAST occurrence wins for scalar keys, matching JSX-style
 // override order — EXCEPT class and style, which COLLAPSE. A bag has one class
-// and one style, so Get returns what Class()/Style() return — the aggregate of
-// every pair naming that attribute, the style CSS-filtered as it renders —
-// agreeing with what renders. Last-wins there would report only the final
+// and one style, so Get returns the aggregate of every pair naming that
+// attribute, agreeing with what renders: the class as Class() returns it (a
+// string), the style as Style() returns it but typed gsx.RawCSS — it is
+// already CSS-filtered, so putting it back into a bag renders it as is rather
+// than filtering it again. Last-wins there would report only the final
 // contribution and read as though the earlier ones had been dropped, even
 // though every one of them renders.
 func (a Attrs) Get(key string) (any, bool) {
@@ -136,7 +138,7 @@ func (a Attrs) Get(key string) (any, bool) {
 		if !a.Has(key) {
 			return nil, false
 		}
-		return a.Style(), true
+		return RawCSS(a.Style()), true
 	}
 	for i := len(a) - 1; i >= 0; i-- {
 		if htmlattr.SameName(a[i].Key, key) {
@@ -306,7 +308,8 @@ func URLPrefixMatch(key string, prefixes []string) bool {
 
 // Take returns Get(key)'s last value and a copy of a without ALL occurrences of key.
 // Like Get and Without it matches key ASCII-case-insensitively, so case-variant
-// pairs go too.
+// pairs go too. For style the value is Get's: the filtered style, typed
+// gsx.RawCSS.
 func (a Attrs) Take(key string) (any, Attrs) {
 	v, _ := a.Get(key)
 	return v, a.Without(key)

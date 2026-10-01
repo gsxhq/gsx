@@ -553,7 +553,7 @@ func TestAttrsNameComparison(t *testing.T) {
 	if v, _ := a.Get("Class"); v != "b a" {
 		t.Errorf(`Get("Class") = %v, want the aggregate "b a"`, v)
 	}
-	if v, _ := a.Get("style"); v != "top:0" {
+	if v, _ := a.Get("style"); v != RawCSS("top:0") {
 		t.Errorf(`Get("style") = %v, want "top:0"`, v)
 	}
 	if !a.Bool("disabled") || a.Bool("hidden") {
@@ -634,7 +634,27 @@ func TestBagStyleSanitized(t *testing.T) {
 		}
 	}
 	// Get("style") is the rendered aggregate, like Style().
-	if v, _ := (Attrs{{Key: "STYLE", Value: "color:red; top:0"}}).Get("style"); v != cssFailsafe {
+	if v, _ := (Attrs{{Key: "STYLE", Value: "color:red; top:0"}}).Get("style"); v != RawCSS(cssFailsafe) {
 		t.Errorf(`Get("style") = %v, want the filtered aggregate`, v)
+	}
+}
+
+// TestGetStyleRoundTrip pins that Get/Take return the filtered style as
+// gsx.RawCSS, so putting it back into a bag keeps a trusted multi-declaration
+// style instead of filtering it a second time.
+func TestGetStyleRoundTrip(t *testing.T) {
+	a := Attrs{{Key: "style", Value: RawCSS("margin:0")}, {Key: "STYLE", Value: RawCSS("color:red; top:0")}, {Key: "Style", Value: "url(x)"}}
+	v, ok := a.Get("style")
+	if _, isRaw := v.(RawCSS); !ok || !isRaw {
+		t.Fatalf("Get(style) = %#v, %v; want a RawCSS", v, ok)
+	}
+	tv, rest := a.Take("Style")
+	if tv != v || rest.Has("style") {
+		t.Fatalf("Take(Style) = %#v, %v", tv, rest)
+	}
+	var buf bytes.Buffer
+	W(&buf).Spread(context.Background(), "div", Attrs{{Key: "style", Value: v}}, AttrSinks{}, nil)
+	if got, want := buf.String(), ` style="margin:0; color:red; top:0; ZgotmplZ"`; got != want {
+		t.Errorf("round-trip render = %q, want %q", got, want)
 	}
 }
