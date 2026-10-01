@@ -105,6 +105,8 @@ The spread's source position controls scalar attributes:
 - Before the spread, `type` is a default that the bag can override.
 - After the spread, `disabled` is forced by the component.
 - `class` and `style` compose instead of replacing one another.
+- Attributes in an `{ if … }` or `{ switch … }` group follow the group's
+  position.
 
 ### Derived bags
 

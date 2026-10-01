@@ -494,14 +494,8 @@ func positionalConditionalAttrsExpr(b *bytes.Buffer, node componentAttrsStreamNo
 }
 
 // positionalSwitchAttrsExpr lowers an in-tag `{ switch … }` attrs contributor
-// on a COMPONENT tag. The if-form above composes into a single AttrsCond
-// expression; the switch form instead emits a real Go switch statement, for the
-// same reason the element-side emitter does: the tag must be evaluated exactly
-// once, and every arm shape Go allows — multi-value case lists, a tagless
-// switch, a type switch — then lowers unchanged. Each arm calls only its own
-// branch thunk, so an arm's attrs are built only when that arm is taken, and an
-// unmatched switch with no default leaves the nil bag, matching an `if` with no
-// `else`.
+// on a COMPONENT tag: a real Go switch statement over the arms' branch thunks
+// (emitAttrsSwitch).
 func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node componentAttrsStreamNode, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
 	if len(node.branches) != len(sw.Cases) {
 		return positionalValueLowering{outcome: positionalLoweringUnsupported}
@@ -516,50 +510,9 @@ func positionalSwitchAttrsExpr(b *bytes.Buffer, sw *gsxast.SwitchAttr, node comp
 		thunks[i] = lowering.expr
 		maps.Copy(used, lowering.used)
 	}
-	name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
-	*ctx.interpTemp++
-	// The tag's hoists precede the `switch`; case lists are evaluated lazily
-	// and have no error channel.
-	lc := ctx.lowerCtx()
-	var pre bytes.Buffer
-	tag, block, ok := lc.header(&pre, sw.Tag, sw.TagEmbedded, sw)
+	name, ok := emitAttrsSwitch(b, sw, thunks, ctx.rt.rt(), ctx.errorReturn(), ctx.lowerCtx())
 	if !ok {
 		return diagnosedPositionalValue()
-	}
-	// A short var decl keeps _gsxerr shared with any sibling lowering in this
-	// scope (name is new, so `:=` is legal whether or not _gsxerr already
-	// exists), which is what ctx.errorReturn() refers to. Inside a header
-	// block (an init statement before hoists) a hoist may declare its own
-	// _gsxerr, so the arms then report through a dedicated error temp that
-	// is checked after the block.
-	errVar := "_gsxerr"
-	if block {
-		errVar = fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
-		*ctx.interpTemp++
-	}
-	fmt.Fprintf(b, "%s, %s := %s.Attrs(nil), error(nil)\n", name, errVar, ctx.rt.rt())
-	b.Write(pre.Bytes())
-	fmt.Fprintf(b, "switch %s {\n", tag)
-	caseLC := lc
-	caseLC.noErrChannel = caseListErrRemedy
-	for i, cc := range sw.Cases {
-		if cc.Default {
-			b.WriteString("default:\n")
-		} else {
-			list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
-			if !ok {
-				return diagnosedPositionalValue()
-			}
-			fmt.Fprintf(b, "case %s:\n", list)
-		}
-		fmt.Fprintf(b, "%s, %s = (%s)()\n", name, errVar, thunks[i])
-	}
-	b.WriteString("}\n")
-	closeHeaderBlock(b, block)
-	if block {
-		fmt.Fprintf(b, "if _gsxerr := %s; _gsxerr != nil { %s }\n", errVar, ctx.errorReturn())
-	} else {
-		fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 	}
 	return readyPositionalValue(name, used)
 }

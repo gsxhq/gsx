@@ -1451,6 +1451,23 @@ func isAttrGroup(a ast.Attr) bool {
 	return false
 }
 
+// attrGroupBranches returns the mutually exclusive attribute lists of an
+// if/switch attribute group — an if's Then and Else, a switch's case arms —
+// and nil for any other attribute.
+func attrGroupBranches(a ast.Attr) [][]ast.Attr {
+	switch t := a.(type) {
+	case *ast.CondAttr:
+		return [][]ast.Attr{t.Then, t.Else}
+	case *ast.SwitchAttr:
+		branches := make([][]ast.Attr, len(t.Cases))
+		for i, cc := range t.Cases {
+			branches[i] = cc.Body
+		}
+		return branches
+	}
+	return nil
+}
+
 // hasAttrsMethodSet reports whether t already supports the method-bearing bag
 // operations used by the forwarding leaf. The analyzer separately validates
 // every element spread against gsx.Attrs, so a valid methodless type here is an
@@ -1594,15 +1611,16 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 	// escaped value verbatim). Reject rather than silently diverge from the
 	// inline rendering of the same attribute. Cond-attr branches fold into the
 	// same bag (they inherit bagElementFold through condAttrsExpr), so the
-	// scan descends into them.
+	// scan descends into if and switch branches.
 	var rejectURLSinkLiterals func(attrs []ast.Attr) bool
 	rejectURLSinkLiterals = func(attrs []ast.Attr) bool {
 		for _, a := range attrs {
-			switch t := a.(type) {
-			case *ast.CondAttr:
-				if !rejectURLSinkLiterals(t.Then) || !rejectURLSinkLiterals(t.Else) {
+			for _, branch := range attrGroupBranches(a) {
+				if !rejectURLSinkLiterals(branch) {
 					return false
 				}
+			}
+			switch t := a.(type) {
 			case *ast.EmbeddedAttr:
 				if t.Lang == ast.EmbeddedText {
 					continue
@@ -1658,40 +1676,39 @@ func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 }
 
 // firstTwoSpreadAttrs returns the first two spread attrs on an element in
-// depth-first source order, descending into cond-attr branches, plus the
-// enclosing cond-attr condition of the FIRST spread (empty when it is
-// top-level). It is the fold trigger's probe: `second` being non-nil tells the
-// caller (elementFolds) to use the full-fold path, while
-// firstCond lets elementFolds detect a lone cond-NESTED spread (empty firstCond
-// = top-level spread; non-empty = nested in a `{ if … { { x... } } }`).
-func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstCond string) {
-	var visit func(list []ast.Attr, cond string)
-	visit = func(list []ast.Attr, cond string) {
+// depth-first source order, descending into if/switch attribute branches,
+// plus whether the FIRST spread is nested in such a branch. It is the fold
+// trigger's probe: `second` being non-nil tells the caller (elementFolds) to
+// use the full-fold path, while firstNested lets elementFolds detect a lone
+// group-NESTED spread (e.g. `{ if … { { x... } } }`).
+func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstNested bool) {
+	var visit func(list []ast.Attr, nested bool)
+	visit = func(list []ast.Attr, nested bool) {
 		for _, a := range list {
 			if second != nil {
 				return
 			}
-			switch t := a.(type) {
-			case *ast.SpreadAttr:
+			if t, ok := a.(*ast.SpreadAttr); ok {
 				if first == nil {
-					first, firstCond = t, cond
+					first, firstNested = t, nested
 				} else {
 					second = t
 				}
-			case *ast.CondAttr:
-				visit(t.Then, t.Cond)
-				visit(t.Else, "!("+t.Cond+")")
+				continue
+			}
+			for _, branch := range attrGroupBranches(a) {
+				visit(branch, true)
 			}
 		}
 	}
-	visit(attrs, "")
-	return first, second, firstCond
+	visit(attrs, false)
+	return first, second, firstNested
 }
 
 // classStyleContributorCounts counts, per name, the maximum number of
 // class/style leaves that can contribute to an element's final composable value
-// in a single render. A CondAttr's branches are mutually exclusive, so it
-// contributes the larger of its branch counts, not their sum — a lone
+// in a single render. An if/switch group's branches are mutually exclusive, so
+// it contributes the largest of its branch counts, not their sum — a lone
 // `{ if c { class="a" } else { class="b" } }` yields at most one class and must
 // not trigger the fold. This is a shape analysis only; conditions are never
 // evaluated. A bare bool `class`/`style` is not a contributor: the bag's
@@ -1709,11 +1726,14 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 				name = t.Name
 			case *ast.EmbeddedAttr:
 				name = t.Name
-			case *ast.CondAttr:
-				thenClass, thenStyle := walk(t.Then)
-				elseClass, elseStyle := walk(t.Else)
-				class += max(thenClass, elseClass)
-				style += max(thenStyle, elseStyle)
+			case *ast.CondAttr, *ast.SwitchAttr:
+				var maxClass, maxStyle int
+				for _, branch := range attrGroupBranches(a) {
+					c, s := walk(branch)
+					maxClass, maxStyle = max(maxClass, c), max(maxStyle, s)
+				}
+				class += maxClass
+				style += maxStyle
 			}
 			switch name {
 			case "class":
@@ -1751,26 +1771,25 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 // entry), so a folded element's attrs must never be scanned as needing the
 // scratch buffer, while a non-folded lone-cond element (inline path) may.
 func elementFolds(attrs []ast.Attr) bool {
-	first, second, firstCond := firstTwoSpreadAttrs(attrs)
+	first, second, firstNested := firstTwoSpreadAttrs(attrs)
 	class, style := classStyleContributorCounts(attrs)
 	return class > 1 || style > 1 || second != nil ||
-		(first != nil && firstCond != "" && hasRootClassStyle(attrs)) ||
+		(first != nil && firstNested && hasRootClassStyle(attrs)) ||
 		(first != nil && hasCondClassStyle(attrs)) // D3 lift: spread + cond-attr class/style
 }
 
-// hasCondClassStyle reports whether attrs carries a class/style leaf inside a
-// cond-attr branch (any depth, incl. else-if). Such a shape is what D3 used to
+// hasCondClassStyle reports whether attrs carries a class/style leaf inside an
+// if/switch attribute branch (any depth, incl. else-if). Such a shape is what D3 used to
 // reject on a forwarding element; routing it through the fold merges it via an
 // AttrsCond bag entry aggregated at the leaf.
 func hasCondClassStyle(attrs []ast.Attr) bool {
 	var walk func(as []ast.Attr) bool
 	walk = func(as []ast.Attr) bool {
 		for _, a := range as {
+			if slices.ContainsFunc(attrGroupBranches(a), walk) {
+				return true
+			}
 			switch t := a.(type) {
-			case *ast.CondAttr:
-				if walk(t.Then) || walk(t.Else) {
-					return true
-				}
 			case *ast.ComposedAttr:
 				if t.Name == "class" || t.Name == "style" {
 					return true
@@ -1793,13 +1812,11 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 		}
 		return false
 	}
-	// Only cond-attr-nested class/style counts (a top-level class/style is not a
-	// D3 case); so walk begins one level down, at each top-level CondAttr.
+	// Only group-nested class/style counts (a top-level class/style is not a
+	// D3 case); so walk begins one level down, at each top-level if/switch.
 	for _, a := range attrs {
-		if c, ok := a.(*ast.CondAttr); ok {
-			if walk(c.Then) || walk(c.Else) {
-				return true
-			}
+		if slices.ContainsFunc(attrGroupBranches(a), walk) {
+			return true
 		}
 	}
 	return false
@@ -1944,10 +1961,8 @@ func attrsHaveSpread(attrs []ast.Attr) bool {
 
 func hasConditionalExplicitNonce(attrs []ast.Attr) bool {
 	for _, a := range attrs {
-		if c, ok := a.(*ast.CondAttr); ok {
-			if attrsContainExplicitNonce(c.Then) || attrsContainExplicitNonce(c.Else) {
-				return true
-			}
+		if slices.ContainsFunc(attrGroupBranches(a), attrsContainExplicitNonce) {
+			return true
 		}
 	}
 	return false
@@ -1955,10 +1970,7 @@ func hasConditionalExplicitNonce(attrs []ast.Attr) bool {
 
 func attrsContainExplicitNonce(attrs []ast.Attr) bool {
 	for _, a := range attrs {
-		if attrIsExplicitNonce(a) {
-			return true
-		}
-		if c, ok := a.(*ast.CondAttr); ok && (attrsContainExplicitNonce(c.Then) || attrsContainExplicitNonce(c.Else)) {
+		if attrIsExplicitNonce(a) || slices.ContainsFunc(attrGroupBranches(a), attrsContainExplicitNonce) {
 			return true
 		}
 	}
@@ -1974,7 +1986,7 @@ func attrIsExplicitNonce(a ast.Attr) bool {
 
 // nonceInjection carries the state for auto-injecting the context CSP nonce
 // into a <script>/<style> open tag: one hoisted gsx.Attrs temp per spread
-// attr (at any depth, including cond-attr branches) so the post-attr guard
+// attr (at any depth, including if/switch branches) so the post-attr guard
 // can ask each spread whether it already carried a "nonce" key. A nil
 // *nonceInjection means "not eligible" (not script/style, or the author
 // wrote an explicit nonce) and every method is a nil-safe no-op.
@@ -2013,15 +2025,14 @@ func newNonceInjection(b *bytes.Buffer, tag string, attrs []ast.Attr, rt rtImpor
 			if a == skip {
 				continue
 			}
-			switch t := a.(type) {
-			case *ast.SpreadAttr:
+			if t, ok := a.(*ast.SpreadAttr); ok {
 				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 				*interpTemp++
 				ni.temps[t] = tmp
 				ni.order = append(ni.order, tmp)
-			case *ast.CondAttr:
-				walk(t.Then)
-				walk(t.Else)
+			}
+			for _, branch := range attrGroupBranches(a) {
+				walk(branch)
 			}
 		}
 	}
@@ -5593,21 +5604,8 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 		return "", nil, errBagDiagReported
 	}
 
-	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
-	// lit, nil }` thunk. tb is thunk-LOCAL: any hoist wrap writes into it, so the
-	// hoisted statements land inside this thunk's own body, not the caller's.
 	branchThunk := func(attrs []ast.Attr) (attrsBranchCode, map[string]string, error) {
-		var tb bytes.Buffer
-		wrap := probePipeWrap
-		if !probeWrap {
-			wrap = thunkPipeWrap(&tb, interpTemp)
-		}
-		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
-		if err != nil {
-			return attrsBranchCode{}, nil, err
-		}
-		body := fmt.Sprintf("%s\t\treturn %s, nil\n", tb.String(), lit)
-		return attrsBranchCode{thunk: fmt.Sprintf("func() (%s.Attrs, error) {\n%s\t}", rtPkg, body), inline: body}, used, nil
+		return attrsBranchThunk(attrs, interpTemp, probeWrap, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
 	}
 
 	thenCode, thenUsed, err := branchThunk(t.Then)
@@ -5625,6 +5623,81 @@ func condAttrsExpr(b *bytes.Buffer, t *ast.CondAttr, rtPkg, tag string, mergeExp
 		maps.Copy(usedPkgs, elseUsed)
 	}
 	return header.expr(thenCode, elseCode), usedPkgs, nil
+}
+
+// attrsBranchThunk builds one if/switch branch's `func() (rtPkg.Attrs, error)
+// { ...; return lit, nil }` thunk. tb is thunk-LOCAL: any hoist wrap writes
+// into it, so the hoisted statements land inside this thunk's own body, not
+// the caller's.
+func attrsBranchThunk(attrs []ast.Attr, interpTemp *int, probeWrap bool, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext, lc lowerCtx) (attrsBranchCode, map[string]string, error) {
+	var tb bytes.Buffer
+	wrap := probePipeWrap
+	if !probeWrap {
+		wrap = thunkPipeWrap(&tb, interpTemp)
+	}
+	lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
+	if err != nil {
+		return attrsBranchCode{}, nil, err
+	}
+	body := fmt.Sprintf("%s\t\treturn %s, nil\n", tb.String(), lit)
+	return attrsBranchCode{thunk: fmt.Sprintf("func() (%s.Attrs, error) {\n%s\t}", rtPkg, body), inline: body}, used, nil
+}
+
+// emitAttrsSwitch writes an in-tag `{ switch … }` attrs contributor as a real
+// Go switch statement and returns the temp holding its bag. The if form
+// composes into one AttrsCond expression; the switch form is a statement for
+// the reason the element emitter's is (emitSwitchAttrStmt): the tag is
+// evaluated exactly once and every arm shape Go allows lowers unchanged. Each
+// arm calls only its own branch thunk (thunks[i] for case i), so only the
+// taken arm's attrs are built, and an unmatched switch leaves the nil bag, as
+// an `if` without `else` does. errReturn is the enclosing function's error
+// return.
+func emitAttrsSwitch(b *bytes.Buffer, sw *ast.SwitchAttr, thunks []string, rtPkg, errReturn string, lc lowerCtx) (string, bool) {
+	name := fmt.Sprintf("_gsxv%d", *lc.interpTemp)
+	*lc.interpTemp++
+	// The tag's hoists precede the `switch`; case lists are evaluated lazily
+	// and have no error channel.
+	var pre bytes.Buffer
+	tagExpr, block, ok := lc.header(&pre, sw.Tag, sw.TagEmbedded, sw)
+	if !ok {
+		return "", false
+	}
+	// A short var decl keeps _gsxerr shared with any sibling lowering in this
+	// scope (name is new, so `:=` is legal whether or not _gsxerr already
+	// exists), which is what errReturn refers to. Inside a header block (an
+	// init statement before hoists) a hoist may declare its own _gsxerr, so
+	// the arms then report through a dedicated error temp checked after the
+	// block.
+	errVar := "_gsxerr"
+	if block {
+		errVar = fmt.Sprintf("_gsxv%d", *lc.interpTemp)
+		*lc.interpTemp++
+	}
+	fmt.Fprintf(b, "%s, %s := %s.Attrs(nil), error(nil)\n", name, errVar, rtPkg)
+	b.Write(pre.Bytes())
+	fmt.Fprintf(b, "switch %s {\n", tagExpr)
+	caseLC := lc
+	caseLC.noErrChannel = caseListErrRemedy
+	for i, cc := range sw.Cases {
+		if cc.Default {
+			b.WriteString("default:\n")
+		} else {
+			list, ok := caseLC.field(b, cc.List, cc.ListEmbedded, cc)
+			if !ok {
+				return "", false
+			}
+			fmt.Fprintf(b, "case %s:\n", list)
+		}
+		fmt.Fprintf(b, "%s, %s = (%s)()\n", name, errVar, thunks[i])
+	}
+	b.WriteString("}\n")
+	closeHeaderBlock(b, block)
+	if block {
+		fmt.Fprintf(b, "if _gsxerr := %s; _gsxerr != nil { %s }\n", errVar, errReturn)
+	} else {
+		fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", errReturn)
+	}
+	return name, true
 }
 
 // condBranchAttrs builds a <rtPkg>.Attrs expression from one conditional-attr
@@ -5825,6 +5898,24 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				condExpr = hoistTupleReturning(b, condExpr, interpTemp, errReturn)
 			}
 			parts = append(parts, condExpr)
+		case *ast.SwitchAttr:
+			// A statement (emitAttrsSwitch), so contributors already
+			// encountered are evaluated first.
+			materializePrior()
+			thunks := make([]string, len(t.Cases))
+			for i, cc := range t.Cases {
+				code, used, err := attrsBranchThunk(cc.Body, interpTemp, probeWrap, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx, lc)
+				if err != nil {
+					return "", nil, err
+				}
+				maps.Copy(usedPkgs, used)
+				thunks[i] = code.thunk
+			}
+			name, ok := emitAttrsSwitch(b, t, thunks, rtPkg, errReturn, lc)
+			if !ok {
+				return "", nil, errBagDiagReported
+			}
+			parts = append(parts, name)
 		case *ast.StaticAttr:
 			value := strconv.Quote(t.Value)
 			if ctx == bagElementFold {

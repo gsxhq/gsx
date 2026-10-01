@@ -615,6 +615,7 @@ multispread/renderer_evaluation_order	diag render
 multispread/selfclose_fold	diag render
 multispread/style_cond_lone_spread	diag gen render
 multispread/style_cond_two_spreads	diag gen render
+multispread/switch_attr_fold	diag gen render
 multispread/three_spreads	diag gen render
 multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
@@ -702,6 +703,7 @@ nonce/spread_in_cond_attr_on	diag gen render
 nonce/spread_with_nonce	diag render
 nonce/spread_without_nonce	diag gen render
 nonce/style_basic	diag render
+nonce/switch_attr_nonce	diag gen render
 orderedattrs/bind_no_field_error	diag gen render
 orderedattrs/bool_pair	diag gen render
 orderedattrs/datastar_example	diag gen render
@@ -1093,4 +1095,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1095 cases (render: 929, error: 128, gen-pinned: 611)
+TOTAL: 1097 cases (render: 931, error: 128, gen-pinned: 613)
