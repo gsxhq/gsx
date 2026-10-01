@@ -73,6 +73,14 @@ multi-value call is either the sole argument of an enclosing call (which is
 what gets pinned) or the whole right-hand side of an init statement (where
 nothing in the same slice follows it), so it is never pinned itself. Without a hoist nothing changes.
 
+*Amendment, 2026-10-01.* The parts of one class/style list and the pairs of
+one attrs literal are one attribute, so one evaluation sequence, though each
+value is a separate field. A part or pair whose lowering writes a statement (a
+hoisted hole, a `(T, error)` value, a fallible stage or renderer, a value-form
+if/switch) first pins every earlier part's value and guard, or earlier pair,
+still pending in the consuming call (`seqPins`). A pair is pinned as its whole
+`gsx.Attr`, so its value converts to `any` where it would in the literal.
+
 ### Error-carrying holes
 
 A hole whose value is `(T, error)` (or a fallible pipeline) needs a statement

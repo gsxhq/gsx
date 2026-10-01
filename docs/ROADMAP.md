@@ -1089,13 +1089,11 @@ vocabulary remains a design aspiration, not the current API.
   left in the same field are pinned to temps in source order (`fieldPins`),
   with go/types facts (`harvestEvalFacts`) keeping conversions and constants in
   place. Spec amendment in `2026-09-29-nested-literal-lowering-design.md`.
-- [ ] **Order across class/style parts and attrs-literal pairs** - an
-  error-returning hole in a later part/pair runs before earlier parts/pairs
-  (e.g. `class={ r.F("a"), f`@{r.E("h")}` }` runs `h` first; the same in
-  `style={…}` and in `attrs={{ "a": F(), "b": E() }}`, there with or without
-  a nested literal — `positionalOrderedAttrsExpr`). Fix: pin the earlier
-  parts'/pairs' non-constant values before a later one's hoist, as
-  `fieldPins` does inside a field.
+- [x] **Order across class/style parts and attrs-literal pairs** - SHIPPED
+  (2026-10-01; corpus `nested-literal/eval_order_parts`). The parts of one
+  class/style list and the pairs of one attrs literal are one evaluation
+  sequence: a later part's or pair's hoisted statement first pins the earlier
+  values still pending in the consuming call (`seqPins`).
 - [ ] **Skeleton-parse caching** - the one surviving item from the 2026-07-23
   analysis-architecture probe: cache the target + shipping skeleton parses per
   unchanged file (as the pristine gsx parse cache already does), reclaiming

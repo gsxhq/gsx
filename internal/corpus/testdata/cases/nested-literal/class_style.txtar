@@ -56,96 +56,89 @@ func Page(id int, u *U) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.S("<i")
-		_gsxv0 := "x"
-		_gsxv1 := wrap("c-" + _gsxsc.FormatInt(int64(id), 10))
-		_gsxv2 := "on"
-		_gsxv3 := ok("d-" + _gsxsc.FormatInt(int64(id), 10))
-		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1), _gsxrt.ClassIf(_gsxv2, _gsxv3))
+		_gsxgw.S("<i class=\"")
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("x"), _gsxrt.Class(wrap("c-"+_gsxsc.FormatInt(int64(id), 10))), _gsxrt.ClassIf("on", ok("d-"+_gsxsc.FormatInt(int64(id), 10))))
 		_gsxgw.S("\"></i>")
 //line input.gsx:13:2
 		_gsxgw.S("<i")
-		_gsxv4 := "x"
-		var _gsxv5 string
+		_gsxv0 := "x"
+		var _gsxv1 string
 		if ok("e-" + _gsxsc.FormatInt(int64(id), 10)) {
-			_gsxv5 = "a"
+			_gsxv1 = "a"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv4), _gsxrt.Class(_gsxv5))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))
 		_gsxgw.S("\"></i>")
 //line input.gsx:14:2
 		_gsxgw.S("<i")
+		_gsxv2 := "x"
+		var _gsxv3 string
+		if u != nil {
+			_gsxv3 = wrap("g-" + string(u.Name))
+		}
+		_gsxgw.S(" class=\"")
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv2), _gsxrt.Class(_gsxv3))
+		_gsxgw.S("\"></i>")
+//line input.gsx:15:2
+		_gsxgw.S("<i")
+		_gsxv4 := "x"
+		var _gsxv5 string
+		if id > 0 {
+			_gsxv5 = "p"
+		} else if ok("h-" + string(u.Name)) {
+			_gsxv5 = "q"
+		}
+
+		_gsxgw.S(" class=\"")
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv4), _gsxrt.Class(_gsxv5))
+		_gsxgw.S("\"></i>")
+//line input.gsx:16:2
+		_gsxgw.S("<i")
 		_gsxv6 := "x"
 		var _gsxv7 string
-		if u != nil {
-			_gsxv7 = wrap("g-" + string(u.Name))
+		switch wrap("s-" + _gsxsc.FormatInt(int64(id), 10)) {
+		case "s-1":
+			_gsxv7 = "b"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv6), _gsxrt.Class(_gsxv7))
 		_gsxgw.S("\"></i>")
-//line input.gsx:15:2
+//line input.gsx:17:2
 		_gsxgw.S("<i")
 		_gsxv8 := "x"
 		var _gsxv9 string
-		if id > 0 {
-			_gsxv9 = "p"
-		} else if ok("h-" + string(u.Name)) {
-			_gsxv9 = "q"
+		switch {
+		case id == 1:
+			_gsxv9 = "n"
+		case ok("k-" + string(u.Name)):
+			_gsxv9 = "m"
 		}
-
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv8), _gsxrt.Class(_gsxv9))
 		_gsxgw.S("\"></i>")
-//line input.gsx:16:2
-		_gsxgw.S("<i")
-		_gsxv10 := "x"
-		var _gsxv11 string
-		switch wrap("s-" + _gsxsc.FormatInt(int64(id), 10)) {
-		case "s-1":
-			_gsxv11 = "b"
-		}
-		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv10), _gsxrt.Class(_gsxv11))
-		_gsxgw.S("\"></i>")
-//line input.gsx:17:2
-		_gsxgw.S("<i")
-		_gsxv12 := "x"
-		var _gsxv13 string
-		switch {
-		case id == 1:
-			_gsxv13 = "n"
-		case ok("k-" + string(u.Name)):
-			_gsxv13 = "m"
-		}
-		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv12), _gsxrt.Class(_gsxv13))
-		_gsxgw.S("\"></i>")
 //line input.gsx:18:2
-		_gsxgw.S("<i")
-		_gsxv14 := "color: red"
-		_gsxv15 := wrapCSS(_gsxrt.RawCSS("width:" + _gsxrt.FilterCSS(_gsxsc.FormatInt(int64(id), 10)) + "px"))
-		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Style(_gsxv14), _gsxrt.Style(_gsxrt.StyleValue(_gsxv15)))
+		_gsxgw.S("<i style=\"")
+		_gsxgw.Style(_gsxrt.Style("color: red"), _gsxrt.Style(_gsxrt.StyleValue(wrapCSS(_gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(_gsxsc.FormatInt(int64(id), 10))+"px")))))
 		_gsxgw.S("\"></i>")
 //line input.gsx:19:2
 		_gsxgw.S("<i")
-		var _gsxv16 string
+		_gsxv10 := "height:" + _gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10))) + "px"
+		var _gsxv11 string
 		if id > 0 {
-			_gsxv16 = "top:" + _gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10))) + "px"
+			_gsxv11 = "top:" + _gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10))) + "px"
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Style("height:"+_gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10)))+"px"), _gsxrt.Style(_gsxv16))
+		_gsxgw.Style(_gsxrt.Style(_gsxv10), _gsxrt.Style(_gsxv11))
 		_gsxgw.S("\"></i>")
 //line input.gsx:20:2
 		_gsxgw.S("<i")
-		_gsxv17 := "x"
-		var _gsxv18 string
+		_gsxv12 := "x"
+		var _gsxv13 string
 		if id > 0 {
-			_gsxv18 = "y-" + string(wrap(_gsxsc.FormatInt(int64(id), 10)))
+			_gsxv13 = "y-" + string(wrap(_gsxsc.FormatInt(int64(id), 10)))
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv17), _gsxrt.Class(_gsxv18))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv12), _gsxrt.Class(_gsxv13))
 		_gsxgw.S("\"></i>")
 		return _gsxgw.Err()
 	})

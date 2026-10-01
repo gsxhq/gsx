@@ -313,7 +313,7 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 			}
 			return readyPositionalValue(expr, nil)
 		}
-		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.pipeWrap(b), ctx.errorReturn(), ctx.lowerCtx())
+		expr, used, err := classEntryExpr(b, ctx.interpTemp, node, ctx.rt.rt(), classMergeExpr(ctx.mergeExpr, ctx.rt), ctx.table, ctx.resolved, false, ctx.errorReturn(), ctx.lowerCtx())
 		if err != nil {
 			positionalAttrsError(node, err, ctx)
 			return diagnosedPositionalValue()
@@ -617,15 +617,27 @@ func positionalSlotClosure(nodes []gsxast.Markup, ctx positionalEmitContext) (st
 	return emitSlotClosure(nodes, ctx.currentPkg, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.importAliases, ctx.boundNames, ctx.typeArgAliases, ctx.interpTemp, ctx.fset, ctx.recvVar, ctx.recvTypeName, ctx.cls, ctx.bag, ctx.mergeExpr, ctx.enclosingAttrsBound, ctx.positionalPlan)
 }
 
+// positionalOrderedAttrsExpr lowers an attrs={{ … }} literal to an Attrs
+// literal. Its pairs are one evaluation sequence: each pair's value is
+// lowered into its own statement buffer and settled through seqPins, so a
+// later pair's hoisted statement first pins the earlier pairs. A pair is
+// pinned as its whole Attr element, so its value converts to the pair's `any`
+// exactly where it would in the literal (an untyped nil or constant included).
 func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, plan componentPositionalSitePlan, ctx positionalEmitContext) positionalValueLowering {
-	entries := make([]string, 0, len(attr.Pairs))
+	seq := seqPins{out: b, interpTemp: ctx.interpTemp}
+	var stmts bytes.Buffer
+	entries := make([]int, 0, len(attr.Pairs))
+	keys := make([]string, 0, len(attr.Pairs))
 	for i := range attr.Pairs {
 		pair := &attr.Pairs[i]
-		expr, ok := ctx.lowerCtx().field(b, pair.Value, pair.Embedded, pair)
+		fact, hasFact := plan.expressionFacts.get(pair)
+		if hasFact && fact.tuple != nil {
+			seq.pin() // a (T, error) value always hoists
+		}
+		expr, ok := ctx.lowerCtx().field(&stmts, pair.Value, pair.Embedded, pair)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
-		fact, hasFact := plan.expressionFacts.get(pair)
 		// The pair value's semantic type drives renderer application below. A
 		// (T, error) authored value is unwrapped first (matching every other
 		// emit site), leaving the renderer to act on the unwrapped T.
@@ -641,8 +653,8 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 			}
 			name := fmt.Sprintf("_gsxv%d", *ctx.interpTemp)
 			*ctx.interpTemp++
-			fmt.Fprintf(b, "%s, _gsxerr := %s\n", name, expr)
-			fmt.Fprintf(b, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
+			fmt.Fprintf(&stmts, "%s, _gsxerr := %s\n", name, expr)
+			fmt.Fprintf(&stmts, "if _gsxerr != nil { %s }\n", ctx.errorReturn())
 			expr = name
 			valueType = unwrapped
 		}
@@ -652,11 +664,21 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		// attrs={{…}} bag renders identically to the same value inline. Without
 		// this the raw value reaches the Attrs pair and renders via Go %v.
 		if valueType != nil {
-			expr, _ = applyRenderer(b, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
+			expr, _ = applyRenderer(&stmts, expr, valueType, ctx.table, ctx.imports, ctx.interpTemp, ctx.errorReturn())
 		}
-		entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(pair.Key), expr))
+		seq.settle(&stmts)
+		keys = append(keys, pair.Key)
+		entries = append(entries, seq.add(expr, fmt.Sprintf("%s.Attr{Key: %s, Value: %s}", ctx.rt.rt(), strconv.Quote(pair.Key), expr)))
 	}
-	return readyPositionalValue(fmt.Sprintf("%s.Attrs{%s}", ctx.rt.rt(), strings.Join(entries, ", ")), nil)
+	elems := make([]string, len(entries))
+	for i, e := range entries {
+		if seq.pinned(e) {
+			elems[i] = seq.val(e) // the pair's whole Attr
+		} else {
+			elems[i] = fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(keys[i]), seq.val(e))
+		}
+	}
+	return readyPositionalValue(fmt.Sprintf("%s.Attrs{%s}", ctx.rt.rt(), strings.Join(elems, ", ")), nil)
 }
 
 func positionalAttrsArg(slot componentArgSlot, values map[int]string, ctx positionalEmitContext) (string, bool) {

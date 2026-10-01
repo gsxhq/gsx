@@ -1764,7 +1764,7 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 // + `"`. Mirrors emitComposedAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
 func emitRootComposedClass(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), lc)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, lc)
 	if !ok {
 		return false
 	}
@@ -2006,7 +2006,7 @@ func rootStyleString(b *bytes.Buffer, styleAttr *ast.ComposedAttr, staticStyle *
 	case staticStyle != nil:
 		return strconv.Quote(staticStyle.Value), nil, true
 	case styleAttr != nil:
-		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), lc)
+		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true, lc)
 		if !ok {
 			return "", nil, false
 		}
@@ -4645,7 +4645,7 @@ func lowerComposedPartSeed(seed string, stages []ast.PipeStage, table funcTables
 // tokens through the passed merge func and writes the attr-escaped value.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
 func emitComposedAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), lc)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, lc)
 	if !ok {
 		return false
 	}
@@ -4662,7 +4662,7 @@ func emitComposedAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, im
 // included parts with "; " and attr-escapes the result.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
 func emitStyleAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, lc lowerCtx) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), lc)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true, lc)
 	if !ok {
 		return false
 	}
@@ -4672,73 +4672,69 @@ func emitStyleAttr(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 	return true
 }
 
-func composedPartsOrdered(a *ast.ComposedAttr, resolved map[ast.Node]types.Type) bool {
-	for i := range a.Parts {
-		p := &a.Parts[i]
-		if p.CF != nil {
-			return true
-		}
-		if _, ok := resolved[p].(*types.Tuple); ok {
-			return true
-		}
-		// A nested literal's error-carrying holes hoist statements at the
-		// part's position, so earlier parts must already be pinned.
-		if p.ExprEmbedded != nil || p.CondEmbedded != nil {
-			return true
-		}
-	}
-	return false
-}
-
-func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool, wrap func(string) string, lc lowerCtx) ([]string, bool) {
+// composedParts lowers each part of a composable class/style list to its
+// gsx.Class/ClassIf (Style/StyleIf) constructor call, in source order. The
+// parts are one evaluation sequence: each value and guard is lowered into its
+// own statement buffer and settled through seqPins, so a later part's hoisted
+// statement (a nested literal's error hole, a (T, error) value, a fallible
+// pipeline stage or renderer, a value-form if/switch) first pins the earlier
+// values still pending in the consuming call.
+func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool, lc lowerCtx) ([]string, bool) {
 	errReturn := lc.errReturn
-	parts := make([]string, 0, len(a.Parts))
-	ordered := composedPartsOrdered(a, resolved)
 	partConstructor := "Class"
 	conditionalPartConstructor := "ClassIf"
 	if style {
 		partConstructor = "Style"
 		conditionalPartConstructor = "StyleIf"
 	}
-	partExpr := func(value string) string {
-		return fmt.Sprintf("%s.%s(%s)", rt.rt(), partConstructor, value)
+	type slot struct {
+		val, cond  int // seqPins indexes; cond < 0 when unguarded
+		styleValue bool
 	}
-	conditionalPartExpr := func(value, cond string) string {
-		return fmt.Sprintf("%s.%s(%s, %s)", rt.rt(), conditionalPartConstructor, value, cond)
+	seq := seqPins{out: b, interpTemp: interpTemp}
+	var stmts bytes.Buffer
+	slots := make([]slot, 0, len(a.Parts))
+	// guard lowers a part's `: cond` and records it after its value.
+	guard := func(p *ast.ComposedPart) (int, bool) {
+		if p.Cond == "" {
+			return -1, true
+		}
+		cond, ok := lc.field(&stmts, p.Cond, p.CondEmbedded, p)
+		if !ok {
+			return 0, false
+		}
+		seq.settle(&stmts)
+		return seq.add(cond, ""), true
 	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
-			tmp, ok := hoistValueCF(b, p.CF, table, imports, rt, interpTemp, style, bag, resolved, lc)
+			seq.pin()
+			tmp, ok := hoistValueCF(&stmts, p.CF, table, imports, rt, interpTemp, style, bag, resolved, lc)
 			if !ok {
 				return nil, false
 			}
-			parts = append(parts, partExpr(tmp))
+			seq.settle(&stmts)
+			slots = append(slots, slot{val: seq.add(tmp, ""), cond: -1})
 			continue
 		}
 		if p.LiteralSegments != nil {
-			val, ok := composedLiteralPartExpr(b, p, style, resolved, table, imports, rt, interpTemp, bag, errReturn)
+			val, ok := composedLiteralPartExpr(&stmts, p, style, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			if !ok {
 				return nil, false
 			}
-			if p.Cond == "" {
-				parts = append(parts, partExpr(val))
-				continue
-			}
-			cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-			if !ok {
+			seq.settle(&stmts)
+			s := slot{val: seq.add(val, "")}
+			if s.cond, ok = guard(p); !ok {
 				return nil, false
 			}
-			if ordered {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, cond)
-				cond = tmp
-			}
-			parts = append(parts, conditionalPartExpr(val, cond))
+			slots = append(slots, s)
 			continue
 		}
-		expr, ok := composedPartExpr(b, p, a, table, imports, wrap, bag, lc)
+		if _, isTuple := resolved[p].(*types.Tuple); isTuple {
+			seq.pin() // a (T, error) part always hoists
+		}
+		expr, ok := composedPartExpr(&stmts, p, a, table, imports, pipeWrapReturning(&stmts, interpTemp, errReturn), bag, lc)
 		if !ok {
 			return nil, false
 		}
@@ -4753,55 +4749,30 @@ func composedParts(b *bytes.Buffer, a *ast.ComposedAttr, table funcTables, impor
 				bag.Errorf(p.Pos(), p.End(), "invalid-tuple", "%s part %q returns %s; only (T, error) is supported", kind, p.Expr, t)
 				return nil, false
 			}
-			expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
+			expr = hoistTupleReturning(&stmts, expr, interpTemp, errReturn)
 			t = elemT
-			// The part's own tuple hoist already lands expr in a position-
-			// preserving temp; applyRenderer may turn it back into a bare call
-			// (a no-error renderer), which — since composedPartsOrdered forces
-			// ordered=true whenever ANY part is itself tuple-typed — must be
-			// re-captured to stay pinned at this source position, exactly like
-			// the ordered branch below does for a non-tuple part. A renderer
-			// registry miss, or a hasErr renderer (already a hoisted temp),
-			// leaves expr as a bare identifier and skips the extra capture.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
-			if isCallExpr(expr) {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-				expr = tmp
-			}
-		} else {
-			// Renderer FIRST (mirrors every other render boundary), THEN the
-			// ordered capture — so a renderer's call (or its own error hoist)
-			// evaluates at this part's SOURCE position, not deferred to the
-			// final gw.Class/ClassJoin call site.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
-			if ordered {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-				expr = tmp
-			}
 		}
-		val := expr
-		if style && (len(p.Stages) > 0 || !isStringLiteralExpr(strings.TrimSpace(p.Expr))) {
-			val = rt.rt() + ".StyleValue(" + expr + ")"
-		}
-		if p.Cond == "" {
-			parts = append(parts, partExpr(val))
-			continue
-		}
-		cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-		if !ok {
+		// Renderer FIRST (mirrors every other render boundary): its call, or
+		// its own error hoist, belongs to this part's source position.
+		expr, _ = applyRenderer(&stmts, expr, t, table, imports, interpTemp, errReturn)
+		seq.settle(&stmts)
+		s := slot{val: seq.add(expr, ""), styleValue: style && (len(p.Stages) > 0 || !isStringLiteralExpr(strings.TrimSpace(p.Expr)))}
+		if s.cond, ok = guard(p); !ok {
 			return nil, false
 		}
-		if ordered {
-			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-			*interpTemp++
-			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, cond)
-			cond = tmp
+		slots = append(slots, s)
+	}
+	parts := make([]string, 0, len(slots))
+	for _, s := range slots {
+		val := seq.val(s.val)
+		if s.styleValue {
+			val = rt.rt() + ".StyleValue(" + val + ")"
 		}
-		parts = append(parts, conditionalPartExpr(val, cond))
+		if s.cond < 0 {
+			parts = append(parts, fmt.Sprintf("%s.%s(%s)", rt.rt(), partConstructor, val))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s.%s(%s, %s)", rt.rt(), conditionalPartConstructor, val, seq.val(s.cond)))
+		}
 	}
 	return parts, true
 }
@@ -5319,77 +5290,46 @@ func isCallExpr(rawVal string) bool {
 // usedPkgs (alias→pkgPath) reports the filter packages any lowered part references
 // so the caller imports them; an unknown filter surfaces as an *attrError
 // positioned at the ComposedAttr.
-// b and interpTemp are needed to hoist value-form CF (if/switch) parts: the
-// hoisted var+if/switch statements are written to b before the containing call.
-// b is always a real buffer: at element level it is the render closure's
-// statement buffer; inside a component conditional-attr branch (condBranchAttrs)
-// it is that branch's thunk-LOCAL buffer, so a hoisted statement lands inside
-// the enclosing `func() (rtPkg.Attrs, error) { ... }` thunk rather than the
-// caller's statement stream.
-// wrap is the lowerPipe hook for a mid-stage (R, error) filter in a class
-// part's pipeline, and is also reused directly to hoist a tuple-returning
-// PLAIN part (no pipeline) once resolved confirms it: probePipeWrap in probe
-// mode; at element level, emitPipeWrap(b, interpTemp) (single-value
-// `return _gsxerr`); inside a cond-attr branch thunk, thunkPipeWrap(b,
-// interpTemp) (two-value `return nil, _gsxerr`, since the enclosing thunk's
-// signature is (Attrs, error)). The caller selects the variant that matches
-// its own enclosing return arity — classEntryExpr itself stays agnostic to
-// that choice, hoisting exclusively through wrap.
 //
-// errReturn enables [renderers] application at this component-class-prop
-// boundary, mirroring positional component-call lowering: a part value whose
-// type is registered is converted to its renderer's string BEFORE it becomes
-// a <rtPkg>.Class(...)/.ClassIf(...) argument — the SAME string constraint
-// gsx.Class(s string) imposes at element level (composedParts). Non-empty
-// errReturn is the applyRenderer error-return matching the caller's own
-// arity ("return _gsxerr" from the element-level call path;
-// "return nil, _gsxerr" from condBranchAttrs' thunk). Pass "" to disable: the
-// probe (skeleton never dispatches renderers; also gated on probeWrap) and
-// genSkippedTagSink's discarded nullary func literal (mirrors
-// the discarded-call path's own "" precedent). applyRenderer wants an
-// `imports map[string]bool`, but usedPkgs (alias->pkgPath) is this
-// function's only import-bookkeeping channel back to the caller — bridged
-// through a scratch map whose keys are ignored, same as condBranchAttrs.
+// Statements (value-form if/switch parts, (T, error) parts, mid-pipeline
+// (R, error) stages, fallible renderers, nested literals' error holes) are
+// written to b before the containing call: the render closure's statement
+// buffer at element level, or a conditional-attr branch's thunk-LOCAL buffer
+// (condBranchAttrs). errReturn is the error return matching that enclosing
+// function ("return _gsxerr", or "return nil, _gsxerr" in a branch thunk). As
+// in composedParts, the parts are one evaluation sequence settled through
+// seqPins.
+//
+// probeWrap (skeleton mode) stubs part values with "" so the skeleton never
+// imposes gsx.Class's string constraint (#85), unwraps calls with _gsxunwrap
+// instead of hoisting, applies no renderer and pins nothing.
 //
 // lc lowers nested literals and elements in part values, guards, value-form
-// control expressions and arms (emit mode only), writing their hoists to b; a
-// lowering failure is already positioned in the bag (errBagDiagReported).
-func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string, errReturn string, lc lowerCtx) (string, map[string]string, error) {
-	parts := make([]string, 0, len(a.Parts))
+// control expressions and arms (emit mode only); a lowering failure is
+// already positioned in the bag (errBagDiagReported).
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, errReturn string, lc lowerCtx) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
-	ordered := !probeWrap && composedPartsOrdered(a, resolved)
+	seq := seqPins{out: b, interpTemp: interpTemp, off: probeWrap}
+	var stmts bytes.Buffer
+	wrap := probePipeWrap
+	if !probeWrap {
+		wrap = pipeWrapReturning(&stmts, interpTemp, errReturn)
+	}
 	// applyClassRenderer applies the registered [renderers] entry for t (if
-	// any) to expr, folding any imported renderer package into usedPkgs.
-	// A no-op in probe mode, when disabled (errReturn == ""), or when t is
-	// unresolved — the same disable conditions component-call lowering uses.
+	// any) to expr, folding any imported renderer package into usedPkgs. A
+	// no-op in probe mode or when t is unresolved. applyRenderer wants an
+	// `imports map[string]bool`; usedPkgs is this function's only import
+	// channel, bridged through a scratch map.
 	applyClassRenderer := func(expr string, t types.Type) string {
-		if probeWrap || errReturn == "" || t == nil {
+		if probeWrap || t == nil {
 			return expr
 		}
 		scratch := map[string]bool{}
-		rendered, _ := applyRenderer(b, expr, t, table, scratch, interpTemp, errReturn)
+		rendered, _ := applyRenderer(&stmts, expr, t, table, scratch, interpTemp, errReturn)
 		for path := range scratch {
 			usedPkgs[path] = path
 		}
 		return rendered
-	}
-	// captureIfCall re-pins a possibly-rewritten (by applyClassRenderer) call
-	// expression at its current source position with a fresh temp — needed
-	// only after a tuple part's OWN hoist already produced a bare identifier
-	// that applyClassRenderer then turned back into a call (a no-error
-	// renderer): composedPartsOrdered forces ordered=true whenever any part is
-	// itself tuple-typed, so that call must not float down to the final
-	// ClassJoin(...) argument list. A registry miss, or a hasErr renderer
-	// (already its own hoisted temp), leaves expr a bare identifier and this
-	// is a no-op.
-	captureIfCall := func(expr string) string {
-		if !isCallExpr(expr) {
-			return expr
-		}
-		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-		return tmp
 	}
 	// literalExpr lowers an f`…` class literal (a part or a value-form arm)
 	// through the element path's composedLiteralSegmentsExpr, folding any
@@ -5400,18 +5340,47 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 			return `""`, true
 		}
 		scratch := map[string]bool{}
-		expr, ok := composedLiteralSegmentsExpr(b, segments, false, resolved, table, scratch, lc.rt, interpTemp, lc.bag, lc.errReturn)
+		expr, ok := composedLiteralSegmentsExpr(&stmts, segments, false, resolved, table, scratch, lc.rt, interpTemp, lc.bag, lc.errReturn)
 		for path := range scratch {
 			usedPkgs[path] = path
 		}
 		return expr, ok
 	}
+	// unwrapValue hoists a (T, error) part or arm value (emit mode) and
+	// applies its renderer.
+	unwrapValue := func(n ast.Node, src, expr string, what string) (string, error) {
+		t := resolved[n]
+		if tup, isTuple := t.(*types.Tuple); isTuple {
+			elemT, ok := tupleUnwrapType(tup)
+			if !ok {
+				return "", &attrError{pos: n.Pos(), end: n.End(), code: "invalid-tuple", msg: fmt.Sprintf("%s %q returns %s; only (T, error) is supported", what, src, t)}
+			}
+			expr = wrap(expr)
+			t = elemT
+		}
+		return applyClassRenderer(expr, t), nil
+	}
+	type slot struct{ val, cond int } // seqPins indexes; cond < 0 when unguarded
+	slots := make([]slot, 0, len(a.Parts))
+	// guard lowers a part's `: cond` and records it after its value.
+	guard := func(p *ast.ComposedPart) (int, error) {
+		if p.Cond == "" {
+			return -1, nil
+		}
+		cond, ok := lc.field(&stmts, p.Cond, p.CondEmbedded, p)
+		if !ok {
+			return 0, errBagDiagReported
+		}
+		seq.settle(&stmts)
+		return seq.add(cond, ""), nil
+	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
+			seq.pin()
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
-			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
+			fmt.Fprintf(&stmts, "\t\tvar %s string\n", tmp)
 			var lowerErr error
 			armExpr := func(arm *ast.ValueArm) (string, bool) {
 				if arm.Segments != nil {
@@ -5421,7 +5390,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 					}
 					return expr, ok
 				}
-				seed, ok := lc.field(b, arm.Expr, arm.Embedded, arm)
+				seed, ok := lc.field(&stmts, arm.Expr, arm.Embedded, arm)
 				if !ok {
 					lowerErr = errBagDiagReported
 					return "", false
@@ -5432,49 +5401,29 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 					return "", false
 				}
 				maps.Copy(usedPkgs, used)
-				if probeWrap && isCallExpr(expr) {
-					// Skeleton mode: wrap call exprs with _gsxunwrap so the
-					// assignment _gsxvN = _gsxunwrap(cls(v)) compiles even when
-					// cls returns (T, error). resolved is nil in skeleton mode, so
-					// the emit-mode check below is skipped.
+				switch {
+				case probeWrap && isCallExpr(expr):
+					// Skeleton mode: _gsxunwrap keeps `_gsxvN = _gsxunwrap(cls(v))`
+					// compiling whether cls returns T or (T, error).
 					expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
-				} else if probeWrap {
-					// Non-call arm expr: stub with "" (#85) — the _gsxvN string
-					// assignment must not impose the string constraint in the
-					// skeleton.
+				case probeWrap:
+					// Non-call arm expr: stub with "" (#85).
 					expr = `""`
-				} else if !probeWrap {
-					// Emit mode: consult resolved to detect and hoist (T, error)
-					// tuples. wrap writes the hoist into b at this point — after the
-					// if/case label and before the _gsxvN = assignment — so it lands
-					// inside the correct block, with the errReturn arity (single-
-					// value at element level, two-value inside a cond-attr thunk)
-					// the caller already baked into wrap.
-					if t := resolved[arm]; t != nil {
-						if tup, isTuple := t.(*types.Tuple); isTuple {
-							elemT, ok := tupleUnwrapType(tup)
-							if !ok {
-								lowerErr = &attrError{pos: arm.Pos(), end: arm.End(), code: "invalid-tuple", msg: fmt.Sprintf("class value-form arm %q returns %s; only (T, error) is supported", arm.Expr, t)}
-								return "", false
-							}
-							expr = wrap(expr)
-							t = elemT
-						}
-						// The arm's value is assigned directly to the CF's own
-						// tmp var inside this if/switch branch, so no extra
-						// position-preserving capture is needed here (unlike the
-						// plain-part list below, which joins several parts into
-						// ONE final ClassJoin(...) call).
-						expr = applyClassRenderer(expr, t)
+				default:
+					// The hoist lands after the if/case label, before the
+					// `_gsxvN =` assignment, inside the arm's block.
+					if expr, err = unwrapValue(arm, arm.Expr, expr, "class value-form arm"); err != nil {
+						lowerErr = err
+						return "", false
 					}
 				}
 				return expr, true
 			}
 			var cfOK bool
 			if p.CF.If != nil {
-				cfOK = emitValueIf(b, p.CF.If, tmp, armExpr, lc)
+				cfOK = emitValueIf(&stmts, p.CF.If, tmp, armExpr, lc)
 			} else {
-				cfOK = emitValueSwitch(b, p.CF.Switch, tmp, armExpr, lc)
+				cfOK = emitValueSwitch(&stmts, p.CF.Switch, tmp, armExpr, lc)
 			}
 			if !cfOK {
 				// armExpr records every failure of its own in lowerErr; a
@@ -5485,117 +5434,56 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ComposedAttr, rtPkg
 				}
 				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: strings.TrimPrefix(lowerErr.Error(), "codegen: ")}
 			}
-			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, tmp))
+			seq.settle(&stmts)
+			slots = append(slots, slot{val: seq.add(tmp, ""), cond: -1})
 			continue
 		}
+		var expr string
 		if p.LiteralSegments != nil {
-			// Same shape as composedParts' literal part: the value is used in
-			// place; an ordered guard is pinned in a temp.
 			val, ok := literalExpr(p.LiteralSegments)
 			if !ok {
 				return "", nil, errBagDiagReported
 			}
-			if p.Cond == "" {
-				parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, val))
-				continue
+			expr = val
+		} else {
+			if _, isTuple := resolved[p].(*types.Tuple); isTuple {
+				seq.pin() // a (T, error) part always hoists
 			}
-			cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
+			seed, ok := lc.field(&stmts, p.Expr, p.ExprEmbedded, p)
 			if !ok {
 				return "", nil, errBagDiagReported
 			}
-			if ordered {
-				condTmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, cond)
-				cond = condTmp
+			lowered, used, err := lowerComposedPartSeed(seed, p.Stages, table, wrap)
+			if err != nil {
+				msg := strings.TrimPrefix(err.Error(), "codegen: ")
+				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 			}
-			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, val, cond))
-			continue
-		}
-		seed, ok := lc.field(b, p.Expr, p.ExprEmbedded, p)
-		if !ok {
-			return "", nil, errBagDiagReported
-		}
-		expr, used, err := lowerComposedPartSeed(seed, p.Stages, table, wrap)
-		if err != nil {
-			msg := strings.TrimPrefix(err.Error(), "codegen: ")
-			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
-		}
-		maps.Copy(usedPkgs, used)
-		if p.Cond == "" {
-			// Unconditional plain part: in probe mode stub EVERY part value expr
-			// (call or not) with "" so the skeleton never imposes gsx.Class's
-			// string constraint — a bare identifier/selector of a non-string
-			// (e.g. registered) type must not fail the skeleton's own
-			// type-check (#85). Liveness and type harvest ride the counted
-			// per-part probes (_gsxuseq, emitProbes); the string constraint IS
-			// re-imposed by gsx.Class in the emitted code, so a wrong type
-			// still fails to compile there — the stub only defers that check
-			// out of the skeleton so the clean emit-time "invalid-tuple"
-			// diagnostic can fire first for ALL non-(T,error) tuples.
-			//
-			// In emit mode, check resolved for a tuple and hoist it.
+			maps.Copy(usedPkgs, used)
 			if probeWrap {
-				expr = `""`
-			} else {
-				t := resolved[p]
-				if tup, isAny := t.(*types.Tuple); isAny {
-					elemT, ok2 := tupleUnwrapType(tup)
-					if !ok2 {
-						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
-					}
-					expr = wrap(expr)
-					expr = captureIfCall(applyClassRenderer(expr, elemT))
-				} else {
-					expr = applyClassRenderer(expr, t)
-					if ordered {
-						tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-						*interpTemp++
-						fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-						expr = tmp
-					}
-				}
+				// Stub EVERY part value (call or not) with "" so the skeleton
+				// never imposes gsx.Class's string constraint (#85): liveness
+				// and type harvest ride the per-part probes, and the emitted
+				// gsx.Class re-imposes it.
+				lowered = `""`
+			} else if lowered, err = unwrapValue(p, p.Expr, lowered, "class part"); err != nil {
+				return "", nil, err
 			}
-			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
+			expr = lowered
+		}
+		seq.settle(&stmts)
+		s := slot{val: seq.add(expr, "")}
+		var err error
+		if s.cond, err = guard(p); err != nil {
+			return "", nil, err
+		}
+		slots = append(slots, s)
+	}
+	parts := make([]string, 0, len(slots))
+	for _, s := range slots {
+		if s.cond < 0 {
+			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, seq.val(s.val)))
 		} else {
-			if !probeWrap && ordered {
-				if t, isTuple := resolved[p].(*types.Tuple); isTuple {
-					elemT, ok := tupleUnwrapType(t)
-					if !ok {
-						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
-					}
-					expr = wrap(expr)
-					expr = captureIfCall(applyClassRenderer(expr, elemT))
-				} else {
-					expr = applyClassRenderer(expr, resolved[p])
-					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-					*interpTemp++
-					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-					expr = tmp
-				}
-				cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-				if !ok {
-					return "", nil, errBagDiagReported
-				}
-				condTmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, cond)
-				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, condTmp))
-			} else {
-				if probeWrap {
-					// Same #85 stub as the unconditional arm: the value expr
-					// must not impose the string constraint in the skeleton.
-					// The cond expr is a bool guard and stays as-is.
-					expr = `""`
-				} else {
-					expr = applyClassRenderer(expr, resolved[p])
-				}
-				cond, ok := lc.field(b, p.Cond, p.CondEmbedded, p)
-				if !ok {
-					return "", nil, errBagDiagReported
-				}
-				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, cond))
-			}
+			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, seq.val(s.val), seq.val(s.cond)))
 		}
 	}
 	// Raw join (no merger): the bag's class is consumed via Attrs.Class() and
@@ -5917,7 +5805,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			))
 		case *ast.ComposedAttr:
 			// Class/style lowering may emit value-form, tuple, or renderer
-			// statements directly rather than through orderedWrap. Pin everything
+			// statements (ordered among its own parts by seqPins). Pin everything
 			// already encountered before entering those lowering paths.
 			materializePrior()
 			if t.Name == "style" && ctx == bagElementFold {
@@ -5926,12 +5814,12 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				// CSS-filtering each dynamic declaration, trusting string literals)
 				// but as the VALUE form (gsx.StyleString, the "; "-join without the
 				// attr-escape gw.Style applies) so the leaf's Attrs.Style() aggregates
-				// it and the single leaf write escapes once. orderedWrap/errReturn
-				// carry the enclosing position's shape — inside an AttrsCond
+				// it and the single leaf write escapes once. lc.errReturn
+				// carries the enclosing position's shape — inside an AttrsCond
 				// branch thunk that means `return nil, _gsxerr` — so a renderer,
 				// tuple, or mid-pipe (R, error) hoist emits the right arity. The
 				// component path, with its probe pass, still rejects style below.
-				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, orderedWrap, lc)
+				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, lc)
 				if !ok {
 					// composedParts already reported the positioned diagnostic.
 					return "", nil, errBagDiagReported
@@ -5949,7 +5837,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				}
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, orderedWrap, errReturn, lc)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, errReturn, lc)
 			if eerr != nil {
 				return "", nil, eerr
 			}

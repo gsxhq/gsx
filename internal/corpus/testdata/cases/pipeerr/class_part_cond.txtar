@@ -55,9 +55,8 @@ func Tag(v string, on bool) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := on
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxv0, _gsxv1))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxv0, on))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})
