@@ -110,6 +110,7 @@ casefold/nonce	diag gen render
 casefold/plain_after_spread	diag gen render
 casefold/plain_before_spread	diag gen render
 casefold/style_merge	diag gen render
+casefold/style_merge_custom_property	diag gen render
 casefold/switch_after_spread	diag gen render
 casefold/switch_before_spread	diag gen render
 casefold/two_bags	diag gen render
@@ -1129,4 +1130,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1131 cases (render: 961, error: 132, gen-pinned: 639)
+TOTAL: 1132 cases (render: 962, error: 132, gen-pinned: 640)

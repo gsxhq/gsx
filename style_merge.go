@@ -38,9 +38,10 @@ func splitDecls(s string) []string {
 	return decls
 }
 
-// declProp returns the lower-cased property name of a declaration (text before
-// the first ':' that is not nested in () nor inside a quote), or "" if there is
-// no such ':' (a malformed fragment).
+// declProp returns the property name of a declaration (text before the first
+// ':' that is not nested in () nor inside a quote), or "" if there is no such
+// ':' (a malformed fragment). Property names are ASCII case-insensitive and come
+// back lower-cased, except custom properties (--*), which are case-sensitive.
 func declProp(decl string) string {
 	depth := 0
 	var quote byte
@@ -60,7 +61,11 @@ func declProp(decl string) string {
 				depth--
 			}
 		case c == ':' && depth == 0:
-			return strings.ToLower(strings.TrimSpace(decl[:i]))
+			p := strings.TrimSpace(decl[:i])
+			if strings.HasPrefix(p, "--") {
+				return p
+			}
+			return strings.ToLower(p)
 		}
 	}
 	return ""

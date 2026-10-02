@@ -23,6 +23,10 @@ func TestStyleMerged(t *testing.T) {
 		// robust splitter: ; and : inside url()/quotes are NOT boundaries
 		{"background: url(data:image/png;base64,AA;BB)", "", ` style="background: url(data:image/png;base64,AA;BB)"`},
 		{`content: "a; b"; color: red`, "color: blue", ` style="content: &#34;a; b&#34;; color: blue"`},
+		// property names are ASCII case-insensitive; custom property names are not
+		{"COLOR: red", "color: blue", ` style="color: blue"`},
+		{"--Brand: red", "--brand: blue", ` style="--Brand: red; --brand: blue"`},
+		{"--a: 1; --A: 2; --a: 3", "", ` style="--A: 2; --a: 3"`},
 	} {
 		if got := styleMerged(tt.root, tt.bag); got != tt.want {
 			t.Errorf("StyleMerged(%q,%q) = %q, want %q", tt.root, tt.bag, got, tt.want)
