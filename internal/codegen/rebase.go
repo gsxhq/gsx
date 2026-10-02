@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/htmlattr"
+
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
 	"github.com/gsxhq/gsx/internal/jsfmt"
@@ -254,14 +256,11 @@ func splitRebaseSentinels(s, prefix string, interps []*ast.Interp) ([]ast.Markup
 
 // isDataIsland reports whether el is a <script> whose static `type` marks it a
 // data block (not executable JS), e.g. <script type="application/json"> — such a
-// body must not be treated as JS.
+// body must not be treated as JS (see htmlattr.ScriptTypeIsJS).
 func isDataIsland(el *ast.Element) bool {
 	for _, a := range el.Attrs {
 		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
-			t := strings.ToLower(strings.TrimSpace(sa.Value))
-			return t != "" && t != "text/javascript" && t != "module" &&
-				t != "application/javascript" && t != "text/ecmascript" &&
-				t != "application/ecmascript"
+			return !htmlattr.ScriptTypeIsJS(sa.Value)
 		}
 	}
 	return false

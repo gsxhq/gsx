@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/htmlattr"
+
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/tdewolff/parse/v2"
@@ -266,20 +268,12 @@ type hole struct {
 	resolved bool // a token covered this hole
 }
 
-// jsExecutableTypes are the <script type> values that run as JavaScript. Any
-// other (non-empty) type marks a data block (e.g. application/json) — not JS.
-var jsExecutableTypes = map[string]bool{
-	"text/javascript": true, "module": true, "application/javascript": true,
-	"text/ecmascript": true, "application/ecmascript": true,
-}
-
 // isDataIslandScript reports whether el is a <script> whose type marks it a data
 // block (not executable JS), e.g. <script type="application/json">.
 func isDataIslandScript(el *ast.Element) bool {
 	for _, a := range el.Attrs {
 		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
-			t := strings.ToLower(strings.TrimSpace(sa.Value))
-			return t != "" && !jsExecutableTypes[t]
+			return !htmlattr.ScriptTypeIsJS(sa.Value)
 		}
 	}
 	return false
