@@ -4,7 +4,15 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.3.0 — 2026-10-02
+
+**Upgrading.** Regenerate your `.x.go` after upgrading (`gsx generate`). One
+change can break templates: a Go value on an event-handler attribute
+(`onclick={…}`, and any `on…` name) is now encoded as a JavaScript value, so
+handler *code* held in a Go string renders as an inert string literal. Write
+it as quoted text, ``js`…` `` or `gsx.RawJS`; an `f` or `css` literal on an
+event handler is now a generate-time error. Datastar `data-on-*` directives
+need `js` too. See the security entry below.
 
 - **CSP nonce on `<link>`.** With `gsx.WithNonce`, every `<link>` now gets the
   nonce like `<script>` and `<style>`, so nonced stylesheets, preloads and
@@ -48,7 +56,8 @@ syntax or APIs; a patch bump does not. See
 - **Fix:** style merging no longer folds the case of custom property names, so
   a component's `--Brand` survives a caller's `--brand` (#228). Standard
   property names still merge case-insensitively.
-- **Docs:** CSP nonce pattern page, and what a strict CSP blocks (#223).
+- **Docs:** CSP nonce pattern page, and what a strict CSP blocks (#223);
+  the `go tool cover` pitfall with gsx `//line` directives (#225).
 
 ## v0.2.0 — 2026-10-01
 
