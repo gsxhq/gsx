@@ -4,6 +4,15 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **CSP nonce on `<link>`.** With `gsx.WithNonce`, every `<link>` now gets the
+  nonce like `<script>` and `<style>`, so nonced stylesheets, preloads and
+  modulepreloads load under a nonce-only `style-src`/`script-src`. An authored
+  `nonce` still wins. Regenerate to pick it up; output without a context nonce
+  is unchanged.
+- **Docs:** CSP nonce pattern page, and what a strict CSP blocks (#223).
+
 ## v0.2.0 — 2026-10-01
 
 **Upgrading.** Regenerate your `.x.go` after upgrading (`gsx generate`);

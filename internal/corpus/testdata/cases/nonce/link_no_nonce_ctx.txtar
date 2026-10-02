@@ -1,0 +1,9 @@
+-- input.gsx --
+package views
+
+component Page() { <link rel="stylesheet" href="/app.css"/> }
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<link rel="stylesheet" href="/app.css">

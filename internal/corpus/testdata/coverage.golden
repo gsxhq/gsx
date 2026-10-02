@@ -711,6 +711,12 @@ nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
 nonce/explicit_static_wins	diag render
+nonce/link_basic	diag gen render
+nonce/link_dynamic_rel	diag render
+nonce/link_element_literal	diag gen render
+nonce/link_explicit_wins	diag render
+nonce/link_no_nonce_ctx	diag render
+nonce/link_spread_with_nonce	diag render
 nonce/manual_merged_spread	diag gen render
 nonce/manual_merged_spread_nonce	diag render
 nonce/manual_spread	diag gen render
@@ -1123,4 +1129,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1125 cases (render: 955, error: 132, gen-pinned: 637)
+TOTAL: 1131 cases (render: 961, error: 132, gen-pinned: 639)

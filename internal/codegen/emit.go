@@ -1917,9 +1917,12 @@ func rootAttrName(a ast.Attr) (string, bool) {
 }
 
 // nonceEligibleTag reports whether tag is one gsx auto-decorates with the
-// context CSP nonce (script/style; HTML tag names are case-insensitive).
+// context CSP nonce: script, style and link (HTML tag names are
+// case-insensitive). Every <link> qualifies whatever its rel, which may be
+// dynamic: browsers apply the nonce to stylesheet, preload and modulepreload
+// fetches and ignore it elsewhere.
 func nonceEligibleTag(tag string) bool {
-	return strings.EqualFold(tag, "script") || strings.EqualFold(tag, "style")
+	return strings.EqualFold(tag, "script") || strings.EqualFold(tag, "style") || strings.EqualFold(tag, "link")
 }
 
 // leafElementEmitsCtx reports whether genNode's emission of the non-component
@@ -1927,7 +1930,7 @@ func nonceEligibleTag(tag string) bool {
 // type-check skeleton can mirror the reference (emit ≡ probe): a folded bag
 // (elementFolds) and every element spread, at any cond/switch depth, render
 // through emitSpreadCall's `_gsxgw.Spread(ctx, …)`, and an auto-nonce
-// <script>/<style> (newNonceInjection's eligibility) writes
+// <script>/<style>/<link> (newNonceInjection's eligibility) writes
 // `_gsxgw.Nonce(ctx)`. A ctx-taking renderer is type-directed and not
 // covered here.
 func leafElementEmitsCtx(el *ast.Element) bool {
@@ -1985,10 +1988,10 @@ func attrIsExplicitNonce(a ast.Attr) bool {
 }
 
 // nonceInjection carries the state for auto-injecting the context CSP nonce
-// into a <script>/<style> open tag: one hoisted gsx.Attrs temp per spread
+// into a <script>/<style>/<link> open tag: one hoisted gsx.Attrs temp per spread
 // attr (at any depth, including if/switch branches) so the post-attr guard
 // can ask each spread whether it already carried a "nonce" key. A nil
-// *nonceInjection means "not eligible" (not script/style, or the author
+// *nonceInjection means "not eligible" (not script/style/link, or the author
 // wrote an explicit nonce) and every method is a nil-safe no-op.
 type nonceInjection struct {
 	temps    map[*ast.SpreadAttr]string
