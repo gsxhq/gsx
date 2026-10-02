@@ -180,6 +180,23 @@ run. Only files with gsx's generated-file header are removed; a hand-written
 file with the same name is left alone. I/O and project-loading failures do not
 replace files with error markers.
 
+### Test coverage {#coverage}
+
+`go tool cover -func` and `-html` fail on packages with gsx components
+(`expected declaration, found component`). Generated code maps errors back to
+`.gsx` with `//line` directives, and Go's coverage tooling handles them
+inconsistently ([golang/go#41222](https://github.com/golang/go/issues/41222)).
+Drop the template entries before reporting:
+
+```bash
+go test -coverprofile=cover.out ./...
+grep -v '\.gsx:' cover.out > cover.go.out
+go tool cover -func cover.go.out
+```
+
+Components are then not measured. Don't rename `.gsx:` to `.x.go:` in the
+profile: `-html` renders, but `-func` reports wrong percentages.
+
 ### Watch mode
 
 Use watch mode when an integration needs generation without the full dev loop:
