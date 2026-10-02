@@ -2155,6 +2155,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 			return genChildComponent(b, t, currentPkg, resolved, table, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, bag, mergeExpr, enclosingAttrsBound, positionalPlan)
 		}
 		warnDuplicateAttrs(bag, t)
+		rejectTextLiteralHandlers(bag, t)
 		// MANUAL fallthrough: EVERY element spread `{ x... }` is a leaf sink — it
 		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
 		// machinery regardless of the bag's provenance (declared forwarding param,
@@ -2962,7 +2963,9 @@ func attrsUseNumericScratch(tag string, attrs []ast.Attr, resolved map[ast.Node]
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *ast.ExprAttr:
-			if cls.Context(tag, at.Name) != attrclass.CtxURL && resolvedTypeIsNumeric(at, resolved, table) {
+			// URL and event-handler (JS) values leave through their own sinks,
+			// never the numeric scratch writers.
+			if cls.Context(tag, at.Name) != attrclass.CtxURL && !htmlattr.IsEventHandler(at.Name) && resolvedTypeIsNumeric(at, resolved, table) {
 				return true
 			}
 		case *ast.EmbeddedAttr:
@@ -5045,6 +5048,22 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
 		return true
 	}
+	// An event-handler value (onclick, …; htmlattr.IsEventHandler) is
+	// JavaScript the browser runs, so it is encoded as a JS value — JSON, a
+	// gsx.RawJS verbatim — as html/template does; attribute escaping alone
+	// would run a string as code. A bool took presence above, as on any name;
+	// a mixed type parameter decides that at runtime. The Spread leaf routes a
+	// bag's event-handler key in the same order.
+	if htmlattr.IsEventHandler(a.Name) {
+		if classify(t) == catAnyMixed && htmlattr.RendersBare(a.Name) {
+			fmt.Fprintf(b, "\t\t_gsxgw.JSAttrAnyToggle(%s, %s)\n", strconv.Quote(a.Name), expr)
+			return true
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+		fmt.Fprintf(b, "\t\t_gsxgw.JSValAttr(%s)\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+		return true
+	}
 	// A mixed type parameter (T string | bool) on a name that renders a bool
 	// bare: the value's kind is unknown until runtime, so AttrAnyToggle owns the
 	// whole span and decides then — a bool toggles, a string renders
@@ -5904,12 +5923,15 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 			parts = append(parts, name)
 		case *ast.StaticAttr:
 			// An authored static value is trusted: a style is carried as RawCSS
-			// past the leaf's CSS value filter (Attrs.Style), and on a folded
-			// element any other name as RawURL past the URL sinks.
+			// past the leaf's CSS value filter (Attrs.Style), an event handler as
+			// RawJS past the leaf's JS value encoding, and on a folded element
+			// any other name as RawURL past the URL sinks.
 			value := strconv.Quote(t.Value)
 			switch {
 			case htmlattr.SameName(t.Name, "style"):
 				value = trustedCSS(rtPkg, value)
+			case htmlattr.IsEventHandler(t.Name):
+				value = fmt.Sprintf("%s.RawJS(%s)", rtPkg, value)
 			case ctx == bagElementFold:
 				value = fmt.Sprintf("%s.RawURL(%s)", rtPkg, value)
 			}
@@ -6034,6 +6056,12 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attr
 				val, ok = embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			case ast.EmbeddedJS:
 				val, ok = embeddedJSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
+				// Its holes are already JS-escaped: on an event handler, carry it
+				// as gsx.RawJS so the Spread leaf emits the code verbatim rather
+				// than encoding it as a JS string (as style carries RawCSS).
+				if htmlattr.IsEventHandler(t.Name) {
+					val = rtPkg + ".RawJS(" + val + ")"
+				}
 			case ast.EmbeddedCSS:
 				val, ok = embeddedCSSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "", false)
 				if htmlattr.SameName(t.Name, "style") {

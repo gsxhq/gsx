@@ -60,7 +60,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxrt.Attrs{{Key: "on", Value: "1"}}))
+		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxrt.Attrs{{Key: "on", Value: _gsxrt.RawJS("1")}}))
 		return _gsxgw.Err()
 	})
 }

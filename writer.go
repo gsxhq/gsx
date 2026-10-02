@@ -302,6 +302,26 @@ func (gw *Writer) AttrAny(v any) {
 	gw.AttrValue(s)
 }
 
+// JSAttrAnyToggle is AttrAnyToggle for an event-handler name
+// (htmlattr.IsEventHandler) whose value type is known only at runtime: a
+// bool-kinded value writes presence like any bool; any other value is encoded
+// as a JavaScript value (JSValAttr) — the order the Spread leaf applies to a
+// bag key, so a mixed type parameter renders the same on both paths.
+func (gw *Writer) JSAttrAnyToggle(name string, v any) {
+	if gw.err != nil {
+		return
+	}
+	if s, k, ok := anyRenderVal(v); ok && k == kindBool {
+		gw.BoolAttr(name, s == "true")
+		return
+	}
+	gw.writeStr(" ")
+	gw.writeStr(name)
+	gw.writeStr(`="`)
+	gw.JSValAttr(v)
+	gw.writeStr(`"`)
+}
+
 // AttrAnyToggle writes one complete attribute whose name renders a bool bare
 // (codegen resolved htmlattr.RendersBare at generate time) but whose value type is
 // known only at runtime — a mixed type parameter such as T string | bool. A bool-kinded

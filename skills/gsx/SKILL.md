@@ -46,9 +46,11 @@ write it again. New and edited lines use the gsx form.
 
 Why these matter:
 
-- **A plain `{expr}` is never JavaScript.** gsx does not infer JS from the
-  attribute name (`onclick`, `@click`, `x-*`, `hx-on`). A `{string}` value is
-  only HTML-escaped, so a `'` in the data breaks out of your JS string. Inside
+- **A plain `{expr}` never becomes code.** On an event handler (any `on…`
+  name) a `{string}` is encoded as a JS *string literal*, so a handler built
+  from strings renders inert. Framework attributes (`@click`, `x-*`,
+  `hx-on`) get no inference: a `{string}` is only HTML-escaped, so a `'` in the
+  data breaks out of your JS string. Inside
   `js`…``, `@{v}` is JSON-encoded: strings arrive quoted, structs, maps and
   slices become JSON.
 - **Dynamic CSS is filtered, whole value.** A `style={expr}` value or a `css`
