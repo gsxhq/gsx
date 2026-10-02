@@ -40,7 +40,7 @@ func splitDecls(s string) []string {
 
 // declProp returns the property name of a declaration (text before the first
 // ':' that is not nested in () nor inside a quote), or "" if there is no such
-// ':' (a malformed fragment). Property names are ASCII case-insensitive and come
+// ':' (a property-less fragment, e.g. ZgotmplZ). Property names are ASCII case-insensitive and come
 // back lower-cased, except custom properties (--*), which are case-sensitive.
 func declProp(decl string) string {
 	depth := 0
@@ -73,8 +73,11 @@ func declProp(decl string) string {
 
 // StyleMerged emits a merged ` style="…"` attribute combining rootStyle then
 // bagStyle (caller last), deduping by property keeping the LAST occurrence,
-// survivors in source order. A malformed fragment (no ':') is dropped. When the
-// merged result is empty it emits nothing (matching the empty-bag no-op).
+// survivors in source order. A fragment with no property (no ':') — notably the
+// CSS filter's ZgotmplZ failsafe — cannot collide with anything, so it is kept
+// in place like any unique declaration, never dropped: a filtered value renders
+// as ZgotmplZ here exactly as it does through style={expr} or a plain spread.
+// When the merged result is empty it emits nothing (matching the empty-bag no-op).
 func (gw *Writer) StyleMerged(rootStyle, bagStyle string) {
 	if gw.err != nil {
 		return
@@ -87,8 +90,7 @@ func (gw *Writer) StyleMerged(rootStyle, bagStyle string) {
 	rootDecls := splitDecls(rootStyle)
 	bagDecls := splitDecls(bagStyle)
 	decls := append(rootDecls, bagDecls...)
-	// When every declaration is valid and unique there is nothing to merge or
-	// discard. Preserve the authored bytes within each contributor; rebuilding
+	// When no property repeats there is nothing to merge or discard. Preserve the authored bytes within each contributor; rebuilding
 	// with strings.Join would normalize semicolon adjacency even though merging
 	// had made no semantic change. The contributor boundary still uses the same
 	// explicit separator as Attrs.Style.
@@ -96,8 +98,7 @@ func (gw *Writer) StyleMerged(rootStyle, bagStyle string) {
 	for i, d := range decls {
 		p := declProp(d)
 		if p == "" {
-			unique = false
-			break
+			continue
 		}
 		for j := range i {
 			if declProp(decls[j]) == p {
@@ -130,6 +131,7 @@ func (gw *Writer) StyleMerged(rootStyle, bagStyle string) {
 	for i, d := range decls {
 		p := declProp(d)
 		if p == "" {
+			out = append(out, d)
 			continue
 		}
 		// Keep d only if its property does not recur later (last-wins). Linear

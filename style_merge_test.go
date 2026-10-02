@@ -23,6 +23,13 @@ func TestStyleMerged(t *testing.T) {
 		// robust splitter: ; and : inside url()/quotes are NOT boundaries
 		{"background: url(data:image/png;base64,AA;BB)", "", ` style="background: url(data:image/png;base64,AA;BB)"`},
 		{`content: "a; b"; color: red`, "color: blue", ` style="content: &#34;a; b&#34;; color: blue"`},
+		// a fragment with no property (the CSS filter's ZgotmplZ failsafe) cannot
+		// collide with anything: it is kept in place, never deduped or dropped (#229)
+		{"color:red", "ZgotmplZ", ` style="color:red; ZgotmplZ"`},
+		{"", "ZgotmplZ", ` style="ZgotmplZ"`},
+		{"ZgotmplZ", "ZgotmplZ", ` style="ZgotmplZ; ZgotmplZ"`},
+		{"ZgotmplZ; color:red", "color:blue", ` style="ZgotmplZ; color:blue"`},
+		{"color:red; margin:0", "ZgotmplZ; color:blue", ` style="margin:0; ZgotmplZ; color:blue"`},
 		// property names are ASCII case-insensitive; custom property names are not
 		{"COLOR: red", "color: blue", ` style="color: blue"`},
 		{"--Brand: red", "--brand: blue", ` style="--Brand: red; --brand: blue"`},

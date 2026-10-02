@@ -11,6 +11,11 @@ syntax or APIs; a patch bump does not. See
   modulepreloads load under a nonce-only `style-src`/`script-src`. An authored
   `nonce` still wins. Regenerate to pick it up; output without a context nonce
   is unchanged.
+- **Fix:** a caller style that fails the CSS filter now renders as `ZgotmplZ`
+  on a forwarding component root, as it does through `style={expr}` and a plain
+  spread, instead of silently vanishing (#229). The style merge keeps any
+  fragment without a property in place: `style="margin:0"` plus a hostile
+  caller style renders `style="margin:0; ZgotmplZ"`.
 - **Fix:** `<script>` types that browsers run as JavaScript — legacy spellings
   like `application/x-javascript` and `text/jscript`, and any type with
   `;parameters` — are JavaScript, not data islands (#231). Their holes are
