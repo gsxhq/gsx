@@ -2373,6 +2373,31 @@ func classifyTypeParam(tp *types.TypeParam) category {
 	return catAnyMixed
 }
 
+// floatBits reports the width strconv must format a catFloat value at: 32 or
+// 64 when every type in t's type set is that wide, or 0 when a type
+// parameter's terms mix float32 and float64 (known only at run time).
+// Formatting a float32 at 64 bits prints the widened value's digits — 0.1
+// renders 0.10000000149011612.
+func floatBits(t types.Type) int {
+	if tp, ok := types.Unalias(t).(*types.TypeParam); ok {
+		terms, err := typeparams.NormalTerms(tp)
+		if err != nil || len(terms) == 0 {
+			return 0
+		}
+		bits := floatBits(terms[0].Type())
+		for _, tm := range terms[1:] {
+			if floatBits(tm.Type()) != bits {
+				return 0
+			}
+		}
+		return bits
+	}
+	if b, ok := t.Underlying().(*types.Basic); ok && b.Kind() == types.Float32 {
+		return 32
+	}
+	return 64
+}
+
 // isRuntimeDispatchableTerm reports whether a mixed-constraint term's type
 // has a matching case in anyRenderString's dynamic type switch (writer.go):
 // either an UNNAMED predeclared type (*types.Basic — string, int, float64,

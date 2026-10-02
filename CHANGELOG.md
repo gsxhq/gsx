@@ -11,6 +11,10 @@ syntax or APIs; a patch bump does not. See
   modulepreloads load under a nonce-only `style-src`/`script-src`. An authored
   `nonce` still wins. Regenerate to pick it up; output without a context nonce
   is unchanged.
+- **Fix:** a `float32` renders at its own precision — `0.1`, not
+  `0.10000000149011612` — in text, attributes, `f`/`css` literals, `<style>`,
+  `gsx.Val` and spread bags (#226). Regenerate to pick it up in generated code;
+  `float64` output and generated code are unchanged.
 - **Fix:** style merging no longer folds the case of custom property names, so
   a component's `--Brand` survives a caller's `--brand` (#228). Standard
   property names still merge case-insensitively.

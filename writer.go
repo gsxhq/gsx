@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
 	"strconv"
 )
 
@@ -70,6 +71,24 @@ func (gw *Writer) FloatInto(buf []byte, f float64) {
 		return
 	}
 	_, gw.err = gw.w.Write(strconv.AppendFloat(buf[:0], f, 'g', -1, 64))
+}
+
+// FloatIntoBits writes f in strconv's shortest 'g' form for a float of the
+// given bit size (32 or 64; see FloatInto). A float32 widened to f must be
+// written at 32 bits, or its digits are the float64's: 0.1 would render
+// 0.10000000149011612.
+func (gw *Writer) FloatIntoBits(buf []byte, f float64, bits int) {
+	if gw.err != nil {
+		return
+	}
+	_, gw.err = gw.w.Write(strconv.AppendFloat(buf[:0], f, 'g', -1, bits))
+}
+
+// FloatBits returns the bit size of F (32 or 64). Generated code calls it for
+// a type parameter whose type set mixes float32 and float64, where the width
+// is known only at run time.
+func FloatBits[F ~float32 | ~float64](F) int {
+	return reflect.TypeFor[F]().Bits()
 }
 
 // AttrValue writes s as an escaped double-quoted attribute value.

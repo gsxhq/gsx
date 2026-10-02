@@ -2,7 +2,6 @@ package gsx
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -25,8 +24,8 @@ func TestVal(t *testing.T) {
 		{"a", "a"}, {"<b>", "&lt;b&gt;"}, {5, "5"}, {int64(-3), "-3"}, {uint(7), "7"},
 		{3.5, "3.5"}, {true, "true"}, {[]byte("<x>"), "&lt;x&gt;"},
 		{stringerT{}, "S&lt;x&gt;"}, {nil, ""}, {Raw("<i>"), "<i>"},
-		{[]Node{Text("a"), nil, Text("b")}, "ab"},                               // catNodeSlice parity; nil skipped
-		{float32(0.1), strconv.FormatFloat(float64(float32(0.1)), 'g', -1, 64)}, // bitsize-64 parity pin (would be "0.1" at bitsize 32)
+		{[]Node{Text("a"), nil, Text("b")}, "ab"}, // catNodeSlice parity; nil skipped
+		{float32(0.1), "0.1"},                     // parity with emitRender: a float32 formats at its own width (#226)
 	} {
 		if got := renderNode(Val(tt.in)); got != tt.want {
 			t.Errorf("Val(%v) = %q, want %q", tt.in, got, tt.want)

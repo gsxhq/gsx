@@ -12,6 +12,7 @@ type nvString string
 type nvBool bool
 type nvInt int
 type nvFloat float64
+type nvFloat32 float32
 type nvTags []string // named SLICE of string — element is still `string`
 
 type nvStringer struct{}
@@ -35,6 +36,10 @@ func TestAnyRenderVal(t *testing.T) {
 		{"uint", uint(5), "5", kindNumber, true},
 		{"float64", 1.5, "1.5", kindNumber, true},
 		{"float32", float32(1.5), "1.5", kindNumber, true},
+		// 0.1 is not exact in binary: formatting the widened float64 would print
+		// 0.10000000149011612; a float32 renders at its own width.
+		{"float32 inexact", float32(0.1), "0.1", kindNumber, true},
+		{"named float32 inexact", nvFloat32(0.1), "0.1", kindNumber, true},
 
 		// Stringer wins over the underlying kind — mirrors classify's order, or
 		// time.Duration (a named int64 WITH String()) would render 1000000000.
