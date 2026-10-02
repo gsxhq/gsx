@@ -11,6 +11,6 @@ Patterns are copyable userland conventions built from ordinary Go and gsx.
 - **[Translation keys](./patterns/i18n-keys.md)** — write i18n keys in
   markup; a context-aware renderer translates them for the request's locale.
 - **[CSP nonce](./patterns/csp-nonce.md)** — send a per-request Content
-  Security Policy and let gsx put its nonce on every script and style.
+  Security Policy and let gsx put its nonce on every script, style and link.
 - **[Streaming flush](./patterns/streaming-flush.md)** — flush the response
   mid-page so the browser paints above-the-fold markup before the slow tail.

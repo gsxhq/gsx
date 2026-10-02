@@ -109,13 +109,14 @@ and [Styling](./styling.md) for CSS composition.
 ## CSP nonces
 
 Put a per-request nonce on the render context with `gsx.WithNonce`. Every native
-`<script>` and `<style>` tag rendered with that context receives the same
-attribute, including external scripts and JSON data islands:
+`<script>`, `<style>` and `<link>` tag rendered with that context receives the
+same attribute, including external scripts, stylesheets, preloads and JSON data
+islands:
 
 ```go
 nonce := rand.Text() // crypto/rand: 128 random bits
 w.Header().Set("Content-Security-Policy",
-	"script-src 'self' 'nonce-"+nonce+"'; style-src 'self' 'nonce-"+nonce+"'")
+	"script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+"'")
 page.Render(gsx.WithNonce(r.Context(), nonce), w)
 ```
 
@@ -126,11 +127,11 @@ values are attribute-escaped, and `gsx.NonceFromContext` retrieves the current
 value when markup outside gsx needs it.
 
 Your server remains responsible for generating the nonce and sending the CSP
-header. gsx adds no nonce to `<link>`, so keep `'self'` (or a host) in
-`style-src` for stylesheets.
+header. Scripts and stylesheets that JavaScript inserts at runtime carry no
+nonce; allow their origin with `'self'` or a host.
 
-A nonce covers `<script>` and `<style>` elements only. Under the policy above
-the browser still blocks:
+A nonce covers `<script>`, `<style>` and `<link>` elements only. Under the
+policy above the browser still blocks:
 
 - `style` attributes, including `style={...}`. Add
   `style-src-attr 'unsafe-inline'` to allow them; gsx already CSS-filters
