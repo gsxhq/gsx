@@ -11,6 +11,21 @@ syntax or APIs; a patch bump does not. See
   modulepreloads load under a nonce-only `style-src`/`script-src`. An authored
   `nonce` still wins. Regenerate to pick it up; output without a context nonce
   is unchanged.
+- **Security:** a Go value on an event-handler attribute (`onclick={expr}`,
+  …) is encoded as a JavaScript value, as `html/template` does, instead of only
+  attribute-escaped — an untrusted string could run as code (#230). As in
+  `html/template`, any attribute name starting with `on` (after a `data-` or
+  `ns:` prefix) is an event handler. A string, including a bare `` `…` `` raw
+  string, now renders as a quoted JS string literal: write handler code as
+  quoted text, ``onclick=js`…` `` or `gsx.RawJS`. A spread `gsx.Attrs` key is
+  encoded the same way, and an `f` or `css` literal on an event handler is a
+  generate-time error. A non-handler attribute named `on…` (say
+  `onlyinteger={…}`) is now JS-encoded too; rename it (`only-integer`).
+  Datastar's `data-on-*` directives match the rule: pass them as `js`, e.g.
+  ``{{ "data-on-click": js`$count++` }}``.
+  A `bool` still renders as presence on these names. Authored static text
+  stays verbatim and reaches a component's `attrs` as `gsx.RawJS`, as a
+  static `style` arrives as `gsx.RawCSS`.
 - **Fix:** a caller style that fails the CSS filter now renders as `ZgotmplZ`
   on a forwarding component root, as it does through `style={expr}` and a plain
   spread, instead of silently vanishing (#229). The style merge keeps any

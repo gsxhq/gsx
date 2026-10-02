@@ -17,7 +17,7 @@ user input renders as text instead of markup.
 |---|---|---|
 | Text or ordinary attribute | `{ value }`, `name={value}` | HTML-escape the value |
 | URL attribute | `href={url}`, `src={url}` | Check the URL scheme, then HTML-escape it |
-| JavaScript | `` name=js`...@{ value }...` ``, `@{ value }` in `<script>` | Encode each hole for its JavaScript position |
+| JavaScript | `` name=js`...@{ value }...` ``, `onclick={value}`, `@{ value }` in `<script>` | Encode each hole for its JavaScript position |
 | CSS | `` name=css`...@{ value }...` ``, dynamic `<style>` or `style` values | Filter each value for its CSS position |
 
 HTML escaping still applies around JavaScript, CSS, and URL attribute values so
@@ -95,8 +95,10 @@ left byte for byte, so `<meta name="description" content={…}>` is unaffected.
 
 Embedded languages are explicit in attributes. Use a `` js`...` `` literal for
 JavaScript and a `` css`...` `` literal for CSS; `@{ expr }` marks a dynamic
-hole in either form. A plain quoted attribute stays literal, and an ordinary
-`name={expr}` does not become JavaScript because of its name.
+hole in either form. A plain quoted attribute stays literal. A Go value on an
+event handler (any `on…` name, as in `html/template`) such as `onclick={expr}`
+is encoded as a JavaScript value; see
+[Event handlers](./javascript.md#event-handlers).
 
 In `<script>`, gsx encodes interpolated Go values as JavaScript values and
 escapes holes that appear in JavaScript strings or regular expressions for

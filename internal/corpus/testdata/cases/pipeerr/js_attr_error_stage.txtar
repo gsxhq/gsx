@@ -1,9 +1,8 @@
-# Same JS-context attribute (onclick) shape as pipelines/attr_js_rejected.txtar,
-# with a REAL error-returning filter swapped in. onclick has no special
-# JS-context routing for a plain expr attr (only the explicit js`…` literal
-# form does) — it lowers through the same emitPipeWrap-backed ExprAttr path as
-# any other attribute, so the error stage hoists and renders cleanly, same as
-# attr_mid_stage.txtar.
+# Same event-handler attribute (onclick) shape as pipelines/attr_js_value.txtar,
+# with a REAL error-returning filter swapped in. The pipeline lowers through the
+# emitPipeWrap-backed ExprAttr path like any attribute, so the error stage
+# hoists cleanly (as attr_mid_stage.txtar); the result then leaves through the
+# event-handler sink, JSValAttr, as a JS string literal.
 -- gsx.toml --
 filter_packages = ["./filters"]
 -- filters/filters.go --
@@ -48,10 +47,10 @@ func C(x string) _gsxrt.Node {
 			return _gsxerr
 		}
 		_gsxgw.S(" onclick=\"")
-		_gsxgw.AttrValue(string(_gsxv0))
+		_gsxgw.JSValAttr(_gsxv0)
 		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div onclick="ada!">y</div>
+<div onclick="&#34;ada!&#34;">y</div>

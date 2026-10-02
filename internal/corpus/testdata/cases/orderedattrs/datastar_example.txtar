@@ -9,7 +9,7 @@ component Counter(signals gsx.Attrs, children gsx.Node) {
 }
 
 component Page() {
-	<Counter signals={{ "data-signals": "{count:0}", "data-text": "$count", "data-on-click": "$count++" }}>Count</Counter>
+	<Counter signals={{ "data-signals": "{count:0}", "data-text": "$count", "data-on-click": js`$count++` }}>Count</Counter>
 }
 -- invoke --
 Page()
@@ -56,7 +56,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderCounter(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-signals", Value: "{count:0}"}, {Key: "data-text", Value: "$count"}, {Key: "data-on-click", Value: "$count++"}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderCounter(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-signals", Value: "{count:0}"}, {Key: "data-text", Value: "$count"}, {Key: "data-on-click", Value: _gsxrt.RawJS("$count++")}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("Count")
 			return _gsxgw.Err()

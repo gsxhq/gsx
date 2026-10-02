@@ -92,7 +92,7 @@
   {
     "name": "Ordered Attributes",
     "category": "Basics",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs, children gsx.Node) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter signals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}>Count</Counter>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs, children gsx.Node) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter signals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": js`$count++` }}>\n\t\tCount\n\t</Counter>\n}\n",
     "invoke": "Page()"
   },
   {

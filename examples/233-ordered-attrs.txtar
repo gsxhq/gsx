@@ -14,7 +14,7 @@ component Counter(signals gsx.Attrs, children gsx.Node) {
 }
 
 component Page() {
-	<Counter signals={{ "data-signals": "{count:0}", "data-text": "$count", "data-on-click": "$count++" }}>Count</Counter>
+	<Counter signals={{ "data-signals": "{count:0}", "data-text": "$count", "data-on-click": js`$count++` }}>Count</Counter>
 }
 -- invoke --
 Page()

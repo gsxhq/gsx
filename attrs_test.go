@@ -658,3 +658,33 @@ func TestGetStyleRoundTrip(t *testing.T) {
 		t.Errorf("round-trip render = %q, want %q", got, want)
 	}
 }
+
+// TestSpreadEventHandlerJSValue pins that a bag's event-handler key leaves
+// through the JS value sink, as codegen does for a static onclick={expr}: a
+// string is a quoted JS string literal, a RawJS is verbatim code, a bool takes
+// presence as on any name, Toggle still forces presence, nil is skipped, and
+// the name rule is html/template's (any on… name, after a data- prefix) — a
+// framework attribute such as @click stays plain.
+func TestSpreadEventHandlerJSValue(t *testing.T) {
+	cases := []struct {
+		bag  Attrs
+		want string
+	}{
+		{Attrs{{Key: "onclick", Value: `alert(1)"`}}, ` onclick="&#34;alert(1)\&#34;&#34;"`},
+		{Attrs{{Key: "OnClick", Value: RawJS("go(1)")}}, ` OnClick="go(1)"`},
+		{Attrs{{Key: "onload", Value: true}}, ` onload`},
+		{Attrs{{Key: "data-once", Value: false}}, ``},
+		{Attrs{{Key: "onload", Value: Toggle(true)}}, ` onload`},
+		{Attrs{{Key: "onload", Value: nil}}, ``},
+		{Attrs{{Key: "onlyinteger", Value: "true"}}, ` onlyinteger="&#34;true&#34;"`},
+		{Attrs{{Key: "data-onclick", Value: "x"}}, ` data-onclick="&#34;x&#34;"`},
+		{Attrs{{Key: "@click", Value: "go()"}}, ` @click="go()"`},
+	}
+	for _, c := range cases {
+		var buf bytes.Buffer
+		W(&buf).Spread(context.Background(), "div", c.bag, AttrSinks{}, nil)
+		if got := buf.String(); got != c.want {
+			t.Errorf("Spread(%v) = %q, want %q", c.bag, got, c.want)
+		}
+	}
+}

@@ -1,0 +1,16 @@
+# An f`…` or css`…` literal on an event-handler attribute is rejected, in any
+# branch: the value is JavaScript, but those literals escape their holes for
+# HTML text or CSS. js`…` escapes each hole for its JavaScript position.
+-- input.gsx --
+package views
+
+component Page(id string, on bool) {
+	<div onclick=f`go('@{id}')`>1</div>
+	<div { if on { ONLOAD=f"init(@{id})" } }>2</div>
+	<img src="/x.png" onerror=css`color:@{id}`/>
+	<div title=f`go('@{id}')` x-on:click=f`@{id}`>3</div>
+}
+-- diagnostics.golden --
+4:7: onclick is a JavaScript event handler; use js`…` instead of f`…`, which would not escape its holes for JavaScript
+5:17: ONLOAD is a JavaScript event handler; use js`…` instead of f`…`, which would not escape its holes for JavaScript
+6:20: onerror is a JavaScript event handler; use js`…` instead of css`…`, which would not escape its holes for JavaScript

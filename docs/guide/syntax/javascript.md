@@ -45,6 +45,25 @@ component SaveButton(id string) {
 On a component tag, an unbraced, hole-free contextual literal may fall through
 as authored text. The same unbraced form is rejected when it contains holes.
 
+## Event handlers {#event-handlers}
+
+An event-handler attribute is any name starting with `on` — after a `data-` or
+`svg:`-style prefix — as in `html/template`. A Go value there (`{expr}`, or a
+bare `` `…` `` raw string) is encoded as a JavaScript value: a string becomes a
+quoted string literal, other values their JSON, and a `gsx.RawJS` passes
+through as code.
+
+```gsx
+<button onclick={label}>…</button>    // label = "hi" → onclick="&#34;hi&#34;"
+<button onclick={handler}>…</button>  // handler is gsx.RawJS → verbatim
+<button onclick="save()">…</button>   // quoted text is code, verbatim
+```
+
+Write handler code as quoted text, `` js`…` `` or `gsx.RawJS`. A spread
+`gsx.Attrs` key is encoded the same way; an `f` or `css` literal on a handler is
+an error. Framework attributes such as `@click` and `x-on:click` are not event
+handlers: mark their JavaScript with `js`.
+
 ## Contextual literals as Go values
 
 In a Go expression, a `js` literal has type `gsx.RawJS` and a `css` literal has

@@ -59,7 +59,7 @@ func _gsxrenderWide(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, Handler gsx.RawJ
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<button onclick=\"")
-	_gsxgw.AttrValue(string(Handler))
+	_gsxgw.JSValAttr(Handler)
 	_gsxgw.S("\">x</button>")
 	return _gsxgw.Err()
 }

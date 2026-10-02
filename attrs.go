@@ -482,6 +482,21 @@ func (gw *Writer) Spread(ctx context.Context, tag string, a Attrs, sinks AttrSin
 				continue
 			}
 		}
+		// An event-handler value is JavaScript the browser runs, so it leaves
+		// through the JS value sink — JSON-encoded, a gsx.RawJS verbatim — as
+		// html/template does and as codegen does for a static onclick={expr}.
+		// A bool has already taken presence above, as on any name.
+		if htmlattr.IsEventHandler(kv.Key) {
+			if kv.Value == nil {
+				continue
+			}
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.JSValAttr(kv.Value)
+			gw.writeStr(`"`)
+			continue
+		}
 		sink := sinks.sinkFor(tag, kv.Key)
 		if sink != htmlattr.SinkNone {
 			gw.writeStr(" ")
