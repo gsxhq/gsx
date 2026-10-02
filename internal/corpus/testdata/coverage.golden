@@ -1030,6 +1030,7 @@ textattr/class_no_spread	diag gen render
 textattr/class_spread_merge	diag gen render
 textattr/expr_attr_numeric	diag gen render
 textattr/plain_attr	diag gen render
+textattr/static_charrefs	diag gen render
 textattr/style_spread_merge	diag gen render
 textattr/url_dangerous_blocked	diag gen render
 textattr/url_dynamic_scheme	diag gen render
@@ -1134,4 +1135,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1136 cases (render: 965, error: 133, gen-pinned: 643)
+TOTAL: 1137 cases (render: 966, error: 133, gen-pinned: 644)

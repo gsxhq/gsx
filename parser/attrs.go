@@ -402,7 +402,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		}
 		val := p.src[vs:p.i]
 		p.i++ // past closing quote
-		sa := &ast.StaticAttr{Name: name, Value: val}
+		sa := &ast.StaticAttr{Name: name, Value: decodeAttrValue(val), Raw: val}
 		ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 		return sa, nil
 	case !p.eof() && p.src[p.i] == '{':

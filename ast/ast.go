@@ -407,7 +407,13 @@ type PipeStage struct {
 // StaticAttr is name="value".
 type StaticAttr struct {
 	span
-	Name, Value string
+	Name string
+	// Value is the attribute value as the browser reads it: character
+	// references (&amp;, &quot;, …) decoded. Every semantic consumer uses it.
+	Value string
+	// Raw is the source text between the quotes, as authored. The printer
+	// writes it back, and source positions inside the value are offsets into it.
+	Raw string
 }
 
 func (*StaticAttr) attrNode() {}

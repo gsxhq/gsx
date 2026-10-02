@@ -26,7 +26,9 @@ Use `name={expr}` to bind a Go value.
 <!--@include: ./_generated/attributes/010-expression-attributes.md-->
 
 `data-count={count}` formats a numeric value as attribute text. Quoted values
-are literal: `title="Item @{id}"` does not scan for `@{}` holes.
+are literal: `title="Item @{id}"` does not scan for `@{}` holes. As in HTML,
+character references in them are decoded — `title="Tom &amp; Jerry"` is
+`Tom & Jerry` — and `gsx fmt` keeps them as written.
 
 ## Boolean attributes
 

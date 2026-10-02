@@ -1474,7 +1474,7 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 	case *ast.StaticAttr:
 		b.WriteString(v.Name)
 		b.WriteString(`="`)
-		b.WriteString(v.Value)
+		b.WriteString(v.Raw)
 		b.WriteString(`"`)
 	case *ast.CommentAttr:
 		switch {

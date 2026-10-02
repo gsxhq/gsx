@@ -1,0 +1,15 @@
+Character references in a quoted attribute value keep their authored spelling:
+the formatter writes the source text, not the decoded value.
+
+-- input.gsx --
+package p
+
+component C() {
+	<a href="/s?a=1&amp;b=2"   title="say &quot;hi&quot; &#169; &copy=2">x</a>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<a href="/s?a=1&amp;b=2" title="say &quot;hi&quot; &#169; &copy=2">x</a>
+}
