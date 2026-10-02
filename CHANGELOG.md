@@ -11,6 +11,9 @@ syntax or APIs; a patch bump does not. See
   modulepreloads load under a nonce-only `style-src`/`script-src`. An authored
   `nonce` still wins. Regenerate to pick it up; output without a context nonce
   is unchanged.
+- **Fix:** style merging no longer folds the case of custom property names, so
+  a component's `--Brand` survives a caller's `--brand` (#228). Standard
+  property names still merge case-insensitively.
 - **Docs:** CSP nonce pattern page, and what a strict CSP blocks (#223).
 
 ## v0.2.0 — 2026-10-01
