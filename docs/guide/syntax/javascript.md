@@ -91,6 +91,9 @@ Alpine directive values are JavaScript expressions, so mark `x-data`, `x-model`,
 `x-for`, `x-text`, `@click`, and `:key` values with `js`. The same form works for
 htmx attributes that contain JavaScript.
 
+Both libraries evaluate these strings at runtime, which a strict Content
+Security Policy blocks; see [CSP nonces](./escaping.md#csp-nonces).
+
 <!--@include: ./_generated/javascript/050-complete-alpine-search.md-->
 
 ## JSON attribute values
