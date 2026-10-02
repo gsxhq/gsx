@@ -943,6 +943,7 @@ script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
 script/interp_string	diag gen render
 script/interp_value	diag gen render
+script/legacy_js_mime_types	diag gen render
 script/minify	diag gen render
 script/rawjs_binding_position	diag gen render
 script/rawjs_passthrough	diag gen render
@@ -1131,4 +1132,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1133 cases (render: 963, error: 132, gen-pinned: 641)
+TOTAL: 1134 cases (render: 964, error: 132, gen-pinned: 642)

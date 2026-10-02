@@ -1,0 +1,44 @@
+A legacy JavaScript MIME type (application/x-javascript, text/javascript with
+parameters) is formatted as JS like a bare <script>; a data type (text/template)
+stays verbatim.
+
+-- input.gsx --
+package p
+
+component C() {
+	<script type="application/x-javascript">
+if (a) {
+f();
+}
+</script>
+	<script type="text/javascript; charset=utf-8">
+if (a) {
+f();
+}
+</script>
+	<script type="text/template">
+if (a) {
+f();
+}
+</script>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<script type="application/x-javascript">
+		if (a) {
+			f();
+		}
+	</script>
+	<script type="text/javascript; charset=utf-8">
+		if (a) {
+			f();
+		}
+	</script>
+	<script type="text/template">
+if (a) {
+f();
+}
+</script>
+}

@@ -24,6 +24,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/gsxhq/gsx/internal/htmlattr"
+
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
 	"github.com/gsxhq/gsx/internal/goexprshape"
@@ -2014,23 +2016,14 @@ func isPreserveTag(tag string) bool {
 	return false
 }
 
-// jsExecutableScriptTypes are <script type> values that run as JavaScript.
-// Mirrors internal/jsx.jsExecutableTypes (kept local to avoid importing the
-// codegen-time jsx package into the formatter path).
-var jsExecutableScriptTypes = map[string]bool{
-	"text/javascript": true, "module": true, "application/javascript": true,
-	"text/ecmascript": true, "application/ecmascript": true,
-}
-
 // isExecutableScript reports whether a <script> runs as JavaScript: no static
-// type attribute, or a static type in the executable set. A data island (e.g.
+// type attribute, or one htmlattr.ScriptTypeIsJS accepts. A data island (e.g.
 // type="application/json", type="text/template") is not executable and is left
 // verbatim.
 func isExecutableScript(e *ast.Element) bool {
 	for _, a := range e.Attrs {
 		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
-			t := strings.ToLower(strings.TrimSpace(sa.Value))
-			return t == "" || jsExecutableScriptTypes[t]
+			return htmlattr.ScriptTypeIsJS(sa.Value)
 		}
 	}
 	return true

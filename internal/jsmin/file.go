@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/htmlattr"
+
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
@@ -171,22 +173,12 @@ func minifyGoParts(parts []ast.GoPart, m Minifiers) error {
 	return nil
 }
 
-// jsExecutableTypes mirrors internal/jsx's set: <script type> values that run as
-// JavaScript. Any other (non-empty) type marks a data block.
-var jsExecutableTypes = map[string]bool{
-	"text/javascript": true, "module": true, "application/javascript": true,
-	"text/ecmascript": true, "application/ecmascript": true,
-}
-
 // isDataIslandScript reports whether el is a <script> whose static `type` marks
-// it a data block (not executable JS). It is a ~6-line duplicate of the jsx
-// predicate (internal/jsx/jsx.go); the copy is intentional so jsmin need not
-// depend on jsx. Keep the two in sync.
+// it a data block (not executable JS; see htmlattr.ScriptTypeIsJS).
 func isDataIslandScript(el *ast.Element) bool {
 	for _, a := range el.Attrs {
 		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
-			t := strings.ToLower(strings.TrimSpace(sa.Value))
-			return t != "" && !jsExecutableTypes[t]
+			return !htmlattr.ScriptTypeIsJS(sa.Value)
 		}
 	}
 	return false

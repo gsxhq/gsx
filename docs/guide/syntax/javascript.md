@@ -134,4 +134,9 @@ Use `<script type="application/json">` to expose server data without executing
 it. Interpolation encodes the Go value as JSON, and client code can read the
 element's text content and pass it to `JSON.parse`.
 
+A `<script>` is JavaScript when it has no `type`, `type="module"`, or a
+JavaScript MIME type — legacy spellings such as `application/x-javascript`
+included, `;parameters` ignored. Any other type is a data block: its body must
+be a single `@{ }` value.
+
 <!--@include: ./_generated/javascript/010-js-attributes-data-islands.md-->
