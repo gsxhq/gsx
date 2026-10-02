@@ -37,7 +37,9 @@ Use a CSS literal when a dynamic declaration is clearer as CSS text:
 
 Dynamic CSS values are filtered for their CSS context. See
 [Escaping](./escaping.md#javascript-and-css-contexts) for the safety rules and
-trusted-value boundary.
+trusted-value boundary. A Content Security Policy blocks `style` attributes
+unless it allows `style-src-attr 'unsafe-inline'`; see
+[CSP nonces](./escaping.md#csp-nonces).
 
 ## Merge forwarded class and style {#class-style-merging}
 

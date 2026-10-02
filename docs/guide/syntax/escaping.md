@@ -113,9 +113,9 @@ Put a per-request nonce on the render context with `gsx.WithNonce`. Every native
 attribute, including external scripts and JSON data islands:
 
 ```go
-nonce := newNonce() // Generate this with a cryptographically secure source.
+nonce := rand.Text() // crypto/rand: 128 random bits
 w.Header().Set("Content-Security-Policy",
-	"script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+"'")
+	"script-src 'self' 'nonce-"+nonce+"'; style-src 'self' 'nonce-"+nonce+"'")
 page.Render(gsx.WithNonce(r.Context(), nonce), w)
 ```
 
@@ -126,7 +126,21 @@ values are attribute-escaped, and `gsx.NonceFromContext` retrieves the current
 value when markup outside gsx needs it.
 
 Your server remains responsible for generating the nonce and sending the CSP
-header.
+header. gsx adds no nonce to `<link>`, so keep `'self'` (or a host) in
+`style-src` for stylesheets.
+
+A nonce covers `<script>` and `<style>` elements only. Under the policy above
+the browser still blocks:
+
+- `style` attributes, including `style={...}`. Add
+  `style-src-attr 'unsafe-inline'` to allow them; gsx already CSS-filters
+  dynamic values.
+- native event-handler attributes such as `onclick`.
+- Alpine and htmx expressions such as `@click` and `hx-on`, which evaluate
+  strings at runtime. Use Alpine's CSP build, or allow `'unsafe-eval'`.
+
+See [CSP nonce](../patterns/csp-nonce.md) for a middleware that sets this up
+once per request.
 
 ## Trusted-value helpers
 
