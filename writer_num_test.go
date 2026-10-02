@@ -20,6 +20,9 @@ func TestWriterNumbers(t *testing.T) {
 		{"float", func(w *Writer) { w.FloatInto(buf[:], 3.14159) }, "3.14159"},
 		{"float-neg", func(w *Writer) { w.FloatInto(buf[:], -0.5) }, "-0.5"},
 		{"float-big", func(w *Writer) { w.FloatInto(buf[:], 1e21) }, "1e+21"},
+		{"float32", func(w *Writer) { w.FloatIntoBits(buf[:], float64(float32(0.1)), 32) }, "0.1"},
+		{"float32-as-64", func(w *Writer) { w.FloatIntoBits(buf[:], float64(float32(0.1)), 64) }, "0.10000000149011612"},
+		{"float64-bits", func(w *Writer) { w.FloatIntoBits(buf[:], 0.1, 64) }, "0.1"},
 	}
 	for _, c := range cases {
 		var b strings.Builder
@@ -46,5 +49,19 @@ func TestWriterNumbersShared(t *testing.T) {
 	})
 	if allocs > 1 {
 		t.Errorf("20 ints allocated %v times, want <= 1", allocs)
+	}
+}
+
+type namedFloat32 float32
+
+func TestFloatBits(t *testing.T) {
+	if got := FloatBits(float32(0)); got != 32 {
+		t.Errorf("FloatBits(float32) = %d, want 32", got)
+	}
+	if got := FloatBits(namedFloat32(0)); got != 32 {
+		t.Errorf("FloatBits(named float32) = %d, want 32", got)
+	}
+	if got := FloatBits(0.0); got != 64 {
+		t.Errorf("FloatBits(float64) = %d, want 64", got)
 	}
 }

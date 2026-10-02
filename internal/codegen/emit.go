@@ -2820,7 +2820,7 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n ast.
 	case catUint:
 		fmt.Fprintf(b, "\t\t_gsxgw.UintInto(_gsxnum[:], uint64(%s))\n", expr)
 	case catFloat:
-		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
+		emitFloatInto(b, expr, t, rt)
 	case catBool:
 		// S, not Text: FormatBool yields only "true"/"false", neither of which
 		// carries a byte htmlReplacer rewrites, so escaping is a no-op on every
@@ -3036,6 +3036,31 @@ func resolvedTypeIsNumeric(n ast.Node, resolved map[ast.Node]types.Type, table f
 	return false
 }
 
+// emitFloatInto writes a catFloat value from the per-render scratch buffer at
+// its own width (see floatBits).
+func emitFloatInto(b *bytes.Buffer, expr string, t types.Type, rt rtImports) {
+	if floatBits(t) == 64 {
+		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
+		return
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.FloatIntoBits(_gsxnum[:], float64(%s), %s)\n", expr, floatBitsExpr(expr, t, rt))
+}
+
+// formatFloatExpr returns a string expression formatting a catFloat value at
+// its own width (see floatBits).
+func formatFloatExpr(expr string, t types.Type, rt rtImports) string {
+	return rt.sc() + ".FormatFloat(float64(" + expr + "), 'g', -1, " + floatBitsExpr(expr, t, rt) + ")"
+}
+
+// floatBitsExpr returns the bit size of a catFloat value as Go source: a
+// constant when the type fixes it, else a run-time gsx.FloatBits call.
+func floatBitsExpr(expr string, t types.Type, rt rtImports) string {
+	if bits := floatBits(t); bits != 0 {
+		return strconv.Itoa(bits)
+	}
+	return rt.rt() + ".FloatBits(" + expr + ")"
+}
+
 func emitS(b *bytes.Buffer, s string) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(s))
 }
@@ -3086,10 +3111,10 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 		}
 		tmp := hoistTuple(b, expr, interpTemp)
 		expr, t = applyRenderer(b, tmp, elemT, table, imports, interpTemp, "return _gsxerr")
-		return emitRenderCSS(b, expr, t, n, bag)
+		return emitRenderCSS(b, expr, t, rt, n, bag)
 	}
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
-	return emitRenderCSS(b, expr, t, n, bag)
+	return emitRenderCSS(b, expr, t, rt, n, bag)
 }
 
 // rawTextHoleExpr returns the Go expression of a <script>/<style> @{ } hole.
@@ -3115,7 +3140,7 @@ func rawTextHoleExpr(b *bytes.Buffer, n *ast.Interp, where string, lc lowerCtx) 
 // emitRenderCSS writes a value in CSS block context (inside <style>): RawCSS and
 // numbers are emitted raw (safe by construction); strings/Stringers go through
 // gw.CSS (the value-filter). n is the AST node for positioning any error diagnostic.
-func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *diag.Bag) bool {
+func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n ast.Node, bag *diag.Bag) bool {
 	if isRawCSS(t) {
 		fmt.Fprintf(b, "\t\t_gsxgw.S(string(%s))\n", expr)
 		return true
@@ -3130,7 +3155,7 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *
 	case catUint:
 		fmt.Fprintf(b, "\t\t_gsxgw.UintInto(_gsxnum[:], uint64(%s))\n", expr)
 	case catFloat:
-		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
+		emitFloatInto(b, expr, t, rt)
 	case catString, catBytes:
 		fmt.Fprintf(b, "\t\t_gsxgw.CSS(string(%s))\n", expr)
 	case catStringer:
@@ -4137,7 +4162,7 @@ func stringifyExpr(expr string, t types.Type, rt rtImports, n ast.Node, bag *dia
 	case catUint:
 		return rt.sc() + ".FormatUint(uint64(" + expr + "), 10)", true
 	case catFloat:
-		return rt.sc() + ".FormatFloat(float64(" + expr + "), 'g', -1, 64)", true
+		return formatFloatExpr(expr, t, rt), true
 	case catStringer:
 		return "(" + expr + ").String()", true
 	default:
@@ -4316,7 +4341,7 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 		case catUint:
 			styleExpr = rt.sc() + ".FormatUint(uint64(" + expr + "), 10)"
 		case catFloat:
-			styleExpr = rt.sc() + ".FormatFloat(float64(" + expr + "), 'g', -1, 64)"
+			styleExpr = formatFloatExpr(expr, t, rt)
 		case catString, catBytes:
 			styleExpr = "string(" + expr + ")"
 		case catStringer:
@@ -5273,7 +5298,7 @@ func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n a
 	case catUint:
 		fmt.Fprintf(b, "\t\t_gsxgw.UintInto(_gsxnum[:], uint64(%s))\n", expr)
 	case catFloat:
-		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
+		emitFloatInto(b, expr, t, rt)
 	case catStringer:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue((%s).String())\n", expr)
 	case catAnyMixed:

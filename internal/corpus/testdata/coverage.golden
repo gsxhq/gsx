@@ -536,6 +536,7 @@ imports/unused_import_block_column	diag(error)
 imports/unused_import_component_call_site	diag(error)
 interpolation/diag_element_in_attr_hole	diag render
 interpolation/field_access	diag render
+interpolation/float32_contexts	diag gen render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
 interpolation/nested_literal_attr_hole	diag gen render
@@ -1130,4 +1131,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1132 cases (render: 962, error: 132, gen-pinned: 640)
+TOTAL: 1133 cases (render: 963, error: 132, gen-pinned: 641)

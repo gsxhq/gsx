@@ -52,7 +52,7 @@ func anyRenderVal(v any) (string, valKind, bool) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		return strconv.FormatUint(rv.Uint(), 10), kindNumber, true
 	case reflect.Float32, reflect.Float64:
-		return strconv.FormatFloat(rv.Float(), 'g', -1, 64), kindNumber, true
+		return strconv.FormatFloat(rv.Float(), 'g', -1, rv.Type().Bits()), kindNumber, true
 	case reflect.Slice:
 		et := rv.Type().Elem()
 		if et.Kind() == reflect.Uint8 { // []byte and any named byte-slice
