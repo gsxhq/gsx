@@ -1231,6 +1231,9 @@ func (p *parser) parsePIName(target string, startPos token.Pos) (ast.Attr, error
 		if a.Name != "name" {
 			return nil, p.errorf(a.Pos(), "`<?%s` requires a `name` attribute, got %q", target, a.Name)
 		}
+		// Processing-instruction data is never entity-decoded: the name is
+		// the authored text.
+		a.Value = a.Raw
 	case *ast.ExprAttr:
 		if a.Name != "name" {
 			return nil, p.errorf(a.Pos(), "`<?%s` requires a `name` attribute, got %q", target, a.Name)

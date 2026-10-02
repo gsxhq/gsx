@@ -11,6 +11,12 @@ syntax or APIs; a patch bump does not. See
   modulepreloads load under a nonce-only `style-src`/`script-src`. An authored
   `nonce` still wins. Regenerate to pick it up; output without a context nonce
   is unchanged.
+- **Fix:** character references in a quoted static attribute value (`&amp;`,
+  `&quot;`, `&#34;`, …) are decoded as HTML decodes them, then escaped once on
+  output — pasted `href="/s?a=1&amp;b=2"` no longer renders `&amp;amp;` (#227).
+  The attribute-value rule applies (`?x=1&copy=2` stays as written), component
+  string props receive the decoded text, and `gsx fmt` keeps the authored
+  spelling. Processing-instruction names are not decoded.
 - **Security:** a Go value on an event-handler attribute (`onclick={expr}`,
   …) is encoded as a JavaScript value, as `html/template` does, instead of only
   attribute-escaped — an untrusted string could run as code (#230). As in

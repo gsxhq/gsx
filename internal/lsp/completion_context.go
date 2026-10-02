@@ -150,7 +150,7 @@ func classifyCompletionContext(r repairResult, path string, off int) completionC
 		// valueStart), so match that offset too and flag it phantom.
 		if sa, ok := n.(*gsxast.StaticAttr); ok {
 			valueEnd := posOff(sa.End()) - 1
-			valueStart := valueEnd - len(sa.Value)
+			valueStart := valueEnd - len(sa.Raw)
 			switch {
 			case off >= valueStart && off <= valueEnd:
 				valueCtx = &completionContext{kind: ctxAttrValue, node: sa, attr: sa,
@@ -346,7 +346,7 @@ func offInStaticValue(el *gsxast.Element, off int, posOff func(token.Pos) int) b
 			continue
 		}
 		valueEnd := posOff(sa.End()) - 1
-		valueStart := valueEnd - len(sa.Value)
+		valueStart := valueEnd - len(sa.Raw)
 		if off >= valueStart-1 && off <= valueEnd {
 			return true
 		}
