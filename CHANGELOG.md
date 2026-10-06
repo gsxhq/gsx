@@ -4,6 +4,12 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **`gsx dev` no longer exits when a watched file disappears mid-scan**, as
+  when a build tool empties its output directory (`lstat …: no such file or
+  directory` on macOS).
+
 ## v0.3.0 — 2026-10-02
 
 **Upgrading.** Regenerate your `.x.go` after upgrading (`gsx generate`). One
