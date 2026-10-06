@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -218,7 +219,7 @@ func addWatchTree(w *fsnotify.Watcher, roots []string) error {
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
-				return err
+				return skipVanished(err)
 			}
 			if !d.IsDir() {
 				return nil
@@ -226,13 +227,25 @@ func addWatchTree(w *fsnotify.Watcher, roots []string) error {
 			if p != root && excludedDir(p) {
 				return filepath.SkipDir
 			}
-			return w.Add(p)
+			return skipVanished(w.Add(p))
 		})
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// skipVanished drops an error caused by a path that was deleted while it was
+// being watched or walked, as when a build tool empties its output directory.
+// Its removal is itself a change event, so the next cycle sees what remains.
+// On kqueue, fsnotify registers a directory before opening its files, so a
+// file vanishing mid-Add still leaves the directory watched.
+func skipVanished(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // addRequestedRootSentinels watches the complete structural chain from each
@@ -356,7 +369,7 @@ func queueWatchTree(root string, sources *sourceTracker, dirty *watchDirtySet) (
 	changed := false
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			return skipVanished(walkErr)
 		}
 		if entry.IsDir() {
 			if path != root && excludedDir(path) {

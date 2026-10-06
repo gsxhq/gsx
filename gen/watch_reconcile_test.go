@@ -1,8 +1,12 @@
 package gen
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
@@ -146,5 +150,37 @@ func writeTestFile(t *testing.T, path, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A build tool emptying its output directory deletes files while gsx dev adds
+// watches. A vanished path must not end the loop (it exited on
+// `"…/x.woff2": lstat …: no such file or directory` from fsnotify's kqueue
+// backend), but any other error still must.
+func TestWatchSkipsVanishedPaths(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "static", "assets")
+	fsnotifyErr := fmt.Errorf("%q: %w", gone, &fs.PathError{Op: "lstat", Path: gone, Err: syscall.ENOENT})
+	if err := skipVanished(fsnotifyErr); err != nil {
+		t.Fatalf("skipVanished(fsnotify ENOENT) = %v, want nil", err)
+	}
+	denied := &fs.PathError{Op: "open", Path: gone, Err: syscall.EACCES}
+	if err := skipVanished(denied); !errors.Is(err, syscall.EACCES) {
+		t.Fatalf("skipVanished(EACCES) = %v, want it returned", err)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := addWatchTree(watcher, []string{gone}); err != nil {
+		t.Fatalf("addWatchTree(vanished root) = %v, want nil", err)
+	}
+	tracker, err := newSourceTracker([]string{t.TempDir()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queueWatchTree(gone, tracker, newWatchDirtySet()); err != nil {
+		t.Fatalf("queueWatchTree(vanished root) = %v, want nil", err)
 	}
 }
