@@ -4,7 +4,7 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.3.1 — 2026-10-06
 
 - **`gsx dev` no longer exits when a watched file disappears mid-scan**, as
   when a build tool empties its output directory (`lstat …: no such file or
