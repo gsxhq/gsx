@@ -305,12 +305,24 @@ func TestAnalyzeEphemeralRestoresPkgTypesCache(t *testing.T) {
 	live := []byte("package page\n\ncomponent Home(user User) {\n\t<div>{ user.Name }</div>\n}\n")
 	m.SetOverride(pagePath, live)
 
+	// An importer of dir, checked against the live package, must stay warm: the
+	// ephemeral copy never replaces the live one, so #242's importer drop must
+	// not fire for it.
+	appDir := filepath.Join(filepath.Dir(dir), "app")
+	m.SetOverride(filepath.Join(appDir, "app.gsx"), []byte("package app\n\nimport \"example.com/app/page\"\n\ncomponent App(user page.User) {\n\t<page.Home user={ user } />\n}\n"))
 	if _, err := m.Package(dir); err != nil {
 		t.Fatalf("baseline Package: %v", err)
 	}
+	if _, err := m.Package(appDir); err != nil {
+		t.Fatalf("baseline Package(app): %v", err)
+	}
 	m.mu.Lock()
 	liveTypes := m.pkgTypes[dir]
+	appTypes, appResult := m.pkgTypes[appDir], m.pkgResults[appDir]
 	m.mu.Unlock()
+	if appTypes == nil || appResult == nil {
+		t.Fatal("baseline Package(app) did not populate pkgTypes/pkgResults; fixture broken")
+	}
 	if liveTypes == nil {
 		t.Fatal("baseline Package did not populate pkgTypes[dir]; fixture broken")
 	}
@@ -339,6 +351,12 @@ func TestAnalyzeEphemeralRestoresPkgTypesCache(t *testing.T) {
 	}
 	if restored.Scope().Lookup("HomePatched") != nil {
 		t.Fatal("restored pkgTypes contains HomePatched; the ephemeral buffer leaked into the persistent cache")
+	}
+	m.mu.Lock()
+	appTypesAfter, appResultAfter := m.pkgTypes[appDir], m.pkgResults[appDir]
+	m.mu.Unlock()
+	if appTypesAfter != appTypes || appResultAfter != appResult {
+		t.Fatal("AnalyzeEphemeral evicted an importer of the analyzed dir; it was checked against the restored live package and must stay warm")
 	}
 
 	// Same story through the public entry point, still with no Invalidate call
