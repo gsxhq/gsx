@@ -665,13 +665,19 @@ func pairedGeneratedOutput(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// excludedDir reports whether a directory should be skipped: a project-local
-// build/scratch dir named tmp/dist/node_modules/.git. Only the dir's own name
-// is checked — an ancestor named "tmp" (e.g. a project under /private/tmp) must
-// NOT exclude its descendants.
+// excludedDir reports whether the watcher skips a directory: a project-local
+// build/scratch dir named tmp/dist/node_modules, or a dot-prefixed one (.git,
+// .claude/worktrees: the go command ignores them, so nothing in them is a build
+// input). vendor stays watched: a vendored edit is dependency movement. Only the
+// dir's own name is checked — an ancestor named "tmp" (e.g. a project under
+// /private/tmp) must NOT exclude its descendants.
 func excludedDir(path string) bool {
-	switch filepath.Base(path) {
-	case "tmp", "dist", "node_modules", ".git":
+	name := filepath.Base(path)
+	if strings.HasPrefix(name, ".") && name != "." && name != ".." {
+		return true
+	}
+	switch name {
+	case "tmp", "dist", "node_modules":
 		return true
 	}
 	return false

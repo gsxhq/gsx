@@ -144,7 +144,10 @@ gsx generate
 gsx generate ./views ./email
 ```
 
-With no path, the command uses `.`. Directory paths are searched recursively.
+With no path, the command uses `.`. Directory paths are searched recursively,
+skipping hidden directories, `vendor`, `node_modules`, `testdata`, and
+directories listed in a `go.mod` `ignore` directive (for example
+`ignore ./frontend`).
 
 | Flag | Effect |
 |------|--------|
@@ -223,8 +226,8 @@ gsx fmt -w .
 ```
 
 Paths may be files or directories. Directories are searched recursively; with
-no path, the command formats `.`. Hidden directories, `.git`, `vendor`,
-`node_modules`, and `testdata` are skipped.
+no path, the command formats `.`. It skips the same directories as
+`gsx generate`.
 
 | Flag | Effect |
 |------|--------|

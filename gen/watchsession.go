@@ -353,13 +353,18 @@ func resolveWatchTargets(paths []string) (watchTargets, error) {
 	// latter matters when the user asks to watch one package: sibling authored
 	// Go packages and nested modules are still part of its build graph.
 	scanRoots := sortedSet(scanSet)
-	for _, root := range compactModuleScanRoots(scanRoots) {
+	filter := sourceview.NewDirFilter()
+	scanExcluded := func(path string) bool { return excludedDir(path) || filter.Excluded(path) }
+	for _, root := range compactRootsBy(scanRoots, scanExcluded) {
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
+				if path != root {
+					return skipVanished(walkErr)
+				}
 				return walkErr
 			}
 			if entry.IsDir() {
-				if path != root && moduleScanExcluded(path) {
+				if path != root && scanExcluded(path) {
 					return filepath.SkipDir
 				}
 				return nil
@@ -436,14 +441,6 @@ func sortedSet(set map[string]bool) []string {
 // valid because exclusion applies only while descending below each root.
 func compactRoots(roots []string) []string {
 	return compactRootsBy(roots, excludedDir)
-}
-
-func compactModuleScanRoots(roots []string) []string {
-	return compactRootsBy(roots, moduleScanExcluded)
-}
-
-func moduleScanExcluded(path string) bool {
-	return excludedDir(path) || shouldSkipDir(filepath.Base(path))
 }
 
 func compactRootsBy(roots []string, excluded func(string) bool) []string {

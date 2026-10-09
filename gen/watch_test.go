@@ -16,6 +16,8 @@ func TestExcludedDir_OnlyOwnBasename(t *testing.T) {
 		"/home/u/dev/app/dist":         true,
 		"/home/u/dev/app/node_modules": true,
 		"/home/u/dev/app/.git":         true,
+		"/home/u/dev/app/.claude":      true,  // any dot dir (git worktrees live here)
+		"/home/u/dev/app/vendor":       false, // vendored edits are dependency movement
 	}
 	for p, want := range cases {
 		if got := excludedDir(p); got != want {

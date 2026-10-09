@@ -11,6 +11,14 @@ syntax or APIs; a patch bump does not. See
   A codegen error that is still current now stays on the overlay through a
   `.env` edit. Most stale overlays came from the Vite plugin; upgrade
   `@gsxhq/vite-plugin-gsx` as well.
+- **Generation no longer walks hidden directories.** git worktrees kept in
+  the project (such as `.claude/worktrees/`) were scanned as part of the
+  module, and one being deleted mid-run failed generation with `discover
+  owned GSX sources: … no such file or directory`. Module analysis now skips
+  hidden directories, `gsx dev` no longer watches them, and a path deleted
+  while a walk runs is skipped instead of failing it. `gsx generate`,
+  `gsx fmt` and `gsx dev` also skip directories listed in a `go.mod` `ignore`
+  directive.
 
 ## v0.3.2 — 2026-10-09
 

@@ -16,6 +16,7 @@ import (
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // runFmt implements `gsx fmt`: it formats .gsx files to their canonical,
@@ -502,13 +503,17 @@ func gsxFiles(paths []string) ([]string, error) {
 			}
 			continue
 		}
+		filter := sourceview.NewDirFilter()
 		walkErr := filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
+				if path != p {
+					return skipVanished(err)
+				}
 				return err
 			}
 			if d.IsDir() {
 				// Never skip the root the caller explicitly named; only its subdirs.
-				if path != p && shouldSkipDir(d.Name()) {
+				if path != p && filter.Excluded(path) {
 					return filepath.SkipDir
 				}
 				return nil

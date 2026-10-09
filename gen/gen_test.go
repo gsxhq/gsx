@@ -227,6 +227,13 @@ func TestDiscoverDirsSkipsJunk(t *testing.T) {
 		// nested deeper too
 		writeFile(t, filepath.Join(root, junk, "sub"), "y.gsx", hiComponent)
 	}
+	// go.mod ignore directives, as the go command reads them: ./x at the root,
+	// x at any depth, and a nested module the parent ignores.
+	writeFile(t, root, "go.mod", "module junk\n\ngo 1.26.1\n\nignore (\n\t./frontend\n\tgenerated\n\t./examples\n)\n")
+	writeFile(t, filepath.Join(root, "frontend", "src"), "f.gsx", hiComponent)
+	writeFile(t, filepath.Join(root, "pkg", "generated"), "g.gsx", hiComponent)
+	writeFile(t, filepath.Join(root, "examples", "demo"), "go.mod", "module demo\n\ngo 1.26.1\n")
+	writeFile(t, filepath.Join(root, "examples", "demo"), "e.gsx", hiComponent)
 
 	dirs, err := discoverDirs([]string{root})
 	if err != nil {
