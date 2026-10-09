@@ -576,8 +576,21 @@ func TestDecodePackagesRejectsMalformedRecords(t *testing.T) {
 	root.SetImports([]*types.Package{first, second})
 	root.MarkComplete()
 
+	// A forged "first" declaring an extra name, referenced by a record that
+	// imports the real "first": the importer would add Extra to it.
+	forgedFirst := types.NewPackage(first.Path(), "first")
+	forgedFirst.Scope().Insert(types.NewTypeName(token.NoPos, forgedFirst, "Value", types.Typ[types.Int]))
+	extra := types.NewTypeName(token.NoPos, forgedFirst, "Extra", nil)
+	types.NewNamed(extra, types.Typ[types.Int], nil)
+	forgedFirst.Scope().Insert(extra)
+	forgedFirst.MarkComplete()
+	intruder := types.NewPackage("example.com/intruder", "intruder")
+	intruder.Scope().Insert(types.NewVar(token.NoPos, intruder, "Value", extra.Type()))
+	intruder.SetImports([]*types.Package{forgedFirst})
+	intruder.MarkComplete()
+
 	exportData := map[*types.Package][]byte{}
-	for _, pkg := range []*types.Package{first, second, root} {
+	for _, pkg := range []*types.Package{first, second, root, intruder} {
 		var buf bytes.Buffer
 		if err := gcexportdata.Write(&buf, nil, pkg); err != nil {
 			t.Fatal(err)
@@ -616,14 +629,15 @@ func TestDecodePackagesRejectsMalformedRecords(t *testing.T) {
 		payload []byte
 		want    string
 	}{
-		"dependent before dependency": {encode(rootRecord, firstRecord, secondRecord), "not encoded before it"},
-		"duplicate record":            {encode(firstRecord, firstRecord, secondRecord, rootRecord), "encoded more than once"},
-		"unsorted imports":            {encode(firstRecord, secondRecord, record{root, []string{second.Path(), first.Path()}}), "not strictly sorted"},
-		"duplicate import":            {encode(firstRecord, secondRecord, record{root, []string{first.Path(), first.Path()}}), "not strictly sorted"},
-		"reference outside imports":   {encode(firstRecord, secondRecord, record{root, []string{second.Path()}}), "not among its transitive imports"},
-		"unsafe record":               {encode(record{types.Unsafe, nil}), "invalid package record path"},
-		"trailing bytes":              {append(append([]byte(nil), valid...), 0), "trailing bytes"},
-		"truncated":                   {valid[:len(valid)-1], "exceeds payload size"},
+		"dependent before dependency":           {encode(rootRecord, firstRecord, secondRecord), "not encoded before it"},
+		"duplicate record":                      {encode(firstRecord, firstRecord, secondRecord, rootRecord), "encoded more than once"},
+		"unsorted imports":                      {encode(firstRecord, secondRecord, record{root, []string{second.Path(), first.Path()}}), "not strictly sorted"},
+		"duplicate import":                      {encode(firstRecord, secondRecord, record{root, []string{first.Path(), first.Path()}}), "not strictly sorted"},
+		"reference outside imports":             {encode(firstRecord, secondRecord, record{root, []string{second.Path()}}), "not among its transitive imports"},
+		"declarations added to earlier package": {encode(firstRecord, record{intruder, []string{first.Path()}}), "adds declarations"},
+		"unsafe record":                         {encode(record{types.Unsafe, nil}), "invalid package record path"},
+		"trailing bytes":                        {append(append([]byte(nil), valid...), 0), "trailing bytes"},
+		"truncated":                             {valid[:len(valid)-1], "exceeds payload size"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, _, err := decodePackages(tc.payload); err == nil || !strings.Contains(err.Error(), tc.want) {

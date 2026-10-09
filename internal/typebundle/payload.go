@@ -108,6 +108,7 @@ func decodePackages(payload []byte) ([]*types.Package, map[string]*types.Package
 	pkgs := make([]*types.Package, 0, count)
 	// reachable[path] is the transitive import closure of a decoded package.
 	reachable := make(map[string]map[*types.Package]bool, count)
+	scopeSizes := make(map[*types.Package]int, count)
 	for range count {
 		path, err := readString(r)
 		if err != nil {
@@ -177,8 +178,17 @@ func decodePackages(payload []byte) ([]*types.Package, map[string]*types.Package
 		}
 		delete(closure, types.Unsafe)
 		reachable[path] = closure
+		// The importer skips names a reused package already declares but would
+		// add any it lacks, so a record must leave every earlier package as it
+		// was decoded.
+		for _, earlier := range pkgs {
+			if earlier.Scope().Len() != scopeSizes[earlier] {
+				return nil, nil, fmt.Errorf("package %q export data adds declarations to %q", path, earlier.Path())
+			}
+		}
 		pkg.SetImports(pkgImports)
 		pkgs = append(pkgs, pkg)
+		scopeSizes[pkg] = pkg.Scope().Len()
 	}
 	if r.Len() != 0 {
 		return nil, nil, fmt.Errorf("package payload has %d trailing bytes", r.Len())
