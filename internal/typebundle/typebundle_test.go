@@ -14,9 +14,11 @@ import (
 	"os/exec"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
+	"golang.org/x/tools/go/gcexportdata"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -326,10 +328,28 @@ func TestWriteRejectsNonClosedOrIncoherentPackageSets(t *testing.T) {
 		root := types.NewPackage("example.com/root", "root")
 		root.Scope().Insert(types.NewVar(token.NoPos, root, "Value", valueType))
 		root.MarkComplete()
-		if _, err := Write(testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "semantic package set") {
+		if _, err := Write(testTarget(), []*types.Package{root}); err == nil || !strings.Contains(err.Error(), "not among its transitive imports") {
 			t.Fatalf("Write error = %v, want hidden semantic-dependency rejection", err)
 		}
 	})
+
+	// A bundled but unimported package must be rejected regardless of whether
+	// its path sorts before the referring package (and so is decoded first).
+	for _, dependencyPath := range []string{"example.com/a-unimported", "example.com/z-unimported"} {
+		t.Run("semantic type reference to unimported bundled package "+dependencyPath, func(t *testing.T) {
+			dependency := types.NewPackage(dependencyPath, "dependency")
+			typeName := types.NewTypeName(token.NoPos, dependency, "Value", nil)
+			valueType := types.NewNamed(typeName, types.Typ[types.Int], nil)
+			dependency.Scope().Insert(typeName)
+			dependency.MarkComplete()
+			root := types.NewPackage("example.com/root", "root")
+			root.Scope().Insert(types.NewVar(token.NoPos, root, "Value", valueType))
+			root.MarkComplete()
+			if _, err := Write(testTarget(), []*types.Package{root, dependency}); err == nil || !strings.Contains(err.Error(), "not among its transitive imports") {
+				t.Fatalf("Write error = %v, want unimported semantic-dependency rejection", err)
+			}
+		})
+	}
 }
 
 func TestReadRejectsTrailingBundlePayload(t *testing.T) {
@@ -479,6 +499,37 @@ func TestBundleRoundTripNoSubprocess(t *testing.T) {
 			t.Fatalf("reconstructed bundle missing %q", want)
 		}
 	}
+	// Import lists survive exactly, and every import is the bundle's own
+	// package object.
+	for path, original := range closure {
+		decoded := bundle.Packages[path]
+		if decoded == nil {
+			t.Fatalf("reconstructed bundle missing %q", path)
+		}
+		var want, got []string
+		for _, imported := range original.Imports() {
+			want = append(want, imported.Path())
+		}
+		for _, imported := range decoded.Imports() {
+			got = append(got, imported.Path())
+			if imported != bundle.Packages[imported.Path()] {
+				t.Fatalf("%s imports a %q package other than the bundle's", path, imported.Path())
+			}
+		}
+		sort.Strings(want)
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s imports = %q, want %q", path, got, want)
+		}
+	}
+	// A dependency's type seen through a dependent is the dependency's own
+	// object, not a copy decoded from the dependent's export data.
+	reader := bundle.Packages["strings"].Scope().Lookup("Reader").Type()
+	writeTo, _, _ := types.LookupFieldOrMethod(types.NewPointer(reader), false, bundle.Packages["strings"], "WriteTo")
+	param := writeTo.Type().(*types.Signature).Params().At(0).Type().(*types.Named).Obj()
+	if param != bundle.Packages["io"].Scope().Lookup("Writer") {
+		t.Fatal("strings.(*Reader).WriteTo's io.Writer is not the bundle's io.Writer object")
+	}
 
 	// Type-check a snippet against the reconstructed importer.
 	const src = `package p
@@ -509,5 +560,89 @@ func F() string { return fmt.Sprintf("%d", 42) + strconv.Itoa(7) }
 	sig, ok := obj.Type().(*types.Signature)
 	if !ok || sig.Results().Len() != 1 || sig.Results().At(0).Type().String() != "string" {
 		t.Fatalf("F resolved to %s, want func() string", obj.Type())
+	}
+}
+
+func TestDecodePackagesRejectsMalformedRecords(t *testing.T) {
+	first := types.NewPackage("example.com/first", "first")
+	firstType := types.NewTypeName(token.NoPos, first, "Value", nil)
+	types.NewNamed(firstType, types.Typ[types.Int], nil)
+	first.Scope().Insert(firstType)
+	first.MarkComplete()
+	second := types.NewPackage("example.com/second", "second")
+	second.MarkComplete()
+	root := types.NewPackage("example.com/root", "root")
+	root.Scope().Insert(types.NewVar(token.NoPos, root, "Value", firstType.Type()))
+	root.SetImports([]*types.Package{first, second})
+	root.MarkComplete()
+
+	// A forged "first" declaring an extra name, referenced by a record that
+	// imports the real "first": the importer would add Extra to it.
+	forgedFirst := types.NewPackage(first.Path(), "first")
+	forgedFirst.Scope().Insert(types.NewTypeName(token.NoPos, forgedFirst, "Value", types.Typ[types.Int]))
+	extra := types.NewTypeName(token.NoPos, forgedFirst, "Extra", nil)
+	types.NewNamed(extra, types.Typ[types.Int], nil)
+	forgedFirst.Scope().Insert(extra)
+	forgedFirst.MarkComplete()
+	intruder := types.NewPackage("example.com/intruder", "intruder")
+	intruder.Scope().Insert(types.NewVar(token.NoPos, intruder, "Value", extra.Type()))
+	intruder.SetImports([]*types.Package{forgedFirst})
+	intruder.MarkComplete()
+
+	exportData := map[*types.Package][]byte{}
+	for _, pkg := range []*types.Package{first, second, root, intruder} {
+		var buf bytes.Buffer
+		if err := gcexportdata.Write(&buf, nil, pkg); err != nil {
+			t.Fatal(err)
+		}
+		exportData[pkg] = buf.Bytes()
+	}
+	type record struct {
+		pkg     *types.Package
+		imports []string
+	}
+	encode := func(records ...record) []byte {
+		var out bytes.Buffer
+		writeUint32(&out, uint32(len(records)))
+		for _, r := range records {
+			writeString(&out, r.pkg.Path())
+			writeUint32(&out, uint32(len(r.imports)))
+			for _, path := range r.imports {
+				writeString(&out, path)
+			}
+			if err := binary.Write(&out, binary.BigEndian, uint64(len(exportData[r.pkg]))); err != nil {
+				t.Fatal(err)
+			}
+			out.Write(exportData[r.pkg])
+		}
+		return out.Bytes()
+	}
+	firstRecord := record{first, nil}
+	secondRecord := record{second, nil}
+	rootRecord := record{root, []string{first.Path(), second.Path()}}
+
+	valid := encode(firstRecord, secondRecord, rootRecord)
+	if _, _, err := decodePackages(valid); err != nil {
+		t.Fatalf("decodePackages rejected a well-formed payload: %v", err)
+	}
+	for name, tc := range map[string]struct {
+		payload []byte
+		want    string
+	}{
+		"dependent before dependency":           {encode(rootRecord, firstRecord, secondRecord), "not encoded before it"},
+		"duplicate record":                      {encode(firstRecord, firstRecord, secondRecord, rootRecord), "encoded more than once"},
+		"unsorted imports":                      {encode(firstRecord, secondRecord, record{root, []string{second.Path(), first.Path()}}), "not strictly sorted"},
+		"duplicate import":                      {encode(firstRecord, secondRecord, record{root, []string{first.Path(), first.Path()}}), "not strictly sorted"},
+		"reference outside imports":             {encode(firstRecord, secondRecord, record{root, []string{second.Path()}}), "not among its transitive imports"},
+		"declarations added to earlier package": {encode(firstRecord, record{intruder, []string{first.Path()}}), "adds declarations"},
+		"unsafe record":                         {encode(record{types.Unsafe, nil}), "invalid package record path"},
+		"trailing bytes":                        {append(append([]byte(nil), valid...), 0), "trailing bytes"},
+		"truncated":                             {valid[:len(valid)-1], "exceeds payload size"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := decodePackages(tc.payload); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("decodePackages error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
