@@ -740,6 +740,24 @@ func (a lspAnalyzer) AnalyzeModule(dir string, _ map[string][]byte) (*sourceinte
 // without a GSX declaration family is intentionally ignored: it belongs to a
 // plain-Go callable or an invalid/non-equivalent GSX family and is not a safe
 // rename target.
+// packageOutcome is one dir's Package result.
+type packageOutcome struct {
+	result *codegen.PackageResult
+	err    error
+}
+
+// packagesInDependencyOrder analyzes dirs dependencies-first so each package is
+// type-checked once (see Module.DependencyOrder); callers read the outcomes in
+// their own order.
+func packagesInDependencyOrder(m *codegen.Module, dirs []string) map[string]packageOutcome {
+	byDir := make(map[string]packageOutcome, len(dirs))
+	for _, dir := range m.DependencyOrder(dirs) {
+		result, err := m.Package(dir)
+		byDir[dir] = packageOutcome{result, err}
+	}
+	return byDir
+}
+
 func (a lspAnalyzer) AnalyzeModuleParams(dir string, _ map[string][]byte) ([]lsp.ComponentParamRenameFact, error) {
 	root, modPath, err := moduleRoot(dir)
 	if err != nil {
@@ -755,9 +773,10 @@ func (a lspAnalyzer) AnalyzeModuleParams(dir string, _ map[string][]byte) ([]lsp
 		return nil, err
 	}
 
+	byDir := packagesInDependencyOrder(m, dirs)
 	results := make([]*codegen.PackageResult, 0, len(dirs))
 	for _, packageDir := range dirs {
-		result, err := m.Package(packageDir)
+		result, err := byDir[packageDir].result, byDir[packageDir].err
 		if err != nil {
 			return nil, fmt.Errorf("analyze component parameter package %s: %w", packageDir, err)
 		}
@@ -866,9 +885,10 @@ func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]ls
 	if err != nil {
 		return nil, err
 	}
+	byDir := packagesInDependencyOrder(m, dirs)
 	var syms []lsp.Symbol
 	for _, d := range dirs {
-		pr, err := m.Package(d)
+		pr, err := byDir[d].result, byDir[d].err
 		if err != nil || pr == nil {
 			continue
 		}

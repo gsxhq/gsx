@@ -610,29 +610,37 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 			dirErrMs[dir] = time.Since(dt).Milliseconds()
 		}
 	}
-	chargedRefresh := make(map[*codegen.Module]bool, len(batchOrder))
+	// Each module generates its dirs dependencies-first (see
+	// Module.DependencyOrder); results stay in input order.
+	positions := make(map[string][]int, len(dirs))
 	for i, dir := range dirs {
-		m := modules[i]
-		if m == nil {
-			continue // moduleForDir already failed; results[i] is set
+		if modules[i] != nil {
+			positions[dir] = append(positions[dir], i)
 		}
-		if err := dirErr[dir]; err != nil {
-			results[i] = cycleResult{Dir: dir, Err: err, DurMs: dirErrMs[dir]}
-			continue
-		}
-		results[i] = s.generateDir(m, dir)
-		// Fold this dir's share of refresh time into its result so aggregate
-		// durations (aggregateEvent sums per-dir DurMs) cover the whole
-		// cycle's work: the batch refresh is charged to the module's first
-		// generated dir, a fallback per-dir refresh to its own dir.
-		results[i].DurMs += dirErrMs[dir]
-		if !chargedRefresh[m] {
-			chargedRefresh[m] = true
-			results[i].DurMs += refreshMs[m]
-			// Same "first result of the cycle" convention as the refresh-time
-			// charge above: the reload note is module-wide, not per-dir, so it
-			// lands on exactly one result per module per cycle.
-			results[i].Reload = moduleReload[m]
+	}
+	for _, m := range batchOrder {
+		charged := false
+		for _, dir := range m.DependencyOrder(batchDirs[m]) {
+			i := positions[dir][0]
+			positions[dir] = positions[dir][1:]
+			if err := dirErr[dir]; err != nil {
+				results[i] = cycleResult{Dir: dir, Err: err, DurMs: dirErrMs[dir]}
+				continue
+			}
+			results[i] = s.generateDir(m, dir)
+			// Fold this dir's share of refresh time into its result so aggregate
+			// durations (aggregateEvent sums per-dir DurMs) cover the whole
+			// cycle's work: the batch refresh is charged to the module's first
+			// generated dir, a fallback per-dir refresh to its own dir.
+			results[i].DurMs += dirErrMs[dir]
+			if !charged {
+				charged = true
+				results[i].DurMs += refreshMs[m]
+				// Same "first result of the cycle" convention as the refresh-time
+				// charge above: the reload note is module-wide, not per-dir, so it
+				// lands on exactly one result per module per cycle.
+				results[i].Reload = moduleReload[m]
+			}
 		}
 	}
 	return results

@@ -11,6 +11,11 @@ syntax or APIs; a patch bump does not. See
   generated itself was type-checked twice, and packages checked against the
   first copy rejected values of the second. Incremental runs were unaffected.
   ([#242](https://github.com/gsxhq/gsx/issues/242))
+- **`gsx generate` and `gsx dev` type-check each package once.** Packages are
+  generated before the packages that import them; before, a package imported
+  by an earlier directory was checked twice. On a 131-package module, a
+  `gsx dev` save touching a widely imported package regenerates about 10%
+  faster.
 
 ## v0.3.1 — 2026-10-06
 
