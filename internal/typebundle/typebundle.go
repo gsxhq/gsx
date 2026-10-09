@@ -16,11 +16,9 @@ import (
 	"io"
 	"sort"
 	"strings"
-
-	"golang.org/x/tools/go/gcexportdata"
 )
 
-const envelopeMagic = "GSXTYPEBUNDLE\x00\x02"
+const envelopeMagic = "GSXTYPEBUNDLE\x00\x03"
 
 // maxLanguageVersion is the newest go/types language understood by the pinned
 // toolchain that builds the bundle reader. Keep it explicit: accepting a newer
@@ -176,19 +174,11 @@ func Write(target Target, pkgs []*types.Package) ([]byte, error) {
 	if err := validateClosedPackages(filtered); err != nil {
 		return nil, err
 	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].Path() < filtered[j].Path()
-	})
-	var payload bytes.Buffer
-	if err := gcexportdata.WriteBundle(&payload, nil, filtered); err != nil {
+	payloadBytes, err := encodePackages(filtered)
+	if err != nil {
 		return nil, err
 	}
-	payloadBytes := payload.Bytes()
-	expectedPaths := make(map[string]bool, len(filtered))
-	for _, pkg := range filtered {
-		expectedPaths[pkg.Path()] = true
-	}
-	if err := validateEncodedPackageUniverse(payloadBytes, expectedPaths); err != nil {
+	if err := validateEncodedPackageUniverse(payloadBytes, filtered); err != nil {
 		return nil, err
 	}
 	metadata, err := json.Marshal(target)
@@ -359,9 +349,7 @@ func Read(data []byte) (*Bundle, error) {
 	if !bytes.Equal(wantDigest, digest.Sum(nil)) {
 		return nil, fmt.Errorf("typebundle: bundle content digest does not match metadata and package payload")
 	}
-	fset := token.NewFileSet()
-	imports := map[string]*types.Package{"unsafe": types.Unsafe}
-	pkgs, err := gcexportdata.ReadBundle(bytes.NewReader(payload), fset, imports)
+	pkgs, imports, err := decodePackages(payload)
 	if err != nil {
 		return nil, fmt.Errorf("typebundle: decode package payload: %w", err)
 	}
@@ -467,14 +455,17 @@ func validateClosedPackages(pkgs []*types.Package) error {
 	return nil
 }
 
-func validateEncodedPackageUniverse(payload []byte, expectedPaths map[string]bool) error {
-	imports := map[string]*types.Package{"unsafe": types.Unsafe}
-	pkgs, err := gcexportdata.ReadBundle(bytes.NewReader(payload), token.NewFileSet(), imports)
+func validateEncodedPackageUniverse(payload []byte, want []*types.Package) error {
+	pkgs, imports, err := decodePackages(payload)
 	if err != nil {
 		return fmt.Errorf("typebundle: validate encoded package universe: %w", err)
 	}
 	if err := validateDecodedPackageUniverse(pkgs, imports); err != nil {
 		return fmt.Errorf("typebundle: validate encoded package universe: %w", err)
+	}
+	expectedPaths := make(map[string]bool, len(want))
+	for _, pkg := range want {
+		expectedPaths[pkg.Path()] = true
 	}
 	for _, pkg := range pkgs {
 		if !expectedPaths[pkg.Path()] {
