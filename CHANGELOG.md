@@ -4,6 +4,14 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **`gsx dev` no longer leaves a fixed `.env` error on the overlay.** After a
+  bad `.env` edit was corrected, the reloaded page showed the old error again.
+  A codegen error that is still current now stays on the overlay through a
+  `.env` edit. Most stale overlays came from the Vite plugin; upgrade
+  `@gsxhq/vite-plugin-gsx` as well.
+
 ## v0.3.2 — 2026-10-09
 
 - **Cold `gsx generate` no longer reports `cannot use b.T{…} (value of struct

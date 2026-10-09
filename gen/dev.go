@@ -153,7 +153,22 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	webUp := func() bool { return fd == nil || fd.up() }
 	posts := newPoster(ctx)
 	defer posts.drain()
-	post := func(body []byte) { posts.postEvent(viteURL, body, webUp) }
+	// lastOverlay is the latest codegen/build overlay event. A .env resolution
+	// error is posted outside it (postEnvError); once .env resolves again,
+	// re-posting lastOverlay puts the overlay back to the real state, clearing
+	// the .env error or keeping a codegen error that is still current.
+	var (
+		lastOverlay []byte
+		envOverlay  bool
+	)
+	post := func(body []byte) {
+		lastOverlay, envOverlay = body, false
+		posts.postEvent(viteURL, body, webUp)
+	}
+	postEnvError := func(err error) {
+		envOverlay = true
+		posts.postEvent(viteURL, buildErrorEvent(err.Error()), webUp)
+	}
 	reload := func() { posts.postReload(viteURL, webUp) }
 
 	// Status posts are the one kind of push that must never be delivered out
@@ -290,9 +305,9 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// statusSend's mailbox by the time this one lands.
 	status.LastCycle = &cycleStat{OK: startOK, At: time.Now(), DurationMs: time.Since(initCycleStart).Milliseconds(), Reload: firstReload(startup)}
 	setPhase("idle")
-	// overlayUp: an error overlay is currently shown in the browser. A later
-	// successful cycle must reload to clear it even when nothing was written —
-	// still needed for build-error and .env recovery paths.
+	// overlayUp: a codegen or build error overlay is currently shown in the
+	// browser (a .env error is envOverlay). A later successful cycle must reload
+	// to clear it even when nothing was written.
 	overlayUp := !startOK
 
 	// Observation has been armed since before initialGenerate, so source and
@@ -350,7 +365,9 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			setPhase("idle")
 			return // retained dirty state is retried on the next relevant event
 		}
-		// Overlay state from this cycle.
+		// Overlay state from this cycle. It replaces a shown .env error too, so
+		// note that first: the browser still has to reload to drop it.
+		envShown := envOverlay
 		post(aggregateEvent(results))
 		reportHardErrors(gsxOut, results)
 		ok := true
@@ -381,7 +398,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		// reload the browser if we rebuilt OR we're recovering from a shown
 		// error overlay — the latter must clear even when nothing was written
 		// (fixed .gsx → identical .x.go).
-		doReload := overlayUp || force
+		doReload := overlayUp || envShown || force
 		if goChanged || wrote || force {
 			setPhase("building")
 			if out, err := srv.rebuild(ctx); err != nil {
@@ -507,8 +524,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 					// the browser should learn of either from the overlay,
 					// not just the terminal), and let the developer retry.
 					fmt.Fprintf(stderr, "gsx dev: %v\n", envErr)
-					post(buildErrorEvent(envErr.Error()))
-					overlayUp = true
+					postEnvError(envErr)
 					continue
 				}
 				goEnv, newBind, goErr := resolveGoPort(resolvedEnv, tdUpstream != "", heldGo)
@@ -517,8 +533,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 					// must not crash the loop or corrupt the last-known-good
 					// env — log, overlay, keep everything as it was.
 					fmt.Fprintf(stderr, "gsx dev: %v\n", goErr)
-					post(buildErrorEvent(goErr.Error()))
-					overlayUp = true
+					postEnvError(goErr)
 					continue
 				}
 				newOrigin, newHealthURL, newPort, upErr := resolveUpstream(tdUpstream, tdHealth, goEnv, newBind)
@@ -530,8 +545,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 					// healthURL, status) exactly as it was — mirrors the
 					// envErr handling just above.
 					fmt.Fprintf(stderr, "gsx dev: %v\n", upErr)
-					post(buildErrorEvent(upErr.Error()))
-					overlayUp = true
+					postEnvError(upErr)
 					continue
 				}
 				env, viteURL = goEnv, newViteURL
@@ -546,9 +560,11 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 				status.Server.Port = goPort
 				status.Server.Upstream = origin
 				srv.healthURL = healthURL
+				if envOverlay {
+					post(lastOverlay)
+				}
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					reload()
-					overlayUp = false
 				}
 				// fall through: an .env-only fire has no source dirtiness.
 			}
