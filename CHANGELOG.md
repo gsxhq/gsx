@@ -4,6 +4,14 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **Cold `gsx generate` no longer reports `cannot use b.T{…} (value of struct
+  type b.T) as b.T value`.** A package that a sibling imported before it was
+  generated itself was type-checked twice, and packages checked against the
+  first copy rejected values of the second. Incremental runs were unaffected.
+  ([#242](https://github.com/gsxhq/gsx/issues/242))
+
 ## v0.3.1 — 2026-10-06
 
 - **`gsx dev` no longer exits when a watched file disappears mid-scan**, as
