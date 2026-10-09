@@ -4,13 +4,13 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.3.3 — 2026-10-09
 
 - **`gsx dev` no longer leaves a fixed `.env` error on the overlay.** After a
   bad `.env` edit was corrected, the reloaded page showed the old error again.
   A codegen error that is still current now stays on the overlay through a
   `.env` edit. Most stale overlays came from the Vite plugin; upgrade
-  `@gsxhq/vite-plugin-gsx` as well.
+  `@gsxhq/vite-plugin-gsx` to v0.11.3 as well.
 - **Generation no longer walks hidden directories.** git worktrees kept in
   the project (such as `.claude/worktrees/`) were scanned as part of the
   module, and one being deleted mid-run failed generation with `discover
