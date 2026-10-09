@@ -253,10 +253,13 @@ func Build(options BuildOptions) (*Manifest, error) {
 	goPaths := make(map[string]bool)
 	err = filepath.WalkDir(physicalRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if vanishedDuringWalk(physicalRoot, path, walkErr) {
+				return nil
+			}
 			return walkErr
 		}
 		if entry.IsDir() && path != physicalRoot {
-			if entry.Name() == "vendor" {
+			if !importableDirName(entry.Name()) {
 				return filepath.SkipDir
 			}
 			startsModule, moduleErr := directoryStartsModule(path)
@@ -1125,7 +1128,7 @@ func OwnsPath(root, path string) (bool, error) {
 		return false, nil
 	}
 	for _, pair := range [][2]string{{root, path}, {physicalRoot, physicalPath}} {
-		if pathContainsVendor(pair[0], pair[1]) {
+		if !importablePath(pair[0], pair[1]) {
 			return false, nil
 		}
 		if pair[1] == pair[0] {
@@ -1155,17 +1158,39 @@ func OwnsDir(root, dir string) (bool, error) {
 	return OwnsPath(root, filepath.Join(filepath.Clean(dir), ".gsx-sourceview-directory"))
 }
 
-func pathContainsVendor(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
+// vanishedDuringWalk reports whether a walk error below root means the entry
+// was deleted while the walk ran (a worktree being removed, node_modules being
+// reinstalled): it is then absent, like any deleted source. The root itself
+// missing stays an error.
+func vanishedDuringWalk(root, path string, err error) bool {
+	return path != root && pathAbsent(err)
+}
+
+// importableDirName reports whether a directory with this name can hold a
+// package of the module. The manifest owns every importable GSX package, not
+// only those `./...` matches: testdata, _-prefixed and go.mod-ignored
+// directories stay importable. A dot-prefixed directory cannot (no import path
+// element may start with a dot), and vendor holds other modules' code.
+func importableDirName(name string) bool {
+	return !strings.HasPrefix(name, ".") && name != "vendor"
+}
+
+// importablePath reports whether every directory between root (exclusive) and
+// path's directory (inclusive) is importable, as the manifest walk requires.
+func importablePath(root, path string) bool {
+	rel, err := filepath.Rel(root, filepath.Dir(path))
 	if err != nil {
+		return false
+	}
+	if rel == "." {
 		return true
 	}
 	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
-		if part == "vendor" {
-			return true
+		if !importableDirName(part) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // pathAbsent reports whether a filesystem-probe error means the path is simply

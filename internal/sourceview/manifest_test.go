@@ -179,6 +179,38 @@ component Card() { <p>card</p> }
 	}
 }
 
+// The manifest owns every importable GSX package. Only a dot directory, which
+// no import path can name, is skipped: a git worktree inside the project that is
+// mid-removal has lost the go.mod that would otherwise mark it a nested module.
+func TestBuildSkipsOnlyUnimportableDirs(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nignore ./generated\n")
+	card := writeTestFile(t, root, "ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
+	dotted := writeTestFile(t, root, ".claude/worktrees/w/ui/card.gsx", "package ui\ncomponent Card() { <p/> }\n")
+	// Importable although ./... skips them.
+	ignored := writeTestFile(t, root, "generated/gen.gsx", "package generated\ncomponent G() { <p/> }\n")
+	npm := writeTestFile(t, root, "web/node_modules/pkg/pkg.gsx", "package pkg\ncomponent P() { <p/> }\n")
+	fixture := writeTestFile(t, root, "ui/testdata/fx/fx.gsx", "package fx\ncomponent F() { <p/> }\n")
+
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{card, ignored, npm, fixture}
+	sort.Strings(want)
+	if got := manifest.SourcePaths(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("SourcePaths() = %v, want %v", got, want)
+	}
+	if owned, err := OwnsPath(root, dotted); err != nil || owned {
+		t.Fatalf("OwnsPath(dot dir) = %v, %v; want not owned, like the walk", owned, err)
+	}
+	for _, path := range want {
+		if owned, err := OwnsPath(root, path); err != nil || !owned {
+			t.Fatalf("OwnsPath(%s) = %v, %v; want owned", path, owned, err)
+		}
+	}
+}
+
 func TestManifestSelectedLoadRoots(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")

@@ -12,36 +12,9 @@ import (
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
-// skipDirs are directory names never descended into during discovery, in
-// addition to any directory whose name begins with a dot.
-var skipDirs = map[string]bool{
-	".git":         true,
-	"vendor":       true,
-	"node_modules": true,
-	"testdata":     true,
-}
-
-// shouldSkipDir reports whether a directory with the given base name must be
-// skipped during the walk: hidden dirs (name starts with ".") or any name in
-// skipDirs. The current directory marker "." is never skipped.
-func shouldSkipDir(name string) bool {
-	if name == "." || name == "" {
-		return false
-	}
-	if strings.HasPrefix(name, ".") {
-		return true
-	}
-	return skipDirs[name]
-}
-
-// discoverDirs walks each given path recursively and returns the unique, sorted
-// set of directories that DIRECTLY contain at least one *.gsx file. Empty paths
-// default to ["."]. A path that is a single .gsx file contributes its containing
-// directory. Directories named .git, vendor, node_modules, testdata, or any
-// hidden (dot-prefixed) directory are skipped and not descended into. An error
-// is returned if any given path does not exist.
 // absAgainst resolves p against base when p is relative, returning a cleaned
 // absolute path; an already-absolute p is returned cleaned, unchanged. base must
 // itself be absolute. This is the reentrant replacement for filepath.Abs at the
@@ -70,6 +43,12 @@ func absPaths(base string, paths []string) []string {
 	return out
 }
 
+// discoverDirs walks each given path recursively and returns the unique, sorted
+// set of directories that DIRECTLY contain at least one *.gsx file. Empty paths
+// default to ["."]. A path that is a single .gsx file contributes its containing
+// directory. Below each path, directories sourceview.DirFilter excludes are not
+// descended into (dot-prefixed, node_modules, vendor, testdata, go.mod ignore
+// directives). An error is returned if any given path does not exist.
 func discoverDirs(paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		paths = []string{"."}
@@ -108,16 +87,20 @@ func discoverDirs(paths []string) ([]string, error) {
 }
 
 // walkForGsx walks root, recording into found any directory that directly
-// contains a .gsx file, while skipping junk directories.
+// contains a .gsx file, while skipping excluded directories.
 func walkForGsx(root string, found map[string]bool) error {
+	filter := sourceview.NewDirFilter()
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if path != root {
+				return skipVanished(err)
+			}
 			return err
 		}
 		if d.IsDir() {
 			// Never skip the root itself even if its name is junk-like (the
 			// caller explicitly asked for it); only skip discovered subdirs.
-			if path != root && shouldSkipDir(d.Name()) {
+			if path != root && filter.Excluded(path) {
 				return filepath.SkipDir
 			}
 			return nil

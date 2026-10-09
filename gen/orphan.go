@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
 // gsxGeneratedHeader is the exact first line of every gsx-owned .x.go, written
@@ -113,17 +115,21 @@ func sweepOrphanDirs(paths, kept []string) (removed []string, err error) {
 		if !info.IsDir() {
 			continue // a single .gsx-file path's dir is necessarily in kept
 		}
+		filter := sourceview.NewDirFilter()
 		walkErr := filepath.WalkDir(p, func(path string, d fs.DirEntry, werr error) error {
 			if werr != nil {
+				if path != p {
+					return skipVanished(werr)
+				}
 				return werr
 			}
 			if !d.IsDir() {
 				return nil
 			}
-			// Mirror discoverDirs' own skip set (walkForGsx/shouldSkipDir) so this
-			// walk never visits a directory batch discovery itself would not have
+			// The same rule as discoverDirs (walkForGsx), so this walk never
+			// visits a directory batch discovery itself would not have
 			// descended into.
-			if path != p && shouldSkipDir(d.Name()) {
+			if path != p && filter.Excluded(path) {
 				return filepath.SkipDir
 			}
 			abs, aerr := filepath.Abs(path)
