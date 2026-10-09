@@ -8,7 +8,7 @@ import (
 )
 
 // TestCachedPackageKeptAcrossEntryPoints pins #242 through the Module entry
-// points in the order GenerationOrder avoids: holder imports decl (caching it)
+// points in the order DependencyOrder avoids: holder imports decl (caching it)
 // before decl is analyzed itself. The cached decl must be kept, so holder stays
 // cached and user sees one decl.T through holder and directly.
 func TestCachedPackageKeptAcrossEntryPoints(t *testing.T) {
@@ -61,11 +61,11 @@ func TestCachedPackageKeptAcrossEntryPoints(t *testing.T) {
 	}
 }
 
-// TestGenerationOrder pins that every dir follows the dirs it imports — through
+// TestDependencyOrder pins that every dir follows the dirs it imports — through
 // .gsx imports, companion .go imports, and Go-only intermediaries outside the
 // input — that ties keep input order, that input spellings are returned as
 // given, and that an import cycle terminates.
-func TestGenerationOrder(t *testing.T) {
+func TestDependencyOrder(t *testing.T) {
 	t.Parallel()
 	tmp := tempModule(t, "gsxorder")
 	comp := func(pkg, imports, body string) string {
@@ -94,9 +94,9 @@ func TestGenerationOrder(t *testing.T) {
 	if spelledD == dirD {
 		t.Fatal("fixture: spelledD must differ from the clean dir")
 	}
-	got := m.GenerationOrder([]string{spelledD, dirC, dirX, dirY, dirZA, dirZB, dirZC, dirA, dirB})
+	got := m.DependencyOrder([]string{spelledD, dirC, dirX, dirY, dirZA, dirZB, dirZC, dirA, dirB})
 	want := []string{dirZA, dirA, dirZB, dirB, spelledD, dirZC, dirC, dirY, dirX}
 	if !slices.Equal(got, want) {
-		t.Fatalf("GenerationOrder:\n got %v\nwant %v", got, want)
+		t.Fatalf("DependencyOrder:\n got %v\nwant %v", got, want)
 	}
 }

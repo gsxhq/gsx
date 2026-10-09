@@ -314,8 +314,18 @@ func (m *Module) SymbolGraph(gsxDirs []string) (*sourceintel.SymbolGraph, error)
 	graph := sourceintel.NewSymbolGraph()
 	added := 0
 	var firstErr error
-	for _, dir := range gsxDirs {
+	// Analyze dependencies first (DependencyOrder), merge in the caller's order.
+	type packageOutcome struct {
+		result *PackageResult
+		err    error
+	}
+	byDir := make(map[string]packageOutcome, len(gsxDirs))
+	for _, dir := range m.DependencyOrder(gsxDirs) {
 		result, err := m.Package(dir)
+		byDir[dir] = packageOutcome{result, err}
+	}
+	for _, dir := range gsxDirs {
+		result, err := byDir[dir].result, byDir[dir].err
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err

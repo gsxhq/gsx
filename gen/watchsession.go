@@ -611,7 +611,7 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 		}
 	}
 	// Each module generates its dirs dependencies-first (see
-	// Module.GenerationOrder); results stay in input order.
+	// Module.DependencyOrder); results stay in input order.
 	positions := make(map[string][]int, len(dirs))
 	for i, dir := range dirs {
 		if modules[i] != nil {
@@ -620,7 +620,7 @@ func (s *watchSession) regenDirs(dirs []string) []cycleResult {
 	}
 	for _, m := range batchOrder {
 		charged := false
-		for _, dir := range m.GenerationOrder(batchDirs[m]) {
+		for _, dir := range m.DependencyOrder(batchDirs[m]) {
 			i := positions[dir][0]
 			positions[dir] = positions[dir][1:]
 			if err := dirErr[dir]; err != nil {

@@ -5,20 +5,20 @@ import (
 	"sort"
 )
 
-// GenerationOrder returns dirs reordered so that each dir follows every other
+// DependencyOrder returns dirs reordered so that each dir follows every other
 // dir in dirs that it imports, directly or through module-local packages
-// outside dirs. Generate caches the package it analyzes, so generating a
-// package before its importers lets them reuse it; in the reverse order the
-// importer type-checks it on import and Generate checks it again, which also
-// re-checks every importer of the first copy (#242).
+// outside dirs. Generate and Package cache the package they analyze, so
+// visiting a package before its importers lets them reuse it; in the reverse
+// order the importer type-checks it on import and the later visit checks it
+// again.
 //
-// The order changes only how much work Generate does, never its output. Edges
+// The order changes only how much work is done, never any result. Edges
 // come from the same source analyze reads, through the shared parse cache, so
-// the pass does no work Generate would not repeat. A dir whose imports cannot
+// the pass does no work analysis would not repeat. A dir whose imports cannot
 // be read contributes no edges; its analysis reports the error. Import cycles
 // are cut where the walk meets them. Ties keep the input order, and every
 // input spelling of a dir is returned as given.
-func (m *Module) GenerationOrder(dirs []string) []string {
+func (m *Module) DependencyOrder(dirs []string) []string {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
 	m.maybeRebuildFset()
