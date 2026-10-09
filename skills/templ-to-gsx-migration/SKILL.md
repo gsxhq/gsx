@@ -111,10 +111,11 @@ Delete thin wrappers that only forward to the real helper.
 ## No `must()` — put the fallible call in the hole
 
 templ code wraps fallible helpers in `must(...)`. gsx unwraps a `(T, error)`
-result in every expression position — text, native attributes, component
+result when the call is the whole hole — text, native attributes, component
 inputs, `f`/`js`/`css` holes, pipeline stages — hoisting the call ahead of the
 write and returning the error from `Render`. Delete `must()` and pass the call
-straight through:
+straight through. Inside a struct literal or another call it stays plain Go:
+use ``f`@{call}` `` for a string field, else a `{{ v, err := … }}` block.
 
 ```gsx
 <form action={formAction(ctx, p)} method="post">

@@ -39,7 +39,7 @@ write it again. New and edited lines use the gsx form.
 | two copies of an element that differ in one attribute, class or word | one element: `disabled={closed}`, `class={ …, "text-yellow-500": starred }`, `{ if on { fill="currentColor" } else { fill="none" } }`, `{ if on { Starred } else { Star } }` |
 | `aria-pressed={strconv.FormatBool(b)}`, if/else writing `"true"`/`"false"` | `aria-pressed={b}` |
 | `{ fmt.Sprintf("%d", n) }`, `strconv.Itoa(n) + " comments"`, `cmp.Or(x, "—")`, a `labelFor(x) string` helper | `{ n } comments`, `{ x \|> default("—") }`, the project's filters and renderers (`gsx info` lists them) |
-| `must(f())`, or `{{ v, err := f(); if err != nil { return err } }}` for a value used once | the call in the hole: `id={lookupID(ctx, key)}`, ``href=f`/t/@{lookupID(ctx, key)}` ``; `(T, error)` unwraps everywhere and the error returns from `Render` |
+| `must(f())`, or `{{ v, err := f(); if err != nil { return err } }}` for a value used once | the call as the whole hole: `id={lookupID(ctx, key)}`, ``href=f`/t/@{lookupID(ctx, key)}` ``; it unwraps there and the error returns from `Render`. Not inside a struct literal or call, see below |
 | `{ Card(CardProps{…}) }`, `{ Badge("x", "green") }` | `<Card title="x">…</Card>`, `<Badge tone="green">x</Badge>` |
 | `type ButtonProps struct{ Type, Disabled, HxPost, Class, Label string… }` | `component Button(variant string, children gsx.Node, attrs gsx.Attrs)`, see Components |
 | `gsx.Raw("<!-- note -->")`, `{{ /* note */ }}` | `// note` at line start, or `{/* note */}` |
@@ -66,13 +66,17 @@ Why these matter:
   lists.** For any other attribute use a conditional attribute block:
   `{ if c { data-state="open" } else { data-state="closed" } }`.
 - **Fallible calls go in the hole.** A `(T, error)` call is hoisted ahead of
-  the write and unwrapped in every expression position: text, native
+  the write and unwrapped when it is the whole hole: text, native
   attributes, component inputs, `f`/`js`/`css` holes, pipeline stages,
   class/style parts. Holes evaluate in source order, and the first non-nil
   error stops rendering and returns from `Render`. So no `must()`, no
   string-returning wrapper that swallows the error, and no `{{ }}` pre-compute
-  for a value used once. Use a `{{ v, err := f(); if err != nil { return err } }}`
-  block only when one result feeds several holes or the error needs wrapping.
+  for a value used once. Inside a larger Go expression (a struct-literal
+  field, a call argument) the call is plain Go and won't compile. For a
+  `string` there, an `f` hole still unwraps:
+  ``props={ RootProps{ Target: f`@{lookupID(ctx, key)}` } }``. Otherwise bind
+  it in a `{{ v, err := f(); if err != nil { return err } }}` block, as you
+  also do when one result feeds several holes or the error needs wrapping.
   Use an `if` init to handle an error in place:
   `{ if v, err := f(); err != nil { <p>unavailable</p> } else { … } }`. A
   helper taking `ctx` that many templates call belongs in a filter, which gets
@@ -155,7 +159,7 @@ component TicketPanel(t Ticket, closed bool) {
 - "A small helper returning the class or label string is cleaner"
 - "Build the line in Go so whitespace can't bite"
 - "Duplicate the element, it's only two branches"
-- "Compute it in a `{{ }}` block first / wrap it in `must()`" (for a value used once)
+- "Compute it in a `{{ }}` block first / wrap it in `must()`" (for a value used once that can be the whole hole)
 - "I used the literal, so it's idiomatic" (while the hole still holds `var(…)`)
 - "Adding attrs to that component is out of scope, I'll write a plain button"
 - "That injection / `ZgotmplZ` predates my task"
