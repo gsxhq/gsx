@@ -91,7 +91,10 @@ Only the two-value `(T, error)` shape is supported. Other multi-value results
 are reported as errors. To handle an error in the component instead of
 returning it, use an explicit Go `if` statement; see
 [Control flow](./control-flow.md#init-statements). The automatic rule applies
-in every expression position; a pipeline applies it at any stage.
+when the call is a whole expression position; a pipeline applies it at any
+stage. Nested inside a larger Go expression, such as a struct-literal field or
+a function argument, the call is plain Go and does not compile: use an `f`
+literal hole for a string, or bind the value in a Go block first.
 
 ### Component inputs
 
