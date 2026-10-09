@@ -108,12 +108,39 @@ func TestGeneratePackages_CrossPackage(t *testing.T) {
 		"package pages\n\nimport \"gsxbatch/ui\"\n\ncomponent Home() {\n\t<ui.Button label=\"Go\"/>\n}\n",
 	)
 
-	results, err := GenerateDirs(tmp, []string{dirUI, dirPages}, Options{}, nil)
+	// #242: holder (a field of decl's type) is generated before decl, which is
+	// generated before user. Generating holder type-checks decl as an import;
+	// generating decl re-analyzes it. user imports both, so holder must be
+	// re-checked against the replacement decl package or the two decl.T differ.
+	dirHolder := makeSubPkg(t, tmp, "holder",
+		"package holder\n\nimport \"gsxbatch/decl\"\n\ntype Props struct{ T decl.T }\n\ncomponent Card(p Props) {\n\t<div>{ p.T.N }</div>\n}\n",
+	)
+	dirDecl := makeSubPkg(t, tmp, "decl",
+		"package decl\n\ntype T struct{ N int }\n\ncomponent Show(t T) {\n\t<span>{ t.N }</span>\n}\n",
+	)
+	dirUser := makeSubPkg(t, tmp, "user",
+		"package user\n\nimport (\n\t\"gsxbatch/decl\"\n\t\"gsxbatch/holder\"\n)\n\ncomponent Page() {\n\t<holder.Card p={ holder.Props{T: decl.T{N: 1}} } />\n}\n",
+	)
+
+	// Same shape with a Go-only holder, reached through a gsx dir generated
+	// before decl.
+	writeFile(t, filepath.Join(tmp, "goholder"), "goholder.go",
+		"package goholder\n\nimport \"gsxbatch/decl\"\n\ntype Props struct{ T decl.T }\n",
+	)
+	dirEarly := makeSubPkg(t, tmp, "early",
+		"package early\n\nimport \"gsxbatch/goholder\"\n\ncomponent Early(p goholder.Props) {\n\t<div>{ p.T.N }</div>\n}\n",
+	)
+	dirGoUser := makeSubPkg(t, tmp, "gouser",
+		"package gouser\n\nimport (\n\t\"gsxbatch/decl\"\n\t\"gsxbatch/early\"\n\t\"gsxbatch/goholder\"\n)\n\ncomponent Page() {\n\t<early.Early p={ goholder.Props{T: decl.T{N: 1}} } />\n}\n",
+	)
+
+	dirs := []string{dirUI, dirPages, dirHolder, dirEarly, dirDecl, dirUser, dirGoUser}
+	results, err := GenerateDirs(tmp, dirs, Options{}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
 
-	for _, dir := range []string{dirUI, dirPages} {
+	for _, dir := range dirs {
 		dr, ok := results[dir]
 		if !ok {
 			t.Fatalf("missing result for dir %s", dir)

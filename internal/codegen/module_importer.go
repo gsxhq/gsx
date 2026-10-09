@@ -267,6 +267,44 @@ func (m *Module) reverseClosure(seeds []string) map[string]bool {
 	return out
 }
 
+// dropShippingImportersLocked drops every package type-checked against the
+// current pkgTypes[dir], ahead of analyze replacing it with a new copy: one
+// import path must map to one *types.Package, so importers are re-checked
+// against the replacement (#242). Only the shipping graph carries that identity
+// — the target and configured declaration universes use their own importers and
+// never read pkgTypes. dir itself is kept; the caller overwrites it.
+// Assumes m.mu.
+func (m *Module) dropShippingImportersLocked(dir string) {
+	stack := []string{dir}
+	seen := map[string]bool{dir: true}
+	for len(stack) > 0 {
+		d := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for importer := range m.importedBy[d] {
+			if seen[importer] {
+				continue
+			}
+			seen[importer] = true
+			stack = append(stack, importer)
+			delete(m.pkgTypes, importer)
+			delete(m.pkgResults, importer)
+			delete(m.goPkgAnalyses, importer)
+		}
+	}
+}
+
+// ephemeralDirLocked reports whether dir is being analyzed from AnalyzeEphemeral's
+// one-shot overlay. That analysis restores pkgTypes[dir] when it finishes, so the
+// packages checked against the restored copy stay valid. Assumes m.mu.
+func (m *Module) ephemeralDirLocked(dir string) bool {
+	for path := range m.ephemeral {
+		if filepath.Dir(path) == dir {
+			return true
+		}
+	}
+	return false
+}
+
 type invalidationScope struct {
 	dirs  map[string]bool
 	whole bool
@@ -1570,6 +1608,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	m.mu.Lock()
 	if m.pkgTypes == nil {
 		m.pkgTypes = map[string]*types.Package{}
+	}
+	if prev := m.pkgTypes[dir]; prev != nil && prev != pkg && !m.ephemeralDirLocked(dir) {
+		m.dropShippingImportersLocked(dir)
 	}
 	m.pkgTypes[dir] = pkg
 	if localComponentProvenance != nil {
