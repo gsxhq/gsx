@@ -1,10 +1,65 @@
 package codegen
 
 import (
+	"go/types"
 	"path/filepath"
 	"slices"
 	"testing"
 )
+
+// TestCachedPackageKeptAcrossEntryPoints pins #242 through the Module entry
+// points in the order GenerationOrder avoids: holder imports decl (caching it)
+// before decl is analyzed itself. The cached decl must be kept, so holder stays
+// cached and user sees one decl.T through holder and directly.
+func TestCachedPackageKeptAcrossEntryPoints(t *testing.T) {
+	t.Parallel()
+	tmp := tempModule(t, "gsxkeep")
+	dirHolder := makeSubPkg(t, tmp, "holder",
+		"package holder\n\nimport \"gsxkeep/decl\"\n\ntype Props struct{ T decl.T }\n\ncomponent Card(p Props) {\n\t<div>{ p.T.N }</div>\n}\n",
+	)
+	dirDecl := makeSubPkg(t, tmp, "decl",
+		"package decl\n\ntype T struct{ N int }\n\ncomponent Show(t T) {\n\t<span>{ t.N }</span>\n}\n",
+	)
+	dirUser := makeSubPkg(t, tmp, "user",
+		"package user\n\nimport (\n\t\"gsxkeep/decl\"\n\t\"gsxkeep/holder\"\n)\n\ncomponent Page() {\n\t<holder.Card p={ holder.Props{T: decl.T{N: 1}} } />\n}\n",
+	)
+	m, err := Open(Options{ModuleRoot: tmp, ModulePath: "gsxkeep"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached := func() (decl, holder *types.Package) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.pkgTypes[dirDecl], m.pkgTypes[dirHolder]
+	}
+
+	if _, err := m.Package(dirHolder); err != nil {
+		t.Fatal(err)
+	}
+	decl, holder := cached()
+	if decl == nil || holder == nil {
+		t.Fatal("Package(holder) did not cache holder and decl; fixture broken")
+	}
+	if _, err := m.Package(dirDecl); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Generate(dirDecl); err != nil {
+		t.Fatal(err)
+	}
+	if gotDecl, gotHolder := cached(); gotDecl != decl || gotHolder != holder {
+		t.Fatal("analyzing decl replaced its cached package or dropped holder; importers must stay bound to the cached decl")
+	}
+	res, err := m.Package(dirUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(res.Diags) {
+		t.Fatalf("Package(user): %v", res.Diags)
+	}
+	if _, diags, err := m.Generate(dirUser); err != nil || hasDiagErrors(diags) {
+		t.Fatalf("Generate(user): err=%v diags=%v", err, diags)
+	}
+}
 
 // TestGenerationOrder pins that every dir follows the dirs it imports — through
 // .gsx imports, companion .go imports, and Go-only intermediaries outside the

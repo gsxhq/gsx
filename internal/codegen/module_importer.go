@@ -267,44 +267,6 @@ func (m *Module) reverseClosure(seeds []string) map[string]bool {
 	return out
 }
 
-// dropShippingImportersLocked drops every package type-checked against the
-// current pkgTypes[dir], ahead of analyze replacing it with a new copy: one
-// import path must map to one *types.Package, so importers are re-checked
-// against the replacement (#242). Only the shipping graph carries that identity
-// — the target and configured declaration universes use their own importers and
-// never read pkgTypes. dir itself is kept; the caller overwrites it.
-// Assumes m.mu.
-func (m *Module) dropShippingImportersLocked(dir string) {
-	stack := []string{dir}
-	seen := map[string]bool{dir: true}
-	for len(stack) > 0 {
-		d := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		for importer := range m.importedBy[d] {
-			if seen[importer] {
-				continue
-			}
-			seen[importer] = true
-			stack = append(stack, importer)
-			delete(m.pkgTypes, importer)
-			delete(m.pkgResults, importer)
-			delete(m.goPkgAnalyses, importer)
-		}
-	}
-}
-
-// ephemeralDirLocked reports whether dir is being analyzed from AnalyzeEphemeral's
-// one-shot overlay. That analysis restores pkgTypes[dir] when it finishes, so the
-// packages checked against the restored copy stay valid. Assumes m.mu.
-func (m *Module) ephemeralDirLocked(dir string) bool {
-	for path := range m.ephemeral {
-		if filepath.Dir(path) == dir {
-			return true
-		}
-	}
-	return false
-}
-
 type invalidationScope struct {
 	dirs  map[string]bool
 	whole bool
@@ -1598,10 +1560,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	}
 
 	// Cache the type-checked package so every entry point — Package, Generate, and
-	// the recursive importer — sees the same freshly-checked result. This eliminates
-	// the latent stale-cache bug where Package(A)/Generate(A) called analyze(A)
-	// directly without writing pkgTypes[A], so a later importer of A would hit a
-	// stale (or absent) entry written by an earlier typesPackageWith call.
+	// the recursive importer — sees one result. A cached entry is kept: every
+	// source change drops it through invalidation first, so it was checked from
+	// these same sources against these same dependencies, and importers may
+	// already be bound to it. Replacing it would give one import path two
+	// *types.Package values (#242). This analysis's own pkg stays private to its
+	// result.
 	//
 	// Lock discipline: release m.mu BEFORE calling m.recordImports, which acquires
 	// m.mu internally.
@@ -1609,10 +1573,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	if m.pkgTypes == nil {
 		m.pkgTypes = map[string]*types.Package{}
 	}
-	if prev := m.pkgTypes[dir]; prev != nil && prev != pkg && !m.ephemeralDirLocked(dir) {
-		m.dropShippingImportersLocked(dir)
+	if _, cached := m.pkgTypes[dir]; !cached {
+		m.pkgTypes[dir] = pkg
 	}
-	m.pkgTypes[dir] = pkg
 	if localComponentProvenance != nil {
 		if m.targetDeclProvenance == nil {
 			m.targetDeclProvenance = componentTargetProvenanceCache{}
