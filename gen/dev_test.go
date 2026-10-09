@@ -2194,6 +2194,35 @@ func TestDevEnvErrorPostsOverlay(t *testing.T) {
 	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
 		t.Fatalf("server not healthy after recovery; output:\n%s", stdout.String())
 	}
+	// The plugin replays its current error to every page the reload opens, so
+	// recovery must replace the .env error with the real state (here: ok).
+	after := events.String()[strings.LastIndex(events.String(), wantErrFrag):]
+	if !strings.Contains(after, `"event":"generated","ok":true`) {
+		t.Fatalf("no ok event after the .env recovery; the plugin keeps replaying the fixed .env error; events after the error:\n%s", after)
+	}
+
+	// A codegen error that is still current must survive a valid .env edit.
+	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>{ undefinedName }</span>\n}\n")
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(events.String(), "undefinedName") {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(events.String(), "undefinedName") {
+		t.Fatalf("no codegen error event for the broken app.gsx; events:\n%s", events.String())
+	}
+	mark := len(events.String())
+	reloads.Store(0)
+	writeFile(t, proj, ".env", goodEnv+"# touched\n")
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) && reloads.Load() == 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if reloads.Load() == 0 {
+		t.Fatalf("no /__reload after a valid .env edit; stdout:\n%s", stdout.String())
+	}
+	if since := events.String()[mark:]; strings.Contains(since, `"ok":true`) {
+		t.Fatalf("a valid .env edit cleared a current codegen error; events since:\n%s", since)
+	}
 }
 
 // TestDevEnvEditKeepsBoundFrontDoorPort pins the held-port exemption end to
