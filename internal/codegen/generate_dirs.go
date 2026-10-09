@@ -45,7 +45,7 @@ func GenerateDirs(moduleRoot string, dirs []string, opts Options, override map[s
 		return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
 	}
 	result := make(map[string]DirResult, len(dirs))
-	for _, dir := range dirs {
+	for _, dir := range m.GenerationOrder(dirs) {
 		out, diags, err := m.Generate(dir)
 		if err != nil {
 			return nil, fmt.Errorf("codegen: GenerateDirs: generate %s: %w", dir, err)
