@@ -94,9 +94,25 @@ func TestDependencyOrder(t *testing.T) {
 	if spelledD == dirD {
 		t.Fatal("fixture: spelledD must differ from the clean dir")
 	}
-	got := m.DependencyOrder([]string{spelledD, dirC, dirX, dirY, dirZA, dirZB, dirZC, dirA, dirB})
+	input := []string{spelledD, dirC, dirX, dirY, dirZA, dirZB, dirZC, dirA, dirB}
+	got := m.DependencyOrder(input)
 	want := []string{dirZA, dirA, dirZB, dirB, spelledD, dirZC, dirC, dirY, dirX}
 	if !slices.Equal(got, want) {
 		t.Fatalf("DependencyOrder:\n got %v\nwant %v", got, want)
+	}
+
+	// One distinct dir comes back as given, every spelling kept.
+	if got := m.DependencyOrder([]string{spelledD, dirD}); !slices.Equal(got, []string{spelledD, dirD}) {
+		t.Fatalf("single dir: got %v", got)
+	}
+
+	// Warm: once packages are cached the walk stops at them, and every input
+	// dir is still returned. x and y form a cycle, so their Generate errors.
+	for _, dir := range got {
+		_, _, _ = m.Generate(dir)
+	}
+	warm := m.DependencyOrder(input)
+	if !slices.Equal(slices.Sorted(slices.Values(warm)), slices.Sorted(slices.Values(input))) {
+		t.Fatalf("warm DependencyOrder lost or duplicated dirs:\n got %v\ninput %v", warm, input)
 	}
 }

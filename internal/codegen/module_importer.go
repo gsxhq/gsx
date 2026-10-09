@@ -1584,9 +1584,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 	}
 	m.mu.Unlock()
 
-	// Record the project-internal import graph for this package. Only successful
-	// analyses reach this point, keeping the graph consistent with type-checked
-	// packages. cycleErr paths are excluded (they are not cached in pkgTypes either).
+	// Record the project-internal import graph for this package. Every analysis
+	// that produced a checked package reaches this point, including one with type
+	// errors (cached above like any other), keeping the graph consistent with
+	// pkgTypes. cycleErr paths are excluded (they are not cached in pkgTypes either).
 	// Both the .gsx-hoisted imports and the hand-written .go imports are recorded so
 	// every sibling gsx package that participates in this package's type-check gets a
 	// reverse edge (else editing it would not invalidate this importer).

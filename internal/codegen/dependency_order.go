@@ -15,15 +15,13 @@ import (
 // The order changes only how much work is done, never any result. Edges
 // come from the same source analyze reads, through the shared parse cache, so
 // the pass does no work analysis would not repeat. A dir whose imports cannot
-// be read contributes no edges; its analysis reports the error. Import cycles
+// be read contributes no edges; its analysis reports the error, as does the
+// first analysis when the module cannot load, in which case dirs come back in
+// input order. The walk stops at cached packages, so a warm call costs only
+// the uncached part of the closure. Import cycles
 // are cut where the walk meets them. Ties keep the input order, and every
 // input spelling of a dir is returned as given.
 func (m *Module) DependencyOrder(dirs []string) []string {
-	m.analysisMu.Lock()
-	defer m.analysisMu.Unlock()
-	m.maybeRebuildFset()
-	m.applyDirty()
-
 	// Callers key results by the spelling they passed, so each clean dir maps
 	// back to every input spelling of it.
 	spellings := make(map[string][]string, len(dirs))
@@ -31,6 +29,22 @@ func (m *Module) DependencyOrder(dirs []string) []string {
 		clean := filepath.Clean(dir)
 		spellings[clean] = append(spellings[clean], dir)
 	}
+	if len(spellings) <= 1 {
+		return append([]string(nil), dirs...)
+	}
+
+	m.analysisMu.Lock()
+	defer m.analysisMu.Unlock()
+	m.maybeRebuildFset()
+	m.applyDirty()
+	if m.opts.Bundle == nil && !m.opts.SourceOnly {
+		// Companion imports need the source inventory. If it cannot load, the
+		// first analysis reports that; one failed load here is enough.
+		if _, err := m.externalImporter(); err != nil {
+			return append([]string(nil), dirs...)
+		}
+	}
+
 	order := make([]string, 0, len(dirs))
 	visited := map[string]bool{}
 	var visit func(string)
@@ -39,8 +53,16 @@ func (m *Module) DependencyOrder(dirs []string) []string {
 			return
 		}
 		visited[dir] = true
-		for _, dep := range m.shippingImportDirs(dir) {
-			visit(dep)
+		// A cached package needs no import-time check, and neither do its
+		// dependencies: invalidating a dependency drops its importers too, so
+		// they are all cached.
+		m.mu.Lock()
+		_, cached := m.pkgTypes[dir]
+		m.mu.Unlock()
+		if !cached {
+			for _, dep := range m.shippingImportDirs(dir) {
+				visit(dep)
+			}
 		}
 		order = append(order, spellings[dir]...)
 	}
