@@ -267,29 +267,29 @@ func All() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:26:2
-		_gsxgw.Node(ctx, Native("a"))
+		_gsxgw.Node(ctx /*line input.gsx:26:4*/, Native("a"))
 //line input.gsx:27:2
-		_gsxgw.Node(ctx, Native("b"))
+		_gsxgw.Node(ctx /*line input.gsx:27:4*/, Native("b"))
 //line input.gsx:28:2
-		_gsxgw.Node(ctx, Folding("a", gsx.Attrs{{Key: "id", Value: "f"}}))
+		_gsxgw.Node(ctx /*line input.gsx:28:4*/, Folding("a", gsx.Attrs{{Key: "id", Value: "f"}}))
 //line input.gsx:29:2
-		_gsxgw.Node(ctx, Folding("b", nil))
+		_gsxgw.Node(ctx /*line input.gsx:29:4*/, Folding("b", nil))
 //line input.gsx:30:2
-		_gsxgw.Node(ctx, Tag("a"))
+		_gsxgw.Node(ctx /*line input.gsx:30:4*/, Tag("a"))
 //line input.gsx:31:2
-		_gsxgw.Node(ctx, Tag("b"))
+		_gsxgw.Node(ctx /*line input.gsx:31:4*/, Tag("b"))
 //line input.gsx:32:2
-		_gsxgw.Node(ctx, TypeNative(1))
+		_gsxgw.Node(ctx /*line input.gsx:32:4*/, TypeNative(1))
 //line input.gsx:33:2
-		_gsxgw.Node(ctx, TypeNative("s"))
+		_gsxgw.Node(ctx /*line input.gsx:33:4*/, TypeNative("s"))
 //line input.gsx:34:2
-		_gsxgw.Node(ctx, TypeFolding(2, nil))
+		_gsxgw.Node(ctx /*line input.gsx:34:4*/, TypeFolding(2, nil))
 //line input.gsx:35:2
-		_gsxgw.Node(ctx, TypeFolding(true, nil))
+		_gsxgw.Node(ctx /*line input.gsx:35:4*/, TypeFolding(true, nil))
 //line input.gsx:36:2
-		_gsxgw.Node(ctx, TypeTag(3))
+		_gsxgw.Node(ctx /*line input.gsx:36:4*/, TypeTag(3))
 //line input.gsx:37:2
-		_gsxgw.Node(ctx, TypeTag("t"))
+		_gsxgw.Node(ctx /*line input.gsx:37:4*/, TypeTag("t"))
 		return _gsxgw.Err()
 	})
 }

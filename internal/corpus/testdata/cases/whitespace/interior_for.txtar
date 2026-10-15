@@ -32,10 +32,10 @@ func List(items []string) _gsxrt.Node {
 //line input.gsx:4:7
 		for /*line input.gsx:4:13*/ i, it := range items {
 //line input.gsx:4:36
-			_gsxgw.IntInto(_gsxnum[:], int64(i))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:37*/ i))
 			_gsxgw.S(": ")
 //line input.gsx:4:41
-			_gsxgw.Text(string(it))
+			_gsxgw.Text(string( /*line input.gsx:4:42*/ it))
 		}
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()

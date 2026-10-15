@@ -2431,7 +2431,7 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 			return false
 		}
 	} else {
-		expr = strings.TrimSpace(n.Expr)
+		expr = strings.TrimSpace(anchorAuthored(fset, n.ExprPos, n.Expr))
 	}
 	if len(n.Stages) > 0 {
 		// Lower the pipeline to nested filter calls — the SAME lowerPipe output the
@@ -2441,14 +2441,10 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		// a bare interpolation, so a seed-first filter returning (R, error) unwraps
 		// exactly like any other error-returning value.
 		//
-		// For an embedded-literal seed (n.Embedded != nil) the pipeline seed is the
-		// already-spliced expr (with each <tag>/<> lowered to its gsx.Func value),
-		// not the raw n.Expr (which still holds the un-lowered `<tag>` source).
-		seed := n.Expr
-		if n.Embedded != nil {
-			seed = expr
-		}
-		lowered, usedPkgs, err := lowerPipe(seed, n.Stages, table, emitPipeWrap(b, interpTemp), fset)
+		// The seed is expr: anchored authored text, or for an embedded-literal
+		// seed the already-spliced expr (each <tag>/<> lowered to its gsx.Func
+		// value) — never the raw n.Expr, which still holds the `<tag>` source.
+		lowered, usedPkgs, err := lowerPipe(expr, n.Stages, table, emitPipeWrap(b, interpTemp), fset)
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false

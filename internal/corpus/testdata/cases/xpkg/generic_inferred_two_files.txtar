@@ -93,7 +93,7 @@ func _gsxrenderBox[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, v
 //line box.gsx:3:42
 	_gsxgw.S("<span>")
 //line box.gsx:3:48
-	_gsxgw.TextAny(value)
+	_gsxgw.TextAny( /*line box.gsx:3:49*/ value)
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

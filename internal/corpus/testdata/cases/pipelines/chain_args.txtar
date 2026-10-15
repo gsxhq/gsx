@@ -30,7 +30,7 @@ func Hi(s string) _gsxrt.Node {
 //line input.gsx:3:26
 		_gsxgw.S("<p>")
 //line input.gsx:3:29
-		_gsxgw.Text(string( /*line input.gsx:3:44*/ _gsxstd.Truncate( /*line input.gsx:3:36*/ _gsxstd.Trim((s)) /*line input.gsx:3:53*/, 5)))
+		_gsxgw.Text(string( /*line input.gsx:3:44*/ _gsxstd.Truncate( /*line input.gsx:3:36*/ _gsxstd.Trim(( /*line input.gsx:3:31*/ s)) /*line input.gsx:3:53*/, 5)))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

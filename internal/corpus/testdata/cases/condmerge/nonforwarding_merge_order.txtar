@@ -62,7 +62,7 @@ func Ordered(on bool) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "div", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line input.gsx:12:133
-		_gsxgw.Text(string(trace))
+		_gsxgw.Text(string( /*line input.gsx:12:135*/ trace))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

@@ -58,7 +58,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title gsx.Node, 
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:9:82
-	_gsxgw.Node(ctx, title)
+	_gsxgw.Node(ctx /*line input.gsx:9:83*/, title)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

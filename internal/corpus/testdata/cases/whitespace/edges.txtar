@@ -59,12 +59,12 @@ func Edges(env, title string) _gsxrt.Node {
 //line input.gsx:9:15
 		if /*line input.gsx:9:20*/ true {
 //line input.gsx:9:27
-			_gsxgw.Text(string(env))
+			_gsxgw.Text(string( /*line input.gsx:9:28*/ env))
 			_gsxgw.S(" -")
 		}
 		_gsxgw.S(" ")
 //line input.gsx:9:39
-		_gsxgw.Text(string(title))
+		_gsxgw.Text(string( /*line input.gsx:9:40*/ title))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

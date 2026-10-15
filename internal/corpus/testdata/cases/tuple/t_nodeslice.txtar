@@ -51,7 +51,7 @@ func _gsxrenderList(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, items []gsx.Node
 //line input.gsx:10:2
 	_gsxgw.S("<ul>")
 //line input.gsx:10:6
-	for _, _gsxn := range items {
+	for _, _gsxn := range /*line input.gsx:10:7*/ items {
 		_gsxgw.Node(ctx, _gsxn)
 	}
 	_gsxgw.S("</ul>")

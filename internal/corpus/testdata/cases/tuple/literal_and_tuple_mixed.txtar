@@ -44,10 +44,10 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value float64, t
 //line input.gsx:5:47
 	_gsxgw.S("<div>")
 //line input.gsx:5:52
-	_gsxgw.Text(string(title))
+	_gsxgw.Text(string( /*line input.gsx:5:53*/ title))
 	_gsxgw.S(" ")
 //line input.gsx:5:60
-	_gsxgw.FloatInto(_gsxnum[:], float64(value))
+	_gsxgw.FloatInto(_gsxnum[:], float64( /*line input.gsx:5:61*/ value))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

@@ -102,15 +102,15 @@ func All() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:19:2
-		_gsxgw.Node(ctx, If("a"))
+		_gsxgw.Node(ctx /*line input.gsx:19:4*/, If("a"))
 //line input.gsx:20:2
-		_gsxgw.Node(ctx, If(""))
+		_gsxgw.Node(ctx /*line input.gsx:20:4*/, If(""))
 //line input.gsx:21:2
-		_gsxgw.Node(ctx, ElseIf("a"))
+		_gsxgw.Node(ctx /*line input.gsx:21:4*/, ElseIf("a"))
 //line input.gsx:22:2
-		_gsxgw.Node(ctx, ElseIf("b"))
+		_gsxgw.Node(ctx /*line input.gsx:22:4*/, ElseIf("b"))
 //line input.gsx:23:2
-		_gsxgw.Node(ctx, ElseIf(""))
+		_gsxgw.Node(ctx /*line input.gsx:23:4*/, ElseIf(""))
 		return _gsxgw.Err()
 	})
 }

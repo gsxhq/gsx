@@ -96,7 +96,7 @@ func _gsxrenderOuter(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.No
 //line input.gsx:16:2
 	_gsxgw.S("<b>")
 //line input.gsx:16:5
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:16:6*/, children)
 	_gsxgw.S("</b>")
 	return _gsxgw.Err()
 }

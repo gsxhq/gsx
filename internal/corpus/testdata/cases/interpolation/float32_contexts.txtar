@@ -68,7 +68,7 @@ func _gsxrenderGen32[T ~float32](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, v T
 	_gsxgw.FloatIntoBits(_gsxnum[:], float64( /*line input.gsx:8:13*/ v), 32)
 	_gsxgw.S("\">")
 //line input.gsx:8:16
-	_gsxgw.FloatIntoBits(_gsxnum[:], float64(v), 32)
+	_gsxgw.FloatIntoBits(_gsxnum[:], float64( /*line input.gsx:8:17*/ v), 32)
 	_gsxgw.S("</i>")
 	return _gsxgw.Err()
 }
@@ -93,7 +93,7 @@ func _gsxrenderGenMixed[T ~float32 | ~float64](ctx _gsxctx.Context, _gsxgw *_gsx
 	_gsxgw.FloatIntoBits(_gsxnum[:], float64( /*line input.gsx:12:26*/ v), _gsxrt.FloatBits( /*line input.gsx:12:26*/ v))
 	_gsxgw.S("\">")
 //line input.gsx:12:30
-	_gsxgw.FloatIntoBits(_gsxnum[:], float64(v), _gsxrt.FloatBits(v))
+	_gsxgw.FloatIntoBits(_gsxnum[:], float64( /*line input.gsx:12:31*/ v), _gsxrt.FloatBits( /*line input.gsx:12:31*/ v))
 	_gsxgw.S("</b>")
 	return _gsxgw.Err()
 }
@@ -114,18 +114,18 @@ func Page(f float32, r Ratio, d float64) _gsxrt.Node {
 		_gsxgw.AttrValue(_gsxrt.StyleValue(_gsxsc.FormatFloat(float64( /*line input.gsx:16:70*/ f), 'g', -1, 32)))
 		_gsxgw.S("\">")
 //line input.gsx:16:74
-		_gsxgw.FloatIntoBits(_gsxnum[:], float64(f), 32)
+		_gsxgw.FloatIntoBits(_gsxnum[:], float64( /*line input.gsx:16:75*/ f), 32)
 		_gsxgw.S(" ")
 //line input.gsx:16:78
-		_gsxgw.FloatIntoBits(_gsxnum[:], float64(r), 32)
+		_gsxgw.FloatIntoBits(_gsxnum[:], float64( /*line input.gsx:16:79*/ r), 32)
 		_gsxgw.S(" ")
 //line input.gsx:16:82
-		_gsxgw.FloatInto(_gsxnum[:], float64(d))
+		_gsxgw.FloatInto(_gsxnum[:], float64( /*line input.gsx:16:83*/ d))
 		_gsxgw.S(" ")
 //line input.gsx:16:86
 		_gsxgw.S("v=")
 //line input.gsx:16:92
-		_gsxgw.FloatIntoBits(_gsxnum[:], float64(f), 32)
+		_gsxgw.FloatIntoBits(_gsxnum[:], float64( /*line input.gsx:16:93*/ f), 32)
 		_gsxgw.S("</p>")
 //line input.gsx:17:2
 		_gsxgw.S("<style")
@@ -148,7 +148,7 @@ func Page(f float32, r Ratio, d float64) _gsxrt.Node {
 //line input.gsx:22:2
 		_gsxgw.NodeResult(_gsxrenderGenMixed[float64](ctx, _gsxgw /*line input.gsx:22:15*/, d))
 //line input.gsx:23:2
-		_gsxgw.Node(ctx, gsx.Val(f))
+		_gsxgw.Node(ctx /*line input.gsx:23:3*/, gsx.Val(f))
 //line input.gsx:24:2
 		_gsxv0 := /*line input.gsx:24:9*/ gsx.Attrs{{"data-y", f}}
 		_gsxgw.S("<div")

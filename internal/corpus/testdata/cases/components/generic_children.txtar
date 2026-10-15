@@ -44,9 +44,9 @@ func _gsxrenderWrap[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, 
 //line input.gsx:6:2
 	_gsxgw.S("<div>")
 //line input.gsx:6:7
-	_gsxgw.TextAny(title)
+	_gsxgw.TextAny( /*line input.gsx:6:8*/ title)
 //line input.gsx:6:14
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:6:15*/, children)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

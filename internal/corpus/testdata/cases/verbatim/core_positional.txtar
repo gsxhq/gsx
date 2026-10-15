@@ -98,12 +98,12 @@ func _gsxrenderRow(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, level Level, firs
 //line input.gsx:20:26
 	_gsxgw.S("<i>")
 //line input.gsx:20:29
-	_gsxgw.Text(string(first))
+	_gsxgw.Text(string( /*line input.gsx:20:30*/ first))
 	_gsxgw.S("</i>")
 //line input.gsx:20:40
 	_gsxgw.S("<b>")
 //line input.gsx:20:43
-	_gsxgw.Text(string(second))
+	_gsxgw.Text(string( /*line input.gsx:20:44*/ second))
 	_gsxgw.S("</b></div>")
 	return _gsxgw.Err()
 }
@@ -129,7 +129,7 @@ func _gsxrenderAction(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, script gsx.Raw
 //line input.gsx:24:28
 	_gsxgw.S("<p>")
 //line input.gsx:24:31
-	_gsxgw.Text(string(label))
+	_gsxgw.Text(string( /*line input.gsx:24:32*/ label))
 	_gsxgw.S("</p>")
 	return _gsxgw.Err()
 }
@@ -149,7 +149,7 @@ func _gsxrenderRuneTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, letter Let
 //line input.gsx:28:2
 	_gsxgw.S("<span>")
 //line input.gsx:28:8
-	_gsxgw.Text(string(string(letter)))
+	_gsxgw.Text(string( /*line input.gsx:28:9*/ string(letter)))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

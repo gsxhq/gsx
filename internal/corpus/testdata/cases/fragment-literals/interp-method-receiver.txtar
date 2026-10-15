@@ -63,7 +63,7 @@ func (c Card) View() gsx.Node {
 //line input.gsx:14:11
 		_gsxgw.S("<h2>")
 //line input.gsx:14:15
-		_gsxgw.Text(string(c.Title))
+		_gsxgw.Text(string( /*line input.gsx:14:17*/ c.Title))
 		_gsxgw.S("</h2>")
 		return _gsxgw.Err()
 	}) /*line input.gsx:14:34*/
@@ -74,7 +74,7 @@ func Host() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.Node(ctx, Card{Title: "Hi"}.View())
+		_gsxgw.Node(ctx /*line input.gsx:18:4*/, Card{Title: "Hi"}.View())
 		return _gsxgw.Err()
 	})
 }

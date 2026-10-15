@@ -41,10 +41,10 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:4:15
 		if /*line input.gsx:4:20*/ true {
 //line input.gsx:4:27
-			_gsxgw.Text(string(a))
+			_gsxgw.Text(string( /*line input.gsx:4:28*/ a))
 			_gsxgw.S(" - ")
 //line input.gsx:4:33
-			_gsxgw.Text(string(b))
+			_gsxgw.Text(string( /*line input.gsx:4:34*/ b))
 		}
 		_gsxgw.S("</div>")
 //line input.gsx:5:2
@@ -52,10 +52,10 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:5:18
 		if /*line input.gsx:5:23*/ true {
 //line input.gsx:5:30
-			_gsxgw.Text(string(a))
+			_gsxgw.Text(string( /*line input.gsx:5:31*/ a))
 			_gsxgw.S(" - ")
 //line input.gsx:5:40
-			_gsxgw.Text(string(b))
+			_gsxgw.Text(string( /*line input.gsx:5:41*/ b))
 		}
 		_gsxgw.S("</div>")
 //line input.gsx:6:2
@@ -66,10 +66,10 @@ func Sep(a, b string) _gsxrt.Node {
 			_gsxgw.S("<span></span>")
 		} else {
 //line input.gsx:6:47
-			_gsxgw.Text(string(a))
+			_gsxgw.Text(string( /*line input.gsx:6:48*/ a))
 			_gsxgw.S(" - ")
 //line input.gsx:6:53
-			_gsxgw.Text(string(b))
+			_gsxgw.Text(string( /*line input.gsx:6:54*/ b))
 		}
 		_gsxgw.S("</div>")
 //line input.gsx:7:2
@@ -77,10 +77,10 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:7:15
 		if /*line input.gsx:7:20*/ true {
 //line input.gsx:8:3
-			_gsxgw.Text(string(a))
+			_gsxgw.Text(string( /*line input.gsx:8:4*/ a))
 			_gsxgw.S("- ")
 //line input.gsx:9:5
-			_gsxgw.Text(string(b))
+			_gsxgw.Text(string( /*line input.gsx:9:6*/ b))
 		}
 		_gsxgw.S("</div>")
 //line input.gsx:11:2

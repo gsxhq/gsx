@@ -71,7 +71,7 @@ func (p home) Page(d pageData) _gsxrt.Node {
 //line input.gsx:13:4
 		_gsxgw.S("<h1>")
 //line input.gsx:13:8
-		_gsxgw.Text(string(d.Title))
+		_gsxgw.Text(string( /*line input.gsx:13:10*/ d.Title))
 		_gsxgw.S("</h1>")
 //line input.gsx:14:4
 		_gsxgw.Node(ctx, p.Content( /*line input.gsx:14:18*/ d))
@@ -89,7 +89,7 @@ func (p home) Content(d pageData) _gsxrt.Node {
 //line input.gsx:21:3
 		_gsxgw.S("<h2>")
 //line input.gsx:21:7
-		_gsxgw.Text(string(d.Title))
+		_gsxgw.Text(string( /*line input.gsx:21:9*/ d.Title))
 		_gsxgw.S("</h2>")
 //line input.gsx:22:3
 		_gsxgw.Node(ctx, p.Partial( /*line input.gsx:22:17*/ d))
@@ -105,7 +105,7 @@ func (p home) Partial(d pageData) _gsxrt.Node {
 //line input.gsx:27:2
 		_gsxgw.S("<section>")
 //line input.gsx:27:11
-		_gsxgw.Text(string(d.Section))
+		_gsxgw.Text(string( /*line input.gsx:27:13*/ d.Section))
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})

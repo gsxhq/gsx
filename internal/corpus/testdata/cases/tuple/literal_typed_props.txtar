@@ -48,7 +48,7 @@ func _gsxrenderGauge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value float64, 
 //line input.gsx:7:62
 	_gsxgw.S("<div>")
 //line input.gsx:7:67
-	_gsxgw.FloatInto(_gsxnum[:], float64(value))
+	_gsxgw.FloatInto(_gsxnum[:], float64( /*line input.gsx:7:68*/ value))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

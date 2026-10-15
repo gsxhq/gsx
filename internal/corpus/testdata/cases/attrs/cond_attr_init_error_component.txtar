@@ -105,11 +105,11 @@ func All() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:2
-		_gsxgw.Node(ctx, C("a"))
+		_gsxgw.Node(ctx /*line input.gsx:22:4*/, C("a"))
 //line input.gsx:23:2
-		_gsxgw.Node(ctx, C(""))
+		_gsxgw.Node(ctx /*line input.gsx:23:4*/, C(""))
 //line input.gsx:24:2
-		_gsxgw.Node(ctx, C("bad"))
+		_gsxgw.Node(ctx /*line input.gsx:24:4*/, C("bad"))
 		return _gsxgw.Err()
 	})
 }

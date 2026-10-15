@@ -50,7 +50,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, header gsx.Node
 //line input.gsx:8:2
 	_gsxgw.S("<div class=\"panel\">")
 //line input.gsx:8:21
-	_gsxgw.Node(ctx, header)
+	_gsxgw.Node(ctx /*line input.gsx:8:22*/, header)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -65,7 +65,7 @@ func Page(title string) _gsxrt.Node {
 //line input.gsx:12:18
 			_gsxgw.S("<h2>")
 //line input.gsx:12:22
-			_gsxv0, _gsxerr := makeTitle(title)
+			_gsxv0, _gsxerr := /*line input.gsx:12:24*/ makeTitle(title)
 			if _gsxerr != nil {
 				return _gsxerr
 			}

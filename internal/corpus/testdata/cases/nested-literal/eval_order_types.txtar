@@ -101,7 +101,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:26:7*/ f32(min(1, 2.5), string(_gsxv0) /*line input.gsx:26:38*/)))
 		_gsxgw.S(" ")
 //line input.gsx:26:42
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:26:44*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:27:2
 		r = &rec{}
@@ -115,7 +115,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:28:7*/ arr([len("abc")]int{}, string(_gsxv1) /*line input.gsx:28:44*/)))
 		_gsxgw.S(" ")
 //line input.gsx:28:48
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:28:50*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:29:2
 		r = &rec{}
@@ -130,7 +130,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:30:7*/ join(string([]byte(_gsxv3 /*line input.gsx:30:34*/)), string(_gsxv2) /*line input.gsx:30:52*/)))
 		_gsxgw.S(" ")
 //line input.gsx:30:56
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:30:58*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:31:2
 		r = &rec{}
@@ -145,7 +145,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:32:7*/ flag((_gsxv5 == true) /*line input.gsx:32:46*/, string(_gsxv4) /*line input.gsx:32:62*/)))
 		_gsxgw.S(" ")
 //line input.gsx:32:66
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:32:68*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:33:2
 		r = &rec{}
@@ -160,7 +160,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:34:7*/ yes(_gsxv7 /*line input.gsx:34:45*/, string(_gsxv6) /*line input.gsx:34:61*/)))
 		_gsxgw.S(" ")
 //line input.gsx:34:65
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:34:67*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:35:2
 		r = &rec{}
@@ -175,7 +175,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:36:7*/ join(_gsxv9 /*line input.gsx:36:50*/, string(_gsxv8) /*line input.gsx:36:66*/)))
 		_gsxgw.S(" ")
 //line input.gsx:36:70
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:36:72*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:37:2
 		r = &rec{}
@@ -190,7 +190,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:38:7*/ join(_gsxv11 /*line input.gsx:38:34*/, string(_gsxv10) /*line input.gsx:38:50*/)))
 		_gsxgw.S(" ")
 //line input.gsx:38:54
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:38:56*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:39:2
 		r = &rec{}
@@ -204,7 +204,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.Text(string( /*line input.gsx:40:7*/ size(unsafe.Sizeof(r.F("never")), string(_gsxv12) /*line input.gsx:40:55*/)))
 		_gsxgw.S(" ")
 //line input.gsx:40:59
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:40:61*/ r).String())
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

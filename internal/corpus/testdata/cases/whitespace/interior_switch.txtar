@@ -37,7 +37,7 @@ func Kind(k string) _gsxrt.Node {
 		default:
 			_gsxgw.S("hello - ")
 //line input.gsx:6:11
-			_gsxgw.Text(string(k))
+			_gsxgw.Text(string( /*line input.gsx:6:12*/ k))
 			_gsxgw.S(" - world")
 		}
 		_gsxgw.S("</div>")

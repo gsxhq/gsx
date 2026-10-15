@@ -33,10 +33,10 @@ func Row(id string, n int) _gsxrt.Node {
 //line input.gsx:4:5
 		_gsxgw.S("row-`")
 //line input.gsx:4:14
-		_gsxgw.Text(string(id))
+		_gsxgw.Text(string( /*line input.gsx:4:15*/ id))
 		_gsxgw.S("`-")
 //line input.gsx:4:21
-		_gsxgw.IntInto(_gsxnum[:], int64(n))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:22*/ n))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

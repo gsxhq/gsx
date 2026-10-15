@@ -43,7 +43,7 @@ func Hi(name string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
-		_gsxv0, _gsxerr := /*line input.gsx:4:15*/ _gsxf0.Shout((name))
+		_gsxv0, _gsxerr := /*line input.gsx:4:15*/ _gsxf0.Shout(( /*line input.gsx:4:7*/ name))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

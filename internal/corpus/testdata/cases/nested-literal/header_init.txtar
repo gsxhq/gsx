@@ -118,7 +118,7 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:24:3
 				_gsxgw.S("<b>")
 //line input.gsx:24:6
-				_gsxgw.Text(string(s))
+				_gsxgw.Text(string( /*line input.gsx:24:8*/ s))
 				_gsxgw.S("</b>")
 			}
 		}
@@ -138,7 +138,7 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:29:3
 					_gsxgw.S("<b>")
 //line input.gsx:29:6
-					_gsxgw.Text(string(s))
+					_gsxgw.Text(string( /*line input.gsx:29:8*/ s))
 					_gsxgw.S("</b>")
 				}
 			}
@@ -166,7 +166,7 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:36:3
 					_gsxgw.S("<b>else ")
 //line input.gsx:36:11
-					_gsxgw.Text(string(s))
+					_gsxgw.Text(string( /*line input.gsx:36:13*/ s))
 					_gsxgw.S("</b>")
 				}
 			}

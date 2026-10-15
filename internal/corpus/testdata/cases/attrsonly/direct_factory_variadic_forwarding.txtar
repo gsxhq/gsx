@@ -50,7 +50,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 			_gsxgw.Spread(ctx, "svg", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 			_gsxgw.S(">")
 //line input.gsx:7:60
-			_gsxgw.Text(string(name))
+			_gsxgw.Text(string( /*line input.gsx:7:62*/ name))
 			_gsxgw.S("</svg>")
 			return _gsxgw.Err()
 		}) /*line input.gsx:7:74*/

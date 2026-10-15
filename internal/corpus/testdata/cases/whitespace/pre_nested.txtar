@@ -60,7 +60,7 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:7:23
 		_gsxgw.S("<code>")
 //line input.gsx:7:29
-		_gsxgw.Text(string(snippet))
+		_gsxgw.Text(string( /*line input.gsx:7:31*/ snippet))
 		_gsxgw.S("</code></pre>")
 //line input.gsx:8:2
 		_gsxgw.S("<pre>")
@@ -75,7 +75,7 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:11:29
 			_gsxgw.S("<b>")
 //line input.gsx:11:32
-			_gsxgw.Text(string(lines[0]))
+			_gsxgw.Text(string( /*line input.gsx:11:34*/ lines[0]))
 			_gsxgw.S("</b>")
 		}
 		_gsxgw.S("</pre>")
@@ -86,7 +86,7 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:12:35
 			_gsxgw.S("<span>")
 //line input.gsx:12:41
-			_gsxgw.Text(string(l))
+			_gsxgw.Text(string( /*line input.gsx:12:43*/ l))
 			_gsxgw.S("</span>")
 		}
 		_gsxgw.S("</pre>")

@@ -53,7 +53,7 @@ func _gsxrenderKids(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Nod
 	_gsxgw.BoolAttr("data-has-kids", bool( /*line input.gsx:7:26*/ hasKids))
 	_gsxgw.S(">")
 //line input.gsx:7:35
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:7:36*/, children)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }

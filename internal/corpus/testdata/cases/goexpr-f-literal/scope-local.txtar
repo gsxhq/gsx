@@ -44,7 +44,7 @@ func Greeting(who string) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<p>")
 //line input.gsx:8:5
-		_gsxgw.Text(string(makeGreeting(who)))
+		_gsxgw.Text(string( /*line input.gsx:8:7*/ makeGreeting(who)))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

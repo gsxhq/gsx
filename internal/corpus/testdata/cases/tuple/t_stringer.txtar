@@ -52,7 +52,7 @@ func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, icon gsx.Node) 
 //line input.gsx:7:34
 	_gsxgw.S("<span>")
 //line input.gsx:7:40
-	_gsxgw.Node(ctx, icon)
+	_gsxgw.Node(ctx /*line input.gsx:7:41*/, icon)
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

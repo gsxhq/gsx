@@ -38,7 +38,7 @@ func _gsxrenderChild1(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value string) 
 //line input.gsx:3:33
 	_gsxgw.S("<span>")
 //line input.gsx:3:39
-	_gsxgw.Text(string(value))
+	_gsxgw.Text(string( /*line input.gsx:3:41*/ value))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

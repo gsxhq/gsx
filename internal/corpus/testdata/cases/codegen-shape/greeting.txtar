@@ -28,10 +28,10 @@ func Greeting(name string, count int) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>Hello, ")
 //line input.gsx:4:12
-		_gsxgw.Text(string(name))
+		_gsxgw.Text(string( /*line input.gsx:4:13*/ name))
 		_gsxgw.S("! You have ")
 //line input.gsx:4:29
-		_gsxgw.IntInto(_gsxnum[:], int64(count))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:30*/ count))
 		_gsxgw.S(" messages.</p>")
 		return _gsxgw.Err()
 	})

@@ -39,14 +39,14 @@ func Nums(items []int, flag bool) _gsxrt.Node {
 //line input.gsx:5:3
 		_gsxgw.S("<p>")
 //line input.gsx:5:6
-		_gsxgw.IntInto(_gsxnum[:], int64(len(items)))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:5:8*/ len(items)))
 		_gsxgw.S("</p>")
 //line input.gsx:6:3
 		if /*line input.gsx:6:8*/ flag {
 //line input.gsx:7:4
 			_gsxgw.S("<span>")
 //line input.gsx:7:10
-			_gsxgw.IntInto(_gsxnum[:], int64(items[0]))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:7:12*/ items[0]))
 			_gsxgw.S("</span>")
 		}
 //line input.gsx:9:3
@@ -56,15 +56,15 @@ func Nums(items []int, flag bool) _gsxrt.Node {
 //line input.gsx:10:4
 			_gsxgw.S("<li>")
 //line input.gsx:10:8
-			_gsxgw.IntInto(_gsxnum[:], int64(i))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:10:10*/ i))
 			_gsxgw.S(": ")
 //line input.gsx:10:15
-			_gsxgw.IntInto(_gsxnum[:], int64(v))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:10:17*/ v))
 			_gsxgw.S("</li>")
 		}
 		_gsxgw.S("</ul>")
 //line input.gsx:12:5
-		_gsxgw.IntInto(_gsxnum[:], int64(len(items)))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:12:7*/ len(items)))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

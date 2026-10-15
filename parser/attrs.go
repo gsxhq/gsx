@@ -283,22 +283,19 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	// stage-less seed; unwrap one outer paren layer in that case so it yields the
 	// same seed+stages as the bare `{ seed |> f... }` form (and round-trips with
 	// the printer's parenthesized output). A parenthesized NON-pipeline spread
-	// keeps its parens.
-	// TODO: compute proper base positions for spread pipeline stages (needed for
-	// LSP cursor detection on spread pipelines). For now, pass NoPos.
-	seed, stages, perr := parsePipe(core, token.NoPos)
+	// keeps its parens. The unwrapped text is a slice of the source, so the
+	// seed and stages keep real positions in both forms.
+	exprPos := p.posAt(coreOff)
+	seed, stages, perr := parsePipe(core, exprPos)
 	if perr != nil {
 		return nil, perr
 	}
-	// ExprPos maps the seed back to its source bytes for LSP cursor bridging.
-	// It survives a bare pipeline (the seed is a prefix of the source text) but
-	// not the paren-unwrap below, which rewrites the seed away from the source.
-	exprPos := p.posAt(coreOff)
 	if len(stages) == 0 {
 		if unwrapped, ok := balancedParenUnwrap(core); ok {
-			if s2, st2, err := parsePipe(unwrapped, token.NoPos); err == nil && len(st2) > 0 {
+			innerPos := p.posAt(coreOff + 1 + leadingSpaceLen(core[1:]))
+			if s2, st2, err := parsePipe(unwrapped, innerPos); err == nil && len(st2) > 0 {
 				seed, stages = s2, st2
-				exprPos = token.NoPos
+				exprPos = innerPos
 			}
 		}
 	}

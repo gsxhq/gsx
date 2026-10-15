@@ -58,9 +58,9 @@ func Uses() _gsxrt.Node {
 //line input.gsx:10:2
 		_gsxgw.S("<div>")
 //line input.gsx:10:7
-		_gsxgw.Text(string(item.Label))
+		_gsxgw.Text(string( /*line input.gsx:10:9*/ item.Label))
 //line input.gsx:10:21
-		_gsxgw.Node(ctx, item.Icon)
+		_gsxgw.Node(ctx /*line input.gsx:10:23*/, item.Icon)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

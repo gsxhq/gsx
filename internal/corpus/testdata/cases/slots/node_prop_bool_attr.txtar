@@ -42,7 +42,7 @@ func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, flag gsx.Node) er
 //line input.gsx:6:2
 	_gsxgw.S("<div>")
 //line input.gsx:6:7
-	_gsxgw.Node(ctx, flag)
+	_gsxgw.Node(ctx /*line input.gsx:6:8*/, flag)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

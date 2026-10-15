@@ -52,7 +52,7 @@ func _gsxrenderSlot(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, body gsx.Node) e
 //line input.gsx:5:33
 	_gsxgw.S("<section>")
 //line input.gsx:5:42
-	_gsxgw.Node(ctx, body)
+	_gsxgw.Node(ctx /*line input.gsx:5:43*/, body)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }

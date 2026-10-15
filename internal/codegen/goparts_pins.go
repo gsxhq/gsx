@@ -243,7 +243,6 @@ func (f *fieldPins) raw(sb *strings.Builder, start, end int) {
 	}
 }
 
-// String returns the field's expression.
 // writeAuthored writes a verbatim run starting at source offset start,
 // anchored to its source line (anchorAuthored).
 func (f *fieldPins) writeAuthored(sb *strings.Builder, start int, text string) {
@@ -251,6 +250,7 @@ func (f *fieldPins) writeAuthored(sb *strings.Builder, start int, text string) {
 	sb.WriteString(anchorAuthored(f.lc.fset, token.Pos(start+lead), text))
 }
 
+// String returns the field's expression.
 func (f *fieldPins) String() string {
 	if len(f.pinned) == 0 {
 		var sb strings.Builder

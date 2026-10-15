@@ -38,14 +38,14 @@ func Pick(k string) _gsxrt.Node {
 		case /*line input.gsx:5:7*/ "a":
 			_gsxgw.S("one - ")
 //line input.gsx:6:9
-			_gsxgw.Text(string(k))
+			_gsxgw.Text(string( /*line input.gsx:6:10*/ k))
 			_gsxgw.S(" ")
 //line input.gsx:6:13
 			_gsxgw.S("<br>")
 		default:
 			_gsxgw.S("two - ")
 //line input.gsx:8:9
-			_gsxgw.Text(string(k))
+			_gsxgw.Text(string( /*line input.gsx:8:10*/ k))
 			_gsxgw.S(" ")
 //line input.gsx:8:13
 			_gsxgw.S("<br>")

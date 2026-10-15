@@ -46,7 +46,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.No
 	_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:24
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:6:25*/, children)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }

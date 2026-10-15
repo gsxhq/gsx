@@ -79,7 +79,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, c
 //line input.gsx:7:3
 	_gsxgw.S("<label>")
 //line input.gsx:7:10
-	_gsxgw.Text(string(label))
+	_gsxgw.Text(string( /*line input.gsx:7:11*/ label))
 	_gsxgw.S("</label>")
 //line input.gsx:8:3
 	_gsxgw.S("<input class=\"")

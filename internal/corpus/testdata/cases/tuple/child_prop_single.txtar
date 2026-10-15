@@ -40,7 +40,7 @@ func _gsxrenderRow(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string) err
 //line input.gsx:5:31
 	_gsxgw.S("<span>")
 //line input.gsx:5:37
-	_gsxgw.Text(string(label))
+	_gsxgw.Text(string( /*line input.gsx:5:38*/ label))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

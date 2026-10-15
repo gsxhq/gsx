@@ -41,7 +41,7 @@ func _gsxrenderButton[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:4:17*/ size))
 	_gsxgw.S("\">")
 //line input.gsx:4:23
-	_gsxgw.TextAny(label)
+	_gsxgw.TextAny( /*line input.gsx:4:24*/ label)
 	_gsxgw.S("</button>")
 	return _gsxgw.Err()
 }

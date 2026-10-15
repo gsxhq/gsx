@@ -50,7 +50,7 @@ func _gsxrenderEscaped(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, text, attr, n
 	_gsxgw.AttrValue(string( /*line input.gsx:4:15*/ attr))
 	_gsxgw.S("\">")
 //line input.gsx:4:22
-	_gsxgw.Text(string(text))
+	_gsxgw.Text(string( /*line input.gsx:4:24*/ text))
 	_gsxgw.S("</div>")
 //line input.gsx:5:2
 	_gsxgw.S("<a href=\"")

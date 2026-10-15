@@ -125,7 +125,7 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv1), _gsxrt.Class(string(_gsxv0)))
 		_gsxgw.S("\"></p>")
 //line input.gsx:25:44
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:25:46*/ r).String())
 //line input.gsx:26:2
 		r = &rec{}
 //line input.gsx:27:2
@@ -141,7 +141,7 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv3), _gsxrt.ClassIf(_gsxv4, _gsxv5), _gsxrt.Class(string(_gsxv2)))
 		_gsxgw.S("\"></p>")
 //line input.gsx:27:59
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:27:61*/ r).String())
 //line input.gsx:28:2
 		r = &rec{}
 //line input.gsx:29:2
@@ -157,7 +157,7 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv8), _gsxrt.ClassIf(_gsxv9 /*line input.gsx:29:36*/, yes(_gsxv7 /*line input.gsx:29:48*/, string(_gsxv6) /*line input.gsx:29:64*/)))
 		_gsxgw.S("\"></p>")
 //line input.gsx:29:72
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:29:74*/ r).String())
 //line input.gsx:30:2
 		r = &rec{}
 //line input.gsx:31:2
@@ -176,7 +176,7 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv10), _gsxrt.Class(_gsxv11), _gsxrt.Class(_gsxv13), _gsxrt.Class(string(_gsxv12)))
 		_gsxgw.S("\"></p>")
 //line input.gsx:31:74
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:31:76*/ r).String())
 //line input.gsx:32:2
 		r = &rec{}
 //line input.gsx:33:2
@@ -190,7 +190,7 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(_gsxv15)), _gsxrt.Style("width:"+_gsxrt.StyleValue(_gsxv14)+"px"))
 		_gsxgw.S("\"></p>")
 //line input.gsx:33:62
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:33:64*/ r).String())
 //line input.gsx:34:2
 		r = &rec{}
 //line input.gsx:35:2
@@ -201,7 +201,7 @@ func Page(on bool) _gsxrt.Node {
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv17), _gsxrt.Class(string(_gsxv16)))}}))
 //line input.gsx:35:43
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:35:45*/ r).String())
 //line input.gsx:36:2
 		r = &rec{}
 //line input.gsx:37:2
@@ -218,7 +218,7 @@ func Page(on bool) _gsxrt.Node {
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv20))
 //line input.gsx:37:57
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:37:59*/ r).String())
 //line input.gsx:38:2
 		r = &rec{}
 //line input.gsx:39:2
@@ -235,7 +235,7 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv24, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:39:62
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:39:64*/ r).String())
 //line input.gsx:40:2
 		r = &rec{}
 //line input.gsx:41:2
@@ -252,7 +252,7 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv28, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:41:80
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:41:82*/ r).String())
 //line input.gsx:42:2
 		r = &rec{}
 //line input.gsx:43:2
@@ -263,7 +263,7 @@ func Page(on bool) _gsxrt.Node {
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{_gsxv29, {Key: "data-b", Value: _gsxv30}}))
 //line input.gsx:43:59
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:43:61*/ r).String())
 //line input.gsx:44:2
 		r = &rec{}
 //line input.gsx:45:2
@@ -274,7 +274,7 @@ func Page(on bool) _gsxrt.Node {
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{_gsxv32, {Key: "data-b", Value: string(_gsxv31)}}))
 //line input.gsx:45:65
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:45:67*/ r).String())
 //line input.gsx:46:2
 		r = &rec{}
 //line input.gsx:47:2
@@ -286,7 +286,7 @@ func Page(on bool) _gsxrt.Node {
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{_gsxv33, _gsxv34, {Key: "data-b", Value: _gsxv35}}))
 //line input.gsx:47:74
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:47:76*/ r).String())
 		return _gsxgw.Err()
 	})
 }

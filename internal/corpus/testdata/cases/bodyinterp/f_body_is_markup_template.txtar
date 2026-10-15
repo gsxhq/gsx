@@ -33,7 +33,7 @@ func Host(x string) _gsxrt.Node {
 //line input.gsx:3:7
 		_gsxgw.S("<b>")
 //line input.gsx:3:15
-		_gsxgw.Text(string(x))
+		_gsxgw.Text(string( /*line input.gsx:3:16*/ x))
 		_gsxgw.S("</b></div>")
 		return _gsxgw.Err()
 	})

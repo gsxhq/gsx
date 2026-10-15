@@ -54,7 +54,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, a string, bag gs
 //line input.gsx:10:2
 	_gsxgw.S("<div>")
 //line input.gsx:10:7
-	_gsxgw.Text(string(a))
+	_gsxgw.Text(string( /*line input.gsx:10:8*/ a))
 //line input.gsx:10:10
 	_gsxv0 := /*line input.gsx:10:18*/ bag
 	_gsxgw.S("<span")
@@ -63,7 +63,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, a string, bag gs
 	_gsxgw.Spread(ctx, "span", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></span>")
 //line input.gsx:10:28
-	_gsxgw.Text(string(b))
+	_gsxgw.Text(string( /*line input.gsx:10:29*/ b))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

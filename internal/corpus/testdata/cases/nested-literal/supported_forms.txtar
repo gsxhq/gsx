@@ -50,7 +50,7 @@ func boldID(id int) gsx.Node {
 //line input.gsx:7:48
 		_gsxgw.S("<b>")
 //line input.gsx:7:51
-		_gsxgw.IntInto(_gsxnum[:], int64(id))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:7:53*/ id))
 		_gsxgw.S("</b>")
 		return _gsxgw.Err()
 	}) /*line input.gsx:7:61*/)
@@ -71,9 +71,9 @@ func _gsxrenderSlot(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, h gsx.Node, t st
 //line input.gsx:10:2
 	_gsxgw.S("<div>")
 //line input.gsx:10:7
-	_gsxgw.Node(ctx, h)
+	_gsxgw.Node(ctx /*line input.gsx:10:9*/, h)
 //line input.gsx:10:12
-	_gsxgw.Text(string(t))
+	_gsxgw.Text(string( /*line input.gsx:10:14*/ t))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

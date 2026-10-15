@@ -70,7 +70,7 @@ func Marked(v pg.ID) _gsxrt.Node {
 //line input.gsx:9:2
 		_gsxgw.S("<p>")
 //line input.gsx:9:5
-		_gsxgw.Text(string(_gsxf0.PgID((v))))
+		_gsxgw.Text(string(_gsxf0.PgID(( /*line input.gsx:9:6*/ v))))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

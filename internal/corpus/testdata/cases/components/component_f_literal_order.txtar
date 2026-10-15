@@ -103,11 +103,11 @@ func _gsxrenderTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first string, 
 	_gsxgw.Spread(ctx, "div", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:35
-	_gsxgw.Text(string(first))
+	_gsxgw.Text(string( /*line input.gsx:6:36*/ first))
 //line input.gsx:6:42
-	_gsxgw.Text(string(formatted))
+	_gsxgw.Text(string( /*line input.gsx:6:43*/ formatted))
 //line input.gsx:6:53
-	_gsxgw.Text(string(last))
+	_gsxgw.Text(string( /*line input.gsx:6:54*/ last))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

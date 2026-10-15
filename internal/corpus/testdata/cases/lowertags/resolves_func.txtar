@@ -43,7 +43,7 @@ func _gsxrendercard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Nod
 //line input.gsx:6:2
 	_gsxgw.S("<div class=\"card\">")
 //line input.gsx:6:20
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:6:21*/, children)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

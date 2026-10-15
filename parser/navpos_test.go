@@ -111,13 +111,17 @@ component C(user string, cond bool, n int, bag string) {
 	}
 }
 
-// TestSpreadPipelineParenUnwrapExprPos pins that a parenthesized spread
-// pipeline — whose seed is rewritten away from the source bytes — records
-// NoPos rather than a misaligned position, while a bare piped spread keeps the
-// seed position.
+// TestSpreadPipelineParenUnwrapExprPos pins that a spread pipeline's seed and
+// stages carry the positions of their own source bytes in both the bare and
+// the canonical parenthesized form (whose unwrapped text is a slice of the
+// source), so codegen anchors and LSP cursor mapping land on them.
 func TestSpreadPipelineParenUnwrapExprPos(t *testing.T) {
-	parse := func(body string) *ast.SpreadAttr {
-		t.Helper()
+	for _, body := range []string{
+		"{ (bag |> trim(\"x\"))... }",
+		"{ ( bag\n\t\t|> trim(\"x\") )... }",
+		"{ bag |> trim(\"x\")... }",
+		"{ bag... }",
+	} {
 		src := []byte("package p\n\ncomponent C(bag string) {\n\t<div " + body + ">x</div>\n}\n")
 		fset := token.NewFileSet()
 		f, err := ParseFile(fset, "c.gsx", src, 0)
@@ -132,18 +136,26 @@ func TestSpreadPipelineParenUnwrapExprPos(t *testing.T) {
 			return true
 		})
 		if sa == nil {
-			t.Fatal("no SpreadAttr parsed")
+			t.Fatalf("%s: no SpreadAttr parsed", body)
 		}
-		return sa
-	}
-
-	if sa := parse("{ (bag |> trim)... }"); len(sa.Stages) == 0 {
-		t.Error("parenthesized spread pipeline lost its stages")
-	} else if sa.ExprPos.IsValid() {
-		t.Error("paren-unwrapped spread pipeline has an ExprPos; seed no longer matches source bytes")
-	}
-	if sa := parse("{ bag... }"); !sa.ExprPos.IsValid() {
-		t.Error("plain spread has no ExprPos")
+		at := func(pos token.Pos, want, what string) {
+			t.Helper()
+			if !pos.IsValid() {
+				t.Errorf("%s: %s has no position", body, what)
+				return
+			}
+			if off := fset.Position(pos).Offset; !strings.HasPrefix(string(src[off:]), want) {
+				t.Errorf("%s: %s position points at %q, want %q", body, what, string(src[off:min(off+len(want), len(src))]), want)
+			}
+		}
+		at(sa.ExprPos, strings.TrimSpace(sa.Expr), "seed")
+		if strings.Contains(body, "trim") {
+			if len(sa.Stages) != 1 {
+				t.Fatalf("%s: got %d stages, want 1", body, len(sa.Stages))
+			}
+			at(sa.Stages[0].NamePos, "trim", "stage name")
+			at(sa.Stages[0].ArgsPos, `"x"`, "stage args")
+		}
 	}
 }
 

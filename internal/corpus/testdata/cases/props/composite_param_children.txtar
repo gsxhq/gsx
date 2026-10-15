@@ -55,7 +55,7 @@ func _gsxrenderButton(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p Props, child
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:10:18*/ "btn"), _gsxrt.Class( /*line input.gsx:10:25*/ p.Variant))
 	_gsxgw.S("\">")
 //line input.gsx:10:37
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:10:39*/, children)
 	_gsxgw.S("</button>")
 	return _gsxgw.Err()
 }

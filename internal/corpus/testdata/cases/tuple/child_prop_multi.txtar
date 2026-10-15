@@ -43,10 +43,10 @@ func _gsxrenderName(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first string, la
 //line input.gsx:6:45
 	_gsxgw.S("<div>")
 //line input.gsx:6:50
-	_gsxgw.Text(string(first))
+	_gsxgw.Text(string( /*line input.gsx:6:51*/ first))
 	_gsxgw.S(" ")
 //line input.gsx:6:58
-	_gsxgw.Text(string(last))
+	_gsxgw.Text(string( /*line input.gsx:6:59*/ last))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

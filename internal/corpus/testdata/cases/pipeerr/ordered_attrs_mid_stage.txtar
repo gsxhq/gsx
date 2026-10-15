@@ -71,9 +71,9 @@ func _gsxrenderLabel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, a string, b str
 //line input.gsx:3:39
 	_gsxgw.S("<span>")
 //line input.gsx:3:45
-	_gsxgw.Text(string(a))
+	_gsxgw.Text(string( /*line input.gsx:3:46*/ a))
 //line input.gsx:3:48
-	_gsxgw.Text(string(b))
+	_gsxgw.Text(string( /*line input.gsx:3:49*/ b))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

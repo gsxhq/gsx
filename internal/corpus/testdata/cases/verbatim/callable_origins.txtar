@@ -61,7 +61,7 @@ func Line(label string) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<i>")
 //line input.gsx:6:5
-		_gsxgw.Text(string(label))
+		_gsxgw.Text(string( /*line input.gsx:6:6*/ label))
 		_gsxgw.S("</i>")
 		return _gsxgw.Err()
 	})

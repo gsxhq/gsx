@@ -47,7 +47,7 @@ func _gsxrenderChild[U string](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value
 //line child_alternate.gsx:5:38
 	_gsxgw.S("<span>alternate:")
 //line child_alternate.gsx:5:54
-	_gsxgw.Text(string(value))
+	_gsxgw.Text(string( /*line child_alternate.gsx:5:56*/ value))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
@@ -78,7 +78,7 @@ func _gsxrenderChild[T string](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value
 //line child_default.gsx:5:38
 	_gsxgw.S("<span>default:")
 //line child_default.gsx:5:52
-	_gsxgw.Text(string(value))
+	_gsxgw.Text(string( /*line child_default.gsx:5:54*/ value))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

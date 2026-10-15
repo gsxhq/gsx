@@ -91,13 +91,13 @@ func _gsxrenderOrdered(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first, second
 //line input.gsx:4:2
 	_gsxgw.S("<p>")
 //line input.gsx:4:5
-	_gsxgw.Text(string(first))
+	_gsxgw.Text(string( /*line input.gsx:4:7*/ first))
 	_gsxgw.S("/")
 //line input.gsx:4:15
-	_gsxgw.Text(string(second))
+	_gsxgw.Text(string( /*line input.gsx:4:17*/ second))
 	_gsxgw.S("/")
 //line input.gsx:4:26
-	_gsxgw.Text(string(last))
+	_gsxgw.Text(string( /*line input.gsx:4:28*/ last))
 	_gsxgw.S("</p>")
 	return _gsxgw.Err()
 }

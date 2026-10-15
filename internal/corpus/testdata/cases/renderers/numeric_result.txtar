@@ -69,7 +69,7 @@ func Tag(val pg.Count) _gsxrt.Node {
 		_gsxgw.IntInto(_gsxnum[:], int64(_gsxf0.CountVal(( /*line input.gsx:8:16*/ val))))
 		_gsxgw.S("\">")
 //line input.gsx:8:22
-		_gsxgw.IntInto(_gsxnum[:], int64(_gsxf0.CountVal((val))))
+		_gsxgw.IntInto(_gsxnum[:], int64(_gsxf0.CountVal(( /*line input.gsx:8:24*/ val))))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

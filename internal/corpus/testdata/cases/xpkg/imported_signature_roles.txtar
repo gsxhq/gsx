@@ -76,10 +76,10 @@ func Card(title string, children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 //line card.gsx:6:33
 		_gsxgw.S("<h2>")
 //line card.gsx:6:37
-		_gsxgw.Text(string(title))
+		_gsxgw.Text(string( /*line card.gsx:6:38*/ title))
 		_gsxgw.S("</h2>")
 //line card.gsx:6:49
-		_gsxgw.Node(ctx, children)
+		_gsxgw.Node(ctx /*line card.gsx:6:50*/, children)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

@@ -73,9 +73,9 @@ func Uses() _gsxrt.Node {
 //line input.gsx:18:2
 		_gsxgw.S("<section>")
 //line input.gsx:18:11
-		_gsxgw.Node(ctx, X)
+		_gsxgw.Node(ctx /*line input.gsx:18:13*/, X)
 //line input.gsx:18:16
-		_gsxgw.Node(ctx, local())
+		_gsxgw.Node(ctx /*line input.gsx:18:18*/, local())
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})

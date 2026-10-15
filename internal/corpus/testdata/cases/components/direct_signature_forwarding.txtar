@@ -48,7 +48,7 @@ func _gsxrenderGeneric[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Write
 //line input.gsx:5:46
 	_gsxgw.S("<span>")
 //line input.gsx:5:52
-	_gsxgw.TextAny(value)
+	_gsxgw.TextAny( /*line input.gsx:5:54*/ value)
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
@@ -68,10 +68,10 @@ func _gsxrenderGrouped[T, U string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Wr
 //line input.gsx:6:59
 	_gsxgw.S("<b>")
 //line input.gsx:6:62
-	_gsxgw.TextAny(first)
+	_gsxgw.TextAny( /*line input.gsx:6:64*/ first)
 	_gsxgw.S(":")
 //line input.gsx:6:72
-	_gsxgw.TextAny(second)
+	_gsxgw.TextAny( /*line input.gsx:6:74*/ second)
 	_gsxgw.S("</b>")
 	return _gsxgw.Err()
 }
@@ -109,10 +109,10 @@ func _gsxrenderVariadic(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, prefix strin
 //line input.gsx:8:52
 	_gsxgw.S("<u>")
 //line input.gsx:8:55
-	_gsxgw.Text(string(prefix))
+	_gsxgw.Text(string( /*line input.gsx:8:57*/ prefix))
 	_gsxgw.S(":")
 //line input.gsx:8:66
-	_gsxgw.IntInto(_gsxnum[:], int64(len(values)))
+	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:8:68*/ len(values)))
 	_gsxgw.S("</u>")
 	return _gsxgw.Err()
 }

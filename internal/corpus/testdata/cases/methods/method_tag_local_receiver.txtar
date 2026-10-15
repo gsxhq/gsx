@@ -63,7 +63,7 @@ func (p P) Meth(n int) _gsxrt.Node {
 //line input.gsx:10:2
 		_gsxgw.S("<b>")
 //line input.gsx:10:5
-		_gsxgw.IntInto(_gsxnum[:], int64(n))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:10:7*/ n))
 		_gsxgw.S("</b>")
 		return _gsxgw.Err()
 	})
@@ -77,9 +77,9 @@ func (p *P) PMeth(n int) _gsxrt.Node {
 //line input.gsx:14:2
 		_gsxgw.S("<i>")
 //line input.gsx:14:5
-		_gsxgw.Text(string(p.Name))
+		_gsxgw.Text(string( /*line input.gsx:14:7*/ p.Name))
 //line input.gsx:14:15
-		_gsxgw.IntInto(_gsxnum[:], int64(n))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:14:17*/ n))
 		_gsxgw.S("</i>")
 		return _gsxgw.Err()
 	})
@@ -96,7 +96,7 @@ func (p P) Box(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line input.gsx:18:20
-		_gsxgw.Node(ctx, children)
+		_gsxgw.Node(ctx /*line input.gsx:18:22*/, children)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
@@ -164,7 +164,7 @@ func Card(p P) _gsxrt.Node {
 			return _gsxgw.Err()
 		}) /*line input.gsx:35:44*/))
 //line input.gsx:36:2
-		_gsxgw.Node(ctx, helper())
+		_gsxgw.Node(ctx /*line input.gsx:36:4*/, helper())
 		return _gsxgw.Err()
 	})
 }

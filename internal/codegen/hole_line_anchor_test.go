@@ -60,6 +60,12 @@ func pChildLitB() string        { return "" }
 func pScript() string           { return "" }
 func pStyleChild() string       { return "" }
 func pCtrl() bool               { return true }
+func pChildMultiSeed() string   { return "" }
+func pChildBraceSeed() string   { return "" }
+func pSpreadPipe() gsx.Attrs    { return nil }
+func pSpreadPipeArg() string    { return "" }
+func pSpreadBare() gsx.Attrs    { return nil }
+func pSpreadBareArg() string    { return "" }
 
 var _ context.Context
 `
@@ -68,9 +74,15 @@ var _ context.Context
 // of structpages.URLFor that structpages-lint inspects in the .x.go.
 const holeAnchorFilter = `package sp
 
-import "context"
+import (
+	"context"
+
+	"github.com/gsxhq/gsx"
+)
 
 func URLFor(ctx context.Context, page any, args ...any) (string, error) { return "", nil }
+
+func Keep(a gsx.Attrs, key string) gsx.Attrs { return a }
 `
 
 const holeAnchorSrc = `package views
@@ -128,6 +140,17 @@ component Page() {
 		></p>
 		<p>{pChild()}</p>
 		<p>{pChildPipe() |> upper}</p>
+		<p>{pChildMultiSeed()
+			|> upper}</p>
+		<p>{
+			pChildBraceSeed()
+			|> upper}</p>
+		<p
+			{ (pSpreadPipe() |> keep(pSpreadPipeArg()))... }
+		></p>
+		<p
+			{ pSpreadBare() |> keep(pSpreadBareArg())... }
+		></p>
 		<p>{f` + "`" + `a @{pChildLitA()}
 		  b @{pChildLitB()}` + "`" + ` |> upper}</p>
 		<script>
@@ -167,7 +190,7 @@ func TestShippedHoleLineAnchors(t *testing.T) {
 	opts := Options{
 		FilterPkgs: []string{stdImportPath},
 		LoadPkgs:   []string{"gsxh/sp"},
-		Aliases:    []FilterAlias{{Name: "url", PkgPath: "gsxh/sp", FuncName: "URLFor"}},
+		Aliases:    []FilterAlias{{Name: "url", PkgPath: "gsxh/sp", FuncName: "URLFor"}, {Name: "keep", PkgPath: "gsxh/sp", FuncName: "Keep"}},
 	}
 	res, err := GenerateDirs(tmp, []string{pkgDir}, opts, nil)
 	if err != nil {

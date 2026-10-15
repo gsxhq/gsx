@@ -70,7 +70,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, d cardData) erro
 //line input.gsx:14:2
 	_gsxgw.S("<div>")
 //line input.gsx:14:7
-	_gsxgw.Text(string(d.Title))
+	_gsxgw.Text(string( /*line input.gsx:14:9*/ d.Title))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -92,7 +92,7 @@ func (p Home) Content(pd pageData) _gsxrt.Node {
 //line input.gsx:22:2
 		_gsxgw.S("<h1>")
 //line input.gsx:22:6
-		_gsxgw.Text(string(pd.Heading))
+		_gsxgw.Text(string( /*line input.gsx:22:8*/ pd.Heading))
 		_gsxgw.S("</h1>")
 		return _gsxgw.Err()
 	})

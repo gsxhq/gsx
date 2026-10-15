@@ -46,7 +46,7 @@ func _gsxrenderTag[T ~string](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value 
 //line input.gsx:6:2
 	_gsxgw.S("<b>")
 //line input.gsx:6:5
-	_gsxgw.Text(string(value))
+	_gsxgw.Text(string( /*line input.gsx:6:6*/ value))
 	_gsxgw.S("</b>")
 	return _gsxgw.Err()
 }

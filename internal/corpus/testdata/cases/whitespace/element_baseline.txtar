@@ -42,23 +42,23 @@ func Base(a, b string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div id=\"s1\">")
 //line input.gsx:4:15
-		_gsxgw.Text(string(a))
+		_gsxgw.Text(string( /*line input.gsx:4:16*/ a))
 		_gsxgw.S(" - end</div>")
 //line input.gsx:5:2
 		_gsxgw.S("<div id=\"s3\">")
 //line input.gsx:5:15
-		_gsxgw.Text(string(a))
+		_gsxgw.Text(string( /*line input.gsx:5:16*/ a))
 		_gsxgw.S(" ")
 //line input.gsx:5:19
-		_gsxgw.Text(string(b))
+		_gsxgw.Text(string( /*line input.gsx:5:20*/ b))
 		_gsxgw.S("</div>")
 //line input.gsx:6:2
 		_gsxgw.S("<div id=\"s4\">")
 //line input.gsx:6:15
-		_gsxgw.Text(string(a))
+		_gsxgw.Text(string( /*line input.gsx:6:16*/ a))
 		_gsxgw.S(" - ")
 //line input.gsx:6:25
-		_gsxgw.Text(string(b))
+		_gsxgw.Text(string( /*line input.gsx:6:26*/ b))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

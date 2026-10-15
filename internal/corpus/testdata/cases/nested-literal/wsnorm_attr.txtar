@@ -62,7 +62,7 @@ func _gsxrenderHolder(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, h gsx.Node, at
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:8:20
-	_gsxgw.Node(ctx, h)
+	_gsxgw.Node(ctx /*line input.gsx:8:22*/, h)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -93,7 +93,7 @@ func Page(n int) _gsxrt.Node {
 //line input.gsx:15:3
 				_gsxgw.S("<b>")
 //line input.gsx:16:4
-				_gsxgw.IntInto(_gsxnum[:], int64(n))
+				_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:16:6*/ n))
 //line input.gsx:17:4
 				_gsxgw.S("<i></i></b>")
 				return _gsxgw.Err()

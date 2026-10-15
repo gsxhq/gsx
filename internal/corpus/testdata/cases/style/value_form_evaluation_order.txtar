@@ -47,7 +47,7 @@ func C(label string) _gsxrt.Node {
 		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(_gsxv0)), _gsxrt.Style(_gsxv1))
 		_gsxgw.S("\">")
 //line input.gsx:6:84
-		_gsxgw.Text(string(label))
+		_gsxgw.Text(string( /*line input.gsx:6:85*/ label))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

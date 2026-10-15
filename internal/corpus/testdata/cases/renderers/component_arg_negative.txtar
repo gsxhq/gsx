@@ -74,7 +74,7 @@ func _gsxrenderChild(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, val pg.Text) er
 //line input.gsx:8:2
 	_gsxgw.S("<span>")
 //line input.gsx:8:8
-	_gsxgw.Text(string(val.String))
+	_gsxgw.Text(string( /*line input.gsx:8:10*/ val.String))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

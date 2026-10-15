@@ -52,12 +52,12 @@ func Uses(name string, other int) _gsxrt.Node {
 //line input.gsx:8:14
 			_gsxgw.S("<b>")
 //line input.gsx:8:17
-			_gsxgw.Text(string(name))
+			_gsxgw.Text(string( /*line input.gsx:8:19*/ name))
 			_gsxgw.S("</b>")
 			return _gsxgw.Err()
 		}) /*line input.gsx:8:29*/))
 //line input.gsx:8:32
-		_gsxgw.IntInto(_gsxnum[:], int64(other))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:8:34*/ other))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

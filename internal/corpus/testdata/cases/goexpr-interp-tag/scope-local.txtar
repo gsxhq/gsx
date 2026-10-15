@@ -47,7 +47,7 @@ func Uses(name string) _gsxrt.Node {
 //line input.gsx:8:14
 			_gsxgw.S("<b>")
 //line input.gsx:8:17
-			_gsxgw.Text(string(name))
+			_gsxgw.Text(string( /*line input.gsx:8:19*/ name))
 			_gsxgw.S("</b>")
 			return _gsxgw.Err()
 		}) /*line input.gsx:8:29*/))

@@ -58,7 +58,7 @@ func Timestamptz(v pg.Timestamptz) gsx.Node {
 //line renderers.gsx:9:9
 		_gsxgw.S("<time>")
 //line renderers.gsx:9:15
-		_gsxgw.Text(string(v.Label))
+		_gsxgw.Text(string( /*line renderers.gsx:9:16*/ v.Label))
 		_gsxgw.S("</time>")
 		return _gsxgw.Err()
 	}) /*line renderers.gsx:9:31*/
@@ -71,7 +71,7 @@ func OwnerPreview(v pg.Timestamptz) _gsxrt.Node {
 //line renderers.gsx:13:2
 		_gsxgw.S("<div>")
 //line renderers.gsx:13:7
-		_gsxgw.Node(ctx, Timestamptz((v)))
+		_gsxgw.Node(ctx, Timestamptz(( /*line renderers.gsx:13:8*/ v)))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
@@ -99,7 +99,7 @@ func Page(v pg.Timestamptz) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<article>")
 //line input.gsx:8:11
-		_gsxgw.Node(ctx, _gsxf0.Timestamptz((v)))
+		_gsxgw.Node(ctx, _gsxf0.Timestamptz(( /*line input.gsx:8:12*/ v)))
 		_gsxgw.S("</article>")
 		return _gsxgw.Err()
 	})

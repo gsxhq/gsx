@@ -35,7 +35,7 @@ func C() _gsxrt.Node {
 		_gsxgw.AttrValue(string( /*line input.gsx:4:14*/ `plain @{x} text`))
 		_gsxgw.S("\">")
 //line input.gsx:4:32
-		_gsxgw.Text(string(`body @{y}`))
+		_gsxgw.Text(string( /*line input.gsx:4:33*/ `body @{y}`))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

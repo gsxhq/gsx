@@ -44,7 +44,7 @@ func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, icon gsx.Node) 
 //line input.gsx:7:34
 	_gsxgw.S("<div class=\"badge\">")
 //line input.gsx:7:53
-	_gsxgw.Node(ctx, icon)
+	_gsxgw.Node(ctx /*line input.gsx:7:54*/, icon)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

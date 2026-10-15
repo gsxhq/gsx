@@ -446,8 +446,7 @@ type SpreadAttr struct {
 	span
 	Expr string
 	// ExprPos is the position of the first char of Expr in source, for LSP
-	// cursor mapping. It is NoPos when Expr's text differs from the source
-	// bytes (a parenthesized pipeline unwrapped by the parser).
+	// cursor mapping (inside the parens of a `{ (seed |> f)... }` pipeline).
 	ExprPos  token.Pos
 	Stages   []PipeStage
 	Embedded []GoPart // codegen-only overlay; see Interp.Embedded

@@ -60,7 +60,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, at
 	_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:24
-	_gsxgw.Text(string(title))
+	_gsxgw.Text(string( /*line input.gsx:6:25*/ title))
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }

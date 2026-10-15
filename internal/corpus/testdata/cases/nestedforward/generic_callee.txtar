@@ -63,7 +63,7 @@ func _gsxrenderList[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, items []T
 //line input.gsx:8:4
 		_gsxgw.S("<li>")
 //line input.gsx:8:8
-		_gsxgw.Text(string( /*line input.gsx:8:16*/ _gsxstd.Printf((it) /*line input.gsx:8:23*/, "%v")))
+		_gsxgw.Text(string( /*line input.gsx:8:16*/ _gsxstd.Printf(( /*line input.gsx:8:10*/ it) /*line input.gsx:8:23*/, "%v")))
 		_gsxgw.S("</li>")
 	}
 	_gsxgw.S("</ul>")

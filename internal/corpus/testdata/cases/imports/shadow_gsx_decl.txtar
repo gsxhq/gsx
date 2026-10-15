@@ -36,7 +36,7 @@ func Uses() _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<b>")
 //line input.gsx:6:5
-		_gsxgw.IntInto(_gsxnum[:], int64(gsx))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:6:7*/ gsx))
 		_gsxgw.S("</b>")
 		return _gsxgw.Err()
 	})

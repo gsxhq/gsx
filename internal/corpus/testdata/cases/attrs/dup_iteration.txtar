@@ -52,7 +52,7 @@ func _gsxrenderEchoLen(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:7:15*/ len(attrs)))
 	_gsxgw.S("\">")
 //line input.gsx:7:27
-	_gsxgw.Text(string(s))
+	_gsxgw.Text(string( /*line input.gsx:7:28*/ s))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

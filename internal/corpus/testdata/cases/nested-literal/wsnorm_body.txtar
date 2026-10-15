@@ -65,7 +65,7 @@ func Page(n int) _gsxrt.Node {
 //line input.gsx:10:3
 				_gsxgw.S("<b>")
 //line input.gsx:11:4
-				_gsxgw.IntInto(_gsxnum[:], int64(n))
+				_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:11:6*/ n))
 //line input.gsx:12:4
 				_gsxgw.S("<i></i></b>")
 				return _gsxgw.Err()

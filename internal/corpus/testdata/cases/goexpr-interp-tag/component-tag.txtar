@@ -54,7 +54,7 @@ func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, count int) erro
 //line input.gsx:8:2
 	_gsxgw.S("<span>")
 //line input.gsx:8:8
-	_gsxgw.IntInto(_gsxnum[:], int64(count))
+	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:8:10*/ count))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }

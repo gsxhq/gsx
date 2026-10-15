@@ -43,7 +43,7 @@ func _gsxrenderCounter(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, val int) erro
 //line input.gsx:5:30
 	_gsxgw.S("<span>")
 //line input.gsx:5:36
-	_gsxgw.IntInto(_gsxnum[:], int64(val))
+	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:5:37*/ val))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
