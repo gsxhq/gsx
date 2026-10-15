@@ -89,7 +89,7 @@ func TestGenerateLocalRendererPackageWithoutXGo(t *testing.T) {
 		t.Fatalf("diags = %v", dr.Diags)
 	}
 	src := generatedFor(t, dr, "renderers.gsx")
-	if !strings.Contains(src, "Timestamptz((sample))") {
+	if !strings.Contains(codeShape(t, src), "Timestamptz((sample))") {
 		t.Fatalf("generated:\n%s", src)
 	}
 	if strings.Contains(src, `"example.com/app/renderers"`) {
@@ -113,7 +113,7 @@ func TestGenerateCrossPackageRendererWithoutXGo(t *testing.T) {
 		}
 	}
 	viewSrc := generatedFor(t, forward[viewsDir], "views.gsx")
-	if !strings.Contains(viewSrc, `_gsxf0 "example.com/app/renderers"`) || !strings.Contains(viewSrc, "_gsxf0.Timestamptz((sample))") {
+	if !strings.Contains(codeShape(t, viewSrc), `_gsxf0 "example.com/app/renderers"`) || !strings.Contains(codeShape(t, viewSrc), "_gsxf0.Timestamptz((sample))") {
 		t.Fatalf("cross-package renderer call/import missing:\n%s", viewSrc)
 	}
 	for _, path := range []string{filepath.Join(rendererDir, "renderers.x.go"), filepath.Join(viewsDir, "views.x.go")} {
@@ -145,7 +145,7 @@ func TestRendererDeclarationsUseFinalizedSemanticVariantPlan(t *testing.T) {
 	if hasDiagErrors(result[viewsDir].Diags) {
 		t.Fatalf("views diagnostics = %v, want renderer package variants grouped by semantic receiver", result[viewsDir].Diags)
 	}
-	if src := generatedFor(t, result[viewsDir], "views.gsx"); !strings.Contains(src, "_gsxf0.Timestamptz((sample))") {
+	if src := generatedFor(t, result[viewsDir], "views.gsx"); !strings.Contains(codeShape(t, src), "_gsxf0.Timestamptz((sample))") {
 		t.Fatalf("renderer call missing after semantic variant resolution:\n%s", src)
 	}
 }
@@ -369,7 +369,7 @@ func Label() string { return "fixed" }
 	if hasDiagErrors(diagnostics) {
 		t.Fatalf("warm Generate diagnostics = %v", diagnostics)
 	}
-	if generated := string(output[filepath.Join(viewsDir, "views.gsx")]); !strings.Contains(generated, "Timestamptz((sample))") {
+	if generated := string(output[filepath.Join(viewsDir, "views.gsx")]); !strings.Contains(codeShape(t, generated), "Timestamptz((sample))") {
 		t.Fatalf("warm output did not use the repaired renderer:\n%s", generated)
 	}
 	if got := m.externalLoads(); got != 1 {
@@ -390,7 +390,7 @@ func TestGenerateLocalRendererPackageWithoutGoCompanion(t *testing.T) {
 	if hasDiagErrors(dr.Diags) {
 		t.Fatalf("diags = %v", dr.Diags)
 	}
-	if src := generatedFor(t, dr, "renderers.gsx"); !strings.Contains(src, "Timestamptz((sample))") {
+	if src := generatedFor(t, dr, "renderers.gsx"); !strings.Contains(codeShape(t, src), "Timestamptz((sample))") {
 		t.Fatalf("generated:\n%s", src)
 	}
 }
@@ -411,7 +411,7 @@ func TestGenerateRendererLastWinnerControlsPackageResolution(t *testing.T) {
 	if hasDiagErrors(dr.Diags) {
 		t.Fatalf("diags = %v", dr.Diags)
 	}
-	if src := generatedFor(t, dr, "renderers.gsx"); !strings.Contains(src, "Timestamptz((sample))") {
+	if src := generatedFor(t, dr, "renderers.gsx"); !strings.Contains(codeShape(t, src), "Timestamptz((sample))") {
 		t.Fatalf("generated:\n%s", src)
 	}
 }
@@ -564,7 +564,7 @@ func Timestamptz(v pg.Timestamptz) string { return v.Label }
 		t.Fatalf("diags = %v", diags)
 	}
 	src := string(out[filepath.Join(viewsDir, "views.gsx")])
-	if !strings.Contains(src, `_gsxf0 "example.com/app/prebuilt"`) || !strings.Contains(src, "_gsxf0.Timestamptz((sample))") {
+	if !strings.Contains(codeShape(t, src), `_gsxf0 "example.com/app/prebuilt"`) || !strings.Contains(codeShape(t, src), "_gsxf0.Timestamptz((sample))") {
 		t.Fatalf("prebuilt renderer not used:\n%s", src)
 	}
 	if got := m.externalLoads(); got != 0 {

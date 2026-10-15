@@ -200,7 +200,7 @@ component Show(sample pg.Timestamptz) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(initial), `_gsxgw.Text(string(_gsxf0.Timestamptz((sample))))`) {
+	if !strings.Contains(codeShape(t, string(initial)), `_gsxgw.Text(string(_gsxf0.Timestamptz((sample))))`) {
 		t.Fatalf("initial consumer did not use string renderer lowering:\n%s", initial)
 	}
 
@@ -236,7 +236,7 @@ func Timestamptz(v pg.Timestamptz) gsx.Node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(updated), `_gsxgw.Node(ctx, _gsxf0.Timestamptz((sample)))`) {
+	if !strings.Contains(codeShape(t, string(updated)), `_gsxgw.Node(ctx, _gsxf0.Timestamptz((sample)))`) {
 		t.Fatalf("consumer did not update to Node renderer lowering:\n%s", updated)
 	}
 }
