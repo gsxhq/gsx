@@ -71,7 +71,7 @@ func Host() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Panel())
+		_gsxgw.Node(ctx /*line input.gsx:14:4*/, Panel())
 		return _gsxgw.Err()
 	})
 }

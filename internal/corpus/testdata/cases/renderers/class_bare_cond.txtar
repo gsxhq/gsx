@@ -80,7 +80,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, at
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:9:67
-	_gsxgw.Text(string(title))
+	_gsxgw.Text(string( /*line input.gsx:9:68*/ title))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -90,7 +90,7 @@ func Page(val pg.Text, on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.ClassIf(_gsxf0.PgText((val)), on))}}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.ClassIf(_gsxf0.PgText(( /*line input.gsx:12:27*/ val)) /*line input.gsx:12:32*/, on))}}))
 		return _gsxgw.Err()
 	})
 }

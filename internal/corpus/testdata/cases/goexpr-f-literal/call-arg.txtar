@@ -40,7 +40,7 @@ func Item(n int) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div>")
 //line input.gsx:4:7
-		_gsxgw.Text(string(wrap("id-" + _gsxsc.FormatInt(int64(n), 10))))
+		_gsxgw.Text(string( /*line input.gsx:4:9*/ wrap("id-" + _gsxsc.FormatInt(int64( /*line input.gsx:4:21*/ n), 10) /*line input.gsx:4:24*/)))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

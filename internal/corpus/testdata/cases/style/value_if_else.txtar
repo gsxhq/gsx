@@ -26,12 +26,12 @@ func Box(active bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxv0 := "display: block"
+		_gsxv0 := /*line input.gsx:4:15*/ "display: block"
 		var _gsxv1 string
-		if active {
-			_gsxv1 = "color: green"
+		if /*line input.gsx:4:36*/ active {
+			_gsxv1 = /*line input.gsx:4:45*/ "color: green"
 		} else {
-			_gsxv1 = "color: gray"
+			_gsxv1 = /*line input.gsx:4:69*/ "color: gray"
 		}
 		_gsxgw.S(" style=\"")
 		_gsxgw.Style(_gsxrt.Style(_gsxv0), _gsxrt.Style(_gsxv1))

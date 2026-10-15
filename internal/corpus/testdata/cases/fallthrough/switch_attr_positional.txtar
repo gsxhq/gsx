@@ -75,8 +75,8 @@ func _gsxrenderPre(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, n int, attrs gsx.
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<b")
-	switch n {
-	case 1:
+	switch /*line input.gsx:6:14*/ n {
+	case /*line input.gsx:6:23*/ 1:
 		if !attrs.Has("data-d") {
 			_gsxgw.S(" data-d=\"z!\"")
 		}
@@ -108,8 +108,8 @@ func _gsxrenderPost(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, n int, attrs gsx
 	_gsxgw.S("<b")
 	_gsxv0 := []string{"class", "style"}
 	var _gsxv1, _gsxv2 bool
-	switch n {
-	case 1:
+	switch /*line input.gsx:10:27*/ n {
+	case /*line input.gsx:10:36*/ 1:
 		_gsxv1 = true
 		_gsxv0 = append(_gsxv0, "data-d")
 	default:
@@ -146,11 +146,11 @@ func _gsxrenderPostInit(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, n int, attrs
 	_gsxgw.S("<b")
 	_gsxv3 := []string{"class", "style"}
 	var _gsxv4 func() error
-	switch m := n * 2; {
-	case m > 1:
+	switch /*line input.gsx:14:27*/ m := n * 2; {
+	case /*line input.gsx:14:46*/ m > 1:
 		_gsxv4 = func() error {
 			_gsxgw.S(" data-d=\"")
-			_gsxgw.IntInto(_gsxnum[:], int64(m))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:14:61*/ m))
 			_gsxgw.S("\"")
 			return nil
 		}
@@ -185,19 +185,19 @@ func _gsxrenderPostType(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, v any, attrs
 	_gsxgw.S("<b")
 	_gsxv5 := []string{"class", "style"}
 	var _gsxv6, _gsxv7 func() error
-	switch x := v.(type) {
-	case string:
+	switch /*line input.gsx:18:27*/ x := v.(type) {
+	case /*line input.gsx:18:48*/ string:
 		_gsxv6 = func() error {
 			_gsxgw.S(" data-d=\"")
-			_gsxgw.AttrValue(string(x))
+			_gsxgw.AttrValue(string( /*line input.gsx:18:64*/ x))
 			_gsxgw.S("\"")
 			return nil
 		}
 		_gsxv5 = append(_gsxv5, "data-d")
-	case int:
+	case /*line input.gsx:18:72*/ int:
 		_gsxv7 = func() error {
 			_gsxgw.S(" data-n=\"")
-			_gsxgw.IntInto(_gsxnum[:], int64(x))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:18:85*/ x))
 			_gsxgw.S("\"")
 			return nil
 		}
@@ -234,9 +234,9 @@ func _gsxrenderNested(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, n int, on bool
 	}
 //line input.gsx:22:2
 	_gsxgw.S("<b")
-	if on {
-		switch n {
-		case 1:
+	if /*line input.gsx:22:10*/ on {
+		switch /*line input.gsx:22:24*/ n {
+		case /*line input.gsx:22:33*/ 1:
 			if !attrs.Has("data-p") {
 				_gsxgw.S(" data-p=\"pre\"")
 			}
@@ -244,9 +244,9 @@ func _gsxrenderNested(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, n int, on bool
 	}
 	_gsxv8 := []string{"class", "style"}
 	var _gsxv9 bool
-	switch n {
-	case 1:
-		if on {
+	switch /*line input.gsx:22:79*/ n {
+	case /*line input.gsx:22:88*/ 1:
+		if /*line input.gsx:22:96*/ on {
 			_gsxv9 = true
 			_gsxv8 = append(_gsxv8, "data-q")
 		}
@@ -266,29 +266,29 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:26:2
-		_gsxgw.NodeResult(_gsxrenderPre(ctx, _gsxgw, 1, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderPre(ctx, _gsxgw /*line input.gsx:26:10*/, 1, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
 //line input.gsx:27:2
-		_gsxgw.NodeResult(_gsxrenderPre(ctx, _gsxgw, 2, _gsxrt.Attrs{{Key: "data-e", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderPre(ctx, _gsxgw /*line input.gsx:27:10*/, 2, _gsxrt.Attrs{{Key: "data-e", Value: "caller"}}))
 //line input.gsx:28:2
-		_gsxgw.NodeResult(_gsxrenderPre(ctx, _gsxgw, 1, nil))
+		_gsxgw.NodeResult(_gsxrenderPre(ctx, _gsxgw /*line input.gsx:28:10*/, 1, nil))
 //line input.gsx:29:2
-		_gsxgw.NodeResult(_gsxrenderPost(ctx, _gsxgw, 1, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderPost(ctx, _gsxgw /*line input.gsx:29:11*/, 1, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
 //line input.gsx:30:2
-		_gsxgw.NodeResult(_gsxrenderPost(ctx, _gsxgw, 2, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-d", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-e", Value: "caller"}})))
+		_gsxgw.NodeResult(_gsxrenderPost(ctx, _gsxgw /*line input.gsx:30:11*/, 2, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-d", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-e", Value: "caller"}})))
 //line input.gsx:31:2
-		_gsxgw.NodeResult(_gsxrenderPost(ctx, _gsxgw, 1, _gsxrt.Attrs{{Key: "data-e", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderPost(ctx, _gsxgw /*line input.gsx:31:11*/, 1, _gsxrt.Attrs{{Key: "data-e", Value: "caller"}}))
 //line input.gsx:32:2
-		_gsxgw.NodeResult(_gsxrenderPostInit(ctx, _gsxgw, 1, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderPostInit(ctx, _gsxgw /*line input.gsx:32:15*/, 1, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
 //line input.gsx:33:2
-		_gsxgw.NodeResult(_gsxrenderPostInit(ctx, _gsxgw, 0, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderPostInit(ctx, _gsxgw /*line input.gsx:33:15*/, 0, _gsxrt.Attrs{{Key: "data-d", Value: "caller"}}))
 //line input.gsx:34:2
-		_gsxgw.NodeResult(_gsxrenderPostType(ctx, _gsxgw, "s", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-d", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-n", Value: "caller"}})))
+		_gsxgw.NodeResult(_gsxrenderPostType(ctx, _gsxgw /*line input.gsx:34:15*/, "s", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-d", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-n", Value: "caller"}})))
 //line input.gsx:35:2
-		_gsxgw.NodeResult(_gsxrenderPostType(ctx, _gsxgw, 3, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-d", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-n", Value: "caller"}})))
+		_gsxgw.NodeResult(_gsxrenderPostType(ctx, _gsxgw /*line input.gsx:35:15*/, 3, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-d", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-n", Value: "caller"}})))
 //line input.gsx:36:2
-		_gsxgw.NodeResult(_gsxrenderNested(ctx, _gsxgw, 1, true, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-p", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-q", Value: "caller"}})))
+		_gsxgw.NodeResult(_gsxrenderNested(ctx, _gsxgw /*line input.gsx:36:13*/, 1 /*line input.gsx:36:20*/, true, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-p", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-q", Value: "caller"}})))
 //line input.gsx:37:2
-		_gsxgw.NodeResult(_gsxrenderNested(ctx, _gsxgw, 2, true, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-p", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-q", Value: "caller"}})))
+		_gsxgw.NodeResult(_gsxrenderNested(ctx, _gsxgw /*line input.gsx:37:13*/, 2 /*line input.gsx:37:20*/, true, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-p", Value: "caller"}}, _gsxrt.Attrs{{Key: "data-q", Value: "caller"}})))
 		return _gsxgw.Err()
 	})
 }

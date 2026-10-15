@@ -46,7 +46,7 @@ func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, on bool, attrs gs
 	_gsxgw.S("<div")
 	_gsxv0 := []string{"class", "style"}
 	var _gsxv1 bool
-	if on {
+	if /*line input.gsx:6:25*/ on {
 		_gsxv1 = true
 		_gsxv0 = append(_gsxv0, "id")
 	}
@@ -65,9 +65,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, true, _gsxrt.Attrs{{Key: "ID", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:10:11*/, true, _gsxrt.Attrs{{Key: "ID", Value: /*line input.gsx:10:32*/ "caller"}}))
 //line input.gsx:11:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, false, _gsxrt.Attrs{{Key: "ID", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:11:11*/, false, _gsxrt.Attrs{{Key: "ID", Value: /*line input.gsx:11:33*/ "caller"}}))
 		return _gsxgw.Err()
 	})
 }

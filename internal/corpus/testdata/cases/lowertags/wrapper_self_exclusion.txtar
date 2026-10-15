@@ -42,7 +42,7 @@ func _gsxrenderdiv(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Node
 //line input.gsx:6:2
 	_gsxgw.S("<div class=\"wrapped\">")
 //line input.gsx:6:23
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:6:24*/, children)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }

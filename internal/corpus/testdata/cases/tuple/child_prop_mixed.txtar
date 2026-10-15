@@ -42,10 +42,10 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, msg string, coun
 //line input.gsx:5:41
 	_gsxgw.S("<div>")
 //line input.gsx:5:46
-	_gsxgw.Text(string(msg))
+	_gsxgw.Text(string( /*line input.gsx:5:47*/ msg))
 	_gsxgw.S(" x")
 //line input.gsx:5:53
-	_gsxgw.IntInto(_gsxnum[:], int64(count))
+	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:5:54*/ count))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -55,11 +55,11 @@ func Page(name string, n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:38
-		_gsxa0, _gsxerr := greeting(name)
+		_gsxa0, _gsxerr := /*line input.gsx:7:49*/ greeting(name)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxa0, n))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxa0 /*line input.gsx:7:72*/, n))
 		return _gsxgw.Err()
 	})
 }

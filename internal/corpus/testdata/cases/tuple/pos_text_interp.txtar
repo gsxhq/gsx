@@ -35,7 +35,7 @@ func Label(name string) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<span>")
 //line input.gsx:6:8
-		_gsxv0, _gsxerr := greet(name)
+		_gsxv0, _gsxerr := /*line input.gsx:6:10*/ greet(name)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

@@ -46,7 +46,7 @@ func NonceTwoSpreads(p gsx.Attrs, q gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(p, q)
+		_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:6:12*/ p /*line input.gsx:6:21*/, q)
 		_gsxgw.S("<script")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

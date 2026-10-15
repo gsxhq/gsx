@@ -65,7 +65,7 @@ func _gsxrenderSlot(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, h gsx.Node) erro
 //line input.gsx:8:2
 	_gsxgw.S("<div>")
 //line input.gsx:8:7
-	_gsxgw.Node(ctx, h)
+	_gsxgw.Node(ctx /*line input.gsx:8:9*/, h)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -75,22 +75,24 @@ func Page(id int, xs []string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
+		/*line input.gsx:12:5*/
 		n := wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			var _gsxnum [32]byte
 //line input.gsx:12:16
 			_gsxgw.S("<b>")
 //line input.gsx:12:19
-			_gsxgw.IntInto(_gsxnum[:], int64(id))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:12:21*/ id))
 			_gsxgw.S("</b>")
 			return _gsxgw.Err()
-		}))
+		}) /*line input.gsx:12:29*/)
 //line input.gsx:13:2
 		_gsxgw.S("<p>")
 //line input.gsx:13:5
-		_gsxgw.Node(ctx, n)
+		_gsxgw.Node(ctx /*line input.gsx:13:7*/, n)
 		_gsxgw.S("</p>")
 //line input.gsx:14:2
+		/*line input.gsx:14:5*/
 		m := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			var _gsxnum [32]byte
@@ -99,61 +101,64 @@ func Page(id int, xs []string) _gsxrt.Node {
 //line input.gsx:14:20
 			_gsxgw.S("<i>")
 //line input.gsx:14:23
-			_gsxgw.IntInto(_gsxnum[:], int64(id))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:14:25*/ id))
 			_gsxgw.S("</i>")
 			return _gsxgw.Err()
 		})
 //line input.gsx:15:2
 		_gsxgw.S("<p>")
 //line input.gsx:15:5
-		_gsxgw.Node(ctx, m)
+		_gsxgw.Node(ctx /*line input.gsx:15:7*/, m)
 		_gsxgw.S("</p>")
 //line input.gsx:16:2
-		for _, x := range xs {
+		for /*line input.gsx:16:8*/ _, x := range xs {
 //line input.gsx:17:3
+			/*line input.gsx:17:6*/
 			e := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:17:11
 				_gsxgw.S("<em>")
 //line input.gsx:17:15
-				_gsxgw.Text(string(x))
+				_gsxgw.Text(string( /*line input.gsx:17:17*/ x))
 				_gsxgw.S("</em>")
 				return _gsxgw.Err()
 			})
 //line input.gsx:18:3
 			_gsxgw.S("<p>")
 //line input.gsx:18:6
-			_gsxgw.Node(ctx, e)
+			_gsxgw.Node(ctx /*line input.gsx:18:8*/, e)
 			_gsxgw.S("</p>")
 		}
 //line input.gsx:20:2
+		/*line input.gsx:20:5*/
 		s := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			var _gsxnum [32]byte
 //line input.gsx:20:10
 			_gsxgw.S("<u>")
 //line input.gsx:20:13
-			_gsxgw.IntInto(_gsxnum[:], int64(id))
+			_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:20:15*/ id))
 			_gsxgw.S("</u>")
 			return _gsxgw.Err()
 		})
 //line input.gsx:21:2
-		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, s))
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw /*line input.gsx:21:11*/, s))
 //line input.gsx:22:2
+		/*line input.gsx:22:5*/
 		a := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:10
 			_gsxgw.S("<a href=\"")
-			_gsxgw.URL("/p/" + _gsxsc.FormatInt(int64(id), 10))
+			_gsxgw.URL("/p/" + _gsxsc.FormatInt(int64( /*line input.gsx:22:26*/ id), 10))
 			_gsxgw.S("\" title=\"")
-			_gsxgw.AttrValue(string(wrap("t-" + _gsxsc.FormatInt(int64(id), 10))))
+			_gsxgw.AttrValue(string( /*line input.gsx:22:39*/ wrap("t-" + _gsxsc.FormatInt(int64( /*line input.gsx:22:50*/ id), 10) /*line input.gsx:22:54*/)))
 			_gsxgw.S("\">link</a>")
 			return _gsxgw.Err()
 		})
 //line input.gsx:23:2
 		_gsxgw.S("<p>")
 //line input.gsx:23:5
-		_gsxgw.Node(ctx, a)
+		_gsxgw.Node(ctx /*line input.gsx:23:7*/, a)
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

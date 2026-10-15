@@ -74,7 +74,7 @@ func TestLocalFilterUsesAuthoritativeSourceGraphAndInvalidatesWarm(t *testing.T)
 	if hasDiagErrors(diagnostics) {
 		t.Fatalf("cold diagnostics = %v, want authoritative filter signature", diagnostics)
 	}
-	if generated := string(output[filepath.Join(pageDir, "page.gsx")]); !strings.Contains(generated, ".Fresh(ctx, (value))") {
+	if generated := string(output[filepath.Join(pageDir, "page.gsx")]); !strings.Contains(codeShape(t, generated), ".Fresh(ctx, (value))") {
 		t.Fatalf("cold output did not classify FilterContext as context.Context:\n%s", generated)
 	}
 	key := "example.com/app/page\x00" + strings.Join(dedupFilterPkgs([]string{"example.com/app/filters"}), "\x00")
@@ -126,7 +126,7 @@ func TestLocalFilterAliasUsesAuthoritativeSourceGraphAndInvalidatesWarm(t *testi
 	if hasDiagErrors(diagnostics) {
 		t.Fatalf("cold diagnostics = %v, want authoritative alias signature", diagnostics)
 	}
-	if generated := string(output[filepath.Join(pageDir, "page.gsx")]); !strings.Contains(generated, ".Fresh(ctx, (value))") {
+	if generated := string(output[filepath.Join(pageDir, "page.gsx")]); !strings.Contains(codeShape(t, generated), ".Fresh(ctx, (value))") {
 		t.Fatalf("cold output did not classify aliased FilterContext as context.Context:\n%s", generated)
 	}
 
@@ -250,7 +250,7 @@ component Page(value string) { <p>{value |> fresh}</p> }
 	if hasDiagErrors(diagnostics) {
 		t.Fatalf("active-companion diagnostics = %v", diagnostics)
 	}
-	if generated := string(output[filepath.Join(pageDir, "page.gsx")]); !strings.Contains(generated, ".Fresh(ctx, (value))") {
+	if generated := string(output[filepath.Join(pageDir, "page.gsx")]); !strings.Contains(codeShape(t, generated), ".Fresh(ctx, (value))") {
 		t.Fatalf("configured provider was not harvested from active source:\n%s", generated)
 	}
 }

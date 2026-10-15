@@ -94,49 +94,49 @@ func Page(id int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:2
-		switch n := wrap("q" + _gsxsc.FormatInt(int64(id), 10)); {
-		case n == "q1":
+		switch /*line input.gsx:22:11*/ n := wrap("q" + _gsxsc.FormatInt(int64( /*line input.gsx:22:26*/ id), 10) /*line input.gsx:22:30*/); /*line input.gsx:22:31*/ {
+		case /*line input.gsx:23:7*/ n == "q1":
 //line input.gsx:24:3
 			_gsxgw.S("<b>pure</b>")
 		}
 //line input.gsx:26:2
 		{
-			_gsxv0, _gsxerr := lookup(id)
+			_gsxv0, _gsxerr := /*line input.gsx:26:25*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			n := wrap(string(_gsxv0))
+			/*line input.gsx:26:11*/ n := wrap(string(_gsxv0) /*line input.gsx:26:37*/)
 			switch {
-			case n == "L":
+			case /*line input.gsx:27:7*/ n == "L":
 //line input.gsx:28:3
 				_gsxgw.S("<b>hoist</b>")
 			}
 		}
 //line input.gsx:30:2
 		_gsxgw.S("<i")
-		switch n := wrap("q" + _gsxsc.FormatInt(int64(id), 10)); {
-		case n == "q1":
+		switch /*line input.gsx:30:14*/ n := wrap("q" + _gsxsc.FormatInt(int64( /*line input.gsx:30:29*/ id), 10) /*line input.gsx:30:33*/); /*line input.gsx:30:34*/ {
+		case /*line input.gsx:30:43*/ n == "q1":
 			_gsxgw.S(" title=\"pure\"")
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:31:2
 		_gsxgw.S("<i")
 		{
-			_gsxv1, _gsxerr := lookup(id)
+			_gsxv1, _gsxerr := /*line input.gsx:31:28*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			n := wrap(string(_gsxv1))
+			/*line input.gsx:31:14*/ n := wrap(string(_gsxv1) /*line input.gsx:31:40*/)
 			switch {
-			case n == "L":
+			case /*line input.gsx:31:50*/ n == "L":
 				_gsxgw.S(" title=\"hoist\"")
 			}
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:32:2
 		_gsxv2, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n := wrap("q" + _gsxsc.FormatInt(int64(id), 10)); {
-		case n == "q1":
+		switch /*line input.gsx:32:16*/ n := wrap("q" + _gsxsc.FormatInt(int64( /*line input.gsx:32:31*/ id), 10) /*line input.gsx:32:35*/); /*line input.gsx:32:36*/ {
+		case /*line input.gsx:32:45*/ n == "q1":
 			_gsxv2, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "title", Value: "pure"}}, nil
 			})()
@@ -148,13 +148,13 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:33:2
 		_gsxv3, _gsxv5 := _gsxrt.Attrs(nil), error(nil)
 		{
-			_gsxv4, _gsxerr := lookup(id)
+			_gsxv4, _gsxerr := /*line input.gsx:33:30*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			n := wrap(string(_gsxv4))
+			/*line input.gsx:33:16*/ n := wrap(string(_gsxv4) /*line input.gsx:33:42*/)
 			switch {
-			case n == "L":
+			case /*line input.gsx:33:52*/ n == "L":
 				_gsxv3, _gsxv5 = (func() (_gsxrt.Attrs, error) {
 					return _gsxrt.Attrs{{Key: "title", Value: "hoist"}}, nil
 				})()
@@ -166,28 +166,28 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv3))
 //line input.gsx:34:2
 		_gsxgw.S("<i")
-		_gsxv6 := "x"
+		_gsxv6 := /*line input.gsx:34:13*/ "x"
 		var _gsxv7 string
-		switch n := wrap("q" + _gsxsc.FormatInt(int64(id), 10)); {
-		case n == "q1":
-			_gsxv7 = "pure"
+		switch /*line input.gsx:34:25*/ n := wrap("q" + _gsxsc.FormatInt(int64( /*line input.gsx:34:40*/ id), 10) /*line input.gsx:34:44*/); /*line input.gsx:34:45*/ {
+		case /*line input.gsx:34:54*/ n == "q1":
+			_gsxv7 = /*line input.gsx:34:65*/ "pure"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv6), _gsxrt.Class(_gsxv7))
 		_gsxgw.S("\"></i>")
 //line input.gsx:35:2
 		_gsxgw.S("<i")
-		_gsxv8 := "x"
+		_gsxv8 := /*line input.gsx:35:13*/ "x"
 		var _gsxv9 string
 		{
-			_gsxv10, _gsxerr := lookup(id)
+			_gsxv10, _gsxerr := /*line input.gsx:35:39*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			n := wrap(string(_gsxv10))
+			/*line input.gsx:35:25*/ n := wrap(string(_gsxv10) /*line input.gsx:35:51*/)
 			switch {
-			case n == "L":
-				_gsxv9 = "hoist"
+			case /*line input.gsx:35:61*/ n == "L":
+				_gsxv9 = /*line input.gsx:35:71*/ "hoist"
 			}
 		}
 		_gsxgw.S(" class=\"")

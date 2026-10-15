@@ -28,9 +28,9 @@ func Filter(entityType string, extra map[string]string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<input hx-vals=\"{&#34;entity_type&#34;: ")
-		_gsxgw.JSValAttr(entityType)
+		_gsxgw.JSValAttr( /*line input.gsx:4:38*/ entityType)
 		_gsxgw.S(", &#34;extra&#34;: ")
-		_gsxgw.JSValAttr(extra)
+		_gsxgw.JSValAttr( /*line input.gsx:4:62*/ extra)
 		_gsxgw.S("}\">")
 		return _gsxgw.Err()
 	})

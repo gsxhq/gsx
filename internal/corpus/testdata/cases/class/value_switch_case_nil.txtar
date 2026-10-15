@@ -33,13 +33,13 @@ func C(p *int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
-		_gsxv0 := "base"
+		_gsxv0 := /*line input.gsx:4:16*/ "base"
 		var _gsxv1 string
-		switch p {
-		case nil:
-			_gsxv1 = "none"
+		switch /*line input.gsx:4:31*/ p {
+		case /*line input.gsx:5:7*/ nil:
+			_gsxv1 = /*line input.gsx:5:12*/ "none"
 		default:
-			_gsxv1 = "some"
+			_gsxv1 = /*line input.gsx:6:11*/ "some"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

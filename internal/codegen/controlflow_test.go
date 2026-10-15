@@ -209,7 +209,7 @@ func TestConditionalBoolAttrCondKeepsLocalLive(t *testing.T) {
 	for _, src := range res[root].Files {
 		got = string(src)
 	}
-	if !strings.Contains(got, "if boolean") {
+	if !strings.Contains(codeShape(t, got), "if boolean") {
 		t.Fatalf("generated source missing conditional bool attr guard:\n%s", got)
 	}
 }

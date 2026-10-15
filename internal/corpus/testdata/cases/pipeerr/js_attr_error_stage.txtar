@@ -42,7 +42,7 @@ func C(x string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:25
 		_gsxgw.S("<div")
-		_gsxv0, _gsxerr := _gsxf0.Shout((x))
+		_gsxv0, _gsxerr := /*line input.gsx:3:45*/ _gsxf0.Shout(( /*line input.gsx:3:40*/ x))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

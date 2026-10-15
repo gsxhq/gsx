@@ -46,7 +46,7 @@ func next() int {
 	return n
 }
 
-var handler = _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(next()) + ", " + _gsxrt.EscapeJSVal(next()) + ")") /*line input.gsx:10:42*/
+var handler = _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal( /*line input.gsx:10:22*/ next()) + ", " + _gsxrt.EscapeJSVal( /*line input.gsx:10:33*/ next()) + ")") /*line input.gsx:10:42*/
 
 //line input.gsx:12:1
 func Page() _gsxrt.Node {
@@ -54,7 +54,7 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
 		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(handler))
+		_gsxgw.AttrValue(string( /*line input.gsx:13:18*/ handler))
 		_gsxgw.S("\">x</button>")
 		return _gsxgw.Err()
 	})

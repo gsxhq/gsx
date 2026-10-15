@@ -60,7 +60,7 @@ func (p Person) Greeting() gsx.Node {
 //line input.gsx:14:9
 		_gsxgw.S("<div>Hello, ")
 //line input.gsx:14:21
-		_gsxgw.Text(string(p.Name))
+		_gsxgw.Text(string( /*line input.gsx:14:23*/ p.Name))
 		_gsxgw.S("!</div>")
 		return _gsxgw.Err()
 	}) /*line input.gsx:14:38*/

@@ -29,7 +29,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const fn = ")
-		_gsxgw.JSVal(gsx.RawJS("doThing(1)"))
+		_gsxgw.JSVal( /*line input.gsx:6:24*/ gsx.RawJS("doThing(1)"))
 		_gsxgw.S(";</script>")
 		return _gsxgw.Err()
 	})

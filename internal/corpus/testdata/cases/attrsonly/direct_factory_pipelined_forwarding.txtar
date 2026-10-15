@@ -57,7 +57,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:10
-			_gsxv0 := _gsxrt.Attrs(_gsxf0.WithoutKey((attrs), "id"))
+			_gsxv0 := _gsxrt.Attrs( /*line input.gsx:7:58*/ _gsxf0.WithoutKey(( /*line input.gsx:7:49*/ attrs) /*line input.gsx:7:69*/, "id"))
 			_gsxgw.S("<svg")
 			if !_gsxv0.Has("stroke-width") {
 				_gsxgw.S(" stroke-width=\"2\"")
@@ -69,7 +69,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 			_gsxgw.Spread(ctx, "svg", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 			_gsxgw.S(">")
 //line input.gsx:7:80
-			_gsxgw.Text(string(name))
+			_gsxgw.Text(string( /*line input.gsx:7:82*/ name))
 			_gsxgw.S("</svg>")
 			return _gsxgw.Err()
 		}) /*line input.gsx:7:94*/

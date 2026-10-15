@@ -60,8 +60,8 @@ func Box(on bool, value pg.Text) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
-		_gsxv2, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
-			_gsxv1, _gsxerr := _gsxf0.PgText((value))
+		_gsxv2, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:30*/ on, func() (_gsxrt.Attrs, error) {
+			_gsxv1, _gsxerr := _gsxf0.PgText(( /*line input.gsx:8:43*/ value))
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}

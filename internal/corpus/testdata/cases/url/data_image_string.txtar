@@ -31,7 +31,7 @@ func Avatar(b64 string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img src=\"")
-		_gsxgw.URLImage("data:image/png;base64," + string(b64))
+		_gsxgw.URLImage("data:image/png;base64," + string( /*line input.gsx:4:37*/ b64))
 		_gsxgw.S("\" alt=\"a\">")
 		return _gsxgw.Err()
 	})

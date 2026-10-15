@@ -62,7 +62,11 @@ const pipeCtxIdent = "ctx"
 // tuple flows through the existing per-context machinery unchanged. wrap == nil
 // means the caller does not yet support a failing stage in this position, so a
 // mid-pipeline hasErr stage is rejected with a friendly, caller-positioned error.
-func lowerPipe(seed string, stages []ast.PipeStage, table funcTables, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error) {
+//
+// fset, when non-nil (shipped emit), anchors each stage's call at the stage's
+// name and its args at their source (anchorAuthored), so the filter call and
+// its arguments map back to the authored `|> name(args)`; the probe passes nil.
+func lowerPipe(seed string, stages []ast.PipeStage, table funcTables, wrap func(call string) string, fset *token.FileSet) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
 	usedPkgs = map[string]string{}
 	for i, st := range stages {
@@ -77,9 +81,9 @@ func lowerPipe(seed string, stages []ast.PipeStage, table funcTables, wrap func(
 		}
 		args = append(args, acc)
 		if st.HasArgs && strings.TrimSpace(st.Args) != "" {
-			args = append(args, st.Args)
+			args = append(args, anchorAuthored(fset, st.ArgsPos, st.Args))
 		}
-		acc = e.alias + "." + e.funcName + "(" + strings.Join(args, ", ") + ")"
+		acc = anchorAuthored(fset, st.NamePos, e.alias+"."+e.funcName) + "(" + strings.Join(args, ", ") + ")"
 		if e.hasErr && i < len(stages)-1 {
 			if wrap == nil {
 				return "", nil, fmt.Errorf("codegen: filter %q returns (R, error); %w", st.Name, errFailingStageUnsupported)

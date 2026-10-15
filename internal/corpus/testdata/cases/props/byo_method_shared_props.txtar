@@ -64,10 +64,10 @@ func (p home) Page(d pageData) _gsxrt.Node {
 //line input.gsx:13:4
 		_gsxgw.S("<h1>")
 //line input.gsx:13:8
-		_gsxgw.Text(string(d.Title))
+		_gsxgw.Text(string( /*line input.gsx:13:10*/ d.Title))
 		_gsxgw.S("</h1>")
 //line input.gsx:14:4
-		_gsxgw.Node(ctx, p.Content(d))
+		_gsxgw.Node(ctx, p.Content( /*line input.gsx:14:18*/ d))
 		_gsxgw.S("</body></html>")
 		return _gsxgw.Err()
 	})
@@ -80,7 +80,7 @@ func (p home) Content(d pageData) _gsxrt.Node {
 //line input.gsx:20:2
 		_gsxgw.S("<h1>")
 //line input.gsx:20:6
-		_gsxgw.Text(string(d.Heading))
+		_gsxgw.Text(string( /*line input.gsx:20:8*/ d.Heading))
 		_gsxgw.S("</h1>")
 		return _gsxgw.Err()
 	})

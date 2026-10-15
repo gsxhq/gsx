@@ -144,7 +144,7 @@ func Panel(variant string, children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<section")
 		if !attrs.Has("data-variant") {
 			_gsxgw.S(" data-variant=\"")
-			_gsxgw.AttrValue(string(variant))
+			_gsxgw.AttrValue(string( /*line panel.gsx:6:25*/ variant))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
@@ -152,7 +152,7 @@ func Panel(variant string, children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line panel.gsx:6:47
-		_gsxgw.Node(ctx, children)
+		_gsxgw.Node(ctx /*line panel.gsx:6:48*/, children)
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})
@@ -179,7 +179,7 @@ func Panel(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "aside", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line panel.gsx:6:22
-		_gsxgw.Node(ctx, children)
+		_gsxgw.Node(ctx /*line panel.gsx:6:23*/, children)
 		_gsxgw.S("</aside>")
 		return _gsxgw.Err()
 	})

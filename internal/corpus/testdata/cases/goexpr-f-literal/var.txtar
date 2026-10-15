@@ -34,7 +34,7 @@ import (
 
 var name = "world"
 
-var greeting = "hello " + string(name) /*line input.gsx:5:32*/
+var greeting = "hello " + string( /*line input.gsx:5:26*/ name) /*line input.gsx:5:32*/
 
 //line input.gsx:7:1
 func Uses() _gsxrt.Node {
@@ -43,7 +43,7 @@ func Uses() _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<p>")
 //line input.gsx:8:5
-		_gsxgw.Text(string(greeting))
+		_gsxgw.Text(string( /*line input.gsx:8:7*/ greeting))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

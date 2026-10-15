@@ -34,11 +34,11 @@ func C(v any) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<span")
 		var _gsxv0 string
-		switch v.(type) {
-		case string:
-			_gsxv0 = "str"
+		switch /*line input.gsx:4:23*/ v.(type) {
+		case /*line input.gsx:5:7*/ string:
+			_gsxv0 = /*line input.gsx:5:15*/ "str"
 		default:
-			_gsxv0 = "other"
+			_gsxv0 = /*line input.gsx:6:11*/ "other"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))

@@ -82,7 +82,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 //line input.gsx:16:2
-	_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-n", Value: strAttr(attrs, "n")}}))
+	_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-n", Value: /*line input.gsx:16:28*/ strAttr(attrs, "n")}}))
 	return _gsxgw.Err()
 }
 

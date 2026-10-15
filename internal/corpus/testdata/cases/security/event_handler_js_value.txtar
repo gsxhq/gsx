@@ -107,8 +107,8 @@ func _gsxrenderMixed[T string | bool](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer
 	}
 //line input.gsx:15:2
 	_gsxgw.S("<i")
-	_gsxgw.JSAttrAnyToggle("onclick", v)
-	_gsxgw.JSAttrAnyToggle("data-once", v)
+	_gsxgw.JSAttrAnyToggle("onclick" /*line input.gsx:15:14*/, v)
+	_gsxgw.JSAttrAnyToggle("data-once" /*line input.gsx:15:28*/, v)
 	_gsxgw.S("></i>")
 	return _gsxgw.Err()
 }
@@ -119,74 +119,74 @@ func Page(x string, n int, on bool, c cfg) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:19:2
 		_gsxgw.S("<div onclick=\"")
-		_gsxgw.JSValAttr(x)
+		_gsxgw.JSValAttr( /*line input.gsx:19:16*/ x)
 		_gsxgw.S("\">1</div>")
 //line input.gsx:20:2
 		_gsxgw.S("<div ONCLICK=\"")
-		_gsxgw.JSValAttr(x)
+		_gsxgw.JSValAttr( /*line input.gsx:20:16*/ x)
 		_gsxgw.S("\" onload=\"")
-		_gsxgw.JSValAttr(n)
+		_gsxgw.JSValAttr( /*line input.gsx:20:27*/ n)
 		_gsxgw.S("\"")
-		_gsxgw.BoolAttr("ontoggle", bool(on))
+		_gsxgw.BoolAttr("ontoggle", bool( /*line input.gsx:20:40*/ on))
 		_gsxgw.S(" onwheel=\"")
-		_gsxgw.JSValAttr(c)
+		_gsxgw.JSValAttr( /*line input.gsx:20:53*/ c)
 		_gsxgw.S("\">2</div>")
 //line input.gsx:21:2
 		_gsxgw.S("<div onclick=\"")
-		_gsxgw.JSValAttr(gsx.RawJS("go(1)"))
+		_gsxgw.JSValAttr( /*line input.gsx:21:16*/ gsx.RawJS("go(1)"))
 		_gsxgw.S("\">3</div>")
 //line input.gsx:22:2
 		_gsxgw.S("<div onclick=\"go(")
-		_gsxgw.JSValAttr(x)
+		_gsxgw.JSValAttr( /*line input.gsx:22:23*/ x)
 		_gsxgw.S(")\">4</div>")
 //line input.gsx:23:2
 		_gsxgw.S("<div")
-		if on {
+		if /*line input.gsx:23:12*/ on {
 			_gsxgw.S(" onclick=\"")
-			_gsxgw.JSValAttr(x)
+			_gsxgw.JSValAttr( /*line input.gsx:23:26*/ x)
 			_gsxgw.S("\"")
 		}
 		_gsxgw.S(">5</div>")
 //line input.gsx:24:2
 		_gsxgw.S("<div")
-		switch n {
-		case 1:
+		switch /*line input.gsx:24:16*/ n {
+		case /*line input.gsx:24:25*/ 1:
 			_gsxgw.S(" onclick=\"")
-			_gsxgw.JSValAttr(x)
+			_gsxgw.JSValAttr( /*line input.gsx:24:37*/ x)
 			_gsxgw.S("\"")
 		}
 		_gsxgw.S(">6</div>")
 //line input.gsx:25:2
-		_gsxv0 := gsx.Attrs{{"OnClick", x}, {"onmousewheel", n}, {"onclick2", x}}
+		_gsxv0 := /*line input.gsx:25:9*/ gsx.Attrs{{"OnClick", x}, {"onmousewheel", n}, {"onclick2", x}}
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">7</div>")
 //line input.gsx:26:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "onclick", Value: x}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "onclick", Value: /*line input.gsx:26:16*/ x}}))
 //line input.gsx:27:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "onclick", Value: x}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "onclick", Value: /*line input.gsx:27:27*/ x}}))
 //line input.gsx:28:2
 		_gsxgw.S("<div onlyinteger=\"")
-		_gsxgw.JSValAttr(x)
+		_gsxgw.JSValAttr( /*line input.gsx:28:20*/ x)
 		_gsxgw.S("\" data-onclick=\"")
-		_gsxgw.JSValAttr(x)
+		_gsxgw.JSValAttr( /*line input.gsx:28:37*/ x)
 		_gsxgw.S("\" x-show=\"")
-		_gsxgw.AttrValue(string(x))
+		_gsxgw.AttrValue(string( /*line input.gsx:28:48*/ x))
 		_gsxgw.S("\" @click=\"")
-		_gsxgw.AttrValue(string(x))
+		_gsxgw.AttrValue(string( /*line input.gsx:28:59*/ x))
 		_gsxgw.S("\" x-on:click=\"")
-		_gsxgw.AttrValue(string(x))
+		_gsxgw.AttrValue(string( /*line input.gsx:28:74*/ x))
 		_gsxgw.S("\">8</div>")
 //line input.gsx:29:2
 		_gsxgw.S("<div onclick=\"static()\">9</div>")
 //line input.gsx:30:2
 		_gsxgw.S("<div")
-		_gsxgw.BoolAttr("onclick", bool(gsx.Toggle(true)))
+		_gsxgw.BoolAttr("onclick", bool( /*line input.gsx:30:16*/ gsx.Toggle(true)))
 		_gsxgw.S(">10</div>")
 //line input.gsx:31:2
-		_gsxv1 := _gsxrt.ConcatAttrs(gsx.Attrs{{"id", "a"}}, _gsxrt.Attrs{{Key: "onclick", Value: _gsxrt.RawJS("fold()")}}, gsx.Attrs{{"title", "b"}})
+		_gsxv1 := _gsxrt.ConcatAttrs( /*line input.gsx:31:12*/ gsx.Attrs{{"id", "a"}}, _gsxrt.Attrs{{Key: "onclick", Value: _gsxrt.RawJS("fold()")}} /*line input.gsx:31:59*/, gsx.Attrs{{"title", "b"}})
 		_gsxgw.S("<button")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())
@@ -195,7 +195,7 @@ func Page(x string, n int, on bool, c cfg) _gsxrt.Node {
 //line input.gsx:32:2
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "onclick", Value: _gsxrt.RawJS("comp()")}}))
 //line input.gsx:33:2
-		_gsxv2, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv2, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:33:12*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "onclick", Value: _gsxrt.RawJS("cond()")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -204,27 +204,27 @@ func Page(x string, n int, on bool, c cfg) _gsxrt.Node {
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv2))
 //line input.gsx:34:2
 		_gsxgw.S("<svg svg:onload=\"")
-		_gsxgw.JSValAttr(x)
+		_gsxgw.JSValAttr( /*line input.gsx:34:19*/ x)
 		_gsxgw.S("\"></svg>")
 //line input.gsx:35:2
-		_gsxv3 := gsx.Attrs{{"onboarding", on}, {"data-onx", !on}}
+		_gsxv3 := /*line input.gsx:35:42*/ gsx.Attrs{{"onboarding", on}, {"data-onx", !on}}
 		_gsxgw.S("<div")
 		if !_gsxv3.Has("data-online") {
-			_gsxgw.BoolAttr("data-online", bool(on))
+			_gsxgw.BoolAttr("data-online", bool( /*line input.gsx:35:20*/ on))
 		}
 		if !_gsxv3.Has("data-once") {
-			_gsxgw.BoolAttr("data-once", bool(!on))
+			_gsxgw.BoolAttr("data-once", bool( /*line input.gsx:35:35*/ !on))
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
 		_gsxgw.StyleMerged("", _gsxv3.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">12</div>")
 //line input.gsx:36:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-online", Value: on}}, _gsxrt.Attrs{{Key: "data-once", Value: !on}})))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-online", Value: /*line input.gsx:36:20*/ on}}, _gsxrt.Attrs{{Key: "data-once", Value: /*line input.gsx:36:35*/ !on}})))
 //line input.gsx:37:2
-		_gsxgw.NodeResult(_gsxrenderMixed[string](ctx, _gsxgw, x))
+		_gsxgw.NodeResult(_gsxrenderMixed[string](ctx, _gsxgw /*line input.gsx:37:12*/, x))
 //line input.gsx:38:2
-		_gsxgw.NodeResult(_gsxrenderMixed[bool](ctx, _gsxgw, true))
+		_gsxgw.NodeResult(_gsxrenderMixed[bool](ctx, _gsxgw /*line input.gsx:38:12*/, true))
 		return _gsxgw.Err()
 	})
 }

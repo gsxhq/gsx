@@ -45,7 +45,7 @@ component Badge(hidden bool) {
 		`_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("badge"), _gsxrt.ClassIf("hidden", hidden))`,
 		`_gsxgw.Style(_gsxrt.Style("color:red"), _gsxrt.StyleIf("display:none", hidden))`,
 	} {
-		if !strings.Contains(generated, want) {
+		if !strings.Contains(codeShape(t, generated), want) {
 			t.Fatalf("generated output does not contain %q:\n%s", want, generated)
 		}
 	}

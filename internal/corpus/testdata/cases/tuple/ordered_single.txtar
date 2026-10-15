@@ -45,7 +45,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, bag gsx.Attrs) e
 		return _gsxerr
 	}
 //line input.gsx:8:2
-	_gsxv0 := bag
+	_gsxv0 := /*line input.gsx:8:9*/ bag
 	_gsxgw.S("<div")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -59,7 +59,7 @@ func Page(t string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxv1, _gsxerr := sig(t)
+		_gsxv1, _gsxerr := /*line input.gsx:12:31*/ sig(t)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

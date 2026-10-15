@@ -29,11 +29,11 @@ func Badge(v int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
-		_gsxv0 := "base"
+		_gsxv0 := /*line input.gsx:4:16*/ "base"
 		var _gsxv1 string
-		switch v {
-		case 1:
-			_gsxv1 = "one"
+		switch /*line input.gsx:4:31*/ v {
+		case /*line input.gsx:4:40*/ 1:
+			_gsxv1 = /*line input.gsx:4:43*/ "one"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

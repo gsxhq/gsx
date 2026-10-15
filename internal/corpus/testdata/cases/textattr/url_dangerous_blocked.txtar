@@ -29,7 +29,7 @@ func Link(x string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL("javascript:" + string(x))
+		_gsxgw.URL("javascript:" + string( /*line input.gsx:4:25*/ x))
 		_gsxgw.S("\">go</a>")
 		return _gsxgw.Err()
 	})

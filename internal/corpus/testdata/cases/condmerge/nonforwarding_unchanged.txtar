@@ -38,19 +38,19 @@ func Box(a bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		if a {
+		if /*line input.gsx:4:12*/ a {
 			_gsxgw.S(" class=\"on\"")
 		}
 		_gsxgw.S(">x</div>")
 //line input.gsx:5:2
 		_gsxgw.S("<div class=\"base\"")
-		if a {
+		if /*line input.gsx:5:25*/ a {
 			_gsxgw.S(" style=\"color:red\"")
 		}
 		_gsxgw.S(">y</div>")
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		if a {
+		if /*line input.gsx:6:12*/ a {
 			_gsxgw.S(" class=\"on\"")
 		} else {
 			_gsxgw.S(" class=\"off\"")

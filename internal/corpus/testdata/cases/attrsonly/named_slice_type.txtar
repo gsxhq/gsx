@@ -61,7 +61,7 @@ func renderBadge(p badgeProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxv0 := p.Attrs
+		_gsxv0 := /*line input.gsx:12:10*/ p.Attrs
 		_gsxgw.S("<span")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -87,11 +87,11 @@ func Page() _gsxrt.Node {
 //line input.gsx:24:2
 		_gsxgw.S("<div>")
 //line input.gsx:25:3
-		_gsxgw.Node(ctx, Badge(myAttrs{{Key: "class", Value: "b"}}))
+		_gsxgw.Node(ctx, Badge( /*line input.gsx:25:13*/ myAttrs{{Key: "class", Value: "b"}}))
 //line input.gsx:26:3
 		_gsxgw.Node(ctx, Badge(nil))
 //line input.gsx:27:3
-		_gsxgw.Node(ctx, Canonical(_gsxrt.Attrs{{Key: "class", Value: "c"}}))
+		_gsxgw.Node(ctx, Canonical(_gsxrt.Attrs{{Key: "class", Value: /*line input.gsx:27:36*/ "c"}}))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

@@ -30,7 +30,7 @@ func Page(who string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p title=\"hi ")
-		_gsxgw.AttrValue(string("name: " + string(who)))
+		_gsxgw.AttrValue(string("name: " + string( /*line input.gsx:4:29*/ who)))
 		_gsxgw.S("!\">x</p>")
 		return _gsxgw.Err()
 	})

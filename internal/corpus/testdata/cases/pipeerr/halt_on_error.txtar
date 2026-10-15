@@ -42,11 +42,11 @@ func Hi(name string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
-		_gsxv0, _gsxerr := _gsxf0.Fail((name))
+		_gsxv0, _gsxerr := /*line input.gsx:4:15*/ _gsxf0.Fail(( /*line input.gsx:4:7*/ name))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(_gsxf0.Detonate(_gsxv0)))
+		_gsxgw.Text(string( /*line input.gsx:4:23*/ _gsxf0.Detonate(_gsxv0)))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

@@ -37,9 +37,9 @@ func StyleCondLoneSpread(on bool, c bool, x gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.StyleIf("color:red", on)))}}
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
-			return x, nil
+		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.StyleIf( /*line input.gsx:6:15*/ "color:red" /*line input.gsx:6:28*/, on)))}}
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:6:38*/ c, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:6:44*/ x, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

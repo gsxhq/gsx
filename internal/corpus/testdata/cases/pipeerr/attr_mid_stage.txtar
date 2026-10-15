@@ -55,16 +55,16 @@ func Link(csv string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a")
-		_gsxv0, _gsxerr := _gsxf0.Parse((csv))
+		_gsxv0, _gsxerr := /*line input.gsx:4:19*/ _gsxf0.Parse(( /*line input.gsx:4:12*/ csv))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
+		_gsxv1, _gsxerr := /*line input.gsx:4:28*/ _gsxf0.Pick(_gsxv0 /*line input.gsx:4:33*/, 0)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" href=\"")
-		_gsxgw.URL(string(_gsxstd.Lower(_gsxv1)))
+		_gsxgw.URL(string( /*line input.gsx:4:39*/ _gsxstd.Lower(_gsxv1)))
 		_gsxgw.S("\">x</a>")
 		return _gsxgw.Err()
 	})

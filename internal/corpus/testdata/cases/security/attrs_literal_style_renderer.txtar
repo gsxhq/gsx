@@ -96,8 +96,8 @@ func _gsxrenderCond(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs)
 	}
 //line input.gsx:10:2
 	_gsxgw.S("<p")
-	if true {
-		_gsxgw.Spread(ctx, "p", attrs, _gsxrt.AttrSinks{}, nil)
+	if /*line input.gsx:10:10*/ true {
+		_gsxgw.Spread(ctx, "p" /*line input.gsx:10:19*/, attrs, _gsxrt.AttrSinks{}, nil)
 	}
 	_gsxgw.S(">c</p>")
 	return _gsxgw.Err()
@@ -108,13 +108,13 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleValue(_gsxf0.Color(ctx, (pg.Red)))}}))
+		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleValue(_gsxf0.Color(ctx, ( /*line input.gsx:14:26*/ pg.Red)))}}))
 //line input.gsx:15:2
-		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "STYLE", Value: _gsxrt.StyleValue(_gsxf0.Width((pg.Wide)))}}))
+		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "STYLE", Value: _gsxrt.StyleValue(_gsxf0.Width(( /*line input.gsx:15:26*/ pg.Wide)))}}))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "Style", Value: _gsxrt.StyleValue(_gsxf0.Num((pg.Count)))}}))
+		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "Style", Value: _gsxrt.StyleValue(_gsxf0.Num(( /*line input.gsx:16:26*/ pg.Count)))}}))
 //line input.gsx:17:2
-		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red; top:0")}}))
+		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS( /*line input.gsx:17:26*/ "color:red; top:0")}}))
 		return _gsxgw.Err()
 	})
 }

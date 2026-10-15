@@ -69,8 +69,8 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:static-first()")}, {Key: "href", Value: dangerous}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv0 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:static-first()")}, {Key: "href", Value: /*line input.gsx:8:45*/ dangerous}, {Key: "class", Value: _gsxrt.RawURL("base")}}
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:75*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -83,8 +83,8 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "a", _gsxv2, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">dynamic-wins</a>")
 //line input.gsx:9:2
-		_gsxv3 := _gsxrt.Attrs{{Key: "href", Value: dangerous}, {Key: "href", Value: _gsxrt.RawURL("javascript:static-last()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv4, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv3 := _gsxrt.Attrs{{Key: "href", Value: /*line input.gsx:9:12*/ dangerous}, {Key: "href", Value: _gsxrt.RawURL("javascript:static-last()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
+		_gsxv4, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:9:74*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -98,7 +98,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S(">static-wins</a>")
 //line input.gsx:10:2
 		_gsxv6 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:first()")}, {Key: "href", Value: _gsxrt.RawURL("javascript:second()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv7, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv7, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:10:76*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -111,8 +111,8 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "a", _gsxv8, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">two-statics</a>")
 //line input.gsx:11:2
-		_gsxv9 := _gsxrt.Attrs{{Key: "href", Value: dangerous}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv10, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv9 := _gsxrt.Attrs{{Key: "href", Value: /*line input.gsx:11:12*/ dangerous}, {Key: "class", Value: _gsxrt.RawURL("base")}}
+		_gsxv10, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:11:42*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:conditional()")}, {Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -126,7 +126,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S(">conditional</a>")
 //line input.gsx:12:2
 		_gsxv12 := _gsxrt.Attrs{{Key: "src", Value: _gsxrt.RawURL("data:image/png;base64,AA")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv13, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv13, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:12:56*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -140,7 +140,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S(">")
 //line input.gsx:13:2
 		_gsxv15 := _gsxrt.Attrs{{Key: "srcset", Value: _gsxrt.RawURL("javascript:one 1x, javascript:two 2x")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv16, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv16, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:13:71*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -154,7 +154,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S(">")
 //line input.gsx:14:2
 		_gsxv18 := _gsxrt.Attrs{{Key: "data-url-go", Value: _gsxrt.RawURL("javascript:custom()")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv19, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv19, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:14:59*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -168,7 +168,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.S(">prefix</div>")
 //line input.gsx:15:2
 		_gsxv21 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:void(0)?a=1&b=\"x\"")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv22, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv22, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:15:71*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -181,7 +181,7 @@ func Cases(dangerous string, on bool) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "a", _gsxv23, _gsxrt.AttrSinks{Prefixes: []string{"data-url-"}}, []string{"class", "style"})
 		_gsxgw.S(">html</a>")
 //line input.gsx:16:2
-		_gsxv24, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv24, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:16:13*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "href", Value: "javascript:component()"}}, nil
 		}, nil)
 		if _gsxerr != nil {

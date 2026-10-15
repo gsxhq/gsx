@@ -95,11 +95,11 @@ func mkJSVal(s string, valid bool) pg.JSVal   { return pg.JSVal{String: s, Valid
 func mkCSSVal(s string, valid bool) pg.CSSVal { return pg.CSSVal{String: s, Valid: valid} }
 
 func mkClick(val pg.JSVal) gsx.RawJS {
-	return _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(_gsxf0.PgJS((val)))) + "')") /*line input.gsx:12:29*/
+	return _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(_gsxf0.PgJS(( /*line input.gsx:12:21*/ val)))) + "')") /*line input.gsx:12:29*/
 }
 
 func mkColor(val pg.CSSVal) gsx.RawCSS {
-	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor((val))))) /*line input.gsx:16:28*/
+	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor(( /*line input.gsx:16:22*/ val))))) /*line input.gsx:16:28*/
 }
 
 //line input.gsx:19:1
@@ -108,11 +108,11 @@ func Tag(j pg.JSVal, c pg.CSSVal) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:2
 		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(mkClick(j)))
+		_gsxgw.AttrValue(string( /*line input.gsx:20:18*/ mkClick(j)))
 		_gsxgw.S("\">x</button>")
 //line input.gsx:21:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(mkColor(c))))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:21:14*/ mkColor(c))))
 		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})

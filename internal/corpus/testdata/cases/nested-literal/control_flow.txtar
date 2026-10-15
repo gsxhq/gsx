@@ -59,39 +59,39 @@ func Page(id int, u *U) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:2
-		if s := wrap("q-" + _gsxsc.FormatInt(int64(id), 10)); s != "" {
+		if /*line input.gsx:9:7*/ s := wrap("q-" + _gsxsc.FormatInt(int64( /*line input.gsx:9:23*/ id), 10) /*line input.gsx:9:27*/); /*line input.gsx:9:28*/ /*line input.gsx:9:30*/ s != "" {
 //line input.gsx:10:3
 			_gsxgw.S("<b>")
 //line input.gsx:10:6
-			_gsxgw.Text(string(s))
+			_gsxgw.Text(string( /*line input.gsx:10:8*/ s))
 			_gsxgw.S("</b>")
 		} else {
 //line input.gsx:11:9
-			if ok("r-" + string(u.Name)) {
+			if /*line input.gsx:11:12*/ ok("r-" + string( /*line input.gsx:11:21*/ u.Name) /*line input.gsx:11:29*/) {
 //line input.gsx:12:3
 				_gsxgw.S("<i>never</i>")
 			}
 		}
 //line input.gsx:14:2
-		for _, s := range []string{wrap("r-" + _gsxsc.FormatInt(int64(id), 10)), string(_gsxrt.RawCSS("c:" + _gsxrt.FilterCSS(_gsxsc.FormatInt(int64(id), 10))))} {
+		for /*line input.gsx:14:8*/ _, s := range []string{wrap("r-" + _gsxsc.FormatInt(int64( /*line input.gsx:14:42*/ id), 10) /*line input.gsx:14:46*/), string(_gsxrt.RawCSS("c:" + _gsxrt.FilterCSS(_gsxsc.FormatInt(int64( /*line input.gsx:14:64*/ id), 10))) /*line input.gsx:14:68*/)} {
 //line input.gsx:15:3
 			_gsxgw.S("<b>")
 //line input.gsx:15:6
-			_gsxgw.Text(string(s))
+			_gsxgw.Text(string( /*line input.gsx:15:8*/ s))
 			_gsxgw.S("</b>")
 		}
 //line input.gsx:17:2
-		switch string(_gsxrt.RawJS("s(" + _gsxrt.EscapeJSVal(id) + ")")) {
-		case "s( 1 )":
+		switch /*line input.gsx:17:11*/ string(_gsxrt.RawJS("s(" + _gsxrt.EscapeJSVal( /*line input.gsx:17:25*/ id) + ")") /*line input.gsx:17:30*/) {
+		case /*line input.gsx:18:7*/ "s( 1 )":
 //line input.gsx:19:3
 			_gsxgw.S("<b>js</b>")
 		}
 //line input.gsx:21:2
 		switch {
-		case id == 1:
+		case /*line input.gsx:22:7*/ id == 1:
 //line input.gsx:23:3
 			_gsxgw.S("<b>first</b>")
-		case ok("t-" + string(u.Name)):
+		case /*line input.gsx:24:7*/ ok("t-" + string( /*line input.gsx:24:16*/ u.Name) /*line input.gsx:24:24*/):
 //line input.gsx:25:3
 			_gsxgw.S("<b>never</b>")
 		}

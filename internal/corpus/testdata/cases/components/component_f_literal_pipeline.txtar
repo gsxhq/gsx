@@ -66,7 +66,7 @@ func _gsxrenderGeneric[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value 
 //line input.gsx:6:2
 	_gsxgw.S("<p>")
 //line input.gsx:6:5
-	_gsxgw.Text(string(fmt.Sprint(value)))
+	_gsxgw.Text(string( /*line input.gsx:6:7*/ fmt.Sprint(value)))
 	_gsxgw.S("</p>")
 	return _gsxgw.Err()
 }
@@ -86,7 +86,7 @@ func _gsxrenderHeader(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, subtitle strin
 //line input.gsx:10:2
 	_gsxgw.S("<h1>")
 //line input.gsx:10:6
-	_gsxgw.Text(string(subtitle))
+	_gsxgw.Text(string( /*line input.gsx:10:8*/ subtitle))
 	_gsxgw.S("</h1>")
 	return _gsxgw.Err()
 }
@@ -96,13 +96,13 @@ func Page(n int, label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "item-"+_gsxsc.FormatInt(int64(n), 10)))
+		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "item-"+_gsxsc.FormatInt(int64( /*line input.gsx:14:26*/ n), 10)))
 //line input.gsx:15:2
-		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, string(_gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64(n), 10))))))
+		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, string( /*line input.gsx:15:36*/ _gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64( /*line input.gsx:15:29*/ n), 10))))))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, "label-"+string(_gsxstd.Upper((label)))))
+		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, "label-"+string( /*line input.gsx:16:38*/ _gsxstd.Upper(( /*line input.gsx:16:29*/ label)))))
 //line input.gsx:17:2
-		_gsxv0, _gsxerr := _gsxf0.Check(("checked-" + _gsxsc.FormatInt(int64(n), 10)))
+		_gsxv0, _gsxerr := /*line input.gsx:17:39*/ _gsxf0.Check(("checked-" + _gsxsc.FormatInt(int64( /*line input.gsx:17:32*/ n), 10)))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

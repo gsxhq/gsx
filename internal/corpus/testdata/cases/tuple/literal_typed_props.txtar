@@ -48,7 +48,7 @@ func _gsxrenderGauge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value float64, 
 //line input.gsx:7:62
 	_gsxgw.S("<div>")
 //line input.gsx:7:67
-	_gsxgw.FloatInto(_gsxnum[:], float64(value))
+	_gsxgw.FloatInto(_gsxnum[:], float64( /*line input.gsx:7:68*/ value))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -58,7 +58,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:20
-		_gsxgw.NodeResult(_gsxrenderGauge(ctx, _gsxgw, 100, 3, 5, true))
+		_gsxgw.NodeResult(_gsxrenderGauge(ctx, _gsxgw /*line input.gsx:9:34*/, 100 /*line input.gsx:9:42*/, 3 /*line input.gsx:9:48*/, 5 /*line input.gsx:9:55*/, true))
 		return _gsxgw.Err()
 	})
 }

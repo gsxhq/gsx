@@ -41,7 +41,7 @@ func Page(extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:35
-		_gsxv0 := extra
+		_gsxv0 := /*line input.gsx:5:45*/ extra
 		_gsxgw.S("<script")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

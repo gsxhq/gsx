@@ -59,7 +59,7 @@ func (cards Cards) Method(value string) _gsxrt.Node {
 //line input.gsx:8:48
 		_gsxgw.S("<mark>")
 //line input.gsx:8:54
-		_gsxgw.Text(string(value))
+		_gsxgw.Text(string( /*line input.gsx:8:56*/ value))
 		_gsxgw.S("</mark>")
 		return _gsxgw.Err()
 	})
@@ -86,7 +86,7 @@ func _gsxrenderFallbacks(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, cards Cards
 //line input.gsx:14:2
 	_gsxgw.Node(ctx, Plain("plain"))
 //line input.gsx:15:2
-	_gsxgw.Node(ctx, render("dynamic"))
+	_gsxgw.Node(ctx /*line input.gsx:15:4*/, render("dynamic"))
 	return _gsxgw.Err()
 }
 
@@ -95,7 +95,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:20
-		_gsxgw.NodeResult(_gsxrenderFallbacks(ctx, _gsxgw, Cards{}, Dynamic))
+		_gsxgw.NodeResult(_gsxrenderFallbacks(ctx, _gsxgw /*line input.gsx:18:39*/, Cards{} /*line input.gsx:18:58*/, Dynamic))
 		return _gsxgw.Err()
 	})
 }

@@ -30,7 +30,7 @@ func Page(name string) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const n = ")
-		_gsxgw.JSVal(_gsxstd.Upper((name)))
+		_gsxgw.JSVal( /*line input.gsx:4:31*/ _gsxstd.Upper(( /*line input.gsx:4:23*/ name)))
 		_gsxgw.S(";</script>")
 		return _gsxgw.Err()
 	})

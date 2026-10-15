@@ -72,19 +72,19 @@ func Page(user string, ok string, built gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleValue(user)}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleValue( /*line input.gsx:10:25*/ user)}}))
 //line input.gsx:11:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "STYLE", Value: _gsxrt.StyleValue("width:expression(" + user + ")")}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "STYLE", Value: _gsxrt.StyleValue( /*line input.gsx:11:25*/ "width:expression(" + user + ")")}}))
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "Style", Value: _gsxrt.StyleValue(ok)}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "Style", Value: _gsxrt.StyleValue( /*line input.gsx:12:25*/ ok)}}))
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red; top:0")}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS( /*line input.gsx:13:25*/ "color:red; top:0")}}))
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: gsx.RawCSS("color:var(--x); top:" + ok)}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: /*line input.gsx:14:25*/ gsx.RawCSS("color:var(--x); top:" + ok)}}))
 //line input.gsx:15:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(ok)))}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string( /*line input.gsx:15:37*/ ok)))}}))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, built))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:16:15*/, built))
 		return _gsxgw.Err()
 	})
 }

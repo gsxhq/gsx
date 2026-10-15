@@ -29,7 +29,7 @@ func Link(scheme string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL(string(scheme) + "://ex.com")
+		_gsxgw.URL(string( /*line input.gsx:4:14*/ scheme) + "://ex.com")
 		_gsxgw.S("\">go</a>")
 		return _gsxgw.Err()
 	})

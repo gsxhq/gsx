@@ -38,7 +38,7 @@ component Widget(action string) {
 	for _, b := range dr.Files {
 		gen += string(b)
 	}
-	if !strings.Contains(gen, "_gsxgw.AttrValue(string(action))") {
+	if !strings.Contains(codeShape(t, gen), "_gsxgw.AttrValue(string(action))") {
 		t.Errorf("plain wire:click expr should use AttrValue, generated:\n%s", gen)
 	}
 	if strings.Contains(gen, "JSValAttr") {
@@ -74,7 +74,7 @@ component Widget(action string) {
 	for _, b := range dr.Files {
 		gen += string(b)
 	}
-	if !strings.Contains(gen, "JSValAttr(action)") {
+	if !strings.Contains(codeShape(t, gen), "JSValAttr(action)") {
 		t.Errorf("explicit JS attr literal should use JSValAttr, generated:\n%s", gen)
 	}
 	if strings.Contains(gen, "_gsxgw.AttrValue(string(action))") {

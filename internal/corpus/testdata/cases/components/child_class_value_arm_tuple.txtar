@@ -47,7 +47,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, at
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:5:78
-	_gsxgw.Text(string(title))
+	_gsxgw.Text(string( /*line input.gsx:5:79*/ title))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -57,16 +57,16 @@ func Page(v int, flag bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv0 := "base"
+		_gsxv0 := /*line input.gsx:8:27*/ "base"
 		var _gsxv1 string
-		if flag {
-			_gsxv2, _gsxerr := cls(v)
+		if /*line input.gsx:8:38*/ flag {
+			_gsxv2, _gsxerr := /*line input.gsx:8:45*/ cls(v)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
 			_gsxv1 = _gsxv2
 		} else {
-			_gsxv1 = "gray"
+			_gsxv1 = /*line input.gsx:8:61*/ "gray"
 		}
 		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "Hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))}}))
 		return _gsxgw.Err()

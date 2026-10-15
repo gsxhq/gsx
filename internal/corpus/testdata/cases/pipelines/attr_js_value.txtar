@@ -27,7 +27,7 @@ func C(x string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:25
 		_gsxgw.S("<div onclick=\"")
-		_gsxgw.JSValAttr(_gsxstd.Upper((x)))
+		_gsxgw.JSValAttr( /*line input.gsx:3:45*/ _gsxstd.Upper(( /*line input.gsx:3:40*/ x)))
 		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})

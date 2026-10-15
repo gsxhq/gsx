@@ -33,11 +33,11 @@ func C(n uint64) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<span")
 		var _gsxv0 string
-		switch n {
-		case 1 << 63:
-			_gsxv0 = "big"
+		switch /*line input.gsx:4:23*/ n {
+		case /*line input.gsx:5:7*/ 1 << 63:
+			_gsxv0 = /*line input.gsx:5:16*/ "big"
 		default:
-			_gsxv0 = "small"
+			_gsxv0 = /*line input.gsx:6:11*/ "small"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))

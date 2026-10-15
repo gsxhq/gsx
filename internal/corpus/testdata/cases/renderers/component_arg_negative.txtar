@@ -74,7 +74,7 @@ func _gsxrenderChild(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, val pg.Text) er
 //line input.gsx:8:2
 	_gsxgw.S("<span>")
 //line input.gsx:8:8
-	_gsxgw.Text(string(val.String))
+	_gsxgw.Text(string( /*line input.gsx:8:10*/ val.String))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
@@ -84,7 +84,7 @@ func Parent(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderChild(ctx, _gsxgw, val))
+		_gsxgw.NodeResult(_gsxrenderChild(ctx, _gsxgw /*line input.gsx:12:14*/, val))
 		return _gsxgw.Err()
 	})
 }

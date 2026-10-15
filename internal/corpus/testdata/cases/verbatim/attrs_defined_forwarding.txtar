@@ -65,9 +65,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs(bag("explicit"))))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:16:16*/ bag("explicit"))))
 //line input.gsx:17:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs(bag("spread"))))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:17:11*/ bag("spread"))))
 		return _gsxgw.Err()
 	})
 }

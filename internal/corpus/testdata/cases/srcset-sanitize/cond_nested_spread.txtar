@@ -33,8 +33,8 @@ func Pic(on bool, s string) _gsxrt.Node {
 		b := gsx.Attrs{{Key: "srcset", Value: s}}
 //line input.gsx:7:2
 		_gsxgw.S("<img alt=\"x\"")
-		if on {
-			_gsxgw.Spread(ctx, "img", b, _gsxrt.AttrSinks{}, nil)
+		if /*line input.gsx:7:20*/ on {
+			_gsxgw.Spread(ctx, "img" /*line input.gsx:7:27*/, b, _gsxrt.AttrSinks{}, nil)
 		}
 		_gsxgw.S(">")
 		return _gsxgw.Err()

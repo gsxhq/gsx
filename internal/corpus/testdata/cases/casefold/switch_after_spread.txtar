@@ -33,8 +33,8 @@ func Box(n int, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxv0 := []string{"class", "style"}
 		var _gsxv1, _gsxv2 bool
-		switch n {
-		case 1:
+		switch /*line input.gsx:6:29*/ n {
+		case /*line input.gsx:6:38*/ 1:
 			_gsxv1 = true
 			_gsxv0 = append(_gsxv0, "title")
 		default:

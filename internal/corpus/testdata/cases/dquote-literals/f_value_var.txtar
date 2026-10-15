@@ -32,7 +32,7 @@ import (
 
 var n = "x1"
 
-var g = "id-`" + string(n) + "`" /*line input.gsx:5:21*/
+var g = "id-`" + string( /*line input.gsx:5:17*/ n) + "`" /*line input.gsx:5:21*/
 
 //line input.gsx:7:1
 func Uses() _gsxrt.Node {
@@ -41,7 +41,7 @@ func Uses() _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<p>")
 //line input.gsx:8:5
-		_gsxgw.Text(string(g))
+		_gsxgw.Text(string( /*line input.gsx:8:7*/ g))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

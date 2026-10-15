@@ -45,7 +45,7 @@ func _gsxrenderField[T string | bool](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer
 	}
 //line input.gsx:4:2
 	_gsxgw.S("<input")
-	_gsxgw.AttrAnyToggle("required", required)
+	_gsxgw.AttrAnyToggle("required" /*line input.gsx:4:19*/, required)
 	_gsxgw.S(">")
 	return _gsxgw.Err()
 }
@@ -55,11 +55,11 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.NodeResult(_gsxrenderField[bool](ctx, _gsxgw, true))
+		_gsxgw.NodeResult(_gsxrenderField[bool](ctx, _gsxgw /*line input.gsx:8:25*/, true))
 //line input.gsx:9:2
-		_gsxgw.NodeResult(_gsxrenderField[bool](ctx, _gsxgw, false))
+		_gsxgw.NodeResult(_gsxrenderField[bool](ctx, _gsxgw /*line input.gsx:9:25*/, false))
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderField[string](ctx, _gsxgw, "foo"))
+		_gsxgw.NodeResult(_gsxrenderField[string](ctx, _gsxgw /*line input.gsx:10:27*/, "foo"))
 		return _gsxgw.Err()
 	})
 }

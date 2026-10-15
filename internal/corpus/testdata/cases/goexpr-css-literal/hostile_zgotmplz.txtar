@@ -34,7 +34,7 @@ import (
 
 /*line input.gsx:5:1*/
 func mk(color string) gsx.RawCSS {
-	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(color))) /*line input.gsx:6:28*/
+	return _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string( /*line input.gsx:6:21*/ color))) /*line input.gsx:6:28*/
 }
 
 //line input.gsx:9:1
@@ -43,7 +43,7 @@ func Box(color string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(mk(color))))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:10:15*/ mk(color))))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

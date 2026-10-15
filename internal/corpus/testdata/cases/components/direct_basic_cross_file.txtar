@@ -50,10 +50,10 @@ func _gsxrenderChild(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value string, c
 //line child.gsx:6:24
 	_gsxgw.S("<strong>")
 //line child.gsx:6:32
-	_gsxgw.Text(string(value))
+	_gsxgw.Text(string( /*line child.gsx:6:34*/ value))
 	_gsxgw.S("</strong>")
 //line child.gsx:6:50
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line child.gsx:6:52*/, children)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }

@@ -54,7 +54,7 @@ func _gsxrenderWrap(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Nod
 //line input.gsx:6:2
 	_gsxgw.S("<section>")
 //line input.gsx:6:11
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:6:12*/, children)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }

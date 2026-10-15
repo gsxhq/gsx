@@ -36,10 +36,10 @@ func RegionNum(n int, u uint) _gsxrt.Node {
 		var _gsxnum [32]byte
 		_gsxgw.S("<?start name=\"r\">")
 //line input.gsx:4:19
-		_gsxgw.IntInto(_gsxnum[:], int64(n))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:21*/ n))
 		_gsxgw.S("/")
 //line input.gsx:4:25
-		_gsxgw.UintInto(_gsxnum[:], uint64(u))
+		_gsxgw.UintInto(_gsxnum[:], uint64( /*line input.gsx:4:27*/ u))
 		_gsxgw.S("<?end>")
 		return _gsxgw.Err()
 	})

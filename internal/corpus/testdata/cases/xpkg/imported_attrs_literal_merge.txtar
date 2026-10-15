@@ -49,7 +49,7 @@ func Home() _gsxrt.Node {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("p")
 			return _gsxgw.Err()
-		}), _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: "2"}})))
+		}), _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: /*line home.gsx:6:42*/ "2"}})))
 		return _gsxgw.Err()
 	})
 }
@@ -75,7 +75,7 @@ func Panel(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line panel.gsx:6:24
-		_gsxgw.Node(ctx, children)
+		_gsxgw.Node(ctx /*line panel.gsx:6:25*/, children)
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})

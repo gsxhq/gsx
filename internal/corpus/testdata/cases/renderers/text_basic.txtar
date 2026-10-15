@@ -61,7 +61,7 @@ func Tag(val pg.Text) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<div>")
 //line input.gsx:8:7
-		_gsxgw.Text(string(_gsxf0.PgText((val))))
+		_gsxgw.Text(string(_gsxf0.PgText(( /*line input.gsx:8:9*/ val))))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

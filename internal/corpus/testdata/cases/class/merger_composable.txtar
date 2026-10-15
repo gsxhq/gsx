@@ -40,7 +40,7 @@ func C(on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:24
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxcm.Keep, _gsxrt.Class("btn"), _gsxrt.ClassIf("btn-on", on))
+		_gsxgw.Class(_gsxcm.Keep, _gsxrt.Class( /*line input.gsx:3:37*/ "btn"), _gsxrt.ClassIf( /*line input.gsx:3:44*/ "btn-on" /*line input.gsx:3:54*/, on))
 		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})

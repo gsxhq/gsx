@@ -32,13 +32,13 @@ func Box(active bool, extra gsx.Attrs, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(active, func() (_gsxrt.Attrs, error) {
-			return extra, nil
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:6:12*/ active, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:6:23*/ extra, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, attrs)
+		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0 /*line input.gsx:6:40*/, attrs)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())

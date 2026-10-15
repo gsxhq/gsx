@@ -63,28 +63,28 @@ func Page(id int, u *U) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:17:2
-		_gsxv0, _gsxerr := lookup(id)
+		_gsxv0, _gsxerr := /*line input.gsx:17:14*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		if ok(string(_gsxv0)) && id > 0 {
+		if /*line input.gsx:17:7*/ ok(string(_gsxv0) /*line input.gsx:17:26*/) && id > 0 {
 //line input.gsx:18:3
 			_gsxgw.S("<b>left</b>")
 		}
 //line input.gsx:20:2
-		if u != nil && len(string(_gsxrt.RawJS("f("+_gsxrt.EscapeJSVal(u.Name)+")"))) > 0 {
+		if /*line input.gsx:20:7*/ u != nil && len(string(_gsxrt.RawJS("f("+_gsxrt.EscapeJSVal( /*line input.gsx:20:37*/ u.Name)+")") /*line input.gsx:20:46*/)) > 0 {
 //line input.gsx:21:3
 			_gsxgw.S("<b>never</b>")
 		}
 //line input.gsx:23:2
 		_gsxgw.S("<i")
-		if u != nil && ok(string(_gsxrt.RawCSS("c:"+_gsxrt.FilterCSS(string(u.Name))))) {
+		if /*line input.gsx:23:10*/ u != nil && ok(string(_gsxrt.RawCSS("c:"+_gsxrt.FilterCSS(string( /*line input.gsx:23:40*/ u.Name))) /*line input.gsx:23:48*/)) {
 			_gsxgw.S(" title=\"never\"")
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:24:2
 		_gsxgw.S("<i")
-		if u == nil || call(func() bool { return ok(string(u.Name)) }) {
+		if /*line input.gsx:24:10*/ u == nil || call(func() bool { return ok(string( /*line input.gsx:24:55*/ u.Name) /*line input.gsx:24:63*/) }) {
 			_gsxgw.S(" title=\"funclit\"")
 		}
 		_gsxgw.S("></i>")

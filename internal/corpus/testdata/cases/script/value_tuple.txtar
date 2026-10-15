@@ -28,7 +28,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const d = ")
-		_gsxv0, _gsxerr := load()
+		_gsxv0, _gsxerr := /*line input.gsx:4:23*/ load()
 		if _gsxerr != nil {
 			return _gsxerr
 		}

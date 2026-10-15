@@ -34,7 +34,7 @@ func Row(who string) _gsxrt.Node {
 //line input.gsx:4:5
 		_gsxgw.S("a ")
 //line input.gsx:4:11
-		_gsxgw.Text(string("b " + string(who)))
+		_gsxgw.Text(string("b " + string( /*line input.gsx:4:19*/ who)))
 		_gsxgw.S(" c</p>")
 		return _gsxgw.Err()
 	})

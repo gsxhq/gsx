@@ -76,7 +76,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title gsx.Node, 
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:5:69
-	_gsxgw.Node(ctx, title)
+	_gsxgw.Node(ctx /*line input.gsx:5:70*/, title)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -86,20 +86,20 @@ func Page(hot bool, ok bool, csv string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv3, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
+		_gsxv3, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:24*/ hot, func() (_gsxrt.Attrs, error) {
 			var _gsxv0 string
-			if ok {
-				_gsxv1, _gsxerr := _gsxf0.Parse((csv))
+			if /*line input.gsx:8:41*/ ok {
+				_gsxv1, _gsxerr := /*line input.gsx:8:53*/ _gsxf0.Parse(( /*line input.gsx:8:46*/ csv))
 				if _gsxerr != nil {
 					return nil, _gsxerr
 				}
-				_gsxv2, _gsxerr := _gsxf0.Pick(_gsxv1, 0)
+				_gsxv2, _gsxerr := /*line input.gsx:8:62*/ _gsxf0.Pick(_gsxv1 /*line input.gsx:8:67*/, 0)
 				if _gsxerr != nil {
 					return nil, _gsxerr
 				}
 				_gsxv0 = _gsxv2
 			} else {
-				_gsxv0 = "z"
+				_gsxv0 = /*line input.gsx:8:79*/ "z"
 			}
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv0))}}, nil
 		}, nil)

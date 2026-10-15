@@ -48,7 +48,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title gsx.Node, 
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:5:82
-	_gsxgw.Node(ctx, title)
+	_gsxgw.Node(ctx /*line input.gsx:5:83*/, title)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -58,9 +58,9 @@ func Page(outer bool, inner bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv2, _gsxerr := _gsxrt.AttrsCond(outer, func() (_gsxrt.Attrs, error) {
+		_gsxv2, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:24*/ outer, func() (_gsxrt.Attrs, error) {
 			_gsxv1 := _gsxrt.Attrs{{Key: "data-o", Value: "1"}}
-			_gsxv0, _gsxerr := _gsxrt.AttrsCond(inner, func() (_gsxrt.Attrs, error) {
+			_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:48*/ inner, func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-i", Value: "1"}}, nil
 			}, nil)
 			if _gsxerr != nil {

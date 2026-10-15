@@ -579,7 +579,7 @@ component Show(sample pg.Timestamptz) {
 		t.Fatalf("Generate diags = %v", diags)
 	}
 	src := string(out[viewsPath])
-	if !strings.Contains(src, `_gsxgw.Node(ctx, _gsxf0.Timestamptz((sample)))`) {
+	if !strings.Contains(codeShape(t, src), `_gsxgw.Node(ctx, _gsxf0.Timestamptz((sample)))`) {
 		t.Fatalf("consumer retained string lowering after renderer override:\n%s", src)
 	}
 	if strings.Contains(src, `_gsxgw.Text(string(_gsxf0.Timestamptz((sample))))`) {

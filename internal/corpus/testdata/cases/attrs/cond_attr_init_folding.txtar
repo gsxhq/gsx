@@ -63,16 +63,16 @@ func If(v string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		_gsxgw.S("<div")
-		if s := wrap(v); s != "" {
+		if /*line input.gsx:11:12*/ s := wrap(v); s != "" {
 			if !attrs.Has("title") {
 				_gsxgw.S(" title=\"")
-				_gsxgw.AttrValue(string(s))
+				_gsxgw.AttrValue(string( /*line input.gsx:11:43*/ s))
 				_gsxgw.S("\"")
 			}
 		} else {
 			if !attrs.Has("data-empty") {
 				_gsxgw.S(" data-empty=\"")
-				_gsxgw.AttrValue(string(s + "!"))
+				_gsxgw.AttrValue(string( /*line input.gsx:11:67*/ s + "!"))
 				_gsxgw.S("\"")
 			}
 		}
@@ -92,19 +92,19 @@ func ElseIf(v string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<p")
 		_gsxv0 := []string{"class", "style"}
 		var _gsxv1, _gsxv2, _gsxv3 func() error
-		if s := wrap(v); s == "A" {
+		if /*line input.gsx:15:23*/ s := wrap(v); s == "A" {
 			_gsxv1 = func() error {
 				_gsxgw.S(" data-a=\"")
-				_gsxgw.AttrValue(string(s))
+				_gsxgw.AttrValue(string( /*line input.gsx:15:56*/ s))
 				_gsxgw.S("\"")
 				return nil
 			}
 			_gsxv0 = append(_gsxv0, "data-a")
 		} else {
-			if t := s + s; t != "" {
+			if /*line input.gsx:15:69*/ t := s + s; t != "" {
 				_gsxv2 = func() error {
 					_gsxgw.S(" data-t=\"")
-					_gsxgw.AttrValue(string(t + s))
+					_gsxgw.AttrValue(string( /*line input.gsx:15:99*/ t + s))
 					_gsxgw.S("\"")
 					return nil
 				}
@@ -112,7 +112,7 @@ func ElseIf(v string, attrs gsx.Attrs) _gsxrt.Node {
 			} else {
 				_gsxv3 = func() error {
 					_gsxgw.S(" data-none=\"")
-					_gsxgw.AttrValue(string(s + t))
+					_gsxgw.AttrValue(string( /*line input.gsx:15:126*/ s + t))
 					_gsxgw.S("\"")
 					return nil
 				}
@@ -147,16 +147,16 @@ func Fold(v string, x gsx.Attrs, y gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:19:2
-		_gsxv4 := x
+		_gsxv4 := /*line input.gsx:19:7*/ x
 		_gsxv6, _gsxerr := func() (_gsxrt.Attrs, error) {
-			if s := wrap(v); s == "A" {
-				return _gsxrt.Attrs{{Key: "data-a", Value: s}}, nil
+			if /*line input.gsx:19:19*/ s := wrap(v); s == "A" {
+				return _gsxrt.Attrs{{Key: "data-a", Value: /*line input.gsx:19:52*/ s}}, nil
 			} else {
 				_gsxv5, _gsxerr := func() (_gsxrt.Attrs, error) {
-					if t := s + s; t != "" {
-						return _gsxrt.Attrs{{Key: "data-t", Value: t + s}}, nil
+					if /*line input.gsx:19:65*/ t := s + s; t != "" {
+						return _gsxrt.Attrs{{Key: "data-t", Value: /*line input.gsx:19:95*/ t + s}}, nil
 					} else {
-						return _gsxrt.Attrs{{Key: "data-none", Value: s + t}}, nil
+						return _gsxrt.Attrs{{Key: "data-none", Value: /*line input.gsx:19:122*/ s + t}}, nil
 					}
 				}()
 				if _gsxerr != nil {
@@ -168,7 +168,7 @@ func Fold(v string, x gsx.Attrs, y gsx.Attrs) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv7 := _gsxrt.ConcatAttrs(_gsxv4, _gsxv6, y)
+		_gsxv7 := _gsxrt.ConcatAttrs(_gsxv4, _gsxv6 /*line input.gsx:19:135*/, y)
 		_gsxgw.S("<b")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv7.Class())
 		_gsxgw.StyleMerged("", _gsxv7.Style())
@@ -183,21 +183,21 @@ func All() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:23:2
-		_gsxgw.Node(ctx, If("a", gsx.Attrs{{Key: "id", Value: "i"}}))
+		_gsxgw.Node(ctx /*line input.gsx:23:4*/, If("a", gsx.Attrs{{Key: "id", Value: "i"}}))
 //line input.gsx:24:2
-		_gsxgw.Node(ctx, If("", nil))
+		_gsxgw.Node(ctx /*line input.gsx:24:4*/, If("", nil))
 //line input.gsx:25:2
-		_gsxgw.Node(ctx, ElseIf("a", gsx.Attrs{{Key: "id", Value: "j"}}))
+		_gsxgw.Node(ctx /*line input.gsx:25:4*/, ElseIf("a", gsx.Attrs{{Key: "id", Value: "j"}}))
 //line input.gsx:26:2
-		_gsxgw.Node(ctx, ElseIf("b", nil))
+		_gsxgw.Node(ctx /*line input.gsx:26:4*/, ElseIf("b", nil))
 //line input.gsx:27:2
-		_gsxgw.Node(ctx, ElseIf("", nil))
+		_gsxgw.Node(ctx /*line input.gsx:27:4*/, ElseIf("", nil))
 //line input.gsx:28:2
-		_gsxgw.Node(ctx, Fold("a", gsx.Attrs{{Key: "id", Value: "x"}}, gsx.Attrs{{Key: "lang", Value: "y"}}))
+		_gsxgw.Node(ctx /*line input.gsx:28:4*/, Fold("a", gsx.Attrs{{Key: "id", Value: "x"}}, gsx.Attrs{{Key: "lang", Value: "y"}}))
 //line input.gsx:29:2
-		_gsxgw.Node(ctx, Fold("b", nil, nil))
+		_gsxgw.Node(ctx /*line input.gsx:29:4*/, Fold("b", nil, nil))
 //line input.gsx:30:2
-		_gsxgw.Node(ctx, Fold("", nil, nil))
+		_gsxgw.Node(ctx /*line input.gsx:30:4*/, Fold("", nil, nil))
 		return _gsxgw.Err()
 	})
 }

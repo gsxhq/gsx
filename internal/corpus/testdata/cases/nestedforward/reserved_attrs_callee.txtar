@@ -66,7 +66,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, at
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:12:20
-	_gsxgw.Text(string(title))
+	_gsxgw.Text(string( /*line input.gsx:12:21*/ title))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -84,7 +84,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 //line input.gsx:16:2
-	_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, strAttr(attrs, "t"), _gsxrt.Attrs{{Key: "data-x", Value: "1"}}))
+	_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw /*line input.gsx:16:16*/, strAttr(attrs, "t"), _gsxrt.Attrs{{Key: "data-x", Value: "1"}}))
 	return _gsxgw.Err()
 }
 

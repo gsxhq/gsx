@@ -72,13 +72,13 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 		return _gsxerr
 	}
 //line input.gsx:18:2
-	_gsxv0 := a
-	_gsxv2, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
-		_gsxv1, _gsxerr := lookup(id)
+	_gsxv0 := /*line input.gsx:18:7*/ a
+	_gsxv2, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:19*/ id != 0, func() (_gsxrt.Attrs, error) {
+		_gsxv1, _gsxerr := /*line input.gsx:18:54*/ lookup(id)
 		if _gsxerr != nil {
 			return nil, _gsxerr
 		}
-		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("h:" + _gsxrt.FilterCSS(string(wrap(string(_gsxv1)))) + "px")}}, nil
+		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("h:" + _gsxrt.FilterCSS(string( /*line input.gsx:18:45*/ wrap(string(_gsxv1) /*line input.gsx:18:66*/))) + "px")}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr
@@ -90,10 +90,10 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 	_gsxgw.Spread(ctx, "i", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></i>")
 //line input.gsx:19:2
-	_gsxv4 := a
-	_gsxv7, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
-		_gsxv6 := "a: b"
-		_gsxv5, _gsxerr := lookup(id)
+	_gsxv4 := /*line input.gsx:19:7*/ a
+	_gsxv7, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:19*/ id != 0, func() (_gsxrt.Attrs, error) {
+		_gsxv6 := /*line input.gsx:19:37*/ "a: b"
+		_gsxv5, _gsxerr := /*line input.gsx:19:53*/ lookup(id)
 		if _gsxerr != nil {
 			return nil, _gsxerr
 		}
@@ -109,15 +109,15 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 	_gsxgw.Spread(ctx, "i", _gsxv8, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S("></i>")
 //line input.gsx:20:2
-	_gsxv9 := a
-	_gsxv12, _gsxerr := _gsxrt.AttrsCond(id != 0, func() (_gsxrt.Attrs, error) {
+	_gsxv9 := /*line input.gsx:20:7*/ a
+	_gsxv12, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:20:19*/ id != 0, func() (_gsxrt.Attrs, error) {
 		var _gsxv10 string
-		if id != 2 {
-			_gsxv11, _gsxerr := lookup(id)
+		if /*line input.gsx:20:40*/ id != 2 {
+			_gsxv11, _gsxerr := /*line input.gsx:20:67*/ lookup(id)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			_gsxv10 = "t:" + _gsxrt.StyleValue(wrap(string(_gsxv11))) + "px"
+			_gsxv10 = "t:" + _gsxrt.StyleValue( /*line input.gsx:20:58*/ wrap(string(_gsxv11) /*line input.gsx:20:79*/)) + "px"
 		}
 		return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxv10)))}}, nil
 	}, nil)
@@ -138,9 +138,9 @@ func All() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:24:2
-		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw, 1, nil))
+		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw /*line input.gsx:24:12*/, 1 /*line input.gsx:24:18*/, nil))
 //line input.gsx:25:2
-		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw, -1, nil))
+		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw /*line input.gsx:25:12*/, -1 /*line input.gsx:25:19*/, nil))
 		return _gsxgw.Err()
 	})
 }

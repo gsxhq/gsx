@@ -66,9 +66,9 @@ func Page(c string) _gsxrt.Node {
 //line input.gsx:11:2
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "STYLE", Value: _gsxrt.RawCSS("top:0; left:calc(100% - 1px)")}}))
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "Style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(c)) + ";margin:0")}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "Style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string( /*line input.gsx:12:25*/ c)) + ";margin:0")}}))
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red; top:0")}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS( /*line input.gsx:13:25*/ "color:red; top:0")}}))
 		return _gsxgw.Err()
 	})
 }

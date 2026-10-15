@@ -34,7 +34,7 @@ func Link(link string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<a")
 		if !attrs.Has("href") {
 			_gsxgw.S(" href=\"")
-			_gsxgw.URL(string(link))
+			_gsxgw.URL(string( /*line input.gsx:6:11*/ link))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

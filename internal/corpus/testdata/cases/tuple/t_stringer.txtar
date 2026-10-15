@@ -52,7 +52,7 @@ func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, icon gsx.Node) 
 //line input.gsx:7:34
 	_gsxgw.S("<span>")
 //line input.gsx:7:40
-	_gsxgw.Node(ctx, icon)
+	_gsxgw.Node(ctx /*line input.gsx:7:41*/, icon)
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
@@ -62,7 +62,7 @@ func Page(s string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:28
-		_gsxa0, _gsxerr := makeLabel(s)
+		_gsxa0, _gsxerr := /*line input.gsx:9:41*/ makeLabel(s)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

@@ -43,10 +43,11 @@ func Page(v string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		j := _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(_gsxf0.Up(ctx, (v))) + ")")
+		/*line input.gsx:4:5*/
+		j := _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal( /*line input.gsx:4:22*/ _gsxf0.Up(ctx, ( /*line input.gsx:4:17*/ v))) + ")")
 //line input.gsx:5:2
 		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(j))
+		_gsxgw.AttrValue(string( /*line input.gsx:5:18*/ j))
 		_gsxgw.S("\">x</button>")
 		return _gsxgw.Err()
 	})

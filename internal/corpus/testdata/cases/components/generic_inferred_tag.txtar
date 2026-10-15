@@ -48,12 +48,12 @@ func _gsxrenderGreeting[V ~string, W any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Wr
 //line input.gsx:4:2
 	_gsxgw.S("<p>")
 //line input.gsx:4:5
-	_gsxgw.Text(string(v))
+	_gsxgw.Text(string( /*line input.gsx:4:7*/ v))
 	_gsxgw.S("</p>")
 //line input.gsx:5:2
 	_gsxgw.S("<p>")
 //line input.gsx:5:5
-	_gsxgw.Text(string(_gsxstd.Printf((w), "%v")))
+	_gsxgw.Text(string( /*line input.gsx:5:12*/ _gsxstd.Printf(( /*line input.gsx:5:7*/ w) /*line input.gsx:5:19*/, "%v")))
 	_gsxgw.S("</p>")
 	return _gsxgw.Err()
 }
@@ -76,7 +76,7 @@ func _gsxrenderByteBox[T []MyByte | string](ctx _gsxctx.Context, _gsxgw *_gsxrt.
 //line input.gsx:11:2
 	_gsxgw.S("<p>")
 //line input.gsx:11:5
-	_gsxgw.Text(string(string(value)))
+	_gsxgw.Text(string( /*line input.gsx:11:7*/ string(value)))
 	_gsxgw.S("</p>")
 	return _gsxgw.Err()
 }
@@ -88,7 +88,7 @@ func Page() _gsxrt.Node {
 //line input.gsx:15:2
 		_gsxgw.NodeResult(_gsxrenderGreeting[string, string](ctx, _gsxgw, "hello", "world"))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderByteBox[[]MyByte](ctx, _gsxgw, []MyByte{'x'}))
+		_gsxgw.NodeResult(_gsxrenderByteBox[[]MyByte](ctx, _gsxgw /*line input.gsx:16:18*/, []MyByte{'x'}))
 		return _gsxgw.Err()
 	})
 }

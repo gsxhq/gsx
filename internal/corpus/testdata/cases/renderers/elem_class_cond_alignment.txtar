@@ -69,16 +69,16 @@ func Page(before string, val pg.Text, on bool, after string) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<span>")
 //line input.gsx:8:8
-		_gsxgw.Text(string(before))
+		_gsxgw.Text(string( /*line input.gsx:8:9*/ before))
 		_gsxgw.S("</span>")
 //line input.gsx:9:2
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxf0.PgText((val)), on))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxf0.PgText(( /*line input.gsx:9:15*/ val)) /*line input.gsx:9:20*/, on))
 		_gsxgw.S("\">x</div>")
 //line input.gsx:10:2
 		_gsxgw.S("<span>")
 //line input.gsx:10:8
-		_gsxgw.Text(string(after))
+		_gsxgw.Text(string( /*line input.gsx:10:9*/ after))
 		_gsxgw.S("</span>")
 		return _gsxgw.Err()
 	})

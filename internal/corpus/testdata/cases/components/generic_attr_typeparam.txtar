@@ -41,7 +41,7 @@ func _gsxrenderField[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer,
 	}
 //line input.gsx:4:2
 	_gsxgw.S("<input")
-	_gsxgw.AttrAnyToggle("value", value)
+	_gsxgw.AttrAnyToggle("value" /*line input.gsx:4:16*/, value)
 	_gsxgw.S(">")
 	return _gsxgw.Err()
 }
@@ -51,9 +51,9 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.NodeResult(_gsxrenderField[int](ctx, _gsxgw, 7))
+		_gsxgw.NodeResult(_gsxrenderField[int](ctx, _gsxgw /*line input.gsx:8:21*/, 7))
 //line input.gsx:9:2
-		_gsxgw.NodeResult(_gsxrenderField[string](ctx, _gsxgw, "a<b"))
+		_gsxgw.NodeResult(_gsxrenderField[string](ctx, _gsxgw /*line input.gsx:9:24*/, "a<b"))
 		return _gsxgw.Err()
 	})
 }

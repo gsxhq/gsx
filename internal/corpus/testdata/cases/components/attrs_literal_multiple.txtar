@@ -46,7 +46,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.No
 	_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:24
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:6:25*/, children)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }
@@ -56,7 +56,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, nil, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "1"}}, _gsxrt.Attrs{{Key: "b", Value: "2"}})))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, nil, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: /*line input.gsx:10:23*/ "1"}}, _gsxrt.Attrs{{Key: "b", Value: /*line input.gsx:10:44*/ "2"}})))
 		return _gsxgw.Err()
 	})
 }

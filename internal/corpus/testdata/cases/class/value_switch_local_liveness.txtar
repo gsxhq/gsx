@@ -38,13 +38,13 @@ func C() _gsxrt.Node {
 		hi := 2
 //line input.gsx:6:2
 		_gsxgw.S("<span")
-		_gsxv0 := "base"
+		_gsxv0 := /*line input.gsx:6:16*/ "base"
 		var _gsxv1 string
-		switch level {
-		case hi:
-			_gsxv1 = "high"
+		switch /*line input.gsx:6:31*/ level {
+		case /*line input.gsx:7:7*/ hi:
+			_gsxv1 = /*line input.gsx:7:11*/ "high"
 		default:
-			_gsxv1 = "low"
+			_gsxv1 = /*line input.gsx:8:11*/ "low"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

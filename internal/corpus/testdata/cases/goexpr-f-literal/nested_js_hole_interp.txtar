@@ -39,7 +39,7 @@ func Page(who string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
-		_gsxgw.Text(string(wrap("a " + string(string(_gsxrt.RawJS("f("+_gsxrt.EscapeJSVal(who)+")"))))))
+		_gsxgw.Text(string( /*line input.gsx:4:7*/ wrap("a " + string( /*line input.gsx:4:19*/ string(_gsxrt.RawJS("f("+_gsxrt.EscapeJSVal( /*line input.gsx:4:33*/ who)+")") /*line input.gsx:4:39*/)) /*line input.gsx:4:43*/)))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

@@ -34,7 +34,7 @@ func Page() _gsxrt.Node {
 //line input.gsx:6:2
 		b := gsx.Attrs{{Key: "a", Value: "c"}}
 //line input.gsx:7:2
-		_gsxv0 := b
+		_gsxv0 := /*line input.gsx:7:16*/ b
 		_gsxgw.S("<span")
 		if !_gsxv0.Has("a") {
 			_gsxgw.S(" a=\"b\"")

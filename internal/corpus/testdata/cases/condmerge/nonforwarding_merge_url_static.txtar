@@ -33,7 +33,7 @@ func Link(on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("javascript:void(0)")}, {Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:4:49*/ on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {

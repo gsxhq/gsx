@@ -57,10 +57,10 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p CardProps, chi
 //line input.gsx:7:3
 	_gsxgw.S("<h2>")
 //line input.gsx:7:7
-	_gsxgw.Text(string(p.Title))
+	_gsxgw.Text(string( /*line input.gsx:7:8*/ p.Title))
 	_gsxgw.S("</h2>")
 //line input.gsx:8:3
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:8:4*/, children)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }
@@ -70,7 +70,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, CardProps{Title: "Hello"}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw /*line input.gsx:13:11*/, CardProps{Title: "Hello"}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:3
 			_gsxgw.S("<p>body</p>")

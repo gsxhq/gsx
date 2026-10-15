@@ -34,13 +34,13 @@ func Page(show bool, ids []string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		if show {
+		if /*line input.gsx:4:7*/ show {
 			_gsxgw.S("<?marker name=\"banner\">")
 		}
 //line input.gsx:7:2
-		for _, id := range ids {
+		for /*line input.gsx:7:8*/ _, id := range ids {
 			_gsxgw.S("<?marker name=\"")
-			_gsxgw.PIName(string(id))
+			_gsxgw.PIName(string( /*line input.gsx:8:18*/ id))
 			_gsxgw.S("\">")
 		}
 		return _gsxgw.Err()

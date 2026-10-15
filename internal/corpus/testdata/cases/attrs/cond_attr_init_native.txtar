@@ -57,13 +57,13 @@ func If(v string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		_gsxgw.S("<div")
-		if s := wrap(v); s != "" {
+		if /*line input.gsx:11:12*/ s := wrap(v); s != "" {
 			_gsxgw.S(" title=\"")
-			_gsxgw.AttrValue(string(s))
+			_gsxgw.AttrValue(string( /*line input.gsx:11:43*/ s))
 			_gsxgw.S("\"")
 		} else {
 			_gsxgw.S(" data-empty=\"")
-			_gsxgw.AttrValue(string(s + "!"))
+			_gsxgw.AttrValue(string( /*line input.gsx:11:67*/ s + "!"))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.S(">x</div>")
@@ -77,18 +77,18 @@ func ElseIf(v string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:15:2
 		_gsxgw.S("<p")
-		if s := wrap(v); s == "A" {
+		if /*line input.gsx:15:10*/ s := wrap(v); s == "A" {
 			_gsxgw.S(" data-a=\"")
-			_gsxgw.AttrValue(string(s))
+			_gsxgw.AttrValue(string( /*line input.gsx:15:43*/ s))
 			_gsxgw.S("\"")
 		} else {
-			if t := s + s; t != "" {
+			if /*line input.gsx:15:56*/ t := s + s; t != "" {
 				_gsxgw.S(" data-t=\"")
-				_gsxgw.AttrValue(string(t + s))
+				_gsxgw.AttrValue(string( /*line input.gsx:15:86*/ t + s))
 				_gsxgw.S("\"")
 			} else {
 				_gsxgw.S(" data-none=\"")
-				_gsxgw.AttrValue(string(s + t))
+				_gsxgw.AttrValue(string( /*line input.gsx:15:113*/ s + t))
 				_gsxgw.S("\"")
 			}
 		}
@@ -102,15 +102,15 @@ func All() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:19:2
-		_gsxgw.Node(ctx, If("a"))
+		_gsxgw.Node(ctx /*line input.gsx:19:4*/, If("a"))
 //line input.gsx:20:2
-		_gsxgw.Node(ctx, If(""))
+		_gsxgw.Node(ctx /*line input.gsx:20:4*/, If(""))
 //line input.gsx:21:2
-		_gsxgw.Node(ctx, ElseIf("a"))
+		_gsxgw.Node(ctx /*line input.gsx:21:4*/, ElseIf("a"))
 //line input.gsx:22:2
-		_gsxgw.Node(ctx, ElseIf("b"))
+		_gsxgw.Node(ctx /*line input.gsx:22:4*/, ElseIf("b"))
 //line input.gsx:23:2
-		_gsxgw.Node(ctx, ElseIf(""))
+		_gsxgw.Node(ctx /*line input.gsx:23:4*/, ElseIf(""))
 		return _gsxgw.Err()
 	})
 }

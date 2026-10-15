@@ -44,7 +44,7 @@ func stylesheet(href string) gsx.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:9
 		_gsxgw.S("<link rel=\"stylesheet\" href=\"")
-		_gsxgw.URL(string(href))
+		_gsxgw.URL(string( /*line input.gsx:6:38*/ href))
 		_gsxgw.S("\"")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">")
@@ -57,7 +57,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:20
-		_gsxgw.Node(ctx, stylesheet("/a.css"))
+		_gsxgw.Node(ctx /*line input.gsx:9:22*/, stylesheet("/a.css"))
 		return _gsxgw.Err()
 	})
 }

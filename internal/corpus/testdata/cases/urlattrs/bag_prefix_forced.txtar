@@ -58,7 +58,7 @@ func _gsxrenderNav(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, p navProps) error
 		return _gsxerr
 	}
 //line input.gsx:10:2
-	_gsxv0 := p.Attrs
+	_gsxv0 := /*line input.gsx:10:7*/ p.Attrs
 	_gsxgw.S("<a")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -72,7 +72,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderNav(ctx, _gsxgw, navProps{Attrs: gsx.Attrs{{Key: "data-url-go", Value: "javascript:alert(1)"}, {Key: "data-url-keep", Value: "/safe"}}}))
+		_gsxgw.NodeResult(_gsxrenderNav(ctx, _gsxgw /*line input.gsx:14:10*/, navProps{Attrs: gsx.Attrs{{Key: "data-url-go", Value: "javascript:alert(1)"}, {Key: "data-url-keep", Value: "/safe"}}}))
 		return _gsxgw.Err()
 	})
 }

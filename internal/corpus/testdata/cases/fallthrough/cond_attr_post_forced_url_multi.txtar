@@ -53,12 +53,12 @@ func _gsxrenderBtn(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, a bool, b bool, a
 	_gsxgw.S("<button")
 	_gsxv0 := []string{"class", "style"}
 	var _gsxv1 bool
-	if a {
+	if /*line input.gsx:6:28*/ a {
 		_gsxv1 = true
 		_gsxv0 = append(_gsxv0, "formaction")
 	}
 	var _gsxv2 bool
-	if b {
+	if /*line input.gsx:6:57*/ b {
 		_gsxv2 = true
 		_gsxv0 = append(_gsxv0, "formaction")
 	}
@@ -80,11 +80,11 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw, true, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw /*line input.gsx:10:10*/, true /*line input.gsx:10:19*/, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
 //line input.gsx:11:2
-		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw, false, true, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw /*line input.gsx:11:10*/, false /*line input.gsx:11:20*/, true, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw, false, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderBtn(ctx, _gsxgw /*line input.gsx:12:10*/, false /*line input.gsx:12:20*/, false, _gsxrt.Attrs{{Key: "formaction", Value: "javascript:alert(1)"}}))
 		return _gsxgw.Err()
 	})
 }

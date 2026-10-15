@@ -86,7 +86,7 @@ func Tag(s string, valid bool) _gsxrt.Node {
 //line input.gsx:17:2
 		_gsxgw.S("<div>")
 //line input.gsx:17:7
-		_gsxv0, _gsxerr := load(s, valid)
+		_gsxv0, _gsxerr := /*line input.gsx:17:9*/ load(s, valid)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

@@ -30,11 +30,11 @@ func Metrics(i int, u uint, f float64) _gsxrt.Node {
 		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<div data-i=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64(i))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:15*/ i))
 		_gsxgw.S("\" data-u=\"")
-		_gsxgw.UintInto(_gsxnum[:], uint64(u))
+		_gsxgw.UintInto(_gsxnum[:], uint64( /*line input.gsx:4:26*/ u))
 		_gsxgw.S("\" data-f=\"")
-		_gsxgw.FloatInto(_gsxnum[:], float64(f))
+		_gsxgw.FloatInto(_gsxnum[:], float64( /*line input.gsx:4:37*/ f))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

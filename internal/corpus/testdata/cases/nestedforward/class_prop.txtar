@@ -68,7 +68,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 //line input.gsx:10:2
-	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(attrs.Class()))}}))
+	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:10:16*/ attrs.Class()))}}))
 	return _gsxgw.Err()
 }
 

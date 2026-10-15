@@ -42,7 +42,7 @@ func C(cond bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		if cond {
+		if /*line input.gsx:6:7*/ cond {
 //line input.gsx:7:3
 			attrs := gsx.Attrs{{Key: "data-local", Value: "1"}}
 //line input.gsx:8:3

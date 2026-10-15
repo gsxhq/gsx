@@ -33,11 +33,12 @@ func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		greeting := "hello " + string(name)
+		/*line input.gsx:4:5*/
+		greeting := "hello " + string( /*line input.gsx:4:27*/ name)
 //line input.gsx:5:2
 		_gsxgw.S("<p>")
 //line input.gsx:5:5
-		_gsxgw.Text(string(greeting))
+		_gsxgw.Text(string( /*line input.gsx:5:6*/ greeting))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

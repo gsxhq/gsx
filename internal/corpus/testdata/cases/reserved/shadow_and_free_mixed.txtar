@@ -57,7 +57,7 @@ func Mixed(attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
 //line input.gsx:13:20
-		for _, attrs := range bags() {
+		for /*line input.gsx:13:26*/ _, attrs := range bags() {
 //line input.gsx:13:53
 			_gsxgw.S("<span")
 			_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

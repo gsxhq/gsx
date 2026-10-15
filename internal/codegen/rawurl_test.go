@@ -38,6 +38,7 @@ func TestRawURLBypassesSchemeCheck(t *testing.T) {
 	for _, s := range gen {
 		got = string(s)
 	}
+	got = codeShape(t, got)
 
 	// Plain string href: still scheme-sanitized via gw.URL.
 	if !strings.Contains(got, "_gsxgw.URL(string(u))") {

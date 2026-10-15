@@ -31,7 +31,7 @@ func Box(on bool, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		if on {
+		if /*line input.gsx:6:12*/ on {
 			if !attrs.Has("id") {
 				_gsxgw.S(" id=\"mine\"")
 			}

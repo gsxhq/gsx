@@ -68,11 +68,11 @@ func Link(danger pg.Text, safe pg.Text) _gsxrt.Node {
 		_gsxgw.S("<div>")
 //line input.gsx:9:3
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL(string(_gsxf0.PgText((danger))))
+		_gsxgw.URL(string(_gsxf0.PgText(( /*line input.gsx:9:13*/ danger))))
 		_gsxgw.S("\">bad</a>")
 //line input.gsx:10:3
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL(string(_gsxf0.PgText((safe))))
+		_gsxgw.URL(string(_gsxf0.PgText(( /*line input.gsx:10:13*/ safe))))
 		_gsxgw.S("\">good</a></div>")
 		return _gsxgw.Err()
 	})

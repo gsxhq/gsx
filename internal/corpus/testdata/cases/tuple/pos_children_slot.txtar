@@ -50,7 +50,7 @@ func _gsxrenderWrap(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Nod
 //line input.gsx:8:2
 	_gsxgw.S("<div>")
 //line input.gsx:8:7
-	_gsxgw.Node(ctx, children)
+	_gsxgw.Node(ctx /*line input.gsx:8:8*/, children)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -63,7 +63,7 @@ func Page(t string) _gsxrt.Node {
 		_gsxgw.NodeResult(_gsxrenderWrap(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:8
-			_gsxv0, _gsxerr := makeText(t)
+			_gsxv0, _gsxerr := /*line input.gsx:12:10*/ makeText(t)
 			if _gsxerr != nil {
 				return _gsxerr
 			}

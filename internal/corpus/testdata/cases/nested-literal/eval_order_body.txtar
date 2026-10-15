@@ -141,169 +141,169 @@ func Page() _gsxrt.Node {
 //line input.gsx:44:2
 		_gsxgw.S("<p>")
 //line input.gsx:44:5
-		_gsxv1 := "a-" + string(r.F("1"))
-		_gsxv0, _gsxerr := r.E("2")
+		_gsxv1 := "a-" + string( /*line input.gsx:44:18*/ r.F("1"))
+		_gsxv0, _gsxerr := /*line input.gsx:44:36*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(join(_gsxv1, "b-"+string(_gsxv0))))
+		_gsxgw.Text(string( /*line input.gsx:44:7*/ join(_gsxv1 /*line input.gsx:44:28*/, "b-"+string(_gsxv0) /*line input.gsx:44:46*/)))
 		_gsxgw.S(" ")
 //line input.gsx:44:50
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:44:52*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:45:2
 		r = newRec()
 //line input.gsx:46:2
 		_gsxgw.S("<p>")
 //line input.gsx:46:5
-		_gsxv3 := r.F("g")
-		_gsxv2, _gsxerr := r.E("2")
+		_gsxv3 := /*line input.gsx:46:12*/ r.F("g")
+		_gsxv2, _gsxerr := /*line input.gsx:46:28*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(join(_gsxv3, "b-"+string(_gsxv2))))
+		_gsxgw.Text(string( /*line input.gsx:46:7*/ join(_gsxv3 /*line input.gsx:46:20*/, "b-"+string(_gsxv2) /*line input.gsx:46:38*/)))
 		_gsxgw.S(" ")
 //line input.gsx:46:42
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:46:44*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:47:2
 		r = newRec()
 //line input.gsx:48:2
 		_gsxgw.S("<p>")
 //line input.gsx:48:5
-		_gsxv5 := r.Obj("o")
-		_gsxv4, _gsxerr := r.E("2")
+		_gsxv5 := /*line input.gsx:48:7*/ r.Obj("o")
+		_gsxv4, _gsxerr := /*line input.gsx:48:29*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(_gsxv5.Join("b-" + string(_gsxv4))))
+		_gsxgw.Text(string(_gsxv5. /*line input.gsx:48:17*/ Join("b-" + string(_gsxv4) /*line input.gsx:48:39*/)))
 		_gsxgw.S(" ")
 //line input.gsx:48:43
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:48:45*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:49:2
 		r = newRec()
 //line input.gsx:50:2
 		_gsxgw.S("<p>")
 //line input.gsx:50:5
-		_gsxv7 := <-r.ch
-		_gsxv6, _gsxerr := r.E("2")
+		_gsxv7 := /*line input.gsx:50:12*/ <-r.ch
+		_gsxv6, _gsxerr := /*line input.gsx:50:26*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(join(_gsxv7, "b-"+string(_gsxv6))))
+		_gsxgw.Text(string( /*line input.gsx:50:7*/ join(_gsxv7 /*line input.gsx:50:18*/, "b-"+string(_gsxv6) /*line input.gsx:50:36*/)))
 		_gsxgw.S(" ")
 //line input.gsx:50:40
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:50:42*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:51:2
 		r = newRec()
 //line input.gsx:52:2
 		_gsxgw.S("<p>")
 //line input.gsx:52:5
-		_gsxv9 := join(r.F("outer"), r.F("inner"))
-		_gsxv10 := r.F("conv")
-		_gsxv8, _gsxerr := r.E("2")
+		_gsxv9 := /*line input.gsx:52:13*/ join(r.F("outer"), r.F("inner"))
+		_gsxv10 := /*line input.gsx:52:54*/ r.F("conv")
+		_gsxv8, _gsxerr := /*line input.gsx:52:74*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(join3(_gsxv9, string(_gsxv10), "b-"+string(_gsxv8))))
+		_gsxgw.Text(string( /*line input.gsx:52:7*/ join3(_gsxv9 /*line input.gsx:52:45*/, string(_gsxv10 /*line input.gsx:52:65*/), "b-"+string(_gsxv8) /*line input.gsx:52:84*/)))
 		_gsxgw.S(" ")
 //line input.gsx:52:88
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:52:90*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:53:2
 		r = newRec()
 //line input.gsx:54:2
 		_gsxgw.S("<p>")
 //line input.gsx:54:5
-		_gsxv12 := pair(r.Two("two"))
-		_gsxv11, _gsxerr := r.E("2")
+		_gsxv12 := /*line input.gsx:54:12*/ pair(r.Two("two"))
+		_gsxv11, _gsxerr := /*line input.gsx:54:38*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(join(_gsxv12, "b-"+string(_gsxv11))))
+		_gsxgw.Text(string( /*line input.gsx:54:7*/ join(_gsxv12 /*line input.gsx:54:30*/, "b-"+string(_gsxv11) /*line input.gsx:54:48*/)))
 		_gsxgw.S(" ")
 //line input.gsx:54:52
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:54:54*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:55:2
 		r = newRec()
 //line input.gsx:56:2
 		_gsxgw.S("<p>")
 //line input.gsx:56:5
-		_gsxv14 := r.B("l") && r.B("r")
-		_gsxv13, _gsxerr := r.E("2")
+		_gsxv14 := /*line input.gsx:56:11*/ r.B("l") && r.B("r")
+		_gsxv13, _gsxerr := /*line input.gsx:56:39*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(yes(_gsxv14, "b-"+string(_gsxv13))))
+		_gsxgw.Text(string( /*line input.gsx:56:7*/ yes(_gsxv14 /*line input.gsx:56:31*/, "b-"+string(_gsxv13) /*line input.gsx:56:49*/)))
 		_gsxgw.S(" ")
 //line input.gsx:56:53
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:56:55*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:57:2
 		r = newRec()
 //line input.gsx:58:2
 		_gsxgw.S("<p>")
 //line input.gsx:58:5
-		_gsxv15, _gsxerr := r.E("2")
+		_gsxv15, _gsxerr := /*line input.gsx:58:57*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(call(func() string { return r.F("never") }, "b-"+string(_gsxv15))))
+		_gsxgw.Text(string( /*line input.gsx:58:7*/ call(func() string { return r.F("never") }, "b-"+string(_gsxv15) /*line input.gsx:58:67*/)))
 		_gsxgw.S(" ")
 //line input.gsx:58:71
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:58:73*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:59:2
 		r = newRec()
 //line input.gsx:60:2
 		_gsxgw.S("<p>")
 //line input.gsx:60:5
-		_gsxv17 := r.Mk("mk")
-		_gsxv16, _gsxerr := r.E("2")
+		_gsxv17 := /*line input.gsx:60:7*/ r.Mk("mk")
+		_gsxv16, _gsxerr := /*line input.gsx:60:24*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(_gsxv17("b-" + string(_gsxv16))))
+		_gsxgw.Text(string(_gsxv17 /*line input.gsx:60:17*/ ("b-" + string(_gsxv16) /*line input.gsx:60:34*/)))
 		_gsxgw.S(" ")
 //line input.gsx:60:38
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:60:40*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:61:2
 		r = newRec()
 //line input.gsx:62:2
 		_gsxgw.S("<p>")
 //line input.gsx:62:5
-		_gsxv19 := r.F("a")
-		_gsxv18, _gsxerr := r.E("2")
+		_gsxv19 := /*line input.gsx:62:21*/ r.F("a")
+		_gsxv18, _gsxerr := /*line input.gsx:62:40*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(show(pairT{A: _gsxv19, B: "b-" + string(_gsxv18)})))
+		_gsxgw.Text(string( /*line input.gsx:62:7*/ show(pairT{A: _gsxv19 /*line input.gsx:62:29*/, B: "b-" + string(_gsxv18) /*line input.gsx:62:50*/})))
 		_gsxgw.S(" ")
 //line input.gsx:62:55
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:62:57*/ r).String())
 		_gsxgw.S("</p>")
 //line input.gsx:63:2
 		r = newRec()
 //line input.gsx:64:2
-		_gsxv21 := r.F("g")
-		_gsxv20, _gsxerr := r.E("2")
+		_gsxv21 := /*line input.gsx:64:22*/ r.F("g")
+		_gsxv20, _gsxerr := /*line input.gsx:64:38*/ r.E("2")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		switch v := anyOf(_gsxv21, "b-"+string(_gsxv20)).(type) {
-		case string:
+		switch /*line input.gsx:64:11*/ v := anyOf(_gsxv21 /*line input.gsx:64:30*/, "b-"+string(_gsxv20) /*line input.gsx:64:48*/).(type) {
+		case /*line input.gsx:65:7*/ string:
 //line input.gsx:66:3
 			_gsxgw.S("<b>")
 //line input.gsx:66:6
-			_gsxgw.Text(string(v))
+			_gsxgw.Text(string( /*line input.gsx:66:8*/ v))
 			_gsxgw.S("</b>")
 		}
 //line input.gsx:67:5
-		_gsxgw.Text((r).String())
+		_gsxgw.Text(( /*line input.gsx:67:7*/ r).String())
 		return _gsxgw.Err()
 	})
 }

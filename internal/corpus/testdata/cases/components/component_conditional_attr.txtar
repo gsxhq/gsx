@@ -47,7 +47,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title gsx.Node, 
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:5:82
-	_gsxgw.Node(ctx, title)
+	_gsxgw.Node(ctx /*line input.gsx:5:83*/, title)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -57,7 +57,7 @@ func Page(hot bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:24*/ hot, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: "hot"}}, nil
 		}, nil)
 		if _gsxerr != nil {

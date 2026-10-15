@@ -30,14 +30,14 @@ func Box(a bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(a, func() (_gsxrt.Attrs, error) {
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:4:25*/ a, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}})
-		_gsxv3, _gsxerr := _gsxrt.AttrsCond(a, func() (_gsxrt.Attrs, error) {
+		_gsxv3, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:4:67*/ a, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("margin:0")}}, nil
 		}, nil)
 		if _gsxerr != nil {

@@ -67,7 +67,7 @@ func _gsxrenderImg(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, u string) error {
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<img data-src=\"")
-	_gsxgw.URL(string(u))
+	_gsxgw.URL(string( /*line input.gsx:6:17*/ u))
 	_gsxgw.S("\">")
 	return _gsxgw.Err()
 }
@@ -86,7 +86,7 @@ func _gsxrenderDiv(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, u string) error {
 	}
 //line input.gsx:10:2
 	_gsxgw.S("<div data-src=\"")
-	_gsxgw.AttrValue(string(u))
+	_gsxgw.AttrValue(string( /*line input.gsx:10:17*/ u))
 	_gsxgw.S("\"></div>")
 	return _gsxgw.Err()
 }
@@ -138,13 +138,13 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:2
-		_gsxgw.NodeResult(_gsxrenderImg(ctx, _gsxgw, "javascript:alert(1)"))
+		_gsxgw.NodeResult(_gsxrenderImg(ctx, _gsxgw /*line input.gsx:22:10*/, "javascript:alert(1)"))
 //line input.gsx:23:2
-		_gsxgw.NodeResult(_gsxrenderDiv(ctx, _gsxgw, "javascript:alert(2)"))
+		_gsxgw.NodeResult(_gsxrenderDiv(ctx, _gsxgw /*line input.gsx:23:10*/, "javascript:alert(2)"))
 //line input.gsx:24:2
-		_gsxgw.NodeResult(_gsxrenderBaggedImg(ctx, _gsxgw, gsx.Attrs{{Key: "data-src", Value: "javascript:alert(3)"}}))
+		_gsxgw.NodeResult(_gsxrenderBaggedImg(ctx, _gsxgw /*line input.gsx:24:20*/, gsx.Attrs{{Key: "data-src", Value: "javascript:alert(3)"}}))
 //line input.gsx:25:2
-		_gsxgw.NodeResult(_gsxrenderBaggedDiv(ctx, _gsxgw, gsx.Attrs{{Key: "data-src", Value: "javascript:alert(4)"}}))
+		_gsxgw.NodeResult(_gsxrenderBaggedDiv(ctx, _gsxgw /*line input.gsx:25:20*/, gsx.Attrs{{Key: "data-src", Value: "javascript:alert(4)"}}))
 		return _gsxgw.Err()
 	})
 }

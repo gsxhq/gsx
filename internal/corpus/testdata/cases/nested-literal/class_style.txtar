@@ -57,36 +57,36 @@ func Page(id int, u *U) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
 		_gsxgw.S("<i class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("x"), _gsxrt.Class(wrap("c-"+_gsxsc.FormatInt(int64(id), 10))), _gsxrt.ClassIf("on", ok("d-"+_gsxsc.FormatInt(int64(id), 10))))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:12:13*/ "x"), _gsxrt.Class( /*line input.gsx:12:18*/ wrap("c-"+_gsxsc.FormatInt(int64( /*line input.gsx:12:29*/ id), 10) /*line input.gsx:12:33*/)), _gsxrt.ClassIf( /*line input.gsx:12:36*/ "on" /*line input.gsx:12:42*/, ok("d-"+_gsxsc.FormatInt(int64( /*line input.gsx:12:51*/ id), 10) /*line input.gsx:12:55*/)))
 		_gsxgw.S("\"></i>")
 //line input.gsx:13:2
 		_gsxgw.S("<i")
-		_gsxv0 := "x"
+		_gsxv0 := /*line input.gsx:13:13*/ "x"
 		var _gsxv1 string
-		if ok("e-" + _gsxsc.FormatInt(int64(id), 10)) {
-			_gsxv1 = "a"
+		if /*line input.gsx:13:21*/ ok("e-" + _gsxsc.FormatInt(int64( /*line input.gsx:13:30*/ id), 10) /*line input.gsx:13:34*/) {
+			_gsxv1 = /*line input.gsx:13:38*/ "a"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))
 		_gsxgw.S("\"></i>")
 //line input.gsx:14:2
 		_gsxgw.S("<i")
-		_gsxv2 := "x"
+		_gsxv2 := /*line input.gsx:14:13*/ "x"
 		var _gsxv3 string
-		if u != nil {
-			_gsxv3 = wrap("g-" + string(u.Name))
+		if /*line input.gsx:14:21*/ u != nil {
+			_gsxv3 = /*line input.gsx:14:32*/ wrap("g-" + string( /*line input.gsx:14:43*/ u.Name) /*line input.gsx:14:51*/)
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv2), _gsxrt.Class(_gsxv3))
 		_gsxgw.S("\"></i>")
 //line input.gsx:15:2
 		_gsxgw.S("<i")
-		_gsxv4 := "x"
+		_gsxv4 := /*line input.gsx:15:13*/ "x"
 		var _gsxv5 string
-		if id > 0 {
-			_gsxv5 = "p"
-		} else if ok("h-" + string(u.Name)) {
-			_gsxv5 = "q"
+		if /*line input.gsx:15:21*/ id > 0 {
+			_gsxv5 = /*line input.gsx:15:30*/ "p"
+		} else if /*line input.gsx:15:44*/ ok("h-" + string( /*line input.gsx:15:53*/ u.Name) /*line input.gsx:15:61*/) {
+			_gsxv5 = /*line input.gsx:15:65*/ "q"
 		}
 
 		_gsxgw.S(" class=\"")
@@ -94,48 +94,48 @@ func Page(id int, u *U) _gsxrt.Node {
 		_gsxgw.S("\"></i>")
 //line input.gsx:16:2
 		_gsxgw.S("<i")
-		_gsxv6 := "x"
+		_gsxv6 := /*line input.gsx:16:13*/ "x"
 		var _gsxv7 string
-		switch wrap("s-" + _gsxsc.FormatInt(int64(id), 10)) {
-		case "s-1":
-			_gsxv7 = "b"
+		switch /*line input.gsx:16:25*/ wrap("s-" + _gsxsc.FormatInt(int64( /*line input.gsx:16:36*/ id), 10) /*line input.gsx:16:40*/) {
+		case /*line input.gsx:16:49*/ "s-1":
+			_gsxv7 = /*line input.gsx:16:56*/ "b"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv6), _gsxrt.Class(_gsxv7))
 		_gsxgw.S("\"></i>")
 //line input.gsx:17:2
 		_gsxgw.S("<i")
-		_gsxv8 := "x"
+		_gsxv8 := /*line input.gsx:17:13*/ "x"
 		var _gsxv9 string
 		switch {
-		case id == 1:
-			_gsxv9 = "n"
-		case ok("k-" + string(u.Name)):
-			_gsxv9 = "m"
+		case /*line input.gsx:17:32*/ id == 1:
+			_gsxv9 = /*line input.gsx:17:41*/ "n"
+		case /*line input.gsx:17:50*/ ok("k-" + string( /*line input.gsx:17:59*/ u.Name) /*line input.gsx:17:67*/):
+			_gsxv9 = /*line input.gsx:17:70*/ "m"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv8), _gsxrt.Class(_gsxv9))
 		_gsxgw.S("\"></i>")
 //line input.gsx:18:2
 		_gsxgw.S("<i style=\"")
-		_gsxgw.Style(_gsxrt.Style("color: red"), _gsxrt.Style(_gsxrt.StyleValue(wrapCSS(_gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(_gsxsc.FormatInt(int64(id), 10))+"px")))))
+		_gsxgw.Style(_gsxrt.Style( /*line input.gsx:18:13*/ "color: red"), _gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:18:27*/ wrapCSS(_gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(_gsxsc.FormatInt(int64( /*line input.gsx:18:47*/ id), 10))+"px") /*line input.gsx:18:53*/))))
 		_gsxgw.S("\"></i>")
 //line input.gsx:19:2
 		_gsxgw.S("<i")
-		_gsxv10 := "height:" + _gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10))) + "px"
+		_gsxv10 := "height:" + _gsxrt.StyleValue( /*line input.gsx:19:26*/ wrap(_gsxsc.FormatInt(int64( /*line input.gsx:19:35*/ id), 10) /*line input.gsx:19:39*/)) + "px"
 		var _gsxv11 string
-		if id > 0 {
-			_gsxv11 = "top:" + _gsxrt.StyleValue(wrap(_gsxsc.FormatInt(int64(id), 10))) + "px"
+		if /*line input.gsx:19:49*/ id > 0 {
+			_gsxv11 = "top:" + _gsxrt.StyleValue( /*line input.gsx:19:68*/ wrap(_gsxsc.FormatInt(int64( /*line input.gsx:19:77*/ id), 10) /*line input.gsx:19:81*/)) + "px"
 		}
 		_gsxgw.S(" style=\"")
 		_gsxgw.Style(_gsxrt.Style(_gsxv10), _gsxrt.Style(_gsxv11))
 		_gsxgw.S("\"></i>")
 //line input.gsx:20:2
 		_gsxgw.S("<i")
-		_gsxv12 := "x"
+		_gsxv12 := /*line input.gsx:20:13*/ "x"
 		var _gsxv13 string
-		if id > 0 {
-			_gsxv13 = "y-" + string(wrap(_gsxsc.FormatInt(int64(id), 10)))
+		if /*line input.gsx:20:21*/ id > 0 {
+			_gsxv13 = "y-" + string( /*line input.gsx:20:36*/ wrap(_gsxsc.FormatInt(int64( /*line input.gsx:20:45*/ id), 10) /*line input.gsx:20:49*/))
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv12), _gsxrt.Class(_gsxv13))

@@ -80,14 +80,14 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, inputAttrs gsx.
 //line input.gsx:6:2
 	_gsxgw.S("<label>")
 //line input.gsx:6:9
-	_gsxv0 := inputAttrs
+	_gsxv0 := /*line input.gsx:6:17*/ inputAttrs
 	_gsxgw.S("<input")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
 	_gsxgw.Spread(ctx, "input", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:33
-	_gsxv1 := inputAttrs
+	_gsxv1 := /*line input.gsx:6:40*/ inputAttrs
 	_gsxgw.S("<span")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 	_gsxgw.StyleMerged("", _gsxv1.Style())
@@ -133,7 +133,7 @@ func _gsxrenderDefined(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs LocalAt
 		return _gsxerr
 	}
 //line input.gsx:16:2
-	_gsxv2 := gsx.Attrs(attrs)
+	_gsxv2 := /*line input.gsx:16:10*/ gsx.Attrs(attrs)
 	_gsxgw.S("<aside")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 	_gsxgw.StyleMerged("", _gsxv2.Style())
@@ -155,7 +155,7 @@ func _gsxrenderVariadic(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs ...gsx
 		return _gsxerr
 	}
 //line input.gsx:20:2
-	_gsxv3 := gsx.Attrs(attrs)
+	_gsxv3 := /*line input.gsx:20:8*/ gsx.Attrs(attrs)
 	_gsxgw.S("<nav")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
 	_gsxgw.StyleMerged("", _gsxv3.Style())
@@ -174,14 +174,14 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:28:2
-		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, _gsxrt.Attrs{{Key: "id", Value: "x"}}))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, _gsxrt.Attrs{{Key: "id", Value: /*line input.gsx:28:29*/ "x"}}))
 //line input.gsx:29:2
-		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, computedBag()))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw /*line input.gsx:29:21*/, computedBag()))
 //line input.gsx:30:2
-		_gsxgw.NodeResult(_gsxrenderShell(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "id", Value: "shell"}}, _gsxrt.Attrs{{Key: "class", Value: "wide"}})))
+		_gsxgw.NodeResult(_gsxrenderShell(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "id", Value: /*line input.gsx:30:24*/ "shell"}}, _gsxrt.Attrs{{Key: "class", Value: "wide"}})))
 //line input.gsx:31:2
-		_gsxv4, _gsxerr := _gsxrt.AttrsCond(true, func() (_gsxrt.Attrs, error) {
-			return computedBag(), nil
+		_gsxv4, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:31:14*/ true, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:31:28*/ computedBag(), nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

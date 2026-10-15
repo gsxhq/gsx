@@ -46,7 +46,7 @@ func _gsxrenderBox[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, v
 //line input.gsx:6:2
 	_gsxgw.S("<span>")
 //line input.gsx:6:8
-	_gsxgw.TextAny(value)
+	_gsxgw.TextAny( /*line input.gsx:6:9*/ value)
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
@@ -68,7 +68,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, header gsx.Node
 //line input.gsx:10:21
 	_gsxgw.S("<div class=\"hd\">")
 //line input.gsx:10:37
-	_gsxgw.Node(ctx, header)
+	_gsxgw.Node(ctx /*line input.gsx:10:38*/, header)
 	_gsxgw.S("</div></div>")
 	return _gsxgw.Err()
 }
@@ -81,7 +81,7 @@ func Page() _gsxrt.Node {
 		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:18
-			_gsxgw.NodeResult(_gsxrenderBox[int](ctx, _gsxgw, 7))
+			_gsxgw.NodeResult(_gsxrenderBox[int](ctx, _gsxgw /*line input.gsx:14:30*/, 7))
 			return _gsxgw.Err()
 		})))
 		return _gsxgw.Err()

@@ -51,14 +51,14 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
 		_gsxgw.S("<i")
-		_gsxv0 := "x"
+		_gsxv0 := /*line input.gsx:14:13*/ "x"
 		var _gsxv1 string
-		_gsxv2, _gsxerr := lookup(id)
+		_gsxv2, _gsxerr := /*line input.gsx:14:28*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		if ok(string(_gsxv2)) {
-			_gsxv1 = "c"
+		if /*line input.gsx:14:21*/ ok(string(_gsxv2) /*line input.gsx:14:40*/) {
+			_gsxv1 = /*line input.gsx:14:44*/ "c"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

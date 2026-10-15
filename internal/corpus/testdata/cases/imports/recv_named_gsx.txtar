@@ -53,7 +53,7 @@ func (gsx widget) Show() _gsxrt.Node {
 //line input.gsx:9:2
 		_gsxgw.S("<b>")
 //line input.gsx:9:5
-		_gsxgw.Text(string(gsx.Label))
+		_gsxgw.Text(string( /*line input.gsx:9:7*/ gsx.Label))
 		_gsxgw.S("</b>")
 		return _gsxgw.Err()
 	})
@@ -67,7 +67,7 @@ func (strconv widget) Tally() _gsxrt.Node {
 //line input.gsx:13:2
 		_gsxgw.S("<i>")
 //line input.gsx:13:5
-		_gsxgw.IntInto(_gsxnum[:], int64(strconv.Count))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:13:7*/ strconv.Count))
 		_gsxgw.S("</i>")
 		return _gsxgw.Err()
 	})

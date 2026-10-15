@@ -41,7 +41,7 @@ func RegionScriptHole(v string) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const a = ")
-		_gsxgw.JSVal(v)
+		_gsxgw.JSVal( /*line input.gsx:5:23*/ v)
 		_gsxgw.S(";</script><?end>")
 //line input.gsx:7:2
 		_gsxgw.S("<div>")
@@ -49,7 +49,7 @@ func RegionScriptHole(v string) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const a = ")
-		_gsxgw.JSVal(v)
+		_gsxgw.JSVal( /*line input.gsx:8:23*/ v)
 		_gsxgw.S(";</script></div>")
 		return _gsxgw.Err()
 	})

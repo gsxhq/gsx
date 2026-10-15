@@ -96,18 +96,18 @@ func _gsxrenderTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first string, 
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := _gsxrt.ConcatAttrs(ordered, attrs)
+	_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:6:9*/ ordered /*line input.gsx:6:24*/, attrs)
 	_gsxgw.S("<div")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
 	_gsxgw.Spread(ctx, "div", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:35
-	_gsxgw.Text(string(first))
+	_gsxgw.Text(string( /*line input.gsx:6:36*/ first))
 //line input.gsx:6:42
-	_gsxgw.Text(string(formatted))
+	_gsxgw.Text(string( /*line input.gsx:6:43*/ formatted))
 //line input.gsx:6:53
-	_gsxgw.Text(string(last))
+	_gsxgw.Text(string( /*line input.gsx:6:54*/ last))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -117,16 +117,16 @@ func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxa3 := mark("first", "A")
-		_gsxv1, _gsxerr := markInt("hole", 7, fail)
+		_gsxa3 := /*line input.gsx:11:10*/ mark("first", "A")
+		_gsxv1, _gsxerr := /*line input.gsx:12:23*/ markInt("hole", 7, fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxv2 := _gsxsc.FormatInt(int64(_gsxv1), 10)
 		_gsxa4 := "value-" + _gsxv2
-		_gsxa5 := _gsxrt.Attrs{{Key: "data-pair", Value: mark("pair", "P")}}
-		_gsxa6 := _gsxrt.Attrs{{Key: "data-bag", Value: mark("bag", "B")}}
-		_gsxa7 := mark("last", "Z")
+		_gsxa5 := _gsxrt.Attrs{{Key: "data-pair", Value: /*line input.gsx:13:27*/ mark("pair", "P")}}
+		_gsxa6 := _gsxrt.Attrs{{Key: "data-bag", Value: /*line input.gsx:14:13*/ mark("bag", "B")}}
+		_gsxa7 := /*line input.gsx:15:9*/ mark("last", "Z")
 		_gsxgw.NodeResult(_gsxrenderTarget(ctx, _gsxgw, _gsxa3, _gsxa4, _gsxa5, _gsxa7, _gsxa6))
 		return _gsxgw.Err()
 	})

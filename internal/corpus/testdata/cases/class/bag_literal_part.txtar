@@ -103,39 +103,39 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, c bool) 
 		return _gsxerr
 	}
 //line input.gsx:21:2
-	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.Class("h-"+_gsxsc.FormatInt(int64(id), 10)))}}))
+	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:21:15*/ "a"), _gsxrt.Class("h-"+_gsxsc.FormatInt(int64( /*line input.gsx:21:26*/ id), 10)))}}))
 //line input.gsx:22:2
-	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.ClassIf("g-"+_gsxsc.FormatInt(int64(id), 10), c))}}))
+	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:22:15*/ "a"), _gsxrt.ClassIf("g-"+_gsxsc.FormatInt(int64( /*line input.gsx:22:26*/ id), 10) /*line input.gsx:22:32*/, c))}}))
 //line input.gsx:23:2
-	_gsxv0 := "a"
+	_gsxv0 := /*line input.gsx:23:15*/ "a"
 	var _gsxv1 string
-	if c {
-		_gsxv1 = "v-" + _gsxsc.FormatInt(int64(id), 10)
+	if /*line input.gsx:23:23*/ c {
+		_gsxv1 = "v-" + _gsxsc.FormatInt(int64( /*line input.gsx:23:33*/ id), 10)
 	} else {
-		_gsxv1 = "z"
+		_gsxv1 = /*line input.gsx:23:47*/ "z"
 	}
 	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))}}))
 //line input.gsx:24:2
-	_gsxv2, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
-		return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.Class("t-"+_gsxsc.FormatInt(int64(id), 10)))}}, nil
+	_gsxv2, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:24:12*/ c, func() (_gsxrt.Attrs, error) {
+		return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:24:24*/ "a"), _gsxrt.Class("t-"+_gsxsc.FormatInt(int64( /*line input.gsx:24:35*/ id), 10)))}}, nil
 	}, nil)
 	if _gsxerr != nil {
 		return _gsxerr
 	}
 	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv2))
 //line input.gsx:25:2
-	_gsxv3, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
-		return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("a"), _gsxrt.ClassIf("u-"+_gsxsc.FormatInt(int64(id), 10), id > 1))}}, nil
+	_gsxv3, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:25:12*/ c, func() (_gsxrt.Attrs, error) {
+		return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:25:24*/ "a"), _gsxrt.ClassIf("u-"+_gsxsc.FormatInt(int64( /*line input.gsx:25:35*/ id), 10) /*line input.gsx:25:41*/, id > 1))}}, nil
 	}, func() (_gsxrt.Attrs, error) {
-		return _gsxrt.Attrs{{Key: "class", Value: "e-" + _gsxsc.FormatInt(int64(id), 10)}}, nil
+		return _gsxrt.Attrs{{Key: "class", Value: "e-" + _gsxsc.FormatInt(int64( /*line input.gsx:25:73*/ id), 10)}}, nil
 	})
 	if _gsxerr != nil {
 		return _gsxerr
 	}
 	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv3))
 //line input.gsx:26:2
-	_gsxv5, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
-		_gsxv4, _gsxerr := lookup(id)
+	_gsxv5, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:26:12*/ c, func() (_gsxrt.Attrs, error) {
+		_gsxv4, _gsxerr := /*line input.gsx:26:30*/ lookup(id)
 		if _gsxerr != nil {
 			return nil, _gsxerr
 		}
@@ -146,10 +146,10 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, c bool) 
 	}
 	_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv5))
 //line input.gsx:27:2
-	_gsxv8, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
+	_gsxv8, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:27:12*/ c, func() (_gsxrt.Attrs, error) {
 		var _gsxv6 string
-		if id > 1 {
-			_gsxv7, _gsxerr := lookup(id)
+		if /*line input.gsx:27:27*/ id > 1 {
+			_gsxv7, _gsxerr := /*line input.gsx:27:42*/ lookup(id)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
@@ -169,11 +169,11 @@ func All() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:31:2
-		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw, 1, true))
+		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw /*line input.gsx:31:12*/, 1 /*line input.gsx:31:18*/, true))
 //line input.gsx:32:2
-		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw, 2, false))
+		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw /*line input.gsx:32:12*/, 2 /*line input.gsx:32:18*/, false))
 //line input.gsx:33:2
-		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw, -1, true))
+		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw /*line input.gsx:33:12*/, -1 /*line input.gsx:33:19*/, true))
 		return _gsxgw.Err()
 	})
 }

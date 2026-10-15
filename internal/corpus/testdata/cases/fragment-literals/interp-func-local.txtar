@@ -59,7 +59,7 @@ func Greeting(name string) gsx.Node {
 //line input.gsx:10:30
 		_gsxgw.S("<span>")
 //line input.gsx:10:36
-		_gsxgw.Text(string(name))
+		_gsxgw.Text(string( /*line input.gsx:10:38*/ name))
 		_gsxgw.S("</span>")
 		return _gsxgw.Err()
 	}) /*line input.gsx:10:54*/
@@ -70,7 +70,7 @@ func Host() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Greeting("world"))
+		_gsxgw.Node(ctx /*line input.gsx:14:4*/, Greeting("world"))
 		return _gsxgw.Err()
 	})
 }

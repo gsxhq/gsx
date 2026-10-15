@@ -64,7 +64,7 @@ func TestGenericCrossPackageTag(t *testing.T) {
 		"components.Button[string](\"ok\")",
 		"components.FlagBox[_gsxty1.Flag](components.MakeFlag())",
 	} {
-		if !strings.Contains(root, want) {
+		if !strings.Contains(codeShape(t, root), want) {
 			t.Fatalf("generated root source missing %q:\n%s", want, root)
 		}
 	}
@@ -103,7 +103,7 @@ func TestGenericCrossPackageInference(t *testing.T) {
 	for _, src := range res[tmp].Files {
 		root = string(src)
 	}
-	if !strings.Contains(root, "components.Button[int](7, \"\")") {
+	if !strings.Contains(codeShape(t, root), "components.Button[int](7, \"\")") {
 		t.Fatalf("partial-props cross-package inference failed; generated:\n%s", root)
 	}
 }
@@ -168,7 +168,7 @@ func TestGenericInferredTagSkipsNonGenericTags(t *testing.T) {
 		`_gsxrenderCard(ctx, _gsxgw, "x")`,
 		"_gsxrenderButton[int](ctx, _gsxgw, 7)",
 	} {
-		if !strings.Contains(root, want) {
+		if !strings.Contains(codeShape(t, root), want) {
 			t.Fatalf("generated source missing %q:\n%s", want, root)
 		}
 	}

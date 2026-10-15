@@ -65,12 +65,12 @@ func Marked(v pg.ID) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 		_gsxgw.S("<?marker name=\"")
-		_gsxgw.PIName(string(_gsxf0.PgID((v))))
+		_gsxgw.PIName(string(_gsxf0.PgID(( /*line input.gsx:8:17*/ v))))
 		_gsxgw.S("\">")
 //line input.gsx:9:2
 		_gsxgw.S("<p>")
 //line input.gsx:9:5
-		_gsxgw.Text(string(_gsxf0.PgID((v))))
+		_gsxgw.Text(string(_gsxf0.PgID(( /*line input.gsx:9:6*/ v))))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

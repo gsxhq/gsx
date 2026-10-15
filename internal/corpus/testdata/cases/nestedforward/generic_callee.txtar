@@ -59,11 +59,11 @@ func _gsxrenderList[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, items []T
 	_gsxgw.Spread(ctx, "ul", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:7:3
-	for _, it := range items {
+	for /*line input.gsx:7:9*/ _, it := range items {
 //line input.gsx:8:4
 		_gsxgw.S("<li>")
 //line input.gsx:8:8
-		_gsxgw.Text(string(_gsxstd.Printf((it), "%v")))
+		_gsxgw.Text(string( /*line input.gsx:8:16*/ _gsxstd.Printf(( /*line input.gsx:8:10*/ it) /*line input.gsx:8:23*/, "%v")))
 		_gsxgw.S("</li>")
 	}
 	_gsxgw.S("</ul>")
@@ -83,7 +83,7 @@ func _gsxrenderWrap(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs)
 		return _gsxerr
 	}
 //line input.gsx:14:2
-	_gsxgw.NodeResult(_gsxrenderList[string](ctx, _gsxgw, []string{"a", "b"}, attrs))
+	_gsxgw.NodeResult(_gsxrenderList[string](ctx, _gsxgw /*line input.gsx:14:15*/, []string{"a", "b"} /*line input.gsx:14:37*/, attrs))
 	return _gsxgw.Err()
 }
 

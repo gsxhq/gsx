@@ -89,7 +89,7 @@ func Loud(v gsx.RawJS) string { return "LOUD(" + string(v) + ")" }
 	// (the direct gsx.RawJS(...) construction, and the js`` literal's `h`
 	// reference) should each produce exactly one such line.
 	re := regexp.MustCompile(`_gsxgw\.AttrValue\(string\((_gsxf\d+)\.Loud\(\((.*)\)\)\)\)`)
-	matches := re.FindAllStringSubmatch(gen, -1)
+	matches := re.FindAllStringSubmatch(codeShape(t, gen), -1)
 	if len(matches) != 2 {
 		t.Fatalf("expected exactly 2 renderer-routed AttrValue lines (one per button), found %d, generated:\n%s", len(matches), gen)
 	}

@@ -34,6 +34,7 @@ func TestRawCSSAliasOptsOut(t *testing.T) {
 	for _, s := range gen {
 		got = string(s)
 	}
+	got = codeShape(t, got)
 
 	// Plain string CSS value: filtered via gw.CSS.
 	if !strings.Contains(got, "_gsxgw.CSS(string(plain))") {

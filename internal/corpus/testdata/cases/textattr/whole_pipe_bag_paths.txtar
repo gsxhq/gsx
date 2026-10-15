@@ -84,33 +84,33 @@ func Page(on bool, v, u string, a, c gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "title", Value: _gsxstd.Upper(("hi"))}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "title", Value: /*line input.gsx:10:23*/ _gsxstd.Upper(("hi"))}}))
 //line input.gsx:11:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "title", Value: _gsxstd.Upper(("hi-" + string(v)))}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "title", Value: /*line input.gsx:11:28*/ _gsxstd.Upper(("hi-" + string( /*line input.gsx:11:21*/ v)))}}))
 //line input.gsx:12:2
-		_gsxv0, _gsxerr := _gsxf0.Check(("hi-" + string(v)))
+		_gsxv0, _gsxerr := /*line input.gsx:12:28*/ _gsxf0.Check(("hi-" + string( /*line input.gsx:12:21*/ v)))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "title", Value: _gsxv0}}))
 //line input.gsx:13:2
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "title", Value: _gsxstd.Upper(("hi-" + string(v)))}}, nil
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:13:12*/ on, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "title", Value: /*line input.gsx:13:38*/ _gsxstd.Upper(("hi-" + string( /*line input.gsx:13:31*/ v)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv1))
 //line input.gsx:14:2
-		_gsxv2 := _gsxrt.ConcatAttrs(a, c, _gsxrt.Attrs{{Key: "title", Value: _gsxstd.Upper(("hi"))}})
+		_gsxv2 := _gsxrt.ConcatAttrs( /*line input.gsx:14:7*/ a /*line input.gsx:14:16*/, c, _gsxrt.Attrs{{Key: "title", Value: /*line input.gsx:14:39*/ _gsxstd.Upper(("hi"))}})
 		_gsxgw.S("<i")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 		_gsxgw.StyleMerged("", _gsxv2.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv2, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:15:2
-		_gsxv3 := _gsxrt.ConcatAttrs(a, c)
-		_gsxv4, _gsxerr := _gsxf0.Check(("hi-" + string(v)))
+		_gsxv3 := _gsxrt.ConcatAttrs( /*line input.gsx:15:7*/ a /*line input.gsx:15:16*/, c)
+		_gsxv4, _gsxerr := /*line input.gsx:15:44*/ _gsxf0.Check(("hi-" + string( /*line input.gsx:15:37*/ v)))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -121,9 +121,9 @@ func Page(on bool, v, u string, a, c gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv5, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:16:2
-		_gsxv6 := _gsxrt.ConcatAttrs(a, c)
-		_gsxv7, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "title", Value: _gsxstd.Upper(("hi-" + string(v)))}}, nil
+		_gsxv6 := _gsxrt.ConcatAttrs( /*line input.gsx:16:7*/ a /*line input.gsx:16:16*/, c)
+		_gsxv7, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:16:28*/ on, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "title", Value: /*line input.gsx:16:54*/ _gsxstd.Upper(("hi-" + string( /*line input.gsx:16:47*/ v)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -135,14 +135,14 @@ func Page(on bool, v, u string, a, c gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv8, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:17:2
-		_gsxv9 := _gsxrt.ConcatAttrs(a, c, _gsxrt.Attrs{{Key: "href", Value: _gsxstd.Upper((string(u)))}})
+		_gsxv9 := _gsxrt.ConcatAttrs( /*line input.gsx:17:7*/ a /*line input.gsx:17:16*/, c, _gsxrt.Attrs{{Key: "href", Value: /*line input.gsx:17:40*/ _gsxstd.Upper((string( /*line input.gsx:17:33*/ u)))}})
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv9.Class())
 		_gsxgw.StyleMerged("", _gsxv9.Style())
 		_gsxgw.Spread(ctx, "a", _gsxv9, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></a>")
 //line input.gsx:18:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "href", Value: _gsxstd.Upper((string(u)))}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "href", Value: /*line input.gsx:18:24*/ _gsxstd.Upper((string( /*line input.gsx:18:17*/ u)))}}))
 		return _gsxgw.Err()
 	})
 }

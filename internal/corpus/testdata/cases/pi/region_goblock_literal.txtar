@@ -40,13 +40,14 @@ func RegionGoBlock(v string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 		_gsxgw.S("<?start name=\"r\">")
 //line input.gsx:5:3
-		h := _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(v) + ")")
-		s := _gsxrt.RawCSS("color: " + _gsxrt.FilterCSS(string(v)) + ";")
+		/*line input.gsx:6:4*/
+		h := _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal( /*line input.gsx:6:16*/ v) + ")")
+		/*line input.gsx:7:4*/ s := _gsxrt.RawCSS("color: " + _gsxrt.FilterCSS(string( /*line input.gsx:7:22*/ v)) + ";")
 //line input.gsx:9:3
 		_gsxgw.S("<div @click=\"")
-		_gsxgw.AttrValue(string(h))
+		_gsxgw.AttrValue(string( /*line input.gsx:9:16*/ h))
 		_gsxgw.S("\" style=\"")
-		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(s)))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:9:26*/ s)))
 		_gsxgw.S("\">x</div><?end>")
 		return _gsxgw.Err()
 	})

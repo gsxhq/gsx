@@ -38,7 +38,7 @@ func C(selfID string) _gsxrt.Node {
 		_gsxgw.S("<div hx-vals=\"{ &#34;exclude&#34;: &#34;SELF-1&#34; }\"></div>")
 //line input.gsx:5:2
 		_gsxgw.S("<div hx-vals=\"{ &#34;exclude&#34;: ")
-		_gsxgw.JSValAttr(selfID)
+		_gsxgw.JSValAttr( /*line input.gsx:5:33*/ selfID)
 		_gsxgw.S(" }\"></div>")
 //line input.gsx:6:2
 		_gsxgw.S("<div x-data=\"{ open: false }\"></div>")

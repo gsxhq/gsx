@@ -33,7 +33,7 @@ func InterposedEmbeddedHole(a gsx.Attrs, who string, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "title", Value: "Hi " + string(who)}}, a, b)
+		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "title", Value: "Hi " + string( /*line input.gsx:6:20*/ who)}} /*line input.gsx:6:28*/, a /*line input.gsx:6:37*/, b)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

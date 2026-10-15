@@ -1719,7 +1719,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table funcTables, usedFil
 			return strings.TrimSpace(seed), nil
 		}
 	}
-	lowered, used, err := lowerPipe(seed, stages, table, probePipeWrap)
+	lowered, used, err := lowerPipe(seed, stages, table, probePipeWrap, nil)
 	if err != nil {
 		return strings.TrimSpace(seed), nil
 	}

@@ -63,7 +63,7 @@ func Tag(name string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div title=\"")
-		_gsxgw.AttrValue(string(_gsxf1.PgText((_gsxf0.WrapText(("hi-" + string(name)))))))
+		_gsxgw.AttrValue(string(_gsxf1.PgText(( /*line input.gsx:4:31*/ _gsxf0.WrapText(("hi-" + string( /*line input.gsx:4:21*/ name)))))))
 		_gsxgw.S("\">ok</div>")
 		return _gsxgw.Err()
 	})

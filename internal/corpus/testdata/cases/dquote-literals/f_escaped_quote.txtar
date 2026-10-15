@@ -29,7 +29,7 @@ func Note(w string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div title=\"say &#34;")
-		_gsxgw.AttrValue(string(w))
+		_gsxgw.AttrValue(string( /*line input.gsx:4:23*/ w))
 		_gsxgw.S("&#34;\">n</div>")
 		return _gsxgw.Err()
 	})

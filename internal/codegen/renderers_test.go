@@ -578,7 +578,7 @@ component Page(val box) {
 	// Parity with a call-expr part: the wrong type reaches _gsxrt.Class(val)
 	// verbatim in the emitted code, to fail at `go build` of the .x.go — NOT
 	// inside gsx generation itself.
-	if !strings.Contains(genSrc, "_gsxrt.Class(val)") {
+	if !strings.Contains(codeShape(t, genSrc), "_gsxrt.Class(val)") {
 		t.Fatalf("generated .x.go missing Class(val); got:\n%s", genSrc)
 	}
 	// Pin that the pre-fix failure mode is truly gone: no diagnostic anywhere

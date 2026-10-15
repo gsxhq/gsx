@@ -28,7 +28,9 @@ import (
 
 /*line input.gsx:1:14*/
 
-func markup(x string) string { return "<b>" + string(x) + "</b>" /*line input.gsx:3:53*/ }
+func markup(x string) string {
+	return "<b>" + string( /*line input.gsx:3:46*/ x) + "</b>" /*line input.gsx:3:53*/
+}
 
 //line input.gsx:5:1
 func Host(x string) _gsxrt.Node {
@@ -37,7 +39,7 @@ func Host(x string) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<div>")
 //line input.gsx:6:7
-		_gsxgw.Text(string(markup(x)))
+		_gsxgw.Text(string( /*line input.gsx:6:9*/ markup(x)))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

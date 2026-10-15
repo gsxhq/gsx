@@ -70,15 +70,15 @@ func Tags(csv string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
-		_gsxv0, _gsxerr := _gsxf0.Parse((csv))
+		_gsxv0, _gsxerr := /*line input.gsx:4:14*/ _gsxf0.Parse(( /*line input.gsx:4:7*/ csv))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1, _gsxerr := _gsxf0.First(_gsxf0.Rev(_gsxv0))
+		_gsxv1, _gsxerr := /*line input.gsx:4:30*/ _gsxf0.First( /*line input.gsx:4:23*/ _gsxf0.Rev(_gsxv0))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(_gsxstd.Upper(_gsxv1)))
+		_gsxgw.Text(string( /*line input.gsx:4:39*/ _gsxstd.Upper(_gsxv1)))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

@@ -66,12 +66,12 @@ func Page(val pg.Text, on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div")
-		_gsxv0, _gsxerr := _gsxf0.PgText((val))
+		_gsxv0, _gsxerr := _gsxf0.PgText(( /*line input.gsx:8:15*/ val))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxv0, on))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxv0 /*line input.gsx:8:20*/, on))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

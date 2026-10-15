@@ -43,7 +43,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title gsx.Node) 
 //line input.gsx:5:34
 	_gsxgw.S("<div class=\"card\">")
 //line input.gsx:5:52
-	_gsxgw.Node(ctx, title)
+	_gsxgw.Node(ctx /*line input.gsx:5:53*/, title)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -53,7 +53,7 @@ func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Val(_gsxstd.Upper((name)))))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Val( /*line input.gsx:8:24*/ _gsxstd.Upper(( /*line input.gsx:8:16*/ name)))))
 		return _gsxgw.Err()
 	})
 }

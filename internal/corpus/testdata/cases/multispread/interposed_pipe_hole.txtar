@@ -33,7 +33,7 @@ func InterposedPipeHole(p gsx.Attrs, u string, q gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(p, _gsxrt.Attrs{{Key: "href", Value: _gsxstd.Trim((u))}}, q)
+		_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:6:7*/ p, _gsxrt.Attrs{{Key: "href", Value: /*line input.gsx:6:26*/ _gsxstd.Trim(( /*line input.gsx:6:21*/ u))}} /*line input.gsx:6:35*/, q)
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

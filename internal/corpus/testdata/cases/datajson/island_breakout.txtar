@@ -37,7 +37,7 @@ func Page(cfg Cfg) _gsxrt.Node {
 		_gsxgw.S("<script type=\"application/json\" id=\"cfg\"")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">")
-		_gsxgw.JSVal(cfg)
+		_gsxgw.JSVal( /*line input.gsx:8:46*/ cfg)
 		_gsxgw.S("</script>")
 		return _gsxgw.Err()
 	})

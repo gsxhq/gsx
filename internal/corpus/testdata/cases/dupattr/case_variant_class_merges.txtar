@@ -49,11 +49,11 @@ func Box(x string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S(">2</div>")
 //line input.gsx:8:2
 		_gsxgw.S("<div CLASS=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("a"), _gsxrt.Class(x))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:8:15*/ "a"), _gsxrt.Class( /*line input.gsx:8:20*/ x))
 		_gsxgw.S("\">3</div>")
 //line input.gsx:9:2
 		_gsxgw.S("<div Class=\"k-")
-		_gsxgw.AttrValue(string(x))
+		_gsxgw.AttrValue(string( /*line input.gsx:9:21*/ x))
 		_gsxgw.S("\">4</div>")
 		return _gsxgw.Err()
 	})

@@ -62,7 +62,7 @@ func Tag(val pg.Text) _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.a{color:")
-		_gsxgw.CSS(string(_gsxf0.PgColor((val))))
+		_gsxgw.CSS(string(_gsxf0.PgColor(( /*line input.gsx:8:21*/ val))))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})

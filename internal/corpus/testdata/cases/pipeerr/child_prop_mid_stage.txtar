@@ -65,7 +65,7 @@ func _gsxrenderLabel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, text string) er
 //line input.gsx:3:32
 	_gsxgw.S("<span>")
 //line input.gsx:3:38
-	_gsxgw.Text(string(text))
+	_gsxgw.Text(string( /*line input.gsx:3:39*/ text))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
@@ -75,11 +75,11 @@ func Page(csv string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:30
-		_gsxv0, _gsxerr := _gsxf0.Parse((csv))
+		_gsxv0, _gsxerr := /*line input.gsx:5:51*/ _gsxf0.Parse(( /*line input.gsx:5:44*/ csv))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxa1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
+		_gsxa1, _gsxerr := /*line input.gsx:5:60*/ _gsxf0.Pick(_gsxv0 /*line input.gsx:5:65*/, 0)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

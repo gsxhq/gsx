@@ -30,13 +30,13 @@ func Summary(count int, enabled bool, title string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
-		_gsxgw.IntInto(_gsxnum[:], int64(_gsxstd.Default((count), 12)))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:16*/ _gsxstd.Default(( /*line input.gsx:4:7*/ count) /*line input.gsx:4:24*/, 12)))
 		_gsxgw.S("|")
 //line input.gsx:4:30
-		_gsxgw.S(_gsxsc.FormatBool(bool(_gsxstd.Default((enabled), true))))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:4:43*/ _gsxstd.Default(( /*line input.gsx:4:32*/ enabled) /*line input.gsx:4:51*/, true))))
 		_gsxgw.S("|")
 //line input.gsx:4:59
-		_gsxgw.Text(string(_gsxstd.Default((title), "Untitled")))
+		_gsxgw.Text(string( /*line input.gsx:4:70*/ _gsxstd.Default(( /*line input.gsx:4:61*/ title) /*line input.gsx:4:78*/, "Untitled")))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

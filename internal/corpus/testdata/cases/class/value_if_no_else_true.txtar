@@ -29,10 +29,10 @@ func Toggle(on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<i")
-		_gsxv0 := "base"
+		_gsxv0 := /*line input.gsx:4:13*/ "base"
 		var _gsxv1 string
-		if on {
-			_gsxv1 = "extra"
+		if /*line input.gsx:4:24*/ on {
+			_gsxv1 = /*line input.gsx:4:29*/ "extra"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

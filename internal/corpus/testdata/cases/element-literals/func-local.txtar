@@ -57,10 +57,10 @@ func Greeting(name string) gsx.Node {
 //line input.gsx:11:9
 		_gsxgw.S("<div>")
 //line input.gsx:11:14
-		_gsxgw.Text(string(greeting))
+		_gsxgw.Text(string( /*line input.gsx:11:16*/ greeting))
 		_gsxgw.S(" (")
 //line input.gsx:11:28
-		_gsxgw.Text(string(name))
+		_gsxgw.Text(string( /*line input.gsx:11:30*/ name))
 		_gsxgw.S(")</div>")
 		return _gsxgw.Err()
 	}) /*line input.gsx:11:43*/

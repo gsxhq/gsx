@@ -29,9 +29,9 @@ func Badge(variant string, n int) _gsxrt.Node {
 		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<span class=\"badge badge-")
-		_gsxgw.AttrValue(string(variant))
+		_gsxgw.AttrValue(string( /*line input.gsx:4:30*/ variant))
 		_gsxgw.S(" n-")
-		_gsxgw.IntInto(_gsxnum[:], int64(n))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:43*/ n))
 		_gsxgw.S("\">Hi</span>")
 		return _gsxgw.Err()
 	})

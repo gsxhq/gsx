@@ -35,7 +35,7 @@ func label(attrs string) gsx.Node {
 //line input.gsx:6:9
 		_gsxgw.S("<span>")
 //line input.gsx:6:15
-		_gsxgw.Text(string(attrs))
+		_gsxgw.Text(string( /*line input.gsx:6:17*/ attrs))
 		_gsxgw.S("</span>")
 		return _gsxgw.Err()
 	}) /*line input.gsx:6:31*/
@@ -46,7 +46,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, label("plain text"))
+		_gsxgw.Node(ctx /*line input.gsx:10:4*/, label("plain text"))
 		return _gsxgw.Err()
 	})
 }

@@ -87,7 +87,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 //line input.gsx:10:2
-	_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, attrs))
+	_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw /*line input.gsx:10:10*/, attrs))
 	return _gsxgw.Err()
 }
 
@@ -100,17 +100,17 @@ func Page(show bool, before gsx.Attrs, after gsx.Attrs) _gsxrt.Node {
 //line input.gsx:15:2
 		_gsxgw.NodeResult(_gsxrenderWrapper(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-nested-marker", Value: _gsxrt.Toggle(true)}}))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-valued", Value: true}}))
+		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-valued", Value: /*line input.gsx:16:21*/ true}}))
 //line input.gsx:17:2
-		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "aria-expanded", Value: false}}))
+		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "aria-expanded", Value: /*line input.gsx:17:23*/ false}}))
 //line input.gsx:18:2
-		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "href", Value: true}}))
+		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "href", Value: /*line input.gsx:18:14*/ true}}))
 //line input.gsx:19:2
-		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "focusable", Value: false}}))
+		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "focusable", Value: /*line input.gsx:19:19*/ false}}))
 //line input.gsx:20:2
-		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-toggle", Value: gsx.Toggle(true)}}))
+		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-toggle", Value: /*line input.gsx:20:21*/ gsx.Toggle(true)}}))
 //line input.gsx:21:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(show, func() (_gsxrt.Attrs, error) {
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:21:13*/ show, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-conditional-marker", Value: _gsxrt.Toggle(true)}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -118,7 +118,7 @@ func Page(show bool, before gsx.Attrs, after gsx.Attrs) _gsxrt.Node {
 		}
 		_gsxgw.NodeResult(_gsxrenderLeaf(ctx, _gsxgw, _gsxv0))
 //line input.gsx:22:2
-		_gsxv1 := _gsxrt.ConcatAttrs(before, _gsxrt.Attrs{{Key: "data-folded-marker", Value: _gsxrt.Toggle(true)}}, after)
+		_gsxv1 := _gsxrt.ConcatAttrs( /*line input.gsx:22:9*/ before, _gsxrt.Attrs{{Key: "data-folded-marker", Value: _gsxrt.Toggle(true)}} /*line input.gsx:22:42*/, after)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())

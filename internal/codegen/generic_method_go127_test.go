@@ -44,6 +44,7 @@ component (p Page) Render() {
 	for _, src := range res[pkgDir].Files {
 		got = string(src)
 	}
+	got = codeShape(t, got)
 	for _, want := range []string{
 		// Verbatim generic method declaration — the authored signature emitted
 		// directly, with no synthesized <Recv><Name>Props struct or _gsxp param.

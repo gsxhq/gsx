@@ -43,8 +43,8 @@ func Prose(k string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div>")
 //line input.gsx:4:7
-		switch k {
-		case "a":
+		switch /*line input.gsx:4:16*/ k {
+		case /*line input.gsx:5:7*/ "a":
 			_gsxgw.S("x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x case 1: nope")
 		default:
 //line input.gsx:8:3

@@ -69,7 +69,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 //line input.gsx:10:2
-	_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, attrs.Without("id")))
+	_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw /*line input.gsx:10:11*/, attrs.Without("id")))
 	return _gsxgw.Err()
 }
 

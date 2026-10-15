@@ -34,7 +34,7 @@ func Page(path string) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">")
-		_gsxgw.JSVal(gsx.RawJS(path))
+		_gsxgw.JSVal( /*line input.gsx:6:12*/ gsx.RawJS(path))
 		_gsxgw.S(" = 1;</script>")
 		return _gsxgw.Err()
 	})

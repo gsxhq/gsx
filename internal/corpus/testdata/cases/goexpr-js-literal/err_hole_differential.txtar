@@ -74,7 +74,7 @@ func _gsxrenderWide(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, Handler gsx.RawJ
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<button onclick=\"")
-	_gsxgw.JSValAttr(Handler)
+	_gsxgw.JSValAttr( /*line input.gsx:6:19*/ Handler)
 	_gsxgw.S("\">b</button>")
 	return _gsxgw.Err()
 }
@@ -85,14 +85,14 @@ func Page(id string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<button onclick=\"save(&#39;")
-		_gsxv0, _gsxerr := _gsxf0.Parse((id))
+		_gsxv0, _gsxerr := /*line input.gsx:10:35*/ _gsxf0.Parse(( /*line input.gsx:10:29*/ id))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.JSStrAttr(string(_gsxv0))
 		_gsxgw.S("&#39;)\">a</button>")
 //line input.gsx:11:2
-		_gsxv1, _gsxerr := _gsxf0.Parse((id))
+		_gsxv1, _gsxerr := /*line input.gsx:11:35*/ _gsxf0.Parse(( /*line input.gsx:11:29*/ id))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

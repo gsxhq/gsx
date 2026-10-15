@@ -41,11 +41,12 @@ func Page(xModelPath string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
+		/*line input.gsx:7:3*/
 		syncAttrs := gsx.Attrs{
-			{Key: "@change", Value: _gsxrt.RawJS("const foundId = lookup($event);\n" + _gsxrt.EscapeJSVal(gsx.RawJS(xModelPath)) + " = foundId;")},
+			{Key: "@change", Value: _gsxrt.RawJS("const foundId = lookup($event);\n" + _gsxrt.EscapeJSVal( /*line input.gsx:9:3*/ gsx.RawJS(xModelPath)) + " = foundId;") /*line input.gsx:9:37*/},
 		}
 //line input.gsx:12:2
-		_gsxv0 := syncAttrs
+		_gsxv0 := /*line input.gsx:12:10*/ syncAttrs
 		_gsxgw.S("<input")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

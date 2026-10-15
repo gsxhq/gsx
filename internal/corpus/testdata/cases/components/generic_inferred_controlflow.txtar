@@ -40,7 +40,7 @@ func _gsxrenderBox[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, v
 //line input.gsx:4:2
 	_gsxgw.S("<span>")
 //line input.gsx:4:8
-	_gsxgw.TextAny(value)
+	_gsxgw.TextAny( /*line input.gsx:4:9*/ value)
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
 }
@@ -50,17 +50,17 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		for _, x := range []int{1, 2} {
+		for /*line input.gsx:8:8*/ _, x := range []int{1, 2} {
 //line input.gsx:8:36
-			_gsxgw.NodeResult(_gsxrenderBox[int](ctx, _gsxgw, x))
+			_gsxgw.NodeResult(_gsxrenderBox[int](ctx, _gsxgw /*line input.gsx:8:48*/, x))
 		}
 //line input.gsx:9:2
-		if true {
+		if /*line input.gsx:9:7*/ true {
 //line input.gsx:9:14
-			_gsxgw.NodeResult(_gsxrenderBox[string](ctx, _gsxgw, "yes"))
+			_gsxgw.NodeResult(_gsxrenderBox[string](ctx, _gsxgw /*line input.gsx:9:26*/, "yes"))
 		} else {
 //line input.gsx:9:45
-			_gsxgw.NodeResult(_gsxrenderBox[string](ctx, _gsxgw, "no"))
+			_gsxgw.NodeResult(_gsxrenderBox[string](ctx, _gsxgw /*line input.gsx:9:57*/, "no"))
 		}
 		return _gsxgw.Err()
 	})

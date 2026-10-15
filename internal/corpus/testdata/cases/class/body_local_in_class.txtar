@@ -33,7 +33,7 @@ func C() _gsxrt.Node {
 		n := "hi"
 //line input.gsx:5:2
 		_gsxgw.S("<b class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(n))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:5:12*/ n))
 		_gsxgw.S("\">x</b>")
 		return _gsxgw.Err()
 	})

@@ -51,6 +51,7 @@ func Page(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
+		/*line input.gsx:10:5*/
 		el := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:11
@@ -58,6 +59,7 @@ func Page(n int) _gsxrt.Node {
 			return _gsxgw.Err()
 		})
 //line input.gsx:11:2
+		/*line input.gsx:11:5*/
 		w := wrapN(
 			_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
@@ -65,18 +67,18 @@ func Page(n int) _gsxrt.Node {
 //line input.gsx:12:3
 				_gsxgw.S("<b>")
 //line input.gsx:13:4
-				_gsxgw.IntInto(_gsxnum[:], int64(n))
+				_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:13:6*/ n))
 //line input.gsx:14:4
 				_gsxgw.S("<i></i></b>")
 				return _gsxgw.Err()
-			}),
+			}), /*line input.gsx:15:7*/
 		)
 //line input.gsx:17:2
-		_gsxgw.Node(ctx, top)
+		_gsxgw.Node(ctx /*line input.gsx:17:4*/, top)
 //line input.gsx:17:9
-		_gsxgw.Node(ctx, el)
+		_gsxgw.Node(ctx /*line input.gsx:17:11*/, el)
 //line input.gsx:17:15
-		_gsxgw.Node(ctx, w)
+		_gsxgw.Node(ctx /*line input.gsx:17:17*/, w)
 		return _gsxgw.Err()
 	})
 }

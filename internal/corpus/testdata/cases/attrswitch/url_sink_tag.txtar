@@ -33,18 +33,18 @@ func Img(n int, u string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img")
-		switch n {
-		case 1:
+		switch /*line input.gsx:4:16*/ n {
+		case /*line input.gsx:4:25*/ 1:
 			_gsxgw.S(" src=\"")
-			_gsxgw.URLImage(string(u))
+			_gsxgw.URLImage(string( /*line input.gsx:4:33*/ u))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.S(">")
 //line input.gsx:5:2
 		_gsxgw.S("<img")
-		if n == 1 {
+		if /*line input.gsx:5:12*/ n == 1 {
 			_gsxgw.S(" src=\"")
-			_gsxgw.URLImage(string(u))
+			_gsxgw.URLImage(string( /*line input.gsx:5:26*/ u))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.S(">")
@@ -52,10 +52,10 @@ func Img(n int, u string) _gsxrt.Node {
 		img := n
 //line input.gsx:7:2
 		_gsxgw.S("<a")
-		switch img {
-		case 1:
+		switch /*line input.gsx:7:14*/ img {
+		case /*line input.gsx:7:25*/ 1:
 			_gsxgw.S(" href=\"")
-			_gsxgw.URL(string(u))
+			_gsxgw.URL(string( /*line input.gsx:7:34*/ u))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.S(">x</a>")

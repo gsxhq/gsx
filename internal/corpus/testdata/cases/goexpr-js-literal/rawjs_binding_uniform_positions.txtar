@@ -37,11 +37,12 @@ func Page(prop string, name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
+		/*line input.gsx:7:3*/
 		a := gsx.Attrs{
-			{Key: "@click", Value: _gsxrt.RawJS("obj." + _gsxrt.EscapeJSVal(gsx.RawJS(prop)) + " = 1; let " + _gsxrt.EscapeJSVal(gsx.RawJS(name)) + " = 2;")},
+			{Key: "@click", Value: _gsxrt.RawJS("obj." + _gsxrt.EscapeJSVal( /*line input.gsx:8:36*/ gsx.RawJS(prop)) + " = 1; let " + _gsxrt.EscapeJSVal( /*line input.gsx:8:64*/ gsx.RawJS(name)) + " = 2;") /*line input.gsx:8:86*/},
 		}
 //line input.gsx:11:2
-		_gsxv0 := a
+		_gsxv0 := /*line input.gsx:11:11*/ a
 		_gsxgw.S("<button")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

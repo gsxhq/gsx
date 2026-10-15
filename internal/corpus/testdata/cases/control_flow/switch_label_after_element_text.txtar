@@ -34,8 +34,8 @@ func Pick2(k string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div>")
 //line input.gsx:4:7
-		switch k {
-		case "a":
+		switch /*line input.gsx:4:16*/ k {
+		case /*line input.gsx:5:7*/ "a":
 //line input.gsx:6:3
 			_gsxgw.S("<b>x</b> tail")
 		default:

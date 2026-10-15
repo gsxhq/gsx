@@ -35,9 +35,10 @@ func Page(color string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		s := gsx.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(color)))}}
+		/*line input.gsx:6:5*/
+		s := gsx.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string( /*line input.gsx:6:54*/ color))) /*line input.gsx:6:61*/}}
 //line input.gsx:7:2
-		_gsxv0 := s
+		_gsxv0 := /*line input.gsx:7:8*/ s
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		if _gsxv0.Has("style") {

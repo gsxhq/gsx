@@ -41,7 +41,7 @@ func Shout(label string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
-		_gsxgw.Node(ctx, emphasize(string(label)+"!"))
+		_gsxgw.Node(ctx /*line input.gsx:4:7*/, emphasize(string( /*line input.gsx:4:21*/ label)+"!" /*line input.gsx:4:29*/))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

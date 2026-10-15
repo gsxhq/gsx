@@ -124,7 +124,7 @@ func emitPositionalComponentCall(
 		expr, used := valueLowering.expr, valueLowering.used
 		if exprAttr, ok := value.node.(*gsxast.ExprAttr); ok && value.attrsNode == nil && len(exprAttr.Stages) != 0 {
 			var err error
-			expr, used, err = lowerPipe(expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements))
+			expr, used, err = lowerPipe(expr, exprAttr.Stages, ctx.table, ctx.pipeWrap(&statements), ctx.fset)
 			if err != nil {
 				ctx.bag.Errorf(exprAttr.Pos(), exprAttr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return false
@@ -294,7 +294,7 @@ func positionalValueExpr(b *bytes.Buffer, value componentInputValue, plan compon
 	case *gsxast.BoolAttr:
 		return readyPositionalValue("true", nil)
 	case *gsxast.ExprAttr:
-		expr, ok := ctx.lowerCtx().field(b, node.Expr, node.Embedded, node)
+		expr, ok := ctx.lowerCtx().field(b, node.Expr, node.ExprPos, node.Embedded, node)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
@@ -356,14 +356,14 @@ func positionalAttrsValueExpr(b *bytes.Buffer, node componentAttrsStreamNode, pl
 	case componentAttrsStreamContributor:
 		switch attr := node.attr.(type) {
 		case *gsxast.ExprAttr:
-			expr, ok := ctx.lowerCtx().field(b, attr.Expr, attr.Embedded, attr)
+			expr, ok := ctx.lowerCtx().field(b, attr.Expr, attr.ExprPos, attr.Embedded, attr)
 			if !ok {
 				return diagnosedPositionalValue()
 			}
 			used := map[string]string(nil)
 			if len(attr.Stages) != 0 {
 				var err error
-				expr, used, err = lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
+				expr, used, err = lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b), ctx.fset)
 				if err != nil {
 					ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return diagnosedPositionalValue()
@@ -398,13 +398,13 @@ func positionalAttrsError(node gsxast.Node, err error, ctx positionalEmitContext
 func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx positionalEmitContext) positionalValueLowering {
 	switch attr.Lang {
 	case gsxast.EmbeddedText:
-		expr, ok := componentEmbeddedTextValueExpr(b, attr, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn())
+		expr, ok := componentEmbeddedTextValueExpr(b, attr, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.fset, ctx.errorReturn())
 		if !ok {
 			return diagnosedPositionalValue()
 		}
 		return readyPositionalValue(expr, nil)
 	case gsxast.EmbeddedJS:
-		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), "", false)
+		expr, ok := embeddedJSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.fset, ctx.errorReturn(), "", false)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
@@ -414,7 +414,7 @@ func positionalEmbeddedValueExpr(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, ctx
 		}
 		return readyPositionalValue(ctx.rt.rt()+".RawJS("+lowering.expr+")", nil)
 	case gsxast.EmbeddedCSS:
-		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.errorReturn(), "", false)
+		expr, ok := embeddedCSSValueExpr(b, attr.Segments, ctx.resolved, ctx.table, ctx.imports, ctx.rt, ctx.interpTemp, ctx.bag, ctx.fset, ctx.errorReturn(), "", false)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
@@ -433,7 +433,7 @@ func positionalEmbeddedPipeline(b *bytes.Buffer, attr *gsxast.EmbeddedAttr, expr
 	if len(attr.Stages) == 0 {
 		return readyPositionalValue(expr, nil)
 	}
-	lowered, used, err := lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b))
+	lowered, used, err := lowerPipe(expr, attr.Stages, ctx.table, ctx.pipeWrap(b), ctx.fset)
 	if err != nil {
 		ctx.bag.Errorf(attr.Pos(), attr.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return diagnosedPositionalValue()
@@ -589,7 +589,7 @@ func positionalOrderedAttrsExpr(b *bytes.Buffer, attr *gsxast.OrderedAttrsAttr, 
 		if hasFact && fact.tuple != nil {
 			seq.pin() // a (T, error) value always hoists
 		}
-		expr, ok := ctx.lowerCtx().field(&stmts, pair.Value, pair.Embedded, pair)
+		expr, ok := ctx.lowerCtx().field(&stmts, pair.Value, pair.ValuePos, pair.Embedded, pair)
 		if !ok {
 			return diagnosedPositionalValue()
 		}
