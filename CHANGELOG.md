@@ -4,6 +4,18 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased (v0.4.0)
+
+- **Positions from generated code point at the right `.gsx` line.** Go
+  expressions in attributes, component props, `f`/`js`/`css` literal holes
+  and `<script>`/`<style>` holes reported the element's line plus drift in
+  `go build`, `go vet`, linters such as structpages-lint, and panic traces.
+  Every authored Go token in a `.x.go` is now anchored to its source line.
+  Columns stay approximate.
+- **Upgrading: regenerate your `.x.go` files.** Most files with dynamic
+  attributes gain `/*line …*/` comments. Rendering is unchanged, but
+  committed generated code fails drift checks until regenerated.
+
 ## v0.3.3 — 2026-10-09
 
 - **`gsx dev` no longer leaves a fixed `.env` error on the overlay.** After a
