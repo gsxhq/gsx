@@ -4,7 +4,7 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased (v0.4.0)
+## v0.4.0 — 2026-10-15
 
 - **Positions from generated code point at the right `.gsx` line.** Go
   expressions in attributes, component props, `f`/`js`/`css` literal holes
