@@ -20,9 +20,11 @@ gsx's own diagnostics were right and nothing caught this.
    is honoured mid-line, so it is correct where several holes share one emitted
    statement (class parts, `f`/`js`/`css` literal holes, pipe stage args) and
    inside multi-line literals.
-2. **Each dynamic attribute starts with a `//line` at the attribute**, so the
-   statements gsx synthesizes for it (filter calls, tuple unwraps, writer calls)
-   land on the attribute's line rather than drifting from the element's.
+2. **Each filter call is anchored at its authored stage name** (`|> url`), so
+   the synthesized `URLFor(ctx, …)` call — and a panic's caller frame inside
+   it — maps to the stage. A per-attribute `//line` was rejected: placed before
+   the attribute's static `S(" name=\"")` write it maps the writer on the next
+   line one line late, and it splits the static-write coalescing run.
 
 The anchor goes after a run's leading whitespace (never replacing it — a
 newline there can be a statement separator inside a func literal), directly
@@ -44,10 +46,15 @@ All authored-text entry points in emit:
   `NoPos` = text not byte-identical to source → no anchor),
 - `fieldPins.raw` / `String` (overlay `GoText` runs, anchored per run/slice),
 - `assembleHoleSeed` (backtick-literal `@{}` holes; needs `fset` threaded),
-- `rawTextHoleExpr`, `genInterp` (children; already line-anchored at `{`, kept
-  uniform),
-- `lowerPipe` stage args (`PipeStage.ArgsPos`) — emit only; the skeleton probe
-  passes no anchor.
+- `rawTextHoleExpr` (`<script>`/`<style>` holes),
+- `lowerPipe` stage calls (`NamePos`) and args (`ArgsPos`) — emit only; the
+  skeleton probe passes a nil fset.
+
+Plain child holes (`genInterp`) keep their existing `//line` at `{`: already
+line-exact, so they are unchanged.
+
+Diagnostics that quoted the lowered expression now quote authored source
+(`pipeSourceText`), so no message carries an anchor or gsx-internal code.
 
 ## Compatibility
 
@@ -64,3 +71,5 @@ until regenerated. Ships in v0.4.0 with an "Upgrading: regenerate" note.
   element paths, children); every probe ident in the `.x.go` must map to its
   authored line.
 - Corpus goldens regenerated (comment-only diffs).
+- Shape tests that substring-match generated code compare `codeShape(src)`
+  (reprinted without comments).

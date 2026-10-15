@@ -236,7 +236,7 @@ func TestMinifyThreading_JS(t *testing.T) {
 	if !strings.Contains(fullMin, `_gsxgw.S("<div hx-vals=\"{&#34;exclude&#34;:")`) {
 		t.Errorf("fullMin: expected compacted JSON prefix before the hole; got:\n%s", fullMin)
 	}
-	if !strings.Contains(fullMin, "_gsxgw.JSValAttr(selfID)") {
+	if !strings.Contains(codeShape(t, fullMin), "_gsxgw.JSValAttr(selfID)") {
 		t.Errorf("fullMin: expected JSValAttr(selfID) call for the holey hx-vals; got:\n%s", fullMin)
 	}
 	if !strings.Contains(fullMin, `_gsxgw.S("}\"></div>")`) {

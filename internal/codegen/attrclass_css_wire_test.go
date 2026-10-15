@@ -38,7 +38,7 @@ component Widget(userStyle string) {
 	for _, b := range dr.Files {
 		gen += string(b)
 	}
-	if !strings.Contains(gen, "_gsxgw.AttrValue(string(userStyle))") {
+	if !strings.Contains(codeShape(t, gen), "_gsxgw.AttrValue(string(userStyle))") {
 		t.Errorf("plain data-style expr should use AttrValue, generated:\n%s", gen)
 	}
 	if strings.Contains(gen, "_gsxgw.CSS(string(userStyle))") {
@@ -75,7 +75,7 @@ component Widget(userStyle string) {
 	for _, b := range dr2.Files {
 		gen += string(b)
 	}
-	if !strings.Contains(gen, "_gsxgw.AttrValue(_gsxrt.StyleValue(string(userStyle)))") {
+	if !strings.Contains(codeShape(t, gen), "_gsxgw.AttrValue(_gsxrt.StyleValue(string(userStyle)))") {
 		t.Errorf("explicit CSS attr literal should filter and attr-escape interpolated string, generated:\n%s", gen)
 	}
 	if strings.Contains(gen, "_gsxgw.AttrValue(string(userStyle))") {

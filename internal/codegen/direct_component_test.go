@@ -882,7 +882,7 @@ component Empty() { <Child[string, int] first="x" second={ 1 }/> }
 		"_gsxgw.NodeResult(_gsxrenderChild[string, int](ctx, _gsxgw, \"x\", 1))",
 	}
 	for _, want := range wants {
-		if !strings.Contains(generated, want) {
+		if !strings.Contains(codeShape(t, generated), want) {
 			t.Errorf("generated output does not contain %q:\n%s", want, generated)
 		}
 	}
@@ -1004,6 +1004,7 @@ component Page() { <Badge first={ mark("first") } label={ makeLabel() }/> }
 	for _, source := range output {
 		generated += string(source)
 	}
+	generated = codeShape(t, generated)
 	first := strings.Index(generated, `_gsxa0 := mark("first")`)
 	tuple := strings.Index(generated, `_gsxa1, _gsxerr := makeLabel()`)
 	call := strings.Index(generated, `_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, _gsxa0, _gsxrt.Val(_gsxa1)))`)

@@ -3389,8 +3389,6 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
 		// wrapping the branch's attr emits in a real Go `if`/`else` is valid. An
 		// else-if is a *CondAttr in Else, handled by the recursive emitAttr below.
-		// (No //line for the cond: emitAttr has no lc.fset, the wrapper is a pure
-		// control construct, and each nested attr emit carries its own line map.)
 		// The condition's hoists precede the `if`; an else-if's land inside
 		// `else {}`, so they run only when that branch is reached.
 		cond, block, ok := lc.header(b, t.Cond, t.CondPos, t.CondEmbedded, t)

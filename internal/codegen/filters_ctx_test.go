@@ -98,7 +98,7 @@ component C(s string) { <p>{ s |> f("k") }</p> }
 
 	// Assert the lowered call shape: F(ctx, (s), "k"). The alias's package gets a
 	// reserved _gsxf<i> import alias; assert on the call tail to stay alias-stable.
-	if !strings.Contains(genSrc, ".F(ctx, (s), \"k\")") {
+	if !strings.Contains(codeShape(t, genSrc), ".F(ctx, (s), \"k\")") {
 		t.Fatalf("generated .x.go missing seed-first ctx-injected call F(ctx, (s), \"k\"); got:\n%s", genSrc)
 	}
 

@@ -135,6 +135,7 @@ component Page(name string) {
 	for _, source := range result[tmp].Files {
 		generated += string(source)
 	}
+	generated = codeShape(t, generated)
 	for _, want := range []string{
 		`_gsxgw.S("leaf-")`,
 		`components.Badge(_gsxrt.Text("plain"))`,

@@ -2,6 +2,9 @@ package gen
 
 import (
 	"bytes"
+	goparser "go/parser"
+	"go/printer"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +71,7 @@ func TestStockGenerateHonorsConfigAcrossModuleBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated: %v", err)
 	}
-	if !strings.Contains(string(gen), ".F(ctx, (s), \"k\")") {
+	if !strings.Contains(codeShape(t, string(gen)), ".F(ctx, (s), \"k\")") {
 		t.Fatalf("generated .x.go missing ctx-injected lowered call .F(ctx, (s), \"k\"); got:\n%s", gen)
 	}
 
@@ -332,4 +335,21 @@ func TestGenClassMergerE2E(t *testing.T) {
 	if !strings.Contains(errb2.String(), "func([]string) string") {
 		t.Fatalf("expected signature-error hint in stderr; got: %q", errb2.String())
 	}
+}
+
+// codeShape reprints generated Go source without its comments, so a shape
+// assertion is not split by the /*line*/ anchors shipped before authored
+// tokens (positions are pinned in internal/codegen's TestShippedHoleLineAnchors).
+func codeShape(t *testing.T, src string) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := goparser.ParseFile(fset, "gen.x.go", src, 0)
+	if err != nil {
+		t.Fatalf("codeShape: parse generated source: %v\n%s", err, src)
+	}
+	var buf bytes.Buffer
+	if err := (&printer.Config{Mode: printer.UseSpaces | printer.TabIndent, Tabwidth: 8}).Fprint(&buf, fset, f); err != nil {
+		t.Fatalf("codeShape: print: %v", err)
+	}
+	return buf.String()
 }

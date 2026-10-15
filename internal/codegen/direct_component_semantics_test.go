@@ -65,7 +65,7 @@ component PriorError() {
 		`_gsxgw.NodeResult(_gsxrenderChildNil(ctx, _gsxgw))`,
 		`_gsxgw.NodeResult(_gsxrenderGuarded(ctx, _gsxgw, markArgument()))`,
 	} {
-		if !strings.Contains(generated, want) {
+		if !strings.Contains(codeShape(t, generated), want) {
 			t.Fatalf("generated source lacks %q:\n%s", want, generated)
 		}
 	}
