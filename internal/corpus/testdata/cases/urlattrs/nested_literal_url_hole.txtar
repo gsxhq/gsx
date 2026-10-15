@@ -31,7 +31,7 @@ func Page(id string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL("/u/" + string(string(id)))
+		_gsxgw.URL("/u/" + string(string( /*line input.gsx:4:22*/ id)))
 		_gsxgw.S("\">x</a>")
 		return _gsxgw.Err()
 	})

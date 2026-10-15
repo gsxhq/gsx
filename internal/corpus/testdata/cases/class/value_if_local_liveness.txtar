@@ -32,10 +32,10 @@ func C() _gsxrt.Node {
 		disabled := true
 //line input.gsx:5:2
 		_gsxgw.S("<button")
-		_gsxv0 := "btn"
+		_gsxv0 := /*line input.gsx:5:18*/ "btn"
 		var _gsxv1 string
-		if disabled {
-			_gsxv1 = "disabled"
+		if /*line input.gsx:5:28*/ disabled {
+			_gsxv1 = /*line input.gsx:5:39*/ "disabled"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

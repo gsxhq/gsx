@@ -69,7 +69,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, c
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := containerAttrs
+	_gsxv0 := /*line input.gsx:6:23*/ containerAttrs
 	_gsxgw.S("<div class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field"), _gsxrt.Class(_gsxv0.Class()))
 	_gsxgw.S("\"")
@@ -96,7 +96,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Email", gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: _gsxrt.Toggle(true)}})))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Email" /*line input.gsx:15:19*/, gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: _gsxrt.Toggle(true)}})))
 		return _gsxgw.Err()
 	})
 }

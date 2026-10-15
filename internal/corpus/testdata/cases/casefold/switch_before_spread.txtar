@@ -31,8 +31,8 @@ func Box(n int, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		switch n {
-		case 1:
+		switch /*line input.gsx:6:16*/ n {
+		case /*line input.gsx:6:25*/ 1:
 			if !attrs.Has("title") {
 				_gsxgw.S(" title=\"one\"")
 			}

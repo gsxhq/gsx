@@ -30,7 +30,7 @@ func Widget(v string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div class=\"")
-		_gsxgw.AttrValue(string(_gsxstd.Upper(("btn-" + string(v)))))
+		_gsxgw.AttrValue(string( /*line input.gsx:4:29*/ _gsxstd.Upper(("btn-" + string( /*line input.gsx:4:22*/ v)))))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

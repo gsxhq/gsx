@@ -39,11 +39,11 @@ func C() _gsxrt.Node {
 		armv := "deep"
 //line input.gsx:7:2
 		_gsxgw.S("<button")
-		if outer {
-			_gsxv0 := "btn"
+		if /*line input.gsx:7:15*/ outer {
+			_gsxv0 := /*line input.gsx:7:31*/ "btn"
 			var _gsxv1 string
-			if inner {
-				_gsxv1 = armv
+			if /*line input.gsx:7:41*/ inner {
+				_gsxv1 = /*line input.gsx:7:49*/ armv
 			}
 			_gsxgw.S(" class=\"")
 			_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

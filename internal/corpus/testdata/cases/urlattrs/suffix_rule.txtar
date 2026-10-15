@@ -63,9 +63,9 @@ func _gsxrenderDirect(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, u string) erro
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<a data-cancel-url=\"")
-	_gsxgw.URL(string(u))
+	_gsxgw.URL(string( /*line input.gsx:6:22*/ u))
 	_gsxgw.S("\" data-urlish=\"")
-	_gsxgw.AttrValue(string(u))
+	_gsxgw.AttrValue(string( /*line input.gsx:6:38*/ u))
 	_gsxgw.S("\">x</a>")
 	return _gsxgw.Err()
 }
@@ -96,11 +96,11 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderDirect(ctx, _gsxgw, "javascript:alert(1)"))
+		_gsxgw.NodeResult(_gsxrenderDirect(ctx, _gsxgw /*line input.gsx:14:13*/, "javascript:alert(1)"))
 //line input.gsx:15:2
-		_gsxgw.NodeResult(_gsxrenderDirect(ctx, _gsxgw, "/safe"))
+		_gsxgw.NodeResult(_gsxrenderDirect(ctx, _gsxgw /*line input.gsx:15:13*/, "/safe"))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderBagged(ctx, _gsxgw, gsx.Attrs{
+		_gsxgw.NodeResult(_gsxrenderBagged(ctx, _gsxgw /*line input.gsx:16:17*/, gsx.Attrs{
 			{Key: "data-submit-url", Value: "javascript:alert(2)"},
 			{Key: "data-urlish", Value: "javascript:alert(3)"},
 		}))

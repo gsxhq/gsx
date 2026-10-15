@@ -69,22 +69,24 @@ func Page(id string, c string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button @click=\"save(&#39;")
-		_gsxgw.JSStrAttr(string(id))
+		_gsxgw.JSStrAttr(string( /*line input.gsx:6:28*/ id))
 		_gsxgw.S("&#39;)\">a</button>")
 //line input.gsx:7:2
 		_gsxgw.S("<button @click=\"save(&#39;")
-		_gsxgw.JSStrAttr(string(id))
+		_gsxgw.JSStrAttr(string( /*line input.gsx:7:30*/ id))
 		_gsxgw.S("&#39;)\">b</button>")
 //line input.gsx:8:2
-		h := _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(id)) + "')")
+		/*line input.gsx:8:5*/
+		h := _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string( /*line input.gsx:8:21*/ id)) + "')")
 //line input.gsx:9:2
 		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(h))
+		_gsxgw.AttrValue(string( /*line input.gsx:9:18*/ h))
 		_gsxgw.S("\">c</button>")
 //line input.gsx:10:2
-		clickAttrs := gsx.Attrs{{Key: "@click", Value: _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string(id)) + "')")}}
+		/*line input.gsx:10:5*/
+		clickAttrs := gsx.Attrs{{Key: "@click", Value: _gsxrt.RawJS("save('" + _gsxrt.EscapeJSStr(string( /*line input.gsx:10:63*/ id)) + "')") /*line input.gsx:10:69*/}}
 //line input.gsx:11:2
-		_gsxv0 := clickAttrs
+		_gsxv0 := /*line input.gsx:11:11*/ clickAttrs
 		_gsxgw.S("<button")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -92,12 +94,13 @@ func Page(id string, c string) _gsxrt.Node {
 		_gsxgw.S(">d</button>")
 //line input.gsx:12:2
 		_gsxgw.S("<div style=\"color:")
-		_gsxgw.AttrValue(_gsxrt.StyleValue(string(c)))
+		_gsxgw.AttrValue(_gsxrt.StyleValue(string( /*line input.gsx:12:25*/ c)))
 		_gsxgw.S("\">e</div>")
 //line input.gsx:13:2
-		sAttrs := gsx.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(c)))}}
+		/*line input.gsx:13:5*/
+		sAttrs := gsx.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string( /*line input.gsx:13:59*/ c))) /*line input.gsx:13:62*/}}
 //line input.gsx:14:2
-		_gsxv1 := sAttrs
+		_gsxv1 := /*line input.gsx:14:8*/ sAttrs
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())

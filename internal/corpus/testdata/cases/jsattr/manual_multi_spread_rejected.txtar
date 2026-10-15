@@ -43,7 +43,7 @@ func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Node
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := _gsxrt.ConcatAttrs(attrs, _gsxrt.Attrs{{Key: "id", Value: _gsxrt.RawURL("x")}}, attrs)
+	_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:6:9*/ attrs, _gsxrt.Attrs{{Key: "id", Value: _gsxrt.RawURL("x")}} /*line input.gsx:6:29*/, attrs)
 	_gsxgw.S("<div")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())

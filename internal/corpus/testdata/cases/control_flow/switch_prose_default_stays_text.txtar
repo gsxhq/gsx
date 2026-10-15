@@ -33,7 +33,7 @@ func Note() _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div>")
 //line input.gsx:4:7
-		switch 1 {
+		switch /*line input.gsx:4:16*/ 1 {
 		default:
 			_gsxgw.S("the default: value is 5")
 		}

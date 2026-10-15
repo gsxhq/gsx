@@ -59,7 +59,7 @@ func Page(t tag) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxrt.Val(t)))
+		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxrt.Val( /*line input.gsx:10:15*/ t)))
 		return _gsxgw.Err()
 	})
 }

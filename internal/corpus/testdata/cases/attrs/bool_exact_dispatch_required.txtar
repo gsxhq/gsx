@@ -166,7 +166,7 @@ func _gsxrenderPlain(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, req bool) error
 	}
 //line input.gsx:14:2
 	_gsxgw.S("<input")
-	_gsxgw.BoolAttr("required", bool(req))
+	_gsxgw.BoolAttr("required", bool( /*line input.gsx:14:19*/ req))
 	_gsxgw.S(">")
 	return _gsxgw.Err()
 }
@@ -185,7 +185,7 @@ func _gsxrenderMixed[T string | bool](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer
 	}
 //line input.gsx:18:2
 	_gsxgw.S("<input")
-	_gsxgw.AttrAnyToggle("required", req)
+	_gsxgw.AttrAnyToggle("required" /*line input.gsx:18:19*/, req)
 	_gsxgw.S(">")
 	return _gsxgw.Err()
 }
@@ -203,7 +203,7 @@ func _gsxrenderSink(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, extra gsx.Attrs)
 		return _gsxerr
 	}
 //line input.gsx:22:2
-	_gsxv0 := extra
+	_gsxv0 := /*line input.gsx:22:11*/ extra
 	_gsxgw.S("<input")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -226,11 +226,11 @@ func _gsxrenderAria(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, hidden bool) err
 	}
 //line input.gsx:26:2
 	_gsxgw.S("<div aria-hidden=\"")
-	_gsxgw.S(_gsxsc.FormatBool(bool(hidden)))
+	_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:26:20*/ hidden)))
 	_gsxgw.S("\"></div>")
 //line input.gsx:27:2
 	_gsxgw.S("<div aria-hidden=\"")
-	_gsxgw.AttrValue(string(strconv.FormatBool(hidden)))
+	_gsxgw.AttrValue(string( /*line input.gsx:27:20*/ strconv.FormatBool(hidden)))
 	_gsxgw.S("\"></div>")
 	return _gsxgw.Err()
 }
@@ -240,15 +240,15 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:31:2
-		_gsxgw.NodeResult(_gsxrenderPlain(ctx, _gsxgw, false))
+		_gsxgw.NodeResult(_gsxrenderPlain(ctx, _gsxgw /*line input.gsx:31:14*/, false))
 //line input.gsx:32:2
-		_gsxgw.NodeResult(_gsxrenderMixed[bool](ctx, _gsxgw, false))
+		_gsxgw.NodeResult(_gsxrenderMixed[bool](ctx, _gsxgw /*line input.gsx:32:20*/, false))
 //line input.gsx:33:2
-		_gsxgw.NodeResult(_gsxrenderSink(ctx, _gsxgw, gsx.Attrs{{Key: "required", Value: Flag(false)}}))
+		_gsxgw.NodeResult(_gsxrenderSink(ctx, _gsxgw /*line input.gsx:33:15*/, gsx.Attrs{{Key: "required", Value: Flag(false)}}))
 //line input.gsx:34:2
-		_gsxgw.NodeResult(_gsxrenderSink(ctx, _gsxgw, gsx.Attrs{{Key: "required", Value: anyFalse}}))
+		_gsxgw.NodeResult(_gsxrenderSink(ctx, _gsxgw /*line input.gsx:34:15*/, gsx.Attrs{{Key: "required", Value: anyFalse}}))
 //line input.gsx:35:2
-		_gsxgw.NodeResult(_gsxrenderAria(ctx, _gsxgw, true))
+		_gsxgw.NodeResult(_gsxrenderAria(ctx, _gsxgw /*line input.gsx:35:16*/, true))
 		return _gsxgw.Err()
 	})
 }

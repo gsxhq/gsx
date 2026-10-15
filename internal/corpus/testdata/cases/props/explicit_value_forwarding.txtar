@@ -80,7 +80,7 @@ func Page(d pageData) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, cardData{Title: d.Heading}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw /*line input.gsx:18:11*/, cardData{Title: d.Heading}))
 		return _gsxgw.Err()
 	})
 }
@@ -103,7 +103,7 @@ func (p Home) Shell(pd pageData) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:26:2
-		_gsxgw.Node(ctx, p.Content(pd))
+		_gsxgw.Node(ctx, p.Content( /*line input.gsx:26:17*/ pd))
 		return _gsxgw.Err()
 	})
 }

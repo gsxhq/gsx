@@ -84,7 +84,7 @@ func Parent(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderChild(ctx, _gsxgw, val))
+		_gsxgw.NodeResult(_gsxrenderChild(ctx, _gsxgw /*line input.gsx:12:14*/, val))
 		return _gsxgw.Err()
 	})
 }

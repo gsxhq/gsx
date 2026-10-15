@@ -38,12 +38,12 @@ func C() _gsxrt.Node {
 		_gsxgw.S("<div>")
 //line input.gsx:6:7
 		_gsxgw.S("<span")
-		_gsxv0 := setState()
+		_gsxv0 := /*line input.gsx:6:21*/ setState()
 		var _gsxv1 string
-		if state {
-			_gsxv1 = "on"
+		if /*line input.gsx:6:36*/ state {
+			_gsxv1 = /*line input.gsx:6:44*/ "on"
 		} else {
-			_gsxv1 = "off"
+			_gsxv1 = /*line input.gsx:6:58*/ "off"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

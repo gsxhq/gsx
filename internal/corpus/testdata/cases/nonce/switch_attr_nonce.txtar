@@ -50,9 +50,9 @@ func Page(n int, extra gsx.Attrs) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<script")
 		var _gsxv0 _gsxrt.Attrs
-		switch n {
-		case 1:
-			_gsxv0 = extra
+		switch /*line input.gsx:6:19*/ n {
+		case /*line input.gsx:6:28*/ 1:
+			_gsxv0 = /*line input.gsx:6:33*/ extra
 			_gsxgw.Spread(ctx, "script", _gsxv0, _gsxrt.AttrSinks{}, nil)
 		}
 		if !_gsxv0.Has("nonce") {
@@ -62,8 +62,8 @@ func Page(n int, extra gsx.Attrs) _gsxrt.Node {
 //line input.gsx:7:2
 		_gsxgw.S("<script")
 		var _gsxv1 bool
-		switch n {
-		case 1:
+		switch /*line input.gsx:7:19*/ n {
+		case /*line input.gsx:7:28*/ 1:
 			_gsxgw.S(" nonce=\"manual\"")
 			_gsxv1 = true
 		}
@@ -74,8 +74,8 @@ func Page(n int, extra gsx.Attrs) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<script")
 		var _gsxv2 bool
-		switch n {
-		case 2:
+		switch /*line input.gsx:8:19*/ n {
+		case /*line input.gsx:8:28*/ 2:
 			_gsxgw.S(" nonce=\"manual\"")
 			_gsxv2 = true
 		}

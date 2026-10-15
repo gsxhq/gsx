@@ -52,13 +52,13 @@ func C() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<span")
-		_gsxv0 := first()
-		_gsxv1, _gsxerr := tuplePart()
+		_gsxv0 := /*line input.gsx:6:16*/ first()
+		_gsxv1, _gsxerr := /*line input.gsx:6:25*/ tuplePart()
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1), _gsxrt.Class(last()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1), _gsxrt.Class( /*line input.gsx:6:38*/ last()))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

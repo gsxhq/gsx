@@ -95,7 +95,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:20
-		_gsxgw.NodeResult(_gsxrenderFallbacks(ctx, _gsxgw, Cards{}, Dynamic))
+		_gsxgw.NodeResult(_gsxrenderFallbacks(ctx, _gsxgw /*line input.gsx:18:39*/, Cards{} /*line input.gsx:18:58*/, Dynamic))
 		return _gsxgw.Err()
 	})
 }

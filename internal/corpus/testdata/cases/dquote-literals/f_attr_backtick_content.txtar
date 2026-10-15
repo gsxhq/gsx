@@ -28,7 +28,7 @@ func Item(name string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div data-tag=\"row `")
-		_gsxgw.AttrValue(string(name))
+		_gsxgw.AttrValue(string( /*line input.gsx:4:25*/ name))
 		_gsxgw.S("`\">x</div>")
 		return _gsxgw.Err()
 	})

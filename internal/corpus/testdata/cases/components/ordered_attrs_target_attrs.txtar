@@ -48,7 +48,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, Attrs gsx.Attrs
 	_gsxgw.Spread(ctx, "section", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
 //line input.gsx:6:24
-	_gsxv0 := Attrs
+	_gsxv0 := /*line input.gsx:6:29*/ Attrs
 	_gsxgw.S("<i")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -65,11 +65,11 @@ func Home() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-b", Value: "2"}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-b", Value: /*line input.gsx:10:54*/ "2"}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("x")
 			return _gsxgw.Err()
-		}), _gsxrt.Attrs{{Key: "data-a", Value: "1"}}))
+		}), _gsxrt.Attrs{{Key: "data-a", Value: /*line input.gsx:10:28*/ "1"}}))
 		return _gsxgw.Err()
 	})
 }

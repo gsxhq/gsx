@@ -101,8 +101,8 @@ func Page(hot bool, val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
-			_gsxv0, _gsxerr := _gsxf0.PgText((val))
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:14:24*/ hot, func() (_gsxrt.Attrs, error) {
+			_gsxv0, _gsxerr := _gsxf0.PgText(( /*line input.gsx:14:39*/ val))
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}

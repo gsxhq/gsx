@@ -55,9 +55,9 @@ func _gsxrenderWidget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, Handler gsx.Ra
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<button @click=\"")
-	_gsxgw.AttrValue(string(Handler))
+	_gsxgw.AttrValue(string( /*line input.gsx:6:18*/ Handler))
 	_gsxgw.S("\" data-style=\"")
-	_gsxgw.AttrValue(string(Rule))
+	_gsxgw.AttrValue(string( /*line input.gsx:6:39*/ Rule))
 	_gsxgw.S("\">Go</button>")
 	return _gsxgw.Err()
 }
@@ -67,7 +67,7 @@ func Page(id string, w string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxrt.RawJS("open("+_gsxrt.EscapeJSVal(id)+")"), _gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(string(w))+"px")))
+		_gsxgw.NodeResult(_gsxrenderWidget(ctx, _gsxgw, _gsxrt.RawJS("open("+_gsxrt.EscapeJSVal( /*line input.gsx:10:30*/ id)+")"), _gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(string( /*line input.gsx:10:57*/ w))+"px")))
 		return _gsxgw.Err()
 	})
 }

@@ -36,12 +36,12 @@ func C(label string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxv0 := setState()
+		_gsxv0 := /*line input.gsx:6:15*/ setState()
 		var _gsxv1 string
-		if calls == 1 {
-			_gsxv1 = "color: green"
+		if /*line input.gsx:6:30*/ calls == 1 {
+			_gsxv1 = /*line input.gsx:6:43*/ "color: green"
 		} else {
-			_gsxv1 = "color: red"
+			_gsxv1 = /*line input.gsx:6:67*/ "color: red"
 		}
 		_gsxgw.S(" style=\"")
 		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(_gsxv0)), _gsxrt.Style(_gsxv1))

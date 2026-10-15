@@ -62,7 +62,7 @@ func _gsxrenderIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, name string) err
 	}
 //line input.gsx:12:2
 	_gsxgw.S("<span data-name=\"")
-	_gsxgw.AttrValue(string(name))
+	_gsxgw.AttrValue(string( /*line input.gsx:12:19*/ name))
 	_gsxgw.S("\">i</span>")
 	return _gsxgw.Err()
 }
@@ -80,7 +80,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 //line input.gsx:16:2
-	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw, strAttr(attrs, "n")))
+	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw /*line input.gsx:16:15*/, strAttr(attrs, "n")))
 	return _gsxgw.Err()
 }
 

@@ -130,7 +130,7 @@ func _gsxrenderAttrVariadic(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs ..
 		return _gsxerr
 	}
 //line input.gsx:9:45
-	_gsxv0 := gsx.Attrs(attrs)
+	_gsxv0 := /*line input.gsx:9:53*/ gsx.Attrs(attrs)
 	_gsxgw.S("<mark")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -146,7 +146,7 @@ func Page() _gsxrt.Node {
 //line input.gsx:12:2
 		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "generic"))
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderGrouped[string, int](ctx, _gsxgw, "grouped", 2))
+		_gsxgw.NodeResult(_gsxrenderGrouped[string, int](ctx, _gsxgw, "grouped" /*line input.gsx:13:49*/, 2))
 //line input.gsx:14:2
 		_gsxgw.NodeResult(_gsxrenderConstraintOnly[string](ctx, _gsxgw))
 //line input.gsx:15:2

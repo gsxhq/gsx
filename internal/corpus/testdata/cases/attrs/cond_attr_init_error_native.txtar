@@ -76,14 +76,14 @@ func C(v string) _gsxrt.Node {
 //line input.gsx:18:2
 		_gsxgw.S("<i")
 		{
-			_gsxv0, _gsxerr := mayFail(v)
+			_gsxv0, _gsxerr := /*line input.gsx:18:20*/ mayFail(v)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			s := "<" + string(_gsxv0) + ">"
-			if s != "<>" {
+			/*line input.gsx:18:10*/ s := "<" + string(_gsxv0) + ">"
+			if /*line input.gsx:18:35*/ s != "<>" {
 				_gsxgw.S(" title=\"")
-				_gsxgw.AttrValue(string(s))
+				_gsxgw.AttrValue(string( /*line input.gsx:18:54*/ s))
 				_gsxgw.S("\"")
 			}
 		}

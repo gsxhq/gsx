@@ -30,7 +30,7 @@ func C(theme string, active bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxstd.Upper((theme))), _gsxrt.ClassIf("on", active))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:4:24*/ _gsxstd.Upper(( /*line input.gsx:4:15*/ theme))), _gsxrt.ClassIf( /*line input.gsx:4:31*/ "on" /*line input.gsx:4:38*/, active))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

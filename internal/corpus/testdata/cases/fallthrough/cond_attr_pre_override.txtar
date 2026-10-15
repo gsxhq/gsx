@@ -43,7 +43,7 @@ func _gsxrenderBox(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, active bool, attr
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<button")
-	if active {
+	if /*line input.gsx:6:15*/ active {
 		if !attrs.Has("id") {
 			_gsxgw.S(" id=\"mine\"")
 		}
@@ -63,7 +63,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, true, _gsxrt.Attrs{{Key: "id", Value: "caller"}}))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:10:15*/, true, _gsxrt.Attrs{{Key: "id", Value: "caller"}}))
 		return _gsxgw.Err()
 	})
 }

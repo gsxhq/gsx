@@ -144,7 +144,7 @@ func Panel(variant string, children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("<section")
 		if !attrs.Has("data-variant") {
 			_gsxgw.S(" data-variant=\"")
-			_gsxgw.AttrValue(string(variant))
+			_gsxgw.AttrValue(string( /*line panel.gsx:6:25*/ variant))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

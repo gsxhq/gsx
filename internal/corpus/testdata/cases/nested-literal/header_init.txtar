@@ -109,12 +109,12 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:23:2
 		{
-			s := wrap("q-" + _gsxsc.FormatInt(int64(id), 10))
-			_gsxv0, _gsxerr := lookup(len(s))
+			/*line input.gsx:23:7*/ s := wrap("q-" + _gsxsc.FormatInt(int64( /*line input.gsx:23:23*/ id), 10) /*line input.gsx:23:27*/)
+			_gsxv0, _gsxerr := /*line input.gsx:23:37*/ lookup(len(s))
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv0)) {
+			if /*line input.gsx:23:30*/ ok(string(_gsxv0) /*line input.gsx:23:53*/) {
 //line input.gsx:24:3
 				_gsxgw.S("<b>")
 //line input.gsx:24:6
@@ -123,18 +123,18 @@ func Page(id int) _gsxrt.Node {
 			}
 		}
 //line input.gsx:26:2
-		if id == 2 {
+		if /*line input.gsx:26:7*/ id == 2 {
 //line input.gsx:27:3
 			_gsxgw.S("<b>two</b>")
 		} else {
 //line input.gsx:28:9
 			{
-				s := wrap("e-" + _gsxsc.FormatInt(int64(id), 10))
-				_gsxv1, _gsxerr := lookup(len(s))
+				/*line input.gsx:28:12*/ s := wrap("e-" + _gsxsc.FormatInt(int64( /*line input.gsx:28:28*/ id), 10) /*line input.gsx:28:32*/)
+				_gsxv1, _gsxerr := /*line input.gsx:28:42*/ lookup(len(s))
 				if _gsxerr != nil {
 					return _gsxerr
 				}
-				if ok(string(_gsxv1)) {
+				if /*line input.gsx:28:35*/ ok(string(_gsxv1) /*line input.gsx:28:58*/) {
 //line input.gsx:29:3
 					_gsxgw.S("<b>")
 //line input.gsx:29:6
@@ -145,21 +145,21 @@ func Page(id int) _gsxrt.Node {
 		}
 //line input.gsx:31:2
 		{
-			s := wrap("a-" + _gsxsc.FormatInt(int64(id), 10))
-			_gsxv2, _gsxerr := lookup(len(s))
+			/*line input.gsx:31:7*/ s := wrap("a-" + _gsxsc.FormatInt(int64( /*line input.gsx:31:23*/ id), 10) /*line input.gsx:31:27*/)
+			_gsxv2, _gsxerr := /*line input.gsx:31:38*/ lookup(len(s))
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if !ok(string(_gsxv2)) {
+			if /*line input.gsx:31:30*/ !ok(string(_gsxv2) /*line input.gsx:31:54*/) {
 //line input.gsx:32:3
 				_gsxgw.S("<b>never</b>")
 			} else {
 //line input.gsx:33:9
-				_gsxv3, _gsxerr := lookup(len(s))
+				_gsxv3, _gsxerr := /*line input.gsx:33:20*/ lookup(len(s))
 				if _gsxerr != nil {
 					return _gsxerr
 				}
-				if !ok(string(_gsxv3)) {
+				if /*line input.gsx:33:12*/ !ok(string(_gsxv3) /*line input.gsx:33:36*/) {
 //line input.gsx:34:3
 					_gsxgw.S("<b>never</b>")
 				} else {
@@ -173,13 +173,13 @@ func Page(id int) _gsxrt.Node {
 		}
 //line input.gsx:38:2
 		{
-			n := id * 2
-			_gsxv4, _gsxerr := lookup(n)
+			/*line input.gsx:38:11*/ n := id * 2
+			_gsxv4, _gsxerr := /*line input.gsx:38:28*/ lookup(n)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
 			switch string(_gsxv4) {
-			case "L":
+			case /*line input.gsx:39:7*/ "L":
 //line input.gsx:40:3
 				_gsxgw.S("<b>sw</b>")
 			}
@@ -187,12 +187,12 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:42:2
 		_gsxgw.S("<i")
 		{
-			n := id
-			_gsxv5, _gsxerr := lookup(n)
+			/*line input.gsx:42:10*/ n := id
+			_gsxv5, _gsxerr := /*line input.gsx:42:26*/ lookup(n)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv5)) {
+			if /*line input.gsx:42:19*/ ok(string(_gsxv5) /*line input.gsx:42:37*/) {
 				_gsxgw.S(" title=\"cond\"")
 			}
 		}
@@ -200,13 +200,13 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:43:2
 		_gsxgw.S("<i")
 		{
-			n := id
-			_gsxv6, _gsxerr := lookup(n)
+			/*line input.gsx:43:14*/ n := id
+			_gsxv6, _gsxerr := /*line input.gsx:43:27*/ lookup(n)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
 			switch string(_gsxv6) {
-			case "L":
+			case /*line input.gsx:43:46*/ "L":
 				_gsxgw.S(" data-s=\"sw\"")
 			}
 		}
@@ -214,13 +214,13 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:44:2
 		_gsxv7, _gsxv9 := _gsxrt.Attrs(nil), error(nil)
 		{
-			n := id
-			_gsxv8, _gsxerr := lookup(n)
+			/*line input.gsx:44:16*/ n := id
+			_gsxv8, _gsxerr := /*line input.gsx:44:29*/ lookup(n)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
 			switch string(_gsxv8) {
-			case "L":
+			case /*line input.gsx:44:48*/ "L":
 				_gsxv7, _gsxv9 = (func() (_gsxrt.Attrs, error) {
 					return _gsxrt.Attrs{{Key: "data-s", Value: "comp"}}, nil
 				})()
@@ -232,16 +232,16 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv7))
 //line input.gsx:45:2
 		_gsxgw.S("<i")
-		_gsxv10 := "x"
+		_gsxv10 := /*line input.gsx:45:13*/ "x"
 		var _gsxv11 string
 		{
-			n := id
-			_gsxv12, _gsxerr := lookup(n)
+			/*line input.gsx:45:21*/ n := id
+			_gsxv12, _gsxerr := /*line input.gsx:45:37*/ lookup(n)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv12)) {
-				_gsxv11 = "vf"
+			if /*line input.gsx:45:30*/ ok(string(_gsxv12) /*line input.gsx:45:48*/) {
+				_gsxv11 = /*line input.gsx:45:52*/ "vf"
 			}
 		}
 		_gsxgw.S(" class=\"")
@@ -249,18 +249,18 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw.S("\"></i>")
 //line input.gsx:46:2
 		_gsxgw.S("<i")
-		_gsxv13 := "x"
+		_gsxv13 := /*line input.gsx:46:13*/ "x"
 		var _gsxv14 string
-		if id == 2 {
-			_gsxv14 = "two"
+		if /*line input.gsx:46:21*/ id == 2 {
+			_gsxv14 = /*line input.gsx:46:31*/ "two"
 		} else {
-			n := id
-			_gsxv15, _gsxerr := lookup(n)
+			/*line input.gsx:46:47*/ n := id
+			_gsxv15, _gsxerr := /*line input.gsx:46:63*/ lookup(n)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv15)) {
-				_gsxv14 = "vf2"
+			if /*line input.gsx:46:56*/ ok(string(_gsxv15) /*line input.gsx:46:74*/) {
+				_gsxv14 = /*line input.gsx:46:78*/ "vf2"
 			}
 		}
 		_gsxgw.S(" class=\"")

@@ -56,7 +56,7 @@ func Outer(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderInner(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "title", Value: "outer"}}, _gsxrt.Attrs{{Key: "class", Value: "o"}}, attrs)))
+		_gsxgw.NodeResult(_gsxrenderInner(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "title", Value: "outer"}}, _gsxrt.Attrs{{Key: "class", Value: "o"}} /*line input.gsx:10:35*/, attrs)))
 		return _gsxgw.Err()
 	})
 }

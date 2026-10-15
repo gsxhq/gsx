@@ -64,12 +64,12 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0 := setState()
+		_gsxv0 := /*line input.gsx:10:16*/ setState()
 		var _gsxv1 string
-		if state {
-			_gsxv1 = "on"
+		if /*line input.gsx:10:31*/ state {
+			_gsxv1 = /*line input.gsx:10:39*/ "on"
 		} else {
-			_gsxv1 = "off"
+			_gsxv1 = /*line input.gsx:10:53*/ "off"
 		}
 		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)

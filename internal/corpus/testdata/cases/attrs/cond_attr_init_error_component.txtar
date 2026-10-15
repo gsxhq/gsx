@@ -82,13 +82,13 @@ func C(v string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
 		_gsxv1, _gsxerr := func() (_gsxrt.Attrs, error) {
-			_gsxv0, _gsxerr := mayFail(v)
+			_gsxv0, _gsxerr := /*line input.gsx:18:22*/ mayFail(v)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			s := "<" + string(_gsxv0) + ">"
-			if s != "<>" {
-				return _gsxrt.Attrs{{Key: "title", Value: s}}, nil
+			/*line input.gsx:18:12*/ s := "<" + string(_gsxv0) + ">"
+			if /*line input.gsx:18:37*/ s != "<>" {
+				return _gsxrt.Attrs{{Key: "title", Value: /*line input.gsx:18:56*/ s}}, nil
 			}
 			return nil, nil
 		}()

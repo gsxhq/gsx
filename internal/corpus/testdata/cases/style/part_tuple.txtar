@@ -28,8 +28,8 @@ func C(v int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
-		_gsxv0 := "padding: 4px"
-		_gsxv1, _gsxerr := sty(v)
+		_gsxv0 := /*line input.gsx:4:16*/ "padding: 4px"
+		_gsxv1, _gsxerr := /*line input.gsx:4:32*/ sty(v)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

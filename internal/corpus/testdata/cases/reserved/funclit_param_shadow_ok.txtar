@@ -32,9 +32,9 @@ func Counter(label string) _gsxrt.Node {
 		f := func(attrs []string) int { return len(attrs) }
 //line input.gsx:5:2
 		_gsxgw.S("<div data-label=\"")
-		_gsxgw.AttrValue(string(label))
+		_gsxgw.AttrValue(string( /*line input.gsx:5:19*/ label))
 		_gsxgw.S("\" data-n=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64(f(nil)))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:5:34*/ f(nil)))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

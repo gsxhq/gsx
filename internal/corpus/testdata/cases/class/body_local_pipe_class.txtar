@@ -34,7 +34,7 @@ func C() _gsxrt.Node {
 		s := "hi"
 //line input.gsx:5:2
 		_gsxgw.S("<b class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxstd.Upper((s))))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:5:18*/ _gsxstd.Upper(( /*line input.gsx:5:13*/ s))))
 		_gsxgw.S("\">x</b>")
 		return _gsxgw.Err()
 	})

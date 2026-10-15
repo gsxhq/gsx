@@ -78,7 +78,7 @@ func Page(a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 //line input.gsx:13:2
 		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "Tom & Jerry", _gsxrt.Attrs{{Key: "data-x", Value: "<i>"}}))
 //line input.gsx:14:2
-		_gsxv0 := _gsxrt.ConcatAttrs(a, _gsxrt.Attrs{{Key: "title", Value: _gsxrt.RawURL("A & B")}}, b)
+		_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:14:7*/ a, _gsxrt.Attrs{{Key: "title", Value: _gsxrt.RawURL("A & B")}} /*line input.gsx:14:34*/, b)
 		_gsxgw.S("<p")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

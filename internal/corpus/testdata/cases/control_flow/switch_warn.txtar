@@ -34,11 +34,11 @@ func Badge(kind string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<span>")
 //line input.gsx:4:8
-		switch kind {
-		case "warn":
+		switch /*line input.gsx:4:17*/ kind {
+		case /*line input.gsx:5:7*/ "warn":
 //line input.gsx:6:3
 			_gsxgw.S("<b>warning</b>")
-		case "err":
+		case /*line input.gsx:7:7*/ "err":
 //line input.gsx:8:3
 			_gsxgw.S("<b>error</b>")
 		default:

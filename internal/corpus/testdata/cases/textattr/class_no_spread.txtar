@@ -23,7 +23,7 @@ func B(v string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:25
 		_gsxgw.S("<span class=\"badge-")
-		_gsxgw.AttrValue(string(v))
+		_gsxgw.AttrValue(string( /*line input.gsx:3:47*/ v))
 		_gsxgw.S("\">h</span>")
 		return _gsxgw.Err()
 	})

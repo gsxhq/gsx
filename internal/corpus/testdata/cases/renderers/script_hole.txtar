@@ -62,7 +62,7 @@ func Tag(val pg.Text) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const s = \"x")
-		_gsxgw.JSStr(string(_gsxf0.PgJS((val))))
+		_gsxgw.JSStr(string(_gsxf0.PgJS(( /*line input.gsx:8:25*/ val))))
 		_gsxgw.S("\";</script>")
 		return _gsxgw.Err()
 	})

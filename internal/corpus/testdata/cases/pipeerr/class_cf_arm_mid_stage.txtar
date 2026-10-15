@@ -55,18 +55,18 @@ func Tag(ok bool, csv string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div")
 		var _gsxv0 string
-		if ok {
-			_gsxv1, _gsxerr := _gsxf0.Parse((csv))
+		if /*line input.gsx:4:18*/ ok {
+			_gsxv1, _gsxerr := /*line input.gsx:4:30*/ _gsxf0.Parse(( /*line input.gsx:4:23*/ csv))
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			_gsxv2, _gsxerr := _gsxf0.Pick(_gsxv1, 0)
+			_gsxv2, _gsxerr := /*line input.gsx:4:39*/ _gsxf0.Pick(_gsxv1 /*line input.gsx:4:44*/, 0)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
 			_gsxv0 = _gsxv2
 		} else {
-			_gsxv0 = "z"
+			_gsxv0 = /*line input.gsx:4:56*/ "z"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))

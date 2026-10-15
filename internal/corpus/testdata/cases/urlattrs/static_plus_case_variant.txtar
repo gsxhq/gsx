@@ -46,11 +46,11 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, link string, car
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := cardAttrs
+	_gsxv0 := /*line input.gsx:6:19*/ cardAttrs
 	_gsxgw.S("<a")
 	if !_gsxv0.Has("href") {
 		_gsxgw.S(" href=\"")
-		_gsxgw.URL(string(link))
+		_gsxgw.URL(string( /*line input.gsx:6:11*/ link))
 		_gsxgw.S("\"")
 	}
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
@@ -65,7 +65,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "/safe", _gsxrt.Attrs{{Key: "HREF", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "/safe", _gsxrt.Attrs{{Key: "HREF", Value: /*line input.gsx:10:42*/ "javascript:alert(1)"}}))
 		return _gsxgw.Err()
 	})
 }

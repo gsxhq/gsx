@@ -40,7 +40,7 @@ func _gsxrenderChip(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, extra gsx.Attrs)
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := extra
+	_gsxv0 := /*line input.gsx:6:16*/ extra
 	_gsxgw.S("<span")
 	if !_gsxv0.Has("a") {
 		_gsxgw.S(" a=\"b\"")
@@ -57,7 +57,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderChip(ctx, _gsxgw, gsx.Attrs{{Key: "a", Value: "c"}}))
+		_gsxgw.NodeResult(_gsxrenderChip(ctx, _gsxgw /*line input.gsx:10:15*/, gsx.Attrs{{Key: "a", Value: "c"}}))
 		return _gsxgw.Err()
 	})
 }

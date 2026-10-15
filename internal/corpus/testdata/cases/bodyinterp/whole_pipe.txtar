@@ -31,7 +31,7 @@ func Item(id string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
-		_gsxgw.Text(string(_gsxstd.Upper(("item-" + string(id)))))
+		_gsxgw.Text(string( /*line input.gsx:4:23*/ _gsxstd.Upper(("item-" + string( /*line input.gsx:4:15*/ id)))))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

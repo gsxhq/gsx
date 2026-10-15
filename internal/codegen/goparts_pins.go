@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"fmt"
+	"go/token"
 	"go/types"
 	"slices"
 	"strings"
@@ -232,7 +233,7 @@ func (f *fieldPins) raw(sb *strings.Builder, start, end int) {
 		if p.verbatim {
 			lo, hi := max(start, p.start), min(end, p.end)
 			if lo < hi {
-				sb.WriteString(p.text[lo-p.start : hi-p.start])
+				f.writeAuthored(sb, lo, p.text[lo-p.start:hi-p.start])
 			}
 			continue
 		}
@@ -243,11 +244,22 @@ func (f *fieldPins) raw(sb *strings.Builder, start, end int) {
 }
 
 // String returns the field's expression.
+// writeAuthored writes a verbatim run starting at source offset start,
+// anchored to its source line (anchorAuthored).
+func (f *fieldPins) writeAuthored(sb *strings.Builder, start int, text string) {
+	lead := len(text) - len(strings.TrimLeft(text, " \t\r\n"))
+	sb.WriteString(anchorAuthored(f.lc.fset, token.Pos(start+lead), text))
+}
+
 func (f *fieldPins) String() string {
 	if len(f.pinned) == 0 {
 		var sb strings.Builder
 		for _, p := range f.pieces {
-			sb.WriteString(p.text)
+			if p.verbatim {
+				f.writeAuthored(&sb, p.start, p.text)
+			} else {
+				sb.WriteString(p.text)
+			}
 		}
 		return sb.String()
 	}

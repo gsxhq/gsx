@@ -81,7 +81,7 @@ func _gsxrenderB(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) er
 		return _gsxerr
 	}
 //line input.gsx:10:2
-	_gsxgw.NodeResult(_gsxrenderC(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "b-add"}}, attrs)))
+	_gsxgw.NodeResult(_gsxrenderC(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "b-add"}} /*line input.gsx:10:21*/, attrs)))
 	return _gsxgw.Err()
 }
 
@@ -98,7 +98,7 @@ func _gsxrenderA(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs) er
 		return _gsxerr
 	}
 //line input.gsx:14:2
-	_gsxgw.NodeResult(_gsxrenderB(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "a-add"}}, attrs)))
+	_gsxgw.NodeResult(_gsxrenderB(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "a-add"}} /*line input.gsx:14:21*/, attrs)))
 	return _gsxgw.Err()
 }
 

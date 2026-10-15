@@ -39,7 +39,7 @@ func _gsxrenderCounter(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, signals gsx.A
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := signals
+	_gsxv0 := /*line input.gsx:6:12*/ signals
 	_gsxgw.S("<button")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -56,7 +56,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderCounter(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-signals", Value: "{count:0}"}, {Key: "data-text", Value: "$count"}, {Key: "data-on-click", Value: _gsxrt.RawJS("$count++")}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderCounter(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-signals", Value: /*line input.gsx:10:38*/ "{count:0}"}, {Key: "data-text", Value: /*line input.gsx:10:64*/ "$count"}, {Key: "data-on-click", Value: _gsxrt.RawJS("$count++")}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("Count")
 			return _gsxgw.Err()

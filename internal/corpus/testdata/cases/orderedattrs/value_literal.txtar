@@ -39,7 +39,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, containerAttrs g
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := containerAttrs
+	_gsxv0 := /*line input.gsx:6:27*/ containerAttrs
 	_gsxgw.S("<div class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("container"), _gsxrt.Class(_gsxv0.Class()))
 	_gsxgw.S("\"")
@@ -57,7 +57,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-signals", Value: "{open:false}"}, {Key: "data-text", Value: "$open"}, {Key: "data-a", Value: "z"}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-signals", Value: /*line input.gsx:10:42*/ "{open:false}"}, {Key: "data-text", Value: /*line input.gsx:10:71*/ "$open"}, {Key: "data-a", Value: /*line input.gsx:10:90*/ "z"}}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("hi")
 			return _gsxgw.Err()

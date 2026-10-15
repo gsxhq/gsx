@@ -41,7 +41,7 @@ func Page(cfg Config) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">\n\t\tconst data = ")
-		_gsxgw.JSVal(cfg)
+		_gsxgw.JSVal( /*line input.gsx:9:19*/ cfg)
 		_gsxgw.S(";\n\t</script>")
 		return _gsxgw.Err()
 	})

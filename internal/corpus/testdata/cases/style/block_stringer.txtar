@@ -41,7 +41,7 @@ func C(c Color) _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.a{color:")
-		_gsxgw.CSS((c).String())
+		_gsxgw.CSS(( /*line input.gsx:10:21*/ c).String())
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})

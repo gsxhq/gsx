@@ -56,7 +56,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderTag[Slug](ctx, _gsxgw, Slug("go")))
+		_gsxgw.NodeResult(_gsxrenderTag[Slug](ctx, _gsxgw /*line input.gsx:10:20*/, Slug("go")))
 		return _gsxgw.Err()
 	})
 }

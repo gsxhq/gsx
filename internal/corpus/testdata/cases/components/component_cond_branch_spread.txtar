@@ -57,8 +57,8 @@ func Page(hot bool, extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-h", Value: "1"}}, extra), nil
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:24*/ hot, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-h", Value: "1"}} /*line input.gsx:8:43*/, extra), nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

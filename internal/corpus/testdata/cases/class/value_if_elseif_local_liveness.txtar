@@ -36,10 +36,10 @@ func C() _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<span")
 		var _gsxv0 string
-		if a {
-			_gsxv0 = "one"
-		} else if b {
-			_gsxv0 = "two"
+		if /*line input.gsx:6:19*/ a {
+			_gsxv0 = /*line input.gsx:6:23*/ "one"
+		} else if /*line input.gsx:6:39*/ b {
+			_gsxv0 = /*line input.gsx:6:43*/ "two"
 		}
 
 		_gsxgw.S(" class=\"")

@@ -57,7 +57,7 @@ func _gsxrenderBadge(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, count int) erro
 var badge = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:13
-	_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw, 12))
+	_gsxgw.NodeResult(_gsxrenderBadge(ctx, _gsxgw /*line input.gsx:7:27*/, 12))
 	return _gsxgw.Err()
 }) /*line input.gsx:7:32*/
 

@@ -47,7 +47,7 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, a
 	_gsxgw.S("<input")
 	if !attrs.Has("aria-label") {
 		_gsxgw.S(" aria-label=\"")
-		_gsxgw.AttrValue(string(label))
+		_gsxgw.AttrValue(string( /*line input.gsx:5:69*/ label))
 		_gsxgw.S("\"")
 	}
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
@@ -62,8 +62,8 @@ func Page(edit bool, who string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(edit, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "title", Value: "Hi " + string(who)}}, nil
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:31*/ edit, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "title", Value: "Hi " + string( /*line input.gsx:8:51*/ who)}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

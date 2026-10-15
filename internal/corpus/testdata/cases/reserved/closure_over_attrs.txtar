@@ -37,7 +37,7 @@ func Badge(attrs gsx.Attrs) _gsxrt.Node {
 		f := func() string { return attrs.Class() }
 //line input.gsx:7:2
 		_gsxgw.S("<span class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(f()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:7:15*/ f()))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

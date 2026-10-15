@@ -34,7 +34,7 @@ import (
 
 var name = "world"
 
-var greeting = "hello " + string(name) /*line input.gsx:5:32*/
+var greeting = "hello " + string( /*line input.gsx:5:26*/ name) /*line input.gsx:5:32*/
 
 //line input.gsx:7:1
 func Uses() _gsxrt.Node {

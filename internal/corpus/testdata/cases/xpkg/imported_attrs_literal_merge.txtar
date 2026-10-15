@@ -49,7 +49,7 @@ func Home() _gsxrt.Node {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("p")
 			return _gsxgw.Err()
-		}), _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: "2"}})))
+		}), _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: /*line home.gsx:6:42*/ "2"}})))
 		return _gsxgw.Err()
 	})
 }

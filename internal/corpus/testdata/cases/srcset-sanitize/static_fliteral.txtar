@@ -27,7 +27,7 @@ func Pic(u string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img srcset=\"")
-		_gsxgw.Srcset(string(u) + " 1x, fallback.jpg 2x")
+		_gsxgw.Srcset(string( /*line input.gsx:4:18*/ u) + " 1x, fallback.jpg 2x")
 		_gsxgw.S("\">")
 		return _gsxgw.Err()
 	})

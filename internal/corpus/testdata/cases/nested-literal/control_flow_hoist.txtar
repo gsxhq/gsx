@@ -86,56 +86,56 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:19:2
-		_gsxv0, _gsxerr := lookup(id)
+		_gsxv0, _gsxerr := /*line input.gsx:19:14*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		if ok(string(_gsxv0)) {
+		if /*line input.gsx:19:7*/ ok(string(_gsxv0) /*line input.gsx:19:26*/) {
 //line input.gsx:20:3
 			_gsxgw.S("<b>if</b>")
 		}
 //line input.gsx:22:2
-		if id == 1 {
+		if /*line input.gsx:22:7*/ id == 1 {
 //line input.gsx:23:3
 			_gsxgw.S("<b>one</b>")
 		} else {
 //line input.gsx:24:9
-			_gsxv1, _gsxerr := lookup(-1)
+			_gsxv1, _gsxerr := /*line input.gsx:24:19*/ lookup(-1)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv1)) {
+			if /*line input.gsx:24:12*/ ok(string(_gsxv1) /*line input.gsx:24:31*/) {
 //line input.gsx:25:3
 				_gsxgw.S("<b>never</b>")
 			}
 		}
 //line input.gsx:27:2
-		if id == 2 {
+		if /*line input.gsx:27:7*/ id == 2 {
 //line input.gsx:28:3
 			_gsxgw.S("<b>two</b>")
 		} else {
 //line input.gsx:29:9
-			_gsxv2, _gsxerr := lookup(id)
+			_gsxv2, _gsxerr := /*line input.gsx:29:19*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv2)) {
+			if /*line input.gsx:29:12*/ ok(string(_gsxv2) /*line input.gsx:29:31*/) {
 //line input.gsx:30:3
 				_gsxgw.S("<b>reached</b>")
 			}
 		}
 //line input.gsx:32:2
-		_gsxv3, _gsxerr := lookup(id)
+		_gsxv3, _gsxerr := /*line input.gsx:32:18*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		switch ok(string(_gsxv3)) {
-		case true:
+		switch /*line input.gsx:32:11*/ ok(string(_gsxv3) /*line input.gsx:32:30*/) {
+		case /*line input.gsx:33:7*/ true:
 //line input.gsx:34:3
 			_gsxgw.S("<b>sw</b>")
 		}
 //line input.gsx:36:2
-		if isNode(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		if /*line input.gsx:36:7*/ isNode(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			var _gsxnum [32]byte
 //line input.gsx:36:14
@@ -144,23 +144,23 @@ func Page(id int) _gsxrt.Node {
 			_gsxgw.IntInto(_gsxnum[:], int64(id))
 			_gsxgw.S("</i>")
 			return _gsxgw.Err()
-		})) {
+		}) /*line input.gsx:36:27*/) {
 //line input.gsx:37:3
 			_gsxgw.S("<b>elem</b>")
 		}
 //line input.gsx:39:2
 		switch {
-		case isNode(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		case /*line input.gsx:40:7*/ isNode(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:40:14
 			_gsxgw.S("<i></i>")
 			return _gsxgw.Err()
-		})):
+		}) /*line input.gsx:40:18*/):
 //line input.gsx:41:3
 			_gsxgw.S("<b>case-elem</b>")
 		}
 //line input.gsx:43:2
-		for i := 0; len(_gsxsc.FormatInt(int64(i), 10)) == 1 && i < 3; i++ {
+		for /*line input.gsx:43:8*/ i := 0; len(_gsxsc.FormatInt(int64( /*line input.gsx:43:24*/ i), 10) /*line input.gsx:43:27*/) == 1 && i < 3; i++ {
 //line input.gsx:44:3
 			_gsxgw.S("<b>")
 //line input.gsx:44:6

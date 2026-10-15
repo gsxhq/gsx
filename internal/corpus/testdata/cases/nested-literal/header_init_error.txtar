@@ -58,12 +58,12 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw.S("<b>start</b>")
 //line input.gsx:16:2
 		{
-			s := wrap("q-" + _gsxsc.FormatInt(int64(id), 10))
-			_gsxv0, _gsxerr := lookup(len(s) - 4)
+			/*line input.gsx:16:7*/ s := wrap("q-" + _gsxsc.FormatInt(int64( /*line input.gsx:16:23*/ id), 10) /*line input.gsx:16:27*/)
+			_gsxv0, _gsxerr := /*line input.gsx:16:37*/ lookup(len(s) - 4)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv0)) {
+			if /*line input.gsx:16:30*/ ok(string(_gsxv0) /*line input.gsx:16:57*/) {
 //line input.gsx:17:3
 				_gsxgw.S("<b>")
 //line input.gsx:17:6

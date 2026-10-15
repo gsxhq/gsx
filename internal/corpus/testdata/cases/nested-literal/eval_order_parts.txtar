@@ -116,8 +116,8 @@ func Page(on bool) _gsxrt.Node {
 		r := &rec{}
 //line input.gsx:25:2
 		_gsxgw.S("<p")
-		_gsxv1 := r.F("a")
-		_gsxv0, _gsxerr := r.E("h")
+		_gsxv1 := /*line input.gsx:25:13*/ r.F("a")
+		_gsxv0, _gsxerr := /*line input.gsx:25:27*/ r.E("h")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -130,10 +130,10 @@ func Page(on bool) _gsxrt.Node {
 		r = &rec{}
 //line input.gsx:27:2
 		_gsxgw.S("<p")
-		_gsxv3 := r.F("a")
-		_gsxv4 := "k"
-		_gsxv5 := r.B("c")
-		_gsxv2, _gsxerr := r.E("h")
+		_gsxv3 := /*line input.gsx:27:13*/ r.F("a")
+		_gsxv4 := /*line input.gsx:27:23*/ "k"
+		_gsxv5 := /*line input.gsx:27:28*/ r.B("c")
+		_gsxv2, _gsxerr := /*line input.gsx:27:42*/ r.E("h")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -146,15 +146,15 @@ func Page(on bool) _gsxrt.Node {
 		r = &rec{}
 //line input.gsx:29:2
 		_gsxgw.S("<p")
-		_gsxv8 := "x-" + string(r.F("a"))
-		_gsxv9 := "k"
-		_gsxv7 := r.B("g")
-		_gsxv6, _gsxerr := r.E("h")
+		_gsxv8 := "x-" + string( /*line input.gsx:29:19*/ r.F("a"))
+		_gsxv9 := /*line input.gsx:29:31*/ "k"
+		_gsxv7 := /*line input.gsx:29:40*/ r.B("g")
+		_gsxv6, _gsxerr := /*line input.gsx:29:54*/ r.E("h")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv8), _gsxrt.ClassIf(_gsxv9, yes(_gsxv7, string(_gsxv6))))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv8), _gsxrt.ClassIf(_gsxv9 /*line input.gsx:29:36*/, yes(_gsxv7 /*line input.gsx:29:48*/, string(_gsxv6) /*line input.gsx:29:64*/)))
 		_gsxgw.S("\"></p>")
 //line input.gsx:29:72
 		_gsxgw.Text((r).String())
@@ -162,13 +162,13 @@ func Page(on bool) _gsxrt.Node {
 		r = &rec{}
 //line input.gsx:31:2
 		_gsxgw.S("<p")
-		_gsxv10 := r.F("a")
+		_gsxv10 := /*line input.gsx:31:13*/ r.F("a")
 		var _gsxv11 string
-		if on {
-			_gsxv11 = r.F("b")
+		if /*line input.gsx:31:26*/ on {
+			_gsxv11 = /*line input.gsx:31:31*/ r.F("b")
 		}
-		_gsxv13 := r.F("c")
-		_gsxv12, _gsxerr := r.E("h")
+		_gsxv13 := /*line input.gsx:31:43*/ r.F("c")
+		_gsxv12, _gsxerr := /*line input.gsx:31:57*/ r.E("h")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -181,8 +181,8 @@ func Page(on bool) _gsxrt.Node {
 		r = &rec{}
 //line input.gsx:33:2
 		_gsxgw.S("<p")
-		_gsxv15 := r.F("color:red")
-		_gsxv14, _gsxerr := r.E("1")
+		_gsxv15 := /*line input.gsx:33:13*/ r.F("color:red")
+		_gsxv14, _gsxerr := /*line input.gsx:33:43*/ r.E("1")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -194,8 +194,8 @@ func Page(on bool) _gsxrt.Node {
 //line input.gsx:34:2
 		r = &rec{}
 //line input.gsx:35:2
-		_gsxv17 := r.F("a")
-		_gsxv16, _gsxerr := r.E("h")
+		_gsxv17 := /*line input.gsx:35:15*/ r.F("a")
+		_gsxv16, _gsxerr := /*line input.gsx:35:29*/ r.E("h")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -205,9 +205,9 @@ func Page(on bool) _gsxrt.Node {
 //line input.gsx:36:2
 		r = &rec{}
 //line input.gsx:37:2
-		_gsxv20, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
-			_gsxv19 := r.F("a")
-			_gsxv18, _gsxerr := r.E("h")
+		_gsxv20, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:37:12*/ on, func() (_gsxrt.Attrs, error) {
+			_gsxv19 := /*line input.gsx:37:25*/ r.F("a")
+			_gsxv18, _gsxerr := /*line input.gsx:37:39*/ r.E("h")
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
@@ -222,9 +222,9 @@ func Page(on bool) _gsxrt.Node {
 //line input.gsx:38:2
 		r = &rec{}
 //line input.gsx:39:2
-		_gsxv21 := _gsxrt.ConcatAttrs(e, e)
-		_gsxv23 := r.F("a")
-		_gsxv22, _gsxerr := r.E("h")
+		_gsxv21 := _gsxrt.ConcatAttrs( /*line input.gsx:39:7*/ e /*line input.gsx:39:16*/, e)
+		_gsxv23 := /*line input.gsx:39:31*/ r.F("a")
+		_gsxv22, _gsxerr := /*line input.gsx:39:45*/ r.E("h")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -239,9 +239,9 @@ func Page(on bool) _gsxrt.Node {
 //line input.gsx:40:2
 		r = &rec{}
 //line input.gsx:41:2
-		_gsxv25 := _gsxrt.ConcatAttrs(e, e)
-		_gsxv27 := r.F("color:red")
-		_gsxv26, _gsxerr := r.E("1")
+		_gsxv25 := _gsxrt.ConcatAttrs( /*line input.gsx:41:7*/ e /*line input.gsx:41:16*/, e)
+		_gsxv27 := /*line input.gsx:41:31*/ r.F("color:red")
+		_gsxv26, _gsxerr := /*line input.gsx:41:61*/ r.E("1")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -256,8 +256,8 @@ func Page(on bool) _gsxrt.Node {
 //line input.gsx:42:2
 		r = &rec{}
 //line input.gsx:43:2
-		_gsxv29 := _gsxrt.Attr{Key: "data-a", Value: r.F("a")}
-		_gsxv30, _gsxerr := r.E("b")
+		_gsxv29 := _gsxrt.Attr{Key: "data-a", Value: /*line input.gsx:43:26*/ r.F("a")}
+		_gsxv30, _gsxerr := /*line input.gsx:43:46*/ r.E("b")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -267,8 +267,8 @@ func Page(on bool) _gsxrt.Node {
 //line input.gsx:44:2
 		r = &rec{}
 //line input.gsx:45:2
-		_gsxv32 := _gsxrt.Attr{Key: "data-a", Value: r.F("a")}
-		_gsxv31, _gsxerr := r.E("b")
+		_gsxv32 := _gsxrt.Attr{Key: "data-a", Value: /*line input.gsx:45:26*/ r.F("a")}
+		_gsxv31, _gsxerr := /*line input.gsx:45:50*/ r.E("b")
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -278,9 +278,9 @@ func Page(on bool) _gsxrt.Node {
 //line input.gsx:46:2
 		r = &rec{}
 //line input.gsx:47:2
-		_gsxv33 := _gsxrt.Attr{Key: "data-n", Value: nil}
-		_gsxv34 := _gsxrt.Attr{Key: "data-a", Value: r.F("a")}
-		_gsxv35, _gsxerr := r.E("b")
+		_gsxv33 := _gsxrt.Attr{Key: "data-n", Value: /*line input.gsx:47:26*/ nil}
+		_gsxv34 := _gsxrt.Attr{Key: "data-a", Value: /*line input.gsx:47:41*/ r.F("a")}
+		_gsxv35, _gsxerr := /*line input.gsx:47:61*/ r.E("b")
 		if _gsxerr != nil {
 			return _gsxerr
 		}

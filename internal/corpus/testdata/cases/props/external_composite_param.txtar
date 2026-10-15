@@ -57,7 +57,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, cardData{Title: "Hi"}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw /*line input.gsx:8:11*/, cardData{Title: "Hi"}))
 		return _gsxgw.Err()
 	})
 }

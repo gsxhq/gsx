@@ -69,83 +69,83 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<input")
-		_gsxgw.BoolAttr("required", bool(on))
+		_gsxgw.BoolAttr("required", bool( /*line input.gsx:6:19*/ on))
 		_gsxgw.S(">")
 //line input.gsx:7:2
 		_gsxgw.S("<input")
-		_gsxgw.BoolAttr("checked", bool(on))
+		_gsxgw.BoolAttr("checked", bool( /*line input.gsx:7:18*/ on))
 		_gsxgw.S(">")
 //line input.gsx:8:2
 		_gsxgw.S("<div")
-		_gsxgw.BoolAttr("hidden", bool(on))
+		_gsxgw.BoolAttr("hidden", bool( /*line input.gsx:8:15*/ on))
 		_gsxgw.S(">h</div>")
 //line input.gsx:9:2
 		_gsxgw.S("<div aria-expanded=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(on)))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:9:22*/ on)))
 		_gsxgw.S("\">a</div>")
 //line input.gsx:10:2
 		_gsxgw.S("<div aria-checked=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(on)))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:10:21*/ on)))
 		_gsxgw.S("\">ac</div>")
 //line input.gsx:11:2
 		_gsxgw.S("<div contenteditable=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(on)))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:11:24*/ on)))
 		_gsxgw.S("\">c</div>")
 //line input.gsx:12:2
 		_gsxgw.S("<div spellcheck=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(on)))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:12:19*/ on)))
 		_gsxgw.S("\">s</div>")
 //line input.gsx:13:2
 		_gsxgw.S("<div draggable=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(on)))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:13:18*/ on)))
 		_gsxgw.S("\">dr</div>")
 //line input.gsx:14:2
 		_gsxgw.S("<div")
-		_gsxgw.BoolAttr("title", bool(on))
+		_gsxgw.BoolAttr("title", bool( /*line input.gsx:14:14*/ on))
 		_gsxgw.S(">ti</div>")
 //line input.gsx:15:2
 		_gsxgw.S("<div")
-		_gsxgw.BoolAttr("data-open", bool(on))
+		_gsxgw.BoolAttr("data-open", bool( /*line input.gsx:15:18*/ on))
 		_gsxgw.S(">d</div>")
 //line input.gsx:16:2
 		_gsxgw.S("<my-toggle")
-		_gsxgw.BoolAttr("active", bool(on))
+		_gsxgw.BoolAttr("active", bool( /*line input.gsx:16:21*/ on))
 		_gsxgw.S(">t</my-toggle>")
 //line input.gsx:17:2
 		_gsxgw.S("<div")
-		_gsxgw.BoolAttr("x-cloak", bool(on))
+		_gsxgw.BoolAttr("x-cloak", bool( /*line input.gsx:17:16*/ on))
 		_gsxgw.S(">xc</div>")
 //line input.gsx:18:2
 		_gsxgw.S("<div")
-		_gsxgw.BoolAttr("x-show", bool(on))
+		_gsxgw.BoolAttr("x-show", bool( /*line input.gsx:18:15*/ on))
 		_gsxgw.S(">x</div>")
 //line input.gsx:19:2
 		_gsxgw.S("<div")
-		_gsxgw.BoolAttr("hx-boost", bool(on))
+		_gsxgw.BoolAttr("hx-boost", bool( /*line input.gsx:19:17*/ on))
 		_gsxgw.S(">b</div>")
 //line input.gsx:20:2
 		_gsxgw.S("<svg focusable=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(on)))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:20:18*/ on)))
 		_gsxgw.S("\">")
 //line input.gsx:20:22
 		_gsxgw.S("<circle r=\"1\"></circle></svg>")
 //line input.gsx:21:2
 		_gsxgw.S("<math displaystyle=\"")
-		_gsxgw.S(_gsxsc.FormatBool(bool(on)))
+		_gsxgw.S(_gsxsc.FormatBool(bool( /*line input.gsx:21:22*/ on)))
 		_gsxgw.S("\">")
 //line input.gsx:21:26
 		_gsxgw.S("<mn>1</mn></math>")
 //line input.gsx:22:2
 		_gsxgw.S("<iframe")
-		_gsxgw.BoolAttr("sandbox", bool(on))
+		_gsxgw.BoolAttr("sandbox", bool( /*line input.gsx:22:19*/ on))
 		_gsxgw.S("></iframe>")
 //line input.gsx:23:2
 		_gsxgw.S("<a")
-		_gsxgw.BoolAttr("href", bool(on))
+		_gsxgw.BoolAttr("href", bool( /*line input.gsx:23:11*/ on))
 		_gsxgw.S(">u</a>")
 //line input.gsx:24:2
 		_gsxgw.S("<my-toggle")
-		_gsxgw.BoolAttr("active", bool(gsx.Toggle(on)))
+		_gsxgw.BoolAttr("active", bool( /*line input.gsx:24:21*/ gsx.Toggle(on)))
 		_gsxgw.S(">t</my-toggle>")
 //line input.gsx:25:2
 		_gsxgw.S("<input")

@@ -98,7 +98,7 @@ func Page(val pg.Text, b box) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxf0.PgText((val))), _gsxrt.Class(_gsxf0.PgText((b.Cls))))}}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxf0.PgText(( /*line input.gsx:16:27*/ val))), _gsxrt.Class(_gsxf0.PgText(( /*line input.gsx:16:32*/ b.Cls))))}}))
 		return _gsxgw.Err()
 	})
 }

@@ -43,7 +43,7 @@ func C(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:51
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxcm.Keep, _gsxrt.Class("btn"), _gsxrt.Class(attrs.Class()))
+		_gsxgw.Class(_gsxcm.Keep, _gsxrt.Class( /*line input.gsx:5:64*/ "btn"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})

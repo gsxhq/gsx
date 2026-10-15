@@ -34,7 +34,7 @@ import (
 /*line input.gsx:1:13*/
 
 func makeGreeting(who string) string {
-	return "hi " + string(who) /*line input.gsx:4:21*/
+	return "hi " + string( /*line input.gsx:4:16*/ who) /*line input.gsx:4:21*/
 }
 
 //line input.gsx:7:1

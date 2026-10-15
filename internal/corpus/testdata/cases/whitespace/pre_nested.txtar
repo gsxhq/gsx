@@ -71,7 +71,7 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:11:2
 		_gsxgw.S("<pre>")
 //line input.gsx:11:7
-		if len(lines) > 0 {
+		if /*line input.gsx:11:12*/ len(lines) > 0 {
 //line input.gsx:11:29
 			_gsxgw.S("<b>")
 //line input.gsx:11:32
@@ -82,7 +82,7 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:12:2
 		_gsxgw.S("<pre>")
 //line input.gsx:12:7
-		for _, l := range lines {
+		for /*line input.gsx:12:13*/ _, l := range lines {
 //line input.gsx:12:35
 			_gsxgw.S("<span>")
 //line input.gsx:12:41
@@ -93,7 +93,7 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:13:2
 		_gsxgw.S("<pre>")
 //line input.gsx:13:7
-		if len(lines) > 1 {
+		if /*line input.gsx:13:12*/ len(lines) > 1 {
 //line input.gsx:13:29
 			_gsxgw.S("<b>a</b>\nmid\n")
 //line input.gsx:15:1
@@ -103,8 +103,8 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:16:2
 		_gsxgw.S("<pre>")
 //line input.gsx:16:7
-		switch len(lines) {
-		case 0:
+		switch /*line input.gsx:16:16*/ len(lines) {
+		case /*line input.gsx:17:7*/ 0:
 //line input.gsx:18:3
 			_gsxgw.S("<i>empty</i>")
 		default:

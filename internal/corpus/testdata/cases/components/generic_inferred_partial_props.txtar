@@ -38,7 +38,7 @@ func _gsxrenderButton[T string | int](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer
 	}
 //line input.gsx:4:2
 	_gsxgw.S("<button class=\"")
-	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(size))
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:4:17*/ size))
 	_gsxgw.S("\">")
 //line input.gsx:4:23
 	_gsxgw.TextAny(label)
@@ -51,7 +51,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.NodeResult(_gsxrenderButton[int](ctx, _gsxgw, 7, ""))
+		_gsxgw.NodeResult(_gsxrenderButton[int](ctx, _gsxgw /*line input.gsx:8:17*/, 7, ""))
 		return _gsxgw.Err()
 	})
 }

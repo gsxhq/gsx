@@ -108,21 +108,21 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxa1 := markPipeline("pipe-first", "A")
-		_gsxa2 := markPipeline("pipe-after", "Z")
-		_gsxv0, _gsxerr := _gsxf0.Check((markPipeline("pipe", "x")))
+		_gsxa1 := /*line input.gsx:11:10*/ markPipeline("pipe-first", "A")
+		_gsxa2 := /*line input.gsx:12:10*/ markPipeline("pipe-after", "Z")
+		_gsxv0, _gsxerr := /*line input.gsx:13:42*/ _gsxf0.Check(( /*line input.gsx:13:13*/ markPipeline("pipe", "x")))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa1, _gsxa2, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv0)}}))
+		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa1, _gsxa2, _gsxrt.Attrs{{Key: "data-mid", Value: /*line input.gsx:13:51*/ _gsxstd.Upper(_gsxv0)}}))
 //line input.gsx:15:2
-		_gsxa4 := markPipeline("pipe-first-2", "B")
-		_gsxa5 := markPipeline("pipe-after-2", "Y")
-		_gsxv3, _gsxerr := _gsxf0.Check((markPipeline("pipe-2", "y")))
+		_gsxa4 := /*line input.gsx:16:10*/ markPipeline("pipe-first-2", "B")
+		_gsxa5 := /*line input.gsx:17:10*/ markPipeline("pipe-after-2", "Y")
+		_gsxv3, _gsxerr := /*line input.gsx:18:44*/ _gsxf0.Check(( /*line input.gsx:18:13*/ markPipeline("pipe-2", "y")))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa4, _gsxa5, _gsxrt.Attrs{{Key: "data-mid", Value: _gsxstd.Upper(_gsxv3)}}))
+		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa4, _gsxa5, _gsxrt.Attrs{{Key: "data-mid", Value: /*line input.gsx:18:53*/ _gsxstd.Upper(_gsxv3)}}))
 		return _gsxgw.Err()
 	})
 }

@@ -92,7 +92,7 @@ func renderChip(p chipProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:37
-		_gsxv0 := p.Attrs
+		_gsxv0 := /*line input.gsx:7:45*/ p.Attrs
 		_gsxgw.S("<span")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -112,12 +112,12 @@ func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxa2 := _gsxrt.Attrs{{Key: "data-first", Value: mark("first", "A")}}
-		_gsxv1, _gsxerr := markPair("pair", "P", fail)
+		_gsxa2 := _gsxrt.Attrs{{Key: "data-first", Value: /*line input.gsx:15:15*/ mark("first", "A")}}
+		_gsxv1, _gsxerr := /*line input.gsx:16:25*/ markPair("pair", "P", fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Chip(_gsxrt.ConcatAttrs(_gsxa2, _gsxrt.Attrs{{Key: "data-pair", Value: _gsxv1}}, _gsxrt.Attrs{{Key: "data-last", Value: mark("last", "Z")}})...))
+		_gsxgw.Node(ctx, Chip(_gsxrt.ConcatAttrs(_gsxa2, _gsxrt.Attrs{{Key: "data-pair", Value: _gsxv1}}, _gsxrt.Attrs{{Key: "data-last", Value: /*line input.gsx:17:14*/ mark("last", "Z")}})...))
 		return _gsxgw.Err()
 	})
 }

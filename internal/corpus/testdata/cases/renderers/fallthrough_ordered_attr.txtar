@@ -93,7 +93,7 @@ func Page(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxf0.PgText((val))}, {Key: "data-c", Value: "9"}})))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxf0.PgText(( /*line input.gsx:14:39*/ val))}, {Key: "data-c", Value: /*line input.gsx:14:54*/ "9"}})))
 		return _gsxgw.Err()
 	})
 }

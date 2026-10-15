@@ -57,11 +57,11 @@ func Card(csv string) _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.card{color:")
-		_gsxv0, _gsxerr := _gsxf0.Parse((csv))
+		_gsxv0, _gsxerr := /*line input.gsx:4:31*/ _gsxf0.Parse(( /*line input.gsx:4:24*/ csv))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
+		_gsxv1, _gsxerr := /*line input.gsx:4:40*/ _gsxf0.Pick(_gsxv0 /*line input.gsx:4:45*/, 0)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

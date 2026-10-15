@@ -85,23 +85,24 @@ func Page(id int) _gsxrt.Node {
 		var _gsxnum [32]byte
 //line input.gsx:14:2
 		_gsxgw.S("<i title=\"/z/")
-		_gsxgw.IntInto(_gsxnum[:], int64(id))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:14:19*/ id))
 		_gsxgw.S("\" @click=\"go(")
-		_gsxgw.JSValAttr(id)
+		_gsxgw.JSValAttr( /*line input.gsx:14:41*/ id)
 		_gsxgw.S(")\" data-x=\"")
-		_gsxgw.AttrValue(string(_gsxstd.Upper(("a-" + _gsxsc.FormatInt(int64(id), 10)))))
+		_gsxgw.AttrValue(string( /*line input.gsx:14:71*/ _gsxstd.Upper(("a-" + _gsxsc.FormatInt(int64( /*line input.gsx:14:63*/ id), 10)))))
 		_gsxgw.S("\"></i>")
 //line input.gsx:15:2
-		_gsxa0 := "t-" + _gsxsc.FormatInt(int64(id), 10)
-		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, boldID(id), _gsxa0))
+		_gsxa0 := "t-" + _gsxsc.FormatInt(int64( /*line input.gsx:15:17*/ id), 10)
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw /*line input.gsx:15:26*/, boldID(id), _gsxa0))
 //line input.gsx:16:2
-		t := "/w/" + _gsxsc.FormatInt(int64(id), 10)
+		/*line input.gsx:16:5*/
+		t := "/w/" + _gsxsc.FormatInt(int64( /*line input.gsx:16:17*/ id), 10)
 //line input.gsx:17:2
 		_gsxgw.S("<i title=\"")
-		_gsxgw.AttrValue(string(wrap(t)))
+		_gsxgw.AttrValue(string( /*line input.gsx:17:12*/ wrap(t)))
 		_gsxgw.S("\">")
 //line input.gsx:17:21
-		_gsxgw.Text(string(wrap("/b/" + _gsxsc.FormatInt(int64(id), 10))))
+		_gsxgw.Text(string( /*line input.gsx:17:23*/ wrap("/b/" + _gsxsc.FormatInt(int64( /*line input.gsx:17:35*/ id), 10) /*line input.gsx:17:39*/)))
 		_gsxgw.S("</i>")
 		return _gsxgw.Err()
 	})

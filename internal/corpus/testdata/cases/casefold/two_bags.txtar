@@ -45,7 +45,7 @@ func Row(p props) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
-		_gsxv0 := _gsxrt.ConcatAttrs(p.A, p.B)
+		_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:11:9*/ p.A /*line input.gsx:11:20*/, p.B)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

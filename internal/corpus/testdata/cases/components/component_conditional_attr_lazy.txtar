@@ -68,8 +68,8 @@ func Page(u *User) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(u != nil, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "data-name", Value: u.Name}}, nil
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:12:24*/ u != nil, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "data-name", Value: /*line input.gsx:12:47*/ u.Name}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

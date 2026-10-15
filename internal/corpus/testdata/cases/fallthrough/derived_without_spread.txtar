@@ -45,7 +45,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title string, a
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := attrs.Without("data-skip")
+	_gsxv0 := /*line input.gsx:6:43*/ attrs.Without("data-skip")
 	_gsxgw.S("<section class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("panel"), _gsxrt.Class(_gsxv0.Class()))
 	_gsxgw.S("\"")

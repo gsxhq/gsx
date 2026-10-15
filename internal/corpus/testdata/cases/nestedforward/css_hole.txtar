@@ -59,7 +59,7 @@ func _gsxrenderWidget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attr
 	}
 //line input.gsx:12:2
 	_gsxgw.S("<div style=\"color:")
-	_gsxgw.AttrValue(_gsxrt.StyleValue(string(strAttr(attrs, "c"))))
+	_gsxgw.AttrValue(_gsxrt.StyleValue(string( /*line input.gsx:12:28*/ strAttr(attrs, "c"))))
 	_gsxgw.S("\">x</div>")
 	return _gsxgw.Err()
 }

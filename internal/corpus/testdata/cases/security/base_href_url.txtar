@@ -28,7 +28,7 @@ func Base(u string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<base href=\"")
-		_gsxgw.URL(string(u))
+		_gsxgw.URL(string( /*line input.gsx:4:14*/ u))
 		_gsxgw.S("\">")
 		return _gsxgw.Err()
 	})

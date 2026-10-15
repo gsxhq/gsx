@@ -26,7 +26,7 @@ func C(extra string, on bool) _gsxrt.Node {
 		_gsxgw.S("<div>")
 //line input.gsx:4:7
 		_gsxgw.S("<span class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("btn"), _gsxrt.Class(extra), _gsxrt.ClassIf("active", on))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:4:21*/ "btn"), _gsxrt.Class( /*line input.gsx:4:28*/ extra), _gsxrt.ClassIf( /*line input.gsx:4:35*/ "active" /*line input.gsx:4:45*/, on))
 		_gsxgw.S("\">y</span></div>")
 		return _gsxgw.Err()
 	})

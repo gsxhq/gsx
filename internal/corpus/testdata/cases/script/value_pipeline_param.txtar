@@ -31,7 +31,7 @@ func Page(name string) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const n = ")
-		_gsxgw.JSVal(_gsxstd.Truncate((name), 3))
+		_gsxgw.JSVal( /*line input.gsx:4:31*/ _gsxstd.Truncate(( /*line input.gsx:4:23*/ name) /*line input.gsx:4:40*/, 3))
 		_gsxgw.S(";</script>")
 		return _gsxgw.Err()
 	})

@@ -75,6 +75,7 @@ func Page(id int, xs []string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
+		/*line input.gsx:12:5*/
 		n := wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			var _gsxnum [32]byte
@@ -84,13 +85,14 @@ func Page(id int, xs []string) _gsxrt.Node {
 			_gsxgw.IntInto(_gsxnum[:], int64(id))
 			_gsxgw.S("</b>")
 			return _gsxgw.Err()
-		}))
+		}) /*line input.gsx:12:29*/)
 //line input.gsx:13:2
 		_gsxgw.S("<p>")
 //line input.gsx:13:5
 		_gsxgw.Node(ctx, n)
 		_gsxgw.S("</p>")
 //line input.gsx:14:2
+		/*line input.gsx:14:5*/
 		m := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			var _gsxnum [32]byte
@@ -109,8 +111,9 @@ func Page(id int, xs []string) _gsxrt.Node {
 		_gsxgw.Node(ctx, m)
 		_gsxgw.S("</p>")
 //line input.gsx:16:2
-		for _, x := range xs {
+		for /*line input.gsx:16:8*/ _, x := range xs {
 //line input.gsx:17:3
+			/*line input.gsx:17:6*/
 			e := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:17:11
@@ -127,6 +130,7 @@ func Page(id int, xs []string) _gsxrt.Node {
 			_gsxgw.S("</p>")
 		}
 //line input.gsx:20:2
+		/*line input.gsx:20:5*/
 		s := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			var _gsxnum [32]byte
@@ -138,15 +142,16 @@ func Page(id int, xs []string) _gsxrt.Node {
 			return _gsxgw.Err()
 		})
 //line input.gsx:21:2
-		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, s))
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw /*line input.gsx:21:11*/, s))
 //line input.gsx:22:2
+		/*line input.gsx:22:5*/
 		a := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:10
 			_gsxgw.S("<a href=\"")
-			_gsxgw.URL("/p/" + _gsxsc.FormatInt(int64(id), 10))
+			_gsxgw.URL("/p/" + _gsxsc.FormatInt(int64( /*line input.gsx:22:26*/ id), 10))
 			_gsxgw.S("\" title=\"")
-			_gsxgw.AttrValue(string(wrap("t-" + _gsxsc.FormatInt(int64(id), 10))))
+			_gsxgw.AttrValue(string( /*line input.gsx:22:39*/ wrap("t-" + _gsxsc.FormatInt(int64( /*line input.gsx:22:50*/ id), 10) /*line input.gsx:22:54*/)))
 			_gsxgw.S("\">link</a>")
 			return _gsxgw.Err()
 		})

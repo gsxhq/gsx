@@ -88,7 +88,7 @@ func _gsxrenderTabs(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children ...gsx.
 //line input.gsx:10:2
 	_gsxgw.S("<ul>")
 //line input.gsx:10:6
-	for _, c := range children {
+	for /*line input.gsx:10:12*/ _, c := range children {
 //line input.gsx:10:37
 		_gsxgw.S("<li>")
 //line input.gsx:10:41

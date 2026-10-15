@@ -30,7 +30,7 @@ func Badge(variant string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<span class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("badge-"+string(variant)), _gsxrt.Class(attrs.Class()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("badge-"+string( /*line input.gsx:6:24*/ variant)), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, "span", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})

@@ -43,8 +43,8 @@ func Box(on bool, gap string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
-		_gsxv2, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
-			_gsxv1, _gsxerr := _gsxf0.Decl((gap))
+		_gsxv2, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:4:30*/ on, func() (_gsxrt.Attrs, error) {
+			_gsxv1, _gsxerr := /*line input.gsx:4:50*/ _gsxf0.Decl(( /*line input.gsx:4:43*/ gap))
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}

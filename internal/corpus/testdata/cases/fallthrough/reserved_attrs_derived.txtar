@@ -42,7 +42,7 @@ func _gsxrenderChip(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs)
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := attrs.Without("id")
+	_gsxv0 := /*line input.gsx:6:16*/ attrs.Without("id")
 	_gsxgw.S("<span")
 	if !_gsxv0.Has("a") {
 		_gsxgw.S(" a=\"b\"")

@@ -102,7 +102,7 @@ func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxf0.PgText((mkText(name, true)))))}}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxf0.PgText(( /*line input.gsx:12:27*/ mkText(name, true)))))}}))
 		return _gsxgw.Err()
 	})
 }

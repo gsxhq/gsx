@@ -30,7 +30,7 @@ func Nav(u string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:27
 		_gsxgw.S("<a hx-get=\"")
-		_gsxgw.URL(string(u))
+		_gsxgw.URL(string( /*line input.gsx:3:38*/ u))
 		_gsxgw.S("\">x</a>")
 		return _gsxgw.Err()
 	})

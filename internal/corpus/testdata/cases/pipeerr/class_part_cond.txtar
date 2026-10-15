@@ -51,12 +51,12 @@ func Tag(v string, on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxv0, _gsxerr := _gsxf0.Upper((v))
+		_gsxv0, _gsxerr := /*line input.gsx:4:20*/ _gsxf0.Upper(( /*line input.gsx:4:15*/ v))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxv0, on))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxv0 /*line input.gsx:4:27*/, on))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

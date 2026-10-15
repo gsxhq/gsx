@@ -42,7 +42,7 @@ func Nums(items []int, flag bool) _gsxrt.Node {
 		_gsxgw.IntInto(_gsxnum[:], int64(len(items)))
 		_gsxgw.S("</p>")
 //line input.gsx:6:3
-		if flag {
+		if /*line input.gsx:6:8*/ flag {
 //line input.gsx:7:4
 			_gsxgw.S("<span>")
 //line input.gsx:7:10
@@ -52,7 +52,7 @@ func Nums(items []int, flag bool) _gsxrt.Node {
 //line input.gsx:9:3
 		_gsxgw.S("<ul>")
 //line input.gsx:9:7
-		for i, v := range items {
+		for /*line input.gsx:9:13*/ i, v := range items {
 //line input.gsx:10:4
 			_gsxgw.S("<li>")
 //line input.gsx:10:8

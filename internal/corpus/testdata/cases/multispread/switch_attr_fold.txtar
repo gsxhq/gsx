@@ -61,10 +61,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv0 := a
+		_gsxv0 := /*line input.gsx:8:7*/ a
 		_gsxv1, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n {
-		case 1:
+		switch /*line input.gsx:8:23*/ n {
+		case /*line input.gsx:8:32*/ 1:
 			_gsxv1, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("1")}}, nil
 			})()
@@ -76,15 +76,15 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1, b)
+		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1 /*line input.gsx:8:72*/, b)
 		_gsxgw.S("<i")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 		_gsxgw.StyleMerged("", _gsxv2.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv2, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:9:2
-		_gsxv3 := a
-		_gsxv4, _gsxerr := _gsxrt.AttrsCond(n == 1, func() (_gsxrt.Attrs, error) {
+		_gsxv3 := /*line input.gsx:9:7*/ a
+		_gsxv4, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:9:19*/ n == 1, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("1")}}, nil
 		}, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-y", Value: _gsxrt.RawURL("d")}}, nil
@@ -92,17 +92,17 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv5 := _gsxrt.ConcatAttrs(_gsxv3, _gsxv4, b)
+		_gsxv5 := _gsxrt.ConcatAttrs(_gsxv3, _gsxv4 /*line input.gsx:9:65*/, b)
 		_gsxgw.S("<i")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv5.Class())
 		_gsxgw.StyleMerged("", _gsxv5.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv5, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:10:2
-		_gsxv6 := _gsxrt.ConcatAttrs(a, b)
+		_gsxv6 := _gsxrt.ConcatAttrs( /*line input.gsx:10:7*/ a /*line input.gsx:10:16*/, b)
 		_gsxv7, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n {
-		case 2:
+		switch /*line input.gsx:10:32*/ n {
+		case /*line input.gsx:10:41*/ 2:
 			_gsxv7, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("2")}}, nil
 			})()
@@ -117,8 +117,8 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv8, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:11:2
-		_gsxv9 := _gsxrt.ConcatAttrs(a, b)
-		_gsxv10, _gsxerr := _gsxrt.AttrsCond(n == 2, func() (_gsxrt.Attrs, error) {
+		_gsxv9 := _gsxrt.ConcatAttrs( /*line input.gsx:11:7*/ a /*line input.gsx:11:16*/, b)
+		_gsxv10, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:11:28*/ n == 2, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("2")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -131,12 +131,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv11, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:12:2
-		_gsxv12 := _gsxrt.ConcatAttrs(a, b)
+		_gsxv12 := _gsxrt.ConcatAttrs( /*line input.gsx:12:7*/ a /*line input.gsx:12:16*/, b)
 		_gsxv13, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch m := n * 3; m {
-		case 3:
+		switch /*line input.gsx:12:32*/ m := n * 3; m {
+		case /*line input.gsx:12:53*/ 3:
 			_gsxv13, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "data-m", Value: m}}, nil
+				return _gsxrt.Attrs{{Key: "data-m", Value: /*line input.gsx:12:64*/ m}}, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -149,10 +149,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv14, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:13:2
-		_gsxv15 := _gsxrt.ConcatAttrs(a, b)
+		_gsxv15 := _gsxrt.ConcatAttrs( /*line input.gsx:13:7*/ a /*line input.gsx:13:16*/, b)
 		_gsxv16, _gsxerr := func() (_gsxrt.Attrs, error) {
-			if m := n * 3; m == 3 {
-				return _gsxrt.Attrs{{Key: "data-m", Value: m}}, nil
+			if /*line input.gsx:13:28*/ m := n * 3; m == 3 {
+				return _gsxrt.Attrs{{Key: "data-m", Value: /*line input.gsx:13:57*/ m}}, nil
 			}
 			return nil, nil
 		}()
@@ -166,16 +166,16 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv17, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:14:2
-		_gsxv18 := _gsxrt.ConcatAttrs(a, b)
+		_gsxv18 := _gsxrt.ConcatAttrs( /*line input.gsx:14:7*/ a /*line input.gsx:14:16*/, b)
 		_gsxv19, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch x := v.(type) {
-		case string:
+		switch /*line input.gsx:14:32*/ x := v.(type) {
+		case /*line input.gsx:14:53*/ string:
 			_gsxv19, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "data-s", Value: x}}, nil
+				return _gsxrt.Attrs{{Key: "data-s", Value: /*line input.gsx:14:69*/ x}}, nil
 			})()
-		case int:
+		case /*line input.gsx:14:77*/ int:
 			_gsxv19, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "data-n", Value: x}}, nil
+				return _gsxrt.Attrs{{Key: "data-n", Value: /*line input.gsx:14:90*/ x}}, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -188,10 +188,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv20, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:15:2
-		_gsxv21 := _gsxrt.ConcatAttrs(a, b)
+		_gsxv21 := _gsxrt.ConcatAttrs( /*line input.gsx:15:7*/ a /*line input.gsx:15:16*/, b)
 		_gsxv22, _gsxerr := func() (_gsxrt.Attrs, error) {
-			if x, ok := v.(string); ok {
-				return _gsxrt.Attrs{{Key: "data-s", Value: x}}, nil
+			if /*line input.gsx:15:28*/ x, ok := v.(string); ok {
+				return _gsxrt.Attrs{{Key: "data-s", Value: /*line input.gsx:15:62*/ x}}, nil
 			}
 			return nil, nil
 		}()
@@ -205,12 +205,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv23, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:16:2
-		_gsxv24 := _gsxrt.ConcatAttrs(a, b)
+		_gsxv24 := _gsxrt.ConcatAttrs( /*line input.gsx:16:7*/ a /*line input.gsx:16:16*/, b)
 		_gsxv26, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n {
-		case 1:
+		switch /*line input.gsx:16:32*/ n {
+		case /*line input.gsx:16:41*/ 1:
 			_gsxv26, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				_gsxv25, _gsxerr := check("c")
+				_gsxv25, _gsxerr := /*line input.gsx:16:52*/ check("c")
 				if _gsxerr != nil {
 					return nil, _gsxerr
 				}
@@ -227,9 +227,9 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv27, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:17:2
-		_gsxv28 := _gsxrt.ConcatAttrs(a, b)
-		_gsxv30, _gsxerr := _gsxrt.AttrsCond(n == 1, func() (_gsxrt.Attrs, error) {
-			_gsxv29, _gsxerr := check("c")
+		_gsxv28 := _gsxrt.ConcatAttrs( /*line input.gsx:17:7*/ a /*line input.gsx:17:16*/, b)
+		_gsxv30, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:17:28*/ n == 1, func() (_gsxrt.Attrs, error) {
+			_gsxv29, _gsxerr := /*line input.gsx:17:45*/ check("c")
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
@@ -245,13 +245,13 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv31, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:18:2
-		_gsxv32 := _gsxrt.ConcatAttrs(a, b)
-		_gsxv35, _gsxerr := _gsxrt.AttrsCond(n > 0, func() (_gsxrt.Attrs, error) {
+		_gsxv32 := _gsxrt.ConcatAttrs( /*line input.gsx:18:7*/ a /*line input.gsx:18:16*/, b)
+		_gsxv35, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:28*/ n > 0, func() (_gsxrt.Attrs, error) {
 			_gsxv34, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-			switch n {
-			case 1:
+			switch /*line input.gsx:18:45*/ n {
+			case /*line input.gsx:18:54*/ 1:
 				_gsxv34, _gsxerr = (func() (_gsxrt.Attrs, error) {
-					_gsxv33, _gsxerr := _gsxrt.AttrsCond(true, func() (_gsxrt.Attrs, error) {
+					_gsxv33, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:62*/ true, func() (_gsxrt.Attrs, error) {
 						return _gsxrt.Attrs{{Key: "data-z", Value: _gsxrt.RawURL("z")}}, nil
 					}, nil)
 					if _gsxerr != nil {
@@ -275,10 +275,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv36, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:19:2
-		_gsxv37 := _gsxrt.ConcatAttrs(a, b)
-		_gsxv40, _gsxerr := _gsxrt.AttrsCond(n > 0, func() (_gsxrt.Attrs, error) {
-			_gsxv39, _gsxerr := _gsxrt.AttrsCond(n == 1, func() (_gsxrt.Attrs, error) {
-				_gsxv38, _gsxerr := _gsxrt.AttrsCond(true, func() (_gsxrt.Attrs, error) {
+		_gsxv37 := _gsxrt.ConcatAttrs( /*line input.gsx:19:7*/ a /*line input.gsx:19:16*/, b)
+		_gsxv40, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:28*/ n > 0, func() (_gsxrt.Attrs, error) {
+			_gsxv39, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:41*/ n == 1, func() (_gsxrt.Attrs, error) {
+				_gsxv38, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:55*/ true, func() (_gsxrt.Attrs, error) {
 					return _gsxrt.Attrs{{Key: "data-z", Value: _gsxrt.RawURL("z")}}, nil
 				}, nil)
 				if _gsxerr != nil {
@@ -301,10 +301,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv41, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:20:2
-		_gsxv42 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}, a, b)
+		_gsxv42 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:20:17*/, a /*line input.gsx:20:26*/, b)
 		_gsxv43, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n {
-		case 1:
+		switch /*line input.gsx:20:42*/ n {
+		case /*line input.gsx:20:51*/ 1:
 			_gsxv43, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 			})()
@@ -319,8 +319,8 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv44, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:21:2
-		_gsxv45 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}, a, b)
-		_gsxv46, _gsxerr := _gsxrt.AttrsCond(n == 1, func() (_gsxrt.Attrs, error) {
+		_gsxv45 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:21:17*/, a /*line input.gsx:21:26*/, b)
+		_gsxv46, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:21:38*/ n == 1, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -333,12 +333,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv47, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:22:2
-		_gsxv48 := a
+		_gsxv48 := /*line input.gsx:22:7*/ a
 		_gsxv49, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n {
-		case 1:
+		switch /*line input.gsx:22:23*/ n {
+		case /*line input.gsx:22:32*/ 1:
 			_gsxv49, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return b, nil
+				return /*line input.gsx:22:37*/ b, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -351,9 +351,9 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv50, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:23:2
-		_gsxv51 := a
-		_gsxv52, _gsxerr := _gsxrt.AttrsCond(n == 1, func() (_gsxrt.Attrs, error) {
-			return b, nil
+		_gsxv51 := /*line input.gsx:23:7*/ a
+		_gsxv52, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:23:19*/ n == 1, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:23:30*/ b, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -367,10 +367,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 //line input.gsx:24:2
 		_gsxv54 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}
 		_gsxv55, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n {
-		case 1:
+		switch /*line input.gsx:24:24*/ n {
+		case /*line input.gsx:24:33*/ 1:
 			_gsxv55, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return b, nil
+				return /*line input.gsx:24:38*/ b, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -384,8 +384,8 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.S("></i>")
 //line input.gsx:25:2
 		_gsxv57 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}
-		_gsxv58, _gsxerr := _gsxrt.AttrsCond(n == 1, func() (_gsxrt.Attrs, error) {
-			return b, nil
+		_gsxv58, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:25:20*/ n == 1, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:25:31*/ b, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -397,10 +397,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv59, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:26:2
-		_gsxv60 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}, a)
+		_gsxv60 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:26:17*/, a)
 		_gsxv61, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch n {
-		case 1:
+		switch /*line input.gsx:26:33*/ n {
+		case /*line input.gsx:26:42*/ 1:
 			_gsxv61, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 			})()
@@ -415,8 +415,8 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv62, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:27:2
-		_gsxv63 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}, a)
-		_gsxv64, _gsxerr := _gsxrt.AttrsCond(n == 1, func() (_gsxrt.Attrs, error) {
+		_gsxv63 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:27:17*/, a)
+		_gsxv64, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:27:29*/ n == 1, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 		}, nil)
 		if _gsxerr != nil {

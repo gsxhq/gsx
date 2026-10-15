@@ -99,61 +99,61 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:24:2
 		_gsxgw.S("<i")
-		_gsxv1 := "x"
-		_gsxv0, _gsxerr := lookup(id)
+		_gsxv1 := /*line input.gsx:24:13*/ "x"
+		_gsxv0, _gsxerr := /*line input.gsx:24:29*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv3 := wrap("a-" + string(_gsxv0))
-		_gsxv4 := "g"
-		_gsxv2, _gsxerr := lookup(id)
+		_gsxv3 := /*line input.gsx:24:18*/ wrap("a-" + string(_gsxv0) /*line input.gsx:24:41*/)
+		_gsxv4 := /*line input.gsx:24:44*/ "g"
+		_gsxv2, _gsxerr := /*line input.gsx:24:56*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv1), _gsxrt.Class(_gsxv3), _gsxrt.ClassIf(_gsxv4, ok(string(_gsxv2))))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv1), _gsxrt.Class(_gsxv3), _gsxrt.ClassIf(_gsxv4 /*line input.gsx:24:49*/, ok(string(_gsxv2) /*line input.gsx:24:68*/)))
 		_gsxgw.S("\"></i>")
 //line input.gsx:25:2
 		_gsxgw.S("<i")
-		_gsxv5 := "x"
+		_gsxv5 := /*line input.gsx:25:13*/ "x"
 		var _gsxv6 string
-		if id > 0 {
-			_gsxv7, _gsxerr := lookup(id)
+		if /*line input.gsx:25:21*/ id > 0 {
+			_gsxv7, _gsxerr := /*line input.gsx:25:41*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			_gsxv6 = wrap("b-" + string(_gsxv7))
+			_gsxv6 = /*line input.gsx:25:30*/ wrap("b-" + string(_gsxv7) /*line input.gsx:25:53*/)
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv5), _gsxrt.Class(_gsxv6))
 		_gsxgw.S("\"></i>")
 //line input.gsx:26:2
 		_gsxgw.S("<i")
-		_gsxv8 := "x"
+		_gsxv8 := /*line input.gsx:26:13*/ "x"
 		var _gsxv9 string
-		_gsxv10, _gsxerr := lookup(id)
+		_gsxv10, _gsxerr := /*line input.gsx:26:28*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		if ok(string(_gsxv10)) {
-			_gsxv9 = "c"
+		if /*line input.gsx:26:21*/ ok(string(_gsxv10) /*line input.gsx:26:40*/) {
+			_gsxv9 = /*line input.gsx:26:44*/ "c"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv8), _gsxrt.Class(_gsxv9))
 		_gsxgw.S("\"></i>")
 //line input.gsx:27:2
 		_gsxgw.S("<i")
-		_gsxv11 := "x"
+		_gsxv11 := /*line input.gsx:27:13*/ "x"
 		var _gsxv12 string
-		if id > 0 {
-			_gsxv12 = "p"
+		if /*line input.gsx:27:21*/ id > 0 {
+			_gsxv12 = /*line input.gsx:27:30*/ "p"
 		} else {
-			_gsxv13, _gsxerr := lookup(-1)
+			_gsxv13, _gsxerr := /*line input.gsx:27:51*/ lookup(-1)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv13)) {
-				_gsxv12 = "q"
+			if /*line input.gsx:27:44*/ ok(string(_gsxv13) /*line input.gsx:27:63*/) {
+				_gsxv12 = /*line input.gsx:27:67*/ "q"
 			}
 		}
 		_gsxgw.S(" class=\"")
@@ -161,17 +161,17 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw.S("\"></i>")
 //line input.gsx:28:2
 		_gsxgw.S("<i")
-		_gsxv14 := "x"
+		_gsxv14 := /*line input.gsx:28:13*/ "x"
 		var _gsxv15 string
-		if id < 0 {
-			_gsxv15 = "p"
+		if /*line input.gsx:28:21*/ id < 0 {
+			_gsxv15 = /*line input.gsx:28:30*/ "p"
 		} else {
-			_gsxv16, _gsxerr := lookup(id)
+			_gsxv16, _gsxerr := /*line input.gsx:28:51*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv16)) {
-				_gsxv15 = "q"
+			if /*line input.gsx:28:44*/ ok(string(_gsxv16) /*line input.gsx:28:63*/) {
+				_gsxv15 = /*line input.gsx:28:67*/ "q"
 			}
 		}
 		_gsxgw.S(" class=\"")
@@ -179,74 +179,74 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw.S("\"></i>")
 //line input.gsx:29:2
 		_gsxgw.S("<i")
-		_gsxv17 := "x"
+		_gsxv17 := /*line input.gsx:29:13*/ "x"
 		var _gsxv18 string
-		_gsxv19, _gsxerr := lookup(id)
+		_gsxv19, _gsxerr := /*line input.gsx:29:34*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		switch wrap(string(_gsxv19)) {
-		case "L":
-			_gsxv18 = "s"
+		switch /*line input.gsx:29:25*/ wrap(string(_gsxv19) /*line input.gsx:29:46*/) {
+		case /*line input.gsx:29:55*/ "L":
+			_gsxv18 = /*line input.gsx:29:60*/ "s"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv17), _gsxrt.Class(_gsxv18))
 		_gsxgw.S("\"></i>")
 //line input.gsx:30:2
 		_gsxgw.S("<i")
-		_gsxv21 := "color: red"
-		_gsxv20, _gsxerr := lookup(id)
+		_gsxv21 := /*line input.gsx:30:13*/ "color: red"
+		_gsxv20, _gsxerr := /*line input.gsx:30:47*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(_gsxrt.Style(_gsxv21), _gsxrt.Style(_gsxrt.StyleValue(wrapCSS(_gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(string(_gsxv20))+"px")))))
+		_gsxgw.Style(_gsxrt.Style(_gsxv21), _gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:30:27*/ wrapCSS(_gsxrt.RawCSS("width:"+_gsxrt.FilterCSS(string(_gsxv20))+"px") /*line input.gsx:30:61*/))))
 		_gsxgw.S("\"></i>")
 //line input.gsx:31:2
-		_gsxv23 := "x"
-		_gsxv22, _gsxerr := lookup(id)
+		_gsxv23 := /*line input.gsx:31:15*/ "x"
+		_gsxv22, _gsxerr := /*line input.gsx:31:31*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv24 := wrap("k-" + string(_gsxv22))
+		_gsxv24 := /*line input.gsx:31:20*/ wrap("k-" + string(_gsxv22) /*line input.gsx:31:43*/)
 		var _gsxv25 string
-		if id > 0 {
-			_gsxv25 = "p"
+		if /*line input.gsx:31:49*/ id > 0 {
+			_gsxv25 = /*line input.gsx:31:58*/ "p"
 		} else {
-			_gsxv26, _gsxerr := lookup(-1)
+			_gsxv26, _gsxerr := /*line input.gsx:31:79*/ lookup(-1)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv26)) {
-				_gsxv25 = "q"
+			if /*line input.gsx:31:72*/ ok(string(_gsxv26) /*line input.gsx:31:91*/) {
+				_gsxv25 = /*line input.gsx:31:95*/ "q"
 			}
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv23), _gsxrt.Class(_gsxv24), _gsxrt.Class(_gsxv25))}}))
 //line input.gsx:32:2
-		_gsxv28, _gsxerr := _gsxrt.AttrsCond(id > 0, func() (_gsxrt.Attrs, error) {
-			_gsxv27, _gsxerr := lookup(id)
+		_gsxv28, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:32:12*/ id > 0, func() (_gsxrt.Attrs, error) {
+			_gsxv27, _gsxerr := /*line input.gsx:32:40*/ lookup(id)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(wrap("t-" + string(_gsxv27))))}}, nil
+			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:32:29*/ wrap("t-" + string(_gsxv27) /*line input.gsx:32:52*/)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv28))
 //line input.gsx:33:2
-		_gsxv32, _gsxerr := _gsxrt.AttrsCond(id > 0, func() (_gsxrt.Attrs, error) {
+		_gsxv32, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:33:12*/ id > 0, func() (_gsxrt.Attrs, error) {
 			var _gsxv29 string
-			_gsxv30, _gsxerr := lookup(id)
+			_gsxv30, _gsxerr := /*line input.gsx:33:39*/ lookup(id)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			if ok(string(_gsxv30)) {
-				_gsxv31, _gsxerr := lookup(id)
+			if /*line input.gsx:33:32*/ ok(string(_gsxv30) /*line input.gsx:33:51*/) {
+				_gsxv31, _gsxerr := /*line input.gsx:33:66*/ lookup(id)
 				if _gsxerr != nil {
 					return nil, _gsxerr
 				}
-				_gsxv29 = wrap("u-" + string(_gsxv31))
+				_gsxv29 = /*line input.gsx:33:55*/ wrap("u-" + string(_gsxv31) /*line input.gsx:33:78*/)
 			}
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv29))}}, nil
 		}, nil)
@@ -257,12 +257,12 @@ func Page(id int) _gsxrt.Node {
 //line input.gsx:34:2
 		_gsxgw.S("<i")
 		var _gsxv33 string
-		if id > 0 {
-			_gsxv34, _gsxerr := lookup(id)
+		if /*line input.gsx:34:16*/ id > 0 {
+			_gsxv34, _gsxerr := /*line input.gsx:34:46*/ lookup(id)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			_gsxv33 = _gsxrt.StyleValue(wrapCSS(_gsxrt.RawCSS("height:" + _gsxrt.FilterCSS(string(_gsxv34)) + "px")))
+			_gsxv33 = _gsxrt.StyleValue( /*line input.gsx:34:25*/ wrapCSS(_gsxrt.RawCSS("height:" + _gsxrt.FilterCSS(string(_gsxv34)) + "px") /*line input.gsx:34:60*/))
 		}
 		_gsxgw.S(" style=\"")
 		_gsxgw.Style(_gsxrt.Style(_gsxv33))

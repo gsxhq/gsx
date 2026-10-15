@@ -51,7 +51,7 @@ func List(label string) _gsxrt.Node {
 		_gsxgw.Text(string(label))
 		_gsxgw.S("</p>")
 //line input.gsx:14:2
-		for _, attrs := range bags() {
+		for /*line input.gsx:14:8*/ _, attrs := range bags() {
 //line input.gsx:14:35
 			_gsxgw.S("<span")
 			_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

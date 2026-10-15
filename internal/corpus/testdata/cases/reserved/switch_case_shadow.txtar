@@ -41,8 +41,8 @@ func C(mode string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		switch mode {
-		case "a":
+		switch /*line input.gsx:6:11*/ mode {
+		case /*line input.gsx:7:7*/ "a":
 //line input.gsx:8:3
 			attrs := gsx.Attrs{{Key: "data-local", Value: "1"}}
 //line input.gsx:9:3
@@ -51,7 +51,7 @@ func C(mode string, attrs gsx.Attrs) _gsxrt.Node {
 			_gsxgw.StyleMerged("", attrs.Style())
 			_gsxgw.Spread(ctx, "span", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 			_gsxgw.S(">a</span>")
-		case "b":
+		case /*line input.gsx:10:7*/ "b":
 //line input.gsx:11:3
 			_gsxgw.S("<div")
 			_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())

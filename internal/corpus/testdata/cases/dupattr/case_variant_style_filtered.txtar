@@ -35,11 +35,11 @@ func Box(v string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div Style=\"")
-		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue(v)))
+		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:6:15*/ v)))
 		_gsxgw.S("\">1</div>")
 //line input.gsx:7:2
 		_gsxgw.S("<div STYLE=\"color:")
-		_gsxgw.AttrValue(_gsxrt.StyleValue(string(v)))
+		_gsxgw.AttrValue(_gsxrt.StyleValue(string( /*line input.gsx:7:25*/ v)))
 		_gsxgw.S("\">2</div>")
 //line input.gsx:8:2
 		_gsxgw.S("<div")

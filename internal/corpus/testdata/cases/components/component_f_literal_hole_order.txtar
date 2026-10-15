@@ -98,13 +98,13 @@ func Page(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv1 := string(value("first"))
-		_gsxv0, _gsxerr := fallible(fail)
+		_gsxv1 := string( /*line input.gsx:8:18*/ value("first"))
+		_gsxv0, _gsxerr := /*line input.gsx:8:36*/ fallible(fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxv2 := string(_gsxv0)
-		_gsxv3 := string(value("third"))
+		_gsxv3 := string( /*line input.gsx:8:54*/ value("third"))
 		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxv1+" "+_gsxv2+" "+_gsxv3))
 		return _gsxgw.Err()
 	})

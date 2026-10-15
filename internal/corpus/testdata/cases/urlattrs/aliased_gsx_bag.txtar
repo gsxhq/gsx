@@ -44,7 +44,7 @@ func _gsxrenderC(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, extra g.Attrs) erro
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := extra
+	_gsxv0 := /*line input.gsx:6:7*/ extra
 	_gsxgw.S("<a")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -58,7 +58,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderC(ctx, _gsxgw, g.Attrs{{Key: "href", Value: "javascript:alert(1)"}}))
+		_gsxgw.NodeResult(_gsxrenderC(ctx, _gsxgw /*line input.gsx:10:12*/, g.Attrs{{Key: "href", Value: "javascript:alert(1)"}}))
 		return _gsxgw.Err()
 	})
 }

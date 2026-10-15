@@ -88,50 +88,50 @@ func Page(id int, a gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:2
 		_gsxgw.S("<i")
-		_gsxv0, _gsxerr := lookup(id)
+		_gsxv0, _gsxerr := /*line input.gsx:22:17*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		if ok(string(_gsxv0)) {
+		if /*line input.gsx:22:10*/ ok(string(_gsxv0) /*line input.gsx:22:29*/) {
 			_gsxgw.S(" title=\"y\"")
 		} else {
-			_gsxv1, _gsxerr := lookup(-1)
+			_gsxv1, _gsxerr := /*line input.gsx:22:60*/ lookup(-1)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv1)) {
+			if /*line input.gsx:22:53*/ ok(string(_gsxv1) /*line input.gsx:22:72*/) {
 				_gsxgw.S(" title=\"z\"")
 			}
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:23:2
 		_gsxgw.S("<i")
-		_gsxv2, _gsxerr := lookup(id)
+		_gsxv2, _gsxerr := /*line input.gsx:23:18*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		switch string(_gsxv2) {
-		case "L":
+		case /*line input.gsx:23:38*/ "L":
 			_gsxgw.S(" data-s=\"y\"")
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:24:2
-		_gsxv3 := a
+		_gsxv3 := /*line input.gsx:24:94*/ a
 		_gsxgw.S("<i")
-		_gsxv4, _gsxerr := lookup(id)
+		_gsxv4, _gsxerr := /*line input.gsx:24:17*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		if ok(string(_gsxv4)) {
+		if /*line input.gsx:24:10*/ ok(string(_gsxv4) /*line input.gsx:24:29*/) {
 			if !_gsxv3.Has("title") {
 				_gsxgw.S(" title=\"pre\"")
 			}
 		} else {
-			_gsxv5, _gsxerr := lookup(-1)
+			_gsxv5, _gsxerr := /*line input.gsx:24:62*/ lookup(-1)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv5)) {
+			if /*line input.gsx:24:55*/ ok(string(_gsxv5) /*line input.gsx:24:74*/) {
 				if !_gsxv3.Has("title") {
 					_gsxgw.S(" title=\"z\"")
 				}
@@ -139,19 +139,19 @@ func Page(id int, a gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 		}
 		_gsxv6 := []string{"class", "style"}
 		var _gsxv7, _gsxv8 bool
-		_gsxv9, _gsxerr := lookup(id)
+		_gsxv9, _gsxerr := /*line input.gsx:24:113*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		if ok(string(_gsxv9)) {
+		if /*line input.gsx:24:106*/ ok(string(_gsxv9) /*line input.gsx:24:125*/) {
 			_gsxv7 = true
 			_gsxv6 = append(_gsxv6, "id")
 		} else {
-			_gsxv10, _gsxerr := lookup(-1)
+			_gsxv10, _gsxerr := /*line input.gsx:24:156*/ lookup(-1)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			if ok(string(_gsxv10)) {
+			if /*line input.gsx:24:149*/ ok(string(_gsxv10) /*line input.gsx:24:168*/) {
 				_gsxv8 = true
 				_gsxv6 = append(_gsxv6, "id")
 			}
@@ -167,19 +167,19 @@ func Page(id int, a gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:25:2
-		_gsxv11 := _gsxrt.ConcatAttrs(a, c)
-		_gsxv12, _gsxerr := lookup(id)
+		_gsxv11 := _gsxrt.ConcatAttrs( /*line input.gsx:25:7*/ a /*line input.gsx:25:16*/, c)
+		_gsxv12, _gsxerr := /*line input.gsx:25:35*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv15, _gsxerr := _gsxrt.AttrsCond(ok(string(_gsxv12)), func() (_gsxrt.Attrs, error) {
+		_gsxv15, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:25:28*/ ok(string(_gsxv12) /*line input.gsx:25:47*/), func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "title", Value: _gsxrt.RawURL("fold")}}, nil
 		}, func() (_gsxrt.Attrs, error) {
-			_gsxv13, _gsxerr := lookup(-1)
+			_gsxv13, _gsxerr := /*line input.gsx:25:81*/ lookup(-1)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			_gsxv14, _gsxerr := _gsxrt.AttrsCond(ok(string(_gsxv13)), func() (_gsxrt.Attrs, error) {
+			_gsxv14, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:25:74*/ ok(string(_gsxv13) /*line input.gsx:25:93*/), func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "title", Value: _gsxrt.RawURL("z")}}, nil
 			}, nil)
 			if _gsxerr != nil {
@@ -197,18 +197,18 @@ func Page(id int, a gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "i", _gsxv16, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S("></i>")
 //line input.gsx:26:2
-		_gsxv17, _gsxerr := lookup(id)
+		_gsxv17, _gsxerr := /*line input.gsx:26:19*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv20, _gsxerr := _gsxrt.AttrsCond(ok(string(_gsxv17)), func() (_gsxrt.Attrs, error) {
+		_gsxv20, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:26:12*/ ok(string(_gsxv17) /*line input.gsx:26:31*/), func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "title", Value: "comp"}}, nil
 		}, func() (_gsxrt.Attrs, error) {
-			_gsxv18, _gsxerr := lookup(-1)
+			_gsxv18, _gsxerr := /*line input.gsx:26:65*/ lookup(-1)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			_gsxv19, _gsxerr := _gsxrt.AttrsCond(ok(string(_gsxv18)), func() (_gsxrt.Attrs, error) {
+			_gsxv19, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:26:58*/ ok(string(_gsxv18) /*line input.gsx:26:77*/), func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "title", Value: "z"}}, nil
 			}, nil)
 			if _gsxerr != nil {
@@ -222,12 +222,12 @@ func Page(id int, a gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv20))
 //line input.gsx:27:2
 		_gsxv21, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		_gsxv22, _gsxerr := lookup(id)
+		_gsxv22, _gsxerr := /*line input.gsx:27:20*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		switch string(_gsxv22) {
-		case "L":
+		case /*line input.gsx:27:40*/ "L":
 			_gsxv21, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-s", Value: "comp"}}, nil
 			})()

@@ -79,15 +79,15 @@ func C(v string, attrs gsx.Attrs) _gsxrt.Node {
 		_gsxv0 := []string{"class", "style"}
 		var _gsxv1 func() error
 		{
-			_gsxv2, _gsxerr := mayFail(v)
+			_gsxv2, _gsxerr := /*line input.gsx:18:33*/ mayFail(v)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			s := "<" + string(_gsxv2) + ">"
-			if s != "<>" {
+			/*line input.gsx:18:23*/ s := "<" + string(_gsxv2) + ">"
+			if /*line input.gsx:18:48*/ s != "<>" {
 				_gsxv1 = func() error {
 					_gsxgw.S(" title=\"")
-					_gsxgw.AttrValue(string(s))
+					_gsxgw.AttrValue(string( /*line input.gsx:18:67*/ s))
 					_gsxgw.S("\"")
 					return nil
 				}

@@ -59,7 +59,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxv0, _gsxerr := f()
+		_gsxv0, _gsxerr := /*line input.gsx:12:39*/ f()
 		if _gsxerr != nil {
 			return _gsxerr
 		}

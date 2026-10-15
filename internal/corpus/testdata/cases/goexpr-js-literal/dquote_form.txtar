@@ -36,7 +36,7 @@ import (
 
 var x = "a`b"
 
-var handler = _gsxrt.RawJS("save(`" + _gsxrt.EscapeJSTmpl(string(x)) + "`)") /*line input.gsx:5:31*/
+var handler = _gsxrt.RawJS("save(`" + _gsxrt.EscapeJSTmpl(string( /*line input.gsx:5:26*/ x)) + "`)") /*line input.gsx:5:31*/
 
 //line input.gsx:7:1
 func Page() _gsxrt.Node {
@@ -44,7 +44,7 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(handler))
+		_gsxgw.AttrValue(string( /*line input.gsx:8:18*/ handler))
 		_gsxgw.S("\">x</button>")
 		return _gsxgw.Err()
 	})

@@ -72,12 +72,12 @@ func Page(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw /*line input.gsx:12:13*/, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:19
 			_gsxgw.S("<b> a b </b>")
 			return _gsxgw.Err()
-		})), nil))
+		}) /*line input.gsx:12:35*/), nil))
 //line input.gsx:13:2
 		_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
@@ -86,7 +86,7 @@ func Page(n int) _gsxrt.Node {
 			return _gsxgw.Err()
 		}), nil))
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw, wrapN(
+		_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw /*line input.gsx:14:13*/, wrapN(
 			_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
 				var _gsxnum [32]byte
@@ -97,20 +97,20 @@ func Page(n int) _gsxrt.Node {
 //line input.gsx:17:4
 				_gsxgw.S("<i></i></b>")
 				return _gsxgw.Err()
-			}),
+			}), /*line input.gsx:18:7*/
 		), nil))
 //line input.gsx:20:2
-		_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw /*line input.gsx:20:13*/, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:19
-			_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw.NodeResult(_gsxrenderHolder(ctx, _gsxgw /*line input.gsx:20:30*/, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:36
 				_gsxgw.S("<b> c d </b>")
 				return _gsxgw.Err()
-			})), nil))
+			}) /*line input.gsx:20:52*/), nil))
 			return _gsxgw.Err()
-		})), nil))
+		}) /*line input.gsx:20:56*/), nil))
 		return _gsxgw.Err()
 	})
 }

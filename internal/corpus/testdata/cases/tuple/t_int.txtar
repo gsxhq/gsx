@@ -53,7 +53,7 @@ func Page(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:25
-		_gsxa0, _gsxerr := count(n)
+		_gsxa0, _gsxerr := /*line input.gsx:7:39*/ count(n)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

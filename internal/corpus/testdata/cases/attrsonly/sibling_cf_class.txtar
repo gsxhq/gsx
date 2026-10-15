@@ -58,7 +58,7 @@ func renderIcon(p iconProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0 := p.Attrs
+		_gsxv0 := /*line input.gsx:10:9*/ p.Attrs
 		_gsxgw.S("<svg")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -76,18 +76,18 @@ func Page(on bool) _gsxrt.Node {
 		_gsxgw.S("<div>")
 //line input.gsx:15:3
 		var _gsxv1 string
-		if on {
-			_gsxv1 = "a"
+		if /*line input.gsx:15:24*/ on {
+			_gsxv1 = /*line input.gsx:15:29*/ "a"
 		} else {
-			_gsxv1 = "b"
+			_gsxv1 = /*line input.gsx:15:42*/ "b"
 		}
 		_gsxgw.Node(ctx, HomeIcon(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv1))}}))
 //line input.gsx:16:3
 		var _gsxv2 string
-		if on {
-			_gsxv2 = "a"
+		if /*line input.gsx:16:24*/ on {
+			_gsxv2 = /*line input.gsx:16:29*/ "a"
 		} else {
-			_gsxv2 = "b"
+			_gsxv2 = /*line input.gsx:16:42*/ "b"
 		}
 		_gsxgw.Node(ctx, HomeIcon(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv2))}}))
 		_gsxgw.S("</div>")

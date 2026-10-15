@@ -52,10 +52,10 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S(">top</div>")
 //line input.gsx:9:2
 		_gsxv1 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}
-		_gsxv3, _gsxerr := _gsxrt.AttrsCond(which == 1, func() (_gsxrt.Attrs, error) {
+		_gsxv3, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:9:25*/ which == 1, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("one")}}, nil
 		}, func() (_gsxrt.Attrs, error) {
-			_gsxv2, _gsxerr := _gsxrt.AttrsCond(which == 2, func() (_gsxrt.Attrs, error) {
+			_gsxv2, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:9:60*/ which == 2, func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("two")}}, nil
 			}, func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("other")}}, nil
@@ -76,8 +76,8 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S(">branch</div>")
 //line input.gsx:10:2
 		_gsxv5 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
-		_gsxv6, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("margin:" + _gsxrt.FilterCSS(string(gap)))}}, nil
+		_gsxv6, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:10:33*/ which > 0, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("margin:" + _gsxrt.FilterCSS(string( /*line input.gsx:10:64*/ gap)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -89,9 +89,9 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.Spread(ctx, "div", _gsxv7, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">css</div>")
 //line input.gsx:11:2
-		_gsxv8 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("base"))}}
-		_gsxv9, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(strings.ToUpper("on")))}}, nil
+		_gsxv8 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:11:15*/ "base"))}}
+		_gsxv9, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:11:29*/ which > 0, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:11:49*/ strings.ToUpper("on")))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -104,8 +104,8 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S(">class</div>")
 //line input.gsx:12:2
 		_gsxv11 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
-		_gsxv13, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			_gsxv12, _gsxerr := decl("margin:0")
+		_gsxv13, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:12:30*/ which > 0, func() (_gsxrt.Attrs, error) {
+			_gsxv12, _gsxerr := /*line input.gsx:12:50*/ decl("margin:0")
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
@@ -122,8 +122,8 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.S(">tuple</div>")
 //line input.gsx:13:2
 		_gsxv15 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
-		_gsxv16, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue(_gsxstd.Upper(("margin:" + gap))))))}}, nil
+		_gsxv16, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:13:30*/ which > 0, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:13:69*/ _gsxstd.Upper(( /*line input.gsx:13:50*/ "margin:" + gap))))))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

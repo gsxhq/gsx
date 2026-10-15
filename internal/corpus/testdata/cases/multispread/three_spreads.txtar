@@ -30,7 +30,7 @@ func ThreeSpreads(a gsx.Attrs, b gsx.Attrs, c gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(a, b, c)
+		_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:6:9*/ a /*line input.gsx:6:18*/, b /*line input.gsx:6:27*/, c)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

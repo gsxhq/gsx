@@ -119,9 +119,9 @@ func Page() _gsxrt.Node {
 //line input.gsx:21:3
 		_gsxgw.NodeResult(_gsxrenderGreeting(ctx, _gsxgw, "Ann"))
 //line input.gsx:22:3
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "T", 2))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, "T" /*line input.gsx:22:22*/, 2))
 //line input.gsx:23:3
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, Props{Title: "P"}))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw /*line input.gsx:23:13*/, Props{Title: "P"}))
 		return _gsxgw.Err()
 	})
 }

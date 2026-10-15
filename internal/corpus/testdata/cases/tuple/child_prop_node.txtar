@@ -54,7 +54,7 @@ func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:31
-		_gsxa0, _gsxerr := makeIcon(name)
+		_gsxa0, _gsxerr := /*line input.gsx:9:44*/ makeIcon(name)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

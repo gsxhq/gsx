@@ -31,7 +31,7 @@ func Icon() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img src=\"")
-		_gsxgw.URLImage(string("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"))
+		_gsxgw.URLImage(string( /*line input.gsx:4:12*/ "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"))
 		_gsxgw.S("\" alt=\"i\">")
 		return _gsxgw.Err()
 	})

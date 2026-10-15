@@ -32,7 +32,7 @@ func Page(payload string) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">\n\t\tconst data = ")
-		_gsxgw.JSVal(payload)
+		_gsxgw.JSVal( /*line input.gsx:5:19*/ payload)
 		_gsxgw.S(";\n\t</script>")
 		return _gsxgw.Err()
 	})

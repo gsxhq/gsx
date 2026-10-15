@@ -79,19 +79,19 @@ func Page(bags []gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, bags[0]))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:10:15*/, bags[0]))
 //line input.gsx:11:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, bags[1]))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:11:15*/, bags[1]))
 //line input.gsx:12:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, bags[2]))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:12:15*/, bags[2]))
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, bags[3]))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:13:15*/, bags[3]))
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, bags[4]))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:14:15*/, bags[4]))
 //line input.gsx:15:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, bags[5]))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:15:15*/, bags[5]))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, bags[6]))
+		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw /*line input.gsx:16:15*/, bags[6]))
 		return _gsxgw.Err()
 	})
 }

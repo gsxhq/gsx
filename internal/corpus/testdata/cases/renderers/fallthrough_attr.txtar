@@ -103,7 +103,7 @@ func Page(val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxv0, _gsxerr := _gsxf0.PgText((val))
+		_gsxv0, _gsxerr := _gsxf0.PgText(( /*line input.gsx:14:28*/ val))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

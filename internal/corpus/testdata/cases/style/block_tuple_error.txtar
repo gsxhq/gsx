@@ -30,7 +30,7 @@ func C() _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.a{content:")
-		_gsxv0, _gsxerr := theme()
+		_gsxv0, _gsxerr := /*line input.gsx:4:23*/ theme()
 		if _gsxerr != nil {
 			return _gsxerr
 		}

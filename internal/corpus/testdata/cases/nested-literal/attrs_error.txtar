@@ -51,12 +51,12 @@ func Page(id int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
 		_gsxgw.S("<i")
-		_gsxv0, _gsxerr := lookup(id)
+		_gsxv0, _gsxerr := /*line input.gsx:14:24*/ lookup(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.S(" data-l=\"")
-		_gsxgw.AttrValue(string(wrap("l-" + string(_gsxv0))))
+		_gsxgw.AttrValue(string( /*line input.gsx:14:13*/ wrap("l-" + string(_gsxv0) /*line input.gsx:14:36*/)))
 		_gsxgw.S("\"></i>")
 		return _gsxgw.Err()
 	})

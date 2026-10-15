@@ -58,7 +58,7 @@ func named(name string) func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:17:10
-			_gsxv0 := _gsxrt.Attrs(drop(attrs, "id"))
+			_gsxv0 := _gsxrt.Attrs( /*line input.gsx:17:49*/ drop(attrs, "id"))
 			_gsxgw.S("<svg")
 			if !_gsxv0.Has("stroke-width") {
 				_gsxgw.S(" stroke-width=\"2\"")

@@ -63,7 +63,7 @@ func _gsxrenderChild(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, variant string,
 	}
 //line input.gsx:6:2
 	_gsxgw.S("<a class=\"")
-	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("a"), _gsxrt.Class(variant), _gsxrt.Class(attrs.Class()))
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:6:13*/ "a"), _gsxrt.Class( /*line input.gsx:6:18*/ variant), _gsxrt.Class(attrs.Class()))
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", attrs.Style())
 	_gsxgw.Spread(ctx, "a", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
@@ -79,7 +79,7 @@ func Page(target string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0, _gsxerr := _gsxf0.Url(ctx, (target))
+		_gsxv0, _gsxerr := /*line input.gsx:10:40*/ _gsxf0.Url(ctx, ( /*line input.gsx:10:30*/ target))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

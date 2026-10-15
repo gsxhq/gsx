@@ -53,7 +53,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderBare(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("dup"), _gsxrt.Class("dup"), _gsxrt.Class("keep"))}}))
+		_gsxgw.NodeResult(_gsxrenderBare(ctx, _gsxgw, "hi", _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:10:27*/ "dup"), _gsxrt.Class( /*line input.gsx:10:34*/ "dup"), _gsxrt.Class( /*line input.gsx:10:41*/ "keep"))}}))
 		return _gsxgw.Err()
 	})
 }

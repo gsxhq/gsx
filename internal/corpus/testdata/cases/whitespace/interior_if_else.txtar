@@ -39,7 +39,7 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div id=\"if\">")
 //line input.gsx:4:15
-		if true {
+		if /*line input.gsx:4:20*/ true {
 //line input.gsx:4:27
 			_gsxgw.Text(string(a))
 			_gsxgw.S(" - ")
@@ -50,7 +50,7 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:5:2
 		_gsxgw.S("<div id=\"multi\">")
 //line input.gsx:5:18
-		if true {
+		if /*line input.gsx:5:23*/ true {
 //line input.gsx:5:30
 			_gsxgw.Text(string(a))
 			_gsxgw.S(" - ")
@@ -61,7 +61,7 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<div id=\"else\">")
 //line input.gsx:6:17
-		if false {
+		if /*line input.gsx:6:22*/ false {
 //line input.gsx:6:30
 			_gsxgw.S("<span></span>")
 		} else {
@@ -75,7 +75,7 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:7:2
 		_gsxgw.S("<div id=\"nl\">")
 //line input.gsx:7:15
-		if true {
+		if /*line input.gsx:7:20*/ true {
 //line input.gsx:8:3
 			_gsxgw.Text(string(a))
 			_gsxgw.S("- ")
@@ -86,10 +86,10 @@ func Sep(a, b string) _gsxrt.Node {
 //line input.gsx:11:2
 		_gsxgw.S("<div id=\"nest\">")
 //line input.gsx:11:17
-		if true {
+		if /*line input.gsx:11:22*/ true {
 			_gsxgw.S("A - ")
 //line input.gsx:11:33
-			if true {
+			if /*line input.gsx:11:38*/ true {
 				_gsxgw.S("B")
 			}
 		}

@@ -30,10 +30,10 @@ func C(v int) _gsxrt.Node {
 		_gsxgw.S("<div")
 		var _gsxv0 string
 		switch {
-		case v > 0:
-			_gsxv0 = "pos"
+		case /*line input.gsx:4:29*/ v > 0:
+			_gsxv0 = /*line input.gsx:4:36*/ "pos"
 		default:
-			_gsxv0 = "nonpos"
+			_gsxv0 = /*line input.gsx:4:51*/ "nonpos"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))

@@ -34,7 +34,7 @@ func Button(action string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button")
-		_gsxv0, _gsxerr := handler(action)
+		_gsxv0, _gsxerr := /*line input.gsx:6:20*/ handler(action)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

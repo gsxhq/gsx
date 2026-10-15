@@ -33,7 +33,7 @@ import (
 
 /*line input.gsx:5:1*/
 func mk(v string) gsx.RawJS {
-	return _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal(v) + ", '" + _gsxrt.EscapeJSStr(string(v)) + "', `" + _gsxrt.EscapeJSTmpl(string(v)) + "`, /" + _gsxrt.EscapeJSRegexp(string(v)) + "/)") /*line input.gsx:6:46*/
+	return _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal( /*line input.gsx:6:16*/ v) + ", '" + _gsxrt.EscapeJSStr(string( /*line input.gsx:6:23*/ v)) + "', `" + _gsxrt.EscapeJSTmpl(string( /*line input.gsx:6:32*/ v)) + "`, /" + _gsxrt.EscapeJSRegexp(string( /*line input.gsx:6:41*/ v)) + "/)") /*line input.gsx:6:46*/
 }
 
 //line input.gsx:9:1
@@ -42,7 +42,7 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(mk("a")))
+		_gsxgw.AttrValue(string( /*line input.gsx:10:18*/ mk("a")))
 		_gsxgw.S("\">x</button>")
 		return _gsxgw.Err()
 	})

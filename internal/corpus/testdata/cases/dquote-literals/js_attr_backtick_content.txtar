@@ -31,7 +31,7 @@ func Button(x string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<button @click=\"const t = `hi ")
-		_gsxgw.JSTmplAttr(string(x))
+		_gsxgw.JSTmplAttr(string( /*line input.gsx:4:36*/ x))
 		_gsxgw.S("`; send(t)\">Save</button>")
 		return _gsxgw.Err()
 	})

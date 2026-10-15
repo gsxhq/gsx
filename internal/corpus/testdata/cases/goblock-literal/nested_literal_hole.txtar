@@ -31,6 +31,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
+		/*line input.gsx:4:5*/
 		h := "a " + string("b")
 //line input.gsx:5:2
 		_gsxgw.S("<p>")

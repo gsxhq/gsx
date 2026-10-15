@@ -76,7 +76,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.ConcatAttrs(getAttrs(), _gsxrt.Attrs{{Key: "data-x", Value: compute()}})))
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.ConcatAttrs( /*line input.gsx:18:11*/ getAttrs(), _gsxrt.Attrs{{Key: "data-x", Value: /*line input.gsx:18:36*/ compute()}})))
 		return _gsxgw.Err()
 	})
 }

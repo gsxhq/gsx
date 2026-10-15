@@ -93,7 +93,7 @@ func _gsxrenderRow(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, level Level, firs
 	var _gsxnum [32]byte
 //line input.gsx:20:2
 	_gsxgw.S("<div data-level=\"")
-	_gsxgw.IntInto(_gsxnum[:], int64(level))
+	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:20:19*/ level))
 	_gsxgw.S("\">")
 //line input.gsx:20:26
 	_gsxgw.S("<i>")
@@ -124,7 +124,7 @@ func _gsxrenderAction(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, script gsx.Raw
 	_gsxgw.S("<script")
 	_gsxgw.Nonce(ctx)
 	_gsxgw.S(">")
-	_gsxgw.JSVal(script)
+	_gsxgw.JSVal( /*line input.gsx:24:12*/ script)
 	_gsxgw.S("</script>")
 //line input.gsx:24:28
 	_gsxgw.S("<p>")
@@ -159,19 +159,19 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:32:2
-		_gsxa0, _gsxerr := tick()
+		_gsxa0, _gsxerr := /*line input.gsx:32:15*/ tick()
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxa1, _gsxerr := tick()
+		_gsxa1, _gsxerr := /*line input.gsx:32:48*/ tick()
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw, min(1, 2), _gsxa1, _gsxa0))
+		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw /*line input.gsx:32:30*/, min(1, 2), _gsxa1, _gsxa0))
 //line input.gsx:33:2
 		_gsxgw.NodeResult(_gsxrenderAction(ctx, _gsxgw, _gsxrt.RawJS("alert(1)"), "go"))
 //line input.gsx:34:2
-		_gsxgw.NodeResult(_gsxrenderRuneTarget(ctx, _gsxgw, 'x'))
+		_gsxgw.NodeResult(_gsxrenderRuneTarget(ctx, _gsxgw /*line input.gsx:34:22*/, 'x'))
 		return _gsxgw.Err()
 	})
 }

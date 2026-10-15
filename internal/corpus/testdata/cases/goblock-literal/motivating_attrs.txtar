@@ -41,11 +41,12 @@ func Page(detail string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
+		/*line input.gsx:7:3*/
 		containerAttrs := gsx.Attrs{
-			{Key: "@suggest-datetime.window", Value: _gsxrt.RawJS("suggest(" + _gsxrt.EscapeJSVal(detail) + ")")},
+			{Key: "@suggest-datetime.window", Value: _gsxrt.RawJS("suggest(" + _gsxrt.EscapeJSVal( /*line input.gsx:8:58*/ detail) + ")") /*line input.gsx:8:67*/},
 		}
 //line input.gsx:11:2
-		_gsxv0 := containerAttrs
+		_gsxv0 := /*line input.gsx:11:8*/ containerAttrs
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

@@ -39,7 +39,7 @@ func _gsxrenderCard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, safeAttrs gsx.At
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := safeAttrs
+	_gsxv0 := /*line input.gsx:6:9*/ safeAttrs
 	_gsxgw.S("<div")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -53,7 +53,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Attrs{{Key: "title", Value: "a\"b"}, {Key: "bad name", Value: "x"}}))
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, _gsxrt.Attrs{{Key: "title", Value: /*line input.gsx:10:30*/ "a\"b"}, {Key: "bad name", Value: /*line input.gsx:10:50*/ "x"}}))
 		return _gsxgw.Err()
 	})
 }

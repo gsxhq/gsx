@@ -30,7 +30,7 @@ func Page(who string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<button onclick=\"f(")
-		_gsxgw.JSValAttr("id-" + string(who))
+		_gsxgw.JSValAttr("id-" + string( /*line input.gsx:4:33*/ who))
 		_gsxgw.S(")\">x</button>")
 		return _gsxgw.Err()
 	})

@@ -62,7 +62,7 @@ func Home() _gsxrt.Node {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("panel")
 			return _gsxgw.Err()
-		}), _gsxrt.Attrs{{Key: "data-a", Value: "1"}, {Key: "data-b", Value: "2"}}))
+		}), _gsxrt.Attrs{{Key: "data-a", Value: /*line home.gsx:9:31*/ "1"}, {Key: "data-b", Value: /*line home.gsx:9:46*/ "2"}}))
 		return _gsxgw.Err()
 	})
 }

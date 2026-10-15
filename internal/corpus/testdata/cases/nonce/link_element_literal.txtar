@@ -44,7 +44,7 @@ func stylesheet(href string) gsx.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:9
 		_gsxgw.S("<link rel=\"stylesheet\" href=\"")
-		_gsxgw.URL(string(href))
+		_gsxgw.URL(string( /*line input.gsx:6:38*/ href))
 		_gsxgw.S("\"")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">")

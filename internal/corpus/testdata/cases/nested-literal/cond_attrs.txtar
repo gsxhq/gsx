@@ -75,33 +75,33 @@ func Page(id int, u *U) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:15:2
 		_gsxgw.S("<i")
-		if ok(_gsxsc.FormatInt(int64(id), 10)) {
+		if /*line input.gsx:15:10*/ ok(_gsxsc.FormatInt(int64( /*line input.gsx:15:17*/ id), 10) /*line input.gsx:15:21*/) {
 			_gsxgw.S(" title=\"y\"")
 		} else {
-			if ok(string(u.Name)) {
+			if /*line input.gsx:15:45*/ ok(string( /*line input.gsx:15:52*/ u.Name) /*line input.gsx:15:60*/) {
 				_gsxgw.S(" title=\"z\"")
 			}
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:16:2
 		_gsxgw.S("<i")
-		switch wrap("s-" + _gsxsc.FormatInt(int64(id), 10)) {
-		case "s-1":
+		switch /*line input.gsx:16:14*/ wrap("s-" + _gsxsc.FormatInt(int64( /*line input.gsx:16:25*/ id), 10) /*line input.gsx:16:29*/) {
+		case /*line input.gsx:16:38*/ "s-1":
 			_gsxgw.S(" data-s=\"y\"")
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:17:2
 		_gsxgw.S("<i")
 		switch {
-		case ok("c-" + _gsxsc.FormatInt(int64(id), 10)):
+		case /*line input.gsx:17:21*/ ok("c-" + _gsxsc.FormatInt(int64( /*line input.gsx:17:30*/ id), 10) /*line input.gsx:17:34*/):
 			_gsxgw.S(" data-c=\"y\"")
 		}
 		_gsxgw.S("></i>")
 //line input.gsx:18:2
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(ok(_gsxsc.FormatInt(int64(id), 10)), func() (_gsxrt.Attrs, error) {
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:12*/ ok(_gsxsc.FormatInt(int64( /*line input.gsx:18:19*/ id), 10) /*line input.gsx:18:23*/), func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "title", Value: "y"}}, nil
 		}, func() (_gsxrt.Attrs, error) {
-			_gsxv0, _gsxerr := _gsxrt.AttrsCond(ok(string(u.Name)), func() (_gsxrt.Attrs, error) {
+			_gsxv0, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:47*/ ok(string( /*line input.gsx:18:54*/ u.Name) /*line input.gsx:18:62*/), func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "title", Value: "z"}}, nil
 			}, nil)
 			if _gsxerr != nil {
@@ -115,8 +115,8 @@ func Page(id int, u *U) _gsxrt.Node {
 		_gsxgw.NodeResult(_gsxrenderBox(ctx, _gsxgw, _gsxv1))
 //line input.gsx:19:2
 		_gsxv2, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch wrap("s-" + _gsxsc.FormatInt(int64(id), 10)) {
-		case "s-1":
+		switch /*line input.gsx:19:16*/ wrap("s-" + _gsxsc.FormatInt(int64( /*line input.gsx:19:27*/ id), 10) /*line input.gsx:19:31*/) {
+		case /*line input.gsx:19:40*/ "s-1":
 			_gsxv2, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-s", Value: "y"}}, nil
 			})()
@@ -128,7 +128,7 @@ func Page(id int, u *U) _gsxrt.Node {
 //line input.gsx:20:2
 		_gsxv3, _gsxerr := _gsxrt.Attrs(nil), error(nil)
 		switch {
-		case ok("c-" + _gsxsc.FormatInt(int64(id), 10)):
+		case /*line input.gsx:20:23*/ ok("c-" + _gsxsc.FormatInt(int64( /*line input.gsx:20:32*/ id), 10) /*line input.gsx:20:36*/):
 			_gsxv3, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-c", Value: "y"}}, nil
 			})()

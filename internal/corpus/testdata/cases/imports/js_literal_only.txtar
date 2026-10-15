@@ -22,4 +22,4 @@ import (
 
 var name = "world"
 
-var H = _gsxrt.RawJS("greet(" + _gsxrt.EscapeJSVal(name) + ")") /*line input.gsx:5:27*/
+var H = _gsxrt.RawJS("greet(" + _gsxrt.EscapeJSVal( /*line input.gsx:5:20*/ name) + ")") /*line input.gsx:5:27*/

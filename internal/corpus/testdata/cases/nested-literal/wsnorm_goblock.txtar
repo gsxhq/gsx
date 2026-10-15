@@ -51,6 +51,7 @@ func Page(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
+		/*line input.gsx:10:5*/
 		el := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:11
@@ -58,6 +59,7 @@ func Page(n int) _gsxrt.Node {
 			return _gsxgw.Err()
 		})
 //line input.gsx:11:2
+		/*line input.gsx:11:5*/
 		w := wrapN(
 			_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
@@ -69,7 +71,7 @@ func Page(n int) _gsxrt.Node {
 //line input.gsx:14:4
 				_gsxgw.S("<i></i></b>")
 				return _gsxgw.Err()
-			}),
+			}), /*line input.gsx:15:7*/
 		)
 //line input.gsx:17:2
 		_gsxgw.Node(ctx, top)

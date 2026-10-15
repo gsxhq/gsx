@@ -29,11 +29,11 @@ func Pic(a string, b string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<img srcset=\"")
-		_gsxgw.Srcset(string(a))
+		_gsxgw.Srcset(string( /*line input.gsx:4:16*/ a))
 		_gsxgw.S("\" alt=\"x\">")
 //line input.gsx:5:2
 		_gsxgw.S("<source srcset=\"")
-		_gsxgw.Srcset(string(b))
+		_gsxgw.Srcset(string( /*line input.gsx:5:19*/ b))
 		_gsxgw.S("\">")
 		return _gsxgw.Err()
 	})

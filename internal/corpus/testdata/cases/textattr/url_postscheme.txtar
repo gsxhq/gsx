@@ -28,7 +28,7 @@ func Link(id string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL("/u/" + string(id) + "/edit")
+		_gsxgw.URL("/u/" + string( /*line input.gsx:4:17*/ id) + "/edit")
 		_gsxgw.S("\">go</a>")
 		return _gsxgw.Err()
 	})

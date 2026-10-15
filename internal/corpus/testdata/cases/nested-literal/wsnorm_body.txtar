@@ -48,17 +48,17 @@ func Page(n int) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<p>")
 //line input.gsx:8:5
-		_gsxgw.Node(ctx, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.Node(ctx /*line input.gsx:8:7*/, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:13
 			_gsxgw.S("<b> a b </b>")
 			return _gsxgw.Err()
-		})))
+		}) /*line input.gsx:8:29*/))
 		_gsxgw.S("</p>")
 //line input.gsx:9:2
 		_gsxgw.S("<p>")
 //line input.gsx:9:5
-		_gsxgw.Node(ctx, wrapN(
+		_gsxgw.Node(ctx /*line input.gsx:9:7*/, wrapN(
 			_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 				_gsxgw := _gsxrt.W(_gsxw)
 				var _gsxnum [32]byte
@@ -69,28 +69,28 @@ func Page(n int) _gsxrt.Node {
 //line input.gsx:12:4
 				_gsxgw.S("<i></i></b>")
 				return _gsxgw.Err()
-			}),
+			}), /*line input.gsx:13:7*/
 		))
 		_gsxgw.S("</p>")
 //line input.gsx:15:2
 		_gsxgw.S("<p>")
 //line input.gsx:15:5
-		_gsxgw.Node(ctx, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.Node(ctx /*line input.gsx:15:7*/, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:15:13
 			_gsxgw.S("<pre>  x   y  </pre>")
 			return _gsxgw.Err()
-		})))
+		}) /*line input.gsx:15:33*/))
 		_gsxgw.S("</p>")
 //line input.gsx:16:2
 		_gsxgw.S("<pre>")
 //line input.gsx:16:7
-		_gsxgw.Node(ctx, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.Node(ctx /*line input.gsx:16:9*/, wrapN(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:15
 			_gsxgw.S("<b> c d </b>")
 			return _gsxgw.Err()
-		})))
+		}) /*line input.gsx:16:31*/))
 		_gsxgw.S("</pre>")
 		return _gsxgw.Err()
 	})

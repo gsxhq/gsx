@@ -56,11 +56,11 @@ func Page(id string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:29
-		_gsxa0, _gsxerr := firstName(id)
+		_gsxa0, _gsxerr := /*line input.gsx:8:42*/ firstName(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxa1, _gsxerr := lastName(id)
+		_gsxa1, _gsxerr := /*line input.gsx:8:63*/ lastName(id)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

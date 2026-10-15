@@ -58,7 +58,7 @@ func _gsxrenderRow(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, a gsx.Attrs, b gs
 		return _gsxerr
 	}
 //line input.gsx:6:2
-	_gsxv0 := _gsxrt.ConcatAttrs(a, b)
+	_gsxv0 := _gsxrt.ConcatAttrs( /*line input.gsx:6:9*/ a /*line input.gsx:6:18*/, b)
 	_gsxgw.S("<div")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 	_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -81,8 +81,8 @@ func _gsxrenderCond(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, on bool, a gsx.A
 	}
 //line input.gsx:10:2
 	_gsxgw.S("<p")
-	if on {
-		_gsxgw.Spread(ctx, "p", a, _gsxrt.AttrSinks{}, nil)
+	if /*line input.gsx:10:10*/ on {
+		_gsxgw.Spread(ctx, "p" /*line input.gsx:10:17*/, a, _gsxrt.AttrSinks{}, nil)
 	}
 	_gsxgw.S(">c</p>")
 	return _gsxgw.Err()
@@ -93,15 +93,15 @@ func Page(hostile gsx.Attrs, upper gsx.Attrs, vouched gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw, hostile, _gsxrt.Attrs{{Key: "id", Value: "x"}}))
+		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw /*line input.gsx:14:11*/, hostile, _gsxrt.Attrs{{Key: "id", Value: /*line input.gsx:14:32*/ "x"}}))
 //line input.gsx:15:2
-		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw, _gsxrt.Attrs{{Key: "id", Value: "y"}}, upper))
+		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw, _gsxrt.Attrs{{Key: "id", Value: /*line input.gsx:15:18*/ "y"}} /*line input.gsx:15:29*/, upper))
 //line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw, vouched, _gsxrt.Attrs{{Key: "data-n", Value: "2"}}))
+		_gsxgw.NodeResult(_gsxrenderRow(ctx, _gsxgw /*line input.gsx:16:11*/, vouched, _gsxrt.Attrs{{Key: "data-n", Value: /*line input.gsx:16:36*/ "2"}}))
 //line input.gsx:17:2
-		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, true, upper))
+		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw /*line input.gsx:17:12*/, true /*line input.gsx:17:22*/, upper))
 //line input.gsx:18:2
-		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw, true, vouched))
+		_gsxgw.NodeResult(_gsxrenderCond(ctx, _gsxgw /*line input.gsx:18:12*/, true /*line input.gsx:18:22*/, vouched))
 		return _gsxgw.Err()
 	})
 }

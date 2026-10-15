@@ -30,7 +30,7 @@ func Field(sync gsx.Attrs, extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: _gsxrt.RawURL("hidden")}, {Key: "name", Value: _gsxrt.RawURL("n")}, {Key: "class", Value: _gsxrt.RawURL("base")}}, sync, extra)
+		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: _gsxrt.RawURL("hidden")}, {Key: "name", Value: _gsxrt.RawURL("n")}, {Key: "class", Value: _gsxrt.RawURL("base")}} /*line input.gsx:6:47*/, sync /*line input.gsx:6:59*/, extra)
 		_gsxgw.S("<input")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

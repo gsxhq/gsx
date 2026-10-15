@@ -83,15 +83,15 @@ func Page(csv string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0, _gsxerr := _gsxf0.Parse((csv))
+		_gsxv0, _gsxerr := /*line input.gsx:6:20*/ _gsxf0.Parse(( /*line input.gsx:6:13*/ csv))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxa1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
+		_gsxa1, _gsxerr := /*line input.gsx:6:29*/ _gsxf0.Pick(_gsxv0 /*line input.gsx:6:34*/, 0)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxa1, shout()))
+		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxa1 /*line input.gsx:6:43*/, shout()))
 		return _gsxgw.Err()
 	})
 }

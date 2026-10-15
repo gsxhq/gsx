@@ -41,9 +41,9 @@ func Widget(label string) _gsxrt.Node {
 		o := opt{attrs: 1}
 //line input.gsx:9:2
 		_gsxgw.S("<div data-label=\"")
-		_gsxgw.AttrValue(string(label))
+		_gsxgw.AttrValue(string( /*line input.gsx:9:19*/ label))
 		_gsxgw.S("\" data-n=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64(o.attrs))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:9:34*/ o.attrs))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

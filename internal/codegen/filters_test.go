@@ -208,7 +208,7 @@ func TestLowerPipeMidStageErr(t *testing.T) {
 	stages := []ast.PipeStage{{Name: "parse"}, {Name: "join", HasArgs: true, Args: `" "`}}
 
 	// probe-style wrap
-	got, _, err := lowerPipe("csv", stages, table, func(c string) string { return "_gsxunwrap(" + c + ")" })
+	got, _, err := lowerPipe("csv", stages, table, func(c string) string { return "_gsxunwrap(" + c + ")" }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,13 +218,13 @@ func TestLowerPipeMidStageErr(t *testing.T) {
 	}
 
 	// final-stage hasErr is NOT wrapped
-	got2, _, _ := lowerPipe("csv", []ast.PipeStage{{Name: "parse"}}, table, func(c string) string { return "WRAPPED" })
+	got2, _, _ := lowerPipe("csv", []ast.PipeStage{{Name: "parse"}}, table, func(c string) string { return "WRAPPED" }, nil)
 	if got2 != "_gsxf0.Parse((csv))" {
 		t.Errorf("final stage must stay unwrapped, got %s", got2)
 	}
 
 	// nil wrap + mid-stage hasErr → friendly error
-	_, _, err = lowerPipe("csv", stages, table, nil)
+	_, _, err = lowerPipe("csv", stages, table, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), `filter "parse" returns (R, error)`) {
 		t.Errorf("nil-wrap error = %v", err)
 	}

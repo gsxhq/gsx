@@ -58,7 +58,7 @@ func Items(xs []string) gsx.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:4
-		for _, s := range xs {
+		for /*line input.gsx:12:10*/ _, s := range xs {
 //line input.gsx:13:5
 			_gsxgw.S("<li>")
 //line input.gsx:13:9

@@ -35,7 +35,7 @@ import (
 
 /*line input.gsx:5:1*/
 func mk(w int, color string) gsx.Attrs {
-	return gsx.Attrs{{Key: "style", Value: _gsxrt.RawCSS("width:" + _gsxrt.FilterCSS(_gsxsc.FormatInt(int64(w), 10)) + "px;color:" + _gsxrt.FilterCSS(string(color))) /*line input.gsx:6:73*/}}
+	return gsx.Attrs{{Key: "style", Value: _gsxrt.RawCSS("width:" + _gsxrt.FilterCSS(_gsxsc.FormatInt(int64( /*line input.gsx:6:53*/ w), 10)) + "px;color:" + _gsxrt.FilterCSS(string( /*line input.gsx:6:66*/ color))) /*line input.gsx:6:73*/}}
 }
 
 //line input.gsx:9:1
@@ -43,7 +43,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0 := mk(12, "teal")
+		_gsxv0 := /*line input.gsx:10:8*/ mk(12, "teal")
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		if _gsxv0.Has("style") {

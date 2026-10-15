@@ -36,7 +36,7 @@ import (
 /*line input.gsx:5:1*/
 var h = gsx.RawJS("x') ; steal('")
 
-var handler = _gsxrt.RawJS("f('" + _gsxrt.EscapeJSStr(string(h)) + "')") /*line input.gsx:7:28*/
+var handler = _gsxrt.RawJS("f('" + _gsxrt.EscapeJSStr(string( /*line input.gsx:7:23*/ h)) + "')") /*line input.gsx:7:28*/
 
 //line input.gsx:9:1
 func Page() _gsxrt.Node {
@@ -44,7 +44,7 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<button @click=\"")
-		_gsxgw.AttrValue(string(handler))
+		_gsxgw.AttrValue(string( /*line input.gsx:10:18*/ handler))
 		_gsxgw.S("\">x</button>")
 		return _gsxgw.Err()
 	})

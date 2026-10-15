@@ -32,11 +32,11 @@ func CondSpreadElse(c bool, base gsx.Attrs, x gsx.Attrs, y gsx.Attrs) _gsxrt.Nod
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := base
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
-			return x, nil
+		_gsxv0 := /*line input.gsx:6:9*/ base
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:6:24*/ c, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:6:30*/ x, nil
 		}, func() (_gsxrt.Attrs, error) {
-			return y, nil
+			return /*line input.gsx:6:48*/ y, nil
 		})
 		if _gsxerr != nil {
 			return _gsxerr

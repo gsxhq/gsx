@@ -76,7 +76,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		_gsxgw := _gsxrt.W(_gsxw)
 		_gsxgw.S("text child")
 		return _gsxgw.Err()
-	}), attrs))
+	}), /*line input.gsx:10:11*/ attrs))
 	return _gsxgw.Err()
 }
 

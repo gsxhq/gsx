@@ -65,7 +65,7 @@ func Pic(val pg.Text) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<img srcset=\"")
-		_gsxgw.Srcset(string(_gsxf0.PgText((val))))
+		_gsxgw.Srcset(string(_gsxf0.PgText(( /*line input.gsx:8:16*/ val))))
 		_gsxgw.S("\">")
 		return _gsxgw.Err()
 	})

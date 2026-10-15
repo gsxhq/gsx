@@ -46,8 +46,8 @@ func _gsxrenderWidget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attr
 //line input.gsx:6:2
 	_gsxgw.S("<div")
 	var _gsxv0 string
-	if attrs.Has("on") {
-		_gsxv0 = "on"
+	if /*line input.gsx:6:18*/ attrs.Has("on") {
+		_gsxv0 = /*line input.gsx:6:36*/ "on"
 	}
 	_gsxgw.S(" class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))

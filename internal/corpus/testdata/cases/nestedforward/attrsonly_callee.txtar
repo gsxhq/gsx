@@ -53,7 +53,7 @@ func renderDot(p dotProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxv0 := p.Attrs
+		_gsxv0 := /*line input.gsx:10:10*/ p.Attrs
 		_gsxgw.S("<span")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
@@ -81,7 +81,7 @@ func _gsxrenderWrapper(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 //line input.gsx:18:2
-	_gsxgw.Node(ctx, Dot(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5"}}, attrs)))
+	_gsxgw.Node(ctx, Dot(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5"}} /*line input.gsx:18:21*/, attrs)))
 	return _gsxgw.Err()
 }
 

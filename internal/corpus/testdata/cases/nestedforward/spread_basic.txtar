@@ -53,7 +53,7 @@ func _gsxrenderIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, name string, att
 	_gsxgw.S("\"")
 	if !attrs.Has("data-name") {
 		_gsxgw.S(" data-name=\"")
-		_gsxgw.AttrValue(string(name))
+		_gsxgw.AttrValue(string( /*line input.gsx:6:32*/ name))
 		_gsxgw.S("\"")
 	}
 	_gsxgw.StyleMerged("", attrs.Style())
@@ -75,7 +75,7 @@ func _gsxrenderSearchIcon(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.
 		return _gsxerr
 	}
 //line input.gsx:10:2
-	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw, "search", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5 h-5"}}, attrs)))
+	_gsxgw.NodeResult(_gsxrenderIcon(ctx, _gsxgw, "search", _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "w-5 h-5"}} /*line input.gsx:10:40*/, attrs)))
 	return _gsxgw.Err()
 }
 

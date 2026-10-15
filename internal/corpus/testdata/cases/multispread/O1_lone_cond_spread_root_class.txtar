@@ -38,8 +38,8 @@ func O1(on bool, extra gsx.Attrs) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("root")}}
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
-			return extra, nil
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:6:25*/ on, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:6:32*/ extra, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

@@ -64,7 +64,7 @@ func Tag(val pg.Text) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL("/x/" + string(_gsxf0.PgText((val))))
+		_gsxgw.URL("/x/" + string(_gsxf0.PgText(( /*line input.gsx:8:17*/ val))))
 		_gsxgw.S("\">ok</a>")
 		return _gsxgw.Err()
 	})

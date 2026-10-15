@@ -136,7 +136,7 @@ func lowerShapedGoParts(hoistBuf *bytes.Buffer, parts []ast.GoPart, lc lowerCtx,
 				noErrChannel = remedy
 			}
 			var hoists, eb bytes.Buffer
-			if !emitGoExprEmbeddedInterp(&hoists, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.hasCtx, noErrChannel, lc.errReturn) {
+			if !emitGoExprEmbeddedInterp(&hoists, &eb, p, lc.resolved, lc.table, lc.imports, lc.rt, lc.interpTemp, lc.bag, lc.fset, lc.hasCtx, noErrChannel, lc.errReturn) {
 				return "", false
 			}
 			if hoists.Len() > 0 {
@@ -173,11 +173,12 @@ func attrLowerCtx(resolved map[ast.Node]types.Type, table funcTables, imports ma
 
 // field returns one Go-expression field's value text, trimmed: its split
 // overlay lowered through lowerGoParts (hoists go to hoistBuf) when the
-// analysis split found a nested construct, else src verbatim. owner positions
-// the field-level diagnostics.
-func (lc lowerCtx) field(hoistBuf *bytes.Buffer, src string, embedded []ast.GoPart, owner ast.Node) (string, bool) {
+// analysis split found a nested construct, else src verbatim. Authored text is
+// anchored to its source line (anchorAuthored); pos is src's first non-space
+// byte. owner positions the field-level diagnostics.
+func (lc lowerCtx) field(hoistBuf *bytes.Buffer, src string, pos token.Pos, embedded []ast.GoPart, owner ast.Node) (string, bool) {
 	if embedded == nil {
-		return strings.TrimSpace(src), true
+		return strings.TrimSpace(anchorAuthored(lc.fset, pos, src)), true
 	}
 	lc.owner = owner
 	expr, ok := lowerGoParts(hoistBuf, embedded, lc)
@@ -192,9 +193,9 @@ func (lc lowerCtx) field(hoistBuf *bytes.Buffer, src string, embedded []ast.GoPa
 // emits its if/switch with the returned text and closes the block
 // (closeHeaderBlock). The Go spec's implicit block of an if/switch makes this
 // equivalent. Without hoists the output is exactly lc.field's.
-func (lc lowerCtx) header(b *bytes.Buffer, src string, embedded []ast.GoPart, owner ast.Node) (text string, block, ok bool) {
+func (lc lowerCtx) header(b *bytes.Buffer, src string, pos token.Pos, embedded []ast.GoPart, owner ast.Node) (text string, block, ok bool) {
 	var pre bytes.Buffer
-	text, block, ok = lc.headerInBlock(&pre, src, embedded, owner)
+	text, block, ok = lc.headerInBlock(&pre, src, pos, embedded, owner)
 	if block {
 		b.WriteString("{\n")
 	}
@@ -206,9 +207,9 @@ func (lc lowerCtx) header(b *bytes.Buffer, src string, embedded []ast.GoPart, ow
 // the first one of its own fresh block (an else-if written as `else { … }`):
 // it writes the init statement and hoists to b without opening a block, and
 // reports whether it wrote the init statement there.
-func (lc lowerCtx) headerInBlock(b *bytes.Buffer, src string, embedded []ast.GoPart, owner ast.Node) (text string, initHoisted, ok bool) {
+func (lc lowerCtx) headerInBlock(b *bytes.Buffer, src string, pos token.Pos, embedded []ast.GoPart, owner ast.Node) (text string, initHoisted, ok bool) {
 	if embedded == nil || lc.noErrChannel != "" {
-		text, ok = lc.field(b, src, embedded, owner)
+		text, ok = lc.field(b, src, pos, embedded, owner)
 		return text, false, ok
 	}
 	lc.owner = owner
@@ -310,12 +311,12 @@ func (lc lowerCtx) lowerAttrsCondHeader(b *bytes.Buffer, t *ast.CondAttr, rtPkg 
 	}
 	h := attrsCondHeader{rtPkg: rtPkg}
 	if !hasInit {
-		h.text, ok = lc.field(b, t.Cond, t.CondEmbedded, t)
+		h.text, ok = lc.field(b, t.Cond, t.CondPos, t.CondEmbedded, t)
 		return h, ok
 	}
 	h.init = &bytes.Buffer{}
 	lc.errReturn = "return nil, _gsxerr"
-	h.text, _, ok = lc.headerInBlock(h.init, t.Cond, t.CondEmbedded, t)
+	h.text, _, ok = lc.headerInBlock(h.init, t.Cond, t.CondPos, t.CondEmbedded, t)
 	return h, ok
 }
 

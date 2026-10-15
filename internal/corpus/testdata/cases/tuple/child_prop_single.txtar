@@ -50,7 +50,7 @@ func Page(k string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:28
-		_gsxa0, _gsxerr := lookup(k)
+		_gsxa0, _gsxerr := /*line input.gsx:7:40*/ lookup(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}

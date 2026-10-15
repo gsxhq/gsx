@@ -107,12 +107,12 @@ func OrderPage(fail bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxa0 := directMark("first")
-		_gsxa1, _gsxerr := directPair("pair", fail)
+		_gsxa0 := /*line input.gsx:9:11*/ directMark("first")
+		_gsxa1, _gsxerr := /*line input.gsx:10:12*/ directPair("pair", fail)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderOrdered(ctx, _gsxgw, _gsxa0, _gsxa1, directMark("last")))
+		_gsxgw.NodeResult(_gsxrenderOrdered(ctx, _gsxgw, _gsxa0, _gsxa1 /*line input.gsx:11:10*/, directMark("last")))
 		return _gsxgw.Err()
 	})
 }

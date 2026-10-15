@@ -43,8 +43,8 @@ func Page(hot bool, extra gsx.Attrs) _gsxrt.Node {
 //line input.gsx:5:45
 		_gsxgw.S("<script")
 		var _gsxv0 _gsxrt.Attrs
-		if hot {
-			_gsxv0 = extra
+		if /*line input.gsx:5:58*/ hot {
+			_gsxv0 = /*line input.gsx:5:66*/ extra
 			_gsxgw.Spread(ctx, "script", _gsxv0, _gsxrt.AttrSinks{}, nil)
 		}
 		if !_gsxv0.Has("nonce") {

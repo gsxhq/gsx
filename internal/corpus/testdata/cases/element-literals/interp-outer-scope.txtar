@@ -42,7 +42,7 @@ var help = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:12
 	_gsxgw.S("<span class=\"")
-	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(cls))
+	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:6:26*/ cls))
 	_gsxgw.S("\">")
 //line input.gsx:6:32
 	_gsxgw.Text(string(label))

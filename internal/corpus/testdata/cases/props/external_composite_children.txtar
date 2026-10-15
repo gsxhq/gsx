@@ -70,7 +70,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw, CardProps{Title: "Hello"}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.NodeResult(_gsxrenderCard(ctx, _gsxgw /*line input.gsx:13:11*/, CardProps{Title: "Hello"}, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:3
 			_gsxgw.S("<p>body</p>")

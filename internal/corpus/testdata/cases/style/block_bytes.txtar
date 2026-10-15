@@ -28,7 +28,7 @@ func C(raw []byte) _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.a{color:")
-		_gsxgw.CSS(string(raw))
+		_gsxgw.CSS(string( /*line input.gsx:4:21*/ raw))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})

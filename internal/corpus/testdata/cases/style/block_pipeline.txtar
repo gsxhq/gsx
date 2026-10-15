@@ -30,7 +30,7 @@ func Card(userColor string) _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.card{color:")
-		_gsxgw.CSS(string(_gsxstd.Upper((userColor))))
+		_gsxgw.CSS(string( /*line input.gsx:4:37*/ _gsxstd.Upper(( /*line input.gsx:4:24*/ userColor))))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})

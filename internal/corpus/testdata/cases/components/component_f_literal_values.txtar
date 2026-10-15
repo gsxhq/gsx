@@ -118,14 +118,14 @@ func Page(count int) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:18:2
-		_gsxgw.NodeResult(_gsxrenderPageHeader(ctx, _gsxgw, "Tickets", _gsxsc.FormatInt(int64(count), 10)+" tickets"))
+		_gsxgw.NodeResult(_gsxrenderPageHeader(ctx, _gsxgw, "Tickets", _gsxsc.FormatInt(int64( /*line input.gsx:18:43*/ count), 10)+" tickets"))
 //line input.gsx:19:2
-		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Ticket", _gsxrt.Attrs{{Key: "data-ticket", Value: "ticket-" + _gsxsc.FormatInt(int64(count), 10)}}))
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Ticket", _gsxrt.Attrs{{Key: "data-ticket", Value: "ticket-" + _gsxsc.FormatInt(int64( /*line input.gsx:19:47*/ count), 10)}}))
 //line input.gsx:20:2
-		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, _gsxrt.Text(_gsxsc.FormatInt(int64(count), 10)+" open")))
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, _gsxrt.Text(_gsxsc.FormatInt(int64( /*line input.gsx:20:17*/ count), 10)+" open")))
 //line input.gsx:21:2
 		_gsxgw.S("<div data-count=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64(count))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:21:22*/ count))
 		_gsxgw.S(" direct\"></div>")
 		return _gsxgw.Err()
 	})

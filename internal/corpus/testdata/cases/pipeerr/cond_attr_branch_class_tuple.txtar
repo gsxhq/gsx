@@ -65,8 +65,8 @@ func Page(hot bool, csv string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
-			_gsxv0, _gsxerr := cls(csv)
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:8:24*/ hot, func() (_gsxrt.Attrs, error) {
+			_gsxv0, _gsxerr := /*line input.gsx:8:38*/ cls(csv)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}

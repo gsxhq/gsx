@@ -57,7 +57,7 @@ func Tag(name string) _gsxrt.Node {
 		_gsxgw.Text(string(label))
 		_gsxgw.S(": ")
 //line input.gsx:8:18
-		_gsxgw.Text(string(_gsxf0.Upper((name))))
+		_gsxgw.Text(string( /*line input.gsx:8:28*/ _gsxf0.Upper((name))))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

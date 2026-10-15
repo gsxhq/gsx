@@ -34,8 +34,8 @@ func Box(active bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}, attrs)
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(active, func() (_gsxrt.Attrs, error) {
+		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}} /*line input.gsx:6:22*/, attrs)
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:6:38*/ active, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("off")}}, nil

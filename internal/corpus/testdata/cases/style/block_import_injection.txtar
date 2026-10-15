@@ -26,7 +26,7 @@ func Page(userColor string) _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.a{color:")
-		_gsxgw.CSS(string(userColor))
+		_gsxgw.CSS(string( /*line input.gsx:4:21*/ userColor))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})

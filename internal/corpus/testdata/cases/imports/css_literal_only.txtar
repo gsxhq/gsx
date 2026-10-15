@@ -22,4 +22,4 @@ import (
 
 var c = "red"
 
-var S = _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string(c))) /*line input.gsx:5:24*/
+var S = _gsxrt.RawCSS("color:" + _gsxrt.FilterCSS(string( /*line input.gsx:5:21*/ c))) /*line input.gsx:5:24*/

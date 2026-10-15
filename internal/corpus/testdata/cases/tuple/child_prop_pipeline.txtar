@@ -49,7 +49,7 @@ func Page(name string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:31
-		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw, _gsxstd.Upper((name))))
+		_gsxgw.NodeResult(_gsxrenderLabel(ctx, _gsxgw /*line input.gsx:5:53*/, _gsxstd.Upper(( /*line input.gsx:5:45*/ name))))
 		return _gsxgw.Err()
 	})
 }
