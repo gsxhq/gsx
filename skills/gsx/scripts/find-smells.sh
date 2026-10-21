@@ -11,7 +11,7 @@ section() {
 	local title="$1" pattern="$2"
 	shift 2
 	local hits
-	hits=$(grep -rnE "$@" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.worktrees --exclude-dir=vendor -- "$pattern" "$dir" 2>/dev/null)
+	hits=$(grep -rnE "$@" "${skipdirs[@]}" -- "$pattern" "$dir" 2>/dev/null)
 	if [ -n "${SKIP:-}" ] && [ -n "$hits" ]; then
 		hits=$(printf '%s\n' "$hits" | grep -vE -- "$SKIP")
 	fi
@@ -19,6 +19,7 @@ section() {
 	printf '\n== %s (%d)\n%s\n' "$title" "$(printf '%s\n' "$hits" | wc -l | tr -d ' ')" "$hits"
 }
 
+skipdirs=(--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.worktrees --exclude-dir=vendor)
 gsx=(--include=*.gsx)
 gsxgo=(--include=*.gsx --include=*.go --exclude=*.x.go)
 
@@ -42,7 +43,11 @@ section "bool stringified for aria-* (aria-x={b} already renders \"true\"/\"fals
 	"aria-[a-z]+=\{$S*(strconv\.FormatBool|fmt\.Sprint\()" "${gsx[@]}"
 section "value formatted in Go before interpolating (interpolate the value, or a filter)" \
 	"\{$S*(fmt\.Sprintf?\(\"%[dvs]\"|strconv\.(Itoa|FormatInt|FormatFloat)|cmp\.Or)" "${gsx[@]}"
-SKIP='\{[[:space:]]*gsx\.' section "component called as a Go function (use <Tag attr={…}/>)" \
-	"^$S*\{$S*([a-z]+\.)?[A-Z][A-Za-z0-9]*\([^)]*\)$S*\}$S*$" "${gsx[@]}"
+# Only callees declared with `component` under $dir; other calls (a message
+# constructor, a Node-returning helper) are values, not component calls.
+components=$(grep -rhoE "${skipdirs[@]}" "${gsx[@]}" -- "^component$S+(\([^)]*\)$S*)?[A-Z][A-Za-z0-9_]*" "$dir" 2>/dev/null |
+	sed -E 's/.*[[:space:])]//' | sort -u | paste -sd '|' -)
+[ -n "$components" ] && SKIP='\{[[:space:]]*gsx\.' section "component called as a Go function (use <Tag attr={…}/>)" \
+	"^$S*\{$S*([a-z_][a-z0-9_]*\.)?($components)(\[[^]]*\])?\([^)]*\)$S*\}$S*$" "${gsx[@]}"
 section "comment shipped to the browser or hidden in a Go block (use // or {/* */})" \
 	"gsx\.Raw\(\"<!--|\{\{$S*/[*/]" "${gsx[@]}"
