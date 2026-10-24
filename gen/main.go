@@ -488,7 +488,8 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return 1
 	}
 
-	if quietFlag {
+	// JSON mode owns stdout: the array is its entire content.
+	if quietFlag || jsonFlag {
 		return 0
 	}
 	if verboseFlag {

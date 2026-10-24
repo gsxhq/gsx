@@ -100,6 +100,38 @@ func TestGenerateDiagJSONOutput(t *testing.T) {
 	}
 }
 
+// TestGenerateDiagJSONSuccessStdoutIsJSON proves that a successful --json run
+// (warnings only) writes the array and nothing else to stdout: the
+// "gsx: wrote N file(s)" summary must not follow it.
+func TestGenerateDiagJSONSuccessStdoutIsJSON(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxdiagjsonsuccess")
+	pkgDir := newPkg(t, mod, "views", `package views
+
+component A() {
+	<p>
+		Label:
+		<a href="/x">x</a>
+	</p>
+}
+`)
+
+	code, out, errb := runGenerateArgs(t, []string{"--json", pkgDir})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for a warning-only run, got %d; stderr=%q", code, errb)
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal([]byte(out), &arr); err != nil {
+		t.Fatalf("--json: stdout is not exactly a JSON array: %v\nstdout=%q", err, out)
+	}
+	if len(arr) != 1 || arr[0]["code"] != "child-element-spacing" {
+		t.Fatalf("want one child-element-spacing warning, got %v", arr)
+	}
+}
+
 // TestGenerateDiagJSONNoStderr proves that --json writes nothing to stderr for
 // diagnostics (only to stdout), keeping stderr clean for scripted use.
 func TestGenerateDiagJSONNoStderr(t *testing.T) {
