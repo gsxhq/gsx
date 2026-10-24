@@ -278,54 +278,13 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 	if ok {
 		parts = formatted
 	}
-	// partResult maps each value's classification (shapes is indexed by value
-	// order) onto its parts index, so a GoText run can look at its NEIGHBORING
-	// value (not just the one shapeIdx has reached) to decide whether to strip
-	// a pre-existing decorative paren.
-	partResult := make([]goexprshape.Result, len(parts))
-	shapeIdx := 0
-	for i, part := range parts {
-		if _, ok := part.(ast.GoText); ok {
-			continue
-		}
-		if shapeIdx < len(shapes) {
-			partResult[i] = shapes[shapeIdx]
-		}
-		shapeIdx++
-	}
-	// eligible reports whether parts[i] is an *Element/*Fragment in a position
-	// safe to visually wrap in (...) — the only case that ever carries a
-	// decorative paren. Never an EmbeddedInterp (f`...` literal), which codegen
-	// doesn't lower into a closure and so has no matching strip step (see
-	// internal/codegen's emit.go GoWithElements case).
-	eligible := func(i int) bool {
-		switch parts[i].(type) {
-		case *ast.Element, *ast.Fragment:
-			return partResult[i].Shape == goexprshape.ParenWrap
-		default:
-			return false
-		}
-	}
-	// decoratedParen reports whether parts[i] is ALSO currently sitting inside
-	// a real paren in this source (not just eligible for one) — e.g. a `var
-	// (…)` group's own closing paren can immediately follow an unwrapped,
-	// eligible value with no relation to it, and must be left alone.
-	decoratedParen := func(i int) bool {
-		return eligible(i) && partResult[i].Wrapped
-	}
-
+	eligible, wrapped := decorativeParens(parts, shapes)
 	last := len(parts) - 1
 	docs := make([]pretty.Doc, 0, len(parts))
 	precedingGoText := ""
 	for i, part := range parts {
 		if gt, ok := part.(ast.GoText); ok {
-			src := trimGoTextEdges(gt.Src, i == 0, i == last)
-			if i > 0 && decoratedParen(i-1) {
-				src = goexprshape.StripLeadingParen(src)
-			}
-			if i < last && decoratedParen(i+1) {
-				src = goexprshape.StripTrailingParen(src)
-			}
+			src := goTextSrc(gt, i, last, wrapped)
 			if src != "" {
 				precedingGoText = src
 			}
@@ -366,7 +325,7 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		// composite literal's FIELDS, which is what actually made the line wide.
 		flatText, flat := goExprFlatText(doc)
 		switch {
-		case eligible(i) && (!flat || partResult[i].Wrapped):
+		case eligible[i] && (!flat || wrapped[i]):
 			doc = parenWrapDoc(doc)
 		case flat:
 			doc = pretty.Text(flatText)
@@ -374,6 +333,48 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		docs = append(docs, indentN(depth, doc))
 	}
 	return pretty.Concat(docs...)
+}
+
+// decorativeParens maps shapes (indexed by value order) onto parts. eligible[i]
+// reports whether parts[i] is an *Element/*Fragment in a position safe to
+// visually wrap in (...) — the only case that ever carries a decorative paren.
+// Never an EmbeddedInterp (f`...` literal), which codegen doesn't lower into a
+// closure and so has no matching strip step (see internal/codegen's emit.go
+// GoWithElements case). wrapped[i] reports whether that eligible value ALSO
+// sits inside a real paren in this source — e.g. a `var (…)` group's own
+// closing paren can immediately follow an unwrapped, eligible value with no
+// relation to it, and must be left alone.
+func decorativeParens(parts []ast.GoPart, shapes []goexprshape.Result) (eligible, wrapped []bool) {
+	eligible = make([]bool, len(parts))
+	wrapped = make([]bool, len(parts))
+	shapeIdx := 0
+	for i, part := range parts {
+		switch part.(type) {
+		case ast.GoText:
+			continue
+		case *ast.Element, *ast.Fragment:
+			if shapeIdx < len(shapes) && shapes[shapeIdx].Shape == goexprshape.ParenWrap {
+				eligible[i] = true
+				wrapped[i] = shapes[shapeIdx].Wrapped
+			}
+		}
+		shapeIdx++
+	}
+	return eligible, wrapped
+}
+
+// goTextSrc is GoText part i of last as the printer emits it: its outer edges
+// trimmed, and the decorative paren of a wrapped neighbor (see
+// decorativeParens) removed, since parenWrapDoc re-derives it.
+func goTextSrc(gt ast.GoText, i, last int, wrapped []bool) string {
+	src := trimGoTextEdges(gt.Src, i == 0, i == last)
+	if i > 0 && wrapped[i-1] {
+		src = goexprshape.StripLeadingParen(src)
+	}
+	if i < last && wrapped[i+1] {
+		src = goexprshape.StripTrailingParen(src)
+	}
+	return src
 }
 
 // parenWrapDoc wraps doc in "(" ")" and ALWAYS breaks. It is only ever called

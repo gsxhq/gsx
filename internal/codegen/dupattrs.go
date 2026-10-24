@@ -60,7 +60,7 @@ func warnDuplicateAttrs(bag *diag.Bag, el *ast.Element) {
 			}
 			for _, prev := range seen {
 				if htmlattr.SameName(prev.name, name) && !exclusiveBranches(prev.path, path) {
-					bag.Report(a.Pos(), a.End(), diag.Warning, "duplicate-attribute", "codegen",
+					bag.Report(a.Pos(), a.End(), diag.Warning, diag.CodeDuplicateAttribute, "codegen",
 						"attribute %q is already set on this element; the browser keeps the first one", name)
 					break
 				}

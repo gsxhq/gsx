@@ -195,6 +195,48 @@ func writeFileAtomic(target string, data []byte) error {
 	return os.Rename(tmp.Name(), target)
 }
 
+// relWarnings returns a successful dir's diagnostics (warnings only: a dir
+// with an error is never stored) with filenames made relative to the module
+// root, for its cache entry. ok is false when a filename lies outside root:
+// such a warning cannot be stored relocatably, so the dir is not stored.
+func relWarnings(root string, diags []diag.Diagnostic) (warnings []diag.Diagnostic, ok bool) {
+	rel := func(name string) (string, bool) {
+		if name == "" {
+			return "", true
+		}
+		r, err := filepath.Rel(root, name)
+		if err != nil || !filepath.IsLocal(r) {
+			return "", false
+		}
+		return filepath.ToSlash(r), true
+	}
+	for _, d := range diags {
+		var startOK, endOK bool
+		d.Start.Filename, startOK = rel(d.Start.Filename)
+		d.End.Filename, endOK = rel(d.End.Filename)
+		if !startOK || !endOK {
+			return nil, false
+		}
+		warnings = append(warnings, d)
+	}
+	return warnings, true
+}
+
+// absWarnings is relWarnings' inverse for a cache hit.
+func absWarnings(root string, warnings []diag.Diagnostic) []diag.Diagnostic {
+	out := make([]diag.Diagnostic, len(warnings))
+	for i, d := range warnings {
+		if d.Start.Filename != "" {
+			d.Start.Filename = filepath.Join(root, filepath.FromSlash(d.Start.Filename))
+		}
+		if d.End.Filename != "" {
+			d.End.Filename = filepath.Join(root, filepath.FromSlash(d.End.Filename))
+		}
+		out[i] = d
+	}
+	return out
+}
+
 // toPkgOutput converts codegen's gsxPath->bytes (absolute .gsx paths) into the
 // store's relative-path (<base>.x.go) -> bytes form.
 func toPkgOutput(files map[string][]byte) pkgOutput {

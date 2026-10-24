@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
@@ -44,6 +46,9 @@ type tomlConfig struct {
 	// Serialization selects the tag-shape serialization mode: "canonical"
 	// (default, key absent) or "verbatim". See gen.Serialization.
 	Serialization string `toml:"serialization"`
+	// Lint is the [lint] table: lint diagnostic code → "off" | "warning" |
+	// "error" (see diag.LintCodes).
+	Lint map[string]string `toml:"lint"`
 }
 
 // tomlFormatter is the [formatter] table: knobs for `gsx fmt` and LSP
@@ -264,6 +269,9 @@ func loadConfig(path string) (config, error) {
 		sort.Strings(keys)
 		return config{}, fmt.Errorf("%s: unknown key(s): %s", path, strings.Join(keys, ", "))
 	}
+	if err := requireTables(md); err != nil {
+		return config{}, fmt.Errorf("%s: %w", path, err)
+	}
 
 	var cfg config
 	for _, p := range tc.FilterPackages {
@@ -361,6 +369,10 @@ func loadConfig(path string) (config, error) {
 	if err != nil {
 		return config{}, fmt.Errorf("%s: %w", path, err)
 	}
+	cfg.lint, err = parseLintTable(tc.Lint)
+	if err != nil {
+		return config{}, fmt.Errorf("%s: %w", path, err)
+	}
 	if tc.Formatter != nil {
 		cfg.printWidth = tc.Formatter.PrintWidth
 		cfg.tabWidth = tc.Formatter.TabWidth
@@ -432,6 +444,16 @@ func mergeConfig(base, opts config) config {
 
 	merged.errs = append(append(merged.errs, base.errs...), opts.errs...)
 
+	// lint: per code, an option entry overrides the file's entry for that code.
+	for _, src := range []diag.LintPolicy{base.lint, opts.lint} {
+		for code, level := range src {
+			if merged.lint == nil {
+				merged.lint = diag.LintPolicy{}
+			}
+			merged.lint[code] = level
+		}
+	}
+
 	merged.printWidth = base.printWidth
 	if opts.printWidth > 0 {
 		merged.printWidth = opts.printWidth
@@ -470,4 +492,42 @@ func mergeConfig(base, opts config) config {
 	}
 
 	return merged
+}
+
+// parseLintTable validates the [lint] table: every key must be a lint code
+// (diag.LintCodes) and every value "off", "warning" or "error".
+func parseLintTable(table map[string]string) (diag.LintPolicy, error) {
+	if len(table) == 0 {
+		return nil, nil
+	}
+	codes := make([]string, 0, len(table))
+	for code := range table {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	policy := diag.LintPolicy{}
+	for _, code := range codes {
+		if !diag.IsLint(code) {
+			return nil, fmt.Errorf("lint: unknown code %q (configurable: %s)", code, strings.Join(diag.LintCodes(), ", "))
+		}
+		level, err := diag.ParseLintLevel(table[code])
+		if err != nil {
+			return nil, fmt.Errorf("lint.%s: %w", code, err)
+		}
+		policy[code] = level
+	}
+	return policy, nil
+}
+
+// requireTables rejects a table-valued key (a map field of tomlConfig, such as
+// [lint]) written as a plain value: the TOML decoder turns `lint = "x"` into an
+// empty map without an error or an undecoded key.
+func requireTables(md toml.MetaData) error {
+	for f := range reflect.TypeFor[tomlConfig]().Fields() {
+		key := f.Tag.Get("toml")
+		if f.Type.Kind() == reflect.Map && md.IsDefined(key) && md.Type(key) != "Hash" {
+			return fmt.Errorf("%s: must be a table (got %s)", key, strings.ToLower(md.Type(key)))
+		}
+	}
+	return nil
 }

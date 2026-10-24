@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
@@ -388,5 +389,24 @@ func WithSerialization(s Serialization) Option {
 	return func(cfg *config) {
 		cfg.serialization = s
 		cfg.serializationSet = true
+	}
+}
+
+// WithLint sets the severity of one lint diagnostic code — "off", "warning"
+// or "error" — overriding that code's entry in the gsx.toml [lint] table. An
+// unknown code or level is recorded on the config so the run fails clearly.
+//
+//	gen.Main(gen.WithLint("child-element-spacing", "error"))
+func WithLint(code, level string) Option {
+	return func(cfg *config) {
+		policy, err := parseLintTable(map[string]string{code: level})
+		if err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithLint: %w", err))
+			return
+		}
+		if cfg.lint == nil {
+			cfg.lint = diag.LintPolicy{}
+		}
+		cfg.lint[code] = policy[code]
 	}
 }

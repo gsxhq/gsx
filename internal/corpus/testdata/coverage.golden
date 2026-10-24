@@ -116,6 +116,10 @@ casefold/switch_before_spread	diag gen render
 casefold/two_bags	diag gen render
 casefold/url_after_spread	diag gen render
 casefold/url_before_spread	diag gen render
+childspacing/branches	diag render
+childspacing/flagged	diag render
+childspacing/quiet	diag render
+childspacing/renderers	diag render
 class/bag_literal_part	diag gen render
 class/body_local_in_class	diag gen render
 class/body_local_pipe_class	diag gen render
@@ -1135,4 +1139,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1137 cases (render: 966, error: 133, gen-pinned: 644)
+TOTAL: 1141 cases (render: 970, error: 133, gen-pinned: 644)

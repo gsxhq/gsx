@@ -492,7 +492,7 @@ func TestCleanCacheSentinelGuard(t *testing.T) {
 func TestCleanCacheSentinelWrittenByStorePut(t *testing.T) {
 	t.Parallel()
 	cacheRoot := t.TempDir()
-	out := pkgOutput{"a.x.go": []byte("package a\n")}
+	out := cacheEntry{files: pkgOutput{"a.x.go": []byte("package a\n")}}
 	if err := storePut(cacheRoot, "testkey", out); err != nil {
 		t.Fatal(err)
 	}

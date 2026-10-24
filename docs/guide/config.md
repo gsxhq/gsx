@@ -444,6 +444,53 @@ programmatic `gen.WithClassMerger` overrides `class_merger`.
 [Styling](./syntax/styling.md#tailwind-aware-class-merging) for where class
 sources merge.
 
+## Lints `[lint]` {#lint}
+
+Lints are warnings about valid code that is probably a mistake. `[lint]` sets
+each one to `"off"`, `"warning"` (the default) or `"error"`:
+
+```toml
+[lint]
+child-element-spacing = "error"
+duplicate-attribute = "off"
+```
+
+| Code | Reports |
+|---|---|
+| `child-element-spacing` | A line break that drops the only space between text and inline content (below). |
+| `duplicate-attribute` | An attribute set twice on one element; the browser keeps the first. |
+| `self-reference-leaf` | A tag named like its enclosing component that renders as a plain element. |
+| `url-always-blocked` | A constant URL attribute value that always renders as `about:invalid#gsx`. |
+| `wrapper-cycle` | Components that wrap each other unconditionally, so rendering never ends. |
+
+An unknown code or level is a configuration error (exit `2`). A lint set to
+`"error"` behaves like any other error: `gsx generate` exits `1` and writes the
+[non-compiling marker](./cli.md#when-generation-fails), and `gsx dev` and the
+editor show it as an error. `gen.WithLint(code, level)` overrides the file.
+
+### `child-element-spacing` {#child-element-spacing}
+
+gsx follows JSX whitespace rules, so a line break between text and other
+content is dropped:
+
+```gsx
+<p>
+	Report template:
+	<a href="/t">{ name }</a>
+</p>
+```
+
+renders `Report template:<a href="/t">…</a>`. Join the lines or write `{" "}`
+where the space belongs; the editor offers both fixes.
+
+The lint fires when the dropped whitespace sits between text and inline
+content: text, a text-level element (`a`, `b`, `code`, `em`, `span`, `strong`
+and the other HTML text-level semantics elements), an interpolation that
+renders text, or an `if`/`for`/`switch` that can render one of these. It
+doesn't fire next to block elements, components or `gsx.Node` values, inside
+`pre`/`textarea`/`script`/`style`, after an opening bracket or quote, or before
+a closing one or `. , ; : ! ?`.
+
 ## Complete example
 
 This is a typical multi-section file. Top-level keys come first:

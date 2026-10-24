@@ -187,6 +187,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 		Classifier:  merged.classifier(),
 		ClassMerger: merged.classMerger,
 		URLPresets:  merged.urlPresets,
+		Lint:        merged.lint,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -251,12 +252,14 @@ func lspSemanticConfigIdentity(cfg config) string {
 		Renderers      []codegen.RendererAlias
 		Classifier     string
 		ClassMerger    string
+		Lint           string
 	}{
 		FilterPackages: cfg.filterPkgs,
 		Aliases:        cfg.aliases,
 		Renderers:      renderers,
 		Classifier:     cfg.classifier().Fingerprint(),
 		ClassMerger:    classMerger,
+		Lint:           cfg.lint.Fingerprint(),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

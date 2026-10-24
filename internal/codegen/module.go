@@ -122,6 +122,9 @@ type Options struct {
 	// Codegen imports the package under the reserved alias _gsxcm and emits
 	// _gsxcm.<FuncName> at every class merge site.
 	ClassMerger *ClassMergerRef
+	// Lint is the module's [lint] policy: it switches lint diagnostics off or
+	// promotes them to errors in every diagnostic list the Module returns.
+	Lint diag.LintPolicy
 }
 
 // Module is a warm, in-process analysis graph for one module root. It is the
@@ -1409,7 +1412,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 			generateFile(f, a.pkg, a.resolved, a.table, a.gsxFset, a.classifier, a.bag, nil, nil, nil, true, true, false, a.merger, a.componentPlan, a.positionalPlan, a.evalFacts, true)
 		}
 	}
-	res.Diags = a.bag.Sorted()
+	res.Diags = m.opts.Lint.Apply(a.bag.Sorted())
 	res.Filters = filterCandidates(a.table)
 	res.URLPresets = m.urlPresetsFor(dir)
 	res.ComponentCalls = a.componentCalls
@@ -1596,7 +1599,7 @@ func (m *Module) analyzeEphemeralLocked(dir, absPath string, src []byte) (*Packa
 		SigTypes:            a.sigTypes,
 		SourceIndex:         a.sourceIndex,
 	}
-	res.Diags = a.bag.Sorted()
+	res.Diags = m.opts.Lint.Apply(a.bag.Sorted())
 	res.ComponentCalls = a.componentCalls
 	res.ComponentDecls = a.componentDecls
 	res.Filters = filterCandidates(a.table)
@@ -1657,5 +1660,5 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 			out[path] = gen
 		}
 	}
-	return out, bag.Sorted(), nil
+	return out, m.opts.Lint.Apply(bag.Sorted()), nil
 }

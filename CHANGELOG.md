@@ -4,6 +4,26 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **New `child-element-spacing` warning.** A line break between text and
+  inline content is dropped, so `Report template:` followed by `<a>` on the
+  next line rendered `Report template:<a>`. gsx now warns there, and the
+  editor offers `{" "}` or joining the lines. See
+  [Lints](docs/guide/config.md#child-element-spacing).
+- **`[lint]` in `gsx.toml`** sets each lint to `"off"`, `"warning"` or
+  `"error"`. An error-level lint fails `gsx generate` like any other error.
+  An unknown code or level is a configuration error (exit 2).
+- **Table keys written as plain values are rejected.** `filters = "x"`,
+  `renderers = "x"` or `lint = "x"` was silently ignored; it is now a
+  configuration error.
+- **Warnings repeat on cached runs.** `gsx generate` printed a package's
+  warnings only when it regenerated it; a package served from the cache
+  reported none.
+- **`gsx info` lists each lint's effective level.**
+- **`gsx generate --json` writes only the JSON array to stdout.** A
+  successful run appended `gsx: wrote N file(s)` after it.
+
 ## v0.4.0 — 2026-10-15
 
 - **Positions from generated code point at the right `.gsx` line.** Go

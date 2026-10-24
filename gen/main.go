@@ -63,6 +63,8 @@ type config struct {
 
 	serialization    Serialization // tag-shape serialization; zero = canonical
 	serializationSet bool          // true once WithSerialization pinned it
+
+	lint diag.LintPolicy // [lint] table merged with WithLint; nil = every lint at its default
 }
 
 // effectivePrintWidth returns the configured print width, defaulting to
@@ -254,7 +256,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
+		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.lint, cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
 	case "fmt":
 		// fmt respects gsx.toml printWidth/tabWidth per-file (via formatSettingsFor
 		// inside runFmt) and tolerates a malformed config. The CSS/JS formatter
@@ -486,7 +488,8 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return 1
 	}
 
-	if quietFlag {
+	// JSON mode owns stdout: the array is its entire content.
+	if quietFlag || jsonFlag {
 		return 0
 	}
 	if verboseFlag {

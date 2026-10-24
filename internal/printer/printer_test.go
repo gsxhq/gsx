@@ -2017,3 +2017,24 @@ func TestCaseBodyBondDoesNotLeakIntoElementChildren(t *testing.T) {
 		t.Errorf("element-child prose was altered, want \"default: wins\" preserved verbatim somewhere\n%s", formatted)
 	}
 }
+
+// TestDecorativeParenStaysFaithful pins that the parens fmt adds around a
+// multi-line Go-expression element (and keeps around an author-wrapped one)
+// are not a change of meaning: codegen strips them, and so must the
+// faithfulness normalizer.
+func TestDecorativeParenStaysFaithful(t *testing.T) {
+	for _, src := range []string{
+		"package p\n\nvar x = <span>\n\ta\n</span>\n",
+		"package p\n\nvar x = <span>\n\ta\n\t<b>b</b>\n</span>\n",
+		"package p\n\nvar x = (<span>a</span>)\n",
+		"package p\n\nvar (\n\tx = <span>\n\t\ta\n\t</span>\n)\n",
+	} {
+		out, err := normPrint(t, src)
+		if err != nil {
+			t.Fatalf("normPrint: %v", err)
+		}
+		if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, out)) {
+			t.Errorf("not faithful:\n  src=%q\n  out=%q", src, out)
+		}
+	}
+}

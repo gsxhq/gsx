@@ -1,0 +1,65 @@
+# child-element-spacing stays quiet where no space is lost or where the
+# output beside the text is not inline text: same-line spaces, an explicit
+# {" "}, block-level and component siblings, gsx.Node interpolations, empty
+# and embedded elements, punctuation that never takes a space, an inline
+# element whose own content starts with a space, and pre/textarea subtrees.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component C(name string, kid gsx.Node) {
+	<p id="same-line">Report template: <a href="/t">{ name }</a> and more</p>
+	<p id="explicit">
+		Report template:{ " " }
+		<a href="/t">{ name }</a>{ " " }and more
+	</p>
+	<div id="block">
+		Title
+		<div>block</div>
+		<ul><li>x</li></ul>
+	</div>
+	<p id="component">
+		Hi
+		<Badge/>
+	</p>
+	<p id="node-interp">
+		Kid:
+		{ kid }
+	</p>
+	<p id="boxes">
+		<span class="rule"></span>
+		New messages
+		<img src="/i.png" alt=""/>
+		<br/>
+		next line
+	</p>
+	<p id="punctuation">
+		Open the <a href="/f">file</a>
+		. Then (
+		<code>x</code>
+		) and “
+		<q>y</q>
+		”
+	</p>
+	<p id="inner-space">
+		Pick
+		<span> ({ name })</span>
+	</p>
+	<pre>
+		keep
+		<b>x</b>
+	</pre>
+}
+
+component Badge() {
+	<span>b</span>
+}
+-- invoke --
+C("X", Badge())
+-- render.golden --
+<p id="same-line">Report template: <a href="/t">X</a> and more</p><p id="explicit">Report template: <a href="/t">X</a> and more</p><div id="block">Title<div>block</div><ul><li>x</li></ul></div><p id="component">Hi<span>b</span></p><p id="node-interp">Kid:<span>b</span></p><p id="boxes"><span class="rule"></span>New messages<img src="/i.png" alt=""><br>next line</p><p id="punctuation">Open the <a href="/f">file</a>. Then (<code>x</code>) and “<q>y</q>”</p><p id="inner-space">Pick<span> (X)</span></p><pre>
+		keep
+		<b>x</b>
+	</pre>
+-- diagnostics.golden --
