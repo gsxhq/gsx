@@ -259,18 +259,22 @@ func canonGo(n ast.Node) {
 		// author's verbatim GoText while normalize(fmt(S)) holds gofmt's. When
 		// go/format rejects the substituted source (Go the gsx parser accepted but
 		// go/parser does not), the printer keeps the original parts, so we do too.
-		if formatted, _, ok := (&printer{width: 80, tabWidth: pretty.DefaultTabWidth}).fmtGoExprParts(v.Parts); ok {
+		formatted, shapes, ok := (&printer{width: 80, tabWidth: pretty.DefaultTabWidth}).fmtGoExprParts(v.Parts)
+		if ok {
 			v.Parts = formatted
 		}
-		// Only the outer edges are trimmed, exactly as the printer trims them, so
-		// the comparison ignores the blank-line padding between this decl and its
-		// neighbors (file's blank-line-separator logic re-derives it). Embedded
-		// *ast.Element parts recurse into the ordinary *ast.Element case below.
+		// GoText is reduced exactly as the printer emits it, so the comparison
+		// ignores the blank-line padding between this decl and its neighbors
+		// (file's blank-line-separator logic re-derives it) and the decorative
+		// parens around a value (codegen strips them; the printer re-derives
+		// them). Embedded *ast.Element parts recurse into the ordinary
+		// *ast.Element case below.
+		_, wrapped := decorativeParens(v.Parts, shapes)
 		last := len(v.Parts) - 1
 		for i, part := range v.Parts {
 			switch pt := part.(type) {
 			case ast.GoText:
-				pt.Src = trimGoTextEdges(pt.Src, i == 0, i == last)
+				pt.Src = goTextSrc(pt, i, last, wrapped)
 				v.Parts[i] = pt
 			case *ast.Element:
 				canonGo(pt)
