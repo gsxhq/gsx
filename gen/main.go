@@ -63,6 +63,8 @@ type config struct {
 
 	serialization    Serialization // tag-shape serialization; zero = canonical
 	serializationSet bool          // true once WithSerialization pinned it
+
+	lint diag.LintPolicy // [lint] table merged with WithLint; nil = every lint at its default
 }
 
 // effectivePrintWidth returns the configured print width, defaulting to

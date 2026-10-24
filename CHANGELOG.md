@@ -4,6 +4,24 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **New `child-element-spacing` warning.** gsx drops whitespace that contains
+  a line break where text meets other content, so HTML-style markup such as
+  `Report template:` followed by `<a>` on the next line rendered
+  `Report template:<a>` with the space silently lost. gsx now warns at the
+  dropped whitespace when it sits between text and inline content (text,
+  text-level elements such as `a`, `span` and `code`, text-valued
+  interpolations, and control-flow blocks that render them), and the editor
+  offers `{" "}` or joining the lines as quick fixes. See
+  [Lints](docs/guide/config.md#child-element-spacing) for the exact rule.
+- **`[lint]` in `gsx.toml`** sets each lint (`child-element-spacing`,
+  `duplicate-attribute`, `self-reference-leaf`, `url-always-blocked`,
+  `wrapper-cycle`) to `"off"`, `"warning"` or `"error"`; `gen.WithLint`
+  overrides it in a custom binary. A lint set to `"error"` fails `gsx
+  generate` and writes the non-compiling marker like any other error. An
+  unknown code or level is a configuration error (exit 2).
+
 ## v0.4.0 — 2026-10-15
 
 - **Positions from generated code point at the right `.gsx` line.** Go

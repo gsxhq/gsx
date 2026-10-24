@@ -44,3 +44,4 @@ func Page(id string) _gsxrt.Node {
 	})
 }
 -- diagnostics.golden --
+5:17: warning: line break before this text is dropped: no space renders after <span>

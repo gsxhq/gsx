@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/sourceview"
 )
 
@@ -23,6 +24,7 @@ type moduleGenerateConfig struct {
 	jsMinify     bool
 	verbatimTags bool
 	classMerger  *codegen.ClassMergerRef
+	lint         diag.LintPolicy
 	// configPath is the gsx.toml these knobs were resolved from ("" when none
 	// or when the config is programmatic); see moduleGenerateConfig.inheritedFrom.
 	configPath string
@@ -134,6 +136,7 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 		jsMinify:              config.jsMinify,
 		verbatimTags:          config.verbatimTags,
 		classMerger:           config.classMerger,
+		lint:                  config.lint.Fingerprint(),
 	}
 	graphRoots := []string{"github.com/gsxhq/gsx"}
 	graphRoots = append(graphRoots, configuredPackagePaths(config.filterPkgs, config.aliases, config.renderers, config.classMerger)...)

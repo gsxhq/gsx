@@ -1662,6 +1662,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		}
 	}
 
+	// child-element-spacing reads resolved interpolation types, so it runs once
+	// harvest has filled them; an imported package's analysis reports nothing.
+	if purpose != analysisTypeOnly && m.opts.Lint.Level(childElementSpacingCode) != diag.LintOff {
+		for _, path := range sortedGsxFilePaths(gsxFiles) {
+			reportChildElementSpacing(gsxFiles[path], parsed.sources[path], fset, resolved, table, bag)
+		}
+	}
+
 	// Build CtrlMap: skeleton clause position + containing node per control-flow node.
 	ctrlMap := map[gsxast.Node]ctrlRef{}
 	for _, gf := range goFiles {

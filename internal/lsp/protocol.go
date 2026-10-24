@@ -214,9 +214,11 @@ type WorkspaceEdit struct {
 // CodeAction is one entry of the textDocument/codeAction result. Edit is carried
 // inline, so the server advertises no resolveProvider.
 type CodeAction struct {
-	Title string         `json:"title"`
-	Kind  string         `json:"kind"`
-	Edit  *WorkspaceEdit `json:"edit,omitempty"`
+	Title string `json:"title"`
+	Kind  string `json:"kind"`
+	// Diagnostics are the diagnostics a quickfix resolves.
+	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
+	Edit        *WorkspaceEdit `json:"edit,omitempty"`
 }
 
 // TextEdit is a single text replacement: NewText replaces the span at Range.

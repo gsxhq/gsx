@@ -51,6 +51,7 @@ func (c config) moduleGenerateConfig(useCache bool) moduleGenerateConfig {
 		jsMinify:     c.jsMinLevel.enabled(),
 		verbatimTags: c.serialization == SerializationVerbatim,
 		classMerger:  c.classMerger,
+		lint:         c.lint,
 	}
 }
 
@@ -69,6 +70,7 @@ func (c moduleGenerateConfig) codegenOptions() codegen.Options {
 		JSMinify:     c.jsMinify,
 		VerbatimTags: c.verbatimTags,
 		ClassMerger:  c.classMerger,
+		Lint:         c.lint,
 	}
 }
 

@@ -20,6 +20,12 @@ func codeActions(t *testing.T, uri, src string, only []string) []CodeAction {
 // the reported [formatter] imports mode.
 func codeActionsWith(t *testing.T, uri, src string, only []string, a Analyzer) []CodeAction {
 	t.Helper()
+	return codeActionsInRange(t, uri, src, only, a, Range{})
+}
+
+// codeActionsInRange is codeActionsWith for an explicit request range.
+func codeActionsInRange(t *testing.T, uri, src string, only []string, a Analyzer, rng Range) []CodeAction {
+	t.Helper()
 	in := framed(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
 	in += framed(t, map[string]any{
 		"jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -33,7 +39,7 @@ func codeActionsWith(t *testing.T, uri, src string, only []string, a Analyzer) [
 		"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
 		"params": map[string]any{
 			"textDocument": map[string]any{"uri": uri},
-			"range":        map[string]any{"start": map[string]any{"line": 0, "character": 0}, "end": map[string]any{"line": 0, "character": 0}},
+			"range":        rng,
 			"context":      ctx,
 		},
 	})

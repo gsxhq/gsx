@@ -19,7 +19,10 @@ import (
 //     EXACTLY ONE candidate: this action is meant for format-on-save, so an
 //     ambiguous name is left alone rather than guessed — a wrong import written
 //     unattended is unrecoverable.
-//   - quickfix: one action per distinct candidate import path across every
+//   - quickfix: for each child-element-spacing diagnostic overlapping the
+//     requested range, an insertion of {" "} and a join of the two lines
+//     (both small edits of the dropped whitespace, not whole-document ones);
+//     and one action per distinct candidate import path across every
 //     unresolved qualifier in the file (e.g. "Add import: crypto/rand",
 //     "Add import: math/rand"), so the user picks when organizeImports could
 //     not. Two qualifiers whose candidate sets overlap (e.g. rand.Int and
@@ -112,6 +115,9 @@ func (s *Server) handleCodeAction(f frame) error {
 			}
 		}
 	}
+	if wantsKind(p.Context.Only, quickFixKind) {
+		actions = append(actions, s.childSpacingFixes(uri, path, text, p.Range)...)
+	}
 	if actions == nil {
 		actions = []CodeAction{}
 	}
@@ -164,4 +170,62 @@ func wantsKind(only []string, kind string) bool {
 		}
 	}
 	return false
+}
+
+// childSpacingCode is the diagnostic code whose dropped whitespace the
+// spacing quickfixes repair.
+const childSpacingCode = "child-element-spacing"
+
+// childSpacingFixes offers two edits per child-element-spacing diagnostic of
+// path overlapping rng: insert {" "} where the dropped whitespace starts, or
+// replace that whitespace with one space (joining the lines). The diagnostic's
+// range must still cover whitespace containing a line break in the current
+// buffer; a diagnostic computed on an older buffer that no longer matches
+// offers nothing.
+func (s *Server) childSpacingFixes(uri, path, text string, rng Range) []CodeAction {
+	pkg := s.pkgs[filepath.Dir(path)]
+	if pkg == nil {
+		return nil
+	}
+	lineAt := lineAtFunc(text)
+	var actions []CodeAction
+	for _, d := range pkg.Diags {
+		if d.Code != childSpacingCode || filepath.Clean(d.Start.Filename) != path {
+			continue
+		}
+		ld := convertDiag(d, lineAt, s.enc)
+		r := ld.Range
+		if positionLess(rng.End, r.Start) || positionLess(r.End, rng.Start) {
+			continue
+		}
+		start := byteOffsetForPosition(text, r.Start.Line, r.Start.Character, s.enc)
+		end := byteOffsetForPosition(text, r.End.Line, r.End.Character, s.enc)
+		if start >= end {
+			continue
+		}
+		run := text[start:end]
+		if strings.Trim(run, " \t\r\n") != "" || !strings.ContainsAny(run, "\r\n") {
+			continue
+		}
+		actions = append(actions,
+			CodeAction{
+				Title:       `Insert {" "}`,
+				Kind:        quickFixKind,
+				Diagnostics: []Diagnostic{ld},
+				Edit:        &WorkspaceEdit{Changes: map[string][]TextEdit{uri: {{Range: Range{Start: r.Start, End: r.Start}, NewText: `{" "}`}}}},
+			},
+			CodeAction{
+				Title:       "Join lines",
+				Kind:        quickFixKind,
+				Diagnostics: []Diagnostic{ld},
+				Edit:        &WorkspaceEdit{Changes: map[string][]TextEdit{uri: {{Range: r, NewText: " "}}}},
+			},
+		)
+	}
+	return actions
+}
+
+// positionLess reports whether a sorts strictly before b.
+func positionLess(a, b Position) bool {
+	return a.Line < b.Line || (a.Line == b.Line && a.Character < b.Character)
 }

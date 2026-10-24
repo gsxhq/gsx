@@ -174,6 +174,11 @@ gsx generate --json ./views
 | `1` | A source diagnostic or operational error prevented generation. |
 | `2` | The command, configuration, or a path was invalid. |
 
+Warnings, such as a `duplicate-attribute` or a dropped space
+(`child-element-spacing`), are printed but do not change the exit status.
+The `[lint]` table in `gsx.toml` can turn each lint off or make it an error;
+see [Lints](./config.md#lint).
+
 When a `.gsx` file has a generation error, gsx replaces its previous generated
 file with a deliberately non-compiling marker. This prevents `go build` from
 silently using stale output. Fix the `.gsx` file and run `generate` again.
