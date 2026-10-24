@@ -4,7 +4,7 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.4.1 — 2026-10-24
 
 - **New `child-element-spacing` warning.** A line break between text and
   inline content is dropped, so `Report template:` followed by `<a>` on the
