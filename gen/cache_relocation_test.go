@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // writeRelocatableModule writes one small gsx module under root. Content is
@@ -23,8 +24,26 @@ func writeRelocatableModule(t *testing.T, root string) {
 	if err := os.MkdirAll(filepath.Join(root, "v"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "v", "v.gsx"), []byte("package v\n\ncomponent A(name string) { <p>{name}</p> }\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "v", "v.gsx"), []byte(relocatableSrc), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// relocatableSrc carries one child-element-spacing warning, so the test also
+// pins that a hit reports its stored warning under the hitting checkout.
+const relocatableSrc = "package v\n\ncomponent A(name string) {\n\t<p>\n\t\tHi\n\t\t<b>{name}</b>\n\t</p>\n}\n"
+
+// assertOneWarningIn fails unless res holds exactly one diagnostic: the
+// fixture's warning, positioned in v/v.gsx under root.
+func assertOneWarningIn(t *testing.T, res Result, root string) {
+	t.Helper()
+	if len(res.Diags) != 1 {
+		t.Fatalf("diags = %v, want the fixture's one warning", res.Diags)
+	}
+	d := res.Diags[0]
+	want := filepath.Join(root, "v", "v.gsx")
+	if d.Code != diag.CodeChildElementSpacing || d.Severity != diag.Warning || d.Start.Filename != want || d.End.Filename != want || d.Start.Line != 5 {
+		t.Fatalf("warning = %+v, want child-element-spacing at %s:5", d, want)
 	}
 }
 
@@ -44,23 +63,25 @@ func TestCacheSharedAcrossCheckoutPaths(t *testing.T) {
 
 	first := t.TempDir()
 	writeRelocatableModule(t, first)
-	_, report, err := generateCachedReportFixed([]string{first}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	res, report, err := generateCachedReportFixed([]string{first}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if hits, misses, uncacheable := report.counts(); hits != 0 || misses != 1 || uncacheable != 0 {
 		t.Fatalf("first checkout cold: hits=%d misses=%d uncacheable=%d, want 0/1/0", hits, misses, uncacheable)
 	}
+	assertOneWarningIn(t, res, first)
 
 	second := t.TempDir()
 	writeRelocatableModule(t, second)
-	_, report, err = generateCachedReportFixed([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
+	res, report, err = generateCachedReportFixed([]string{second}, nil, nil, nil, attrclass.Builtin(), true, nil, nil, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if hits, misses, uncacheable := report.counts(); hits != 1 || misses != 0 || uncacheable != 0 {
 		t.Fatalf("identical checkout at a different path: hits=%d misses=%d uncacheable=%d, want 1/0/0 (the cache key must not depend on the checkout path)", hits, misses, uncacheable)
 	}
+	assertOneWarningIn(t, res, second)
 
 	// Content change at the second path: must miss. This is the direction that
 	// keeps the relocation freedom honest — path-independence must never become

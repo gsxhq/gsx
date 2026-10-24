@@ -468,9 +468,6 @@ An unknown code or level is a configuration error (exit `2`). A lint set to
 [non-compiling marker](./cli.md#when-generation-fails), and `gsx dev` and the
 editor show it as an error. `gen.WithLint(code, level)` overrides the file.
 
-Packages served from the generation cache don't repeat their warnings; run
-`gsx generate --no-cache` to list them all.
-
 ### `child-element-spacing` {#child-element-spacing}
 
 gsx follows JSX whitespace rules, so a line break between text and other

@@ -46,16 +46,16 @@ type cachePreparation struct {
 
 type cacheClassification struct {
 	keys        map[string]string
-	hits        map[string]pkgOutput
+	hits        map[string]cacheEntry
 	misses      []string
 	uncacheable []string
 	dirReports  []cacheDirReport
 }
 
 type cacheStoreCandidate struct {
-	dir    string
-	key    string
-	output pkgOutput
+	dir   string
+	key   string
+	entry cacheEntry
 }
 
 // prepareCache captures the semantic source and Go-command inputs exactly once,
@@ -165,7 +165,7 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 func classifyCache(prep cachePreparation) cacheClassification {
 	classification := cacheClassification{
 		keys: make(map[string]string),
-		hits: make(map[string]pkgOutput),
+		hits: make(map[string]cacheEntry),
 	}
 	for _, dir := range prep.dirs {
 		if !prep.cacheReady {
@@ -242,16 +242,17 @@ func commitCache(prep cachePreparation, classification cacheClassification, repo
 
 	restoreStart := time.Now()
 	for _, dir := range prep.dirs {
-		output, ok := classification.hits[dir]
+		entry, ok := classification.hits[dir]
 		if !ok {
 			continue
 		}
-		written, upToDate, err := restore(dir, output)
+		written, upToDate, err := restore(dir, entry.files)
 		if err != nil {
 			result.Errs = append(result.Errs, err)
 			report.Durations.Restore = time.Since(restoreStart)
 			return
 		}
+		result.Diags = append(result.Diags, absWarnings(prep.root, entry.warnings)...)
 		result.Written = append(result.Written, written...)
 		result.UpToDate += upToDate
 	}
@@ -269,14 +270,14 @@ func commitCache(prep cachePreparation, classification cacheClassification, repo
 		result.Errs = append(result.Errs, err)
 		return
 	}
-	candidates := writeGeneratedOutputs(generationDirs, generated, classification, result)
+	candidates := writeGeneratedOutputs(prep.root, generationDirs, generated, classification, result)
 	storeGeneratedOutputs(prep.cacheDir, candidates, report)
 }
 
 // writeGeneratedOutputs completes the entire generated-output write phase and
 // returns the successful cacheable misses that become eligible for the later
 // store phase. It deliberately has no cache-directory or store access.
-func writeGeneratedOutputs(generationDirs []string, generated map[string]codegen.DirResult, classification cacheClassification, result *Result) []cacheStoreCandidate {
+func writeGeneratedOutputs(root string, generationDirs []string, generated map[string]codegen.DirResult, classification cacheClassification, result *Result) []cacheStoreCandidate {
 	cacheableMisses := make(map[string]bool, len(classification.misses))
 	for _, dir := range classification.misses {
 		cacheableMisses[dir] = true
@@ -296,14 +297,18 @@ func writeGeneratedOutputs(generationDirs []string, generated map[string]codegen
 		if !ok {
 			continue
 		}
-		candidates = append(candidates, cacheStoreCandidate{dir: dir, key: key, output: output})
+		warnings, ok := relWarnings(root, dirResult.Diags)
+		if !ok {
+			continue
+		}
+		candidates = append(candidates, cacheStoreCandidate{dir: dir, key: key, entry: cacheEntry{files: output, warnings: warnings}})
 	}
 	return candidates
 }
 
 func storeGeneratedOutputs(cacheDir string, candidates []cacheStoreCandidate, report *moduleCacheReport) {
 	for _, candidate := range candidates {
-		if err := storePut(cacheDir, candidate.key, candidate.output); err != nil {
+		if err := storePut(cacheDir, candidate.key, candidate.entry); err != nil {
 			report.StoreFailures = append(report.StoreFailures, cacheDirReport{
 				Dir:    candidate.dir,
 				Reason: cacheReasonStoreWriteFailed,

@@ -17,6 +17,12 @@ syntax or APIs; a patch bump does not. See
 - **Table keys written as plain values are rejected.** `filters = "x"`,
   `renderers = "x"` or `lint = "x"` was silently ignored; it is now a
   configuration error.
+- **Warnings repeat on cached runs.** `gsx generate` printed a package's
+  warnings only when it regenerated it; a package served from the cache
+  reported none.
+- **`gsx info` lists each lint's effective level.**
+- **`gsx generate --json` writes only the JSON array to stdout.** A
+  successful run appended `gsx: wrote N file(s)` after it.
 
 ## v0.4.0 — 2026-10-15
 

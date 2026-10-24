@@ -178,7 +178,7 @@ func TestCachePipelineKeyFailurePreservesSiblingHit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantHit := pkgOutput{"cacheable.x.go": []byte("package cacheable\n")}
+	wantHit := cacheEntry{files: pkgOutput{"cacheable.x.go": []byte("package cacheable\n")}}
 	if err := storePut(cacheRoot, key, wantHit); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestCachePipelineUnreadableEntryPreservesSiblingHit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantHit := pkgOutput{"cacheable.x.go": []byte("package cacheable\n")}
+	wantHit := cacheEntry{files: pkgOutput{"cacheable.x.go": []byte("package cacheable\n")}}
 	if err := storePut(cacheRoot, firstKey, wantHit); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestCachePipelineWriteStageCompletesBeforeStoreCandidates(t *testing.T) {
 	}
 
 	var result Result
-	candidates := writeGeneratedOutputs(generationDirs, generated, classification, &result)
+	candidates := writeGeneratedOutputs(filepath.Dir(cacheableDir), generationDirs, generated, classification, &result)
 	for _, target := range []string{
 		filepath.Join(cacheableDir, "cacheable.x.go"),
 		filepath.Join(poisonDir, "poison.x.go"),
@@ -323,7 +323,7 @@ func TestCachePipelineWriteStageCompletesBeforeStoreCandidates(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("store candidates = %+v, want only successful cacheable miss", candidates)
 	}
-	if candidate := candidates[0]; candidate.dir != cacheableDir || candidate.key != "cacheable-key" || len(candidate.output) != 1 {
+	if candidate := candidates[0]; candidate.dir != cacheableDir || candidate.key != "cacheable-key" || len(candidate.entry.files) != 1 {
 		t.Fatalf("store candidate = %+v", candidate)
 	}
 	if len(result.Diags) != 1 || result.Diags[0].Message != "broken component" {
@@ -350,7 +350,7 @@ func TestCachePipelineCommitValidatesBeforeRestoringHits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := storePut(cacheRoot, key, pkgOutput{"cacheable.x.go": []byte("package restored\n")}); err != nil {
+	if err := storePut(cacheRoot, key, cacheEntry{files: pkgOutput{"cacheable.x.go": []byte("package restored\n")}}); err != nil {
 		t.Fatal(err)
 	}
 	prep := cachePreparation{

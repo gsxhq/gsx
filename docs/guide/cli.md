@@ -312,7 +312,8 @@ gsx info
 ```
 
 The human view shows the active config path and resolved filters, renderers,
-attribute rules, minification, formatter width, and environment overrides.
+attribute rules, lint levels, minification, formatter width, and environment
+overrides.
 Use JSON for automation:
 
 ```bash

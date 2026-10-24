@@ -2,13 +2,26 @@ package gen
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 type pkgOutput map[string][]byte
+
+// cacheEntry is one directory's cached generation: the .x.go files it wrote
+// and the warnings it reported, so a hit reports them again. A directory with
+// an error is never stored. Warning filenames are relative to the module root
+// (see relWarnings), so an entry stays valid wherever the module is checked
+// out.
+type cacheEntry struct {
+	files    pkgOutput
+	warnings []diag.Diagnostic
+}
 
 type cacheLookupStatus uint8
 
@@ -42,19 +55,19 @@ func entryPath(dir, key string) string {
 	return filepath.Join(dir, shard, key)
 }
 
-func storeGet(dir, key string) (pkgOutput, cacheLookupStatus, error) {
+func storeGet(dir, key string) (cacheEntry, cacheLookupStatus, error) {
 	data, err := os.ReadFile(entryPath(dir, key))
 	switch {
 	case err == nil:
-		out, ok := decodeOutput(data)
+		entry, ok := decodeEntry(data)
 		if !ok {
-			return nil, cacheLookupCorrupt, nil
+			return cacheEntry{}, cacheLookupCorrupt, nil
 		}
-		return out, cacheLookupHit, nil
+		return entry, cacheLookupHit, nil
 	case os.IsNotExist(err):
-		return nil, cacheLookupMissing, nil
+		return cacheEntry{}, cacheLookupMissing, nil
 	default:
-		return nil, cacheLookupUnreadable, err
+		return cacheEntry{}, cacheLookupUnreadable, err
 	}
 }
 
@@ -72,7 +85,7 @@ func writeSentinel(cacheRoot string) {
 	_ = os.WriteFile(tag, []byte(cachedirTagContent), 0o644)
 }
 
-func storePut(dir, key string, out pkgOutput) error {
+func storePut(dir, key string, entry cacheEntry) error {
 	p := entryPath(dir, key)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
@@ -84,7 +97,7 @@ func storePut(dir, key string, out pkgOutput) error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(encodeOutput(out)); err != nil {
+	if _, err := tmp.Write(encodeEntry(entry)); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -94,8 +107,11 @@ func storePut(dir, key string, out pkgOutput) error {
 	return os.Rename(tmp.Name(), p) // atomic
 }
 
-// encodeOutput: count, then for each (sorted by name): len(name) name len(data) data.
-func encodeOutput(out pkgOutput) []byte {
+// encodeEntry: the files (count, then for each sorted by name: len(name) name
+// len(data) data), then len(warnings) warnings, the warnings as a JSON array
+// (length 0 when there are none).
+func encodeEntry(entry cacheEntry) []byte {
+	out := entry.files
 	names := make([]string, 0, len(out))
 	for n := range out {
 		names = append(names, n)
@@ -114,10 +130,16 @@ func encodeOutput(out pkgOutput) []byte {
 		b = append(b, tmp[:]...)
 		b = append(b, d...)
 	}
-	return b
+	var warnings []byte
+	if len(entry.warnings) > 0 {
+		warnings, _ = json.Marshal(entry.warnings) // plain data: cannot fail
+	}
+	binary.BigEndian.PutUint64(tmp[:], uint64(len(warnings)))
+	b = append(b, tmp[:]...)
+	return append(b, warnings...)
 }
 
-func decodeOutput(b []byte) (pkgOutput, bool) {
+func decodeEntry(b []byte) (cacheEntry, bool) {
 	readU64 := func() (uint64, bool) {
 		if len(b) < 8 {
 			return 0, false
@@ -128,42 +150,60 @@ func decodeOutput(b []byte) (pkgOutput, bool) {
 	}
 	count, ok := readU64()
 	if !ok {
-		return nil, false
+		return cacheEntry{}, false
 	}
 	// Every encoded entry contains at least its name and data lengths. Bound the
 	// count before converting it to int or allocating the map.
 	if count > uint64(len(b)/16) {
-		return nil, false
+		return cacheEntry{}, false
 	}
 	out := make(pkgOutput, int(count))
 	for range int(count) {
 		nameLength, ok := readU64()
 		if !ok {
-			return nil, false
+			return cacheEntry{}, false
 		}
 		if nameLength > uint64(len(b)) {
-			return nil, false
+			return cacheEntry{}, false
 		}
 		name := string(b[:int(nameLength)])
 		b = b[int(nameLength):]
 		if name == "" || strings.IndexByte(name, 0) >= 0 || filepath.Base(name) != name || !strings.HasSuffix(name, ".x.go") {
-			return nil, false
+			return cacheEntry{}, false
 		}
 		if _, duplicate := out[name]; duplicate {
-			return nil, false
+			return cacheEntry{}, false
 		}
 		dataLength, ok := readU64()
 		if !ok {
-			return nil, false
+			return cacheEntry{}, false
 		}
 		if dataLength > uint64(len(b)) {
-			return nil, false
+			return cacheEntry{}, false
 		}
 		out[name] = append([]byte(nil), b[:int(dataLength)]...)
 		b = b[int(dataLength):]
 	}
-	if len(b) != 0 {
-		return nil, false
+	warningsLength, ok := readU64()
+	if !ok || warningsLength != uint64(len(b)) {
+		return cacheEntry{}, false
 	}
-	return out, true
+	var warnings []diag.Diagnostic
+	if warningsLength > 0 {
+		if json.Unmarshal(b, &warnings) != nil || len(warnings) == 0 {
+			return cacheEntry{}, false
+		}
+		for _, w := range warnings {
+			if w.Severity != diag.Warning || !cachedFilename(w.Start.Filename) || !cachedFilename(w.End.Filename) {
+				return cacheEntry{}, false
+			}
+		}
+	}
+	return cacheEntry{files: out, warnings: warnings}, true
+}
+
+// cachedFilename reports whether name is a stored warning filename: empty (a
+// positionless diagnostic) or a local slash path below the module root.
+func cachedFilename(name string) bool {
+	return name == "" || filepath.IsLocal(filepath.FromSlash(name))
 }
