@@ -14,6 +14,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // runInfo resolves the configured filter packages and prints the resolved
@@ -25,7 +26,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel, printWidth int) int {
+func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, lint diag.LintPolicy, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel, printWidth int) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -151,6 +152,15 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 			printRuleSet(stdout, "URL <"+tag+">", rules.URLTags[tag])
 		}
 	}
+
+	// Lint section: every configurable code with its effective level, so a
+	// [lint] entry's effect (and the default it overrides) is visible.
+	fmt.Fprintf(stdout, "\nLint:\n")
+	ltw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	for _, code := range diag.LintCodes() {
+		fmt.Fprintf(ltw, "  %s\t%s\n", code, lint.Level(code))
+	}
+	ltw.Flush()
 
 	fmt.Fprintf(stdout, "\nminify: css=%s js=%s\n", cssMinLevel, jsMinLevel)
 	fmt.Fprintf(stdout, "formatter: print_width=%d\n", printWidth)
