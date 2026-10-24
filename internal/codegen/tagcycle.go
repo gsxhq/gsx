@@ -215,6 +215,6 @@ func reportCycle(bag *diag.Bag, edges map[string][]cycleEdge, canon []string) {
 	if el == nil {
 		return // unreachable: canon was derived from a real edge in "edges"
 	}
-	bag.Report(el.Pos(), el.End(), diag.Warning, "wrapper-cycle", "codegen",
+	bag.Report(el.Pos(), el.End(), diag.Warning, diag.CodeWrapperCycle, "codegen",
 		"wrapper cycle %s will recurse infinitely at render", strings.Join(canon, " → "))
 }

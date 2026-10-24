@@ -6,21 +6,17 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
-- **New `child-element-spacing` warning.** gsx drops whitespace that contains
-  a line break where text meets other content, so HTML-style markup such as
-  `Report template:` followed by `<a>` on the next line rendered
-  `Report template:<a>` with the space silently lost. gsx now warns at the
-  dropped whitespace when it sits between text and inline content (text,
-  text-level elements such as `a`, `span` and `code`, text-valued
-  interpolations, and control-flow blocks that render them), and the editor
-  offers `{" "}` or joining the lines as quick fixes. See
-  [Lints](docs/guide/config.md#child-element-spacing) for the exact rule.
-- **`[lint]` in `gsx.toml`** sets each lint (`child-element-spacing`,
-  `duplicate-attribute`, `self-reference-leaf`, `url-always-blocked`,
-  `wrapper-cycle`) to `"off"`, `"warning"` or `"error"`; `gen.WithLint`
-  overrides it in a custom binary. A lint set to `"error"` fails `gsx
-  generate` and writes the non-compiling marker like any other error. An
-  unknown code or level is a configuration error (exit 2).
+- **New `child-element-spacing` warning.** A line break between text and
+  inline content is dropped, so `Report template:` followed by `<a>` on the
+  next line rendered `Report template:<a>`. gsx now warns there, and the
+  editor offers `{" "}` or joining the lines. See
+  [Lints](docs/guide/config.md#child-element-spacing).
+- **`[lint]` in `gsx.toml`** sets each lint to `"off"`, `"warning"` or
+  `"error"`. An error-level lint fails `gsx generate` like any other error.
+  An unknown code or level is a configuration error (exit 2).
+- **Table keys written as plain values are rejected.** `filters = "x"`,
+  `renderers = "x"` or `lint = "x"` was silently ignored; it is now a
+  configuration error.
 
 ## v0.4.0 — 2026-10-15
 

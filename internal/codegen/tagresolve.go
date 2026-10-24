@@ -65,7 +65,7 @@ func reportSelfRefWarning(bag *diag.Bag, el *gsxast.Element, exclude string) {
 	if htmlElementNames[el.Tag] {
 		return
 	}
-	bag.Report(el.Pos(), el.End(), diag.Warning, "self-reference-leaf", "codegen",
+	bag.Report(el.Pos(), el.End(), diag.Warning, diag.CodeSelfReferenceLeaf, "codegen",
 		"<%s> inside the declaration of %q renders as a leaf element; for recursion call %s(...) in a Go hole",
 		el.Tag, exclude, el.Tag)
 }

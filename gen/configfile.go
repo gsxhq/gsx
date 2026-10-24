@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -268,6 +269,9 @@ func loadConfig(path string) (config, error) {
 		sort.Strings(keys)
 		return config{}, fmt.Errorf("%s: unknown key(s): %s", path, strings.Join(keys, ", "))
 	}
+	if err := requireTables(md); err != nil {
+		return config{}, fmt.Errorf("%s: %w", path, err)
+	}
 
 	var cfg config
 	for _, p := range tc.FilterPackages {
@@ -513,4 +517,17 @@ func parseLintTable(table map[string]string) (diag.LintPolicy, error) {
 		policy[code] = level
 	}
 	return policy, nil
+}
+
+// requireTables rejects a table-valued key (a map field of tomlConfig, such as
+// [lint]) written as a plain value: the TOML decoder turns `lint = "x"` into an
+// empty map without an error or an undecoded key.
+func requireTables(md toml.MetaData) error {
+	for f := range reflect.TypeFor[tomlConfig]().Fields() {
+		key := f.Tag.Get("toml")
+		if f.Type.Kind() == reflect.Map && md.IsDefined(key) && md.Type(key) != "Hash" {
+			return fmt.Errorf("%s: must be a table (got %s)", key, strings.ToLower(md.Type(key)))
+		}
+	}
+	return nil
 }

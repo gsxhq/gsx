@@ -446,9 +446,8 @@ sources merge.
 
 ## Lints `[lint]` {#lint}
 
-Some diagnostics are lints: gsx reports them as warnings because the code is
-valid but probably not what you meant. `[lint]` sets each one to `"off"`,
-`"warning"` (the default) or `"error"`:
+Lints are warnings about valid code that is probably a mistake. `[lint]` sets
+each one to `"off"`, `"warning"` (the default) or `"error"`:
 
 ```toml
 [lint]
@@ -458,33 +457,24 @@ duplicate-attribute = "off"
 
 | Code | Reports |
 |---|---|
-| `child-element-spacing` | A line break between text and inline content that removes the only space between them (below). |
+| `child-element-spacing` | A line break that drops the only space between text and inline content (below). |
 | `duplicate-attribute` | An attribute set twice on one element; the browser keeps the first. |
-| `self-reference-leaf` | A tag named like its own enclosing component that renders as a plain element. |
+| `self-reference-leaf` | A tag named like its enclosing component that renders as a plain element. |
 | `url-always-blocked` | A constant URL attribute value that always renders as `about:invalid#gsx`. |
-| `wrapper-cycle` | Components that wrap each other unconditionally, so rendering recurses forever. |
+| `wrapper-cycle` | Components that wrap each other unconditionally, so rendering never ends. |
 
-Any other key, or any other value, is a configuration error: `generate`,
-`dev` and `info` exit `2` and name the file and key. Only these codes can be
-configured; errors cannot be downgraded.
+An unknown code or level is a configuration error (exit `2`). A lint set to
+`"error"` behaves like any other error: `gsx generate` exits `1` and writes the
+[non-compiling marker](./cli.md#when-generation-fails), and `gsx dev` and the
+editor show it as an error. `gen.WithLint(code, level)` overrides the file.
 
-A lint set to `"error"` is an error like any other. `gsx generate` exits `1`
-and replaces the file's `.x.go` with the non-compiling marker described in
-[Diagnostics and exit status](./cli.md#when-generation-fails), so `go build`
-fails until the source is fixed or the lint is relaxed; it never builds stale
-or unchecked output. `gsx dev`, watch mode and the editor report the same
-severity. A programmatic `gen.WithLint(code, level)` overrides the file entry
-for that code.
-
-Warnings are reported when a package is generated. A package served from the
-generation cache is not re-analyzed, so its warnings are not repeated; run
-`gsx generate --no-cache` to list every warning.
+Packages served from the generation cache don't repeat their warnings; run
+`gsx generate --no-cache` to list them all.
 
 ### `child-element-spacing` {#child-element-spacing}
 
-gsx follows JSX whitespace rules: whitespace that contains a line break is
-dropped where text meets other content. Markup written in HTML style loses a
-space:
+gsx follows JSX whitespace rules, so a line break between text and other
+content is dropped:
 
 ```gsx
 <p>
@@ -493,47 +483,16 @@ space:
 </p>
 ```
 
-renders `Report template:<a href="/t">…</a>`. Join the lines
-(`Report template: <a …>`) or write `{" "}` where the space belongs; the
-editor offers both as quick fixes.
+renders `Report template:<a href="/t">…</a>`. Join the lines or write `{" "}`
+where the space belongs; the editor offers both fixes.
 
-The lint reports a text child of an element, fragment, control-flow body or
-markup slot when the whitespace at its start or end contains a line break,
-normalization therefore drops it, and the sibling on that side renders inline
-content at the shared edge. Inline content is:
-
-- text;
-- a text-level element: `a`, `abbr`, `b`, `bdi`, `bdo`, `cite`, `code`,
-  `data`, `del`, `dfn`, `em`, `i`, `ins`, `kbd`, `mark`, `q`, `ruby`, `s`,
-  `samp`, `small`, `span`, `strong`, `sub`, `sup`, `time`, `u`, `var` — the
-  HTML text-level semantics and edit elements, without `br` and `wbr`. Its own
-  content decides its edge, so `<span> (x)</span>` keeps its space and an
-  empty `<span></span>` is a styled box, not text;
-- an interpolation whose value renders as text (a string, number, boolean,
-  `[]string`, `[]byte` or `fmt.Stringer`); a string literal counts by its
-  value, so `{" "}` is a space;
-- an `if`, `for` or `switch` block with inline content at that edge in any
-  branch. A block that can render nothing (an `if` branch, an empty loop, a
-  switch without `default`) also exposes the sibling after it.
-
-Braced `{/* … */}` comments, HTML comments and Go statement blocks render
-nothing and are looked through.
-Everything else ends the check: block elements such as `div` or `li`,
-replaced and form elements such as `img`, `svg`, `input`, `button`, `label`
-(their distance from text is layout, not a space), component tags and
-`gsx.Node` values (their output is unknown), and other tags. `pre`,
-`textarea`, `script` and `style` keep their whitespace and are not checked.
-
-No space is expected after an opening bracket or initial quote, or before a
-closing bracket, final quote or terminal punctuation (Unicode `Ps`/`Pi`, and
-`Pe`/`Pf`/`Terminal_Punctuation`: `. , ; : ! ?`), so
-
-```gsx
-<a href="/f">download it</a>
-.
-```
-
-is not reported.
+The lint fires when the dropped whitespace sits between text and inline
+content: text, a text-level element (`a`, `b`, `code`, `em`, `span`, `strong`
+and the other HTML text-level semantics elements), an interpolation that
+renders text, or an `if`/`for`/`switch` that can render one of these. It
+doesn't fire next to block elements, components or `gsx.Node` values, inside
+`pre`/`textarea`/`script`/`style`, after an opening bracket or quote, or before
+a closing one or `. , ; : ! ?`.
 
 ## Complete example
 

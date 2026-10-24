@@ -1664,7 +1664,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 
 	// child-element-spacing reads resolved interpolation types, so it runs once
 	// harvest has filled them; an imported package's analysis reports nothing.
-	if purpose != analysisTypeOnly && m.opts.Lint.Level(childElementSpacingCode) != diag.LintOff {
+	if purpose != analysisTypeOnly && m.opts.Lint.Level(diag.CodeChildElementSpacing) != diag.LintOff {
 		for _, path := range sortedGsxFilePaths(gsxFiles) {
 			reportChildElementSpacing(gsxFiles[path], parsed.sources[path], fset, resolved, table, bag)
 		}

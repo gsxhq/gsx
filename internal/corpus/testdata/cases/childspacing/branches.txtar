@@ -1,0 +1,47 @@
+# child-element-spacing through a marker region, an f-literal child, a
+# (T, error) interpolation and a switch without default, which may render
+# nothing and so exposes the sibling after it. A trailing &nbsp; renders a
+# space, so the line break after it is not reported.
+-- input.gsx --
+package views
+
+func pair(s string) (string, error) { return s, nil }
+
+component C(name string, n int) {
+	<p id="region">
+		Loading
+		<?start name="feed">
+			<b>{ name }</b>
+		<?end>
+	</p>
+	<p id="f-literal">
+		Hi
+		{f`@{name}!`}
+	</p>
+	<p id="tuple">
+		Name:
+		{ pair(name) }
+	</p>
+	<p id="switch-no-default">
+		Total
+		{ switch n {
+			case 0:
+				<div>none</div>
+		} }
+		<b>{ n }</b>
+	</p>
+	<p id="nbsp">
+		foo&nbsp;
+		<b>x</b>
+		&nbsp;bar
+	</p>
+}
+-- invoke --
+C("X", 3)
+-- diagnostics.golden --
+7:10: warning: line break after this text is dropped: no space renders before the region
+13:5: warning: line break after this text is dropped: no space renders before the interpolation
+17:8: warning: line break after this text is dropped: no space renders before the interpolation
+21:8: warning: line break after this text is dropped: no space renders before <b>
+-- render.golden --
+<p id="region">Loading<?start name="feed"><b>X</b><?end></p><p id="f-literal">HiX!</p><p id="tuple">Name:X</p><p id="switch-no-default">Total<b>3</b></p><p id="nbsp">foo&nbsp;<b>x</b>&nbsp;bar</p>

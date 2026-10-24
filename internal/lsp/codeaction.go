@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
@@ -172,10 +173,6 @@ func wantsKind(only []string, kind string) bool {
 	return false
 }
 
-// childSpacingCode is the diagnostic code whose dropped whitespace the
-// spacing quickfixes repair.
-const childSpacingCode = "child-element-spacing"
-
 // childSpacingFixes offers two edits per child-element-spacing diagnostic of
 // path overlapping rng: insert {" "} where the dropped whitespace starts, or
 // replace that whitespace with one space (joining the lines). The diagnostic's
@@ -190,7 +187,7 @@ func (s *Server) childSpacingFixes(uri, path, text string, rng Range) []CodeActi
 	lineAt := lineAtFunc(text)
 	var actions []CodeAction
 	for _, d := range pkg.Diags {
-		if d.Code != childSpacingCode || filepath.Clean(d.Start.Filename) != path {
+		if d.Code != diag.CodeChildElementSpacing || filepath.Clean(d.Start.Filename) != path {
 			continue
 		}
 		ld := convertDiag(d, lineAt, s.enc)

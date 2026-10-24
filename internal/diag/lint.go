@@ -47,14 +47,23 @@ func ParseLintLevel(s string) (LintLevel, error) {
 	return LintDefault, fmt.Errorf("invalid level %q (want \"off\", \"warning\" or \"error\")", s)
 }
 
-// lintCodes are the configurable diagnostic codes. Each is reported at Warning
-// severity by default.
+// The lint codes: diagnostics reported at Warning severity by default whose
+// level the [lint] table configures. Emit sites use these constants so a
+// configured code always names a real diagnostic.
+const (
+	CodeChildElementSpacing = "child-element-spacing"
+	CodeDuplicateAttribute  = "duplicate-attribute"
+	CodeSelfReferenceLeaf   = "self-reference-leaf"
+	CodeURLAlwaysBlocked    = "url-always-blocked"
+	CodeWrapperCycle        = "wrapper-cycle"
+)
+
 var lintCodes = []string{
-	"child-element-spacing",
-	"duplicate-attribute",
-	"self-reference-leaf",
-	"url-always-blocked",
-	"wrapper-cycle",
+	CodeChildElementSpacing,
+	CodeDuplicateAttribute,
+	CodeSelfReferenceLeaf,
+	CodeURLAlwaysBlocked,
+	CodeWrapperCycle,
 }
 
 // LintCodes returns the configurable diagnostic codes, sorted.

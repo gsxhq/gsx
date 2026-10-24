@@ -1,0 +1,45 @@
+# child-element-spacing classifies an interpolation by its rendered type after
+# a registered renderer: one returning string renders text (reported), one
+# returning gsx.Node has unknown output (not reported).
+-- gsx.toml --
+[renderers]
+"./ty.Label" = "corpustest/cases/childspacing_renderers.Label"
+"./ty.Badge" = "corpustest/cases/childspacing_renderers.Badge"
+-- ty/ty.go --
+package ty
+
+type Label struct{ S string }
+
+type Badge struct{ S string }
+-- input.gsx --
+package views
+
+import (
+	"github.com/gsxhq/gsx"
+	"corpustest/cases/childspacing_renderers/ty"
+)
+
+func Label(v ty.Label) string { return v.S }
+
+func Badge(v ty.Badge) gsx.Node {
+	return <span class="badge">{ v.S }</span>
+}
+
+func sample(s string) (ty.Label, ty.Badge) { return ty.Label{S: s}, ty.Badge{S: s} }
+
+component C(l ty.Label, b ty.Badge) {
+	<p id="string-renderer">
+		Owner
+		{ l }
+	</p>
+	<p id="node-renderer">
+		Owner
+		{ b }
+	</p>
+}
+-- invoke --
+C(sample("ann"))
+-- diagnostics.golden --
+18:8: warning: line break after this text is dropped: no space renders before the interpolation
+-- render.golden --
+<p id="string-renderer">Ownerann</p><p id="node-renderer">Owner<span class="badge">ann</span></p>

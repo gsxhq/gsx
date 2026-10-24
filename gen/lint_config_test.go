@@ -32,6 +32,8 @@ func TestLoadConfigLint(t *testing.T) {
 		{name: "error code is not a lint", toml: "[lint]\nparse-error = \"off\"\n", wantErr: []string{`unknown code "parse-error"`}},
 		{name: "bad level", toml: "[lint]\nwrapper-cycle = \"loud\"\n", wantErr: []string{"lint.wrapper-cycle", `"loud"`, `"off", "warning" or "error"`}},
 		{name: "non-string level", toml: "[lint]\nwrapper-cycle = true\n", wantErr: []string{"gsx.toml", "lint"}},
+		{name: "lint not a table", toml: "lint = \"x\"\n", wantErr: []string{"gsx.toml", "lint: must be a table (got string)"}},
+		{name: "renderers not a table", toml: "renderers = 1\n", wantErr: []string{"renderers: must be a table (got integer)"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

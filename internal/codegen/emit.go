@@ -3636,7 +3636,7 @@ func warnAlwaysBlockedURL(bag *diag.Bag, n ast.Node, name, tag, val string) {
 	default:
 		hint = "allowed schemes here are http/https/mailto/tel; vouch with gsx.RawURL if this value is intentional"
 	}
-	bag.Report(n.Pos(), n.End(), diag.Warning, "url-always-blocked", "codegen",
+	bag.Report(n.Pos(), n.End(), diag.Warning, diag.CodeURLAlwaysBlocked, "codegen",
 		"constant %s value %s on <%s> always sanitizes to about:invalid#gsx at render time; %s",
 		name, diagQuote(val), tag, hint)
 }

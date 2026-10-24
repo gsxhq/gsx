@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // newEphemeralTestModule creates a temporary module with a single "page"
@@ -18,6 +20,13 @@ import (
 // (Tasks 1-3 of the LSP-completion plan).
 func newEphemeralTestModule(t *testing.T) (m *Module, pkgDir string, pageGsxAbsPath string) {
 	t.Helper()
+	return newEphemeralTestModuleWith(t, Options{})
+}
+
+// newEphemeralTestModuleWith is newEphemeralTestModule with extra Options;
+// ModuleRoot and ModulePath are set by the helper.
+func newEphemeralTestModuleWith(t *testing.T, opts Options) (m *Module, pkgDir string, pageGsxAbsPath string) {
+	t.Helper()
 	root := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -27,7 +36,8 @@ func newEphemeralTestModule(t *testing.T) (m *Module, pkgDir string, pageGsxAbsP
 	writeFile(t, root, "page/types.go", "package page\n\ntype User struct{ Name string }\n")
 	writeFile(t, root, "page/other.gsx", "package page\n\ncomponent Other() {\n\t<div>ok</div>\n}\n")
 
-	mod, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	opts.ModuleRoot, opts.ModulePath = root, "example.com/app"
+	mod, err := Open(opts)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -58,6 +68,34 @@ func TestComponentDeclsSurviveTypeErrors(t *testing.T) {
 	}
 	if len(res.ComponentDecls) != 2 {
 		t.Fatalf("type-error ComponentDecls = %d, want 2 (syntactic facts must survive type errors)", len(res.ComponentDecls))
+	}
+}
+
+// TestLintPolicyAppliesToEditorResults pins the [lint] policy on the two
+// results the editor reads, Package and AnalyzeEphemeral: a promoted lint is
+// an error there too, not only in Generate.
+func TestLintPolicyAppliesToEditorResults(t *testing.T) {
+	m, dir, pagePath := newEphemeralTestModuleWith(t, Options{Lint: diag.LintPolicy{diag.CodeChildElementSpacing: diag.LintError}})
+	src := []byte("package page\n\ncomponent Home(user User) {\n\t<p>\n\t\tHi\n\t\t<b>{ user.Name }</b>\n\t</p>\n}\n")
+	m.SetOverride(pagePath, src)
+	res, err := m.Package(dir)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+	eph, err := m.AnalyzeEphemeral(dir, pagePath, src)
+	if err != nil {
+		t.Fatalf("AnalyzeEphemeral: %v", err)
+	}
+	for name, diags := range map[string][]diag.Diagnostic{"Package": res.Diags, "AnalyzeEphemeral": eph.Diags} {
+		var got []diag.Severity
+		for _, d := range diags {
+			if d.Code == diag.CodeChildElementSpacing {
+				got = append(got, d.Severity)
+			}
+		}
+		if len(got) != 1 || got[0] != diag.Error {
+			t.Errorf("%s: child-element-spacing severities = %v, want one Error", name, got)
+		}
 	}
 }
 

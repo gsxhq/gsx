@@ -14,11 +14,6 @@ import (
 	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
-// childElementSpacingCode is the lint reported when JSX whitespace
-// normalization removes the only whitespace between text and adjacent inline
-// content, so the rendered words run together.
-const childElementSpacingCode = "child-element-spacing"
-
 // inlineTextElements are the HTML elements whose content flows inside the
 // surrounding line of text: the WHATWG "text-level semantics" elements (§4.5)
 // plus the edit elements ins and del (§4.7). Excluded from §4.5 are br and wbr,
@@ -41,7 +36,7 @@ type spacingEdge uint8
 const (
 	// edgeNone: nothing renders there (a comment, a Go block, an empty body).
 	edgeNone spacingEdge = iota
-	// edgeSpace: a whitespace character that normalization keeps.
+	// edgeSpace: a whitespace character that renders.
 	edgeSpace
 	// edgeContent: inline text or text-level content.
 	edgeContent
@@ -179,13 +174,14 @@ func (c *childSpacing) check(nodes []gsxast.Markup) {
 		if !ok {
 			continue
 		}
-		if containsLineBreak(trail) {
-			if j, next := c.neighbour(nodes, i, 1); j >= 0 && !noSpaceBoundary(textEdge(t.Value, false).r, next.r) {
+		// A text edge that itself renders a space (&nbsp;) loses nothing.
+		if last := textEdge(t.Value, false); containsLineBreak(trail) && last.kind != edgeSpace {
+			if j, next := c.neighbour(nodes, i, 1); j >= 0 && !noSpaceBoundary(last.r, next.r) {
 				c.report(t.End()-token.Pos(len(trail)), t.End(), "after", nodes[j], true)
 			}
 		}
-		if containsLineBreak(lead) {
-			if j, prev := c.neighbour(nodes, i, -1); j >= 0 && !c.dropsTrailing(nodes[j]) && !noSpaceBoundary(prev.r, textEdge(t.Value, true).r) {
+		if first := textEdge(t.Value, true); containsLineBreak(lead) && first.kind != edgeSpace {
+			if j, prev := c.neighbour(nodes, i, -1); j >= 0 && !c.dropsTrailing(nodes[j]) && !noSpaceBoundary(prev.r, first.r) {
 				c.report(t.Pos(), t.Pos()+token.Pos(len(lead)), "before", nodes[j], false)
 			}
 		}
@@ -403,7 +399,9 @@ func valueEdge(s string, leading bool) facing {
 	} else {
 		r, _ = utf8.DecodeLastRuneInString(s)
 	}
-	if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+	// Any Unicode White_Space renders a gap, including a non-breaking space
+	// written as &nbsp; that normalization (ASCII-only) keeps.
+	if unicode.IsSpace(r) {
 		return facing{kind: edgeSpace}
 	}
 	return facing{kind: edgeContent, r: r}
@@ -442,7 +440,7 @@ func (c *childSpacing) report(pos, end token.Pos, where string, neighbour gsxast
 		Start:    c.file.Position(pos),
 		End:      c.file.Position(end),
 		Severity: diag.Warning,
-		Code:     childElementSpacingCode,
+		Code:     diag.CodeChildElementSpacing,
 		Message:  "line break " + where + " this text is dropped: no space renders " + side + " " + what,
 		Help:     `join the lines, or write {" "} where the space should be`,
 		Source:   "codegen",
