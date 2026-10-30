@@ -326,3 +326,31 @@ func TestGraphCacheDisabledRunsGoList(t *testing.T) {
 		t.Fatalf("cache off: outcome %+v, want %s (cache disabled)", outcome, graphUncacheable)
 	}
 }
+
+func TestGraphCacheStoreSkippedWhenKeyInputsChange(t *testing.T) {
+	t.Setenv("GSXCACHE", t.TempDir())
+	root := t.TempDir()
+	writeGraphDiffModule(t, root)
+	goMod := filepath.Join(root, "go.mod")
+	beforeListGraph = func() {
+		writeTestFile(t, goMod, "module example.com/app\n\ngo 1.27\n")
+	}
+	t.Cleanup(func() { beforeListGraph = nil })
+
+	prep := graphPrep(t, root)
+	_, outcome, err := loadGraphCached(prep, nil)
+	if err != nil || outcome.Reason != graphStoreSkipped || !strings.Contains(outcome.Detail, "key inputs changed") {
+		t.Fatalf("go.mod edited before go list: outcome %+v, err %v, want %s (key inputs changed)", outcome, err, graphStoreSkipped)
+	}
+	beforeListGraph = nil
+
+	// Back to the go.mod the key was computed from: the graph listed under
+	// the edited go.mod must not have been stored under that key.
+	writeTestFile(t, goMod, graphDiffModule["go.mod"])
+	prep = graphPrep(t, root)
+	graph, outcome, err := loadGraphCached(prep, nil)
+	checkCachedAgainstLive(t, "after restoring go.mod", prep, graph, outcome, err)
+	if outcome.Reason != graphEntryMissing {
+		t.Fatalf("after restoring go.mod: outcome %+v, want %s", outcome, graphEntryMissing)
+	}
+}

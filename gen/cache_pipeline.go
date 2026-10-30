@@ -162,9 +162,9 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 	return prep, report, nil
 }
 
-// afterListGraph, when set by a test, runs between go list and the re-read of
-// the witnessed files on a graph cache miss.
-var afterListGraph func()
+// beforeListGraph and afterListGraph, when set by a test, run just before and
+// just after go list on a graph cache miss.
+var beforeListGraph, afterListGraph func()
 
 // loadGraphCached returns the go list graph for prep's selected closure plus
 // roots, reusing a stored graph whose witness matches the manifest. On a miss
@@ -186,12 +186,22 @@ func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, g
 	if outcome.Hit() {
 		return graph, outcome, nil
 	}
+	if beforeListGraph != nil {
+		beforeListGraph()
+	}
 	graph, err = listGraph(prep.goContext, prep.manifest, patterns)
 	if err != nil {
 		return nil, outcome, err
 	}
 	if afterListGraph != nil {
 		afterListGraph()
+	}
+	// go list re-reads go.mod and go.sum: a graph listed after they changed
+	// must not be stored under the key of their earlier bytes.
+	if after, _, err := graphCacheKey(prep, patterns); err != nil {
+		return graph, graphCacheOutcome{Reason: graphUncacheable, Detail: err.Error()}, nil
+	} else if after != key {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "graph key inputs changed while go list ran"}, nil
 	}
 	if stored := storeListedGraph(prep, key, goModDir, graph); stored.Reason != "" {
 		outcome = stored
