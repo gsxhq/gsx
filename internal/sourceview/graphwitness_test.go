@@ -69,6 +69,8 @@ func TestGraphWitnessDetectsGraphInputs(t *testing.T) {
 	tests := []struct {
 		name  string
 		input GraphWitnessInput
+		// setup, when set, runs before the base digest.
+		setup func(t *testing.T, root string)
 		edit  func(t *testing.T, root string)
 		same  bool
 	}{
@@ -122,8 +124,31 @@ func TestGraphWitnessDetectsGraphInputs(t *testing.T) {
 		{name: "dot file under embedded dir is skipped", input: ab, same: true, edit: func(t *testing.T, root string) {
 			writeTestFile(t, root, "a/static/.DS_Store", "x")
 		}},
-		{name: "vcs dir under embedded dir is skipped", input: ab, same: true, edit: func(t *testing.T, root string) {
+		{name: "vcs dir created under embedded dir", input: ab, edit: func(t *testing.T, root string) {
 			writeTestFile(t, root, "a/static/.git/HEAD", "ref\n")
+		}},
+		{name: "file added to existing vcs dir under embedded dir", input: ab, same: true, setup: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/.git/HEAD", "ref\n")
+		}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/.git/index", "i\n")
+		}},
+		{name: "hidden dir renamed under embedded dir", input: ab, edit: func(t *testing.T, root string) {
+			if err := os.Rename(filepath.Join(root, "a", "static", "_hidden"), filepath.Join(root, "a", "static", "_other")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "bad-name dir under embedded dir gains a file", input: ab, setup: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/bad\"dir/one.txt", "1\n")
+		}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/bad\"dir/two.txt", "2\n")
+		}},
+		{name: "bad-name dir matched by embed glob gains a file", input: ab, setup: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/assets/bad\"dir/one.txt", "1\n")
+		}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/assets/bad\"dir/two.txt", "2\n")
+		}},
+		{name: "hidden bad-name file added under all: embedded dir", input: GraphWitnessInput{Dirs: []string{"f"}}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "f/static/.hg", "x\n")
 		}},
 		{name: "underscore dir under all: embedded dir", input: GraphWitnessInput{Dirs: []string{"f"}}, edit: func(t *testing.T, root string) {
 			writeTestFile(t, root, "f/static/_private/q.txt", "q\n")
@@ -153,8 +178,10 @@ func TestGraphWitnessDetectsGraphInputs(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{name: "dot dir under non-all embedded dir is skipped", input: ab, same: true, edit: func(t *testing.T, root string) {
+		{name: "dot dir under non-all embedded dir is skipped", input: ab, same: true, setup: func(t *testing.T, root string) {
 			writeTestFile(t, root, "a/static/.vite/x.json", "{}\n")
+		}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/.vite/y.json", "{}\n")
 		}},
 		{name: "file added to dot dir named by pattern", input: GraphWitnessInput{Dirs: []string{"e"}}, edit: func(t *testing.T, root string) {
 			writeTestFile(t, root, "e/.well-known/y.txt", "y\n")
@@ -232,6 +259,9 @@ func TestGraphWitnessDetectsGraphInputs(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := writeWitnessFixture(t)
+			if test.setup != nil {
+				test.setup(t, root)
+			}
 			base := graphWitness(t, buildWitnessManifest(t, root), test.input)
 			test.edit(t, root)
 			got := graphWitness(t, buildWitnessManifest(t, root), test.input)
@@ -254,6 +284,10 @@ func TestGraphWitnessIsOrderAndCheckoutIndependent(t *testing.T) {
 func TestDiskGraphWitnessMatchesManifest(t *testing.T) {
 	input := GraphWitnessInput{Dirs: []string{"a", "b", "c", "e", "f", "nested/n", "testdata/x"}, EmbedFiles: []string{"a/data.txt", "a/missing.txt", "a/static/one.txt", "e/.well-known/x.txt", "f/static/.vite/manifest.json"}}
 	root := writeWitnessFixture(t)
+	// Walked bad-name and skipped hidden directories agree on both sides.
+	writeTestFile(t, root, "a/static/bad\"dir/one.txt", "1\n")
+	writeTestFile(t, root, "a/assets/bad\"dir/one.txt", "1\n")
+	writeTestFile(t, root, "f/static/.git/HEAD", "ref\n")
 	manifest := buildWitnessManifest(t, root)
 	want := graphWitness(t, manifest, input)
 	got, err := manifest.DiskGraphWitness(input)

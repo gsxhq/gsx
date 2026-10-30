@@ -59,7 +59,9 @@ func embedPatterns(src []byte) []string {
 }
 
 // isBadEmbedName is cmd/go's: a name that cannot or will not be packaged
-// into a module.
+// into a module. It depends on golang.org/x/mod's CheckFilePath, whose copy
+// in the toolchain may differ from gsx's, so the witness never trusts it to
+// leave something out: bad names are written and bad directories walked.
 func isBadEmbedName(name string) bool {
 	if err := module.CheckFilePath(name); err != nil {
 		return true
@@ -237,7 +239,6 @@ func (r *embedResolver) writePattern(pattern string) error {
 		r.w.field(rel)
 		if slices.ContainsFunc(strings.Split(rel, "/"), isBadEmbedName) {
 			r.w.field("bad-name")
-			continue
 		}
 		parent, name := path.Split(rel)
 		node, _, err := r.dir(cleanGlobPath(parent))
@@ -282,30 +283,37 @@ func (r *embedResolver) writeMatchedDir(parent witnessNode, rel string, all bool
 }
 
 // walk is resolveEmbed's WalkDir over a matched directory: hidden names are
-// skipped unless all is set, bad names skip directories and fail files,
-// irregular files are ignored, and a nested module is not entered.
+// skipped unless all is set, bad names are skipped, irregular files are
+// ignored, and a nested module is not entered. Whether a name is bad is
+// x/mod's call (see isBadEmbedName), so bad names are written like any other
+// and bad directories are walked; a skipped hidden directory's name is
+// written too.
 func (r *embedResolver) walk(key string, node witnessNode, all bool) error {
-	skip := func(name string) bool {
-		return isBadEmbedName(name) || ((name[0] == '.' || name[0] == '_') && !all)
+	hidden := func(name string) bool {
+		return (name[0] == '.' || name[0] == '_') && !all
 	}
 	files := slices.Concat(node.files, r.overlayNames[key])
 	slices.Sort(files)
 	files = slices.Compact(files)
 	for _, name := range files {
 		switch {
-		case skip(name):
-			if name[0] != '.' && name[0] != '_' {
-				r.w.field("bad-name")
-				r.w.field(name)
-			}
+		case hidden(name):
+		case isBadEmbedName(name):
+			r.w.field("bad-name")
+			r.w.field(name)
 		case r.kind(key, node, name) == embedEntryFile:
 			r.w.field("file")
 			r.w.field(name)
 		}
 	}
 	for _, name := range node.subdirs {
-		if skip(name) {
+		if hidden(name) {
+			r.w.field("skipped")
+			r.w.field(name)
 			continue
+		}
+		if isBadEmbedName(name) {
+			r.w.field("bad-name")
 		}
 		child := path.Join(key, name)
 		childNode, err := r.manifest.witnessChild(r.src, node, child)
