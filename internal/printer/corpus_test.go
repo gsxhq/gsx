@@ -114,13 +114,15 @@ func zeroSpans(n ast.Node) {
 				return true
 			}
 			ast.SetSpan(m, 0, 0)
+			if mk, ok := m.(ast.Markup); ok {
+				ast.SetLeadingBreak(mk, false)
+			}
 			// Position fields outside the embedded span (set by the parser for
 			// codegen //line columns and the LSP) must also be zeroed so the
 			// faithfulness comparison ignores source layout.
 			switch v := m.(type) {
 			case *ast.Interp:
 				v.ExprPos = 0
-				v.LeadingBreak = false
 				for i := range v.Stages {
 					v.Stages[i].NamePos = 0
 					v.Stages[i].ArgsPos = 0
@@ -144,9 +146,9 @@ func zeroSpans(n ast.Node) {
 				v.TypeArgsClosePos = 0
 				v.ChildrenMultiline = false
 				v.AttrsMultiline = false
-				v.LeadingBreak = false
 			case *ast.Fragment:
 				v.ChildrenMultiline = false
+
 			case *ast.SpreadAttr:
 				v.ExprPos = 0
 				for i := range v.Stages {

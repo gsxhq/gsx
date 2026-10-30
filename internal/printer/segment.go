@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
 // segment is a maximal run of adjacent children that must lay out on one line
@@ -20,8 +21,9 @@ type segment struct {
 // broken block.
 //
 // A boundary between nodes[i] and nodes[i+1] is GLUED (no break) iff a
-// significant space sits on it: nodes[i] is a *ast.Text whose value ends in
-// ' ', or nodes[i+1] is a *ast.Text whose value starts with ' '. Otherwise the
+// significant space sits on it (nodes[i] is a *ast.Text whose value ends in
+// ' ', or nodes[i+1] is a *ast.Text whose value starts with ' ') or a break
+// there would raise child-element-spacing (see spacingBond). Otherwise the
 // boundary is SAFE and starts a new segment.
 //
 // breakable is true iff the edge guard passes: the first node must not begin
@@ -36,7 +38,7 @@ func segmentChildren(nodes []ast.Markup) (segs []segment, breakable bool) {
 	}
 	cur := segment{nodes: []ast.Markup{nodes[0]}}
 	for i := 1; i < len(nodes); i++ {
-		if glued(nodes[i-1], nodes[i]) {
+		if glued(nodes[i-1], nodes[i]) || spacingBond(nodes, i) {
 			cur.nodes = append(cur.nodes, nodes[i])
 			continue
 		}
@@ -55,6 +57,22 @@ func segmentChildren(nodes []ast.Markup) (segs []segment, breakable bool) {
 // binds left and right onto one line.
 func glued(left, right ast.Markup) bool {
 	return trailsWithSpace(left) || leadsWithSpace(right) || isSpacingInterp(right)
+}
+
+// spacingBond reports whether the boundary before nodes[i] must not break
+// because text touches inline content there: normalization would drop the
+// break, and child-element-spacing would then warn that no space renders. The
+// rule is the lint's own (wsnorm.Spacing), with every non-literal
+// interpolation taken as text since the formatter has no types. A break the
+// author wrote (ast.LeadingBreak) is kept by fillParts; the source already
+// raises the lint there.
+func spacingBond(nodes []ast.Markup, i int) bool {
+	var sp wsnorm.Spacing
+	if _, loses := sp.DroppedBreakLoses(nodes, i-1, 1); loses {
+		return true
+	}
+	_, loses := sp.DroppedBreakLoses(nodes, i, -1)
+	return loses
 }
 
 // isSpacingInterp reports whether n is the {" "} spacing idiom: an
@@ -78,20 +96,14 @@ func isSpacingInterp(n ast.Markup) bool {
 	return strings.Trim(v, " ") == ""
 }
 
-// leadingBreak reports whether n — a non-Text markup leaf — carries a
-// LeadingBreak fact: the source placed a line break in the whitespace
-// immediately before it in its children list (see
-// ast.Element/Interp/EmbeddedInterp.LeadingBreak). Any other Markup kind
-// (Fragment, IfMarkup, …) is always block-level and never reaches fillParts'
-// leaf-joint check, so it has no fact to report.
-func leadingBreak(n ast.Markup) bool {
-	switch v := n.(type) {
-	case *ast.Element:
-		return v.LeadingBreak
-	case *ast.Interp:
-		return v.LeadingBreak
-	case *ast.EmbeddedInterp:
-		return v.LeadingBreak
+// softJointBreak reports whether n — a non-Text markup leaf — is an element
+// or interpolation the source put on a new line (ast.LeadingBreak). The fill
+// keeps that break at any render-free joint. Other kinds keep an authored
+// break only where spacingBond holds.
+func softJointBreak(n ast.Markup) bool {
+	switch n.(type) {
+	case *ast.Element, *ast.Interp, *ast.EmbeddedInterp:
+		return ast.LeadingBreak(n)
 	default:
 		return false
 	}
@@ -147,7 +159,8 @@ func (p *printer) hasBlockChild(nodes []ast.Markup) bool {
 //
 //   - bond (no separator; leaves concat into one cluster): a significant
 //     space touching a non-word leaf — breaking it would drop the space at
-//     render — and the left side of a {" "} spacing interp;
+//     render — the left side of a {" "} spacing interp, and text touching
+//     inline content (spacingBond);
 //   - word gap (pretty.Line, flat " "): space between two words of one Text
 //     node — a break there re-normalizes to the same single space;
 //   - safe gap (pretty.SoftLine, flat ""): direct adjacency and the right
@@ -191,6 +204,13 @@ func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
 				// candidate, so the fill can never place that word at the
 				// start of a line (2026-07-25 finding: the parser would then
 				// read it as a real arm label the author never wrote).
+			case i > 0 && spacingBond(nodes, i):
+				// text touching inline content: a break here would raise
+				// child-element-spacing, so offer none — except the author's
+				// own, which the lint already reports on the source.
+				if t.LeadingBreak {
+					gap(pretty.HardLine)
+				}
 			case i > 0:
 				gap(pretty.SoftLine) // direct adjacency: safe gap
 			}
@@ -217,11 +237,17 @@ func (p *printer) fillParts(nodes []ast.Markup) []pretty.Doc {
 			// LeadingBreak — a significant space adjacent to a tag never
 			// coexists with a surviving newline (wsnorm drops newline-bearing
 			// edge runs), so this joint has no fact to honor.
-		case leadingBreak(n):
+		case softJointBreak(n):
 			// safe gap where the source placed a line break immediately before
 			// n: preserve it as a hard break instead of a reflowable one. This
 			// also forces the enclosing group open via containsForcedBreak.
 			gap(pretty.HardLine)
+		case spacingBond(nodes, i):
+			// text touching inline content: no break (see spacingBond) —
+			// except the author's own, which the lint already reports.
+			if ast.LeadingBreak(n) {
+				gap(pretty.HardLine)
+			}
 		default:
 			gap(pretty.SoftLine)
 		}

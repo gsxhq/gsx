@@ -491,6 +491,9 @@ doesn't fire next to block elements, components or `gsx.Node` values, inside
 `pre`/`textarea`/`script`/`style`, after an opening bracket or quote, or before
 a closing one or `. , ; : ! ?`.
 
+`gsx fmt` never breaks a line where this lint would fire. Text that touches
+inline content stays on one line, even past the width limit.
+
 ## Complete example
 
 This is a typical multi-section file. Top-level keys come first:

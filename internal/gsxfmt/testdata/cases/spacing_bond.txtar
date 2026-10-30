@@ -1,0 +1,104 @@
+Text that touches inline content never takes a break from the formatter: the
+break would be dropped and child-element-spacing would then warn that no space
+renders (gsxhq/gsx#260). The run overflows instead. Breaks the lint allows
+stay available: after `(`, before `)`, and beside `<br/>`. A break the author
+wrote at such a boundary is kept, so the source's warning stays visible.
+
+-- input.gsx --
+package p
+
+component Slash() {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx <code>--font-sans</code>/<code>--font-heading</code> trailing words here.
+	</p>
+}
+
+component Interp(s string) {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yy/{s}/zzz trailing words here.
+	</p>
+}
+
+component Brackets() {
+	<p>
+		xxxxxxxxxxxxxxxxx (<a href="/x" class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">link</a>)/<b>bold</b> more words.
+	</p>
+}
+
+component IfBlock(ok bool) {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yyyyy/{ if ok { <b>yes</b> } }/zzz words here.
+	</p>
+}
+
+component LineBreaks() {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx line one<br/>line two<br/>line three<br/>four
+	</p>
+}
+
+component AuthorBreaks(n int) {
+	<p>
+		See
+		<b>this</b>
+		now
+	</p>
+	<p>
+		Status
+		{ if n > 0 {
+			<strong>ok</strong>
+		} }
+	</p>
+}
+-- fmt.golden --
+package p
+
+component Slash() {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx <code>--font-sans</code>/<code>--font-heading</code> trailing
+		words here.
+	</p>
+}
+
+component Interp(s string) {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yy/{ s }/zzz
+		trailing words here.
+	</p>
+}
+
+component Brackets() {
+	<p>
+		xxxxxxxxxxxxxxxxx (
+		<a href="/x" class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">link</a>
+		)/<b>bold</b> more words.
+	</p>
+}
+
+component IfBlock(ok bool) {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+		yyyyy/{ if ok { <b>yes</b> } }/zzz words here.
+	</p>
+}
+
+component LineBreaks() {
+	<p>
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx line one<br/>
+		line two<br/>line three<br/>four
+	</p>
+}
+
+component AuthorBreaks(n int) {
+	<p>
+		See
+		<b>this</b>
+		now
+	</p>
+	<p>
+		Status
+		{ if n > 0 {
+			<strong>ok</strong>
+		} }
+	</p>
+}
