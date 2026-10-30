@@ -224,7 +224,7 @@ func graphCacheKey(prep cachePreparation, patterns []string) (string, string, er
 	if err != nil {
 		return "", "", err
 	}
-	key, err := graphKey(fingerprint, prep.manifest, patterns)
+	key, err := graphKey(fingerprint, codegenIdentity(), prep.manifest, patterns)
 	if err != nil {
 		return "", "", err
 	}

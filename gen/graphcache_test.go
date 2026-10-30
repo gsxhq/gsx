@@ -86,7 +86,7 @@ func graphVariantFor(t *testing.T, root string, manifest *sourceview.Manifest) g
 func TestGraphStoreRoundTripRebases(t *testing.T) {
 	rootA, manifestA := graphFixture(t)
 	dir := t.TempDir()
-	key, err := graphKey("fp", manifestA, []string{"./..."})
+	key, err := graphKey("fp", "gen-A", manifestA, []string{"./..."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestGraphStoreRoundTripRebases(t *testing.T) {
 
 	rootB, _ := graphFixture(t)
 	manifestB := buildGraphManifest(t, rootB)
-	keyB, err := graphKey("fp", manifestB, []string{"./..."})
+	keyB, err := graphKey("fp", "gen-A", manifestB, []string{"./..."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,15 +132,16 @@ func TestGraphStoreRoundTripRebases(t *testing.T) {
 
 	// Different key components give different keys.
 	for name, k := range map[string]func() (string, error){
-		"fingerprint": func() (string, error) { return graphKey("fp2", manifestB, []string{"./..."}) },
-		"patterns":    func() (string, error) { return graphKey("fp", manifestB, []string{"./a"}) },
+		"fingerprint": func() (string, error) { return graphKey("fp2", "gen-A", manifestB, []string{"./..."}) },
+		"patterns":    func() (string, error) { return graphKey("fp", "gen-A", manifestB, []string{"./a"}) },
+		"identity":    func() (string, error) { return graphKey("fp", "gen-B", manifestB, []string{"./..."}) },
 	} {
 		if other, err := k(); err != nil || other == key {
 			t.Errorf("%s: key %s (err %v) equals base key", name, other, err)
 		}
 	}
 	writeTestFile(t, filepath.Join(rootB, "go.sum"), "x\n")
-	if other, err := graphKey("fp", buildGraphManifest(t, rootB), []string{"./..."}); err != nil || other == key {
+	if other, err := graphKey("fp", "gen-A", buildGraphManifest(t, rootB), []string{"./..."}); err != nil || other == key {
 		t.Errorf("go.sum: key %s (err %v) equals base key", other, err)
 	}
 

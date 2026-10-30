@@ -62,9 +62,10 @@ type graphEntry struct {
 
 // graphKey hashes everything that selects the go list query and is not
 // covered by the witness: the context fingerprint, module path, patterns, the
-// overlay (module-relative paths and bytes) and go.mod/go.sum. It contains no
-// checkout path, so checkouts of one module share a key.
-func graphKey(fingerprint string, manifest *sourceview.Manifest, patterns []string) (string, error) {
+// overlay (module-relative paths and bytes) and go.mod/go.sum. identity is
+// codegenIdentity, so a gsx binary never reuses entries another one stored. It
+// contains no checkout path, so checkouts of one module share a key.
+func graphKey(fingerprint, identity string, manifest *sourceview.Manifest, patterns []string) (string, error) {
 	hash := sha256.New()
 	field := func(data []byte) {
 		var size [8]byte
@@ -74,6 +75,7 @@ func graphKey(fingerprint string, manifest *sourceview.Manifest, patterns []stri
 	}
 	field([]byte(graphKeyVersion))
 	field([]byte(fingerprint))
+	field([]byte(identity))
 	field([]byte(manifest.ModulePath()))
 	field([]byte(fmt.Sprint(len(patterns))))
 	for _, pattern := range patterns {
