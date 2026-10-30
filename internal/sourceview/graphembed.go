@@ -88,6 +88,7 @@ const (
 // embedResolver resolves one package's patterns. Paths are slash paths
 // relative to the package directory pkg, "." for pkg itself.
 type embedResolver struct {
+	manifest     *Manifest
 	w            *witnessWriter
 	src          witnessSource
 	overlayNames map[string][]string
@@ -145,8 +146,11 @@ func (r *embedResolver) dir(rel string) (witnessNode, bool, error) {
 			return witnessNode{}, false, witnessUnavailable("embed path %s crosses irregular file %s", path.Join(r.pkg, rel), path.Join(key, part))
 		}
 		key = path.Join(key, part)
-		if node, err = r.src.node(key); err != nil {
+		if node, err = r.manifest.witnessChild(r.src, node, key); err != nil {
 			return witnessNode{}, false, err
+		}
+		if node.kind == witnessMissing {
+			return witnessNode{}, false, nil
 		}
 		if node.kind != witnessListed || node.goMod {
 			return witnessNode{}, false, witnessUnavailable("embed path %s enters unlisted directory %s", path.Join(r.pkg, rel), key)
@@ -244,7 +248,7 @@ func (r *embedResolver) writePattern(pattern string) error {
 		case embedEntryFile:
 			r.w.field("file")
 		case embedEntryDir:
-			if err := r.writeMatchedDir(rel, all); err != nil {
+			if err := r.writeMatchedDir(node, rel, all); err != nil {
 				return err
 			}
 		default:
@@ -258,12 +262,15 @@ func (r *embedResolver) writePattern(pattern string) error {
 
 // writeMatchedDir writes a matched directory: a module boundary, or the walk
 // resolveEmbed makes of it.
-func (r *embedResolver) writeMatchedDir(rel string, all bool) error {
-	node, err := r.src.node(r.key(rel))
+func (r *embedResolver) writeMatchedDir(parent witnessNode, rel string, all bool) error {
+	node, err := r.manifest.witnessChild(r.src, parent, r.key(rel))
 	if err != nil {
 		return err
 	}
 	switch {
+	case node.kind == witnessMissing:
+		r.w.field("absent")
+		return nil
 	case node.kind == witnessNestedModule:
 		r.w.field("boundary")
 		return nil
@@ -301,11 +308,14 @@ func (r *embedResolver) walk(key string, node witnessNode, all bool) error {
 			continue
 		}
 		child := path.Join(key, name)
-		childNode, err := r.src.node(child)
+		childNode, err := r.manifest.witnessChild(r.src, node, child)
 		if err != nil {
 			return err
 		}
 		switch {
+		case childNode.kind == witnessMissing:
+			r.w.field("absent")
+			r.w.field(name)
 		case childNode.kind == witnessNestedModule:
 			r.w.field("boundary")
 			r.w.field(name)

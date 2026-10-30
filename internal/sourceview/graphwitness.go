@@ -28,8 +28,10 @@ type GraphWitnessInput struct {
 var ErrWitnessUnavailable = errors.New("sourceview: graph witness unavailable")
 
 // GraphWitness digests everything go list reads from the input's main-module
-// directories, from the manifest alone. The only disk access is an Lstat per
-// EmbedFiles path and per directory the walk did not record.
+// directories, from the manifest. Disk access is limited to an Lstat per
+// EmbedFiles path and per directory the walk did not record, and to the
+// listings (never file contents) of unimportable directories the walk skipped
+// that an embed pattern reaches, such as a Vite static/.vite under all:.
 func (manifest *Manifest) GraphWitness(input GraphWitnessInput) (string, error) {
 	return manifest.witnessDigest(input, manifestWitnessSource{manifest})
 }
@@ -51,6 +53,8 @@ const (
 	witnessListed
 	witnessNestedModule
 	witnessUnimportable
+	// witnessMissing: an unwalked directory read from disk does not exist.
+	witnessMissing
 )
 
 type witnessNode struct {
@@ -59,6 +63,9 @@ type witnessNode struct {
 	subdirs   []string
 	irregular []string
 	goMod     bool
+	// unwalked marks a listing read from disk below a directory the manifest
+	// walk skipped; its children are read from disk too.
+	unwalked bool
 }
 
 // witnessSource is where witnessDigest reads directory state and non-overlaid
@@ -240,10 +247,20 @@ func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witn
 // file. Every directory from the root down must be listed: an embedded file
 // outside the walked tree cannot be witnessed.
 func (manifest *Manifest) writeEmbedDirWitness(w *witnessWriter, dir string, src witnessSource, overlayNames []string) error {
-	for _, key := range witnessPrefixes(dir) {
-		node, err := src.node(key)
+	var node witnessNode
+	for i, key := range witnessPrefixes(dir) {
+		var err error
+		if i == 0 {
+			node, err = src.node(key)
+		} else {
+			node, err = manifest.witnessChild(src, node, key)
+		}
 		if err != nil {
 			return err
+		}
+		if node.kind == witnessMissing {
+			w.field("absent")
+			return nil
 		}
 		if node.kind != witnessListed || (node.goMod && key != ".") {
 			return witnessUnavailable("embedded directory %s is not listed", key)
@@ -282,7 +299,7 @@ func (manifest *Manifest) writePresentDir(w *witnessWriter, dir string, node wit
 		w.field(name)
 		w.flag(contains(node.irregular, name) && !slices.Contains(overlayNames[dir], name))
 	}
-	embeds := embedResolver{w: w, src: src, overlayNames: overlayNames, pkg: dir}
+	embeds := embedResolver{manifest: manifest, w: w, src: src, overlayNames: overlayNames, pkg: dir}
 	for _, name := range names {
 		if !strings.HasSuffix(name, ".go") {
 			continue
@@ -359,20 +376,55 @@ func (src manifestWitnessSource) goFile(key, name string) ([]byte, error) {
 type diskWitnessSource struct{ manifest *Manifest }
 
 func (src diskWitnessSource) node(key string) (witnessNode, error) {
-	physical := filepath.Join(src.manifest.physicalRoot, filepath.FromSlash(key))
+	node, err := readDirNode(src.manifest.physicalRoot, key, true)
+	if node.kind == witnessMissing {
+		// The walk never enters a symlink or a file either.
+		node.kind = witnessUnrecorded
+	}
+	return node, err
+}
+
+// witnessChild resolves key, a subdirectory entry of the listed parent. The
+// manifest walk does not enter unimportable directories, so a witness that
+// reaches one (only embed resolution does) reads its listing, and every
+// listing below it, from disk. Both witness sources go through here, so their
+// digests agree by construction.
+func (manifest *Manifest) witnessChild(src witnessSource, parent witnessNode, key string) (witnessNode, error) {
+	if !parent.unwalked {
+		node, err := src.node(key)
+		if err != nil || node.kind != witnessUnimportable {
+			return node, err
+		}
+	}
+	node, err := readDirNode(manifest.physicalRoot, key, false)
+	if err != nil {
+		return witnessNode{}, err
+	}
+	if node.kind == witnessUnrecorded {
+		return witnessNode{}, witnessUnavailable("unwalked directory %s is not a directory", key)
+	}
+	node.unwalked = node.kind == witnessListed
+	return node, nil
+}
+
+// readDirNode classifies the physical directory key as the Build walk would,
+// reading only its listing. checkName applies the walk's importable-name
+// rule; a missing directory is witnessMissing and a non-directory (the walk
+// never follows a symlink) is witnessUnrecorded.
+func readDirNode(physicalRoot, key string, checkName bool) (witnessNode, error) {
+	physical := filepath.Join(physicalRoot, filepath.FromSlash(key))
 	if key != "." {
 		info, err := os.Lstat(physical)
 		if err != nil {
 			if pathAbsent(err) {
-				return witnessNode{kind: witnessUnrecorded}, nil
+				return witnessNode{kind: witnessMissing}, nil
 			}
 			return witnessNode{}, witnessUnavailable("inspect directory %s: %v", key, err)
 		}
 		if !info.IsDir() {
-			// The walk never enters a symlink or a file.
 			return witnessNode{kind: witnessUnrecorded}, nil
 		}
-		if !importableDirName(path.Base(key)) {
+		if checkName && !importableDirName(path.Base(key)) {
 			return witnessNode{kind: witnessUnimportable}, nil
 		}
 		startsModule, err := directoryStartsModule(physical)
