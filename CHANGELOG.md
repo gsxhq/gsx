@@ -4,7 +4,7 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.4.2 — 2026-10-30
 
 - **`gsx init </dev/null` no longer runs the setup steps.** Any character
   device counted as a terminal, so `init` prompted, read end of input, and took
