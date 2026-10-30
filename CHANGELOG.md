@@ -4,7 +4,7 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.4.3 — 2026-10-30
 
 - **`gsx fmt` output no longer raises `child-element-spacing`.** `fmt` could
   wrap where text touches inline content, as in `</code>/<code>`, and the lint
@@ -12,12 +12,11 @@ syntax or APIs; a patch bump does not. See
   ([#260](https://github.com/gsxhq/gsx/issues/260)). `fmt` now leaves such runs
   on one line, even past the width limit, and keeps a line break the author
   wrote there, so the lint still reports it.
-- **A cached `gsx generate` no longer takes minutes in large modules.** The
-  cache check resolved symlinks for every `.gsx` and generated file once per
-  package, so a 639-package module made 1.1M path resolutions per run, and
-  concurrent runs slowed each other to 5–14 minutes. Each directory is now
-  resolved once per check, not once per package; the same warm run takes about
-  10 seconds.
+- **A cached `gsx generate` is up to 8× faster in large modules.** The cache
+  check resolved symlinks for every `.gsx` and generated file once per package:
+  1.1M path resolutions per run in a 639-package module. A warm run took 11s on
+  an idle machine and 5–14 minutes when several ran at once. Each directory is
+  now resolved once per check; the same warm run takes 1.3s.
 - **`gsx fmt` is stable at narrow widths.** Prose next to a block that had to
   break, such as `amet{ if ok { … } }consectetur`, could be wrapped one way and
   then joined back by the next `fmt`. The block now holds the line up to its
