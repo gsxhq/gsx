@@ -2,8 +2,8 @@ Prose that touches a block which cannot stay flat keeps its line: the block
 breaks, and the cluster holds the line only up to the block's first break.
 That is how the block measures once it arrives broken, so a second format
 changes nothing. Before, the cluster was measured flat, the formatter broke
-an earlier word gap, and the next format joined the words back. A block that
-would stay flat on a fresh line moves there instead (MovesDown).
+an earlier word gap, and the next format joined the words back. When even the
+block's first line does not fit, the cluster starts a fresh line (FirstLineOverflows).
 
 -- input.gsx --
 package p
@@ -32,7 +32,7 @@ component Region() {
 	</p>
 }
 
-component MovesDown(ok bool) {
+component FirstLineOverflows(ok bool) {
 	<p>
 		lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor { if ok { <b>yes</b> } } consectetur.
 	</p>
@@ -72,7 +72,7 @@ component Region() {
 	</p>
 }
 
-component MovesDown(ok bool) {
+component FirstLineOverflows(ok bool) {
 	<p>
 		lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod
 		tempor { if ok { <b>yes</b> } } consectetur.

@@ -89,11 +89,24 @@ func TestFillMeasuresBrokenGroupLikeForced(t *testing.T) {
 	}
 }
 
-// A cluster that fits flat at the start of a fresh line takes the break before
-// it rather than breaking its group to stay on the current line.
-func TestFillMovesClusterDownToKeepGroupFlat(t *testing.T) {
-	got := Print(prose(block("short", false)), 30, 2)
-	if want := "lorem ipsum dolor\nword{ short } end"; got != want {
+// The separator after a cluster is decided at the column its last line ends.
+// After a block that breaks, a word that would overflow its closing line takes
+// the break before it.
+func TestFillSeparatorAfterBrokenGroupMeasuresLastLine(t *testing.T) {
+	const body = "a body too long to stay flat even on a line of its own"
+	d := Fill(Text("lorem"), Line, block(body, false), Line, Text(strings.Repeat("x", 39)))
+	got := Print(d, 40, 2)
+	want := "lorem word{\n\t" + body + "\n}\n" + strings.Repeat("x", 39)
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A cluster ending exactly at the margin stays flat: the separator after it
+// breaks, rather than the group breaking to make room for the next word.
+func TestFillExactFitKeepsGroupFlat(t *testing.T) {
+	got := Print(prose(block("short", false)), len("lorem ipsum dolor word{ short }"), 2)
+	if want := "lorem ipsum dolor word{ short }\nend"; got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

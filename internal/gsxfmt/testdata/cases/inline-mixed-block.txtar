@@ -29,10 +29,10 @@ package p
 component BlockGluedIntoProse() {
 	<div>
 		Some long lead-in prose that talks about the widget below and keeps going
-		for a while before the block
-		starts <div class="callout">Note: read the docs.</div> and then some
-		trailing prose continues right after the block, glued to it by a literal
-		space so it has to share the block's segment.
+		for a while before the block starts <div class="callout">
+			Note: read the docs.
+		</div> and then some trailing prose continues right after the block, glued
+		to it by a literal space so it has to share the block's segment.
 	</div>
 }
 
