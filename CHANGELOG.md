@@ -8,7 +8,8 @@ syntax or APIs; a patch bump does not. See
 
 - **A warm `gsx generate` skips `go list` when nothing it reads changed.** No
   package header, file set or `go.mod` edit means the cached package graph is
-  reused. `-v` prints `graph hit` or `graph miss (reason)` in the cache line.
+  reused. `-v` prints `graph hit` or `graph miss (reason)` per module. Builds
+  with a `GOFLAGS` `-modfile` are not cached.
 
 ## v0.4.3 — 2026-10-30
 

@@ -45,7 +45,9 @@ Those fields are a function of:
 
 1. **The Go command context**: `CacheFingerprint()` (effective env including
    GOFLAGS, GOOS/GOARCH, tags, launcher and compiler identity). It already
-   refuses GOWORK and vendoring.
+   refuses GOWORK and vendoring, and refuses a GOFLAGS `-modfile`: the
+   alternate module file is outside the manifest. The key also folds in the
+   gsx binary identity, so a new binary never reuses an older one's entries.
 2. **The query**: the pattern list from `graphQueryPatterns` and the overlay
    (each overlay path and its bytes; these are the paired-output and sentinel
    replacements from the manifest).
@@ -149,8 +151,11 @@ snapshotted before `go list` runs, and `go list` reads non-overlaid files from
 disk later. If a file changes in between, pairing the earlier witness with the
 later graph would let a later return to the earlier state hit a graph that does
 not describe it. So on a miss, after `go list`, re-read the witnessed files
-and store the entry only if the recomputed digest equals the manifest's. This
-is an extra read pass on misses only; hits stay read-free.
+and store the entry only if the recomputed digest equals the manifest's. A
+content re-read misses an edit reverted while `go list` ran, so the store also
+requires unchanged stat identity (inode, size, mtime, ctime) of every listed
+directory, every listed Go file and `go.mod`/`go.sum`, taken just before and
+after `go list`. This is extra work on misses only; hits stay read-free.
 
 Why the stored witness list is sufficient: any change that could add a
 main-module package to the graph must add an import to a file that is already
@@ -163,9 +168,10 @@ fingerprint errors, as today; or the graph contains any directory-replaced
 (mutable) module. Those trees are not in the manifest, so witnessing them would
 need extra reads. That is phase 2 if it is ever needed; eos has none.
 
-**Reporting.** `-v` prints `gsx cache: graph hit` or
-`graph miss (<reason>)`. Reasons: no entry, witness changed, decode error,
-uncacheable (with its reason). This measures the real hit rate in eos before
+**Reporting.** `-v` prints `gsx cache: <module root>: graph hit` or
+`graph miss (<reason>)`, with `, stored` when the miss stored an entry.
+Reasons: no entry, witness changed, decode error, uncacheable (with its
+reason). This measures the real hit rate in eos before
 any phase 2 work.
 
 ## Phase 2 (not now; decide from the phase 1 hit rate)
