@@ -2,6 +2,7 @@ package sourceview
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -74,7 +75,7 @@ func TestCacheProjectionCgoClassification(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			inputs, err := projection.inputsForPackage(test.metadata)
+			inputs, err := projection.inputsForPackage(test.metadata, newProjectionView(projection.manifest))
 			if test.wantErr {
 				if !errors.Is(err, ErrUncacheableCgo) {
 					t.Fatalf("inputsForPackage() error = %v, want ErrUncacheableCgo", err)
@@ -449,4 +450,74 @@ func pagePairedIfAny(manifest *Manifest, gsxPath string) []string {
 		}
 	}
 	return nil
+}
+
+// TestCacheProjectionCanonicalizesOncePerSnapshot pins the cost of
+// NewCacheProjection and SelectedLoadRoots to O(dirs) canonicalPath
+// (filepath.EvalSymlinks) calls. The historical failure re-canonicalized every
+// manifest paired output, sentinel and GSX source once per selected package —
+// O(packages x module GSX files) — which made a fully cached generate in a
+// 639-package/628-file module issue 1.1M calls and spend minutes in lstat.
+func TestCacheProjectionCanonicalizesOncePerSnapshot(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	const dirs = 20
+	const gsxPerDir = 3
+	const goPerDir = 3
+	var dirPaths []string
+	for d := range dirs {
+		pkg := fmt.Sprintf("p%02d", d)
+		for f := range gsxPerDir {
+			writeTestFile(t, root, filepath.Join(pkg, fmt.Sprintf("c%d.gsx", f)), fmt.Sprintf("package %s\ncomponent C%d() { <p/> }\n", pkg, f))
+		}
+		for f := range goPerDir {
+			writeTestFile(t, root, filepath.Join(pkg, fmt.Sprintf("h%d.go", f)), fmt.Sprintf("package %s\nfunc h%d() {}\n", pkg, f))
+		}
+		dirPaths = append(dirPaths, filepath.Join(root, pkg))
+	}
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainModule := &ModuleMetadata{Path: "example.com/app", Dir: root, Main: true, GoMod: filepath.Join(root, "go.mod")}
+	graph := Graph{}
+	for d, dir := range dirPaths {
+		files := manifestSentinelsForDir(manifest, dir)
+		for f := range gsxPerDir {
+			files = append(files, filepath.Join(dir, fmt.Sprintf("c%d.x.go", f)))
+		}
+		for f := range goPerDir {
+			files = append(files, filepath.Join(dir, fmt.Sprintf("h%d.go", f)))
+		}
+		importPath := fmt.Sprintf("example.com/app/p%02d", d)
+		graph[importPath] = PackageMetadata{ImportPath: importPath, Dir: dir, CompiledGoFiles: files, Module: mainModule}
+	}
+
+	before := CanonicalPathCalls()
+	projection, err := NewCacheProjection(manifest, graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manifest.SelectedLoadRoots(dirPaths); err != nil {
+		t.Fatal(err)
+	}
+	delta := CanonicalPathCalls() - before
+	// Per-snapshot canonicalization resolves each distinct directory a
+	// constant number of times plus the module root. The per-package rescan
+	// this replaces costs dirs x (paired + sentinels + 2 x sources) =
+	// 20 x (60 + 20 + 120) = 4,000 calls here before counting per-file work.
+	if budget := uint64(dirs*4 + 8); delta > budget {
+		t.Fatalf("NewCacheProjection+SelectedLoadRoots over %d dirs made %d canonicalPath calls, want <= %d", dirs, delta, budget)
+	}
+	for _, dir := range dirPaths {
+		logical, err := projection.LogicalFiles(dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// go.mod + gsxPerDir sources + goPerDir authored files; paired
+		// outputs and sentinels are never inputs.
+		if want := 1 + gsxPerDir + goPerDir; len(logical) != want {
+			t.Fatalf("LogicalFiles(%s) = %v, want %d files", dir, logical, want)
+		}
+	}
 }

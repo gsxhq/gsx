@@ -12,6 +12,11 @@ syntax or APIs; a patch bump does not. See
   ([#260](https://github.com/gsxhq/gsx/issues/260)). `fmt` now leaves such runs
   on one line, even past the width limit, and keeps a line break the author
   wrote there, so the lint still reports it.
+- **A cached `gsx generate` no longer takes minutes in large modules.** The
+  cache check resolved symlinks for every `.gsx` and generated file once per
+  package, so a 639-package module made 1.1M path resolutions per run, and
+  concurrent runs slowed each other to 5–14 minutes. Each path is now resolved
+  once per run; the same warm run takes about 10 seconds.
 
 ## v0.4.2 — 2026-10-30
 
