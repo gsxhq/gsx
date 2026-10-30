@@ -309,12 +309,30 @@ func TestGraphCacheStoreSkippedWhenFilesChange(t *testing.T) {
 			}
 		}
 	}
+	// e embeds a Vite-style static tree whose .vite dir the manifest walk
+	// does not enter: the witness reads its listing from disk.
+	viteFiles := func(pattern string) map[string]string {
+		return map[string]string{
+			"e/e.go":                "package e\n\nimport \"embed\"\n\n//go:embed data.txt\nvar Data string\n\n//go:embed " + pattern + "\nvar Static embed.FS\n",
+			"e/static/index.html":   "<p>static</p>\n",
+			"e/static/.vite/m.json": "{}\n",
+		}
+	}
 	rows := []struct {
 		name string
+		// files are written over the fixture before the first call.
+		files map[string]string
 		// before and after run around go list; restore, when set, runs before
 		// the second call to return the tree to the snapshot's state.
 		before, after, restore func(*testing.T, string)
+		// wantStored: nothing go list read changed, so the first call stores
+		// and the next run hits.
+		wantStored bool
 	}{
+		{name: "embedded dot dir unchanged", files: viteFiles("all:static"), wantStored: true},
+		{name: "embedded dot dir file added", files: viteFiles("all:static"), after: write("e/static/.vite/extra.json", "{}\n")},
+		{name: "embedded dot dir file added and removed", files: viteFiles("all:static"), before: write("e/static/.vite/extra.json", "{}\n"), after: remove("e/static/.vite/extra.json")},
+		{name: "named dot dir emptied", files: viteFiles("static/.vite"), after: remove("e/static/.vite/m.json")},
 		{name: "header edited", after: write("b/b.go", importUnicode), restore: write("b/b.go", graphDiffModule["b/b.go"])},
 		// Content re-reads see the original bytes again; only stat identity
 		// tells that go list read the edit.
@@ -327,6 +345,9 @@ func TestGraphCacheStoreSkippedWhenFilesChange(t *testing.T) {
 			t.Setenv("GSXCACHE", t.TempDir())
 			root := t.TempDir()
 			writeGraphDiffModule(t, root)
+			for rel, contents := range row.files {
+				writeTestFile(t, filepath.Join(root, filepath.FromSlash(rel)), contents)
+			}
 			hook := func(edit func(*testing.T, string)) func() {
 				if edit == nil {
 					return nil
@@ -337,7 +358,12 @@ func TestGraphCacheStoreSkippedWhenFilesChange(t *testing.T) {
 			t.Cleanup(func() { beforeListGraph, afterListGraph = nil, nil })
 
 			prep := graphPrep(t, root)
-			if _, outcome, err := loadGraphCached(prep, nil); err != nil || outcome.Reason != graphStoreSkipped {
+			_, outcome, err := loadGraphCached(prep, nil)
+			t.Logf("first call: %+v", outcome)
+			switch {
+			case row.wantStored && (err != nil || !outcome.Stored):
+				t.Fatalf("nothing changed during go list: outcome %+v, err %v, want a store", outcome, err)
+			case !row.wantStored && (err != nil || outcome.Reason != graphStoreSkipped):
 				t.Fatalf("files changed during go list: outcome %+v, err %v, want %s", outcome, err, graphStoreSkipped)
 			}
 			beforeListGraph, afterListGraph = nil, nil
@@ -345,13 +371,13 @@ func TestGraphCacheStoreSkippedWhenFilesChange(t *testing.T) {
 				row.restore(t, root)
 			}
 
-			// The skipped graph must not have been stored under the
-			// snapshot's witness.
+			// A skipped graph must not have been stored under the snapshot's
+			// witness; a stored one must be reused.
 			prep = graphPrep(t, root)
 			graph, outcome, err := loadGraphCached(prep, nil)
 			checkCachedAgainstLive(t, "next run", prep, graph, outcome, err)
-			if outcome.Reason != graphEntryMissing {
-				t.Fatalf("next run: outcome %+v, want %s", outcome, graphEntryMissing)
+			if row.wantStored != outcome.Hit() || (!row.wantStored && outcome.Reason != graphEntryMissing) {
+				t.Fatalf("next run: outcome %+v, want hit=%v (else %s)", outcome, row.wantStored, graphEntryMissing)
 			}
 		})
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,7 +34,15 @@ var ErrWitnessUnavailable = errors.New("sourceview: graph witness unavailable")
 // listings (never file contents) of unimportable directories the walk skipped
 // that an embed pattern reaches, such as a Vite static/.vite under all:.
 func (manifest *Manifest) GraphWitness(input GraphWitnessInput) (string, error) {
-	return manifest.witnessDigest(input, manifestWitnessSource{manifest})
+	return manifest.witnessDigest(input, manifestWitnessSource{manifest: manifest})
+}
+
+// GraphWitnessFrom is GraphWitness with the listings of unwalked embedded
+// directories taken from listings instead of the disk, so a graph store can
+// witness what go list read rather than the tree after it ran. A directory
+// listings did not capture is ErrListingNotCaptured.
+func (manifest *Manifest) GraphWitnessFrom(input GraphWitnessInput, listings *UnwalkedListings) (string, error) {
+	return manifest.witnessDigest(input, manifestWitnessSource{manifest: manifest, unwalked: listings.replay})
 }
 
 // DiskGraphWitness is GraphWitness over a fresh read of the input
@@ -62,6 +71,98 @@ func (manifest *Manifest) GraphStatPaths() []string {
 	}
 	slices.Sort(paths)
 	return slices.Compact(paths)
+}
+
+// ErrListingNotCaptured reports that a witness reached an unwalked directory
+// whose listing GraphWitnessFrom's capture does not hold.
+var ErrListingNotCaptured = errors.New("sourceview: unwalked directory listing not captured")
+
+// UnwalkedListings captures the listings of every directory the manifest
+// walk did not enter that an embed pattern of a listed directory's Go files
+// (test files included) reaches, read from disk as the witness reads them.
+type UnwalkedListings struct {
+	physicalRoot string
+	nodes        map[string]capturedNode
+}
+
+// capturedNode is one unwalked directory as readDirNode returned it.
+type capturedNode struct {
+	node witnessNode
+	err  error
+}
+
+// CaptureUnwalkedListings resolves the embed patterns of every listed
+// directory's Go files, recording each unwalked directory listing the
+// resolution reads. A directory whose witness fails is resolved up to the
+// failure: its witness fails the same way when GraphWitnessFrom replays it.
+func (manifest *Manifest) CaptureUnwalkedListings() *UnwalkedListings {
+	listings := &UnwalkedListings{physicalRoot: manifest.physicalRoot, nodes: make(map[string]capturedNode)}
+	overlayNames, err := manifest.witnessPrelude()
+	if err != nil {
+		// Every witness of this manifest fails before reaching a listing.
+		return listings
+	}
+	src := manifestWitnessSource{manifest: manifest, unwalked: listings.record}
+	keys := slices.Sorted(maps.Keys(manifest.dirListings))
+	for _, key := range keys {
+		node, err := src.node(key)
+		if err != nil || node.kind != witnessListed {
+			continue
+		}
+		w := witnessWriter{hash: sha256.New()}
+		_ = manifest.writePresentDir(&w, key, node, overlayNames, src)
+	}
+	return listings
+}
+
+func (listings *UnwalkedListings) record(key string) (witnessNode, error) {
+	if captured, ok := listings.nodes[key]; ok {
+		return captured.node, captured.err
+	}
+	node, err := readDirNode(listings.physicalRoot, key, false)
+	listings.nodes[key] = capturedNode{node: node, err: err}
+	return node, err
+}
+
+func (listings *UnwalkedListings) replay(key string) (witnessNode, error) {
+	captured, ok := listings.nodes[key]
+	if !ok {
+		return witnessNode{}, fmt.Errorf("%w: %s", ErrListingNotCaptured, key)
+	}
+	return captured.node, captured.err
+}
+
+// Paths returns the captured directories, sorted, as physical paths.
+func (listings *UnwalkedListings) Paths() []string {
+	paths := make([]string, 0, len(listings.nodes))
+	for key := range listings.nodes {
+		paths = append(paths, filepath.Join(listings.physicalRoot, filepath.FromSlash(key)))
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+// FirstDifference returns the first directory, in key order, that one
+// capture holds and the other does not or whose listings differ.
+func (listings *UnwalkedListings) FirstDifference(other *UnwalkedListings) (string, bool) {
+	keys := slices.Concat(slices.Collect(maps.Keys(listings.nodes)), slices.Collect(maps.Keys(other.nodes)))
+	slices.Sort(keys)
+	for _, key := range slices.Compact(keys) {
+		a, aok := listings.nodes[key]
+		b, bok := other.nodes[key]
+		if aok != bok || !a.equal(b) {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+func (a capturedNode) equal(b capturedNode) bool {
+	if (a.err == nil) != (b.err == nil) || (a.err != nil && a.err.Error() != b.err.Error()) {
+		return false
+	}
+	return a.node.kind == b.node.kind && a.node.goMod == b.node.goMod &&
+		slices.Equal(a.node.files, b.node.files) && slices.Equal(a.node.subdirs, b.node.subdirs) && slices.Equal(a.node.irregular, b.node.irregular)
 }
 
 // witnessNodeKind is how the walk would classify one directory.
@@ -94,6 +195,9 @@ type witnessNode struct {
 type witnessSource interface {
 	node(key string) (witnessNode, error)
 	goFile(key, name string) ([]byte, error)
+	// unwalkedNode reads the listing of a directory the manifest walk did
+	// not enter, as readDirNode without the name rule.
+	unwalkedNode(key string) (witnessNode, error)
 }
 
 func witnessUnavailable(format string, args ...any) error {
@@ -110,33 +214,15 @@ func validWitnessKey(key string) bool {
 }
 
 func (manifest *Manifest) witnessDigest(input GraphWitnessInput, src witnessSource) (string, error) {
-	if !manifest.witnessable {
-		return "", witnessUnavailable("manifest listings do not describe the disk")
-	}
-	// A listing outside the root, or a directory both listed and skipped, means
-	// the listings no longer describe one walk of this root.
-	for key := range manifest.dirListings {
-		if !validWitnessKey(key) {
-			return "", witnessUnavailable("listing %q is outside the module root", key)
-		}
-		if _, skipped := manifest.skippedDirs[key]; skipped {
-			return "", witnessUnavailable("directory %q is both listed and skipped", key)
-		}
-	}
-	for key := range manifest.skippedDirs {
-		if !validWitnessKey(key) {
-			return "", witnessUnavailable("skipped directory %q is outside the module root", key)
-		}
+	overlayNames, err := manifest.witnessPrelude()
+	if err != nil {
+		return "", err
 	}
 	dirs, err := sortedWitnessKeys(input.Dirs)
 	if err != nil {
 		return "", err
 	}
 	embeds, err := sortedWitnessKeys(input.EmbedFiles)
-	if err != nil {
-		return "", err
-	}
-	overlayNames, err := manifest.overlayNamesByDir()
 	if err != nil {
 		return "", err
 	}
@@ -181,6 +267,30 @@ func (manifest *Manifest) witnessDigest(input GraphWitnessInput, src witnessSour
 		}
 	}
 	return hex.EncodeToString(w.hash.Sum(nil)), nil
+}
+
+// witnessPrelude checks that the manifest's listings describe one walk of
+// this root and indexes its overlay names by directory.
+func (manifest *Manifest) witnessPrelude() (map[string][]string, error) {
+	if !manifest.witnessable {
+		return nil, witnessUnavailable("manifest listings do not describe the disk")
+	}
+	// A listing outside the root, or a directory both listed and skipped, means
+	// the listings no longer describe one walk of this root.
+	for key := range manifest.dirListings {
+		if !validWitnessKey(key) {
+			return nil, witnessUnavailable("listing %q is outside the module root", key)
+		}
+		if _, skipped := manifest.skippedDirs[key]; skipped {
+			return nil, witnessUnavailable("directory %q is both listed and skipped", key)
+		}
+	}
+	for key := range manifest.skippedDirs {
+		if !validWitnessKey(key) {
+			return nil, witnessUnavailable("skipped directory %q is outside the module root", key)
+		}
+	}
+	return manifest.overlayNamesByDir()
 }
 
 // sortedWitnessKeys validates keys and returns them sorted and deduplicated.
@@ -367,8 +477,19 @@ var constrainedSourceExts = map[string]bool{
 	".swig": true, ".swigcxx": true,
 }
 
-// manifestWitnessSource reads the walk's recorded state.
-type manifestWitnessSource struct{ manifest *Manifest }
+// manifestWitnessSource reads the walk's recorded state. unwalked, when set,
+// replaces the disk read of unwalked directory listings.
+type manifestWitnessSource struct {
+	manifest *Manifest
+	unwalked func(key string) (witnessNode, error)
+}
+
+func (src manifestWitnessSource) unwalkedNode(key string) (witnessNode, error) {
+	if src.unwalked != nil {
+		return src.unwalked(key)
+	}
+	return readDirNode(src.manifest.physicalRoot, key, false)
+}
 
 func (src manifestWitnessSource) node(key string) (witnessNode, error) {
 	if listing, ok := src.manifest.dirListings[key]; ok {
@@ -408,8 +529,9 @@ func (src diskWitnessSource) node(key string) (witnessNode, error) {
 // witnessChild resolves key, a subdirectory entry of the listed parent. The
 // manifest walk does not enter unimportable directories, so a witness that
 // reaches one (only embed resolution does) reads its listing, and every
-// listing below it, from disk. Both witness sources go through here, so their
-// digests agree by construction.
+// listing below it, through src.unwalkedNode: from disk unless a capture is
+// replayed. Both witness sources go through here, so their digests agree by
+// construction.
 func (manifest *Manifest) witnessChild(src witnessSource, parent witnessNode, key string) (witnessNode, error) {
 	if !parent.unwalked {
 		node, err := src.node(key)
@@ -417,7 +539,7 @@ func (manifest *Manifest) witnessChild(src witnessSource, parent witnessNode, ke
 			return node, err
 		}
 	}
-	node, err := readDirNode(manifest.physicalRoot, key, false)
+	node, err := src.unwalkedNode(key)
 	if err != nil {
 		return witnessNode{}, err
 	}
@@ -463,6 +585,10 @@ func readDirNode(physicalRoot, key string, checkName bool) (witnessNode, error) 
 	files, subdirs, irregular := listEntries(entries)
 	listing := freezeListing(key, files, subdirs, irregular)
 	return witnessNode{kind: witnessListed, files: listing.files, subdirs: listing.subdirs, irregular: listing.irregular, goMod: listing.goMod}, nil
+}
+
+func (src diskWitnessSource) unwalkedNode(key string) (witnessNode, error) {
+	return readDirNode(src.manifest.physicalRoot, key, false)
 }
 
 func (src diskWitnessSource) goFile(key, name string) ([]byte, error) {

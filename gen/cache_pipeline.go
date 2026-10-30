@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
@@ -189,7 +190,11 @@ func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, g
 	}
 	// Content re-reads after go list cannot see an edit reverted while it
 	// ran, so the witnessed paths' stat identities must also be unchanged.
-	statPaths := prep.manifest.GraphStatPaths()
+	// The manifest holds no listing of the unwalked directories embed
+	// patterns reach, so theirs are captured here and stored as go list
+	// read them.
+	unwalked := prep.manifest.CaptureUnwalkedListings()
+	statPaths := slices.Concat(prep.manifest.GraphStatPaths(), unwalked.Paths())
 	statsBefore, statErr := statSnapshot(statPaths)
 	if beforeListGraph != nil {
 		beforeListGraph()
@@ -218,7 +223,10 @@ func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, g
 	if changed, ok := firstChanged(statPaths, statsBefore, statsAfter); ok {
 		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: changed + " changed while go list ran"}, nil
 	}
-	if stored := storeListedGraph(prep, key, goModDir, graph); stored.Reason != "" {
+	if changed, ok := unwalked.FirstDifference(prep.manifest.CaptureUnwalkedListings()); ok {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "embedded directory " + changed + " changed while go list ran"}, nil
+	}
+	if stored := storeListedGraph(prep, key, goModDir, graph, unwalked); stored.Reason != "" {
 		outcome = stored
 	} else {
 		outcome.Stored = true
@@ -248,10 +256,11 @@ func graphCacheKey(prep cachePreparation, patterns []string) (string, string, er
 	return key, filepath.Dir(goMod), nil
 }
 
-// storeListedGraph stores a freshly listed graph under the manifest's witness
-// when a re-read of the witnessed files still matches it. It returns the zero
+// storeListedGraph stores a freshly listed graph under the manifest's witness,
+// with unwalked embedded directories as captured before go list, when a
+// re-read of the witnessed files still matches it. It returns the zero
 // outcome when the graph was stored.
-func storeListedGraph(prep cachePreparation, key, goModDir string, graph sourceview.Graph) graphCacheOutcome {
+func storeListedGraph(prep cachePreparation, key, goModDir string, graph sourceview.Graph, unwalked *sourceview.UnwalkedListings) graphCacheOutcome {
 	uncacheable := func(err error) graphCacheOutcome {
 		return graphCacheOutcome{Reason: graphUncacheable, Detail: err.Error()}
 	}
@@ -259,7 +268,12 @@ func storeListedGraph(prep cachePreparation, key, goModDir string, graph sourcev
 	if err != nil {
 		return uncacheable(err)
 	}
-	digest, err := prep.manifest.GraphWitness(input)
+	digest, err := prep.manifest.GraphWitnessFrom(input, unwalked)
+	if errors.Is(err, sourceview.ErrListingNotCaptured) {
+		// go list embedded from a directory the manifest's patterns did not
+		// reach before it ran.
+		return graphCacheOutcome{Reason: graphStoreSkipped, Detail: err.Error()}
+	}
 	if err != nil {
 		return uncacheable(err)
 	}

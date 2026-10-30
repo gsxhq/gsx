@@ -522,3 +522,55 @@ func TestGraphStatPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestUnwalkedListingsReplayWhatWasCaptured(t *testing.T) {
+	input := GraphWitnessInput{Dirs: []string{"a", "e", "f"}, EmbedFiles: []string{"e/.well-known/x.txt", "f/static/.vite/manifest.json"}}
+	root := writeWitnessFixture(t)
+	manifest := buildWitnessManifest(t, root)
+	physical := manifest.PhysicalRoot()
+	captured := manifest.CaptureUnwalkedListings()
+	paths := captured.Paths()
+	if !slices.IsSorted(paths) {
+		t.Fatalf("Paths not sorted: %v", paths)
+	}
+	for _, rel := range []string{"f/static/.vite", "e/.well-known"} {
+		if p := filepath.Join(physical, filepath.FromSlash(rel)); !slices.Contains(paths, p) {
+			t.Errorf("capture lacks embedded unwalked dir %s: %v", rel, paths)
+		}
+	}
+	for _, rel := range []string{".hidden", ".hidden/h", ".git", "a/static/.well-known"} {
+		if p := filepath.Join(physical, filepath.FromSlash(rel)); slices.Contains(paths, p) {
+			t.Errorf("capture holds %s, which no embed walk enters", rel)
+		}
+	}
+
+	want := graphWitness(t, manifest, input)
+	if got, err := manifest.GraphWitnessFrom(input, captured); err != nil || got != want {
+		t.Fatalf("GraphWitnessFrom = %s, %v; want GraphWitness %s on an unchanged tree", got, err, want)
+	}
+	if key, differ := captured.FirstDifference(manifest.CaptureUnwalkedListings()); differ {
+		t.Fatalf("recapture of an unchanged tree differs at %s", key)
+	}
+
+	// After an edit the capture still witnesses the tree it read.
+	writeTestFile(t, root, "f/static/.vite/chunk.json", "{}\n")
+	if got, err := manifest.GraphWitnessFrom(input, captured); err != nil || got != want {
+		t.Fatalf("GraphWitnessFrom after a dot-dir edit = %s, %v; want the captured %s", got, err, want)
+	}
+	if graphWitness(t, manifest, input) == want {
+		t.Fatal("GraphWitness did not see the dot-dir edit")
+	}
+	if key, differ := captured.FirstDifference(manifest.CaptureUnwalkedListings()); !differ || key != "f/static/.vite" {
+		t.Fatalf("recapture after the edit: FirstDifference = %q, %v; want f/static/.vite", key, differ)
+	}
+
+	empty := &UnwalkedListings{physicalRoot: physical, nodes: map[string]capturedNode{}}
+	if _, err := manifest.GraphWitnessFrom(input, empty); !errors.Is(err, ErrListingNotCaptured) {
+		t.Fatalf("GraphWitnessFrom without the dot dirs: err %v, want ErrListingNotCaptured", err)
+	}
+	if key, differ := empty.FirstDifference(captured); !differ {
+		t.Fatal("an empty capture equals a non-empty one")
+	} else if key != "e/.well-known" {
+		t.Fatalf("FirstDifference = %q, want the first key e/.well-known", key)
+	}
+}
