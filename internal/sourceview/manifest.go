@@ -219,6 +219,10 @@ type Manifest struct {
 	// instead of a module-wide scan with a canonicalPath/EvalSymlinks call per
 	// entry. See TestHelperGoFilesIsIndexedByDir.
 	helperGoFilesByDir map[string]map[string]FileSnapshot
+	// packageByCanonicalDir indexes packageDirs by canonical directory, built
+	// once in newManifest like helperGoFilesByDir, so PackagePathForDir is a
+	// map read instead of a canonicalPath call per owned package per query.
+	packageByCanonicalDir map[string]string
 }
 
 // Build constructs the complete owned GSX manifest once. It snapshots owned Go
@@ -489,6 +493,23 @@ func newManifest(prev *Manifest, moduleRoot, physicalRoot, modulePath string, so
 		manifest.overlay[sentinel] = []byte("package " + packageNames[dir] + "\n")
 		manifest.sentinelFiles = append(manifest.sentinelFiles, sentinel)
 		manifest.sentinelByDir[dir] = sentinel
+	}
+	importPaths := make([]string, 0, len(manifest.packageDirs))
+	for importPath := range manifest.packageDirs {
+		importPaths = append(importPaths, importPath)
+	}
+	sort.Strings(importPaths)
+	manifest.packageByCanonicalDir = make(map[string]string, len(importPaths))
+	for _, importPath := range importPaths {
+		rawDir := manifest.packageDirs[importPath]
+		canonicalDir, ok := canonicalRawDir[rawDir]
+		if !ok {
+			canonicalDir = canonicalPath(rawDir)
+			canonicalRawDir[rawDir] = canonicalDir
+		}
+		if _, taken := manifest.packageByCanonicalDir[canonicalDir]; !taken {
+			manifest.packageByCanonicalDir[canonicalDir] = importPath
+		}
 	}
 	for root := range loadRoots {
 		manifest.loadRoots = append(manifest.loadRoots, root)
@@ -956,13 +977,8 @@ func (manifest *Manifest) PackageDir(importPath string) (string, bool) {
 
 // PackagePathForDir returns the manifest-owned import path for dir.
 func (manifest *Manifest) PackagePathForDir(dir string) (string, bool) {
-	dir = canonicalPath(dir)
-	for importPath, packageDir := range manifest.packageDirs {
-		if canonicalPath(packageDir) == dir {
-			return importPath, true
-		}
-	}
-	return "", false
+	importPath, ok := manifest.packageByCanonicalDir[canonicalPath(dir)]
+	return importPath, ok
 }
 
 // SelectedLoadRoots returns the deterministic authored GSX import closure of

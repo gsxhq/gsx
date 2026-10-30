@@ -111,13 +111,14 @@ func NewCacheProjection(manifest *Manifest, graph Graph) (*CacheProjection, erro
 		mutableModules:    make(map[string]moduleProjection),
 		packageModuleKeys: make(map[string]string),
 	}
+	view := newProjectionView(manifest)
 	for importPath, metadata := range projection.graph {
 		if metadata.ImportPath == "" {
 			metadata.ImportPath = importPath
 			projection.graph[importPath] = metadata
 		}
 		if metadata.Dir != "" {
-			projection.byDir[canonicalPath(metadata.Dir)] = importPath
+			projection.byDir[view.paths.dir(metadata.Dir)] = importPath
 		}
 	}
 	for _, metadata := range projection.graph {
@@ -126,10 +127,10 @@ func NewCacheProjection(manifest *Manifest, graph Graph) (*CacheProjection, erro
 			continue
 		}
 		importPath := metadata.ImportPath
-		if canonicalPath(metadata.Dir) != canonicalPath(dir) {
+		if view.paths.dir(metadata.Dir) != view.paths.dir(dir) {
 			return nil, fmt.Errorf("sourceview: selected package %q has dir %q, want manifest dir %q", importPath, metadata.Dir, dir)
 		}
-		if !isMainModule(metadata.Module, manifest) {
+		if !view.isMainModule(metadata.Module) {
 			return nil, fmt.Errorf("sourceview: selected package %q is not owned by main module %q", importPath, manifest.modulePath)
 		}
 	}
@@ -140,7 +141,7 @@ func NewCacheProjection(manifest *Manifest, graph Graph) (*CacheProjection, erro
 		return nil, err
 	}
 	for importPath, metadata := range projection.graph {
-		inputs, inputErr := projection.inputsForPackage(metadata)
+		inputs, inputErr := projection.inputsForPackage(metadata, view)
 		if inputErr != nil {
 			projection.packageInputErrs[importPath] = inputErr
 		} else {
@@ -294,8 +295,51 @@ func (projection *CacheProjection) inputs(dir string, extraRoots []string) ([]ca
 	return inputs, nil
 }
 
-func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([]cacheInput, error) {
-	mainOwned := isMainModule(metadata.Module, projection.manifest)
+// projectionView is the construction-local canonical view of the manifest
+// that every inputsForPackage call shares. Each set is derived once per
+// NewCacheProjection, never per package: rebuilding them per package made the
+// projection O(packages x module GSX files) EvalSymlinks walks.
+type projectionView struct {
+	manifest *Manifest
+	paths    *pathResolver
+	root     string
+	// paired and sentinels hold the canonical paths of the manifest's paired
+	// generated outputs and package sentinels.
+	paired    map[string]bool
+	sentinels map[string]bool
+	// sourcesByDir lists the manifest's GSX sources (sorted) by canonical
+	// package directory.
+	sourcesByDir map[string][]string
+}
+
+func newProjectionView(manifest *Manifest) *projectionView {
+	view := &projectionView{
+		manifest:     manifest,
+		paths:        newPathResolver(),
+		paired:       make(map[string]bool, len(manifest.pairedOutputs)),
+		sentinels:    make(map[string]bool, len(manifest.sentinelFiles)),
+		sourcesByDir: make(map[string][]string),
+	}
+	view.root = view.paths.dir(manifest.moduleRoot)
+	for _, path := range manifest.pairedOutputs {
+		view.paired[view.paths.file(path)] = true
+	}
+	for _, path := range manifest.sentinelFiles {
+		view.sentinels[view.paths.file(path)] = true
+	}
+	for _, path := range manifest.sourcePaths {
+		dir := view.paths.dir(filepath.Dir(path))
+		view.sourcesByDir[dir] = append(view.sourcesByDir[dir], path)
+	}
+	return view
+}
+
+func (view *projectionView) isMainModule(module *ModuleMetadata) bool {
+	return module != nil && module.Main && module.Path == view.manifest.modulePath && view.paths.dir(module.Dir) == view.root
+}
+
+func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata, view *projectionView) ([]cacheInput, error) {
+	mainOwned := view.isMainModule(metadata.Module)
 	_, mutable := mutableModule(metadata.Module)
 	if metadata.Standard || !mainOwned && !mutable {
 		return nil, nil
@@ -307,28 +351,21 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([
 	if len(selected) == 0 {
 		selected = metadata.GoFiles
 	}
-	paired := make(map[string]bool, len(projection.manifest.pairedOutputs))
-	for _, path := range projection.manifest.pairedOutputs {
-		paired[canonicalPath(path)] = true
-	}
-	sentinels := make(map[string]bool, len(projection.manifest.sentinelFiles))
-	for _, path := range projection.manifest.sentinelFiles {
-		sentinels[canonicalPath(path)] = true
-	}
-	paths := make(map[string]bool)
+	packageDir := view.paths.dir(metadata.Dir)
+	paths := make(map[string]string)
 	for _, path := range selected {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(metadata.Dir, path)
 		}
 		path = filepath.Clean(path)
-		canonical := canonicalPath(path)
-		if mainOwned && (paired[canonical] || sentinels[canonical]) {
+		canonical := view.paths.file(path)
+		if mainOwned && (view.paired[canonical] || view.sentinels[canonical]) {
 			continue
 		}
-		if !PathWithin(canonicalPath(metadata.Dir), canonical) {
+		if !PathWithin(packageDir, canonical) {
 			return nil, fmt.Errorf("sourceview: selected Go file %s for %q is outside package dir %s", path, metadata.ImportPath, metadata.Dir)
 		}
-		paths[path] = true
+		paths[path] = canonical
 	}
 	var inputs []cacheInput
 	ordered := make([]string, 0, len(paths))
@@ -347,7 +384,7 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([
 		}
 		logicalPath := path
 		if mainOwned {
-			physical := canonicalPath(path)
+			physical := paths[path]
 			moduleRel, relErr := filepath.Rel(projection.manifest.physicalRoot, physical)
 			if relErr != nil || moduleRel == ".." || strings.HasPrefix(moduleRel, ".."+string(filepath.Separator)) {
 				return nil, fmt.Errorf("sourceview: selected main-module Go file %s is outside physical module root %s", path, projection.manifest.physicalRoot)
@@ -359,8 +396,7 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([
 	if mainOwned {
 		if helperDir, ownsGSX := projection.manifest.packageDirs[metadata.ImportPath]; ownsGSX {
 			for path, snapshot := range projection.manifest.HelperGoFiles(metadata.Dir) {
-				canonical := canonicalPath(path)
-				if paired[canonical] {
+				if view.paired[view.paths.file(path)] {
 					continue
 				}
 				rel, err := filepath.Rel(helperDir, path)
@@ -384,10 +420,7 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata) ([
 				}
 			}
 		}
-		for _, path := range projection.manifest.sourcePaths {
-			if canonicalPath(filepath.Dir(path)) != canonicalPath(metadata.Dir) {
-				continue
-			}
+		for _, path := range view.sourcesByDir[packageDir] {
 			source := projection.manifest.sources[path]
 			rel, err := filepath.Rel(projection.manifest.moduleRoot, path)
 			if err != nil {
@@ -482,10 +515,6 @@ func moduleIdentityKey(original, effective *ModuleMetadata) string {
 	return strings.Join([]string{original.Path, original.Version, effective.Path, effective.Version}, "\x00")
 }
 
-func isMainModule(module *ModuleMetadata, manifest *Manifest) bool {
-	return module != nil && module.Main && module.Path == manifest.modulePath && canonicalPath(module.Dir) == canonicalPath(manifest.moduleRoot)
-}
-
 func canonicalPath(path string) string {
 	canonicalPathCalls.Add(1)
 	path = filepath.Clean(path)
@@ -493,6 +522,38 @@ func canonicalPath(path string) string {
 		return filepath.Clean(resolved)
 	}
 	return path
+}
+
+// pathResolver canonicalizes many paths against one filesystem snapshot.
+// Each distinct directory is resolved once; a file costs one Lstat of its
+// final element and is resolved in full only when that element is itself a
+// symlink. The result is exactly canonicalPath's, whose full-path
+// EvalSymlinks walk re-resolves every parent directory per file.
+type pathResolver struct {
+	dirs map[string]string
+}
+
+func newPathResolver() *pathResolver {
+	return &pathResolver{dirs: make(map[string]string)}
+}
+
+func (resolver *pathResolver) dir(path string) string {
+	path = filepath.Clean(path)
+	if canonical, ok := resolver.dirs[path]; ok {
+		return canonical
+	}
+	canonical := canonicalPath(path)
+	resolver.dirs[path] = canonical
+	return canonical
+}
+
+func (resolver *pathResolver) file(path string) string {
+	path = filepath.Clean(path)
+	info, err := os.Lstat(path)
+	if err == nil && info.Mode()&os.ModeSymlink == 0 || err != nil && pathAbsent(err) {
+		return filepath.Join(resolver.dir(filepath.Dir(path)), filepath.Base(path))
+	}
+	return canonicalPath(path)
 }
 
 func cloneGraph(graph Graph) Graph {
