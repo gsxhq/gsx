@@ -2,7 +2,9 @@ Text that touches inline content never takes a break from the formatter: the
 break would be dropped and child-element-spacing would then warn that no space
 renders (gsxhq/gsx#260). The run overflows instead. Breaks the lint allows
 stay available: after `(`, before `)`, and beside `<br/>`. A break the author
-wrote at such a boundary is kept, so the source's warning stays visible.
+wrote at such a boundary is kept, so the source's warning stays visible. The
+rule looks through comments and Go blocks across the whole children list, also
+when a block child lays the list out one segment per line.
 
 -- input.gsx --
 package p
@@ -50,6 +52,25 @@ component AuthorBreaks(n int) {
 		} }
 	</p>
 }
+
+component LookThroughInBlockList() {
+	<p>
+		<b>x</b>
+		<!-- c -->
+		tail
+	</p>
+	<div>
+		<div>block</div>
+		here
+		{/* c */}
+		<b>after comment</b>
+	</div>
+	<p>
+		<div>block</div>
+		here{{ x := 1; _ = x }}<b>after</b>
+	</p>
+}
+
 -- fmt.golden --
 package p
 
@@ -100,5 +121,27 @@ component AuthorBreaks(n int) {
 		{ if n > 0 {
 			<strong>ok</strong>
 		} }
+	</p>
+}
+
+component LookThroughInBlockList() {
+	<p>
+		<b>x</b>
+		<!-- c -->
+		tail
+	</p>
+	<div>
+		<div>block</div>
+		here
+		{/* c */}
+		<b>after comment</b>
+	</div>
+	<p>
+		<div>block</div>
+		here{{
+			x := 1
+			_ = x
+		}}
+		<b>after</b>
 	</p>
 }

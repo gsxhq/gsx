@@ -3,6 +3,7 @@ package codegen
 import (
 	"go/token"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,14 +15,14 @@ import (
 	"github.com/gsxhq/gsx/parser"
 )
 
-// TestFmtKeepsChildElementSpacingCount formats every .gsx source in the
-// semantic and fmt corpora at several widths (narrow ones force breaks at
-// nearly every candidate) and requires child-element-spacing to report the
-// same number of warnings before and after. More means gsx fmt wrote a break
+// TestFmtKeepsChildElementSpacing formats every .gsx source in the semantic
+// and fmt corpora at several widths (narrow ones force breaks at nearly every
+// candidate) and requires child-element-spacing to report the same warnings
+// (message and neighbour, as a multiset) before and after. More means gsx fmt wrote a break
 // the lint rejects (gsxhq/gsx#260); fewer means it joined an authored break
 // and hid the warning. The lint runs without types, so non-literal
 // interpolations are opaque to it; the formatter bonds them regardless.
-func TestFmtKeepsChildElementSpacingCount(t *testing.T) {
+func TestFmtKeepsChildElementSpacing(t *testing.T) {
 	t.Parallel()
 	var archives []string
 	for _, pat := range []string{
@@ -63,8 +64,8 @@ func TestFmtKeepsChildElementSpacingCount(t *testing.T) {
 					t.Errorf("%s: width %d: formatted output does not parse", name, width)
 					continue
 				}
-				if got != want {
-					t.Errorf("%s: width %d: child-element-spacing reports %d warning(s) on the input but %d on the formatted output:\n%s", name, width, want, got, out)
+				if !slices.Equal(got, want) {
+					t.Errorf("%s: width %d: child-element-spacing warnings differ\ninput:  %q\noutput: %q\n%s", name, width, want, got, out)
 				}
 				checked++
 			}
@@ -75,21 +76,23 @@ func TestFmtKeepsChildElementSpacingCount(t *testing.T) {
 	}
 }
 
-// spacingWarnings counts child-element-spacing warnings on src, without types.
-func spacingWarnings(name string, src []byte) (int, bool) {
+// spacingWarnings lists the child-element-spacing messages on src, sorted,
+// without types.
+func spacingWarnings(name string, src []byte) ([]string, bool) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, name, src, 0)
 	if err != nil {
-		return 0, false
+		return nil, false
 	}
 	wsnorm.Normalize(f)
 	var bag diag.Bag
 	reportChildElementSpacing(f, src, fset, nil, funcTables{}, &bag)
-	n := 0
+	var msgs []string
 	for _, d := range bag.Sorted() {
 		if d.Code == diag.CodeChildElementSpacing {
-			n++
+			msgs = append(msgs, d.Message)
 		}
 	}
-	return n, true
+	slices.Sort(msgs)
+	return msgs, true
 }

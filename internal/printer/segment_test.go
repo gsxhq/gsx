@@ -23,7 +23,7 @@ func TestSegmentSafeBoundaryBreakable(t *testing.T) {
 	// [Text("by "), Interp, IfMarkup] — "by " glues to Interp; Interp|IfMarkup
 	// is a safe boundary → two segments, breakable.
 	nodes := []ast.Markup{txt("by "), interp(), &ast.IfMarkup{Cond: "c"}}
-	segs, breakable := segmentChildren(nodes)
+	segs, breakable := segmentChildren(nodes, spacingBonds(nodes))
 	if !breakable {
 		t.Fatal("want breakable")
 	}
@@ -36,7 +36,7 @@ func TestSegmentAllGluedSingleSegment(t *testing.T) {
 	// [Text("a "), <b>, Text(" b")] — both boundaries glued → one segment,
 	// and edge-safe (no significant leading/trailing space) so breakable=true.
 	nodes := []ast.Markup{txt("a "), elem("b"), txt(" b")}
-	segs, breakable := segmentChildren(nodes)
+	segs, breakable := segmentChildren(nodes, spacingBonds(nodes))
 	if !breakable {
 		t.Fatal("want breakable (one segment, edge-safe)")
 	}
@@ -48,7 +48,7 @@ func TestSegmentAllGluedSingleSegment(t *testing.T) {
 func TestSegmentTwoBlocksBreakable(t *testing.T) {
 	// [<p>, <p>] — no text, safe boundary between → two segments, breakable.
 	nodes := []ast.Markup{elem("p"), elem("p")}
-	segs, breakable := segmentChildren(nodes)
+	segs, breakable := segmentChildren(nodes, spacingBonds(nodes))
 	if !breakable || len(segs) != 2 {
 		t.Fatalf("want breakable 2 segments, got breakable=%v segs=%v", breakable, segWords(segs))
 	}
@@ -57,7 +57,7 @@ func TestSegmentTwoBlocksBreakable(t *testing.T) {
 func TestSegmentLeadingSpaceEdgeGuardForcesInline(t *testing.T) {
 	// First child has a significant leading space → block opener would absorb it.
 	nodes := []ast.Markup{txt(" x"), elem("p")}
-	_, breakable := segmentChildren(nodes)
+	_, breakable := segmentChildren(nodes, spacingBonds(nodes))
 	if breakable {
 		t.Fatal("leading significant space must force inline")
 	}
@@ -66,7 +66,7 @@ func TestSegmentLeadingSpaceEdgeGuardForcesInline(t *testing.T) {
 func TestSegmentTrailingSpaceEdgeGuardForcesInline(t *testing.T) {
 	// Last child has a significant trailing space → block closer would absorb it.
 	nodes := []ast.Markup{elem("p"), txt("x ")}
-	_, breakable := segmentChildren(nodes)
+	_, breakable := segmentChildren(nodes, spacingBonds(nodes))
 	if breakable {
 		t.Fatal("trailing significant space must force inline")
 	}
@@ -75,7 +75,7 @@ func TestSegmentTrailingSpaceEdgeGuardForcesInline(t *testing.T) {
 func TestSegmentSingleInterpIsEdgeSafe(t *testing.T) {
 	// A single Interp — one segment, edge-safe (no significant boundary space)
 	// so breakable=true; the element/body layer decides block-vs-inline via hasBlockChild.
-	_, breakable := segmentChildren([]ast.Markup{interp()})
+	_, breakable := segmentChildren([]ast.Markup{interp()}, []bool{false})
 	if !breakable {
 		t.Fatal("single Interp is edge-safe so breakable")
 	}
@@ -125,7 +125,7 @@ func fillAt(t *testing.T, src string, width int) string {
 	t.Helper()
 	p := &printer{width: width, tabWidth: 2}
 	e := firstElement(t, src)
-	return pretty.Print(pretty.Fill(p.fillParts(e.Children)...), width, 2)
+	return pretty.Print(pretty.Fill(p.fillParts(e.Children, spacingBonds(e.Children))...), width, 2)
 }
 
 func TestFillParts(t *testing.T) {

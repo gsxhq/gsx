@@ -484,7 +484,8 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 // to a block element still wraps at word gaps. Edge-unsafe lists keep the
 // old flat form. For preserved subtrees use childrenPreserve instead.
 func (p *printer) childrenInner(nodes []ast.Markup) (doc pretty.Doc, breakable bool) {
-	segs, breakable := segmentChildren(nodes)
+	bonds := spacingBonds(nodes)
+	segs, breakable := segmentChildren(nodes, bonds)
 	if !breakable {
 		parts := make([]pretty.Doc, 0, len(segs)*2)
 		for i, s := range segs {
@@ -498,14 +499,14 @@ func (p *printer) childrenInner(nodes []ast.Markup) (doc pretty.Doc, breakable b
 		return pretty.Concat(parts...), false
 	}
 	if !p.hasBlockChild(nodes) {
-		return pretty.Fill(p.fillParts(nodes)...), true
+		return pretty.Fill(p.fillParts(nodes, bonds)...), true
 	}
 	parts := make([]pretty.Doc, 0, len(segs)*2)
 	for i, s := range segs {
 		if i > 0 && !p.caseBodyBondBoundary(s) {
 			parts = append(parts, pretty.SoftLine)
 		}
-		parts = append(parts, pretty.Fill(p.fillParts(s.nodes)...))
+		parts = append(parts, pretty.Fill(p.fillParts(s.nodes, s.bonds)...))
 	}
 	return pretty.Concat(parts...), true
 }

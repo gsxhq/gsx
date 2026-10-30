@@ -1567,7 +1567,7 @@ func TestCfBodyEdgesTrimmedThenBreaksOnAuthorNewline(t *testing.T) {
 	// newline after `{` correctly breaks the body to multi-line. Faithful: both
 	// the inline source and this broken form render "atextb". `a` and `b` stay
 	// touching the block: it renders text there, so a break would raise
-	// child-element-spacing (spacingBond).
+	// child-element-spacing (spacingBonds).
 	src := "package p\ncomponent C(x bool) {\n\t<p>a{ if x {\n\ttext  } }b</p>\n}\n"
 	want := "package p\n\ncomponent C(x bool) {\n\t<p>\n\t\ta{ if x {\n\t\t\ttext\n\t\t} }b\n\t</p>\n}\n"
 	checkFormat(t, src, want)
