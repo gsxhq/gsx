@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -223,6 +224,57 @@ type Manifest struct {
 	// once in newManifest like helperGoFilesByDir, so PackagePathForDir is a
 	// map read instead of a canonicalPath call per owned package per query.
 	packageByCanonicalDir map[string]string
+	// dirListings records, per directory the Build walk entered (and per
+	// directory RefreshDirs re-read), the exact non-directory entry names on
+	// disk, keyed by module-relative slash path ("." for the root). Task-4
+	// witnesses hash these, so they are the walk's listing, not a filtered
+	// view. Slices are sorted and never mutated after construction;
+	// derivations share them.
+	dirListings map[string]dirListing
+	// skippedDirs records directories the walk did not enter and why, keyed
+	// like dirListings.
+	skippedDirs map[string]skipKind
+	// witnessable is true only while dirListings describes the disk: overrides
+	// change the file set without a disk listing, so manifests derived through
+	// WithOverrides/WithFileSnapshots are not witnessable.
+	witnessable bool
+}
+
+// dirListing is the walk's view of one entered directory.
+type dirListing struct {
+	// files holds the sorted names of every non-directory entry, whatever its
+	// extension. Symlinks are listed by name and never followed.
+	files []string
+	// goMod reports whether the directory has a go.mod (true for the root).
+	goMod bool
+}
+
+// skipKind says why the walk did not enter a directory.
+type skipKind int
+
+const (
+	skipNestedModule skipKind = iota + 1
+	skipUnimportable
+)
+
+// Witnessable reports whether the manifest's directory listings describe the
+// disk, i.e. no override has changed the file set since the listing.
+func (manifest *Manifest) Witnessable() bool { return manifest.witnessable }
+
+// relDirKey returns the module-relative slash key for dir, "." for the root.
+func relDirKey(root, dir string) (string, error) {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+// freezeListing sorts names and builds the immutable listing for key.
+func freezeListing(key string, names []string) dirListing {
+	files := slices.Clone(names)
+	slices.Sort(files)
+	return dirListing{files: files, goMod: key == "." || slices.Contains(files, "go.mod")}
 }
 
 // Build constructs the complete owned GSX manifest once. It snapshots owned Go
@@ -255,15 +307,27 @@ func Build(options BuildOptions) (*Manifest, error) {
 
 	paths := make(map[string]bool)
 	goPaths := make(map[string]bool)
+	listedNames := make(map[string][]string)
+	skippedDirs := make(map[string]skipKind)
 	err = filepath.WalkDir(physicalRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if vanishedDuringWalk(physicalRoot, path, walkErr) {
+				// A vanished directory may have yielded a partial listing; an
+				// unlisted directory is never witnessed.
+				if key, keyErr := relDirKey(physicalRoot, path); keyErr == nil {
+					delete(listedNames, key)
+				}
 				return nil
 			}
 			return walkErr
 		}
+		key, keyErr := relDirKey(physicalRoot, path)
+		if keyErr != nil {
+			return keyErr
+		}
 		if entry.IsDir() && path != physicalRoot {
 			if !importableDirName(entry.Name()) {
+				skippedDirs[key] = skipUnimportable
 				return filepath.SkipDir
 			}
 			startsModule, moduleErr := directoryStartsModule(path)
@@ -271,8 +335,15 @@ func Build(options BuildOptions) (*Manifest, error) {
 				return moduleErr
 			}
 			if startsModule {
+				skippedDirs[key] = skipNestedModule
 				return filepath.SkipDir
 			}
+		}
+		if entry.IsDir() {
+			listedNames[key] = []string{}
+		} else {
+			parent := filepath.ToSlash(filepath.Dir(key))
+			listedNames[parent] = append(listedNames[parent], entry.Name())
 		}
 		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".gsx") || strings.HasSuffix(entry.Name(), ".go")) {
 			rel, relErr := filepath.Rel(physicalRoot, path)
@@ -349,7 +420,11 @@ func Build(options BuildOptions) (*Manifest, error) {
 			helperGoFiles[path] = cloneFileSnapshot(snapshot)
 		}
 	}
-	return newManifest(nil, root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles)
+	dirListings := make(map[string]dirListing, len(listedNames))
+	for key, names := range listedNames {
+		dirListings[key] = freezeListing(key, names)
+	}
+	return newManifest(nil, root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles, dirListings, skippedDirs, true)
 }
 
 // newManifest takes ownership of the sources, trackedFiles, and helperGoFiles
@@ -361,7 +436,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 // whose source bytes are unchanged from prev reuses prev's FileFact instead of
 // re-running Inspect, so derivation parse work is proportional to the changed
 // file set rather than the module.
-func newManifest(prev *Manifest, moduleRoot, physicalRoot, modulePath string, sources map[string][]byte, pairedPresent map[string]bool, preferredSentinels map[string]string, trackedFiles, helperGoFiles map[string]FileSnapshot) (*Manifest, error) {
+func newManifest(prev *Manifest, moduleRoot, physicalRoot, modulePath string, sources map[string][]byte, pairedPresent map[string]bool, preferredSentinels map[string]string, trackedFiles, helperGoFiles map[string]FileSnapshot, dirListings map[string]dirListing, skippedDirs map[string]skipKind, witnessable bool) (*Manifest, error) {
 	manifest := &Manifest{
 		moduleRoot:    moduleRoot,
 		physicalRoot:  physicalRoot,
@@ -376,6 +451,15 @@ func newManifest(prev *Manifest, moduleRoot, physicalRoot, modulePath string, so
 		sentinelByDir: make(map[string]string),
 		trackedFiles:  trackedFiles,
 		helperGoFiles: helperGoFiles,
+		dirListings:   dirListings,
+		skippedDirs:   skippedDirs,
+		witnessable:   witnessable,
+	}
+	if manifest.dirListings == nil {
+		manifest.dirListings = map[string]dirListing{}
+	}
+	if manifest.skippedDirs == nil {
+		manifest.skippedDirs = map[string]skipKind{}
 	}
 	if manifest.sources == nil {
 		manifest.sources = map[string][]byte{}
@@ -613,7 +697,7 @@ func (manifest *Manifest) WithFileSnapshots(snapshots map[string]FileSnapshot) (
 			return nil, fmt.Errorf("sourceview: invalid saved file state %d for %s", snapshot.state, absPath)
 		}
 	}
-	return newManifest(manifest, manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
+	return newManifest(manifest, manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles, manifest.dirListings, manifest.skippedDirs, false)
 }
 
 // RefreshDirs replaces the saved GSX membership, bytes, paired-output state,
@@ -647,6 +731,7 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 	preferredSentinels := maps.Clone(manifest.sentinelByDir)
 	trackedFiles := maps.Clone(manifest.trackedFiles)
 	helperGoFiles := maps.Clone(manifest.helperGoFiles)
+	dirListings := maps.Clone(manifest.dirListings)
 	for path := range sources {
 		if !dirSet[filepath.Dir(path)] {
 			continue
@@ -679,6 +764,11 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 	}
 	sort.Strings(orderedDirs)
 	for _, dir := range orderedDirs {
+		key, err := relDirKey(manifest.moduleRoot, dir)
+		if err != nil {
+			return nil, fmt.Errorf("sourceview: key refresh directory %s: %w", dir, err)
+		}
+		delete(dirListings, key)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -686,6 +776,13 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 			}
 			return nil, fmt.Errorf("sourceview: read refresh directory %s: %w", dir, err)
 		}
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				names = append(names, entry.Name())
+			}
+		}
+		dirListings[key] = freezeListing(key, names)
 		for _, entry := range entries {
 			if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".gsx") && !strings.HasSuffix(entry.Name(), ".go")) {
 				continue
@@ -722,7 +819,7 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 			pairedPresent[paired] = present
 		}
 	}
-	return newManifest(manifest, manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles)
+	return newManifest(manifest, manifest.moduleRoot, manifest.physicalRoot, manifest.modulePath, sources, pairedPresent, preferredSentinels, trackedFiles, helperGoFiles, dirListings, manifest.skippedDirs, manifest.witnessable)
 }
 
 // sameSourceBytes reports whether two immutable source slices hold identical

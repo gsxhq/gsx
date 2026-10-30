@@ -596,3 +596,85 @@ func TestResolvePathAllowMissingLexicalWithoutFilesystem(t *testing.T) {
 		t.Fatalf("resolvePathAllowMissing(%q) = %q, want lexical %q", missing, got, filepath.Clean(missing))
 	}
 }
+
+func TestBuildRecordsDirListings(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	writeTestFile(t, root, "a/x.go", "package a\n")
+	writeTestFile(t, root, "a/x.c", "int x;\n")
+	writeTestFile(t, root, "a/notes.txt", "n\n")
+	writeTestFile(t, root, "nested/go.mod", "module example.com/nested\n")
+	writeTestFile(t, root, "nested/n.go", "package nested\n")
+	writeTestFile(t, root, ".hidden/t.go", "package t\n")
+
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := manifest.dirListings["a"].files, []string{"notes.txt", "x.c", "x.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("a listing = %v, want %v", got, want)
+	}
+	if got := manifest.skippedDirs["nested"]; got != skipNestedModule {
+		t.Fatalf("nested skip = %v, want skipNestedModule", got)
+	}
+	if got := manifest.skippedDirs[".hidden"]; got != skipUnimportable {
+		t.Fatalf(".hidden skip = %v, want skipUnimportable", got)
+	}
+	if !manifest.dirListings["."].goMod {
+		t.Fatal("root listing goMod = false, want true")
+	}
+	for _, key := range []string{"nested", ".hidden"} {
+		if _, ok := manifest.dirListings[key]; ok {
+			t.Fatalf("skipped dir %s has a listing", key)
+		}
+	}
+	if !manifest.Witnessable() {
+		t.Fatal("Build manifest is not witnessable")
+	}
+}
+
+func TestRefreshDirsUpdatesListings(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	writeTestFile(t, root, "a/x.go", "package a\n")
+	writeTestFile(t, root, "b/b.go", "package b\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, "a/y.go", "package a\n")
+	writeTestFile(t, root, "b/c.go", "package b\n")
+	refreshed, err := manifest.RefreshDirs([]string{filepath.Join(root, "a")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := refreshed.dirListings["a"].files, []string{"x.go", "y.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("a listing = %v, want %v", got, want)
+	}
+	if got, want := refreshed.dirListings["b"].files, []string{"b.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("b listing = %v, want unrefreshed %v", got, want)
+	}
+	if got := manifest.dirListings["a"].files; len(got) != 1 {
+		t.Fatalf("previous manifest listing mutated: %v", got)
+	}
+	if !refreshed.Witnessable() {
+		t.Fatal("refreshed manifest is not witnessable")
+	}
+}
+
+func TestOverridesAreNotWitnessable(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	writeTestFile(t, root, "a/x.go", "package a\n")
+	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	derived, err := manifest.WithOverrides(map[string][]byte{filepath.Join(root, "a", "new.go"): []byte("package a\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if derived.Witnessable() {
+		t.Fatal("override-derived manifest is witnessable")
+	}
+}
