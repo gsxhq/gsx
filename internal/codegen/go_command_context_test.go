@@ -635,6 +635,17 @@ func TestGoCommandContextDisablesPersistentCacheForWorkspaceAndVendor(t *testing
 			t.Fatalf("CacheFingerprint error = %v, want ErrUncacheableGoContext", err)
 		}
 	})
+
+	for _, flags := range []string{"-modfile=/elsewhere/alt.mod", "--modfile=alt.mod", "-mod=mod -modfile=alt.mod"} {
+		t.Run("modfile "+flags, func(t *testing.T) {
+			t.Setenv("GOWORK", "off")
+			t.Setenv("GOFLAGS", flags)
+			_, err := CaptureGoCommandContext(t.TempDir()).CacheFingerprint()
+			if !errors.Is(err, ErrUncacheableGoContext) || !strings.Contains(err.Error(), "-modfile") {
+				t.Fatalf("CacheFingerprint error = %v, want ErrUncacheableGoContext naming -modfile", err)
+			}
+		})
+	}
 }
 
 func TestGoCommandContextGoModMatchesGoListSpelling(t *testing.T) {

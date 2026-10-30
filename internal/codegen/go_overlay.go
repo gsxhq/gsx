@@ -167,7 +167,8 @@ func (context *GoCommandContext) ValidateCurrent() error {
 // and toolchain identity) remain in the fingerprint. Active workspaces are
 // intentionally uncacheable: their used-module source lies outside the
 // module-root source manifest and therefore cannot be represented by the
-// current persistent key.
+// current persistent key. A GOFLAGS -modfile is uncacheable for the same
+// reason.
 func (context *GoCommandContext) CacheFingerprint() (string, error) {
 	if context == nil {
 		return "", fmt.Errorf("codegen: nil Go command context")
@@ -196,6 +197,12 @@ func (context *GoCommandContext) CacheFingerprint() (string, error) {
 			name, value, hasValue := goFlagValue(flag)
 			if name == "mod" && hasValue && value == "vendor" {
 				context.cacheKeyErr = fmt.Errorf("%w: effective GOFLAGS selects -mod=vendor", ErrUncacheableGoContext)
+				return
+			}
+			// The alternate module file is outside the source manifest, so
+			// neither cache key can witness the requirements go reads.
+			if name == "modfile" {
+				context.cacheKeyErr = fmt.Errorf("%w: effective GOFLAGS selects an alternate -modfile", ErrUncacheableGoContext)
 				return
 			}
 		}

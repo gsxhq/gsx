@@ -146,11 +146,15 @@ func TestGraphCacheDifferential(t *testing.T) {
 	}
 	rows := []struct {
 		name string
-		edit func(*testing.T, string)
+		// setup, when set, runs before the base call.
+		setup func(*testing.T, string)
+		edit  func(*testing.T, string)
 		// wantHit: both calls after the edit must hit.
 		wantHit bool
-		// wantReason, when set, is the second call's outcome.
+		// wantReason, when set, is the second call's outcome; wantDetail, when
+		// set, is a substring of its detail.
 		wantReason graphCacheReason
+		wantDetail string
 	}{
 		{name: "body edit", edit: write("a/a.go", "package a\n\nimport (\n\t_ \"example.com/app/b\"\n\t_ \"example.com/app/e\"\n)\n\nfunc Body() int { return 2 }\n"), wantHit: true},
 		{name: "embed content edit", edit: write("e/data.txt", "other data\n"), wantHit: true},
@@ -176,6 +180,24 @@ func TestGraphCacheDifferential(t *testing.T) {
 			wantReason: graphUncacheable,
 		},
 		{name: "go.mod go version edited", edit: write("go.mod", "module example.com/app\n\ngo 1.27\n")},
+		{
+			// go list reads the alternate module file, which neither the key
+			// nor the witness covers.
+			name: "GOFLAGS -modfile edited",
+			setup: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "alt.mod"), graphDiffModule["go.mod"])
+				// The physical spelling keeps Module.GoMod under GOMOD's
+				// directory, so only the -modfile refusal stops the store.
+				physical, err := filepath.EvalSymlinks(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("GOFLAGS", "-modfile="+filepath.Join(physical, "alt.mod"))
+			},
+			edit:       write("alt.mod", "module example.com/app\n\ngo 1.27\n"),
+			wantReason: graphUncacheable,
+			wantDetail: "-modfile",
+		},
 		{name: "go.sum added", edit: write("go.sum", "example.com/other v1.0.0/go.mod h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n")},
 		{name: "new gsx package", edit: write("w/w.gsx", "package w\n\nimport _ \"example.com/app/b\"\n\ncomponent W() { <p>w</p> }\n")},
 		{name: "gsx imports changed", edit: write("a/a.gsx", "package a\n\nimport _ \"example.com/app/nested\"\n\ncomponent A() { <p>a</p> }\n")},
@@ -192,6 +214,9 @@ func TestGraphCacheDifferential(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeGraphDiffModule(t, root)
+			if row.setup != nil {
+				row.setup(t, root)
+			}
 
 			prep := graphPrep(t, root)
 			graph, outcome, err := loadGraphCached(prep, nil)
@@ -206,8 +231,8 @@ func TestGraphCacheDifferential(t *testing.T) {
 				if row.wantHit && !outcome.Hit() {
 					t.Fatalf("%s: outcome %+v, want a hit", label, outcome)
 				}
-				if call == 2 && row.wantReason != "" && outcome.Reason != row.wantReason {
-					t.Fatalf("%s: outcome %+v, want %s", label, outcome, row.wantReason)
+				if call == 2 && row.wantReason != "" && (outcome.Reason != row.wantReason || !strings.Contains(outcome.Detail, row.wantDetail)) {
+					t.Fatalf("%s: outcome %+v, want %s (%s)", label, outcome, row.wantReason, row.wantDetail)
 				}
 			}
 		})
