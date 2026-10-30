@@ -636,3 +636,50 @@ func TestGoCommandContextDisablesPersistentCacheForWorkspaceAndVendor(t *testing
 		}
 	})
 }
+
+func TestGoCommandContextGoModMatchesGoListSpelling(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(real, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "a", "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	for name, root := range map[string]string{"real": real, "link": link} {
+		t.Run(name, func(t *testing.T) {
+			context := CaptureGoCommandContext(root)
+			gomod, err := context.GoMod()
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := context.Run("list", "-f", "{{.Dir}}", "./a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := strings.TrimSpace(string(out)), filepath.Join(filepath.Dir(gomod), "a"); got != want {
+				t.Fatalf("go list Dir = %q, want %q (GOMOD %q)", got, want, gomod)
+			}
+		})
+	}
+}
+
+func TestGoCommandContextGoModRejectsNonModuleMode(t *testing.T) {
+	for _, gomod := range []string{"", os.DevNull} {
+		context := &GoCommandContext{goMod: gomod}
+		if _, err := context.GoMod(); err == nil {
+			t.Fatalf("GoMod() with GOMOD %q: want error", gomod)
+		}
+	}
+	failed := &GoCommandContext{buildEnvErr: errors.New("boom"), goMod: "/x/go.mod"}
+	if _, err := failed.GoMod(); err == nil {
+		t.Fatal("GoMod() after failed capture: want error")
+	}
+}

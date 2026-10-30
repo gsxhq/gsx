@@ -28,6 +28,9 @@ type frozenGoEnvironment struct {
 	toolDir  string
 	hostOS   string
 	cacheEnv []byte
+	// goMod is the GOMOD go env reported. canonicalGoEnvironment drops it from
+	// cacheEnv, so it is retained here for callers that need the location.
+	goMod string
 }
 
 // ErrUncacheableGoContext marks a valid Go command context whose semantic
@@ -49,6 +52,7 @@ type GoCommandContext struct {
 	cacheKey    string
 	cacheKeyErr error
 	cacheEnv    []byte
+	goMod       string
 	vendorDir   bool
 }
 
@@ -77,11 +81,29 @@ func CaptureGoCommandContext(moduleRoot string) *GoCommandContext {
 		)
 		context.buildEnv = frozen.buildEnv
 		context.cacheEnv = frozen.cacheEnv
+		context.goMod = frozen.goMod
 		if context.buildEnvErr == nil {
 			context.goLauncher, context.buildEnvErr = snapshot.SealToolchain(context.moduleRoot, context.buildEnv, frozen.toolDir, frozen.hostOS)
 		}
 	}
 	return context
+}
+
+// GoMod returns the absolute go.mod path exactly as go env GOMOD reported it
+// when this context was captured, which is the spelling go list prints for
+// the main module's directories. It errors when capture failed or the context
+// is not in module mode.
+func (context *GoCommandContext) GoMod() (string, error) {
+	if context == nil {
+		return "", fmt.Errorf("codegen: nil Go command context")
+	}
+	if context.buildEnvErr != nil {
+		return "", context.buildEnvErr
+	}
+	if context.goMod == "" || context.goMod == os.DevNull {
+		return "", fmt.Errorf("codegen: Go command context is not in module mode (GOMOD %q)", context.goMod)
+	}
+	return context.goMod, nil
 }
 
 // Run executes the captured Go command under the captured environment. It is
@@ -333,6 +355,7 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 	// explicit in Config.Env. Pin the already-validated no-driver state so a
 	// later process-environment mutation cannot escape this frozen boundary.
 	buildEnv = environmentWithValue(buildEnv, "GOPACKAGESDRIVER", "off")
+	goMod := environment["GOMOD"]
 	canonicalEnvironment, err := canonicalGoEnvironment(environment, buildEnv)
 	if err != nil {
 		return frozenGoEnvironment{}, fmt.Errorf("codegen: encode canonical effective Go environment: %w", err)
@@ -342,6 +365,7 @@ func freezeGoCommandEnvironment(buildEnv []string, moduleRoot, packagesDriverPat
 		toolDir:  toolchain.GOTOOLDIR,
 		hostOS:   toolchain.GOHOSTOS,
 		cacheEnv: canonicalEnvironment,
+		goMod:    goMod,
 	}, nil
 }
 
