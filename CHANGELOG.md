@@ -15,8 +15,9 @@ syntax or APIs; a patch bump does not. See
 - **A cached `gsx generate` no longer takes minutes in large modules.** The
   cache check resolved symlinks for every `.gsx` and generated file once per
   package, so a 639-package module made 1.1M path resolutions per run, and
-  concurrent runs slowed each other to 5–14 minutes. Each path is now resolved
-  once per run; the same warm run takes about 10 seconds.
+  concurrent runs slowed each other to 5–14 minutes. Each directory is now
+  resolved once per check, not once per package; the same warm run takes about
+  10 seconds.
 
 ## v0.4.2 — 2026-10-30
 
