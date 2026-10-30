@@ -1,0 +1,80 @@
+Prose that touches a block which cannot stay flat keeps its line: the block
+breaks, and the cluster holds the line only up to the block's first break.
+That is how the block measures once it arrives broken, so a second format
+changes nothing. Before, the cluster was measured flat, the formatter broke
+an earlier word gap, and the next format joined the words back. A block that
+would stay flat on a fresh line moves there instead (MovesDown).
+
+-- input.gsx --
+package p
+
+component Touching(ok bool) {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet{ if ok { <b>yes, and the bold words in this block run long enough to overflow</b> } }consectetur adipiscing elit sed do eiusmod.
+	</p>
+}
+
+component Spaced(ok bool) {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet { if ok { <b>yes, and the bold words in this block run long enough to overflow</b> } } consectetur adipiscing elit sed do eiusmod.
+	</p>
+}
+
+component Fragment() {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet<><b>first</b> <i>second</i> <u>third and some more inline words to overflow</u></>consectetur adipiscing elit.
+	</p>
+}
+
+component Region() {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet<?start name="s"><b>yes, and the bold words in this block run long enough to overflow</b><?end>consectetur adipiscing elit sed do eiusmod.
+	</p>
+}
+
+component MovesDown(ok bool) {
+	<p>
+		lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor { if ok { <b>yes</b> } } consectetur.
+	</p>
+}
+-- fmt.golden --
+package p
+
+component Touching(ok bool) {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet{ if ok {
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} }consectetur adipiscing elit sed do eiusmod.
+	</p>
+}
+
+component Spaced(ok bool) {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet { if ok {
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} } consectetur adipiscing elit sed do eiusmod.
+	</p>
+}
+
+component Fragment() {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet<>
+			<b>first</b> <i>second</i> <u>third and some more inline words to overflow</u>
+		</>consectetur adipiscing elit.
+	</p>
+}
+
+component Region() {
+	<p>
+		lorem ipsum dolor sit amet consectetur amet<?start name="s">
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		<?end>consectetur adipiscing elit sed do eiusmod.
+	</p>
+}
+
+component MovesDown(ok bool) {
+	<p>
+		lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod
+		tempor { if ok { <b>yes</b> } } consectetur.
+	</p>
+}

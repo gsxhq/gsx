@@ -61,7 +61,7 @@ func Print(d Doc, width, tabWidth int) string {
 				stack = append(stack, cmd{c.indent, c.mode, c.doc.parts[i]})
 			}
 		case kindFill:
-			stack = fillStep(stack, c, width-pos, tabWidth)
+			stack = fillStep(stack, c, width, pos, tabWidth)
 		case kindIndent:
 			stack = append(stack, cmd{c.indent + 1, c.mode, c.doc.parts[0]})
 		case kindLine:
@@ -79,7 +79,7 @@ func Print(d Doc, width, tabWidth int) string {
 			child := c.doc.parts[0]
 			if c.doc.forced {
 				stack = append(stack, cmd{c.indent, modeBreak, child})
-			} else if fits(width-pos, cmd{c.indent, modeFlat, child}, stack, tabWidth) {
+			} else if fits(width-pos, cmd{c.indent, modeFlat, child}, stack, tabWidth, groupsInherit) {
 				stack = append(stack, cmd{c.indent, modeFlat, child})
 			} else {
 				stack = append(stack, cmd{c.indent, modeBreak, child})
@@ -99,13 +99,20 @@ func Print(d Doc, width, tabWidth int) string {
 
 // fillStep implements one step of the greedy Fill layout, pushing onto stack
 // (LIFO) the commands to process next. parts alternate content/separator.
-func fillStep(stack []cmd, c cmd, remaining int, tabWidth int) []cmd {
+//
+// Content is measured as Print will lay it out (see measure), so a group that
+// breaks counts only up to its first break, the same as the forced group it
+// re-parses into. The separator before a content breaks when the content does
+// not fit on the line, and also when it fits only by breaking a group that
+// would stay flat at the start of a fresh line (see joins).
+func fillStep(stack []cmd, c cmd, width, pos, tabWidth int) []cmd {
 	parts := c.doc.parts
 	if len(parts) == 0 {
 		return stack
 	}
+	remaining := width - pos
 	content := cmd{c.indent, modeFlat, parts[0]}
-	contentFits := fits(remaining, content, nil, tabWidth)
+	contentFits := fits(remaining, content, nil, tabWidth, groupsAsPrinted)
 	if len(parts) == 1 {
 		m := modeBreak
 		if contentFits {
@@ -123,8 +130,18 @@ func fillStep(stack []cmd, c cmd, remaining int, tabWidth int) []cmd {
 		return append(stack, cmd{c.indent, modeBreak, parts[0]})
 	}
 	rest := cmd{c.indent, c.mode, Doc{kind: kindFill, parts: parts[2:]}}
-	pair := cmd{c.indent, modeFlat, Concat(parts[0], sep, parts[2])}
-	pairFits := fits(remaining, pair, nil, tabWidth)
+	// The separator stays flat when the next content joins the line after this
+	// one. When this content breaks, the separator stays flat, as it always has
+	// for a forced group: the measure stops at the first break and does not see
+	// the last line the next content lands on.
+	pairFits := false
+	switch left, broke := measure(remaining, cmd{c.indent, modeFlat, Concat(parts[0], sep)}, nil, tabWidth, groupsAsPrinted); {
+	case left < 0:
+	case broke:
+		pairFits = true
+	default:
+		pairFits = joins(cmd{c.indent, modeFlat, parts[2]}, left, width-c.indent*tabWidth, tabWidth)
+	}
 	// Push in reverse so content is processed first, then separator, then rest.
 	stack = append(stack, rest)
 	switch {
@@ -139,6 +156,19 @@ func fillStep(stack []cmd, c cmd, remaining int, tabWidth int) []cmd {
 		stack = append(stack, cmd{c.indent, modeBreak, parts[0]})
 	}
 	return stack
+}
+
+// joins reports whether content stays on the current line, with remaining
+// columns left, rather than starting a fresh line of fresh columns. It joins
+// when it fits as it would print here, unless that takes breaking a group which
+// would stay flat on the fresh line: then the break before it buys a flat
+// group. A group that breaks either way breaks here, keeping the line; the
+// output re-parses with that group forced, which measures the same.
+func joins(content cmd, remaining, fresh, tabWidth int) bool {
+	if fits(remaining, content, nil, tabWidth, groupsFlat) {
+		return true
+	}
+	return fits(remaining, content, nil, tabWidth, groupsAsPrinted) && !fits(fresh, content, nil, tabWidth, groupsFlat)
 }
 
 // advance returns the column after writing s starting at column pos. A literal
@@ -157,16 +187,42 @@ func advance(pos int, s string, tabWidth int) int {
 // the current line. It stops — returning true — at the first break it would
 // emit (a hard line, or a line in break mode), so trailing same-line content
 // after the group is correctly counted. rest is a LIFO stack (last = next).
-func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
+func fits(remaining int, next cmd, rest []cmd, tabWidth int, groups groupPolicy) bool {
+	left, _ := measure(remaining, next, rest, tabWidth, groups)
+	return left >= 0
+}
+
+// groupPolicy is how measure lays out a non-forced Group. A forced group is
+// always measured broken, up to its first break.
+type groupPolicy uint8
+
+const (
+	// groupsInherit measures the group in its parent's mode: the flat
+	// question Print's kindGroup case asks of a group's own child.
+	groupsInherit groupPolicy = iota
+	// groupsFlat measures every non-forced group flat: the content as it
+	// prints when no group breaks that is not already broken.
+	groupsFlat
+	// groupsAsPrinted makes the decision Print will make: Print decides every
+	// non-forced group on its own, whatever mode its parent was pushed in, so
+	// a group that does not fit flat prints broken and occupies the line only
+	// up to its first break — measured as the forced group it re-parses into.
+	groupsAsPrinted
+)
+
+// measure walks next and then rest the way fits does and returns the columns
+// left on the line — negative once it overflows — and whether it stopped at a
+// break rather than running out of commands.
+func measure(remaining int, next cmd, rest []cmd, tabWidth int, groups groupPolicy) (left int, broke bool) {
 	if remaining < 0 {
-		return false
+		return remaining, false
 	}
 	local := []cmd{next}
 	restIdx := len(rest)
 	for {
 		if len(local) == 0 {
 			if restIdx == 0 {
-				return true
+				return remaining, false
 			}
 			restIdx--
 			local = append(local, rest[restIdx])
@@ -178,7 +234,7 @@ func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
 		case kindText:
 			remaining -= utf8.RuneCountInString(c.doc.text) + (tabWidth-1)*strings.Count(c.doc.text, "\t")
 			if remaining < 0 {
-				return false
+				return remaining, false
 			}
 		case kindConcat, kindFill:
 			for i := len(c.doc.parts) - 1; i >= 0; i-- {
@@ -188,17 +244,29 @@ func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
 			local = append(local, cmd{c.indent + 1, c.mode, c.doc.parts[0]})
 		case kindGroup:
 			gm := c.mode
-			if c.doc.forced {
+			switch {
+			case c.doc.forced:
 				gm = modeBreak
+			case groups == groupsFlat:
+				gm = modeFlat
+			case groups == groupsAsPrinted:
+				// The decision Print's kindGroup case makes, against what
+				// follows the group here.
+				after := append(rest[:restIdx:restIdx], local...)
+				if fits(remaining, cmd{c.indent, modeFlat, c.doc.parts[0]}, after, tabWidth, groupsInherit) {
+					gm = modeFlat
+				} else {
+					gm = modeBreak
+				}
 			}
 			local = append(local, cmd{c.indent, gm, c.doc.parts[0]})
 		case kindLine:
 			if c.doc.hard || c.mode == modeBreak {
-				return true
+				return remaining, true
 			}
 			remaining -= utf8.RuneCountInString(c.doc.text) + (tabWidth-1)*strings.Count(c.doc.text, "\t")
 			if remaining < 0 {
-				return false
+				return remaining, false
 			}
 		case kindIfBreak:
 			if c.mode == modeBreak {

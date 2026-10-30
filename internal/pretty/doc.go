@@ -68,8 +68,10 @@ var BreakParent = Doc{kind: kindBreakParent}
 // Fill is a greedy per-element layout over an alternating list
 // [content, separator, content, separator, …, content]: it keeps content on
 // the current line until the next content would not fit, breaking the
-// separator before it. Provided for the JS/CSS formatters; the gsx markup
-// printer uses Group/SoftLine (all-or-nothing) instead.
+// separator before it. Content is measured as it will print: a group in it
+// that cannot stay flat counts only up to its first break, and content that
+// would fit only by breaking such a group moves to a fresh line when that
+// keeps the group flat. The gsx markup printer lays prose out with it.
 func Fill(ds ...Doc) Doc { return Doc{kind: kindFill, parts: ds} }
 
 // IfBreak renders broken when the enclosing Group breaks, else flat.

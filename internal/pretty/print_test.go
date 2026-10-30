@@ -58,3 +58,42 @@ func TestDefaultsAreTheChosenValues(t *testing.T) {
 		t.Errorf("DefaultTabWidth = %d, want 2", DefaultTabWidth)
 	}
 }
+
+// block is a cluster word{ body } whose group breaks onto its own lines when
+// it does not fit; forced, it carries a break the way re-parsed output does.
+func block(body string, forced bool) Doc {
+	inner := Concat(Text("{"), Indent(Concat(Line, Text(body))), Line, Text("}"))
+	if forced {
+		inner = Concat(inner, BreakParent)
+	}
+	return Concat(Text("word"), Group(inner))
+}
+
+func prose(cluster Doc) Doc {
+	return Fill(Text("lorem"), Line, Text("ipsum"), Line, Text("dolor"), Line, cluster, Line, Text("end"))
+}
+
+// Fill measures a group that cannot stay flat as it prints: up to its first
+// break. That is how the forced group the broken output re-parses into
+// measures, so both lay the words out the same and a second format agrees with
+// the first. Measured flat, the unforced block pushed "word" onto a new line.
+func TestFillMeasuresBrokenGroupLikeForced(t *testing.T) {
+	const body = "a body too long to stay flat even on a line of its own"
+	got := Print(prose(block(body, false)), 40, 2)
+	want := Print(prose(block(body, true)), 40, 2)
+	if got != want {
+		t.Errorf("unforced group that breaks:\n%s\nforced group:\n%s", got, want)
+	}
+	if !strings.HasPrefix(got, "lorem ipsum dolor word{\n") {
+		t.Errorf("words before the block should keep their line, got:\n%s", got)
+	}
+}
+
+// A cluster that fits flat at the start of a fresh line takes the break before
+// it rather than breaking its group to stay on the current line.
+func TestFillMovesClusterDownToKeepGroupFlat(t *testing.T) {
+	got := Print(prose(block("short", false)), 30, 2)
+	if want := "lorem ipsum dolor\nword{ short } end"; got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
