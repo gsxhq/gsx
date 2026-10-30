@@ -95,6 +95,121 @@ func TestInitInteractiveStopsOnFailure(t *testing.T) {
 	}
 }
 
+// End of input is never an answer: init stops and lists the steps it did not
+// run instead of taking each prompt's default.
+func TestInitInteractiveStopsAtEndOfInput(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := initWith([]string{"--module", "demo", dir},
+		strings.NewReader("y\n"), &out, &errb, true, run, dir)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("only the answered step should run, ran %v", *calls)
+	}
+	for _, want := range []string{"end of input", "go mod tidy", "npm install"} {
+		if !strings.Contains(errb.String(), want) {
+			t.Fatalf("stderr missing %q: %q", want, errb.String())
+		}
+	}
+	if strings.Contains(out.String(), "Done") {
+		t.Fatalf("must not report Done: %q", out.String())
+	}
+}
+
+func TestInitProjectNameEndOfInputCreatesNothing(t *testing.T) {
+	t.Parallel()
+	wd := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := initWith(nil, strings.NewReader(""), &out, &errb, true, run, wd)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr=%q", code, errb.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("no step should run, ran %v", *calls)
+	}
+	if ents, _ := os.ReadDir(wd); len(ents) != 0 {
+		t.Fatalf("nothing should be scaffolded, found %v", ents)
+	}
+}
+
+// A last answer without a trailing newline (typed, then Ctrl-D) still counts.
+func TestInitInteractiveFinalAnswerWithoutNewline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := initWith([]string{"--module", "demo", dir},
+		strings.NewReader("y\ny\nn"), &out, &errb, true, run, dir)
+	if code != 0 {
+		t.Fatalf("exit %d; %q", code, errb.String())
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("final `n` should skip npm install, ran %v", *calls)
+	}
+}
+
+// Character devices that are not terminals (gsxhq/gsx#255) and pipes must take
+// the non-interactive path.
+func TestIsTTYRejectsNonTerminals(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{os.DevNull, "/dev/zero"} {
+		f, err := os.Open(name)
+		if err != nil {
+			if name == os.DevNull {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if isTTY(f) {
+			t.Errorf("isTTY(%s) = true", name)
+		}
+		f.Close()
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if isTTY(r) || isTTY(w) {
+		t.Error("isTTY(pipe) = true")
+	}
+	if isTTY(strings.NewReader("")) || isTTY(&bytes.Buffer{}) {
+		t.Error("isTTY(non-file) = true")
+	}
+}
+
+// gsx init </dev/null scaffolds into . and prints next steps; nothing runs.
+func TestInitDevNullStdinIsNonInteractive(t *testing.T) {
+	t.Parallel()
+	wd := t.TempDir()
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := initWith([]string{"--module", "demo"}, null, &out, &errb, isTTY(null), run, wd)
+	if code != 0 {
+		t.Fatalf("exit %d; %q", code, errb.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("no step should run, ran %v", *calls)
+	}
+	if strings.Contains(out.String(), "[Y/n]") || strings.Contains(out.String(), "Project name") {
+		t.Fatalf("must not prompt: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(wd, "go.mod")); err != nil {
+		t.Fatalf("expected scaffold in workDir: %v", err)
+	}
+}
+
 func TestInitYesRunsWithoutPrompt(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

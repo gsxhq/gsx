@@ -71,7 +71,8 @@ gsx init
 ```
 
 Press Enter, `y`, or `yes` to run a step. Skipping one step does not skip the
-remaining steps.
+remaining steps. Ending input (Ctrl-D) stops `init`: it runs nothing more and
+prints the steps it did not run. At the project-name prompt, nothing is created.
 
 ### Non-interactive setup {#non-interactive-mode-ci--redirected-stdin}
 
@@ -81,12 +82,12 @@ Use `--yes` when a script should scaffold and run every setup command:
 gsx init myapp --module example.com/acme/myapp --yes
 ```
 
-When standard input is a pipe or regular file (not a character device) and
+When standard input is not a terminal (a pipe, a file, or `/dev/null`) and
 `--yes` is omitted, `init` scaffolds the files, then prints the setup commands
 instead of running them.
 
 `init` exits `0` on success, `2` for invalid usage or an existing protected
-project file, and `1` when scaffolding or a setup command fails.
+project file, and `1` when scaffolding or a setup command fails, or input ends at a prompt.
 
 ## `gsx dev` {#gsx-dev}
 
