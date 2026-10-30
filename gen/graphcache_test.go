@@ -396,3 +396,18 @@ func TestRebaseDropsDepsOnly(t *testing.T) {
 		t.Fatal("relativizeGraph accepted an absolute main-module file entry")
 	}
 }
+
+func TestGraphKeyRejectsOverlayRelCollision(t *testing.T) {
+	// A manifest never reports one file under two spellings, so exercise the
+	// re-keying directly.
+	got, err := overlayByRel(map[string][]byte{"/phys/a/a.go": []byte("x"), "/phys/b/b.go": nil}, "/phys", "/logical")
+	if err != nil || len(got) != 2 || string(got["a/a.go"]) != "x" {
+		t.Fatalf("overlayByRel = %v, %v", got, err)
+	}
+	if _, err := overlayByRel(map[string][]byte{"/phys/a/a.go": []byte("1"), "/logical/a/a.go": []byte("2")}, "/phys", "/logical"); err == nil {
+		t.Fatal("accepted two overlay paths with one module-relative path")
+	}
+	if _, err := overlayByRel(map[string][]byte{"/elsewhere/a.go": nil}, "/phys", "/logical"); err == nil {
+		t.Fatal("accepted overlay path outside the roots")
+	}
+}

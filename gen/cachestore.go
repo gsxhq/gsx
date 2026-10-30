@@ -86,18 +86,23 @@ func writeSentinel(cacheRoot string) {
 }
 
 func storePut(dir, key string, entry cacheEntry) error {
-	p := entryPath(dir, key)
+	return writeAtomic(dir, entryPath(dir, key), encodeEntry(entry))
+}
+
+// writeAtomic writes data to p (under the cache root cacheRoot) via a temp
+// file in the same directory plus rename, tagging the root as a cache dir.
+func writeAtomic(cacheRoot, p string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
 	// Ensure the cache root is tagged as a cache dir (idempotent, best-effort).
-	writeSentinel(dir)
+	writeSentinel(cacheRoot)
 	tmp, err := os.CreateTemp(filepath.Dir(p), "tmp-")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(encodeEntry(entry)); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return err
 	}

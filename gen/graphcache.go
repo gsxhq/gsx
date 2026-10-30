@@ -79,21 +79,18 @@ func graphKey(fingerprint string, manifest *sourceview.Manifest, patterns []stri
 	for _, pattern := range patterns {
 		field([]byte(pattern))
 	}
-	overlay := manifest.Overlay()
+	overlay, err := overlayByRel(manifest.Overlay(), manifest.PhysicalRoot(), manifest.ModuleRoot())
+	if err != nil {
+		return "", fmt.Errorf("graph key: %w", err)
+	}
 	paths := make([]string, 0, len(overlay))
-	rels := make(map[string]string, len(overlay))
-	for p := range overlay {
-		rel, ok := relUnderRoots(manifest, p)
-		if !ok {
-			return "", fmt.Errorf("graph key: overlay path %s is outside module root %s", p, manifest.ModuleRoot())
-		}
-		rels[rel] = p
+	for rel := range overlay {
 		paths = append(paths, rel)
 	}
 	sort.Strings(paths)
 	field([]byte(fmt.Sprint(len(paths))))
 	for _, rel := range paths {
-		source := overlay[rels[rel]]
+		source := overlay[rel]
 		field([]byte(rel))
 		if source == nil {
 			field([]byte{0}) // deletion entry, distinct from an empty file
@@ -116,6 +113,30 @@ func graphKey(fingerprint string, manifest *sourceview.Manifest, patterns []stri
 		return "", fmt.Errorf("graph key: %w", err)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// overlayByRel re-keys overlay by module-relative slash path. Two paths that
+// map to one relative path (spelled under different roots) are an error: the
+// key could not tell which bytes go list saw.
+func overlayByRel(overlay map[string][]byte, roots ...string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(overlay))
+	for p, source := range overlay {
+		var rel string
+		found := false
+		for _, root := range roots {
+			if rel, found = relSlash(root, p); found {
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("overlay path %s is outside module root %s", p, roots[len(roots)-1])
+		}
+		if _, dup := out[rel]; dup {
+			return nil, fmt.Errorf("two overlay paths map to module-relative path %s", rel)
+		}
+		out[rel] = source
+	}
+	return out, nil
 }
 
 // relUnderRoots returns p relative (slash form) to the manifest's logical or
@@ -366,21 +387,5 @@ func storeGraph(dir, key string, variant graphVariant) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	writeSentinel(dir)
-	tmp, err := os.CreateTemp(filepath.Dir(p), "tmp-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(encoded); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), p) // atomic
+	return writeAtomic(dir, p, encoded)
 }
