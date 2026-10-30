@@ -141,7 +141,6 @@ component LookThroughInBlockList() {
 		here{{
 			x := 1
 			_ = x
-		}}
-		<b>after</b>
+		}}<b>after</b>
 	</p>
 }

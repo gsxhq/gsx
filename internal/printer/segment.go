@@ -62,22 +62,30 @@ func glued(left, right ast.Markup) bool {
 }
 
 // spacingBonds reports, for each boundary before nodes[i], whether it must
-// not break because text touches inline content there: normalization would
-// drop the break, and child-element-spacing would then warn that no space
-// renders. The rule is the lint's own (wsnorm.Spacing), with every
+// not break because it lies between text and the inline content that text
+// touches: normalization would drop the break, so no space renders there. The
+// rule is the child-element-spacing lint's own (wsnorm.Spacing), with every
 // non-literal interpolation taken as text since the formatter has no types.
-// It is computed once over the whole children list, so look-through siblings
-// (comments, Go blocks, optional blocks) are seen across segment boundaries;
-// segmentChildren and fillParts both consume it. A break the author wrote
-// there (ast.LeadingBreak) is kept by fillParts; the source already raises
-// the lint.
+// Every boundary of that run is bonded, including those beside the comments,
+// Go blocks and optional blocks the rule looks through: the lint sees only a
+// break inside the Text, but a break anywhere in the run is dropped all the
+// same. It is computed once over the whole children list; segmentChildren
+// and fillParts both consume it. A break the author wrote there
+// (ast.LeadingBreak) is kept by fillParts.
 func spacingBonds(nodes []ast.Markup) []bool {
 	var sp wsnorm.Spacing
 	bonds := make([]bool, len(nodes))
-	for i := 1; i < len(nodes); i++ {
-		_, after := sp.DroppedBreakLoses(nodes, i-1, 1)
-		_, before := sp.DroppedBreakLoses(nodes, i, -1)
-		bonds[i] = after || before
+	for i := range nodes {
+		if j, loses := sp.DroppedBreakLoses(nodes, i, 1); loses {
+			for k := i + 1; k <= j; k++ {
+				bonds[k] = true
+			}
+		}
+		if j, loses := sp.DroppedBreakLoses(nodes, i, -1); loses {
+			for k := j + 1; k <= i; k++ {
+				bonds[k] = true
+			}
+		}
 	}
 	return bonds
 }
