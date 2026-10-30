@@ -248,6 +248,9 @@ type dirListing struct {
 	// subdirs holds the sorted names of every directory entry, entered or
 	// skipped. Embedded directory trees are witnessed through them.
 	subdirs []string
+	// irregular holds the sorted subset of files that are not regular files
+	// (symlinks, devices, sockets): embedding treats them differently.
+	irregular []string
 	// goMod reports whether the directory has a go.mod (true for the root).
 	goMod bool
 }
@@ -274,12 +277,33 @@ func relDirKey(root, dir string) (string, error) {
 }
 
 // freezeListing sorts the entry names and builds the immutable listing for key.
-func freezeListing(key string, names, subdirNames []string) dirListing {
+// irregularNames is the subset of names that are not regular files.
+func freezeListing(key string, names, subdirNames, irregularNames []string) dirListing {
 	files := slices.Clone(names)
 	slices.Sort(files)
 	subdirs := slices.Clone(subdirNames)
 	slices.Sort(subdirs)
-	return dirListing{files: files, subdirs: subdirs, goMod: key == "." || slices.Contains(files, "go.mod")}
+	irregular := slices.Clone(irregularNames)
+	slices.Sort(irregular)
+	return dirListing{files: files, subdirs: subdirs, irregular: irregular, goMod: key == "." || slices.Contains(files, "go.mod")}
+}
+
+// listEntries splits directory entries into the file, subdirectory and
+// irregular-file names freezeListing takes.
+func listEntries(entries []fs.DirEntry) (files, subdirs, irregular []string) {
+	files = make([]string, 0, len(entries))
+	for _, entry := range entries {
+		switch {
+		case entry.IsDir():
+			subdirs = append(subdirs, entry.Name())
+		case !entry.Type().IsRegular():
+			irregular = append(irregular, entry.Name())
+			files = append(files, entry.Name())
+		default:
+			files = append(files, entry.Name())
+		}
+	}
+	return files, subdirs, irregular
 }
 
 // Build constructs the complete owned GSX manifest once. It snapshots owned Go
@@ -314,6 +338,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 	goPaths := make(map[string]bool)
 	listedNames := make(map[string][]string)
 	listedSubdirs := make(map[string][]string)
+	listedIrregular := make(map[string][]string)
 	skippedDirs := make(map[string]skipKind)
 	err = filepath.WalkDir(physicalRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -323,6 +348,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 				if key, keyErr := relDirKey(physicalRoot, path); keyErr == nil {
 					delete(listedNames, key)
 					delete(listedSubdirs, key)
+					delete(listedIrregular, key)
 				}
 				return nil
 			}
@@ -353,6 +379,9 @@ func Build(options BuildOptions) (*Manifest, error) {
 		} else {
 			parent := filepath.ToSlash(filepath.Dir(key))
 			listedNames[parent] = append(listedNames[parent], entry.Name())
+			if !entry.Type().IsRegular() {
+				listedIrregular[parent] = append(listedIrregular[parent], entry.Name())
+			}
 		}
 		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".gsx") || strings.HasSuffix(entry.Name(), ".go")) {
 			rel, relErr := filepath.Rel(physicalRoot, path)
@@ -431,7 +460,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 	}
 	dirListings := make(map[string]dirListing, len(listedNames))
 	for key, names := range listedNames {
-		dirListings[key] = freezeListing(key, names, listedSubdirs[key])
+		dirListings[key] = freezeListing(key, names, listedSubdirs[key], listedIrregular[key])
 	}
 	return newManifest(nil, root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles, dirListings, skippedDirs, len(overrides) == 0)
 }
@@ -785,16 +814,8 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 			}
 			return nil, fmt.Errorf("sourceview: read refresh directory %s: %w", dir, err)
 		}
-		names := make([]string, 0, len(entries))
-		var subdirs []string
-		for _, entry := range entries {
-			if entry.IsDir() {
-				subdirs = append(subdirs, entry.Name())
-			} else {
-				names = append(names, entry.Name())
-			}
-		}
-		dirListings[key] = freezeListing(key, names, subdirs)
+		names, subdirs, irregular := listEntries(entries)
+		dirListings[key] = freezeListing(key, names, subdirs, irregular)
 		for _, entry := range entries {
 			if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".gsx") && !strings.HasSuffix(entry.Name(), ".go")) {
 				continue

@@ -606,13 +606,19 @@ func TestBuildRecordsDirListings(t *testing.T) {
 	writeTestFile(t, root, "nested/go.mod", "module example.com/nested\n")
 	writeTestFile(t, root, "nested/n.go", "package nested\n")
 	writeTestFile(t, root, ".hidden/t.go", "package t\n")
+	if err := os.Symlink("x.go", filepath.Join(root, "a", "link.go")); err != nil {
+		t.Fatal(err)
+	}
 
 	manifest, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := manifest.dirListings["a"].files, []string{"notes.txt", "x.c", "x.go"}; !reflect.DeepEqual(got, want) {
+	if got, want := manifest.dirListings["a"].files, []string{"link.go", "notes.txt", "x.c", "x.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("a listing = %v, want %v", got, want)
+	}
+	if got, want := manifest.dirListings["a"].irregular, []string{"link.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("a irregular = %v, want the symlink %v", got, want)
 	}
 	if got, want := manifest.dirListings["."].subdirs, []string{".hidden", "a", "nested"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("root subdirs = %v, want entered and skipped dirs %v", got, want)

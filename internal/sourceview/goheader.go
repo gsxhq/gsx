@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strconv"
 )
 
 // goFileHeader returns the bytes of src from offset 0 through the end of its
@@ -15,17 +16,23 @@ import (
 // leading comment is included. If the header does not parse, the whole of src
 // is returned: any doubt is a miss.
 func goFileHeader(src []byte) []byte {
-	header, _ := parseGoHeader(src)
-	return header
+	return parseGoHeader(src).header
 }
 
-// parseGoHeader returns goFileHeader's prefix and whether the file imports
-// "C". An unparsable header is returned whole and reported as not importing
-// "C": its bytes then differ from any header a successful go list read.
-func parseGoHeader(src []byte) (header []byte, importsC bool) {
+// goHeader is goFileHeader's prefix plus the import facts go/build acts on.
+type goHeader struct {
+	header []byte
+	// parsed is false when the header does not parse; header is then the
+	// whole file, whose bytes differ from any header a successful go list read.
+	parsed       bool
+	importsC     bool
+	importsEmbed bool
+}
+
+func parseGoHeader(src []byte) goHeader {
 	file, err := parser.ParseFile(token.NewFileSet(), "", src, parser.ImportsOnly|parser.ParseComments)
 	if err != nil {
-		return src, false
+		return goHeader{header: src}
 	}
 	end := file.Name.End()
 	for _, decl := range file.Decls {
@@ -33,17 +40,23 @@ func parseGoHeader(src []byte) (header []byte, importsC bool) {
 			end = gd.End()
 		}
 	}
+	info := goHeader{parsed: true}
 	for _, spec := range file.Imports {
-		if spec.Path.Value == `"C"` || spec.Path.Value == "`C`" {
-			importsC = true
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
 		}
+		info.importsC = info.importsC || path == "C"
+		info.importsEmbed = info.importsEmbed || path == "embed"
 	}
 	// Positions are offset by the file base; a fresh FileSet starts at 1.
 	off := int(end) - 1
 	if off < 0 || off > len(src) {
-		return src, importsC
+		info.header = src
+		return info
 	}
-	return src[:off], importsC
+	info.header = src[:off]
+	return info
 }
 
 // goEmbedLines returns every line of src whose trimmed text starts with

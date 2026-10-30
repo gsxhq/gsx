@@ -18,6 +18,16 @@ func writeWitnessFixture(t *testing.T) string {
 	writeTestFile(t, root, "a/static/one.txt", "one\n")
 	writeTestFile(t, root, "a/static/sub/two.txt", "two\n")
 	writeTestFile(t, root, "a/assets/sub/one.txt", "one\n")
+	writeTestFile(t, root, "a/assets/.keep", "")
+	writeTestFile(t, root, "a/static/.well-known/w.txt", "w\n")
+	writeTestFile(t, root, "a/static/_hidden/h.txt", "h\n")
+	writeTestFile(t, root, "a/mid.go", "package a\n\nimport _ \"embed\"\n\nvar mid string //go:embed data.txt\n")
+	writeTestFile(t, root, "root.go", "package app\n\nimport \"embed\"\n\n//go:embed rootstatic\nvar root embed.FS\n")
+	writeTestFile(t, root, "rootstatic/r.txt", "r\n")
+	writeTestFile(t, root, ".git/HEAD", "ref: refs/heads/main\n")
+	writeTestFile(t, root, "f/f.go", "package f\n\nimport \"embed\"\n\n//go:embed all:static\nvar static embed.FS\n")
+	writeTestFile(t, root, "f/static/s.txt", "s\n")
+	writeTestFile(t, root, "f/static/_private/p.txt", "p\n")
 	if err := os.MkdirAll(filepath.Join(root, "a", "static", "empty"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +103,39 @@ func TestGraphWitnessDetectsGraphInputs(t *testing.T) {
 		}},
 		{name: "nested module created in embed subtree", input: ab, edit: func(t *testing.T, root string) {
 			writeTestFile(t, root, "a/static/sub/go.mod", "module example.com/app/a/static/sub\n")
+		}},
+		{name: "root embed beside .git", input: GraphWitnessInput{Dirs: []string{"."}}, same: true, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, ".git/index", "i\n")
+		}},
+		{name: "root embed dir file added", input: GraphWitnessInput{Dirs: []string{"."}}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "rootstatic/s.txt", "s\n")
+		}},
+		{name: "dot dir under embedded dir is skipped", input: ab, same: true, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/.well-known/x.txt", "x\n")
+		}},
+		{name: "underscore dir under embedded dir is skipped", input: ab, same: true, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/_hidden/i.txt", "i\n")
+		}},
+		{name: "dot file under embedded dir is skipped", input: ab, same: true, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/.DS_Store", "x")
+		}},
+		{name: "vcs dir under embedded dir is skipped", input: ab, same: true, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/.git/HEAD", "ref\n")
+		}},
+		{name: "underscore dir under all: embedded dir", input: GraphWitnessInput{Dirs: []string{"f"}}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "f/static/_private/q.txt", "q\n")
+		}},
+		{name: "dot file matched by glob added", input: ab, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/assets/.other", "")
+		}},
+		{name: "dot file matched by glob removed", input: ab, edit: func(t *testing.T, root string) {
+			removeTestFile(t, root, "a/assets/.keep")
+		}},
+		{name: "mid-line embed comment edited", input: ab, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/mid.go", "package a\n\nimport _ \"embed\"\n\nvar mid string //go:embed missing.txt\n")
+		}},
+		{name: "unrelated sibling of embedded dir added", input: ab, same: true, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/other/o.txt", "o\n")
 		}},
 		{name: "subdir created in non-embedding dir", input: ab, same: true, edit: func(t *testing.T, root string) {
 			writeTestFile(t, root, "b/sub/s.txt", "s\n")
@@ -336,19 +379,36 @@ func TestGraphWitnessUnavailable(t *testing.T) {
 			}
 			return refreshed
 		}},
-		{name: "unimportable dir in embed subtree", input: GraphWitnessInput{Dirs: []string{"a"}}, manifest: func(t *testing.T, root string) *Manifest {
-			writeTestFile(t, root, "a/static/.git/HEAD", "ref\n")
+		{name: "dot dir under all: embedded dir", input: GraphWitnessInput{Dirs: []string{"f"}}, manifest: func(t *testing.T, root string) *Manifest {
+			writeTestFile(t, root, "f/static/.well-known/w.txt", "w\n")
+			return buildWitnessManifest(t, root)
+		}},
+		{name: "pattern names a dot dir", input: GraphWitnessInput{Dirs: []string{"e"}}, manifest: func(t *testing.T, root string) *Manifest {
+			writeTestFile(t, root, "e/e.go", "package e\n\nimport \"embed\"\n\n//go:embed .well-known\nvar wk embed.FS\n")
+			writeTestFile(t, root, "e/.well-known/x.txt", "x\n")
+			return buildWitnessManifest(t, root)
+		}},
+		{name: "glob matches a symlink", input: GraphWitnessInput{Dirs: []string{"a"}}, manifest: func(t *testing.T, root string) *Manifest {
+			if err := os.Symlink("../data.txt", filepath.Join(root, "a", "assets", "link")); err != nil {
+				t.Fatal(err)
+			}
+			return buildWitnessManifest(t, root)
+		}},
+		{name: "pattern enters a nested module", input: GraphWitnessInput{Dirs: []string{"e"}}, manifest: func(t *testing.T, root string) *Manifest {
+			writeTestFile(t, root, "e/e.go", "package e\n\nimport \"embed\"\n\n//go:embed mod/x.txt\nvar x embed.FS\n")
+			writeTestFile(t, root, "e/mod/go.mod", "module example.com/app/e/mod\n")
+			writeTestFile(t, root, "e/mod/x.txt", "x\n")
 			return buildWitnessManifest(t, root)
 		}},
 		{name: "escaping embed file", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{"../data.txt"}}},
 		{name: "refreshed listing of skipped dir", input: GraphWitnessInput{Dirs: []string{"a"}}, manifest: func(t *testing.T, root string) *Manifest {
 			manifest := buildWitnessManifest(t, root)
-			manifest.dirListings["nested"] = freezeListing("nested", []string{"go.mod"}, nil)
+			manifest.dirListings["nested"] = freezeListing("nested", []string{"go.mod"}, nil, nil)
 			return manifest
 		}},
 		{name: "listing outside the root", input: GraphWitnessInput{Dirs: []string{"a"}}, manifest: func(t *testing.T, root string) *Manifest {
 			manifest := buildWitnessManifest(t, root)
-			manifest.dirListings["../elsewhere/a"] = freezeListing("../elsewhere/a", []string{"x.go"}, nil)
+			manifest.dirListings["../elsewhere/a"] = freezeListing("../elsewhere/a", []string{"x.go"}, nil, nil)
 			return manifest
 		}},
 	}

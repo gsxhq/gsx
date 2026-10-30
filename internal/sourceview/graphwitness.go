@@ -54,10 +54,11 @@ const (
 )
 
 type witnessNode struct {
-	kind    witnessNodeKind
-	files   []string
-	subdirs []string
-	goMod   bool
+	kind      witnessNodeKind
+	files     []string
+	subdirs   []string
+	irregular []string
+	goMod     bool
 }
 
 // witnessSource is where witnessDigest reads directory state and non-overlaid
@@ -113,7 +114,7 @@ func (manifest *Manifest) witnessDigest(input GraphWitnessInput, src witnessSour
 	}
 
 	w := witnessWriter{hash: sha256.New()}
-	w.field("gsx-graph-witness-v1")
+	w.field("gsx-graph-witness-v2")
 	w.count(len(dirs))
 	for _, dir := range dirs {
 		w.field(dir)
@@ -262,10 +263,10 @@ func (manifest *Manifest) writeEmbedDirWitness(w *witnessWriter, dir string, src
 }
 
 // writePresentDir writes a directory's file names (its listing plus its
-// overlaid paths) and each Go file's header and //go:embed lines. _test.go
-// files are included: go list parses their headers too, and a third package
-// name, a broken import block or import "C" there fails it. A directory whose
-// Go files embed anything also gets its whole subtree witnessed.
+// overlaid paths) and each Go file's header, //go:embed lines and resolved
+// embed patterns. _test.go files are included: go list parses their headers
+// and resolves their embed patterns too, and a third package name, a broken
+// import block or import "C" there fails it.
 func (manifest *Manifest) writePresentDir(w *witnessWriter, dir string, node witnessNode, overlayNames map[string][]string, src witnessSource) error {
 	names := slices.Concat(node.files, overlayNames[dir])
 	slices.Sort(names)
@@ -279,8 +280,9 @@ func (manifest *Manifest) writePresentDir(w *witnessWriter, dir string, node wit
 			return witnessUnavailable("directory %s holds non-Go source %s", dir, name)
 		}
 		w.field(name)
+		w.flag(contains(node.irregular, name) && !slices.Contains(overlayNames[dir], name))
 	}
-	embeds := false
+	embeds := embedResolver{w: w, src: src, overlayNames: overlayNames, pkg: dir}
 	for _, name := range names {
 		if !strings.HasSuffix(name, ".go") {
 			continue
@@ -292,23 +294,28 @@ func (manifest *Manifest) writePresentDir(w *witnessWriter, dir string, node wit
 				return err
 			}
 		}
-		header, importsC := parseGoHeader(source)
-		if importsC && !strings.HasSuffix(name, "_test.go") {
+		header := parseGoHeader(source)
+		if header.importsC && !strings.HasSuffix(name, "_test.go") {
 			// cgo reads the headers its preamble includes, from anywhere.
 			return witnessUnavailable("directory %s uses cgo in %s", dir, name)
 		}
 		w.field(name)
-		w.bytes(header)
+		w.bytes(header.header)
 		lines := goEmbedLines(source)
-		embeds = embeds || len(lines) > 0
 		w.count(len(lines))
 		for _, line := range lines {
 			w.bytes(line)
 		}
-	}
-	w.flag(embeds)
-	if embeds {
-		return manifest.writeEmbedSubtree(w, dir, node.subdirs, overlayNames, src)
+		var patterns []string
+		if !header.parsed || header.importsEmbed {
+			patterns = embedPatterns(source)
+		}
+		w.count(len(patterns))
+		for _, pattern := range patterns {
+			if err := embeds.writePattern(pattern); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -322,48 +329,12 @@ var constrainedSourceExts = map[string]bool{
 	".swig": true, ".swigcxx": true,
 }
 
-// writeEmbedSubtree writes every directory below dir, with its subdirectory
-// and file names. Embed patterns match directories and walk them: a new empty
-// directory or a badly named file there can fail a live go list. A nested
-// module ends the walk but is recorded; an unimportable or unlisted
-// subdirectory cannot be witnessed.
-func (manifest *Manifest) writeEmbedSubtree(w *witnessWriter, dir string, subdirs []string, overlayNames map[string][]string, src witnessSource) error {
-	w.count(len(subdirs))
-	for _, name := range subdirs {
-		key := path.Join(dir, name)
-		w.field(name)
-		node, err := src.node(key)
-		if err != nil {
-			return err
-		}
-		switch {
-		case node.kind == witnessNestedModule:
-			w.field("nested-module")
-		case node.kind == witnessListed && !node.goMod:
-			w.field("listed")
-			files := slices.Concat(node.files, overlayNames[key])
-			slices.Sort(files)
-			files = slices.Compact(files)
-			w.count(len(files))
-			for _, file := range files {
-				w.field(file)
-			}
-			if err := manifest.writeEmbedSubtree(w, key, node.subdirs, overlayNames, src); err != nil {
-				return err
-			}
-		default:
-			return witnessUnavailable("embedded subtree directory %s is not listed", key)
-		}
-	}
-	return nil
-}
-
 // manifestWitnessSource reads the walk's recorded state.
 type manifestWitnessSource struct{ manifest *Manifest }
 
 func (src manifestWitnessSource) node(key string) (witnessNode, error) {
 	if listing, ok := src.manifest.dirListings[key]; ok {
-		return witnessNode{kind: witnessListed, files: listing.files, subdirs: listing.subdirs, goMod: listing.goMod}, nil
+		return witnessNode{kind: witnessListed, files: listing.files, subdirs: listing.subdirs, irregular: listing.irregular, goMod: listing.goMod}, nil
 	}
 	switch src.manifest.skippedDirs[key] {
 	case skipNestedModule:
@@ -416,17 +387,9 @@ func (src diskWitnessSource) node(key string) (witnessNode, error) {
 	if err != nil {
 		return witnessNode{}, witnessUnavailable("read directory %s: %v", key, err)
 	}
-	names := make([]string, 0, len(entries))
-	var subdirs []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			subdirs = append(subdirs, entry.Name())
-		} else {
-			names = append(names, entry.Name())
-		}
-	}
-	listing := freezeListing(key, names, subdirs)
-	return witnessNode{kind: witnessListed, files: listing.files, subdirs: listing.subdirs, goMod: listing.goMod}, nil
+	files, subdirs, irregular := listEntries(entries)
+	listing := freezeListing(key, files, subdirs, irregular)
+	return witnessNode{kind: witnessListed, files: listing.files, subdirs: listing.subdirs, irregular: listing.irregular, goMod: listing.goMod}, nil
 }
 
 func (src diskWitnessSource) goFile(key, name string) ([]byte, error) {
