@@ -526,10 +526,22 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 }
 
 // isTTY reports whether v is an *os.File open on a terminal. A character-device
-// check is not enough: /dev/null and /dev/zero are character devices too.
+// check is not enough: /dev/null and /dev/zero are character devices too. The
+// fd is read through SyscallConn because Fd() would switch it to blocking mode.
 func isTTY(v any) bool {
 	f, ok := v.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd()))
+	if !ok {
+		return false
+	}
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return false
+	}
+	tty := false
+	if err := rc.Control(func(fd uintptr) { tty = term.IsTerminal(int(fd)) }); err != nil {
+		return false
+	}
+	return tty
 }
 
 // bareVersion reports just the gsx module version (e.g. "v1.2.3"), or "(devel)"

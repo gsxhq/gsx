@@ -10,6 +10,8 @@ syntax or APIs; a patch bump does not. See
   device counted as a terminal, so `init` prompted, read end of input, and took
   each default `yes` ([#255](https://github.com/gsxhq/gsx/issues/255)). Only a
   real terminal is interactive now; colored diagnostics use the same check.
+  On Windows, mintty and Git Bash stdin is a pipe, so `init` prints the setup
+  commands there instead of prompting.
 - **End of input at an `init` prompt stops `init`** (exit 1) instead of
   accepting the default. It lists the steps it did not run.
 

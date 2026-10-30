@@ -206,7 +206,7 @@ func runSteps(reader *bufio.Reader, abs, dir string, stdout, stderr io.Writer, a
 		if ask {
 			yes, ok := promptYes(reader, stdout, "  run this?")
 			if !ok {
-				fmt.Fprintln(stderr, "\ngsx: no answer (end of input)\nRun the remaining steps manually:")
+				fmt.Fprintln(stderr, "\ngsx: init: no answer (end of input)\nRun the remaining steps manually:")
 				printSteps(stderr, setupSteps[i:])
 				return 1
 			}
