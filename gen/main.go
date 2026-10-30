@@ -17,6 +17,7 @@ import (
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
+	"golang.org/x/term"
 )
 
 // Option configures Main. It is the option SHAPE for the gen composition root;
@@ -524,18 +525,23 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	return 0
 }
 
-// isTTY reports whether w is a character device (i.e., a terminal). Uses only
-// stdlib: checks os.ModeCharDevice on the file's mode bits.
-func isTTY(w io.Writer) bool {
-	f, ok := w.(*os.File)
+// isTTY reports whether v is an *os.File open on a terminal. A character-device
+// check is not enough: /dev/null and /dev/zero are character devices too. The
+// fd is read through SyscallConn because Fd() would switch it to blocking mode.
+func isTTY(v any) bool {
+	f, ok := v.(*os.File)
 	if !ok {
 		return false
 	}
-	fi, err := f.Stat()
+	rc, err := f.SyscallConn()
 	if err != nil {
 		return false
 	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	tty := false
+	if err := rc.Control(func(fd uintptr) { tty = term.IsTerminal(int(fd)) }); err != nil {
+		return false
+	}
+	return tty
 }
 
 // bareVersion reports just the gsx module version (e.g. "v1.2.3"), or "(devel)"

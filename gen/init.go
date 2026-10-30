@@ -113,7 +113,7 @@ var setupSteps = [][]string{
 }
 
 func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer, workDir string) int {
-	return initWith(args, stdin, stdout, stderr, isTTYReader(stdin), execStep, workDir)
+	return initWith(args, stdin, stdout, stderr, isTTY(stdin), execStep, workDir)
 }
 
 func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
@@ -157,7 +157,11 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 	reader := bufio.NewReader(stdin)
 	if dir == "" {
 		if interactive && !yes {
-			dir = promptText(reader, stdout, "Project name", "gsx-app")
+			var ok bool
+			if dir, ok = promptText(reader, stdout, "Project name", "gsx-app"); !ok {
+				fmt.Fprintln(stderr, "\ngsx: init: no answer (end of input); nothing was created")
+				return 1
+			}
 		} else {
 			dir = "."
 		}
@@ -199,15 +203,21 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 func runSteps(reader *bufio.Reader, abs, dir string, stdout, stderr io.Writer, ask bool, run stepRunner) int {
 	for i, step := range setupSteps {
 		fmt.Fprintf(stdout, "\n> %s\n", strings.Join(step, " "))
-		if ask && !promptYes(reader, stdout, "  run this?") {
-			fmt.Fprintln(stdout, "  skipped.")
-			continue
+		if ask {
+			yes, ok := promptYes(reader, stdout, "  run this?")
+			if !ok {
+				fmt.Fprintln(stderr, "\ngsx: init: no answer (end of input)\nRun the remaining steps manually:")
+				printSteps(stderr, setupSteps[i:])
+				return 1
+			}
+			if !yes {
+				fmt.Fprintln(stdout, "  skipped.")
+				continue
+			}
 		}
 		if err := run(step, abs, stdout, stderr); err != nil {
 			fmt.Fprintf(stderr, "\ngsx: step failed: %v\nRun the remaining steps manually:\n", err)
-			for _, s := range setupSteps[i:] {
-				fmt.Fprintf(stderr, "  %s\n", strings.Join(s, " "))
-			}
+			printSteps(stderr, setupSteps[i:])
 			return 1
 		}
 	}
@@ -219,36 +229,41 @@ func runSteps(reader *bufio.Reader, abs, dir string, stdout, stderr io.Writer, a
 	return 0
 }
 
-// promptYes asks a [Y/n] question; empty/`y`/`yes` ⇒ true.
-func promptYes(reader *bufio.Reader, stdout io.Writer, q string) bool {
+// printSteps lists setup commands, one per indented line.
+func printSteps(w io.Writer, steps [][]string) {
+	for _, s := range steps {
+		fmt.Fprintf(w, "  %s\n", strings.Join(s, " "))
+	}
+}
+
+// promptYes asks a [Y/n] question; empty/`y`/`yes` ⇒ true. ok is false when
+// input ended before any answer, which never counts as the default.
+func promptYes(reader *bufio.Reader, stdout io.Writer, q string) (yes, ok bool) {
 	fmt.Fprintf(stdout, "%s [Y/n] ", q)
-	line, _ := reader.ReadString('\n')
-	s := strings.ToLower(strings.TrimSpace(line))
-	return s == "" || s == "y" || s == "yes"
+	line, ok := readAnswer(reader)
+	s := strings.ToLower(line)
+	return s == "" || s == "y" || s == "yes", ok
 }
 
-// promptText asks for a value, returning def on empty input.
-func promptText(reader *bufio.Reader, stdout io.Writer, q, def string) string {
+// promptText asks for a value, returning def on empty input. ok is false when
+// input ended before any answer.
+func promptText(reader *bufio.Reader, stdout io.Writer, q, def string) (string, bool) {
 	fmt.Fprintf(stdout, "%s [%s] ", q, def)
-	line, _ := reader.ReadString('\n')
-	if s := strings.TrimSpace(line); s != "" {
-		return s
+	s, ok := readAnswer(reader)
+	if s == "" {
+		s = def
 	}
-	return def
+	return s, ok
 }
 
-// isTTYReader reports whether r is a terminal (a character device). Mirrors the
-// writer-side isTTY in main.go; avoids a golang.org/x/term dependency.
-func isTTYReader(r io.Reader) bool {
-	f, ok := r.(*os.File)
-	if !ok {
-		return false
+// readAnswer reads one trimmed line. A final line without a newline still
+// counts as an answer; ok is false only when the read fails with nothing read.
+func readAnswer(reader *bufio.Reader) (string, bool) {
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return "", false
 	}
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	return strings.TrimSpace(line), true
 }
 
 // execStep runs one setup command in dir, streaming output.
