@@ -53,31 +53,39 @@ Those fields are a function of:
    non-main, non-directory-replaced package (stdlib, module cache) is
    immutable, which is the assumption the existing generate cache already
    makes.
-4. **For every main-module directory the graph contains**:
-   - the names of *all* its regular files, not just `.go`. A `.c` file in a
-     non-cgo package is a `go list` error, and a `.swig` file changes
-     `CompiledGoFiles`;
-   - each non-test `.go` file's *header*: its bytes from the start through the
-     end of its last import declaration (or the package clause when there are
-     no imports). That covers build constraints, the package name, imports,
-     `import "C"` and the cgo preamble. If the file does not parse in
-     `ImportsOnly` mode, the whole file is the header;
-   - its `//go:embed` lines, and the existence of each file in the package's
-     `EmbedFiles` (stored in the entry). A deleted embedded file fails a live
-     `go list`;
+4. **For every main-module directory the graph contains** (testdata included):
+   - the names of all its regular files. A directory containing non-Go source
+     files that go/build reads (`.c .h .s .S .cc .cpp .cxx .hh .hpp .hxx .m
+     .f .F .for .f90 .swig .swigcxx`) is uncacheable, as is any directory with
+     a non-test `import "C"`: their headers are not in the manifest and the
+     cgo `#include` set is unbounded;
+   - each `.go` file's *header*: its bytes from the start through the end of
+     its last import declaration (or the package clause when there are no
+     imports). That covers build constraints, the package name, imports and
+     `import "C"`. `_test.go` names and headers are witnessed too: a
+     mismatched package, a broken import or `import "C"` in a test file fails
+     `go list -deps`. If the file does not parse in `ImportsOnly` mode, the
+     whole file is the header;
+   - embeds: the `//go:embed` patterns are resolved the way cmd/go does over
+     the walked listings (only matched directories are walked; `.` and `_`
+     names are skipped unless the pattern has `all:`), and the matched names
+     and kinds are hashed. A pattern that would resolve into an unlisted or
+     skipped directory makes the directory uncacheable. `EmbedFiles` entries
+     are re-checked with `Stat` on a hit;
    - whether the directory, and each ancestor up to the module root, contains
      a `go.mod`. A new nested module changes ownership.
 
    Overlaid paths (paired outputs, sentinels) are witnessed by their overlay
    bytes, which are already in the graph key, not by their disk bytes, so a
-   regeneration does not cause a miss.
+   regeneration does not cause a miss. The entry is stored only when both the
+   witness and the graph key are unchanged across `go list`.
 5. **For every graph package whose import path lies under the main module's
    path but resolves to another module**, the absence of the corresponding
    main-module directory, with the same `go.mod` chain. Creating that
    directory makes the import ambiguous and fails a live `go list`.
 
-Bodies below the imports (other than `//go:embed` lines) and `_test.go` files
-cannot change any field gsx reads, nor make `go list` fail.
+Bodies below the imports (other than `//go:embed` lines) cannot change any
+field gsx reads, nor make `go list` fail.
 
 ## Design
 
