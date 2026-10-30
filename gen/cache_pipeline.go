@@ -186,6 +186,10 @@ func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, g
 	if outcome.Hit() {
 		return graph, outcome, nil
 	}
+	// Content re-reads after go list cannot see an edit reverted while it
+	// ran, so the witnessed paths' stat identities must also be unchanged.
+	statPaths := prep.manifest.GraphStatPaths()
+	statsBefore, statErr := statSnapshot(statPaths)
 	if beforeListGraph != nil {
 		beforeListGraph()
 	}
@@ -202,6 +206,16 @@ func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, g
 		return graph, graphCacheOutcome{Reason: graphUncacheable, Detail: err.Error()}, nil
 	} else if after != key {
 		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "graph key inputs changed while go list ran"}, nil
+	}
+	if statErr != nil {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "stat witnessed files: " + statErr.Error()}, nil
+	}
+	statsAfter, err := statSnapshot(statPaths)
+	if err != nil {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "stat witnessed files: " + err.Error()}, nil
+	}
+	if changed, ok := firstChanged(statPaths, statsBefore, statsAfter); ok {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: changed + " changed while go list ran"}, nil
 	}
 	if stored := storeListedGraph(prep, key, goModDir, graph); stored.Reason != "" {
 		outcome = stored

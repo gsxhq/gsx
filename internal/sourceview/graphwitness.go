@@ -43,6 +43,27 @@ func (manifest *Manifest) DiskGraphWitness(input GraphWitnessInput) (string, err
 	return manifest.witnessDigest(input, diskWitnessSource{manifest})
 }
 
+// GraphStatPaths returns, sorted and as physical paths, what a graph store
+// stats before and after go list to see edits a content re-read cannot (an
+// edit reverted while go list ran): every directory the walk listed, every Go
+// file in those listings, and the root go.mod and go.sum.
+func (manifest *Manifest) GraphStatPaths() []string {
+	abs := func(key string) string {
+		return filepath.Join(manifest.physicalRoot, filepath.FromSlash(key))
+	}
+	paths := []string{abs("go.mod"), abs("go.sum")}
+	for key, listing := range manifest.dirListings {
+		paths = append(paths, abs(key))
+		for _, name := range listing.files {
+			if strings.HasSuffix(name, ".go") {
+				paths = append(paths, abs(path.Join(key, name)))
+			}
+		}
+	}
+	slices.Sort(paths)
+	return slices.Compact(paths)
+}
+
 // witnessNodeKind is how the walk would classify one directory.
 type witnessNodeKind int
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -499,5 +500,25 @@ func removeTestFile(t *testing.T, root, rel string) {
 	t.Helper()
 	if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGraphStatPaths(t *testing.T) {
+	root := writeWitnessFixture(t)
+	manifest := buildWitnessManifest(t, root)
+	physical := manifest.PhysicalRoot()
+	got := manifest.GraphStatPaths()
+	if !slices.IsSorted(got) {
+		t.Fatalf("GraphStatPaths not sorted: %v", got)
+	}
+	for _, rel := range []string{".", "a", "a/static", "testdata/x", "a/x.go", "a/page.x.go", "b/b.go", "go.mod", "go.sum"} {
+		if p := filepath.Join(physical, filepath.FromSlash(rel)); !slices.Contains(got, p) {
+			t.Errorf("GraphStatPaths lacks %s", p)
+		}
+	}
+	for _, rel := range []string{"a/data.txt", "a/page.gsx", ".hidden/h", ".hidden/h/h.go", "nested/n/n.go"} {
+		if p := filepath.Join(physical, filepath.FromSlash(rel)); slices.Contains(got, p) {
+			t.Errorf("GraphStatPaths has %s", p)
+		}
 	}
 }

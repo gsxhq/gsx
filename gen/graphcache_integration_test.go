@@ -296,29 +296,64 @@ func TestGraphCacheHitReadsNothing(t *testing.T) {
 }
 
 func TestGraphCacheStoreSkippedWhenFilesChange(t *testing.T) {
-	t.Setenv("GSXCACHE", t.TempDir())
-	root := t.TempDir()
-	writeGraphDiffModule(t, root)
-	header := filepath.Join(root, "b", "b.go")
-	afterListGraph = func() {
-		writeTestFile(t, header, "package b\n\nimport (\n\t\"strings\"\n\t\"unicode\"\n)\n\nvar Upper = strings.ToUpper\nvar _ = unicode.IsUpper\n")
+	importUnicode := "package b\n\nimport (\n\t\"strings\"\n\t\"unicode\"\n)\n\nvar Upper = strings.ToUpper\nvar _ = unicode.IsUpper\n"
+	write := func(rel, contents string) func(*testing.T, string) {
+		return func(t *testing.T, root string) {
+			writeTestFile(t, filepath.Join(root, filepath.FromSlash(rel)), contents)
+		}
 	}
-	t.Cleanup(func() { afterListGraph = nil })
-
-	prep := graphPrep(t, root)
-	if _, outcome, err := loadGraphCached(prep, nil); err != nil || outcome.Reason != graphStoreSkipped {
-		t.Fatalf("header edited during go list: outcome %+v, err %v, want %s", outcome, err, graphStoreSkipped)
+	remove := func(rel string) func(*testing.T, string) {
+		return func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
-	afterListGraph = nil
+	rows := []struct {
+		name string
+		// before and after run around go list; restore, when set, runs before
+		// the second call to return the tree to the snapshot's state.
+		before, after, restore func(*testing.T, string)
+	}{
+		{name: "header edited", after: write("b/b.go", importUnicode), restore: write("b/b.go", graphDiffModule["b/b.go"])},
+		// Content re-reads see the original bytes again; only stat identity
+		// tells that go list read the edit.
+		{name: "header edited and reverted", before: write("b/b.go", importUnicode), after: write("b/b.go", graphDiffModule["b/b.go"])},
+		{name: "go.mod edited and reverted", before: write("go.mod", "module example.com/app\n\ngo 1.27\n"), after: write("go.mod", graphDiffModule["go.mod"])},
+		{name: "file added and removed", before: write("b/extra.go", "package b\n\nimport \"strconv\"\n\nvar _ = strconv.Itoa\n"), after: remove("b/extra.go")},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			t.Setenv("GSXCACHE", t.TempDir())
+			root := t.TempDir()
+			writeGraphDiffModule(t, root)
+			hook := func(edit func(*testing.T, string)) func() {
+				if edit == nil {
+					return nil
+				}
+				return func() { edit(t, root) }
+			}
+			beforeListGraph, afterListGraph = hook(row.before), hook(row.after)
+			t.Cleanup(func() { beforeListGraph, afterListGraph = nil, nil })
 
-	// Return to the snapshot's state: the skipped graph must not have been
-	// stored under its witness.
-	writeTestFile(t, header, graphDiffModule["b/b.go"])
-	prep = graphPrep(t, root)
-	graph, outcome, err := loadGraphCached(prep, nil)
-	checkCachedAgainstLive(t, "after restoring the header", prep, graph, outcome, err)
-	if outcome.Reason != graphEntryMissing {
-		t.Fatalf("after restoring the header: outcome %+v, want %s", outcome, graphEntryMissing)
+			prep := graphPrep(t, root)
+			if _, outcome, err := loadGraphCached(prep, nil); err != nil || outcome.Reason != graphStoreSkipped {
+				t.Fatalf("files changed during go list: outcome %+v, err %v, want %s", outcome, err, graphStoreSkipped)
+			}
+			beforeListGraph, afterListGraph = nil, nil
+			if row.restore != nil {
+				row.restore(t, root)
+			}
+
+			// The skipped graph must not have been stored under the
+			// snapshot's witness.
+			prep = graphPrep(t, root)
+			graph, outcome, err := loadGraphCached(prep, nil)
+			checkCachedAgainstLive(t, "next run", prep, graph, outcome, err)
+			if outcome.Reason != graphEntryMissing {
+				t.Fatalf("next run: outcome %+v, want %s", outcome, graphEntryMissing)
+			}
+		})
 	}
 }
 
