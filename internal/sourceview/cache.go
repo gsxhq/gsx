@@ -112,6 +112,13 @@ func NewCacheProjection(manifest *Manifest, graph Graph) (*CacheProjection, erro
 		packageModuleKeys: make(map[string]string),
 	}
 	view := newProjectionView(manifest)
+	graphDirs := make([]string, 0, len(projection.graph))
+	for _, metadata := range projection.graph {
+		if metadata.Dir != "" {
+			graphDirs = append(graphDirs, metadata.Dir)
+		}
+	}
+	view.paths.prefetchDirs(graphDirs)
 	for importPath, metadata := range projection.graph {
 		if metadata.ImportPath == "" {
 			metadata.ImportPath = importPath
@@ -395,7 +402,7 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata, vi
 	}
 	if mainOwned {
 		if helperDir, ownsGSX := projection.manifest.packageDirs[metadata.ImportPath]; ownsGSX {
-			for path, snapshot := range projection.manifest.HelperGoFiles(metadata.Dir) {
+			for path, snapshot := range projection.manifest.helperGoFilesByDir[packageDir] {
 				if view.paired[view.paths.file(path)] {
 					continue
 				}
@@ -409,8 +416,7 @@ func (projection *CacheProjection) inputsForPackage(metadata PackageMetadata, vi
 				label := "package:" + metadata.ImportPath + ":helper-go:" + filepath.ToSlash(rel)
 				switch snapshot.State() {
 				case FilePresent:
-					source, _ := snapshot.Source()
-					inputs = append(inputs, inputFromBytes(label, path, source))
+					inputs = append(inputs, inputFromBytes(label, path, snapshot.source))
 				case FileAbsent:
 					inputs = append(inputs, cacheInput{label: label})
 				case FileUnreadable:
@@ -545,6 +551,28 @@ func (resolver *pathResolver) dir(path string) string {
 	canonical := canonicalPath(path)
 	resolver.dirs[path] = canonical
 	return canonical
+}
+
+// prefetchDirs resolves the distinct directories in paths in parallel, so later
+// dir calls for them are map reads.
+func (resolver *pathResolver) prefetchDirs(paths []string) {
+	var pending []string
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		path = filepath.Clean(path)
+		if _, done := resolver.dirs[path]; done || seen[path] {
+			continue
+		}
+		seen[path] = true
+		pending = append(pending, path)
+	}
+	resolved := make([]string, len(pending))
+	forEachParallel(len(pending), func(i int) {
+		resolved[i] = canonicalPath(pending[i])
+	})
+	for i, path := range pending {
+		resolver.dirs[path] = resolved[i]
+	}
 }
 
 func (resolver *pathResolver) file(path string) string {

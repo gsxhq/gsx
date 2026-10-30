@@ -319,30 +319,53 @@ func Build(options BuildOptions) (*Manifest, error) {
 		orderedPaths = append(orderedPaths, path)
 	}
 	sort.Strings(orderedPaths)
+	// Read every source and inspect its paired output in parallel, then
+	// consume the results in sorted order so errors surface exactly as a
+	// sequential pass would report them.
+	type gsxRead struct {
+		source    []byte
+		readErr   error
+		present   bool
+		pairedErr error
+	}
+	reads := make([]gsxRead, len(orderedPaths))
+	forEachParallel(len(orderedPaths), func(i int) {
+		path := orderedPaths[i]
+		read := &reads[i]
+		if source, overridden := overrides[path]; overridden {
+			read.source = source
+		} else if read.source, read.readErr = os.ReadFile(path); read.readErr != nil {
+			return
+		}
+		read.present, read.pairedErr = pairedOutputPresent(strings.TrimSuffix(path, ".gsx") + ".x.go")
+	})
 	sources := make(map[string][]byte, len(orderedPaths))
 	pairedPresent := make(map[string]bool, len(orderedPaths))
-	for _, path := range orderedPaths {
-		source, overridden := overrides[path]
-		if !overridden {
-			source, err = os.ReadFile(path)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				return nil, fmt.Errorf("sourceview: read GSX source %s: %w", path, err)
+	for i, path := range orderedPaths {
+		read := reads[i]
+		if read.readErr != nil {
+			if os.IsNotExist(read.readErr) {
+				continue
 			}
+			return nil, fmt.Errorf("sourceview: read GSX source %s: %w", path, read.readErr)
 		}
-		sources[path] = bytes.Clone(source)
-		paired := strings.TrimSuffix(path, ".gsx") + ".x.go"
-		present, pairedErr := pairedOutputPresent(paired)
-		if pairedErr != nil {
-			return nil, pairedErr
+		sources[path] = bytes.Clone(read.source)
+		if read.pairedErr != nil {
+			return nil, read.pairedErr
 		}
-		pairedPresent[paired] = present
+		pairedPresent[strings.TrimSuffix(path, ".gsx")+".x.go"] = read.present
 	}
-	helperGoFiles := make(map[string]FileSnapshot, len(goPaths))
+	orderedGoPaths := make([]string, 0, len(goPaths))
 	for path := range goPaths {
-		helperGoFiles[path] = ReadFileSnapshot(path)
+		orderedGoPaths = append(orderedGoPaths, path)
+	}
+	goSnapshots := make([]FileSnapshot, len(orderedGoPaths))
+	forEachParallel(len(orderedGoPaths), func(i int) {
+		goSnapshots[i] = ReadFileSnapshot(orderedGoPaths[i])
+	})
+	helperGoFiles := make(map[string]FileSnapshot, len(goPaths))
+	for i, path := range orderedGoPaths {
+		helperGoFiles[path] = goSnapshots[i]
 	}
 	for path, snapshot := range trackedFiles {
 		if strings.HasSuffix(path, ".go") {

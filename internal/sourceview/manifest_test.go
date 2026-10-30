@@ -596,3 +596,63 @@ func TestResolvePathAllowMissingLexicalWithoutFilesystem(t *testing.T) {
 		t.Fatalf("resolvePathAllowMissing(%q) = %q, want lexical %q", missing, got, filepath.Clean(missing))
 	}
 }
+
+// TestBuildReportsFirstUnreadableSourceInOrder pins that Build's parallel
+// reads report errors as a sequential pass in sorted path order would: the
+// first unreadable GSX source wins, whichever read finishes first.
+func TestBuildReportsFirstUnreadableSourceInOrder(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads mode-000 files")
+	}
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	var unreadable []string
+	for _, name := range []string{"a", "m", "z"} {
+		writeTestFile(t, root, name+"/ok.gsx", "package "+name+"\ncomponent C() { <p/> }\n")
+		path := writeTestFile(t, root, name+"/bad.gsx", "package "+name+"\n")
+		if err := os.Chmod(path, 0); err != nil {
+			t.Fatal(err)
+		}
+		unreadable = append(unreadable, path)
+	}
+	for range 20 {
+		_, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+		if err == nil || !strings.Contains(err.Error(), "read GSX source "+unreadable[0]+":") {
+			t.Fatalf("Build() error = %v, want read error for %s", err, unreadable[0])
+		}
+	}
+}
+
+// TestBuildReportsPairedErrorBeforeLaterReadError pins the same sequential
+// precedence across error kinds: a paired-output error on an earlier source
+// wins over a read error on a later one, and vice versa.
+func TestBuildReportsPairedErrorBeforeLaterReadError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads mode-000 files")
+	}
+	for _, test := range []struct {
+		name, pairedDir, unreadable, want string
+	}{
+		{name: "paired first", pairedDir: "a", unreadable: "z", want: "is not a regular file"},
+		{name: "read first", pairedDir: "z", unreadable: "a", want: "read GSX source"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+			writeTestFile(t, root, test.pairedDir+"/c.gsx", "package "+test.pairedDir+"\ncomponent C() { <p/> }\n")
+			if err := os.MkdirAll(filepath.Join(root, test.pairedDir, "c.x.go"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			bad := writeTestFile(t, root, test.unreadable+"/c.gsx", "package "+test.unreadable+"\n")
+			if err := os.Chmod(bad, 0); err != nil {
+				t.Fatal(err)
+			}
+			for range 20 {
+				_, err := Build(BuildOptions{ModuleRoot: root, ModulePath: "example.com/app"})
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("Build() error = %v, want %q", err, test.want)
+				}
+			}
+		})
+	}
+}
