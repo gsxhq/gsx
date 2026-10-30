@@ -15,6 +15,8 @@ func writeWitnessFixture(t *testing.T) string {
 	writeTestFile(t, root, "a/x.go", "package a\n\nimport \"strings\"\n\nfunc X() string { return strings.ToUpper(\"x\") }\n")
 	writeTestFile(t, root, "a/embed.go", "package a\n\nimport _ \"embed\"\n\n//go:embed data.txt\nvar data string\n")
 	writeTestFile(t, root, "a/data.txt", "data\n")
+	writeTestFile(t, root, "a/static/one.txt", "one\n")
+	writeTestFile(t, root, "a/notes.txt", "notes\n")
 	writeTestFile(t, root, "a/x_test.go", "package a\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n")
 	writeTestFile(t, root, "a/page.gsx", "package a\ncomponent Page() { <p/> }\n")
 	writeTestFile(t, root, "a/page.x.go", "package a\n\n// generated v1\n")
@@ -91,6 +93,12 @@ func TestGraphWitnessDetectsGraphInputs(t *testing.T) {
 		{name: "embed target deleted", input: GraphWitnessInput{Dirs: ab.Dirs, EmbedFiles: []string{"a/data.txt"}}, edit: func(t *testing.T, root string) {
 			removeTestFile(t, root, "a/data.txt")
 		}},
+		{name: "file added to embedded subdirectory", input: GraphWitnessInput{Dirs: ab.Dirs, EmbedFiles: []string{"a/static/one.txt"}}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/two.txt", "two\n")
+		}},
+		{name: "file removed beside an embedded file", input: GraphWitnessInput{Dirs: []string{"b"}, EmbedFiles: []string{"a/data.txt"}}, edit: func(t *testing.T, root string) {
+			removeTestFile(t, root, "a/notes.txt")
+		}},
 		{name: "nested go.mod added", input: ab, edit: func(t *testing.T, root string) {
 			writeTestFile(t, root, "a/go.mod", "module example.com/app/a\n")
 		}},
@@ -142,7 +150,7 @@ func TestGraphWitnessIsOrderAndCheckoutIndependent(t *testing.T) {
 }
 
 func TestDiskGraphWitnessMatchesManifest(t *testing.T) {
-	input := GraphWitnessInput{Dirs: []string{"a", "b", "c", "nested/n", "testdata/x"}, EmbedFiles: []string{"a/data.txt", "a/missing.txt"}}
+	input := GraphWitnessInput{Dirs: []string{"a", "b", "c", "nested/n", "testdata/x"}, EmbedFiles: []string{"a/data.txt", "a/missing.txt", "a/static/one.txt"}}
 	root := writeWitnessFixture(t)
 	manifest := buildWitnessManifest(t, root)
 	want := graphWitness(t, manifest, input)
@@ -196,6 +204,9 @@ func TestDiskGraphWitnessSeesDiskStructure(t *testing.T) {
 		}},
 		{name: "embed target deleted", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{"a/data.txt"}}, edit: func(t *testing.T, root string) {
 			removeTestFile(t, root, "a/data.txt")
+		}},
+		{name: "file added to embedded subdirectory", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{"a/static/one.txt"}}, edit: func(t *testing.T, root string) {
+			writeTestFile(t, root, "a/static/two.txt", "two\n")
 		}},
 	}
 	for _, test := range tests {
@@ -269,6 +280,14 @@ func TestGraphWitnessUnavailable(t *testing.T) {
 		{name: "escaping dir", input: GraphWitnessInput{Dirs: []string{"../a"}}},
 		{name: "unclean dir", input: GraphWitnessInput{Dirs: []string{"a/../b"}}},
 		{name: "absolute dir", input: GraphWitnessInput{Dirs: []string{"/a"}}},
+		{name: "embed file in unimportable dir", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{".hidden/h/h.go"}}},
+		{name: "embed file under nested module", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{"nested/n/n.go"}}},
+		{name: "embed file in dir created after build", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{"a/later/l.txt"}}, diskReadable: true, manifest: func(t *testing.T, root string) *Manifest {
+			manifest := buildWitnessManifest(t, root)
+			writeTestFile(t, root, "a/later/l.txt", "l\n")
+			return manifest
+		}},
+		{name: "embed file in absent dir", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{"a/gone/g.txt"}}},
 		{name: "escaping embed file", input: GraphWitnessInput{Dirs: []string{"a"}, EmbedFiles: []string{"../data.txt"}}},
 		{name: "refreshed listing of skipped dir", input: GraphWitnessInput{Dirs: []string{"a"}}, manifest: func(t *testing.T, root string) *Manifest {
 			manifest := buildWitnessManifest(t, root)

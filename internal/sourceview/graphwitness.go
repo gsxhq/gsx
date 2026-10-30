@@ -120,6 +120,22 @@ func (manifest *Manifest) witnessDigest(input GraphWitnessInput, src witnessSour
 			return "", err
 		}
 	}
+	// An embed pattern may name a directory, so a file added to or removed
+	// from an embedded file's directory changes EmbedFiles and can fail a
+	// live go list: witness each such directory's listing.
+	embedDirs := make([]string, 0, len(embeds))
+	for _, embed := range embeds {
+		embedDirs = append(embedDirs, path.Dir(embed))
+	}
+	slices.Sort(embedDirs)
+	embedDirs = slices.Compact(embedDirs)
+	w.count(len(embedDirs))
+	for _, dir := range embedDirs {
+		w.field(dir)
+		if err := manifest.writeEmbedDirWitness(&w, dir, src, overlayNames[dir]); err != nil {
+			return "", err
+		}
+	}
 	w.count(len(embeds))
 	for _, embed := range embeds {
 		w.field(embed)
@@ -163,9 +179,8 @@ func (manifest *Manifest) overlayNamesByDir() (map[string][]string, error) {
 	return names, nil
 }
 
-// writeDirWitness writes the state of every directory from the root down to
-// dir: each recorded ancestor's go.mod flag, then how dir itself resolves.
-func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witnessSource, overlayNames []string) error {
+// witnessPrefixes returns the keys from the root down to dir, inclusive.
+func witnessPrefixes(dir string) []string {
 	prefixes := []string{"."}
 	if dir != "." {
 		parts := strings.Split(dir, "/")
@@ -173,7 +188,13 @@ func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witn
 			prefixes = append(prefixes, strings.Join(parts[:i+1], "/"))
 		}
 	}
-	for _, prefix := range prefixes {
+	return prefixes
+}
+
+// writeDirWitness writes the state of every directory from the root down to
+// dir: each recorded ancestor's go.mod flag, then how dir itself resolves.
+func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witnessSource, overlayNames []string) error {
+	for _, prefix := range witnessPrefixes(dir) {
 		node, err := src.node(prefix)
 		if err != nil {
 			return err
@@ -211,6 +232,32 @@ func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witn
 		}
 	}
 	return witnessUnavailable("directory %s did not resolve", dir)
+}
+
+// writeEmbedDirWitness writes the listing of a directory holding an embedded
+// file. Every directory from the root down must be listed: an embedded file
+// outside the walked tree cannot be witnessed.
+func (manifest *Manifest) writeEmbedDirWitness(w *witnessWriter, dir string, src witnessSource, overlayNames []string) error {
+	for _, key := range witnessPrefixes(dir) {
+		node, err := src.node(key)
+		if err != nil {
+			return err
+		}
+		if node.kind != witnessListed || (node.goMod && key != ".") {
+			return witnessUnavailable("embedded directory %s is not listed", key)
+		}
+		if key == dir {
+			names := slices.Concat(node.files, overlayNames)
+			slices.Sort(names)
+			names = slices.Compact(names)
+			w.count(len(names))
+			for _, name := range names {
+				w.field(name)
+			}
+			return nil
+		}
+	}
+	return witnessUnavailable("embedded directory %s did not resolve", dir)
 }
 
 // writePresentDir writes a directory's file names (its listing plus its
