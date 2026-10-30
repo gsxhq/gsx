@@ -66,6 +66,7 @@ func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 		p.i++
 	}
 	n := &ast.Text{Value: p.src[start:p.i]}
+	n.LeadingBreak = leadingRunBreaks(p.src[start:p.i])
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
 }
@@ -397,7 +398,7 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 			if err != nil {
 				return nil, err
 			}
-			stampLeadingBreak(el, leadingBreak)
+			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
 			leadingBreak := newlineBefore(p.src, p.i)
@@ -405,7 +406,7 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 			if err != nil {
 				return nil, err
 			}
-			stampLeadingBreak(bnodes[0], leadingBreak)
+			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
@@ -673,7 +674,7 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 			if err != nil {
 				return nil, err
 			}
-			stampLeadingBreak(el, leadingBreak)
+			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
 			leadingBreak := newlineBefore(p.src, p.i)
@@ -681,7 +682,7 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 			if err != nil {
 				return nil, err
 			}
-			stampLeadingBreak(bnodes[0], leadingBreak)
+			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
@@ -704,6 +705,7 @@ func (p *parser) parseCaseBodyText() *ast.Text {
 	startPos := p.posAt(start)
 	p.i = p.caseBodyTextEnd(start)
 	n := &ast.Text{Value: p.src[start:p.i]}
+	n.LeadingBreak = leadingRunBreaks(p.src[start:p.i])
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
 }
@@ -1334,21 +1336,19 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
-// stampLeadingBreak sets n's LeadingBreak field to lb when n is one of the node
-// kinds that carry the fact (*ast.Element, *ast.Interp, *ast.EmbeddedInterp —
-// the formatter's inline-fill leaves); a no-op for any other Markup (e.g. the
-// always-block-level *ast.Fragment/*ast.IfMarkup/*ast.ForMarkup/*ast.SwitchMarkup
-// and the *ast.Marker/*ast.MarkerRegion processing instructions, which never sit
-// at a fill's safe-gap joint).
-func stampLeadingBreak(n ast.Markup, lb bool) {
-	switch v := n.(type) {
-	case *ast.Element:
-		v.LeadingBreak = lb
-	case *ast.Interp:
-		v.LeadingBreak = lb
-	case *ast.EmbeddedInterp:
-		v.LeadingBreak = lb
+// leadingRunBreaks reports whether the leading whitespace run of a raw text
+// value contains a line break (a Text's ast.Leading fact).
+func leadingRunBreaks(v string) bool {
+	for i := 0; i < len(v); i++ {
+		switch v[i] {
+		case '\n', '\r':
+			return true
+		case ' ', '\t':
+		default:
+			return false
+		}
 	}
+	return false
 }
 
 // childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
@@ -1423,7 +1423,7 @@ func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, err
 			if err != nil {
 				return nil, token.NoPos, err
 			}
-			stampLeadingBreak(el, leadingBreak)
+			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 			continue
 		}
@@ -1433,7 +1433,7 @@ func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, err
 			if err != nil {
 				return nil, token.NoPos, err
 			}
-			stampLeadingBreak(bnodes[0], leadingBreak)
+			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 			continue
 		}

@@ -2209,6 +2209,39 @@ func TestLeadingBreakFlag(t *testing.T) {
 	}
 }
 
+// TestLeadingBreakEveryMarkupKind pins the fact on the kinds that gained it
+// for child-element-spacing (gsxhq/gsx#260): a Text records a line break in
+// its own leading whitespace (which normalization drops), and control-flow
+// blocks and comments record one before them like elements do.
+func TestLeadingBreakEveryMarkupKind(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, body string
+		want       []bool // LeadingBreak of each direct child of the outer <p>
+	}{
+		{"text after element, new line", "<b>x</b>\n\tnow", []bool{false, true}},
+		{"text after element, same line", "<b>x</b> now", []bool{false, false}},
+		{"if block on a new line", "a\n\t{ if ok { <b>y</b> } }", []bool{false, true}},
+		{"if block touching", "a{ if ok { <b>y</b> } }", []bool{false, false}},
+		{"comment on a new line", "a\n\t{/* c */}b", []bool{false, true, false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package p\ncomponent C(ok bool) {\n\t<p>" + tc.body + "</p>\n}\n"
+			f := parseStringT(t, src)
+			p := f.Decls[0].(*ast.Component).Body[0].(*ast.Element)
+			if len(p.Children) != len(tc.want) {
+				t.Fatalf("got %d children, want %d", len(p.Children), len(tc.want))
+			}
+			for i, c := range p.Children {
+				if got := ast.LeadingBreak(c); got != tc.want[i] {
+					t.Errorf("child %d (%T): LeadingBreak = %v, want %v", i, c, got, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 // allElemsAnywhere collects every *ast.Element with the given tag anywhere in
 // f's components, via ast.Inspect — unlike TestLeadingBreakFlag's allElems
 // (also fine to reuse structurally) this is shared by the tests below that

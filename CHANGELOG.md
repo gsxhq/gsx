@@ -4,6 +4,15 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **`gsx fmt` output no longer raises `child-element-spacing`.** `fmt` could
+  wrap where text touches inline content, as in `</code>/<code>`, and the lint
+  then warned about the break it wrote
+  ([#260](https://github.com/gsxhq/gsx/issues/260)). `fmt` now leaves such runs
+  on one line, even past the width limit, and keeps a line break the author
+  wrote there, so the lint still reports it.
+
 ## v0.4.2 — 2026-10-30
 
 - **`gsx init </dev/null` no longer runs the setup steps.** Any character
