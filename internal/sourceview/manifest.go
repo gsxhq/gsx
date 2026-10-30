@@ -424,7 +424,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 	for key, names := range listedNames {
 		dirListings[key] = freezeListing(key, names)
 	}
-	return newManifest(nil, root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles, dirListings, skippedDirs, true)
+	return newManifest(nil, root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles, dirListings, skippedDirs, len(overrides) == 0)
 }
 
 // newManifest takes ownership of the sources, trackedFiles, and helperGoFiles

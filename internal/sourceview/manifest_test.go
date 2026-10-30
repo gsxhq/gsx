@@ -678,3 +678,20 @@ func TestOverridesAreNotWitnessable(t *testing.T) {
 		t.Fatal("override-derived manifest is witnessable")
 	}
 }
+
+func TestBuildWithOverridesIsNotWitnessable(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	writeTestFile(t, root, "a/x.go", "package a\n")
+	manifest, err := Build(BuildOptions{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		Overrides:  map[string][]byte{filepath.Join(root, "a", "new.go"): []byte("package a\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Witnessable() {
+		t.Fatal("Build with overrides is witnessable")
+	}
+}
