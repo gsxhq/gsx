@@ -21,7 +21,7 @@ func TestCacheReportCountsAndVerboseLines(t *testing.T) {
 	}
 	lines := strings.Join(report.verboseLines(), "\n")
 	for _, want := range []string{"1 hit, 1 miss, 1 uncacheable", "/two/c", "key-failed", "reachable mutable cgo",
-		"gsx cache: graph hit\n", "gsx cache: graph miss (graph-uncacheable: directory-replaced module)\n"} {
+		"gsx cache: /one: graph hit\n", "gsx cache: /two: graph miss (graph-uncacheable: directory-replaced module)\n"} {
 		if !strings.Contains(lines, want) {
 			t.Fatalf("verbose report %q does not contain %q", lines, want)
 		}
@@ -30,8 +30,9 @@ func TestCacheReportCountsAndVerboseLines(t *testing.T) {
 
 func TestCacheReportGraphLineOmittedWithoutGraphQuery(t *testing.T) {
 	report := cacheReport{Modules: []moduleCacheReport{
-		{Root: "/one", Graph: graphCacheOutcome{Reason: graphEntryMissing}},
+		{Root: "/one", Graph: graphCacheOutcome{Reason: graphEntryMissing, Stored: true}},
 		{Root: "/two", BypassReason: cacheReasonDisabledByOption},
+		{Root: "/three", Graph: graphCacheOutcome{Reason: graphWitnessChanged}},
 	}}
 	var graphLines []string
 	for _, line := range report.verboseLines() {
@@ -39,7 +40,7 @@ func TestCacheReportGraphLineOmittedWithoutGraphQuery(t *testing.T) {
 			graphLines = append(graphLines, line)
 		}
 	}
-	if want := []string{"gsx cache: graph miss (graph-entry-missing)"}; strings.Join(graphLines, "|") != strings.Join(want, "|") {
+	if want := []string{"gsx cache: /one: graph miss (graph-entry-missing), stored", "gsx cache: /three: graph miss (graph-witness-changed)"}; strings.Join(graphLines, "|") != strings.Join(want, "|") {
 		t.Fatalf("graph lines = %q, want %q", graphLines, want)
 	}
 }

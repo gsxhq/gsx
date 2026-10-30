@@ -175,7 +175,8 @@ var beforeListGraph, afterListGraph func()
 func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, graphCacheOutcome, error) {
 	patterns, err := graphQueryPatterns(prep.manifest, prep.dirs, roots)
 	if err != nil {
-		return nil, graphCacheOutcome{Reason: graphUncacheable, Detail: err.Error()}, err
+		// No graph query ran; the module reports graph-query-failed.
+		return nil, graphCacheOutcome{}, err
 	}
 	key, goModDir, err := graphCacheKey(prep, patterns)
 	if err != nil {
@@ -219,6 +220,8 @@ func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, g
 	}
 	if stored := storeListedGraph(prep, key, goModDir, graph); stored.Reason != "" {
 		outcome = stored
+	} else {
+		outcome.Stored = true
 	}
 	return graph, outcome, nil
 }

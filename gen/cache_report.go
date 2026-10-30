@@ -118,7 +118,7 @@ func (report cacheReport) verboseLines() []string {
 	)}
 	for _, module := range report.Modules {
 		if module.Graph.Reason != "" {
-			lines = append(lines, module.Graph.verboseLine())
+			lines = append(lines, module.Graph.verboseLine(module.Root))
 		}
 	}
 	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Dir < dirs[j].Dir })
@@ -140,13 +140,17 @@ func (report cacheReport) verboseLines() []string {
 	return lines
 }
 
-func (o graphCacheOutcome) verboseLine() string {
+func (o graphCacheOutcome) verboseLine(root string) string {
 	if o.Hit() {
-		return "gsx cache: graph hit"
+		return fmt.Sprintf("gsx cache: %s: graph hit", root)
 	}
-	line := "gsx cache: graph miss (" + string(o.Reason)
+	line := fmt.Sprintf("gsx cache: %s: graph miss (%s", root, o.Reason)
 	if o.Detail != "" {
 		line += ": " + o.Detail
 	}
-	return line + ")"
+	line += ")"
+	if o.Stored {
+		line += ", stored"
+	}
+	return line
 }

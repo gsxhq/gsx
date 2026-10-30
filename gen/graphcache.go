@@ -42,6 +42,8 @@ const (
 type graphCacheOutcome struct {
 	Reason graphCacheReason
 	Detail string
+	// Stored reports that a miss stored the listed graph.
+	Stored bool
 }
 
 func (o graphCacheOutcome) Hit() bool { return o.Reason == graphHit }

@@ -254,8 +254,8 @@ func TestGraphCacheSharedAcrossCheckouts(t *testing.T) {
 	prep := graphPrep(t, first)
 	graph, outcome, err := loadGraphCached(prep, nil)
 	checkCachedAgainstLive(t, "first", prep, graph, outcome, err)
-	if outcome.Reason != graphEntryMissing {
-		t.Fatalf("first checkout outcome %+v, want %s", outcome, graphEntryMissing)
+	if outcome.Reason != graphEntryMissing || !outcome.Stored {
+		t.Fatalf("first checkout outcome %+v, want %s, stored", outcome, graphEntryMissing)
 	}
 	for _, root := range []string{second, link} {
 		prep := graphPrep(t, root)
@@ -412,5 +412,17 @@ func TestGraphCacheStoreSkippedWhenKeyInputsChange(t *testing.T) {
 	checkCachedAgainstLive(t, "after restoring go.mod", prep, graph, outcome, err)
 	if outcome.Reason != graphEntryMissing {
 		t.Fatalf("after restoring go.mod: outcome %+v, want %s", outcome, graphEntryMissing)
+	}
+}
+
+func TestGraphCacheQueryPatternsErrorHasNoOutcome(t *testing.T) {
+	t.Setenv("GSXCACHE", t.TempDir())
+	root := t.TempDir()
+	writeGraphDiffModule(t, root)
+	prep := graphPrep(t, root)
+	// The module bypasses with graph-query-failed; a graph line would repeat it.
+	prep.dirs = []string{filepath.Join(root, "missing")}
+	if _, outcome, err := loadGraphCached(prep, nil); err == nil || outcome != (graphCacheOutcome{}) {
+		t.Fatalf("unselectable dir: outcome %+v, err %v, want an error and no outcome", outcome, err)
 	}
 }
