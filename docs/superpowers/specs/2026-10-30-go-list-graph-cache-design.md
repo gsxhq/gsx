@@ -155,7 +155,11 @@ and store the entry only if the recomputed digest equals the manifest's. A
 content re-read misses an edit reverted while `go list` ran, so the store also
 requires unchanged stat identity (inode, size, mtime, ctime) of every listed
 directory, every listed Go file and `go.mod`/`go.sum`, taken just before and
-after `go list`. This is extra work on misses only; hits stay read-free.
+after `go list`. Unwalked directories that embed patterns reach (a Vite
+`static/.vite`) have no manifest listing, so their listings and stat identities
+are captured at that same point, the stored digest uses the capture, and the
+store also requires an identical re-capture after `go list`. This is extra work
+on misses only; hits stay read-free.
 
 Why the stored witness list is sufficient: any change that could add a
 main-module package to the graph must add an import to a file that is already
