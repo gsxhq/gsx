@@ -98,8 +98,9 @@ component Brackets() {
 
 component IfBlock(ok bool) {
 	<p>
-		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-		yyyyy/{ if ok { <b>yes</b> } }/zzz words here.
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yyyyy/{ if ok {
+			<b>yes</b>
+		} }/zzz words here.
 	</p>
 }
 

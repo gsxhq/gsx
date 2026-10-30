@@ -63,7 +63,11 @@ func corpusGsxSources(t *testing.T) []corpusSource {
 	return out
 }
 
-func normPrint(_ *testing.T, src string) (string, error) {
+func normPrint(t *testing.T, src string) (string, error) {
+	return normPrintAt(t, src, 80)
+}
+
+func normPrintAt(_ *testing.T, src string, width int) (string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x.gsx", src, 0)
 	if err != nil {
@@ -71,28 +75,63 @@ func normPrint(_ *testing.T, src string) (string, error) {
 	}
 	wsnorm.Normalize(f)
 	var b strings.Builder
-	err = Fprint(&b, f, 80, pretty.DefaultTabWidth)
+	err = Fprint(&b, f, width, pretty.DefaultTabWidth)
 	return b.String(), err
 }
+
+// fmtCorpusInputs collects the input.gsx of every fmt-corpus case
+// (internal/gsxfmt/testdata/cases). Those inputs are written to stress layout,
+// so they reach Fill states the semantic corpus does not.
+func fmtCorpusInputs(t *testing.T) []corpusSource {
+	t.Helper()
+	paths, err := filepath.Glob("../gsxfmt/testdata/cases/*.txtar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []corpusSource
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range txtar.Parse(data).Files {
+			if f.Name == "input.gsx" {
+				out = append(out, corpusSource{"fmt:" + filepath.Base(path), string(f.Data)})
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no fmt corpus inputs found")
+	}
+	return out
+}
+
+// TestCorpusIdempotence formats every corpus source twice at the default
+// width and at narrow ones. Narrow widths push blocks that sit inside prose
+// past the margin, where a Fill that measured a cluster one way and printed it
+// another reformatted differently the second time.
 func TestCorpusIdempotence(t *testing.T) {
-	for _, c := range corpusGsxSources(t) {
+	srcs := append(corpusGsxSources(t), fmtCorpusInputs(t)...)
+	for _, c := range srcs {
 		// Only sources that PARSE originally are in scope (parser-error cases skip).
 		fset := token.NewFileSet()
 		if _, err := parser.ParseFile(fset, c.name, c.src, 0); err != nil {
 			continue
 		}
-		out1, err := normPrint(t, c.src)
-		if err != nil {
-			t.Errorf("%s print: %v", c.name, err)
-			continue
-		}
-		out2, err := normPrint(t, out1)
-		if err != nil {
-			t.Errorf("%s REPARSE FAIL: %v\n%s", c.name, err, out1)
-			continue
-		}
-		if out1 != out2 {
-			t.Errorf("%s NOT idempotent", c.name)
+		for _, width := range []int{20, 30, 40, 50, 60, 80} {
+			out1, err := normPrintAt(t, c.src, width)
+			if err != nil {
+				t.Errorf("%s@%d print: %v", c.name, width, err)
+				continue
+			}
+			out2, err := normPrintAt(t, out1, width)
+			if err != nil {
+				t.Errorf("%s@%d REPARSE FAIL: %v\n%s", c.name, width, err, out1)
+				continue
+			}
+			if out1 != out2 {
+				t.Errorf("%s@%d NOT idempotent\n--- once ---\n%s\n--- twice ---\n%s", c.name, width, out1, out2)
+			}
 		}
 	}
 }

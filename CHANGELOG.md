@@ -18,6 +18,11 @@ syntax or APIs; a patch bump does not. See
   concurrent runs slowed each other to 5–14 minutes. Each directory is now
   resolved once per check, not once per package; the same warm run takes about
   10 seconds.
+- **`gsx fmt` is stable at narrow widths.** Prose next to a block that had to
+  break, such as `amet{ if ok { … } }consectetur`, could be wrapped one way and
+  then joined back by the next `fmt`. The block now holds the line up to its
+  first break, and the next `fmt` keeps that layout. Words after a broken
+  block no longer run past the width limit on its closing line.
 
 ## v0.4.2 — 2026-10-30
 
