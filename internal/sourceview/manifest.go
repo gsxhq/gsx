@@ -245,6 +245,9 @@ type dirListing struct {
 	// files holds the sorted names of every non-directory entry, whatever its
 	// extension. Symlinks are listed by name and never followed.
 	files []string
+	// subdirs holds the sorted names of every directory entry, entered or
+	// skipped. Embedded directory trees are witnessed through them.
+	subdirs []string
 	// goMod reports whether the directory has a go.mod (true for the root).
 	goMod bool
 }
@@ -270,11 +273,13 @@ func relDirKey(root, dir string) (string, error) {
 	return filepath.ToSlash(rel), nil
 }
 
-// freezeListing sorts names and builds the immutable listing for key.
-func freezeListing(key string, names []string) dirListing {
+// freezeListing sorts the entry names and builds the immutable listing for key.
+func freezeListing(key string, names, subdirNames []string) dirListing {
 	files := slices.Clone(names)
 	slices.Sort(files)
-	return dirListing{files: files, goMod: key == "." || slices.Contains(files, "go.mod")}
+	subdirs := slices.Clone(subdirNames)
+	slices.Sort(subdirs)
+	return dirListing{files: files, subdirs: subdirs, goMod: key == "." || slices.Contains(files, "go.mod")}
 }
 
 // Build constructs the complete owned GSX manifest once. It snapshots owned Go
@@ -308,6 +313,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 	paths := make(map[string]bool)
 	goPaths := make(map[string]bool)
 	listedNames := make(map[string][]string)
+	listedSubdirs := make(map[string][]string)
 	skippedDirs := make(map[string]skipKind)
 	err = filepath.WalkDir(physicalRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -316,6 +322,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 				// unlisted directory is never witnessed.
 				if key, keyErr := relDirKey(physicalRoot, path); keyErr == nil {
 					delete(listedNames, key)
+					delete(listedSubdirs, key)
 				}
 				return nil
 			}
@@ -326,6 +333,8 @@ func Build(options BuildOptions) (*Manifest, error) {
 			return keyErr
 		}
 		if entry.IsDir() && path != physicalRoot {
+			parent := filepath.ToSlash(filepath.Dir(key))
+			listedSubdirs[parent] = append(listedSubdirs[parent], entry.Name())
 			if !importableDirName(entry.Name()) {
 				skippedDirs[key] = skipUnimportable
 				return filepath.SkipDir
@@ -422,7 +431,7 @@ func Build(options BuildOptions) (*Manifest, error) {
 	}
 	dirListings := make(map[string]dirListing, len(listedNames))
 	for key, names := range listedNames {
-		dirListings[key] = freezeListing(key, names)
+		dirListings[key] = freezeListing(key, names, listedSubdirs[key])
 	}
 	return newManifest(nil, root, physicalRoot, options.ModulePath, sources, pairedPresent, nil, trackedFiles, helperGoFiles, dirListings, skippedDirs, len(overrides) == 0)
 }
@@ -777,12 +786,15 @@ func (manifest *Manifest) RefreshDirs(dirs []string) (*Manifest, error) {
 			return nil, fmt.Errorf("sourceview: read refresh directory %s: %w", dir, err)
 		}
 		names := make([]string, 0, len(entries))
+		var subdirs []string
 		for _, entry := range entries {
-			if !entry.IsDir() {
+			if entry.IsDir() {
+				subdirs = append(subdirs, entry.Name())
+			} else {
 				names = append(names, entry.Name())
 			}
 		}
-		dirListings[key] = freezeListing(key, names)
+		dirListings[key] = freezeListing(key, names, subdirs)
 		for _, entry := range entries {
 			if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".gsx") && !strings.HasSuffix(entry.Name(), ".go")) {
 				continue

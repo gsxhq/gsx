@@ -54,9 +54,10 @@ const (
 )
 
 type witnessNode struct {
-	kind  witnessNodeKind
-	files []string
-	goMod bool
+	kind    witnessNodeKind
+	files   []string
+	subdirs []string
+	goMod   bool
 }
 
 // witnessSource is where witnessDigest reads directory state and non-overlaid
@@ -116,7 +117,7 @@ func (manifest *Manifest) witnessDigest(input GraphWitnessInput, src witnessSour
 	w.count(len(dirs))
 	for _, dir := range dirs {
 		w.field(dir)
-		if err := manifest.writeDirWitness(&w, dir, src, overlayNames[dir]); err != nil {
+		if err := manifest.writeDirWitness(&w, dir, src, overlayNames); err != nil {
 			return "", err
 		}
 	}
@@ -193,7 +194,7 @@ func witnessPrefixes(dir string) []string {
 
 // writeDirWitness writes the state of every directory from the root down to
 // dir: each recorded ancestor's go.mod flag, then how dir itself resolves.
-func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witnessSource, overlayNames []string) error {
+func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witnessSource, overlayNames map[string][]string) error {
 	for _, prefix := range witnessPrefixes(dir) {
 		node, err := src.node(prefix)
 		if err != nil {
@@ -207,7 +208,7 @@ func (manifest *Manifest) writeDirWitness(w *witnessWriter, dir string, src witn
 			w.field("listed")
 			w.flag(node.goMod)
 			if prefix == dir {
-				return manifest.writePresentDir(w, dir, node.files, overlayNames, src)
+				return manifest.writePresentDir(w, dir, node, overlayNames, src)
 			}
 		case witnessNestedModule:
 			w.field("nested-module")
@@ -263,15 +264,23 @@ func (manifest *Manifest) writeEmbedDirWitness(w *witnessWriter, dir string, src
 // writePresentDir writes a directory's file names (its listing plus its
 // overlaid paths) and each Go file's header and //go:embed lines. _test.go
 // files are included: go list parses their headers too, and a third package
-// name, a broken import block or import "C" there fails it.
-func (manifest *Manifest) writePresentDir(w *witnessWriter, dir string, files, overlayNames []string, src witnessSource) error {
-	names := slices.Concat(files, overlayNames)
+// name, a broken import block or import "C" there fails it. A directory whose
+// Go files embed anything also gets its whole subtree witnessed.
+func (manifest *Manifest) writePresentDir(w *witnessWriter, dir string, node witnessNode, overlayNames map[string][]string, src witnessSource) error {
+	names := slices.Concat(node.files, overlayNames[dir])
 	slices.Sort(names)
 	names = slices.Compact(names)
 	w.count(len(names))
 	for _, name := range names {
+		// go/build reads build constraints from these files, and their mere
+		// presence can fail a non-cgo package; witnessing them would mean
+		// reading them on every hit.
+		if constrainedSourceExts[filepath.Ext(name)] {
+			return witnessUnavailable("directory %s holds non-Go source %s", dir, name)
+		}
 		w.field(name)
 	}
+	embeds := false
 	for _, name := range names {
 		if !strings.HasSuffix(name, ".go") {
 			continue
@@ -283,12 +292,67 @@ func (manifest *Manifest) writePresentDir(w *witnessWriter, dir string, files, o
 				return err
 			}
 		}
+		header, importsC := parseGoHeader(source)
+		if importsC && !strings.HasSuffix(name, "_test.go") {
+			// cgo reads the headers its preamble includes, from anywhere.
+			return witnessUnavailable("directory %s uses cgo in %s", dir, name)
+		}
 		w.field(name)
-		w.bytes(goFileHeader(source))
-		embeds := goEmbedLines(source)
-		w.count(len(embeds))
-		for _, line := range embeds {
+		w.bytes(header)
+		lines := goEmbedLines(source)
+		embeds = embeds || len(lines) > 0
+		w.count(len(lines))
+		for _, line := range lines {
 			w.bytes(line)
+		}
+	}
+	w.flag(embeds)
+	if embeds {
+		return manifest.writeEmbedSubtree(w, dir, node.subdirs, overlayNames, src)
+	}
+	return nil
+}
+
+// constrainedSourceExts are the non-Go extensions go/build lists for a
+// package and reads build constraints from (.syso is listed by name only).
+var constrainedSourceExts = map[string]bool{
+	".c": true, ".h": true, ".s": true, ".S": true,
+	".cc": true, ".cpp": true, ".cxx": true, ".hh": true, ".hpp": true, ".hxx": true,
+	".m": true, ".f": true, ".F": true, ".for": true, ".f90": true,
+	".swig": true, ".swigcxx": true,
+}
+
+// writeEmbedSubtree writes every directory below dir, with its subdirectory
+// and file names. Embed patterns match directories and walk them: a new empty
+// directory or a badly named file there can fail a live go list. A nested
+// module ends the walk but is recorded; an unimportable or unlisted
+// subdirectory cannot be witnessed.
+func (manifest *Manifest) writeEmbedSubtree(w *witnessWriter, dir string, subdirs []string, overlayNames map[string][]string, src witnessSource) error {
+	w.count(len(subdirs))
+	for _, name := range subdirs {
+		key := path.Join(dir, name)
+		w.field(name)
+		node, err := src.node(key)
+		if err != nil {
+			return err
+		}
+		switch {
+		case node.kind == witnessNestedModule:
+			w.field("nested-module")
+		case node.kind == witnessListed && !node.goMod:
+			w.field("listed")
+			files := slices.Concat(node.files, overlayNames[key])
+			slices.Sort(files)
+			files = slices.Compact(files)
+			w.count(len(files))
+			for _, file := range files {
+				w.field(file)
+			}
+			if err := manifest.writeEmbedSubtree(w, key, node.subdirs, overlayNames, src); err != nil {
+				return err
+			}
+		default:
+			return witnessUnavailable("embedded subtree directory %s is not listed", key)
 		}
 	}
 	return nil
@@ -299,7 +363,7 @@ type manifestWitnessSource struct{ manifest *Manifest }
 
 func (src manifestWitnessSource) node(key string) (witnessNode, error) {
 	if listing, ok := src.manifest.dirListings[key]; ok {
-		return witnessNode{kind: witnessListed, files: listing.files, goMod: listing.goMod}, nil
+		return witnessNode{kind: witnessListed, files: listing.files, subdirs: listing.subdirs, goMod: listing.goMod}, nil
 	}
 	switch src.manifest.skippedDirs[key] {
 	case skipNestedModule:
@@ -353,13 +417,16 @@ func (src diskWitnessSource) node(key string) (witnessNode, error) {
 		return witnessNode{}, witnessUnavailable("read directory %s: %v", key, err)
 	}
 	names := make([]string, 0, len(entries))
+	var subdirs []string
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() {
+			subdirs = append(subdirs, entry.Name())
+		} else {
 			names = append(names, entry.Name())
 		}
 	}
-	listing := freezeListing(key, names)
-	return witnessNode{kind: witnessListed, files: listing.files, goMod: listing.goMod}, nil
+	listing := freezeListing(key, names, subdirs)
+	return witnessNode{kind: witnessListed, files: listing.files, subdirs: listing.subdirs, goMod: listing.goMod}, nil
 }
 
 func (src diskWitnessSource) goFile(key, name string) ([]byte, error) {

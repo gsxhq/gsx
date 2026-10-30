@@ -15,9 +15,17 @@ import (
 // leading comment is included. If the header does not parse, the whole of src
 // is returned: any doubt is a miss.
 func goFileHeader(src []byte) []byte {
+	header, _ := parseGoHeader(src)
+	return header
+}
+
+// parseGoHeader returns goFileHeader's prefix and whether the file imports
+// "C". An unparsable header is returned whole and reported as not importing
+// "C": its bytes then differ from any header a successful go list read.
+func parseGoHeader(src []byte) (header []byte, importsC bool) {
 	file, err := parser.ParseFile(token.NewFileSet(), "", src, parser.ImportsOnly|parser.ParseComments)
 	if err != nil {
-		return src
+		return src, false
 	}
 	end := file.Name.End()
 	for _, decl := range file.Decls {
@@ -25,12 +33,17 @@ func goFileHeader(src []byte) []byte {
 			end = gd.End()
 		}
 	}
+	for _, spec := range file.Imports {
+		if spec.Path.Value == `"C"` || spec.Path.Value == "`C`" {
+			importsC = true
+		}
+	}
 	// Positions are offset by the file base; a fresh FileSet starts at 1.
 	off := int(end) - 1
 	if off < 0 || off > len(src) {
-		return src
+		return src, importsC
 	}
-	return src[:off]
+	return src[:off], importsC
 }
 
 // goEmbedLines returns every line of src whose trimmed text starts with

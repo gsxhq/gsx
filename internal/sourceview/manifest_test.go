@@ -614,6 +614,12 @@ func TestBuildRecordsDirListings(t *testing.T) {
 	if got, want := manifest.dirListings["a"].files, []string{"notes.txt", "x.c", "x.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("a listing = %v, want %v", got, want)
 	}
+	if got, want := manifest.dirListings["."].subdirs, []string{".hidden", "a", "nested"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("root subdirs = %v, want entered and skipped dirs %v", got, want)
+	}
+	if got := manifest.dirListings["a"].subdirs; len(got) != 0 {
+		t.Fatalf("a subdirs = %v, want none", got)
+	}
 	if got := manifest.skippedDirs["nested"]; got != skipNestedModule {
 		t.Fatalf("nested skip = %v, want skipNestedModule", got)
 	}
@@ -644,12 +650,16 @@ func TestRefreshDirsUpdatesListings(t *testing.T) {
 	}
 	writeTestFile(t, root, "a/y.go", "package a\n")
 	writeTestFile(t, root, "b/c.go", "package b\n")
+	writeTestFile(t, root, "a/sub/s.txt", "s\n")
 	refreshed, err := manifest.RefreshDirs([]string{filepath.Join(root, "a")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := refreshed.dirListings["a"].files, []string{"x.go", "y.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("a listing = %v, want %v", got, want)
+	}
+	if got, want := refreshed.dirListings["a"].subdirs, []string{"sub"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("a subdirs = %v, want %v", got, want)
 	}
 	if got, want := refreshed.dirListings["b"].files, []string{"b.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("b listing = %v, want unrefreshed %v", got, want)
