@@ -9,7 +9,9 @@ syntax or APIs; a patch bump does not. See
 - **`gsx dev` starts faster.** Unchanged packages restore from the generate
   cache, and the build starts alongside startup generation instead of after
   it. The first edit may wait for a background warm-up to finish.
-  `gsx generate --watch` gets the same startup.
+  `gsx generate --watch` gets the same startup and now honours `--no-cache`. A
+  `[dev].build` command may be started early and killed if startup regenerates
+  files, so it must be safe to interrupt.
 
 ## v0.4.4 — 2026-10-31
 
