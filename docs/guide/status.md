@@ -38,8 +38,8 @@ change syntax or APIs and may require source migrations, and a **patch** bump
 Pin the runtime and the CLI to the same tag:
 
 ```sh
-go get github.com/gsxhq/gsx@v0.4.3
-go get -tool github.com/gsxhq/gsx/cmd/gsx@v0.4.3
+go get github.com/gsxhq/gsx@v0.4.4
+go get -tool github.com/gsxhq/gsx/cmd/gsx@v0.4.4
 ```
 
 `@latest` resolves to the newest tag, which is what `gsx init` pins. To follow

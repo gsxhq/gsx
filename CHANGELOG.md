@@ -4,12 +4,13 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
-## Unreleased
+## v0.4.4 — 2026-10-31
 
 - **A warm `gsx generate` skips `go list` when nothing it reads changed.** No
   package header, file set or `go.mod` edit means the cached package graph is
-  reused. `-v` prints `graph hit` or `graph miss (reason)` per module. Builds
-  with a `GOFLAGS` `-modfile` are not cached.
+  reused: about 2× faster and 8× less CPU per warm run in a 639-package module.
+  `-v` prints `graph hit` or `graph miss (reason)` per module. Builds with a
+  `GOFLAGS` `-modfile` are not cached.
 
 ## v0.4.3 — 2026-10-30
 
