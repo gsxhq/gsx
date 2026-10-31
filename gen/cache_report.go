@@ -53,6 +53,9 @@ type moduleCacheReport struct {
 	Durations          cacheStageDurations
 	SemanticGeneration bool
 	StoreFailures      []cacheDirReport
+	// Graph is the go list graph cache outcome; zero when the module never
+	// reached the graph query.
+	Graph graphCacheOutcome
 }
 
 type cacheReport struct {
@@ -113,6 +116,11 @@ func (report cacheReport) verboseLines() []string {
 		durations.Restore.Round(time.Millisecond),
 		durations.Generate.Round(time.Millisecond),
 	)}
+	for _, module := range report.Modules {
+		if module.Graph.Reason != "" {
+			lines = append(lines, module.Graph.verboseLine(module.Root))
+		}
+	}
 	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Dir < dirs[j].Dir })
 	for _, dir := range dirs {
 		line := fmt.Sprintf("gsx cache: %s: uncacheable (%s)", dir.Dir, dir.Reason)
@@ -130,4 +138,19 @@ func (report cacheReport) verboseLines() []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func (o graphCacheOutcome) verboseLine(root string) string {
+	if o.Hit() {
+		return fmt.Sprintf("gsx cache: %s: graph hit", root)
+	}
+	line := fmt.Sprintf("gsx cache: %s: graph miss (%s", root, o.Reason)
+	if o.Detail != "" {
+		line += ": " + o.Detail
+	}
+	line += ")"
+	if o.Stored {
+		line += ", stored"
+	}
+	return line
 }

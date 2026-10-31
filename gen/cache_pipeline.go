@@ -3,6 +3,8 @@ package gen
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
@@ -140,7 +142,8 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 	}
 	graphRoots := []string{"github.com/gsxhq/gsx"}
 	graphRoots = append(graphRoots, configuredPackagePaths(config.filterPkgs, config.aliases, config.renderers, config.classMerger)...)
-	graph, graphErr := loadGraphWithContext(prep.goContext, prep.manifest, prep.dirs, dedupSorted(graphRoots))
+	graph, graphOutcome, graphErr := loadGraphCached(prep, dedupSorted(graphRoots))
+	report.Graph = graphOutcome
 	if graphErr != nil {
 		prep.bypassReason = cacheReasonGraphQueryFailed
 		prep.bypassDetail = graphErr.Error()
@@ -158,6 +161,137 @@ func prepareCache(g moduleGroup, config moduleGenerateConfig) (prep cachePrepara
 	}
 	prep.cacheReady = true
 	return prep, report, nil
+}
+
+// beforeListGraph and afterListGraph, when set by a test, run just before and
+// just after go list on a graph cache miss.
+var beforeListGraph, afterListGraph func()
+
+// loadGraphCached returns the go list graph for prep's selected closure plus
+// roots, reusing a stored graph whose witness matches the manifest. On a miss
+// it runs go list and stores the result only when the witnessed files still
+// match the manifest afterwards. Inputs the cache cannot key or witness fall
+// through to a live go list. Errors are go list's (or the patterns'), as with
+// loadGraphWithContext.
+func loadGraphCached(prep cachePreparation, roots []string) (sourceview.Graph, graphCacheOutcome, error) {
+	patterns, err := graphQueryPatterns(prep.manifest, prep.dirs, roots)
+	if err != nil {
+		// No graph query ran; the module reports graph-query-failed.
+		return nil, graphCacheOutcome{}, err
+	}
+	key, goModDir, err := graphCacheKey(prep, patterns)
+	if err != nil {
+		graph, listErr := listGraph(prep.goContext, prep.manifest, patterns)
+		return graph, graphCacheOutcome{Reason: graphUncacheable, Detail: err.Error()}, listErr
+	}
+	graph, outcome := lookupGraph(prep.cacheDir, key, prep.manifest, goModDir)
+	if outcome.Hit() {
+		return graph, outcome, nil
+	}
+	// Content re-reads after go list cannot see an edit reverted while it
+	// ran, so the witnessed paths' stat identities must also be unchanged.
+	// The manifest holds no listing of the unwalked directories embed
+	// patterns reach, so theirs are captured here and stored as go list
+	// read them.
+	unwalked := prep.manifest.CaptureUnwalkedListings()
+	statPaths := slices.Concat(prep.manifest.GraphStatPaths(), unwalked.Paths())
+	statsBefore, statErr := statSnapshot(statPaths)
+	if beforeListGraph != nil {
+		beforeListGraph()
+	}
+	graph, err = listGraph(prep.goContext, prep.manifest, patterns)
+	if err != nil {
+		return nil, outcome, err
+	}
+	if afterListGraph != nil {
+		afterListGraph()
+	}
+	// go list re-reads go.mod and go.sum: a graph listed after they changed
+	// must not be stored under the key of their earlier bytes.
+	if after, _, err := graphCacheKey(prep, patterns); err != nil {
+		return graph, graphCacheOutcome{Reason: graphUncacheable, Detail: err.Error()}, nil
+	} else if after != key {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "graph key inputs changed while go list ran"}, nil
+	}
+	if statErr != nil {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "stat witnessed files: " + statErr.Error()}, nil
+	}
+	statsAfter, err := statSnapshot(statPaths)
+	if err != nil {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "stat witnessed files: " + err.Error()}, nil
+	}
+	if changed, ok := firstChanged(statPaths, statsBefore, statsAfter); ok {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: changed + " changed while go list ran"}, nil
+	}
+	if changed, ok := unwalked.FirstDifference(prep.manifest.CaptureUnwalkedListings()); ok {
+		return graph, graphCacheOutcome{Reason: graphStoreSkipped, Detail: "embedded directory " + changed + " changed while go list ran"}, nil
+	}
+	if stored := storeListedGraph(prep, key, goModDir, graph, unwalked); stored.Reason != "" {
+		outcome = stored
+	} else {
+		outcome.Stored = true
+	}
+	return graph, outcome, nil
+}
+
+// graphCacheKey returns the graph key for patterns and the directory that
+// main-module paths are stored relative to: filepath.Dir of this run's GOMOD,
+// the root go list spells them from.
+func graphCacheKey(prep cachePreparation, patterns []string) (string, string, error) {
+	if prep.cacheDir == "" {
+		return "", "", errors.New("cache disabled")
+	}
+	goMod, err := prep.goContext.GoMod()
+	if err != nil {
+		return "", "", err
+	}
+	fingerprint, err := prep.goContext.CacheFingerprint()
+	if err != nil {
+		return "", "", err
+	}
+	key, err := graphKey(fingerprint, codegenIdentity(), prep.manifest, patterns)
+	if err != nil {
+		return "", "", err
+	}
+	return key, filepath.Dir(goMod), nil
+}
+
+// storeListedGraph stores a freshly listed graph under the manifest's witness,
+// with unwalked embedded directories as captured before go list, when a
+// re-read of the witnessed files still matches it. It returns the zero
+// outcome when the graph was stored.
+func storeListedGraph(prep cachePreparation, key, goModDir string, graph sourceview.Graph, unwalked *sourceview.UnwalkedListings) graphCacheOutcome {
+	uncacheable := func(err error) graphCacheOutcome {
+		return graphCacheOutcome{Reason: graphUncacheable, Detail: err.Error()}
+	}
+	input, err := witnessInputForGraph(graph, prep.manifest)
+	if err != nil {
+		return uncacheable(err)
+	}
+	digest, err := prep.manifest.GraphWitnessFrom(input, unwalked)
+	if errors.Is(err, sourceview.ErrListingNotCaptured) {
+		// go list embedded from a directory the manifest's patterns did not
+		// reach before it ran.
+		return graphCacheOutcome{Reason: graphStoreSkipped, Detail: err.Error()}
+	}
+	if err != nil {
+		return uncacheable(err)
+	}
+	stored, err := relativizeGraph(graph, goModDir)
+	if err != nil {
+		return uncacheable(err)
+	}
+	disk, err := prep.manifest.DiskGraphWitness(input)
+	if err != nil {
+		return uncacheable(err)
+	}
+	if disk != digest {
+		return graphCacheOutcome{Reason: graphStoreSkipped, Detail: "witnessed files changed while go list ran"}
+	}
+	if err := storeGraph(prep.cacheDir, key, graphVariant{Witness: input, Digest: digest, Graph: stored}); err != nil {
+		return graphCacheOutcome{Reason: graphStoreFailed, Detail: err.Error()}
+	}
+	return graphCacheOutcome{}
 }
 
 // classifyCache makes independent per-directory cache decisions from the

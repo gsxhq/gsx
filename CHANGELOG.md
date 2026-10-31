@@ -4,6 +4,13 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **A warm `gsx generate` skips `go list` when nothing it reads changed.** No
+  package header, file set or `go.mod` edit means the cached package graph is
+  reused. `-v` prints `graph hit` or `graph miss (reason)` per module. Builds
+  with a `GOFLAGS` `-modfile` are not cached.
+
 ## v0.4.3 — 2026-10-30
 
 - **`gsx fmt` output no longer raises `child-element-spacing`.** `fmt` could

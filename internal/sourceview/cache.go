@@ -40,8 +40,11 @@ type PackageMetadata struct {
 	GoFiles         []string
 	CgoFiles        []string
 	CompiledGoFiles []string
-	Standard        bool
-	Module          *ModuleMetadata
+	// EmbedFiles are the files this package embeds, relative to Dir. The
+	// projection ignores them; the persistent graph store witnesses them.
+	EmbedFiles []string
+	Standard   bool
+	Module     *ModuleMetadata
 }
 
 // Graph is an import-path-indexed cmd/go package selection.
@@ -564,6 +567,7 @@ func cloneGraph(graph Graph) Graph {
 		metadata.GoFiles = append([]string(nil), metadata.GoFiles...)
 		metadata.CgoFiles = append([]string(nil), metadata.CgoFiles...)
 		metadata.CompiledGoFiles = append([]string(nil), metadata.CompiledGoFiles...)
+		metadata.EmbedFiles = append([]string(nil), metadata.EmbedFiles...)
 		metadata.Module = cloneModule(metadata.Module)
 		out[path] = metadata
 	}

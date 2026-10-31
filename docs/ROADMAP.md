@@ -811,6 +811,11 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   (~70–100×). Rebuilds the resolver
   on `.go`/go.mod changes; pure `.gsx` edits take the fast path. Slice 2 (fine-grained
   per-package invalidation) is deferred - the measured warm time made it unnecessary.
+- [x] **Persistent `go list` graph cache** (2026-10-30,
+  `2026-10-30-go-list-graph-cache-design.md`) - a warm one-shot `generate`
+  reuses the stored package graph when no witnessed header, file set, embed or
+  `go.mod`/`go.sum` changed; workspaces, vendoring, `-modfile` and
+  directory-replaced modules still run `go list`.
 - [x] **Warm `.go`-edit dev cycles** (2026-08-12, Phase 1,
   `2026-08-12-warm-go-edit-watch-design.md`) - a `.go` save regenerates only the
   dependent package closure instead of reopening the whole session, and the

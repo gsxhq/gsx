@@ -87,6 +87,12 @@ func loadGraphWithContext(context *codegen.GoCommandContext, manifest *sourcevie
 	if err != nil {
 		return nil, err
 	}
+	return listGraph(context, manifest, patterns)
+}
+
+// listGraph runs `go list -deps -json -compiled` for patterns under the
+// manifest's overlay.
+func listGraph(context *codegen.GoCommandContext, manifest *sourceview.Manifest, patterns []string) (sourceview.Graph, error) {
 	overlay, err := manifest.MaterializeGoOverlay()
 	if err != nil {
 		return nil, fmt.Errorf("gen: materialize source manifest: %w", err)
