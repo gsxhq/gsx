@@ -126,6 +126,28 @@ func (d *watchDirtySet) retainOperational(results []cycleResult) {
 	}
 }
 
+// absorbWarmup folds the background warm-up's results (see
+// watchSession.startWarmup) into the transaction and reports whether they
+// need a cycle. A dir the warm-up wrote or removed files in is handled as an
+// edit of it: the next cycle regenerates it and reports the retained files,
+// so it posts, emits and rebuilds exactly as an edit cycle does. A dir it
+// failed in is retried by the next cycle, since its Module may lack the dir's
+// sources; on its own that needs no cycle, so nothing is posted. Everything
+// else is dropped: the startup restore already reported it.
+func (d *watchDirtySet) absorbWarmup(results []cycleResult) bool {
+	wrote := false
+	for _, result := range results {
+		if len(result.Written) > 0 || len(result.Removed) > 0 {
+			wrote = true
+			d.dirs[result.Dir] = true
+			d.retainEffects(result)
+		} else if result.Err != nil {
+			d.dirs[result.Dir] = true
+		}
+	}
+	return wrote
+}
+
 func (d *watchDirtySet) retainEffects(result cycleResult) {
 	if len(result.Written) == 0 && len(result.Removed) == 0 {
 		return

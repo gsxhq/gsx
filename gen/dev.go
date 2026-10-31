@@ -370,6 +370,11 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			}
 		}
 	}
+	// Startup is over: warm the Module up for the loop's cycles (see
+	// startWarmup). Shutdown needs no Module.
+	if ctx.Err() == nil {
+		sess.startWarmup()
+	}
 	// LastCycle (and Server.Healthy, set above in the branches that reach
 	// here) must be settled before the terminal setPhase("idle") — it is the
 	// one post the panel needs to see, and there is no second chance: an
@@ -504,6 +509,21 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		setPhase("idle")
 	}
 
+	// warmed waits for the warm-up before a path that uses the session's
+	// Module, absorbing its results into dirty, and reports false when shutdown
+	// came first: the loop then shuts down without it.
+	warmed := func() bool {
+		if pending := sess.warmupPending(); pending != nil {
+			select {
+			case <-pending:
+			case <-ctx.Done():
+				return false
+			}
+		}
+		dirty.absorbWarmup(sess.awaitWarmup())
+		return true
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -518,6 +538,9 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			switch c {
 			case "rebuild":
 				fmt.Fprintln(stdout, "gsx dev: panel: rebuild")
+				if !warmed() {
+					continue
+				}
 				dirty.depDirty = true
 				cycle(true)
 			case "restart-server":
@@ -541,6 +564,13 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		case fs := <-fdCh:
 			status.FrontDoor = fs
 			postStatus()
+
+		case <-sess.warmupPending():
+			// The warm-up finished with no cycle waiting for it. If it wrote,
+			// a cycle reports and rebuilds that like an edit.
+			if dirty.absorbWarmup(sess.awaitWarmup()) {
+				schedule()
+			}
 
 		case <-contactCh:
 			// First proof the front door is actually serving our plugin
@@ -576,6 +606,11 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			}
 
 		case <-fire:
+			// The .env restart and the cycle both wait for the warm-up: the
+			// server must not restart onto a binary the warm-up is outdating.
+			if !warmed() {
+				continue
+			}
 			// .env change → restart server with fresh env (no rebuild) + reload.
 			if envDirty {
 				envDirty = false

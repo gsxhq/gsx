@@ -148,6 +148,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	}
 	dirty.retainOperational(startup)
 	em.cycleBatch(publishableStartupResults(startup))
+	sess.startWarmup()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -188,7 +189,25 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 			if changed {
 				schedule()
 			}
+		case <-sess.warmupPending():
+			// The warm-up finished with no cycle waiting for it. If it wrote,
+			// a cycle emits that like an edit.
+			if dirty.absorbWarmup(sess.awaitWarmup()) {
+				schedule()
+			}
 		case <-fire:
+			// Regeneration uses the Module, so it waits for the warm-up;
+			// stopping does not.
+			if pending := sess.warmupPending(); pending != nil {
+				select {
+				case <-pending:
+				case <-stop:
+					return 0
+				case <-sig:
+					return 0
+				}
+			}
+			dirty.absorbWarmup(sess.awaitWarmup())
 			results, _, rerr := dirty.regenerate(sess.regenPending)
 			if rerr != nil {
 				// Regenerating against a stale module would emit output built on

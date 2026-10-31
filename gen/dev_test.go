@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2649,7 +2650,8 @@ echo "done $$" >> "$log"
 
 // devSpecFrontDoorGo is the fake front door: it binds VITE_PORT, then creates
 // $DEV_SPEC_READY, and appends every /__gsx/event body to $DEV_SPEC_EVENTS,
-// one per line. /__gsx/cmd long-polls with nothing queued.
+// one per line, and {"event":"reload"} for every /__reload. /__gsx/cmd
+// long-polls with nothing queued.
 const devSpecFrontDoorGo = `package main
 
 import (
@@ -2681,8 +2683,11 @@ func main() {
 			case <-r.Context().Done():
 			case <-time.After(20 * time.Second):
 			}
-		case "/__gsx/event":
+		case "/__gsx/event", "/__reload":
 			b, _ := io.ReadAll(r.Body)
+			if r.URL.Path == "/__reload" {
+				b = []byte("{\"event\":\"reload\"}")
+			}
 			mu.Lock()
 			if f, err := os.OpenFile(os.Getenv("DEV_SPEC_EVENTS"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 				f.Write(append(b, '\n'))
@@ -2700,9 +2705,70 @@ type devSpecRun struct {
 	proj, builds, started, events, ready string
 	cancel                               context.CancelFunc
 	done                                 chan int
+	exited                               chan struct{} // closed once runDevContext returned
 	mu                                   sync.Mutex
 	stdout, stderr                       bytes.Buffer
+
+	// The background warm-up: warmupStarted and warmupDone close at its start
+	// and end, warmupUses records devSpecWorldUses at its start, and it waits
+	// for warmupRelease, which start closes unless DEV_SPEC_WARMUP_HOLD=1.
+	warmupStarted, warmupDone, warmupRelease chan struct{}
+	releaseOnce                              sync.Once
+	warmupUses                               atomic.Int64
+	// abandoned, under mu, makes a warm-up that starts after the row's
+	// cleanup block forever instead of generating into a removed project.
+	abandoned bool
 }
+
+// releaseWarmup lets a held warm-up run.
+func (r *devSpecRun) releaseWarmup() { r.releaseOnce.Do(func() { close(r.warmupRelease) }) }
+
+// awaitWarmup waits for what of the warm-up closes ch (warmupStarted or
+// warmupDone).
+func (r *devSpecRun) awaitWarmup(t *testing.T, ch chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(90 * time.Second):
+		stdout, stderr := r.output()
+		t.Fatalf("timed out waiting for the warm-up to %s\nstdout:\n%s\nstderr:\n%s", what, stdout, stderr)
+	}
+}
+
+// overlayAndReloadEvents returns the posted overlay and reload events.
+func (r *devSpecRun) overlayAndReloadEvents() []string {
+	var out []string
+	for _, l := range devSpecLines(r.events, "") {
+		var ev struct {
+			Event string `json:"event"`
+		}
+		if json.Unmarshal([]byte(l), &ev) == nil && (ev.Event == "generated" || ev.Event == "reload") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// cyclePosted reports whether a loop cycle ran after startup: every cycle's
+// terminal status carries a new lastCycle, and the latest status is always
+// delivered.
+func (r *devSpecRun) cyclePosted() bool {
+	cycles := map[string]bool{}
+	for _, l := range devSpecLines(r.events, "") {
+		var ev struct {
+			Event     string         `json:"event"`
+			LastCycle map[string]any `json:"lastCycle"`
+		}
+		if json.Unmarshal([]byte(l), &ev) == nil && ev.Event == "status" && ev.LastCycle != nil {
+			cycles[fmt.Sprint(ev.LastCycle["at"])] = true
+		}
+	}
+	return len(cycles) > 1
+}
+
+// devSpecWorldUses counts shared-world lookups: a startup restored entirely
+// from the cache uses none.
+func devSpecWorldUses() int64 { return codegen.SharedWorldLoads() + codegen.SharedWorldHits() }
 
 func (r *devSpecRun) output() (string, string) {
 	r.mu.Lock()
@@ -2788,16 +2854,19 @@ func (r *devSpecRun) stop(t *testing.T) int {
 	}
 }
 
-// TestDevSpeculativeBuild pins gsx dev's startup build: the configured build
-// starts right after the watch session is armed, concurrently with the initial
-// generate, and its result is used only when that generate wrote and removed
-// nothing. Each row runs gsx dev in-process against its own fixture, with a
-// fake front door that records every posted event and a build script that
-// logs its invocations (see devSpecBuildSh).
-//
-// Serial (t.Setenv): gsx dev reads its ports and the hooks from the process
-// environment.
-func TestDevSpeculativeBuild(t *testing.T) {
+// devSpecStampGsx is the dev-spec fixture's app.gsx, with its rendered text.
+const devSpecStampGsx = "package main\n\ncomponent Stamp() {\n\t<b>%s</b>\n}\n"
+
+// devSpecSetup builds the fake front door and returns the dev-spec fixture's
+// helpers: fixture scaffolds a project, warm stores it to the persistent
+// cache, and start runs gsx dev on it in-process. It skips without the tools
+// the fixture needs. Callers are serial (t.Setenv).
+func devSpecSetup(t *testing.T) (
+	fixture func(t *testing.T, tomlTop string) string,
+	warm func(t *testing.T, proj string),
+	start func(t *testing.T, proj string, env ...string) *devSpecRun,
+) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("integration test: builds and runs a Go server")
 	}
@@ -2821,30 +2890,25 @@ func TestDevSpeculativeBuild(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	t.Setenv("VITE_DEV_URL", "")
 	t.Setenv("GSXCACHE", t.TempDir())
-	// worldUses counts shared-world lookups: a startup restored entirely from
-	// the cache uses none.
-	worldUses := func() int64 { return codegen.SharedWorldLoads() + codegen.SharedWorldHits() }
-
-	const stampGsx = "package main\n\ncomponent Stamp() {\n\t<b>%s</b>\n}\n"
 	// fixture scaffolds a project; tomlTop is prepended to its gsx.toml.
-	fixture := func(t *testing.T, tomlTop string) string {
+	fixture = func(t *testing.T, tomlTop string) string {
 		proj := newModule(t, "devspec")
 		writeFile(t, proj, "main.go", devSpecMainGo)
 		writeFile(t, proj, "stamp.go", "package main\n\nconst goStamp = \"go1\"\n")
-		writeFile(t, proj, "app.gsx", fmt.Sprintf(stampGsx, "gsx1"))
+		writeFile(t, proj, "app.gsx", fmt.Sprintf(devSpecStampGsx, "gsx1"))
 		writeFile(t, proj, "build.sh", devSpecBuildSh)
 		writeFile(t, proj, "gsx.toml", tomlTop+fmt.Sprintf("[dev]\nbuild = [\"sh\", %q]\nrun = [\"tmp/srv\"]\n", filepath.Join(proj, "build.sh")))
 		return proj
 	}
 	// warm runs `gsx generate`, storing every dir to the persistent cache, so
 	// gsx dev's initial generate restores them and writes nothing.
-	warm := func(t *testing.T, proj string) {
+	warm = func(t *testing.T, proj string) {
 		var out, errb bytes.Buffer
 		if code := run([]string{"-C", proj, "-q", "generate"}, &out, &errb); code != 0 {
 			t.Fatalf("warm generate exited %d: %s%s", code, out.String(), errb.String())
 		}
 	}
-	start := func(t *testing.T, proj string, env ...string) *devSpecRun {
+	start = func(t *testing.T, proj string, env ...string) *devSpecRun {
 		hooks := t.TempDir()
 		r := &devSpecRun{
 			proj:    proj,
@@ -2853,6 +2917,11 @@ func TestDevSpeculativeBuild(t *testing.T) {
 			events:  filepath.Join(hooks, "events"),
 			ready:   filepath.Join(hooks, "ready"),
 			done:    make(chan int, 1),
+			exited:  make(chan struct{}),
+
+			warmupStarted: make(chan struct{}),
+			warmupDone:    make(chan struct{}),
+			warmupRelease: make(chan struct{}),
 		}
 		t.Setenv("GO_PORT", freePort(t))
 		t.Setenv("VITE_PORT", freePort(t))
@@ -2863,10 +2932,30 @@ func TestDevSpeculativeBuild(t *testing.T) {
 		for _, k := range []string{"DEV_SPEC_HOLD_UNLESS", "DEV_SPEC_FAIL", "DEV_SPEC_HOLD_ONCE", "DEV_SPEC_RELEASE"} {
 			t.Setenv(k, "")
 		}
+		holdWarmup := false
 		for _, kv := range env {
 			k, v, _ := strings.Cut(kv, "=")
+			if k == "DEV_SPEC_WARMUP_HOLD" {
+				holdWarmup = v == "1"
+				continue
+			}
 			t.Setenv(k, v)
 		}
+		if !holdWarmup {
+			r.releaseWarmup()
+		}
+		warmupHook = func() {
+			r.mu.Lock()
+			if r.abandoned {
+				r.mu.Unlock()
+				select {}
+			}
+			r.warmupUses.Store(devSpecWorldUses())
+			close(r.warmupStarted)
+			r.mu.Unlock()
+			<-r.warmupRelease
+		}
+		warmupDoneHook = func() { close(r.warmupDone) }
 		_, configPath, err := resolveConfig(config{}, proj)
 		if err != nil {
 			t.Fatalf("resolveConfig: %v", err)
@@ -2877,6 +2966,23 @@ func TestDevSpeculativeBuild(t *testing.T) {
 			cancel()
 			// A failed row must not leak a blocked build into later tests.
 			_ = exec.Command("pkill", "-f", filepath.Join(proj, "build.sh")).Run()
+			// Nor a warm-up still generating into the project this row's
+			// TempDir cleanup is about to remove.
+			<-r.exited
+			r.mu.Lock()
+			started := false
+			select {
+			case <-r.warmupStarted:
+				started = true
+			default:
+				r.abandoned = true
+			}
+			r.mu.Unlock()
+			if started {
+				r.releaseWarmup()
+				<-r.warmupDone
+			}
+			warmupHook, warmupDoneHook = nil, nil
 		})
 		lockedWrite := func(buf *bytes.Buffer) writerFunc {
 			return func(p []byte) (int, error) {
@@ -2886,10 +2992,26 @@ func TestDevSpeculativeBuild(t *testing.T) {
 			}
 		}
 		go func() {
+			defer close(r.exited)
 			r.done <- runDevContext(ctx, []string{"--web", frontDoor}, lockedWrite(&r.stdout), lockedWrite(&r.stderr), config{}, devTomlFor(configPath), proj)
 		}()
 		return r
 	}
+	return fixture, warm, start
+}
+
+// TestDevSpeculativeBuild pins gsx dev's startup build: the configured build
+// starts right after the watch session is armed, concurrently with the initial
+// generate, and its result is used only when that generate wrote and removed
+// nothing. Each row runs gsx dev in-process against its own fixture, with a
+// fake front door that records every posted event and a build script that
+// logs its invocations (see devSpecBuildSh).
+//
+// Serial (t.Setenv): gsx dev reads its ports and the hooks from the process
+// environment.
+func TestDevSpeculativeBuild(t *testing.T) {
+	fixture, warm, start := devSpecSetup(t)
+	worldUses := devSpecWorldUses
 
 	// (a) Up-to-date tree: one build, and the server starts from it.
 	t.Run("up_to_date", func(t *testing.T) {
@@ -2898,7 +3020,9 @@ func TestDevSpeculativeBuild(t *testing.T) {
 		uses := worldUses()
 		r := start(t, proj)
 		r.waitFor(t, "the server to start", func() bool { return len(devSpecLines(r.started, "")) > 0 })
-		if n := worldUses() - uses; n != 0 {
+		// The background warm-up uses the world once startup is over.
+		r.awaitWarmup(t, r.warmupStarted, "start")
+		if n := r.warmupUses.Load() - uses; n != 0 {
 			t.Fatalf("startup used the Module's world %d times, want 0 (all cache hits)", n)
 		}
 		if code := r.stop(t); code != 0 {
@@ -2919,7 +3043,7 @@ func TestDevSpeculativeBuild(t *testing.T) {
 	t.Run("startup_writes", func(t *testing.T) {
 		proj := fixture(t, "")
 		warm(t, proj)
-		writeFile(t, proj, "app.gsx", fmt.Sprintf(stampGsx, "gsx2"))
+		writeFile(t, proj, "app.gsx", fmt.Sprintf(devSpecStampGsx, "gsx2"))
 		uses := worldUses()
 		r := start(t, proj)
 		r.waitFor(t, "the server to start", func() bool { return len(devSpecLines(r.started, "")) > 0 })
@@ -3144,4 +3268,111 @@ func TestDevSpeculativeBuild(t *testing.T) {
 			t.Fatalf("server started: %q", got)
 		}
 	})
+}
+
+// TestDevWarmupIsSilent pins that the background warm-up posts nothing when it
+// writes nothing: no overlay or reload follows startup's own, so a startup
+// codegen-error overlay survives it, and the poison .x.go is left alone.
+//
+// Serial (t.Setenv), like TestDevSpeculativeBuild.
+func TestDevWarmupIsSilent(t *testing.T) {
+	fixture, warm, start := devSpecSetup(t)
+	// settle bounds how long a post the warm-up caused could take to land.
+	const settle = 1500 * time.Millisecond
+
+	t.Run("up_to_date", func(t *testing.T) {
+		proj := fixture(t, "")
+		warm(t, proj)
+		r := start(t, proj, "DEV_SPEC_WARMUP_HOLD=1")
+		r.awaitWarmup(t, r.warmupStarted, "start")
+		// Let startup's own posts land (or give up) before the baseline.
+		time.Sleep(settle)
+		events := r.overlayAndReloadEvents()
+		r.releaseWarmup()
+		r.awaitWarmup(t, r.warmupDone, "finish")
+		time.Sleep(settle)
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if got := r.overlayAndReloadEvents(); !slices.Equal(got, events) {
+			t.Fatalf("overlay/reload events = %q, want only startup's %q", got, events)
+		}
+		if r.cyclePosted() {
+			t.Fatal("a cycle ran after startup")
+		}
+		if got := devSpecLines(r.builds, "start"); len(got) != 1 {
+			t.Fatalf("builds = %q, want only startup's", devSpecLines(r.builds, ""))
+		}
+	})
+
+	t.Run("startup_codegen_error", func(t *testing.T) {
+		proj := fixture(t, "")
+		writeFile(t, filepath.Join(proj, "widgets"), "w.gsx", "package widgets\n\ncomponent W() {\n\t<i>w</i>\n}\n")
+		writeFile(t, proj, "app.gsx", "package main\n\ncomponent Stamp() {\n\t<b>{undefinedStamp}</b>\n}\n")
+		// Stores widgets; the failing dir is never stored.
+		var out, errb bytes.Buffer
+		if code := run([]string{"-C", proj, "-q", "generate"}, &out, &errb); code == 0 {
+			t.Fatalf("generate of a codegen error exited 0: %s", out.String())
+		}
+		r := start(t, proj, "DEV_SPEC_WARMUP_HOLD=1")
+		r.waitFor(t, "the startup idle status", r.idleStatusPosted)
+		r.awaitWarmup(t, r.warmupStarted, "start")
+		// Let startup's own posts land (or give up) before the baseline.
+		r.waitFor(t, "the front door", func() bool { _, err := os.Stat(r.ready); return err == nil })
+		time.Sleep(settle)
+		xgo := filepath.Join(proj, "app.x.go")
+		before, err := statSnapshot([]string{xgo})
+		if err != nil || !before[0].exists {
+			t.Fatalf("no poison output after startup: %v", err)
+		}
+		events := r.overlayAndReloadEvents()
+		r.releaseWarmup()
+		r.awaitWarmup(t, r.warmupDone, "finish")
+		time.Sleep(settle)
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		// The startup overlay is posted before the front door listens, so it
+		// may not have landed; whatever did must be all there is.
+		if got := r.overlayAndReloadEvents(); !slices.Equal(got, events) || len(got) > 1 || len(got) == 1 && !strings.Contains(got[0], "undefinedStamp") {
+			t.Fatalf("overlay/reload events = %q, want at most startup's codegen-error overlay (%q)", got, events)
+		}
+		if r.cyclePosted() {
+			t.Fatal("a cycle ran after startup")
+		}
+		if after, _ := statSnapshot([]string{xgo}); after[0] != before[0] {
+			t.Fatal("the warm-up rewrote the poison output")
+		}
+	})
+}
+
+// TestDevCtrlCDuringWarmup pins that shutdown never waits for the background
+// warm-up, even with an edit cycle waiting on it.
+//
+// Serial (t.Setenv), like TestDevSpeculativeBuild.
+func TestDevCtrlCDuringWarmup(t *testing.T) {
+	fixture, warm, start := devSpecSetup(t)
+	proj := fixture(t, "")
+	warm(t, proj)
+	r := start(t, proj, "DEV_SPEC_WARMUP_HOLD=1")
+	r.awaitWarmup(t, r.warmupStarted, "start")
+	// An edit whose cycle waits for the held warm-up.
+	writeFile(t, proj, "app.gsx", fmt.Sprintf(devSpecStampGsx, "gsx2"))
+	time.Sleep(300 * time.Millisecond) // past the loop's debounce
+	begin := time.Now()
+	r.cancel()
+	select {
+	case code := <-r.done:
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("gsx dev did not exit within 2s of Ctrl-C during the warm-up")
+	}
+	t.Logf("exited %v after Ctrl-C", time.Since(begin))
+	select {
+	case <-r.warmupDone:
+		t.Fatal("the warm-up finished while held")
+	default:
+	}
 }

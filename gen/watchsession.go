@@ -81,8 +81,13 @@ type watchSession struct {
 	mergerErr  error         // its result; written before mergerDone closes
 
 	// warmDirs holds the dirs initialGenerate restored from the persistent
-	// generate cache instead of generating through their Module.
+	// generate cache instead of generating through their Module, until the
+	// warm-up's results are consumed (see startWarmup).
 	warmDirs []string
+
+	warmupStarted bool
+	warmupDone    chan struct{} // closed when the warm-up finishes; nil when none is pending
+	warmupResults []cycleResult // its results; written before warmupDone closes
 }
 
 // openModule constructs a fresh *codegen.Module for the given module root,
@@ -363,6 +368,68 @@ func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 	}
 	return startup, nil
 }
+
+// startWarmup generates warmDirs through their Module once, in the
+// background, so the Module gains what the startup restore skipped: their
+// source snapshot, analysis and import graph, without which an edit cycle's
+// Dependents would miss their importers. It is a no-op without warmDirs.
+//
+// While the warm-up runs it is the only user of the session and its Modules:
+// every loop path that touches them waits for it first (awaitWarmup). The
+// loop meanwhile only classifies events, reading session fields that only
+// those paths write: warmDirs' Modules are all open, so regenDirs opens none.
+func (s *watchSession) startWarmup() {
+	if s.warmupStarted {
+		return
+	}
+	s.warmupStarted = true
+	if len(s.warmDirs) == 0 {
+		return
+	}
+	dirs := slices.Clone(s.warmDirs)
+	done := make(chan struct{})
+	s.warmupDone = done
+	hook, doneHook := warmupHook, warmupDoneHook
+	go func() {
+		defer close(done)
+		if hook != nil {
+			hook()
+		}
+		// Module generation must not run against an unvalidated merger. Both
+		// loops start the warm-up only after validation passed, so this
+		// returns at once; a failure has already been reported and ended the
+		// session, and the warm-up generates nothing.
+		if s.awaitMergerValidation() == nil {
+			s.warmupResults = s.regenDirs(dirs)
+		}
+		if doneHook != nil {
+			doneHook()
+		}
+	}()
+}
+
+// warmupPending returns a channel closed when the started warm-up finishes,
+// or nil when none is pending (its results consumed, or none started), so a
+// select on it never fires twice.
+func (s *watchSession) warmupPending() <-chan struct{} { return s.warmupDone }
+
+// awaitWarmup blocks until the warm-up finishes and returns its results the
+// first time; later calls return nil. It starts the warm-up if nobody has, so
+// no caller can reach the Module before warmDirs are part of it.
+func (s *watchSession) awaitWarmup() []cycleResult {
+	s.startWarmup()
+	if s.warmupDone == nil {
+		return nil
+	}
+	<-s.warmupDone
+	results := s.warmupResults
+	s.warmupDone, s.warmupResults, s.warmDirs = nil, nil, nil
+	return results
+}
+
+// warmupHook and warmupDoneHook, when set by a test, run at the start and the
+// end of the background warm-up.
+var warmupHook, warmupDoneHook func()
 
 // restoreStartupHits restores the persistent-cache hits among dirs, module by
 // module, returning one cycleResult per restored dir: the result generateDir

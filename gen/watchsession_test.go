@@ -947,3 +947,86 @@ func writeTreeT(t *testing.T, root string, tree map[string]string) {
 		writeFileT(t, p, b)
 	}
 }
+
+// TestWatchSession_WarmupThenSharedEdit pins the background warm-up: a startup
+// restored entirely from the cache leaves the Module without an import graph,
+// so an edit cycle waits for the warm-up and then regenerates every importer
+// of an edited shared component. Serial: it sets the warm-up hooks.
+func TestWatchSession_WarmupThenSharedEdit(t *testing.T) {
+	root := t.TempDir()
+	writeMod(t, root)
+	card := filepath.Join(root, "comp", "card.gsx")
+	writeFileT(t, card, "package comp\n\ncomponent Card(title string) {\n\t<div class=\"card\">{title}</div>\n}\n")
+	for _, pkg := range []string{"views", "admin"} {
+		writeFileT(t, filepath.Join(root, pkg, pkg+".gsx"), "package "+pkg+"\n\nimport \"example.com/m/comp\"\n\ncomponent Page() {\n\t<comp.Card title=\""+pkg+"\"/>\n}\n")
+	}
+	t.Setenv("GSXCACHE", t.TempDir())
+	cfg := fixedModuleConfig(moduleGenerateConfig{useCache: true})
+	if res, _, err := generateCachedWithReport([]string{root}, cfg); err != nil || len(res.Errs) > 0 {
+		t.Fatalf("warming generate: %v %v", err, res.Errs)
+	}
+
+	s, _, err := startWatchSessionForTest(watchConfig{paths: []string{root}, moduleConfig: cfg})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest: %v", err)
+	}
+	if len(s.warmDirs) != 3 {
+		t.Fatalf("warmDirs = %v, want every dir restored", s.warmDirs)
+	}
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	warmupHook = func() { close(entered); <-release }
+	warmupDoneHook = func() { close(finished) }
+	t.Cleanup(func() { warmupHook, warmupDoneHook = nil, nil })
+	s.startWarmup()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("warm-up did not start")
+	}
+
+	writeFileT(t, card, "package comp\n\ncomponent Card(title string) {\n\t<div class=\"card edited\">{title}</div>\n}\n")
+	dirty := newWatchDirtySet()
+	dirty.dirs[filepath.Join(root, "comp")] = true
+	type outcome struct {
+		results []cycleResult
+		err     error
+	}
+	cycled := make(chan outcome, 1)
+	go func() {
+		// As the loops do: wait for the warm-up, then regenerate.
+		dirty.absorbWarmup(s.awaitWarmup())
+		results, _, err := dirty.regenerate(s.regenPending)
+		cycled <- outcome{results, err}
+	}()
+	select {
+	case <-cycled:
+		t.Fatal("the edit cycle ran before the warm-up finished")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	var got outcome
+	select {
+	case got = <-cycled:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the edit cycle did not run after the warm-up")
+	}
+	<-finished
+	if got.err != nil {
+		t.Fatalf("edit cycle: %v", got.err)
+	}
+	var dirs []string
+	for _, r := range got.results {
+		if !r.OK {
+			t.Errorf("%s: err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+		dirs = append(dirs, r.Dir)
+	}
+	slices.Sort(dirs)
+	want := []string{filepath.Join(root, "admin"), filepath.Join(root, "comp"), filepath.Join(root, "views")}
+	if !slices.Equal(dirs, want) {
+		t.Fatalf("edit cycle regenerated %v, want %v", dirs, want)
+	}
+	if s.awaitWarmup() != nil || s.warmDirs != nil {
+		t.Fatal("warm-up results not consumed once")
+	}
+}
