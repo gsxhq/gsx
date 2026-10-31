@@ -523,6 +523,10 @@ func (p *poster) postEvent(base string, body []byte, gate func() bool) {
 // postReload best-effort POSTs to base+/__reload (browser full-reload).
 func (p *poster) postReload(base string, gate func() bool) { p.post(base+"/__reload", nil, gate) }
 
+// postEnqueuedHook, when set by a test, runs on the caller's goroutine for
+// every push post enqueues.
+var postEnqueuedHook func(url string)
+
 // poster owns every best-effort browser push a dev session fires. Each post
 // still runs in its own goroutine (delivery must not block the watch loop),
 // but the goroutines are joined: drain aborts pending retries AND in-flight
@@ -561,6 +565,9 @@ func (p *poster) post(url string, body []byte, gate func() bool) {
 	if strings.HasPrefix(url, "/") || url == "" {
 		return
 	}
+	if postEnqueuedHook != nil {
+		postEnqueuedHook(url)
+	}
 	p.wg.Go(func() {
 		client := devHTTPClient(2 * time.Second)
 		for range 10 {
@@ -593,7 +600,7 @@ func (p *poster) post(url string, body []byte, gate func() bool) {
 type devServer struct {
 	// dir is the project working dir; child build/run commands run here.
 	dir       string
-	build     []string // argv to build (writes the binary)
+	buildArgv []string // argv to build (writes the binary)
 	run       []string // argv to run the built binary
 	env       []string
 	out       io.Writer // combined terminal+log writer for server output
@@ -609,14 +616,88 @@ type devServer struct {
 // error is returned along with captured compiler output. On success it stops the
 // old server and starts the new one.
 func (d *devServer) rebuild(ctx context.Context) (string, error) {
-	var buf bytes.Buffer
-	bcmd := exec.CommandContext(ctx, d.build[0], d.build[1:]...)
-	bcmd.Dir, bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.dir, d.env, &buf, &buf
-	if err := bcmd.Run(); err != nil {
-		writeBuildFailure(d.effectiveBuildOut(), buf.String(), err)
-		return buf.String(), err
+	if out, err := d.build(ctx); err != nil {
+		return out, err
 	}
 	return "", d.restartNoBuild()
+}
+
+// build runs the build command and, on failure, writes the build error to the
+// build output and returns it along with the captured compiler output.
+func (d *devServer) build(ctx context.Context) (string, error) {
+	out, err := d.runBuild(ctx)
+	if err != nil {
+		d.reportBuildFailure(out, err)
+	}
+	return out, err
+}
+
+// reportBuildFailure writes a failed build's error and output to the build
+// output.
+func (d *devServer) reportBuildFailure(out string, err error) {
+	writeBuildFailure(d.effectiveBuildOut(), out, err)
+}
+
+// runBuild runs the build command in its own process group, capturing its
+// output. Cancelling ctx terminates the whole group, so a build script's
+// children (the compiler, a wrapped go build) never outlive it, and runBuild
+// returns only once the group has exited and released its output: a
+// cancelled build can no longer write the binary. A build has no graceful
+// shutdown worth waiting for, so cancellation kills the group at once.
+func (d *devServer) runBuild(ctx context.Context) (string, error) {
+	var buf bytes.Buffer
+	bcmd := exec.Command(d.buildArgv[0], d.buildArgv[1:]...)
+	bcmd.Dir, bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.dir, d.env, &buf, &buf
+	setProcGroup(bcmd)
+	// Bounds Wait if a surviving background child holds the output pipe open.
+	bcmd.WaitDelay = 2 * time.Second
+	if err := bcmd.Start(); err != nil {
+		return buf.String(), err
+	}
+	var err error
+	done := make(chan struct{})
+	go func() { err = bcmd.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		killProcGroupNow(bcmd, done)
+	}
+	return buf.String(), err
+}
+
+// pendingBuild is a build started before it is known whether its result will
+// be used: gsx dev starts it alongside the initial generate.
+type pendingBuild struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+	out    string
+	err    error
+}
+
+// startBuild starts the build command in the background under a child of ctx.
+// Nothing is reported: a caller that uses the result reports a failure with
+// reportBuildFailure.
+func (d *devServer) startBuild(ctx context.Context) *pendingBuild {
+	b := &pendingBuild{done: make(chan struct{})}
+	ctx, b.cancel = context.WithCancel(ctx)
+	go func() {
+		defer close(b.done)
+		b.out, b.err = d.runBuild(ctx)
+	}()
+	return b
+}
+
+// result waits for the build and returns its output and error.
+func (b *pendingBuild) result() (string, error) {
+	<-b.done
+	return b.out, b.err
+}
+
+// discard cancels the build and waits for it to exit, dropping its output. It
+// is safe after result and safe to repeat.
+func (b *pendingBuild) discard() {
+	b.cancel()
+	<-b.done
 }
 
 func (d *devServer) effectiveBuildOut() io.Writer {

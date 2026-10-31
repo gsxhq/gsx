@@ -909,10 +909,10 @@ func TestDevServerBuildsInDir(t *testing.T) {
 	must("main.go", "package main\n\nfunc main() {}\n")
 	bin := filepath.Join(t.TempDir(), "out")
 	d := &devServer{
-		dir:   proj,
-		build: []string{"go", "build", "-o", bin, "."},
-		run:   []string{bin},
-		out:   io.Discard,
+		dir:       proj,
+		buildArgv: []string{"go", "build", "-o", bin, "."},
+		run:       []string{bin},
+		out:       io.Discard,
 	}
 	// rebuild must succeed even though the test's cwd is NOT proj.
 	if out, err := d.rebuild(context.Background()); err != nil {

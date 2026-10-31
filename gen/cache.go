@@ -156,10 +156,17 @@ func anyErrorDiag(diags []diag.Diagnostic) bool {
 // match (hash-gated). Writes are temp+rename in the target dir: a poison file
 // that lands truncated is a *parse* error that would confuse the LSP and
 // skeleton scanner, so partial writes must be impossible.
-// Returns the paths it actually wrote and the count of outputs that were
-// already current (byte-identical, so skipped).
+// Returns the paths it actually wrote, in path order, and the count of outputs
+// that were already current (byte-identical, so skipped). On error, written
+// holds the paths written before the failing one.
 func restore(dir string, out pkgOutput) (written []string, upToDate int, err error) {
-	for rel, data := range out {
+	rels := make([]string, 0, len(out))
+	for rel := range out {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	for _, rel := range rels {
+		data := out[rel]
 		target := filepath.Join(dir, rel)
 		if existing, rerr := os.ReadFile(target); rerr == nil && bytes.Equal(existing, data) {
 			upToDate++ // already current — no write
@@ -169,9 +176,15 @@ func restore(dir string, out pkgOutput) (written []string, upToDate int, err err
 			return written, upToDate, fmt.Errorf("%s: %w", target, werr)
 		}
 		written = append(written, target)
+		if afterRestoreWrite != nil {
+			afterRestoreWrite(target)
+		}
 	}
 	return written, upToDate, nil
 }
+
+// afterRestoreWrite, when set by a test, runs after restore writes target.
+var afterRestoreWrite func(target string)
 
 // writeFileAtomic writes data to target via a same-dir temp file + rename, so
 // readers never observe a partial file. Mode 0644 to match os.WriteFile use.
@@ -222,8 +235,12 @@ func relWarnings(root string, diags []diag.Diagnostic) (warnings []diag.Diagnost
 	return warnings, true
 }
 
-// absWarnings is relWarnings' inverse for a cache hit.
+// absWarnings is relWarnings' inverse for a cache hit. No warnings is nil, as
+// relWarnings and codegen report it.
 func absWarnings(root string, warnings []diag.Diagnostic) []diag.Diagnostic {
+	if len(warnings) == 0 {
+		return nil
+	}
 	out := make([]diag.Diagnostic, len(warnings))
 	for i, d := range warnings {
 		if d.Start.Filename != "" {

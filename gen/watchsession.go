@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gsxhq/gsx/internal/codegen"
@@ -73,6 +75,19 @@ type watchSession struct {
 	watchRoots     []string                        // requested trees plus their owning module trees
 	modules        map[string]*codegen.Module      // module root -> warm Module
 	configs        map[string]moduleGenerateConfig // module root -> the config its Module was opened with
+
+	mergerOnce sync.Once     // starts the background class-merger validation once
+	mergerDone chan struct{} // closed when that validation finishes
+	mergerErr  error         // its result; written before mergerDone closes
+
+	// warmDirs holds the dirs initialGenerate restored from the persistent
+	// generate cache instead of generating through their Module, until the
+	// warm-up's results are consumed (see startWarmup).
+	warmDirs []string
+
+	warmupStarted bool
+	warmupDone    chan struct{} // closed when the warm-up finishes; nil when none is pending
+	warmupResults []cycleResult // its results; written before warmupDone closes
 }
 
 // openModule constructs a fresh *codegen.Module for the given module root,
@@ -103,6 +118,14 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 // annotateModuleError attributes a configured-package failure in dir to the
 // gsx.toml its module inherited, if any (see annotateConfigError).
 func (s *watchSession) annotateModuleError(err error, dir string) error {
+	return annotateModuleErrorWith(err, dir, func(root string) moduleGenerateConfig { return s.configs[root] })
+}
+
+// annotateModuleErrorWith is annotateModuleError with the config lookup
+// injected, so it can run off the session's goroutine against captured values.
+// The module root is resolved only for a ConfiguredPackageError, keeping the
+// per-Generate nil/other-error path free of go.mod reads.
+func annotateModuleErrorWith(err error, dir string, cfgFor func(root string) moduleGenerateConfig) error {
 	var cpe *codegen.ConfiguredPackageError
 	if err == nil || !errors.As(err, &cpe) {
 		return err
@@ -111,7 +134,7 @@ func (s *watchSession) annotateModuleError(err error, dir string) error {
 	if rootErr != nil {
 		return err
 	}
-	return annotateConfigError(err, root, modPath, s.configs[root])
+	return annotateConfigError(err, root, modPath, cfgFor(root))
 }
 
 // moduleForDir returns the warm Module for dir's enclosing module root. If the
@@ -225,6 +248,7 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 		watchRoots:     append([]string(nil), targets.watchRoots...),
 		modules:        map[string]*codegen.Module{},
 		configs:        map[string]moduleGenerateConfig{},
+		mergerDone:     make(chan struct{}),
 	}
 	for _, root := range s.roots {
 		m, err := s.openModule(root)
@@ -234,31 +258,63 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 		s.modules[root] = m
 	}
 
-	// Validate the class merger once at session startup so a bad-signature merger
-	// surfaces a clear error instead of silently emitting uncompilable .x.go
-	// files on every regen cycle. This runs against s.root's ALREADY-OPEN,
-	// fully-configured Module (codegen.Module.ValidateConfiguredMergers) rather
-	// than a throwaway probe built from just the ClassMergerRef: a probe scoped
-	// to the merger alone composes a NARROWER shared-world path set than this
-	// Module's own FilterPkgs/Aliases/Renderers, which used to mint a second,
-	// differently-keyed world at every configured-module session startup instead
-	// of sharing the one Generate is about to load anyway (see
-	// TestWatchSession_ConfiguredModuleWorldBudget). The LSP and fmt call
-	// codegen.Open directly and must not pay a packages.Load per call, so this
-	// validation lives here and NOT in codegen.Open or codegen.GenerateDirs (the
-	// latter already validates too, memoized, as a defense-in-depth backstop).
-	if s.configs[s.root].classMerger != nil {
-		if err := s.modules[s.root].ValidateConfiguredMergers(); err != nil {
-			return nil, s.annotateModuleError(err, s.root)
-		}
-	}
 	return s, nil
 }
 
+// startMergerValidation validates the configured class merger once, in the
+// background, so a bad-signature merger surfaces a clear error instead of
+// silently emitting uncompilable .x.go files on every regen cycle. It runs
+// against s.root's ALREADY-OPEN, fully-configured Module
+// (codegen.Module.ValidateConfiguredMergers) rather than a throwaway probe
+// built from just the ClassMergerRef: a probe scoped to the merger alone
+// composes a NARROWER shared-world path set than this Module's own
+// FilterPkgs/Aliases/Renderers, which used to mint a second, differently-keyed
+// world at every configured-module session startup instead of sharing the one
+// Generate is about to load anyway (see
+// TestWatchSession_ConfiguredModuleWorldBudget). The LSP and fmt call
+// codegen.Open directly and must not pay a packages.Load per call, so this
+// validation lives here and NOT in codegen.Open or codegen.GenerateDirs (the
+// latter already validates too, memoized, as a defense-in-depth backstop).
+//
+// The goroutine touches only the root Module (serialized by its analysisMu)
+// and values captured here, never the session's maps, which the loop mutates.
+// It is a no-op without a configured merger. Callers must
+// awaitMergerValidation before any result of the session is published.
+func (s *watchSession) startMergerValidation() {
+	s.mergerOnce.Do(func() {
+		cfg := s.configs[s.root]
+		if cfg.classMerger == nil {
+			close(s.mergerDone)
+			return
+		}
+		m, root := s.modules[s.root], s.root
+		go func() {
+			defer close(s.mergerDone)
+			if err := m.ValidateConfiguredMergers(); err != nil {
+				s.mergerErr = annotateModuleErrorWith(err, root, func(string) moduleGenerateConfig { return cfg })
+			}
+		}()
+	})
+}
+
+// awaitMergerValidation blocks until the background validation finishes and
+// returns its (annotated) error. It starts the validation if nobody has, returns
+// nil at once when no merger is configured, and is safe to call repeatedly.
+func (s *watchSession) awaitMergerValidation() error {
+	s.startMergerValidation()
+	<-s.mergerDone
+	return s.mergerErr
+}
+
 // initialGenerate snapshots the authored package membership after observation
-// is armed, then generates every discovered package and sweeps cold-start
-// orphans. The first Generate on each lazy Module publishes its immutable source
-// manifest and populates the import graph used by warm reverse invalidation.
+// is armed, sweeps cold-start orphans, then restores every persistent-cache hit
+// exactly as `gsx generate` does and generates the remaining packages through
+// their Module. The first Generate on each lazy Module publishes its immutable
+// source manifest and populates the import graph used by warm reverse
+// invalidation; the restored dirs are recorded in warmDirs because their
+// Module has not analyzed them yet. Nothing is stored to the cache: the Module
+// re-reads disk after the keys were computed, so a store could pair a key with
+// newer sources.
 func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 	dirs, err := discoverDirs(s.cfg.paths)
 	if err != nil {
@@ -280,8 +336,214 @@ func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 	// otherwise survive indefinitely. Must run before the per-dir regen loop,
 	// same ordering as the batch path.
 	startup := sweepOrphanStartup(s.cfg.paths, dirs)
-	startup = append(startup, s.regenDirs(dirs)...)
+	hits, carried := s.restoreStartupHits(dirs)
+	misses := make([]string, 0, len(dirs)-len(hits))
+	for _, dir := range dirs {
+		if _, ok := hits[dir]; !ok {
+			misses = append(misses, dir)
+		}
+	}
+	var generated []cycleResult
+	if len(misses) > 0 {
+		// Module generation must not run against an unvalidated merger;
+		// restores above may, since the merger's sources are in every key.
+		if err := s.awaitMergerValidation(); err != nil {
+			return nil, err
+		}
+		generated = s.regenDirs(misses)
+	}
+	s.warmDirs = s.warmDirs[:0]
+	for _, dir := range dirs {
+		if r, ok := hits[dir]; ok {
+			startup = append(startup, r)
+			s.warmDirs = append(s.warmDirs, dir)
+			continue
+		}
+		r := generated[0]
+		generated = generated[1:]
+		if c, ok := carried[dir]; ok {
+			r = mergeCarried(r, c)
+		}
+		startup = append(startup, r)
+	}
 	return startup, nil
+}
+
+// startWarmup generates warmDirs through their Module once, in the
+// background, so the Module gains what the startup restore skipped: their
+// source snapshot, analysis and import graph, without which an edit cycle's
+// Dependents would miss their importers. It is a no-op without warmDirs.
+//
+// While the warm-up runs it is the only user of the session and its Modules:
+// every loop path that touches them waits for it first (awaitWarmup). The
+// loop meanwhile only classifies events, reading session fields that only
+// those paths write: warmDirs' Modules are all open, so regenDirs opens none.
+func (s *watchSession) startWarmup() {
+	if s.warmupStarted {
+		return
+	}
+	s.warmupStarted = true
+	if len(s.warmDirs) == 0 {
+		return
+	}
+	dirs := slices.Clone(s.warmDirs)
+	done := make(chan struct{})
+	s.warmupDone = done
+	hook, doneHook := warmupHook, warmupDoneHook
+	go func() {
+		defer close(done)
+		if hook != nil {
+			hook()
+		}
+		// Module generation must not run against an unvalidated merger. Both
+		// loops start the warm-up only after validation passed, so this
+		// returns at once; a failure has already been reported and ended the
+		// session, and the warm-up generates nothing.
+		if s.awaitMergerValidation() == nil {
+			s.warmupResults = s.regenDirs(dirs)
+		}
+		if doneHook != nil {
+			doneHook()
+		}
+	}()
+}
+
+// warmupPending returns a channel closed when the started warm-up finishes,
+// or nil when none is pending (its results consumed, or none started), so a
+// select on it never fires twice.
+func (s *watchSession) warmupPending() <-chan struct{} { return s.warmupDone }
+
+// awaitWarmup blocks until the warm-up finishes and returns its results the
+// first time; later calls return nil. It starts the warm-up if nobody has, so
+// no caller can reach the Module before warmDirs are part of it.
+func (s *watchSession) awaitWarmup() []cycleResult {
+	s.startWarmup()
+	if s.warmupDone == nil {
+		return nil
+	}
+	<-s.warmupDone
+	results := s.warmupResults
+	s.warmupDone, s.warmupResults, s.warmDirs = nil, nil, nil
+	return results
+}
+
+// consumeWarmup absorbs the finished warm-up's results into dirty (see
+// watchDirtySet.absorbWarmup) and reports whether they need a cycle. It is a
+// no-op once they were consumed. Callers on the loop must have waited for
+// warmupPending, or accept blocking until the warm-up finishes.
+func (s *watchSession) consumeWarmup(dirty *watchDirtySet) bool {
+	pending := s.warmupPending() != nil
+	wrote := dirty.absorbWarmup(s.awaitWarmup())
+	if pending && warmupAbsorbedHook != nil {
+		warmupAbsorbedHook(wrote)
+	}
+	return wrote
+}
+
+// Test hooks: warmupHook and warmupDoneHook run at the start and the end of
+// the background warm-up; warmupWaitHook runs on the loop when it starts
+// waiting for a pending warm-up, and warmupAbsorbedHook once it absorbed the
+// warm-up's results, with consumeWarmup's verdict.
+var (
+	warmupHook, warmupDoneHook func()
+	warmupWaitHook             func()
+	warmupAbsorbedHook         func(wrote bool)
+)
+
+// restoreStartupHits restores the persistent-cache hits among dirs, module by
+// module, returning one cycleResult per restored dir: the result generateDir
+// would have produced for it, since a hit's bytes and warnings are what the
+// Module emits for the same key. A module whose cache cannot be prepared or
+// whose Go command context moved since preparation contributes no hits, and a
+// restore failure leaves the failing dir and the module's remaining hits to the
+// Module. Whatever this already did to such a dir — orphans swept, files the
+// failed restore wrote — is returned in carried, for initialGenerate to merge
+// into the dir's Module result: the Module finds those files current and would
+// not report them. It touches no Module state.
+func (s *watchSession) restoreStartupHits(dirs []string) (hits, carried map[string]cycleResult) {
+	hits, carried = map[string]cycleResult{}, map[string]cycleResult{}
+	groups, _ := groupByModule(dirs)
+	for _, g := range groups {
+		config, ok := s.configs[g.root]
+		if !ok {
+			continue // not opened yet; regenDirs opens it
+		}
+		if _, enabled := cacheDir(); !config.useCache || !enabled {
+			// prepareCache would bypass the cache; skip its manifest build.
+			continue
+		}
+		start := time.Now()
+		prep, _, err := prepareCache(g, config)
+		if err != nil {
+			continue
+		}
+		classification := classifyCache(prep)
+		if len(classification.hits) == 0 || prep.goContext.ValidateCurrent() != nil {
+			continue
+		}
+		// generateDir sweeps a dir's orphans before writing its output; a
+		// hit dir gets the same sweep and reports it the same way.
+		removed := make(map[string][]string, len(classification.hits))
+		removeErr := make(map[string]error)
+		for _, dir := range prep.dirs {
+			if _, hit := classification.hits[dir]; hit {
+				removed[dir], removeErr[dir] = removeOrphanXgo(dir)
+			}
+		}
+		restored, restoreErr := restoreCacheHits(prep, classification)
+		var failure *restoreFailure
+		errors.As(restoreErr, &failure)
+		// Hits share the module's preparation; charge it to the first, as
+		// regenDirs charges a batch refresh.
+		durMs := time.Since(start).Milliseconds()
+		for _, dir := range prep.dirs {
+			if _, hit := classification.hits[dir]; !hit {
+				continue
+			}
+			r, ok := restored[dir]
+			if !ok {
+				c := cycleResult{Removed: removed[dir]}
+				if failure != nil && failure.dir == dir {
+					c.Written = failure.written
+				}
+				carried[dir] = c
+				continue
+			}
+			hits[dir] = cycleResult{
+				Dir:     dir,
+				Written: r.written,
+				Removed: removed[dir],
+				Diags:   r.diags,
+				OK:      removeErr[dir] == nil,
+				Err:     removeErr[dir],
+				DurMs:   durMs,
+			}
+			durMs = 0
+		}
+	}
+	return hits, carried
+}
+
+// mergeCarried folds into r what restoreStartupHits already did to its dir.
+func mergeCarried(r, carried cycleResult) cycleResult {
+	r.Written = unionPaths(carried.Written, r.Written)
+	r.Removed = unionPaths(carried.Removed, r.Removed)
+	return r
+}
+
+// unionPaths returns first followed by the paths of second not in first, nil
+// when both are empty.
+func unionPaths(first, second []string) []string {
+	if len(first) == 0 {
+		return second
+	}
+	out := slices.Clone(first)
+	for _, p := range second {
+		if !slices.Contains(first, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // reopen (re)opens a fresh Module for every module root the session spans, then

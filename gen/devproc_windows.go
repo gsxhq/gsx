@@ -53,3 +53,20 @@ func killProcGroupOwned(c *exec.Cmd, done <-chan struct{}, timeout time.Duration
 		<-done
 	}
 }
+
+// killProcGroupNow force-kills the child's whole tree (`taskkill /T /F`) and
+// waits for the external monitor's Wait to return (done). It is for processes
+// with no graceful shutdown worth waiting for, such as a build being cancelled.
+func killProcGroupNow(c *exec.Cmd, done <-chan struct{}) {
+	if c == nil || c.Process == nil {
+		return
+	}
+	select {
+	case <-done:
+		// Already reaped: the pid may have been recycled; do not signal it.
+		return
+	default:
+	}
+	_ = exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(c.Process.Pid)).Run()
+	<-done
+}

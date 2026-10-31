@@ -1,11 +1,17 @@
 package gen
 
 import (
+	"errors"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 )
@@ -277,15 +283,89 @@ func TestWatchSession_BadMergerRefused(t *testing.T) {
 	writeFileT(t, filepath.Join(root, "mrg", "mrg.go"),
 		"package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
 
-	_, _, err := startWatchSessionForTest(watchConfig{
+	s, err := prepareWatchSession(watchConfig{
 		paths:       []string{filepath.Join(root, "views")},
 		classMerger: &codegen.ClassMergerRef{PkgPath: "example.com/m/mrg", FuncName: "Merge"},
 	})
-	if err == nil {
-		t.Fatal("want error for bad-signature merger under --watch, got nil")
+	if err != nil {
+		t.Fatalf("prepareWatchSession must not validate mergers synchronously: %v", err)
 	}
-	if !strings.Contains(err.Error(), "func([]string) string") {
-		t.Fatalf("want signature error, got: %v", err)
+	s.startMergerValidation()
+	s.startMergerValidation() // idempotent
+	for range 2 {             // safe to await more than once, same error each time
+		err = s.awaitMergerValidation()
+		if err == nil {
+			t.Fatal("want error for bad-signature merger under --watch, got nil")
+		}
+		if !strings.Contains(err.Error(), "func([]string) string") {
+			t.Fatalf("want signature error, got: %v", err)
+		}
+	}
+}
+
+// TestRunWatch_BadMergerEmitsAndWritesNothing: with a bad merger,
+// generate --watch exits 1 with the signature error, emits no start event and
+// writes no .x.go.
+func TestRunWatch_BadMergerEmitsAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping go-build test in -short mode")
+	}
+	root := t.TempDir()
+	writeMod(t, root)
+	writeFileT(t, filepath.Join(root, "views", "page.gsx"),
+		"package views\n\ncomponent Page() {\n\t<h1>hello</h1>\n}\n")
+	writeFileT(t, filepath.Join(root, "mrg", "mrg.go"),
+		"package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
+	out, errb := &syncBuf{}, &syncBuf{}
+	// Validation failing returns 1 before the loop reads stop; if it wrongly
+	// passes, the run reaches the loop and exits 0 once stop closes.
+	stop := make(chan struct{})
+	timer := time.AfterFunc(30*time.Second, func() { close(stop) })
+	defer timer.Stop()
+	code := runWatchWithStop(watchConfig{
+		paths:       []string{filepath.Join(root, "views")},
+		format:      "ndjson",
+		stdout:      out,
+		stderr:      errb,
+		classMerger: &codegen.ClassMergerRef{PkgPath: "example.com/m/mrg", FuncName: "Merge"},
+	}, stop)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (0 means the bad merger passed validation); stdout=%s stderr=%s", code, out, errb)
+	}
+	if strings.Contains(out.String(), `"event":"start"`) || !strings.Contains(out.String(), "func([]string) string") {
+		t.Fatalf("want only the signature error, got stdout=%s", out)
+	}
+	if m, _ := filepath.Glob(filepath.Join(root, "views", "*.x.go")); len(m) != 0 {
+		t.Fatalf("wrote generated files: %v", m)
+	}
+}
+
+// TestWatchSession_NoMergerAwaitIsImmediate: without a configured merger,
+// awaitMergerValidation returns nil without blocking, started or not.
+func TestWatchSession_NoMergerAwaitIsImmediate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	writeFileT(t, filepath.Join(root, "views", "page.gsx"),
+		"package views\n\ncomponent Page() {\n\t<h1>hello</h1>\n}\n")
+	s, err := prepareWatchSession(watchConfig{paths: []string{filepath.Join(root, "views")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 2)
+	go func() { done <- s.awaitMergerValidation() }() // never started
+	s.startMergerValidation()
+	go func() { done <- s.awaitMergerValidation() }()
+	for range 2 {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("await = %v, want nil", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("awaitMergerValidation blocked without a merger")
+		}
 	}
 }
 
@@ -645,5 +725,325 @@ func TestWatchSessionStartup_HonorsExplicitExcludedNamedRoot(t *testing.T) {
 	want := []string{root, explicit}
 	if !slices.Equal(s.watchRoots, want) {
 		t.Fatalf("watchRoots = %v, want %v; an explicit tmp root must not be lost behind the owning-root exclusion", s.watchRoots, want)
+	}
+}
+
+// TestWatchSessionStartup_CachedMatchesUncached pins that a watch session's
+// cached startup is indistinguishable from today's uncached one: the same
+// tree, started once with the cache off and once against a cache warmed by a
+// batch generate, yields DeepEqual startup results (DurMs aside) and
+// byte-identical files on disk. Only the hit dirs land in warmDirs.
+func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
+	const plain = "package %s\n\ncomponent %s() {\n\t<p>%s</p>\n}\n"
+	src := func(pkg, name, text string) string { return fmt.Sprintf(plain, pkg, name, text) }
+	// base is one module with: hit dirs (one carrying a child-element-spacing
+	// warning), a dir whose sibling .gsx was deleted (miss + in-dir orphan), a
+	// dir whose only .gsx was deleted (walk-level orphan), an edited dir and
+	// its importer (misses), and a codegen-error dir (never stored).
+	base := func(t *testing.T, root string) {
+		writeMod(t, root)
+		writeFileT(t, filepath.Join(root, "hit", "hit.gsx"), src("hit", "Hit", "hit"))
+		writeFileT(t, filepath.Join(root, "warn", "warn.gsx"), "package warn\n\ncomponent A(name string) {\n\t<p>\n\t\tHi\n\t\t<b>{name}</b>\n\t</p>\n}\n")
+		writeFileT(t, filepath.Join(root, "sib", "keep.gsx"), src("sib", "Keep", "keep"))
+		writeFileT(t, filepath.Join(root, "sib", "gone.gsx"), src("sib", "Gone", "gone"))
+		writeFileT(t, filepath.Join(root, "old", "old.gsx"), src("old", "Old", "old"))
+		writeFileT(t, filepath.Join(root, "edited", "edited.gsx"), src("edited", "Edited", "before"))
+		writeFileT(t, filepath.Join(root, "user", "user.gsx"), "package user\n\nimport \"example.com/m/edited\"\n\ncomponent User() {\n\t<edited.Edited />\n}\n")
+		writeFileT(t, filepath.Join(root, "bad", "bad.gsx"), "package bad\n\ncomponent Bad() {\n\t<p>{undefinedName}</p>\n}\n")
+	}
+	// afterWarm makes the post-generate edits: a .gsx edit, two .gsx
+	// deletions, and a deleted output that the warning-carrying hit rewrites.
+	afterWarm := func(t *testing.T, root string) {
+		writeFileT(t, filepath.Join(root, "edited", "edited.gsx"), src("edited", "Edited", "after"))
+		for _, p := range []string{filepath.Join(root, "sib", "gone.gsx"), filepath.Join(root, "old", "old.gsx"), filepath.Join(root, "warn", "warn.x.go")} {
+			if err := os.Remove(p); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	rows := []struct {
+		name    string
+		fixture func(t *testing.T, root string)
+		edit    func(t *testing.T, root string) // after afterWarm, if set
+		goWork  bool                            // run both sessions under a go.work: uncacheable
+		// discovered resolves each module's config as generate --watch does
+		// (discoveredModuleConfig), with noCache as its --no-cache flag.
+		discovered, noCache bool
+		// readOnlyAfter makes the dir of this root-relative output read-only
+		// once restore writes it, failing that dir's next write.
+		readOnlyAfter string
+		wantWarm      []string
+	}{
+		{name: "one module", fixture: base, wantWarm: []string{"hit", "warn"}},
+		{
+			// multi's restore writes a.x.go, then fails on z.x.go: the dir
+			// and every later hit (warn) fall back to the Module, and multi's
+			// result still reports the a.x.go the restore wrote.
+			name: "restore fails after a write",
+			fixture: func(t *testing.T, root string) {
+				base(t, root)
+				writeFileT(t, filepath.Join(root, "multi", "a.gsx"), src("multi", "A", "a"))
+				writeFileT(t, filepath.Join(root, "multi", "z.gsx"), src("multi", "Z", "z"))
+			},
+			edit: func(t *testing.T, root string) {
+				for _, p := range []string{filepath.Join(root, "multi", "a.x.go"), filepath.Join(root, "multi", "z.x.go")} {
+					if err := os.Remove(p); err != nil {
+						t.Fatal(err)
+					}
+				}
+			},
+			readOnlyAfter: "multi/a.x.go",
+			wantWarm:      []string{"hit"},
+		},
+		{
+			name: "two modules",
+			fixture: func(t *testing.T, root string) {
+				base(t, root)
+				nested := filepath.Join(root, "other")
+				writeFileT(t, filepath.Join(nested, "go.mod"), "module example.com/other\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+gsxModuleDir(t)+"\n")
+				writeFileT(t, filepath.Join(nested, "ohit", "ohit.gsx"), src("ohit", "OHit", "other hit"))
+				writeFileT(t, filepath.Join(nested, "obad", "obad.gsx"), "package obad\n\ncomponent OBad() {\n\t<p>{alsoUndefined}</p>\n}\n")
+			},
+			wantWarm: []string{"hit", "other/ohit", "warn"},
+		},
+		{name: "uncacheable go.work", fixture: base, goWork: true},
+		{name: "discovered config", fixture: base, discovered: true, wantWarm: []string{"hit", "warn"}},
+		// --no-cache: the cache is warm, yet no dir is restored from it.
+		{name: "discovered config with --no-cache", fixture: base, discovered: true, noCache: true},
+	}
+	cfg := moduleGenerateConfig{useCache: true}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			if row.readOnlyAfter != "" && os.Geteuid() == 0 {
+				t.Skip("root ignores directory permissions")
+			}
+			root := t.TempDir()
+			cacheRoot := t.TempDir()
+			row.fixture(t, root)
+			t.Setenv("GSXCACHE", cacheRoot)
+			// The codegen-error dirs make the warming generate fail with
+			// diagnostics; only an operational error spoils the fixture.
+			warmCfg := fixedModuleConfig(cfg)
+			startCfg := warmCfg
+			if row.discovered {
+				warmCfg = discoveredModuleConfig(config{}, false)
+				startCfg = discoveredModuleConfig(config{}, row.noCache)
+			}
+			if res, _, _ := generateCachedWithReport([]string{root}, warmCfg); len(res.Errs) > 0 {
+				t.Fatalf("warming generate: %v", res.Errs)
+			}
+			afterWarm(t, root)
+			if row.edit != nil {
+				row.edit(t, root)
+			}
+			if row.goWork {
+				work := filepath.Join(t.TempDir(), "go.work")
+				writeFileT(t, work, "go 1.26.1\n\nuse "+root+"\n")
+				t.Setenv("GOWORK", work)
+			}
+			snapshot := readTreeT(t, root)
+
+			start := func(cache string) (*watchSession, []cycleResult, map[string]string) {
+				t.Setenv("GSXCACHE", cache)
+				if row.readOnlyAfter != "" {
+					target := filepath.Join(root, filepath.FromSlash(row.readOnlyAfter))
+					afterRestoreWrite = func(written string) {
+						if written == target {
+							if err := os.Chmod(filepath.Dir(target), 0o555); err != nil {
+								t.Error(err)
+							}
+						}
+					}
+					t.Cleanup(func() { _ = os.Chmod(filepath.Dir(target), 0o755) })
+				}
+				s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}, moduleConfig: startCfg})
+				if row.readOnlyAfter != "" {
+					afterRestoreWrite = nil
+					if err := os.Chmod(filepath.Dir(filepath.Join(root, filepath.FromSlash(row.readOnlyAfter))), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err != nil {
+					t.Fatalf("startWatchSessionForTest(GSXCACHE=%s): %v", cache, err)
+				}
+				for i := range startup {
+					startup[i].DurMs = 0
+					// A failed write names its random temp file, on either path.
+					if err := startup[i].Err; err != nil {
+						startup[i].Err = errors.New(tempNameRE.ReplaceAllString(err.Error(), ".gsx-w-*"))
+					}
+				}
+				return s, startup, readTreeT(t, root)
+			}
+			uncachedSession, uncached, uncachedDisk := start("off")
+			writeTreeT(t, root, snapshot)
+			cachedSession, cached, cachedDisk := start(cacheRoot)
+
+			if !reflect.DeepEqual(cached, uncached) {
+				t.Fatalf("cached startup differs from uncached:\ncached   = %#v\nuncached = %#v", cached, uncached)
+			}
+			if !maps.Equal(cachedDisk, uncachedDisk) {
+				for p, b := range uncachedDisk {
+					if cachedDisk[p] != b {
+						t.Errorf("%s differs:\ncached   = %q\nuncached = %q", p, cachedDisk[p], b)
+					}
+				}
+				for p := range cachedDisk {
+					if _, ok := uncachedDisk[p]; !ok {
+						t.Errorf("%s exists only after the cached startup", p)
+					}
+				}
+				t.FailNow()
+			}
+			for _, r := range uncached {
+				if bad := filepath.Base(r.Dir); (bad == "bad" || bad == "obad") && r.OK {
+					t.Fatalf("codegen-error dir %s reported OK", r.Dir)
+				}
+			}
+			if row.readOnlyAfter != "" {
+				target := filepath.Join(root, filepath.FromSlash(row.readOnlyAfter))
+				var r *cycleResult
+				for i := range cached {
+					if cached[i].Dir == filepath.Dir(target) {
+						r = &cached[i]
+					}
+				}
+				if r == nil || !slices.Contains(r.Written, target) || r.OK || r.Err == nil {
+					t.Fatalf("result for %s = %+v, want a failed result whose Written includes %s", filepath.Dir(target), r, target)
+				}
+			}
+			if len(uncachedSession.warmDirs) != 0 {
+				t.Fatalf("uncached warmDirs = %v, want none", uncachedSession.warmDirs)
+			}
+			var wantWarm []string
+			for _, rel := range row.wantWarm {
+				wantWarm = append(wantWarm, filepath.Join(root, filepath.FromSlash(rel)))
+			}
+			gotWarm := slices.Sorted(slices.Values(cachedSession.warmDirs))
+			if !slices.Equal(gotWarm, wantWarm) {
+				t.Fatalf("warmDirs = %v, want %v", gotWarm, wantWarm)
+			}
+		})
+	}
+}
+
+// tempNameRE matches writeFileAtomic's temp file names.
+var tempNameRE = regexp.MustCompile(`\.gsx-w-[0-9]+`)
+
+// readTreeT returns every regular file under root, keyed by its path.
+func readTreeT(t *testing.T, root string) map[string]string {
+	t.Helper()
+	tree := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		tree[path] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
+}
+
+// writeTreeT replaces root's contents with tree.
+func writeTreeT(t *testing.T, root string, tree map[string]string) {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for p, b := range tree {
+		writeFileT(t, p, b)
+	}
+}
+
+// TestWatchSession_WarmupThenSharedEdit pins the background warm-up: a startup
+// restored entirely from the cache leaves the Module without an import graph,
+// so an edit cycle waits for the warm-up and then regenerates every importer
+// of an edited shared component. Serial: it sets the warm-up hooks.
+func TestWatchSession_WarmupThenSharedEdit(t *testing.T) {
+	root := t.TempDir()
+	writeMod(t, root)
+	card := filepath.Join(root, "comp", "card.gsx")
+	writeFileT(t, card, "package comp\n\ncomponent Card(title string) {\n\t<div class=\"card\">{title}</div>\n}\n")
+	for _, pkg := range []string{"views", "admin"} {
+		writeFileT(t, filepath.Join(root, pkg, pkg+".gsx"), "package "+pkg+"\n\nimport \"example.com/m/comp\"\n\ncomponent Page() {\n\t<comp.Card title=\""+pkg+"\"/>\n}\n")
+	}
+	t.Setenv("GSXCACHE", t.TempDir())
+	cfg := fixedModuleConfig(moduleGenerateConfig{useCache: true})
+	if res, _, err := generateCachedWithReport([]string{root}, cfg); err != nil || len(res.Errs) > 0 {
+		t.Fatalf("warming generate: %v %v", err, res.Errs)
+	}
+
+	s, _, err := startWatchSessionForTest(watchConfig{paths: []string{root}, moduleConfig: cfg})
+	if err != nil {
+		t.Fatalf("startWatchSessionForTest: %v", err)
+	}
+	if len(s.warmDirs) != 3 {
+		t.Fatalf("warmDirs = %v, want every dir restored", s.warmDirs)
+	}
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	warmupHook = func() { close(entered); <-release }
+	warmupDoneHook = func() { close(finished) }
+	t.Cleanup(func() { warmupHook, warmupDoneHook = nil, nil })
+	s.startWarmup()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("warm-up did not start")
+	}
+
+	writeFileT(t, card, "package comp\n\ncomponent Card(title string) {\n\t<div class=\"card edited\">{title}</div>\n}\n")
+	dirty := newWatchDirtySet()
+	dirty.dirs[filepath.Join(root, "comp")] = true
+	type outcome struct {
+		results []cycleResult
+		err     error
+	}
+	cycled := make(chan outcome, 1)
+	go func() {
+		// As the loops do: wait for the warm-up, then regenerate.
+		dirty.absorbWarmup(s.awaitWarmup())
+		results, _, err := dirty.regenerate(s.regenPending)
+		cycled <- outcome{results, err}
+	}()
+	select {
+	case <-cycled:
+		t.Fatal("the edit cycle ran before the warm-up finished")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	var got outcome
+	select {
+	case got = <-cycled:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the edit cycle did not run after the warm-up")
+	}
+	<-finished
+	if got.err != nil {
+		t.Fatalf("edit cycle: %v", got.err)
+	}
+	var dirs []string
+	for _, r := range got.results {
+		if !r.OK {
+			t.Errorf("%s: err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+		dirs = append(dirs, r.Dir)
+	}
+	slices.Sort(dirs)
+	want := []string{filepath.Join(root, "admin"), filepath.Join(root, "comp"), filepath.Join(root, "views")}
+	if !slices.Equal(dirs, want) {
+		t.Fatalf("edit cycle regenerated %v, want %v", dirs, want)
+	}
+	if s.awaitWarmup() != nil || s.warmDirs != nil {
+		t.Fatal("warm-up results not consumed once")
 	}
 }

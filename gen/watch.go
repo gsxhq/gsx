@@ -100,6 +100,7 @@ func armWatchSession(cfg watchConfig) (*armedWatchSession, error) {
 		_ = watcher.Close()
 		return nil, err
 	}
+	session.startMergerValidation()
 	return &armedWatchSession{
 		session: session,
 		watcher: watcher,
@@ -130,6 +131,12 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	sess := armed.session
 	w := armed.watcher
 	sources := armed.sources
+	// A bad class merger fails the run before anything is emitted or written,
+	// exactly as the former prepare-time validation did.
+	if err := sess.awaitMergerValidation(); err != nil {
+		em.emitError(err)
+		return 1
+	}
 	// Start means observation is armed. Initial generation follows while source
 	// events queue on w, so an edit in that window cannot disappear.
 	em.start(sess.root, sess.watchRoots)
@@ -141,6 +148,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	}
 	dirty.retainOperational(startup)
 	em.cycleBatch(publishableStartupResults(startup))
+	sess.startWarmup()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -181,7 +189,28 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 			if changed {
 				schedule()
 			}
+		case <-sess.warmupPending():
+			// The warm-up finished with no cycle waiting for it. If it wrote,
+			// a cycle emits that like an edit.
+			if sess.consumeWarmup(dirty) {
+				schedule()
+			}
 		case <-fire:
+			// Regeneration uses the Module, so it waits for the warm-up;
+			// stopping does not.
+			if pending := sess.warmupPending(); pending != nil {
+				if warmupWaitHook != nil {
+					warmupWaitHook()
+				}
+				select {
+				case <-pending:
+				case <-stop:
+					return 0
+				case <-sig:
+					return 0
+				}
+			}
+			sess.consumeWarmup(dirty)
 			results, _, rerr := dirty.regenerate(sess.regenPending)
 			if rerr != nil {
 				// Regenerating against a stale module would emit output built on

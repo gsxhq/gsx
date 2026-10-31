@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -136,6 +137,19 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	sess := armed.session
 	w := armed.watcher
 	sources := armed.sources
+
+	// --- speculative build: alongside the initial generate ---
+	// Usually startup writes nothing, so the build can run while gsx works. It
+	// starts only now: observation is armed, so an edit to anything it reads
+	// from here on reaches the loop as an event. Its result is used only if
+	// the initial generate writes and removes nothing, and no paired .x.go
+	// (which the watcher does not observe) changed while it ran.
+	srv := &devServer{dir: workDir, buildArgv: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
+	outputs := sess.snapshotOutputs()
+	buildStart := time.Now()
+	spec := srv.startBuild(ctx)
+	defer spec.discard()
+
 	dirty := newWatchDirtySet()
 	startup, err := sess.initialGenerate()
 	if err != nil {
@@ -143,14 +157,34 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		return 1
 	}
 	dirty.retainOperational(startup)
+	startOK, startWrote := true, false
+	for _, r := range startup {
+		startOK = startOK && r.OK
+		startWrote = startWrote || len(r.Written) > 0 || len(r.Removed) > 0
+	}
+	// A failed generate skips the initial build (below); one that wrote or
+	// removed files, or found outputs rewritten, rebuilds. Either way the
+	// speculative build is stale.
+	useSpec := startOK && !startWrote && !outputs.changed()
+	if !useSpec {
+		spec.discard()
+	}
 	// Drive the overlay from the cold generate (e.g. a pre-existing codegen
 	// error). A mixed operational failure has not committed its filesystem
 	// transaction, so only its errors/diagnostics are publishable at this point.
 	// post/reload gate every browser push on the managed front door being up
 	// (see frontDoor). With --no-web the front door is externally managed and
 	// pushes always go out.
-	var fd *frontDoor
-	webUp := func() bool { return fd == nil || fd.up() }
+	// fd is assigned when the front door spawns, while the startup posts'
+	// goroutines may already be checking webUp; they read it through gate.
+	var (
+		fd   *frontDoor
+		gate atomic.Pointer[frontDoor]
+	)
+	webUp := func() bool {
+		g := gate.Load()
+		return g == nil || g.up()
+	}
 	posts := newPoster(ctx)
 	defer posts.drain()
 	// lastOverlay is the latest codegen/build overlay event. A .env resolution
@@ -250,6 +284,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			default: // never block the monitor on a full channel
 			}
 		}, stdout)
+		gate.Store(fd)
 		if err := fd.start(); err != nil {
 			fmt.Fprintf(stderr, "gsx dev: starting front door: %v\n", err)
 			return 1
@@ -275,28 +310,70 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	go pollCommands(ctx, viteURL, devToken, webUp, cmds, onContact)
 
 	// --- Go server: initial build + run ---
-	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
-	startOK := true
-	for _, r := range startup {
-		startOK = startOK && r.OK
-	}
 	// A failed cold generate wrote poison .x.go — the build cannot succeed, and
 	// its buildErrorEvent would replace the rich gsx overlay already posted
 	// above. Skip the initial build; the first successful cycle rebuilds and
 	// starts the server (poison→good always changes bytes, so `wrote` fires).
 	initCycleStart := time.Now()
+	var (
+		buildOutput string
+		buildErr    error
+	)
 	if startOK {
-		setPhase("building")
-		if out, err := srv.rebuild(ctx); err != nil {
-			post(buildErrorEvent(buildFailureMessage(out, err)))
-			startOK = false
+		if useSpec {
+			// The phase has been "building" since the speculative build started.
+			status.Phase, status.PhaseSince = "building", buildStart
+			postStatus()
+			buildOutput, buildErr = spec.result()
+			// An output rewritten while the build ran makes its result stale too.
+			useSpec = !outputs.changed()
+			if useSpec && buildErr != nil && ctx.Err() == nil {
+				srv.reportBuildFailure(buildOutput, buildErr)
+			}
 		} else {
+			setPhase("building")
+		}
+		if !useSpec && ctx.Err() == nil {
+			buildOutput, buildErr = srv.build(ctx)
+		}
+	}
+	// A bad class merger is fatal before the server runs or the loop uses the
+	// Module. Shutdown does not wait for it.
+	if ctx.Err() == nil {
+		if err := sess.awaitMergerValidation(); err != nil {
+			if fd != nil {
+				fd.shutdown(5 * time.Second)
+			}
+			fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+			return 1
+		}
+	}
+	if startOK {
+		switch {
+		case ctx.Err() != nil:
+			// Shutting down: a build it cut short is not a build error, and
+			// nothing starts.
+			startOK = false
+		case buildErr != nil:
+			post(buildErrorEvent(buildFailureMessage(buildOutput, buildErr)))
+			startOK = false
+		default:
+			if err := srv.restartNoBuild(); err != nil {
+				post(buildErrorEvent(buildFailureMessage("", err)))
+				startOK = false
+				break
+			}
 			setPhase("starting")
 			if waitHealthy(ctx, healthURL, 10*time.Second) {
 				status.Server.Healthy = true
 				reload()
 			}
 		}
+	}
+	// Startup is over: warm the Module up for the loop's cycles (see
+	// startWarmup). Shutdown needs no Module.
+	if ctx.Err() == nil {
+		sess.startWarmup()
 	}
 	// LastCycle (and Server.Healthy, set above in the branches that reach
 	// here) must be settled before the terminal setPhase("idle") — it is the
@@ -432,6 +509,24 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		setPhase("idle")
 	}
 
+	// warmed waits for the warm-up before a path that uses the session's
+	// Module, absorbing its results into dirty, and reports false when shutdown
+	// came first: the loop then shuts down without it.
+	warmed := func() bool {
+		if pending := sess.warmupPending(); pending != nil {
+			if warmupWaitHook != nil {
+				warmupWaitHook()
+			}
+			select {
+			case <-pending:
+			case <-ctx.Done():
+				return false
+			}
+		}
+		sess.consumeWarmup(dirty)
+		return true
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -446,6 +541,9 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			switch c {
 			case "rebuild":
 				fmt.Fprintln(stdout, "gsx dev: panel: rebuild")
+				if !warmed() {
+					continue
+				}
 				dirty.depDirty = true
 				cycle(true)
 			case "restart-server":
@@ -469,6 +567,13 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		case fs := <-fdCh:
 			status.FrontDoor = fs
 			postStatus()
+
+		case <-sess.warmupPending():
+			// The warm-up finished with no cycle waiting for it. If it wrote,
+			// a cycle reports and rebuilds that like an edit.
+			if sess.consumeWarmup(dirty) {
+				schedule()
+			}
 
 		case <-contactCh:
 			// First proof the front door is actually serving our plugin
@@ -504,6 +609,11 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			}
 
 		case <-fire:
+			// The .env restart and the cycle both wait for the warm-up: the
+			// server must not restart onto a binary the warm-up is outdating.
+			if !warmed() {
+				continue
+			}
 			// .env change → restart server with fresh env (no rebuild) + reload.
 			if envDirty {
 				envDirty = false

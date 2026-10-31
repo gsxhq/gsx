@@ -108,3 +108,6 @@ reload/overlay pushes instead) — refresh any tabs that were already open.
 Use the [`gsx dev` flags](./cli.md#gsx-dev) for one-off changes to the front
 door, build, run, or logging commands. Put persistent settings in the
 [`[dev]` section of `gsx.toml`](./config.md#dev-development-loop).
+
+The build command may start right after startup begins and be killed if
+startup regenerates files, so it must be safe to interrupt and re-run.

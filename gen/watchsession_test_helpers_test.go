@@ -8,6 +8,12 @@ func startWatchSessionForTest(cfg watchConfig) (*watchSession, []cycleResult, er
 	if err != nil {
 		return nil, nil, err
 	}
+	// Mirror armWatchSession + the loops: validation shares the Module's world
+	// and must run for budget tests to measure it.
+	session.startMergerValidation()
+	if err := session.awaitMergerValidation(); err != nil {
+		return nil, nil, err
+	}
 	startup, err := session.initialGenerate()
 	if err != nil {
 		return nil, nil, err
