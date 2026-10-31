@@ -620,9 +620,15 @@ func (d *devServer) rebuild(ctx context.Context) (string, error) {
 func (d *devServer) build(ctx context.Context) (string, error) {
 	out, err := d.runBuild(ctx)
 	if err != nil {
-		writeBuildFailure(d.effectiveBuildOut(), out, err)
+		d.reportBuildFailure(out, err)
 	}
 	return out, err
+}
+
+// reportBuildFailure writes a failed build's error and output to the build
+// output.
+func (d *devServer) reportBuildFailure(out string, err error) {
+	writeBuildFailure(d.effectiveBuildOut(), out, err)
 }
 
 // runBuild runs the build command in its own process group, capturing its
@@ -652,8 +658,6 @@ func (d *devServer) runBuild(ctx context.Context) (string, error) {
 // pendingBuild is a build started before it is known whether its result will
 // be used: gsx dev starts it alongside the initial generate.
 type pendingBuild struct {
-	d      *devServer
-	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
 	out    string
@@ -661,24 +665,21 @@ type pendingBuild struct {
 }
 
 // startBuild starts the build command in the background under a child of ctx.
+// Nothing is reported: a caller that uses the result reports a failure with
+// reportBuildFailure.
 func (d *devServer) startBuild(ctx context.Context) *pendingBuild {
-	b := &pendingBuild{d: d, done: make(chan struct{})}
-	b.ctx, b.cancel = context.WithCancel(ctx)
+	b := &pendingBuild{done: make(chan struct{})}
+	ctx, b.cancel = context.WithCancel(ctx)
 	go func() {
 		defer close(b.done)
-		b.out, b.err = d.runBuild(b.ctx)
+		b.out, b.err = d.runBuild(ctx)
 	}()
 	return b
 }
 
-// result waits for the build and reports a failure exactly as build does. A
-// build cut short by cancellation reports nothing: its failure says nothing
-// about the code.
+// result waits for the build and returns its output and error.
 func (b *pendingBuild) result() (string, error) {
 	<-b.done
-	if b.err != nil && b.ctx.Err() == nil {
-		writeBuildFailure(b.d.effectiveBuildOut(), b.out, b.err)
-	}
 	return b.out, b.err
 }
 

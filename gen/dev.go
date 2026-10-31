@@ -142,8 +142,10 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// Usually startup writes nothing, so the build can run while gsx works. It
 	// starts only now: observation is armed, so an edit to anything it reads
 	// from here on reaches the loop as an event. Its result is used only if
-	// the initial generate writes and removes nothing.
+	// the initial generate writes and removes nothing, and no paired .x.go
+	// (which the watcher does not observe) changed while it ran.
 	srv := &devServer{dir: workDir, buildArgv: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
+	outputs := sess.snapshotOutputs()
 	buildStart := time.Now()
 	spec := srv.startBuild(ctx)
 	defer spec.discard()
@@ -161,8 +163,10 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		startWrote = startWrote || len(r.Written) > 0 || len(r.Removed) > 0
 	}
 	// A failed generate skips the initial build (below); one that wrote or
-	// removed files rebuilds. Either way the speculative build is stale.
-	if !startOK || startWrote {
+	// removed files, or found outputs rewritten, rebuilds. Either way the
+	// speculative build is stale.
+	useSpec := startOK && !startWrote && !outputs.changed()
+	if !useSpec {
 		spec.discard()
 	}
 	// Drive the overlay from the cold generate (e.g. a pre-existing codegen
@@ -316,13 +320,21 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		buildErr    error
 	)
 	if startOK {
-		// The phase has been "building" since the speculative build started.
-		status.Phase, status.PhaseSince = "building", buildStart
-		postStatus()
-		if startWrote {
-			buildOutput, buildErr = srv.build(ctx)
-		} else {
+		if useSpec {
+			// The phase has been "building" since the speculative build started.
+			status.Phase, status.PhaseSince = "building", buildStart
+			postStatus()
 			buildOutput, buildErr = spec.result()
+			// An output rewritten while the build ran makes its result stale too.
+			useSpec = !outputs.changed()
+			if useSpec && buildErr != nil && ctx.Err() == nil {
+				srv.reportBuildFailure(buildOutput, buildErr)
+			}
+		} else {
+			setPhase("building")
+		}
+		if !useSpec && ctx.Err() == nil {
+			buildOutput, buildErr = srv.build(ctx)
 		}
 	}
 	// A bad class merger is fatal before the server runs or the loop uses the

@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gsxhq/gsx/internal/codegen"
 )
 
 func TestDevExitsWhenExplicitVitePortIsInUse(t *testing.T) {
@@ -2818,6 +2820,10 @@ func TestDevSpeculativeBuild(t *testing.T) {
 	}
 	t.Setenv("GOFLAGS", "-mod=mod")
 	t.Setenv("VITE_DEV_URL", "")
+	t.Setenv("GSXCACHE", t.TempDir())
+	// worldUses counts shared-world lookups: a startup restored entirely from
+	// the cache uses none.
+	worldUses := func() int64 { return codegen.SharedWorldLoads() + codegen.SharedWorldHits() }
 
 	const stampGsx = "package main\n\ncomponent Stamp() {\n\t<b>%s</b>\n}\n"
 	// fixture scaffolds a project; tomlTop is prepended to its gsx.toml.
@@ -2889,8 +2895,12 @@ func TestDevSpeculativeBuild(t *testing.T) {
 	t.Run("up_to_date", func(t *testing.T) {
 		proj := fixture(t, "")
 		warm(t, proj)
+		uses := worldUses()
 		r := start(t, proj)
 		r.waitFor(t, "the server to start", func() bool { return len(devSpecLines(r.started, "")) > 0 })
+		if n := worldUses() - uses; n != 0 {
+			t.Fatalf("startup used the Module's world %d times, want 0 (all cache hits)", n)
+		}
 		if code := r.stop(t); code != 0 {
 			t.Fatalf("exit = %d, want 0", code)
 		}
@@ -2902,15 +2912,20 @@ func TestDevSpeculativeBuild(t *testing.T) {
 		}
 	})
 
-	// (b) A .gsx edited after the cache was warmed: the initial generate
-	// writes, so the speculative build (blocked on the stale .x.go) is
-	// cancelled and exactly one later build completes and is served.
+	// (b) A .gsx edited after the cache was warmed: the initial generate (a
+	// miss) writes, so the speculative build (waiting for the front door,
+	// which starts only after the generate) is cancelled and exactly one
+	// later build completes and is served.
 	t.Run("startup_writes", func(t *testing.T) {
 		proj := fixture(t, "")
 		warm(t, proj)
 		writeFile(t, proj, "app.gsx", fmt.Sprintf(stampGsx, "gsx2"))
-		r := start(t, proj, "DEV_SPEC_HOLD_UNLESS=gsx2")
+		uses := worldUses()
+		r := start(t, proj)
 		r.waitFor(t, "the server to start", func() bool { return len(devSpecLines(r.started, "")) > 0 })
+		if worldUses() == uses {
+			t.Fatal("the edited dir did not go through the Module (cache hit?)")
+		}
 		if p := r.buildProcesses(); p != "" {
 			t.Fatalf("cancelled build still running after startup:\n%s", p)
 		}
@@ -2921,8 +2936,8 @@ func TestDevSpeculativeBuild(t *testing.T) {
 		if starts := devSpecLines(r.builds, "start"); len(starts) != 2 {
 			t.Fatalf("builds = %q, want 2 starts (speculative + rebuild)", builds)
 		}
-		if len(devSpecLines(r.builds, "stale")) != 1 || len(devSpecLines(r.builds, "done")) != 1 || len(devSpecLines(r.builds, "overlap")) != 0 {
-			t.Fatalf("builds = %q, want the stale speculative build cancelled and one non-overlapping rebuild done", builds)
+		if len(devSpecLines(r.builds, "done")) != 1 || len(devSpecLines(r.builds, "overlap")) != 0 {
+			t.Fatalf("builds = %q, want the speculative build cancelled and one non-overlapping rebuild done", builds)
 		}
 		if got := devSpecLines(r.started, ""); len(got) != 1 || got[0] != "go1 <b>gsx2</b>" {
 			t.Fatalf("started = %q, want one server built from the regenerated .x.go", got)
@@ -2955,6 +2970,74 @@ func TestDevSpeculativeBuild(t *testing.T) {
 		}
 		if stdout, _ := r.output(); strings.Contains(stdout, "error build") {
 			t.Fatalf("build failure printed:\n%s", stdout)
+		}
+	})
+
+	// (c2) A codegen error whose poison output is already on disk: startup
+	// fails and writes nothing, the speculative build is still discarded, no
+	// build error is posted, and the server never starts.
+	t.Run("codegen_error_no_writes", func(t *testing.T) {
+		proj := fixture(t, "")
+		writeFile(t, proj, "app.gsx", "package main\n\ncomponent Stamp() {\n\t<b>{undefinedStamp}</b>\n}\n")
+		var out, errb bytes.Buffer
+		if code := run([]string{"-C", proj, "-q", "generate"}, &out, &errb); code == 0 {
+			t.Fatalf("generate of a codegen error exited 0: %s", out.String())
+		}
+		xgo := filepath.Join(proj, "app.x.go")
+		before, err := statSnapshot([]string{xgo})
+		if err != nil || !before[0].exists {
+			t.Fatalf("no poison output to start from: %v", err)
+		}
+		r := start(t, proj, "DEV_SPEC_HOLD_UNLESS=never-generated")
+		r.waitFor(t, "the startup idle status", r.idleStatusPosted)
+		if after, _ := statSnapshot([]string{xgo}); after[0] != before[0] {
+			t.Fatal("startup rewrote the poison output; this row needs a startup that writes nothing")
+		}
+		if p := r.buildProcesses(); p != "" {
+			t.Fatalf("speculative build still running after startup:\n%s", p)
+		}
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if got := r.buildErrorEvents(); len(got) != 0 {
+			t.Fatalf("build error posted over a codegen error: %q", got)
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 0 {
+			t.Fatalf("server started: %q", got)
+		}
+	})
+
+	// (h) A paired .x.go rewritten from outside (bytes the generate would
+	// produce, so it writes nothing) while the speculative build runs: the
+	// watcher does not see it, so the stat identities recorded at the build's
+	// start do; the build is discarded and a second one is served.
+	t.Run("external_output_rewrite", func(t *testing.T) {
+		proj := fixture(t, "")
+		warm(t, proj)
+		hooks := t.TempDir()
+		release := filepath.Join(hooks, "release")
+		writeFile(t, hooks, "hold", "")
+		r := start(t, proj, "DEV_SPEC_HOLD_ONCE="+filepath.Join(hooks, "hold"), "DEV_SPEC_RELEASE="+release)
+		r.waitFor(t, "the speculative build to compile", func() bool { return len(devSpecLines(r.builds, "built")) == 1 })
+		xgo := filepath.Join(proj, "app.x.go")
+		b, err := os.ReadFile(xgo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(xgo, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, hooks, "release", "")
+		r.waitFor(t, "the server to start", func() bool { return len(devSpecLines(r.started, "")) > 0 })
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		builds := devSpecLines(r.builds, "")
+		if len(devSpecLines(r.builds, "start")) != 2 || len(devSpecLines(r.builds, "done")) != 2 || len(devSpecLines(r.builds, "overlap")) != 0 {
+			t.Fatalf("builds = %q, want the speculative build discarded and a second, non-overlapping build", builds)
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 1 {
+			t.Fatalf("started = %q, want one server, from the second build", got)
 		}
 	})
 
