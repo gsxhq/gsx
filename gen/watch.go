@@ -100,6 +100,7 @@ func armWatchSession(cfg watchConfig) (*armedWatchSession, error) {
 		_ = watcher.Close()
 		return nil, err
 	}
+	session.startMergerValidation()
 	return &armedWatchSession{
 		session: session,
 		watcher: watcher,
@@ -136,6 +137,11 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	dirty := newWatchDirtySet()
 	startup, err := sess.initialGenerate()
 	if err != nil {
+		em.emitError(err)
+		return 1
+	}
+	// A bad class merger must fail the run before any startup result is emitted.
+	if err := sess.awaitMergerValidation(); err != nil {
 		em.emitError(err)
 		return 1
 	}

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 )
@@ -277,15 +278,51 @@ func TestWatchSession_BadMergerRefused(t *testing.T) {
 	writeFileT(t, filepath.Join(root, "mrg", "mrg.go"),
 		"package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
 
-	_, _, err := startWatchSessionForTest(watchConfig{
+	s, err := prepareWatchSession(watchConfig{
 		paths:       []string{filepath.Join(root, "views")},
 		classMerger: &codegen.ClassMergerRef{PkgPath: "example.com/m/mrg", FuncName: "Merge"},
 	})
-	if err == nil {
-		t.Fatal("want error for bad-signature merger under --watch, got nil")
+	if err != nil {
+		t.Fatalf("prepareWatchSession must not validate mergers synchronously: %v", err)
 	}
-	if !strings.Contains(err.Error(), "func([]string) string") {
-		t.Fatalf("want signature error, got: %v", err)
+	s.startMergerValidation()
+	s.startMergerValidation() // idempotent
+	for range 2 {             // safe to await more than once, same error each time
+		err = s.awaitMergerValidation()
+		if err == nil {
+			t.Fatal("want error for bad-signature merger under --watch, got nil")
+		}
+		if !strings.Contains(err.Error(), "func([]string) string") {
+			t.Fatalf("want signature error, got: %v", err)
+		}
+	}
+}
+
+// TestWatchSession_NoMergerAwaitIsImmediate: without a configured merger,
+// awaitMergerValidation returns nil without blocking, started or not.
+func TestWatchSession_NoMergerAwaitIsImmediate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	writeFileT(t, filepath.Join(root, "views", "page.gsx"),
+		"package views\n\ncomponent Page() {\n\t<h1>hello</h1>\n}\n")
+	s, err := prepareWatchSession(watchConfig{paths: []string{filepath.Join(root, "views")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 2)
+	go func() { done <- s.awaitMergerValidation() }() // never started
+	s.startMergerValidation()
+	go func() { done <- s.awaitMergerValidation() }()
+	for range 2 {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("await = %v, want nil", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("awaitMergerValidation blocked without a merger")
+		}
 	}
 }
 

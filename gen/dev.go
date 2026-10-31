@@ -134,6 +134,12 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	}
 	defer armed.Close()
 	sess := armed.session
+	// Until dev startup overlaps validation with the build, keep it fatal
+	// before anything runs.
+	if err := sess.awaitMergerValidation(); err != nil {
+		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+		return 1
+	}
 	w := armed.watcher
 	sources := armed.sources
 	dirty := newWatchDirtySet()

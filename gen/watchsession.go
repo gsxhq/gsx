@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gsxhq/gsx/internal/codegen"
@@ -73,6 +74,10 @@ type watchSession struct {
 	watchRoots     []string                        // requested trees plus their owning module trees
 	modules        map[string]*codegen.Module      // module root -> warm Module
 	configs        map[string]moduleGenerateConfig // module root -> the config its Module was opened with
+
+	mergerOnce sync.Once     // starts the background class-merger validation once
+	mergerDone chan struct{} // closed when that validation finishes
+	mergerErr  error         // its result; written before mergerDone closes
 }
 
 // openModule constructs a fresh *codegen.Module for the given module root,
@@ -103,6 +108,21 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 // annotateModuleError attributes a configured-package failure in dir to the
 // gsx.toml its module inherited, if any (see annotateConfigError).
 func (s *watchSession) annotateModuleError(err error, dir string) error {
+	return annotateModuleErrorWith(err, dir, s.configs[dirRoot(dir)])
+}
+
+// dirRoot is dir's module root, or dir itself when unreadable (the annotate
+// step then bails on the same error).
+func dirRoot(dir string) string {
+	if root, _, err := moduleRoot(dir); err == nil {
+		return root
+	}
+	return dir
+}
+
+// annotateModuleErrorWith is annotateModuleError against an already-captured
+// config, so it can run off the session's goroutine without reading its maps.
+func annotateModuleErrorWith(err error, dir string, cfg moduleGenerateConfig) error {
 	var cpe *codegen.ConfiguredPackageError
 	if err == nil || !errors.As(err, &cpe) {
 		return err
@@ -111,7 +131,7 @@ func (s *watchSession) annotateModuleError(err error, dir string) error {
 	if rootErr != nil {
 		return err
 	}
-	return annotateConfigError(err, root, modPath, s.configs[root])
+	return annotateConfigError(err, root, modPath, cfg)
 }
 
 // moduleForDir returns the warm Module for dir's enclosing module root. If the
@@ -225,6 +245,7 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 		watchRoots:     append([]string(nil), targets.watchRoots...),
 		modules:        map[string]*codegen.Module{},
 		configs:        map[string]moduleGenerateConfig{},
+		mergerDone:     make(chan struct{}),
 	}
 	for _, root := range s.roots {
 		m, err := s.openModule(root)
@@ -234,25 +255,52 @@ func prepareWatchSession(cfg watchConfig) (*watchSession, error) {
 		s.modules[root] = m
 	}
 
-	// Validate the class merger once at session startup so a bad-signature merger
-	// surfaces a clear error instead of silently emitting uncompilable .x.go
-	// files on every regen cycle. This runs against s.root's ALREADY-OPEN,
-	// fully-configured Module (codegen.Module.ValidateConfiguredMergers) rather
-	// than a throwaway probe built from just the ClassMergerRef: a probe scoped
-	// to the merger alone composes a NARROWER shared-world path set than this
-	// Module's own FilterPkgs/Aliases/Renderers, which used to mint a second,
-	// differently-keyed world at every configured-module session startup instead
-	// of sharing the one Generate is about to load anyway (see
-	// TestWatchSession_ConfiguredModuleWorldBudget). The LSP and fmt call
-	// codegen.Open directly and must not pay a packages.Load per call, so this
-	// validation lives here and NOT in codegen.Open or codegen.GenerateDirs (the
-	// latter already validates too, memoized, as a defense-in-depth backstop).
-	if s.configs[s.root].classMerger != nil {
-		if err := s.modules[s.root].ValidateConfiguredMergers(); err != nil {
-			return nil, s.annotateModuleError(err, s.root)
-		}
-	}
 	return s, nil
+}
+
+// startMergerValidation validates the configured class merger once, in the
+// background, so a bad-signature merger surfaces a clear error instead of
+// silently emitting uncompilable .x.go files on every regen cycle. It runs
+// against s.root's ALREADY-OPEN, fully-configured Module
+// (codegen.Module.ValidateConfiguredMergers) rather than a throwaway probe
+// built from just the ClassMergerRef: a probe scoped to the merger alone
+// composes a NARROWER shared-world path set than this Module's own
+// FilterPkgs/Aliases/Renderers, which used to mint a second, differently-keyed
+// world at every configured-module session startup instead of sharing the one
+// Generate is about to load anyway (see
+// TestWatchSession_ConfiguredModuleWorldBudget). The LSP and fmt call
+// codegen.Open directly and must not pay a packages.Load per call, so this
+// validation lives here and NOT in codegen.Open or codegen.GenerateDirs (the
+// latter already validates too, memoized, as a defense-in-depth backstop).
+//
+// The goroutine touches only the root Module (serialized by its analysisMu)
+// and values captured here, never the session's maps, which the loop mutates.
+// It is a no-op without a configured merger. Callers must
+// awaitMergerValidation before any result of the session is published.
+func (s *watchSession) startMergerValidation() {
+	s.mergerOnce.Do(func() {
+		cfg := s.configs[s.root]
+		if cfg.classMerger == nil {
+			close(s.mergerDone)
+			return
+		}
+		m, root := s.modules[s.root], s.root
+		go func() {
+			defer close(s.mergerDone)
+			if err := m.ValidateConfiguredMergers(); err != nil {
+				s.mergerErr = annotateModuleErrorWith(err, root, cfg)
+			}
+		}()
+	})
+}
+
+// awaitMergerValidation blocks until the background validation finishes and
+// returns its (annotated) error. It starts the validation if nobody has, returns
+// nil at once when no merger is configured, and is safe to call repeatedly.
+func (s *watchSession) awaitMergerValidation() error {
+	s.startMergerValidation()
+	<-s.mergerDone
+	return s.mergerErr
 }
 
 // initialGenerate snapshots the authored package membership after observation
