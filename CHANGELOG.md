@@ -4,6 +4,13 @@ Tagged releases of `github.com/gsxhq/gsx`. Before 1.0, a minor bump may change
 syntax or APIs; a patch bump does not. See
 [Releases and versioning](docs/guide/status.md#releases-and-versioning).
 
+## Unreleased
+
+- **`gsx dev` starts faster.** Unchanged packages restore from the generate
+  cache, and the build starts alongside startup generation instead of after
+  it. The first edit may wait for a background warm-up to finish.
+  `gsx generate --watch` gets the same startup.
+
 ## v0.4.4 — 2026-10-31
 
 - **A warm `gsx generate` skips `go list` when nothing it reads changed.** No
