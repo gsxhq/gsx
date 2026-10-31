@@ -642,12 +642,15 @@ func (d *devServer) reportBuildFailure(out string, err error) {
 // output. Cancelling ctx terminates the whole group, so a build script's
 // children (the compiler, a wrapped go build) never outlive it, and runBuild
 // returns only once the group has exited and released its output: a
-// cancelled build can no longer write the binary.
+// cancelled build can no longer write the binary. A build has no graceful
+// shutdown worth waiting for, so cancellation kills the group at once.
 func (d *devServer) runBuild(ctx context.Context) (string, error) {
 	var buf bytes.Buffer
 	bcmd := exec.Command(d.buildArgv[0], d.buildArgv[1:]...)
 	bcmd.Dir, bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.dir, d.env, &buf, &buf
 	setProcGroup(bcmd)
+	// Bounds Wait if a surviving background child holds the output pipe open.
+	bcmd.WaitDelay = 2 * time.Second
 	if err := bcmd.Start(); err != nil {
 		return buf.String(), err
 	}
@@ -657,7 +660,7 @@ func (d *devServer) runBuild(ctx context.Context) (string, error) {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		killProcGroupOwned(bcmd, done, 5*time.Second)
+		killProcGroupNow(bcmd, done)
 	}
 	return buf.String(), err
 }

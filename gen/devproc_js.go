@@ -34,3 +34,7 @@ func killProcGroupOwned(c *exec.Cmd, done <-chan struct{}, _ time.Duration) {
 	_ = c.Process.Kill()
 	<-done
 }
+
+func killProcGroupNow(c *exec.Cmd, done <-chan struct{}) {
+	killProcGroupOwned(c, done, 0)
+}

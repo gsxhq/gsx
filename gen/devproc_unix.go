@@ -51,3 +51,20 @@ func killProcGroupOwned(c *exec.Cmd, done <-chan struct{}, timeout time.Duration
 		<-done
 	}
 }
+
+// killProcGroupNow SIGKILLs the child's process group and waits for the
+// external monitor's Wait to return (done). It is for processes with no
+// graceful shutdown worth waiting for, such as a build being cancelled.
+func killProcGroupNow(c *exec.Cmd, done <-chan struct{}) {
+	if c == nil || c.Process == nil {
+		return
+	}
+	select {
+	case <-done:
+		// Already reaped: the pid may have been recycled; do not signal it.
+		return
+	default:
+	}
+	_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+	<-done
+}
