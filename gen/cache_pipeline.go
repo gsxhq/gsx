@@ -375,22 +375,21 @@ func commitCache(prep cachePreparation, classification cacheClassification, repo
 	}
 
 	restoreStart := time.Now()
+	hits, restoreErr := restoreCacheHits(prep, classification)
 	for _, dir := range prep.dirs {
-		entry, ok := classification.hits[dir]
+		hit, ok := hits[dir]
 		if !ok {
 			continue
 		}
-		written, upToDate, err := restore(dir, entry.files)
-		if err != nil {
-			result.Errs = append(result.Errs, err)
-			report.Durations.Restore = time.Since(restoreStart)
-			return
-		}
-		result.Diags = append(result.Diags, absWarnings(prep.root, entry.warnings)...)
-		result.Written = append(result.Written, written...)
-		result.UpToDate += upToDate
+		result.Diags = append(result.Diags, hit.diags...)
+		result.Written = append(result.Written, hit.written...)
+		result.UpToDate += hit.upToDate
 	}
 	report.Durations.Restore = time.Since(restoreStart)
+	if restoreErr != nil {
+		result.Errs = append(result.Errs, restoreErr)
+		return
+	}
 
 	generationDirs := classification.generationDirs()
 	if len(generationDirs) == 0 {
@@ -406,6 +405,34 @@ func commitCache(prep cachePreparation, classification cacheClassification, repo
 	}
 	candidates := writeGeneratedOutputs(prep.root, generationDirs, generated, classification, result)
 	storeGeneratedOutputs(prep.cacheDir, candidates, report)
+}
+
+// restoredDir is one cache hit as restored to disk: the paths written, the
+// outputs already current, and the cached warnings under prep's root.
+type restoredDir struct {
+	written  []string
+	upToDate int
+	diags    []diag.Diagnostic
+}
+
+// restoreCacheHits writes every classified hit's cached output to disk, in
+// prep.dirs order, skipping bytes that are already current. It stops at the
+// first restore error and returns the hits restored before it alongside the
+// error; the failing dir is not among them. It reads no Module state.
+func restoreCacheHits(prep cachePreparation, classification cacheClassification) (hits map[string]restoredDir, err error) {
+	hits = make(map[string]restoredDir, len(classification.hits))
+	for _, dir := range prep.dirs {
+		entry, ok := classification.hits[dir]
+		if !ok {
+			continue
+		}
+		written, upToDate, err := restore(dir, entry.files)
+		if err != nil {
+			return hits, err
+		}
+		hits[dir] = restoredDir{written: written, upToDate: upToDate, diags: absWarnings(prep.root, entry.warnings)}
+	}
+	return hits, nil
 }
 
 // writeGeneratedOutputs completes the entire generated-output write phase and

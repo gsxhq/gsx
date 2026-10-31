@@ -78,6 +78,10 @@ type watchSession struct {
 	mergerOnce sync.Once     // starts the background class-merger validation once
 	mergerDone chan struct{} // closed when that validation finishes
 	mergerErr  error         // its result; written before mergerDone closes
+
+	// warmDirs holds the dirs initialGenerate restored from the persistent
+	// generate cache instead of generating through their Module.
+	warmDirs []string
 }
 
 // openModule constructs a fresh *codegen.Module for the given module root,
@@ -297,9 +301,14 @@ func (s *watchSession) awaitMergerValidation() error {
 }
 
 // initialGenerate snapshots the authored package membership after observation
-// is armed, then generates every discovered package and sweeps cold-start
-// orphans. The first Generate on each lazy Module publishes its immutable source
-// manifest and populates the import graph used by warm reverse invalidation.
+// is armed, sweeps cold-start orphans, then restores every persistent-cache hit
+// exactly as `gsx generate` does and generates the remaining packages through
+// their Module. The first Generate on each lazy Module publishes its immutable
+// source manifest and populates the import graph used by warm reverse
+// invalidation; the restored dirs are recorded in warmDirs because their
+// Module has not analyzed them yet. Nothing is stored to the cache: the Module
+// re-reads disk after the keys were computed, so a store could pair a key with
+// newer sources.
 func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 	dirs, err := discoverDirs(s.cfg.paths)
 	if err != nil {
@@ -321,8 +330,95 @@ func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 	// otherwise survive indefinitely. Must run before the per-dir regen loop,
 	// same ordering as the batch path.
 	startup := sweepOrphanStartup(s.cfg.paths, dirs)
-	startup = append(startup, s.regenDirs(dirs)...)
+	hits := s.restoreStartupHits(dirs)
+	misses := make([]string, 0, len(dirs)-len(hits))
+	for _, dir := range dirs {
+		if _, ok := hits[dir]; !ok {
+			misses = append(misses, dir)
+		}
+	}
+	var generated []cycleResult
+	if len(misses) > 0 {
+		// Module generation must not run against an unvalidated merger;
+		// restores above may, since the merger's sources are in every key.
+		if err := s.awaitMergerValidation(); err != nil {
+			return nil, err
+		}
+		generated = s.regenDirs(misses)
+	}
+	s.warmDirs = s.warmDirs[:0]
+	for _, dir := range dirs {
+		if r, ok := hits[dir]; ok {
+			startup = append(startup, r)
+			s.warmDirs = append(s.warmDirs, dir)
+			continue
+		}
+		startup = append(startup, generated[0])
+		generated = generated[1:]
+	}
 	return startup, nil
+}
+
+// restoreStartupHits restores the persistent-cache hits among dirs, module by
+// module, returning one cycleResult per restored dir: the result generateDir
+// would have produced for it, since a hit's bytes and warnings are what the
+// Module emits for the same key. A module whose cache cannot be prepared or
+// whose Go command context moved since preparation contributes no hits, and a
+// restore failure leaves the failing dir and the module's remaining hits to the
+// Module, so every dir that is not restored cleanly is generated exactly as
+// before. It touches no Module state.
+func (s *watchSession) restoreStartupHits(dirs []string) map[string]cycleResult {
+	results := map[string]cycleResult{}
+	groups, _ := groupByModule(dirs)
+	for _, g := range groups {
+		config, ok := s.configs[g.root]
+		if !ok {
+			continue // not opened yet; regenDirs opens it
+		}
+		if _, enabled := cacheDir(); !config.useCache || !enabled {
+			// prepareCache would bypass the cache; skip its manifest build.
+			continue
+		}
+		start := time.Now()
+		prep, _, err := prepareCache(g, config)
+		if err != nil {
+			continue
+		}
+		classification := classifyCache(prep)
+		if len(classification.hits) == 0 || prep.goContext.ValidateCurrent() != nil {
+			continue
+		}
+		// generateDir sweeps a dir's orphans before writing its output; a
+		// hit dir gets the same sweep and reports it the same way.
+		removed := make(map[string][]string, len(classification.hits))
+		removeErr := make(map[string]error)
+		for _, dir := range prep.dirs {
+			if _, hit := classification.hits[dir]; hit {
+				removed[dir], removeErr[dir] = removeOrphanXgo(dir)
+			}
+		}
+		restored, _ := restoreCacheHits(prep, classification)
+		// Hits share the module's preparation; charge it to the first, as
+		// regenDirs charges a batch refresh.
+		durMs := time.Since(start).Milliseconds()
+		for _, dir := range prep.dirs {
+			hit, ok := restored[dir]
+			if !ok {
+				continue
+			}
+			results[dir] = cycleResult{
+				Dir:     dir,
+				Written: hit.written,
+				Removed: removed[dir],
+				Diags:   hit.diags,
+				OK:      removeErr[dir] == nil,
+				Err:     removeErr[dir],
+				DurMs:   durMs,
+			}
+			durMs = 0
+		}
+	}
+	return results
 }
 
 // reopen (re)opens a fresh Module for every module root the session spans, then

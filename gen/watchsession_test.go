@@ -1,8 +1,11 @@
 package gen
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -715,5 +718,167 @@ func TestWatchSessionStartup_HonorsExplicitExcludedNamedRoot(t *testing.T) {
 	want := []string{root, explicit}
 	if !slices.Equal(s.watchRoots, want) {
 		t.Fatalf("watchRoots = %v, want %v; an explicit tmp root must not be lost behind the owning-root exclusion", s.watchRoots, want)
+	}
+}
+
+// TestWatchSessionStartup_CachedMatchesUncached pins that a watch session's
+// cached startup is indistinguishable from today's uncached one: the same
+// tree, started once with the cache off and once against a cache warmed by a
+// batch generate, yields DeepEqual startup results (DurMs aside) and
+// byte-identical files on disk. Only the hit dirs land in warmDirs.
+func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
+	const plain = "package %s\n\ncomponent %s() {\n\t<p>%s</p>\n}\n"
+	src := func(pkg, name, text string) string { return fmt.Sprintf(plain, pkg, name, text) }
+	// base is one module with: hit dirs (one carrying a child-element-spacing
+	// warning), a dir whose sibling .gsx was deleted (miss + in-dir orphan), a
+	// dir whose only .gsx was deleted (walk-level orphan), an edited dir and
+	// its importer (misses), and a codegen-error dir (never stored).
+	base := func(t *testing.T, root string) {
+		writeMod(t, root)
+		writeFileT(t, filepath.Join(root, "hit", "hit.gsx"), src("hit", "Hit", "hit"))
+		writeFileT(t, filepath.Join(root, "warn", "warn.gsx"), "package warn\n\ncomponent A(name string) {\n\t<p>\n\t\tHi\n\t\t<b>{name}</b>\n\t</p>\n}\n")
+		writeFileT(t, filepath.Join(root, "sib", "keep.gsx"), src("sib", "Keep", "keep"))
+		writeFileT(t, filepath.Join(root, "sib", "gone.gsx"), src("sib", "Gone", "gone"))
+		writeFileT(t, filepath.Join(root, "old", "old.gsx"), src("old", "Old", "old"))
+		writeFileT(t, filepath.Join(root, "edited", "edited.gsx"), src("edited", "Edited", "before"))
+		writeFileT(t, filepath.Join(root, "user", "user.gsx"), "package user\n\nimport \"example.com/m/edited\"\n\ncomponent User() {\n\t<edited.Edited />\n}\n")
+		writeFileT(t, filepath.Join(root, "bad", "bad.gsx"), "package bad\n\ncomponent Bad() {\n\t<p>{undefinedName}</p>\n}\n")
+	}
+	// afterWarm makes the post-generate edits: a .gsx edit, two .gsx
+	// deletions, and a deleted output that the warning-carrying hit rewrites.
+	afterWarm := func(t *testing.T, root string) {
+		writeFileT(t, filepath.Join(root, "edited", "edited.gsx"), src("edited", "Edited", "after"))
+		for _, p := range []string{filepath.Join(root, "sib", "gone.gsx"), filepath.Join(root, "old", "old.gsx"), filepath.Join(root, "warn", "warn.x.go")} {
+			if err := os.Remove(p); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	rows := []struct {
+		name     string
+		fixture  func(t *testing.T, root string)
+		goWork   bool // run both sessions under a go.work: uncacheable
+		wantWarm []string
+	}{
+		{name: "one module", fixture: base, wantWarm: []string{"hit", "warn"}},
+		{
+			name: "two modules",
+			fixture: func(t *testing.T, root string) {
+				base(t, root)
+				nested := filepath.Join(root, "other")
+				writeFileT(t, filepath.Join(nested, "go.mod"), "module example.com/other\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+gsxModuleDir(t)+"\n")
+				writeFileT(t, filepath.Join(nested, "ohit", "ohit.gsx"), src("ohit", "OHit", "other hit"))
+				writeFileT(t, filepath.Join(nested, "obad", "obad.gsx"), "package obad\n\ncomponent OBad() {\n\t<p>{alsoUndefined}</p>\n}\n")
+			},
+			wantWarm: []string{"hit", "other/ohit", "warn"},
+		},
+		{name: "uncacheable go.work", fixture: base, goWork: true},
+	}
+	cfg := moduleGenerateConfig{useCache: true}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			root := t.TempDir()
+			cacheRoot := t.TempDir()
+			row.fixture(t, root)
+			t.Setenv("GSXCACHE", cacheRoot)
+			// The codegen-error dirs make the warming generate fail with
+			// diagnostics; only an operational error spoils the fixture.
+			if res, _, _ := generateCachedWithReport([]string{root}, fixedModuleConfig(cfg)); len(res.Errs) > 0 {
+				t.Fatalf("warming generate: %v", res.Errs)
+			}
+			afterWarm(t, root)
+			if row.goWork {
+				work := filepath.Join(t.TempDir(), "go.work")
+				writeFileT(t, work, "go 1.26.1\n\nuse "+root+"\n")
+				t.Setenv("GOWORK", work)
+			}
+			snapshot := readTreeT(t, root)
+
+			start := func(cache string) (*watchSession, []cycleResult, map[string]string) {
+				t.Setenv("GSXCACHE", cache)
+				s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}, moduleConfig: fixedModuleConfig(cfg)})
+				if err != nil {
+					t.Fatalf("startWatchSessionForTest(GSXCACHE=%s): %v", cache, err)
+				}
+				for i := range startup {
+					startup[i].DurMs = 0
+					// restore writes in map order, so Written's order within a
+					// dir is unspecified on either path.
+					slices.Sort(startup[i].Written)
+				}
+				return s, startup, readTreeT(t, root)
+			}
+			uncachedSession, uncached, uncachedDisk := start("off")
+			writeTreeT(t, root, snapshot)
+			cachedSession, cached, cachedDisk := start(cacheRoot)
+
+			if !reflect.DeepEqual(cached, uncached) {
+				t.Fatalf("cached startup differs from uncached:\ncached   = %#v\nuncached = %#v", cached, uncached)
+			}
+			if !maps.Equal(cachedDisk, uncachedDisk) {
+				for p, b := range uncachedDisk {
+					if cachedDisk[p] != b {
+						t.Errorf("%s differs:\ncached   = %q\nuncached = %q", p, cachedDisk[p], b)
+					}
+				}
+				for p := range cachedDisk {
+					if _, ok := uncachedDisk[p]; !ok {
+						t.Errorf("%s exists only after the cached startup", p)
+					}
+				}
+				t.FailNow()
+			}
+			for _, r := range uncached {
+				if bad := filepath.Base(r.Dir); (bad == "bad" || bad == "obad") && r.OK {
+					t.Fatalf("codegen-error dir %s reported OK", r.Dir)
+				}
+			}
+			if len(uncachedSession.warmDirs) != 0 {
+				t.Fatalf("uncached warmDirs = %v, want none", uncachedSession.warmDirs)
+			}
+			var wantWarm []string
+			for _, rel := range row.wantWarm {
+				wantWarm = append(wantWarm, filepath.Join(root, filepath.FromSlash(rel)))
+			}
+			gotWarm := slices.Sorted(slices.Values(cachedSession.warmDirs))
+			if !slices.Equal(gotWarm, wantWarm) {
+				t.Fatalf("warmDirs = %v, want %v", gotWarm, wantWarm)
+			}
+		})
+	}
+}
+
+// readTreeT returns every regular file under root, keyed by its path.
+func readTreeT(t *testing.T, root string) map[string]string {
+	t.Helper()
+	tree := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		tree[path] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
+}
+
+// writeTreeT replaces root's contents with tree.
+func writeTreeT(t *testing.T, root string, tree map[string]string) {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for p, b := range tree {
+		writeFileT(t, p, b)
 	}
 }

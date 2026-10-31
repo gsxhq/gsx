@@ -432,7 +432,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return runWatch(watchConfig{
 			paths: paths, format: formatFlag,
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
-			moduleConfig: discoveredModuleConfig(optCfg, false),
+			moduleConfig: discoveredModuleConfig(optCfg, nocacheFlag),
 		})
 	}
 	// Each discovered module resolves its own gsx.toml (walking up from its

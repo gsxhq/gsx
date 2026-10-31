@@ -222,8 +222,12 @@ func relWarnings(root string, diags []diag.Diagnostic) (warnings []diag.Diagnost
 	return warnings, true
 }
 
-// absWarnings is relWarnings' inverse for a cache hit.
+// absWarnings is relWarnings' inverse for a cache hit. No warnings is nil, as
+// relWarnings and codegen report it.
 func absWarnings(root string, warnings []diag.Diagnostic) []diag.Diagnostic {
+	if len(warnings) == 0 {
+		return nil
+	}
 	out := make([]diag.Diagnostic, len(warnings))
 	for i, d := range warnings {
 		if d.Start.Filename != "" {
