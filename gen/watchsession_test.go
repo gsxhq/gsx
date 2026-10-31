@@ -318,15 +318,20 @@ func TestRunWatch_BadMergerEmitsAndWritesNothing(t *testing.T) {
 	writeFileT(t, filepath.Join(root, "mrg", "mrg.go"),
 		"package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
 	out, errb := &syncBuf{}, &syncBuf{}
+	// Validation failing returns 1 before the loop reads stop; if it wrongly
+	// passes, the run reaches the loop and exits 0 once stop closes.
+	stop := make(chan struct{})
+	timer := time.AfterFunc(30*time.Second, func() { close(stop) })
+	defer timer.Stop()
 	code := runWatchWithStop(watchConfig{
 		paths:       []string{filepath.Join(root, "views")},
 		format:      "ndjson",
 		stdout:      out,
 		stderr:      errb,
 		classMerger: &codegen.ClassMergerRef{PkgPath: "example.com/m/mrg", FuncName: "Merge"},
-	}, nil)
+	}, stop)
 	if code != 1 {
-		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", code, out, errb)
+		t.Fatalf("exit = %d, want 1 (0 means the bad merger passed validation); stdout=%s stderr=%s", code, out, errb)
 	}
 	if strings.Contains(out.String(), `"event":"start"`) || !strings.Contains(out.String(), "func([]string) string") {
 		t.Fatalf("want only the signature error, got stdout=%s", out)
@@ -761,6 +766,9 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 		fixture func(t *testing.T, root string)
 		edit    func(t *testing.T, root string) // after afterWarm, if set
 		goWork  bool                            // run both sessions under a go.work: uncacheable
+		// discovered resolves each module's config as generate --watch does
+		// (discoveredModuleConfig), with noCache as its --no-cache flag.
+		discovered, noCache bool
 		// readOnlyAfter makes the dir of this root-relative output read-only
 		// once restore writes it, failing that dir's next write.
 		readOnlyAfter string
@@ -799,6 +807,9 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 			wantWarm: []string{"hit", "other/ohit", "warn"},
 		},
 		{name: "uncacheable go.work", fixture: base, goWork: true},
+		{name: "discovered config", fixture: base, discovered: true, wantWarm: []string{"hit", "warn"}},
+		// --no-cache: the cache is warm, yet no dir is restored from it.
+		{name: "discovered config with --no-cache", fixture: base, discovered: true, noCache: true},
 	}
 	cfg := moduleGenerateConfig{useCache: true}
 	for _, row := range rows {
@@ -812,7 +823,13 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 			t.Setenv("GSXCACHE", cacheRoot)
 			// The codegen-error dirs make the warming generate fail with
 			// diagnostics; only an operational error spoils the fixture.
-			if res, _, _ := generateCachedWithReport([]string{root}, fixedModuleConfig(cfg)); len(res.Errs) > 0 {
+			warmCfg := fixedModuleConfig(cfg)
+			startCfg := warmCfg
+			if row.discovered {
+				warmCfg = discoveredModuleConfig(config{}, false)
+				startCfg = discoveredModuleConfig(config{}, row.noCache)
+			}
+			if res, _, _ := generateCachedWithReport([]string{root}, warmCfg); len(res.Errs) > 0 {
 				t.Fatalf("warming generate: %v", res.Errs)
 			}
 			afterWarm(t, root)
@@ -839,7 +856,7 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 					}
 					t.Cleanup(func() { _ = os.Chmod(filepath.Dir(target), 0o755) })
 				}
-				s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}, moduleConfig: fixedModuleConfig(cfg)})
+				s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}, moduleConfig: startCfg})
 				if row.readOnlyAfter != "" {
 					afterRestoreWrite = nil
 					if err := os.Chmod(filepath.Dir(filepath.Join(root, filepath.FromSlash(row.readOnlyAfter))), 0o755); err != nil {
