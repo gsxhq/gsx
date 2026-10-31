@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -155,8 +156,16 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// post/reload gate every browser push on the managed front door being up
 	// (see frontDoor). With --no-web the front door is externally managed and
 	// pushes always go out.
-	var fd *frontDoor
-	webUp := func() bool { return fd == nil || fd.up() }
+	// fd is assigned when the front door spawns, while the startup posts'
+	// goroutines may already be checking webUp; they read it through gate.
+	var (
+		fd   *frontDoor
+		gate atomic.Pointer[frontDoor]
+	)
+	webUp := func() bool {
+		g := gate.Load()
+		return g == nil || g.up()
+	}
 	posts := newPoster(ctx)
 	defer posts.drain()
 	// lastOverlay is the latest codegen/build overlay event. A .env resolution
@@ -256,6 +265,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 			default: // never block the monitor on a full channel
 			}
 		}, stdout)
+		gate.Store(fd)
 		if err := fd.start(); err != nil {
 			fmt.Fprintf(stderr, "gsx dev: starting front door: %v\n", err)
 			return 1
