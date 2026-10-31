@@ -108,21 +108,14 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 // annotateModuleError attributes a configured-package failure in dir to the
 // gsx.toml its module inherited, if any (see annotateConfigError).
 func (s *watchSession) annotateModuleError(err error, dir string) error {
-	return annotateModuleErrorWith(err, dir, s.configs[dirRoot(dir)])
+	return annotateModuleErrorWith(err, dir, func(root string) moduleGenerateConfig { return s.configs[root] })
 }
 
-// dirRoot is dir's module root, or dir itself when unreadable (the annotate
-// step then bails on the same error).
-func dirRoot(dir string) string {
-	if root, _, err := moduleRoot(dir); err == nil {
-		return root
-	}
-	return dir
-}
-
-// annotateModuleErrorWith is annotateModuleError against an already-captured
-// config, so it can run off the session's goroutine without reading its maps.
-func annotateModuleErrorWith(err error, dir string, cfg moduleGenerateConfig) error {
+// annotateModuleErrorWith is annotateModuleError with the config lookup
+// injected, so it can run off the session's goroutine against captured values.
+// The module root is resolved only for a ConfiguredPackageError, keeping the
+// per-Generate nil/other-error path free of go.mod reads.
+func annotateModuleErrorWith(err error, dir string, cfgFor func(root string) moduleGenerateConfig) error {
 	var cpe *codegen.ConfiguredPackageError
 	if err == nil || !errors.As(err, &cpe) {
 		return err
@@ -131,7 +124,7 @@ func annotateModuleErrorWith(err error, dir string, cfg moduleGenerateConfig) er
 	if rootErr != nil {
 		return err
 	}
-	return annotateConfigError(err, root, modPath, cfg)
+	return annotateConfigError(err, root, modPath, cfgFor(root))
 }
 
 // moduleForDir returns the warm Module for dir's enclosing module root. If the
@@ -288,7 +281,7 @@ func (s *watchSession) startMergerValidation() {
 		go func() {
 			defer close(s.mergerDone)
 			if err := m.ValidateConfiguredMergers(); err != nil {
-				s.mergerErr = annotateModuleErrorWith(err, root, cfg)
+				s.mergerErr = annotateModuleErrorWith(err, root, func(string) moduleGenerateConfig { return cfg })
 			}
 		}()
 	})
