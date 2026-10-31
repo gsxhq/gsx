@@ -1710,13 +1710,14 @@ func TestDevTerminalIdleStatusIsSinglePostWithSettledFields(t *testing.T) {
 	writeFile(t, proj, "go.mod", gomod)
 	writeFile(t, proj, "main.go", devTestMainGo)
 	writeFile(t, proj, "app.gsx", "package main\n\ncomponent Dummy() {\n\t<span>ok</span>\n}\n")
-	// [dev].build succeeds the first time (cold start) and fails every time
-	// after — deterministically reaching cycle()'s rebuild-failure branch on
-	// the write-triggered cycle below without relying on an incidental
+	// [dev].build succeeds until the trigger file below exists and fails
+	// from then on — deterministically reaching cycle()'s rebuild-failure
+	// branch on the write-triggered cycle without relying on an incidental
 	// source error that gsx's own regen/type-check might catch first (which
 	// would take a different, earlier branch that never touches
-	// Server.Healthy).
-	writeFile(t, proj, "gsx.toml", "[dev]\nbuild = [\"sh\", \"-c\", \"c=$(cat build_count 2>/dev/null || echo 0); c=$((c+1)); echo $c > build_count; if [ $c -eq 1 ]; then go build -o tmp/srv .; else exit 1; fi\"]\nrun = [\"tmp/srv\"]\n")
+	// Server.Healthy). It keys on the trigger, not on an invocation count: a
+	// cold start that writes .x.go also runs a cancelled speculative build.
+	writeFile(t, proj, "gsx.toml", "[dev]\nbuild = [\"sh\", \"-c\", \"if [ -f zz_trigger.go ]; then exit 1; fi; go build -o tmp/srv .\"]\nrun = [\"tmp/srv\"]\n")
 
 	goPort := freePort(t)
 	if portListening(goPort) {
@@ -1796,7 +1797,7 @@ func TestDevTerminalIdleStatusIsSinglePostWithSettledFields(t *testing.T) {
 
 	// Touch a benign, valid .go file to trigger the dep-dirty rebuild path
 	// (regen succeeds; [dev].build above is what fails, deterministically,
-	// on this second invocation). triggerTime anchors "this cycle" via
+	// once the trigger exists). triggerTime anchors "this cycle" via
 	// idleEventsAfter (lastCycle.at, not phase-post observation — see its
 	// doc: a "generating" post is NOT a guaranteed delivery).
 	triggerTime := time.Now()
@@ -2570,4 +2571,494 @@ func TestDevEnvEditKeepsAutoPickedPorts(t *testing.T) {
 	if !waitHealthy(context.Background(), "http://localhost:"+goPort+"/healthz", 30*time.Second) {
 		t.Fatalf("server not healthy on the original Go port %s after the .env edit", goPort)
 	}
+}
+
+// devSpecMainGo is the server TestDevSpeculativeBuild builds. It appends the
+// values it was built from — the goStamp constant and the rendered Stamp
+// component — to $DEV_SPEC_STARTED once it is listening, so a test can tell
+// exactly which sources the served binary came from.
+const devSpecMainGo = `package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func main() {
+	var b bytes.Buffer
+	_ = Stamp().Render(context.Background(), &b)
+	ln, err := net.Listen("tcp", ":"+os.Getenv("GO_PORT"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "scaffold: listen on :%s: %v\n", os.Getenv("GO_PORT"), err)
+		os.Exit(1)
+	}
+	if f, err := os.OpenFile(os.Getenv("DEV_SPEC_STARTED"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		fmt.Fprintf(f, "%s %s\n", goStamp, b.String())
+		f.Close()
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(http.ResponseWriter, *http.Request) {})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+	_ = srv.Close()
+}
+`
+
+// devSpecBuildSh is the fixture's [dev].build. Every invocation logs to
+// $DEV_SPEC_BUILDS: "start <pid>" first ("overlap <pid>" before it when the
+// previous build is still alive), "built"/"done" once it compiled and
+// finished. Hooks, all driven by files and env, never by timing:
+//   - DEV_SPEC_HOLD_UNLESS: a build that starts while app.x.go lacks this
+//     text logs "stale" and blocks forever in a child shell (whose command
+//     line carries this script's path, for pgrep), so only cancellation ends
+//     it;
+//   - DEV_SPEC_READY: every build waits for the fake front door to be
+//     listening, so whatever gsx dev posts about it is delivered;
+//   - DEV_SPEC_FAIL: the build fails after that wait;
+//   - DEV_SPEC_HOLD_ONCE: if this file exists, the build removes it after
+//     compiling and blocks until DEV_SPEC_RELEASE exists.
+const devSpecBuildSh = `log="$DEV_SPEC_BUILDS"
+prev=$(sed -n 's/^start //p' "$log" 2>/dev/null | tail -n 1)
+if [ -n "$prev" ] && kill -0 "$prev" 2>/dev/null; then echo "overlap $$" >> "$log"; fi
+echo "start $$" >> "$log"
+if [ -n "$DEV_SPEC_HOLD_UNLESS" ] && ! grep -q "$DEV_SPEC_HOLD_UNLESS" app.x.go; then
+	echo "stale $$" >> "$log"
+	sh -c 'while :; do sleep 0.02; done' "$0-hold"
+fi
+while [ ! -f "$DEV_SPEC_READY" ]; do sleep 0.02; done
+if [ -n "$DEV_SPEC_FAIL" ]; then echo "spec-boom: build failed" >&2; exit 1; fi
+go build -o tmp/srv . || exit 1
+echo "built $$" >> "$log"
+if [ -f "$DEV_SPEC_HOLD_ONCE" ]; then
+	rm -f "$DEV_SPEC_HOLD_ONCE"
+	while [ ! -f "$DEV_SPEC_RELEASE" ]; do sleep 0.02; done
+fi
+echo "done $$" >> "$log"
+`
+
+// devSpecFrontDoorGo is the fake front door: it binds VITE_PORT, then creates
+// $DEV_SPEC_READY, and appends every /__gsx/event body to $DEV_SPEC_EVENTS,
+// one per line. /__gsx/cmd long-polls with nothing queued.
+const devSpecFrontDoorGo = `package main
+
+import (
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"sync"
+	"time"
+)
+
+func main() {
+	ln, err := net.Listen("tcp", "localhost:"+os.Getenv("VITE_PORT"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(os.Getenv("DEV_SPEC_READY"), nil, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	var mu sync.Mutex
+	_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-gsx", os.Getenv("GSX_DEV_TOKEN"))
+		switch r.URL.Path {
+		case "/__gsx/cmd":
+			select {
+			case <-r.Context().Done():
+			case <-time.After(20 * time.Second):
+			}
+		case "/__gsx/event":
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			if f, err := os.OpenFile(os.Getenv("DEV_SPEC_EVENTS"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+				f.Write(append(b, '\n'))
+				f.Close()
+			}
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+}
+`
+
+// devSpecRun is one in-process gsx dev session of TestDevSpeculativeBuild.
+type devSpecRun struct {
+	proj, builds, started, events, ready string
+	cancel                               context.CancelFunc
+	done                                 chan int
+	mu                                   sync.Mutex
+	stdout, stderr                       bytes.Buffer
+}
+
+func (r *devSpecRun) output() (string, string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.stdout.String(), r.stderr.String()
+}
+
+// lines returns path's lines with the given first field.
+func devSpecLines(path, kind string) []string {
+	b, _ := os.ReadFile(path)
+	var out []string
+	for l := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
+		if f := strings.Fields(l); len(f) > 0 && (kind == "" || f[0] == kind) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// buildErrorEvents returns the posted build-error overlay events.
+func (r *devSpecRun) buildErrorEvents() []string {
+	var out []string
+	for _, l := range devSpecLines(r.events, "") {
+		var ev struct {
+			Event       string `json:"event"`
+			Diagnostics []struct {
+				File string `json:"file"`
+			} `json:"diagnostics"`
+		}
+		if json.Unmarshal([]byte(l), &ev) == nil && ev.Event == "generated" && len(ev.Diagnostics) == 1 && ev.Diagnostics[0].File == "build" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// idleStatusPosted reports whether the startup's terminal idle status (the one
+// carrying lastCycle) reached the front door.
+func (r *devSpecRun) idleStatusPosted() bool {
+	for _, l := range devSpecLines(r.events, "") {
+		var ev map[string]any
+		if json.Unmarshal([]byte(l), &ev) == nil && ev["event"] == "status" && ev["phase"] == "idle" && ev["lastCycle"] != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// buildProcesses lists live processes running this fixture's build script.
+func (r *devSpecRun) buildProcesses() string {
+	out, _ := exec.Command("pgrep", "-fl", filepath.Join(r.proj, "build.sh")).Output()
+	return strings.TrimSpace(string(out))
+}
+
+func (r *devSpecRun) waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for !cond() {
+		select {
+		case code := <-r.done:
+			stdout, stderr := r.output()
+			t.Fatalf("gsx dev exited (%d) before %s\nstdout:\n%s\nstderr:\n%s\nbuilds:\n%v", code, what, stdout, stderr, devSpecLines(r.builds, ""))
+		default:
+		}
+		if time.Now().After(deadline) {
+			stdout, stderr := r.output()
+			t.Fatalf("timed out waiting for %s\nstdout:\n%s\nstderr:\n%s\nbuilds:\n%v", what, stdout, stderr, devSpecLines(r.builds, ""))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// stop cancels the session as Ctrl-C would and returns its exit code.
+func (r *devSpecRun) stop(t *testing.T) int {
+	t.Helper()
+	r.cancel()
+	select {
+	case code := <-r.done:
+		return code
+	case <-time.After(15 * time.Second):
+		t.Fatal("gsx dev did not exit within 15s of cancel")
+		return -1
+	}
+}
+
+// TestDevSpeculativeBuild pins gsx dev's startup build: the configured build
+// starts right after the watch session is armed, concurrently with the initial
+// generate, and its result is used only when that generate wrote and removed
+// nothing. Each row runs gsx dev in-process against its own fixture, with a
+// fake front door that records every posted event and a build script that
+// logs its invocations (see devSpecBuildSh).
+//
+// Serial (t.Setenv): gsx dev reads its ports and the hooks from the process
+// environment.
+func TestDevSpeculativeBuild(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: builds and runs a Go server")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	for _, tool := range []string{"sh", "pgrep"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s not available", tool)
+		}
+	}
+	fdDir := t.TempDir()
+	writeFile(t, fdDir, "go.mod", "module fakefrontdoor\n\ngo 1.26.1\n")
+	writeFile(t, fdDir, "main.go", devSpecFrontDoorGo)
+	frontDoor := filepath.Join(fdDir, "frontdoor")
+	fdBuild := exec.Command("go", "build", "-o", frontDoor, ".")
+	fdBuild.Dir = fdDir
+	if out, err := fdBuild.CombinedOutput(); err != nil {
+		t.Fatalf("build fake front door: %v\n%s", err, out)
+	}
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("VITE_DEV_URL", "")
+
+	const stampGsx = "package main\n\ncomponent Stamp() {\n\t<b>%s</b>\n}\n"
+	// fixture scaffolds a project; tomlTop is prepended to its gsx.toml.
+	fixture := func(t *testing.T, tomlTop string) string {
+		proj := newModule(t, "devspec")
+		writeFile(t, proj, "main.go", devSpecMainGo)
+		writeFile(t, proj, "stamp.go", "package main\n\nconst goStamp = \"go1\"\n")
+		writeFile(t, proj, "app.gsx", fmt.Sprintf(stampGsx, "gsx1"))
+		writeFile(t, proj, "build.sh", devSpecBuildSh)
+		writeFile(t, proj, "gsx.toml", tomlTop+fmt.Sprintf("[dev]\nbuild = [\"sh\", %q]\nrun = [\"tmp/srv\"]\n", filepath.Join(proj, "build.sh")))
+		return proj
+	}
+	// warm runs `gsx generate`, storing every dir to the persistent cache, so
+	// gsx dev's initial generate restores them and writes nothing.
+	warm := func(t *testing.T, proj string) {
+		var out, errb bytes.Buffer
+		if code := run([]string{"-C", proj, "-q", "generate"}, &out, &errb); code != 0 {
+			t.Fatalf("warm generate exited %d: %s%s", code, out.String(), errb.String())
+		}
+	}
+	start := func(t *testing.T, proj string, env ...string) *devSpecRun {
+		hooks := t.TempDir()
+		r := &devSpecRun{
+			proj:    proj,
+			builds:  filepath.Join(hooks, "builds"),
+			started: filepath.Join(hooks, "started"),
+			events:  filepath.Join(hooks, "events"),
+			ready:   filepath.Join(hooks, "ready"),
+			done:    make(chan int, 1),
+		}
+		t.Setenv("GO_PORT", freePort(t))
+		t.Setenv("VITE_PORT", freePort(t))
+		t.Setenv("DEV_SPEC_BUILDS", r.builds)
+		t.Setenv("DEV_SPEC_STARTED", r.started)
+		t.Setenv("DEV_SPEC_EVENTS", r.events)
+		t.Setenv("DEV_SPEC_READY", r.ready)
+		for _, k := range []string{"DEV_SPEC_HOLD_UNLESS", "DEV_SPEC_FAIL", "DEV_SPEC_HOLD_ONCE", "DEV_SPEC_RELEASE"} {
+			t.Setenv(k, "")
+		}
+		for _, kv := range env {
+			k, v, _ := strings.Cut(kv, "=")
+			t.Setenv(k, v)
+		}
+		_, configPath, err := resolveConfig(config{}, proj)
+		if err != nil {
+			t.Fatalf("resolveConfig: %v", err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		r.cancel = cancel
+		t.Cleanup(func() {
+			cancel()
+			// A failed row must not leak a blocked build into later tests.
+			_ = exec.Command("pkill", "-f", filepath.Join(proj, "build.sh")).Run()
+		})
+		lockedWrite := func(buf *bytes.Buffer) writerFunc {
+			return func(p []byte) (int, error) {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				return buf.Write(p)
+			}
+		}
+		go func() {
+			r.done <- runDevContext(ctx, []string{"--web", frontDoor}, lockedWrite(&r.stdout), lockedWrite(&r.stderr), config{}, devTomlFor(configPath), proj)
+		}()
+		return r
+	}
+
+	// (a) Up-to-date tree: one build, and the server starts from it.
+	t.Run("up_to_date", func(t *testing.T) {
+		proj := fixture(t, "")
+		warm(t, proj)
+		r := start(t, proj)
+		r.waitFor(t, "the server to start", func() bool { return len(devSpecLines(r.started, "")) > 0 })
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if got := devSpecLines(r.builds, ""); len(got) != 3 || len(devSpecLines(r.builds, "start")) != 1 || len(devSpecLines(r.builds, "done")) != 1 {
+			t.Fatalf("builds = %q, want exactly one start/built/done", got)
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 1 || got[0] != "go1 <b>gsx1</b>" {
+			t.Fatalf("started = %q, want one server built from the tree", got)
+		}
+	})
+
+	// (b) A .gsx edited after the cache was warmed: the initial generate
+	// writes, so the speculative build (blocked on the stale .x.go) is
+	// cancelled and exactly one later build completes and is served.
+	t.Run("startup_writes", func(t *testing.T) {
+		proj := fixture(t, "")
+		warm(t, proj)
+		writeFile(t, proj, "app.gsx", fmt.Sprintf(stampGsx, "gsx2"))
+		r := start(t, proj, "DEV_SPEC_HOLD_UNLESS=gsx2")
+		r.waitFor(t, "the server to start", func() bool { return len(devSpecLines(r.started, "")) > 0 })
+		if p := r.buildProcesses(); p != "" {
+			t.Fatalf("cancelled build still running after startup:\n%s", p)
+		}
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		builds := devSpecLines(r.builds, "")
+		if starts := devSpecLines(r.builds, "start"); len(starts) != 2 {
+			t.Fatalf("builds = %q, want 2 starts (speculative + rebuild)", builds)
+		}
+		if len(devSpecLines(r.builds, "stale")) != 1 || len(devSpecLines(r.builds, "done")) != 1 || len(devSpecLines(r.builds, "overlap")) != 0 {
+			t.Fatalf("builds = %q, want the stale speculative build cancelled and one non-overlapping rebuild done", builds)
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 1 || got[0] != "go1 <b>gsx2</b>" {
+			t.Fatalf("started = %q, want one server built from the regenerated .x.go", got)
+		}
+	})
+
+	// (c) A codegen error at startup: no build is used, the server never
+	// starts, and no build error replaces the codegen overlay.
+	t.Run("codegen_error", func(t *testing.T) {
+		proj := fixture(t, "")
+		writeFile(t, proj, "app.gsx", "package main\n\ncomponent Stamp() {\n\t<b>{undefinedStamp}</b>\n}\n")
+		// The speculative build blocks until cancelled.
+		r := start(t, proj, "DEV_SPEC_HOLD_UNLESS=never-generated")
+		r.waitFor(t, "the startup idle status", r.idleStatusPosted)
+		// The speculative build was cancelled and reaped before startup went on.
+		if p := r.buildProcesses(); p != "" {
+			t.Fatalf("speculative build still running after startup:\n%s", p)
+		}
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if got := r.buildErrorEvents(); len(got) != 0 {
+			t.Fatalf("build error posted over a codegen error: %q", got)
+		}
+		if got := devSpecLines(r.builds, "built"); len(got) != 0 {
+			t.Fatalf("a build ran to completion: %q", devSpecLines(r.builds, ""))
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 0 {
+			t.Fatalf("server started: %q", got)
+		}
+		if stdout, _ := r.output(); strings.Contains(stdout, "error build") {
+			t.Fatalf("build failure printed:\n%s", stdout)
+		}
+	})
+
+	// (d) The build fails on an up-to-date tree: the speculative build's
+	// failure is reported once, with no second build.
+	t.Run("build_fails", func(t *testing.T) {
+		proj := fixture(t, "")
+		warm(t, proj)
+		r := start(t, proj, "DEV_SPEC_FAIL=1")
+		r.waitFor(t, "the startup idle status", r.idleStatusPosted)
+		r.waitFor(t, "the build error event", func() bool { return len(r.buildErrorEvents()) > 0 })
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if got := r.buildErrorEvents(); len(got) != 1 || !strings.Contains(got[0], "spec-boom") {
+			t.Fatalf("build error events = %q, want exactly one carrying the build output", got)
+		}
+		if got := devSpecLines(r.builds, "start"); len(got) != 1 {
+			t.Fatalf("builds = %q, want exactly one", devSpecLines(r.builds, ""))
+		}
+		if stdout, _ := r.output(); strings.Count(stdout, "error build") != 1 {
+			t.Fatalf("want the build failure printed once:\n%s", stdout)
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 0 {
+			t.Fatalf("server started: %q", got)
+		}
+	})
+
+	// (e) A bad class merger: exit 1 with the signature error, and the
+	// server's run command never starts.
+	t.Run("bad_merger", func(t *testing.T) {
+		proj := fixture(t, "class_merger = \"devspec/mrg.Merge\"\n\n")
+		writeFile(t, filepath.Join(proj, "mrg"), "mrg.go", "package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
+		r := start(t, proj)
+		var code int
+		select {
+		case code = <-r.done:
+		case <-time.After(90 * time.Second):
+			t.Fatal("gsx dev did not exit on a bad merger")
+		}
+		_, stderr := r.output()
+		if code != 1 || !strings.Contains(stderr, "gsx dev: ") || !strings.Contains(stderr, "func([]string) string") {
+			t.Fatalf("exit = %d stderr = %q, want 1 with the signature error", code, stderr)
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 0 {
+			t.Fatalf("server started: %q", got)
+		}
+		if p := r.buildProcesses(); p != "" {
+			t.Fatalf("speculative build outlived gsx dev:\n%s", p)
+		}
+	})
+
+	// (f) A .go edit written after the speculative build compiled, before it
+	// finished: the stale binary may be served, but the edit, observed since
+	// arming, triggers a rebuild cycle that serves it.
+	t.Run("go_edit_during_build", func(t *testing.T) {
+		proj := fixture(t, "")
+		warm(t, proj)
+		hooks := t.TempDir()
+		holdOnce, release := filepath.Join(hooks, "hold"), filepath.Join(hooks, "release")
+		writeFile(t, hooks, "hold", "")
+		r := start(t, proj, "DEV_SPEC_HOLD_ONCE="+holdOnce, "DEV_SPEC_RELEASE="+release)
+		r.waitFor(t, "the speculative build to compile", func() bool { return len(devSpecLines(r.builds, "built")) == 1 })
+		writeFile(t, proj, "stamp.go", "package main\n\nconst goStamp = \"go2\"\n")
+		writeFile(t, hooks, "release", "")
+		r.waitFor(t, "a server with the edit", func() bool {
+			got := devSpecLines(r.started, "")
+			return len(got) > 0 && got[len(got)-1] == "go2 <b>gsx1</b>"
+		})
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if got := devSpecLines(r.builds, "overlap"); len(got) != 0 {
+			t.Fatalf("builds overlapped: %q", devSpecLines(r.builds, ""))
+		}
+	})
+
+	// (g) Ctrl-C during the speculative build exits promptly, prints no build
+	// failure, and leaves no build process behind.
+	t.Run("ctrl_c_during_build", func(t *testing.T) {
+		proj := fixture(t, "")
+		warm(t, proj)
+		r := start(t, proj, "DEV_SPEC_HOLD_UNLESS=never-generated")
+		r.waitFor(t, "the build to block", func() bool { return len(devSpecLines(r.builds, "stale")) == 1 })
+		var pid int
+		fmt.Sscanf(devSpecLines(r.builds, "start")[0], "start %d", &pid)
+		begin := time.Now()
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if d := time.Since(begin); d > 5*time.Second {
+			t.Fatalf("shutdown took %v", d)
+		}
+		if p := r.buildProcesses(); p != "" {
+			t.Fatalf("build left processes behind:\n%s", p)
+		}
+		if err := syscall.Kill(-pid, 0); err != syscall.ESRCH {
+			t.Fatalf("build process group %d still has members (kill: %v)", pid, err)
+		}
+		if stdout, _ := r.output(); strings.Contains(stdout, "error build") {
+			t.Fatalf("cancelled build's failure printed:\n%s", stdout)
+		}
+		if got := devSpecLines(r.started, ""); len(got) != 0 {
+			t.Fatalf("server started: %q", got)
+		}
+	})
 }

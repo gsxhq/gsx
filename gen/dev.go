@@ -135,14 +135,19 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	}
 	defer armed.Close()
 	sess := armed.session
-	// Until dev startup overlaps validation with the build, keep it fatal
-	// before anything runs.
-	if err := sess.awaitMergerValidation(); err != nil {
-		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
-		return 1
-	}
 	w := armed.watcher
 	sources := armed.sources
+
+	// --- speculative build: alongside the initial generate ---
+	// Usually startup writes nothing, so the build can run while gsx works. It
+	// starts only now: observation is armed, so an edit to anything it reads
+	// from here on reaches the loop as an event. Its result is used only if
+	// the initial generate writes and removes nothing.
+	srv := &devServer{dir: workDir, buildArgv: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
+	buildStart := time.Now()
+	spec := srv.startBuild(ctx)
+	defer spec.discard()
+
 	dirty := newWatchDirtySet()
 	startup, err := sess.initialGenerate()
 	if err != nil {
@@ -150,6 +155,16 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		return 1
 	}
 	dirty.retainOperational(startup)
+	startOK, startWrote := true, false
+	for _, r := range startup {
+		startOK = startOK && r.OK
+		startWrote = startWrote || len(r.Written) > 0 || len(r.Removed) > 0
+	}
+	// A failed generate skips the initial build (below); one that wrote or
+	// removed files rebuilds. Either way the speculative build is stale.
+	if !startOK || startWrote {
+		spec.discard()
+	}
 	// Drive the overlay from the cold generate (e.g. a pre-existing codegen
 	// error). A mixed operational failure has not committed its filesystem
 	// transaction, so only its errors/diagnostics are publishable at this point.
@@ -291,22 +306,51 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	go pollCommands(ctx, viteURL, devToken, webUp, cmds, onContact)
 
 	// --- Go server: initial build + run ---
-	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
-	startOK := true
-	for _, r := range startup {
-		startOK = startOK && r.OK
-	}
 	// A failed cold generate wrote poison .x.go — the build cannot succeed, and
 	// its buildErrorEvent would replace the rich gsx overlay already posted
 	// above. Skip the initial build; the first successful cycle rebuilds and
 	// starts the server (poison→good always changes bytes, so `wrote` fires).
 	initCycleStart := time.Now()
+	var (
+		buildOutput string
+		buildErr    error
+	)
 	if startOK {
-		setPhase("building")
-		if out, err := srv.rebuild(ctx); err != nil {
-			post(buildErrorEvent(buildFailureMessage(out, err)))
-			startOK = false
+		// The phase has been "building" since the speculative build started.
+		status.Phase, status.PhaseSince = "building", buildStart
+		postStatus()
+		if startWrote {
+			buildOutput, buildErr = srv.build(ctx)
 		} else {
+			buildOutput, buildErr = spec.result()
+		}
+	}
+	// A bad class merger is fatal before the server runs or the loop uses the
+	// Module. Shutdown does not wait for it.
+	if ctx.Err() == nil {
+		if err := sess.awaitMergerValidation(); err != nil {
+			if fd != nil {
+				fd.shutdown(5 * time.Second)
+			}
+			fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+			return 1
+		}
+	}
+	if startOK {
+		switch {
+		case ctx.Err() != nil:
+			// Shutting down: a build it cut short is not a build error, and
+			// nothing starts.
+			startOK = false
+		case buildErr != nil:
+			post(buildErrorEvent(buildFailureMessage(buildOutput, buildErr)))
+			startOK = false
+		default:
+			if err := srv.restartNoBuild(); err != nil {
+				post(buildErrorEvent(buildFailureMessage("", err)))
+				startOK = false
+				break
+			}
 			setPhase("starting")
 			if waitHealthy(ctx, healthURL, 10*time.Second) {
 				status.Server.Healthy = true
