@@ -523,6 +523,10 @@ func (p *poster) postEvent(base string, body []byte, gate func() bool) {
 // postReload best-effort POSTs to base+/__reload (browser full-reload).
 func (p *poster) postReload(base string, gate func() bool) { p.post(base+"/__reload", nil, gate) }
 
+// postEnqueuedHook, when set by a test, runs on the caller's goroutine for
+// every push post enqueues.
+var postEnqueuedHook func(url string)
+
 // poster owns every best-effort browser push a dev session fires. Each post
 // still runs in its own goroutine (delivery must not block the watch loop),
 // but the goroutines are joined: drain aborts pending retries AND in-flight
@@ -560,6 +564,9 @@ func (p *poster) drain() {
 func (p *poster) post(url string, body []byte, gate func() bool) {
 	if strings.HasPrefix(url, "/") || url == "" {
 		return
+	}
+	if postEnqueuedHook != nil {
+		postEnqueuedHook(url)
 	}
 	p.wg.Go(func() {
 		client := devHTTPClient(2 * time.Second)

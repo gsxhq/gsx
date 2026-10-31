@@ -427,9 +427,28 @@ func (s *watchSession) awaitWarmup() []cycleResult {
 	return results
 }
 
-// warmupHook and warmupDoneHook, when set by a test, run at the start and the
-// end of the background warm-up.
-var warmupHook, warmupDoneHook func()
+// consumeWarmup absorbs the finished warm-up's results into dirty (see
+// watchDirtySet.absorbWarmup) and reports whether they need a cycle. It is a
+// no-op once they were consumed. Callers on the loop must have waited for
+// warmupPending, or accept blocking until the warm-up finishes.
+func (s *watchSession) consumeWarmup(dirty *watchDirtySet) bool {
+	pending := s.warmupPending() != nil
+	wrote := dirty.absorbWarmup(s.awaitWarmup())
+	if pending && warmupAbsorbedHook != nil {
+		warmupAbsorbedHook(wrote)
+	}
+	return wrote
+}
+
+// Test hooks: warmupHook and warmupDoneHook run at the start and the end of
+// the background warm-up; warmupWaitHook runs on the loop when it starts
+// waiting for a pending warm-up, and warmupAbsorbedHook once it absorbed the
+// warm-up's results, with consumeWarmup's verdict.
+var (
+	warmupHook, warmupDoneHook func()
+	warmupWaitHook             func()
+	warmupAbsorbedHook         func(wrote bool)
+)
 
 // restoreStartupHits restores the persistent-cache hits among dirs, module by
 // module, returning one cycleResult per restored dir: the result generateDir

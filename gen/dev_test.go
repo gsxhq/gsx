@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2650,8 +2649,7 @@ echo "done $$" >> "$log"
 
 // devSpecFrontDoorGo is the fake front door: it binds VITE_PORT, then creates
 // $DEV_SPEC_READY, and appends every /__gsx/event body to $DEV_SPEC_EVENTS,
-// one per line, and {"event":"reload"} for every /__reload. /__gsx/cmd
-// long-polls with nothing queued.
+// one per line. /__gsx/cmd long-polls with nothing queued.
 const devSpecFrontDoorGo = `package main
 
 import (
@@ -2683,11 +2681,8 @@ func main() {
 			case <-r.Context().Done():
 			case <-time.After(20 * time.Second):
 			}
-		case "/__gsx/event", "/__reload":
+		case "/__gsx/event":
 			b, _ := io.ReadAll(r.Body)
-			if r.URL.Path == "/__reload" {
-				b = []byte("{\"event\":\"reload\"}")
-			}
 			mu.Lock()
 			if f, err := os.OpenFile(os.Getenv("DEV_SPEC_EVENTS"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 				f.Write(append(b, '\n'))
@@ -2718,6 +2713,32 @@ type devSpecRun struct {
 	// abandoned, under mu, makes a warm-up that starts after the row's
 	// cleanup block forever instead of generating into a removed project.
 	abandoned bool
+	// The loop's side: loopWaiting closes when a loop path starts waiting for
+	// the warm-up, and absorbed receives the verdict once the loop absorbed
+	// its results, with the overlay/reload posts enqueued by then.
+	loopWaiting chan struct{}
+	waitingOnce sync.Once
+	absorbed    chan devSpecAbsorbed
+	enqueued    atomic.Int64 // overlay and reload posts enqueued
+}
+
+// devSpecAbsorbed is the loop's verdict on the warm-up's results.
+type devSpecAbsorbed struct {
+	wrote    bool
+	enqueued int64
+}
+
+// awaitAbsorbed waits for the loop to absorb the warm-up's results.
+func (r *devSpecRun) awaitAbsorbed(t *testing.T) devSpecAbsorbed {
+	t.Helper()
+	select {
+	case a := <-r.absorbed:
+		return a
+	case <-time.After(90 * time.Second):
+		stdout, stderr := r.output()
+		t.Fatalf("timed out waiting for the loop to absorb the warm-up\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+		return devSpecAbsorbed{}
+	}
 }
 
 // releaseWarmup lets a held warm-up run.
@@ -2733,37 +2754,6 @@ func (r *devSpecRun) awaitWarmup(t *testing.T, ch chan struct{}, what string) {
 		stdout, stderr := r.output()
 		t.Fatalf("timed out waiting for the warm-up to %s\nstdout:\n%s\nstderr:\n%s", what, stdout, stderr)
 	}
-}
-
-// overlayAndReloadEvents returns the posted overlay and reload events.
-func (r *devSpecRun) overlayAndReloadEvents() []string {
-	var out []string
-	for _, l := range devSpecLines(r.events, "") {
-		var ev struct {
-			Event string `json:"event"`
-		}
-		if json.Unmarshal([]byte(l), &ev) == nil && (ev.Event == "generated" || ev.Event == "reload") {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-// cyclePosted reports whether a loop cycle ran after startup: every cycle's
-// terminal status carries a new lastCycle, and the latest status is always
-// delivered.
-func (r *devSpecRun) cyclePosted() bool {
-	cycles := map[string]bool{}
-	for _, l := range devSpecLines(r.events, "") {
-		var ev struct {
-			Event     string         `json:"event"`
-			LastCycle map[string]any `json:"lastCycle"`
-		}
-		if json.Unmarshal([]byte(l), &ev) == nil && ev.Event == "status" && ev.LastCycle != nil {
-			cycles[fmt.Sprint(ev.LastCycle["at"])] = true
-		}
-	}
-	return len(cycles) > 1
 }
 
 // devSpecWorldUses counts shared-world lookups: a startup restored entirely
@@ -2922,6 +2912,8 @@ func devSpecSetup(t *testing.T) (
 			warmupStarted: make(chan struct{}),
 			warmupDone:    make(chan struct{}),
 			warmupRelease: make(chan struct{}),
+			loopWaiting:   make(chan struct{}),
+			absorbed:      make(chan devSpecAbsorbed, 1),
 		}
 		t.Setenv("GO_PORT", freePort(t))
 		t.Setenv("VITE_PORT", freePort(t))
@@ -2956,6 +2948,9 @@ func devSpecSetup(t *testing.T) (
 			<-r.warmupRelease
 		}
 		warmupDoneHook = func() { close(r.warmupDone) }
+		warmupWaitHook = func() { r.waitingOnce.Do(func() { close(r.loopWaiting) }) }
+		warmupAbsorbedHook = func(wrote bool) { r.absorbed <- devSpecAbsorbed{wrote, r.enqueued.Load()} }
+		postEnqueuedHook = func(string) { r.enqueued.Add(1) }
 		_, configPath, err := resolveConfig(config{}, proj)
 		if err != nil {
 			t.Fatalf("resolveConfig: %v", err)
@@ -2982,7 +2977,7 @@ func devSpecSetup(t *testing.T) (
 				r.releaseWarmup()
 				<-r.warmupDone
 			}
-			warmupHook, warmupDoneHook = nil, nil
+			warmupHook, warmupDoneHook, warmupWaitHook, warmupAbsorbedHook, postEnqueuedHook = nil, nil, nil, nil, nil
 		})
 		lockedWrite := func(buf *bytes.Buffer) writerFunc {
 			return func(p []byte) (int, error) {
@@ -3271,37 +3266,38 @@ func TestDevSpeculativeBuild(t *testing.T) {
 }
 
 // TestDevWarmupIsSilent pins that the background warm-up posts nothing when it
-// writes nothing: no overlay or reload follows startup's own, so a startup
-// codegen-error overlay survives it, and the poison .x.go is left alone.
+// writes nothing: the loop finds nothing to cycle, and no overlay or reload is
+// enqueued between the warm-up's start and the loop absorbing its results, so
+// a startup codegen-error overlay survives it and the poison .x.go is left
+// alone.
 //
 // Serial (t.Setenv), like TestDevSpeculativeBuild.
 func TestDevWarmupIsSilent(t *testing.T) {
 	fixture, warm, start := devSpecSetup(t)
-	// settle bounds how long a post the warm-up caused could take to land.
-	const settle = 1500 * time.Millisecond
+	// silent runs r's held warm-up and asserts the loop absorbed it silently.
+	silent := func(t *testing.T, r *devSpecRun) {
+		t.Helper()
+		r.awaitWarmup(t, r.warmupStarted, "start")
+		// Startup enqueued all its posts on the loop before it started the
+		// warm-up.
+		before := r.enqueued.Load()
+		r.releaseWarmup()
+		got := r.awaitAbsorbed(t)
+		if got.wrote {
+			t.Fatal("the warm-up wrote on a tree startup restored")
+		}
+		if got.enqueued != before {
+			t.Fatalf("%d overlay/reload posts enqueued during the warm-up, want 0", got.enqueued-before)
+		}
+	}
 
 	t.Run("up_to_date", func(t *testing.T) {
 		proj := fixture(t, "")
 		warm(t, proj)
 		r := start(t, proj, "DEV_SPEC_WARMUP_HOLD=1")
-		r.awaitWarmup(t, r.warmupStarted, "start")
-		// Let startup's own posts land (or give up) before the baseline.
-		time.Sleep(settle)
-		events := r.overlayAndReloadEvents()
-		r.releaseWarmup()
-		r.awaitWarmup(t, r.warmupDone, "finish")
-		time.Sleep(settle)
+		silent(t, r)
 		if code := r.stop(t); code != 0 {
 			t.Fatalf("exit = %d, want 0", code)
-		}
-		if got := r.overlayAndReloadEvents(); !slices.Equal(got, events) {
-			t.Fatalf("overlay/reload events = %q, want only startup's %q", got, events)
-		}
-		if r.cyclePosted() {
-			t.Fatal("a cycle ran after startup")
-		}
-		if got := devSpecLines(r.builds, "start"); len(got) != 1 {
-			t.Fatalf("builds = %q, want only startup's", devSpecLines(r.builds, ""))
 		}
 	})
 
@@ -3315,33 +3311,18 @@ func TestDevWarmupIsSilent(t *testing.T) {
 			t.Fatalf("generate of a codegen error exited 0: %s", out.String())
 		}
 		r := start(t, proj, "DEV_SPEC_WARMUP_HOLD=1")
-		r.waitFor(t, "the startup idle status", r.idleStatusPosted)
 		r.awaitWarmup(t, r.warmupStarted, "start")
-		// Let startup's own posts land (or give up) before the baseline.
-		r.waitFor(t, "the front door", func() bool { _, err := os.Stat(r.ready); return err == nil })
-		time.Sleep(settle)
 		xgo := filepath.Join(proj, "app.x.go")
 		before, err := statSnapshot([]string{xgo})
 		if err != nil || !before[0].exists {
 			t.Fatalf("no poison output after startup: %v", err)
 		}
-		events := r.overlayAndReloadEvents()
-		r.releaseWarmup()
-		r.awaitWarmup(t, r.warmupDone, "finish")
-		time.Sleep(settle)
-		if code := r.stop(t); code != 0 {
-			t.Fatalf("exit = %d, want 0", code)
-		}
-		// The startup overlay is posted before the front door listens, so it
-		// may not have landed; whatever did must be all there is.
-		if got := r.overlayAndReloadEvents(); !slices.Equal(got, events) || len(got) > 1 || len(got) == 1 && !strings.Contains(got[0], "undefinedStamp") {
-			t.Fatalf("overlay/reload events = %q, want at most startup's codegen-error overlay (%q)", got, events)
-		}
-		if r.cyclePosted() {
-			t.Fatal("a cycle ran after startup")
-		}
+		silent(t, r)
 		if after, _ := statSnapshot([]string{xgo}); after[0] != before[0] {
 			t.Fatal("the warm-up rewrote the poison output")
+		}
+		if code := r.stop(t); code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
 		}
 	})
 }
@@ -3358,7 +3339,11 @@ func TestDevCtrlCDuringWarmup(t *testing.T) {
 	r.awaitWarmup(t, r.warmupStarted, "start")
 	// An edit whose cycle waits for the held warm-up.
 	writeFile(t, proj, "app.gsx", fmt.Sprintf(devSpecStampGsx, "gsx2"))
-	time.Sleep(300 * time.Millisecond) // past the loop's debounce
+	select {
+	case <-r.loopWaiting:
+	case <-time.After(90 * time.Second):
+		t.Fatal("the edit cycle never waited for the warm-up")
+	}
 	begin := time.Now()
 	r.cancel()
 	select {

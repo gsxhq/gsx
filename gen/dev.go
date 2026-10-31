@@ -514,13 +514,16 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 	// came first: the loop then shuts down without it.
 	warmed := func() bool {
 		if pending := sess.warmupPending(); pending != nil {
+			if warmupWaitHook != nil {
+				warmupWaitHook()
+			}
 			select {
 			case <-pending:
 			case <-ctx.Done():
 				return false
 			}
 		}
-		dirty.absorbWarmup(sess.awaitWarmup())
+		sess.consumeWarmup(dirty)
 		return true
 	}
 
@@ -568,7 +571,7 @@ func runDevContext(ctx context.Context, args []string, stdout, stderr io.Writer,
 		case <-sess.warmupPending():
 			// The warm-up finished with no cycle waiting for it. If it wrote,
 			// a cycle reports and rebuilds that like an edit.
-			if dirty.absorbWarmup(sess.awaitWarmup()) {
+			if sess.consumeWarmup(dirty) {
 				schedule()
 			}
 
