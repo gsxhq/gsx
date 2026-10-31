@@ -386,8 +386,8 @@ func commitCache(prep cachePreparation, classification cacheClassification, repo
 		result.UpToDate += hit.upToDate
 	}
 	report.Durations.Restore = time.Since(restoreStart)
-	if restoreErr != nil {
-		result.Errs = append(result.Errs, restoreErr)
+	if failure := (*restoreFailure)(nil); errors.As(restoreErr, &failure) {
+		result.Errs = append(result.Errs, failure.err)
 		return
 	}
 
@@ -415,10 +415,22 @@ type restoredDir struct {
 	diags    []diag.Diagnostic
 }
 
+// restoreFailure is the restore error of one hit dir, with the paths restore
+// wrote there before failing.
+type restoreFailure struct {
+	dir     string
+	written []string
+	err     error
+}
+
+func (f *restoreFailure) Error() string { return f.err.Error() }
+func (f *restoreFailure) Unwrap() error { return f.err }
+
 // restoreCacheHits writes every classified hit's cached output to disk, in
 // prep.dirs order, skipping bytes that are already current. It stops at the
 // first restore error and returns the hits restored before it alongside the
-// error; the failing dir is not among them. It reads no Module state.
+// failure, a *restoreFailure; the failing dir is not among them. It reads no
+// Module state.
 func restoreCacheHits(prep cachePreparation, classification cacheClassification) (hits map[string]restoredDir, err error) {
 	hits = make(map[string]restoredDir, len(classification.hits))
 	for _, dir := range prep.dirs {
@@ -426,9 +438,9 @@ func restoreCacheHits(prep cachePreparation, classification cacheClassification)
 		if !ok {
 			continue
 		}
-		written, upToDate, err := restore(dir, entry.files)
-		if err != nil {
-			return hits, err
+		written, upToDate, rerr := restore(dir, entry.files)
+		if rerr != nil {
+			return hits, &restoreFailure{dir: dir, written: written, err: rerr}
 		}
 		hits[dir] = restoredDir{written: written, upToDate: upToDate, diags: absWarnings(prep.root, entry.warnings)}
 	}

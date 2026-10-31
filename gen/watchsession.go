@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -330,7 +331,7 @@ func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 	// otherwise survive indefinitely. Must run before the per-dir regen loop,
 	// same ordering as the batch path.
 	startup := sweepOrphanStartup(s.cfg.paths, dirs)
-	hits := s.restoreStartupHits(dirs)
+	hits, carried := s.restoreStartupHits(dirs)
 	misses := make([]string, 0, len(dirs)-len(hits))
 	for _, dir := range dirs {
 		if _, ok := hits[dir]; !ok {
@@ -353,8 +354,12 @@ func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 			s.warmDirs = append(s.warmDirs, dir)
 			continue
 		}
-		startup = append(startup, generated[0])
+		r := generated[0]
 		generated = generated[1:]
+		if c, ok := carried[dir]; ok {
+			r = mergeCarried(r, c)
+		}
+		startup = append(startup, r)
 	}
 	return startup, nil
 }
@@ -365,10 +370,12 @@ func (s *watchSession) initialGenerate() ([]cycleResult, error) {
 // Module emits for the same key. A module whose cache cannot be prepared or
 // whose Go command context moved since preparation contributes no hits, and a
 // restore failure leaves the failing dir and the module's remaining hits to the
-// Module, so every dir that is not restored cleanly is generated exactly as
-// before. It touches no Module state.
-func (s *watchSession) restoreStartupHits(dirs []string) map[string]cycleResult {
-	results := map[string]cycleResult{}
+// Module. Whatever this already did to such a dir — orphans swept, files the
+// failed restore wrote — is returned in carried, for initialGenerate to merge
+// into the dir's Module result: the Module finds those files current and would
+// not report them. It touches no Module state.
+func (s *watchSession) restoreStartupHits(dirs []string) (hits, carried map[string]cycleResult) {
+	hits, carried = map[string]cycleResult{}, map[string]cycleResult{}
 	groups, _ := groupByModule(dirs)
 	for _, g := range groups {
 		config, ok := s.configs[g.root]
@@ -397,20 +404,30 @@ func (s *watchSession) restoreStartupHits(dirs []string) map[string]cycleResult 
 				removed[dir], removeErr[dir] = removeOrphanXgo(dir)
 			}
 		}
-		restored, _ := restoreCacheHits(prep, classification)
+		restored, restoreErr := restoreCacheHits(prep, classification)
+		var failure *restoreFailure
+		errors.As(restoreErr, &failure)
 		// Hits share the module's preparation; charge it to the first, as
 		// regenDirs charges a batch refresh.
 		durMs := time.Since(start).Milliseconds()
 		for _, dir := range prep.dirs {
-			hit, ok := restored[dir]
-			if !ok {
+			if _, hit := classification.hits[dir]; !hit {
 				continue
 			}
-			results[dir] = cycleResult{
+			r, ok := restored[dir]
+			if !ok {
+				c := cycleResult{Removed: removed[dir]}
+				if failure != nil && failure.dir == dir {
+					c.Written = failure.written
+				}
+				carried[dir] = c
+				continue
+			}
+			hits[dir] = cycleResult{
 				Dir:     dir,
-				Written: hit.written,
+				Written: r.written,
 				Removed: removed[dir],
-				Diags:   hit.diags,
+				Diags:   r.diags,
 				OK:      removeErr[dir] == nil,
 				Err:     removeErr[dir],
 				DurMs:   durMs,
@@ -418,7 +435,29 @@ func (s *watchSession) restoreStartupHits(dirs []string) map[string]cycleResult 
 			durMs = 0
 		}
 	}
-	return results
+	return hits, carried
+}
+
+// mergeCarried folds into r what restoreStartupHits already did to its dir.
+func mergeCarried(r, carried cycleResult) cycleResult {
+	r.Written = unionPaths(carried.Written, r.Written)
+	r.Removed = unionPaths(carried.Removed, r.Removed)
+	return r
+}
+
+// unionPaths returns first followed by the paths of second not in first, nil
+// when both are empty.
+func unionPaths(first, second []string) []string {
+	if len(first) == 0 {
+		return second
+	}
+	out := slices.Clone(first)
+	for _, p := range second {
+		if !slices.Contains(first, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // reopen (re)opens a fresh Module for every module root the session spans, then

@@ -1,11 +1,13 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -755,12 +757,36 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 		}
 	}
 	rows := []struct {
-		name     string
-		fixture  func(t *testing.T, root string)
-		goWork   bool // run both sessions under a go.work: uncacheable
-		wantWarm []string
+		name    string
+		fixture func(t *testing.T, root string)
+		edit    func(t *testing.T, root string) // after afterWarm, if set
+		goWork  bool                            // run both sessions under a go.work: uncacheable
+		// readOnlyAfter makes the dir of this root-relative output read-only
+		// once restore writes it, failing that dir's next write.
+		readOnlyAfter string
+		wantWarm      []string
 	}{
 		{name: "one module", fixture: base, wantWarm: []string{"hit", "warn"}},
+		{
+			// multi's restore writes a.x.go, then fails on z.x.go: the dir
+			// and every later hit (warn) fall back to the Module, and multi's
+			// result still reports the a.x.go the restore wrote.
+			name: "restore fails after a write",
+			fixture: func(t *testing.T, root string) {
+				base(t, root)
+				writeFileT(t, filepath.Join(root, "multi", "a.gsx"), src("multi", "A", "a"))
+				writeFileT(t, filepath.Join(root, "multi", "z.gsx"), src("multi", "Z", "z"))
+			},
+			edit: func(t *testing.T, root string) {
+				for _, p := range []string{filepath.Join(root, "multi", "a.x.go"), filepath.Join(root, "multi", "z.x.go")} {
+					if err := os.Remove(p); err != nil {
+						t.Fatal(err)
+					}
+				}
+			},
+			readOnlyAfter: "multi/a.x.go",
+			wantWarm:      []string{"hit"},
+		},
 		{
 			name: "two modules",
 			fixture: func(t *testing.T, root string) {
@@ -777,6 +803,9 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 	cfg := moduleGenerateConfig{useCache: true}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
+			if row.readOnlyAfter != "" && os.Geteuid() == 0 {
+				t.Skip("root ignores directory permissions")
+			}
 			root := t.TempDir()
 			cacheRoot := t.TempDir()
 			row.fixture(t, root)
@@ -787,6 +816,9 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 				t.Fatalf("warming generate: %v", res.Errs)
 			}
 			afterWarm(t, root)
+			if row.edit != nil {
+				row.edit(t, root)
+			}
 			if row.goWork {
 				work := filepath.Join(t.TempDir(), "go.work")
 				writeFileT(t, work, "go 1.26.1\n\nuse "+root+"\n")
@@ -796,15 +828,33 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 
 			start := func(cache string) (*watchSession, []cycleResult, map[string]string) {
 				t.Setenv("GSXCACHE", cache)
+				if row.readOnlyAfter != "" {
+					target := filepath.Join(root, filepath.FromSlash(row.readOnlyAfter))
+					afterRestoreWrite = func(written string) {
+						if written == target {
+							if err := os.Chmod(filepath.Dir(target), 0o555); err != nil {
+								t.Error(err)
+							}
+						}
+					}
+					t.Cleanup(func() { _ = os.Chmod(filepath.Dir(target), 0o755) })
+				}
 				s, startup, err := startWatchSessionForTest(watchConfig{paths: []string{root}, moduleConfig: fixedModuleConfig(cfg)})
+				if row.readOnlyAfter != "" {
+					afterRestoreWrite = nil
+					if err := os.Chmod(filepath.Dir(filepath.Join(root, filepath.FromSlash(row.readOnlyAfter))), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if err != nil {
 					t.Fatalf("startWatchSessionForTest(GSXCACHE=%s): %v", cache, err)
 				}
 				for i := range startup {
 					startup[i].DurMs = 0
-					// restore writes in map order, so Written's order within a
-					// dir is unspecified on either path.
-					slices.Sort(startup[i].Written)
+					// A failed write names its random temp file, on either path.
+					if err := startup[i].Err; err != nil {
+						startup[i].Err = errors.New(tempNameRE.ReplaceAllString(err.Error(), ".gsx-w-*"))
+					}
 				}
 				return s, startup, readTreeT(t, root)
 			}
@@ -833,6 +883,18 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 					t.Fatalf("codegen-error dir %s reported OK", r.Dir)
 				}
 			}
+			if row.readOnlyAfter != "" {
+				target := filepath.Join(root, filepath.FromSlash(row.readOnlyAfter))
+				var r *cycleResult
+				for i := range cached {
+					if cached[i].Dir == filepath.Dir(target) {
+						r = &cached[i]
+					}
+				}
+				if r == nil || !slices.Contains(r.Written, target) || r.OK || r.Err == nil {
+					t.Fatalf("result for %s = %+v, want a failed result whose Written includes %s", filepath.Dir(target), r, target)
+				}
+			}
 			if len(uncachedSession.warmDirs) != 0 {
 				t.Fatalf("uncached warmDirs = %v, want none", uncachedSession.warmDirs)
 			}
@@ -847,6 +909,9 @@ func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 		})
 	}
 }
+
+// tempNameRE matches writeFileAtomic's temp file names.
+var tempNameRE = regexp.MustCompile(`\.gsx-w-[0-9]+`)
 
 // readTreeT returns every regular file under root, keyed by its path.
 func readTreeT(t *testing.T, root string) map[string]string {
