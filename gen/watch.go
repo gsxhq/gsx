@@ -131,17 +131,18 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	sess := armed.session
 	w := armed.watcher
 	sources := armed.sources
+	// A bad class merger fails the run before anything is emitted or written,
+	// exactly as the former prepare-time validation did.
+	if err := sess.awaitMergerValidation(); err != nil {
+		em.emitError(err)
+		return 1
+	}
 	// Start means observation is armed. Initial generation follows while source
 	// events queue on w, so an edit in that window cannot disappear.
 	em.start(sess.root, sess.watchRoots)
 	dirty := newWatchDirtySet()
 	startup, err := sess.initialGenerate()
 	if err != nil {
-		em.emitError(err)
-		return 1
-	}
-	// A bad class merger must fail the run before any startup result is emitted.
-	if err := sess.awaitMergerValidation(); err != nil {
 		em.emitError(err)
 		return 1
 	}

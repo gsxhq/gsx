@@ -298,6 +298,39 @@ func TestWatchSession_BadMergerRefused(t *testing.T) {
 	}
 }
 
+// TestRunWatch_BadMergerEmitsAndWritesNothing: with a bad merger,
+// generate --watch exits 1 with the signature error, emits no start event and
+// writes no .x.go.
+func TestRunWatch_BadMergerEmitsAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping go-build test in -short mode")
+	}
+	root := t.TempDir()
+	writeMod(t, root)
+	writeFileT(t, filepath.Join(root, "views", "page.gsx"),
+		"package views\n\ncomponent Page() {\n\t<h1>hello</h1>\n}\n")
+	writeFileT(t, filepath.Join(root, "mrg", "mrg.go"),
+		"package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
+	out, errb := &syncBuf{}, &syncBuf{}
+	code := runWatchWithStop(watchConfig{
+		paths:       []string{filepath.Join(root, "views")},
+		format:      "ndjson",
+		stdout:      out,
+		stderr:      errb,
+		classMerger: &codegen.ClassMergerRef{PkgPath: "example.com/m/mrg", FuncName: "Merge"},
+	}, nil)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", code, out, errb)
+	}
+	if strings.Contains(out.String(), `"event":"start"`) || !strings.Contains(out.String(), "func([]string) string") {
+		t.Fatalf("want only the signature error, got stdout=%s", out)
+	}
+	if m, _ := filepath.Glob(filepath.Join(root, "views", "*.x.go")); len(m) != 0 {
+		t.Fatalf("wrote generated files: %v", m)
+	}
+}
+
 // TestWatchSession_NoMergerAwaitIsImmediate: without a configured merger,
 // awaitMergerValidation returns nil without blocking, started or not.
 func TestWatchSession_NoMergerAwaitIsImmediate(t *testing.T) {
