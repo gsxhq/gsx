@@ -804,6 +804,9 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   Vite child process, browser diagnostics/reload, `.env` restarts, and clean
   process-tree teardown. Build artifacts and optional default logs live in a
   per-project OS cache directory, leaving the working tree clean.
+- [x] **HTTPS front door** - preserves an HTTPS `VITE_DEV_URL` through port
+  resolution and child environments. Vite's native `server.https` owns the
+  certificate; dev-control requests retain certificate and hostname validation.
 - [x] **`gsx generate --watch`** (warm daemon, `gen/watch.go`) - a long-lived
   process that keeps the type-resolution environment warm (`gen.CachedResolver`)
   and regenerates in-process on each change, streaming NDJSON diagnostics. Measured:

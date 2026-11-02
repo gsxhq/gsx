@@ -17,6 +17,39 @@ The starter exposes the same thing as `npm run dev`, a script that runs
 `go tool gsx dev`; the wrapper exists only so one command also starts Vite. With
 no front-end pipeline, `gsx dev --no-web` keeps Node out of the loop entirely.
 
+### HTTPS on a local hostname
+
+Camera and microphone APIs require a secure browser context on a LAN hostname.
+Use Vite's native TLS listener for the front door and set its public origin in
+the project `.env`:
+
+```dotenv
+VITE_DEV_URL=https://my-host:5173
+```
+
+Configure `server.host` for that hostname and `server.https` with the certificate
+and key in `vite.config.ts`, keeping the rest of the existing configuration:
+
+```ts
+import { readFileSync } from "node:fs";
+
+// Inside the existing Vite config's server options:
+https: command === "serve" ? {
+  cert: readFileSync(".certs/dev.pem"),
+  key: readFileSync(".certs/dev-key.pem"),
+} : undefined,
+```
+
+For example, mkcert can issue the certificate for `my-host` after its local CA
+is installed. Keep the certificate files and `.env` out of version control.
+Every browser machine connecting to the hostname must trust the issuing CA.
+
+`gsx dev` preserves the HTTPS scheme when resolving the host and port and passes
+the same `VITE_DEV_URL` to Vite and Go. Its control requests verify certificate
+chains and hostnames normally; they never bypass TLS verification. The Go
+backend can continue listening over HTTP on loopback. Vite also serves its
+reload WebSocket over the secure front door.
+
 ## What happens on save
 
 On a normal `.gsx` save, gsx runs this sequence:

@@ -282,6 +282,8 @@ func resolveUpstream(upstream, health string, env []string, goPort string) (orig
 // resolveViteDevEnv resolves the Vite dev server's host:port and folds it
 // back into env as VITE_PORT/VITE_DEV_URL for the spawned front door and Go
 // server to agree on.
+// An existing VITE_DEV_URL must be an HTTP(S) origin; its scheme is preserved
+// because Vite, rather than gsx dev, owns TLS termination.
 //
 // Precedence: VITE_PORT > VITE_DEV_URL's port > auto-pick from 5173. An
 // explicit port — either form — fails loudly (hard error) if it's already
@@ -297,14 +299,23 @@ func resolveUpstream(upstream, health string, env []string, goPort string) (orig
 // edit neither conflicts with our own child nor drifts to a port nothing
 // listens on.
 func resolveViteDevEnv(env []string, host, held string) ([]string, string, string, error) {
-	var urlPort string
+	scheme, urlPort := "http", ""
 	if raw := envValue(env, "VITE_DEV_URL", ""); raw != "" {
-		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
-			if host == "" {
-				host = u.Hostname()
-			}
-			urlPort = u.Port()
+		u, err := url.Parse(raw)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("VITE_DEV_URL %q: %w", raw, err)
 		}
+		if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.Opaque != "" ||
+			u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#") {
+			return nil, "", "", fmt.Errorf("VITE_DEV_URL %q must be an absolute http/https origin without credentials, path, query or fragment", raw)
+		}
+		if strings.HasSuffix(u.Host, ":") {
+			return nil, "", "", fmt.Errorf("VITE_DEV_URL %q has an empty port", raw)
+		}
+		if host == "" {
+			host = u.Hostname()
+		}
+		scheme, urlPort = u.Scheme, u.Port()
 	}
 
 	var warning string
@@ -340,7 +351,7 @@ func resolveViteDevEnv(env []string, host, held string) ([]string, string, strin
 	if host == "" {
 		host = "localhost"
 	}
-	viteURL := "http://" + host + ":" + port
+	viteURL := (&url.URL{Scheme: scheme, Host: net.JoinHostPort(host, port)}).String()
 	env = setEnvValue(env, "VITE_PORT", port)
 	env = setEnvValue(env, "VITE_DEV_URL", viteURL)
 	return env, viteURL, warning, nil

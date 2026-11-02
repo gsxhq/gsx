@@ -41,9 +41,10 @@ export default defineConfig(({ command, mode }) => {
         // Log the app front door ("/"); Vite's own line shows the empty /__vite/ base.
         name: "gsx-dev-url",
         configureServer(server) {
+          const appURL = new URL("/", env.VITE_DEV_URL || `${server.config.server.https ? "https" : "http"}://localhost:${vitePort}`).href;
           server.printUrls = () => {
             server.config.logger.info(
-              `\n  \x1b[32m➜\x1b[0m  Open \x1b[36mhttp://localhost:${vitePort}/\x1b[0m to view your app\n`,
+              `\n  \x1b[32m➜\x1b[0m  Open \x1b[36m${appURL}\x1b[0m to view your app\n`,
             );
           };
         },
