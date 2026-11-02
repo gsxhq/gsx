@@ -6,6 +6,13 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
+## v0.4.5 — 2026-11-02
+
+- **`gsx dev` preserves HTTPS Vite front-door origins.** Native Vite TLS
+  works with trusted local certificates; generated dev URLs retain the scheme
+  and support IPv6 hosts. Dev health checks and control requests verify TLS
+  certificates and hostnames using system trust.
+
 - **`gsx dev` starts faster.** Unchanged packages restore from the generate
   cache, and the build starts alongside startup generation instead of after
   it. The first edit may wait for a background warm-up to finish.
