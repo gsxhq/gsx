@@ -3,9 +3,33 @@ package lsp
 import (
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"strings"
 )
+
+func normalizeWindowsDriveURIPath(path string) (string, bool) {
+	if len(path) < 4 || path[0] != '/' || path[2] != ':' || path[3] != '/' || !isASCIILetter(path[1]) {
+		return "", false
+	}
+	return string(toUpperASCII(path[1])) + path[2:], true
+}
+
+func normalizeWindowsDrivePathForURI(path string) (string, bool) {
+	if len(path) < 3 || path[1] != ':' || path[2] != '/' || !isASCIILetter(path[0]) {
+		return "", false
+	}
+	return "/" + string(toUpperASCII(path[0])) + path[1:], true
+}
+
+func isASCIILetter(b byte) bool {
+	return b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
+}
+
+func toUpperASCII(b byte) byte {
+	if b >= 'a' && b <= 'z' {
+		return b - ('a' - 'A')
+	}
+	return b
+}
 
 // localFileURIPath decodes one absolute local file URI. Empty authority and
 // localhost are the only local identities; every other URI fails closed.
@@ -24,11 +48,11 @@ func localFileURIPath(raw string) (string, error) {
 			return "", fmt.Errorf("not an absolute local file URI")
 		}
 	}
-	path := filepath.FromSlash(parsed.Path)
-	if path == "" || !filepath.IsAbs(path) {
+	path, ok := fileURIPathToPath(parsed.Path)
+	if !ok {
 		return "", fmt.Errorf("not an absolute local file URI")
 	}
-	return filepath.Clean(path), nil
+	return path, nil
 }
 
 // uriToPath is the fail-closed compatibility form used by request handlers.
@@ -43,10 +67,11 @@ func uriToPath(raw string) string {
 
 // pathToURI converts an absolute filesystem path to one canonical file URI.
 func pathToURI(path string) string {
-	if path == "" || !filepath.IsAbs(path) {
+	uriPath, ok := filePathToURIPath(path)
+	if !ok {
 		return ""
 	}
-	return (&url.URL{Scheme: "file", Path: filepath.Clean(path)}).String()
+	return (&url.URL{Scheme: "file", Path: uriPath}).String()
 }
 
 func canonicalDocumentURI(raw string) (string, bool) {
