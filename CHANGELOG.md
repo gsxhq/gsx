@@ -6,6 +6,12 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
+## v0.4.6 — 2026-11-03
+
+- **Windows language-server file URIs now resolve correctly.** Drive-letter
+  URIs, including encoded colons and lowercase drive letters, convert to native
+  paths and canonical file URIs. Fixes [#271](https://github.com/gsxhq/gsx/issues/271).
+
 ## v0.4.5 — 2026-11-02
 
 - **`gsx dev` preserves HTTPS Vite front-door origins.** Native Vite TLS
