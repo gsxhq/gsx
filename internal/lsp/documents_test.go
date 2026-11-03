@@ -19,6 +19,55 @@ func TestURIPathRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNormalizeWindowsDriveURIPath(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		want string
+		ok   bool
+	}{
+		{name: "lowercase", path: "/d:/Projects/eos", want: "D:/Projects/eos", ok: true},
+		{name: "uppercase", path: "/D:/Projects/eos", want: "D:/Projects/eos", ok: true},
+		{name: "root", path: "/d:/", want: "D:/", ok: true},
+		{name: "missing slash", path: "d:/Projects/eos"},
+		{name: "missing drive separator", path: "/d/Projects/eos"},
+		{name: "non-letter drive", path: "/1:/Projects/eos"},
+		{name: "UNC", path: "//server/share"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := normalizeWindowsDriveURIPath(tc.path)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("normalizeWindowsDriveURIPath(%q) = (%q, %t), want (%q, %t)", tc.path, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+func TestNormalizeWindowsDrivePathForURI(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		want string
+		ok   bool
+	}{
+		{name: "lowercase", path: "d:/Projects/eos", want: "/D:/Projects/eos", ok: true},
+		{name: "uppercase", path: "D:/Projects/eos", want: "/D:/Projects/eos", ok: true},
+		{name: "root", path: "d:/", want: "/D:/", ok: true},
+		{name: "relative", path: "Projects/eos"},
+		{name: "non-letter drive", path: "1:/Projects/eos"},
+		{name: "UNC", path: "//server/share"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := normalizeWindowsDrivePathForURI(tc.path)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("normalizeWindowsDrivePathForURI(%q) = (%q, %t), want (%q, %t)", tc.path, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
 func TestLocalFileURIPathAuthorityMatrix(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "space ünicode", "pä ge.gsx")
 	canonical := (&url.URL{Scheme: "file", Path: path}).String()
