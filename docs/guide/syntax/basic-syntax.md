@@ -44,3 +44,48 @@ A lowercase component can wrap the HTML element with the same name. Inside `comp
 <!--@include: ./_generated/basic-syntax/020-wrapper-pattern.md-->
 
 Other lowercase tags still follow the normal declaration rule. To recurse from a lowercase component, use an ordinary Go call rather than a self-named tag.
+
+## Whitespace {#whitespace}
+
+GSX normalizes source whitespace to keep rendered HTML compact:
+
+- Discard layout-only whitespace: newlines and indentation between sibling
+  elements do not create a separator.
+- Preserve word separation in prose: internal whitespace collapses to one space;
+  a newline between substantive text and text-level content preserves one space
+  when that boundary needs a prose separator.
+- Keep punctuation attached: inferred spaces are omitted before closing or
+  terminal punctuation, percent signs and ellipses, and after opening brackets
+  or opening quotation marks.
+- Explicit spaces override inference. Inline source spaces normalize to one
+  space; expression values such as `{ " " }`, `{ "  " }` and nonbreaking spaces
+  keep their data, even next to punctuation.
+
+```gsx
+<p>Hello
+    <b>world</b>
+</p>
+<span>A</span>
+<span>B</span>
+<p>{value}
+    %
+</p>
+```
+
+These produce `Hello <b>world</b>`, adjacent spans, and `42%` when `value` is 42.
+This is GSX source normalization, rather than literal HTML whitespace emission.
+The formatter can reindent markup without adding that indentation to output.
+
+Text-level HTML elements such as `a`, `b`, `em`, `span` and `strong` participate
+in prose boundaries. Block elements, empty boxes and component tags have opaque
+output, so no separator is inferred across them. Interpolations conservatively
+count as possible text; runtime values do not change source normalization.
+
+Boundary analysis uses the authored syntax, including possible `if`/`for`/
+`switch` output. It does not evaluate Go conditions or inspect CSS classes.
+An inferred space belongs to its source text, like an inline authored space:
+if optional content renders nothing, the source space can remain. Put an
+explicit separator inside a branch when it should appear only with that branch.
+
+Text inside `pre` and `textarea` subtrees, raw `script`/`style` bodies, static
+attribute values and expression data retain their existing verbatim contracts.

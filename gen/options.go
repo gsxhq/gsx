@@ -396,7 +396,7 @@ func WithSerialization(s Serialization) Option {
 // or "error" — overriding that code's entry in the gsx.toml [lint] table. An
 // unknown code or level is recorded on the config so the run fails clearly.
 //
-//	gen.Main(gen.WithLint("child-element-spacing", "error"))
+//	gen.Main(gen.WithLint("duplicate-attribute", "error"))
 func WithLint(code, level string) Option {
 	return func(cfg *config) {
 		policy, err := parseLintTable(map[string]string{code: level})

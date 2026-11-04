@@ -114,7 +114,7 @@ func TestGenerateDiagJSONSuccessStdoutIsJSON(t *testing.T) {
 component A() {
 	<p>
 		Label:
-		<a href="/x">x</a>
+		<a href="/x" href="/y">x</a>
 	</p>
 }
 `)
@@ -127,8 +127,8 @@ component A() {
 	if err := json.Unmarshal([]byte(out), &arr); err != nil {
 		t.Fatalf("--json: stdout is not exactly a JSON array: %v\nstdout=%q", err, out)
 	}
-	if len(arr) != 1 || arr[0]["code"] != "child-element-spacing" {
-		t.Fatalf("want one child-element-spacing warning, got %v", arr)
+	if len(arr) != 1 || arr[0]["code"] != "duplicate-attribute" {
+		t.Fatalf("want one duplicate-attribute warning, got %v", arr)
 	}
 }
 

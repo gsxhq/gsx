@@ -7,9 +7,9 @@ Note: gsx's wsnorm collapses EVERY interior whitespace run to a single space
 (docs/superpowers/specs/2026-06-21-gsx-whitespace-model-design.md) that diverges
 from React/JSX, which preserves an intra-line multi-space run verbatim (`x   -   y`)
 and leaves collapsing to the browser. s1/s3 (single space) were oracle-checked
-against React and match; newline-adjacent whitespace dropping also follows JSX
-convention (not re-run through the oracle here). Multi-space run collapse is
-gsx-specific. The invariant THIS case pins is element-body behavior; control-flow
+against React and match. Prose-edge newlines now use GSX structural spacing
+inference rather than JSX edge dropping; layout-only newline nodes still
+disappear. Multi-space run collapse is GSX-specific. The invariant THIS case pins is element-body behavior; control-flow
 bodies must match it exactly.
 -- input.gsx --
 package views

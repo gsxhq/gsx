@@ -6,6 +6,14 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
+- **Prose spacing is normalized automatically.** Layout-only newlines disappear,
+  word separators beside inline text survive, and punctuation including percent
+  signs and ellipses remains attached. Explicit spaces override inference.
+  Branch analysis retains all possible punctuation boundaries instead of
+  merging them into unknown text. The formatter shares these rules.
+  `child-element-spacing` and its editor fixes are retired; remove old lint
+  configuration entries. Preserved/raw contexts retain their existing behavior.
+
 ## v0.4.6 — 2026-11-03
 
 - **Windows language-server file URIs now resolve correctly.** Drive-letter

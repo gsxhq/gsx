@@ -507,6 +507,9 @@ func parseLintTable(table map[string]string) (diag.LintPolicy, error) {
 	sort.Strings(codes)
 	policy := diag.LintPolicy{}
 	for _, code := range codes {
+		if code == "child-element-spacing" {
+			return nil, fmt.Errorf("lint.child-element-spacing: rule retired because prose spacing is normalized automatically; remove this entry")
+		}
 		if !diag.IsLint(code) {
 			return nil, fmt.Errorf("lint: unknown code %q (configurable: %s)", code, strings.Join(diag.LintCodes(), ", "))
 		}

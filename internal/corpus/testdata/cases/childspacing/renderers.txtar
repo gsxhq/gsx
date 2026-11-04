@@ -1,6 +1,5 @@
-# child-element-spacing classifies an interpolation by its rendered type after
-# a registered renderer: one returning string renders text (reported), one
-# returning gsx.Node has unknown output (not reported).
+Configured text renderers participate in ordinary generation; prose spacing
+is normalized syntactically without requiring a spacing diagnostic.
 -- gsx.toml --
 [renderers]
 "./ty.Label" = "corpustest/cases/childspacing_renderers.Label"
@@ -40,6 +39,5 @@ component C(l ty.Label, b ty.Badge) {
 -- invoke --
 C(sample("ann"))
 -- diagnostics.golden --
-18:8: warning: line break after this text is dropped: no space renders before the interpolation
 -- render.golden --
-<p id="string-renderer">Ownerann</p><p id="node-renderer">Owner<span class="badge">ann</span></p>
+<p id="string-renderer">Owner ann</p><p id="node-renderer">Owner <span class="badge">ann</span></p>
