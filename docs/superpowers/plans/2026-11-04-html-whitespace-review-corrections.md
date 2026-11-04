@@ -46,6 +46,10 @@
   source to readable multiline HTML layout. Regenerate exact rendered goldens
   and generated docs/presets; never hand-edit generated output.
 - [ ] Document variadic separator semantics and formatter placement guarantees.
+- [ ] Make semantic/example render golden checks byte-sensitive. Define an
+  explicit archive framing newline so txtar cannot conflate output ending in
+  LF with output lacking LF; test leading, internal and trailing whitespace.
+  Structural HTML comparison may enrich failures but must not decide equality.
 - [ ] Compare new diffs against the 283-case audit ledger; individually inspect
   each newly changed corpus case and preserve its original test purpose.
 - [ ] Independent adversarial probes for list cardinality and formatter output,
