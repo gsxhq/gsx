@@ -54,7 +54,7 @@
   each newly changed corpus case and preserve its original test purpose.
 - [x] Independent adversarial probes for list cardinality and formatter output,
   then make lint, docs build and final uncached make ci. Fix failures narrowly.
-- [ ] Push reviewed commits to PR 274. Keep consumer application repositories
+- [x] Push reviewed commits to PR 274. Keep consumer application repositories
   unchanged and do not merge.
 
 ## Review evidence
@@ -69,5 +69,6 @@
 - `make lint` passed with Go 1.27.1 and golangci-lint 2.13.2. Generated examples
   have no drift; the VitePress build passed with Node 24.
 - Final uncached `make ci` passed on Go 1.27.1 (exit 0), including both
-  modules, vet, tests, formatting, examples and type-bundle parity. PR push is
-  the remaining delivery step.
+  modules, vet, tests, formatting, examples and type-bundle parity. Reviewed
+  corrections and the updated description are delivered in
+  [PR 274](https://github.com/gsxhq/gsx/pull/274).
