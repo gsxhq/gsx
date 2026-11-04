@@ -28,4 +28,6 @@ Separate spec and quality reviews approved a90233e3. Independent rebuilt-CLI
 probes at width 20 matched 1,008 hand-expected rendered bytes and passed
 idempotence; five additional explicit-space/punctuation/entity cases passed.
 Exact corpus/examples, 1,074 formatter property inputs, targeted package tests,
-vet, lint and Node 24 docs build passed. Final uncached make ci remains pending.
+vet, lint and Node 24 docs build passed. Final uncached `make ci` passed
+on Go 1.27.1 (exit 0), including both modules, formatting, examples and
+type-bundle parity.

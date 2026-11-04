@@ -1,5 +1,7 @@
 # GSX normalized spacing: bounded static contract
 
+**Status:** Implemented; spec/quality reviews and final uncached CI passed.
+
 Baseline: origin/main JSX normalization; retain ordinary formatter/layout and
 HTML-preserving pre/textarea/raw script/style contexts. Do not implement literal
 HTML emission, implicit subtree dedenting, CSS analysis, or runtime word parsing.
