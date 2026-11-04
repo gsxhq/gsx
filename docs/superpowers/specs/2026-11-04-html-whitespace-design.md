@@ -1,6 +1,6 @@
 # HTML whitespace semantics
 
-**Status:** Implemented and validated on `codex/intentional-spacing`.
+**Status:** Review corrections in progress on `codex/intentional-spacing`.
 **Date:** 2026-11-04
 
 ## Decision and scope
@@ -67,15 +67,23 @@ Do not speculate about Go conditions or insert punctuation-aware spacing.
 
 ## Components and child values
 
-For rendered Node children, preserve authored interior content whitespace.
-The existing children contract accepts only gsx.Node or ...gsx.Node; do not
-introduce primitive typed children. Literal text nodes, including whitespace,
-are rendered Node values, including in a variadic list. Whitespace immediately
-inside an invocation's HTML-like opening/closing tags is content, unlike
-whitespace immediately inside a component declaration's Go-like body braces.
-Retain existing arity/type errors and pin scalar Node, variadic Node, empty-body,
-and slot behavior. The earlier primitive-child concern does not apply to the
-current component contract.
+Scalar gsx.Node children preserve authored content whitespace. The existing
+children contract accepts only gsx.Node or ...gsx.Node; do not introduce
+primitive typed children.
+
+A variadic children parameter is a GSX argument list, not an HTML content body.
+Whitespace-only literal Text nodes separate its arguments and do not become
+arguments themselves. This means a multiline call containing two element nodes
+passes exactly two values. Only HTML ASCII whitespace (space, tab, LF, CR, FF)
+is ignored here; substantive text, NBSP, and vertical tabs remain values with
+their exact content. Explicit whitespace expressions such as `{ " " }` remain
+arguments. Fragments and control-flow nodes remain single authored arguments;
+their internal content is not filtered. Source comments remain non-values.
+
+This exception belongs to resolved variadic argument binding only. It must not
+alter scalar children, slots, HTML elements, or stored literal AST text. Pin
+rendered list cardinality, not merely concatenation, in the corpus. This corrects
+the initial implementation's overly broad treatment of indentation as values.
 
 ## Source comments
 
@@ -97,6 +105,14 @@ boundary stays touching. Existing literal spaces/newlines remain literal.
 
 Syntactic body-edge whitespace may be formatted because it is not emitted.
 Element content may retain unconventional layout when necessary for fidelity.
+The formatter must not independently relocate the opening/first node of a
+multiline literal island while leaving its other lines at their original
+columns. Preserve the source placement needed for those lines to remain
+coherent. Syntactic body-edge formatting must account for retained interior
+placement rather than blindly regenerating only the first node's indentation.
+An opening tag's width decision measures its syntax, not following unbreakable
+literal content; it must not split a short tag merely because adjacent prose
+already exceeds the width target.
 Do not use generated string interpolations or magic comments to disguise
 formatter-introduced whitespace changes. Existing raw-text JS/CSS formatter
 contracts remain separate and require their existing semantic tests.
