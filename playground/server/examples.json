@@ -80,7 +80,7 @@
   {
     "name": "Conditional Attributes",
     "category": "Basics",
-    "source": "package views\n\ncomponent Badge(featured bool) {\n\t<span\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>content</span>\n}\n",
+    "source": "package views\n\ncomponent Badge(featured bool) {\n\t<span\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>\n\t\tcontent\n\t</span>\n}\n",
     "invoke": "Badge(true)"
   },
   {
@@ -92,7 +92,7 @@
   {
     "name": "Ordered Attributes",
     "category": "Basics",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs, children gsx.Node) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter\n\t\tsignals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": js`$count++` }}\n\t>Count</Counter>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs, children gsx.Node) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter signals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": js`$count++` }}>\n\t\tCount\n\t</Counter>\n}\n",
     "invoke": "Page()"
   },
   {

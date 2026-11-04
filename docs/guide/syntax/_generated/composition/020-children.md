@@ -20,7 +20,10 @@ component Page() {
 Renders:
 
 ```html
-<article class="card"><h3>Hello</h3><div class="card__body"><em>composed</em></div></article>
+<article class="card">
+		<h3>Hello</h3>
+		<div class="card__body"><em>composed</em></div>
+	</article>
 ```
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBDYXJkKHRpdGxlIHN0cmluZywgY2hpbGRyZW4gZ3N4Lk5vZGUpIHtcblx0XHUwMDNjYXJ0aWNsZSBjbGFzcz1cImNhcmRcIlx1MDAzZVxuXHRcdFx1MDAzY2gzXHUwMDNleyB0aXRsZSB9XHUwMDNjL2gzXHUwMDNlXG5cdFx0XHUwMDNjZGl2IGNsYXNzPVwiY2FyZF9fYm9keVwiXHUwMDNleyBjaGlsZHJlbiB9XHUwMDNjL2Rpdlx1MDAzZVxuXHRcdTAwM2MvYXJ0aWNsZVx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjQ2FyZCB0aXRsZT1cIkhlbGxvXCJcdTAwM2VcdTAwM2NlbVx1MDAzZWNvbXBvc2VkXHUwMDNjL2VtXHUwMDNlXHUwMDNjL0NhcmRcdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)
