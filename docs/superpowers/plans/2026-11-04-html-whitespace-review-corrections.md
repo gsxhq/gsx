@@ -52,7 +52,7 @@
   Structural HTML comparison may enrich failures but must not decide equality.
 - [x] Compare new diffs against the 283-case audit ledger; individually inspect
   each newly changed corpus case and preserve its original test purpose.
-- [ ] Independent adversarial probes for list cardinality and formatter output,
+- [x] Independent adversarial probes for list cardinality and formatter output,
   then make lint, docs build and final uncached make ci. Fix failures narrowly.
 - [ ] Push reviewed commits to PR 274. Keep consumer application repositories
   unchanged and do not merge.
@@ -68,4 +68,6 @@
   bytes, idempotence, list cardinality and current-AST mutations.
 - `make lint` passed with Go 1.27.1 and golangci-lint 2.13.2. Generated examples
   have no drift; the VitePress build passed with Node 24.
-- Final uncached `make ci` and PR push remain pending.
+- Final uncached `make ci` passed on Go 1.27.1 (exit 0), including both
+  modules, vet, tests, formatting, examples and type-bundle parity. PR push is
+  the remaining delivery step.

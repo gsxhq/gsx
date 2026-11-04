@@ -1,6 +1,6 @@
 # HTML whitespace semantics
 
-**Status:** Review corrections in progress on `codex/intentional-spacing`.
+**Status:** Implemented and validated on `codex/intentional-spacing`.
 **Date:** 2026-11-04
 
 ## Decision and scope
