@@ -60,13 +60,13 @@ func TestNormalizeInlineSpaceKept(t *testing.T) {
 	}
 }
 
-func TestNormalizeNewlineEdgeDropped(t *testing.T) {
-	// The parser emits Text "y\n" after <b>x</b>; wsnorm drops the trailing
-	// newline edge (cosmetic indentation before the closing brace) → "y".
+func TestNormalizeRootProseBoundary(t *testing.T) {
+	// Root prose has the same inferred separator as text inside an element.
+	// The trailing newline before the component closing brace remains layout.
 	f := parse(t, "<b>x</b>\ny")
 	wsnorm.Normalize(f)
 	got := collectText(f)
-	want := []string{"x", "y"}
+	want := []string{"x", " y"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("text nodes = %#v, want %#v", got, want)
 	}

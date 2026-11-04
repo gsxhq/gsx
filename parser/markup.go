@@ -375,13 +375,15 @@ func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
 }
 
 // parseMarkupUntilCloseWS is parseMarkupUntilClose with control over inter-node
-// whitespace. When preserveWS is false (markup-attribute slots) leading
-// whitespace before each node is skipped, as before. When true (control-flow
+// whitespace. When preserveWS is false (component bodies and markup slots),
+// layout separators are skipped, but leading whitespace before substantive
+// text after a sibling is retained for prose-boundary normalization. When true (control-flow
 // bodies) whitespace falls into parseTextCtx and becomes a text node for wsnorm;
 // parseControlBody then trims the brace-interior edges via trimBodyEdges.
 func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
+		gapStart := p.i
 		if !preserveWS {
 			p.skipSpace()
 		}
@@ -411,7 +413,14 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
 		default:
-			nodes = append(nodes, p.parseTextCtx(true))
+			textStart := p.i
+			text := p.parseTextCtx(true)
+			if !preserveWS && len(nodes) > 0 && gapStart < textStart {
+				// This gap faces real text, not an inter-tag layout separator.
+				text.Value = p.src[gapStart:textStart] + text.Value
+				ast.SetSpan(text, p.posAt(gapStart), text.End())
+			}
+			nodes = append(nodes, text)
 		}
 	}
 }
