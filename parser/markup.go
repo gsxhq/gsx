@@ -119,9 +119,7 @@ func (p *parser) commentLayout(start, end token.Pos, textStart, textEnd int) ast
 	raw := p.src[textStart:textEnd]
 	left := len(raw) - len(strings.TrimLeftFunc(raw, unicode.IsSpace))
 	right := len(strings.TrimRightFunc(raw, unicode.IsSpace))
-	if right < left {
-		right = left
-	}
+	right = max(right, left)
 	return ast.CommentLayout{Leading: p.src[p.offsetOf(start) : textStart+left], Trailing: p.src[textStart+right : p.offsetOf(end)]}
 }
 func (p *parser) attrCommentLayout(n *ast.CommentAttr, textStart, textEnd int) {

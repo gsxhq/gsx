@@ -78,11 +78,11 @@ func TestSourceGoIslandNoLegacyFallbackOnBrokenConstraint(t *testing.T) {
 func TestSourceGoManyIndependentIslands(t *testing.T) {
 	var source strings.Builder
 	source.WriteString("package p\nvar 一=1\nvar 丁=2\n")
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		fmt.Fprintf(&source, "var node%d=Wrap(<b>\n\tvalue %d\n</b>)\nvar outside%d=1+2\n", i, i, i)
 	}
 	output := fmtSource(t, source.String())
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		if !strings.Contains(output, fmt.Sprintf("var node%d=Wrap(<b>\n\tvalue %d\n</b>)", i, i)) {
 			t.Fatalf("island %d lost its source layout", i)
 		}
