@@ -68,11 +68,14 @@ Do not speculate about Go conditions or insert punctuation-aware spacing.
 ## Components and child values
 
 For rendered Node children, preserve authored interior content whitespace.
-Do not let source indentation become extra typed scalar/variadic child values.
-Typed child binding must distinguish structural whitespace separating values
-from rendered Node content, using the resolved child contract rather than CSS
-or tag naming. Retain existing arity/type errors for substantive extra content.
-Pin this distinction with scalar, variadic, Node, empty-body, and slot fixtures.
+The existing children contract accepts only gsx.Node or ...gsx.Node; do not
+introduce primitive typed children. Literal text nodes, including whitespace,
+are rendered Node values, including in a variadic list. Whitespace immediately
+inside an invocation's HTML-like opening/closing tags is content, unlike
+whitespace immediately inside a component declaration's Go-like body braces.
+Retain existing arity/type errors and pin scalar Node, variadic Node, empty-body,
+and slot behavior. The earlier primitive-child concern does not apply to the
+current component contract.
 
 ## Source comments
 
