@@ -4,6 +4,8 @@ package views
 
 import "github.com/gsxhq/gsx"
 
+func identity(node gsx.Node) gsx.Node { return node }
+
 var embedded = <div>embedded
  	<span>x</span> tail</div>
 
@@ -30,6 +32,8 @@ component Page() {
   <i>a</i>
  	<b>b</b>
 }/><Roots/>{ embedded }
+<div>{ identity(<span>deferred
+ 	<strong>literal</strong> tail</span>) }</div>
 <p>before {/* source comment */} after<!-- emitted --> end</p>
 <div>{ if true { <i>yes</i>
  	<b>also</b> } else { no } }!{ if false { absent } }?</div>
@@ -63,6 +67,8 @@ Page()
  	<b>b</b></aside><i>a</i>
  	<b>b</b><div>embedded
  	<span>x</span> tail</div>
+<div><span>deferred
+ 	<strong>literal</strong> tail</span></div>
 <p>before  after<!-- emitted --> end</p>
 <div><i>yes</i>
  	<b>also</b>!?</div>
@@ -90,16 +96,18 @@ import (
 )
 
 /*line input.gsx:5:1*/
+func identity(node gsx.Node) gsx.Node { return node }
+
 var embedded = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:16
+//line input.gsx:7:16
 	_gsxgw.S("<div>embedded\n \t")
-//line input.gsx:6:3
+//line input.gsx:8:3
 	_gsxgw.S("<span>x</span> tail</div>")
 	return _gsxgw.Err()
-}) /*line input.gsx:6:28*/
+}) /*line input.gsx:8:28*/
 
-//line input.gsx:8:1
+//line input.gsx:10:1
 func Scalar(children gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -111,15 +119,15 @@ func _gsxrenderScalar(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.N
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:8:39
+//line input.gsx:10:39
 	_gsxgw.S("<section>")
-//line input.gsx:8:48
-	_gsxgw.Node(ctx /*line input.gsx:8:49*/, children)
+//line input.gsx:10:48
+	_gsxgw.Node(ctx /*line input.gsx:10:49*/, children)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }
 
-//line input.gsx:9:1
+//line input.gsx:11:1
 func Variadic(children ...gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -131,18 +139,18 @@ func _gsxrenderVariadic(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children ...
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:9:44
+//line input.gsx:11:44
 	_gsxgw.S("<article>")
-//line input.gsx:9:53
-	for /*line input.gsx:9:59*/ _, child := range children {
-//line input.gsx:9:88
-		_gsxgw.Node(ctx /*line input.gsx:9:89*/, child)
+//line input.gsx:11:53
+	for /*line input.gsx:11:59*/ _, child := range children {
+//line input.gsx:11:88
+		_gsxgw.Node(ctx /*line input.gsx:11:89*/, child)
 	}
 	_gsxgw.S("</article>")
 	return _gsxgw.Err()
 }
 
-//line input.gsx:10:1
+//line input.gsx:12:1
 func Slot(content gsx.Node) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -154,15 +162,15 @@ func _gsxrenderSlot(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, content gsx.Node
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:10:36
+//line input.gsx:12:36
 	_gsxgw.S("<aside>")
-//line input.gsx:10:43
-	_gsxgw.Node(ctx /*line input.gsx:10:44*/, content)
+//line input.gsx:12:43
+	_gsxgw.Node(ctx /*line input.gsx:12:44*/, content)
 	_gsxgw.S("</aside>")
 	return _gsxgw.Err()
 }
 
-//line input.gsx:11:1
+//line input.gsx:13:1
 func Roots() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
@@ -174,74 +182,74 @@ func _gsxrenderRoots(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer) error {
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:12:3
+//line input.gsx:14:3
 	_gsxgw.S("<i>a</i>\n \t")
-//line input.gsx:13:3
+//line input.gsx:15:3
 	_gsxgw.S("<b>b</b>")
 	return _gsxgw.Err()
 }
 
-//line input.gsx:15:1
+//line input.gsx:17:1
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
-//line input.gsx:16:3
+//line input.gsx:18:3
 		_gsxgw.S("<main>")
-//line input.gsx:16:9
+//line input.gsx:18:9
 		_gsxgw.S("<p>Hello\n \t")
-//line input.gsx:17:3
+//line input.gsx:19:3
 		_gsxgw.S("<strong>world</strong>!</p>")
-//line input.gsx:17:30
+//line input.gsx:19:30
 		_gsxgw.S("<span>")
-//line input.gsx:17:36
-		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:17:38*/ 2))
+//line input.gsx:19:36
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:19:38*/ 2))
 		_gsxgw.S("%</span>")
-//line input.gsx:17:49
+//line input.gsx:19:49
 		_gsxgw.S("<i>x</i>")
-//line input.gsx:17:57
+//line input.gsx:19:57
 		_gsxgw.S("<b>y</b>\n")
-//line input.gsx:18:1
+//line input.gsx:20:1
 		_gsxgw.S("<div class=\"whitespace-pre-wrap\"> first\n \tsecond </div> fragment\n ")
-//line input.gsx:20:2
+//line input.gsx:22:2
 		_gsxgw.S("<em>text</em> <?start name=\"literal\"> marker\n ")
-//line input.gsx:21:2
+//line input.gsx:23:2
 		_gsxgw.S("<em>text</em> <?end>\n")
-//line input.gsx:22:1
+//line input.gsx:24:1
 		_gsxgw.NodeResult(_gsxrenderScalar(ctx, _gsxgw, nil))
-//line input.gsx:22:10
+//line input.gsx:24:10
 		_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw))
-//line input.gsx:22:21
+//line input.gsx:24:21
 		_gsxgw.NodeResult(_gsxrenderScalar(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S(" \t")
 			return _gsxgw.Err()
 		})))
-//line input.gsx:22:40
+//line input.gsx:24:40
 		_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S(" \t")
 			return _gsxgw.Err()
 		})))
 		_gsxgw.S("\n")
-//line input.gsx:23:1
+//line input.gsx:25:1
 		_gsxgw.NodeResult(_gsxrenderScalar(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("\n  ")
-//line input.gsx:24:3
+//line input.gsx:26:3
 			_gsxgw.S("<i>a</i> \t")
-//line input.gsx:24:13
+//line input.gsx:26:13
 			_gsxgw.S("<b>b</b>\n")
 			return _gsxgw.Err()
 		})))
-//line input.gsx:25:10
+//line input.gsx:27:10
 		_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("\n  ")
 			return _gsxgw.Err()
 		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:26:3
+//line input.gsx:28:3
 			_gsxgw.S("<i>a</i>")
 			return _gsxgw.Err()
 		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
@@ -250,7 +258,7 @@ func Page() _gsxrt.Node {
 			return _gsxgw.Err()
 		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:26:13
+//line input.gsx:28:13
 			_gsxgw.S("<b>b</b>")
 			return _gsxgw.Err()
 		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
@@ -258,75 +266,87 @@ func Page() _gsxrt.Node {
 			_gsxgw.S("\n")
 			return _gsxgw.Err()
 		})))
-//line input.gsx:27:12
+//line input.gsx:29:12
 		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:28:3
+//line input.gsx:30:3
 			_gsxgw.S("<i>a</i>\n \t")
-//line input.gsx:29:3
+//line input.gsx:31:3
 			_gsxgw.S("<b>b</b>")
 			return _gsxgw.Err()
 		})))
-//line input.gsx:30:4
+//line input.gsx:32:4
 		_gsxgw.NodeResult(_gsxrenderRoots(ctx, _gsxgw))
-//line input.gsx:30:12
-		_gsxgw.Node(ctx /*line input.gsx:30:14*/, embedded)
+//line input.gsx:32:12
+		_gsxgw.Node(ctx /*line input.gsx:32:14*/, embedded)
 		_gsxgw.S("\n")
-//line input.gsx:31:1
-		_gsxgw.S("<p>before  after<!-- emitted --> end</p>\n")
-//line input.gsx:32:1
+//line input.gsx:33:1
 		_gsxgw.S("<div>")
-//line input.gsx:32:6
-		if /*line input.gsx:32:11*/ true {
-//line input.gsx:32:18
+//line input.gsx:33:6
+		_gsxgw.Node(ctx /*line input.gsx:33:8*/, identity(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw := _gsxrt.W(_gsxw)
+//line input.gsx:33:17
+			_gsxgw.S("<span>deferred\n \t")
+//line input.gsx:34:3
+			_gsxgw.S("<strong>literal</strong> tail</span>")
+			return _gsxgw.Err()
+		}) /*line input.gsx:34:39*/))
+		_gsxgw.S("</div>\n")
+//line input.gsx:35:1
+		_gsxgw.S("<p>before  after<!-- emitted --> end</p>\n")
+//line input.gsx:36:1
+		_gsxgw.S("<div>")
+//line input.gsx:36:6
+		if /*line input.gsx:36:11*/ true {
+//line input.gsx:36:18
 			_gsxgw.S("<i>yes</i>\n \t")
-//line input.gsx:33:3
+//line input.gsx:37:3
 			_gsxgw.S("<b>also</b>")
 		} else {
 			_gsxgw.S("no")
 		}
 		_gsxgw.S("!")
-//line input.gsx:33:31
-		if /*line input.gsx:33:36*/ false {
+//line input.gsx:37:31
+		if /*line input.gsx:37:36*/ false {
 			_gsxgw.S("absent")
 		}
 		_gsxgw.S("?</div>\n")
-//line input.gsx:34:1
+//line input.gsx:38:1
 		_gsxgw.S("<div>")
-//line input.gsx:34:6
-		for /*line input.gsx:34:12*/ _, word := range []string{"a", "b"} {
-//line input.gsx:34:50
-			_gsxgw.Text(string( /*line input.gsx:34:51*/ word))
+//line input.gsx:38:6
+		for /*line input.gsx:38:12*/ _, word := range []string{"a", "b"} {
+//line input.gsx:38:50
+			_gsxgw.Text(string( /*line input.gsx:38:51*/ word))
 			_gsxgw.S("\n \t")
-//line input.gsx:35:3
+//line input.gsx:39:3
 			_gsxgw.S("<i>end</i>")
 		}
 		_gsxgw.S("</div>\n")
-//line input.gsx:36:1
+//line input.gsx:40:1
 		_gsxgw.S("<div>")
-//line input.gsx:36:6
-		for /*line input.gsx:36:12*/ false {
+//line input.gsx:40:6
+		for /*line input.gsx:40:12*/ false {
 			_gsxgw.S("absent")
 		}
 		_gsxgw.S("</div>\n")
-//line input.gsx:37:1
+//line input.gsx:41:1
 		_gsxgw.S("<div>")
-//line input.gsx:37:6
-		switch /*line input.gsx:37:15*/ 1 {
-		case /*line input.gsx:37:24*/ 1:
-//line input.gsx:37:27
+//line input.gsx:41:6
+		switch /*line input.gsx:41:15*/ 1 {
+		case /*line input.gsx:41:24*/ 1:
+//line input.gsx:41:27
 			_gsxgw.S("<i>one</i>\n \t")
-//line input.gsx:38:3
+//line input.gsx:42:3
 			_gsxgw.S("<b>two</b>")
 		default:
 			_gsxgw.S("absent")
 		}
 		_gsxgw.S("</div>\n")
-//line input.gsx:39:1
+//line input.gsx:43:1
 		_gsxgw.S("<div>\n  ")
-//line input.gsx:40:3
+//line input.gsx:44:3
 		_gsxgw.S("<i>a</i>\n  \n  ")
-//line input.gsx:42:3
+//line input.gsx:46:3
 		_gsxgw.S("<b>b</b>\n</div></main>")
 		return _gsxgw.Err()
 	})
