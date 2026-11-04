@@ -694,13 +694,27 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		// slot open and land each sibling on its own indented line, instead of
 		// gluing onto the prior sibling and reparsing as text.
 		inner, breakable := p.childrenInner(v.Value)
+		textTail := false
+		if len(v.Value) > 0 {
+			_, textTail = v.Value[len(v.Value)-1].(*ast.Text)
+		}
 		if !breakable {
 			// Empty or edge-unsafe value: keep the canonical inline padding so a
 			// significant leading/trailing space is never absorbed by a break.
-			return pretty.Concat(pretty.Text(v.Name), pretty.Text("={ "), inner, pretty.Text(" }"))
+			close := " }"
+			if textTail {
+				close = "}"
+			}
+			return pretty.Concat(pretty.Text(v.Name), pretty.Text("={ "), inner, pretty.Text(close))
 		}
 		// Breakable: flat → `name={ value }`; broken (width overflow or a child's
 		// BreakParent) → `name={` / value indented one level / `}`.
+		if textTail {
+			// Flat closing padding would become trailing Text data. A broken
+			// closing newline is layout; edge-significant values stayed flat above.
+			return pretty.Group(pretty.Concat(pretty.Text(v.Name+"={"),
+				pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.SoftLine, pretty.Text("}")))
+		}
 		return wrapAttrValue(v.Name, pretty.Line, inner)
 	default:
 		return pretty.Text(attrInline(a))
