@@ -21,17 +21,17 @@ var n = <span>a	b
   c</span>
 component C() {
 {{
-		n := <div>x
+	n := <div>x
  	y</div>
-		_ = n
-	}}
+	_ = n
+}}
 { Wrap(<span>a
 	b</span>) }
 <Card
-		node={
-			Wrap(<span>a
+	node={
+		Wrap(<span>a
   b</span>)
-		}
-		slot={ <b>a</b> <i>b</i> }
-	/>
+	}
+	slot={ <b>a</b> <i>b</i> }
+/>
 }

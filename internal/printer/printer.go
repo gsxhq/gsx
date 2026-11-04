@@ -723,23 +723,23 @@ func (p *printer) children(nodes []ast.Markup) pretty.Doc {
 func (p *printer) markup(n ast.Markup) pretty.Doc {
 	switch v := n.(type) {
 	case *ast.Element:
-		return p.element(v)
+		return pretty.AlignLine(p.element(v))
 	case *ast.Fragment:
-		return p.fragment(v)
+		return pretty.AlignLine(p.fragment(v))
 	case *ast.IfMarkup:
-		return p.ifMarkup(v)
+		return pretty.AlignLine(p.ifMarkup(v))
 	case *ast.ForMarkup:
-		return p.forMarkup(v)
+		return pretty.AlignLine(p.forMarkup(v))
 	case *ast.SwitchMarkup:
-		return p.switchMarkup(v)
+		return pretty.AlignLine(p.switchMarkup(v))
 	case *ast.GoBlock:
-		return p.goBlock(v)
+		return pretty.AlignLine(p.goBlock(v))
 	case *ast.Doctype:
 		return pretty.Text(v.Text)
 	case *ast.Marker:
 		return pretty.Concat(pretty.Text("<?marker "), p.attrDoc(v.Name), pretty.Text(">"))
 	case *ast.MarkerRegion:
-		return p.markerRegion(v)
+		return pretty.AlignLine(p.markerRegion(v))
 	case *ast.HTMLComment:
 		return pretty.Concat(pretty.Text("<!--"), pretty.Text(v.Text), pretty.Text("-->"))
 	case *ast.Comment:

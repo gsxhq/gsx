@@ -48,29 +48,61 @@ func Print(d Doc, width, tabWidth int) string {
 	}
 	var b strings.Builder
 	pos := 0
+	lineIndent := 0
+	lineStarted := false
 	stack := []cmd{{indent: 0, mode: modeBreak, doc: d}}
 	for len(stack) > 0 {
 		c := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		switch c.doc.kind {
 		case kindText:
+			text := c.doc.text
+			if i := strings.LastIndexByte(text, '\n'); i >= 0 {
+				lineIndent = 0
+				lineStarted = false
+				text = text[i+1:]
+			}
+			if !lineStarted {
+				for _, r := range text {
+					switch r {
+					case '\t':
+						lineIndent += tabWidth
+					case ' ':
+						lineIndent++
+					default:
+						lineStarted = true
+					}
+					if lineStarted {
+						break
+					}
+				}
+			}
 			b.WriteString(c.doc.text)
 			pos = advance(pos, c.doc.text, tabWidth)
 		case kindConcat:
 			for i := len(c.doc.parts) - 1; i >= 0; i-- {
 				stack = append(stack, cmd{c.indent, c.mode, c.doc.parts[i]})
 			}
+		case kindAlignLine:
+			stack = append(stack, cmd{lineIndent, c.mode, c.doc.parts[0]})
+
 		case kindIndent:
-			stack = append(stack, cmd{c.indent + 1, c.mode, c.doc.parts[0]})
+			stack = append(stack, cmd{c.indent + tabWidth, c.mode, c.doc.parts[0]})
 		case kindLine:
 			if c.doc.hard || c.mode == modeBreak {
 				b.WriteByte('\n')
-				for i := 0; i < c.indent; i++ {
+				for i := 0; i < c.indent/tabWidth; i++ {
 					b.WriteByte('\t')
 				}
-				pos = c.indent * tabWidth
+				b.WriteString(strings.Repeat(" ", c.indent%tabWidth))
+				pos = c.indent
+				lineIndent = c.indent
+				lineStarted = false
 			} else {
 				b.WriteString(c.doc.text)
+				if !lineStarted {
+					lineIndent += utf8.RuneCountInString(c.doc.text)
+				}
 				pos += utf8.RuneCountInString(c.doc.text)
 			}
 		case kindGroup:
@@ -149,8 +181,11 @@ func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
 			for i := len(c.doc.parts) - 1; i >= 0; i-- {
 				local = append(local, cmd{c.indent, c.mode, c.doc.parts[i]})
 			}
+		case kindAlignLine:
+			local = append(local, cmd{c.indent, c.mode, c.doc.parts[0]})
+
 		case kindIndent:
-			local = append(local, cmd{c.indent + 1, c.mode, c.doc.parts[0]})
+			local = append(local, cmd{c.indent + tabWidth, c.mode, c.doc.parts[0]})
 		case kindGroup:
 			gm := c.mode
 			if c.doc.forced {

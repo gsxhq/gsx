@@ -1462,7 +1462,7 @@ func TestElementInlineChildrenStayInlineWhenAuthorInline(t *testing.T) {
 
 func TestCfBodyEdgesTrimmedThenBreaksOnAuthorNewline(t *testing.T) {
 	src := "package p\ncomponent C(x bool) {\n\t<p>a{ if x {\n\ttext  } }b</p>\n}\n"
-	want := "package p\n\ncomponent C(x bool) {\n\t<p>a{ if x {\n\t\t\ttext\n\t\t} }b</p>\n}\n"
+	want := "package p\n\ncomponent C(x bool) {\n\t<p>a{ if x {\n\t\ttext\n\t} }b</p>\n}\n"
 	checkFormat(t, src, want)
 }
 

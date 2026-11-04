@@ -96,3 +96,23 @@ func TestLocalGroupExcludesContinuation(t *testing.T) {
 		t.Fatalf("long opening should wrap: %q", got)
 	}
 }
+
+func TestAlignUsesPhysicalColumnWithoutChangingText(t *testing.T) {
+	for _, prefix := range []string{"", "\t", "   "} {
+		column := advance(0, prefix, 2)
+		indent := func(n int) string { return strings.Repeat("\t", n/2) + strings.Repeat(" ", n%2) }
+		doc := Indent(Concat(Text(prefix), AlignLine(Concat(Text("<x"), Indent(Concat(HardLine, Text("a"))), HardLine, Text(">literal\n \tdata</x>")))))
+		want := prefix + "<x\n" + indent(column+2) + "a\n" + indent(column) + ">literal\n \tdata</x>"
+		if got := Print(doc, 80, 2); got != want {
+			t.Fatalf("prefix %q: got %q want %q", prefix, got, want)
+		}
+	}
+}
+
+func TestAlignLineIgnoresInlineProseWidth(t *testing.T) {
+	doc := Concat(Text("\t<p>some long prose "), AlignLine(Concat(Text("<x"), Indent(Concat(HardLine, Text("a"))), HardLine, Text(">"))))
+	want := "\t<p>some long prose <x\n\t\ta\n\t>"
+	if got := Print(doc, 80, 2); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

@@ -16,6 +16,7 @@ type kind uint8
 const (
 	kindText kind = iota
 	kindConcat
+	kindAlignLine
 	kindIndent
 	kindLine        // a soft/space/hard break candidate (see flat, hard)
 	kindGroup       // flat if it fits, else broken
@@ -46,6 +47,11 @@ func Concat(ds ...Doc) Doc { return Doc{kind: kindConcat, parts: ds} }
 
 // Indent renders d with the break-indent increased by one tab level.
 func Indent(d Doc) Doc { return Doc{kind: kindIndent, parts: []Doc{d}} }
+
+// AlignLine bases generated line indentation on the actual leading whitespace
+// of the current output line, independently of logical parent nesting.
+// Literal Text bytes are never changed.
+func AlignLine(d Doc) Doc { return Doc{kind: kindAlignLine, parts: []Doc{d}} }
 
 // Group renders d flat if it fits the remaining width on the current line,
 // else broken. A group containing any hard break (HardLine/BreakParent, at any
@@ -87,7 +93,7 @@ func containsForcedBreak(d Doc) bool {
 		return true
 	case kindGroup:
 		return d.forced
-	case kindIndent:
+	case kindIndent, kindAlignLine:
 		return containsForcedBreak(d.parts[0])
 	case kindConcat:
 		return slices.ContainsFunc(d.parts, containsForcedBreak)
@@ -121,7 +127,7 @@ func Flat(d Doc) (flat Doc, ok bool) {
 		return Text(d.text), true
 	case kindBreakParent:
 		return Doc{}, false
-	case kindGroup, kindIndent:
+	case kindGroup, kindIndent, kindAlignLine:
 		return Flat(d.parts[0])
 	case kindConcat:
 		parts := make([]Doc, 0, len(d.parts))

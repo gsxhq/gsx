@@ -202,3 +202,19 @@ func TestLiteralCursorUsesEditedHoleAndStages(t *testing.T) {
 		t.Fatal("not idempotent")
 	}
 }
+
+func TestTagSyntaxAlignsToAuthoredRoot(t *testing.T) {
+	for _, prefix := range []string{"", "\t", "   "} {
+		column := len(strings.ReplaceAll(prefix, "\t", "  "))
+		indent := func(n int) string { return strings.Repeat("\t", n/2) + strings.Repeat(" ", n%2) }
+		src := "package p\ncomponent C() {\n" + prefix + "<div\nclass=\"x\"\n>\n" + prefix + "\tcontent\n" + prefix + "</div>\n}\n"
+		want := "package p\n\ncomponent C() {\n" + prefix + "<div\n" + indent(column+2) + "class=\"x\"\n" + indent(column) + ">\n" + prefix + "\tcontent\n" + prefix + "</div>\n}\n"
+		checkFormat(t, src, want)
+	}
+}
+
+func TestNestedControlSyntaxUsesPhysicalIndent(t *testing.T) {
+	src := "package p\ncomponent C(ok bool) {\n<section>\n\t{if ok {\n\t\t\t<p>yes</p>\n\t} }\n</section>\n}\n"
+	want := "package p\n\ncomponent C(ok bool) {\n<section>\n\t{ if ok {\n\t\t<p>yes</p>\n\t} }\n</section>\n}\n"
+	checkFormat(t, src, want)
+}

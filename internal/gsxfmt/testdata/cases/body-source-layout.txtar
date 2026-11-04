@@ -71,12 +71,12 @@ component Loop(items []string) {
 
 component Cases(kind int) {
 { switch kind {
-	case 1:
+case 1:
 	<b>first</b>
 	// source comment
 	<i>last</i>
-	default: <u>other</u>
-	} }
+default: <u>other</u>
+} }
 }
 
 component Slot() {
