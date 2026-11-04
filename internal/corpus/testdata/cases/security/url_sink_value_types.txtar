@@ -35,4 +35,10 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<a href="/from-bytes">bytes</a><a href="/named">named string</a><a href="/stringer">stringer</a><a href="42">int</a><a href="/a b">string slice</a><a href="about:invalid#gsx">bytes</a><a href="about:invalid#gsx">stringer</a>
+<a href="/from-bytes">bytes</a>
+	<a href="/named">named string</a>
+	<a href="/stringer">stringer</a>
+	<a href="42">int</a>
+	<a href="/a b">string slice</a>
+	<a href="about:invalid#gsx">bytes</a>
+	<a href="about:invalid#gsx">stringer</a>

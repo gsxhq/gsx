@@ -31,4 +31,5 @@ Page()
 -- diagnostics.golden --
 -- render.golden --
 <p>before</p>
+	
 [render error] child: bad value

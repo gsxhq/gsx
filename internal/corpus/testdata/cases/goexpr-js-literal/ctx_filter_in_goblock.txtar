@@ -45,6 +45,7 @@ func Page(v string) _gsxrt.Node {
 //line input.gsx:4:2
 		/*line input.gsx:4:5*/
 		j := _gsxrt.RawJS("f(" + _gsxrt.EscapeJSVal( /*line input.gsx:4:22*/ _gsxf0.Up(ctx, ( /*line input.gsx:4:17*/ v))) + ")")
+		_gsxgw.S("\n\t")
 //line input.gsx:5:2
 		_gsxgw.S("<button @click=\"")
 		_gsxgw.AttrValue(string( /*line input.gsx:5:18*/ j))
@@ -53,4 +54,5 @@ func Page(v string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<button @click="f(&#34;a!&#34;)">x</button>
+
+	<button @click="f(&#34;a!&#34;)">x</button>

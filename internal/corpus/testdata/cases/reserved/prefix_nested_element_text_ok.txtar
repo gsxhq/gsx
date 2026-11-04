@@ -17,4 +17,6 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<p>_gsxfoo text</p><i>_gsxbar text</i>
+
+	<p>_gsxfoo text</p>
+	<i>_gsxbar text</i>

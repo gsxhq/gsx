@@ -145,16 +145,24 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
 		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "generic"))
+		_gsxgw.S("\n\t")
 //line input.gsx:13:2
 		_gsxgw.NodeResult(_gsxrenderGrouped[string, int](ctx, _gsxgw, "grouped" /*line input.gsx:13:49*/, 2))
+		_gsxgw.S("\n\t")
 //line input.gsx:14:2
 		_gsxgw.NodeResult(_gsxrenderConstraintOnly[string](ctx, _gsxgw))
+		_gsxgw.S("\n\t")
 //line input.gsx:15:2
 		_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw, "variadic"))
+		_gsxgw.S("\n\t")
 //line input.gsx:16:2
 		_gsxgw.NodeResult(_gsxrenderAttrVariadic(ctx, _gsxgw, _gsxrt.Attrs{{Key: "data-kind", Value: "attrs"}}...))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<span>generic</span><b>grouped:2</b><i>constraint</i><u>variadic:0</u><mark data-kind="attrs">attrs</mark>
+<span>generic</span>
+	<b>grouped:2</b>
+	<i>constraint</i>
+	<u>variadic:0</u>
+	<mark data-kind="attrs">attrs</mark>

@@ -90,7 +90,7 @@ func Page(id string) _gsxrt.Node {
 			return _gsxerr
 		}
 		_gsxgw.JSStrAttr(string(_gsxv0))
-		_gsxgw.S("&#39;)\">a</button>")
+		_gsxgw.S("&#39;)\">a</button>\n\t")
 //line input.gsx:11:2
 		_gsxv1, _gsxerr := /*line input.gsx:11:35*/ _gsxf0.Parse(( /*line input.gsx:11:29*/ id))
 		if _gsxerr != nil {
@@ -101,4 +101,5 @@ func Page(id string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<button onclick="save(&#39;x\u0027) ; steal(\u0027&#39;)">a</button><button onclick="save(&#39;x\u0027) ; steal(\u0027&#39;)">b</button>
+<button onclick="save(&#39;x\u0027) ; steal(\u0027&#39;)">a</button>
+	<button onclick="save(&#39;x\u0027) ; steal(\u0027&#39;)">b</button>

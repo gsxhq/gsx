@@ -9,11 +9,9 @@ type Item struct {
 }
 
 component List(items []Item) {
-	<ul>
-		{ for _, it := range items {
-			<li>{ it.Name }: { it.Count }</li>
-		} }
-	</ul>
+	<ul>{ for _, it := range items {
+		<li>{ it.Name }: { it.Count }</li>
+	} }</ul>
 }
 ```
 
@@ -23,4 +21,4 @@ Renders:
 <ul><li>alpha: 1</li><li>beta: 2</li></ul>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIEl0ZW0gc3RydWN0IHtcblx0TmFtZSAgc3RyaW5nXG5cdENvdW50IGludFxufVxuXG5jb21wb25lbnQgTGlzdChpdGVtcyBbXUl0ZW0pIHtcblx0XHUwMDNjdWxcdTAwM2Vcblx0XHR7IGZvciBfLCBpdCA6PSByYW5nZSBpdGVtcyB7XG5cdFx0XHRcdTAwM2NsaVx1MDAzZXsgaXQuTmFtZSB9OiB7IGl0LkNvdW50IH1cdTAwM2MvbGlcdTAwM2Vcblx0XHR9IH1cblx0XHUwMDNjL3VsXHUwMDNlXG59XG4iLCJpIjoiTGlzdChbXUl0ZW17e05hbWU6IFwiYWxwaGFcIiwgQ291bnQ6IDF9LCB7TmFtZTogXCJiZXRhXCIsIENvdW50OiAyfX0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIEl0ZW0gc3RydWN0IHtcblx0TmFtZSAgc3RyaW5nXG5cdENvdW50IGludFxufVxuXG5jb21wb25lbnQgTGlzdChpdGVtcyBbXUl0ZW0pIHtcblx0XHUwMDNjdWxcdTAwM2V7IGZvciBfLCBpdCA6PSByYW5nZSBpdGVtcyB7XG5cdFx0XHUwMDNjbGlcdTAwM2V7IGl0Lk5hbWUgfTogeyBpdC5Db3VudCB9XHUwMDNjL2xpXHUwMDNlXG5cdH0gfVx1MDAzYy91bFx1MDAzZVxufVxuIiwiaSI6Ikxpc3QoW11JdGVte3tOYW1lOiBcImFscGhhXCIsIENvdW50OiAxfSwge05hbWU6IFwiYmV0YVwiLCBDb3VudDogMn19KSJ9)

@@ -33,21 +33,24 @@ func CondSpread(on bool, extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<div>")
+		_gsxgw.S("<div>\n\t\t")
 //line input.gsx:7:3
 		_gsxgw.S("<a")
 		if /*line input.gsx:7:11*/ on {
 			_gsxgw.Spread(ctx, "a" /*line input.gsx:7:18*/, extra, _gsxrt.AttrSinks{}, nil)
 		}
-		_gsxgw.S(">on</a>")
+		_gsxgw.S(">on</a>\n\t\t")
 //line input.gsx:8:3
 		_gsxgw.S("<a")
 		if /*line input.gsx:8:11*/ !on {
 			_gsxgw.Spread(ctx, "a" /*line input.gsx:8:19*/, extra, _gsxrt.AttrSinks{}, nil)
 		}
-		_gsxgw.S(">off</a></div>")
+		_gsxgw.S(">off</a>\n\t</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div><a href="about:invalid#gsx">on</a><a>off</a></div>
+<div>
+		<a href="about:invalid#gsx">on</a>
+		<a>off</a>
+	</div>

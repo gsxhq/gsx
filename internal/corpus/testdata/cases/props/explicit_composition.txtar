@@ -35,4 +35,7 @@ component Panel(input PanelInput) {
 Panel(PanelInput{User: UserPanelInput{Name: "ann"}, Group: GroupPanelInput{Team: "core"}})
 -- diagnostics.golden --
 -- render.golden --
-<div><span>user:ann</span><span>group:core</span></div>
+<div>
+		<span>user:ann</span>
+		<span>group:core</span>
+	</div>

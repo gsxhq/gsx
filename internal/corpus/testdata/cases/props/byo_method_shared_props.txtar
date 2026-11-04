@@ -58,17 +58,17 @@ func (p home) Page(d pageData) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
-		_gsxgw.S("<html>")
+		_gsxgw.S("<html>\n\t\t")
 //line input.gsx:12:3
-		_gsxgw.S("<body>")
+		_gsxgw.S("<body>\n\t\t\t")
 //line input.gsx:13:4
 		_gsxgw.S("<h1>")
 //line input.gsx:13:8
 		_gsxgw.Text(string( /*line input.gsx:13:10*/ d.Title))
-		_gsxgw.S("</h1>")
+		_gsxgw.S("</h1>\n\t\t\t")
 //line input.gsx:14:4
 		_gsxgw.Node(ctx, p.Content( /*line input.gsx:14:18*/ d))
-		_gsxgw.S("</body></html>")
+		_gsxgw.S("\n\t\t</body>\n\t</html>")
 		return _gsxgw.Err()
 	})
 }

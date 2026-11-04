@@ -12,4 +12,8 @@ component Page(title string) {
 Page("Home")
 -- diagnostics.golden --
 -- render.golden --
-<!DOCTYPE html><html lang="en"><head><title>Home</title></head><body>hi</body></html>
+<!DOCTYPE html>
+	<html lang="en">
+		<head><title>Home</title></head>
+		<body>hi</body>
+	</html>

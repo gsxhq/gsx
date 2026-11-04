@@ -32,4 +32,5 @@ component (p Page) Card(key string) {
 Page{}.Card("x")
 -- diagnostics.golden --
 -- render.golden --
-<span>id-x</span>
+
+	<span>id-x</span>

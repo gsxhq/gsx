@@ -42,4 +42,9 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<div><span>hi</span><svg class="hi">home</svg><svg class="hi">home</svg><b>7</b></div>
+<div>
+		<span>hi</span>
+		<svg class="hi">home</svg>
+		<svg class="hi">home</svg>
+		<b>7</b>
+	</div>

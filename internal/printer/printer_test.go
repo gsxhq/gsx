@@ -1476,12 +1476,10 @@ func TestFragmentInlineChildrenPreserveAuthorLineBreak(t *testing.T) {
 
 func TestInlineContentStaysInline(t *testing.T) {
 	// The paragraph that motivated this work: <code> must not explode even
-	// though the glued tail overflows; long prose wraps at word gaps.
+	// though the glued tail overflows; literal prose retains its word gaps.
 	checkFormat(t,
 		"package p\n\ncomponent C() {\n\t<p>\n\t\tthe CLI vendors real <code>.gsx</code> source into your own module, so what you build against is code you own\n\t</p>\n}\n",
-		// Width 80, children indent 2 tabs (4 cols): "the CLI vendors real
-		// <code>.gsx</code> source into your own module, so what" measures
-		// 4+75=79 ≤ 80; adding " you" overflows → break before "you".
+		// Width 80 cannot reflow literal element content.
 		"package p\n\ncomponent C() {\n\t<p>\n\t\tthe CLI vendors real <code>.gsx</code> source into your own module, so what you build against is code you own\n\t</p>\n}\n")
 }
 
@@ -1828,18 +1826,9 @@ func TestCaseBodyContentNeverCreatesLabel(t *testing.T) {
 	}
 }
 
-// TestCaseBodyNestedElementPreservesProse pins the scoping half of the
-// fix: an element's OWN children are parsed by parseElementChildren's
-// ordinary text scanner, which has no case/default label concept at all (see
-// caseBodyLeadingWord's probe in the design doc) — a line-start "default:"
-// there is just text. The printer must still be free to wrap ordinary prose
-// at word gaps inside such a nested element, even though it sits directly
-// inside a case body's arm: if the case-body bond leaked into element()'s own
-// recursion, this element's long prose would never wrap and the test would
-// need a width no line here can exceed. Asserts only that formatting succeeds
-// and is idempotent (byte-for-byte word-wrap position is not the contract);
-// the real regression this guards is the bond incorrectly narrowing where
-// text is even allowed to wrap.
+// TestCaseBodyNestedElementPreservesProse pins the scanner's case-body scope:
+// line-start "default:" inside an element is text, not a switch label. Long
+// literal prose remains intact at every formatter width, and is idempotent.
 func TestCaseBodyNestedElementPreservesProse(t *testing.T) {
 	words := make([]string, 40)
 	for i := range words {

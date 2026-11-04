@@ -77,4 +77,8 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<i>x:live</i><p>start x,leaf,end x</p>
+
+	
+	
+	<i>x:live</i>
+	<p>start x,leaf,end x</p>

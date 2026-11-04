@@ -113,4 +113,32 @@ gsx.Fragment(
 )
 -- diagnostics.golden --
 -- render.golden --
-<span>a</span><span>b</span><span>a</span><span>b</span><p><span>a</span><span>b</span></p><ul><li>x</li><li>y</li></ul><span><b>x</b><b>y</b></span><div><span>a</span><span>b</span></div><p><div><span>a</span><span>b</span></div></p><p>N</p><p><!-- kept --><!-- kept2 --></p><p></p>
+<span>a</span>
+	
+	<span>b</span>
+		<span>a</span>
+		
+		<span>b</span>
+	<p><span>a</span>
+		
+		<span>b</span></p><ul><li>x</li>
+		<li>y</li>
+		</ul><span><b>x</b>
+		
+		<b>y</b></span><div><span>a</span>
+		
+		<span>b</span></div><p><div>
+		<span>a</span>
+		
+		<span>b</span>
+	</div></p><p>
+		N
+		
+	</p><p>
+		<!-- kept -->
+		
+		<!-- kept2 -->
+	</p><p>
+		
+		
+	</p>

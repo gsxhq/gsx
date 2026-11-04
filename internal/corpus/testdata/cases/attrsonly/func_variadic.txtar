@@ -27,4 +27,7 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<div><span class="c1" data-k="v">chip</span><span>chip</span></div>
+<div>
+		<span class="c1" data-k="v">chip</span>
+		<span>chip</span>
+	</div>

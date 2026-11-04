@@ -70,7 +70,7 @@ func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 //line input.gsx:11:2
 		_gsxgw.S("<button @click=\"save(")
 		_gsxgw.JSValAttr(_gsxf0.PgJS(( /*line input.gsx:11:28*/ val)))
-		_gsxgw.S(")\">inline</button>")
+		_gsxgw.S(")\">inline</button>\n\t")
 //line input.gsx:12:2
 		_gsxv0 := /*line input.gsx:12:12*/ a
 		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "@click", Value: "save(" + _gsxrt.EscapeJSVal(_gsxf0.PgJS(( /*line input.gsx:12:37*/ val))) + ")"}} /*line input.gsx:12:47*/, b)
@@ -83,4 +83,5 @@ func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<button @click="save(&#34;\u003c/script\u003e&#34;)">inline</button><button @click="save(&#34;\u003c/script\u003e&#34;)">fold</button>
+<button @click="save(&#34;\u003c/script\u003e&#34;)">inline</button>
+	<button @click="save(&#34;\u003c/script\u003e&#34;)">fold</button>

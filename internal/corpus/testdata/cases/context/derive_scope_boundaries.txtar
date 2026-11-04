@@ -41,4 +41,7 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<u><i>in-slot</i></u><i></i><div><i>in-div</i></div><i>in-div</i>
+<u><i>in-slot</i></u>
+	<i></i>
+	<div><i>in-div</i></div>
+	<i>in-div</i>

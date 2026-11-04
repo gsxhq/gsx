@@ -65,4 +65,7 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<p>a@text</p><p data-t="b@attr">x</p>
+
+		<p>a@text</p>
+	
+		<p data-t="b@attr">x</p>

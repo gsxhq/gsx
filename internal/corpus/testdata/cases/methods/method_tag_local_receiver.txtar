@@ -122,26 +122,32 @@ func Card(p P) _gsxrt.Node {
 		m := P{}
 //line input.gsx:27:16
 		_gsxgw.Node(ctx, m.Meth( /*line input.gsx:27:27*/ 1))
+		_gsxgw.S("\n\t")
 //line input.gsx:28:2
 		for /*line input.gsx:28:8*/ _, m := range []P{{}} {
 //line input.gsx:28:32
 			_gsxgw.Node(ctx, m.Meth( /*line input.gsx:28:43*/ 2))
 		}
+		_gsxgw.S("\n\t")
 //line input.gsx:29:2
 		_gsxgw.Node(ctx, p.Meth( /*line input.gsx:29:13*/ 3))
+		_gsxgw.S("\n\t")
 //line input.gsx:30:2
 		q := p
 //line input.gsx:30:14
 		_gsxgw.Node(ctx, q.Meth( /*line input.gsx:30:25*/ 4))
+		_gsxgw.S("\n\t")
 //line input.gsx:31:2
 		if /*line input.gsx:31:7*/ r := (P{}); true {
 //line input.gsx:31:26
 			_gsxgw.Node(ctx, r.Meth( /*line input.gsx:31:37*/ 5))
 		}
+		_gsxgw.S("\n\t")
 //line input.gsx:32:2
 		pm := &P{Name: "x"}
 //line input.gsx:32:27
 		_gsxgw.Node(ctx, pm.PMeth( /*line input.gsx:32:40*/ 6))
+		_gsxgw.S("\n\t")
 //line input.gsx:33:2
 		bx := P{}
 //line input.gsx:33:17
@@ -150,10 +156,12 @@ func Card(p P) _gsxrt.Node {
 			_gsxgw.S("kid")
 			return _gsxgw.Err()
 		}), _gsxrt.Attrs{{Key: "data-k", Value: "v"}}))
+		_gsxgw.S("\n\t")
 //line input.gsx:34:2
 		hd := Holder{}
 //line input.gsx:34:22
 		_gsxgw.Node(ctx, hd.Inner.Meth( /*line input.gsx:34:40*/ 7))
+		_gsxgw.S("\n\t")
 //line input.gsx:35:2
 		lm := P{}
 //line input.gsx:35:17
@@ -163,6 +171,7 @@ func Card(p P) _gsxrt.Node {
 			_gsxgw.Node(ctx, lm.Meth( /*line input.gsx:35:40*/ 8))
 			return _gsxgw.Err()
 		}) /*line input.gsx:35:44*/))
+		_gsxgw.S("\n\t")
 //line input.gsx:36:2
 		_gsxgw.Node(ctx /*line input.gsx:36:4*/, helper())
 		return _gsxgw.Err()
@@ -170,4 +179,13 @@ func Card(p P) _gsxrt.Node {
 }
 -- diagnostics.golden --
 -- render.golden --
-<b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><i>x6</i><div data-k="v">kid</div><b>7</b><b>8</b><b>9</b>
+<b>1</b>
+	<b>2</b>
+	<b>3</b>
+	<b>4</b>
+	<b>5</b>
+	<i>x6</i>
+	<div data-k="v">kid</div>
+	<b>7</b>
+	<b>8</b>
+	<b>9</b>

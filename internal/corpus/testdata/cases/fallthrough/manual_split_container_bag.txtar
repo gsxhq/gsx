@@ -75,19 +75,19 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, c
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", _gsxv0.Style())
 	_gsxgw.Spread(ctx, "div", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
-	_gsxgw.S(">")
+	_gsxgw.S(">\n\t\t")
 //line input.gsx:7:3
 	_gsxgw.S("<label>")
 //line input.gsx:7:10
 	_gsxgw.Text(string( /*line input.gsx:7:11*/ label))
-	_gsxgw.S("</label>")
+	_gsxgw.S("</label>\n\t\t")
 //line input.gsx:8:3
 	_gsxgw.S("<input class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field-input"), _gsxrt.Class(attrs.Class()))
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", attrs.Style())
 	_gsxgw.Spread(ctx, "input", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
-	_gsxgw.S("></div>")
+	_gsxgw.S(">\n\t</div>")
 	return _gsxgw.Err()
 }
 
@@ -101,4 +101,7 @@ func Page() _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div class="field" data-testid="email-field"><label>Email</label><input class="field-input" type="email" placeholder="you@co" required></div>
+<div class="field" data-testid="email-field">
+		<label>Email</label>
+		<input class="field-input" type="email" placeholder="you@co" required>
+	</div>

@@ -16,4 +16,6 @@ component Page(before string, mid int, after bool) {
 Page("B", 7, true)
 -- diagnostics.golden --
 -- render.golden --
-<span>B</span><div><em>7</em></div><span>true</span>
+<span>B</span>
+	<div><em>7</em></div>
+	<span>true</span>

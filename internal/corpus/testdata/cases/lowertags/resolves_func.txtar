@@ -58,10 +58,12 @@ func Page() _gsxrt.Node {
 			_gsxgw.S("hi")
 			return _gsxgw.Err()
 		})))
+		_gsxgw.S("\n\t")
 //line input.gsx:11:2
 		_gsxgw.S("<span>bye</span>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div class="card">hi</div><span>bye</span>
+<div class="card">hi</div>
+	<span>bye</span>

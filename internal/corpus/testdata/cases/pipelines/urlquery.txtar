@@ -15,4 +15,6 @@ component C(q string) {
 C("cats&dogs 50%")
 -- diagnostics.golden --
 -- render.golden --
-<a href="/search?q=cats%26dogs+50%25">go</a><p>cats%26dogs+50%25</p><span title="cats%26dogs+50%25">x</span>
+<a href="/search?q=cats%26dogs+50%25">go</a>
+	<p>cats%26dogs+50%25</p>
+	<span title="cats%26dogs+50%25">x</span>

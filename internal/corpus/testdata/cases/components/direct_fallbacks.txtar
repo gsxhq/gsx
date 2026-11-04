@@ -79,12 +79,16 @@ func _gsxrenderFallbacks(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, cards Cards
 	}
 //line input.gsx:11:2
 	_gsxgw.Node(ctx, dep.Imported("imported"))
+	_gsxgw.S("\n\t")
 //line input.gsx:12:2
 	_gsxgw.Node(ctx, cards.Method("method"))
+	_gsxgw.S("\n\t")
 //line input.gsx:13:2
 	_gsxgw.Node(ctx, Variable("variable"))
+	_gsxgw.S("\n\t")
 //line input.gsx:14:2
 	_gsxgw.Node(ctx, Plain("plain"))
+	_gsxgw.S("\n\t")
 //line input.gsx:15:2
 	_gsxgw.Node(ctx /*line input.gsx:15:4*/, render("dynamic"))
 	return _gsxgw.Err()
@@ -100,4 +104,8 @@ func Page() _gsxrt.Node {
 	})
 }
 -- render.golden --
-<i>imported</i><mark>method</mark><b>variable</b><b>plain</b><u>dynamic</u>
+<i>imported</i>
+	<mark>method</mark>
+	<b>variable</b>
+	<b>plain</b>
+	<u>dynamic</u>

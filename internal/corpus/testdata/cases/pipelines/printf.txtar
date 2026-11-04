@@ -13,4 +13,6 @@ component C(count int, price float64, total int) {
 C(5, 9.5, 12)
 -- diagnostics.golden --
 -- render.golden --
-<p>5 comments</p><span title="$9.50">$9.50</span><b>5/12</b>
+<p>5 comments</p>
+	<span title="$9.50">$9.50</span>
+	<b>5/12</b>

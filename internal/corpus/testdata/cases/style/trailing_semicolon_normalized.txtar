@@ -16,4 +16,7 @@ component Box(w string, on bool) {
 Box("16", true)
 -- diagnostics.golden --
 -- render.golden --
-<div style="aspect-ratio: 16 / 9">whole-value</div><div style="a: 16; b: 16">two literal parts</div><div style="color: red; margin: 0">string parts</div><div style="display:none; c: 16;color:teal">guard plus internal semicolons</div>
+<div style="aspect-ratio: 16 / 9">whole-value</div>
+	<div style="a: 16; b: 16">two literal parts</div>
+	<div style="color: red; margin: 0">string parts</div>
+	<div style="display:none; c: 16;color:teal">guard plus internal semicolons</div>

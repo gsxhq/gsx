@@ -16,4 +16,6 @@ component Rows(bags []gsx.Attrs) {
 Rows([]gsx.Attrs{{{Key: "data-i", Value: "0"}}, {{Key: "data-i", Value: "1"}}})
 -- diagnostics.golden --
 -- render.golden --
-<div><span data-i="0">x</span><span data-i="1">x</span></div>
+<div>
+		<span data-i="0">x</span><span data-i="1">x</span>
+	</div>

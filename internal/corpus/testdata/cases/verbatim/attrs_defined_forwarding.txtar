@@ -66,10 +66,12 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:2
 		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:16:16*/ bag("explicit"))))
+		_gsxgw.S("\n\t")
 //line input.gsx:17:2
 		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:17:11*/ bag("spread"))))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div id="explicit"></div><div id="spread"></div>
+<div id="explicit"></div>
+	<div id="spread"></div>

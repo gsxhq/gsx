@@ -10,4 +10,5 @@ component Page(on bool) {
 Page(true)
 -- diagnostics.golden --
 -- render.golden --
-<input ?disabled .prop="x" [a]="b"><input (event)="c">
+<input ?disabled .prop="x" [a]="b">
+	<input (event)="c">

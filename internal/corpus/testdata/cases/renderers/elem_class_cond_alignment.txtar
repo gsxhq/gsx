@@ -70,11 +70,11 @@ func Page(before string, val pg.Text, on bool, after string) _gsxrt.Node {
 		_gsxgw.S("<span>")
 //line input.gsx:8:8
 		_gsxgw.Text(string( /*line input.gsx:8:9*/ before))
-		_gsxgw.S("</span>")
+		_gsxgw.S("</span>\n\t")
 //line input.gsx:9:2
 		_gsxgw.S("<div class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxf0.PgText(( /*line input.gsx:9:15*/ val)) /*line input.gsx:9:20*/, on))
-		_gsxgw.S("\">x</div>")
+		_gsxgw.S("\">x</div>\n\t")
 //line input.gsx:10:2
 		_gsxgw.S("<span>")
 //line input.gsx:10:8
@@ -84,4 +84,6 @@ func Page(before string, val pg.Text, on bool, after string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<span>b</span><div class="btn">x</div><span>a</span>
+<span>b</span>
+	<div class="btn">x</div>
+	<span>a</span>

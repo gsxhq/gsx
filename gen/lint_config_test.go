@@ -23,12 +23,17 @@ func TestLoadConfigLint(t *testing.T) {
 		wantErr []string
 	}{
 		{name: "absent", toml: ``},
+		{name: "retired off", toml: "[lint]\nchild-element-spacing = \"off\"\n", wantErr: []string{"child-element-spacing", "retired", "HTML content whitespace is preserved", "remove this entry"}},
+		{name: "retired warning", toml: "[lint]\nchild-element-spacing = \"warning\"\n", wantErr: []string{"child-element-spacing", "retired", "HTML content whitespace is preserved", "remove this entry"}},
+		{name: "retired error", toml: "[lint]\nchild-element-spacing = \"error\"\n", wantErr: []string{"child-element-spacing", "retired", "HTML content whitespace is preserved", "remove this entry"}},
+		{name: "retired invalid", toml: "[lint]\nchild-element-spacing = \"invalid\"\n", wantErr: []string{"child-element-spacing", "retired", "HTML content whitespace is preserved", "remove this entry"}},
+
 		{
 			name: "all levels",
-			toml: "[lint]\nchild-element-spacing = \"error\"\nduplicate-attribute = \"off\"\nurl-always-blocked = \"warning\"\n",
-			want: diag.LintPolicy{"child-element-spacing": diag.LintError, "duplicate-attribute": diag.LintOff, "url-always-blocked": diag.LintWarning},
+			toml: "[lint]\nself-reference-leaf = \"error\"\nduplicate-attribute = \"off\"\nurl-always-blocked = \"warning\"\n",
+			want: diag.LintPolicy{"self-reference-leaf": diag.LintError, "duplicate-attribute": diag.LintOff, "url-always-blocked": diag.LintWarning},
 		},
-		{name: "unknown code", toml: "[lint]\nchild-spacing = \"off\"\n", wantErr: []string{"gsx.toml", `unknown code "child-spacing"`, "child-element-spacing"}},
+		{name: "unknown code", toml: "[lint]\nchild-spacing = \"off\"\n", wantErr: []string{"gsx.toml", `unknown code "child-spacing"`, "duplicate-attribute"}},
 		{name: "error code is not a lint", toml: "[lint]\nparse-error = \"off\"\n", wantErr: []string{`unknown code "parse-error"`}},
 		{name: "bad level", toml: "[lint]\nwrapper-cycle = \"loud\"\n", wantErr: []string{"lint.wrapper-cycle", `"loud"`, `"off", "warning" or "error"`}},
 		{name: "non-string level", toml: "[lint]\nwrapper-cycle = true\n", wantErr: []string{"gsx.toml", "lint"}},
@@ -65,11 +70,11 @@ func TestLoadConfigLint(t *testing.T) {
 // code only; the merge never aliases either input's map.
 func TestMergeConfigLint(t *testing.T) {
 	t.Parallel()
-	base := config{lint: diag.LintPolicy{"child-element-spacing": diag.LintError, "wrapper-cycle": diag.LintOff}}
+	base := config{lint: diag.LintPolicy{"duplicate-attribute": diag.LintError, "wrapper-cycle": diag.LintOff}}
 	var opts config
-	WithLint("child-element-spacing", "off")(&opts)
+	WithLint("duplicate-attribute", "off")(&opts)
 	merged := mergeConfig(base, opts)
-	want := diag.LintPolicy{"child-element-spacing": diag.LintOff, "wrapper-cycle": diag.LintOff}
+	want := diag.LintPolicy{"duplicate-attribute": diag.LintOff, "wrapper-cycle": diag.LintOff}
 	if !reflect.DeepEqual(merged.lint, want) {
 		t.Fatalf("merged lint = %v, want %v", merged.lint, want)
 	}
@@ -81,11 +86,18 @@ func TestMergeConfigLint(t *testing.T) {
 
 func TestWithLintRejectsBadInput(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][2]string{{"nope", "off"}, {"wrapper-cycle", "fatal"}} {
+	for _, args := range [][2]string{{"nope", "off"}, {"wrapper-cycle", "fatal"}, {"child-element-spacing", "off"}, {"child-element-spacing", "warning"}, {"child-element-spacing", "error"}, {"child-element-spacing", "invalid"}} {
 		var cfg config
 		WithLint(args[0], args[1])(&cfg)
 		if len(cfg.errs) != 1 || !strings.Contains(cfg.errs[0].Error(), "WithLint") {
 			t.Fatalf("WithLint(%q, %q) errs = %v, want one WithLint error", args[0], args[1], cfg.errs)
+		}
+		if args[0] == "child-element-spacing" {
+			for _, want := range []string{"retired", "HTML content whitespace is preserved", "remove this entry"} {
+				if !strings.Contains(cfg.errs[0].Error(), want) {
+					t.Fatalf("WithLint(%q, %q) error = %v, want %q", args[0], args[1], cfg.errs[0], want)
+				}
+			}
 		}
 	}
 }
@@ -120,16 +132,16 @@ func TestComputeKeyVariesByLint(t *testing.T) {
 		return k
 	}
 	def := key(nil)
-	if def != key(diag.LintPolicy{"child-element-spacing": diag.LintWarning}) {
+	if def != key(diag.LintPolicy{"duplicate-attribute": diag.LintWarning}) {
 		t.Fatal("an explicit default lint level changed the cache key")
 	}
-	if def == key(diag.LintPolicy{"child-element-spacing": diag.LintError}) {
+	if def == key(diag.LintPolicy{"duplicate-attribute": diag.LintError}) {
 		t.Fatal("promoting a lint to error must change the cache key")
 	}
 }
 
 // TestGenerateLintLevels drives `gsx generate` over one package with a
-// child-element-spacing finding under each [lint] level: the default warns
+// duplicate-attribute finding under each [lint] level: the default warns
 // and writes real output (exit 0); "error" fails (exit 1) and writes a poison
 // .x.go so go build fails too, even right after a cached warning run; "off"
 // is silent; an unknown code is a config error (exit 2).
@@ -142,7 +154,7 @@ func TestGenerateLintLevels(t *testing.T) {
 		t.Fatal(err)
 	}
 	mkfile(t, filepath.Join(tmp, "go.mod"), "module lintcfg\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot(t)+"\n")
-	mkfile(t, filepath.Join(tmp, "views", "views.gsx"), "package views\n\ncomponent C() {\n\t<p>\n\t\tRead the\n\t\t<a href=\"/d\">docs</a>\n\t</p>\n}\n")
+	mkfile(t, filepath.Join(tmp, "views", "views.gsx"), "package views\n\ncomponent C() {\n\t<p>\n\t\t<a href=\"/d\" href=\"/e\">docs</a>\n\t</p>\n}\n")
 	cfgPath := filepath.Join(tmp, "gsx.toml")
 	xgo := filepath.Join(tmp, "views", "views.x.go")
 	t.Setenv("GSXCACHE", t.TempDir())
@@ -151,7 +163,7 @@ func TestGenerateLintLevels(t *testing.T) {
 		code := run([]string{"-C", tmp, "generate", "./views"}, &out, &errb)
 		return code, out.String(), errb.String()
 	}
-	const finding = "views.gsx:5:11: warning[child-element-spacing]: line break after this text is dropped: no space renders before <a>"
+	const finding = "views.gsx:5:16: warning[duplicate-attribute]: attribute \"href\" is already set on this element; the browser keeps the first one"
 
 	code, _, stderr := gen()
 	if code != 0 || !strings.Contains(stderr, finding) {
@@ -161,18 +173,18 @@ func TestGenerateLintLevels(t *testing.T) {
 		t.Fatal("a warning must not poison the output")
 	}
 
-	mkfile(t, cfgPath, "[lint]\nchild-element-spacing = \"error\"\n")
+	mkfile(t, cfgPath, "[lint]\nduplicate-attribute = \"error\"\n")
 	code, _, stderr = gen()
-	if code != 1 || !strings.Contains(stderr, "error[child-element-spacing]") {
-		t.Fatalf("error: code=%d stderr=%q, want 1 and an error[child-element-spacing]", code, stderr)
+	if code != 1 || !strings.Contains(stderr, "error[duplicate-attribute]") {
+		t.Fatalf("error: code=%d stderr=%q, want 1 and an error[duplicate-attribute]", code, stderr)
 	}
 	if src, _ := os.ReadFile(xgo); !strings.Contains(string(src), "GSX GENERATION FAILED") {
 		t.Fatalf("a lint error must poison the output, got:\n%s", src)
 	}
 
-	mkfile(t, cfgPath, "[lint]\nchild-element-spacing = \"off\"\n")
+	mkfile(t, cfgPath, "[lint]\nduplicate-attribute = \"off\"\n")
 	code, _, stderr = gen()
-	if code != 0 || strings.Contains(stderr, "child-element-spacing") {
+	if code != 0 || strings.Contains(stderr, "duplicate-attribute") {
 		t.Fatalf("off: code=%d stderr=%q, want 0 and no finding", code, stderr)
 	}
 

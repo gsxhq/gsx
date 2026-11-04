@@ -158,4 +158,28 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<i>if</i><i>for</i><i>switch</i><u><i>slot</i></u><s data-a="1">cond</s><i>node</i><b>literal</b><i>children</i><script>var a = 1</script><style>a{color: red}</style><p>x@filter</p><p id="s">x</p><i></i>
+
+		<i>if</i>
+	
+		<i>for</i>
+	
+		<i>switch</i>
+	
+		<u><i>slot</i></u>
+	
+		<s data-a="1">cond</s>
+	
+		<i>node</i>
+	
+		<b>literal</b>
+	
+		<i>children</i>
+	
+		<script>var a = 1</script>
+	
+		<style>a{color: red}</style>
+	
+		<p>x@filter</p>
+	
+		<p id="s">x</p>
+	<i></i>

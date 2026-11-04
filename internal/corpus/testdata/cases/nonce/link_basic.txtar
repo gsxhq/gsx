@@ -41,11 +41,11 @@ func Page() _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<link rel=\"stylesheet\" href=\"/app.css\"")
 		_gsxgw.Nonce(ctx)
-		_gsxgw.S(">")
+		_gsxgw.S(">\n\t")
 //line input.gsx:5:2
 		_gsxgw.S("<link rel=\"modulepreload\" href=\"/app.js\"")
 		_gsxgw.Nonce(ctx)
-		_gsxgw.S(">")
+		_gsxgw.S(">\n\t")
 //line input.gsx:6:2
 		_gsxgw.S("<link rel=\"icon\" href=\"/favicon.ico\"")
 		_gsxgw.Nonce(ctx)
@@ -55,4 +55,6 @@ func Page() _gsxrt.Node {
 }
 -- diagnostics.golden --
 -- render.golden --
-<link rel="stylesheet" href="/app.css" nonce="r4nd0m"><link rel="modulepreload" href="/app.js" nonce="r4nd0m"><link rel="icon" href="/favicon.ico" nonce="r4nd0m">
+<link rel="stylesheet" href="/app.css" nonce="r4nd0m">
+	<link rel="modulepreload" href="/app.js" nonce="r4nd0m">
+	<link rel="icon" href="/favicon.ico" nonce="r4nd0m">

@@ -22,4 +22,6 @@ component (p UsersPage) Page() {
 (UsersPage{Before: "B", Mid: 7, After: true}).Page()
 -- diagnostics.golden --
 -- render.golden --
-<span>B</span><div><em>7</em></div><span>true</span>
+<span>B</span>
+	<div><em>7</em></div>
+	<span>true</span>

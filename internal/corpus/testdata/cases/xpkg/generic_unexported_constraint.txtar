@@ -30,4 +30,5 @@ component Home() {
 pages.Home()
 -- diagnostics.golden --
 -- render.golden --
-<span>x</span><button>ok</button>
+<span>x</span>
+	<button>ok</button>

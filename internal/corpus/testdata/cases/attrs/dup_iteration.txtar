@@ -47,6 +47,7 @@ func _gsxrenderEchoLen(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 //line input.gsx:6:2
 	v, _ := attrs.Get("a")
 	s, _ := v.(string)
+	_gsxgw.S("\n\t")
 //line input.gsx:7:2
 	_gsxgw.S("<div data-n=\"")
 	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:7:15*/ len(attrs)))
@@ -67,4 +68,5 @@ func Page(extra gsx.Attrs) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div data-n="2">2</div>
+
+	<div data-n="2">2</div>

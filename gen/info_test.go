@@ -259,7 +259,7 @@ func TestRunInfo_MinifyAndEnv(t *testing.T) {
 	var out, errb bytes.Buffer
 	// css=none/js=none reflect the explicitly-passed MinifyNone levels; GSX_MINIFY
 	// appears in the Environment section because it is set.
-	lint := diag.LintPolicy{diag.CodeChildElementSpacing: diag.LintError, diag.CodeWrapperCycle: diag.LintOff}
+	lint := diag.LintPolicy{diag.CodeDuplicateAttribute: diag.LintError, diag.CodeWrapperCycle: diag.LintOff}
 	code := runInfo(&out, &errb, ".", "", nil, nil, nil, nil, lint,
 		[]string{}, MinifyNone, MinifyNone, 100)
 	if code != 0 {
@@ -269,7 +269,7 @@ func TestRunInfo_MinifyAndEnv(t *testing.T) {
 	if !strings.Contains(s, "minify: css=none js=none") {
 		t.Fatalf("missing minify line:\n%s", s)
 	}
-	for _, re := range []string{`child-element-spacing +error\n`, `duplicate-attribute +warning\n`, `wrapper-cycle +off\n`} {
+	for _, re := range []string{`duplicate-attribute +error\n`, `self-reference-leaf +warning\n`, `wrapper-cycle +off\n`} {
 		if !regexp.MustCompile(re).MatchString(s) {
 			t.Fatalf("missing lint line %q:\n%s", re, s)
 		}

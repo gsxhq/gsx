@@ -47,4 +47,5 @@ component Page(d model.Data) {
 views.Page(model.Data{})
 -- diagnostics.golden --
 -- render.golden --
-<span>box</span><span>box</span>
+<span>box</span>
+	<span>box</span>

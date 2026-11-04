@@ -24,4 +24,6 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<a href="/items/a b">x</a><a href="/items/7">x</a><a href="about:invalid#gsx">x</a>
+<a href="/items/a b">x</a>
+	<a href="/items/7">x</a>
+	<a href="about:invalid#gsx">x</a>

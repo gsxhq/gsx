@@ -14,4 +14,5 @@ component Link() {
 Link()
 -- diagnostics.golden --
 -- render.golden --
-<a href="app://ok">click</a>
+
+	<a href="app://ok">click</a>

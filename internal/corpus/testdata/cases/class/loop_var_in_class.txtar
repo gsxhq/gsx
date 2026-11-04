@@ -14,4 +14,6 @@ component Bars(vals []int) {
 Bars([]int{3, 8})
 -- diagnostics.golden --
 -- render.golden --
-<div><span class="bar">x</span><span class="bar hot">x</span></div>
+<div>
+		<span class="bar">x</span><span class="bar hot">x</span>
+	</div>

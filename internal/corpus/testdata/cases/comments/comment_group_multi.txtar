@@ -23,4 +23,8 @@ component C(name string) {
 C("agree")
 -- diagnostics.golden --
 -- render.golden --
-<input type="checkbox" id="agree"><div><span>ok</span></div>
+<input type="checkbox" id="agree">
+	<div>
+		
+		<span>ok</span>
+	</div>

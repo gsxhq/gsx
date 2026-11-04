@@ -12,4 +12,5 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<div>hi</div>
+
+	<div>hi</div>

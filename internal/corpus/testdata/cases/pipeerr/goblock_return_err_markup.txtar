@@ -23,4 +23,5 @@ component Row(k string) {
 Row("a")
 -- diagnostics.golden --
 -- render.golden --
-<p>L:a</p>
+
+	<p>L:a</p>

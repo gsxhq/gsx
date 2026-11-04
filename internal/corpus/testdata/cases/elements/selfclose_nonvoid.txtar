@@ -16,4 +16,8 @@ component Separator() {
 Separator()
 -- diagnostics.golden --
 -- render.golden --
-<section><div role="separator"></div><span></span><p>after</p></section>
+<section>
+		<div role="separator"></div>
+		<span></span>
+		<p>after</p>
+	</section>

@@ -1,8 +1,6 @@
-Whitespace is significant in the entire subtree of a preserve tag
-(pre/textarea), not just its direct children: nested elements, interpolations,
-and control-flow bodies keep their text verbatim — no JSX collapsing anywhere
-under the preserve root. Whitespace between sibling <pre> elements still
-collapses (the component body is a normal context).
+Whitespace remains literal inside nested pre/textarea content, interpolations
+and element children. Control-flow bodies trim only their own outer edges.
+Whitespace between sibling pre elements is literal component interior content.
 -- input.gsx --
 package views
 
@@ -61,13 +59,13 @@ func PreNested(lines []string) _gsxrt.Node {
 		_gsxgw.S("<code>")
 //line input.gsx:7:29
 		_gsxgw.Text(string( /*line input.gsx:7:31*/ snippet))
-		_gsxgw.S("</code></pre>")
+		_gsxgw.S("</code></pre>\n\t")
 //line input.gsx:8:2
 		_gsxgw.S("<pre>")
 //line input.gsx:8:7
 		_gsxgw.S("<code>\n  ")
 //line input.gsx:9:3
-		_gsxgw.S("<span>indented</span> tail\n</code></pre>")
+		_gsxgw.S("<span>indented</span> tail\n</code></pre>\n\t")
 //line input.gsx:11:2
 		_gsxgw.S("<pre>")
 //line input.gsx:11:7
@@ -78,7 +76,7 @@ func PreNested(lines []string) _gsxrt.Node {
 			_gsxgw.Text(string( /*line input.gsx:11:34*/ lines[0]))
 			_gsxgw.S("</b>")
 		}
-		_gsxgw.S("</pre>")
+		_gsxgw.S("</pre>\n\t")
 //line input.gsx:12:2
 		_gsxgw.S("<pre>")
 //line input.gsx:12:7
@@ -89,7 +87,7 @@ func PreNested(lines []string) _gsxrt.Node {
 			_gsxgw.Text(string( /*line input.gsx:12:43*/ l))
 			_gsxgw.S("</span>")
 		}
-		_gsxgw.S("</pre>")
+		_gsxgw.S("</pre>\n\t")
 //line input.gsx:13:2
 		_gsxgw.S("<pre>")
 //line input.gsx:13:7
@@ -99,7 +97,7 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:15:1
 			_gsxgw.S("<b>b</b>")
 		}
-		_gsxgw.S("</pre>")
+		_gsxgw.S("</pre>\n\t")
 //line input.gsx:16:2
 		_gsxgw.S("<pre>")
 //line input.gsx:16:7
@@ -113,13 +111,13 @@ func PreNested(lines []string) _gsxrt.Node {
 //line input.gsx:22:1
 			_gsxgw.S("<i>b</i>")
 		}
-		_gsxgw.S("</pre>")
+		_gsxgw.S("</pre>\n\t")
 //line input.gsx:24:2
 		_gsxgw.S("<pre>")
 //line input.gsx:24:9
 		_gsxgw.S("<span>x</span>\nbetween\n")
 //line input.gsx:26:1
-		_gsxgw.S("<span>y</span></pre>")
+		_gsxgw.S("<span>y</span></pre>\n\t")
 //line input.gsx:27:2
 		_gsxgw.S("<textarea name=\"t\">\n  keeps   spaces\n</textarea>")
 		return _gsxgw.Err()
@@ -128,14 +126,21 @@ func PreNested(lines []string) _gsxrt.Node {
 -- diagnostics.golden --
 -- render.golden --
 <pre class="snippet"><code>go install example.com/tool@latest
-tool init</code></pre><pre><code>
+tool init</code></pre>
+	<pre><code>
   <span>indented</span> tail
-</code></pre><pre><b>a</b></pre><pre><span>a</span><span>b</span></pre><pre><b>a</b>
+</code></pre>
+	<pre><b>a</b></pre>
+	<pre><span>a</span><span>b</span></pre>
+	<pre><b>a</b>
 mid
-<b>b</b></pre><pre><i>a</i>
+<b>b</b></pre>
+	<pre><i>a</i>
 raw
-<i>b</i></pre><pre><span>x</span>
+<i>b</i></pre>
+	<pre><span>x</span>
 between
-<span>y</span></pre><textarea name="t">
+<span>y</span></pre>
+	<textarea name="t">
   keeps   spaces
 </textarea>

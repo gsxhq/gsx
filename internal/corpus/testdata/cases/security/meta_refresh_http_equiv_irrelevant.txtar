@@ -59,4 +59,11 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<meta http-equiv="refresh" content="0;url=about:invalid#gsx"><meta http-equiv="refresh" content="0;url=about:invalid#gsx"><meta http-equiv="refresh" content="0;url=about:invalid#gsx"><meta http-equiv="refresh" content="0;url=about:invalid#gsx"><meta content="0;url=about:invalid#gsx" http-equiv="refresh"><meta content="0;url=about:invalid#gsx"><meta name="description" content="A perfectly ordinary description."><meta name="description" content="5;url=/relative-is-allowed">
+<meta http-equiv="refresh" content="0;url=about:invalid#gsx">
+	<meta http-equiv="refresh" content="0;url=about:invalid#gsx">
+	<meta http-equiv="refresh" content="0;url=about:invalid#gsx">
+	<meta http-equiv="refresh" content="0;url=about:invalid#gsx">
+	<meta content="0;url=about:invalid#gsx" http-equiv="refresh">
+	<meta content="0;url=about:invalid#gsx">
+	<meta name="description" content="A perfectly ordinary description.">
+	<meta name="description" content="5;url=/relative-is-allowed">

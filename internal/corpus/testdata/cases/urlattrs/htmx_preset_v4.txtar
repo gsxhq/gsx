@@ -23,4 +23,7 @@ component Form(u string, m string) {
 Form("javascript:alert(1)", "post")
 -- diagnostics.golden --
 -- render.golden --
-<form hx-action="about:invalid#gsx" hx-method="post">x</form><a hx-query="about:invalid#gsx">y</a><div hx-action:inherited="about:invalid#gsx" hx-get:append="about:invalid#gsx" hx-post:inherited:append="about:invalid#gsx">z</div><button hx-action:inherited="about:invalid#gsx" hx-method="post" hx-query:append="about:invalid#gsx">w</button>
+<form hx-action="about:invalid#gsx" hx-method="post">x</form>
+	<a hx-query="about:invalid#gsx">y</a>
+	<div hx-action:inherited="about:invalid#gsx" hx-get:append="about:invalid#gsx" hx-post:inherited:append="about:invalid#gsx">z</div>
+	<button hx-action:inherited="about:invalid#gsx" hx-method="post" hx-query:append="about:invalid#gsx">w</button>

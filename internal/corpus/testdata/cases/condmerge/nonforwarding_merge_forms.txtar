@@ -49,7 +49,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S(">top</div>")
+		_gsxgw.S(">top</div>\n\t")
 //line input.gsx:9:2
 		_gsxv1 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv3, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:9:25*/ which == 1, func() (_gsxrt.Attrs, error) {
@@ -73,7 +73,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv4.Class())
 		_gsxgw.StyleMerged("", _gsxv4.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv4, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S(">branch</div>")
+		_gsxgw.S(">branch</div>\n\t")
 //line input.gsx:10:2
 		_gsxv5 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
 		_gsxv6, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:10:33*/ which > 0, func() (_gsxrt.Attrs, error) {
@@ -87,7 +87,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv7.Class())
 		_gsxgw.StyleMerged("", _gsxv7.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv7, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S(">css</div>")
+		_gsxgw.S(">css</div>\n\t")
 //line input.gsx:11:2
 		_gsxv8 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class( /*line input.gsx:11:15*/ "base"))}}
 		_gsxv9, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:11:29*/ which > 0, func() (_gsxrt.Attrs, error) {
@@ -101,7 +101,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv10.Class())
 		_gsxgw.StyleMerged("", _gsxv10.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv10, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S(">class</div>")
+		_gsxgw.S(">class</div>\n\t")
 //line input.gsx:12:2
 		_gsxv11 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
 		_gsxv13, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:12:30*/ which > 0, func() (_gsxrt.Attrs, error) {
@@ -119,7 +119,7 @@ func Forms(which int, gap string) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv14.Class())
 		_gsxgw.StyleMerged("", _gsxv14.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv14, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S(">tuple</div>")
+		_gsxgw.S(">tuple</div>\n\t")
 //line input.gsx:13:2
 		_gsxv15 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS("color:red")}}
 		_gsxv16, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:13:30*/ which > 0, func() (_gsxrt.Attrs, error) {
@@ -138,4 +138,14 @@ func Forms(which int, gap string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div style="margin:0; color:blue">top</div><div class="base two">branch</div><div style="color:red; margin:5px">css</div><div class="base ON">class</div><div style="color:red; margin:0">tuple</div><div style="color:red; MARGIN:5PX">pipeline</div><div style="margin:0; color:blue">top</div><div class="base other">branch</div><div style="color:red">css</div><div class="base">class</div><div style="color:red">tuple</div><div style="color:red">pipeline</div>
+<div style="margin:0; color:blue">top</div>
+	<div class="base two">branch</div>
+	<div style="color:red; margin:5px">css</div>
+	<div class="base ON">class</div>
+	<div style="color:red; margin:0">tuple</div>
+	<div style="color:red; MARGIN:5PX">pipeline</div><div style="margin:0; color:blue">top</div>
+	<div class="base other">branch</div>
+	<div style="color:red">css</div>
+	<div class="base">class</div>
+	<div style="color:red">tuple</div>
+	<div style="color:red">pipeline</div>

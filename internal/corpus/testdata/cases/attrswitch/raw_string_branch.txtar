@@ -30,7 +30,8 @@ C(true, 1)
 
 	tab" data-p="two
 
-	tab"></pre><pre data-t="one
+	tab"></pre>
+	<pre data-t="one
 
 	tab" data-p="two
 

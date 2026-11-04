@@ -33,6 +33,7 @@ func Page() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		b := gsx.Attrs{{Key: "a", Value: "c"}}
+		_gsxgw.S("\n\t")
 //line input.gsx:7:2
 		_gsxv0 := /*line input.gsx:7:16*/ b
 		_gsxgw.S("<span")
@@ -47,4 +48,5 @@ func Page() _gsxrt.Node {
 	})
 }
 -- render.golden --
-<span a="c">x</span>
+
+	<span a="c">x</span>

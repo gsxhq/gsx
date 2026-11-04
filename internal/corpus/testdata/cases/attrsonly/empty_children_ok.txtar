@@ -32,4 +32,7 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<div><span>chip</span><span>chip</span></div>
+<div>
+		<span>chip</span>
+		<span>chip</span>
+	</div>

@@ -70,7 +70,7 @@ func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 //line input.gsx:11:2
 		_gsxgw.S("<div data-style=\"color:")
 		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf0.PgColor(( /*line input.gsx:11:31*/ val)))))
-		_gsxgw.S("\">inline</div>")
+		_gsxgw.S("\">inline</div>\n\t")
 //line input.gsx:12:2
 		_gsxv0 := /*line input.gsx:12:9*/ a
 		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "data-style", Value: "color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor(( /*line input.gsx:12:40*/ val))))}} /*line input.gsx:12:49*/, b)
@@ -83,4 +83,5 @@ func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div data-style="color:ZgotmplZ">inline</div><div data-style="color:ZgotmplZ">fold</div>
+<div data-style="color:ZgotmplZ">inline</div>
+	<div data-style="color:ZgotmplZ">fold</div>

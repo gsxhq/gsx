@@ -46,6 +46,7 @@ func Ordered(on bool) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		trace = ""
+		_gsxgw.S("\n\t")
 //line input.gsx:12:2
 		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:12:15*/ mark("a", "color:red")))))}, {Key: "data-n", Value: /*line input.gsx:12:48*/ 42}}
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:12:57*/ on, func() (_gsxrt.Attrs, error) {
@@ -68,4 +69,6 @@ func Ordered(on bool) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div style="color:red; margin:0; padding:1px" data-n="42">abc</div><div style="color:red; padding:1px" data-n="42">ac</div>
+
+	<div style="color:red; margin:0; padding:1px" data-n="42">abc</div>
+	<div style="color:red; padding:1px" data-n="42">ac</div>

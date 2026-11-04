@@ -13,4 +13,7 @@ component C(show bool) {
 C(false)
 -- diagnostics.golden --
 -- render.golden --
-<!-- oob -- swap --><p>no</p>
+
+		<!-- oob -- swap -->
+		<p>no</p>
+	

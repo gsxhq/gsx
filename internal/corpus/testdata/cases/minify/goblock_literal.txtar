@@ -35,7 +35,8 @@ component Widget(x string) {
 Widget("a")
 -- diagnostics.golden --
 -- render.golden --
-<div style="color: red;margin: 0;" x-data="{
+
+	<div style="color: red;margin: 0;" x-data="{
 open: false,
 active: -1,
 }" @change="

@@ -16,4 +16,9 @@ component C() {
 C()
 -- diagnostics.golden --
 -- render.golden --
-<div><span>a</span><span>b</span></div>
+<div>
+		<span>a</span>
+		
+		
+		<span>b</span>
+	</div>

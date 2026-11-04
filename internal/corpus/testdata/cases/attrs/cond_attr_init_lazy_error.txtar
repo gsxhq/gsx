@@ -60,5 +60,14 @@ component All() {
 All()
 -- diagnostics.golden --
 -- render.golden --
-<i title="ann"></i><i></i><i title="ann"></i><i></i><b title="ann"></b><b></b><s data-calls="6"></s><b></b><i title="ok"></i>
+<i title="ann"></i>
+	<i></i>
+	<i title="ann"></i>
+	<i></i>
+	<b title="ann"></b>
+	<b></b>
+	<s data-calls="6"></s>
+	<b></b>
+	<i title="ok"></i>
+	
 [render error] bad user

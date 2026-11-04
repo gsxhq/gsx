@@ -14,4 +14,5 @@ component Link() {
 Link()
 -- diagnostics.golden --
 -- render.golden --
-<a class="base x">click</a>
+
+	<a class="base x">click</a>

@@ -97,10 +97,13 @@ func Page(n int, label string) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
 		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "item-"+_gsxsc.FormatInt(int64( /*line input.gsx:14:26*/ n), 10)))
+		_gsxgw.S("\n\t")
 //line input.gsx:15:2
 		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, string( /*line input.gsx:15:36*/ _gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64( /*line input.gsx:15:29*/ n), 10))))))
+		_gsxgw.S("\n\t")
 //line input.gsx:16:2
 		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, "label-"+string( /*line input.gsx:16:38*/ _gsxstd.Upper(( /*line input.gsx:16:29*/ label)))))
+		_gsxgw.S("\n\t")
 //line input.gsx:17:2
 		_gsxv0, _gsxerr := /*line input.gsx:17:39*/ _gsxf0.Check(("checked-" + _gsxsc.FormatInt(int64( /*line input.gsx:17:32*/ n), 10)))
 		if _gsxerr != nil {
@@ -111,4 +114,7 @@ func Page(n int, label string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<p>item-7</p><h1>ITEM-7</h1><h1>label-ADA</h1><h1>checked-7!</h1>
+<p>item-7</p>
+	<h1>ITEM-7</h1>
+	<h1>label-ADA</h1>
+	<h1>checked-7!</h1>

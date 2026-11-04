@@ -109,7 +109,7 @@ func Tag(j pg.JSVal, c pg.CSSVal) _gsxrt.Node {
 //line input.gsx:20:2
 		_gsxgw.S("<button @click=\"")
 		_gsxgw.AttrValue(string( /*line input.gsx:20:18*/ mkClick(j)))
-		_gsxgw.S("\">x</button>")
+		_gsxgw.S("\">x</button>\n\t")
 //line input.gsx:21:2
 		_gsxgw.S("<div style=\"")
 		_gsxgw.Style(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:21:14*/ mkColor(c))))
@@ -118,4 +118,5 @@ func Tag(j pg.JSVal, c pg.CSSVal) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<button @click="save(&#39;\u003c\/script\u003e&#39;)">x</button><div style="color:ZgotmplZ">y</div>
+<button @click="save(&#39;\u003c\/script\u003e&#39;)">x</button>
+	<div style="color:ZgotmplZ">y</div>

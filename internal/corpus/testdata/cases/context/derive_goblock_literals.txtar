@@ -28,4 +28,7 @@ component Page(id int) {
 Page(7)
 -- diagnostics.golden --
 -- render.golden --
-<p><b>7</b>1<i>el</i></p><p>2<i>v-7</i></p>
+
+	<p><b>7</b>1<i>el</i></p>
+	
+	<p>2<i>v-7</i></p>

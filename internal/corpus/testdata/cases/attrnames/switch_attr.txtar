@@ -11,4 +11,6 @@ component Page(n int) {
 Page(1)
 -- diagnostics.golden --
 -- render.golden --
-<input ?disabled .one="x"><input [two]="y"><input (other)="z">
+<input ?disabled .one="x">
+	<input [two]="y">
+	<input (other)="z">

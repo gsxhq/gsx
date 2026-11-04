@@ -17,4 +17,6 @@ component Page(v string, on bool) {
 Page("val", true)
 -- diagnostics.golden --
 -- render.golden --
-<div .prop="x" .p.q="val" .bare>dot</div><input ?disabled ?readonly="" #ref *ngIf="cond" [prop]="a" (event)="b" $x !y a&b><button on:click|preventDefault="val" x-on:keyup.enter.prevent="go" données="é" ~tilde ^caret %pct +plus ,comma ;semi>go</button>
+<div .prop="x" .p.q="val" .bare>dot</div>
+	<input ?disabled ?readonly="" #ref *ngIf="cond" [prop]="a" (event)="b" $x !y a&b>
+	<button on:click|preventDefault="val" x-on:keyup.enter.prevent="go" données="é" ~tilde ^caret %pct +plus ,comma ;semi>go</button>

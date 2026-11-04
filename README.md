@@ -7,6 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A JSX-like templating language for Go, compiled to plain Go that streams HTML.
+Literal HTML content whitespace is preserved exactly; CSS and the browser decide
+how it displays. Only outer whitespace at Go-like body edges is trimmed.
 
 > **Status — alpha, tagged.** gsx is used in production today and ships tagged
 > releases from `v0.1.0`; language and API compatibility may change before 1.0.

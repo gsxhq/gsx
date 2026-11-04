@@ -16,4 +16,6 @@ component Page(s string, n int, b bool, f float64) {
 Page("S", 7, true, 3.5)
 -- diagnostics.golden --
 -- render.golden --
-<span>S</span><div><em>7</em>true</div><span>3.5</span>
+<span>S</span>
+	<div><em>7</em>true</div>
+	<span>3.5</span>

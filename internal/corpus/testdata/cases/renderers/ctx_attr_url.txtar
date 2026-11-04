@@ -70,17 +70,20 @@ func Link(danger pg.Text, safe pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.S("<div>")
+		_gsxgw.S("<div>\n\t\t")
 //line input.gsx:9:3
 		_gsxgw.S("<a href=\"")
 		_gsxgw.URL(string(_gsxf0.PgText(ctx, ( /*line input.gsx:9:13*/ danger))))
-		_gsxgw.S("\">bad</a>")
+		_gsxgw.S("\">bad</a>\n\t\t")
 //line input.gsx:10:3
 		_gsxgw.S("<a href=\"")
 		_gsxgw.URL(string(_gsxf0.PgText(ctx, ( /*line input.gsx:10:13*/ safe))))
-		_gsxgw.S("\">good</a></div>")
+		_gsxgw.S("\">good</a>\n\t</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div><a href="about:invalid#gsx">bad</a><a href="https://example.com">good</a></div>
+<div>
+		<a href="about:invalid#gsx">bad</a>
+		<a href="https://example.com">good</a>
+	</div>

@@ -1,10 +1,6 @@
-# bare-comment-touches-text: a line-start // whose immediate post-wsnorm
-# sibling is text content is rejected, whichever side the text is on (or
-# both), regardless of whether the comment itself carries any text. This
-# includes a child-prop slot value lexically nested inside <pre>: the
-# preserve exemption ends at the `name={ … }` boundary (see
-# bare_preserve_exempt.txtar), so the slot's own touches-text bare comment is
-# checked exactly like any other MarkupAttr.Value.
+# A line-start // touching substantive text is rejected, even when indentation
+# appears between the comment and that text. Markup slots have their own comment
+# context, including when lexically nested inside pre.
 -- input.gsx --
 package views
 

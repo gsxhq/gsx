@@ -14,4 +14,5 @@ component Link(userHref string) {
 Link("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
-<a href="about:invalid#gsx">click</a>
+
+	<a href="about:invalid#gsx">click</a>

@@ -70,19 +70,22 @@ func Tag(ptr *pg.Text, val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.S("<div>")
+		_gsxgw.S("<div>\n\t\t")
 //line input.gsx:13:3
 		_gsxgw.S("<p>")
 //line input.gsx:13:6
 		_gsxgw.Text(string(_gsxf0.PgTextPtr(( /*line input.gsx:13:8*/ ptr))))
-		_gsxgw.S("</p>")
+		_gsxgw.S("</p>\n\t\t")
 //line input.gsx:14:3
 		_gsxgw.S("<p>")
 //line input.gsx:14:6
 		_gsxgw.Text(string( /*line input.gsx:14:8*/ val.String))
-		_gsxgw.S("</p></div>")
+		_gsxgw.S("</p>\n\t</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div><p>PTR:hi</p><p>plain</p></div>
+<div>
+		<p>PTR:hi</p>
+		<p>plain</p>
+	</div>

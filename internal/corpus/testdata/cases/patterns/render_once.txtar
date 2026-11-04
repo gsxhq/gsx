@@ -66,4 +66,6 @@ component Demo() {
 Demo()
 -- diagnostics.golden --
 -- render.golden --
-<span>x</span>
+
+	<span>x</span>
+	
