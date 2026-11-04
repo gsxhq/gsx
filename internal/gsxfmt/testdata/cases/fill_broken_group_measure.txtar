@@ -39,16 +39,16 @@ package p
 component Touching(ok bool) {
 	<p>
 		lorem ipsum dolor sit amet consectetur amet{ if ok {
-		<b>yes, and the bold words in this block run long enough to overflow</b>
-	} }consectetur adipiscing elit sed do eiusmod.
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} }consectetur adipiscing elit sed do eiusmod.
 	</p>
 }
 
 component Spaced(ok bool) {
 	<p>
 		lorem ipsum dolor sit amet consectetur amet { if ok {
-		<b>yes, and the bold words in this block run long enough to overflow</b>
-	} } consectetur adipiscing elit sed do eiusmod.
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} } consectetur adipiscing elit sed do eiusmod.
 	</p>
 }
 
@@ -67,7 +67,7 @@ component Region() {
 component FirstLineOverflows(ok bool) {
 	<p>
 		lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor { if ok {
-		<b>yes</b>
-	} } consectetur.
+			<b>yes</b>
+		} } consectetur.
 	</p>
 }

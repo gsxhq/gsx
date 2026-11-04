@@ -58,3 +58,20 @@ func TestLiteralOracleDetectsEmbeddedTextLoss(t *testing.T) {
 		}
 	}
 }
+
+func TestNestedSyntaxIndentPreservesLiteralBytes(t *testing.T) {
+	const src = "package p\ncomponent C() { <div>\n\t\t<span\nclass=\"x\"\n> a\tb\n \tx</span>\n\t</div> }\n"
+	const want = "package p\n\ncomponent C() {\n\t<div>\n\t\t<span\n\t\t\tclass=\"x\"\n\t\t> a\tb\n \tx</span>\n\t</div>\n}\n"
+	for _, width := range []int{20, 40, 80, 120} {
+		got := fmtSourceWidth(t, src, width)
+		if got != want {
+			t.Fatalf("width %d:\ngot %q\nwant %q", width, got, want)
+		}
+		if !reflect.DeepEqual(contentAST(t, src), contentAST(t, got)) {
+			t.Fatal("literal bytes changed")
+		}
+		if again := fmtSourceWidth(t, got, width); again != got {
+			t.Fatalf("not idempotent: %q", again)
+		}
+	}
+}

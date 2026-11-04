@@ -194,19 +194,19 @@
   {
     "name": "If / else",
     "category": "Control flow",
-    "source": "package views\n\ncomponent Inbox(name string, count int) {\n\t<section>\n\t\t<h1>Hi { name }</h1>\n\t\t{ if count > 0 {\n\t\t<p class=\"badge\">{ count } new</p>\n\t} else {\n\t\t<p>all caught up</p>\n\t} }\n\t</section>\n}\n",
+    "source": "package views\n\ncomponent Inbox(name string, count int) {\n\t<section>\n\t\t<h1>Hi { name }</h1>\n\t\t{ if count > 0 {\n\t\t\t<p class=\"badge\">{ count } new</p>\n\t\t} else {\n\t\t\t<p>all caught up</p>\n\t\t} }\n\t</section>\n}\n",
     "invoke": "Inbox(\"World\", 2)"
   },
   {
     "name": "Loops over lists",
     "category": "Control flow",
-    "source": "package views\n\ntype Item struct {\n\tName  string\n\tCount int\n}\n\ncomponent List(items []Item) {\n\t<ul>{ for _, it := range items {\n\t\t<li>{ it.Name }: { it.Count }</li>\n\t} }</ul>\n}\n",
+    "source": "package views\n\ntype Item struct {\n\tName  string\n\tCount int\n}\n\ncomponent List(items []Item) {\n\t<ul>{ for _, it := range items {\n\t\t\t<li>{ it.Name }: { it.Count }</li>\n\t\t} }</ul>\n}\n",
     "invoke": "List([]Item{{Name: \"alpha\", Count: 1}, {Name: \"beta\", Count: 2}})"
   },
   {
     "name": "Switch",
     "category": "Control flow",
-    "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>{ switch kind {\n\tcase \"warn\":\n\t\t<b>warning</b>\n\tcase \"err\":\n\t\t<b>error</b>\n\tdefault:\n\t\t<b>info</b>\n\t} }</span>\n}\n",
+    "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>{ switch kind {\n\t\tcase \"warn\":\n\t\t\t<b>warning</b>\n\t\tcase \"err\":\n\t\t\t<b>error</b>\n\t\tdefault:\n\t\t\t<b>info</b>\n\t\t} }</span>\n}\n",
     "invoke": "Badge(\"warn\")"
   },
   {
@@ -308,7 +308,7 @@
   {
     "name": "Init statement",
     "category": "Control flow",
-    "source": "package views\n\nfunc loadUser(id string) (string, error) { return \"User:\" + id, nil }\n\ncomponent Profile(id string) {\n\t<div>{ if name, err := loadUser(id); err != nil {\n\t\t<span class=\"err\">{ err.Error() }</span>\n\t} else {\n\t\t<span>{ name }</span>\n\t} }</div>\n}\n",
+    "source": "package views\n\nfunc loadUser(id string) (string, error) { return \"User:\" + id, nil }\n\ncomponent Profile(id string) {\n\t<div>{ if name, err := loadUser(id); err != nil {\n\t\t\t<span class=\"err\">{ err.Error() }</span>\n\t\t} else {\n\t\t\t<span>{ name }</span>\n\t\t} }</div>\n}\n",
     "invoke": "Profile(\"42\")"
   },
   {

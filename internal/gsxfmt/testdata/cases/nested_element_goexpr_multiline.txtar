@@ -54,10 +54,10 @@ component Row(n int) {
 		}
 	/>
 	<p>{ wrapN(
-		<b>
+			<b>
 	{ n }
 	</b>,
-	) }</p>
+		) }</p>
 	{{
 		w := wrapN(
 			<b>
@@ -66,11 +66,11 @@ component Row(n int) {
 		)
 	}}
 	<div>{ wrapN(
-		<pre>
+			<pre>
   x
      y
 </pre>,
-	) }</div>
+		) }</div>
 	{ if wrapN(
 		<b>x</b>,
 	) != nil {

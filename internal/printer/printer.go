@@ -398,8 +398,8 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 			if c.Trailing {
 				sep = pretty.Text(" ") // glue to the previous attr's line
 			}
-			// A `//` line comment's forced break lives inside attrDoc itself
-			// inside attrDoc; block comments may stay inline.
+			// A `//` comment forces its tag group to break; block comments
+			// may stay inline.
 			attrs = append(attrs, sep, p.attrDoc(a))
 			continue
 		}
@@ -457,7 +457,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 		}
 		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
-	return pretty.Concat(openTag, p.children(e.Children), close)
+	return pretty.Concat(openTag, pretty.Indent(p.children(e.Children)), close)
 }
 
 // attrDoc renders one attribute as a Doc. Conditional attributes are rendered
@@ -743,11 +743,11 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 }
 
 func (p *printer) fragment(f *ast.Fragment) pretty.Doc {
-	return pretty.Concat(pretty.Text("<>"), p.children(f.Children), pretty.Text("</>"))
+	return pretty.Concat(pretty.Text("<>"), pretty.Indent(p.children(f.Children)), pretty.Text("</>"))
 }
 
 func (p *printer) markerRegion(r *ast.MarkerRegion) pretty.Doc {
-	return pretty.Concat(pretty.Text("<?start "), p.attrDoc(r.Name), pretty.Text(">"), p.children(r.Children), pretty.Text("<?end>"))
+	return pretty.Concat(pretty.Text("<?start "), p.attrDoc(r.Name), pretty.Text(">"), pretty.Indent(p.children(r.Children)), pretty.Text("<?end>"))
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {

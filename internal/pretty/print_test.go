@@ -66,3 +66,18 @@ func TestIndentPreservesLiteralTextBytes(t *testing.T) {
 		t.Fatalf("literal text changed: %q", got)
 	}
 }
+
+func TestFitsStopsAtLiteralNewline(t *testing.T) {
+	for _, tc := range []struct{ prefix, want string }{
+		{"abc", "x abc\n"},
+		{"abcd", "x\nabcd\n"},
+	} {
+		// The first literal line matters to the preceding group's decision;
+		// content after its newline belongs to a different width budget.
+		tail := strings.Repeat("z", 100)
+		doc := Concat(Group(Concat(Text("x"), Line)), Text(tc.prefix+"\n"+tail))
+		if got := Print(doc, 5, 2); got != tc.want+tail {
+			t.Fatalf("prefix %q: got %q", tc.prefix, got)
+		}
+	}
+}

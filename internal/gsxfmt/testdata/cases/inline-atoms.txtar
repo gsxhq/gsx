@@ -35,9 +35,7 @@ component NeverAtoms() {
 package p
 
 component GettingStarted() {
-	<p
-		class="text-muted-foreground"
-	>
+	<p class="text-muted-foreground">
 		gsxui components are copy-in: the CLI vendors real <code>.gsx</code> source into your own
 		module, so what you build against is code you own and can edit — not a package you import
 		and can't touch.

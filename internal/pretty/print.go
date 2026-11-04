@@ -130,9 +130,13 @@ func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
 		local = local[:len(local)-1]
 		switch c.doc.kind {
 		case kindText:
-			remaining -= utf8.RuneCountInString(c.doc.text) + (tabWidth-1)*strings.Count(c.doc.text, "\t")
+			text, _, newline := strings.Cut(c.doc.text, "\n")
+			remaining -= utf8.RuneCountInString(text) + (tabWidth-1)*strings.Count(text, "\t")
 			if remaining < 0 {
 				return false
+			}
+			if newline {
+				return true
 			}
 		case kindConcat:
 			for i := len(c.doc.parts) - 1; i >= 0; i-- {

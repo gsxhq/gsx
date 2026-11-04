@@ -546,11 +546,11 @@ component C() {
 component C() {
 	<div>
 		{ switch kind {
-	case "a":
-		<p>A</p>
-	default:
-		<p>D</p>
-	} }
+		case "a":
+			<p>A</p>
+		default:
+			<p>D</p>
+		} }
 	</div>
 }
 `
@@ -765,16 +765,14 @@ component C() {
 	want := `package p
 
 component C() {
-	<p
-		class="text-sm text-slate-500"
-	>
+	<p class="text-sm text-slate-500">
 		by { props.Author.Username }
 		{ if props.Category.Slug != "" {
-		· <a
-			class="hover:underline"
-			href={categoryPage{} |> url("slug", props.Category.Slug)}
-		>{ props.Category.Name }</a>
-	} }
+			· <a
+				class="hover:underline"
+				href={categoryPage{} |> url("slug", props.Category.Slug)}
+			>{ props.Category.Name }</a>
+		} }
 	</p>
 }
 `
@@ -1066,8 +1064,8 @@ component C(props P) {
 component C(props P) {
 	<div class="space-y-4">
 		{ for _, post := range props.Posts {
-		<PostCard p={post}/>
-	} }
+			<PostCard p={post}/>
+		} }
 	</div>
 }
 `
@@ -1090,8 +1088,8 @@ component C(props P) {
 component C(props P) {
 	<ul class="flex flex-wrap gap-2">
 		{ for _, c := range props.Categories {
-		<li>{ c.Name }</li>
-	} }
+			<li>{ c.Name }</li>
+		} }
 	</ul>
 }
 `
@@ -1289,9 +1287,9 @@ component C() {
 	<div>
 		<span>
 			{ toc([]Item{
-		{ID: "a", Label: "A"},
-		{ID: "b", Label: "B"},
-	}) }
+				{ID: "a", Label: "A"},
+				{ID: "b", Label: "B"},
+			}) }
 		</span>
 	</div>
 }
@@ -1397,7 +1395,7 @@ func TestFmtContentBlockComment(t *testing.T) {
 
 func TestFmtContentLineComment(t *testing.T) {
 	src := "package p\ncomponent C() {\n\t<p>{// hidden\n\t}Visible</p>\n}\n"
-	want := "package p\n\ncomponent C() {\n\t<p>{// hidden\n\t}Visible</p>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<p>{// hidden\n\t\t}Visible</p>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1426,7 +1424,7 @@ func TestFmtCommentsIdempotentMixed(t *testing.T) {
 
 func TestIfInlineBodyPreservesAuthorLineBreak(t *testing.T) {
 	src := "package p\ncomponent C(viewing *int) {\n\t<div>\n\t\t{ if viewing != nil {\n\t\t\t{ *viewing }\n\t\t} }\n\t</div>\n}\n"
-	want := "package p\n\ncomponent C(viewing *int) {\n\t<div>\n\t\t{ if viewing != nil {\n\t\t{ *viewing }\n\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(viewing *int) {\n\t<div>\n\t\t{ if viewing != nil {\n\t\t\t{ *viewing }\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1440,13 +1438,13 @@ func TestIfInlineBodyStaysInlineWhenAuthorInline(t *testing.T) {
 
 func TestIfElseInlineBodyPreservesAuthorLineBreak(t *testing.T) {
 	src := "package p\ncomponent C(x int) {\n\t<div>\n\t\t{ if x > 0 {\n\t\t\t{ x }\n\t\t} else {\n\t\t\t{ -x }\n\t\t} }\n\t</div>\n}\n"
-	want := "package p\n\ncomponent C(x int) {\n\t<div>\n\t\t{ if x > 0 {\n\t\t{ x }\n\t} else {\n\t\t{ -x }\n\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(x int) {\n\t<div>\n\t\t{ if x > 0 {\n\t\t\t{ x }\n\t\t} else {\n\t\t\t{ -x }\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, want)
 }
 
 func TestForInlineBodyPreservesAuthorLineBreak(t *testing.T) {
 	src := "package p\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t\t{ it }\n\t\t} }\n\t</ul>\n}\n"
-	want := "package p\n\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t{ it }\n\t} }\n\t</ul>\n}\n"
+	want := "package p\n\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t\t{ it }\n\t\t} }\n\t</ul>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1464,7 +1462,7 @@ func TestElementInlineChildrenStayInlineWhenAuthorInline(t *testing.T) {
 
 func TestCfBodyEdgesTrimmedThenBreaksOnAuthorNewline(t *testing.T) {
 	src := "package p\ncomponent C(x bool) {\n\t<p>a{ if x {\n\ttext  } }b</p>\n}\n"
-	want := "package p\n\ncomponent C(x bool) {\n\t<p>a{ if x {\n\t\ttext\n\t} }b</p>\n}\n"
+	want := "package p\n\ncomponent C(x bool) {\n\t<p>a{ if x {\n\t\t\ttext\n\t\t} }b</p>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1497,8 +1495,8 @@ func TestBlockChildDoesNotAddSeparators(t *testing.T) {
 
 func TestSpacingInterpGlue(t *testing.T) {
 	checkFormat(t,
-		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a\n\t\thref=\"/docs/theming\"\n\t\tclass=\"underline underline-offset-4\"\n\t>Theming</a>)\n\t</p>\n}\n",
-		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a\n\t\thref=\"/docs/theming\"\n\t\tclass=\"underline underline-offset-4\"\n\t>Theming</a>)\n\t</p>\n}\n")
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a\n\t\t\thref=\"/docs/theming\"\n\t\t\tclass=\"underline underline-offset-4\"\n\t\t>Theming</a>)\n\t</p>\n}\n",
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a\n\t\t\thref=\"/docs/theming\"\n\t\t\tclass=\"underline underline-offset-4\"\n\t\t>Theming</a>)\n\t</p>\n}\n")
 }
 
 func TestSwitchArmBodyPreservesAuthorLineBreak(t *testing.T) {
@@ -1518,11 +1516,11 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-	case "warn":
-		<b>warning</b>
-	case "info":
-		<i>info</i>
-	} }
+		case "warn":
+			<b>warning</b>
+		case "info":
+			<i>info</i>
+		} }
 	</div>
 }
 `
@@ -1552,11 +1550,11 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-	case "warn":
-		<b>warning</b>
-	default:
-		<i>info</i>
-	} }
+		case "warn":
+			<b>warning</b>
+		default:
+			<i>info</i>
+		} }
 	</div>
 }
 `)
@@ -1582,9 +1580,9 @@ component C(kind string) {
 component C(kind string) {
 	<div>
 		{ switch kind {
-	case "warn": <b>w</b>
-	case "info": <i>i</i>
-	} }
+		case "warn": <b>w</b>
+		case "info": <i>i</i>
+		} }
 	</div>
 }
 `
@@ -1641,7 +1639,7 @@ component C(x bool) {
 		} }
 	</div>
 }`
-	want := "package p\n\ncomponent C(x bool) {\n\t<div>\n\t\t{ if x {\n\t\t<b>a</b>\n\t\t\t<br/>\n\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(x bool) {\n\t<div>\n\t\t{ if x {\n\t\t\t<b>a</b>\n\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1662,7 +1660,7 @@ component C(items []string) {
 		} }
 	</ul>
 }`
-	want := "package p\n\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t<b>{ it }</b>\n\t\t\t<br/>\n\t} }\n\t</ul>\n}\n"
+	want := "package p\n\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t\t<b>{ it }</b>\n\t\t\t<br/>\n\t\t} }\n\t</ul>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1681,7 +1679,7 @@ component C(kind string) {
 		} }
 	</div>
 }`
-	want := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\tcase \"warn\":\n\t\t<b>w</b>\n\t\t\t<br/>\n\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\":\n\t\t\t<b>w</b>\n\t\t\t<br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1689,7 +1687,7 @@ component C(kind string) {
 // counterpart: siblings written on the same line as the colon, with no break
 // between them either, all stay glued on the arm's one line.
 func TestCaseArmInteriorSiblingStaysInlineWhenAuthorInline(t *testing.T) {
-	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\tcase \"warn\": <b>w</b><br/>\n\t} }\n\t</div>\n}\n"
+	src := "package p\n\ncomponent C(kind string) {\n\t<div>\n\t\t{ switch kind {\n\t\tcase \"warn\": <b>w</b><br/>\n\t\t} }\n\t</div>\n}\n"
 	checkFormat(t, src, src)
 }
 

@@ -85,17 +85,17 @@ component Interp(s string) {
 component Brackets() {
 	<p>
 		xxxxxxxxxxxxxxxxx (<a
-		href="/x"
-		class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	>link</a>)/<b>bold</b> more words.
+			href="/x"
+			class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		>link</a>)/<b>bold</b> more words.
 	</p>
 }
 
 component IfBlock(ok bool) {
 	<p>
 		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yyyyy/{ if ok {
-		<b>yes</b>
-	} }/zzz words here.
+			<b>yes</b>
+		} }/zzz words here.
 	</p>
 }
 
@@ -114,8 +114,8 @@ component AuthorBreaks(n int) {
 	<p>
 		Status
 		{ if n > 0 {
-		<strong>ok</strong>
-	} }
+			<strong>ok</strong>
+		} }
 	</p>
 }
 
@@ -134,8 +134,8 @@ component LookThroughInBlockList() {
 	<p>
 		<div>block</div>
 		here{{
-		x := 1
-		_ = x
-	}}<b>after</b>
+			x := 1
+			_ = x
+		}}<b>after</b>
 	</p>
 }

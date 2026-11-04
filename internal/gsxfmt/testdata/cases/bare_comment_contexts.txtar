@@ -52,21 +52,21 @@ import "github.com/gsxhq/gsx"
 
 component IfBody(n int) {
 	<p>{ if n > 0 {
-		<span>a</span>
+			<span>a</span>
 		// if body note
 		<span>b</span>
-	} }</p>
+		} }</p>
 }
 
 component CaseBody(kind string) {
 	<span>{ switch kind {
-	case "a":
-		<b>x</b>
+		case "a":
+			<b>x</b>
 		// case body note
 		<b>y</b>
-	default:
-		<b>z</b>
-	} }</span>
+		default:
+			<b>z</b>
+		} }</span>
 }
 
 component FragChildren() {

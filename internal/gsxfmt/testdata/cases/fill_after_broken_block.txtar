@@ -21,15 +21,15 @@ package p
 component AfterBrokenBlock(ok bool) {
 	<p>
 		lorem ipsum{ if ok {
-		<b>yes, and the bold words in this block run long enough to overflow</b>
-	} } xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx more.
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} } xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx more.
 	</p>
 }
 
 component ExactFit(ok bool) {
 	<p>
 		aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj { if ok {
-		<b>cc</b>
-	} } dd ee
+			<b>cc</b>
+		} } dd ee
 	</p>
 }

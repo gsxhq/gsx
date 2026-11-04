@@ -67,7 +67,7 @@ component Children() {
 	<div>
 		{}
 		{/* a */}{// b
-	}
+		}
 		{/* a */}{/* b */}
 		<span>ok</span>
 	</div>

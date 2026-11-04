@@ -22,10 +22,10 @@ package p
 component TailThenLabel(kind string) {
 	<div>
 		{ switch kind {
-	case "a":
-		tail
-	default:
-		<b>y</b>
-	} }
+		case "a":
+			tail
+		default:
+			<b>y</b>
+		} }
 	</div>
 }

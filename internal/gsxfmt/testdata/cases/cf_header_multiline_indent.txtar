@@ -37,21 +37,21 @@ func releaseList() gsx.Node {
 	return (
 		<div class="p-4">
 			{ for _, tag := range []string{
-			"v1.2.0-beta.5", "v1.2.0-beta.4", "v1.2.0-beta.3",
-			"v1.2.0-beta.2", "v1.2.0-beta.1", "v1.1.9",
-		} {
-			<div class="text-sm">{ tag }</div>
-		} }
+				"v1.2.0-beta.5", "v1.2.0-beta.4", "v1.2.0-beta.3",
+				"v1.2.0-beta.2", "v1.2.0-beta.1", "v1.1.9",
+			} {
+				<div class="text-sm">{ tag }</div>
+			} }
 			{ switch len([]string{
-			"a", "b",
-		}) {
-		case len([]int{
-			1, 2,
-		}):
-			<span>two</span>
-		default:
-			<span>other</span>
-		} }
+				"a", "b",
+			}) {
+			case len([]int{
+				1, 2,
+			}):
+				<span>two</span>
+			default:
+				<span>other</span>
+			} }
 		</div>
 	)
 }

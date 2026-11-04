@@ -23,10 +23,7 @@ package p
 component SeeSpacingAtLineEnd() {
 	<p>
 		caller-class-merge behaves as documented in the theming guide (see{ " " }
-		<a
-		href="/docs/theming"
-		class="underline underline-offset-4"
-	>Theming</a>)
+		<a href="/docs/theming" class="underline underline-offset-4">Theming</a>)
 	</p>
 }
 

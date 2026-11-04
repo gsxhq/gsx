@@ -21,9 +21,7 @@ const snippet = `go install example.com/tool@latest
 tool init`
 
 component C() {
-	<pre
-		class="snippet"
-	><code>{ snippet }</code></pre>
+	<pre class="snippet"><code>{ snippet }</code></pre>
 	<pre><code>
   <span>one</span> two
 </code></pre>

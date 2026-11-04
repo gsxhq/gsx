@@ -81,7 +81,7 @@ component Braced() {
 	<div>
 		<span>a</span>
 		{// stays braced
-	}
+		}
 		<span>b</span>
 	</div>
 }
