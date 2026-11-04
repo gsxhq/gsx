@@ -217,7 +217,7 @@ func (*Component) declNode() {}
 // Element is an HTML element or a component tag (Tag may be dotted, e.g. "ui.Button").
 type Element struct {
 	span
-	Leading
+
 	Tag              string
 	TagPos           token.Pos // position of the first char of Tag in the opening tag
 	TypeArgs         string    // raw type-arg-list source, e.g. "int, string"; "" if none
@@ -232,10 +232,6 @@ type Element struct {
 	// (which have no closing tag). Tooling (LSP go-to-definition) uses it so a
 	// cursor on the closing tag resolves like the opening tag.
 	CloseNamePos token.Pos
-	// ChildrenMultiline records that the source placed a line break immediately
-	// after the opening tag's `>`; the formatter preserves that vertical layout,
-	// keeping inline-only children block-formatted instead of collapsing them.
-	ChildrenMultiline bool
 	// AttrsMultiline records that the source placed a line break inside the
 	// opening tag — in the whitespace between the tag name and an attribute,
 	// between two attributes, or before the closing `>`/`/>`. The formatter
@@ -255,44 +251,13 @@ type Element struct {
 
 func (*Element) markupNode() {}
 
-// Leading is the layout fact every markup node carries about the whitespace
-// before it.
-type Leading struct {
-	// LeadingBreak records that the source placed a line break in the
-	// whitespace immediately before this node in its children list — for a
-	// Text, in its own leading whitespace, which normalization drops. The
-	// formatter keeps such a break at an element's or interpolation's
-	// render-free boundary, and wherever text touches inline content (so a
-	// child-element-spacing warning on the source stays visible).
-	LeadingBreak bool
-}
-
-func (l *Leading) leading() *Leading { return l }
-
-type leadingNode interface{ leading() *Leading }
-
-// LeadingBreak reports n's LeadingBreak fact (false for a node without one).
-func LeadingBreak(n Markup) bool {
-	l, ok := n.(leadingNode)
-	return ok && l.leading().LeadingBreak
-}
-
-// SetLeadingBreak sets n's LeadingBreak fact; a no-op for a node without one.
-func SetLeadingBreak(n Markup, b bool) {
-	if l, ok := n.(leadingNode); ok {
-		l.leading().LeadingBreak = b
-	}
-}
 func (*Element) goPartNode() {}
 
 // Fragment is <>…</> — siblings without a wrapper.
 type Fragment struct {
 	span
-	Leading
+
 	Children []Markup
-	// ChildrenMultiline records that the source placed a line break immediately
-	// after the `<>`; the formatter preserves that vertical layout.
-	ChildrenMultiline bool
 }
 
 func (*Fragment) markupNode() {}
@@ -301,7 +266,7 @@ func (*Fragment) goPartNode() {}
 // Text is literal character data between markup.
 type Text struct {
 	span
-	Leading
+
 	Value string
 }
 
@@ -312,7 +277,7 @@ func (*Text) markupNode() {}
 // verbatim.
 type Doctype struct {
 	span
-	Leading
+
 	Text string
 }
 
@@ -324,7 +289,7 @@ func (*Doctype) markupNode() {}
 // or conditional comments).
 type HTMLComment struct {
 	span
-	Leading
+
 	Text string
 }
 
@@ -336,7 +301,7 @@ func (*HTMLComment) markupNode() {}
 // pipelines, and editor navigation work with no extra machinery.
 type Marker struct {
 	span
-	Leading
+
 	Name Attr
 }
 
@@ -347,10 +312,9 @@ func (*Marker) markupNode() {}
 // The closing `<?end>` is consumed by the parser and is not a node.
 type MarkerRegion struct {
 	span
-	Leading
-	Name              Attr
-	Children          []Markup
-	ChildrenMultiline bool
+
+	Name     Attr
+	Children []Markup
 }
 
 func (*MarkerRegion) markupNode() {}
@@ -364,7 +328,7 @@ func (*MarkerRegion) markupNode() {}
 // output is `{}`.
 type Comment struct {
 	span
-	Leading
+
 	Text  string
 	Block bool // true = /* */, false = //
 	Bare  bool // true = bare line-start `//` (no braces); implies Block=false
@@ -378,7 +342,7 @@ func (*Comment) markupNode() {}
 // there is no try-marker.
 type Interp struct {
 	span
-	Leading
+
 	Expr   string
 	Stages []PipeStage
 	// ExprPos is the position of the first non-whitespace character of the
@@ -544,7 +508,7 @@ func (*EmbeddedAttr) attrNode() {}
 // always set by the parser; the zero value is invalid.
 type EmbeddedInterp struct {
 	span
-	Leading
+
 	Lang     EmbeddedLang
 	Segments []Markup
 	Stages   []PipeStage
@@ -575,7 +539,7 @@ func (*EmbeddedInterp) goPartNode() {}
 // only by codegen to type-probe and lower the embedded literals and elements.
 type GoBlock struct {
 	span
-	Leading
+
 	Code     string
 	CodePos  token.Pos // first char of Code text in source (NoPos if unavailable)
 	Embedded []GoPart
@@ -588,7 +552,7 @@ func (*GoBlock) markupNode() {}
 // `else` puts its body in Else; no else clause leaves Else nil.
 type IfMarkup struct {
 	span
-	Leading
+
 	Cond         string
 	CondPos      token.Pos // first char of Cond text in source (NoPos if unavailable)
 	CondEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
@@ -608,7 +572,7 @@ func (*IfMarkup) markupNode() {}
 // ForMarkup is `{ for Clause { Body } }`. Clause is the raw Go for/range clause.
 type ForMarkup struct {
 	span
-	Leading
+
 	Clause         string
 	ClausePos      token.Pos // first char of Clause text in source (NoPos if unavailable)
 	ClauseEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
@@ -623,7 +587,7 @@ func (*ForMarkup) markupNode() {}
 // SwitchMarkup is `{ switch Tag { Cases } }`. Tag is "" for a tagless switch.
 type SwitchMarkup struct {
 	span
-	Leading
+
 	Tag         string
 	TagPos      token.Pos // first char of Tag in source (NoPos for a tagless switch)
 	TagEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
-	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
@@ -41,7 +40,7 @@ func TestCorpusGoExprRegionsAlwaysReachGofmt(t *testing.T) {
 		if _, err := parser.ParseFile(fset, "x.gsx", c.src, 0); err != nil {
 			continue // parser-error fixture: out of scope
 		}
-		formatted, err := normPrint(t, c.src)
+		formatted, err := printSource(t, c.src)
 		if err != nil {
 			t.Errorf("%s: fmt failed: %v", c.name, err)
 			continue
@@ -86,7 +85,7 @@ func goWithElementsParts(t *testing.T, src string) [][]ast.GoPart {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	wsnorm.Normalize(f)
+
 	var out [][]ast.GoPart
 	for _, d := range f.Decls {
 		if g, ok := d.(*ast.GoWithElements); ok {

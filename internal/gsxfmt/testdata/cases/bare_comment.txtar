@@ -58,17 +58,15 @@ component Between() {
 component Weird() {
 	<div>
 		<span>a</span>
-		// over-indented in source
+				// over-indented in source
 		<span>b</span>
 	</div>
 }
 
 component Fits() {
-	<p>
-		{ a }
-		// forces multi-line
-		{ b }
-	</p>
+	<p>{ a }
+// forces multi-line
+{ b }</p>
 }
 
 component Empty() {
@@ -81,8 +79,9 @@ component Empty() {
 
 component Braced() {
 	<div>
-		<span>a</span>{// stays braced
-		}
+		<span>a</span>
+		{// stays braced
+	}
 		<span>b</span>
 	</div>
 }

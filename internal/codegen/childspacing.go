@@ -7,6 +7,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/htmltag"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
@@ -62,7 +63,7 @@ func (c *childSpacing) node(n gsxast.Markup, preserve bool) {
 	switch v := n.(type) {
 	case *gsxast.Element:
 		c.attrs(v.Attrs)
-		c.list(v.Children, preserve || wsnorm.IsPreserveTag(v.Tag))
+		c.list(v.Children, preserve || htmltag.SuppressBareComments(v.Tag))
 	case *gsxast.Fragment:
 		c.list(v.Children, preserve)
 	case *gsxast.MarkerRegion:

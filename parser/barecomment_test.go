@@ -248,7 +248,7 @@ func TestCRLFLineStart(t *testing.T) {
 // TestBareCommentInSlotInsidePreserve pins that preserveDepth does not leak
 // across the `name={ … }` markup-attribute expression boundary: a slot value
 // lexically nested inside a <pre> subtree is its own fresh non-preserve
-// context (mirroring wsnorm's normalizeAttrs — internal/wsnorm/wsnorm.go),
+// lexical context,
 // so a bare `//` inside the slot IS recognized as a comment, while <pre>'s
 // own direct text children stay verbatim (no comment recognition).
 func TestBareCommentInSlotInsidePreserve(t *testing.T) {

@@ -51,26 +51,22 @@ package ui
 import "github.com/gsxhq/gsx"
 
 component IfBody(n int) {
-	<p>
-		{ if n > 0 {
-			<span>a</span>
-			// if body note
-			<span>b</span>
-		} }
-	</p>
+	<p>{ if n > 0 {
+		<span>a</span>
+		// if body note
+		<span>b</span>
+	} }</p>
 }
 
 component CaseBody(kind string) {
-	<span>
-		{ switch kind {
-		case "a":
-			<b>x</b>
-			// case body note
-			<b>y</b>
-		default:
-			<b>z</b>
-		} }
-	</span>
+	<span>{ switch kind {
+	case "a":
+		<b>x</b>
+		// case body note
+		<b>y</b>
+	default:
+		<b>z</b>
+	} }</span>
 }
 
 component FragChildren() {
@@ -89,8 +85,8 @@ component ChildProp() {
 	<Slot
 		header={
 			<span>a</span>
-			// child-prop note
-			<span>b</span>
+		// child-prop note
+		<span>b</span>
 		}
 	/>
 }

@@ -9,7 +9,7 @@ import (
 func TestStyleBodyReindented(t *testing.T) {
 	// A well-indented <style> body is preserved and re-based under the tag depth.
 	src := "package p\n\ncomponent C() {\n\t<style>\n.a {\n\tcolor: red;\n}\n\t</style>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestStyleBodyReindented(t *testing.T) {
 
 func TestStyleBodyHolePreserved(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<style>.a{color:@{ fg }}</style>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,11 +34,11 @@ func TestStyleBodyHolePreserved(t *testing.T) {
 
 func TestStyleBodyIdempotent(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<style>h1,h2{margin:0}.a{color:@{ fg }}</style>\n}\n"
-	once, err := normPrint(t, src)
+	once, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	twice, err := normPrint(t, once)
+	twice, err := printSource(t, once)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestStyleBodyIdempotent(t *testing.T) {
 
 func TestStyleUnterminatedStringFallsBackVerbatim(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<style>.a{content:\"oops}</style>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}

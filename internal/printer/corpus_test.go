@@ -1,6 +1,9 @@
 package printer
 
 import (
+	"encoding/json"
+	goast "go/ast"
+	goparser "go/parser"
 	"go/token"
 	"io/fs"
 	"os"
@@ -15,7 +18,6 @@ import (
 	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/txtar"
-	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
@@ -63,17 +65,17 @@ func corpusGsxSources(t *testing.T) []corpusSource {
 	return out
 }
 
-func normPrint(t *testing.T, src string) (string, error) {
-	return normPrintAt(t, src, 80)
+func printSource(t *testing.T, src string) (string, error) {
+	return printSourceAt(t, src, 80)
 }
 
-func normPrintAt(_ *testing.T, src string, width int) (string, error) {
+func printSourceAt(_ *testing.T, src string, width int) (string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x.gsx", src, 0)
 	if err != nil {
 		return "", err
 	}
-	wsnorm.Normalize(f)
+
 	var b strings.Builder
 	err = Fprint(&b, f, width, pretty.DefaultTabWidth)
 	return b.String(), err
@@ -81,7 +83,7 @@ func normPrintAt(_ *testing.T, src string, width int) (string, error) {
 
 // fmtCorpusInputs collects the input.gsx of every fmt-corpus case
 // (internal/gsxfmt/testdata/cases). Those inputs are written to stress layout,
-// so they reach Fill states the semantic corpus does not.
+// so they exercise syntactic layouts the semantic corpus does not.
 func fmtCorpusInputs(t *testing.T) []corpusSource {
 	t.Helper()
 	paths, err := filepath.Glob("../gsxfmt/testdata/cases/*.txtar")
@@ -106,10 +108,7 @@ func fmtCorpusInputs(t *testing.T) []corpusSource {
 	return out
 }
 
-// TestCorpusIdempotence formats every corpus source twice at the default
-// width and at narrow ones. Narrow widths push blocks that sit inside prose
-// past the margin, where a Fill that measured a cluster one way and printed it
-// another reformatted differently the second time.
+// TestCorpusIdempotence checks both corpora at default and narrow widths.
 func TestCorpusIdempotence(t *testing.T) {
 	srcs := append(corpusGsxSources(t), fmtCorpusInputs(t)...)
 	for _, c := range srcs {
@@ -119,12 +118,12 @@ func TestCorpusIdempotence(t *testing.T) {
 			continue
 		}
 		for _, width := range []int{20, 30, 40, 50, 60, 80} {
-			out1, err := normPrintAt(t, c.src, width)
+			out1, err := printSourceAt(t, c.src, width)
 			if err != nil {
 				t.Errorf("%s@%d print: %v", c.name, width, err)
 				continue
 			}
-			out2, err := normPrintAt(t, out1, width)
+			out2, err := printSourceAt(t, out1, width)
 			if err != nil {
 				t.Errorf("%s@%d REPARSE FAIL: %v\n%s", c.name, width, err, out1)
 				continue
@@ -149,13 +148,10 @@ func zeroSpans(n ast.Node) {
 				// can never reach the stored part, and now panics instead of
 				// silently no-opping. Skipping keeps the long-standing
 				// behavior explicit — GoText spans never differ here because
-				// normalizedAST canonicalizes Go fragments on both sides.
+				// contentAST canonicalizes Go fragments on both sides.
 				return true
 			}
 			ast.SetSpan(m, 0, 0)
-			if mk, ok := m.(ast.Markup); ok {
-				ast.SetLeadingBreak(mk, false)
-			}
 			// Position fields outside the embedded span (set by the parser for
 			// codegen //line columns and the LSP) must also be zeroed so the
 			// faithfulness comparison ignores source layout.
@@ -183,11 +179,7 @@ func zeroSpans(n ast.Node) {
 				v.TypeArgsOpenPos = 0
 				v.TypeArgsPos = 0
 				v.TypeArgsClosePos = 0
-				v.ChildrenMultiline = false
 				v.AttrsMultiline = false
-			case *ast.Fragment:
-				v.ChildrenMultiline = false
-
 			case *ast.SpreadAttr:
 				v.ExprPos = 0
 				for i := range v.Stages {
@@ -260,7 +252,6 @@ func zeroSpans(n ast.Node) {
 					v.Stages[i].ArgsPos = 0
 				}
 			case *ast.EmbeddedInterp:
-				v.LeadingBreak = false
 				for i := range v.Stages {
 					v.Stages[i].NamePos = 0
 					v.Stages[i].ArgsPos = 0
@@ -334,6 +325,11 @@ func canonGo(n ast.Node) {
 		for _, c := range v.Children {
 			canonGo(c)
 		}
+	case *ast.MarkerRegion:
+		canonGoAttr(v.Name)
+		for _, c := range v.Children {
+			canonGo(c)
+		}
 	case *ast.Fragment:
 		for _, c := range v.Children {
 			canonGo(c)
@@ -346,16 +342,7 @@ func canonGo(n ast.Node) {
 			}
 		}
 	case *ast.GoBlock:
-		// A `{{ }}` block carrying an embedded value is not parseable Go, so
-		// fmtStmts leaves it verbatim; the printer instead lays it out through the
-		// value-aware fmtGoBlockCode. The normalizer MUST apply the SAME pass, or
-		// it reads the printer's gofmt reflow as an AST change — the identical
-		// reason the GoWithElements case above mirrors fmtGoExprParts.
-		if s, values, ok := canonPrinter.fmtGoBlockCode(v.Code); ok {
-			v.Code = canonGoValues(s, values)
-		} else {
-			v.Code = fmtStmts(v.Code)
-		}
+		v.Code = canonLiteralGo(v.Code, goFieldForm{}, fmtStmts)
 	case *ast.IfMarkup:
 		v.Cond = canonGoField(v.Cond, ifField, fmtExpr)
 		for _, m := range v.Then {
@@ -382,40 +369,68 @@ func canonGo(n ast.Node) {
 	}
 }
 
-// canonPrinter is the printer configuration the Go-fragment normalizer
-// formats with (the corpus is printed at width 80).
-var canonPrinter = &printer{width: 80, tabWidth: pretty.DefaultTabWidth}
-
-// canonGoField mirrors goFieldDoc: a Go field holding gsx values is
-// normalized through the same placeholder round-trip the printer lays it out
-// with, anything else through plain.
+// canonGoField canonicalizes Go independently of the markup printer. Embedded
+// values become structural signatures containing exact literal Text values.
 func canonGoField(src string, form goFieldForm, plain func(string) string) string {
-	if s, values, ok := canonPrinter.fmtGoField(src, form); ok {
-		return canonGoValues(s, values)
-	}
-	return plain(src)
+	return canonLiteralGo(src, form, plain)
 }
 
-// canonGoValues replaces each value marker in s: a multi-line js`/css`
-// literal with its body's whitespace-agnostic token signature (the printer
-// re-indents the body, which the emit-side rebase strips back — mirroring
-// canonEmbeddedBodies), and an element or fragment with its printed text,
-// which is a function of its (normalized) AST alone.
-func canonGoValues(s string, values map[string]goValue) string {
-	for marker, v := range values {
-		var rep string
-		if v.lit != nil {
-			sig := jsfmt.TokenSignature
-			if v.lit.Lang == ast.EmbeddedCSS {
-				sig = cssfmt.TokenSignature
-			}
-			rep = embeddedSignature(v.lit.Segments, sig)
-		} else {
-			rep = pretty.Print(v.doc, 1<<30, pretty.DefaultTabWidth)
-		}
-		s = strings.Replace(s, marker, rep, 1)
+func canonLiteralGo(src string, form goFieldForm, plain func(string) string) string {
+	parts, ok := splitGoParts(src)
+	if !ok || len(parts) == 0 {
+		return plain(src)
 	}
-	return s
+	var signatures []string
+	for _, part := range parts {
+		if _, ok := part.(ast.GoText); ok {
+			continue
+		}
+		canonGo(part)
+		canonEmbeddedBodies(part)
+		zeroSpans(part)
+		data, err := json.Marshal(part)
+		if err != nil {
+			panic(err)
+		}
+		signatures = append(signatures, string(data))
+	}
+	prefix := "__gsxSignature"
+	for strings.Contains(src, prefix) || strings.Contains(strings.Join(signatures, ""), prefix) {
+		prefix += "z"
+	}
+	var code strings.Builder
+	index := 0
+	for _, part := range parts {
+		if text, ok := part.(ast.GoText); ok {
+			code.WriteString(text.Src)
+			continue
+		}
+		code.WriteString(prefix + strconv.Itoa(index) + "__")
+		index++
+	}
+	out := goStructureSignature(plain(code.String()), form)
+	for i, sig := range signatures {
+		out = strings.ReplaceAll(out, prefix+strconv.Itoa(i)+"__", sig)
+	}
+	return out
+}
+
+// goStructureSignature compares parsed Go structure, which omits cosmetic
+// differences such as line breaks and optional trailing commas.
+func goStructureSignature(src string, form goFieldForm) string {
+	fset := token.NewFileSet()
+	tree, err := goparser.ParseFile(fset, "", goBlockWrapperPrefix+form.open+src+form.close+goBlockWrapperSuffix, goparser.SkipObjectResolution)
+	if err != nil {
+		return src
+	}
+	var out strings.Builder
+	err = goast.Fprint(&out, nil, tree, func(name string, value reflect.Value) bool {
+		return value.Type() != reflect.TypeFor[token.Pos]() && name != "Obj" && name != "Scope" && name != "Unresolved"
+	})
+	if err != nil {
+		panic(err)
+	}
+	return out.String()
 }
 
 func canonGoAttr(a ast.Attr) {
@@ -519,8 +534,34 @@ func canonValueArm(a *ast.ValueArm) {
 // back to its rendered text). This makes the faithfulness comparison check
 // token-equivalence + hole-sequence — the contract the re-indenter satisfies —
 // rather than the byte-identity that re-indentation deliberately breaks.
-func canonEmbeddedBodies(f *ast.File) {
+func canonEmbeddedBodies(f ast.Node) {
 	ast.Inspect(f, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.EmbeddedInterp); ok {
+			var sig func([]byte) string
+			if lit.Lang == ast.EmbeddedJS {
+				sig = jsfmt.TokenSignature
+			}
+			if lit.Lang == ast.EmbeddedCSS {
+				sig = cssfmt.TokenSignature
+			}
+			if sig != nil {
+				lit.Segments = []ast.Markup{&ast.Text{Value: embeddedSignature(lit.Segments, sig)}}
+				return false
+			}
+		}
+		if attr, ok := n.(*ast.EmbeddedAttr); ok {
+			var sig func([]byte) string
+			if attr.Lang == ast.EmbeddedJS {
+				sig = jsfmt.TokenSignature
+			}
+			if attr.Lang == ast.EmbeddedCSS {
+				sig = cssfmt.TokenSignature
+			}
+			if sig != nil {
+				attr.Segments = []ast.Markup{&ast.Text{Value: embeddedSignature(attr.Segments, sig)}}
+				return false
+			}
+		}
 		el, ok := n.(*ast.Element)
 		if !ok {
 			return true
@@ -569,38 +610,37 @@ func embeddedSignature(nodes []ast.Markup, sig func([]byte) string) string {
 	return s
 }
 
-func normalizedAST(t *testing.T, src string) *ast.File {
+func contentAST(t *testing.T, src string) *ast.File {
 	t.Helper()
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x.gsx", src, 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	wsnorm.Normalize(f)
+
 	canonGo(f)
 	canonEmbeddedBodies(f)
 	zeroSpans(f)
 	return f
 }
 
-// TestCorpusFaithfulness is the strong contract: Normalize(parse(fmt(S))) must
-// equal Normalize(parse(S)) by content for every parseable corpus file. fmt only
-// adds collapsible cosmetic whitespace.
+// TestCorpusFaithfulness compares exact markup structure and Text after
+// canonicalizing only Go syntax and the separate JS/CSS token contracts.
 func TestCorpusFaithfulness(t *testing.T) {
-	for _, c := range corpusGsxSources(t) {
+	for _, c := range append(corpusGsxSources(t), fmtCorpusInputs(t)...) {
 		fset := token.NewFileSet()
 		if _, err := parser.ParseFile(fset, c.name, c.src, 0); err != nil {
 			continue // skip non-parseable (parser-error cases)
 		}
-		formatted, err := normPrint(t, c.src)
+		formatted, err := printSource(t, c.src)
 		if err != nil {
 			t.Errorf("%s print: %v", c.name, err)
 			continue
 		}
-		want := normalizedAST(t, c.src)
-		got := normalizedAST(t, formatted)
+		want := contentAST(t, c.src)
+		got := contentAST(t, formatted)
 		if !reflect.DeepEqual(want, got) {
-			t.Errorf("%s: fmt changed the normalized AST (not render-faithful)", c.name)
+			t.Errorf("%s: fmt changed the content AST (not render-faithful)", c.name)
 		}
 	}
 }

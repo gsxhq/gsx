@@ -46,7 +46,10 @@ component Page(μήνυμα string) {
 	if got := attrNames(local.Attrs); !slices.Equal(got, []string{"μήνυμα", "label数据٣", "_κρυφό"}) {
 		t.Fatalf("local call attrs = %q", got)
 	}
-	qualified := page.Body[1].(*ast.Element)
+	if gap, ok := page.Body[1].(*ast.Text); !ok || gap.Value != "\n\t" {
+		t.Fatalf("interior literal gap = %#v", page.Body[1])
+	}
+	qualified := page.Body[2].(*ast.Element)
 	if qualified.Tag != "组件.卡片" || !slices.Equal(attrNames(qualified.Attrs), []string{"标题"}) {
 		t.Fatalf("qualified Unicode call = tag %q attrs %q", qualified.Tag, attrNames(qualified.Attrs))
 	}

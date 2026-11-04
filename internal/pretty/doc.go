@@ -19,10 +19,8 @@ const (
 	kindIndent
 	kindLine        // a soft/space/hard break candidate (see flat, hard)
 	kindGroup       // flat if it fits, else broken
-	kindFill        // greedy per-element wrap (Task 2)
 	kindIfBreak     // parts[0] when broken, parts[1] when flat (Task 2)
 	kindBreakParent // forces the nearest enclosing Group to break
-	kindFillSep     // Print-internal: a Fill separator and the content after it
 )
 
 // Doc is an opaque pretty-printing document. The zero Doc is an empty Text.
@@ -36,10 +34,9 @@ type Doc struct {
 	parts  []Doc
 }
 
-// Text is a literal fragment. For verbatim multi-line content (e.g. preserved
-// <pre> bodies) the string MAY contain newlines; the engine writes it as-is and
-// resets the column to after the last newline. Normal markup Text never embeds
-// a newline (cosmetic breaks are modeled with Line/HardLine).
+// Text is literal content, including tabs and newlines. The engine writes it
+// verbatim and tracks the column after its final newline; Indent never changes
+// bytes inside Text. Syntactic layout uses Line/HardLine instead.
 func Text(s string) Doc { return Doc{kind: kindText, text: s} }
 
 // Concat renders ds in order with no separator.
@@ -66,15 +63,6 @@ var HardLine = Doc{kind: kindLine, text: "", hard: true}
 // BreakParent forces the nearest enclosing Group to break. It emits nothing.
 var BreakParent = Doc{kind: kindBreakParent}
 
-// Fill is a greedy per-element layout over an alternating list
-// [content, separator, content, separator, …, content]: it keeps content on
-// the current line until the next content would not fit, breaking the
-// separator before it. Content is measured as it will print: a group in it
-// that cannot stay flat counts only up to its first break. Each separator is
-// decided where the content before it actually ended. The gsx markup printer
-// lays prose out with it.
-func Fill(ds ...Doc) Doc { return Doc{kind: kindFill, parts: ds} }
-
 // IfBreak renders broken when the enclosing Group breaks, else flat.
 func IfBreak(broken, flat Doc) Doc { return Doc{kind: kindIfBreak, parts: []Doc{broken, flat}} }
 
@@ -91,7 +79,7 @@ func containsForcedBreak(d Doc) bool {
 		return d.forced
 	case kindIndent:
 		return containsForcedBreak(d.parts[0])
-	case kindConcat, kindFill:
+	case kindConcat:
 		return slices.ContainsFunc(d.parts, containsForcedBreak)
 	case kindIfBreak:
 		// Only the broken branch (parts[0]) participates in the break decision:
@@ -125,7 +113,7 @@ func Flat(d Doc) (flat Doc, ok bool) {
 		return Doc{}, false
 	case kindGroup, kindIndent:
 		return Flat(d.parts[0])
-	case kindConcat, kindFill:
+	case kindConcat:
 		parts := make([]Doc, 0, len(d.parts))
 		for _, p := range d.parts {
 			f, ok := Flat(p)

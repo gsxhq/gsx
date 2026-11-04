@@ -1,13 +1,7 @@
-// Package printer renders a (normalized) gsx AST back to canonical gsx source.
-//
-// Fprint assumes the AST has already been whitespace-normalized (via
-// internal/wsnorm); gsx fmt does that first. The printer builds a width-aware
-// pretty.Doc describing the layout, then renders it: cosmetic newlines and tab
-// indentation are added only at whitespace-safe boundaries (which wsnorm drops
-// on a re-parse), so the output is render-faithful and idempotent.
-//
-// It depends on github.com/gsxhq/gsx/ast, internal/pretty, plus go/format,
-// go/parser, go/token and the standard library.
+// Package printer renders GSX ASTs as canonical source. Literal markup text
+// and child adjacency are preserved exactly. Width-aware layout applies to Go,
+// tag syntax, and parser-trimmed syntactic body edges; JS/CSS bodies retain
+// their separate token-preserving formatter contracts.
 package printer
 
 import (
@@ -21,7 +15,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/gsxhq/gsx/internal/htmlattr"
@@ -99,78 +92,6 @@ type printer struct {
 	jsLineFmt  rawfmt.LineFormatter
 	width      int // print width fmtGoChunk/fmtGoExprParts measure Go fragments against
 	tabWidth   int
-	// preserve is true while printing the subtree of a whitespace-significant
-	// element (pre/textarea). It mirrors wsnorm's preserve propagation: children
-	// lists glue verbatim at every depth (no injected breaks — a break's
-	// newline+indent would be significant content there), while control-flow
-	// body EDGES stay breakable because the parser trims brace-interior edge
-	// whitespace unconditionally (see parser.trimBodyEdges), preserve or not.
-	preserve bool
-	// inCaseBody is true only while laying out a switch arm's OWN body node
-	// list (set by caseBody, for both the inline and block switchMarkup
-	// forms). Unlike preserve, it does NOT propagate into a nested children
-	// scope: element/fragment children and if/for bodies are parsed by their
-	// own scanners, which have no notion of a case/default arm label (probed
-	// against the parser directly — see caseBodyLabelStart/parseCaseBodyText
-	// in parser/markup.go), so element(), fragment() and cfBodyInner() each
-	// save+clear it before recursing into their own child list. While true,
-	// fillParts and childrenInner's per-segment layout must never offer a
-	// break immediately before a bare "case"/"default" word (see
-	// caseBodyBondWord): the word-gap fill or the segment-per-line block
-	// layout could otherwise move that word to line start, where the parser
-	// reads it as a real arm label it never authored (2026-07-25 finding).
-	inCaseBody bool
-}
-
-// caseBodyBondWord reports whether w is a word that must never start a new
-// line while p.inCaseBody: the printer's case-body context flag plus this
-// keyword-prefix check mirror the parser's own keyword set (caseBodyLabelStart
-// recognizes only "case" and "default" as label starts). Bonding slightly
-// more than strictly necessary — e.g. a bare "default" that would not
-// actually parse as a label because it lacks a following ':' on the same
-// line — is cheap and safe: it only forbids a break, never changes what a
-// flat render produces.
-func (p *printer) caseBodyBondWord(w string) bool {
-	return p.inCaseBody && (caseBodyKeywordPrefix(w, "case") || caseBodyKeywordPrefix(w, "default"))
-}
-
-// caseBodyKeywordPrefix reports whether the ASCII-space-delimited word w
-// begins with the keyword kw and does not continue it as a longer Go
-// identifier — the exact boundary rule the parser's atWord/atWordAt use
-// (parser/identifier.go's goIdentifierContinue: underscore, Unicode letter, or
-// Unicode digit). fillParts and childrenInner split prose on ASCII spaces
-// only (see fillParts' word-gap comment), so whatever directly follows kw
-// inside w — a ':' glued on with no space ("default:"), the start of a case
-// list ("1:"), or nothing at all — is exactly what the parser itself would
-// see at that source offset; "case1"/"defaultish" correctly do not match.
-func caseBodyKeywordPrefix(w, kw string) bool {
-	rest, ok := strings.CutPrefix(w, kw)
-	if !ok {
-		return false
-	}
-	if rest == "" {
-		return true
-	}
-	r, _ := utf8.DecodeRuneInString(rest)
-	return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
-}
-
-// caseBodyLeadingWord returns the first wsnorm-normalized word of n's text
-// (empty, false if n is not a *ast.Text or has no non-space content), for the
-// segment-boundary bond check in childrenInner: a segment's first node never
-// leads with a significant space (segmentChildren's glue rule would have
-// merged it into the previous segment otherwise), so trimming only removes
-// the empty string in that position.
-func caseBodyLeadingWord(n ast.Markup) (string, bool) {
-	t, ok := n.(*ast.Text)
-	if !ok {
-		return "", false
-	}
-	core := strings.TrimLeft(t.Value, " ")
-	if i := strings.IndexByte(core, ' '); i >= 0 {
-		core = core[:i]
-	}
-	return core, core != ""
 }
 
 func (p *printer) fail(format string, args ...any) pretty.Doc {
@@ -316,8 +237,8 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		// as an author-broken value, which then breaks for a different reason.
 		//
 		// Three cases, and the width is in none of them:
-		//   - the value cannot be printed flat (a block-level child, or a line
-		//     break the author wrote inside it) — it breaks, and takes parens;
+		//   - the value cannot be printed flat (literal newlines or broken tag
+		//     syntax) — it breaks, and takes parens;
 		//   - the author wrapped it in parens — it breaks, and keeps them;
 		//   - otherwise it is emitted as fixed text, which no Group can reflow.
 		//
@@ -448,10 +369,7 @@ func trimGoTextEdges(src string, first, last bool) string {
 	return src
 }
 
-// component emits `component [recv ]Name(params) {` + body + `}`. The body
-// always breaks after `{` (like a Go func body): a block body puts each segment
-// on its own line; an inline body sits on one indented line; the closing `}`
-// sits on its own line.
+// component formats the syntactic body edges, preserving its literal interior.
 func (p *printer) component(c *ast.Component) pretty.Doc {
 	head := []pretty.Doc{pretty.Text("component ")}
 	if c.Recv != "" {
@@ -465,82 +383,14 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 
 	body := pretty.Text("")
 	if len(c.Body) > 0 {
-		inner, _ := p.childrenInner(c.Body)
-		if leadsWithSpace(c.Body[0]) || trailsWithSpace(c.Body[len(c.Body)-1]) {
-			// edge-unsafe: keep inline so no newline absorbs the significant space
-			return pretty.Concat(pretty.Concat(head...), inner, pretty.Text("}"), pretty.HardLine)
-		}
+		inner := p.children(c.Body)
 		body = pretty.Concat(pretty.Indent(pretty.Concat(pretty.HardLine, inner)))
 	}
 	return pretty.Concat(pretty.Concat(head...), body, pretty.HardLine, pretty.Text("}"), pretty.HardLine)
 }
 
-// childrenInner builds the inline content of a children list and reports
-// whether the list is breakable. Inline-only lists become one Fill (greedy
-// word-gap wrapping; safe gaps between former segments are SoftLine
-// separators inside the Fill). Lists with a block child keep the structural
-// one-segment-per-line layout — the SoftLines between segments break under
-// the caller's forced group — with a Fill inside each segment so prose next
-// to a block element still wraps at word gaps. Edge-unsafe lists keep the
-// old flat form. For preserved subtrees use childrenPreserve instead.
-func (p *printer) childrenInner(nodes []ast.Markup) (doc pretty.Doc, breakable bool) {
-	bonds := spacingBonds(nodes)
-	segs, breakable := segmentChildren(nodes, bonds)
-	if !breakable {
-		parts := make([]pretty.Doc, 0, len(segs)*2)
-		for i, s := range segs {
-			if i > 0 && !p.caseBodyBondBoundary(s) {
-				parts = append(parts, pretty.SoftLine)
-			}
-			for _, n := range s.nodes {
-				parts = append(parts, p.markup(n))
-			}
-		}
-		return pretty.Concat(parts...), false
-	}
-	if !p.hasBlockChild(nodes) {
-		return pretty.Fill(p.fillParts(nodes, bonds)...), true
-	}
-	parts := make([]pretty.Doc, 0, len(segs)*2)
-	for i, s := range segs {
-		if i > 0 && !p.caseBodyBondBoundary(s) {
-			parts = append(parts, pretty.SoftLine)
-		}
-		parts = append(parts, pretty.Fill(p.fillParts(s.nodes, s.bonds)...))
-	}
-	return pretty.Concat(parts...), true
-}
-
-// caseBodyBondBoundary reports whether the segment boundary immediately
-// before next's first node must be bonded (no separator doc at all — the
-// segment-per-line layout above, unlike fillParts' Fill, has no ambient width
-// check of its own, so an ordinary SoftLine there is not a soft "maybe"; it
-// renders as a hard break whenever the surrounding list is laid out broken).
-// A boundary bonds when p.inCaseBody and next begins directly with a bare
-// "case"/"default" word — segmentChildren's glue rule guarantees a new
-// segment's first node never leads with a significant space, so this is the
-// only guard the segment-per-line path needs (see caseBodyBondWord).
-func (p *printer) caseBodyBondBoundary(next segment) bool {
-	if len(next.nodes) == 0 {
-		return false
-	}
-	w, ok := caseBodyLeadingWord(next.nodes[0])
-	return ok && p.caseBodyBondWord(w)
-}
-
 // element renders <tag attrs>children</tag>.
 func (p *printer) element(e *ast.Element) pretty.Doc {
-	// An element's children are parsed by parseElementChildren's ordinary text
-	// scanner, never parseCaseBody's — a line-start "case"/"default" there is
-	// just text, not a label (probed against the parser directly). Clear the
-	// case-body context flag for this element's own subtree so the bond
-	// added to fillParts/childrenInner does not leak into an unrelated
-	// scanning context (it would only make prose bond slightly more than
-	// necessary here, never wrong, but the flag's whole point is to name
-	// exactly where the parser's rule applies).
-	prevCaseBody := p.inCaseBody
-	p.inCaseBody = false
-	defer func() { p.inCaseBody = prevCaseBody }()
 	attrs := make([]pretty.Doc, 0, len(e.Attrs)*2)
 	for _, a := range e.Attrs {
 		if c, ok := a.(*ast.CommentAttr); ok {
@@ -549,7 +399,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 				sep = pretty.Text(" ") // glue to the previous attr's line
 			}
 			// A `//` line comment's forced break lives inside attrDoc itself
-			// (so atomDoc's Flat sees it too); block comments may stay inline.
+			// inside attrDoc; block comments may stay inline.
 			attrs = append(attrs, sep, p.attrDoc(a))
 			continue
 		}
@@ -607,34 +457,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 		}
 		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
-	if p.preserve || isPreserveTag(e.Tag) {
-		return pretty.Concat(openTag, p.childrenPreserve(e.Children), close)
-	}
-
-	if len(e.Children) == 0 {
-		return pretty.Concat(openTag, close)
-	}
-	inner, edgeSafe := p.childrenInner(e.Children)
-	if !edgeSafe {
-		// Edge-unsafe children cannot host added breaks (a break would absorb a
-		// significant leading/trailing space): keep them inline after `>`.
-		return pretty.Concat(openTag, inner, close)
-	}
-	// One element group with the opening-tag group NESTED inside it. Structural
-	// rule: a list containing a block-level child always breaks so the document
-	// hierarchy is visible (the BreakParent forces it regardless of width); an
-	// inline-only (text/interp) list stays on one line and breaks only if the
-	// opening tag itself wraps. The nested opening-tag group re-decides
-	// independently, so short attributes stay inline even when children break,
-	// and a CondAttr's BreakParent inside the tag also forces the children open.
-	force := pretty.Text("")
-	if p.hasBlockChild(e.Children) || e.ChildrenMultiline {
-		force = pretty.BreakParent
-	}
-	return pretty.Group(pretty.Concat(
-		openTag, force,
-		pretty.Indent(pretty.Concat(pretty.SoftLine, inner)),
-		pretty.SoftLine, close))
+	return pretty.Concat(openTag, p.children(e.Children), close)
 }
 
 // attrDoc renders one attribute as a Doc. Conditional attributes are rendered
@@ -656,12 +479,7 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 			}
 			return pretty.Text("/* " + v.Text + " */")
 		}
-		// A `//` line comment swallows everything after it on its output line,
-		// so the doc itself carries the forced break (same convention as
-		// CondAttr/SwitchAttr above). This is what disqualifies atomDoc's
-		// pretty.Flat, which sees only this doc — a break added by the caller's
-		// layout loop would be invisible there and the atom would render the
-		// comment inline, eating the following attributes on reparse.
+		// Force tag layout to put subsequent attributes on a fresh line.
 		if v.Text == "" {
 			return pretty.Concat(pretty.Text("//"), pretty.BreakParent)
 		}
@@ -687,21 +505,7 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		}
 		return pretty.Text(attrInline(a))
 	case *ast.MarkupAttr:
-		// A child-prop slot value is a real children list, so it goes through the
-		// same breakable joiner as element children rather than being flattened to
-		// a single inline string. That is what lets a child's BreakParent — most
-		// importantly a bare `//` line comment, which must own its line — force the
-		// slot open and land each sibling on its own indented line, instead of
-		// gluing onto the prior sibling and reparsing as text.
-		inner, breakable := p.childrenInner(v.Value)
-		if !breakable {
-			// Empty or edge-unsafe value: keep the canonical inline padding so a
-			// significant leading/trailing space is never absorbed by a break.
-			return pretty.Concat(pretty.Text(v.Name), pretty.Text("={ "), inner, pretty.Text(" }"))
-		}
-		// Breakable: flat → `name={ value }`; broken (width overflow or a child's
-		// BreakParent) → `name={` / value indented one level / `}`.
-		return wrapAttrValue(v.Name, pretty.Line, inner)
+		return wrapAttrValue(v.Name, pretty.Line, p.children(v.Value))
 	default:
 		return pretty.Text(attrInline(a))
 	}
@@ -871,14 +675,8 @@ func (p *printer) condAttrListDoc(attrs []ast.Attr) pretty.Doc {
 	return pretty.Concat(pretty.Indent(pretty.Concat(inner...)), pretty.HardLine)
 }
 
-// childrenPreserve emits a preserve-subtree children list verbatim: nodes glue
-// with no added separators, and p.preserve is set for the duration so every
-// nested children list (elements, fragments, control-flow bodies) glues the
-// same way, mirroring wsnorm's preserve propagation.
-func (p *printer) childrenPreserve(nodes []ast.Markup) pretty.Doc {
-	prev := p.preserve
-	p.preserve = true
-	defer func() { p.preserve = prev }()
+// children concatenates literal content without adding separators.
+func (p *printer) children(nodes []ast.Markup) pretty.Doc {
 	parts := make([]pretty.Doc, 0, len(nodes))
 	for _, n := range nodes {
 		parts = append(parts, p.markup(n))
@@ -911,11 +709,8 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 		return pretty.Concat(pretty.Text("<!--"), pretty.Text(v.Text), pretty.Text("-->"))
 	case *ast.Comment:
 		if v.Bare {
-			// Bare `//` line comment: must own its source line — printed
-			// mid-line it would reparse as text. BreakParent forces the
-			// enclosing children group to break so the line joiner puts it
-			// (and the following sibling) on fresh lines. An empty comment is
-			// bare `//` with no trailing space (nothing to pad).
+			// Interior line boundaries live in adjacent literal Text. At a
+			// trimmed syntactic edge, force the enclosing body onto fresh lines.
 			if v.Text == "" {
 				return pretty.Concat(pretty.Text("//"), pretty.BreakParent)
 			}
@@ -948,50 +743,11 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 }
 
 func (p *printer) fragment(f *ast.Fragment) pretty.Doc {
-	// Same reasoning as element(): a fragment's children are their own
-	// scanning context, unrelated to any enclosing case body's label rule.
-	prevCaseBody := p.inCaseBody
-	p.inCaseBody = false
-	defer func() { p.inCaseBody = prevCaseBody }()
-	if p.preserve {
-		// A fragment has no wrapper tag; inside a preserve subtree its children
-		// are the parent's content and glue verbatim (fragment edges are NOT
-		// parser-trimmed, unlike control-flow body edges).
-		return pretty.Concat(pretty.Text("<>"), p.childrenPreserve(f.Children), pretty.Text("</>"))
-	}
-	inner, breakable := p.childrenInner(f.Children)
-	if !breakable {
-		return pretty.Concat(pretty.Text("<>"), inner, pretty.Text("</>"))
-	}
-	// An author line break after `<>` is preserved (force the group open);
-	// otherwise the fragment breaks only on width overflow.
-	force := pretty.Text("")
-	if f.ChildrenMultiline {
-		force = pretty.BreakParent
-	}
-	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
-	return pretty.Group(pretty.Concat(pretty.Text("<>"), force, body, pretty.Text("</>")))
+	return pretty.Concat(pretty.Text("<>"), p.children(f.Children), pretty.Text("</>"))
 }
 
-// markerRegion renders `<?start name=…>children<?end>`. It follows fragment's
-// layout exactly (same open/indent/close shape, same ChildrenMultiline and
-// preserve-subtree handling) with a PI open/close in place of `<>`/`</>`.
 func (p *printer) markerRegion(r *ast.MarkerRegion) pretty.Doc {
-	open := pretty.Concat(pretty.Text("<?start "), p.attrDoc(r.Name), pretty.Text(">"))
-	close := pretty.Text("<?end>")
-	if p.preserve {
-		return pretty.Concat(open, p.childrenPreserve(r.Children), close)
-	}
-	inner, breakable := p.childrenInner(r.Children)
-	if !breakable {
-		return pretty.Concat(open, inner, close)
-	}
-	force := pretty.Text("")
-	if p.hasBlockChild(r.Children) || r.ChildrenMultiline {
-		force = pretty.BreakParent
-	}
-	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
-	return pretty.Group(pretty.Concat(open, force, body, close))
+	return pretty.Concat(pretty.Text("<?start "), p.attrDoc(r.Name), pretty.Text(">"), p.children(r.Children), pretty.Text("<?end>"))
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {
@@ -1227,86 +983,25 @@ func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
 		pretty.Text("{ for "), p.goFieldDoc(f.Clause, forField, fmtClause), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline), pretty.Text("} }")))
 }
 
-// cfBody renders a control-flow body between an already-emitted `{` and a
-// caller-emitted `}`. Always uses Line (not Text) so the enclosing Group can
-// break even when children form a single non-breakable segment: flat mode →
-// `{ … }` (Line renders as " "); break mode → newline-indented. This is
-// correct for both short bodies (Group fits → collapses) and long bodies (Group
-// doesn't fit → breaks). Indent is always applied so break-mode content is one
-// tab deeper than the surrounding `{`/`}`. multiline is true when the source
-// placed a line break after the body's opening `{` (ast.*Multiline), in which
-// case the vertical layout is preserved even for an inline-only body that fits.
+// cfBody formats only syntactic body edges; its interior is literal content.
 func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
-	inner := p.cfBodyInner(nodes)
-	// A break inserts newline+indent right after `{` and before `}`. If the
-	// body's first child leads with a significant space, or its last child
-	// trails with one, that break would absorb the space and change the
-	// normalized AST. Keep such bodies flat (single-space padded), matching the
-	// edge guard segmentChildren already enforces for element children.
-	if leadsWithSpace(nodes[0]) || trailsWithSpace(nodes[len(nodes)-1]) {
-		return pretty.Concat(pretty.Text(" "), inner, pretty.Text(" "))
-	}
-	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.Line)
-	// Structural rule: a control-flow body containing a block-level child always
-	// breaks (the BreakParent forces the enclosing if/for group open), so e.g.
-	// `{ for … { <Card/> } }` shows its hierarchy. An author line break after `{`
-	// is likewise preserved. An inline-only body the author kept inline stays on
-	// one line and breaks only if it overflows the width.
-	if p.hasBlockChild(nodes) || multiline {
+	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, p.children(nodes))), pretty.Line)
+	if multiline {
 		return pretty.Concat(pretty.BreakParent, body)
 	}
 	return body
 }
 
-// cfBodyInner builds an `{ if }`/`{ for }` body's content (cfBody's sole
-// caller). In a preserve subtree the nodes glue verbatim — interior
-// whitespace is content, so childrenInner's segment boundaries (calibrated
-// for wsnorm-collapsed text) must not inject breaks there. The body's outer
-// edges remain the caller's to lay out: the parser trims brace-interior edge
-// whitespace unconditionally, so a break at the edge is syntax, not content,
-// even under preserve.
-func (p *printer) cfBodyInner(nodes []ast.Markup) pretty.Doc {
-	// An if/for body's text is scanned by parseTextCtx, which has no
-	// case/default label concept at all (it stops only at '<'/'{'/'}') —
-	// unrelated to an enclosing switch arm's rule, so clear the flag here too.
-	prevCaseBody := p.inCaseBody
-	p.inCaseBody = false
-	defer func() { p.inCaseBody = prevCaseBody }()
-	if p.preserve {
-		return p.childrenPreserve(nodes)
-	}
-	inner, _ := p.childrenInner(nodes)
-	return inner
-}
-
-// switchMarkup always breaks (cases on their own lines) via HardLine, unless
-// any arm body is edge-unsafe (leads/trails with a significant space), in which
-// case the whole switch is rendered inline to avoid a HardLine absorbing the space.
+// switchMarkup aligns case labels with the switch and formats syntactic edges.
 func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 	head := []pretty.Doc{pretty.Text("{ switch")}
 	if s.Tag != "" {
 		head = append(head, pretty.Text(" "), p.goFieldDoc(s.Tag, switchField, fmtExpr))
 	}
 	head = append(head, pretty.Text(" {"))
-
-	if switchHasEdgeUnsafeArm(s) {
-		// inline form: no HardLines so edge spaces in arm bodies aren't absorbed
-		inlineCases := make([]pretty.Doc, 0, len(s.Cases))
-		for _, c := range s.Cases {
-			label := pretty.Text("default:")
-			if !c.Default {
-				label = pretty.Concat(pretty.Text("case "), p.goFieldDoc(c.List, caseField, fmtCaseList), pretty.Text(":"))
-			}
-			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
-		}
-		return pretty.Concat(
-			pretty.Concat(head...),
-			pretty.Concat(inlineCases...),
-			pretty.Text("} }"))
-	}
 
 	caseParts := make([]pretty.Doc, 0, len(s.Cases))
 	for _, c := range s.Cases {
@@ -1316,80 +1011,23 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		}
 		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
 	}
-	// Case labels sit at the `{ switch` line's own level — gofmt alignment, not
-	// prettier's one-deeper JS style. A markup switch is Go syntax with Go case
-	// expressions, so it must indent like the same switch written in an
-	// attribute expression (gofmt aligns those); js`/<script> bodies keep the
-	// deeper form because their brace-depth reindent has no case-label concept.
-	// caseBody supplies the body's own extra level under the label.
-	//
-	// Wrap in a Group like ifMarkup/forMarkup do: the HardLines make it forced,
-	// so the switch establishes its own break mode. Without this, a switch placed
-	// as the sole element of a parent Fill inherits modeFlat (the Fill's fits()
-	// check short-circuits at the first HardLine), which would collapse the soft
-	// gaps between a case body's segments — e.g. packing a bare `//` comment onto
-	// a sibling's line, where it reparses as text.
+	// Labels align with switch; caseBody owns each arm's syntactic edge.
 	return pretty.Group(pretty.Concat(
 		pretty.Concat(head...),
 		pretty.Concat(caseParts...),
 		pretty.HardLine, pretty.Text("} }")))
 }
 
-// switchHasEdgeUnsafeArm reports whether any arm body would lose a significant
-// edge space if the switch were laid out multi-line (HardLine after each arm).
-func switchHasEdgeUnsafeArm(s *ast.SwitchMarkup) bool {
-	for _, c := range s.Cases {
-		if len(c.Body) > 0 && (leadsWithSpace(c.Body[0]) || trailsWithSpace(c.Body[len(c.Body)-1])) {
-			return true
-		}
-	}
-	return false
-}
-
-// caseBody renders a switch arm. Block → each segment on its own line (one
-// deeper than the `case`); inline → follows the colon. multiline is
-// CaseClause.BodyMultiline — the source placed a line break right after the
-// arm's colon — honored exactly like cfBody honors ThenMultiline/BodyMultiline:
-// it forces the block form even for an inline-only body (e.g. a single atom
-// child), so an author break next to markup is never silently joined.
+// caseBody formats the syntactic edge after a case label.
 func (p *printer) caseBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
-	// Set for the whole call (both the preserve and normal branches, and both
-	// switchMarkup forms that reach here) — see the inCaseBody field doc.
-	// Preserve mode never injects breaks at all, so it cannot manufacture a
-	// label either, but scoping the flag to this function only (rather than
-	// threading a parameter through childrenInner) keeps the fix contained to
-	// the case-body call site.
-	prevCaseBody := p.inCaseBody
-	p.inCaseBody = true
-	defer func() { p.inCaseBody = prevCaseBody }()
-	if p.preserve {
-		// Arm edges are parser-trimmed like control-flow body edges, so the
-		// block layout's own newlines are safe; the interior glues verbatim.
-		inner := p.childrenPreserve(nodes)
-		if p.hasBlockChild(nodes) || multiline {
-			return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
-		}
-		return inner
-	}
-	inner, edgeSafe := p.childrenInner(nodes)
-	// A switch arm with a block-level child (or an author line break after the
-	// colon) takes its own indented line(s); an inline-only, inline-authored (or
-	// edge-unsafe) arm follows the colon on the same line.
-	if edgeSafe && (p.hasBlockChild(nodes) || multiline) {
+	inner := p.children(nodes)
+	if multiline {
 		return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
 	}
-	// An inline arm reads `case "a": <b>w</b>`, not `case "a":<b>w</b>`. The
-	// space is layout, not content: the parser strips a body's leading
-	// brace-interior whitespace (trimBodyEdges), so it never reaches the AST and
-	// re-parsing this output yields the same body. An arm whose body genuinely
-	// leads with a significant space supplies its own and must not be doubled.
-	if !leadsWithSpace(nodes[0]) {
-		return pretty.Concat(pretty.Text(" "), inner)
-	}
-	return inner
+	return pretty.Concat(pretty.Text(" "), inner)
 }
 
 // multiline turns a possibly multi-line Go fragment into a Doc: lines are
@@ -2007,15 +1645,6 @@ func renderHole(v *ast.Interp) string {
 	}
 	b.WriteString(" }")
 	return b.String()
-}
-
-// isPreserveTag mirrors wsnorm: pre/textarea/script/style keep bodies verbatim.
-func isPreserveTag(tag string) bool {
-	switch strings.ToLower(tag) {
-	case "pre", "textarea", "script", "style":
-		return true
-	}
-	return false
 }
 
 // isExecutableScript reports whether a <script> runs as JavaScript: no static

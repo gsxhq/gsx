@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
-	"github.com/gsxhq/gsx/internal/wsnorm"
+	"github.com/gsxhq/gsx/internal/htmltag"
 )
 
 // parseInterp parses `{ expr }` or `{ expr? }`. Cursor must be at '{'.
@@ -66,7 +66,6 @@ func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 		p.i++
 	}
 	n := &ast.Text{Value: p.src[start:p.i]}
-	n.LeadingBreak = leadingRunBreaks(p.src[start:p.i])
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
 }
@@ -386,20 +385,16 @@ func (p *parser) parseMarkupBody(what string) ([]ast.Markup, error) {
 			p.i++ // consume the closing brace
 			return nodes, nil
 		case p.peek() == '<':
-			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, err
 			}
-			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
-			leadingBreak := newlineBefore(p.src, p.i)
 			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
-			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
@@ -662,20 +657,16 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 		p.i = save
 		switch {
 		case p.peek() == '<':
-			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, err
 			}
-			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
-			leadingBreak := newlineBefore(p.src, p.i)
 			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
-			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
@@ -698,7 +689,6 @@ func (p *parser) parseCaseBodyText() *ast.Text {
 	startPos := p.posAt(start)
 	p.i = p.caseBodyTextEnd(start)
 	n := &ast.Text{Value: p.src[start:p.i]}
-	n.LeadingBreak = leadingRunBreaks(p.src[start:p.i])
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
 }
@@ -1048,12 +1038,11 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	// Fragment: <>…</>
 	if p.peek() == '>' {
 		p.i++ // past '>'
-		childrenMultiline := newlineFollows(p.src, p.i)
 		children, _, err := p.parseChildren("")
 		if err != nil {
 			return nil, err
 		}
-		fr := &ast.Fragment{Children: children, ChildrenMultiline: childrenMultiline}
+		fr := &ast.Fragment{Children: children}
 		ast.SetSpan(fr, startPos, p.posAt(p.i))
 		return fr, nil
 	}
@@ -1101,7 +1090,6 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected '>' or '/>' in <%s>", tag)
 	}
 	p.i++ // past '>'
-	childrenMultiline := newlineFollows(p.src, p.i)
 
 	// Raw-text elements (<script>, <style>): content is verbatim until the
 	// matching case-insensitive close tag. No markup/interpolation inside.
@@ -1115,17 +1103,17 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return el, nil
 	}
 
-	if wsnorm.IsPreserveTag(tag) {
+	if htmltag.SuppressBareComments(tag) {
 		p.preserveDepth++
 	}
 	children, closeNamePos, err := p.parseChildren(tag)
-	if wsnorm.IsPreserveTag(tag) {
+	if htmltag.SuppressBareComments(tag) {
 		p.preserveDepth--
 	}
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline, AttrsMultiline: attrsMultiline}
+	el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, AttrsMultiline: attrsMultiline}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }
@@ -1173,12 +1161,11 @@ func (p *parser) parsePI(startPos token.Pos) (ast.Markup, error) {
 		if err != nil {
 			return nil, err
 		}
-		childrenMultiline := newlineFollows(p.src, p.i)
 		children, _, err := p.parseChildrenTerm(childTerm{piEnd: true})
 		if err != nil {
 			return nil, err
 		}
-		r := &ast.MarkerRegion{Name: name, Children: children, ChildrenMultiline: childrenMultiline}
+		r := &ast.MarkerRegion{Name: name, Children: children}
 		ast.SetSpan(r, startPos, p.posAt(p.i))
 		return r, nil
 	case piEnd:
@@ -1323,21 +1310,6 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
-// leadingRunBreaks reports whether the leading whitespace run of a raw text
-// value contains a line break (a Text's ast.Leading fact).
-func leadingRunBreaks(v string) bool {
-	for i := 0; i < len(v); i++ {
-		switch v[i] {
-		case '\n', '\r':
-			return true
-		case ' ', '\t':
-		default:
-			return false
-		}
-	}
-	return false
-}
-
 // childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
 // a fragment's `</>`), or a `<?end>` processing instruction closing a
 // MarkerRegion. Exactly one form applies per list.
@@ -1405,22 +1377,18 @@ func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, err
 			return nodes, closeNamePos, nil
 		}
 		if p.peek() == '<' {
-			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, token.NoPos, err
 			}
-			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 			continue
 		}
 		if p.peek() == '{' {
-			leadingBreak := newlineBefore(p.src, p.i)
 			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, token.NoPos, err
 			}
-			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 			continue
 		}

@@ -79,9 +79,7 @@ func TestFormatReindentsMultilineEmbeddedAttrBody(t *testing.T) {
 		"\t\tstyle=css`\n" +
 		"\t\t\tcolor : @{color}\n" +
 		"\t\t`\n" +
-		"\t>\n" +
-		"\t\tx\n" +
-		"\t</div>\n" +
+		"\t>x</div>\n" +
 		"}\n"
 
 	out, err := Format("embedded.gsx", []byte(src), 80)
@@ -104,12 +102,8 @@ func TestFormatReindentsMultilineEmbeddedAttrBody(t *testing.T) {
 // differently at 2 and at 4. Nothing pinned this before: changing tabWidth
 // broke zero tests, which measured coverage, not safety.
 func TestFormatWithTabWidthChangesLayout(t *testing.T) {
-	// A deeply-indented element whose line sits between the two budgets. Uses
-	// <div>, not <span>: <span> with only a Text child now qualifies as an
-	// inline atom and renders fully flat via atomDoc regardless of width,
-	// which would make this fixture tab-width-insensitive. <div> is never an
-	// atom, so its attrs/children Group still wraps under width pressure.
-	src := []byte("package ui\n\ncomponent C() {\n\t<div>\n\t\t<div class=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">x</div>\n\t</div>\n}\n")
+	// Tag attributes remain width-aware while child content stays literal.
+	src := []byte("package ui\ncomponent C() { <div class=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">x</div> }\n")
 
 	at2, err := FormatWith("x.gsx", src, FormatOptions{Width: 80, TabWidth: 2})
 	if err != nil {

@@ -92,17 +92,6 @@ func TestIfBreakFlatAndBroken(t *testing.T) {
 	}
 }
 
-func TestFillGreedyWrap(t *testing.T) {
-	// Words separated by Line; width 5 packs greedily: "aa bb" fits (5), next
-	// "cc" would overflow → break before it.
-	d := Fill(Text("aa"), Line, Text("bb"), Line, Text("cc"))
-	got := Print(d, 5, DefaultTabWidth)
-	want := "aa bb\ncc"
-	if got != want {
-		t.Fatalf("got %q want %q", got, want)
-	}
-}
-
 func TestFlat(t *testing.T) {
 	okCases := []struct {
 		name string
@@ -114,7 +103,6 @@ func TestFlat(t *testing.T) {
 		{"concat with softline", Concat(Text("a"), SoftLine, Text("b")), "ab"},
 		{"group with line", Group(Concat(Text("a"), Line, Text("b"))), "a b"},
 		{"ifbreak resolves flat branch", IfBreak(Text("BROKEN"), Text("flat")), "flat"},
-		{"fill", Fill(Text("a"), SoftLine, Text("b")), "ab"},
 	}
 	for _, c := range okCases {
 		flat, ok := Flat(c.doc)

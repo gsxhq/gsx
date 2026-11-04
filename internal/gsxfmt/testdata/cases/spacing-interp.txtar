@@ -1,7 +1,5 @@
-The `{" "}` spacing idiom is layout glue, not an orphan line: it bonds to its
-left neighbor (`see{ " " }` ends a line, never printed as its own `{ " " }`
-line) and offers a break after, including between two atoms that have no
-literal space character between them in the source.
+Explicit string-space interpolations remain authored values. Adjacent literal
+text and newlines are kept exactly; no formatter glue or separators are added.
 
 -- input.gsx --
 package p
@@ -25,7 +23,10 @@ package p
 component SeeSpacingAtLineEnd() {
 	<p>
 		caller-class-merge behaves as documented in the theming guide (see{ " " }
-		<a href="/docs/theming" class="underline underline-offset-4">Theming</a>)
+		<a
+		href="/docs/theming"
+		class="underline underline-offset-4"
+	>Theming</a>)
 	</p>
 }
 

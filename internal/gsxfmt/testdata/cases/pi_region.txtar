@@ -20,9 +20,9 @@ package ui
 
 component Page(id string) {
 	<?start name="panel">
-		<p>loading</p>
-		<?start name={id}>
-			<span>nested</span>
-		<?end>
+			<p>loading</p>
+<?start name={id}>
+						<span>nested</span>
 	<?end>
+			<?end>
 }

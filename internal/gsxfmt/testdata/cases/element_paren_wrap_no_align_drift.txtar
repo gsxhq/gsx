@@ -37,8 +37,8 @@ var nav = []item{
 		label:     "Team View",
 		icon:      (
 			<UsersIcon>
-				<title>users</title>
-			</UsersIcon>
+		<title>users</title>
+	</UsersIcon>
 		),
 		page:      TeamViewPage{},
 		pathMatch: "/team",
@@ -47,8 +47,8 @@ var nav = []item{
 		label:     "Search",
 		icon:      (
 			<SearchIcon>
-				<title>search</title>
-			</SearchIcon>
+		<title>search</title>
+	</SearchIcon>
 		),
 		page:      ListPage{},
 		pathMatch: "/list/",

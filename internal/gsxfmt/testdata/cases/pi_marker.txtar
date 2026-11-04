@@ -19,7 +19,7 @@ package ui
 
 component Page(id string) {
 	<div>
-		<?marker name="results">
-		<?marker name={id |> upper}>
-	</div>
+<?marker name="results">
+					<?marker name={id |> upper}>
+</div>
 }

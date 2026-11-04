@@ -7,7 +7,6 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/pretty"
-	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
@@ -94,9 +93,8 @@ func mayHoldGoValue(src string) bool {
 // splitGoParts splits Go source into interleaved GoText and gsx value parts,
 // using a fresh FileSet (the printer holds no shared one, and the split only
 // needs source-relative positions — the reformatted holes read from the value
-// nodes, not absolute source positions). The values' markup is
-// whitespace-normalized as codegen normalizes it, so an element prints the
-// same whatever indentation its text carried. It returns (nil, true) when src
+// nodes, not absolute source positions). Literal markup Text is retained
+// exactly. It returns (nil, true) when src
 // holds no value (the plain-Go fast path) and (nil, false) when the split
 // reports a parse error, so the caller can fall back to the verbatim relay.
 func splitGoParts(src string) ([]ast.GoPart, bool) {
@@ -106,7 +104,7 @@ func splitGoParts(src string) ([]ast.GoPart, bool) {
 	if len(errs) > 0 {
 		return nil, false
 	}
-	wsnorm.NormalizeGoParts(parts)
+
 	return parts, true
 }
 

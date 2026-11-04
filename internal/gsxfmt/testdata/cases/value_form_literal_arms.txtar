@@ -26,9 +26,7 @@ component StyleSwitch(n int, w string) {
 				css`aspect-ratio: @{w}`
 			}
 		}
-	>
-		a
-	</div>
+	>a</div>
 }
 
 component ClassIf(c bool, v string) {

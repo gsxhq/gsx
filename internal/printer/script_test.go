@@ -10,7 +10,7 @@ func TestScriptBodyReindented(t *testing.T) {
 	// Well-indented body: its relative structure is preserved and re-based under
 	// the tag depth (component=1, body=2, inside fn=3).
 	src := "package p\n\ncomponent C() {\n\t<script>\nfunction f() {\n\treturn 1\n}\n\t</script>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestScriptBodyReindented(t *testing.T) {
 // body must be exactly ONE level under its `call(args, () => {` line, not two.
 func TestScriptCallbackSingleIndentEndToEnd(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<script>\ndocument.body.addEventListener('x', (e) => {\n\tconsole.log(e);\n});\n\t</script>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestScriptCallbackSingleIndentEndToEnd(t *testing.T) {
 
 func TestScriptHolePreserved(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<script>const u = @{ user.ID }</script>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestScriptHolePreserved(t *testing.T) {
 func TestDataIslandScriptLeftVerbatim(t *testing.T) {
 	// type="application/json" is NOT executable JS — left verbatim.
 	src := "package p\n\ncomponent C() {\n\t<script type=\"application/json\">  {\"a\":1}  </script>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestDataIslandScriptLeftVerbatim(t *testing.T) {
 
 func TestEmptyScriptStaysInline(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<script src=\"https://x.js\"></script>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func TestEmptyScriptStaysInline(t *testing.T) {
 
 func TestScriptIdempotent(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<script>\nif(x){\nf()\n}\n\t</script>\n}\n"
-	once, err := normPrint(t, src)
+	once, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	twice, err := normPrint(t, once)
+	twice, err := printSource(t, once)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,14 +94,14 @@ func TestScriptIdempotent(t *testing.T) {
 // (interior not re-indented) and be idempotent.
 func TestScriptTemplateLiteralVerbatim(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<script>\nconst t = `<div>\nhi\n</div>`;\n</script>\n}\n"
-	out, err := normPrint(t, src)
+	out, err := printSource(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "`<div>\nhi\n</div>`") {
 		t.Fatalf("script template-literal interior re-indented:\n%s", out)
 	}
-	twice, _ := normPrint(t, out)
+	twice, _ := printSource(t, out)
 	if out != twice {
 		t.Fatalf("script not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", out, twice)
 	}
