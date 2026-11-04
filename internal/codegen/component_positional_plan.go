@@ -283,11 +283,7 @@ func assemblePositionalCall(plan componentCallPlan, operands []suppliedOperand, 
 			}
 			valueIndex := slot.valueIndexes[0]
 			if plan.target.goSig.Variadic() && paramIndex == len(plan.args)-1 {
-				for childIndex, child := range plan.values[valueIndex].children {
-					// Literal HTML whitespace separates variadic arguments only.
-					if text, ok := child.(*gsxast.Text); ok && strings.Trim(text.Value, " \t\n\r\f") == "" {
-						continue
-					}
+				for childIndex := range plan.values[valueIndex].children {
 					assembly.arguments = append(assembly.arguments, componentPositionalArgument{
 						kind: componentPositionalArgumentChildren, paramIndex: paramIndex,
 						valueIndex: valueIndex, childIndex: childIndex,

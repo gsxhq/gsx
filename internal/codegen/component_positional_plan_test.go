@@ -4,7 +4,6 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
-	"slices"
 	"strings"
 	"testing"
 
@@ -166,59 +165,6 @@ func TestValidateAssembledPositionalCallChecksVariadicChildrenArity(t *testing.T
 	}
 	if err := validateAssembledPositionalCall(plan, assembly, fx.runtime); err != nil {
 		t.Fatalf("valid variadic children call: %v", err)
-	}
-	for _, tc := range []struct {
-		name, body string
-		indexes    []int
-	}{
-		{"empty", "", nil},
-		{"separators", " \t\n\r\f", nil},
-		{"two elements", "\n <i/> \t<b/>\n", []int{1, 3}},
-		{"explicit space", ` <i/> {" "} <b/> `, []int{1, 3, 5}},
-		{"substantive text", " first <i/> last ", []int{0, 1, 2}},
-		{"non HTML whitespace", "\u00a0<i/>\v", []int{0, 1, 2}},
-		{"source comments", "\n <i/>{/* comment */}\n <b/>\n", []int{1, 3}},
-		{"fragment", "\n <> first <i/> last </>\n", []int{1}},
-		{"control flow", "\n { if true { <i/> <b/> } }\n", []int{1}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			el, fset := plannerElement(t, `<C label="x">`+tc.body+`</C>`)
-			authored := slices.Clone(el.Children)
-			textValues := make(map[*gsxast.Text]string)
-			for _, child := range authored {
-				if text, ok := child.(*gsxast.Text); ok {
-					textValues[text] = text.Value
-				}
-			}
-			call, diagnostics := planComponentInputs(1, el, model, fset)
-			if len(diagnostics) != 0 {
-				t.Fatalf("diagnostics = %+v", diagnostics)
-			}
-			assembly, err := assemblePositionalCall(call, operands, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := validateAssembledPositionalCall(call, assembly, fx.runtime); err != nil {
-				t.Fatal(err)
-			}
-			var indexes []int
-			for _, arg := range assembly.arguments {
-				if arg.kind == componentPositionalArgumentChildren {
-					indexes = append(indexes, arg.childIndex)
-				}
-			}
-			if !slices.Equal(el.Children, authored) {
-				t.Fatal("authored children mutated")
-			}
-			for text, want := range textValues {
-				if text.Value != want {
-					t.Fatalf("literal text mutated: %q, want %q", text.Value, want)
-				}
-			}
-			if !slices.Equal(indexes, tc.indexes) {
-				t.Fatalf("child indexes = %v, want %v", indexes, tc.indexes)
-			}
-		})
 	}
 }
 

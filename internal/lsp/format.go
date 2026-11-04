@@ -9,7 +9,7 @@ import (
 )
 
 // handleFormatting answers textDocument/formatting for a .gsx document: it
-// returns the canonical form (parse → print) as a single
+// returns the canonical form (parse → whitespace-normalize → print) as a single
 // whole-document TextEdit. It operates on the live buffer text, so unsaved edits
 // are formatted. Only .gsx files are handled; gopls owns .go formatting.
 //

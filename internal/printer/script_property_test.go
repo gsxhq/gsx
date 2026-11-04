@@ -15,15 +15,15 @@ var scriptCases = []string{
 
 func TestScriptPropertyFaithfulAndIdempotent(t *testing.T) {
 	for _, src := range scriptCases {
-		formatted, err := printSource(t, src)
+		formatted, err := normPrint(t, src)
 		if err != nil {
 			t.Errorf("fmt failed: %v\n%s", err, src)
 			continue
 		}
-		if !reflect.DeepEqual(contentAST(t, src), contentAST(t, formatted)) {
-			t.Errorf("fmt changed content AST (not faithful):\n--- src ---\n%s\n--- fmt ---\n%s", src, formatted)
+		if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, formatted)) {
+			t.Errorf("fmt changed normalized AST (not faithful):\n--- src ---\n%s\n--- fmt ---\n%s", src, formatted)
 		}
-		formatted2, err := printSource(t, formatted)
+		formatted2, err := normPrint(t, formatted)
 		if err != nil {
 			t.Errorf("re-fmt failed: %v", err)
 			continue

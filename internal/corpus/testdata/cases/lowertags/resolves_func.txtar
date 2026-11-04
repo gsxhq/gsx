@@ -6,12 +6,12 @@ package views
 
 import "github.com/gsxhq/gsx"
 component card(children gsx.Node) {
-<div class="card">{children}</div>
+	<div class="card">{children}</div>
 }
 
 component Page() {
-<card>hi</card>
-<span>bye</span>
+	<card>hi</card>
+	<span>bye</span>
 }
 -- invoke --
 Page()
@@ -40,10 +40,10 @@ func _gsxrendercard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Nod
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:6:1
+//line input.gsx:6:2
 	_gsxgw.S("<div class=\"card\">")
-//line input.gsx:6:19
-	_gsxgw.Node(ctx /*line input.gsx:6:20*/, children)
+//line input.gsx:6:20
+	_gsxgw.Node(ctx /*line input.gsx:6:21*/, children)
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -52,18 +52,16 @@ func _gsxrendercard(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, children gsx.Nod
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:1
+//line input.gsx:10:2
 		_gsxgw.NodeResult(_gsxrendercard(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("hi")
 			return _gsxgw.Err()
 		})))
-		_gsxgw.S("\n")
-//line input.gsx:11:1
+//line input.gsx:11:2
 		_gsxgw.S("<span>bye</span>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div class="card">hi</div>
-<span>bye</span>
+<div class="card">hi</div><span>bye</span>

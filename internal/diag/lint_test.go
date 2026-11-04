@@ -25,20 +25,20 @@ func TestParseLintLevel(t *testing.T) {
 func TestLintPolicyApply(t *testing.T) {
 	lint := func(code string) Diagnostic { return Diagnostic{Severity: Warning, Code: code, Message: code} }
 	in := []Diagnostic{
-		lint("self-reference-leaf"),
+		lint("child-element-spacing"),
 		lint("duplicate-attribute"),
 		lint("url-always-blocked"),
 		{Severity: Error, Code: "parse-error"},
 		{Severity: Warning, Code: "not-a-lint"},
 	}
 	policy := LintPolicy{
-		"self-reference-leaf": LintError,
-		"duplicate-attribute": LintOff,
-		"url-always-blocked":  LintWarning,
+		"child-element-spacing": LintError,
+		"duplicate-attribute":   LintOff,
+		"url-always-blocked":    LintWarning,
 	}
 	got := policy.Apply(in)
 	want := []Diagnostic{
-		{Severity: Error, Code: "self-reference-leaf", Message: "self-reference-leaf"},
+		{Severity: Error, Code: "child-element-spacing", Message: "child-element-spacing"},
 		lint("url-always-blocked"),
 		{Severity: Error, Code: "parse-error"},
 		{Severity: Warning, Code: "not-a-lint"},

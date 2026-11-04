@@ -1,6 +1,6 @@
 // Package gsxfmt is the single source-formatting engine shared by the `gsx fmt`
-// CLI and the language server's textDocument/formatting: parse → print,
-// preserving literal content in the canonical, idempotent form of a .gsx file.
+// CLI and the language server's textDocument/formatting: parse → whitespace-
+// normalize → print, producing the canonical, idempotent form of a .gsx file.
 package gsxfmt
 
 import (
@@ -9,10 +9,11 @@ import (
 
 	"github.com/gsxhq/gsx/internal/printer"
 	"github.com/gsxhq/gsx/internal/rawfmt"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
-// Format parses src (named for diagnostics), formats syntactic layout, and returns
+// Format parses src (named for diagnostics), normalizes whitespace, and returns
 // the canonical gsx source. A non-nil error is a parse or print failure; callers
 // formatting unsaved buffers should treat that as "leave the buffer untouched"
 // rather than a hard failure. Imports get gofmt mode: no import is removed,
@@ -74,7 +75,7 @@ type FormatOptions struct {
 }
 
 // FormatWith is the one formatting entry point: parse → remove unused imports →
-// (optionally) reorder imports → print. A non-nil error is
+// (optionally) reorder imports → whitespace-normalize → print. A non-nil error is
 // a parse or print failure; callers formatting unsaved buffers should treat that
 // as "leave the buffer untouched".
 func FormatWith(name string, src []byte, opts FormatOptions) ([]byte, error) {
@@ -91,7 +92,7 @@ func FormatWith(name string, src []byte, opts FormatOptions) ([]byte, error) {
 	if opts.Reorder {
 		reorderImports(f)
 	}
-
+	wsnorm.Normalize(f)
 	var b bytes.Buffer
 	if opts.CSSFmt == nil && opts.JSFmt == nil {
 		if err := printer.Fprint(&b, f, opts.Width, opts.TabWidth); err != nil {

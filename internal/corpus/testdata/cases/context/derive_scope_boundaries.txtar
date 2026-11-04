@@ -20,28 +20,25 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Show() {
-<i>{ val(ctx) }</i>
+	<i>{ val(ctx) }</i>
 }
 
 component Wrap(children gsx.Node) {
-<u>{ children }</u>
+	<u>{ children }</u>
 }
 
 component SlotScoped() {
-<Wrap>{{ ctx, err := child(ctx, "in-slot"); if err != nil { return err } }}<Show/></Wrap>
-<Show/>
+	<Wrap>{{ ctx, err := child(ctx, "in-slot"); if err != nil { return err } }}<Show/></Wrap>
+	<Show/>
 }
 
 component Page() {
-<SlotScoped/>
-<div>{{ ctx, err := child(ctx, "in-div"); if err != nil { return err } }}<Show/></div>
-<Show/>
+	<SlotScoped/>
+	<div>{{ ctx, err := child(ctx, "in-div"); if err != nil { return err } }}<Show/></div>
+	<Show/>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<u><i>in-slot</i></u>
-<i></i>
-<div><i>in-div</i></div>
-<i>in-div</i>
+<u><i>in-slot</i></u><i></i><div><i>in-div</i></div><i>in-div</i>

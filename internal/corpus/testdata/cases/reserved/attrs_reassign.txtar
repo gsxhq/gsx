@@ -9,7 +9,8 @@ package views
 
 import "github.com/gsxhq/gsx"
 component Panel(attrs gsx.Attrs) {
-{{ attrs = attrs.Without("id") }}<div { attrs... }>x</div>
+	{{ attrs = attrs.Without("id") }}
+	<div { attrs... }>x</div>
 }
 -- invoke --
 Panel(gsx.Attrs{{Key: "id", Value: "p1"}, {Key: "class", Value: "box"}})
@@ -32,9 +33,9 @@ import (
 func Panel(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:1
+//line input.gsx:6:2
 		attrs = attrs.Without("id")
-//line input.gsx:6:34
+//line input.gsx:7:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())

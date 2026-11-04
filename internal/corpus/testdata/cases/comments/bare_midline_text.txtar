@@ -12,5 +12,4 @@ component C() {
 C()
 -- diagnostics.golden --
 -- render.golden --
-<p>text // literal slashes</p>
-	<p>// hi</p>
+<p>text // literal slashes</p><p>// hi</p>

@@ -17,6 +17,6 @@ component Δέλτα(label数据٣ string, _κρυφό bool) {
 }
 
 component Page(value string) {
-<Δέλτα label数据٣={value} _κρυφό/>
-<组件.卡片 标题={value}/>
+	<Δέλτα label数据٣={value} _κρυφό/>
+	<组件.卡片 标题={value}/>
 }

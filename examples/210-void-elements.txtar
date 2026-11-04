@@ -8,17 +8,13 @@ pageOrder: 20
 package views
 
 component AvatarField(src string, alt string, disabled bool) {
-<div>
-	<img src={src} alt={alt}/>
-	<br/>
-	<input type="text" required disabled={disabled}/>
-</div>
+	<div>
+		<img src={src} alt={alt}/>
+		<br/>
+		<input type="text" required disabled={disabled}/>
+	</div>
 }
 -- invoke --
 AvatarField("/avatar.png", "User", true)
 -- render.golden --
-<div>
-	<img src="/avatar.png" alt="User">
-	<br>
-	<input type="text" required disabled>
-</div>
+<div><img src="/avatar.png" alt="User"><br><input type="text" required disabled></div>

@@ -4,16 +4,13 @@
 package views
 
 component C(show bool) {
-<>
-	<!-- oob -- swap -->
-	{ if show { <p>yes</p> } else { <p>no</p> } }
-</>
+	<>
+		<!-- oob -- swap -->
+		{ if show { <p>yes</p> } else { <p>no</p> } }
+	</>
 }
 -- invoke --
 C(false)
 -- diagnostics.golden --
 -- render.golden --
-
-	<!-- oob -- swap -->
-	<p>no</p>
-
+<!-- oob -- swap --><p>no</p>

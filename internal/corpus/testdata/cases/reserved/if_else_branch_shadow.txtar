@@ -13,11 +13,12 @@ package views
 import "github.com/gsxhq/gsx"
 
 component C(cond bool, attrs gsx.Attrs) {
-{ if cond {
-	{{ attrs := gsx.Attrs{{Key: "data-local", Value: "1"}} }}<span { attrs... }>t</span>
-} else {
-	<div { attrs... }>e</div>
-} }
+	{ if cond {
+		{{ attrs := gsx.Attrs{{Key: "data-local", Value: "1"}} }}
+		<span { attrs... }>t</span>
+	} else {
+		<div { attrs... }>e</div>
+	} }
 }
 -- invoke --
 gsx.Fragment(C(true, gsx.Attrs{{Key: "data-caller", Value: "9"}}), C(false, gsx.Attrs{{Key: "data-caller", Value: "9"}}))
@@ -40,18 +41,18 @@ import (
 func C(cond bool, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:1
-		if /*line input.gsx:6:6*/ cond {
-//line input.gsx:7:2
+//line input.gsx:6:2
+		if /*line input.gsx:6:7*/ cond {
+//line input.gsx:7:3
 			attrs := gsx.Attrs{{Key: "data-local", Value: "1"}}
-//line input.gsx:7:59
+//line input.gsx:8:3
 			_gsxgw.S("<span")
 			_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 			_gsxgw.StyleMerged("", attrs.Style())
 			_gsxgw.Spread(ctx, "span", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 			_gsxgw.S(">t</span>")
 		} else {
-//line input.gsx:9:2
+//line input.gsx:10:3
 			_gsxgw.S("<div")
 			_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 			_gsxgw.StyleMerged("", attrs.Style())

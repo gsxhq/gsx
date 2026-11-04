@@ -9,7 +9,8 @@ package views
 
 import "github.com/gsxhq/gsx"
 component Badge(attrs gsx.Attrs) {
-{{ f := func() string { return attrs.Class() } }}<span class={f()}>x</span>
+	{{ f := func() string { return attrs.Class() } }}
+	<span class={f()}>x</span>
 }
 -- invoke --
 Badge(gsx.Attrs{{Key: "class", Value: "hot"}})
@@ -32,11 +33,11 @@ import (
 func Badge(attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:1
+//line input.gsx:6:2
 		f := func() string { return attrs.Class() }
-//line input.gsx:6:50
+//line input.gsx:7:2
 		_gsxgw.S("<span class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:6:63*/ f()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:7:15*/ f()))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

@@ -22,13 +22,13 @@ func val(ctx context.Context) string { s, _ := ctx.Value(key{}).(string); return
 package views
 
 component Page() {
-<p>before</p>
-{{ ctx, err := child(ctx, "bad"); if err != nil { return err } }}<p>after { val(ctx) }</p>
+	<p>before</p>
+	{{ ctx, err := child(ctx, "bad"); if err != nil { return err } }}
+	<p>after { val(ctx) }</p>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
 <p>before</p>
-
 [render error] child: bad value

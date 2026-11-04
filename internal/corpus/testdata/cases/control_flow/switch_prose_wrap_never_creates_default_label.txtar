@@ -1,8 +1,13 @@
-Literal case-body prose retains its authored line boundaries at every width.
-The embedded word "default:" must remain prose rather than becoming another
-default arm. This preserves the historical formatter-closure regression without
-prose filling or case-body bonds: formatting cannot insert a newline here.
-TestCorpusInputsProperty also checks the re-parsed AST.
+Formatter-closure regression (2026-07-25 amendment), the "default" variant:
+without the fix, gsx fmt's word-gap fill could reflow this arm's long prose so
+"default:" became the first word on a line — which the parser then reads as a
+real default arm, producing a "multiple defaults" codegen failure (the source
+never had two). 34 "x" words is one of the exact lengths where the fmt
+corpus/property-test width (80 cols) forces a wrap right at that boundary
+(found by sweeping word counts 1..100 before picking this one). The printer's
+case-body bond keeps "default:" off line start regardless of width, so
+re-parsing formatted output still yields exactly one selected arm. Checked by
+internal/printer's TestCorpusInputsProperty.
 -- input.gsx --
 package views
 

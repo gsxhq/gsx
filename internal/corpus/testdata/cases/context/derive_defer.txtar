@@ -59,20 +59,22 @@ package views
 import "context"
 
 component Leaf() {
-<i>{ spanName(ctx) }:{ state(ctx) }{ note(ctx, "leaf") }</i>
+	<i>{ spanName(ctx) }:{ state(ctx) }{ note(ctx, "leaf") }</i>
 }
 
 component Traced() {
-{{ ctx, span := trace(ctx, "x"); defer span.End() }}{{ ctx, cancel := context.WithCancel(ctx); defer cancel() }}<Leaf/>
+	{{ ctx, span := trace(ctx, "x"); defer span.End() }}
+	{{ ctx, cancel := context.WithCancel(ctx); defer cancel() }}
+	<Leaf/>
 }
 
 component Page() {
-{{ ctx = withLog(ctx) }}<Traced/>
-<p>{ logged(ctx) }</p>
+	{{ ctx = withLog(ctx) }}
+	<Traced/>
+	<p>{ logged(ctx) }</p>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<i>x:live</i>
-<p>start x,leaf,end x</p>
+<i>x:live</i><p>start x,leaf,end x</p>

@@ -36,10 +36,4 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<a href="about:invalid#gsx">x</a>
-	<a href="/ok">x</a>
-	<a href="42">x</a>
-	<img src="data:image/png;base64,AAAA">
-	<img src="about:invalid#gsx">
-	<img src="7">
-	<img srcset="a.png 1x, about:invalid#gsx">
+<a href="about:invalid#gsx">x</a><a href="/ok">x</a><a href="42">x</a><img src="data:image/png;base64,AAAA"><img src="about:invalid#gsx"><img src="7"><img srcset="a.png 1x, about:invalid#gsx">

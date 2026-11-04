@@ -20,6 +20,8 @@ component C(v string, on bool) {
 		(b)="c"
 		on:click|preventDefault={v}
 		.bare
-	>x</div>
+	>
+		x
+	</div>
 	<Leaf .prop="x" ?disabled [target]={v}/>
 }

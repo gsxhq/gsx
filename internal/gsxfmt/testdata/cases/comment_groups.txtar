@@ -3,9 +3,10 @@ position canonicalizes every comment to bare form — one bare comment per
 interior comment, an empty group ({} / { } / { ; }) to /**/ (the one bare
 spelling with nothing in it, inline-safe), and a line comment always ends its
 output line (the tag header breaks; it can never swallow following
-attributes). Child position retains authored group braces and separators when surrounding
-multiline literal content constrains source placement. Comment text remains
-semantic AST content; group splitting must not lose delimiters or trivia.
+attributes). Child position stays braced — one brace pair per comment, an
+empty group prints {}, and a line comment keeps the closing } on the next
+line. Comment text is preserved exactly: no stray delimiters from group
+splitting (the old collapse emitted "/* a */ // b */").
 -- input.gsx --
 package ui
 
@@ -64,10 +65,8 @@ component LineAttrInlineTag() {
 
 component Children() {
 	<div>
-		{}
-		{ /* a */ // b
-		}
-		{ /* a */ /* b */ }
+		{}{/* a */}{// b
+		}{/* a */}{/* b */}
 		<span>ok</span>
 	</div>
 }

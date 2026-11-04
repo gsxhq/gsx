@@ -20,7 +20,7 @@ import (
 )
 
 // runFmt implements `gsx fmt`: it formats .gsx files to their canonical,
-// idempotent form (parse → printer.Fprint). It is
+// idempotent form (parse → wsnorm.Normalize → printer.Fprint). It is
 // gofmt-faithful in its flag surface and behavior:
 //
 //	(default)  write each file's formatted source to stdout
@@ -263,13 +263,13 @@ Exit codes:
 }
 
 // Format returns the canonical, idempotent formatting of a single .gsx source
-// (the same transformation `gsx fmt` applies): parse →
+// (the same transformation `gsx fmt` applies): parse → whitespace-normalize →
 // print. name is used only in parse-error messages. A non-nil error is a parse
 // or print failure. It is the in-process entry point for tooling (editors,
 // the playground) that wants to format without the CLI.
 func Format(name string, src []byte) ([]byte, error) { return formatGsx(name, src) }
 
-// formatGsx parses src (named for diagnostics), formats syntax, and
+// formatGsx parses src (named for diagnostics), normalizes whitespace, and
 // prints the canonical gsx source. The returned bytes are the formatted form; a
 // non-nil error is a parse or print failure (the caller treats it as a per-file
 // failure and continues with the other files). It delegates to gsxfmt.Format,

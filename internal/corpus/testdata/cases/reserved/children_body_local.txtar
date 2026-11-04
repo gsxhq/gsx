@@ -5,7 +5,8 @@
 package views
 
 component Page() {
-{{ children := "hi" }}<div>{children}</div>
+	{{ children := "hi" }}
+	<div>{children}</div>
 }
 -- invoke --
 Page()

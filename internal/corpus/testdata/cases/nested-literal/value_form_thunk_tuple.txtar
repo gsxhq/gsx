@@ -140,7 +140,7 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv4.Class())
 	_gsxgw.StyleMerged("", _gsxv4.Style())
 	_gsxgw.Spread(ctx, "i", _gsxv4, _gsxrt.AttrSinks{}, []string{"class", "style"})
-	_gsxgw.S("></i>\n\t")
+	_gsxgw.S("></i>")
 //line input.gsx:20:2
 	_gsxv5 := /*line input.gsx:20:7*/ a
 	_gsxv9, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:20:19*/ id != 0, func() (_gsxrt.Attrs, error) {
@@ -166,7 +166,7 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv10.Class())
 	_gsxgw.StyleMerged("", _gsxv10.Style())
 	_gsxgw.Spread(ctx, "i", _gsxv10, _gsxrt.AttrSinks{}, []string{"class", "style"})
-	_gsxgw.S("></i>\n\t")
+	_gsxgw.S("></i>")
 //line input.gsx:21:2
 	_gsxv11 := /*line input.gsx:21:7*/ a
 	_gsxv14, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:21:19*/ id != 0, func() (_gsxrt.Attrs, error) {
@@ -188,7 +188,7 @@ func _gsxrenderPage(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, id int, a gsx.At
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv15.Class())
 	_gsxgw.StyleMerged("", _gsxv15.Style())
 	_gsxgw.Spread(ctx, "i", _gsxv15, _gsxrt.AttrSinks{}, []string{"class", "style"})
-	_gsxgw.S("></i>\n\t")
+	_gsxgw.S("></i>")
 //line input.gsx:22:2
 	_gsxv16 := /*line input.gsx:22:7*/ a
 	_gsxv19, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:22:19*/ id != 0, func() (_gsxrt.Attrs, error) {
@@ -220,16 +220,11 @@ func All() _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:26:2
 		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw /*line input.gsx:26:12*/, 1 /*line input.gsx:26:18*/, nil))
-		_gsxgw.S("\n\t")
 //line input.gsx:27:2
 		_gsxgw.NodeResult(_gsxrenderPage(ctx, _gsxgw /*line input.gsx:27:12*/, -1 /*line input.gsx:27:19*/, nil))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<i style="h: 1px"></i>
-	<i style="a: b; h: 1px"></i>
-	<i style="w: 1px"></i>
-	<i style="m: 1px"></i>
-	
+<i style="h: 1px"></i><i style="a: b; h: 1px"></i><i style="w: 1px"></i><i style="m: 1px"></i>
 [render error] bad id

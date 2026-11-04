@@ -8,6 +8,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
@@ -53,7 +54,7 @@ func allInterpExprsValid(file *gsxast.File) bool {
 	return ok
 }
 
-// FuzzStyleRoundTrip feeds arbitrary <style> bodies through parse ->
+// FuzzStyleRoundTrip feeds arbitrary <style> bodies through parse -> Normalize ->
 // Fprint and back. The parser/formatter must never panic, and any output that the
 // formatter produces must re-parse (faithfulness: fmt never emits unparseable
 // source). Parse errors on the input are fine (random bytes aren't valid gsx).
@@ -77,7 +78,7 @@ func FuzzStyleRoundTrip(f *testing.F) {
 		if !allInterpExprsValid(file) {
 			return
 		}
-
+		wsnorm.Normalize(file)
 		var b strings.Builder
 		if err := Fprint(&b, file, 80, pretty.DefaultTabWidth); err != nil {
 			return

@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
-// fmtSourceWidth parses and prints src at an EXPLICIT print width.
+// fmtSourceWidth parses, normalizes, and prints src at an EXPLICIT print width.
 // The corpus and the rest of this suite format at width 80; some idempotency
 // bugs only manifest at a width where a packed composite-literal item straddles
 // the budget, and structurally cannot be seen at 80 (the item breaks on both
@@ -21,7 +22,7 @@ func fmtSourceWidth(t *testing.T, src string, width int) string {
 	if err != nil {
 		t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
 	}
-
+	wsnorm.Normalize(f)
 	var b strings.Builder
 	if err := Fprint(&b, f, width, pretty.DefaultTabWidth); err != nil {
 		t.Fatalf("Fprint error: %v", err)
@@ -29,10 +30,20 @@ func fmtSourceWidth(t *testing.T, src string, width int) string {
 	return b.String()
 }
 
-// Literal newlines remain data while the surrounding Go syntax formats.
-func TestGoExprElementKeepsSourcePlacementAtTopLevel(t *testing.T) {
+// A multi-line element literal in an assignment/return/keyed-composite-lit-field
+// position — a "prefix: value" shape — wraps in (...) when it breaks, mirroring
+// prettier's JSX formatting (verified against prettier@3.9.4). The real Go
+// nesting depth (which the GoWithElements decl's own indent counter can't see,
+// since its surrounding Go text is literal bytes) comes from realTabDepth
+// reading the leading tabs off the preceding GoText, not from a column anchor —
+// so renaming the value does not reindent it. The parens themselves are purely
+// cosmetic: internal/codegen strips them back out before splicing the element's
+// lowered closure into the generated .x.go (see codegen's own tests), so they
+// never risk Go's automatic semicolon insertion.
+
+func TestGoExprElementParenWrapsAtTopLevel(t *testing.T) {
 	src := "package main\n\nvar n = <div>\n<p>hi</p>\n</div>\n"
-	want := src
+	want := "package main\n\nvar n = (\n\t<div>\n\t\t<p>hi</p>\n\t</div>\n)\n"
 	checkFormat(t, src, want)
 }
 
@@ -43,7 +54,7 @@ func TestGoExprElementKeepsSourcePlacementAtTopLevel(t *testing.T) {
 // or `//`-comment attr). checkFormat also asserts idempotence.
 func TestGoExprElementAttrBreakGetsParens(t *testing.T) {
 	src := "package main\n\nvar navIcon = <a\n\thref=\"/help\"\n\tclass=\"text-blue-600\"\n>?</a>\n"
-	want := "package main\n\nvar navIcon = (\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"text-blue-600\"\n\t>?</a>\n)\n"
+	want := "package main\n\nvar navIcon = (\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"text-blue-600\"\n\t>\n\t\t?\n\t</a>\n)\n"
 	checkFormat(t, src, want)
 }
 
@@ -82,39 +93,50 @@ func TestGoExprElementStaysFlatWhenItFits(t *testing.T) {
 	checkFormat(t, src, src)
 }
 
-func TestGoExprElementKeepsSourcePlacementInFuncBody(t *testing.T) {
-	// Go statements receive canonical indentation; deliberately flush-left
-	// literal HTML content remains exact.
+func TestGoExprElementParenWrapsNestedInFuncBody(t *testing.T) {
+	// The real-depth case: the closing paren must land at "someLongName"'s own
+	// depth (one tab), children one tab deeper — not at column 0 (the decl's
+	// own, always-zero baseline).
 	src := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n_ = someLongName\n}\n"
-	want := "package main\n\nfunc f() {\n\tsomeLongName := <div>\n<p>hi</p>\n</div>\n\t_ = someLongName\n}\n"
+	want := "package main\n\nfunc f() {\n\tsomeLongName := (\n\t\t<div>\n\t\t\t<p>hi</p>\n\t\t</div>\n\t)\n\t_ = someLongName\n}\n"
 	checkFormat(t, src, want)
 }
 
-// Renaming the binding leaves the literal content unchanged.
+// Renaming the value does not reindent it — the anchor is real block nesting
+// depth (realTabDepth), not the opening tag's column. This replaces the old
+// TestGoExprElementRenameShiftsHangingIndent, which pinned the opposite
+// (pre-existing) property.
 func TestGoExprElementRenameDoesNotShiftIndent(t *testing.T) {
 	src := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n_ = n\n}\n"
-	want := "package main\n\nfunc f() {\n\tn := <div>\n<p>hi</p>\n</div>\n\t_ = n\n}\n"
+	want := "package main\n\nfunc f() {\n\tn := (\n\t\t<div>\n\t\t\t<p>hi</p>\n\t\t</div>\n\t)\n\t_ = n\n}\n"
 	checkFormat(t, src, want)
 }
 
-// A keyed field's fixed literal lines do not force other fields onto new
-// lines: that would independently move the opening tag.
-func TestGoExprElementKeepsSourceCompositeFieldLayout(t *testing.T) {
+// A multi-line element in a keyed composite-literal field paren-wraps AND forces
+// the literal's other fields one-per-line: its true width is unknowable and it can
+// never be a one-liner, so breakWideLiterals (fed the multi-line placeholder as
+// its forceMarker) treats the field's line as over budget without measuring it.
+func TestGoExprElementParenWrapsForKeyedCompositeLitField(t *testing.T) {
 	src := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: <svg class=\"w-5 h-5\">\n<path d=\"M0 0\"/>\n</svg>}\n"
-	want := src
+	want := "package main\n\nvar item = NavItem{\n\tLabel: \"Home\",\n\tIcon:  (\n\t\t<svg class=\"w-5 h-5\">\n\t\t\t<path d=\"M0 0\"/>\n\t\t</svg>\n\t),\n}\n"
 	checkFormat(t, src, want)
 }
 
-// A call formats its Go prefix without modifying literal HTML lines.
+// Call arguments and bare composite-literal elements are the deferred
+// bracket-reflow bucket (see docs/ROADMAP.md): no parens, no trailing comma,
+// no bracket moved onto its own line — but the real-depth fix still applies
+// uniformly, so nesting inside a func body no longer regresses to column 0
+// the way it did before PR #49.
+
 func TestGoExprElementPlainIndentForCallArgAtTopLevel(t *testing.T) {
 	src := "package main\n\nvar wrapped = Wrap(<div>\n<p>hi</p>\n</div>)\n"
-	want := "package main\n\nvar wrapped = Wrap(<div>\n<p>hi</p>\n</div>)\n"
+	want := "package main\n\nvar wrapped = Wrap(<div>\n\t<p>hi</p>\n</div>)\n"
 	checkFormat(t, src, want)
 }
 
 func TestGoExprElementPlainIndentForCallArgNestedInFuncBody(t *testing.T) {
 	src := "package main\n\nfunc f() {\nwrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n_ = wrapped\n}\n"
-	want := "package main\n\nfunc f() {\n\twrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n\t_ = wrapped\n}\n"
+	want := "package main\n\nfunc f() {\n\twrapped := Wrap(<div>\n\t\t<p>hi</p>\n\t</div>)\n\t_ = wrapped\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -288,7 +310,7 @@ func TestGoWithElementsNoBuildCommentUnchanged(t *testing.T) {
 func TestGoExprCompositeLitMultilineElementIdempotentAt120(t *testing.T) {
 	label := "T" + strings.Repeat("x", 84)
 	src := "package main\n\nvar nav = []item{\n\t{label: \"" + label + "\", icon: <UsersIcon><title>u</title></UsersIcon>, page: P{}},\n}\n"
-	want := "package main\n\nvar nav = []item{\n\t{\n\t\tlabel: \"" + label + "\",\n\t\ticon:  <UsersIcon><title>u</title></UsersIcon>,\n\t\tpage:  P{},\n\t},\n}\n"
+	want := "package main\n\nvar nav = []item{\n\t{\n\t\tlabel: \"" + label + "\",\n\t\ticon:  (\n\t\t\t<UsersIcon>\n\t\t\t\t<title>u</title>\n\t\t\t</UsersIcon>\n\t\t),\n\t\tpage:  P{},\n\t},\n}\n"
 	got := fmtSourceWidth(t, src, 120)
 	if got != want {
 		t.Errorf("format mismatch at width 120:\n--- got ---\n%s\n--- want ---\n%s", got, want)

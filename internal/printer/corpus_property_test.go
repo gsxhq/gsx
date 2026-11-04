@@ -62,7 +62,7 @@ func loadParseableCorpusInputs(t *testing.T) []corpusInput {
 // TestCorpusInputsProperty asserts the three printer contracts over every
 // parseable corpus input.gsx:
 //
-//   - Faithfulness: parse(fmt(S)) preserves literal content and markup structure,
+//   - Faithfulness: Normalize(parse(fmt(S))) deep-equals Normalize(parse(S)),
 //     comparing the markup structure and text exactly while canonicalizing Go
 //     fragments (the formatter may gofmt Go) and zeroing spans on both sides.
 //   - Idempotence: fmt(fmt(S)) is byte-identical to fmt(S).
@@ -80,7 +80,7 @@ func TestCorpusInputsProperty(t *testing.T) {
 	for _, in := range inputs {
 		name := filepath.Base(filepath.Dir(in.name)) + "/" + filepath.Base(in.name)
 
-		formatted, err := printSource(t, in.src)
+		formatted, err := normPrint(t, in.src)
 		if err != nil {
 			t.Errorf("%s: fmt failed: %v", name, err)
 			continue
@@ -93,16 +93,16 @@ func TestCorpusInputsProperty(t *testing.T) {
 			continue
 		}
 
-		// Faithfulness: content ASTs (spans zeroed, Go fragments canonicalized)
+		// Faithfulness: normalized ASTs (spans zeroed, Go fragments canonicalized)
 		// must be deep-equal.
-		want := contentAST(t, in.src)
-		got := contentAST(t, formatted)
+		want := normalizedAST(t, in.src)
+		got := normalizedAST(t, formatted)
 		if !reflect.DeepEqual(want, got) {
-			t.Errorf("%s: fmt changed the content AST (not render-faithful)", name)
+			t.Errorf("%s: fmt changed the normalized AST (not render-faithful)", name)
 		}
 
 		// Idempotence: formatting the formatted output is a no-op.
-		formatted2, err := printSource(t, formatted)
+		formatted2, err := normPrint(t, formatted)
 		if err != nil {
 			t.Errorf("%s: re-fmt failed: %v", name, err)
 			continue

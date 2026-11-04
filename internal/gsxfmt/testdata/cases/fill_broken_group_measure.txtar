@@ -1,5 +1,9 @@
-Formatting control-flow syntax inside prose is idempotent while preserving
-every literal text byte and touching boundary around that syntax.
+Prose that touches a block which cannot stay flat keeps its line: the block
+breaks, and the cluster holds the line only up to the block's first break.
+That is how the block measures once it arrives broken, so a second format
+changes nothing. Before, the cluster was measured flat, the formatter broke
+an earlier word gap, and the next format joined the words back. When even the
+block's first line does not fit, the cluster starts a fresh line (FirstLineOverflows).
 
 -- input.gsx --
 package p
@@ -54,20 +58,23 @@ component Spaced(ok bool) {
 
 component Fragment() {
 	<p>
-		lorem ipsum dolor sit amet consectetur amet<><b>first</b> <i>second</i> <u>third and some more inline words to overflow</u></>consectetur adipiscing elit.
+		lorem ipsum dolor sit amet consectetur amet<>
+			<b>first</b> <i>second</i> <u>third and some more inline words to overflow</u>
+		</>consectetur adipiscing elit.
 	</p>
 }
 
 component Region() {
 	<p>
-		lorem ipsum dolor sit amet consectetur amet<?start name="s"><b>yes, and the bold words in this block run long enough to overflow</b><?end>consectetur adipiscing elit sed do eiusmod.
+		lorem ipsum dolor sit amet consectetur amet<?start name="s">
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		<?end>consectetur adipiscing elit sed do eiusmod.
 	</p>
 }
 
 component FirstLineOverflows(ok bool) {
 	<p>
-		lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor { if ok {
-			<b>yes</b>
-		} } consectetur.
+		lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod
+		tempor { if ok { <b>yes</b> } } consectetur.
 	</p>
 }

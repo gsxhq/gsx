@@ -3,12 +3,11 @@
 package views
 
 component Page() {
-<article>a</article>
-<my-widget attr="1">w</my-widget>
+	<article>a</article>
+	<my-widget attr="1">w</my-widget>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<article>a</article>
-<my-widget attr="1">w</my-widget>
+<article>a</article><my-widget attr="1">w</my-widget>

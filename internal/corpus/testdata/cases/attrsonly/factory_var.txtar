@@ -11,14 +11,14 @@ type iconProps struct {
 }
 
 component renderIcon(p iconProps) {
-<svg { gsx.Attrs{{Key: "class", Value: "w-5 h-5"}}.Merge(p.Attrs)... }>{p.Name}</svg>
+	<svg { gsx.Attrs{{Key: "class", Value: "w-5 h-5"}}.Merge(p.Attrs)... }>{p.Name}</svg>
 }
 
 component Page() {
-<div>
-	<HomeIcon class="h-3 w-3"/>
-	<HomeIcon/>
-</div>
+	<div>
+		<HomeIcon class="h-3 w-3"/>
+		<HomeIcon/>
+	</div>
 }
 -- icons.go --
 package views
@@ -36,7 +36,4 @@ var HomeIcon = namedIcon("house")
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<div>
-	<svg class="w-5 h-5 h-3 w-3">house</svg>
-	<svg class="w-5 h-5">house</svg>
-</div>
+<div><svg class="w-5 h-5 h-3 w-3">house</svg><svg class="w-5 h-5">house</svg></div>

@@ -1,6 +1,6 @@
-# Literal newlines, tabs and spaces between text and inline content remain
-# output. These inputs formerly exercised a retired spacing lint; no spacing
-# diagnostic is emitted because source whitespace is preserved.
+# child-element-spacing: whitespace containing a line break between text and
+# inline content is dropped by JSX whitespace normalization, so the words run
+# together in render.golden. Each dropped run is reported once, at the run.
 -- input.gsx --
 package views
 
@@ -68,45 +68,17 @@ var help = (
 -- invoke --
 C("X", 3, []string{"a", "b"})
 -- render.golden --
-<p id="before-a">
-		Report template:
-		<a href="/t">X</a>
-		and more
-	</p>
-	<p id="trailing-space-too">
-		Hello  
-		<b>X</b>
-	</p>
-	<p id="interp">
-		Count:
-		3
-		items
-	</p>
-	<p id="nested-inline">
-		See
-		<span><em>this</em></span>
-	</p>
-	<p id="across-comment">
-		one
-		
-		two
-	</p>
-	<p id="if-branch">
-		Status
-		<strong>ok</strong>
-	</p>
-	<p id="if-may-be-empty">
-		Following:
-		
-			a, 
-			b
-	</p>
-	<p id="fragment">
-		x
-		y
-	</p>
-	<section><h2>
-		Title
-		<small>X</small>
-	</h2></section>
+<p id="before-a">Report template:<a href="/t">X</a>and more</p><p id="trailing-space-too">Hello<b>X</b></p><p id="interp">Count:3items</p><p id="nested-inline">See<span><em>this</em></span></p><p id="across-comment">onetwo</p><p id="if-branch">Status<strong>ok</strong></p><p id="if-may-be-empty">Following:a, b</p><p id="fragment">xy</p><section><h2>Title<small>X</small></h2></section>
 -- diagnostics.golden --
+7:19: warning: line break after this text is dropped: no space renders before <a>
+8:28: warning: line break before this text is dropped: no space renders after <a>
+12:8: warning: line break after this text is dropped: no space renders before <b>
+16:9: warning: line break after this text is dropped: no space renders before the interpolation
+17:8: warning: line break before this text is dropped: no space renders after the interpolation
+21:6: warning: line break after this text is dropped: no space renders before <span>
+25:6: warning: line break after this text is dropped: no space renders before the following text
+30:9: warning: line break after this text is dropped: no space renders before the if block
+36:13: warning: line break after this text is dropped: no space renders before the for block
+45:4: warning: line break after this text is dropped: no space renders before the fragment
+49:8: warning: line break after this text is dropped: no space renders before <small>
+60:11: warning: line break after this text is dropped: no space renders before <a>

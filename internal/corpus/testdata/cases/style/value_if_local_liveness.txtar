@@ -5,7 +5,8 @@
 package views
 
 component C() {
-{{ wide := true }}<div style={ "display: block", if wide { "width: 100%" } }>x</div>
+	{{ wide := true }}
+	<div style={ "display: block", if wide { "width: 100%" } }>x</div>
 }
 -- invoke --
 C()
@@ -27,14 +28,14 @@ import (
 func C() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:1
+//line input.gsx:4:2
 		wide := true
-//line input.gsx:4:19
+//line input.gsx:5:2
 		_gsxgw.S("<div")
-		_gsxv0 := /*line input.gsx:4:32*/ "display: block"
+		_gsxv0 := /*line input.gsx:5:15*/ "display: block"
 		var _gsxv1 string
-		if /*line input.gsx:4:53*/ wide {
-			_gsxv1 = /*line input.gsx:4:60*/ "width: 100%"
+		if /*line input.gsx:5:36*/ wide {
+			_gsxv1 = /*line input.gsx:5:43*/ "width: 100%"
 		}
 		_gsxgw.S(" style=\"")
 		_gsxgw.Style(_gsxrt.Style(_gsxv0), _gsxrt.Style(_gsxv1))

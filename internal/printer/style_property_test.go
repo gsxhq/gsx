@@ -18,19 +18,19 @@ var styleCases = []string{
 
 func TestStylePropertyFaithfulAndIdempotent(t *testing.T) {
 	for _, src := range styleCases {
-		formatted, err := printSource(t, src)
+		formatted, err := normPrint(t, src)
 		if err != nil {
 			t.Errorf("fmt failed: %v\n%s", err, src)
 			continue
 		}
-		// Faithfulness: content ASTs (with <style> bodies canonicalized) match.
-		want := contentAST(t, src)
-		got := contentAST(t, formatted)
+		// Faithfulness: normalized ASTs (with <style> bodies canonicalized) match.
+		want := normalizedAST(t, src)
+		got := normalizedAST(t, formatted)
 		if !reflect.DeepEqual(want, got) {
-			t.Errorf("fmt changed content AST (not faithful):\n--- src ---\n%s\n--- fmt ---\n%s", src, formatted)
+			t.Errorf("fmt changed normalized AST (not faithful):\n--- src ---\n%s\n--- fmt ---\n%s", src, formatted)
 		}
 		// Idempotence.
-		formatted2, err := printSource(t, formatted)
+		formatted2, err := normPrint(t, formatted)
 		if err != nil {
 			t.Errorf("re-fmt failed: %v", err)
 			continue

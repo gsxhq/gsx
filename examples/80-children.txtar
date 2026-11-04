@@ -11,19 +11,16 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Card(title string, children gsx.Node) {
-<article class="card">
-	<h3>{title}</h3>
-	<div class="card__body">{children}</div>
-</article>
+	<article class="card">
+		<h3>{title}</h3>
+		<div class="card__body">{children}</div>
+	</article>
 }
 
 component Page() {
-<Card title="Hello"><em>composed</em></Card>
+	<Card title="Hello"><em>composed</em></Card>
 }
 -- invoke --
 Page()
 -- render.golden --
-<article class="card">
-	<h3>Hello</h3>
-	<div class="card__body"><em>composed</em></div>
-</article>
+<article class="card"><h3>Hello</h3><div class="card__body"><em>composed</em></div></article>

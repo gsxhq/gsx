@@ -45,20 +45,20 @@ package views
 import "github.com/gsxhq/gsx"
 
 component PipelineTarget(first string, after string, attrs gsx.Attrs) {
-<div { attrs... }>{first}{after}</div>
+	<div { attrs... }>{first}{after}</div>
 }
 
 component Page() {
-<PipelineTarget
-	first={markPipeline("pipe-first", "A")}
-	after={markPipeline("pipe-after", "Z")}
-	data-mid={markPipeline("pipe", "x") |> check |> upper}
-/>
-<PipelineTarget
-	first={markPipeline("pipe-first-2", "B")}
-	after={markPipeline("pipe-after-2", "Y")}
-	data-mid={markPipeline("pipe-2", "y") |> check |> upper}
-/>
+	<PipelineTarget
+		first={markPipeline("pipe-first", "A")}
+		after={markPipeline("pipe-after", "Z")}
+		data-mid={markPipeline("pipe", "x") |> check |> upper}
+	/>
+	<PipelineTarget
+		first={markPipeline("pipe-first-2", "B")}
+		after={markPipeline("pipe-after-2", "Y")}
+		data-mid={markPipeline("pipe-2", "y") |> check |> upper}
+	/>
 }
 -- invoke --
 checkedComponentPipelineOrder()
@@ -89,16 +89,16 @@ func _gsxrenderPipelineTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first 
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:6:1
+//line input.gsx:6:2
 	_gsxgw.S("<div")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
 	_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 	_gsxgw.S(">")
-//line input.gsx:6:19
-	_gsxgw.Text(string( /*line input.gsx:6:20*/ first))
-//line input.gsx:6:26
-	_gsxgw.Text(string( /*line input.gsx:6:27*/ after))
+//line input.gsx:6:20
+	_gsxgw.Text(string( /*line input.gsx:6:21*/ first))
+//line input.gsx:6:27
+	_gsxgw.Text(string( /*line input.gsx:6:28*/ after))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
@@ -107,23 +107,22 @@ func _gsxrenderPipelineTarget(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, first 
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:10:1
-		_gsxa1 := /*line input.gsx:11:9*/ markPipeline("pipe-first", "A")
-		_gsxa2 := /*line input.gsx:12:9*/ markPipeline("pipe-after", "Z")
-		_gsxv0, _gsxerr := /*line input.gsx:13:41*/ _gsxf0.Check(( /*line input.gsx:13:12*/ markPipeline("pipe", "x")))
+//line input.gsx:10:2
+		_gsxa1 := /*line input.gsx:11:10*/ markPipeline("pipe-first", "A")
+		_gsxa2 := /*line input.gsx:12:10*/ markPipeline("pipe-after", "Z")
+		_gsxv0, _gsxerr := /*line input.gsx:13:42*/ _gsxf0.Check(( /*line input.gsx:13:13*/ markPipeline("pipe", "x")))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa1, _gsxa2, _gsxrt.Attrs{{Key: "data-mid", Value: /*line input.gsx:13:50*/ _gsxstd.Upper(_gsxv0)}}))
-		_gsxgw.S("\n")
-//line input.gsx:15:1
-		_gsxa4 := /*line input.gsx:16:9*/ markPipeline("pipe-first-2", "B")
-		_gsxa5 := /*line input.gsx:17:9*/ markPipeline("pipe-after-2", "Y")
-		_gsxv3, _gsxerr := /*line input.gsx:18:43*/ _gsxf0.Check(( /*line input.gsx:18:12*/ markPipeline("pipe-2", "y")))
+		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa1, _gsxa2, _gsxrt.Attrs{{Key: "data-mid", Value: /*line input.gsx:13:51*/ _gsxstd.Upper(_gsxv0)}}))
+//line input.gsx:15:2
+		_gsxa4 := /*line input.gsx:16:10*/ markPipeline("pipe-first-2", "B")
+		_gsxa5 := /*line input.gsx:17:10*/ markPipeline("pipe-after-2", "Y")
+		_gsxv3, _gsxerr := /*line input.gsx:18:44*/ _gsxf0.Check(( /*line input.gsx:18:13*/ markPipeline("pipe-2", "y")))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa4, _gsxa5, _gsxrt.Attrs{{Key: "data-mid", Value: /*line input.gsx:18:52*/ _gsxstd.Upper(_gsxv3)}}))
+		_gsxgw.NodeResult(_gsxrenderPipelineTarget(ctx, _gsxgw, _gsxa4, _gsxa5, _gsxrt.Attrs{{Key: "data-mid", Value: /*line input.gsx:18:53*/ _gsxstd.Upper(_gsxv3)}}))
 		return _gsxgw.Err()
 	})
 }

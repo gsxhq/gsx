@@ -4,18 +4,16 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Panel(lead gsx.Node, children gsx.Node) {
-<div>{lead}{children}</div>
+	<div>{lead}{children}</div>
 }
 
 component Page(s string, n int, b bool, f float64) {
-<span>{s}</span>
-<Panel lead={ <em>{n}</em> }>{b}</Panel>
-<span>{f}</span>
+	<span>{s}</span>
+	<Panel lead={ <em>{n}</em> }>{b}</Panel>
+	<span>{f}</span>
 }
 -- invoke --
 Page("S", 7, true, 3.5)
 -- diagnostics.golden --
 -- render.golden --
-<span>S</span>
-<div><em>7</em>true</div>
-<span>3.5</span>
+<span>S</span><div><em>7</em>true</div><span>3.5</span>

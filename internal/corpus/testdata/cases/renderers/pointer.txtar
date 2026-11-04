@@ -36,10 +36,10 @@ func mkTextPtr(s string, valid bool) *pg.Text {
 }
 
 component Tag(ptr *pg.Text, val pg.Text) {
-<div>
-	<p>{ ptr }</p>
-	<p>{ val.String }</p>
-</div>
+	<div>
+		<p>{ ptr }</p>
+		<p>{ val.String }</p>
+	</div>
 }
 -- invoke --
 Tag(mkTextPtr("hi", true), mkText("plain", true))
@@ -69,23 +69,20 @@ func mkTextPtr(s string, valid bool) *pg.Text {
 func Tag(ptr *pg.Text, val pg.Text) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:12:1
-		_gsxgw.S("<div>\n\t")
-//line input.gsx:13:2
+//line input.gsx:12:2
+		_gsxgw.S("<div>")
+//line input.gsx:13:3
 		_gsxgw.S("<p>")
-//line input.gsx:13:5
-		_gsxgw.Text(string(_gsxf0.PgTextPtr(( /*line input.gsx:13:7*/ ptr))))
-		_gsxgw.S("</p>\n\t")
-//line input.gsx:14:2
+//line input.gsx:13:6
+		_gsxgw.Text(string(_gsxf0.PgTextPtr(( /*line input.gsx:13:8*/ ptr))))
+		_gsxgw.S("</p>")
+//line input.gsx:14:3
 		_gsxgw.S("<p>")
-//line input.gsx:14:5
-		_gsxgw.Text(string( /*line input.gsx:14:7*/ val.String))
-		_gsxgw.S("</p>\n</div>")
+//line input.gsx:14:6
+		_gsxgw.Text(string( /*line input.gsx:14:8*/ val.String))
+		_gsxgw.S("</p></div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div>
-	<p>PTR:hi</p>
-	<p>plain</p>
-</div>
+<div><p>PTR:hi</p><p>plain</p></div>

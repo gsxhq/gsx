@@ -17,14 +17,12 @@ func gadget() {}
 package views
 
 component Page() {
-<time>t</time>
-<gadget>g</gadget>
-<data>d</data>
+	<time>t</time>
+	<gadget>g</gadget>
+	<data>d</data>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<time>t</time>
-<gadget>g</gadget>
-<data>d</data>
+<time>t</time><gadget>g</gadget><data>d</data>

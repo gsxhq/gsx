@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 
@@ -36,7 +35,7 @@ func firstIfThen(t *testing.T, src string) []ast.Markup {
 }
 
 // TestBlockBodyPreservesInteriorWhitespace: the space run between two holes
-// inside a control-flow body survives as literal content.
+// inside a control-flow body survives to wsnorm (this is the bug fix).
 func TestBlockBodyPreservesInteriorWhitespace(t *testing.T) {
 	then := firstIfThen(t, `package p
 component X(a, b string) { <div>{ if true { {a} - {b} } }</div> }
@@ -144,8 +143,8 @@ component X(k string) { <div>{ switch k {
 	}
 }
 
-// TestTrimBodyLayout exercises the helper directly.
-func TestTrimBodyLayout(t *testing.T) {
+// TestTrimBodyEdges exercises the helper directly.
+func TestTrimBodyEdges(t *testing.T) {
 	span := &ast.Element{Tag: "span"}
 	sig := func(nodes []ast.Markup) string {
 		var b strings.Builder
@@ -167,139 +166,13 @@ func TestTrimBodyLayout(t *testing.T) {
 		{"trim both inline", []ast.Markup{&ast.Text{Value: " "}, span, &ast.Text{Value: " "}}, "<span>"},
 		{"keep interior", []ast.Markup{span, &ast.Text{Value: " - "}, span}, "<span>T( - )<span>"},
 		{"trim leading only, keep core", []ast.Markup{&ast.Text{Value: "  x"}}, "T(x)"},
-		{"HTML ASCII whitespace only -> empty", []ast.Markup{&ast.Text{Value: " \t\r\n\f"}}, ""},
-		{"non-ASCII whitespace is content", []ast.Markup{&ast.Text{Value: " \u00a0 "}}, "T(\u00a0)"},
 		{"whitespace only -> empty", []ast.Markup{&ast.Text{Value: "  \n "}}, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			nodes, _ := trimBodyLayout(c.in)
-			got := sig(nodes)
+			got := sig(trimBodyEdges(c.in))
 			if got != c.want {
-				t.Fatalf("trimBodyLayout = %q, want %q", got, c.want)
-			}
-		})
-	}
-}
-
-// All brace-delimited markup bodies trim syntax edges and retain interior text.
-func TestHTMLBodyWhitespaceAndSpans(t *testing.T) {
-	for _, tc := range []struct{ name, src string }{
-		{"component", "package p\ncomponent X() { \t\nfirst <i/> \t\n <b/> last\t\n }"},
-		{"control", "package p\ncomponent X() { { if true { \t\nfirst <i/> \t\n <b/> last\t\n } } }"},
-		{"slot", "package p\ncomponent X() { <C slot={ \t\n<i/> \t\n <b/> last\t\n }/> }"},
-		{"switch", "package p\ncomponent X() { { switch x { case 1: \t\nfirst <i/> \t\n <b/> last\t\n } } }"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := parseStringT(t, tc.src)
-			var body []ast.Markup
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.Component:
-					if tc.name == "component" {
-						body = n.Body
-					}
-				case *ast.IfMarkup:
-					if tc.name == "control" {
-						body = n.Then
-					}
-				case *ast.MarkupAttr:
-					if tc.name == "slot" {
-						body = n.Value
-					}
-				case *ast.CaseClause:
-					if tc.name == "switch" {
-						body = n.Body
-					}
-				}
-				return true
-			})
-			if len(body) == 0 {
-				t.Fatal("empty body")
-			}
-			var texts []string
-			for _, n := range body {
-				if text, ok := n.(*ast.Text); ok {
-					texts = append(texts, text.Value)
-					// Parse uses a token file whose base is one; spans must follow trimming.
-					got := tc.src[int(text.Pos())-1 : int(text.End())-1]
-					if got != text.Value {
-						t.Fatalf("span spells %q, Text.Value %q", got, text.Value)
-					}
-				}
-			}
-			want := []string{"first ", " \t\n ", " last"}
-			if tc.name == "slot" {
-				want = want[1:]
-			}
-			if strings.Join(texts, "|") != strings.Join(want, "|") {
-				t.Fatalf("texts = %q, want %q", texts, want)
-			}
-		})
-	}
-}
-
-func TestBodyLayoutRetainsSyntacticEdges(t *testing.T) {
-	src := "package p\ncomponent C() {\n \t{ if ok {\r\n\t\t<b>x</b>\n \t} else { \f<i>y</i>\t } }\n\t{ for ok {\n\t<b>x</b>\n } }\n\t{ switch x { case 1:\n\t<b>x</b>\n \tdefault: <i>y</i>\n } }\n\t<Card slot={\n  <b>x</b>\n }/>\n }\n"
-	f := parseStringT(t, src)
-	var got []ast.BodyLayout
-	ast.Inspect(f.Decls[0], func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.Component:
-			got = append(got, n.Layout)
-		case *ast.IfMarkup:
-			got = append(got, n.ThenLayout, n.ElseLayout)
-		case *ast.ForMarkup:
-			got = append(got, n.Layout)
-		case *ast.CaseClause:
-			got = append(got, n.Layout)
-		case *ast.MarkupAttr:
-			got = append(got, n.Layout)
-		}
-		return true
-	})
-	want := []ast.BodyLayout{
-		{Leading: "\n \t", Trailing: "\n "},
-		{Leading: "\r\n\t\t", Trailing: "\n \t"},
-		{Leading: " \f", Trailing: "\t "},
-		{Leading: "\n\t", Trailing: "\n "},
-		{Leading: "\n\t", Trailing: "\n \t"},
-		{Leading: " ", Trailing: "\n "},
-		{Leading: "\n  ", Trailing: "\n "},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("layouts = %#v, want %#v", got, want)
-	}
-	clone := ast.CloneFile(f)
-	if !reflect.DeepEqual(f, clone) {
-		t.Fatal("clone changed layout metadata")
-	}
-}
-
-func TestAttributeCommentLayout(t *testing.T) {
-	for _, comment := range []string{"/*  hello  */", "// hello\n", "{ /* comment */ }", "{ /* a */ /* b */ }", "{ ; }", "{ /* \r\n\u2003hello\u2003\r\n */ }"} {
-		t.Run(comment, func(t *testing.T) {
-			f := parseStringT(t, "package p\ncomponent C(){ <Box "+comment+"/> }\n")
-			count := 0
-			ast.Inspect(f, func(n ast.Node) bool {
-				if attr, ok := n.(*ast.CommentAttr); ok {
-					count++
-					original, ok := f.Layout.Slice(attr.Pos(), attr.End())
-					if !ok {
-						t.Fatal("missing source")
-					}
-					restored := attr.Layout.Leading + attr.Text + attr.Layout.Trailing
-					if original != restored {
-						t.Fatalf("layout restores %q, want %q", restored, original)
-					}
-				}
-				return true
-			})
-			if count == 0 {
-				t.Fatal("no comments")
-			}
-			if clone := ast.CloneFile(f); !reflect.DeepEqual(clone, f) {
-				t.Fatal("clone lost comment layout")
+				t.Fatalf("trimBodyEdges = %q, want %q", got, c.want)
 			}
 		})
 	}

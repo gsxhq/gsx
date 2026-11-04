@@ -11,5 +11,7 @@ component C(a, b string) {
 package ui
 
 component C(a, b string) {
-	<div>{ if true { { a } - { b } } }</div>
+	<div>
+		{ if true { { a } - { b } } }
+	</div>
 }

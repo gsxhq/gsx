@@ -1,6 +1,6 @@
 # Bare line-start // between child tags is a source-only comment: retained in
-# the AST (fmt preserves it) and absent from rendered HTML. Surrounding literal
-# whitespace remains, including the indentation and newline around each comment.
+# the AST (fmt preserves it) and absent from rendered HTML. Render output is
+# byte-identical to deleting the comment lines.
 -- input.gsx --
 package views
 
@@ -16,9 +16,4 @@ component C() {
 C()
 -- diagnostics.golden --
 -- render.golden --
-<div>
-		<span>a</span>
-		
-		
-		<span>b</span>
-	</div>
+<div><span>a</span><span>b</span></div>

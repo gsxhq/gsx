@@ -43,13 +43,13 @@ func Page(w string) _gsxrt.Node {
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">p{width: ")
 		_gsxgw.CSS(string( /*line input.gsx:9:23*/ wrap(string( /*line input.gsx:9:32*/ w) + "px" /*line input.gsx:9:37*/)))
-		_gsxgw.S("}</style>\n\t")
+		_gsxgw.S("}</style>")
 //line input.gsx:10:2
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">p{color: ")
 		_gsxgw.CSS(string( /*line input.gsx:10:23*/ wrap("red;} body {x:" + string( /*line input.gsx:10:46*/ w) /*line input.gsx:10:49*/)))
-		_gsxgw.S("}</style>\n\t")
+		_gsxgw.S("}</style>")
 //line input.gsx:11:2
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
@@ -60,6 +60,4 @@ func Page(w string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<style>p{width: 4px}</style>
-	<style>p{color: ZgotmplZ}</style>
-	<style>p{margin: 4px}</style>
+<style>p{width: 4px}</style><style>p{color: ZgotmplZ}</style><style>p{margin: 4px}</style>

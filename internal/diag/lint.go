@@ -51,13 +51,15 @@ func ParseLintLevel(s string) (LintLevel, error) {
 // level the [lint] table configures. Emit sites use these constants so a
 // configured code always names a real diagnostic.
 const (
-	CodeDuplicateAttribute = "duplicate-attribute"
-	CodeSelfReferenceLeaf  = "self-reference-leaf"
-	CodeURLAlwaysBlocked   = "url-always-blocked"
-	CodeWrapperCycle       = "wrapper-cycle"
+	CodeChildElementSpacing = "child-element-spacing"
+	CodeDuplicateAttribute  = "duplicate-attribute"
+	CodeSelfReferenceLeaf   = "self-reference-leaf"
+	CodeURLAlwaysBlocked    = "url-always-blocked"
+	CodeWrapperCycle        = "wrapper-cycle"
 )
 
 var lintCodes = []string{
+	CodeChildElementSpacing,
 	CodeDuplicateAttribute,
 	CodeSelfReferenceLeaf,
 	CodeURLAlwaysBlocked,

@@ -4,7 +4,8 @@
 package views
 
 component Counter(label string) {
-{{ f := func(attrs []string) int { return len(attrs) } }}<div data-label={label} data-n={f(nil)}>x</div>
+	{{ f := func(attrs []string) int { return len(attrs) } }}
+	<div data-label={label} data-n={f(nil)}>x</div>
 }
 -- invoke --
 Counter("c")
@@ -27,13 +28,13 @@ func Counter(label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
-//line input.gsx:4:1
+//line input.gsx:4:2
 		f := func(attrs []string) int { return len(attrs) }
-//line input.gsx:4:58
+//line input.gsx:5:2
 		_gsxgw.S("<div data-label=\"")
-		_gsxgw.AttrValue(string( /*line input.gsx:4:75*/ label))
+		_gsxgw.AttrValue(string( /*line input.gsx:5:19*/ label))
 		_gsxgw.S("\" data-n=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:4:90*/ f(nil)))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:5:34*/ f(nil)))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

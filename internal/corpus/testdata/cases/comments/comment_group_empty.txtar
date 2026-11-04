@@ -17,9 +17,4 @@ component C() {
 C()
 -- diagnostics.golden --
 -- render.golden --
-<input type="checkbox" value="x">
-	<div>
-		
-		
-		<span>ok</span>
-	</div>
+<input type="checkbox" value="x"><div><span>ok</span></div>

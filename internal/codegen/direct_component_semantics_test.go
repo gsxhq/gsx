@@ -25,11 +25,13 @@ func markBody(value string) string { trace = append(trace, "body"); return value
 	writeFile(t, dir, "views.gsx", `package views
 
 component ChildSentinel(result error) {
-	<div>{ "x" }</div>{{ return result }}
+	<div>{ "x" }</div>
+	{{ return result }}
 }
 
 component ChildNil() {
-	<div>{ "x" }</div>{{ return nil }}
+	<div>{ "x" }</div>
+	{{ return nil }}
 }
 
 component ParentSentinel(result error) {

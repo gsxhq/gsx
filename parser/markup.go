@@ -4,10 +4,9 @@ import (
 	"go/scanner"
 	"go/token"
 	"strings"
-	"unicode"
 
 	"github.com/gsxhq/gsx/ast"
-	"github.com/gsxhq/gsx/internal/htmltag"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
 // parseInterp parses `{ expr }` or `{ expr? }`. Cursor must be at '{'.
@@ -67,6 +66,7 @@ func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 		p.i++
 	}
 	n := &ast.Text{Value: p.src[start:p.i]}
+	n.LeadingBreak = leadingRunBreaks(p.src[start:p.i])
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
 }
@@ -106,24 +106,12 @@ func (p *parser) parseBareComment() *ast.Comment {
 	}
 	n := &ast.Comment{Text: strings.TrimSpace(p.src[start+2 : p.i]), Bare: true}
 	ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
-	n.Layout = p.commentLayout(n.Pos(), n.End(), start+2, p.i)
 	return n
 }
 
 // parseText consumes literal text up to the next '<' or '{' (or EOF).
 func (p *parser) parseText() *ast.Text {
 	return p.parseTextCtx(false)
-}
-
-func (p *parser) commentLayout(start, end token.Pos, textStart, textEnd int) ast.CommentLayout {
-	raw := p.src[textStart:textEnd]
-	left := len(raw) - len(strings.TrimLeftFunc(raw, unicode.IsSpace))
-	right := len(strings.TrimRightFunc(raw, unicode.IsSpace))
-	right = max(right, left)
-	return ast.CommentLayout{Leading: p.src[p.offsetOf(start) : textStart+left], Trailing: p.src[textStart+right : p.offsetOf(end)]}
-}
-func (p *parser) attrCommentLayout(n *ast.CommentAttr, textStart, textEnd int) {
-	n.Layout = p.commentLayout(n.Pos(), n.End(), textStart, textEnd)
 }
 
 // parseTagComment recognizes a tag-interior comment at the cursor: bare `//` or
@@ -144,7 +132,6 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 				p.i += 2 // past '*/'
 				n := &ast.CommentAttr{Text: text, Block: true}
 				ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
-				p.attrCommentLayout(n, start+2, p.i-2)
 				return []*ast.CommentAttr{n}, true, nil
 			}
 			p.i++
@@ -160,7 +147,6 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 		// leave '\n' in place so skipSpace() sees it
 		n := &ast.CommentAttr{Text: text, Block: false}
 		ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
-		p.attrCommentLayout(n, start+2, p.i)
 		return []*ast.CommentAttr{n}, true, nil
 	}
 	if p.peek() == '{' {
@@ -180,7 +166,6 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 			// /**/ is the one bare spelling with nothing in it.
 			n := &ast.CommentAttr{Text: "", Block: true}
 			ast.SetSpan(n, groupStart, groupEnd)
-			n.Layout.Leading = p.src[start : end+1]
 			return []*ast.CommentAttr{n}, true, nil
 		}
 		nodes := make([]*ast.CommentAttr, len(parts))
@@ -201,11 +186,6 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 				e = groupEnd
 			}
 			ast.SetSpan(n, s, e)
-			textEnd := innerBase + part.end
-			if part.block {
-				textEnd -= 2
-			}
-			p.attrCommentLayout(n, innerBase+part.off+2, textEnd)
 			nodes[i] = n
 		}
 		return nodes, true, nil
@@ -296,7 +276,6 @@ func (p *parser) parseBracedComment() ([]*ast.Comment, bool, error) {
 	if len(parts) == 0 {
 		n := &ast.Comment{Text: "", Block: true}
 		ast.SetSpan(n, groupStart, groupEnd)
-		n.Layout.Leading = p.src[start : end+1]
 		return []*ast.Comment{n}, true, nil
 	}
 	nodes := make([]*ast.Comment, len(parts))
@@ -312,14 +291,6 @@ func (p *parser) parseBracedComment() ([]*ast.Comment, bool, error) {
 			e = groupEnd
 		}
 		ast.SetSpan(n, s, e)
-		textEnd := innerBase + part.end
-		if part.block {
-			textEnd -= 2
-		}
-		n.Layout = p.commentLayout(n.Pos(), n.End(), innerBase+part.off+2, textEnd)
-		if i > 0 {
-			n.Layout.Leading = p.src[innerBase+parts[i-1].end:innerBase+part.off] + n.Layout.Leading
-		}
 		nodes[i] = n
 	}
 	return nodes, true, nil
@@ -393,21 +364,27 @@ func (p *parser) braceKeyword() string {
 	return ""
 }
 
-// parseMarkupUntilClose parses a brace-delimited markup body. Only whitespace
-// at the body's outer edges is syntax; interior text is literal content.
-func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, ast.BodyLayout, error) {
-	nodes, err := p.parseMarkupBody(what)
-	if err != nil {
-		return nil, ast.BodyLayout{}, err
-	}
-	nodes, layout := trimBodyLayout(nodes)
-	return nodes, layout, nil
+// parseMarkupUntilClose parses a markup sequence terminated by the matching
+// top-level '}', which it consumes. `what` names the enclosing construct for the
+// unterminated-EOF error (e.g. "control-flow body", "component body"). Inter-node
+// whitespace is skipped; text within nodes is preserved. The terminating '}' is
+// the first top-level '}'; a '}' inside a nested element's text or a `{…}`
+// construct is consumed by those sub-parsers, not seen here.
+func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
+	return p.parseMarkupUntilCloseWS(what, false)
 }
 
-// parseMarkupBody retains all authored whitespace as text.
-func (p *parser) parseMarkupBody(what string) ([]ast.Markup, error) {
+// parseMarkupUntilCloseWS is parseMarkupUntilClose with control over inter-node
+// whitespace. When preserveWS is false (markup-attribute slots) leading
+// whitespace before each node is skipped, as before. When true (control-flow
+// bodies) whitespace falls into parseTextCtx and becomes a text node for wsnorm;
+// parseControlBody then trims the brace-interior edges via trimBodyEdges.
+func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
+		if !preserveWS {
+			p.skipSpace()
+		}
 		if p.eof() {
 			return nil, p.errorf(p.pos(), "unterminated %s, expected `}`", what)
 		}
@@ -416,16 +393,20 @@ func (p *parser) parseMarkupBody(what string) ([]ast.Markup, error) {
 			p.i++ // consume the closing brace
 			return nodes, nil
 		case p.peek() == '<':
+			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, err
 			}
+			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
+			leadingBreak := newlineBefore(p.src, p.i)
 			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
+			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
@@ -437,24 +418,24 @@ func (p *parser) parseMarkupBody(what string) ([]ast.Markup, error) {
 
 // parseControlBody parses a control-flow body: markup until the matching '}'.
 // The cursor must be just past the opening '{'. Interior whitespace is preserved
-// literally; whitespace immediately inside the braces is trimmed.
-func (p *parser) parseControlBody() ([]ast.Markup, ast.BodyLayout, error) {
-	return p.parseMarkupUntilClose("control-flow body")
+// for wsnorm; whitespace immediately inside the braces is trimmed.
+func (p *parser) parseControlBody() ([]ast.Markup, error) {
+	nodes, err := p.parseMarkupUntilCloseWS("control-flow body", true)
+	if err != nil {
+		return nil, err
+	}
+	return trimBodyEdges(nodes), nil
 }
 
-// trimBodyLayout retains and strips whitespace immediately inside the control-flow body
+// trimBodyEdges strips whitespace immediately inside the control-flow body
 // braces: the leading whitespace of the first node and the trailing whitespace
 // of the last node, when those nodes are Text. This mirrors how gsx trims the
 // interior of `{ expr }` and `{{ code }}`. Interior whitespace between nodes is
-// literal content. An emptied edge Text node is dropped.
-func trimBodyLayout(nodes []ast.Markup) ([]ast.Markup, ast.BodyLayout) {
-	var layout ast.BodyLayout
+// left for wsnorm's JSX rule. An emptied edge Text node is dropped.
+func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
 	if len(nodes) > 0 {
 		if t, ok := nodes[0].(*ast.Text); ok {
-			value := strings.TrimLeft(t.Value, " \t\r\n\f")
-			layout.Leading = t.Value[:len(t.Value)-len(value)]
-			ast.SetSpan(t, t.Pos()+token.Pos(len(t.Value)-len(value)), t.End())
-			t.Value = value
+			t.Value = strings.TrimLeft(t.Value, " \t\r\n")
 			if t.Value == "" {
 				nodes = nodes[1:]
 			}
@@ -462,10 +443,7 @@ func trimBodyLayout(nodes []ast.Markup) ([]ast.Markup, ast.BodyLayout) {
 	}
 	if len(nodes) > 0 {
 		if t, ok := nodes[len(nodes)-1].(*ast.Text); ok {
-			value := strings.TrimRight(t.Value, " \t\r\n\f")
-			layout.Trailing = t.Value[len(value):]
-			ast.SetSpan(t, t.Pos(), t.End()-token.Pos(len(t.Value)-len(value)))
-			t.Value = value
+			t.Value = strings.TrimRight(t.Value, " \t\r\n")
 			if t.Value == "" {
 				nodes = nodes[:len(nodes)-1]
 			}
@@ -477,9 +455,9 @@ func trimBodyLayout(nodes []ast.Markup) ([]ast.Markup, ast.BodyLayout) {
 	// structurally equal, and AST-faithfulness comparisons (e.g. fmt idempotence)
 	// see a spurious diff.
 	if len(nodes) == 0 {
-		return nil, layout
+		return nil
 	}
-	return nodes, layout
+	return nodes
 }
 
 // parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has
@@ -500,7 +478,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 	clause := strings.TrimSpace(rawClause)
 	p.i = braceOff + 1 // past body '{'
 	bodyMultiline := newlineFollows(p.src, p.i)
-	body, layout, err := p.parseControlBody()
+	body, err := p.parseControlBody()
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +487,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected `}` to close `{ for … }`")
 	}
 	p.i++ // past outer '}'
-	n := &ast.ForMarkup{Clause: clause, ClausePos: clausePos, Body: body, Layout: layout, BodyMultiline: bodyMultiline}
+	n := &ast.ForMarkup{Clause: clause, ClausePos: clausePos, Body: body, BodyMultiline: bodyMultiline}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -550,11 +528,11 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 	cond := strings.TrimSpace(rawCond)
 	p.i = braceOff + 1 // past body '{'
 	thenMultiline := newlineFollows(p.src, p.i)
-	body, layout, err := p.parseControlBody()
+	body, err := p.parseControlBody()
 	if err != nil {
 		return nil, err
 	}
-	n := &ast.IfMarkup{Cond: cond, CondPos: condPos, Then: body, ThenLayout: layout, ThenMultiline: thenMultiline}
+	n := &ast.IfMarkup{Cond: cond, CondPos: condPos, Then: body, ThenMultiline: thenMultiline}
 	p.skipSpace()
 	if p.atWord("else") {
 		p.i += len("else")
@@ -563,12 +541,11 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 		case p.peek() == '{':
 			p.i++ // past '{'
 			n.ElseMultiline = newlineFollows(p.src, p.i)
-			elseBody, elseLayout, err := p.parseControlBody()
+			elseBody, err := p.parseControlBody()
 			if err != nil {
 				return nil, err
 			}
 			n.Else = elseBody
-			n.ElseLayout = elseLayout
 		case p.atWord("if"):
 			elseIf, err := p.parseIfTail()
 			if err != nil {
@@ -662,12 +639,11 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 	// after the colon, mirroring how IfMarkup/ForMarkup record it after their
 	// body's opening `{` (newlineFollows).
 	cc.BodyMultiline = newlineFollows(p.src, p.i)
-	body, layout, err := p.parseCaseBody()
+	body, err := p.parseCaseBody()
 	if err != nil {
 		return nil, err
 	}
 	cc.Body = body
-	cc.Layout = layout
 	ast.SetSpan(cc, startPos, p.posAt(p.i))
 	return cc, nil
 }
@@ -675,36 +651,38 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 // parseCaseBody parses the markup body of a case arm. It does NOT consume the
 // terminator: it stops (without advancing) at the next `case`/`default` keyword
 // or at the switch body's closing `}`.
-func (p *parser) parseCaseBody() ([]ast.Markup, ast.BodyLayout, error) {
+func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
 		// Look past whitespace to detect a terminator without destroying interior
 		// whitespace: if the next token is a terminator, the skipped whitespace was
-		// the case body's trailing edge (retained by trimBodyLayout); otherwise
+		// the case body's trailing edge (trimmed by trimBodyEdges); otherwise
 		// restore so the whitespace becomes part of the following text node.
 		save := p.i
 		p.skipSpace()
 		if p.eof() {
-			return nil, ast.BodyLayout{}, p.errorf(p.pos(), "unterminated `case` body")
+			return nil, p.errorf(p.pos(), "unterminated `case` body")
 		}
 		if p.peek() == '}' || p.atWord("case") || p.atWord("default") {
-			nodes, layout := trimBodyLayout(nodes)
-			layout.Trailing += p.src[save:p.i]
-			return nodes, layout, nil
+			return trimBodyEdges(nodes), nil
 		}
 		p.i = save
 		switch {
 		case p.peek() == '<':
+			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
-				return nil, ast.BodyLayout{}, err
+				return nil, err
 			}
+			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 		case p.peek() == '{':
+			leadingBreak := newlineBefore(p.src, p.i)
 			bnodes, err := p.parseBraceNode()
 			if err != nil {
-				return nil, ast.BodyLayout{}, err
+				return nil, err
 			}
+			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
 			nodes = append(nodes, p.parseBareComment())
@@ -727,6 +705,7 @@ func (p *parser) parseCaseBodyText() *ast.Text {
 	startPos := p.posAt(start)
 	p.i = p.caseBodyTextEnd(start)
 	n := &ast.Text{Value: p.src[start:p.i]}
+	n.LeadingBreak = leadingRunBreaks(p.src[start:p.i])
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
 }
@@ -1033,16 +1012,22 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	}
 	if j < len(p.src) && p.src[j] == '<' && startsTagAt(p.src, j+1) {
 		p.i++ // past '{'
-		// A markup slot is a fresh expression boundary: bare source comments
-		// are recognized independently of an enclosing pre/textarea element.
+		// A `name={ … }` markup slot is a fresh non-preserve context: an
+		// enclosing pre/textarea's verbatim treatment does not leak across the
+		// expression boundary into the slot's own markup. This mirrors
+		// wsnorm's normalizeAttrs, which normalizes every MarkupAttr.Value
+		// with preserve=false regardless of the element's own preserve state
+		// (internal/wsnorm/wsnorm.go) — the parser and wsnorm must agree on
+		// where "verbatim" ends or a `//` in a slot renders as neither a
+		// recognized comment nor a diagnosed error.
 		savedPreserveDepth := p.preserveDepth
 		p.preserveDepth = 0
-		nodes, layout, err := p.parseMarkupUntilClose("markup attribute")
+		nodes, err := p.parseMarkupUntilClose("markup attribute")
 		p.preserveDepth = savedPreserveDepth
 		if err != nil {
 			return nil, err
 		}
-		ma := &ast.MarkupAttr{Name: name, Value: nodes, Layout: layout}
+		ma := &ast.MarkupAttr{Name: name, Value: nodes}
 		ast.SetSpan(ma, attrStartPos, p.posAt(p.i))
 		return ma, nil
 	}
@@ -1076,11 +1061,12 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	// Fragment: <>…</>
 	if p.peek() == '>' {
 		p.i++ // past '>'
+		childrenMultiline := newlineFollows(p.src, p.i)
 		children, _, err := p.parseChildren("")
 		if err != nil {
 			return nil, err
 		}
-		fr := &ast.Fragment{Children: children}
+		fr := &ast.Fragment{Children: children, ChildrenMultiline: childrenMultiline}
 		ast.SetSpan(fr, startPos, p.posAt(p.i))
 		return fr, nil
 	}
@@ -1128,6 +1114,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected '>' or '/>' in <%s>", tag)
 	}
 	p.i++ // past '>'
+	childrenMultiline := newlineFollows(p.src, p.i)
 
 	// Raw-text elements (<script>, <style>): content is verbatim until the
 	// matching case-insensitive close tag. No markup/interpolation inside.
@@ -1141,17 +1128,17 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return el, nil
 	}
 
-	if htmltag.SuppressBareComments(tag) {
+	if wsnorm.IsPreserveTag(tag) {
 		p.preserveDepth++
 	}
 	children, closeNamePos, err := p.parseChildren(tag)
-	if htmltag.SuppressBareComments(tag) {
+	if wsnorm.IsPreserveTag(tag) {
 		p.preserveDepth--
 	}
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, AttrsMultiline: attrsMultiline}
+	el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline, AttrsMultiline: attrsMultiline}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }
@@ -1199,11 +1186,12 @@ func (p *parser) parsePI(startPos token.Pos) (ast.Markup, error) {
 		if err != nil {
 			return nil, err
 		}
+		childrenMultiline := newlineFollows(p.src, p.i)
 		children, _, err := p.parseChildrenTerm(childTerm{piEnd: true})
 		if err != nil {
 			return nil, err
 		}
-		r := &ast.MarkerRegion{Name: name, Children: children}
+		r := &ast.MarkerRegion{Name: name, Children: children, ChildrenMultiline: childrenMultiline}
 		ast.SetSpan(r, startPos, p.posAt(p.i))
 		return r, nil
 	case piEnd:
@@ -1348,6 +1336,21 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
+// leadingRunBreaks reports whether the leading whitespace run of a raw text
+// value contains a line break (a Text's ast.Leading fact).
+func leadingRunBreaks(v string) bool {
+	for i := 0; i < len(v); i++ {
+		switch v[i] {
+		case '\n', '\r':
+			return true
+		case ' ', '\t':
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 // childTerm describes how a child list ends: a `</tag>` close tag (tag is "" for
 // a fragment's `</>`), or a `<?end>` processing instruction closing a
 // MarkerRegion. Exactly one form applies per list.
@@ -1415,18 +1418,22 @@ func (p *parser) parseChildrenTerm(term childTerm) ([]ast.Markup, token.Pos, err
 			return nodes, closeNamePos, nil
 		}
 		if p.peek() == '<' {
+			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
 			if err != nil {
 				return nil, token.NoPos, err
 			}
+			ast.SetLeadingBreak(el, leadingBreak)
 			nodes = append(nodes, el)
 			continue
 		}
 		if p.peek() == '{' {
+			leadingBreak := newlineBefore(p.src, p.i)
 			bnodes, err := p.parseBraceNode()
 			if err != nil {
 				return nil, token.NoPos, err
 			}
+			ast.SetLeadingBreak(bnodes[0], leadingBreak)
 			nodes = append(nodes, bnodes...)
 			continue
 		}

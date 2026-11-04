@@ -44,20 +44,17 @@ func Page(open bool) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxgw.BoolAttr("x-show", bool( /*line input.gsx:6:16*/ open))
-		_gsxgw.S(">x</div>\n\t")
+		_gsxgw.S(">x</div>")
 //line input.gsx:7:2
-		_gsxgw.S("<div x-show=\"true\">s</div>\n\t")
+		_gsxgw.S("<div x-show=\"true\">s</div>")
 //line input.gsx:8:2
 		_gsxgw.S("<div x-show=\"")
 		_gsxgw.AttrValue(string( /*line input.gsx:8:16*/ strconv.FormatBool(open)))
-		_gsxgw.S("\">f</div>\n\t")
+		_gsxgw.S("\">f</div>")
 //line input.gsx:9:2
 		_gsxgw.S("<div x-show=\"open\">j</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div x-show>x</div>
-	<div x-show="true">s</div>
-	<div x-show="true">f</div>
-	<div x-show="open">j</div>
+<div x-show>x</div><div x-show="true">s</div><div x-show="true">f</div><div x-show="open">j</div>

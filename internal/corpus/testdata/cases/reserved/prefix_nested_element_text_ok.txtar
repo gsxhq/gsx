@@ -9,12 +9,12 @@ import "github.com/gsxhq/gsx"
 func wrapN(n gsx.Node) gsx.Node { return n }
 
 component Page() {
-{{ n := wrapN(<p>_gsxfoo text</p>) }}{ n }
-{ wrapN(<i>_gsxbar text</i>) }
+	{{ n := wrapN(<p>_gsxfoo text</p>) }}
+	{ n }
+	{ wrapN(<i>_gsxbar text</i>) }
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<p>_gsxfoo text</p>
-<i>_gsxbar text</i>
+<p>_gsxfoo text</p><i>_gsxbar text</i>

@@ -6,18 +6,6 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
-- **Breaking: HTML content whitespace is preserved literally.** Spaces, tabs,
-  newlines and indentation inside elements, fragments, marker regions and
-  component children are emitted exactly. Only outer ASCII whitespace at
-  component, control-flow, switch-case and markup-slot body edges is trimmed.
-  In variadic children argument lists, whitespace-only literal separators are
-  omitted; explicit whitespace expressions remain arguments.
-  Keep punctuation attached and whitespace-preserving wrappers tight; review
-  multiline markup when migrating from JSX normalization. `gsx fmt` preserves
-  content instead of wrapping prose while formatting Go and tag syntax normally. The `child-element-spacing` lint and its
-  editor fixes are retired: remove its config or `gen.WithLint` entry. There
-  are no whitespace directives or legacy mode.
-
 ## v0.4.6 — 2026-11-03
 
 - **Windows language-server file URIs now resolve correctly.** Drive-letter

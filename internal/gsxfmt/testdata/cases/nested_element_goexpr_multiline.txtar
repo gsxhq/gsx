@@ -1,21 +1,24 @@
-Embedded HTML operands in attributes, interpolation, Go blocks and control
-headers have deliberately authored nesting indentation. The pre operand alone
-contains irregular data whose bytes must survive formatting. Go syntax around
-all operands remains independently formattable.
+A multi-line element literal nested in a Go expression, in each Go-expression
+position family: a component input, a body interpolation, a {{ }} block, a
+control-flow header, and a multi-line f`` literal argument. gofmt lays out the
+Go around each value and the element prints from its AST at the Go line's
+depth, so the result is a fixed point (the input's deliberately wrong
+indentation is fixed once, never shifted again). A <pre> inside the element
+keeps its text byte for byte, since reindenting it would change the render.
 
 -- input.gsx --
 package p
 
 component Row(n int) {
 	<Holder h={wrapN(
-			<b>
-				{ n }
-			</b>,
+				<b>
+					{ n }
+				</b>,
 		)}/>
 	<p>{ wrapN(
-			<b>
-				{ n }
-			</b>,
+	<b>
+	{ n }
+	</b>,
 	) }</p>
 	{{ w := wrapN(
 		<b>
@@ -45,29 +48,33 @@ component Row(n int) {
 		h={
 			wrapN(
 				<b>
-				{ n }
-			</b>,
+					{ n }
+				</b>,
 			)
 		}
 	/>
-	<p>{ wrapN(
+	<p>
+		{ wrapN(
 			<b>
 				{ n }
 			</b>,
-		) }</p>
+		) }
+	</p>
 	{{
 		w := wrapN(
 			<b>
-			{ n }
-		</b>,
+				{ n }
+			</b>,
 		)
 	}}
-	<div>{ wrapN(
+	<div>
+		{ wrapN(
 			<pre>
   x
      y
 </pre>,
-		) }</div>
+		) }
+	</div>
 	{ if wrapN(
 		<b>x</b>,
 	) != nil {

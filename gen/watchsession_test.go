@@ -736,14 +736,14 @@ func TestWatchSessionStartup_HonorsExplicitExcludedNamedRoot(t *testing.T) {
 func TestWatchSessionStartup_CachedMatchesUncached(t *testing.T) {
 	const plain = "package %s\n\ncomponent %s() {\n\t<p>%s</p>\n}\n"
 	src := func(pkg, name, text string) string { return fmt.Sprintf(plain, pkg, name, text) }
-	// base is one module with: hit dirs (one carrying a duplicate-attribute
+	// base is one module with: hit dirs (one carrying a child-element-spacing
 	// warning), a dir whose sibling .gsx was deleted (miss + in-dir orphan), a
 	// dir whose only .gsx was deleted (walk-level orphan), an edited dir and
 	// its importer (misses), and a codegen-error dir (never stored).
 	base := func(t *testing.T, root string) {
 		writeMod(t, root)
 		writeFileT(t, filepath.Join(root, "hit", "hit.gsx"), src("hit", "Hit", "hit"))
-		writeFileT(t, filepath.Join(root, "warn", "warn.gsx"), "package warn\n\ncomponent A(name string) {\n\t<p>\n\t\t<b title=\"a\" title=\"b\">{name}</b>\n\t</p>\n}\n")
+		writeFileT(t, filepath.Join(root, "warn", "warn.gsx"), "package warn\n\ncomponent A(name string) {\n\t<p>\n\t\tHi\n\t\t<b>{name}</b>\n\t</p>\n}\n")
 		writeFileT(t, filepath.Join(root, "sib", "keep.gsx"), src("sib", "Keep", "keep"))
 		writeFileT(t, filepath.Join(root, "sib", "gone.gsx"), src("sib", "Gone", "gone"))
 		writeFileT(t, filepath.Join(root, "old", "old.gsx"), src("old", "Old", "old"))

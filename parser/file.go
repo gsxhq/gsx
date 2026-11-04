@@ -82,7 +82,6 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 	}
 
 	f := &ast.File{
-		Layout:  ast.NewSourceLayout(srcStr, file.Pos(0)),
 		Package: pkgName,
 	}
 	// Capture the doc-comment block preceding `package` (everything before the
@@ -121,7 +120,6 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 	if tail := strings.TrimSpace(srcStr[cursor:]); tail != "" {
 		f.Decls = append(f.Decls, p.splitGoElements(srcStr[cursor:], file.Pos(cursor))...)
 	}
-	f.Layout = f.Layout.WithFieldOrigins(f)
 	return f, p.errs
 }
 

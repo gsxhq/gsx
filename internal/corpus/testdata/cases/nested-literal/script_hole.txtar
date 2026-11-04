@@ -65,25 +65,25 @@ func Page(n int) _gsxrt.Node {
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">var a = ")
 		_gsxgw.JSVal( /*line input.gsx:19:21*/ wrap("a" + _gsxsc.FormatInt(int64( /*line input.gsx:19:31*/ n), 10) + "\"" /*line input.gsx:19:35*/))
-		_gsxgw.S(";</script>\n\t")
+		_gsxgw.S(";</script>")
 //line input.gsx:20:2
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">var b = \"")
 		_gsxgw.JSStr(string( /*line input.gsx:20:22*/ wrap("b" + _gsxsc.FormatInt(int64( /*line input.gsx:20:32*/ n), 10) + "\"" /*line input.gsx:20:36*/)))
-		_gsxgw.S("\";</script>\n\t")
+		_gsxgw.S("\";</script>")
 //line input.gsx:21:2
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">var c = ")
 		_gsxgw.JSVal( /*line input.gsx:21:21*/ wrapJ(_gsxrt.RawJS("go(" + _gsxrt.EscapeJSVal( /*line input.gsx:21:35*/ n) + ")") /*line input.gsx:21:39*/))
-		_gsxgw.S(";</script>\n\t")
+		_gsxgw.S(";</script>")
 //line input.gsx:22:2
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">var d = ")
 		_gsxgw.JSVal("d" + _gsxsc.FormatInt(int64( /*line input.gsx:22:26*/ n), 10))
-		_gsxgw.S(";</script>\n\t")
+		_gsxgw.S(";</script>")
 //line input.gsx:23:2
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
@@ -98,8 +98,4 @@ func Page(n int) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<script>var a = "a1\"";</script>
-	<script>var b = "b1\u0022";</script>
-	<script>var c = go( 1 );</script>
-	<script>var d = "d1";</script>
-	<script>var e = "e-L";</script>
+<script>var a = "a1\"";</script><script>var b = "b1\u0022";</script><script>var c = go( 1 );</script><script>var d = "d1";</script><script>var e = "e-L";</script>

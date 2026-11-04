@@ -16,24 +16,21 @@ type anchorProps struct {
 }
 
 component Img(p imgProps) {
-<img { p.Attrs... }/>
+	<img { p.Attrs... }/>
 }
 
 component Anchor(p anchorProps) {
-<a { p.Attrs... }>x</a>
+	<a { p.Attrs... }>x</a>
 }
 
 component Page() {
-<div>
-	<Img p={imgProps{Attrs: gsx.Attrs{{Key: "src", Value: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E"}}}}/>
-	<Anchor p={anchorProps{Attrs: gsx.Attrs{{Key: "href", Value: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E"}}}}/>
-</div>
+	<div>
+		<Img p={imgProps{Attrs: gsx.Attrs{{Key: "src", Value: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E"}}}}/>
+		<Anchor p={anchorProps{Attrs: gsx.Attrs{{Key: "href", Value: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E"}}}}/>
+	</div>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<div>
-	<img src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E">
-	<a href="about:invalid#gsx">x</a>
-</div>
+<div><img src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E"><a href="about:invalid#gsx">x</a></div>

@@ -1,6 +1,22 @@
-Multiline HTML operands keep their correctly authored nesting indentation.
-Literal newlines do not force decorative parentheses or expansion of every
-composite field; ordinary Go syntax and width decisions remain canonical.
+Two items, each with a genuinely multi-line element. Elements no longer paren-
+wrap merely for being on a wide line (see internal/printer's breakWideLiterals
+wiring), so this case uses elements that are themselves multi-line to keep
+exercising the paren shape.
+
+A multi-line element reaches gofmt as a single-rune placeholder handed to
+breakWideLiterals as its forceMarker: its true width is unknowable and it can
+never be a one-liner, so a literal holding it PACKED is over budget without
+measuring. Each item therefore breaks its fields one per line AND paren-wraps its
+element — so each item becomes its own gofmt alignment section, and the
+cross-item alignment that historically (#62) let `page` gain a stray alignment
+cell on re-format no longer even exists.
+
+Re-formatting fmt's own output must not drift: the decorative paren still puts the
+element alone on its line, and goexprshape.Sanitize's before-hole collapse
+(guarded directly by TestSanitizeBeforeCollapseIsParenOnly in
+internal/goexprshape/shape_test.go) is still the fix for the single-pass artifact
+that shape once caused. This case pins that a two-item literal whose fields break
+and whose elements paren-wrap formats and reformats without drifting.
 
 -- input.gsx --
 package ui
@@ -19,13 +35,22 @@ package ui
 var nav = []item{
 	{
 		label:     "Team View",
-		icon:      <UsersIcon>
-		<title>users</title>
-	</UsersIcon>,
+		icon:      (
+			<UsersIcon>
+				<title>users</title>
+			</UsersIcon>
+		),
 		page:      TeamViewPage{},
 		pathMatch: "/team",
 	},
-	{label: "Search", icon: <SearchIcon>
-		<title>search</title>
-	</SearchIcon>, page: ListPage{}, pathMatch: "/list/"},
+	{
+		label:     "Search",
+		icon:      (
+			<SearchIcon>
+				<title>search</title>
+			</SearchIcon>
+		),
+		page:      ListPage{},
+		pathMatch: "/list/",
+	},
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/modpath"
 	"github.com/gsxhq/gsx/internal/sourceintel"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -1661,6 +1662,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		}
 	}
 
+	// child-element-spacing reads resolved interpolation types, so it runs once
+	// harvest has filled them; an imported package's analysis reports nothing.
+	if purpose != analysisTypeOnly && m.opts.Lint.Level(diag.CodeChildElementSpacing) != diag.LintOff {
+		for _, path := range sortedGsxFilePaths(gsxFiles) {
+			reportChildElementSpacing(gsxFiles[path], parsed.sources[path], fset, resolved, table, bag)
+		}
+	}
+
 	// Build CtrlMap: skeleton clause position + containing node per control-flow node.
 	ctrlMap := map[gsxast.Node]ctrlRef{}
 	for _, gf := range goFiles {
@@ -1826,7 +1835,7 @@ func harvestProbeSpans(f *goast.File) []posSpan {
 }
 
 // parseCacheEntry is a pristine, per-file gsx parse kept so unchanged files skip
-// re-parsing on every analysis. file is the parsed tree; it
+// re-parsing on every analysis. file is the parsed + wsnorm-normalized tree; it
 // is NEVER handed out — parsedGSXFile serves ast.CloneFile(file) so the codegen
 // mutation passes (which populate Interp/GoBlock.Embedded, minify js/css into
 // node values, rebase RawJS, and stamp Element.IsComponent) never contaminate
@@ -1887,6 +1896,9 @@ func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Cl
 		}
 		return nil, sourceDiagnosticsError{diags: diags}
 	}
+	// Normalize the pristine tree ONCE (wsnorm is idempotent and deterministic);
+	// clones inherit the normalized structure.
+	wsnorm.Normalize(f)
 	m.mu.Lock()
 	m.parseCache[path] = parseCacheEntry{hash: hash, classifier: classifier, file: f}
 	m.mu.Unlock()

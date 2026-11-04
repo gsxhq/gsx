@@ -49,13 +49,6 @@ caller's `<em>composed</em>` node. Use `children ...gsx.Node` when the component
 needs each static top-level child separately; inside the body it is a
 `[]gsx.Node`.
 
-In a variadic body, whitespace-only literal text made of HTML ASCII whitespace
-separates arguments. Two tags on separate lines therefore pass two nodes.
-An explicit `{ " " }` passes an additional node. Substantive text, non-ASCII
-whitespace, fragments and control-flow nodes remain arguments; a fragment or
-control-flow node keeps its own internal content as one argument. Scalar
-`children gsx.Node` and named slots preserve their literal content whitespace.
-
 The body is the only fill source for lowercase `children`; `children={...}` is
 rejected. A component without this parameter rejects a non-empty body. See
 [Reserved component inputs](./props.md#reserved-variables).

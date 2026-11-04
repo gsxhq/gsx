@@ -6,7 +6,8 @@
 package views
 
 component C() {
-{{ n := "hi" }}<b class={n}>x</b>
+	{{ n := "hi" }}
+	<b class={n}>x</b>
 }
 -- invoke --
 C()
@@ -28,11 +29,11 @@ import (
 func C() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:1
+//line input.gsx:4:2
 		n := "hi"
-//line input.gsx:4:16
+//line input.gsx:5:2
 		_gsxgw.S("<b class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:4:26*/ n))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class( /*line input.gsx:5:12*/ n))
 		_gsxgw.S("\">x</b>")
 		return _gsxgw.Err()
 	})

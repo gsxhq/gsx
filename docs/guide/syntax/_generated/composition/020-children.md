@@ -6,10 +6,10 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Card(title string, children gsx.Node) {
-<article class="card">
-	<h3>{ title }</h3>
-	<div class="card__body">{ children }</div>
-</article>
+	<article class="card">
+		<h3>{ title }</h3>
+		<div class="card__body">{ children }</div>
+	</article>
 }
 
 component Page() {
@@ -20,10 +20,7 @@ component Page() {
 Renders:
 
 ```html
-<article class="card">
-	<h3>Hello</h3>
-	<div class="card__body"><em>composed</em></div>
-</article>
+<article class="card"><h3>Hello</h3><div class="card__body"><em>composed</em></div></article>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBDYXJkKHRpdGxlIHN0cmluZywgY2hpbGRyZW4gZ3N4Lk5vZGUpIHtcblx1MDAzY2FydGljbGUgY2xhc3M9XCJjYXJkXCJcdTAwM2Vcblx0XHUwMDNjaDNcdTAwM2V7IHRpdGxlIH1cdTAwM2MvaDNcdTAwM2Vcblx0XHUwMDNjZGl2IGNsYXNzPVwiY2FyZF9fYm9keVwiXHUwMDNleyBjaGlsZHJlbiB9XHUwMDNjL2Rpdlx1MDAzZVxuXHUwMDNjL2FydGljbGVcdTAwM2Vcbn1cblxuY29tcG9uZW50IFBhZ2UoKSB7XG5cdFx1MDAzY0NhcmQgdGl0bGU9XCJIZWxsb1wiXHUwMDNlXHUwMDNjZW1cdTAwM2Vjb21wb3NlZFx1MDAzYy9lbVx1MDAzZVx1MDAzYy9DYXJkXHUwMDNlXG59XG4iLCJpIjoiUGFnZSgpIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBDYXJkKHRpdGxlIHN0cmluZywgY2hpbGRyZW4gZ3N4Lk5vZGUpIHtcblx0XHUwMDNjYXJ0aWNsZSBjbGFzcz1cImNhcmRcIlx1MDAzZVxuXHRcdFx1MDAzY2gzXHUwMDNleyB0aXRsZSB9XHUwMDNjL2gzXHUwMDNlXG5cdFx0XHUwMDNjZGl2IGNsYXNzPVwiY2FyZF9fYm9keVwiXHUwMDNleyBjaGlsZHJlbiB9XHUwMDNjL2Rpdlx1MDAzZVxuXHRcdTAwM2MvYXJ0aWNsZVx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjQ2FyZCB0aXRsZT1cIkhlbGxvXCJcdTAwM2VcdTAwM2NlbVx1MDAzZWNvbXBvc2VkXHUwMDNjL2VtXHUwMDNlXHUwMDNjL0NhcmRcdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)

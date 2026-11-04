@@ -5,7 +5,8 @@
 package views
 
 component C() {
-{{ disabled := true }}<button class={ "btn", if disabled { "disabled" } }>x</button>
+	{{ disabled := true }}
+	<button class={ "btn", if disabled { "disabled" } }>x</button>
 }
 -- invoke --
 C()
@@ -27,14 +28,14 @@ import (
 func C() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:1
+//line input.gsx:4:2
 		disabled := true
-//line input.gsx:4:23
+//line input.gsx:5:2
 		_gsxgw.S("<button")
-		_gsxv0 := /*line input.gsx:4:39*/ "btn"
+		_gsxv0 := /*line input.gsx:5:18*/ "btn"
 		var _gsxv1 string
-		if /*line input.gsx:4:49*/ disabled {
-			_gsxv1 = /*line input.gsx:4:60*/ "disabled"
+		if /*line input.gsx:5:28*/ disabled {
+			_gsxv1 = /*line input.gsx:5:39*/ "disabled"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

@@ -48,35 +48,47 @@ component E0() {
 }
 
 component E1() {
-	{{ a := gsx.Attrs{{Key: "id", Value: "e1"}, {Key: "class", Value: "c1"}, {Key: "href", Value: "javascript:alert(1)"}} }}<a { a... }>e1</a>
+	{{ a := gsx.Attrs{{Key: "id", Value: "e1"}, {Key: "class", Value: "c1"}, {Key: "href", Value: "javascript:alert(1)"}} }}
+	<a { a... }>e1</a>
 }
 
 component E2() {
-	{{ a := gsx.Attrs{{Key: "id", Value: "e2-a"}, {Key: "data-mid", Value: "m"}} }}<a id="e2-pre" { a... } data-post="p">e2</a>
+	{{ a := gsx.Attrs{{Key: "id", Value: "e2-a"}, {Key: "data-mid", Value: "m"}} }}
+	<a id="e2-pre" { a... } data-post="p">e2</a>
 }
 
 component E3(c bool) {
-	{{ a := gsx.Attrs{{Key: "class", Value: "c3"}, {Key: "href", Value: "/e3"}} }}<a { if c { { a... } } }>e3</a>
+	{{ a := gsx.Attrs{{Key: "class", Value: "c3"}, {Key: "href", Value: "/e3"}} }}
+	<a { if c { { a... } } }>e3</a>
 }
 
 component E4() {
-	{{ a := gsx.Attrs{{Key: "class", Value: "a4"}, {Key: "data-k", Value: "1"}, {Key: "href", Value: "/e4-a"}} }}{{ b := gsx.Attrs{{Key: "class", Value: "b4"}, {Key: "data-k", Value: "2"}} }}<a { a... } { b... }>e4</a>
+	{{ a := gsx.Attrs{{Key: "class", Value: "a4"}, {Key: "data-k", Value: "1"}, {Key: "href", Value: "/e4-a"}} }}
+	{{ b := gsx.Attrs{{Key: "class", Value: "b4"}, {Key: "data-k", Value: "2"}} }}
+	<a { a... } { b... }>e4</a>
 }
 
 component E5() {
-	{{ a := gsx.Attrs{{Key: "data-k", Value: "a5"}, {Key: "style", Value: "color:red"}} }}{{ b := gsx.Attrs{{Key: "data-k", Value: "b5"}, {Key: "style", Value: "margin:0"}} }}<a { a... } data-k="mid5" { b... }>e5</a>
+	{{ a := gsx.Attrs{{Key: "data-k", Value: "a5"}, {Key: "style", Value: "color:red"}} }}
+	{{ b := gsx.Attrs{{Key: "data-k", Value: "b5"}, {Key: "style", Value: "margin:0"}} }}
+	<a { a... } data-k="mid5" { b... }>e5</a>
 }
 
 component E6(c bool) {
-	{{ a := gsx.Attrs{{Key: "data-k", Value: "a6"}, {Key: "class", Value: "x6"}} }}{{ b := gsx.Attrs{{Key: "data-k", Value: "b6"}, {Key: "class", Value: "y6"}} }}<a { a... } { if c { { b... } } }>e6</a>
+	{{ a := gsx.Attrs{{Key: "data-k", Value: "a6"}, {Key: "class", Value: "x6"}} }}
+	{{ b := gsx.Attrs{{Key: "data-k", Value: "b6"}, {Key: "class", Value: "y6"}} }}
+	<a { a... } { if c { { b... } } }>e6</a>
 }
 
 component E7(c bool) {
-	{{ a := gsx.Attrs{{Key: "data-k", Value: "a7"}} }}{{ b := gsx.Attrs{{Key: "data-k", Value: "b7"}} }}<a { a... } { if c { data-mid="m7" } } { b... }>e7</a>
+	{{ a := gsx.Attrs{{Key: "data-k", Value: "a7"}} }}
+	{{ b := gsx.Attrs{{Key: "data-k", Value: "b7"}} }}
+	<a { a... } { if c { data-mid="m7" } } { b... }>e7</a>
 }
 
 component E8(c bool) {
-	{{ a := gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}} }}<a class="base8" { a... } { if c { class="on8" } else { class="off8" } }>e8</a>
+	{{ a := gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}} }}
+	<a class="base8" { a... } { if c { class="on8" } else { class="off8" } }>e8</a>
 }
 
 component E9(c bool) {

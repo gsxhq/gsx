@@ -5,7 +5,9 @@
 package views
 
 component C() {
-{{ a := false }}{{ b := true }}<span class={ if a { "one" } else if b { "two" } }>x</span>
+	{{ a := false }}
+	{{ b := true }}
+	<span class={ if a { "one" } else if b { "two" } }>x</span>
 }
 -- invoke --
 C()
@@ -27,17 +29,17 @@ import (
 func C() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:1
+//line input.gsx:4:2
 		a := false
-//line input.gsx:4:17
+//line input.gsx:5:2
 		b := true
-//line input.gsx:4:32
+//line input.gsx:6:2
 		_gsxgw.S("<span")
 		var _gsxv0 string
-		if /*line input.gsx:4:49*/ a {
-			_gsxv0 = /*line input.gsx:4:53*/ "one"
-		} else if /*line input.gsx:4:69*/ b {
-			_gsxv0 = /*line input.gsx:4:73*/ "two"
+		if /*line input.gsx:6:19*/ a {
+			_gsxv0 = /*line input.gsx:6:23*/ "one"
+		} else if /*line input.gsx:6:39*/ b {
+			_gsxv0 = /*line input.gsx:6:43*/ "two"
 		}
 
 		_gsxgw.S(" class=\"")

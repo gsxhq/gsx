@@ -1,5 +1,5 @@
 # A component value whose signature declares only `attrs` has no `children`
-# role: passing substantive or whitespace-only literal children is a clean error.
+# role: passing children to Chip is a clean error.
 -- input.gsx --
 package views
 
@@ -10,7 +10,7 @@ type chipProps struct {
 }
 
 component renderChip(p chipProps) {
-<span { p.Attrs... }>chip</span>
+	<span { p.Attrs... }>chip</span>
 }
 
 func Chip(attrs ...gsx.Attr) gsx.Node {
@@ -18,10 +18,7 @@ func Chip(attrs ...gsx.Attr) gsx.Node {
 }
 
 component Page() {
-<Chip>text</Chip>
-<Chip>
-</Chip>
+	<Chip>text</Chip>
 }
 -- diagnostics.golden --
-18:1: Chip has no children param; component body cannot be passed
-19:1: Chip has no children param; component body cannot be passed
+18:2: Chip has no children param; component body cannot be passed

@@ -36,21 +36,15 @@ The same form works for map lookups, type assertions, and other expressions that
 
 ## Whitespace in control-flow bodies
 
-Control-flow bodies trim only their outer leading and trailing ASCII whitespace.
-Interior spaces, tabs and newlines remain literal, including whitespace inside
-HTML elements. Switch cases follow the same rule. Whitespace outside a
-conditional remains output even when no branch renders. Loop iterations
-concatenate their trimmed bodies; supply separators explicitly.
-
-Put an unconditional separator in surrounding markup, or use a string
-interpolation to emit a space at a trimmed body edge:
+Whitespace inside `{ if }`, `{ for }`, and `{ switch }` bodies follows the same
+whitespace rule as element bodies: whitespace *between* content is preserved (a
+run with a newline collapses away; an inline run collapses to one space).
+Whitespace *immediately inside* the control-flow braces is ignored, like the
+interior of `{ expr }`. To keep a separator space next to a conditional, put it
+in the surrounding markup rather than at the block's inner edge:
 
 ::: v-pre
 ```gsx
-<p>{ if ok { Yes } else { No } }!</p>
-<p>{ for _, word := range words { {word}{" "} } }</p>
+<title>{ if !isProd { {env} - } } {page} - One Learning</title>
 ```
 :::
-
-The first example attaches `!` to the selected word. The second deliberately
-emits a space after each word, including the last one.

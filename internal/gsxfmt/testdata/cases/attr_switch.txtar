@@ -35,7 +35,9 @@ component C(n int, m int) {
 			data-other="y"
 		} }
 		id="b"
-	>x</div>
+	>
+		x
+	</div>
 }
 
 component Tagless(n int) {
@@ -46,7 +48,9 @@ component Tagless(n int) {
 		default:
 			data-small="y"
 		} }
-	>x</div>
+	>
+		x
+	</div>
 }
 
 component Nested(n int, m int) {
@@ -60,5 +64,7 @@ component Nested(n int, m int) {
 		default:
 			data-other="y"
 		} }
-	>x</div>
+	>
+		x
+	</div>
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
@@ -17,7 +18,6 @@ type goFieldForm struct{ open, close string }
 
 var (
 	exprField   = goFieldForm{"_ = ", ""}
-	argsField   = goFieldForm{"_ = f(", ")"}
 	ifField     = goFieldForm{"if ", " {\n}"}
 	switchField = goFieldForm{"switch ", " {\n}"}
 	caseField   = goFieldForm{"switch {\ncase ", ":\n}"}
@@ -38,11 +38,16 @@ type goValue struct {
 // multiline reports whether v renders across lines.
 func (v goValue) multiline() bool { return v.lit != nil || !v.isFlat }
 
-// goFieldDoc formats independent Go syntax around semantic GSX operands.
-// Markup prints from semantic AST nodes with exact Text bytes; Go around
-// those operands uses the ordinary placeholder round-trip and gofmt.
-func (p *printer) goFieldDoc(src string, form goFieldForm, plain func(string) string, origin ...gotoken.Pos) pretty.Doc {
-	if text, values, ok := p.fmtGoField(src, form, origin...); ok {
+// goFieldDoc lays out a markup Go field (an attribute value, an interpolation,
+// a control-flow header). A field holding gsx values — element, fragment or
+// prefixed literals — is not Go on its own, so plain (the field's go/format
+// path) would relay it verbatim, and a verbatim multi-line field re-indents one
+// level deeper on every pass. Such a field goes through the same placeholder
+// round-trip as a {{ }} block instead: gofmt lays out the Go, and each element
+// is printed from its AST at the Go line's depth, so the layout is a function
+// of the AST alone and preserved text (a <pre> body) is never re-indented.
+func (p *printer) goFieldDoc(src string, form goFieldForm, plain func(string) string) pretty.Doc {
+	if text, values, ok := p.fmtGoField(src, form); ok {
 		return p.goTextDoc(text, values, false)
 	}
 	return multiline(plain(src))
@@ -50,22 +55,14 @@ func (p *printer) goFieldDoc(src string, form goFieldForm, plain func(string) st
 
 // fmtGoField formats src, a Go field holding at least one gsx value, inside
 // form. ok is false when src holds no value or cannot be formatted.
-func (p *printer) fmtGoField(src string, form goFieldForm, origin ...gotoken.Pos) (string, map[string]goValue, bool) {
+func (p *printer) fmtGoField(src string, form goFieldForm) (string, map[string]goValue, bool) {
 	if !mayHoldGoValue(src) {
 		return "", nil, false
 	}
-	src = strings.TrimSpace(src)
-	parts, ok := splitGoParts(src)
+	parts, ok := splitGoParts(strings.TrimSpace(src))
 	if !ok || len(parts) == 0 {
 		return "", nil, false
 	}
-	sub := *p
-	sub.source = ast.NewSourceLayout(src, parts[0].Pos()).WithFieldOrigins(&ast.File{Decls: []ast.Decl{&ast.GoWithElements{Parts: parts}}})
-	defer func() {
-		if sub.err != nil {
-			p.err = sub.err
-		}
-	}()
 	strip := func(out []byte) (string, bool) {
 		body, ok := extractFuncBody(string(out))
 		if !ok {
@@ -77,7 +74,7 @@ func (p *printer) fmtGoField(src string, form goFieldForm, origin ...gotoken.Pos
 		}
 		return strings.CutSuffix(body, form.close)
 	}
-	return sub.fmtGoPartsText(parts, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip)
+	return p.fmtGoPartsText(parts, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip)
 }
 
 // mayHoldGoValue is the cheap precheck before a split (the one codegen's
@@ -97,8 +94,9 @@ func mayHoldGoValue(src string) bool {
 // splitGoParts splits Go source into interleaved GoText and gsx value parts,
 // using a fresh FileSet (the printer holds no shared one, and the split only
 // needs source-relative positions — the reformatted holes read from the value
-// nodes, not absolute source positions). Literal markup Text is retained
-// exactly. It returns (nil, true) when src
+// nodes, not absolute source positions). The values' markup is
+// whitespace-normalized as codegen normalizes it, so an element prints the
+// same whatever indentation its text carried. It returns (nil, true) when src
 // holds no value (the plain-Go fast path) and (nil, false) when the split
 // reports a parse error, so the caller can fall back to the verbatim relay.
 func splitGoParts(src string) ([]ast.GoPart, bool) {
@@ -108,7 +106,7 @@ func splitGoParts(src string) ([]ast.GoPart, bool) {
 	if len(errs) > 0 {
 		return nil, false
 	}
-
+	wsnorm.NormalizeGoParts(parts)
 	return parts, true
 }
 

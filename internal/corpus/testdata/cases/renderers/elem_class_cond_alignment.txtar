@@ -38,9 +38,9 @@ import "corpustest/cases/renderers_elem_class_cond_alignment/pg"
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
 component Page(before string, val pg.Text, on bool, after string) {
-<span>{before}</span>
-<div class={ val: on }>x</div>
-<span>{after}</span>
+	<span>{before}</span>
+	<div class={ val: on }>x</div>
+	<span>{after}</span>
 }
 -- invoke --
 Page("b", mkText("btn", true), true, "a")
@@ -66,24 +66,22 @@ func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: val
 func Page(before string, val pg.Text, on bool, after string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:1
+//line input.gsx:8:2
 		_gsxgw.S("<span>")
-//line input.gsx:8:7
-		_gsxgw.Text(string( /*line input.gsx:8:8*/ before))
-		_gsxgw.S("</span>\n")
-//line input.gsx:9:1
+//line input.gsx:8:8
+		_gsxgw.Text(string( /*line input.gsx:8:9*/ before))
+		_gsxgw.S("</span>")
+//line input.gsx:9:2
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxf0.PgText(( /*line input.gsx:9:14*/ val)) /*line input.gsx:9:19*/, on))
-		_gsxgw.S("\">x</div>\n")
-//line input.gsx:10:1
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxf0.PgText(( /*line input.gsx:9:15*/ val)) /*line input.gsx:9:20*/, on))
+		_gsxgw.S("\">x</div>")
+//line input.gsx:10:2
 		_gsxgw.S("<span>")
-//line input.gsx:10:7
-		_gsxgw.Text(string( /*line input.gsx:10:8*/ after))
+//line input.gsx:10:8
+		_gsxgw.Text(string( /*line input.gsx:10:9*/ after))
 		_gsxgw.S("</span>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<span>b</span>
-<div class="btn">x</div>
-<span>a</span>
+<span>b</span><div class="btn">x</div><span>a</span>

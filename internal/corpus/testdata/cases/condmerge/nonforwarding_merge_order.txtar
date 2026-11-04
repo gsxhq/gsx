@@ -12,7 +12,8 @@ func mark(label, value string) string {
 }
 
 component Ordered(on bool) {
-{{ trace = "" }}<div style={ mark("a", "color:red") } data-n={42} { if on { style={ mark("b", "margin:0") } } } style={ mark("c", "padding:1px") }>{ trace }</div>
+	{{ trace = "" }}
+	<div style={ mark("a", "color:red") } data-n={42} { if on { style={ mark("b", "margin:0") } } } style={ mark("c", "padding:1px") }>{ trace }</div>
 }
 -- invoke --
 gsx.Fragment(
@@ -43,25 +44,25 @@ func mark(label, value string) string {
 func Ordered(on bool) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:1
+//line input.gsx:11:2
 		trace = ""
-//line input.gsx:11:17
-		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:11:30*/ mark("a", "color:red")))))}, {Key: "data-n", Value: /*line input.gsx:11:63*/ 42}}
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:11:72*/ on, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:11:85*/ mark("b", "margin:0")))))}}, nil
+//line input.gsx:12:2
+		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:12:15*/ mark("a", "color:red")))))}, {Key: "data-n", Value: /*line input.gsx:12:48*/ 42}}
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:12:57*/ on, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:12:70*/ mark("b", "margin:0")))))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1)
-		_gsxv3 := _gsxrt.ConcatAttrs(_gsxv2, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:11:121*/ mark("c", "padding:1px")))))}})
+		_gsxv3 := _gsxrt.ConcatAttrs(_gsxv2, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawCSS(_gsxrt.StyleString(_gsxrt.Style(_gsxrt.StyleValue( /*line input.gsx:12:106*/ mark("c", "padding:1px")))))}})
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
 		_gsxgw.StyleMerged("", _gsxv3.Style())
 		_gsxgw.Spread(ctx, "div", _gsxv3, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:11:148
-		_gsxgw.Text(string( /*line input.gsx:11:150*/ trace))
+//line input.gsx:12:133
+		_gsxgw.Text(string( /*line input.gsx:12:135*/ trace))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

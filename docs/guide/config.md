@@ -339,7 +339,7 @@ imports = "goimports"
 
 | Key | Default | Values |
 |---|---|---|
-| `print_width` | `120` | Positive target line width for syntax that can safely break; literal content and prose are never wrapped. |
+| `print_width` | `120` | Positive target line width. |
 | `tab_width` | `2` | Columns used when measuring a tab. Output indentation remains tabs. |
 | `imports` | `"goimports"` | `"goimports"` or `"gofmt"`. |
 
@@ -451,12 +451,13 @@ each one to `"off"`, `"warning"` (the default) or `"error"`:
 
 ```toml
 [lint]
-wrapper-cycle = "error"
+child-element-spacing = "error"
 duplicate-attribute = "off"
 ```
 
 | Code | Reports |
 |---|---|
+| `child-element-spacing` | A line break that drops the only space between text and inline content (below). |
 | `duplicate-attribute` | An attribute set twice on one element; the browser keeps the first. |
 | `self-reference-leaf` | A tag named like its enclosing component that renders as a plain element. |
 | `url-always-blocked` | A constant URL attribute value that always renders as `about:invalid#gsx`. |
@@ -469,11 +470,29 @@ editor show it as an error. `gen.WithLint(code, level)` overrides the file.
 
 ### `child-element-spacing` {#child-element-spacing}
 
-This rule is retired because GSX preserves literal HTML content whitespace,
-including newlines. Remove any `child-element-spacing` entry from `[lint]` or
-`gen.WithLint`; every configured level now produces an actionable configuration
-error. There is no replacement rule or legacy whitespace mode. See
-[Whitespace](./syntax/basic-syntax.md#whitespace) for migration guidance.
+gsx follows JSX whitespace rules, so a line break between text and other
+content is dropped:
+
+```gsx
+<p>
+	Report template:
+	<a href="/t">{ name }</a>
+</p>
+```
+
+renders `Report template:<a href="/t">…</a>`. Join the lines or write `{" "}`
+where the space belongs; the editor offers both fixes.
+
+The lint fires when the dropped whitespace sits between text and inline
+content: text, a text-level element (`a`, `b`, `code`, `em`, `span`, `strong`
+and the other HTML text-level semantics elements), an interpolation that
+renders text, or an `if`/`for`/`switch` that can render one of these. It
+doesn't fire next to block elements, components or `gsx.Node` values, inside
+`pre`/`textarea`/`script`/`style`, after an opening bracket or quote, or before
+a closing one or `. , ; : ! ?`.
+
+`gsx fmt` never breaks a line where this lint would fire. Text that touches
+inline content stays on one line, even past the width limit.
 
 ## Complete example
 

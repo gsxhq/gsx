@@ -19,18 +19,18 @@ package views
 import "fmt"
 
 component Generic[T any](value T) {
-<p>{ fmt.Sprint(value) }</p>
+	<p>{ fmt.Sprint(value) }</p>
 }
 
 component Header(subtitle string) {
-<h1>{ subtitle }</h1>
+	<h1>{ subtitle }</h1>
 }
 
 component Page(n int, label string) {
-<Generic value=f`item-@{n}`/>
-<Header subtitle={f`item-@{n}` |> upper}/>
-<Header subtitle=f`label-@{label |> upper}`/>
-<Header subtitle={f`checked-@{n}` |> check}/>
+	<Generic value=f`item-@{n}`/>
+	<Header subtitle={f`item-@{n}` |> upper}/>
+	<Header subtitle=f`label-@{label |> upper}`/>
+	<Header subtitle={f`checked-@{n}` |> check}/>
 }
 -- invoke --
 Page(7, "ada")
@@ -63,10 +63,10 @@ func _gsxrenderGeneric[T any](ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, value 
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:6:1
+//line input.gsx:6:2
 	_gsxgw.S("<p>")
-//line input.gsx:6:4
-	_gsxgw.Text(string( /*line input.gsx:6:6*/ fmt.Sprint(value)))
+//line input.gsx:6:5
+	_gsxgw.Text(string( /*line input.gsx:6:7*/ fmt.Sprint(value)))
 	_gsxgw.S("</p>")
 	return _gsxgw.Err()
 }
@@ -83,10 +83,10 @@ func _gsxrenderHeader(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, subtitle strin
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:10:1
+//line input.gsx:10:2
 	_gsxgw.S("<h1>")
-//line input.gsx:10:5
-	_gsxgw.Text(string( /*line input.gsx:10:7*/ subtitle))
+//line input.gsx:10:6
+	_gsxgw.Text(string( /*line input.gsx:10:8*/ subtitle))
 	_gsxgw.S("</h1>")
 	return _gsxgw.Err()
 }
@@ -95,17 +95,14 @@ func _gsxrenderHeader(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, subtitle strin
 func Page(n int, label string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:1
-		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "item-"+_gsxsc.FormatInt(int64( /*line input.gsx:14:25*/ n), 10)))
-		_gsxgw.S("\n")
-//line input.gsx:15:1
-		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, string( /*line input.gsx:15:35*/ _gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64( /*line input.gsx:15:28*/ n), 10))))))
-		_gsxgw.S("\n")
-//line input.gsx:16:1
-		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, "label-"+string( /*line input.gsx:16:37*/ _gsxstd.Upper(( /*line input.gsx:16:28*/ label)))))
-		_gsxgw.S("\n")
-//line input.gsx:17:1
-		_gsxv0, _gsxerr := /*line input.gsx:17:38*/ _gsxf0.Check(("checked-" + _gsxsc.FormatInt(int64( /*line input.gsx:17:31*/ n), 10)))
+//line input.gsx:14:2
+		_gsxgw.NodeResult(_gsxrenderGeneric[string](ctx, _gsxgw, "item-"+_gsxsc.FormatInt(int64( /*line input.gsx:14:26*/ n), 10)))
+//line input.gsx:15:2
+		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, string( /*line input.gsx:15:36*/ _gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64( /*line input.gsx:15:29*/ n), 10))))))
+//line input.gsx:16:2
+		_gsxgw.NodeResult(_gsxrenderHeader(ctx, _gsxgw, "label-"+string( /*line input.gsx:16:38*/ _gsxstd.Upper(( /*line input.gsx:16:29*/ label)))))
+//line input.gsx:17:2
+		_gsxv0, _gsxerr := /*line input.gsx:17:39*/ _gsxf0.Check(("checked-" + _gsxsc.FormatInt(int64( /*line input.gsx:17:32*/ n), 10)))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
@@ -114,7 +111,4 @@ func Page(n int, label string) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<p>item-7</p>
-<h1>ITEM-7</h1>
-<h1>label-ADA</h1>
-<h1>checked-7!</h1>
+<p>item-7</p><h1>ITEM-7</h1><h1>label-ADA</h1><h1>checked-7!</h1>

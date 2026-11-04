@@ -154,77 +154,12 @@ type GoPart interface {
 // File is a parsed .gsx file.
 type File struct {
 	span
-	// Layout is original source geometry, excluded from semantic serialization.
-	Layout SourceLayout `json:"-"`
 	// Doc is the verbatim comment block that precedes the `package` clause (the
 	// package doc comment), or "" if there is none. It is preserved across
 	// formatting; the parser captures everything before the `package` keyword.
 	Doc     string
 	Package string
 	Decls   []Decl
-}
-
-// SourceLayout retains parser-owned source geometry for formatting. Its text
-// supplies positions only; semantic nodes and GoText remain authoritative.
-type SourceLayout struct {
-	text      string
-	base      token.Pos
-	fieldEnds map[token.Pos]token.Pos
-}
-
-// NewSourceLayout captures an immutable source view at its FileSet base.
-func NewSourceLayout(text string, base token.Pos) SourceLayout {
-	return SourceLayout{text: text, base: base}
-}
-
-// Slice returns original bytes at a source span, when the span belongs to this view.
-func (s SourceLayout) Slice(start, end token.Pos) (string, bool) {
-	a, b := int(start-s.base), int(end-s.base)
-	if !s.base.IsValid() || a < 0 || b < a || b > len(s.text) {
-		return "", false
-	}
-	return s.text[a:b], true
-}
-
-// WithFieldOrigins captures the hole and pipeline boundaries consumed by the
-// literal cursor before callers edit the AST. It never stores field values.
-func (s SourceLayout) WithFieldOrigins(f *File) SourceLayout {
-	s.fieldEnds = make(map[token.Pos]token.Pos)
-	record := func(pos token.Pos, value string) {
-		if pos.IsValid() {
-			s.fieldEnds[pos] = pos + token.Pos(len(value))
-		}
-	}
-	stages := func(stages []PipeStage) {
-		for _, st := range stages {
-			record(st.NamePos, st.Name)
-			if st.HasArgs {
-				record(st.ArgsPos, st.Args)
-			}
-		}
-	}
-	Inspect(f, func(n Node) bool {
-		literal, ok := n.(*EmbeddedInterp)
-		if !ok {
-			return true
-		}
-		stages(literal.Stages)
-		for _, segment := range literal.Segments {
-			if hole, ok := segment.(*Interp); ok {
-				record(hole.ExprPos, hole.Expr)
-				stages(hole.Stages)
-			}
-		}
-		return true
-	})
-	return s
-}
-
-// FieldEnd returns a parser-captured field's original end, independently of
-// its current semantic spelling.
-func (s SourceLayout) FieldEnd(pos token.Pos) (token.Pos, bool) {
-	end, ok := s.fieldEnds[pos]
-	return end, ok
 }
 
 // GoChunk is a verbatim span of Go source (imports, types, consts, vars, funcs)
@@ -263,20 +198,6 @@ type GoText struct {
 
 func (GoText) goPartNode() {}
 
-// BodyLayout retains non-emitted whitespace at a GSX syntactic body's edges.
-// It is source layout metadata, not markup content.
-type BodyLayout struct {
-	Leading  string
-	Trailing string
-}
-
-// CommentLayout retains a source comment's delimiters and surrounding trivia.
-// Its semantic text remains in Comment.Text or CommentAttr.Text.
-type CommentLayout struct {
-	Leading  string
-	Trailing string
-}
-
 // Component is a `component [recv] Name[typeParams](params) { body }` declaration.
 type Component struct {
 	span
@@ -289,7 +210,6 @@ type Component struct {
 	Params        string    // raw param-list source, e.g. "title string, featured bool"; "" if none
 	ParamsPos     token.Pos // position of the first char of Params in source (after `(` + ws); NoPos if no params
 	Body          []Markup
-	Layout        BodyLayout
 }
 
 func (*Component) declNode() {}
@@ -297,7 +217,7 @@ func (*Component) declNode() {}
 // Element is an HTML element or a component tag (Tag may be dotted, e.g. "ui.Button").
 type Element struct {
 	span
-
+	Leading
 	Tag              string
 	TagPos           token.Pos // position of the first char of Tag in the opening tag
 	TypeArgs         string    // raw type-arg-list source, e.g. "int, string"; "" if none
@@ -312,6 +232,10 @@ type Element struct {
 	// (which have no closing tag). Tooling (LSP go-to-definition) uses it so a
 	// cursor on the closing tag resolves like the opening tag.
 	CloseNamePos token.Pos
+	// ChildrenMultiline records that the source placed a line break immediately
+	// after the opening tag's `>`; the formatter preserves that vertical layout,
+	// keeping inline-only children block-formatted instead of collapsing them.
+	ChildrenMultiline bool
 	// AttrsMultiline records that the source placed a line break inside the
 	// opening tag — in the whitespace between the tag name and an attribute,
 	// between two attributes, or before the closing `>`/`/>`. The formatter
@@ -331,13 +255,44 @@ type Element struct {
 
 func (*Element) markupNode() {}
 
+// Leading is the layout fact every markup node carries about the whitespace
+// before it.
+type Leading struct {
+	// LeadingBreak records that the source placed a line break in the
+	// whitespace immediately before this node in its children list — for a
+	// Text, in its own leading whitespace, which normalization drops. The
+	// formatter keeps such a break at an element's or interpolation's
+	// render-free boundary, and wherever text touches inline content (so a
+	// child-element-spacing warning on the source stays visible).
+	LeadingBreak bool
+}
+
+func (l *Leading) leading() *Leading { return l }
+
+type leadingNode interface{ leading() *Leading }
+
+// LeadingBreak reports n's LeadingBreak fact (false for a node without one).
+func LeadingBreak(n Markup) bool {
+	l, ok := n.(leadingNode)
+	return ok && l.leading().LeadingBreak
+}
+
+// SetLeadingBreak sets n's LeadingBreak fact; a no-op for a node without one.
+func SetLeadingBreak(n Markup, b bool) {
+	if l, ok := n.(leadingNode); ok {
+		l.leading().LeadingBreak = b
+	}
+}
 func (*Element) goPartNode() {}
 
 // Fragment is <>…</> — siblings without a wrapper.
 type Fragment struct {
 	span
-
+	Leading
 	Children []Markup
+	// ChildrenMultiline records that the source placed a line break immediately
+	// after the `<>`; the formatter preserves that vertical layout.
+	ChildrenMultiline bool
 }
 
 func (*Fragment) markupNode() {}
@@ -346,7 +301,7 @@ func (*Fragment) goPartNode() {}
 // Text is literal character data between markup.
 type Text struct {
 	span
-
+	Leading
 	Value string
 }
 
@@ -357,7 +312,7 @@ func (*Text) markupNode() {}
 // verbatim.
 type Doctype struct {
 	span
-
+	Leading
 	Text string
 }
 
@@ -369,7 +324,7 @@ func (*Doctype) markupNode() {}
 // or conditional comments).
 type HTMLComment struct {
 	span
-
+	Leading
 	Text string
 }
 
@@ -381,7 +336,7 @@ func (*HTMLComment) markupNode() {}
 // pipelines, and editor navigation work with no extra machinery.
 type Marker struct {
 	span
-
+	Leading
 	Name Attr
 }
 
@@ -392,9 +347,10 @@ func (*Marker) markupNode() {}
 // The closing `<?end>` is consumed by the parser and is not a node.
 type MarkerRegion struct {
 	span
-
-	Name     Attr
-	Children []Markup
+	Leading
+	Name              Attr
+	Children          []Markup
+	ChildrenMultiline bool
 }
 
 func (*MarkerRegion) markupNode() {}
@@ -408,11 +364,10 @@ func (*MarkerRegion) markupNode() {}
 // output is `{}`.
 type Comment struct {
 	span
-
-	Text   string
-	Layout CommentLayout // original delimiters and surrounding comment trivia
-	Block  bool          // true = /* */, false = //
-	Bare   bool          // true = bare line-start `//` (no braces); implies Block=false
+	Leading
+	Text  string
+	Block bool // true = /* */, false = //
+	Bare  bool // true = bare line-start `//` (no braces); implies Block=false
 }
 
 func (*Comment) markupNode() {}
@@ -423,7 +378,7 @@ func (*Comment) markupNode() {}
 // there is no try-marker.
 type Interp struct {
 	span
-
+	Leading
 	Expr   string
 	Stages []PipeStage
 	// ExprPos is the position of the first non-whitespace character of the
@@ -532,9 +487,8 @@ func (*SpreadAttr) attrNode() {}
 // MarkupAttr is name={ <markup/> } — markup passed as an attribute value.
 type MarkupAttr struct {
 	span
-	Name   string
-	Value  []Markup
-	Layout BodyLayout
+	Name  string
+	Value []Markup
 }
 
 func (*MarkupAttr) attrNode() {}
@@ -590,7 +544,7 @@ func (*EmbeddedAttr) attrNode() {}
 // always set by the parser; the zero value is invalid.
 type EmbeddedInterp struct {
 	span
-
+	Leading
 	Lang     EmbeddedLang
 	Segments []Markup
 	Stages   []PipeStage
@@ -621,7 +575,7 @@ func (*EmbeddedInterp) goPartNode() {}
 // only by codegen to type-probe and lower the embedded literals and elements.
 type GoBlock struct {
 	span
-
+	Leading
 	Code     string
 	CodePos  token.Pos // first char of Code text in source (NoPos if unavailable)
 	Embedded []GoPart
@@ -634,13 +588,11 @@ func (*GoBlock) markupNode() {}
 // `else` puts its body in Else; no else clause leaves Else nil.
 type IfMarkup struct {
 	span
-
+	Leading
 	Cond         string
 	CondPos      token.Pos // first char of Cond text in source (NoPos if unavailable)
 	CondEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
 	Then         []Markup
-	ThenLayout   BodyLayout
-	ElseLayout   BodyLayout
 	Else         []Markup
 	// ThenMultiline/ElseMultiline record that the source placed a line break
 	// immediately after the then/else body's opening `{`. The formatter preserves
@@ -656,12 +608,11 @@ func (*IfMarkup) markupNode() {}
 // ForMarkup is `{ for Clause { Body } }`. Clause is the raw Go for/range clause.
 type ForMarkup struct {
 	span
-
+	Leading
 	Clause         string
 	ClausePos      token.Pos // first char of Clause text in source (NoPos if unavailable)
 	ClauseEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
 	Body           []Markup
-	Layout         BodyLayout
 	// BodyMultiline records that the source placed a line break immediately after
 	// the body's opening `{`; the formatter preserves that vertical layout.
 	BodyMultiline bool
@@ -672,7 +623,7 @@ func (*ForMarkup) markupNode() {}
 // SwitchMarkup is `{ switch Tag { Cases } }`. Tag is "" for a tagless switch.
 type SwitchMarkup struct {
 	span
-
+	Leading
 	Tag         string
 	TagPos      token.Pos // first char of Tag in source (NoPos for a tagless switch)
 	TagEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
@@ -691,7 +642,6 @@ type CaseClause struct {
 	ListEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
 	Default      bool
 	Body         []Markup
-	Layout       BodyLayout
 	// BodyMultiline records that the source placed a line break immediately
 	// after the `case …:`/`default:` colon; the formatter preserves that
 	// vertical layout (keeping an inline-only body block-formatted) instead of
@@ -912,10 +862,9 @@ func (*OrderedAttrsAttr) attrNode() {}
 // canonical output is `/**/` — the one bare spelling with nothing in it.
 type CommentAttr struct {
 	span
-	Text     string        // inner text, delimiters and wrapping braces stripped, trimmed
-	Block    bool          // true = /* */, false = //
-	Trailing bool          // true = same source line as the previous attribute/comment
-	Layout   CommentLayout // original delimiters and surrounding comment trivia
+	Text     string // inner text, delimiters and wrapping braces stripped, trimmed
+	Block    bool   // true = /* */, false = //
+	Trailing bool   // true = same source line as the previous attribute/comment
 }
 
 func (*CommentAttr) attrNode() {}

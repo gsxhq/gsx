@@ -5,10 +5,12 @@
 package views
 
 component C() {
-{{ level := 2 }}{{ hi := 2 }}<span class={ "base", switch level {
-case hi: "high"
-default: "low"
-} }>x</span>
+	{{ level := 2 }}
+	{{ hi := 2 }}
+	<span class={ "base", switch level {
+	case hi: "high"
+	default: "low"
+	} }>x</span>
 }
 -- invoke --
 C()
@@ -30,19 +32,19 @@ import (
 func C() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:1
+//line input.gsx:4:2
 		level := 2
-//line input.gsx:4:17
+//line input.gsx:5:2
 		hi := 2
-//line input.gsx:4:30
+//line input.gsx:6:2
 		_gsxgw.S("<span")
-		_gsxv0 := /*line input.gsx:4:44*/ "base"
+		_gsxv0 := /*line input.gsx:6:16*/ "base"
 		var _gsxv1 string
-		switch /*line input.gsx:4:59*/ level {
-		case /*line input.gsx:5:6*/ hi:
-			_gsxv1 = /*line input.gsx:5:10*/ "high"
+		switch /*line input.gsx:6:31*/ level {
+		case /*line input.gsx:7:7*/ hi:
+			_gsxv1 = /*line input.gsx:7:11*/ "high"
 		default:
-			_gsxv1 = /*line input.gsx:6:10*/ "low"
+			_gsxv1 = /*line input.gsx:8:11*/ "low"
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))

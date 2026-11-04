@@ -8,15 +8,15 @@ type P struct{ Name string }
 type Holder struct{ Inner P }
 
 component (p P) Meth(n int) {
-<b>{ n }</b>
+	<b>{ n }</b>
 }
 
 component (p *P) PMeth(n int) {
-<i>{ p.Name }{ n }</i>
+	<i>{ p.Name }{ n }</i>
 }
 
 component (p P) Box(children gsx.Node, attrs gsx.Attrs) {
-<div { attrs... }>{ children }</div>
+	<div { attrs... }>{ children }</div>
 }
 
 func helper() gsx.Node {
@@ -25,16 +25,16 @@ func helper() gsx.Node {
 }
 
 component Card(p P) {
-{{ m := P{} }}<m.Meth n={1}/>
-{ for _, m := range []P{{}} { <m.Meth n={2}/> } }
-<p.Meth n={3}/>
-{{ q := p }}<q.Meth n={4}/>
-{ if r := (P{}); true { <r.Meth n={5}/> } }
-{{ pm := &P{Name: "x"} }}<pm.PMeth n={6}/>
-{{ bx := P{} }}<bx.Box data-k="v">kid</bx.Box>
-{{ hd := Holder{} }}<hd.Inner.Meth n={7}/>
-{{ lm := P{} }}{ gsx.Node(<lm.Meth n={8}/>) }
-{ helper() }
+	{{ m := P{} }}<m.Meth n={1}/>
+	{ for _, m := range []P{{}} { <m.Meth n={2}/> } }
+	<p.Meth n={3}/>
+	{{ q := p }}<q.Meth n={4}/>
+	{ if r := (P{}); true { <r.Meth n={5}/> } }
+	{{ pm := &P{Name: "x"} }}<pm.PMeth n={6}/>
+	{{ bx := P{} }}<bx.Box data-k="v">kid</bx.Box>
+	{{ hd := Holder{} }}<hd.Inner.Meth n={7}/>
+	{{ lm := P{} }}{ gsx.Node(<lm.Meth n={8}/>) }
+	{ helper() }
 }
 -- invoke --
 Card(P{})
@@ -60,10 +60,10 @@ func (p P) Meth(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
-//line input.gsx:10:1
+//line input.gsx:10:2
 		_gsxgw.S("<b>")
-//line input.gsx:10:4
-		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:10:6*/ n))
+//line input.gsx:10:5
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:10:7*/ n))
 		_gsxgw.S("</b>")
 		return _gsxgw.Err()
 	})
@@ -74,12 +74,12 @@ func (p *P) PMeth(n int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
-//line input.gsx:14:1
+//line input.gsx:14:2
 		_gsxgw.S("<i>")
-//line input.gsx:14:4
-		_gsxgw.Text(string( /*line input.gsx:14:6*/ p.Name))
-//line input.gsx:14:14
-		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:14:16*/ n))
+//line input.gsx:14:5
+		_gsxgw.Text(string( /*line input.gsx:14:7*/ p.Name))
+//line input.gsx:14:15
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:14:17*/ n))
 		_gsxgw.S("</i>")
 		return _gsxgw.Err()
 	})
@@ -89,14 +89,14 @@ func (p *P) PMeth(n int) _gsxrt.Node {
 func (p P) Box(children gsx.Node, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:18:1
+//line input.gsx:18:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, "div", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
 		_gsxgw.S(">")
-//line input.gsx:18:19
-		_gsxgw.Node(ctx /*line input.gsx:18:21*/, children)
+//line input.gsx:18:20
+		_gsxgw.Node(ctx /*line input.gsx:18:22*/, children)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
@@ -118,74 +118,56 @@ func helper() gsx.Node {
 func Card(p P) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:27:1
+//line input.gsx:27:2
 		m := P{}
-//line input.gsx:27:15
-		_gsxgw.Node(ctx, m.Meth( /*line input.gsx:27:26*/ 1))
-		_gsxgw.S("\n")
-//line input.gsx:28:1
-		for /*line input.gsx:28:7*/ _, m := range []P{{}} {
-//line input.gsx:28:31
-			_gsxgw.Node(ctx, m.Meth( /*line input.gsx:28:42*/ 2))
+//line input.gsx:27:16
+		_gsxgw.Node(ctx, m.Meth( /*line input.gsx:27:27*/ 1))
+//line input.gsx:28:2
+		for /*line input.gsx:28:8*/ _, m := range []P{{}} {
+//line input.gsx:28:32
+			_gsxgw.Node(ctx, m.Meth( /*line input.gsx:28:43*/ 2))
 		}
-		_gsxgw.S("\n")
-//line input.gsx:29:1
-		_gsxgw.Node(ctx, p.Meth( /*line input.gsx:29:12*/ 3))
-		_gsxgw.S("\n")
-//line input.gsx:30:1
+//line input.gsx:29:2
+		_gsxgw.Node(ctx, p.Meth( /*line input.gsx:29:13*/ 3))
+//line input.gsx:30:2
 		q := p
-//line input.gsx:30:13
-		_gsxgw.Node(ctx, q.Meth( /*line input.gsx:30:24*/ 4))
-		_gsxgw.S("\n")
-//line input.gsx:31:1
-		if /*line input.gsx:31:6*/ r := (P{}); true {
-//line input.gsx:31:25
-			_gsxgw.Node(ctx, r.Meth( /*line input.gsx:31:36*/ 5))
+//line input.gsx:30:14
+		_gsxgw.Node(ctx, q.Meth( /*line input.gsx:30:25*/ 4))
+//line input.gsx:31:2
+		if /*line input.gsx:31:7*/ r := (P{}); true {
+//line input.gsx:31:26
+			_gsxgw.Node(ctx, r.Meth( /*line input.gsx:31:37*/ 5))
 		}
-		_gsxgw.S("\n")
-//line input.gsx:32:1
+//line input.gsx:32:2
 		pm := &P{Name: "x"}
-//line input.gsx:32:26
-		_gsxgw.Node(ctx, pm.PMeth( /*line input.gsx:32:39*/ 6))
-		_gsxgw.S("\n")
-//line input.gsx:33:1
+//line input.gsx:32:27
+		_gsxgw.Node(ctx, pm.PMeth( /*line input.gsx:32:40*/ 6))
+//line input.gsx:33:2
 		bx := P{}
-//line input.gsx:33:16
+//line input.gsx:33:17
 		_gsxgw.Node(ctx, bx.Box(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("kid")
 			return _gsxgw.Err()
 		}), _gsxrt.Attrs{{Key: "data-k", Value: "v"}}))
-		_gsxgw.S("\n")
-//line input.gsx:34:1
+//line input.gsx:34:2
 		hd := Holder{}
-//line input.gsx:34:21
-		_gsxgw.Node(ctx, hd.Inner.Meth( /*line input.gsx:34:39*/ 7))
-		_gsxgw.S("\n")
-//line input.gsx:35:1
+//line input.gsx:34:22
+		_gsxgw.Node(ctx, hd.Inner.Meth( /*line input.gsx:34:40*/ 7))
+//line input.gsx:35:2
 		lm := P{}
-//line input.gsx:35:16
-		_gsxgw.Node(ctx /*line input.gsx:35:18*/, gsx.Node(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+//line input.gsx:35:17
+		_gsxgw.Node(ctx /*line input.gsx:35:19*/, gsx.Node(_gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:35:27
-			_gsxgw.Node(ctx, lm.Meth( /*line input.gsx:35:39*/ 8))
+//line input.gsx:35:28
+			_gsxgw.Node(ctx, lm.Meth( /*line input.gsx:35:40*/ 8))
 			return _gsxgw.Err()
-		}) /*line input.gsx:35:43*/))
-		_gsxgw.S("\n")
-//line input.gsx:36:1
-		_gsxgw.Node(ctx /*line input.gsx:36:3*/, helper())
+		}) /*line input.gsx:35:44*/))
+//line input.gsx:36:2
+		_gsxgw.Node(ctx /*line input.gsx:36:4*/, helper())
 		return _gsxgw.Err()
 	})
 }
 -- diagnostics.golden --
 -- render.golden --
-<b>1</b>
-<b>2</b>
-<b>3</b>
-<b>4</b>
-<b>5</b>
-<i>x6</i>
-<div data-k="v">kid</div>
-<b>7</b>
-<b>8</b>
-<b>9</b>
+<b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><i>x6</i><div data-k="v">kid</div><b>7</b><b>8</b><b>9</b>

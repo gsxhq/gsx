@@ -30,7 +30,4 @@ component Page(s string, n int) {
 Page("s", 2)
 -- diagnostics.golden --
 -- render.golden --
-<div><s>s</s></div>
-	<div><b><s>2</s></b></div>
-	<div><s>lit</s></div>
-	<div data-x="1"><div><s>s</s></div></div>
+<div><s>s</s></div><div><b><s>2</s></b></div><div><s>lit</s></div><div data-x="1"><div><s>s</s></div></div>

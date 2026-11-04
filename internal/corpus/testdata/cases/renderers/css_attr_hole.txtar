@@ -39,8 +39,8 @@ import (
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
 component Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) {
-<div data-style=css`color:@{ val }`>inline</div>
-<div { a... } data-style=css`color:@{ val }` { b... }>fold</div>
+	<div data-style=css`color:@{ val }`>inline</div>
+	<div { a... } data-style=css`color:@{ val }` { b... }>fold</div>
 }
 -- invoke --
 Tag(mkText("@import url(evil.css)", true), nil, nil)
@@ -67,13 +67,13 @@ func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: val
 func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:1
+//line input.gsx:11:2
 		_gsxgw.S("<div data-style=\"color:")
-		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf0.PgColor(( /*line input.gsx:11:30*/ val)))))
-		_gsxgw.S("\">inline</div>\n")
-//line input.gsx:12:1
-		_gsxv0 := /*line input.gsx:12:8*/ a
-		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "data-style", Value: "color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor(( /*line input.gsx:12:39*/ val))))}} /*line input.gsx:12:48*/, b)
+		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf0.PgColor(( /*line input.gsx:11:31*/ val)))))
+		_gsxgw.S("\">inline</div>")
+//line input.gsx:12:2
+		_gsxv0 := /*line input.gsx:12:9*/ a
+		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "data-style", Value: "color:" + _gsxrt.FilterCSS(string(_gsxf0.PgColor(( /*line input.gsx:12:40*/ val))))}} /*line input.gsx:12:49*/, b)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
 		_gsxgw.StyleMerged("", _gsxv1.Style())
@@ -83,5 +83,4 @@ func Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) _gsxrt.Node {
 	})
 }
 -- render.golden --
-<div data-style="color:ZgotmplZ">inline</div>
-<div data-style="color:ZgotmplZ">fold</div>
+<div data-style="color:ZgotmplZ">inline</div><div data-style="color:ZgotmplZ">fold</div>

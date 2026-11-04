@@ -48,7 +48,9 @@ func Flush() gsx.Node {
 package views
 
 component Page() {
-<p>above the fold</p><Flush/><p>the slow tail</p>
+	<p>above the fold</p>
+	<Flush/>
+	<p>the slow tail</p>
 }
 -- invoke --
 Page()
@@ -69,11 +71,11 @@ import (
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:4:1
+//line input.gsx:4:2
 		_gsxgw.S("<p>above the fold</p>")
-//line input.gsx:4:22
+//line input.gsx:5:2
 		_gsxgw.Node(ctx, Flush())
-//line input.gsx:4:30
+//line input.gsx:6:2
 		_gsxgw.S("<p>the slow tail</p>")
 		return _gsxgw.Err()
 	})

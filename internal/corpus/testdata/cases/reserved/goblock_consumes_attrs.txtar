@@ -8,7 +8,8 @@ package views
 
 import "github.com/gsxhq/gsx"
 component Field(name string, attrs gsx.Attrs) {
-{{ d := attrs.Has("class") }}<input name={name} data-has-class={d}/>
+	{{ d := attrs.Has("class") }}
+	<input name={name} data-has-class={d}/>
 }
 -- invoke --
 Field("x", gsx.Attrs{{Key: "class", Value: "y"}})
@@ -31,13 +32,13 @@ import (
 func Field(name string, attrs gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:1
+//line input.gsx:6:2
 		d := attrs.Has("class")
-//line input.gsx:6:30
+//line input.gsx:7:2
 		_gsxgw.S("<input name=\"")
-		_gsxgw.AttrValue(string( /*line input.gsx:6:43*/ name))
+		_gsxgw.AttrValue(string( /*line input.gsx:7:15*/ name))
 		_gsxgw.S("\"")
-		_gsxgw.BoolAttr("data-has-class", bool( /*line input.gsx:6:65*/ d))
+		_gsxgw.BoolAttr("data-has-class", bool( /*line input.gsx:7:37*/ d))
 		_gsxgw.S(">")
 		return _gsxgw.Err()
 	})

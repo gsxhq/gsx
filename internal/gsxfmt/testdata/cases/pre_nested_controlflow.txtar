@@ -49,7 +49,7 @@ mid
 	case 0:
 		<i>empty</i>
 	default:
-			<i>a</i>
+		<i>a</i>
 raw
 <i>b</i>
 	} }</pre>

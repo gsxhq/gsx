@@ -9,7 +9,7 @@ import (
 // brace-nested deeper, closing delimiter attached to the last line.
 func TestEmbeddedAttrJSReindented(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\n\topen: false,\n\titems() {\n\t\treturn 1;\n\t}\n}\" class=\"c\"/>\n}\n"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,11 +36,11 @@ func TestEmbeddedAttrJSReindented(t *testing.T) {
 
 func TestEmbeddedAttrIdempotent(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\nopen: false,\n}\"/>\n}\n"
-	once, err := printSource(t, src)
+	once, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	twice, err := printSource(t, once)
+	twice, err := normPrint(t, once)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestEmbeddedAttrIdempotent(t *testing.T) {
 
 func TestEmbeddedAttrHolePreserved(t *testing.T) {
 	src := "package p\n\ncomponent C(id string) {\n\t<form x-data=js\"{\nurl: '@{id}',\nk: 1,\n}\"/>\n}\n"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestEmbeddedAttrDelimiterRoundTrip(t *testing.T) {
 	// js"…" value whose JS contains a double-quoted string → the inner `"` is
 	// escaped in source; after fmt it must still be escaped and re-parse.
 	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\nmsg: \\\"hi\\\",\nk: 1,\n}\"/>\n}\n"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestEmbeddedAttrDelimiterRoundTrip(t *testing.T) {
 		t.Fatalf("inner delimiter not re-escaped:\n%s", out)
 	}
 	// re-parse must succeed (idempotence test covers structural stability).
-	if _, err := printSource(t, out); err != nil {
+	if _, err := normPrint(t, out); err != nil {
 		t.Fatalf("reparse failed: %v\n%s", err, out)
 	}
 }
@@ -81,7 +81,7 @@ func TestEmbeddedAttrDelimiterRoundTrip(t *testing.T) {
 // A single-line js"…" value is left inline, unchanged.
 func TestEmbeddedAttrSingleLineStaysInline(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{open:false}\"/>\n}\n"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestEmbeddedAttrSingleLineStaysInline(t *testing.T) {
 func TestEmbeddedAttrCSSReindented(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<div style=css`\ncolor: red;\nmargin: 0;\n`/>\n}\n"
 	want := "package p\n\ncomponent C() {\n\t<div\n\t\tstyle=css`\n\t\t\tcolor: red;\n\t\t\tmargin: 0;\n\t\t`\n\t/>\n}\n"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestEmbeddedAttrCSSReindented(t *testing.T) {
 // End-to-end: the motivating Alpine x-data blob converted to js"…".
 func TestEmbeddedAttrXDataEndToEnd(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\n\topen: false,\n\tactive: -1,\n\tmoveActive(d) {\n\t\tif (!this.open) return;\n\t},\n}\"/>\n}\n"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,14 +131,14 @@ func TestEmbeddedAttrXDataEndToEnd(t *testing.T) {
 // interior emitted VERBATIM (no injected indent) and be idempotent.
 func TestEmbeddedAttrTemplateLiteralVerbatim(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\nhtml: `<div>\nhi\n</div>`,\nk: 1,\n}\"/>\n}\n"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "`<div>\nhi\n</div>`") {
 		t.Fatalf("template-literal interior re-indented (should be verbatim):\n%s", out)
 	}
-	twice, err := printSource(t, out)
+	twice, err := normPrint(t, out)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -81,7 +81,7 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	}
 	bodyOpen := p.i
 	p.i++ // past body '{'
-	nodes, layout, err := p.parseMarkupUntilClose("component body")
+	nodes, err := p.parseMarkupUntilClose("component body")
 	if err != nil {
 		// A nested markup error may leave the cursor inside the component. Advance
 		// to its markup-aware body boundary before file recovery, or the broken
@@ -92,7 +92,6 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 		return nil, err
 	}
 	c.Body = nodes
-	c.Layout = layout
 	ast.SetSpan(c, startPos, p.posAt(p.i))
 	return c, nil
 }

@@ -52,14 +52,6 @@ diagnostics — **must** have a `render.golden` section.  If it is missing and
 you are not running with `-update`, `TestCorpus` fatals (`corpus_test.go:111-113`).
 Run `-update` to generate it.
 
-Rendered HTML is compared byte for byte, including all leading, interior and
-trailing whitespace. A nonempty `render.golden` section contains the exact HTML
-followed by **one additional framing LF**. That final LF belongs to the archive;
-it is removed when reading the golden. Thus output `x` is stored as `x\n`, while
-output `x\n` is stored as `x\n\n`. Empty output uses an empty section. Regenerate
-these sections instead of trimming or adding newlines by hand. Structural HTML
-comparison supplies diagnostics only; it cannot make different bytes pass.
-
 ## Diagnostics format
 
 Each diagnostic line follows the convention:
@@ -177,3 +169,12 @@ total; `make cover-html` additionally opens the line-by-line HTML report.  The
 `-coverpkg` flag is the point: the corpus drives `internal/codegen` in-process,
 so cross-package attribution counts that real end-to-end exercise toward the
 compiler's coverage rather than reporting only unit-test artefacts.
+
+## Exact rendered output
+
+Render goldens compare exact bytes. A nonempty `render.golden` section stores
+HTML followed by one additional framing LF; decoding removes exactly that LF.
+Thus output `x` is stored as `x\n`, while output ending in LF is stored as
+`x\n\n`. Empty output uses an empty section. Structural HTML comparison is
+only a diagnostic aid and cannot make different output bytes pass. Regenerate
+render goldens with the harness rather than editing their whitespace by hand.

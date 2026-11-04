@@ -6,7 +6,6 @@ import (
 	"go/token"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -311,17 +310,5 @@ func TestClassPartExprEnd(t *testing.T) {
 				t.Fatalf("ExprEnd() = %d, want %d", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestSourceLayout(t *testing.T) {
-	const text = "// note\r\npackage p\n\tvar 一 = 1\n"
-	layout := NewSourceLayout(text, token.Pos(17))
-	pos := token.Pos(17 + strings.Index(text, "一"))
-	if value, ok := layout.Slice(pos, pos+3); !ok || value != "一" {
-		t.Fatalf("slice=%q ok=%v", value, ok)
-	}
-	if _, ok := layout.Slice(1, 2); ok {
-		t.Fatal("accepted foreign source span")
 	}
 }

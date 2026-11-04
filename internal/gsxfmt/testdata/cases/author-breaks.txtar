@@ -1,6 +1,9 @@
-Authored newlines between markup siblings remain literal Text in every
-children-list context. Syntactic case-body edge layout remains separately
-recorded by BodyMultiline. Prose line breaks are preserved too.
+Author breaks adjacent to markup are never joined (spec amendment
+2026-07-24b): a line break the source places before an element/interp sibling
+(LeadingBreak) or after a `case …:`/`default:` colon (BodyMultiline) is
+preserved in every markup-list context, while the same content written inline
+stays inline. Prose word-wrap points are the one author break the formatter
+does NOT keep — word-gap-wrap.txtar pins that reflow.
 
 -- input.gsx --
 package p
@@ -72,8 +75,8 @@ component SwitchArmsStayPerLine(kind string) {
 	<span>
 		{ switch kind {
 		case "warn":
-				<b>warning</b>
-				<br/>
+			<b>warning</b>
+			<br/>
 		case "err":
 			<b>error</b>
 		default:

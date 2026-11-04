@@ -10,10 +10,11 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
 
-// fmtSource parses and prints src, returning the canonical output.
+// fmtSource parses, normalizes, and prints src, returning the canonical output.
 func fmtSource(t *testing.T, src string) string {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -21,7 +22,7 @@ func fmtSource(t *testing.T, src string) string {
 	if err != nil {
 		t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
 	}
-
+	wsnorm.Normalize(f)
 	var b strings.Builder
 	if err := Fprint(&b, f, 80, pretty.DefaultTabWidth); err != nil {
 		t.Fatalf("Fprint error: %v", err)
@@ -29,6 +30,8 @@ func fmtSource(t *testing.T, src string) string {
 	return b.String()
 }
 
+// checkFormat asserts the canonical output equals want, and that printing is
+// idempotent (re-parse + Normalize + Fprint of the output is byte-identical).
 func checkFormat(t *testing.T, src, want string) {
 	t.Helper()
 	got := fmtSource(t, src)
@@ -49,7 +52,7 @@ func assertFormat(t *testing.T, src, want string) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-
+	wsnorm.Normalize(f)
 	var b bytes.Buffer
 	if err := Fprint(&b, f, 80, pretty.DefaultTabWidth); err != nil {
 		t.Fatalf("print: %v", err)
@@ -58,8 +61,9 @@ func assertFormat(t *testing.T, src, want string) {
 	if got != want {
 		t.Fatalf("format mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
-	if !reflect.DeepEqual(contentAST(t, src), contentAST(t, want)) {
-		t.Fatalf("assertFormat: formatting changed the content AST (not faithful)\nsrc:\n%s\nwant:\n%s", src, want)
+	// Faithfulness: formatting must not change the normalized AST.
+	if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, want)) {
+		t.Fatalf("assertFormat: formatting changed the normalized AST (not faithful)\nsrc:\n%s\nwant:\n%s", src, want)
 	}
 	// Idempotence: formatting want again must yield want.
 	again := fmtSource(t, want)
@@ -69,6 +73,7 @@ func assertFormat(t *testing.T, src, want string) {
 }
 
 func TestElementBlock(t *testing.T) {
+	// Block-level children always break to show hierarchy — structural breaking.
 	src := `package p
 component C() {
 	<div>
@@ -121,6 +126,10 @@ component C() {
 }
 
 func TestElementInlineTextAndElement(t *testing.T) {
+	// Text + element child: <b> is now an inline atom (not block-level), so an
+	// all-inline children list no longer forces the parent open — it stays on
+	// one line since it fits (render-free: same bytes, one joint's line break
+	// removed).
 	src := `package p
 component C() {
 	<p>a <b>x</b> b</p>
@@ -147,6 +156,12 @@ component C() {
 	<img src="x.png"/>
 }
 `
+	// Void inline tags with no children are atoms (per spec), and direct
+	// adjacency between them is normally a safe gap the Fill is free to pack
+	// onto one line. But the author placed a line break between them here
+	// (amendment 2026-07-24b): Element.LeadingBreak preserves it — an
+	// author's break next to markup is never silently joined, in the
+	// component's own top-level body same as any element's children list.
 	checkFormat(t, src, want)
 }
 
@@ -181,7 +196,9 @@ component C() {
 		class={ "card", "active": isActive }
 		data-x={val}
 		{ rest... }
-	>{ children }</div>
+	>
+		{ children }
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -218,7 +235,9 @@ component C(v int) {
 				"gray-gray-gray-gray-gray-gray-gray"
 			}
 		}
-	>x</div>
+	>
+		x
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -241,7 +260,9 @@ component C() {
 		} else {
 			class="off"
 		} }
-	>x</div>
+	>
+		x
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -356,6 +377,17 @@ component C(id string) {
 	checkFormat(t, src, want)
 }
 
+// A multi-line embedded-attribute body is now re-indented by the configured
+// JS formatter (Task 2: printer — format multi-line js`/css` attribute
+// values), superseding the pre-Task-2 verbatim-preservation behavior this
+// test used to pin. jsfmt treats `{ open: @{open} }` as a single flat
+// top-level block (no outer nesting), so it gets zero extra indent from
+// jsfmt itself — but the author wrote it on its own line (blank line before
+// `{`), which is exactly the block-layout signal (formatted body starts with
+// a newline): delimiters stand alone and the body is indented one level
+// under the attribute, same shape as the CSS declaration-list case. The
+// opening tag and children break in symmetry per the existing
+// ChildrenMultiline convention once the attribute value forces a hard break.
 func TestEmbeddedAttrMultilineReindented(t *testing.T) {
 	src := `package p
 component C(open bool) {
@@ -363,13 +395,27 @@ component C(open bool) {
 		{ open: @{ open } }
 	` + "`" + `>x</div>
 }`
-	want := "package p\n\ncomponent C(open bool) {\n\t<div\n\t\tx-data=js`\n\t\t\t{ open: @{open} }\n\t\t`\n\t>x</div>\n}\n"
+	want := `package p
+
+component C(open bool) {
+	<div
+		x-data=js` + "`" + `
+			{ open: @{open} }
+		` + "`" + `
+	>
+		x
+	</div>
+}
+`
 	checkFormat(t, src, want)
 }
 
+// An author-broken attribute list stays broken even though it fits the print
+// width — the opening-tag symmetry of ChildrenMultiline. An inline list is left
+// inline. checkFormat also asserts idempotence.
 func TestElementAttrsMultilinePreserved(t *testing.T) {
 	broken := "package p\n\ncomponent C() {\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"x\"\n\t>?</a>\n}\n"
-	brokenWant := "package p\n\ncomponent C() {\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"x\"\n\t>?</a>\n}\n"
+	brokenWant := "package p\n\ncomponent C() {\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"x\"\n\t>\n\t\t?\n\t</a>\n}\n"
 	checkFormat(t, broken, brokenWant)
 
 	inline := "package p\n\ncomponent C() {\n\t<a href=\"/help\" class=\"x\">?</a>\n}\n"
@@ -395,7 +441,14 @@ func TestComposedStyleCSSLiteralPart(t *testing.T) {
 component C(color string, hidden bool) {
 	<div style={ "display:none": hidden, css` + "`" + `color:@{ color };content:"\` + "`" + `"` + "`" + ` }>x</div>
 }`
-	want := "package p\n\ncomponent C(color string, hidden bool) {\n\t<div style={ \"display:none\": hidden, css`color:@{color};content:\"\\`\"` }>x</div>\n}\n"
+	want := `package p
+
+component C(color string, hidden bool) {
+	<div style={ "display:none": hidden, css` + "`" + `color:@{color};content:"\` + "`" + `"` + "`" + ` }>
+		x
+	</div>
+}
+`
 	checkFormat(t, src, want)
 }
 
@@ -494,6 +547,9 @@ component C(v string) {
 }
 
 func TestIfElseIfElse(t *testing.T) {
+	// An if-else-if-else with block children in each arm: the if body has
+	// block-level children so each arm breaks, and the containing <div>
+	// shows hierarchy too.
 	src := `package p
 component C() {
 	<div>
@@ -504,7 +560,13 @@ component C() {
 
 component C() {
 	<div>
-		{ if a { <p>A</p> } else if b { <p>B</p> } else { <p>C</p> } }
+		{ if a {
+			<p>A</p>
+		} else if b {
+			<p>B</p>
+		} else {
+			<p>C</p>
+		} }
 	</div>
 }
 `
@@ -512,6 +574,8 @@ component C() {
 }
 
 func TestForMarkup(t *testing.T) {
+	// A for-range body with a block-level child always breaks to show hierarchy.
+	// The containing <ul> also breaks because it has a block-level child (the for).
 	src := `package p
 component C() {
 	<ul>
@@ -522,7 +586,9 @@ component C() {
 
 component C() {
 	<ul>
-		{ for _, it := range items { <li>{ it.Name }</li> } }
+		{ for _, it := range items {
+			<li>{ it.Name }</li>
+		} }
 	</ul>
 }
 `
@@ -530,6 +596,8 @@ component C() {
 }
 
 func TestSwitchMarkup(t *testing.T) {
+	// Switch arms with block-level children always break to show hierarchy.
+	// The containing <div> also breaks because it has a block-level child (switch).
 	src := `package p
 component C() {
 	<div>
@@ -692,6 +760,9 @@ func TestTextareaVerbatim(t *testing.T) {
 }
 
 func TestNestedBlockInline(t *testing.T) {
+	// Outer block has block-level children (two <p> elements) → always breaks.
+	// Inner <p>'s text+atom children are inline-only, so it no longer forces
+	// open — it stays on one line since it fits (render-free).
 	src := `package p
 component C() {
 	<div>
@@ -753,6 +824,14 @@ func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
 }
 
 func TestBlockBreaksMixedTextControlFlow(t *testing.T) {
+	// The reported bug: a long <p> with text + interp + an if must break at the
+	// safe boundary (Interp|IfMarkup), keeping "· <a>…</a>" glued by its space.
+	// Canonical output: interp content gains spaces ({ expr }), ExprAttr has none
+	// ({expr}). <a> now qualifies as an inline atom (tag "a", single Interp
+	// child, no forced break in its attrs) — atoms are fully atomic (per
+	// atomDoc/TestAtomDoc, already merged) and render flat even though the
+	// assembled line is 114 cols, well over the 80 budget; render-free (no
+	// bytes change, only which line the content sits on).
 	src := `package p
 component C() {
 	<p class="text-sm text-slate-500">
@@ -768,10 +847,7 @@ component C() {
 	<p class="text-sm text-slate-500">
 		by { props.Author.Username }
 		{ if props.Category.Slug != "" {
-			· <a
-				class="hover:underline"
-				href={categoryPage{} |> url("slug", props.Category.Slug)}
-			>{ props.Category.Name }</a>
+			· <a class="hover:underline" href={categoryPage{} |> url("slug", props.Category.Slug)}>{ props.Category.Name }</a>
 		} }
 	</p>
 }
@@ -780,19 +856,23 @@ component C() {
 }
 
 func TestCfBodyEdgeUnsafeStaysFaithful(t *testing.T) {
+	// A control-flow body that is a single space-bearing Text must stay flat
+	// even when the enclosing if is long: breaking would absorb the significant
+	// leading/trailing spaces and change the normalized AST.
 	src := `package p
 component C() {
 	{ if veryLongConditionNameThatWouldForceTheEnclosingGroupToBreakAcrossEightyColumns { some text } }
 }`
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatalf("print: %v", err)
 	}
-	if !reflect.DeepEqual(contentAST(t, src), contentAST(t, out)) {
-		t.Fatalf("cfBody break changed content AST (unfaithful):\n%s", out)
+	// Faithful: formatting must not change the normalized AST.
+	if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, out)) {
+		t.Fatalf("cfBody break changed normalized AST (unfaithful):\n%s", out)
 	}
 	// Idempotent.
-	out2, err := printSource(t, out)
+	out2, err := normPrint(t, out)
 	if err != nil {
 		t.Fatalf("reprint: %v", err)
 	}
@@ -802,6 +882,8 @@ component C() {
 }
 
 func TestBlockShowsHierarchy(t *testing.T) {
+	// A block-containing element always breaks to show hierarchy regardless of
+	// whether the content fits within 80 columns — structural breaking.
 	src := `package p
 component C() {
 	<div>
@@ -820,6 +902,12 @@ component C() {
 }
 
 func TestAttrWrapOnConditionalAttr(t *testing.T) {
+	// A CondAttr forces the opening tag to break, one attr per line, > alone.
+	// The two Interp children are joined by a safe gap (direct adjacency, no
+	// space between); the children Fill packs them greedily by width — it does
+	// not inherit the ancestor's forced break — so they stay on one line since
+	// they fit (render-free: same bytes as separate lines, per the design's
+	// "Fill inside still packs greedily" rule).
 	src := `package p
 component C(p Props) {
 	<a { if p.ID != "" { id={ p.ID } } } href={ p.Href } class={ buttonClass(p) } { p.Attributes... }>{ children }{ name }</a>
@@ -834,7 +922,9 @@ component C(p Props) {
 		href={p.Href}
 		class={ buttonClass(p) }
 		{ p.Attributes... }
-	>{ children }{ name }</a>
+	>
+		{ children }{ name }
+	</a>
 }
 `
 	assertFormat(t, src, want)
@@ -854,7 +944,7 @@ component C() {
 	assertFormat(t, src, want)
 }
 
-// format80 parses and Fprintfs src at width 80, returning the
+// format80 parses, normalizes, and Fprintfs src at width 80, returning the
 // canonical output. Used by comment-fidelity tests that need a bytes.Buffer.
 func format80(t *testing.T, src string) string {
 	t.Helper()
@@ -863,7 +953,7 @@ func format80(t *testing.T, src string) string {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-
+	wsnorm.Normalize(f)
 	var b bytes.Buffer
 	if err := Fprint(&b, f, 80, pretty.DefaultTabWidth); err != nil {
 		t.Fatalf("print: %v", err)
@@ -937,7 +1027,9 @@ component C() {
 		class="space-y-4 mt-6"
 		id="contact-form"
 		novalidate
-	>Submit</form>
+	>
+		Submit
+	</form>
 }
 `
 	assertFormat(t, src, want)
@@ -953,6 +1045,10 @@ component C() {
 	}
 }
 
+// TestDSButtonAcceptance verifies the ds/button pattern: CondAttr forces the
+// opening tag to break (one attr per line); when the tag breaks, children also
+// break to their own indented line. Strengthened assertFormat enforces
+// faithfulness + idempotence.
 func TestDSButtonAcceptance(t *testing.T) {
 	src := `package ds
 
@@ -969,7 +1065,9 @@ component Button(p Props) {
 		href={p.Href}
 		class={ buttonClass(p) }
 		{ p.Attributes... }
-	>{ children }</a>
+	>
+		{ children }
+	</a>
 }
 `
 	assertFormat(t, src, want)
@@ -1004,7 +1102,9 @@ component Message(p MessageProps) {
 			)
 		}
 		{ p.Attributes... }
-	>{ children }</p>
+	>
+		{ children }
+	</p>
 }
 `
 	assertFormat(t, src, want)
@@ -1012,18 +1112,18 @@ component Message(p MessageProps) {
 
 func TestComponentBodyEdgeUnsafeStaysFaithful(t *testing.T) {
 	src := "package p\n\ncomponent C() { foo }"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
-		t.Fatalf("printSource: %v", err)
+		t.Fatalf("normPrint: %v", err)
 	}
-	want := contentAST(t, src)
-	got := contentAST(t, out)
+	want := normalizedAST(t, src)
+	got := normalizedAST(t, out)
 	if !reflect.DeepEqual(want, got) {
 		t.Fatalf("not faithful:\n  src=%q\n  out=%q", src, out)
 	}
-	out2, err := printSource(t, out)
+	out2, err := normPrint(t, out)
 	if err != nil {
-		t.Fatalf("printSource(out2): %v", err)
+		t.Fatalf("normPrint(out2): %v", err)
 	}
 	if out != out2 {
 		t.Fatalf("not idempotent:\n  out =%q\n  out2=%q", out, out2)
@@ -1032,25 +1132,27 @@ func TestComponentBodyEdgeUnsafeStaysFaithful(t *testing.T) {
 
 func TestSwitchArmEdgeUnsafeStaysFaithful(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n{ switch k { case \"a\": foo } }\n}"
-	out, err := printSource(t, src)
+	out, err := normPrint(t, src)
 	if err != nil {
-		t.Fatalf("printSource: %v", err)
+		t.Fatalf("normPrint: %v", err)
 	}
-	want := contentAST(t, src)
-	got := contentAST(t, out)
+	want := normalizedAST(t, src)
+	got := normalizedAST(t, out)
 	if !reflect.DeepEqual(want, got) {
 		t.Fatalf("not faithful:\n  src=%q\n  out=%q", src, out)
 	}
-	out2, err := printSource(t, out)
+	out2, err := normPrint(t, out)
 	if err != nil {
-		t.Fatalf("printSource(out2): %v", err)
+		t.Fatalf("normPrint(out2): %v", err)
 	}
 	if out != out2 {
 		t.Fatalf("not idempotent:\n  out =%q\n  out2=%q", out, out2)
 	}
 }
 
-func TestTouchingBlockChildStaysTouching(t *testing.T) {
+func TestSingleBlockChildBreaks(t *testing.T) {
+	// A container whose only child is a block-level `for` must put it on its own
+	// line — the `<div>`/`</div>` must not jam onto the for lines.
 	src := `package p
 component C(props P) {
 	<div class="space-y-4">
@@ -1208,6 +1310,12 @@ component Page() {
 }
 
 func TestClassMapWraps(t *testing.T) {
+	// <span> with a bare-Text child and no forced break anywhere qualifies as
+	// an inline atom (per atomDoc, already merged): atomDoc's Flat() gate
+	// unwraps the class map's own Group to its one-line form unconditionally
+	// (TestAtomDoc pins this exact shape at width 10), so the whole element —
+	// attrs included — renders flat regardless of width. Render-free: the
+	// class map's entries are unchanged, only the line-break placement is.
 	src := `package p
 component C(v int) {
 	<span class={ "base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1, "gray-cccccccccccccccccccccccc": v != 1 }>x</span>
@@ -1215,19 +1323,16 @@ component C(v int) {
 	want := `package p
 
 component C(v int) {
-	<span
-		class={
-			"base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1,
-			"gray-cccccccccccccccccccccccc": v != 1
-		}
-	>x</span>
+	<span class={ "base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1, "gray-cccccccccccccccccccccccc": v != 1 }>x</span>
 }
 `
 	assertFormat(t, src, want)
 }
 
 func TestValueFormSwitchLayout(t *testing.T) {
+	// Same atom-flattening as TestClassMapWraps: <span>'s switch-valued class
+	// attr has no forced break (Go switch syntax is one-line-legal), so
+	// atomDoc's Flat() collapses it too.
 	src := `package p
 component C(v int) {
 	<span class={ "base", switch v { case 1: "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" default: "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } }>x</span>
@@ -1235,17 +1340,7 @@ component C(v int) {
 	want := `package p
 
 component C(v int) {
-	<span
-		class={
-			"base",
-			switch v {
-			case 1:
-				"green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			default:
-				"gray-bbbbbbbbbbbbbbbbbbbbbbbb"
-			}
-		}
-	>x</span>
+	<span class={ "base", switch v { case 1: "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" default: "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } }>x</span>
 }
 `
 	assertFormat(t, src, want)
@@ -1394,8 +1489,13 @@ func TestFmtContentBlockComment(t *testing.T) {
 }
 
 func TestFmtContentLineComment(t *testing.T) {
+	// The {// } line form must print with } on its own line (a one-line
+	// {// text } would let the // swallow the closing brace on reparse). The
+	// comment-Interp and "Visible" are joined by a safe gap (direct adjacency,
+	// no space in source); the Fill packs "Visible" right after the "}" since
+	// it fits there — render-free (safe gap, flat="").
 	src := "package p\ncomponent C() {\n\t<p>{// hidden\n\t}Visible</p>\n}\n"
-	want := "package p\n\ncomponent C() {\n\t<p>{// hidden\n\t\t}Visible</p>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<p>\n\t\t{// hidden\n\t\t}Visible\n\t</p>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1432,7 +1532,7 @@ func TestIfInlineBodyStaysInlineWhenAuthorInline(t *testing.T) {
 	// The <div> still breaks structurally (the `if` is a block child), but the
 	// author-inline if body is NOT expanded — only author line breaks are honored.
 	src := "package p\ncomponent C(viewing *int) {\n\t<div>{ if viewing != nil { { *viewing } } }</div>\n}\n"
-	want := "package p\n\ncomponent C(viewing *int) {\n\t<div>{ if viewing != nil { { *viewing } } }</div>\n}\n"
+	want := "package p\n\ncomponent C(viewing *int) {\n\t<div>\n\t\t{ if viewing != nil { { *viewing } } }\n\t</div>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -1461,24 +1561,39 @@ func TestElementInlineChildrenStayInlineWhenAuthorInline(t *testing.T) {
 }
 
 func TestCfBodyEdgesTrimmedThenBreaksOnAuthorNewline(t *testing.T) {
+	// The parser trims whitespace immediately inside a control-flow body's braces
+	// (trimBodyEdges), so a CF body can never be "edge-unsafe": the trailing "  "
+	// here is trimmed away. With no significant edge to protect, the author's
+	// newline after `{` correctly breaks the body to multi-line. Faithful: both
+	// the inline source and this broken form render "atextb". `a` and `b` stay
+	// touching the block: it renders text there, so a break would raise
+	// child-element-spacing (spacingBonds).
 	src := "package p\ncomponent C(x bool) {\n\t<p>a{ if x {\n\ttext  } }b</p>\n}\n"
-	want := "package p\n\ncomponent C(x bool) {\n\t<p>a{ if x {\n\t\ttext\n\t} }b</p>\n}\n"
+	want := "package p\n\ncomponent C(x bool) {\n\t<p>\n\t\ta{ if x {\n\t\t\ttext\n\t\t} }b\n\t</p>\n}\n"
 	checkFormat(t, src, want)
 }
 
 func TestFragmentInlineChildrenPreserveAuthorLineBreak(t *testing.T) {
+	// The author line break after `<>` still forces the fragment open
+	// (ChildrenMultiline), but its two adjacent interps are joined by a safe
+	// gap (direct adjacency) inside a Fill, which packs greedily by width
+	// regardless of the outer forced break — per the design's "ChildrenMultiline
+	// forces the block form... but the Fill inside still packs greedily" rule.
+	// Render-free: both fit on one line, same bytes as two lines.
 	src := "package p\ncomponent C(a, b string) {\n\t<>\n\t\t{ a }{ b }\n\t</>\n}\n"
 	want := "package p\n\ncomponent C(a, b string) {\n\t<>\n\t\t{ a }{ b }\n\t</>\n}\n"
 	checkFormat(t, src, want)
 }
 
-func TestInlineContentStaysInline(t *testing.T) {
+func TestInlineAtomsStayInline(t *testing.T) {
 	// The paragraph that motivated this work: <code> must not explode even
-	// though the glued tail overflows; literal prose retains its word gaps.
+	// though the glued tail overflows; long prose wraps at word gaps.
 	checkFormat(t,
 		"package p\n\ncomponent C() {\n\t<p>\n\t\tthe CLI vendors real <code>.gsx</code> source into your own module, so what you build against is code you own\n\t</p>\n}\n",
-		// Width 80 cannot reflow literal element content.
-		"package p\n\ncomponent C() {\n\t<p>\n\t\tthe CLI vendors real <code>.gsx</code> source into your own module, so what you build against is code you own\n\t</p>\n}\n")
+		// Width 80, children indent 2 tabs (4 cols): "the CLI vendors real
+		// <code>.gsx</code> source into your own module, so what" measures
+		// 4+75=79 ≤ 80; adding " you" overflows → break before "you".
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tthe CLI vendors real <code>.gsx</code> source into your own module, so what\n\t\tyou build against is code you own\n\t</p>\n}\n")
 }
 
 func TestInlineOnlyOneLinerStays(t *testing.T) {
@@ -1487,18 +1602,24 @@ func TestInlineOnlyOneLinerStays(t *testing.T) {
 	checkFormat(t, src, src)
 }
 
-func TestBlockChildDoesNotAddSeparators(t *testing.T) {
+func TestBlockChildStillForces(t *testing.T) {
 	checkFormat(t,
 		"package p\n\ncomponent C() {\n\t<div><span>a</span> <div>b</div></div>\n}\n",
-		"package p\n\ncomponent C() {\n\t<div><span>a</span> <div>b</div></div>\n}\n")
+		"package p\n\ncomponent C() {\n\t<div>\n\t\t<span>a</span> <div>b</div>\n\t</div>\n}\n")
 }
 
 func TestSpacingInterpGlue(t *testing.T) {
 	checkFormat(t,
-		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a\n\t\t\thref=\"/docs/theming\"\n\t\t\tclass=\"underline underline-offset-4\"\n\t\t>Theming</a>)\n\t</p>\n}\n",
-		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a\n\t\t\thref=\"/docs/theming\"\n\t\t\tclass=\"underline underline-offset-4\"\n\t\t>Theming</a>)\n\t</p>\n}\n")
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a href=\"/docs/theming\" class=\"underline underline-offset-4\">Theming</a>)\n\t</p>\n}\n",
+		"package p\n\ncomponent C() {\n\t<p>\n\t\tcaller-class-merge work as documented in the guide here (see{ \" \" }\n\t\t<a href=\"/docs/theming\" class=\"underline underline-offset-4\">Theming</a>)\n\t</p>\n}\n")
 }
 
+// TestSwitchArmBodyPreservesAuthorLineBreak is the amendment 2026-07-24b
+// regression this fixes: <b>/<i> are inline atoms (not block-level), so
+// hasBlockChild(body) is false for either arm. Before CaseClause.BodyMultiline,
+// caseBody had no other signal and collapsed each arm onto its `case` line
+// even though the author put the body on its own line. BodyMultiline restores
+// that preserved vertical layout, same as cfBody honors ThenMultiline.
 func TestSwitchArmBodyPreservesAuthorLineBreak(t *testing.T) {
 	src := `package p
 component C(kind string) {
@@ -1589,6 +1710,12 @@ component C(kind string) {
 	checkFormat(t, src, want)
 }
 
+// TestSiblingLeavesPreserveAuthorLineBreak is the sibling-leaf half of the
+// amendment 2026-07-24b regression: void elements are atoms, so the joint
+// between them is a safe gap and the Fill was free to pack them onto one
+// line even though the author placed each on its own. Element.LeadingBreak
+// preserves the author's break at that safe-gap joint (and forces the <div>
+// open via containsForcedBreak, same as any other HardLine).
 func TestSiblingLeavesPreserveAuthorLineBreak(t *testing.T) {
 	src := `package p
 component C() {
@@ -1611,17 +1738,37 @@ component C() {
 	checkFormat(t, src, want)
 }
 
+// TestSiblingOneLinerStaysOneLine is the inline counterpart: siblings authored
+// on one line with no intervening line break carry no LeadingBreak fact, so
+// the safe gap between them stays soft and the whole thing fits on one line.
 func TestSiblingOneLinerStaysOneLine(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<div><em>a</em><em>b</em></div>\n}\n"
 	checkFormat(t, src, src)
 }
 
-func TestMixedProsePreservesAuthoredWhitespace(t *testing.T) {
+// TestMixedProseReflowsAroundLeadingBreakFact checks that ordinary prose
+// reflow is untouched by the LeadingBreak fact: <code> here has no line break
+// immediately before it in the source (it follows "with " on the same line),
+// so its joint stays a plain word-adjacent safe gap and the paragraph still
+// canonically fills at the print width — it does NOT keep the author's
+// original wrap point. Width 80, <p> children indent 2 tabs (4 cols): "This is
+// a long paragraph that explains something important about the code" measures
+// 4+68=72 ≤ 80; the next word "and" would make 76, still ≤ 80; "how" pushes to
+// 80, still fits; "it" would overflow 80 → the greedy fill breaks one word
+// later than the author's own wrap (which broke after "and").
+func TestMixedProseReflowsAroundLeadingBreakFact(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<p>\n\t\tThis is a long paragraph that explains something important about the code and\n\t\thow it works in practice with <code>example</code> shown inline for readers.\n\t</p>\n}\n"
-	want := "package p\n\ncomponent C() {\n\t<p>\n\t\tThis is a long paragraph that explains something important about the code and\n\t\thow it works in practice with <code>example</code> shown inline for readers.\n\t</p>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<p>\n\t\tThis is a long paragraph that explains something important about the code\n\t\tand how it works in practice with <code>example</code> shown inline for\n\t\treaders.\n\t</p>\n}\n"
 	checkFormat(t, src, want)
 }
 
+// TestComponentTopLevelBodySiblingsPreserveAuthorLineBreak is one of the four
+// contexts the first round of this amendment missed: Component.Body is
+// printed via the same childrenInner/fillParts path as an element's children
+// (see (*printer).component), but the parser only stamped LeadingBreak in
+// parseChildren — component top-level siblings are parsed by
+// parseMarkupUntilClose(WS) instead, so this joined before that loop's '<'/'{'
+// dispatch sites also stamped the fact.
 func TestComponentTopLevelBodySiblingsPreserveAuthorLineBreak(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<b>a</b>\n\t<br/>\n}\n"
 	checkFormat(t, src, src)
@@ -1643,6 +1790,8 @@ component C(x bool) {
 	checkFormat(t, src, want)
 }
 
+// TestIfBodySiblingsStayInlineWhenAuthorInline is the inline counterpart: no
+// line break between the siblings, no LeadingBreak fact, safe gap stays soft.
 func TestIfBodySiblingsStayInlineWhenAuthorInline(t *testing.T) {
 	src := "package p\n\ncomponent C(x bool) {\n\t<div>\n\t\t{ if x { <b>a</b><br/> } }\n\t</div>\n}\n"
 	checkFormat(t, src, src)
@@ -1776,6 +1925,14 @@ func assertFormatNeverCreatesLabel(t *testing.T, n int, keyword string) {
 	}
 }
 
+// TestCaseBodyProseWrapNeverCreatesCaseLabel is c112's exact repro (2026-07-25
+// finding 1): before the fix, gsx fmt's word-gap fill could wrap this arm's
+// prose so "case 1:" landed as the first word on a line, and the parser's
+// line-start rule (ff121de6) then read it as a real arm label — silently
+// changing the render with no diagnostic. n=36 is one of the exact word
+// counts where fmtSource's width (80, matching the fmt corpus) forces a wrap
+// right at that boundary (see TestCaseBodyProseWrapNeverCreatesLabelSweep for
+// the full range this was found in).
 func TestCaseBodyProseWrapNeverCreatesCaseLabel(t *testing.T) {
 	assertFormatNeverCreatesLabel(t, 36, "case")
 }
@@ -1803,7 +1960,16 @@ func TestCaseBodyProseWrapNeverCreatesLabelSweep(t *testing.T) {
 	}
 }
 
-func TestCaseBodyContentNeverCreatesLabel(t *testing.T) {
+// TestCaseBodySegmentBoundaryNeverCreatesLabel exercises childrenInner's
+// per-segment ("block-list") layout path rather than fillParts' single Fill:
+// a block-level sibling (<div>, not an inline atom) elsewhere in the arm
+// forces childrenInner into the segment-per-line branch, where the prose
+// wraps inside its OWN per-segment Fill call — the same fillParts function,
+// just invoked with one segment's nodes instead of the whole list, so it must
+// honor the same bond. The extra <div> sibling shifts available width, so the
+// exact breaking word counts differ from the plain-prose sweep above (probed
+// separately); this sweeps its own range rather than assuming a shared n.
+func TestCaseBodySegmentBoundaryNeverCreatesLabel(t *testing.T) {
 	for n := 1; n <= 100; n++ {
 		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
 			words := make([]string, n)
@@ -1824,10 +1990,19 @@ func TestCaseBodyContentNeverCreatesLabel(t *testing.T) {
 	}
 }
 
-// TestCaseBodyNestedElementPreservesProse pins the scanner's case-body scope:
-// line-start "default:" inside an element is text, not a switch label. Long
-// literal prose remains intact at every formatter width, and is idempotent.
-func TestCaseBodyNestedElementPreservesProse(t *testing.T) {
+// TestCaseBodyBondDoesNotLeakIntoElementChildren pins the scoping half of the
+// fix: an element's OWN children are parsed by parseElementChildren's
+// ordinary text scanner, which has no case/default label concept at all (see
+// caseBodyLeadingWord's probe in the design doc) — a line-start "default:"
+// there is just text. The printer must still be free to wrap ordinary prose
+// at word gaps inside such a nested element, even though it sits directly
+// inside a case body's arm: if the case-body bond leaked into element()'s own
+// recursion, this element's long prose would never wrap and the test would
+// need a width no line here can exceed. Asserts only that formatting succeeds
+// and is idempotent (byte-for-byte word-wrap position is not the contract);
+// the real regression this guards is the bond incorrectly narrowing where
+// text is even allowed to wrap.
+func TestCaseBodyBondDoesNotLeakIntoElementChildren(t *testing.T) {
 	words := make([]string, 40)
 	for i := range words {
 		words[i] = "x"
@@ -1856,11 +2031,11 @@ func TestDecorativeParenStaysFaithful(t *testing.T) {
 		"package p\n\nvar x = (<span>a</span>)\n",
 		"package p\n\nvar (\n\tx = <span>\n\t\ta\n\t</span>\n)\n",
 	} {
-		out, err := printSource(t, src)
+		out, err := normPrint(t, src)
 		if err != nil {
-			t.Fatalf("printSource: %v", err)
+			t.Fatalf("normPrint: %v", err)
 		}
-		if !reflect.DeepEqual(contentAST(t, src), contentAST(t, out)) {
+		if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, out)) {
 			t.Errorf("not faithful:\n  src=%q\n  out=%q", src, out)
 		}
 	}

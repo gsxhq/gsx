@@ -50,7 +50,7 @@ func bareCommentErrors(diags []diag.Diagnostic) []diag.Diagnostic {
 }
 
 // TestBareCommentTouchingTextErrors: a bare comment with real text content on
-// BOTH sides, across only newline whitespace, is an error.
+// BOTH sides (post-wsnorm, across only newline whitespace) is an error.
 func TestBareCommentTouchingTextErrors(t *testing.T) {
 	t.Parallel()
 	diags := bareCommentModule(t, "package views\n\ncomponent C() {\n\t<p>\nhello\n// note\nworld\n\t</p>\n}\n")
@@ -72,7 +72,8 @@ func TestBareCommentTouchingTextErrors(t *testing.T) {
 }
 
 // TestBareCommentOneSidedTextErrors: text on only ONE side (top of the
-// paragraph, with whitespace-only text before the comment) is still an error.
+// paragraph; the leading whitespace-only text before the comment has already
+// been dropped by wsnorm) is still an error.
 func TestBareCommentOneSidedTextErrors(t *testing.T) {
 	t.Parallel()
 	diags := bareCommentModule(t, "package views\n\ncomponent C() {\n\t<p>\n// note\nhello\n\t</p>\n}\n")
@@ -92,8 +93,9 @@ func TestBareCommentOneSidedTextErrors(t *testing.T) {
 }
 
 // TestBareCommentBetweenTagsClean: a bare comment between two element
-// siblings (whitespace-only text on both sides) is legal; the comment itself
-// never renders and surrounding whitespace remains literal.
+// siblings (whitespace-only text on both sides, dropped by wsnorm) is legal;
+// the comment itself never renders and the surrounding elements render
+// adjacently.
 func TestBareCommentBetweenTagsClean(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -123,7 +125,8 @@ func TestBareCommentBetweenTagsClean(t *testing.T) {
 	for _, src := range files {
 		genSrc += string(src)
 	}
-	// The comment drops out entirely; its surrounding whitespace stays literal.
+	// The comment drops out entirely and the two spans render adjacently — no
+	// leftover whitespace, no comment text, in the static-write literals.
 	if !strings.Contains(genSrc, `<span>a</span>`) || !strings.Contains(genSrc, `<span>b</span>`) {
 		t.Fatalf("generated source missing expected spans:\n%s", genSrc)
 	}
@@ -131,13 +134,13 @@ func TestBareCommentBetweenTagsClean(t *testing.T) {
 		t.Fatalf("generated source leaked the comment text:\n%s", genSrc)
 	}
 	// Concatenate every static-write literal in source order and confirm it
-	// preserves the bare comment's newline neighbours. The helper returns the
-	// authored Go string escapes, so this assertion uses the escaped value.
+	// renders exactly <div><span>a</span><span>b</span></div> with the bare
+	// comment gone and no stray whitespace from its newline neighbors.
 	var rendered strings.Builder
 	for _, lit := range staticWriteLiterals(genSrc) {
 		rendered.WriteString(lit)
 	}
-	if want := `<div>\n<span>a</span>\n\n<span>b</span>\n\t</div>`; rendered.String() != want {
+	if want := "<div><span>a</span><span>b</span></div>"; rendered.String() != want {
 		t.Fatalf("rendered = %q, want %q; generated source:\n%s", rendered.String(), want, genSrc)
 	}
 }

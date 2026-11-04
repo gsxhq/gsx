@@ -1,5 +1,8 @@
-Prose around control-flow syntax keeps authored separators and line breaks.
-Width pressure may format the control body edges but never wraps literal words.
+The separator after a cluster is decided once the cluster has printed, at the
+column where its last line ends. A word that would run past the margin after a
+broken block's last line moves to the next line (AfterBrokenBlock). A cluster
+that ends exactly at the margin keeps its block flat; the next word goes to the
+next line instead of the block breaking to make room (ExactFit).
 
 -- input.gsx --
 package p
@@ -22,14 +25,14 @@ component AfterBrokenBlock(ok bool) {
 	<p>
 		lorem ipsum{ if ok {
 			<b>yes, and the bold words in this block run long enough to overflow</b>
-		} } xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx more.
+		} } xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+		more.
 	</p>
 }
 
 component ExactFit(ok bool) {
 	<p>
-		aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj { if ok {
-			<b>cc</b>
-		} } dd ee
+		aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj { if ok { <b>cc</b> } } dd
+		ee
 	</p>
 }

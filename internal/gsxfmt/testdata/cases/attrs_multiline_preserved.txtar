@@ -1,5 +1,7 @@
-A line break in the opening tag keeps the attribute list block-formatted.
-Changing tag syntax never inserts whitespace into the literal children.
+Layout fact: the source put a line break inside the opening tag, so the
+attribute list is block-formatted (one attr per line, `>` alone). The formatter
+preserves that even though the whole element fits on one line — the opening-tag
+symmetry of ChildrenMultiline. The opening-tag break propagates to the children.
 
 -- input.gsx --
 package p
@@ -17,5 +19,7 @@ component C() {
 	<a
 		href="/help"
 		class="text-blue-600"
-	>?</a>
+	>
+		?
+	</a>
 }

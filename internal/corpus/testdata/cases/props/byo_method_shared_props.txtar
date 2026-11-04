@@ -18,16 +18,16 @@ type pageData struct {
 type home struct{}
 
 component (p home) Page(d pageData) {
-<html>
-	<body>
-		<h1>{ d.Title }</h1>
-		<p.Content d={d}/>
-	</body>
-</html>
+	<html>
+		<body>
+			<h1>{ d.Title }</h1>
+			<p.Content d={d}/>
+		</body>
+	</html>
 }
 
 component (p home) Content(d pageData) {
-<h1>{ d.Heading }</h1>
+	<h1>{ d.Heading }</h1>
 }
 -- invoke --
 (home{}).Content(pageData{Title: "Hi", Heading: "Hello"})
@@ -57,18 +57,18 @@ type home struct{}
 func (p home) Page(d pageData) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:1
-		_gsxgw.S("<html>\n\t")
-//line input.gsx:12:2
-		_gsxgw.S("<body>\n\t\t")
-//line input.gsx:13:3
+//line input.gsx:11:2
+		_gsxgw.S("<html>")
+//line input.gsx:12:3
+		_gsxgw.S("<body>")
+//line input.gsx:13:4
 		_gsxgw.S("<h1>")
-//line input.gsx:13:7
-		_gsxgw.Text(string( /*line input.gsx:13:9*/ d.Title))
-		_gsxgw.S("</h1>\n\t\t")
-//line input.gsx:14:3
-		_gsxgw.Node(ctx, p.Content( /*line input.gsx:14:17*/ d))
-		_gsxgw.S("\n\t</body>\n</html>")
+//line input.gsx:13:8
+		_gsxgw.Text(string( /*line input.gsx:13:10*/ d.Title))
+		_gsxgw.S("</h1>")
+//line input.gsx:14:4
+		_gsxgw.Node(ctx, p.Content( /*line input.gsx:14:18*/ d))
+		_gsxgw.S("</body></html>")
 		return _gsxgw.Err()
 	})
 }
@@ -77,10 +77,10 @@ func (p home) Page(d pageData) _gsxrt.Node {
 func (p home) Content(d pageData) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:20:1
+//line input.gsx:20:2
 		_gsxgw.S("<h1>")
-//line input.gsx:20:5
-		_gsxgw.Text(string( /*line input.gsx:20:7*/ d.Heading))
+//line input.gsx:20:6
+		_gsxgw.Text(string( /*line input.gsx:20:8*/ d.Heading))
 		_gsxgw.S("</h1>")
 		return _gsxgw.Err()
 	})

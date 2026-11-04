@@ -59,60 +59,54 @@ func TestDefaultsAreTheChosenValues(t *testing.T) {
 	}
 }
 
-func TestIndentPreservesLiteralTextBytes(t *testing.T) {
-	literal := "a\t\n\t\tb\n "
-	doc := Indent(Concat(HardLine, Text(literal)))
-	if got := Print(doc, 1, 4); got != "\n\t"+literal {
-		t.Fatalf("literal text changed: %q", got)
+// block is a cluster word{ body } whose group breaks onto its own lines when
+// it does not fit; forced, it carries a break the way re-parsed output does.
+func block(body string, forced bool) Doc {
+	inner := Concat(Text("{"), Indent(Concat(Line, Text(body))), Line, Text("}"))
+	if forced {
+		inner = Concat(inner, BreakParent)
+	}
+	return Concat(Text("word"), Group(inner))
+}
+
+func prose(cluster Doc) Doc {
+	return Fill(Text("lorem"), Line, Text("ipsum"), Line, Text("dolor"), Line, cluster, Line, Text("end"))
+}
+
+// Fill measures a group that cannot stay flat as it prints: up to its first
+// break. That is how the forced group the broken output re-parses into
+// measures, so both lay the words out the same and a second format agrees with
+// the first. Measured flat, the unforced block pushed "word" onto a new line.
+func TestFillMeasuresBrokenGroupLikeForced(t *testing.T) {
+	const body = "a body too long to stay flat even on a line of its own"
+	got := Print(prose(block(body, false)), 40, 2)
+	want := Print(prose(block(body, true)), 40, 2)
+	if got != want {
+		t.Errorf("unforced group that breaks:\n%s\nforced group:\n%s", got, want)
+	}
+	if !strings.HasPrefix(got, "lorem ipsum dolor word{\n") {
+		t.Errorf("words before the block should keep their line, got:\n%s", got)
 	}
 }
 
-func TestFitsStopsAtLiteralNewline(t *testing.T) {
-	for _, tc := range []struct{ prefix, want string }{
-		{"abc", "x abc\n"},
-		{"abcd", "x\nabcd\n"},
-	} {
-		// The first literal line matters to the preceding group's decision;
-		// content after its newline belongs to a different width budget.
-		tail := strings.Repeat("z", 100)
-		doc := Concat(Group(Concat(Text("x"), Line)), Text(tc.prefix+"\n"+tail))
-		if got := Print(doc, 5, 2); got != tc.want+tail {
-			t.Fatalf("prefix %q: got %q", tc.prefix, got)
-		}
+// The separator after a cluster is decided at the column its last line ends.
+// After a block that breaks, a word that would overflow its closing line takes
+// the break before it.
+func TestFillSeparatorAfterBrokenGroupMeasuresLastLine(t *testing.T) {
+	const body = "a body too long to stay flat even on a line of its own"
+	d := Fill(Text("lorem"), Line, block(body, false), Line, Text(strings.Repeat("x", 39)))
+	got := Print(d, 40, 2)
+	want := "lorem word{\n\t" + body + "\n}\n" + strings.Repeat("x", 39)
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
-func TestLocalGroupExcludesContinuation(t *testing.T) {
-	attribute := Group(Concat(Text("class="), Text(strings.Repeat("x", 95))))
-	opening := Concat(Text("<div"), Indent(Concat(Line, attribute)), SoftLine, Text(">"))
-	tail := Text(strings.Repeat("y", 15))
-	if got := Print(Concat(LocalGroup(opening), tail), 120, 2); strings.Contains(got, "\n") {
-		t.Fatalf("local opening should fit: %q", got)
-	}
-	if got := Print(Concat(Group(opening), tail), 120, 2); !strings.Contains(got, "\n") {
-		t.Fatalf("generic group must measure continuation: %q", got)
-	}
-	if got := Print(Concat(LocalGroup(opening), tail), 100, 2); !strings.Contains(got, "\n") {
-		t.Fatalf("long opening should wrap: %q", got)
-	}
-}
-
-func TestAlignUsesPhysicalColumnWithoutChangingText(t *testing.T) {
-	for _, prefix := range []string{"", "\t", "   "} {
-		column := advance(0, prefix, 2)
-		indent := func(n int) string { return strings.Repeat("\t", n/2) + strings.Repeat(" ", n%2) }
-		doc := Indent(Concat(Text(prefix), AlignLine(Concat(Text("<x"), Indent(Concat(HardLine, Text("a"))), HardLine, Text(">literal\n \tdata</x>")))))
-		want := prefix + "<x\n" + indent(column+2) + "a\n" + indent(column) + ">literal\n \tdata</x>"
-		if got := Print(doc, 80, 2); got != want {
-			t.Fatalf("prefix %q: got %q want %q", prefix, got, want)
-		}
-	}
-}
-
-func TestAlignLineIgnoresInlineProseWidth(t *testing.T) {
-	doc := Concat(Text("\t<p>some long prose "), AlignLine(Concat(Text("<x"), Indent(Concat(HardLine, Text("a"))), HardLine, Text(">"))))
-	want := "\t<p>some long prose <x\n\t\ta\n\t>"
-	if got := Print(doc, 80, 2); got != want {
-		t.Fatalf("got %q want %q", got, want)
+// A cluster ending exactly at the margin stays flat: the separator after it
+// breaks, rather than the group breaking to make room for the next word.
+func TestFillExactFitKeepsGroupFlat(t *testing.T) {
+	got := Print(prose(block("short", false)), len("lorem ipsum dolor word{ short }"), 2)
+	if want := "lorem ipsum dolor word{ short }\nend"; got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

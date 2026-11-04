@@ -5,7 +5,8 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Pic(s string) {
-{{ b := gsx.Attrs{{Key: "srcset", Value: s}} }}<img { b... } alt="x"/>
+	{{ b := gsx.Attrs{{Key: "srcset", Value: s}} }}
+	<img { b... } alt="x"/>
 }
 -- invoke --
 Pic("ok.jpg 1x, javascript:alert(1) 2x")
@@ -28,10 +29,10 @@ import (
 func Pic(s string) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:1
+//line input.gsx:6:2
 		b := gsx.Attrs{{Key: "srcset", Value: s}}
-//line input.gsx:6:48
-		_gsxv0 := /*line input.gsx:6:55*/ b
+//line input.gsx:7:2
+		_gsxv0 := /*line input.gsx:7:9*/ b
 		_gsxgw.S("<img")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

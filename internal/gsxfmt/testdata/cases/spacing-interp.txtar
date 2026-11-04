@@ -1,5 +1,7 @@
-Explicit string-space interpolations remain authored values. Adjacent literal
-text and newlines are kept exactly; no formatter glue or separators are added.
+The `{" "}` spacing idiom is layout glue, not an orphan line: it bonds to its
+left neighbor (`see{ " " }` ends a line, never printed as its own `{ " " }`
+line) and offers a break after, including between two atoms that have no
+literal space character between them in the source.
 
 -- input.gsx --
 package p

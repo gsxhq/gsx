@@ -17,5 +17,7 @@ var navIcon = (
 	<a
 		href="/help"
 		class="text-blue-600"
-	>?</a>
+	>
+		?
+	</a>
 )
