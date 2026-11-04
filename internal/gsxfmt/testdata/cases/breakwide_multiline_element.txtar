@@ -14,13 +14,7 @@ var nav = []item{
 package ui
 
 var nav = []item{
-	{
-		label: "Team View",
-		icon:  (
-			<UsersIcon>
+	{label: "Team View", icon: <UsersIcon>
 		<title>users</title>
-	</UsersIcon>
-		),
-		page:  TeamViewPage{},
-	},
+	</UsersIcon>, page: TeamViewPage{}},
 }

@@ -140,6 +140,9 @@ func TestCorpusIdempotence(t *testing.T) {
 // Position fields outside the embedded span (e.g. Interp.ExprPos) are also
 // cleared so deep-equal is unaffected by source layout differences.
 func zeroSpans(n ast.Node) {
+	if f, ok := n.(*ast.File); ok {
+		f.Layout = ast.SourceLayout{}
+	}
 	ast.Inspect(n, func(m ast.Node) bool {
 		if m != nil {
 			if _, ok := m.(ast.GoText); ok {

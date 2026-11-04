@@ -33,24 +33,10 @@ var nav = []item{
 package ui
 
 var nav = []item{
-	{
-		label:     "Team View",
-		icon:      (
-			<UsersIcon>
+	{label: "Team View", icon: <UsersIcon>
 		<title>users</title>
-	</UsersIcon>
-		),
-		page:      TeamViewPage{},
-		pathMatch: "/team",
-	},
-	{
-		label:     "Search",
-		icon:      (
-			<SearchIcon>
+	</UsersIcon>, page: TeamViewPage{}, pathMatch: "/team"},
+	{label: "Search", icon: <SearchIcon>
 		<title>search</title>
-	</SearchIcon>
-		),
-		page:      ListPage{},
-		pathMatch: "/list/",
-	},
+	</SearchIcon>, page: ListPage{}, pathMatch: "/list/"},
 }

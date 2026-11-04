@@ -203,7 +203,19 @@ func isSpace(b byte) bool {
 // because each hole's own Start/End is adjusted by the shift accumulated so
 // far before it is used, and once a hole's offset is recorded, only edits
 // strictly to its right can ever happen afterward, which can't move it.
+// SanitizeGeometry applies the same bracket whitespace rules as Sanitize while
+// preserving every byte offset. It is a parser view; callers retain original
+// source line geometry independently.
+func SanitizeGeometry(src string, holes []Hole) string {
+	out, _ := rewriteHoleWhitespace(src, holes, true)
+	return out
+}
+
 func collapseHoleWhitespace(src string, holes []Hole) (string, []int) {
+	return rewriteHoleWhitespace(src, holes, false)
+}
+
+func rewriteHoleWhitespace(src string, holes []Hole, geometry bool) (string, []int) {
 	order := make([]int, len(holes))
 	for i := range order {
 		order[i] = i
@@ -256,9 +268,15 @@ func collapseHoleWhitespace(src string, holes []Hole) (string, []int) {
 		newBefore, newAfter := beforeWS, afterWS
 		if collapseBefore {
 			newBefore = " "
+			if geometry {
+				newBefore = strings.Repeat(" ", len(beforeWS))
+			}
 		}
 		if collapseAfter {
 			newAfter = " "
+			if geometry {
+				newAfter = strings.Repeat(" ", len(afterWS))
+			}
 		}
 		s = s[:before] + newBefore + s[start:end] + newAfter + s[after:]
 		offsets[i] = before + len(newBefore)

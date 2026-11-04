@@ -29,20 +29,11 @@ func fmtSourceWidth(t *testing.T, src string, width int) string {
 	return b.String()
 }
 
-// A multi-line element literal in an assignment/return/keyed-composite-lit-field
-// position — a "prefix: value" shape — wraps in (...) when it breaks, mirroring
-// prettier's JSX formatting (verified against prettier@3.9.4). The real Go
-// nesting depth (which the GoWithElements decl's own indent counter can't see,
-// since its surrounding Go text is literal bytes) comes from realTabDepth
-// reading the leading tabs off the preceding GoText, not from a column anchor —
-// so renaming the value does not reindent it. The parens themselves are purely
-// cosmetic: internal/codegen strips them back out before splicing the element's
-// lowered closure into the generated .x.go (see codegen's own tests), so they
-// never risk Go's automatic semicolon insertion.
-
-func TestGoExprElementParenWrapsAtTopLevel(t *testing.T) {
+// Literal newlines fix the markup's source placement. Preserve the smallest
+// surrounding Go region instead of inventing decorative parens around it.
+func TestGoExprElementKeepsSourcePlacementAtTopLevel(t *testing.T) {
 	src := "package main\n\nvar n = <div>\n<p>hi</p>\n</div>\n"
-	want := "package main\n\nvar n = (\n\t<div>\n<p>hi</p>\n</div>\n)\n"
+	want := src
 	checkFormat(t, src, want)
 }
 
@@ -92,41 +83,30 @@ func TestGoExprElementStaysFlatWhenItFits(t *testing.T) {
 	checkFormat(t, src, src)
 }
 
-func TestGoExprElementParenWrapsNestedInFuncBody(t *testing.T) {
-	// The real-depth case: the closing paren must land at "someLongName"'s own
-	// depth (one tab), children one tab deeper — not at column 0 (the decl's
-	// own, always-zero baseline).
+func TestGoExprElementKeepsSourcePlacementInFuncBody(t *testing.T) {
+	// The protected assignment keeps its authored column while the independent
+	// statement below it still receives normal Go indentation.
 	src := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n_ = someLongName\n}\n"
-	want := "package main\n\nfunc f() {\n\tsomeLongName := (\n\t\t<div>\n<p>hi</p>\n</div>\n\t)\n\t_ = someLongName\n}\n"
+	want := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n\t_ = someLongName\n}\n"
 	checkFormat(t, src, want)
 }
 
-// Renaming the value does not reindent it — the anchor is real block nesting
-// depth (realTabDepth), not the opening tag's column. This replaces the old
-// TestGoExprElementRenameShiftsHangingIndent, which pinned the opposite
-// (pre-existing) property.
+// Renaming the binding leaves all retained literal lines at their source columns.
 func TestGoExprElementRenameDoesNotShiftIndent(t *testing.T) {
 	src := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n_ = n\n}\n"
-	want := "package main\n\nfunc f() {\n\tn := (\n\t\t<div>\n<p>hi</p>\n</div>\n\t)\n\t_ = n\n}\n"
+	want := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n\t_ = n\n}\n"
 	checkFormat(t, src, want)
 }
 
-// A multi-line element in a keyed composite-literal field paren-wraps AND forces
-// the literal's other fields one-per-line: its true width is unknowable and it can
-// never be a one-liner, so breakWideLiterals (fed the multi-line placeholder as
-// its forceMarker) treats the field's line as over budget without measuring it.
-func TestGoExprElementParenWrapsForKeyedCompositeLitField(t *testing.T) {
+// A keyed field's fixed literal lines do not force other fields onto new
+// lines: that would independently move the opening tag.
+func TestGoExprElementKeepsSourceCompositeFieldLayout(t *testing.T) {
 	src := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: <svg class=\"w-5 h-5\">\n<path d=\"M0 0\"/>\n</svg>}\n"
-	want := "package main\n\nvar item = NavItem{\n\tLabel: \"Home\",\n\tIcon:  (\n\t\t<svg class=\"w-5 h-5\">\n<path d=\"M0 0\"/>\n</svg>\n\t),\n}\n"
+	want := src
 	checkFormat(t, src, want)
 }
 
-// Call arguments and bare composite-literal elements are the deferred
-// bracket-reflow bucket (see docs/ROADMAP.md): no parens, no trailing comma,
-// no bracket moved onto its own line — but the real-depth fix still applies
-// uniformly, so nesting inside a func body no longer regresses to column 0
-// the way it did before PR #49.
-
+// A call containing fixed HTML lines retains the source-aligned Go prefix.
 func TestGoExprElementPlainIndentForCallArgAtTopLevel(t *testing.T) {
 	src := "package main\n\nvar wrapped = Wrap(<div>\n<p>hi</p>\n</div>)\n"
 	want := "package main\n\nvar wrapped = Wrap(<div>\n<p>hi</p>\n</div>)\n"
@@ -135,7 +115,7 @@ func TestGoExprElementPlainIndentForCallArgAtTopLevel(t *testing.T) {
 
 func TestGoExprElementPlainIndentForCallArgNestedInFuncBody(t *testing.T) {
 	src := "package main\n\nfunc f() {\nwrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n_ = wrapped\n}\n"
-	want := "package main\n\nfunc f() {\n\twrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n\t_ = wrapped\n}\n"
+	want := "package main\n\nfunc f() {\nwrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n\t_ = wrapped\n}\n"
 	checkFormat(t, src, want)
 }
 

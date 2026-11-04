@@ -15,6 +15,7 @@ type kind uint8
 
 const (
 	kindText kind = iota
+	kindSourceIndent
 	kindConcat
 	kindIndent
 	kindLine        // a soft/space/hard break candidate (see flat, hard)
@@ -40,6 +41,12 @@ type Doc struct {
 // verbatim and tracks the column after its final newline; Indent never changes
 // bytes inside Text. Syntactic layout uses Line/HardLine instead.
 func Text(s string) Doc { return Doc{kind: kindText, text: s} }
+
+// SourceIndent applies an original source prefix to a document beginning on a
+// fresh syntax line. Inline documents retain their surrounding syntax.
+func SourceIndent(prefix string, d Doc) Doc {
+	return Doc{kind: kindSourceIndent, text: prefix, parts: []Doc{d}}
+}
 
 // Concat renders ds in order with no separator.
 func Concat(ds ...Doc) Doc { return Doc{kind: kindConcat, parts: ds} }
@@ -87,7 +94,7 @@ func containsForcedBreak(d Doc) bool {
 		return true
 	case kindGroup:
 		return d.forced
-	case kindIndent:
+	case kindIndent, kindSourceIndent:
 		return containsForcedBreak(d.parts[0])
 	case kindConcat:
 		return slices.ContainsFunc(d.parts, containsForcedBreak)

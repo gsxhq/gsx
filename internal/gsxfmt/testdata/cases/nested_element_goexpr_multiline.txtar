@@ -54,13 +54,13 @@ component Row(n int) {
 		}
 	/>
 	<p>{ wrapN(
-			<b>
+	<b>
 	{ n }
 	</b>,
 		) }</p>
 	{{
 		w := wrapN(
-			<b>
+		<b>
 			{ n }
 		</b>,
 		)

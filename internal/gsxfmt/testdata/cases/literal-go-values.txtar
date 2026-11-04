@@ -16,23 +16,15 @@ component C() {
 -- fmt.golden --
 package p
 
-var n = (
-	<span>a	b
+var n=<span>a	b
   c</span>
-)
 component C() {
-{{
-		n := <div>x
+{{n:=<div>x
  	y</div>
 		_ = n
 	}}
 { Wrap(<span>a
 	b</span>) }
-<Card
-		node={
-			Wrap(<span>a
-  b</span>)
-		}
-		slot={ <b>a</b> <i>b</i> }
-	/>
+<Card node={ Wrap(<span>a
+  b</span>) } slot={ <b>a</b> <i>b</i> }/>
 }

@@ -28,10 +28,12 @@ var (
 // literal printed with the ordinary markup printer (doc; flat is its one-line
 // rendering when it has one).
 type goValue struct {
-	lit    *ast.EmbeddedInterp
-	doc    pretty.Doc
-	flat   string
-	isFlat bool
+	lit           *ast.EmbeddedInterp
+	doc           pretty.Doc
+	flat          string
+	isFlat        bool
+	sourceAligned bool
+	sourceIndent  string
 }
 
 // multiline reports whether v renders across lines.
@@ -45,8 +47,8 @@ func (v goValue) multiline() bool { return v.lit != nil || !v.isFlat }
 // round-trip as a {{ }} block instead: gofmt lays out the Go, and each element
 // is printed from its AST at the Go line's depth, so the layout is a function
 // of the AST alone and preserved text (a <pre> body) is never re-indented.
-func (p *printer) goFieldDoc(src string, form goFieldForm, plain func(string) string) pretty.Doc {
-	if text, values, ok := p.fmtGoField(src, form); ok {
+func (p *printer) goFieldDoc(src string, form goFieldForm, plain func(string) string, origin ...gotoken.Pos) pretty.Doc {
+	if text, values, ok := p.fmtGoField(src, form, origin...); ok {
 		return p.goTextDoc(text, values, false)
 	}
 	return multiline(plain(src))
@@ -54,11 +56,12 @@ func (p *printer) goFieldDoc(src string, form goFieldForm, plain func(string) st
 
 // fmtGoField formats src, a Go field holding at least one gsx value, inside
 // form. ok is false when src holds no value or cannot be formatted.
-func (p *printer) fmtGoField(src string, form goFieldForm) (string, map[string]goValue, bool) {
+func (p *printer) fmtGoField(src string, form goFieldForm, origin ...gotoken.Pos) (string, map[string]goValue, bool) {
 	if !mayHoldGoValue(src) {
 		return "", nil, false
 	}
-	parts, ok := splitGoParts(strings.TrimSpace(src))
+	src = strings.TrimSpace(src)
+	parts, ok := splitGoParts(src)
 	if !ok || len(parts) == 0 {
 		return "", nil, false
 	}
@@ -72,6 +75,12 @@ func (p *printer) fmtGoField(src string, form goFieldForm) (string, map[string]g
 			return "", false
 		}
 		return strings.CutSuffix(body, form.close)
+	}
+	if text, values, ok, err := p.fmtSourceGoParts(parts, src, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip, origin...); err != nil {
+		p.fail("%s", err)
+		return "", nil, false
+	} else if ok {
+		return text, values, true
 	}
 	return p.fmtGoPartsText(parts, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip)
 }
@@ -219,6 +228,14 @@ func (p *printer) goLineDocs(seg string, values map[string]goValue) []pretty.Doc
 		before := rest[:at]
 		rest = rest[at+len(marker):]
 		v := values[marker]
+		if v.sourceAligned {
+			if len(docs) == 1 && strings.TrimSpace(before) == "" {
+				docs[0] = pretty.Text("\n")
+				before = ""
+			}
+			docs = append(docs, pretty.Text(before), pretty.SourceIndent(v.sourceIndent, v.doc))
+			continue
+		}
 		if v.lit == nil {
 			if v.isFlat {
 				docs = append(docs, pretty.Text(before+v.flat))

@@ -205,3 +205,17 @@ func TestSanitizeBeforeCollapseIsParenOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestSanitizeGeometryKeepsOffsets(t *testing.T) {
+	src := "package p\nvar x = (\n\t`\n value\n`\n)\n"
+	start := strings.IndexByte(src, '`')
+	end := strings.LastIndexByte(src, '`') + 1
+	got := SanitizeGeometry(src, []Hole{{Start: start, End: end}})
+	if len(got) != len(src) || got[start:end] != src[start:end] {
+		t.Fatalf("geometry changed: %q", got)
+	}
+	want := src[:strings.Index(src, "(\n")+1] + strings.Repeat(" ", 2) + src[start:end] + " " + src[end+1:]
+	if got != want {
+		t.Fatalf("got %q; want %q", got, want)
+	}
+}

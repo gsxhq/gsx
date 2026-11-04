@@ -4,6 +4,7 @@ package ast
 import (
 	"fmt"
 	"go/token"
+	"sort"
 	"strings"
 )
 
@@ -154,12 +155,55 @@ type GoPart interface {
 // File is a parsed .gsx file.
 type File struct {
 	span
+	// Layout is original source geometry, excluded from semantic serialization.
+	Layout SourceLayout `json:"-"`
 	// Doc is the verbatim comment block that precedes the `package` clause (the
 	// package doc comment), or "" if there is none. It is preserved across
 	// formatting; the parser captures everything before the `package` keyword.
 	Doc     string
 	Package string
 	Decls   []Decl
+}
+
+// SourceLayout retains parser-owned source geometry for formatting. Its text
+// supplies positions only; semantic nodes and GoText remain authoritative.
+type SourceLayout struct {
+	text  string
+	base  token.Pos
+	lines []int
+}
+
+// NewSourceLayout captures an immutable source view at its FileSet base.
+func NewSourceLayout(text string, base token.Pos) SourceLayout {
+	lines := []int{0}
+	for i := range text {
+		if text[i] == '\n' {
+			lines = append(lines, i+1)
+		}
+	}
+	return SourceLayout{text: text, base: base, lines: lines}
+}
+
+// Slice returns original bytes at a source span, when the span belongs to this view.
+func (s SourceLayout) Slice(start, end token.Pos) (string, bool) {
+	a, b := int(start-s.base), int(end-s.base)
+	if !s.base.IsValid() || a < 0 || b < a || b > len(s.text) {
+		return "", false
+	}
+	return s.text[a:b], true
+}
+
+// LinePrefix returns the bytes before pos on its original physical line.
+func (s SourceLayout) LinePrefix(pos token.Pos) (string, bool) {
+	a := int(pos - s.base)
+	if !s.base.IsValid() || a < 0 || a > len(s.text) {
+		return "", false
+	}
+	index := sort.Search(len(s.lines), func(i int) bool { return s.lines[i] > a }) - 1
+	if index < 0 {
+		return "", false
+	}
+	return s.text[s.lines[index]:a], true
 }
 
 // GoChunk is a verbatim span of Go source (imports, types, consts, vars, funcs)
