@@ -364,27 +364,20 @@ func (p *parser) braceKeyword() string {
 	return ""
 }
 
-// parseMarkupUntilClose parses a markup sequence terminated by the matching
-// top-level '}', which it consumes. `what` names the enclosing construct for the
-// unterminated-EOF error (e.g. "control-flow body", "component body"). Inter-node
-// whitespace is skipped; text within nodes is preserved. The terminating '}' is
-// the first top-level '}'; a '}' inside a nested element's text or a `{…}`
-// construct is consumed by those sub-parsers, not seen here.
+// parseMarkupUntilClose parses a brace-delimited markup body. Only whitespace
+// at the body's outer edges is syntax; interior text is literal content.
 func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
-	return p.parseMarkupUntilCloseWS(what, false)
+	nodes, err := p.parseMarkupBody(what)
+	if err != nil {
+		return nil, err
+	}
+	return trimBodyEdges(nodes), nil
 }
 
-// parseMarkupUntilCloseWS is parseMarkupUntilClose with control over inter-node
-// whitespace. When preserveWS is false (markup-attribute slots) leading
-// whitespace before each node is skipped, as before. When true (control-flow
-// bodies) whitespace falls into parseTextCtx and becomes a text node for wsnorm;
-// parseControlBody then trims the brace-interior edges via trimBodyEdges.
-func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Markup, error) {
+// parseMarkupBody retains all authored whitespace as text.
+func (p *parser) parseMarkupBody(what string) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
-		if !preserveWS {
-			p.skipSpace()
-		}
 		if p.eof() {
 			return nil, p.errorf(p.pos(), "unterminated %s, expected `}`", what)
 		}
@@ -418,24 +411,22 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 
 // parseControlBody parses a control-flow body: markup until the matching '}'.
 // The cursor must be just past the opening '{'. Interior whitespace is preserved
-// for wsnorm; whitespace immediately inside the braces is trimmed.
+// literally; whitespace immediately inside the braces is trimmed.
 func (p *parser) parseControlBody() ([]ast.Markup, error) {
-	nodes, err := p.parseMarkupUntilCloseWS("control-flow body", true)
-	if err != nil {
-		return nil, err
-	}
-	return trimBodyEdges(nodes), nil
+	return p.parseMarkupUntilClose("control-flow body")
 }
 
 // trimBodyEdges strips whitespace immediately inside the control-flow body
 // braces: the leading whitespace of the first node and the trailing whitespace
 // of the last node, when those nodes are Text. This mirrors how gsx trims the
 // interior of `{ expr }` and `{{ code }}`. Interior whitespace between nodes is
-// left for wsnorm's JSX rule. An emptied edge Text node is dropped.
+// literal content. An emptied edge Text node is dropped.
 func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
 	if len(nodes) > 0 {
 		if t, ok := nodes[0].(*ast.Text); ok {
-			t.Value = strings.TrimLeft(t.Value, " \t\r\n")
+			value := strings.TrimLeft(t.Value, " \t\r\n\f")
+			ast.SetSpan(t, t.Pos()+token.Pos(len(t.Value)-len(value)), t.End())
+			t.Value = value
 			if t.Value == "" {
 				nodes = nodes[1:]
 			}
@@ -443,7 +434,9 @@ func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
 	}
 	if len(nodes) > 0 {
 		if t, ok := nodes[len(nodes)-1].(*ast.Text); ok {
-			t.Value = strings.TrimRight(t.Value, " \t\r\n")
+			value := strings.TrimRight(t.Value, " \t\r\n\f")
+			ast.SetSpan(t, t.Pos(), t.End()-token.Pos(len(t.Value)-len(value)))
+			t.Value = value
 			if t.Value == "" {
 				nodes = nodes[:len(nodes)-1]
 			}
@@ -1012,14 +1005,8 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	}
 	if j < len(p.src) && p.src[j] == '<' && startsTagAt(p.src, j+1) {
 		p.i++ // past '{'
-		// A `name={ … }` markup slot is a fresh non-preserve context: an
-		// enclosing pre/textarea's verbatim treatment does not leak across the
-		// expression boundary into the slot's own markup. This mirrors
-		// wsnorm's normalizeAttrs, which normalizes every MarkupAttr.Value
-		// with preserve=false regardless of the element's own preserve state
-		// (internal/wsnorm/wsnorm.go) — the parser and wsnorm must agree on
-		// where "verbatim" ends or a `//` in a slot renders as neither a
-		// recognized comment nor a diagnosed error.
+		// A markup slot is a fresh expression boundary: bare source comments
+		// are recognized independently of an enclosing pre/textarea element.
 		savedPreserveDepth := p.preserveDepth
 		p.preserveDepth = 0
 		nodes, err := p.parseMarkupUntilClose("markup attribute")

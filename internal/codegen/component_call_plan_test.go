@@ -594,6 +594,20 @@ func TestPlanComponentInputsBodyRetainsOnlySemanticChildren(t *testing.T) {
 	}
 }
 
+// Whitespace is rendered Node content, including each variadic Node position.
+func TestPlanComponentInputsPreservesLiteralWhitespaceChildren(t *testing.T) {
+	for _, source := range []string{"<C> \t</C>", "<C>\n <i/> \t<b/>\n</C>"} {
+		el, fset := plannerElement(t, source)
+		plan, diagnostics := planComponentInputs(1, el, plannerTarget(plannerParam{name: "children", role: roleChildren}), fset)
+		if len(diagnostics) != 0 {
+			t.Fatalf("diagnostics = %+v", diagnostics)
+		}
+		if len(plan.values) != 1 || !slices.Equal(plan.values[0].children, el.Children) {
+			t.Fatalf("literal body was changed: %+v", plan.values)
+		}
+	}
+}
+
 func TestPlanComponentInputsRequiresFileSet(t *testing.T) {
 	el, _ := plannerElement(t, `<C title="x"/>`)
 	plan, diagnostics := planComponentInputs(1, el, plannerTarget(plannerParam{name: "title", role: roleProp}), nil)

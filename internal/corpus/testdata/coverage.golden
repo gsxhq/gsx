@@ -1114,6 +1114,7 @@ verbatim/direct_go_signature	diag gen render
 verbatim/zero_inference_xpkg	diag gen render
 whitespace/edges	diag gen render
 whitespace/element_baseline	diag gen render
+whitespace/html_literal_content	diag gen render
 whitespace/interior_for	diag gen render
 whitespace/interior_if_else	diag gen render
 whitespace/interior_switch	diag gen render
@@ -1139,4 +1140,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1141 cases (render: 970, error: 133, gen-pinned: 644)
+TOTAL: 1142 cases (render: 971, error: 133, gen-pinned: 645)

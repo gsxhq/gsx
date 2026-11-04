@@ -35,7 +35,7 @@ func firstIfThen(t *testing.T, src string) []ast.Markup {
 }
 
 // TestBlockBodyPreservesInteriorWhitespace: the space run between two holes
-// inside a control-flow body survives to wsnorm (this is the bug fix).
+// inside a control-flow body survives as literal content.
 func TestBlockBodyPreservesInteriorWhitespace(t *testing.T) {
 	then := firstIfThen(t, `package p
 component X(a, b string) { <div>{ if true { {a} - {b} } }</div> }
@@ -166,6 +166,8 @@ func TestTrimBodyEdges(t *testing.T) {
 		{"trim both inline", []ast.Markup{&ast.Text{Value: " "}, span, &ast.Text{Value: " "}}, "<span>"},
 		{"keep interior", []ast.Markup{span, &ast.Text{Value: " - "}, span}, "<span>T( - )<span>"},
 		{"trim leading only, keep core", []ast.Markup{&ast.Text{Value: "  x"}}, "T(x)"},
+		{"HTML ASCII whitespace only -> empty", []ast.Markup{&ast.Text{Value: " \t\r\n\f"}}, ""},
+		{"non-ASCII whitespace is content", []ast.Markup{&ast.Text{Value: " \u00a0 "}}, "T(\u00a0)"},
 		{"whitespace only -> empty", []ast.Markup{&ast.Text{Value: "  \n "}}, ""},
 	}
 	for _, c := range cases {
@@ -173,6 +175,63 @@ func TestTrimBodyEdges(t *testing.T) {
 			got := sig(trimBodyEdges(c.in))
 			if got != c.want {
 				t.Fatalf("trimBodyEdges = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// All brace-delimited markup bodies trim syntax edges and retain interior text.
+func TestHTMLBodyWhitespaceAndSpans(t *testing.T) {
+	for _, tc := range []struct{ name, src string }{
+		{"component", "package p\ncomponent X() { \t\nfirst <i/> \t\n <b/> last\t\n }"},
+		{"control", "package p\ncomponent X() { { if true { \t\nfirst <i/> \t\n <b/> last\t\n } } }"},
+		{"slot", "package p\ncomponent X() { <C slot={ \t\n<i/> \t\n <b/> last\t\n }/> }"},
+		{"switch", "package p\ncomponent X() { { switch x { case 1: \t\nfirst <i/> \t\n <b/> last\t\n } } }"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := parseStringT(t, tc.src)
+			var body []ast.Markup
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.Component:
+					if tc.name == "component" {
+						body = n.Body
+					}
+				case *ast.IfMarkup:
+					if tc.name == "control" {
+						body = n.Then
+					}
+				case *ast.MarkupAttr:
+					if tc.name == "slot" {
+						body = n.Value
+					}
+				case *ast.CaseClause:
+					if tc.name == "switch" {
+						body = n.Body
+					}
+				}
+				return true
+			})
+			if len(body) == 0 {
+				t.Fatal("empty body")
+			}
+			var texts []string
+			for _, n := range body {
+				if text, ok := n.(*ast.Text); ok {
+					texts = append(texts, text.Value)
+					// Parse uses a token file whose base is one; spans must follow trimming.
+					got := tc.src[int(text.Pos())-1 : int(text.End())-1]
+					if got != text.Value {
+						t.Fatalf("span spells %q, Text.Value %q", got, text.Value)
+					}
+				}
+			}
+			want := []string{"first ", " \t\n ", " last"}
+			if tc.name == "slot" {
+				want = want[1:]
+			}
+			if strings.Join(texts, "|") != strings.Join(want, "|") {
+				t.Fatalf("texts = %q, want %q", texts, want)
 			}
 		})
 	}

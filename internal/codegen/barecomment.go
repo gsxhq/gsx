@@ -2,15 +2,13 @@ package codegen
 
 import (
 	"go/token"
+	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
 
-// bareCommentViolation is a bare `//` content comment whose immediate sibling
-// is text. Detected post-wsnorm: a LEGAL bare comment's whitespace neighbors
-// (always newline-bearing, by the line-start rule) have been dropped by
-// normalization, so any surviving adjacent *ast.Text is real content touching
-// the comment across only whitespace — exactly the spec's "touches text".
+// bareCommentViolation is a bare content comment adjacent to substantive text.
+// Whitespace-only neighbouring text remains output but does not invalidate it.
 type bareCommentViolation struct {
 	pos, end token.Pos
 }
@@ -29,10 +27,12 @@ func checkBareComments(f *gsxast.File) []bareCommentViolation {
 			}
 			touches := false
 			if i > 0 {
-				_, touches = nodes[i-1].(*gsxast.Text)
+				text, ok := nodes[i-1].(*gsxast.Text)
+				touches = ok && strings.Trim(text.Value, " \t\n\r\f") != ""
 			}
 			if !touches && i+1 < len(nodes) {
-				_, touches = nodes[i+1].(*gsxast.Text)
+				text, ok := nodes[i+1].(*gsxast.Text)
+				touches = ok && strings.Trim(text.Value, " \t\n\r\f") != ""
 			}
 			if touches {
 				out = append(out, bareCommentViolation{pos: c.Pos(), end: c.End()})
