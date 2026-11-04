@@ -4,7 +4,7 @@
 # markup attribute (as a direct MarkupAttr-value sibling), an element literal
 # in Go-expr position, and next to a hole/HTML-comment/braced-comment neighbor
 # (none of those are *ast.Text, so they never trip the touches-text rule).
-# Every render is byte-identical to deleting the comment lines.
+# Comment nodes emit nothing; surrounding literal whitespace remains output.
 -- input.gsx --
 package views
 

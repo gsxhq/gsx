@@ -16,4 +16,6 @@ component Tag(label string, active bool) {
 -- invoke --
 Tag("stable", true)
 -- render.golden --
-<span class="tag tag--active">stable</span>
+<span class="tag tag--active">
+		stable
+	</span>

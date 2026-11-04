@@ -1,6 +1,6 @@
-An embedded element with authored literal newlines remains multiline. Its
-Go composite literal may wrap fields and add decorative parentheses while
-the markup content stays byte-exact. Flat elements remain flat values.
+An embedded element with authored literal newlines constrains its surrounding
+Go syntax placement. Its composite item retains its readable opening line
+without invented parentheses or field expansion. Flat elements remain flat.
 
 -- input.gsx --
 package ui

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/gen"
+	"github.com/gsxhq/gsx/internal/rendergolden"
 	"github.com/gsxhq/gsx/internal/txtar"
 )
 
@@ -92,7 +93,11 @@ func loadOne(path string) (Example, error) {
 		case f.Name == "invoke":
 			invoke = strings.TrimSpace(string(f.Data))
 		case f.Name == "render.golden":
-			ex.Render = string(f.Data)
+			render, err := rendergolden.Decode(f.Data)
+			if err != nil {
+				return Example{}, err
+			}
+			ex.Render = render
 		case strings.HasSuffix(f.Name, ".gsx"):
 			if strings.ContainsAny(f.Name, "/\\") {
 				return Example{}, fmt.Errorf("source file %q must be a bare *.gsx (one package)", f.Name)

@@ -23,4 +23,7 @@ component Page() {
 -- invoke --
 Page()
 -- render.golden --
-<article class="card"><h3>Hello</h3><div class="card__body"><em>composed</em></div></article>
+<article class="card">
+		<h3>Hello</h3>
+		<div class="card__body"><em>composed</em></div>
+	</article>

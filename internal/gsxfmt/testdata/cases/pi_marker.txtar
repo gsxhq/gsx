@@ -1,9 +1,7 @@
-A void `<?marker>` processing instruction is block-level (like Doctype/HTMLComment):
-it always takes its own line inside a children list, regardless of width, and
-reindents to its true depth. Both attribute-value forms are covered — a static
-literal (verbatim `attr` rendering) and a `{expr}` with a pipeline stage (routed
-through attrDoc's ExprAttr case, which renders `name={expr |> stage}` with no
-interior spaces, same as any other attribute).
+Void processing instructions preserve their authored placement among literal
+children. Their syntax and expression attributes may format, but no block-tag
+assumption inserts newlines or reindents the surrounding HTML whitespace.
+Both static and pipelined expression attribute values are covered.
 
 -- input.gsx --
 package ui

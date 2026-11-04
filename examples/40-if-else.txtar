@@ -21,4 +21,7 @@ component Inbox(name string, count int) {
 -- invoke --
 Inbox("World", 2)
 -- render.golden --
-<section><h1>Hi World</h1><p class="badge">2 new</p></section>
+<section>
+		<h1>Hi World</h1>
+		<p class="badge">2 new</p>
+	</section>

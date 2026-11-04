@@ -16,4 +16,7 @@ component Divider() {
 -- invoke --
 Divider()
 -- render.golden --
-<section><div role="separator"></div><p>Content after the divider stays outside it.</p></section>
+<section>
+		<div role="separator"></div>
+		<p>Content after the divider stays outside it.</p>
+	</section>

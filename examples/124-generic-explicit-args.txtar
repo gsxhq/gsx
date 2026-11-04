@@ -20,4 +20,6 @@ component Page() {
 -- invoke --
 Page()
 -- render.golden --
-<b>$9.99</b><b>€42</b><b>£4</b>
+<b>$9.99</b>
+	<b>€42</b>
+	<b>£4</b>

@@ -3,6 +3,8 @@ package corpus
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/rendergolden"
 )
 
 // TestExamples compiles and renders every examples/*.txtar through the real
@@ -52,11 +54,11 @@ func TestExamples(t *testing.T) {
 				t.Fatalf("example produced diagnostics (examples must be clean):\n%s", r.diag)
 			}
 			if *update {
-				c.setGoldenSection("render.golden", []byte(r.html))
+				c.setGoldenSection("render.golden", rendergolden.Encode(r.html))
 				writeArchive(t, paths[c.name], c.archive)
 				return
 			}
-			diff, derr := htmlStructuralDiff(r.html, string(c.goldens["render.golden"]))
+			diff, derr := renderDiff(r.html, c.goldens["render.golden"])
 			if derr != nil {
 				t.Fatal(derr)
 			}

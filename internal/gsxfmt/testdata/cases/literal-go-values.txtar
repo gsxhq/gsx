@@ -1,5 +1,6 @@
-Embedded markup carries literal Text through structural Go holes. Go indentation
-may change around a value, while the value's authored interior stays exact.
+Embedded markup carries literal Text through structural Go holes. Source
+placement around multiline operands stays coherent while independent Go
+syntax formats; the semantic AST remains the authority for markup content.
 
 -- input.gsx --
 package p

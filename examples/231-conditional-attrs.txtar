@@ -8,9 +8,13 @@ pageOrder: 30
 package views
 
 component Badge(featured bool) {
-	<span { if featured { class="featured" } }>content</span>
+	<span { if featured { class="featured" } }>
+		content
+	</span>
 }
 -- invoke --
 Badge(true)
 -- render.golden --
-<span class="featured">content</span>
+<span class="featured">
+		content
+	</span>

@@ -14,4 +14,5 @@ component Stats(s string, count int) {
 -- invoke --
 Stats("  hello world  ", 42)
 -- render.golden --
-<p>hello</p><p>42 comments</p>
+<p>hello</p>
+	<p>42 comments</p>

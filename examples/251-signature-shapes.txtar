@@ -33,4 +33,8 @@ component Page() {
 -- invoke --
 Page()
 -- render.golden --
-<p>Hi Ann</p><div>T: 2</div><section>P</section>
+
+		<p>Hi Ann</p>
+		<div>T: 2</div>
+		<section>P</section>
+	

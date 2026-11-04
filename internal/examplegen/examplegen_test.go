@@ -122,8 +122,19 @@ C(true)
 	if e.Page != "attributes" || e.PageOrder != 30 {
 		t.Fatalf("page route wrong: %q %d", e.Page, e.PageOrder)
 	}
-	if e.Render != "<a class=\"x\">y</a>\n" {
+	if e.Render != "<a class=\"x\">y</a>" {
 		t.Fatalf("render not loaded: %q", e.Render)
+	}
+	// The final section LF frames the archive. A second LF belongs to HTML.
+	if err := os.WriteFile(filepath.Join(dir, "x.txtar"), []byte(fixture+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exs, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exs[0].Render != "<a class=\"x\">y</a>\n" {
+		t.Fatalf("render lost its output newline: %q", exs[0].Render)
 	}
 }
 

@@ -52,6 +52,14 @@ diagnostics — **must** have a `render.golden` section.  If it is missing and
 you are not running with `-update`, `TestCorpus` fatals (`corpus_test.go:111-113`).
 Run `-update` to generate it.
 
+Rendered HTML is compared byte for byte, including all leading, interior and
+trailing whitespace. A nonempty `render.golden` section contains the exact HTML
+followed by **one additional framing LF**. That final LF belongs to the archive;
+it is removed when reading the golden. Thus output `x` is stored as `x\n`, while
+output `x\n` is stored as `x\n\n`. Empty output uses an empty section. Regenerate
+these sections instead of trimming or adding newlines by hand. Structural HTML
+comparison supplies diagnostics only; it cannot make different bytes pass.
+
 ## Diagnostics format
 
 Each diagnostic line follows the convention:

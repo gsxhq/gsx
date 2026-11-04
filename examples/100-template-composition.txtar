@@ -34,4 +34,8 @@ component (p HomePage) Render() {
 -- invoke --
 (HomePage{Title: "Dashboard"}).Render()
 -- render.golden --
-<main><section class="card"><h2>Dashboard</h2><button class="btn">Save</button></section></main>
+<main>
+		<section class="card"><h2>Dashboard</h2>
+			<button class="btn">Save</button>
+		</section>
+	</main>

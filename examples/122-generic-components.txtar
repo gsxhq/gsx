@@ -19,4 +19,5 @@ component Page() {
 -- invoke --
 Page()
 -- render.golden --
-<span class="badge">new</span><span class="badge">42</span>
+<span class="badge">new</span>
+	<span class="badge">42</span>

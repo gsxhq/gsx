@@ -57,6 +57,12 @@ component, control-flow, switch-case and markup-slot bodies is trimmed. Content
 inside an HTML element is literal even when that element is the body's only
 node. String interpolations always retain their data.
 
+A variadic `children ...gsx.Node` parameter receives separate arguments.
+Whitespace-only literal text containing spaces, tabs, CR, LF or form feeds
+separates arguments and is omitted. Explicit `{ " " }` still passes a space
+argument; substantive text and non-ASCII whitespace remain literal values.
+Scalar `children gsx.Node` and slots retain their content whitespace.
+
 ```gsx
 component Greeting(name string) {
     <p>Hello
@@ -74,3 +80,6 @@ visible content. Review multiline markup when migrating from JSX-style
 normalization. Explicit space interpolations still work; do not delete them
 without checking the desired output. No whitespace directives or legacy mode
 are provided. The formatter preserves this content rather than wrapping prose.
+Around multiline literal content, it retains the surrounding source placement
+needed to keep opening lines and later lines coherent. Independent Go syntax
+and tag syntax still format where their layout does not disturb that placement.
