@@ -1,6 +1,6 @@
-An embedded element with authored literal newlines constrains its surrounding
-Go syntax placement. Its composite item retains its readable opening line
-without invented parentheses or field expansion. Flat elements remain flat.
+Multiline HTML operands keep their correctly authored nesting indentation.
+Literal newlines do not force decorative parentheses or expansion of every
+composite field; ordinary Go syntax and width decisions remain canonical.
 
 -- input.gsx --
 package ui

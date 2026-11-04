@@ -96,24 +96,3 @@ func TestLocalGroupExcludesContinuation(t *testing.T) {
 		t.Fatalf("long opening should wrap: %q", got)
 	}
 }
-
-func TestSourceIndentOnlyReplacesGeneratedWhitespace(t *testing.T) {
-	tests := []struct {
-		name string
-		doc  Doc
-		want string
-	}{
-		{"managed", Indent(Concat(Text("x"), HardLine, SourceIndent("  ", Text("y")))), "x\n  y"},
-		{"literal", Concat(Text("literal\n  "), SourceIndent("\t", Text("y"))), "literal\n  y"},
-		{"empty", Concat(Text("literal\n"), SourceIndent("  ", Text("y"))), "literal\n  y"},
-		{"inline", Concat(Text("x = "), SourceIndent("\t", Text("y"))), "x = y"},
-		{"nested", Indent(Concat(HardLine, SourceIndent(" ", Indent(Concat(Text("x"), HardLine, Text("y")))))), "\n x\n\t\ty"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Print(tt.doc, 80, 2); got != tt.want {
-				t.Fatalf("got %q; want %q", got, tt.want)
-			}
-		})
-	}
-}

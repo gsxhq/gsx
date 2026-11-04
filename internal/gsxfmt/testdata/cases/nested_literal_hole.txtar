@@ -7,15 +7,15 @@ remains fixed rather than being replaced with canonical nesting indentation.
 package p
 
 component Row(who string) {
-        <div title={f`a @{ f`b @{ who } ` } c`}>
-              {f`x @{ f`y @{  who  }` } z`}
-        </div>
+<div title={f`a @{ f`b @{ who } ` } c`}>
+	{f`x @{ f`y @{  who  }` } z`}
+</div>
 }
 -- fmt.golden --
 package p
 
 component Row(who string) {
-        <div title={f`a @{f`b @{ who } `} c`}>
-              {f`x @{f`y @{  who  }`} z`}
-        </div>
+<div title={f`a @{f`b @{ who } `} c`}>
+	{f`x @{f`y @{  who  }`} z`}
+</div>
 }

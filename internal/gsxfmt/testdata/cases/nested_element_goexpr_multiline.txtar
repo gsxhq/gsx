@@ -1,22 +1,21 @@
-Multiline HTML operands appear in component inputs, interpolations, Go blocks,
-control-flow headers and f`` literal arguments. The smallest surrounding Go
-regions retain source placement while independent syntax formats. Literal
-indentation, including the pre element's content, must survive exactly; the
-formatter must be idempotent without relocating only an operand's first line.
+Embedded HTML operands in attributes, interpolation, Go blocks and control
+headers have deliberately authored nesting indentation. The pre operand alone
+contains irregular data whose bytes must survive formatting. Go syntax around
+all operands remains independently formattable.
 
 -- input.gsx --
 package p
 
 component Row(n int) {
 	<Holder h={wrapN(
-				<b>
-					{ n }
-				</b>,
+			<b>
+				{ n }
+			</b>,
 		)}/>
 	<p>{ wrapN(
-	<b>
-	{ n }
-	</b>,
+			<b>
+				{ n }
+			</b>,
 	) }</p>
 	{{ w := wrapN(
 		<b>
@@ -42,21 +41,27 @@ component Row(n int) {
 package p
 
 component Row(n int) {
-	<Holder h={wrapN(
+	<Holder
+		h={
+			wrapN(
 				<b>
-					{ n }
-				</b>,
-		)}/>
+				{ n }
+			</b>,
+			)
+		}
+	/>
 	<p>{ wrapN(
-	<b>
-	{ n }
-	</b>,
+			<b>
+				{ n }
+			</b>,
 		) }</p>
-	{{ w := wrapN(
-		<b>
+	{{
+		w := wrapN(
+			<b>
 			{ n }
 		</b>,
-	) }}
+		)
+	}}
 	<div>{ wrapN(
 			<pre>
   x

@@ -1,88 +1,89 @@
-Syntactic edges retain the placement of multiline literal islands. First nodes,
-source comments, interior siblings and closing tags share authored columns.
+Component, branch, loop, case and slot body edges are syntactic whitespace;
+interior HTML text keeps its correctly authored indentation. Go headers may
+format without freezing their original source columns.
 
 -- input.gsx --
 package p
 component Root() {
-    <div>
-        <b>root</b>
-    </div>
+<div>
+	<b>root</b>
+</div>
 }
 component Branch(ok bool) {
-	{ if ok {
-        <b>first</b>
-        // source comment
-        <i>last</i>
-    } else {
-      <u>other</u>
-      <br/>
-    } }
+{ if ok {
+	<b>first</b>
+	// source comment
+	<i>last</i>
+} else {
+	<u>other</u>
+	<br/>
+} }
 }
 component Loop(items []string) {
-	{ for _, item := range items {
-      <b>{ item }</b>
-      <br/>
-    } }
+{ for _, item := range items {
+	<b>{ item }</b>
+	<br/>
+} }
 }
 component Cases(kind int) {
-	{ switch kind {
-	case 1:
-        <b>first</b>
-        // source comment
-        <i>last</i>
-	default: <u>other</u>
-	} }
+{ switch kind {
+case 1:
+	<b>first</b>
+	// source comment
+	<i>last</i>
+default: <u>other</u>
+} }
 }
 component Slot() {
-	<Card node={
-      <div>
-        // source comment
-        <b>slot</b>
-      </div>
-    }/>
+<Card node={
+	<div>
+		// source comment
+		<b>slot</b>
+	</div>
+}/>
 }
 -- fmt.golden --
 package p
 
 component Root() {
-    <div>
-        <b>root</b>
-    </div>
+<div>
+	<b>root</b>
+</div>
 }
 
 component Branch(ok bool) {
-	{ if ok {
-        <b>first</b>
-        // source comment
-        <i>last</i>
-    } else {
-      <u>other</u>
-      <br/>
-    } }
+{ if ok {
+	<b>first</b>
+	// source comment
+	<i>last</i>
+} else {
+	<u>other</u>
+	<br/>
+} }
 }
 
 component Loop(items []string) {
-	{ for _, item := range items {
-      <b>{ item }</b>
-      <br/>
-    } }
+{ for _, item := range items {
+	<b>{ item }</b>
+	<br/>
+} }
 }
 
 component Cases(kind int) {
-	{ switch kind {
+{ switch kind {
 	case 1:
-        <b>first</b>
-        // source comment
-        <i>last</i>
+	<b>first</b>
+	// source comment
+	<i>last</i>
 	default: <u>other</u>
 	} }
 }
 
 component Slot() {
-	<Card node={
-      <div>
-        // source comment
-        <b>slot</b>
-      </div>
-    }/>
+<Card node={
+	<div>
+		// source comment
+		<b>slot</b>
+	</div>
+}/>
 }

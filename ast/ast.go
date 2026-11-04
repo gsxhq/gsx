@@ -4,7 +4,6 @@ package ast
 import (
 	"fmt"
 	"go/token"
-	"sort"
 	"strings"
 )
 
@@ -170,19 +169,12 @@ type File struct {
 type SourceLayout struct {
 	text      string
 	base      token.Pos
-	lines     []int
 	fieldEnds map[token.Pos]token.Pos
 }
 
 // NewSourceLayout captures an immutable source view at its FileSet base.
 func NewSourceLayout(text string, base token.Pos) SourceLayout {
-	lines := []int{0}
-	for i := range text {
-		if text[i] == '\n' {
-			lines = append(lines, i+1)
-		}
-	}
-	return SourceLayout{text: text, base: base, lines: lines}
+	return SourceLayout{text: text, base: base}
 }
 
 // Slice returns original bytes at a source span, when the span belongs to this view.
@@ -192,19 +184,6 @@ func (s SourceLayout) Slice(start, end token.Pos) (string, bool) {
 		return "", false
 	}
 	return s.text[a:b], true
-}
-
-// LinePrefix returns the bytes before pos on its original physical line.
-func (s SourceLayout) LinePrefix(pos token.Pos) (string, bool) {
-	a := int(pos - s.base)
-	if !s.base.IsValid() || a < 0 || a > len(s.text) {
-		return "", false
-	}
-	index := sort.Search(len(s.lines), func(i int) bool { return s.lines[i] > a }) - 1
-	if index < 0 {
-		return "", false
-	}
-	return s.text[s.lines[index]:a], true
 }
 
 // WithFieldOrigins captures immutable semantic-field boundaries before callers
@@ -230,11 +209,6 @@ func (s SourceLayout) WithFieldOrigins(f *File) SourceLayout {
 		}
 		GoFields(n, func(field GoField) { record(field.Pos, field.Src) })
 		switch n := n.(type) {
-		case *Component:
-			record(n.NamePos, n.Name)
-			record(n.ParamsPos, n.Params)
-			record(n.RecvPos, n.Recv)
-			record(n.TypeParamsPos, n.TypeParams)
 		case *GoBlock:
 			record(n.CodePos, n.Code)
 		case *Interp:
@@ -277,7 +251,6 @@ func (s SourceLayout) WithFieldOrigins(f *File) SourceLayout {
 			stages(n.Stages)
 		case *Element:
 			record(n.TagPos, n.Tag)
-			record(n.TypeArgsPos, n.TypeArgs)
 		}
 		return true
 	})

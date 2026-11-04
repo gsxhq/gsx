@@ -1,8 +1,6 @@
-Two composite items contain multiline element operands. Preserve the authored
-item prefixes and literal columns instead of introducing decorative parens or
-expanding fields independently of their fixed HTML. Formatting again must not
-add alignment cells to the fields following either operand (the historical #62
-regression). Go syntax outside these constrained regions can still format.
+Multiline HTML operands keep their correctly authored nesting indentation.
+Literal newlines do not force decorative parentheses or expansion of every
+composite field; ordinary Go syntax and width decisions remain canonical.
 
 -- input.gsx --
 package ui
@@ -19,9 +17,14 @@ var nav = []item{
 package ui
 
 var nav = []item{
-	{label: "Team View", icon: <UsersIcon>
+	{
+		label:     "Team View",
+		icon:      <UsersIcon>
 		<title>users</title>
-	</UsersIcon>, page: TeamViewPage{}, pathMatch: "/team"},
+	</UsersIcon>,
+		page:      TeamViewPage{},
+		pathMatch: "/team",
+	},
 	{label: "Search", icon: <SearchIcon>
 		<title>search</title>
 	</SearchIcon>, page: ListPage{}, pathMatch: "/list/"},

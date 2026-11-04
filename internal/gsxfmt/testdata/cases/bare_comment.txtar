@@ -1,8 +1,7 @@
-A bare line-start // content comment always occupies its own line at the child
-indent: it is reindented from any source column, it forces an otherwise-inline
-element multi-line (with the following sibling on a fresh line), an empty
-comment stays a bare // with no trailing space, and the braced {// x } form is
-never converted to or from the bare form.
+Source comments emit nothing. Authored indentation surrounding comments is
+literal HTML data, including the deliberately over-indented Weird regression.
+The formatter must retain that data while formatting independent syntax.
+
 -- input.gsx --
 package ui
 

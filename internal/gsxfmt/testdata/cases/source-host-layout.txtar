@@ -1,6 +1,6 @@
-Fixed HTML content constrains enclosing GSX syntax, including source comments,
-pipeline arguments, and ordinary fields before an anchored Go operand.
-Independent component headers still format normally.
+Multiline HTML text is preserved exactly while surrounding Go syntax formats.
+Unusual literal whitespace in this regression input is deliberate data; Go
+spacing and declarations are not frozen to retain original opening columns.
 
 -- input.gsx --
 package p
@@ -58,51 +58,79 @@ component LineComment(){ <div>{// c
 -- fmt.golden --
 package p
 
-component Inline(){ {Wrap(<b>
+component Inline() { { Wrap(<b>
   x
-</b>)} }
+</b>) } }
 
 component Conditional() {
-	<Box { if ok==true { class={Wrap(<b>
+	<Box
+		{ if ok == true {
+			class={
+				Wrap(<b>
 		x
-	</b>)} } }/>
+	</b>)
+			}
+		} }
+	/>
 }
 
 component Composed() {
-	<Box class={ someFunc( 1+2 ), Wrap(<b>
+	<Box
+		class={
+			someFunc(1 + 2),
+			Wrap(<b>
 		x
-	</b>) }/>
+	</b>)
+		}
+	/>
 }
 
 component Guard() {
-	<Box class={ "active": Wrap(<b>
+	<Box
+		class={
+			"active": Wrap(<b>
 		x
-	</b>) != nil }/>
+	</b>) != nil
+		}
+	/>
 }
 
 component ValueIf() {
-	<Box class={ if ok { Wrap(<b>
+	<Box
+		class={
+			if ok {
+				Wrap(<b>
 		x
-	</b>) } else { "other" } }/>
+	</b>)
+			} else {
+				"other"
+			}
+		}
+	/>
 }
 
-component Comments(){ <Box { /* comment */ /* second */ } node={Wrap(<b>
+component Comments() { <Box
+		/* comment */ /* second */
+		node={
+			Wrap(<b>
 x
-</b>)}/> }
+</b>)
+		}
+	/> }
 
-component Pipeline(){ { x |> foo(<b>
+component Pipeline() { { x |> foo(<b>
 x
 </b>) } }
 
 component MixedCases(kind int) {
     { switch kind {
-      case 1:
+	case 1:
         <b>first</b>
         // source comment
         <i>last</i>
-      default:
-        <u>other</u>
-    } }
+	default:
+		<u>other</u>
+	} }
 }
 
 component Independent(x string) {
@@ -111,11 +139,11 @@ component Independent(x string) {
     </div>
 }
 
-component BodyComment(){ <div>{/*c*/}<b>
+component BodyComment() { <div>{/*c*/}<b>
  x
 </b></div> }
 
-component LineComment(){ <div>{// c
+component LineComment() { <div>{// c
 }<b>
  x
 </b></div> }

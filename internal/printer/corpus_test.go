@@ -341,6 +341,7 @@ func canonGo(n ast.Node) {
 			canonGo(m)
 		}
 	case *ast.Element:
+		v.TypeArgs = fmtTypeArgs(v.TypeArgs)
 		for _, a := range v.Attrs {
 			canonGoAttr(a)
 		}
@@ -360,7 +361,7 @@ func canonGo(n ast.Node) {
 		v.Expr = canonGoField(v.Expr, exprField, fmtExpr)
 		for i := range v.Stages {
 			if v.Stages[i].HasArgs {
-				v.Stages[i].Args = fmtArgs(v.Stages[i].Args)
+				v.Stages[i].Args = canonGoField(v.Stages[i].Args, argsField, fmtArgs)
 			}
 		}
 	case *ast.GoBlock:
@@ -461,7 +462,7 @@ func canonGoAttr(a ast.Attr) {
 		v.Expr = canonGoField(v.Expr, exprField, fmtExpr)
 		for i := range v.Stages {
 			if v.Stages[i].HasArgs {
-				v.Stages[i].Args = fmtArgs(v.Stages[i].Args)
+				v.Stages[i].Args = canonGoField(v.Stages[i].Args, argsField, fmtArgs)
 			}
 		}
 	case *ast.SpreadAttr:
@@ -475,7 +476,7 @@ func canonGoAttr(a ast.Attr) {
 			v.Parts[i].Expr = canonGoField(v.Parts[i].Expr, exprField, fmtExpr)
 			for j := range v.Parts[i].Stages {
 				if v.Parts[i].Stages[j].HasArgs {
-					v.Parts[i].Stages[j].Args = fmtArgs(v.Parts[i].Stages[j].Args)
+					v.Parts[i].Stages[j].Args = canonGoField(v.Parts[i].Stages[j].Args, argsField, fmtArgs)
 				}
 			}
 			if v.Parts[i].Cond != "" {
@@ -545,7 +546,7 @@ func canonValueArm(a *ast.ValueArm) {
 	a.Expr = canonGoField(a.Expr, exprField, fmtExpr)
 	for i := range a.Stages {
 		if a.Stages[i].HasArgs {
-			a.Stages[i].Args = fmtArgs(a.Stages[i].Args)
+			a.Stages[i].Args = canonGoField(a.Stages[i].Args, argsField, fmtArgs)
 		}
 	}
 }

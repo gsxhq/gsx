@@ -1,7 +1,6 @@
 package pretty
 
 import (
-	"bytes"
 	"strings"
 	"unicode/utf8"
 )
@@ -47,32 +46,16 @@ func Print(d Doc, width, tabWidth int) string {
 	if tabWidth <= 0 {
 		tabWidth = DefaultTabWidth
 	}
-	var b bytes.Buffer
+	var b strings.Builder
 	pos := 0
-	generatedStart := -1
 	stack := []cmd{{indent: 0, mode: modeBreak, doc: d}}
 	for len(stack) > 0 {
 		c := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		switch c.doc.kind {
 		case kindText:
-			if c.doc.text != "" {
-				generatedStart = -1
-			}
 			b.WriteString(c.doc.text)
 			pos = advance(pos, c.doc.text, tabWidth)
-		case kindSourceIndent:
-			if generatedStart >= 0 {
-				b.Truncate(generatedStart)
-				b.WriteString(c.doc.text)
-				pos = advance(0, c.doc.text, tabWidth)
-				generatedStart = -1
-			} else if pos == 0 {
-				b.WriteString(c.doc.text)
-				pos = advance(0, c.doc.text, tabWidth)
-			}
-			stack = append(stack, cmd{c.indent, c.mode, c.doc.parts[0]})
-
 		case kindConcat:
 			for i := len(c.doc.parts) - 1; i >= 0; i-- {
 				stack = append(stack, cmd{c.indent, c.mode, c.doc.parts[i]})
@@ -82,13 +65,11 @@ func Print(d Doc, width, tabWidth int) string {
 		case kindLine:
 			if c.doc.hard || c.mode == modeBreak {
 				b.WriteByte('\n')
-				generatedStart = b.Len()
 				for i := 0; i < c.indent; i++ {
 					b.WriteByte('\t')
 				}
 				pos = c.indent * tabWidth
 			} else {
-				generatedStart = -1
 				b.WriteString(c.doc.text)
 				pos += utf8.RuneCountInString(c.doc.text)
 			}
@@ -170,8 +151,6 @@ func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
 			}
 		case kindIndent:
 			local = append(local, cmd{c.indent + 1, c.mode, c.doc.parts[0]})
-		case kindSourceIndent:
-			local = append(local, cmd{c.indent, c.mode, c.doc.parts[0]})
 		case kindGroup:
 			gm := c.mode
 			if c.doc.forced {

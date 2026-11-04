@@ -82,12 +82,10 @@ func defaultJSLineFormatter(width, tabWidth int) rawfmt.LineFormatter {
 // printer accumulates the first I/O-independent error encountered while
 // building the document.
 type printer struct {
-	source           ast.SourceLayout
-	firstLineAnchors map[string]bool
-	err              error
-	anchored         map[ast.Node]bool
-	anchoredFields   map[string]bool
-	originIndent     *string
+	source         ast.SourceLayout
+	err            error
+	anchored       map[ast.Node]bool
+	anchoredFields map[string]bool
 	// External flat formatters (via FprintWith). A nil formatter leaves the body
 	// verbatim; they cannot preserve multi-line-token interiors.
 	cssFmt rawfmt.Formatter
@@ -201,12 +199,6 @@ func (p *printer) decl(d ast.Decl) pretty.Doc {
 // it does for a GoChunk's leading/trailing whitespace).
 func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 	parts := v.Parts
-	source, _ := p.source.Slice(v.Pos(), v.End())
-	if text, values, ok, err := p.fmtSourceGoParts(parts, source, goExprWrapper, "", StripSyntheticPackage); err != nil {
-		return p.fail("%s", err)
-	} else if ok {
-		return p.goTextDoc(strings.TrimSpace(text), values, false)
-	}
 	formatted, shapes, ok := p.fmtGoExprParts(parts)
 	if ok {
 		parts = formatted
@@ -248,17 +240,12 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		// version of this code non-idempotent: a value broken on width re-parses
 		// as an author-broken value, which then breaks for a different reason.
 		//
-		// Three cases, and the width is in none of them:
-		//   - the value cannot be printed flat (literal newlines or broken tag
-		//     syntax) — it breaks, and takes parens;
-		//   - the author wrapped it in parens — it breaks, and keeps them;
-		//   - otherwise it is emitted as fixed text, which no Group can reflow.
-		//
-		// A wide line is still fixed, just not here: breakWideLiterals breaks the
-		// composite literal's FIELDS, which is what actually made the line wide.
+		// Literal newlines are content, not a request for decorative parentheses.
+		// Only syntactic breaks and an authored wrapper request that layout.
+
 		flatText, flat := goExprFlatText(doc)
 		switch {
-		case eligible[i] && (!flat || wrapped[i]):
+		case eligible[i] && (wrapped[i] || (!flat && !p.anchoredGoMarkup(part))):
 			doc = parenWrapDoc(doc)
 		case flat:
 			doc = pretty.Text(flatText)
@@ -383,9 +370,6 @@ func trimGoTextEdges(src string, first, last bool) string {
 
 // component formats the syntactic body edges, preserving its literal interior.
 func (p *printer) component(c *ast.Component) pretty.Doc {
-	if p.anchoredBody(c.Body) && !strings.ContainsAny(c.Layout.Leading, "\r\n") {
-		return p.sourceComponent(c)
-	}
 	head := []pretty.Doc{pretty.Text("component ")}
 	if c.Recv != "" {
 		head = append(head, pretty.Text(fmtRecv(c.Recv)), pretty.Text(" "))
@@ -409,24 +393,7 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 // element renders <tag attrs>children</tag>.
 func (p *printer) element(e *ast.Element) pretty.Doc {
 	attrs := make([]pretty.Doc, 0, len(e.Attrs)*2)
-	fixedOpening := p.anchoredAttrOpening(e)
-	previous := e.TagPos + gotoken.Pos(len(e.Tag))
-	if end, ok := p.source.FieldEnd(e.TagPos); ok {
-		previous = end
-	}
-	if e.TypeArgsClosePos.IsValid() {
-		previous = e.TypeArgsClosePos + 1
-	}
 	for _, a := range e.Attrs {
-		if fixedOpening {
-			gap, ok := p.source.Slice(previous, a.Pos())
-			if !ok || strings.TrimSpace(gap) != "" {
-				return p.fail("printer: missing opening-tag source layout")
-			}
-			attrs = append(attrs, pretty.Text(gap), p.sourceAttrChild(a))
-			previous = a.End()
-			continue
-		}
 		if c, ok := a.(*ast.CommentAttr); ok {
 			sep := pretty.Line
 			if c.Trailing {
@@ -439,7 +406,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 		}
 		attrs = append(attrs, pretty.Line, p.attrDoc(a))
 	}
-	if e.AttrsMultiline && !fixedOpening {
+	if e.AttrsMultiline {
 		// The author broke the opening tag across lines; keep the attribute list
 		// block-formatted (one per line, `>` alone) instead of collapsing it onto
 		// a single line. Same mechanism as the `//` line-comment attr above. With
@@ -449,19 +416,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	}
 	tag := pretty.Text(e.Tag)
 	if e.TypeArgs != "" {
-		if fixedOpening {
-			end, valid := p.source.FieldEnd(e.TypeArgsPos)
-			before, ok := p.source.Slice(e.TypeArgsOpenPos+1, e.TypeArgsPos)
-			after, okAfter := p.source.Slice(end, e.TypeArgsClosePos)
-			nameEnd, _ := p.source.FieldEnd(e.TagPos)
-			gap, okGap := p.source.Slice(nameEnd, e.TypeArgsOpenPos)
-			if !valid || !ok || !okAfter || !okGap {
-				return p.fail("printer: missing type-argument source layout")
-			}
-			tag = pretty.Concat(tag, pretty.Text(gap+"["+before+e.TypeArgs+after+"]"))
-		} else {
-			tag = pretty.Concat(tag, pretty.Text("["+fmtTypeArgs(e.TypeArgs)+"]"))
-		}
+		tag = pretty.Concat(tag, pretty.Text("["+fmtTypeArgs(e.TypeArgs)+"]"))
 	}
 	// Opening tag group: flat → `<tag a b>`; broken → each attr on its own line
 	// with `>` (or `/>`) alone. A forced break inside any attr (CondAttr) breaks
@@ -472,13 +427,6 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 		tail = pretty.Text("/>")
 	}
 	tagTail := pretty.SoftLine
-	if fixedOpening && len(e.Attrs) > 0 {
-		rest, ok := p.source.Slice(previous, e.End())
-		if !ok {
-			return p.fail("printer: missing opening-tag tail source layout")
-		}
-		tagTail = pretty.Text(sourceLeading(rest))
-	}
 	var openGroupBody pretty.Doc
 	if len(e.Attrs) == 0 {
 		openGroupBody = pretty.Concat(pretty.Text("<"), tag, tail)
@@ -519,11 +467,6 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 // a BreakParent so the enclosing opening-tag group breaks. ExprAttr and
 // ComposedAttr use goFieldDoc so long or comment-bearing values can be multi-line.
 func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
-	if p.anchoredNode(a) {
-		if doc, ok := p.sourceAttr(a); ok {
-			return doc
-		}
-	}
 	switch v := a.(type) {
 	case *ast.CondAttr:
 		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.condAttrChainDoc(v), pretty.Text(" }"))
@@ -546,17 +489,34 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 	case *ast.ExprAttr:
 		val := []pretty.Doc{p.goFieldDoc(v.Expr, exprField, fmtExprPreserving, v.ExprPos)}
 		for _, s := range v.Stages {
-			val = append(val, pretty.Text(" |> "), multiline(pipeStageStr(s)))
-		}
-		if p.inlineGoAttr(v) {
-			before, ok := p.source.Slice(v.Pos(), v.ExprPos)
-			if !ok {
-				return p.fail("printer: missing attribute source layout")
-			}
-			gap := before[len(strings.TrimRight(before, " \t\r\n")):]
-			return pretty.Concat(pretty.Text(v.Name+"={"+gap), pretty.Concat(val...), pretty.Text(" }"))
+			val = append(val, pretty.Text(" |> "), p.pipeStageDoc(s))
 		}
 		return wrapAttrValue(v.Name, pretty.SoftLine, pretty.Concat(val...))
+	case *ast.SpreadAttr:
+		docs := []pretty.Doc{p.goFieldDoc(v.Expr, exprField, fmtExprPreserving, v.ExprPos)}
+		for _, stage := range v.Stages {
+			docs = append(docs, pretty.Text(" |> "), p.pipeStageDoc(stage))
+		}
+		expr := pretty.Concat(docs...)
+		if len(v.Stages) > 0 {
+			expr = pretty.Concat(pretty.Text("("), expr, pretty.Text(")"))
+		}
+		return pretty.Concat(pretty.Text("{ "), expr, pretty.Text("... }"))
+
+	case *ast.OrderedAttrsAttr:
+		if len(v.Pairs) == 0 {
+			return pretty.Text(v.Name + "={{ }}")
+		}
+		pairs := []pretty.Doc{pretty.Text(v.Name + "={{ ")}
+		for i, pair := range v.Pairs {
+			if i > 0 {
+				pairs = append(pairs, pretty.Text(", "))
+			}
+			pairs = append(pairs, pretty.Text(strconv.Quote(pair.Key)+": "), p.goFieldDoc(pair.Value, exprField, fmtExprPreserving, pair.ValuePos))
+		}
+		pairs = append(pairs, pretty.Text(" }}"))
+		return pretty.Concat(pairs...)
+
 	case *ast.ComposedAttr:
 		parts := make([]pretty.Doc, 0, len(v.Parts)*2)
 		for i, part := range v.Parts {
@@ -596,7 +556,7 @@ func (p *printer) composedPartDoc(part ast.ComposedPart) pretty.Doc {
 	}
 	seg := []pretty.Doc{p.goFieldDoc(part.Expr, exprField, fmtExprPreserving, part.ExprPos)}
 	for _, s := range part.Stages {
-		seg = append(seg, pretty.Text(" |> "), multiline(pipeStageStr(s)))
+		seg = append(seg, pretty.Text(" |> "), p.pipeStageDoc(s))
 	}
 	if part.Cond != "" {
 		seg = append(seg, pretty.Text(": "), p.goFieldDoc(part.Cond, exprField, fmtExpr, part.CondPos))
@@ -639,7 +599,7 @@ func (p *printer) valueArmDoc(a *ast.ValueArm) pretty.Doc {
 	}
 	seg := []pretty.Doc{p.goFieldDoc(a.Expr, exprField, fmtExprPreserving, a.ExprPos)}
 	for _, s := range a.Stages {
-		seg = append(seg, pretty.Text(" |> "), multiline(pipeStageStr(s)))
+		seg = append(seg, pretty.Text(" |> "), p.pipeStageDoc(s))
 	}
 	return pretty.Concat(seg...)
 }
@@ -829,12 +789,9 @@ func (p *printer) markerRegion(r *ast.MarkerRegion) pretty.Doc {
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {
-	if p.anchoredNode(i) {
-		return p.sourceInterp(i)
-	}
 	parts := []pretty.Doc{pretty.Text("{ "), p.goFieldDoc(i.Expr, exprField, fmtExprPreserving, i.ExprPos)}
 	for _, s := range i.Stages {
-		parts = append(parts, pretty.Text(" |> "), multiline(pipeStageStr(s)))
+		parts = append(parts, pretty.Text(" |> "), p.pipeStageDoc(s))
 	}
 	parts = append(parts, pretty.Text(" }"))
 	return pretty.Concat(parts...)
@@ -856,6 +813,13 @@ func (p *printer) embeddedInterp(v *ast.EmbeddedInterp) pretty.Doc {
 	return pretty.Text(b.String())
 }
 
+func (p *printer) pipeStageDoc(stage ast.PipeStage) pretty.Doc {
+	if !stage.HasArgs {
+		return pretty.Text(stage.Name)
+	}
+	return pretty.Concat(pretty.Text(stage.Name+"("), p.goFieldDoc(stage.Args, argsField, fmtArgs, stage.ArgsPos), pretty.Text(")"))
+}
+
 func pipeStageStr(s ast.PipeStage) string {
 	if s.HasArgs {
 		return s.Name + "(" + fmtArgs(s.Args) + ")"
@@ -864,14 +828,7 @@ func pipeStageStr(s ast.PipeStage) string {
 }
 
 func (p *printer) goBlock(b *ast.GoBlock) pretty.Doc {
-	if p.anchoredGoField(b.Code) {
-		return p.sourceGoBlock(b)
-	}
 	s, values := p.goBlockCode(b.Code, b.CodePos)
-	if p.firstLineGoAnchor(b.Code) {
-		return pretty.Concat(pretty.Text("{{"+sourceLeading(b.Code)), pretty.Indent(p.goTextDoc(s, values, false)), pretty.HardLine, pretty.Text("}}"))
-	}
-
 	// A single-statement block with no multi-line value stays inline:
 	// `{{ stmt }}`. A block carrying a multi-line js`/css` literal or element
 	// always breaks (its body is multi-line even when the statement is not).
@@ -1033,33 +990,19 @@ func (p *printer) fmtGoBlockCode(code string, origin ...gotoken.Pos) (string, ma
 		return "", nil, false
 	}
 	sub := *p
-	outerPrefix := ""
-	if len(origin) > 0 {
-		outerPrefix = p.sourceIndent(origin[0])
-	}
 	sub.source = ast.NewSourceLayout(code, parts[0].Pos()).WithFieldOrigins(&ast.File{Decls: []ast.Decl{&ast.GoWithElements{Parts: parts}}})
-	sub.originIndent = &outerPrefix
 	defer func() {
 		if sub.err != nil {
 			p.err = sub.err
 		}
 	}()
 	strip := func(out []byte) (string, bool) { return extractFuncBody(string(out)) }
-	if text, values, ok, err := sub.fmtSourceGoParts(parts, code, goBlockWrapperPrefix, goBlockWrapperSuffix, strip, origin...); err != nil {
-		p.fail("%s", err)
-		return "", nil, false
-	} else if ok {
-		return text, values, true
-	}
 	return sub.fmtGoPartsText(parts, goBlockWrapperPrefix, goBlockWrapperSuffix, strip)
 }
 
 // ifMarkup renders `{ if cond { … }[ else …] }` as a group: short → one line,
 // long → block body.
 func (p *printer) ifMarkup(i *ast.IfMarkup) pretty.Doc {
-	if p.anchoredNode(i) {
-		return p.sourceIf(i)
-	}
 	return pretty.Group(pretty.Concat(pretty.Text("{ "), p.ifChain(i), pretty.Text(" }")))
 }
 
@@ -1079,9 +1022,6 @@ func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
 }
 
 func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
-	if p.anchoredNode(f) {
-		return p.sourceFor(f)
-	}
 	return pretty.Group(pretty.Concat(
 		pretty.Text("{ for "), p.goFieldDoc(f.Clause, forField, fmtClause, f.ClausePos), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline, f.Layout), pretty.Text("} }")))
 }
@@ -1198,9 +1138,6 @@ func (p *printer) cfBody(nodes []ast.Markup, multiline bool, layout ast.BodyLayo
 
 // switchMarkup aligns case labels with the switch and formats syntactic edges.
 func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
-	if p.anchoredNode(s) {
-		return p.sourceSwitch(s)
-	}
 	head := []pretty.Doc{pretty.Text("{ switch")}
 	if s.Tag != "" {
 		head = append(head, pretty.Text(" "), p.goFieldDoc(s.Tag, switchField, fmtExpr, s.TagPos))
@@ -2038,15 +1975,10 @@ func (p *printer) goExprValue(part ast.GoPart) (pretty.Doc, bool) {
 // width. A fixed-width placeholder would align those comments to the
 // placeholder, not to the element, and the misalignment would survive the splice.
 //
-// A value that renders multi-line has no single width to report; it gets a
-// one-rune placeholder drawn from a rune DISTINCT from the flat one, so it can
-// double as breakWideLiterals' forceMarker (a line holding it is over budget
-// however short it measures — the value forces a break and can never be a
-// one-liner, so the enclosing literal breaks its fields). Layout is then still
-// correct except for end-of-line comment columns in that value's alignment
-// section, which gofmt (seeing a real multi-line value) would have split.
-// Everything else in the region — indentation, `=` alignment, blank lines — is
-// unaffected, since none of it depends on value width.
+// A value with literal HTML newlines reports the width of its opening line.
+// Those data newlines do not force surrounding Go fields to expand. A value
+// broken by syntax instead gets the distinct multi-line placeholder, so the
+// normal Go layout can accommodate its structural breaks.
 //
 // The formatted text is re-split at the placeholders and returned as a fresh
 // parts slice (the input, which aliases the AST, is never mutated): GoText parts
@@ -2102,18 +2034,15 @@ func (p *printer) formatGoParts(parts []ast.GoPart, wrapperPrefix, wrapperSuffix
 		if !ok {
 			return nil, nil, false
 		}
-		// A flat value's placeholder is the flat rune repeated to its rendered
-		// width, so gofmt aligns end-of-line comments to the value's true column.
-		// A multi-line value's real width is unknowable, so it gets a SINGLE
-		// multi-line rune — distinct from the flat rune. That distinct rune is
-		// handed to breakWideLiterals as forceMarker: a multi-line value forces a
-		// break and can never be a one-liner, so the literal holding it must break
-		// its fields even though this 1-rune placeholder measures short. The
-		// element printer lays the value out regardless of the placeholder's width;
-		// only gofmt's alignment of the surrounding Go ever reads it.
+		// Measure literal-bearing markup by its first rendered line; treating
+		// data newlines as forced syntax breaks creates gratuitous wrappers.
+
 		var h string
 		if width, flat := goExprFlatWidth(doc); flat {
 			h = strings.Repeat(flatHole, width)
+		} else if p.anchoredGoMarkup(part) {
+			first, _, _ := strings.Cut(pretty.Print(doc, 1<<30, p.tabWidth), "\n")
+			h = strings.Repeat(flatHole, max(1, utf8.RuneCountInString(first)))
 		} else {
 			h = multiHole
 		}

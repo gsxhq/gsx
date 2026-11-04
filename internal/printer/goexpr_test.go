@@ -84,17 +84,17 @@ func TestGoExprElementStaysFlatWhenItFits(t *testing.T) {
 }
 
 func TestGoExprElementKeepsSourcePlacementInFuncBody(t *testing.T) {
-	// The protected assignment keeps its authored column while the independent
-	// statement below it still receives normal Go indentation.
+	// Go statements receive canonical indentation; deliberately flush-left
+	// literal HTML content remains exact.
 	src := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n_ = someLongName\n}\n"
-	want := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n\t_ = someLongName\n}\n"
+	want := "package main\n\nfunc f() {\n\tsomeLongName := <div>\n<p>hi</p>\n</div>\n\t_ = someLongName\n}\n"
 	checkFormat(t, src, want)
 }
 
 // Renaming the binding leaves all retained literal lines at their source columns.
 func TestGoExprElementRenameDoesNotShiftIndent(t *testing.T) {
 	src := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n_ = n\n}\n"
-	want := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n\t_ = n\n}\n"
+	want := "package main\n\nfunc f() {\n\tn := <div>\n<p>hi</p>\n</div>\n\t_ = n\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -106,7 +106,7 @@ func TestGoExprElementKeepsSourceCompositeFieldLayout(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
-// A call containing fixed HTML lines retains the source-aligned Go prefix.
+// A call formats its Go prefix without modifying literal HTML lines.
 func TestGoExprElementPlainIndentForCallArgAtTopLevel(t *testing.T) {
 	src := "package main\n\nvar wrapped = Wrap(<div>\n<p>hi</p>\n</div>)\n"
 	want := "package main\n\nvar wrapped = Wrap(<div>\n<p>hi</p>\n</div>)\n"
@@ -115,7 +115,7 @@ func TestGoExprElementPlainIndentForCallArgAtTopLevel(t *testing.T) {
 
 func TestGoExprElementPlainIndentForCallArgNestedInFuncBody(t *testing.T) {
 	src := "package main\n\nfunc f() {\nwrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n_ = wrapped\n}\n"
-	want := "package main\n\nfunc f() {\nwrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n\t_ = wrapped\n}\n"
+	want := "package main\n\nfunc f() {\n\twrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n\t_ = wrapped\n}\n"
 	checkFormat(t, src, want)
 }
 

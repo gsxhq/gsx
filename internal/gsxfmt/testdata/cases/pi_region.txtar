@@ -1,26 +1,25 @@
-Marker regions preserve their literal child text and authored open/close
-placement, including unconventional indentation. Nested regions do not force
-new block layout or introduce separators; only their syntax may format.
+Nested marker regions keep correctly authored HTML indentation and literal
+child text. Formatting their syntax must not introduce content separators.
 
 -- input.gsx --
 package ui
 
 component Page(id string) {
 <?start name="panel">
-			<p>loading</p>
-<?start name={id}>
-						<span>nested</span>
+	<p>loading</p>
+	<?start name={id}>
+		<span>nested</span>
 	<?end>
-			<?end>
+<?end>
 }
 -- fmt.golden --
 package ui
 
 component Page(id string) {
 <?start name="panel">
-			<p>loading</p>
-<?start name={id}>
-						<span>nested</span>
+	<p>loading</p>
+	<?start name={id}>
+		<span>nested</span>
 	<?end>
-			<?end>
+<?end>
 }
