@@ -1,8 +1,8 @@
 # Semantic corpus and documentation HTML audit
 
 Every changed semantic case and example is listed below. This review distinguishes
-actual generated HTML from GSX syntax layout. The old corpus input sources were
-unchanged except the whitespace-only children rejection addition; most apparent
+actual generated HTML from GSX syntax layout. Before this correction, existing
+corpus input sources were unchanged except the whitespace-only children rejection addition; most apparent
 indentation changes came from emitting existing literal HTML text.
 
 The runtime and documentation generator do not pretty-print or dedent output.
@@ -302,3 +302,15 @@ tag. Their original strict HTML expectations and write-boundary checks remain.
 | `internal/corpus/testdata/cases/xpkg/generic_unexported_constraint.txtar` | Untouched pre-change input carried one level of component indentation into literal HTML. | Explicit source migration: HTML roots flush left, literal child indentation one level deep; non-emitting setup adjacency tightened where incidental. Regenerated actual output. |
 | `internal/corpus/testdata/cases/xpkg/imported_alias_collision.txtar` | Untouched pre-change input carried one level of component indentation into literal HTML. | Explicit source migration: HTML roots flush left, literal child indentation one level deep; non-emitting setup adjacency tightened where incidental. Regenerated actual output. |
 | `internal/corpus/testdata/cases/xpkg/imported_attrs_fallthrough.txtar` | Untouched pre-change input carried one level of component indentation into literal HTML. | Explicit source migration: HTML roots flush left, literal child indentation one level deep; non-emitting setup adjacency tightened where incidental. Regenerated actual output. |
+
+## Final generated documentation review
+
+All 26 generated syntax partials changed against main were inspected: the 21
+regenerated in this correction and the five earlier compact examples (HTML
+comments, component inputs, named slots, method components and Go blocks).
+Rendered HTML remains exact, conventional indentation is authored in source,
+and displayed source and Playground payloads agree. Compact scalar examples
+need no literal interior indentation. The generator adds no runtime or display
+normalization. Attribute and control syntax indentation is generated relative
+to the physical line's leading indentation, not component nesting or inline
+text width.

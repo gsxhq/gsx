@@ -594,7 +594,8 @@ func TestPlanComponentInputsBodyRetainsOnlySemanticChildren(t *testing.T) {
 	}
 }
 
-// Whitespace is rendered Node content, including each variadic Node position.
+// Planning retains authored Text. Resolved variadic argument assembly later
+// omits whitespace-only separators; scalar children retain their content.
 func TestPlanComponentInputsPreservesLiteralWhitespaceChildren(t *testing.T) {
 	for _, source := range []string{"<C> \t</C>", "<C>\n <i/> \t<b/>\n</C>"} {
 		el, fset := plannerElement(t, source)

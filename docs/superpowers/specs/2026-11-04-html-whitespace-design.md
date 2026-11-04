@@ -1,6 +1,6 @@
 # HTML whitespace semantics
 
-**Status:** Implemented and validated on `codex/intentional-spacing`.
+**Status:** Formatting quality corrections in progress on `codex/intentional-spacing`.
 **Date:** 2026-11-04
 
 ## Decision and scope
@@ -105,33 +105,32 @@ boundary stays touching. Existing literal spaces/newlines remain literal.
 
 Syntactic body-edge whitespace may be formatted because it is not emitted.
 Element content may retain unconventional layout when necessary for fidelity.
-The formatter must not independently relocate the opening/first node of a
-multiline literal island while leaving its other lines at their original
-columns. Preserve the source placement needed for those lines to remain
-coherent. Syntactic body-edge formatting must account for retained interior
-placement rather than blindly regenerating only the first node's indentation.
+Preserving emitted HTML bytes does not require preserving absolute source
+columns or the spelling of surrounding Go syntax. Format Go expressions,
+component signatures, type arguments and other syntax normally, including
+syntax on the same line as a literal. Never insert indentation into literal
+Text as a side effect of formatting a containing Go field or pipeline argument.
+Where literal lines constrain indentation, retain their content and arrange
+syntactic boundaries coherently rather than freezing unrelated expressions.
+Generated indentation follows the physical line's leading indentation, not
+implicit component nesting or the width of preceding inline prose.
 An opening tag's width decision measures its syntax, not following unbreakable
-literal content; it must not split a short tag merely because adjacent prose
-already exceeds the width target.
+literal content.
 
-Embedded Go needs the same placement guarantee. Preserve the smallest
-source-aligned Go expression, statement, or declaration needed to hold a
-multiline literal island in place, while continuing to format independent Go
-syntax. Determine the region from Go syntax and original source geometry;
-do not attempt to reconcile reordered token streams or guess indentation from
-nearby HTML. Retained source is layout metadata, not an alternate rendering
-authority: markup still prints from the semantic AST and literal Text values.
-When fixed literal lines constrain an enclosing GSX host, keep that host's
-source delimiter and whitespace geometry coherent too. This includes interpolation
-braces, component and control-flow openings, attribute groups, case labels,
-comments, and pipeline arguments. Ordinary Go fields preceding a fixed operand in
-the same constrained host retain their current semantic spelling; independent Go
-regions and component headers on separate physical lines still format normally.
-Parser-owned source origins supply only syntax trivia and original field bounds.
-Names, Go fields, literal values, and children render from the current AST; a
-source snapshot must never replace edited semantic content. An authored Go
-string-key lexeme may retain its spelling only while decoding it yields the
-current semantic key; edited keys render their current value.
+The semantic AST remains authoritative. Source metadata may retain syntax
+trivia needed for faithful printing, but must not be a blanket escape from
+formatting Go. Ordinary corpus inputs and documentation examples must be
+readable, correctly indented source. Deliberately malformed whitespace belongs
+in explicit preservation regressions; do not silently turn a formatter repair
+test into a preservation test by replacing its golden or description.
+For ordinary examples and corpus fixtures, author HTML subtrees flush left
+inside component braces, with indentation relative to the HTML root. The user
+explicitly selected this convention so exact emitted HTML is conventionally
+indented; component braces do not add an implicit HTML indentation layer.
+Dedicated whitespace regressions may deliberately use other layouts.
+Rendered goldens remain exact output. Correct manually authored source when
+its literal indentation is unintended; do not normalize generated HTML or
+pretty-print documentation output to conceal those bytes.
 
 Do not use generated string interpolations or magic comments to disguise
 formatter-introduced whitespace changes. Existing raw-text JS/CSS formatter
