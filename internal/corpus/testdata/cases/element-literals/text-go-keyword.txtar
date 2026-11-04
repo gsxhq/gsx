@@ -25,7 +25,7 @@ func local() gsx.Node {
 }
 
 component Uses() {
-	<section>{ X }{ local() }</section>
+<section>{ X }{ local() }</section>
 }
 -- invoke --
 Uses()
@@ -73,12 +73,12 @@ func local() gsx.Node {
 func Uses() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:18:2
+//line input.gsx:18:1
 		_gsxgw.S("<section>")
-//line input.gsx:18:11
-		_gsxgw.Node(ctx /*line input.gsx:18:13*/, X)
-//line input.gsx:18:16
-		_gsxgw.Node(ctx /*line input.gsx:18:18*/, local())
+//line input.gsx:18:10
+		_gsxgw.Node(ctx /*line input.gsx:18:12*/, X)
+//line input.gsx:18:15
+		_gsxgw.Node(ctx /*line input.gsx:18:17*/, local())
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
 	})

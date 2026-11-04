@@ -11,12 +11,12 @@ func check(s string) (string, error) { return s, nil }
 component Box(attrs gsx.Attrs) { <pre { attrs... }/> }
 
 component C(on bool, n int) {
-	<Box { if on { data-t={check(`one
+<Box { if on { data-t={check(`one
 
 	tab`)} data-p={`two
 
 	tab`} } }/>
-	<Box { switch n { case 1: data-t={check(`one
+<Box { switch n { case 1: data-t={check(`one
 
 	tab`)} data-p={`two
 
@@ -31,7 +31,7 @@ C(true, 1)
 	tab" data-p="two
 
 	tab"></pre>
-	<pre data-t="one
+<pre data-t="one
 
 	tab" data-p="two
 

@@ -12,29 +12,25 @@ type Props struct {
 }
 
 component Greeting(name string) {
-	<p>Hi { name }</p>
+<p>Hi { name }</p>
 }
 
 component Card(title string, n int) {
-	<div>{ title }: { n }</div>
+<div>{ title }: { n }</div>
 }
 
 component Panel(p Props) {
-	<section>{ p.Title }</section>
+<section>{ p.Title }</section>
 }
 
 component Page() {
-	<>
-		<Greeting name="Ann"/>
-		<Card title="T" n={2}/>
-		<Panel p={Props{Title: "P"}}/>
-	</>
+<Greeting name="Ann"/>
+<Card title="T" n={2}/>
+<Panel p={Props{Title: "P"}}/>
 }
 -- invoke --
 Page()
 -- render.golden --
-
-		<p>Hi Ann</p>
-		<div>T: 2</div>
-		<section>P</section>
-	
+<p>Hi Ann</p>
+<div>T: 2</div>
+<section>P</section>

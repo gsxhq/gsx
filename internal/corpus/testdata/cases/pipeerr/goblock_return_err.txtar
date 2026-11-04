@@ -14,23 +14,21 @@ func lookupID(ctx context.Context, key string) (string, error) {
 }
 
 component Inner(id string) {
-	<span>{ id }</span>
+<span>{ id }</span>
 }
 
 type Page struct{}
 
 component (p Page) Card(key string) {
-	{{
-		id, err := lookupID(ctx, key)
-		if err != nil {
-			return err
-		}
-	}}
-	<Inner id={id}/>
+{{
+	id, err := lookupID(ctx, key)
+	if err != nil {
+		return err
+	}
+}}<Inner id={id}/>
 }
 -- invoke --
 Page{}.Card("x")
 -- diagnostics.golden --
 -- render.golden --
-
-	<span>id-x</span>
+<span>id-x</span>

@@ -7,12 +7,10 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Link() {
-	{{ b := gsx.Attrs{{Key: "class", Value: "x"}} }}
-	<a class="base" { b... }>click</a>
+{{ b := gsx.Attrs{{Key: "class", Value: "x"}} }}<a class="base" { b... }>click</a>
 }
 -- invoke --
 Link()
 -- diagnostics.golden --
 -- render.golden --
-
-	<a class="base x">click</a>
+<a class="base x">click</a>

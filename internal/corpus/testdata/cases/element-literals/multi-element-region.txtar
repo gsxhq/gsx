@@ -35,7 +35,7 @@ var item = NavItem{Label: "Home", Icon: (
 )}
 
 component Uses() {
-	<div>{ item.Label }{ item.Icon }</div>
+<div>{ item.Label }{ item.Icon }</div>
 }
 -- invoke --
 Uses()
@@ -79,12 +79,12 @@ var item = NavItem{Label: "Home", Icon: _gsxrt.Func(func(ctx _gsxctx.Context, _g
 func Uses() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:14:2
+//line input.gsx:14:1
 		_gsxgw.S("<div>")
-//line input.gsx:14:7
-		_gsxgw.Text(string( /*line input.gsx:14:9*/ item.Label))
-//line input.gsx:14:21
-		_gsxgw.Node(ctx /*line input.gsx:14:23*/, item.Icon)
+//line input.gsx:14:6
+		_gsxgw.Text(string( /*line input.gsx:14:8*/ item.Label))
+//line input.gsx:14:20
+		_gsxgw.Node(ctx /*line input.gsx:14:22*/, item.Icon)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

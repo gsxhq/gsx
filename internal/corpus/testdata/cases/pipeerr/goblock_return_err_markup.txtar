@@ -11,17 +11,15 @@ func label(ctx context.Context, k string) (string, error) {
 }
 
 component Row(k string) {
-	{{
-		v, err := label(ctx, k)
-		if err != nil {
-			return err
-		}
-	}}
-	<p>{ v }</p>
+{{
+	v, err := label(ctx, k)
+	if err != nil {
+		return err
+	}
+}}<p>{ v }</p>
 }
 -- invoke --
 Row("a")
 -- diagnostics.golden --
 -- render.golden --
-
-	<p>L:a</p>
+<p>L:a</p>

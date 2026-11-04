@@ -5,14 +5,14 @@
 package views
 
 component C(count int, price float64, total int) {
-	<p>{ count |> printf("%d comments") }</p>
-	<span title={ price |> printf("$%.2f") }>{ price |> printf("$%.2f") }</span>
-	<b>{ count |> printf("%d/%d", total) }</b>
+<p>{ count |> printf("%d comments") }</p>
+<span title={ price |> printf("$%.2f") }>{ price |> printf("$%.2f") }</span>
+<b>{ count |> printf("%d/%d", total) }</b>
 }
 -- invoke --
 C(5, 9.5, 12)
 -- diagnostics.golden --
 -- render.golden --
 <p>5 comments</p>
-	<span title="$9.50">$9.50</span>
-	<b>5/12</b>
+<span title="$9.50">$9.50</span>
+<b>5/12</b>

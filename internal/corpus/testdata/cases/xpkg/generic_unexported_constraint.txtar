@@ -11,11 +11,11 @@ package components
 type secret string
 
 component Widget[T secret | string](label T) {
-	<span>{string(label)}</span>
+<span>{string(label)}</span>
 }
 
 component Button(label string) {
-	<button>{label}</button>
+<button>{label}</button>
 }
 -- pages/home.gsx --
 package pages
@@ -23,12 +23,12 @@ package pages
 import "example.com/app/components"
 
 component Home() {
-	<components.Widget label="x" />
-	<components.Button label="ok" />
+<components.Widget label="x" />
+<components.Button label="ok" />
 }
 -- invoke --
 pages.Home()
 -- diagnostics.golden --
 -- render.golden --
 <span>x</span>
-	<button>ok</button>
+<button>ok</button>

@@ -6,16 +6,16 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Rows(bags []gsx.Attrs) {
-	<div>
-		{ for _, a := range bags {
-			<span { a... }>x</span>
-		} }
-	</div>
+<div>
+	{ for _, a := range bags {
+		<span { a... }>x</span>
+	} }
+</div>
 }
 -- invoke --
 Rows([]gsx.Attrs{{{Key: "data-i", Value: "0"}}, {{Key: "data-i", Value: "1"}}})
 -- diagnostics.golden --
 -- render.golden --
 <div>
-		<span data-i="0">x</span><span data-i="1">x</span>
-	</div>
+	<span data-i="0">x</span><span data-i="1">x</span>
+</div>

@@ -45,29 +45,29 @@ component NativeErr(u0 *user) { <i { if u := u0; u != nil { title={check(u)} } }
 component Count() { <s data-calls={calls}/> }
 
 component All() {
-	{ Native(true) }
-	{ Native(false) }
-	{ Folding(true, nil) }
-	{ Folding(false, nil) }
-	{ Tag(true) }
-	{ Tag(false) }
-	{ Count() }
-	{ Err(nil) }
-	{ NativeErr(&user{Name: "ok"}) }
-	{ Err(&user{Name: "bad"}) }
+{ Native(true) }
+{ Native(false) }
+{ Folding(true, nil) }
+{ Folding(false, nil) }
+{ Tag(true) }
+{ Tag(false) }
+{ Count() }
+{ Err(nil) }
+{ NativeErr(&user{Name: "ok"}) }
+{ Err(&user{Name: "bad"}) }
 }
 -- invoke --
 All()
 -- diagnostics.golden --
 -- render.golden --
 <i title="ann"></i>
-	<i></i>
-	<i title="ann"></i>
-	<i></i>
-	<b title="ann"></b>
-	<b></b>
-	<s data-calls="6"></s>
-	<b></b>
-	<i title="ok"></i>
-	
+<i></i>
+<i title="ann"></i>
+<i></i>
+<b title="ann"></b>
+<b></b>
+<s data-calls="6"></s>
+<b></b>
+<i title="ok"></i>
+
 [render error] bad user

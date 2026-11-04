@@ -4,20 +4,20 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Wrap(children gsx.Node) {
-	<div>{children}</div>
+<div>{children}</div>
 }
 
 component Page(name string, items []string) {
-	<Wrap>
-		<span>{name}</span>
-		{ for _, it := range items { <li>{it}</li> } }
-	</Wrap>
+<Wrap>
+	<span>{name}</span>
+	{ for _, it := range items { <li>{it}</li> } }
+</Wrap>
 }
 -- invoke --
 Page("Jo", []string{"a", "b"})
 -- diagnostics.golden --
 -- render.golden --
 <div>
-		<span>Jo</span>
-		<li>a</li><li>b</li>
-	</div>
+	<span>Jo</span>
+	<li>a</li><li>b</li>
+</div>

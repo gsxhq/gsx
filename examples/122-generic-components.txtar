@@ -9,15 +9,15 @@ pageOrder: 70
 package views
 
 component Badge[T string | int](value T) {
-	<span class="badge">{value}</span>
+<span class="badge">{value}</span>
 }
 
 component Page() {
-	<Badge value={"new"} />
-	<Badge value={42} />
+<Badge value={"new"} />
+<Badge value={42} />
 }
 -- invoke --
 Page()
 -- render.golden --
 <span class="badge">new</span>
-	<span class="badge">42</span>
+<span class="badge">42</span>

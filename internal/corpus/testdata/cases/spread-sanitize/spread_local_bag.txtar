@@ -7,12 +7,10 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Link(userHref string) {
-	{{ b := gsx.Attrs{{Key: "href", Value: userHref}} }}
-	<a { b... }>click</a>
+{{ b := gsx.Attrs{{Key: "href", Value: userHref}} }}<a { b... }>click</a>
 }
 -- invoke --
 Link("javascript:alert(1)")
 -- diagnostics.golden --
 -- render.golden --
-
-	<a href="about:invalid#gsx">click</a>
+<a href="about:invalid#gsx">click</a>

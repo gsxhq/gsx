@@ -14,8 +14,7 @@ syntax or APIs; a patch bump does not. See
   omitted; explicit whitespace expressions remain arguments.
   Keep punctuation attached and whitespace-preserving wrappers tight; review
   multiline markup when migrating from JSX normalization. `gsx fmt` preserves
-  content instead of wrapping prose and retains source placement around
-  multiline literal operands. The `child-element-spacing` lint and its
+  content instead of wrapping prose while formatting Go and tag syntax normally. The `child-element-spacing` lint and its
   editor fixes are retired: remove its config or `gen.WithLint` entry. There
   are no whitespace directives or legacy mode.
 

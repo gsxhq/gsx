@@ -43,143 +43,119 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Show() {
-	<i>{ val(ctx) }</i>
+<i>{ val(ctx) }</i>
 }
 
 component Wrap(children gsx.Node) {
-	<u>{ children }</u>
+<u>{ children }</u>
 }
 
 component Bag(attrs gsx.Attrs) {
-	<s { attrs... }>{ val(ctx) }</s>
+<s { attrs... }>{ val(ctx) }</s>
 }
 
 component IfComponent() {
-	{ if true {
-		{{ ctx, err := child(ctx, "if"); if err != nil { return err } }}
-		<Show/>
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "if"); if err != nil { return err } }}<Show/>
+} }
 }
 
 component ForComponent() {
-	{ for range 1 {
-		{{ ctx, err := child(ctx, "for"); if err != nil { return err } }}
-		<Show/>
-	} }
+{ for range 1 {
+	{{ ctx, err := child(ctx, "for"); if err != nil { return err } }}<Show/>
+} }
 }
 
 component SwitchComponent() {
-	{ switch {
-	case true:
-		{{ ctx, err := child(ctx, "switch"); if err != nil { return err } }}
-		<Show/>
-	} }
+{ switch {
+case true:
+	{{ ctx, err := child(ctx, "switch"); if err != nil { return err } }}<Show/>
+} }
 }
 
 component SlotContent() {
-	{ if true {
-		{{ ctx, err := child(ctx, "slot"); if err != nil { return err } }}
-		<Wrap><Show/></Wrap>
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "slot"); if err != nil { return err } }}<Wrap><Show/></Wrap>
+} }
 }
 
 component ComponentCondAttr() {
-	{ if true {
-		{{ ctx, err := child(ctx, "cond"); if err != nil { return err } }}
-		<Bag { if true { data-a="1" } }/>
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "cond"); if err != nil { return err } }}<Bag { if true { data-a="1" } }/>
+} }
 }
 
 component NodeValue(n gsx.Node) {
-	{ if true {
-		{{ ctx, err := child(ctx, "node"); if err != nil { return err } }}
-		{ n }
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "node"); if err != nil { return err } }}{ n }
+} }
 }
 
 component ElementLiteral() {
-	{ if true {
-		{{ ctx, err := child(ctx, "literal"); if err != nil { return err } }}
-		{ <b>{ val(ctx) }</b> }
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "literal"); if err != nil { return err } }}{ <b>{ val(ctx) }</b> }
+} }
 }
 
 component Children(children gsx.Node) {
-	{ if true {
-		{{ ctx, err := child(ctx, "children"); if err != nil { return err } }}
-		{ children }
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "children"); if err != nil { return err } }}{ children }
+} }
 }
 
 component Script() {
-	{ if true {
-		{{ ctx, err := child(ctx, "script"); if err != nil { return err } }}
-		<script>var a = 1</script>
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "script"); if err != nil { return err } }}<script>var a = 1</script>
+} }
 }
 
 component Style() {
-	{ if true {
-		{{ ctx, err := child(ctx, "style"); if err != nil { return err } }}
-		<style>a { color: red }</style>
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "style"); if err != nil { return err } }}<style>a { color: red }</style>
+} }
 }
 
 component Filter() {
-	{ if true {
-		{{ ctx, err := child(ctx, "filter"); if err != nil { return err } }}
-		<p>{ "x" |> tag }</p>
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "filter"); if err != nil { return err } }}<p>{ "x" |> tag }</p>
+} }
 }
 
 component Spread(a gsx.Attrs) {
-	{ if true {
-		{{ ctx, err := child(ctx, "spread"); if err != nil { return err } }}
-		<p { a... }>x</p>
-	} }
+{ if true {
+	{{ ctx, err := child(ctx, "spread"); if err != nil { return err } }}<p { a... }>x</p>
+} }
 }
 
 component Page() {
-	<IfComponent/>
-	<ForComponent/>
-	<SwitchComponent/>
-	<SlotContent/>
-	<ComponentCondAttr/>
-	<NodeValue n={ <Show/> }/>
-	<ElementLiteral/>
-	<Children><Show/></Children>
-	<Script/>
-	<Style/>
-	<Filter/>
-	<Spread a={ gsx.Attrs{{"id", "s"}} }/>
-	<Show/>
+<IfComponent/>
+<ForComponent/>
+<SwitchComponent/>
+<SlotContent/>
+<ComponentCondAttr/>
+<NodeValue n={ <Show/> }/>
+<ElementLiteral/>
+<Children><Show/></Children>
+<Script/>
+<Style/>
+<Filter/>
+<Spread a={ gsx.Attrs{{"id", "s"}} }/>
+<Show/>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-
-		<i>if</i>
-	
-		<i>for</i>
-	
-		<i>switch</i>
-	
-		<u><i>slot</i></u>
-	
-		<s data-a="1">cond</s>
-	
-		<i>node</i>
-	
-		<b>literal</b>
-	
-		<i>children</i>
-	
-		<script>var a = 1</script>
-	
-		<style>a{color: red}</style>
-	
-		<p>x@filter</p>
-	
-		<p id="s">x</p>
-	<i></i>
+<i>if</i>
+<i>for</i>
+<i>switch</i>
+<u><i>slot</i></u>
+<s data-a="1">cond</s>
+<i>node</i>
+<b>literal</b>
+<i>children</i>
+<script>var a = 1</script>
+<style>a{color: red}</style>
+<p>x@filter</p>
+<p id="s">x</p>
+<i></i>

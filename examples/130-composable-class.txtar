@@ -9,13 +9,13 @@ pageOrder: 10
 package views
 
 component Tag(label string, active bool) {
-	<span class={ "tag", "tag--active": active }>
-		{label}
-	</span>
+<span class={ "tag", "tag--active": active }>
+	{label}
+</span>
 }
 -- invoke --
 Tag("stable", true)
 -- render.golden --
 <span class="tag tag--active">
-		stable
-	</span>
+	stable
+</span>

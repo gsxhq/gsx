@@ -9,17 +9,17 @@ pageOrder: 40
 package views
 
 component Page(title string) {
-	<!DOCTYPE html>
-	<html lang="en">
-		<head><title>{ title }</title></head>
-		<body>hi</body>
-	</html>
+<!DOCTYPE html>
+<html lang="en">
+	<head><title>{ title }</title></head>
+	<body>hi</body>
+</html>
 }
 -- invoke --
 Page("Home")
 -- render.golden --
 <!DOCTYPE html>
-	<html lang="en">
-		<head><title>Home</title></head>
-		<body>hi</body>
-	</html>
+<html lang="en">
+	<head><title>Home</title></head>
+	<body>hi</body>
+</html>

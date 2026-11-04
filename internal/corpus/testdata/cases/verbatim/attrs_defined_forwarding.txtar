@@ -10,12 +10,12 @@ func bag(id string) LocalAttrs {
 }
 
 component Panel(attrs gsx.Attrs) {
-	<div { attrs... }></div>
+<div { attrs... }></div>
 }
 
 component Page() {
-	<Panel attrs={bag("explicit")} />
-	<Panel { bag("spread")... } />
+<Panel attrs={bag("explicit")} />
+<Panel { bag("spread")... } />
 }
 -- invoke --
 Page()
@@ -51,7 +51,7 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:12:2
+//line input.gsx:12:1
 	_gsxgw.S("<div")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
@@ -64,14 +64,14 @@ func _gsxrenderPanel(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Attrs
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:16:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:16:16*/ bag("explicit"))))
-		_gsxgw.S("\n\t")
-//line input.gsx:17:2
-		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:17:11*/ bag("spread"))))
+//line input.gsx:16:1
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:16:15*/ bag("explicit"))))
+		_gsxgw.S("\n")
+//line input.gsx:17:1
+		_gsxgw.NodeResult(_gsxrenderPanel(ctx, _gsxgw, _gsxrt.Attrs( /*line input.gsx:17:10*/ bag("spread"))))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
 <div id="explicit"></div>
-	<div id="spread"></div>
+<div id="spread"></div>

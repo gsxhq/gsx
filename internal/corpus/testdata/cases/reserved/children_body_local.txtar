@@ -5,12 +5,10 @@
 package views
 
 component Page() {
-	{{ children := "hi" }}
-	<div>{children}</div>
+{{ children := "hi" }}<div>{children}</div>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-
-	<div>hi</div>
+<div>hi</div>

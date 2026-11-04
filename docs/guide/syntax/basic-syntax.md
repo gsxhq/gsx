@@ -80,6 +80,25 @@ visible content. Review multiline markup when migrating from JSX-style
 normalization. Explicit space interpolations still work; do not delete them
 without checking the desired output. No whitespace directives or legacy mode
 are provided. The formatter preserves this content rather than wrapping prose.
-Around multiline literal content, it retains the surrounding source placement
-needed to keep opening lines and later lines coherent. Independent Go syntax
-and tag syntax still format where their layout does not disturb that placement.
+Go expressions and tag syntax still format normally. Literal HTML text is not
+reindented to follow those syntax changes. Source columns are not part of HTML
+semantics.
+
+When authoring multiline HTML, choose its literal indentation deliberately.
+For example, a flush-left HTML root with one indented child emits that same
+HTML indentation even inside a component body. The compiler does not remove
+a common component indentation from element content. Keep scalar content tight
+when the intended output is compact, as in `<span>content</span>`.
+
+```gsx
+component Message() {
+<div>
+	<p>Hello</p>
+</div>
+}
+```
+
+This emits the HTML subtree with a flush-left `<div>` and one tab before the
+`<p>`. The component braces are Go-like syntax, not another HTML nesting level.
+Neither the runtime nor the documentation generator dedents or pretty-prints
+the rendered text.

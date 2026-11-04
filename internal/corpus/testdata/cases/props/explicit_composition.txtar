@@ -18,24 +18,24 @@ type PanelInput struct {
 }
 
 component UserPanel(input UserPanelInput) {
-	<span>user:{ input.Name }</span>
+<span>user:{ input.Name }</span>
 }
 
 component GroupPanel(input GroupPanelInput) {
-	<span>group:{ input.Team }</span>
+<span>group:{ input.Team }</span>
 }
 
 component Panel(input PanelInput) {
-	<div>
-		<UserPanel input={input.User}/>
-		<GroupPanel input={input.Group}/>
-	</div>
+<div>
+	<UserPanel input={input.User}/>
+	<GroupPanel input={input.Group}/>
+</div>
 }
 -- invoke --
 Panel(PanelInput{User: UserPanelInput{Name: "ann"}, Group: GroupPanelInput{Team: "core"}})
 -- diagnostics.golden --
 -- render.golden --
 <div>
-		<span>user:ann</span>
-		<span>group:core</span>
-	</div>
+	<span>user:ann</span>
+	<span>group:core</span>
+</div>

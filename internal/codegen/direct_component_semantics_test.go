@@ -25,13 +25,11 @@ func markBody(value string) string { trace = append(trace, "body"); return value
 	writeFile(t, dir, "views.gsx", `package views
 
 component ChildSentinel(result error) {
-	<div>{ "x" }</div>
-	{{ return result }}
+	<div>{ "x" }</div>{{ return result }}
 }
 
 component ChildNil() {
-	<div>{ "x" }</div>
-	{{ return nil }}
+	<div>{ "x" }</div>{{ return nil }}
 }
 
 component ParentSentinel(result error) {
@@ -159,7 +157,6 @@ func TestGeneratedDirectMatchesCurrentNodeFailingWrites(t *testing.T) {
 		{output: "<p>before</p>", attempts: 2, err: childSentinel},
 		{output: "<p>before</p><div>", attempts: 3, err: childSentinel},
 		{output: "<p>before</p><div>x", attempts: 4, err: childSentinel},
-		{output: "<p>before</p><div>x</div>\n\t", attempts: 4, err: childSentinel},
 	}
 	for i, want := range sentinelCases {
 		failAt := i + 1
@@ -167,15 +164,12 @@ func TestGeneratedDirectMatchesCurrentNodeFailingWrites(t *testing.T) {
 			render(currentNodeSentinel(childSentinel), failAt), want)
 	}
 
-	// The child closing tag and literal separator before its Go return share
-	// one write. The following parent sibling is a separate write boundary.
 	nilCases := []result{
 		{output: "", attempts: 1, err: writeSentinel},
 		{output: "<p>before</p><p>after</p>", attempts: 3, err: nil},
 		{output: "<p>before</p><div><p>after</p>", attempts: 4, err: nil},
 		{output: "<p>before</p><div>x<p>after</p>", attempts: 5, err: nil},
-		{output: "<p>before</p><div>x</div>\n\t", attempts: 5, err: writeSentinel},
-		{output: "<p>before</p><div>x</div>\n\t<p>after</p>", attempts: 5, err: nil},
+		{output: "<p>before</p><div>x</div>", attempts: 5, err: writeSentinel},
 	}
 	for i, want := range nilCases {
 		failAt := i + 1

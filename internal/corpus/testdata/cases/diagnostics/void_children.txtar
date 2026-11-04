@@ -6,7 +6,7 @@
 package views
 
 component Bad() {
-	<p><br>text</br></p>
+<p><br>text</br></p>
 }
 -- diagnostics.golden --
-4:5: void element <br> cannot have children
+4:4: void element <br> cannot have children

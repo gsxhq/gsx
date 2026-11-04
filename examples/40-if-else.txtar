@@ -9,19 +9,19 @@ pageOrder: 10
 package views
 
 component Inbox(name string, count int) {
-	<section>
-		<h1>Hi {name}</h1>
-		{ if count > 0 {
-			<p class="badge">{count} new</p>
-		} else {
-			<p>all caught up</p>
-		} }
-	</section>
+<section>
+	<h1>Hi {name}</h1>
+	{ if count > 0 {
+		<p class="badge">{count} new</p>
+	} else {
+		<p>all caught up</p>
+	} }
+</section>
 }
 -- invoke --
 Inbox("World", 2)
 -- render.golden --
 <section>
-		<h1>Hi World</h1>
-		<p class="badge">2 new</p>
-	</section>
+	<h1>Hi World</h1>
+	<p class="badge">2 new</p>
+</section>

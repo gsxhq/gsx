@@ -58,14 +58,10 @@ component Once(handle *OnceHandle, children gsx.Node) {
 }
 
 component Demo() {
-	{{ ctx = withOnceScope(ctx) }}
-	<Once handle={demoOnce}><span>x</span></Once>
-	<Once handle={demoOnce}><span>x</span></Once>
+{{ ctx = withOnceScope(ctx) }}<Once handle={demoOnce}><span>x</span></Once><Once handle={demoOnce}><span>x</span></Once>
 }
 -- invoke --
 Demo()
 -- diagnostics.golden --
 -- render.golden --
-
-	<span>x</span>
-	
+<span>x</span>

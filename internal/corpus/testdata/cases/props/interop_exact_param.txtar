@@ -25,12 +25,10 @@ func Picker(p PickerProps) gsx.Node {
 package views
 
 component Page() {
-	{{ p := PickerProps{Name: "status", Label: "Status"} }}
-	<Picker p={p}/>
+{{ p := PickerProps{Name: "status", Label: "Status"} }}<Picker p={p}/>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
-
-	<span>Status:status</span>
+<span>Status:status</span>

@@ -10,7 +10,7 @@ type chipProps struct {
 }
 
 component renderChip(p chipProps) {
-	<span { p.Attrs... }>chip</span>
+<span { p.Attrs... }>chip</span>
 }
 
 func Chip(attrs ...gsx.Attr) gsx.Node {
@@ -18,16 +18,16 @@ func Chip(attrs ...gsx.Attr) gsx.Node {
 }
 
 component Page() {
-	<div>
-		<Chip class="c1" data-k="v"/>
-		<Chip/>
-	</div>
+<div>
+	<Chip class="c1" data-k="v"/>
+	<Chip/>
+</div>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
 <div>
-		<span class="c1" data-k="v">chip</span>
-		<span>chip</span>
-	</div>
+	<span class="c1" data-k="v">chip</span>
+	<span>chip</span>
+</div>

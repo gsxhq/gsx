@@ -8,10 +8,10 @@ package views
 import "github.com/gsxhq/gsx"
 
 component CondSpread(on bool, extra gsx.Attrs) {
-	<div>
-		<a { if on { { extra... } } }>on</a>
-		<a { if !on { { extra... } } }>off</a>
-	</div>
+<div>
+	<a { if on { { extra... } } }>on</a>
+	<a { if !on { { extra... } } }>off</a>
+</div>
 }
 -- invoke --
 CondSpread(true, gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}})
@@ -32,25 +32,25 @@ import (
 func CondSpread(on bool, extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:2
-		_gsxgw.S("<div>\n\t\t")
-//line input.gsx:7:3
+//line input.gsx:6:1
+		_gsxgw.S("<div>\n\t")
+//line input.gsx:7:2
 		_gsxgw.S("<a")
-		if /*line input.gsx:7:11*/ on {
-			_gsxgw.Spread(ctx, "a" /*line input.gsx:7:18*/, extra, _gsxrt.AttrSinks{}, nil)
+		if /*line input.gsx:7:10*/ on {
+			_gsxgw.Spread(ctx, "a" /*line input.gsx:7:17*/, extra, _gsxrt.AttrSinks{}, nil)
 		}
-		_gsxgw.S(">on</a>\n\t\t")
-//line input.gsx:8:3
+		_gsxgw.S(">on</a>\n\t")
+//line input.gsx:8:2
 		_gsxgw.S("<a")
-		if /*line input.gsx:8:11*/ !on {
-			_gsxgw.Spread(ctx, "a" /*line input.gsx:8:19*/, extra, _gsxrt.AttrSinks{}, nil)
+		if /*line input.gsx:8:10*/ !on {
+			_gsxgw.Spread(ctx, "a" /*line input.gsx:8:18*/, extra, _gsxrt.AttrSinks{}, nil)
 		}
-		_gsxgw.S(">off</a>\n\t</div>")
+		_gsxgw.S(">off</a>\n</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
 <div>
-		<a href="about:invalid#gsx">on</a>
-		<a>off</a>
-	</div>
+	<a href="about:invalid#gsx">on</a>
+	<a>off</a>
+</div>

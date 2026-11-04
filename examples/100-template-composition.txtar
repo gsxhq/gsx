@@ -11,11 +11,11 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Button(label string) {
-	<button class="btn">{label}</button>
+<button class="btn">{label}</button>
 }
 
 component Card(title string, children gsx.Node) {
-	<section class="card"><h2>{title}</h2>{children}</section>
+<section class="card"><h2>{title}</h2>{children}</section>
 }
 -- page.gsx --
 package views
@@ -25,17 +25,17 @@ type HomePage struct {
 }
 
 component (p HomePage) Render() {
-	<main>
-		<Card title={p.Title}>
-			<Button label="Save"/>
-		</Card>
-	</main>
+<main>
+	<Card title={p.Title}>
+		<Button label="Save"/>
+	</Card>
+</main>
 }
 -- invoke --
 (HomePage{Title: "Dashboard"}).Render()
 -- render.golden --
 <main>
-		<section class="card"><h2>Dashboard</h2>
-			<button class="btn">Save</button>
-		</section>
-	</main>
+	<section class="card"><h2>Dashboard</h2>
+		<button class="btn">Save</button>
+	</section>
+</main>

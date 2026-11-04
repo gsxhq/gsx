@@ -26,20 +26,20 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Field(label string, containerAttrs gsx.Attrs, attrs gsx.Attrs) {
-	<div class="field" { containerAttrs... }>
-		<label>{label}</label>
-		<input class="field-input" { attrs... }/>
-	</div>
+<div class="field" { containerAttrs... }>
+	<label>{label}</label>
+	<input class="field-input" { attrs... }/>
+</div>
 }
 
 component Page() {
-	<Field
-		label="Email"
-		containerAttrs={gsx.Attrs{{Key: "data-testid", Value: "email-field"}}}
-		type="email"
-		placeholder="you@co"
-		required
-	/>
+<Field
+	label="Email"
+	containerAttrs={gsx.Attrs{{Key: "data-testid", Value: "email-field"}}}
+	type="email"
+	placeholder="you@co"
+	required
+/>
 }
 -- invoke --
 Page()
@@ -68,26 +68,26 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, c
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:6:2
-	_gsxv0 := /*line input.gsx:6:23*/ containerAttrs
+//line input.gsx:6:1
+	_gsxv0 := /*line input.gsx:6:22*/ containerAttrs
 	_gsxgw.S("<div class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field"), _gsxrt.Class(_gsxv0.Class()))
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", _gsxv0.Style())
 	_gsxgw.Spread(ctx, "div", _gsxv0, _gsxrt.AttrSinks{}, []string{"class", "style"})
-	_gsxgw.S(">\n\t\t")
-//line input.gsx:7:3
+	_gsxgw.S(">\n\t")
+//line input.gsx:7:2
 	_gsxgw.S("<label>")
-//line input.gsx:7:10
-	_gsxgw.Text(string( /*line input.gsx:7:11*/ label))
-	_gsxgw.S("</label>\n\t\t")
-//line input.gsx:8:3
+//line input.gsx:7:9
+	_gsxgw.Text(string( /*line input.gsx:7:10*/ label))
+	_gsxgw.S("</label>\n\t")
+//line input.gsx:8:2
 	_gsxgw.S("<input class=\"")
 	_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field-input"), _gsxrt.Class(attrs.Class()))
 	_gsxgw.S("\"")
 	_gsxgw.StyleMerged("", attrs.Style())
 	_gsxgw.Spread(ctx, "input", attrs, _gsxrt.AttrSinks{}, []string{"class", "style"})
-	_gsxgw.S(">\n\t</div>")
+	_gsxgw.S(">\n</div>")
 	return _gsxgw.Err()
 }
 
@@ -95,13 +95,13 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, c
 func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:13:2
-		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Email" /*line input.gsx:15:19*/, gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: _gsxrt.Toggle(true)}})))
+//line input.gsx:13:1
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Email" /*line input.gsx:15:18*/, gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "email"}}, _gsxrt.Attrs{{Key: "placeholder", Value: "you@co"}}, _gsxrt.Attrs{{Key: "required", Value: _gsxrt.Toggle(true)}})))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
 <div class="field" data-testid="email-field">
-		<label>Email</label>
-		<input class="field-input" type="email" placeholder="you@co" required>
-	</div>
+	<label>Email</label>
+	<input class="field-input" type="email" placeholder="you@co" required>
+</div>

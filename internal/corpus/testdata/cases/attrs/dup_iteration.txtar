@@ -9,12 +9,11 @@ package views
 import "github.com/gsxhq/gsx"
 
 component EchoLen(attrs gsx.Attrs) {
-	{{ v, _ := attrs.Get("a"); s, _ := v.(string) }}
-	<div data-n={len(attrs)}>{s}</div>
+{{ v, _ := attrs.Get("a"); s, _ := v.(string) }}<div data-n={len(attrs)}>{s}</div>
 }
 
 component Page(extra gsx.Attrs) {
-	<EchoLen a="1" { extra... }/>
+<EchoLen a="1" { extra... }/>
 }
 -- invoke --
 Page(gsx.Attrs{{Key: "a", Value: "2"}})
@@ -44,29 +43,27 @@ func _gsxrenderEchoLen(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, attrs gsx.Att
 		return _gsxerr
 	}
 	var _gsxnum [32]byte
-//line input.gsx:6:2
+//line input.gsx:6:1
 	v, _ := attrs.Get("a")
 	s, _ := v.(string)
-	_gsxgw.S("\n\t")
-//line input.gsx:7:2
+//line input.gsx:6:49
 	_gsxgw.S("<div data-n=\"")
-	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:7:15*/ len(attrs)))
+	_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:6:62*/ len(attrs)))
 	_gsxgw.S("\">")
-//line input.gsx:7:27
-	_gsxgw.Text(string( /*line input.gsx:7:28*/ s))
+//line input.gsx:6:74
+	_gsxgw.Text(string( /*line input.gsx:6:75*/ s))
 	_gsxgw.S("</div>")
 	return _gsxgw.Err()
 }
 
-//line input.gsx:10:1
+//line input.gsx:9:1
 func Page(extra gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:2
-		_gsxgw.NodeResult(_gsxrenderEchoLen(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "1"}} /*line input.gsx:11:19*/, extra)))
+//line input.gsx:10:1
+		_gsxgw.NodeResult(_gsxrenderEchoLen(ctx, _gsxgw, _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "a", Value: "1"}} /*line input.gsx:10:18*/, extra)))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-
-	<div data-n="2">2</div>
+<div data-n="2">2</div>

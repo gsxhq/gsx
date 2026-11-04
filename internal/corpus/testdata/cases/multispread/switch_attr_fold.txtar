@@ -15,51 +15,51 @@ import "github.com/gsxhq/gsx"
 func check(s string) (string, error) { return s + "!", nil }
 
 component Page(n int, v any, a, b gsx.Attrs) {
-	<i { a... } { switch n { case 1: data-x="1" default: data-y="d" } } { b... }></i>
-	<i { a... } { if n == 1 { data-x="1" } else { data-y="d" } } { b... }></i>
-	<i { a... } { b... } { switch n { case 2: data-x="2" } }></i>
-	<i { a... } { b... } { if n == 2 { data-x="2" } }></i>
-	<i { a... } { b... } { switch m := n * 3; m { case 3: data-m={m} } }></i>
-	<i { a... } { b... } { if m := n * 3; m == 3 { data-m={m} } }></i>
-	<i { a... } { b... } { switch x := v.(type) { case string: data-s={x} case int: data-n={x} } }></i>
-	<i { a... } { b... } { if x, ok := v.(string); ok { data-s={x} } }></i>
-	<i { a... } { b... } { switch n { case 1: data-c={check("c")} } }></i>
-	<i { a... } { b... } { if n == 1 { data-c={check("c")} } }></i>
-	<i { a... } { b... } { if n > 0 { { switch n { case 1: { if true { data-z="z" } } } } } }></i>
-	<i { a... } { b... } { if n > 0 { { if n == 1 { { if true { data-z="z" } } } } } }></i>
-	<i class="r" { a... } { b... } { switch n { case 1: class="k" } }></i>
-	<i class="r" { a... } { b... } { if n == 1 { class="k" } }></i>
-	<i { a... } { switch n { case 1: { b... } } }></i>
-	<i { a... } { if n == 1 { { b... } } }></i>
-	<i class="r" { switch n { case 1: { b... } } }></i>
-	<i class="r" { if n == 1 { { b... } } }></i>
-	<i class="r" { a... } { switch n { case 1: class="k" } }></i>
-	<i class="r" { a... } { if n == 1 { class="k" } }></i>
+<i { a... } { switch n { case 1: data-x="1" default: data-y="d" } } { b... }></i>
+<i { a... } { if n == 1 { data-x="1" } else { data-y="d" } } { b... }></i>
+<i { a... } { b... } { switch n { case 2: data-x="2" } }></i>
+<i { a... } { b... } { if n == 2 { data-x="2" } }></i>
+<i { a... } { b... } { switch m := n * 3; m { case 3: data-m={m} } }></i>
+<i { a... } { b... } { if m := n * 3; m == 3 { data-m={m} } }></i>
+<i { a... } { b... } { switch x := v.(type) { case string: data-s={x} case int: data-n={x} } }></i>
+<i { a... } { b... } { if x, ok := v.(string); ok { data-s={x} } }></i>
+<i { a... } { b... } { switch n { case 1: data-c={check("c")} } }></i>
+<i { a... } { b... } { if n == 1 { data-c={check("c")} } }></i>
+<i { a... } { b... } { if n > 0 { { switch n { case 1: { if true { data-z="z" } } } } } }></i>
+<i { a... } { b... } { if n > 0 { { if n == 1 { { if true { data-z="z" } } } } } }></i>
+<i class="r" { a... } { b... } { switch n { case 1: class="k" } }></i>
+<i class="r" { a... } { b... } { if n == 1 { class="k" } }></i>
+<i { a... } { switch n { case 1: { b... } } }></i>
+<i { a... } { if n == 1 { { b... } } }></i>
+<i class="r" { switch n { case 1: { b... } } }></i>
+<i class="r" { if n == 1 { { b... } } }></i>
+<i class="r" { a... } { switch n { case 1: class="k" } }></i>
+<i class="r" { a... } { if n == 1 { class="k" } }></i>
 }
 -- invoke --
 Page(1, "s", gsx.Attrs{{Key: "data-a", Value: "1"}, {Key: "data-x", Value: "a"}, {Key: "class", Value: "ca"}}, gsx.Attrs{{Key: "data-b", Value: "2"}, {Key: "class", Value: "cb"}})
 -- diagnostics.golden --
 -- render.golden --
 <i class="ca cb" data-a="1" data-x="1" data-b="2"></i>
-	<i class="ca cb" data-a="1" data-x="1" data-b="2"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-m="3"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-m="3"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-s="s"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-s="s"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-c="c!"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-c="c!"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-z="z"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2" data-z="z"></i>
-	<i class="r ca cb k" data-a="1" data-x="a" data-b="2"></i>
-	<i class="r ca cb k" data-a="1" data-x="a" data-b="2"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
-	<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
-	<i class="r cb" data-b="2"></i>
-	<i class="r cb" data-b="2"></i>
-	<i class="r ca k" data-a="1" data-x="a"></i>
-	<i class="r ca k" data-a="1" data-x="a"></i>
+<i class="ca cb" data-a="1" data-x="1" data-b="2"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-m="3"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-m="3"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-s="s"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-s="s"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-c="c!"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-c="c!"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-z="z"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2" data-z="z"></i>
+<i class="r ca cb k" data-a="1" data-x="a" data-b="2"></i>
+<i class="r ca cb k" data-a="1" data-x="a" data-b="2"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
+<i class="ca cb" data-a="1" data-x="a" data-b="2"></i>
+<i class="r cb" data-b="2"></i>
+<i class="r cb" data-b="2"></i>
+<i class="r ca k" data-a="1" data-x="a"></i>
+<i class="r ca k" data-a="1" data-x="a"></i>
 -- generated.x.go.golden --
 // Code generated by gsx; DO NOT EDIT.
 
@@ -79,11 +79,11 @@ func check(s string) (string, error) { return s + "!", nil }
 func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
-		_gsxv0 := /*line input.gsx:8:7*/ a
+//line input.gsx:8:1
+		_gsxv0 := /*line input.gsx:8:6*/ a
 		_gsxv1, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:8:23*/ n {
-		case /*line input.gsx:8:32*/ 1:
+		switch /*line input.gsx:8:22*/ n {
+		case /*line input.gsx:8:31*/ 1:
 			_gsxv1, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("1")}}, nil
 			})()
@@ -95,15 +95,15 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1 /*line input.gsx:8:72*/, b)
+		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1 /*line input.gsx:8:71*/, b)
 		_gsxgw.S("<i")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
 		_gsxgw.StyleMerged("", _gsxv2.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv2, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:9:2
-		_gsxv3 := /*line input.gsx:9:7*/ a
-		_gsxv4, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:9:19*/ n == 1, func() (_gsxrt.Attrs, error) {
+		_gsxgw.S("></i>\n")
+//line input.gsx:9:1
+		_gsxv3 := /*line input.gsx:9:6*/ a
+		_gsxv4, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:9:18*/ n == 1, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("1")}}, nil
 		}, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-y", Value: _gsxrt.RawURL("d")}}, nil
@@ -111,17 +111,17 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv5 := _gsxrt.ConcatAttrs(_gsxv3, _gsxv4 /*line input.gsx:9:65*/, b)
+		_gsxv5 := _gsxrt.ConcatAttrs(_gsxv3, _gsxv4 /*line input.gsx:9:64*/, b)
 		_gsxgw.S("<i")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv5.Class())
 		_gsxgw.StyleMerged("", _gsxv5.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv5, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:10:2
-		_gsxv6 := _gsxrt.ConcatAttrs( /*line input.gsx:10:7*/ a /*line input.gsx:10:16*/, b)
+		_gsxgw.S("></i>\n")
+//line input.gsx:10:1
+		_gsxv6 := _gsxrt.ConcatAttrs( /*line input.gsx:10:6*/ a /*line input.gsx:10:15*/, b)
 		_gsxv7, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:10:32*/ n {
-		case /*line input.gsx:10:41*/ 2:
+		switch /*line input.gsx:10:31*/ n {
+		case /*line input.gsx:10:40*/ 2:
 			_gsxv7, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("2")}}, nil
 			})()
@@ -134,10 +134,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv8.Class())
 		_gsxgw.StyleMerged("", _gsxv8.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv8, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:11:2
-		_gsxv9 := _gsxrt.ConcatAttrs( /*line input.gsx:11:7*/ a /*line input.gsx:11:16*/, b)
-		_gsxv10, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:11:28*/ n == 2, func() (_gsxrt.Attrs, error) {
+		_gsxgw.S("></i>\n")
+//line input.gsx:11:1
+		_gsxv9 := _gsxrt.ConcatAttrs( /*line input.gsx:11:6*/ a /*line input.gsx:11:15*/, b)
+		_gsxv10, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:11:27*/ n == 2, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-x", Value: _gsxrt.RawURL("2")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -148,14 +148,14 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv11.Class())
 		_gsxgw.StyleMerged("", _gsxv11.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv11, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:12:2
-		_gsxv12 := _gsxrt.ConcatAttrs( /*line input.gsx:12:7*/ a /*line input.gsx:12:16*/, b)
+		_gsxgw.S("></i>\n")
+//line input.gsx:12:1
+		_gsxv12 := _gsxrt.ConcatAttrs( /*line input.gsx:12:6*/ a /*line input.gsx:12:15*/, b)
 		_gsxv13, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:12:32*/ m := n * 3; m {
-		case /*line input.gsx:12:53*/ 3:
+		switch /*line input.gsx:12:31*/ m := n * 3; m {
+		case /*line input.gsx:12:52*/ 3:
 			_gsxv13, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "data-m", Value: /*line input.gsx:12:64*/ m}}, nil
+				return _gsxrt.Attrs{{Key: "data-m", Value: /*line input.gsx:12:63*/ m}}, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -166,12 +166,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv14.Class())
 		_gsxgw.StyleMerged("", _gsxv14.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv14, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:13:2
-		_gsxv15 := _gsxrt.ConcatAttrs( /*line input.gsx:13:7*/ a /*line input.gsx:13:16*/, b)
+		_gsxgw.S("></i>\n")
+//line input.gsx:13:1
+		_gsxv15 := _gsxrt.ConcatAttrs( /*line input.gsx:13:6*/ a /*line input.gsx:13:15*/, b)
 		_gsxv16, _gsxerr := func() (_gsxrt.Attrs, error) {
-			if /*line input.gsx:13:28*/ m := n * 3; m == 3 {
-				return _gsxrt.Attrs{{Key: "data-m", Value: /*line input.gsx:13:57*/ m}}, nil
+			if /*line input.gsx:13:27*/ m := n * 3; m == 3 {
+				return _gsxrt.Attrs{{Key: "data-m", Value: /*line input.gsx:13:56*/ m}}, nil
 			}
 			return nil, nil
 		}()
@@ -183,18 +183,18 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv17.Class())
 		_gsxgw.StyleMerged("", _gsxv17.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv17, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:14:2
-		_gsxv18 := _gsxrt.ConcatAttrs( /*line input.gsx:14:7*/ a /*line input.gsx:14:16*/, b)
+		_gsxgw.S("></i>\n")
+//line input.gsx:14:1
+		_gsxv18 := _gsxrt.ConcatAttrs( /*line input.gsx:14:6*/ a /*line input.gsx:14:15*/, b)
 		_gsxv19, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:14:32*/ x := v.(type) {
-		case /*line input.gsx:14:53*/ string:
+		switch /*line input.gsx:14:31*/ x := v.(type) {
+		case /*line input.gsx:14:52*/ string:
 			_gsxv19, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "data-s", Value: /*line input.gsx:14:69*/ x}}, nil
+				return _gsxrt.Attrs{{Key: "data-s", Value: /*line input.gsx:14:68*/ x}}, nil
 			})()
-		case /*line input.gsx:14:77*/ int:
+		case /*line input.gsx:14:76*/ int:
 			_gsxv19, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "data-n", Value: /*line input.gsx:14:90*/ x}}, nil
+				return _gsxrt.Attrs{{Key: "data-n", Value: /*line input.gsx:14:89*/ x}}, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -205,12 +205,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv20.Class())
 		_gsxgw.StyleMerged("", _gsxv20.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv20, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:15:2
-		_gsxv21 := _gsxrt.ConcatAttrs( /*line input.gsx:15:7*/ a /*line input.gsx:15:16*/, b)
+		_gsxgw.S("></i>\n")
+//line input.gsx:15:1
+		_gsxv21 := _gsxrt.ConcatAttrs( /*line input.gsx:15:6*/ a /*line input.gsx:15:15*/, b)
 		_gsxv22, _gsxerr := func() (_gsxrt.Attrs, error) {
-			if /*line input.gsx:15:28*/ x, ok := v.(string); ok {
-				return _gsxrt.Attrs{{Key: "data-s", Value: /*line input.gsx:15:62*/ x}}, nil
+			if /*line input.gsx:15:27*/ x, ok := v.(string); ok {
+				return _gsxrt.Attrs{{Key: "data-s", Value: /*line input.gsx:15:61*/ x}}, nil
 			}
 			return nil, nil
 		}()
@@ -222,14 +222,14 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv23.Class())
 		_gsxgw.StyleMerged("", _gsxv23.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv23, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:16:2
-		_gsxv24 := _gsxrt.ConcatAttrs( /*line input.gsx:16:7*/ a /*line input.gsx:16:16*/, b)
+		_gsxgw.S("></i>\n")
+//line input.gsx:16:1
+		_gsxv24 := _gsxrt.ConcatAttrs( /*line input.gsx:16:6*/ a /*line input.gsx:16:15*/, b)
 		_gsxv26, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:16:32*/ n {
-		case /*line input.gsx:16:41*/ 1:
+		switch /*line input.gsx:16:31*/ n {
+		case /*line input.gsx:16:40*/ 1:
 			_gsxv26, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				_gsxv25, _gsxerr := /*line input.gsx:16:52*/ check("c")
+				_gsxv25, _gsxerr := /*line input.gsx:16:51*/ check("c")
 				if _gsxerr != nil {
 					return nil, _gsxerr
 				}
@@ -244,11 +244,11 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv27.Class())
 		_gsxgw.StyleMerged("", _gsxv27.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv27, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:17:2
-		_gsxv28 := _gsxrt.ConcatAttrs( /*line input.gsx:17:7*/ a /*line input.gsx:17:16*/, b)
-		_gsxv30, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:17:28*/ n == 1, func() (_gsxrt.Attrs, error) {
-			_gsxv29, _gsxerr := /*line input.gsx:17:45*/ check("c")
+		_gsxgw.S("></i>\n")
+//line input.gsx:17:1
+		_gsxv28 := _gsxrt.ConcatAttrs( /*line input.gsx:17:6*/ a /*line input.gsx:17:15*/, b)
+		_gsxv30, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:17:27*/ n == 1, func() (_gsxrt.Attrs, error) {
+			_gsxv29, _gsxerr := /*line input.gsx:17:44*/ check("c")
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
@@ -262,15 +262,15 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv31.Class())
 		_gsxgw.StyleMerged("", _gsxv31.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv31, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:18:2
-		_gsxv32 := _gsxrt.ConcatAttrs( /*line input.gsx:18:7*/ a /*line input.gsx:18:16*/, b)
-		_gsxv35, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:28*/ n > 0, func() (_gsxrt.Attrs, error) {
+		_gsxgw.S("></i>\n")
+//line input.gsx:18:1
+		_gsxv32 := _gsxrt.ConcatAttrs( /*line input.gsx:18:6*/ a /*line input.gsx:18:15*/, b)
+		_gsxv35, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:27*/ n > 0, func() (_gsxrt.Attrs, error) {
 			_gsxv34, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-			switch /*line input.gsx:18:45*/ n {
-			case /*line input.gsx:18:54*/ 1:
+			switch /*line input.gsx:18:44*/ n {
+			case /*line input.gsx:18:53*/ 1:
 				_gsxv34, _gsxerr = (func() (_gsxrt.Attrs, error) {
-					_gsxv33, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:62*/ true, func() (_gsxrt.Attrs, error) {
+					_gsxv33, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:18:61*/ true, func() (_gsxrt.Attrs, error) {
 						return _gsxrt.Attrs{{Key: "data-z", Value: _gsxrt.RawURL("z")}}, nil
 					}, nil)
 					if _gsxerr != nil {
@@ -292,12 +292,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv36.Class())
 		_gsxgw.StyleMerged("", _gsxv36.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv36, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:19:2
-		_gsxv37 := _gsxrt.ConcatAttrs( /*line input.gsx:19:7*/ a /*line input.gsx:19:16*/, b)
-		_gsxv40, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:28*/ n > 0, func() (_gsxrt.Attrs, error) {
-			_gsxv39, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:41*/ n == 1, func() (_gsxrt.Attrs, error) {
-				_gsxv38, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:55*/ true, func() (_gsxrt.Attrs, error) {
+		_gsxgw.S("></i>\n")
+//line input.gsx:19:1
+		_gsxv37 := _gsxrt.ConcatAttrs( /*line input.gsx:19:6*/ a /*line input.gsx:19:15*/, b)
+		_gsxv40, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:27*/ n > 0, func() (_gsxrt.Attrs, error) {
+			_gsxv39, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:40*/ n == 1, func() (_gsxrt.Attrs, error) {
+				_gsxv38, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:19:54*/ true, func() (_gsxrt.Attrs, error) {
 					return _gsxrt.Attrs{{Key: "data-z", Value: _gsxrt.RawURL("z")}}, nil
 				}, nil)
 				if _gsxerr != nil {
@@ -318,12 +318,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv41.Class())
 		_gsxgw.StyleMerged("", _gsxv41.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv41, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:20:2
-		_gsxv42 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:20:17*/, a /*line input.gsx:20:26*/, b)
+		_gsxgw.S("></i>\n")
+//line input.gsx:20:1
+		_gsxv42 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:20:16*/, a /*line input.gsx:20:25*/, b)
 		_gsxv43, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:20:42*/ n {
-		case /*line input.gsx:20:51*/ 1:
+		switch /*line input.gsx:20:41*/ n {
+		case /*line input.gsx:20:50*/ 1:
 			_gsxv43, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 			})()
@@ -336,10 +336,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv44.Class())
 		_gsxgw.StyleMerged("", _gsxv44.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv44, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:21:2
-		_gsxv45 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:21:17*/, a /*line input.gsx:21:26*/, b)
-		_gsxv46, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:21:38*/ n == 1, func() (_gsxrt.Attrs, error) {
+		_gsxgw.S("></i>\n")
+//line input.gsx:21:1
+		_gsxv45 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:21:16*/, a /*line input.gsx:21:25*/, b)
+		_gsxv46, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:21:37*/ n == 1, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 		}, nil)
 		if _gsxerr != nil {
@@ -350,14 +350,14 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv47.Class())
 		_gsxgw.StyleMerged("", _gsxv47.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv47, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:22:2
-		_gsxv48 := /*line input.gsx:22:7*/ a
+		_gsxgw.S("></i>\n")
+//line input.gsx:22:1
+		_gsxv48 := /*line input.gsx:22:6*/ a
 		_gsxv49, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:22:23*/ n {
-		case /*line input.gsx:22:32*/ 1:
+		switch /*line input.gsx:22:22*/ n {
+		case /*line input.gsx:22:31*/ 1:
 			_gsxv49, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return /*line input.gsx:22:37*/ b, nil
+				return /*line input.gsx:22:36*/ b, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -368,11 +368,11 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv50.Class())
 		_gsxgw.StyleMerged("", _gsxv50.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv50, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:23:2
-		_gsxv51 := /*line input.gsx:23:7*/ a
-		_gsxv52, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:23:19*/ n == 1, func() (_gsxrt.Attrs, error) {
-			return /*line input.gsx:23:30*/ b, nil
+		_gsxgw.S("></i>\n")
+//line input.gsx:23:1
+		_gsxv51 := /*line input.gsx:23:6*/ a
+		_gsxv52, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:23:18*/ n == 1, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:23:29*/ b, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -382,14 +382,14 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv53.Class())
 		_gsxgw.StyleMerged("", _gsxv53.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv53, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:24:2
+		_gsxgw.S("></i>\n")
+//line input.gsx:24:1
 		_gsxv54 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}
 		_gsxv55, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:24:24*/ n {
-		case /*line input.gsx:24:33*/ 1:
+		switch /*line input.gsx:24:23*/ n {
+		case /*line input.gsx:24:32*/ 1:
 			_gsxv55, _gsxerr = (func() (_gsxrt.Attrs, error) {
-				return /*line input.gsx:24:38*/ b, nil
+				return /*line input.gsx:24:37*/ b, nil
 			})()
 		}
 		if _gsxerr != nil {
@@ -400,11 +400,11 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv56.Class())
 		_gsxgw.StyleMerged("", _gsxv56.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv56, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:25:2
+		_gsxgw.S("></i>\n")
+//line input.gsx:25:1
 		_gsxv57 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}}
-		_gsxv58, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:25:20*/ n == 1, func() (_gsxrt.Attrs, error) {
-			return /*line input.gsx:25:31*/ b, nil
+		_gsxv58, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:25:19*/ n == 1, func() (_gsxrt.Attrs, error) {
+			return /*line input.gsx:25:30*/ b, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
@@ -414,12 +414,12 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv59.Class())
 		_gsxgw.StyleMerged("", _gsxv59.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv59, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:26:2
-		_gsxv60 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:26:17*/, a)
+		_gsxgw.S("></i>\n")
+//line input.gsx:26:1
+		_gsxv60 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:26:16*/, a)
 		_gsxv61, _gsxerr := _gsxrt.Attrs(nil), error(nil)
-		switch /*line input.gsx:26:33*/ n {
-		case /*line input.gsx:26:42*/ 1:
+		switch /*line input.gsx:26:32*/ n {
+		case /*line input.gsx:26:41*/ 1:
 			_gsxv61, _gsxerr = (func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 			})()
@@ -432,10 +432,10 @@ func Page(n int, v any, a, b gsx.Attrs) _gsxrt.Node {
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv62.Class())
 		_gsxgw.StyleMerged("", _gsxv62.Style())
 		_gsxgw.Spread(ctx, "i", _gsxv62, _gsxrt.AttrSinks{}, []string{"class", "style"})
-		_gsxgw.S("></i>\n\t")
-//line input.gsx:27:2
-		_gsxv63 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:27:17*/, a)
-		_gsxv64, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:27:29*/ n == 1, func() (_gsxrt.Attrs, error) {
+		_gsxgw.S("></i>\n")
+//line input.gsx:27:1
+		_gsxv63 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("r")}} /*line input.gsx:27:16*/, a)
+		_gsxv64, _gsxerr := _gsxrt.AttrsCond( /*line input.gsx:27:28*/ n == 1, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("k")}}, nil
 		}, nil)
 		if _gsxerr != nil {

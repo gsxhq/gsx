@@ -6,18 +6,18 @@
 package views
 
 component Separator() {
-	<section>
-		<div role="separator"/>
-		<span/>
-		<p>after</p>
-	</section>
+<section>
+	<div role="separator"/>
+	<span/>
+	<p>after</p>
+</section>
 }
 -- invoke --
 Separator()
 -- diagnostics.golden --
 -- render.golden --
 <section>
-		<div role="separator"></div>
-		<span></span>
-		<p>after</p>
-	</section>
+	<div role="separator"></div>
+	<span></span>
+	<p>after</p>
+</section>

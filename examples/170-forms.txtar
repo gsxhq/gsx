@@ -11,21 +11,21 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Field(label string, attrs gsx.Attrs) {
-	<div class="field"><label>{label}</label><input class="control" { attrs... }/></div>
+<div class="field"><label>{label}</label><input class="control" { attrs... }/></div>
 }
 
 component LoginForm() {
-	<form method="post" action="/login">
-		<Field label="Email" type="email" name="email" required/>
-		<Field label="Password" type="password" name="password" required/>
-		<button type="submit">Sign in</button>
-	</form>
+<form method="post" action="/login">
+	<Field label="Email" type="email" name="email" required/>
+	<Field label="Password" type="password" name="password" required/>
+	<button type="submit">Sign in</button>
+</form>
 }
 -- invoke --
 LoginForm()
 -- render.golden --
 <form method="post" action="/login">
-		<div class="field"><label>Email</label><input class="control" type="email" name="email" required></div>
-		<div class="field"><label>Password</label><input class="control" type="password" name="password" required></div>
-		<button type="submit">Sign in</button>
-	</form>
+	<div class="field"><label>Email</label><input class="control" type="email" name="email" required></div>
+	<div class="field"><label>Password</label><input class="control" type="password" name="password" required></div>
+	<button type="submit">Sign in</button>
+</form>

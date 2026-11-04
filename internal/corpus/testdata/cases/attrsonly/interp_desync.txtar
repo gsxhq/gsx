@@ -15,7 +15,7 @@ type iconProps struct {
 }
 
 component renderIcon(p iconProps) {
-	<svg { p.Attrs... }>{p.Name}</svg>
+<svg { p.Attrs... }>{p.Name}</svg>
 }
 
 func icon(name string) func(attrs gsx.Attrs) gsx.Node {
@@ -27,24 +27,24 @@ func icon(name string) func(attrs gsx.Attrs) gsx.Node {
 var Home = icon("home")
 
 component Widget(label string, n int) {
-	<div>
-		<span>{label}</span>
-		<Home class={label}/>
-		<Home class={label}/>
-		<b>{n}</b>
-	</div>
+<div>
+	<span>{label}</span>
+	<Home class={label}/>
+	<Home class={label}/>
+	<b>{n}</b>
+</div>
 }
 
 component Page() {
-	<Widget label="hi" n={7}/>
+<Widget label="hi" n={7}/>
 }
 -- invoke --
 Page()
 -- diagnostics.golden --
 -- render.golden --
 <div>
-		<span>hi</span>
-		<svg class="hi">home</svg>
-		<svg class="hi">home</svg>
-		<b>7</b>
-	</div>
+	<span>hi</span>
+	<svg class="hi">home</svg>
+	<svg class="hi">home</svg>
+	<b>7</b>
+</div>

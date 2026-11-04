@@ -14,15 +14,15 @@ type Config struct {
 }
 
 component Widget(cfg Config) {
-	<div>
-		<button @click=js`toggle()`>Toggle</button>
-		<script type="application/json" id="cfg">@{ cfg }</script>
-	</div>
+<div>
+	<button @click=js`toggle()`>Toggle</button>
+	<script type="application/json" id="cfg">@{ cfg }</script>
+</div>
 }
 -- invoke --
 Widget(Config{Env: "prod", Beta: true})
 -- render.golden --
 <div>
-		<button @click="toggle()">Toggle</button>
-		<script type="application/json" id="cfg">{"Env":"prod","Beta":true}</script>
-	</div>
+	<button @click="toggle()">Toggle</button>
+	<script type="application/json" id="cfg">{"Env":"prod","Beta":true}</script>
+</div>

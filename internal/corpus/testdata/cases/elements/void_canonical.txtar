@@ -6,22 +6,22 @@
 package views
 
 component Voids() {
-	<div>
-		<br/>
-		<br></br>
-		<img src="/a.png" alt="a"/>
-		<input type="text" required/>
-		<hr/>
-	</div>
+<div>
+	<br/>
+	<br></br>
+	<img src="/a.png" alt="a"/>
+	<input type="text" required/>
+	<hr/>
+</div>
 }
 -- invoke --
 Voids()
 -- diagnostics.golden --
 -- render.golden --
 <div>
-		<br>
-		<br>
-		<img src="/a.png" alt="a">
-		<input type="text" required>
-		<hr>
-	</div>
+	<br>
+	<br>
+	<img src="/a.png" alt="a">
+	<input type="text" required>
+	<hr>
+</div>

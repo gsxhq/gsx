@@ -8,22 +8,22 @@ package views
 import "github.com/gsxhq/gsx"
 
 component PageHeader(title string, subtitle string) {
-	<header><h1>{title}</h1><p>{subtitle}</p></header>
+<header><h1>{title}</h1><p>{subtitle}</p></header>
 }
 
 component Field(label string, attrs gsx.Attrs) {
-	<label>{label}<input { attrs... }/></label>
+<label>{label}<input { attrs... }/></label>
 }
 
 component Slot(body gsx.Node) {
-	<section>{body}</section>
+<section>{body}</section>
 }
 
 component Page(count int) {
-	<PageHeader title="Tickets" subtitle=f`@{count} tickets`/>
-	<Field label="Ticket" data-ticket=f`ticket-@{count}`/>
-	<Slot body=f`@{count} open`/>
-	<div data-count=f`@{count} direct`></div>
+<PageHeader title="Tickets" subtitle=f`@{count} tickets`/>
+<Field label="Ticket" data-ticket=f`ticket-@{count}`/>
+<Slot body=f`@{count} open`/>
+<div data-count=f`@{count} direct`></div>
 }
 -- invoke --
 Page(3)
@@ -52,17 +52,17 @@ func _gsxrenderPageHeader(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, title stri
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:6:2
+//line input.gsx:6:1
 	_gsxgw.S("<header>")
-//line input.gsx:6:10
+//line input.gsx:6:9
 	_gsxgw.S("<h1>")
-//line input.gsx:6:14
-	_gsxgw.Text(string( /*line input.gsx:6:15*/ title))
+//line input.gsx:6:13
+	_gsxgw.Text(string( /*line input.gsx:6:14*/ title))
 	_gsxgw.S("</h1>")
-//line input.gsx:6:26
+//line input.gsx:6:25
 	_gsxgw.S("<p>")
-//line input.gsx:6:29
-	_gsxgw.Text(string( /*line input.gsx:6:30*/ subtitle))
+//line input.gsx:6:28
+	_gsxgw.Text(string( /*line input.gsx:6:29*/ subtitle))
 	_gsxgw.S("</p></header>")
 	return _gsxgw.Err()
 }
@@ -79,11 +79,11 @@ func _gsxrenderField(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, label string, a
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:10:2
+//line input.gsx:10:1
 	_gsxgw.S("<label>")
-//line input.gsx:10:9
-	_gsxgw.Text(string( /*line input.gsx:10:10*/ label))
-//line input.gsx:10:16
+//line input.gsx:10:8
+	_gsxgw.Text(string( /*line input.gsx:10:9*/ label))
+//line input.gsx:10:15
 	_gsxgw.S("<input")
 	_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 	_gsxgw.StyleMerged("", attrs.Style())
@@ -104,10 +104,10 @@ func _gsxrenderSlot(ctx _gsxctx.Context, _gsxgw *_gsxrt.Writer, body gsx.Node) e
 	if _gsxerr := _gsxgw.Err(); _gsxerr != nil {
 		return _gsxerr
 	}
-//line input.gsx:14:2
+//line input.gsx:14:1
 	_gsxgw.S("<section>")
-//line input.gsx:14:11
-	_gsxgw.Node(ctx /*line input.gsx:14:12*/, body)
+//line input.gsx:14:10
+	_gsxgw.Node(ctx /*line input.gsx:14:11*/, body)
 	_gsxgw.S("</section>")
 	return _gsxgw.Err()
 }
@@ -117,18 +117,18 @@ func Page(count int) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
-//line input.gsx:18:2
-		_gsxgw.NodeResult(_gsxrenderPageHeader(ctx, _gsxgw, "Tickets", _gsxsc.FormatInt(int64( /*line input.gsx:18:43*/ count), 10)+" tickets"))
-		_gsxgw.S("\n\t")
-//line input.gsx:19:2
-		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Ticket", _gsxrt.Attrs{{Key: "data-ticket", Value: "ticket-" + _gsxsc.FormatInt(int64( /*line input.gsx:19:47*/ count), 10)}}))
-		_gsxgw.S("\n\t")
-//line input.gsx:20:2
-		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, _gsxrt.Text(_gsxsc.FormatInt(int64( /*line input.gsx:20:17*/ count), 10)+" open")))
-		_gsxgw.S("\n\t")
-//line input.gsx:21:2
+//line input.gsx:18:1
+		_gsxgw.NodeResult(_gsxrenderPageHeader(ctx, _gsxgw, "Tickets", _gsxsc.FormatInt(int64( /*line input.gsx:18:42*/ count), 10)+" tickets"))
+		_gsxgw.S("\n")
+//line input.gsx:19:1
+		_gsxgw.NodeResult(_gsxrenderField(ctx, _gsxgw, "Ticket", _gsxrt.Attrs{{Key: "data-ticket", Value: "ticket-" + _gsxsc.FormatInt(int64( /*line input.gsx:19:46*/ count), 10)}}))
+		_gsxgw.S("\n")
+//line input.gsx:20:1
+		_gsxgw.NodeResult(_gsxrenderSlot(ctx, _gsxgw, _gsxrt.Text(_gsxsc.FormatInt(int64( /*line input.gsx:20:16*/ count), 10)+" open")))
+		_gsxgw.S("\n")
+//line input.gsx:21:1
 		_gsxgw.S("<div data-count=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:21:22*/ count))
+		_gsxgw.IntInto(_gsxnum[:], int64( /*line input.gsx:21:21*/ count))
 		_gsxgw.S(" direct\"></div>")
 		return _gsxgw.Err()
 	})
@@ -136,6 +136,6 @@ func Page(count int) _gsxrt.Node {
 -- diagnostics.golden --
 -- render.golden --
 <header><h1>Tickets</h1><p>3 tickets</p></header>
-	<label>Ticket<input data-ticket="ticket-3"></label>
-	<section>3 open</section>
-	<div data-count="3 direct"></div>
+<label>Ticket<input data-ticket="ticket-3"></label>
+<section>3 open</section>
+<div data-count="3 direct"></div>
