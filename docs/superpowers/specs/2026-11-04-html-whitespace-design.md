@@ -113,6 +113,14 @@ placement rather than blindly regenerating only the first node's indentation.
 An opening tag's width decision measures its syntax, not following unbreakable
 literal content; it must not split a short tag merely because adjacent prose
 already exceeds the width target.
+
+Embedded Go needs the same placement guarantee. Preserve the smallest
+source-aligned Go expression, statement, or declaration needed to hold a
+multiline literal island in place, while continuing to format independent Go
+syntax. Determine the region from Go syntax and original source geometry;
+do not attempt to reconcile reordered token streams or guess indentation from
+nearby HTML. Retained source is layout metadata, not an alternate rendering
+authority: markup still prints from the semantic AST and literal Text values.
 Do not use generated string interpolations or magic comments to disguise
 formatter-introduced whitespace changes. Existing raw-text JS/CSS formatter
 contracts remain separate and require their existing semantic tests.
