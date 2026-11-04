@@ -71,13 +71,13 @@ component SiblingsStayInline() {
 component SwitchArmsStayPerLine(kind string) {
 	<span>
 		{ switch kind {
-		case "warn":
+			case "warn":
 				<b>warning</b>
 				<br/>
-		case "err":
-			<b>error</b>
-		default:
-			<b>info</b>
+			case "err":
+				<b>error</b>
+			default:
+				<b>info</b>
 		} }
 	</span>
 }

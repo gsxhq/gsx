@@ -275,3 +275,32 @@ func TestBodyLayoutRetainsSyntacticEdges(t *testing.T) {
 		t.Fatal("clone changed layout metadata")
 	}
 }
+
+func TestAttributeCommentLayout(t *testing.T) {
+	for _, comment := range []string{"/*  hello  */", "// hello\n", "{ /* comment */ }", "{ /* a */ /* b */ }", "{ ; }", "{ /* \r\n\u2003hello\u2003\r\n */ }"} {
+		t.Run(comment, func(t *testing.T) {
+			f := parseStringT(t, "package p\ncomponent C(){ <Box "+comment+"/> }\n")
+			count := 0
+			ast.Inspect(f, func(n ast.Node) bool {
+				if attr, ok := n.(*ast.CommentAttr); ok {
+					count++
+					original, ok := f.Layout.Slice(attr.Pos(), attr.End())
+					if !ok {
+						t.Fatal("missing source")
+					}
+					restored := attr.Layout.Leading + attr.Text + attr.Layout.Trailing
+					if original != restored {
+						t.Fatalf("layout restores %q, want %q", restored, original)
+					}
+				}
+				return true
+			})
+			if count == 0 {
+				t.Fatal("no comments")
+			}
+			if clone := ast.CloneFile(f); !reflect.DeepEqual(clone, f) {
+				t.Fatal("clone lost comment layout")
+			}
+		})
+	}
+}

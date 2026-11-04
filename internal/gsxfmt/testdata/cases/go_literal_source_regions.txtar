@@ -73,17 +73,12 @@ component C() {
 	{{node:=Wrap(<b>
 		block
 	</b>)
-		outside := 1 + 2
-		_ = outside
-	}}
+	outside := 1 + 2
+	_ = outside}}
 	{ if Wrap(<b>
 		header
-	</b>) != nil {
-		<i/>
-	} }
+	</b>) != nil { <i/> } }
 	{ switch Wrap(<b>
 		switch
-	</b>) {
-	case nil: <i/>
-	} }
+	</b>) { case nil: <i/> } }
 }

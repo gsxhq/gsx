@@ -4,6 +4,7 @@ import (
 	"go/scanner"
 	"go/token"
 	"strings"
+	"unicode"
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/htmltag"
@@ -105,12 +106,26 @@ func (p *parser) parseBareComment() *ast.Comment {
 	}
 	n := &ast.Comment{Text: strings.TrimSpace(p.src[start+2 : p.i]), Bare: true}
 	ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
+	n.Layout = p.commentLayout(n.Pos(), n.End(), start+2, p.i)
 	return n
 }
 
 // parseText consumes literal text up to the next '<' or '{' (or EOF).
 func (p *parser) parseText() *ast.Text {
 	return p.parseTextCtx(false)
+}
+
+func (p *parser) commentLayout(start, end token.Pos, textStart, textEnd int) ast.CommentLayout {
+	raw := p.src[textStart:textEnd]
+	left := len(raw) - len(strings.TrimLeftFunc(raw, unicode.IsSpace))
+	right := len(strings.TrimRightFunc(raw, unicode.IsSpace))
+	if right < left {
+		right = left
+	}
+	return ast.CommentLayout{Leading: p.src[p.offsetOf(start) : textStart+left], Trailing: p.src[textStart+right : p.offsetOf(end)]}
+}
+func (p *parser) attrCommentLayout(n *ast.CommentAttr, textStart, textEnd int) {
+	n.Layout = p.commentLayout(n.Pos(), n.End(), textStart, textEnd)
 }
 
 // parseTagComment recognizes a tag-interior comment at the cursor: bare `//` or
@@ -131,6 +146,7 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 				p.i += 2 // past '*/'
 				n := &ast.CommentAttr{Text: text, Block: true}
 				ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
+				p.attrCommentLayout(n, start+2, p.i-2)
 				return []*ast.CommentAttr{n}, true, nil
 			}
 			p.i++
@@ -146,6 +162,7 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 		// leave '\n' in place so skipSpace() sees it
 		n := &ast.CommentAttr{Text: text, Block: false}
 		ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
+		p.attrCommentLayout(n, start+2, p.i)
 		return []*ast.CommentAttr{n}, true, nil
 	}
 	if p.peek() == '{' {
@@ -165,6 +182,7 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 			// /**/ is the one bare spelling with nothing in it.
 			n := &ast.CommentAttr{Text: "", Block: true}
 			ast.SetSpan(n, groupStart, groupEnd)
+			n.Layout.Leading = p.src[start : end+1]
 			return []*ast.CommentAttr{n}, true, nil
 		}
 		nodes := make([]*ast.CommentAttr, len(parts))
@@ -185,6 +203,11 @@ func (p *parser) parseTagComment() ([]*ast.CommentAttr, bool, error) {
 				e = groupEnd
 			}
 			ast.SetSpan(n, s, e)
+			textEnd := innerBase + part.end
+			if part.block {
+				textEnd -= 2
+			}
+			p.attrCommentLayout(n, innerBase+part.off+2, textEnd)
 			nodes[i] = n
 		}
 		return nodes, true, nil
@@ -275,6 +298,7 @@ func (p *parser) parseBracedComment() ([]*ast.Comment, bool, error) {
 	if len(parts) == 0 {
 		n := &ast.Comment{Text: "", Block: true}
 		ast.SetSpan(n, groupStart, groupEnd)
+		n.Layout.Leading = p.src[start : end+1]
 		return []*ast.Comment{n}, true, nil
 	}
 	nodes := make([]*ast.Comment, len(parts))
@@ -290,6 +314,14 @@ func (p *parser) parseBracedComment() ([]*ast.Comment, bool, error) {
 			e = groupEnd
 		}
 		ast.SetSpan(n, s, e)
+		textEnd := innerBase + part.end
+		if part.block {
+			textEnd -= 2
+		}
+		n.Layout = p.commentLayout(n.Pos(), n.End(), innerBase+part.off+2, textEnd)
+		if i > 0 {
+			n.Layout.Leading = p.src[innerBase+parts[i-1].end:innerBase+part.off] + n.Layout.Leading
+		}
 		nodes[i] = n
 	}
 	return nodes, true, nil

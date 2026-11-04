@@ -55,17 +55,17 @@ component Branch(ok bool) {
         <b>first</b>
         // source comment
         <i>last</i>
-	} else {
+    } else {
       <u>other</u>
       <br/>
-	} }
+    } }
 }
 
 component Loop(items []string) {
 	{ for _, item := range items {
       <b>{ item }</b>
       <br/>
-	} }
+    } }
 }
 
 component Cases(kind int) {
@@ -79,12 +79,10 @@ component Cases(kind int) {
 }
 
 component Slot() {
-	<Card
-		node={
+	<Card node={
       <div>
         // source comment
         <b>slot</b>
       </div>
-		}
-	/>
+    }/>
 }

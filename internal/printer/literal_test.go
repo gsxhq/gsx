@@ -79,10 +79,10 @@ func TestNestedSyntaxIndentPreservesLiteralBytes(t *testing.T) {
 func TestBodySourcePlacement(t *testing.T) {
 	cases := []struct{ name, body, formatted string }{
 		{"root", "\n    <div>\n      // source comment\n      <b>root</b>\n    </div>\n", "\n    <div>\n      // source comment\n      <b>root</b>\n    </div>\n"},
-		{"if", "\n\t{ if ok {\n      <b>first</b>\n      // source comment\n      <i>last</i>\n    } }\n", "\n\t{ if ok {\n      <b>first</b>\n      // source comment\n      <i>last</i>\n\t} }\n"},
+		{"if", "\n\t{ if ok {\n      <b>first</b>\n      // source comment\n      <i>last</i>\n    } }\n", "\n\t{ if ok {\n      <b>first</b>\n      // source comment\n      <i>last</i>\n    } }\n"},
 		{"case", "\n\t{ switch x {\n\tcase 1:\n      <b>first</b>\n      // source comment\n      <i>last</i>\n\t} }\n", "\n\t{ switch x {\n\tcase 1:\n      <b>first</b>\n      // source comment\n      <i>last</i>\n\t} }\n"},
-		{"last comment", "\n\t{ if ok {\n      <b>first</b>\n      // last comment\n    } }\n", "\n\t{ if ok {\n      <b>first</b>\n      // last comment\n\t} }\n"},
-		{"slot", "\n\t<Card node={\n      <b>first</b>\n      // source comment\n      <i>last</i>\n    }/>\n", "\n\t<Card\n\t\tnode={\n      <b>first</b>\n      // source comment\n      <i>last</i>\n\t\t}\n\t/>\n"},
+		{"last comment", "\n\t{ if ok {\n      <b>first</b>\n      // last comment\n    } }\n", "\n\t{ if ok {\n      <b>first</b>\n      // last comment\n    } }\n"},
+		{"slot", "\n\t<Card node={\n      <b>first</b>\n      // source comment\n      <i>last</i>\n    }/>\n", "\n\t<Card node={\n      <b>first</b>\n      // source comment\n      <i>last</i>\n    }/>\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

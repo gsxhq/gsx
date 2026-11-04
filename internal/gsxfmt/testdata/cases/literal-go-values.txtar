@@ -22,8 +22,7 @@ var n=<span>a	b
 component C() {
 {{n:=<div>x
  	y</div>
-		_ = n
-	}}
+	_ = n}}
 { Wrap(<span>a
 	b</span>) }
 <Card node={ Wrap(<span>a

@@ -121,6 +121,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 	if tail := strings.TrimSpace(srcStr[cursor:]); tail != "" {
 		f.Decls = append(f.Decls, p.splitGoElements(srcStr[cursor:], file.Pos(cursor))...)
 	}
+	f.Layout = f.Layout.WithFieldOrigins(f)
 	return f, p.errs
 }
 

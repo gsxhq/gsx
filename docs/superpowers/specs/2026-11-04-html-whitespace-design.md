@@ -121,6 +121,18 @@ syntax. Determine the region from Go syntax and original source geometry;
 do not attempt to reconcile reordered token streams or guess indentation from
 nearby HTML. Retained source is layout metadata, not an alternate rendering
 authority: markup still prints from the semantic AST and literal Text values.
+When fixed literal lines constrain an enclosing GSX host, keep that host's
+source delimiter and whitespace geometry coherent too. This includes interpolation
+braces, component and control-flow openings, attribute groups, case labels,
+comments, and pipeline arguments. Ordinary Go fields preceding a fixed operand in
+the same constrained host retain their current semantic spelling; independent Go
+regions and component headers on separate physical lines still format normally.
+Parser-owned source origins supply only syntax trivia and original field bounds.
+Names, Go fields, literal values, and children render from the current AST; a
+source snapshot must never replace edited semantic content. An authored Go
+string-key lexeme may retain its spelling only while decoding it yields the
+current semantic key; edited keys render their current value.
+
 Do not use generated string interpolations or magic comments to disguise
 formatter-introduced whitespace changes. Existing raw-text JS/CSS formatter
 contracts remain separate and require their existing semantic tests.

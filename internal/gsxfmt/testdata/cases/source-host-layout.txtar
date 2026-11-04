@@ -1,0 +1,121 @@
+Fixed HTML content constrains enclosing GSX syntax, including source comments,
+pipeline arguments, and ordinary fields before an anchored Go operand.
+Independent component headers still format normally.
+
+-- input.gsx --
+package p
+component Inline(){ {Wrap(<b>
+  x
+</b>)} }
+component Conditional() {
+	<Box { if ok==true { class={Wrap(<b>
+		x
+	</b>)} } }/>
+}
+component Composed() {
+	<Box class={ someFunc( 1+2 ), Wrap(<b>
+		x
+	</b>) }/>
+}
+component Guard() {
+	<Box class={ "active": Wrap(<b>
+		x
+	</b>) != nil }/>
+}
+component ValueIf() {
+	<Box class={ if ok { Wrap(<b>
+		x
+	</b>) } else { "other" } }/>
+}
+component Comments(){ <Box { /* comment */ /* second */ } node={Wrap(<b>
+x
+</b>)}/> }
+component Pipeline(){ { x |> foo(<b>
+x
+</b>) } }
+component MixedCases(kind int) {
+    { switch kind {
+      case 1:
+        <b>first</b>
+        // source comment
+        <i>last</i>
+      default:
+        <u>other</u>
+    } }
+}
+component Independent( x string ) {
+    <div>
+      x
+    </div>
+}
+component BodyComment(){ <div>{/*c*/}<b>
+ x
+</b></div> }
+component LineComment(){ <div>{// c
+}<b>
+ x
+</b></div> }
+-- fmt.golden --
+package p
+
+component Inline(){ {Wrap(<b>
+  x
+</b>)} }
+
+component Conditional() {
+	<Box { if ok==true { class={Wrap(<b>
+		x
+	</b>)} } }/>
+}
+
+component Composed() {
+	<Box class={ someFunc( 1+2 ), Wrap(<b>
+		x
+	</b>) }/>
+}
+
+component Guard() {
+	<Box class={ "active": Wrap(<b>
+		x
+	</b>) != nil }/>
+}
+
+component ValueIf() {
+	<Box class={ if ok { Wrap(<b>
+		x
+	</b>) } else { "other" } }/>
+}
+
+component Comments(){ <Box { /* comment */ /* second */ } node={Wrap(<b>
+x
+</b>)}/> }
+
+component Pipeline(){ { x |> foo(<b>
+x
+</b>) } }
+
+component MixedCases(kind int) {
+    { switch kind {
+      case 1:
+        <b>first</b>
+        // source comment
+        <i>last</i>
+      default:
+        <u>other</u>
+    } }
+}
+
+component Independent(x string) {
+    <div>
+      x
+    </div>
+}
+
+component BodyComment(){ <div>{/*c*/}<b>
+ x
+</b></div> }
+
+component LineComment(){ <div>{// c
+}<b>
+ x
+</b></div> }

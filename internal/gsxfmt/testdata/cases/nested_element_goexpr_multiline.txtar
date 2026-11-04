@@ -42,27 +42,21 @@ component Row(n int) {
 package p
 
 component Row(n int) {
-	<Holder
-		h={
-			wrapN(
+	<Holder h={wrapN(
 				<b>
 					{ n }
 				</b>,
-			)
-		}
-	/>
+		)}/>
 	<p>{ wrapN(
 	<b>
 	{ n }
 	</b>,
 		) }</p>
-	{{
-		w := wrapN(
+	{{ w := wrapN(
 		<b>
 			{ n }
 		</b>,
-		)
-	}}
+	) }}
 	<div>{ wrapN(
 			<pre>
   x

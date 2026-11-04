@@ -41,7 +41,7 @@ component C(lines []string) {
 		<b>a</b>
 mid
 <b>b</b>
-		} }</pre>
+	} }</pre>
 	<pre>{ for _, l := range lines {
 			<span>{ l }</span>
 		} }</pre>
@@ -52,7 +52,7 @@ mid
 			<i>a</i>
 raw
 <i>b</i>
-		} }</pre>
+	} }</pre>
 	<pre><><span>x</span>
 between
 <span>y</span></></pre>

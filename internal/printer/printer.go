@@ -86,6 +86,8 @@ type printer struct {
 	firstLineAnchors map[string]bool
 	err              error
 	anchored         map[ast.Node]bool
+	anchoredFields   map[string]bool
+	originIndent     *string
 	// External flat formatters (via FprintWith). A nil formatter leaves the body
 	// verbatim; they cannot preserve multi-line-token interiors.
 	cssFmt rawfmt.Formatter
@@ -381,6 +383,9 @@ func trimGoTextEdges(src string, first, last bool) string {
 
 // component formats the syntactic body edges, preserving its literal interior.
 func (p *printer) component(c *ast.Component) pretty.Doc {
+	if p.anchoredBody(c.Body) && !strings.ContainsAny(c.Layout.Leading, "\r\n") {
+		return p.sourceComponent(c)
+	}
 	head := []pretty.Doc{pretty.Text("component ")}
 	if c.Recv != "" {
 		head = append(head, pretty.Text(fmtRecv(c.Recv)), pretty.Text(" "))
@@ -392,7 +397,7 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 	head = append(head, pretty.Text("("), pretty.Text(fmtParams(c.Params)), pretty.Text(") {"))
 
 	if p.anchoredBody(c.Body) {
-		return pretty.Concat(pretty.Concat(head...), p.sourceBody(c.Body, c.Layout), pretty.HardLine, pretty.Text("}"), pretty.HardLine)
+		return pretty.Concat(pretty.Concat(head...), p.sourceBody(c.Body, c.Layout), pretty.Text(c.Layout.Trailing), pretty.Text("}"), pretty.HardLine)
 	}
 	body := pretty.Text("")
 	if len(c.Body) > 0 {
@@ -406,6 +411,9 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	attrs := make([]pretty.Doc, 0, len(e.Attrs)*2)
 	fixedOpening := p.anchoredAttrOpening(e)
 	previous := e.TagPos + gotoken.Pos(len(e.Tag))
+	if end, ok := p.source.FieldEnd(e.TagPos); ok {
+		previous = end
+	}
 	if e.TypeArgsClosePos.IsValid() {
 		previous = e.TypeArgsClosePos + 1
 	}
@@ -415,7 +423,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 			if !ok || strings.TrimSpace(gap) != "" {
 				return p.fail("printer: missing opening-tag source layout")
 			}
-			attrs = append(attrs, pretty.Text(gap), p.attrDoc(a))
+			attrs = append(attrs, pretty.Text(gap), p.sourceAttrChild(a))
 			previous = a.End()
 			continue
 		}
@@ -441,7 +449,19 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	}
 	tag := pretty.Text(e.Tag)
 	if e.TypeArgs != "" {
-		tag = pretty.Concat(tag, pretty.Text("["), pretty.Text(fmtTypeArgs(e.TypeArgs)), pretty.Text("]"))
+		if fixedOpening {
+			end, valid := p.source.FieldEnd(e.TypeArgsPos)
+			before, ok := p.source.Slice(e.TypeArgsOpenPos+1, e.TypeArgsPos)
+			after, okAfter := p.source.Slice(end, e.TypeArgsClosePos)
+			nameEnd, _ := p.source.FieldEnd(e.TagPos)
+			gap, okGap := p.source.Slice(nameEnd, e.TypeArgsOpenPos)
+			if !valid || !ok || !okAfter || !okGap {
+				return p.fail("printer: missing type-argument source layout")
+			}
+			tag = pretty.Concat(tag, pretty.Text(gap+"["+before+e.TypeArgs+after+"]"))
+		} else {
+			tag = pretty.Concat(tag, pretty.Text("["+fmtTypeArgs(e.TypeArgs)+"]"))
+		}
 	}
 	// Opening tag group: flat → `<tag a b>`; broken → each attr on its own line
 	// with `>` (or `/>`) alone. A forced break inside any attr (CondAttr) breaks
@@ -499,6 +519,11 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 // a BreakParent so the enclosing opening-tag group breaks. ExprAttr and
 // ComposedAttr use goFieldDoc so long or comment-bearing values can be multi-line.
 func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
+	if p.anchoredNode(a) {
+		if doc, ok := p.sourceAttr(a); ok {
+			return doc
+		}
+	}
 	switch v := a.(type) {
 	case *ast.CondAttr:
 		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.condAttrChainDoc(v), pretty.Text(" }"))
@@ -548,7 +573,7 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		return pretty.Text(attrInline(a))
 	case *ast.MarkupAttr:
 		if p.anchoredBody(v.Value) {
-			return pretty.Group(pretty.Concat(pretty.Text(v.Name+"={"), p.sourceBody(v.Value, v.Layout), bodyTrailing(v.Layout), pretty.Text("}")))
+			return pretty.Group(pretty.Concat(pretty.Text(v.Name+"={"), p.sourceBody(v.Value, v.Layout), pretty.Text(v.Layout.Trailing), pretty.Text("}")))
 		}
 		return wrapAttrValue(v.Name, pretty.Line, p.children(v.Value))
 	default:
@@ -723,7 +748,12 @@ func (p *printer) condAttrListDoc(attrs []ast.Attr) pretty.Doc {
 // children concatenates literal content without adding separators.
 func (p *printer) children(nodes []ast.Markup) pretty.Doc {
 	parts := make([]pretty.Doc, 0, len(nodes))
+	constrained := p.anchoredBody(nodes)
 	for _, n := range nodes {
+		if comment, ok := n.(*ast.Comment); ok && constrained {
+			parts = append(parts, pretty.Text(comment.Layout.Leading+comment.Text+comment.Layout.Trailing))
+			continue
+		}
 		parts = append(parts, p.markup(n))
 	}
 	return pretty.Concat(parts...)
@@ -781,6 +811,9 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 	case *ast.Interp:
 		return p.interp(v)
 	case *ast.EmbeddedInterp:
+		if p.anchoredNode(v) {
+			return p.sourceEmbeddedInterp(v)
+		}
 		return p.embeddedInterp(v)
 	default:
 		return p.fail("printer: unknown markup type %T", n)
@@ -796,6 +829,9 @@ func (p *printer) markerRegion(r *ast.MarkerRegion) pretty.Doc {
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {
+	if p.anchoredNode(i) {
+		return p.sourceInterp(i)
+	}
 	parts := []pretty.Doc{pretty.Text("{ "), p.goFieldDoc(i.Expr, exprField, fmtExprPreserving, i.ExprPos)}
 	for _, s := range i.Stages {
 		parts = append(parts, pretty.Text(" |> "), multiline(pipeStageStr(s)))
@@ -828,6 +864,9 @@ func pipeStageStr(s ast.PipeStage) string {
 }
 
 func (p *printer) goBlock(b *ast.GoBlock) pretty.Doc {
+	if p.anchoredGoField(b.Code) {
+		return p.sourceGoBlock(b)
+	}
 	s, values := p.goBlockCode(b.Code, b.CodePos)
 	if p.firstLineGoAnchor(b.Code) {
 		return pretty.Concat(pretty.Text("{{"+sourceLeading(b.Code)), pretty.Indent(p.goTextDoc(s, values, false)), pretty.HardLine, pretty.Text("}}"))
@@ -985,36 +1024,42 @@ const (
 	goBlockWrapperSuffix = "\n}\n"
 )
 
-// fmtGoBlockCode formats a `{{ }}` block whose Code embeds one or more gsx
-// values, returning the gofmt-normalized statements with value markers. It
-// splits Code with the SAME splitter codegen uses (parser.SplitGoExprElements —
-// the formatter works from Code, never the codegen-populated GoBlock.Embedded
-// overlay) and runs the shared placeholder round-trip under a func-body
-// wrapper. Because gofmt strips the incoming indentation and each element is
-// printed from its AST, the result is stable whether Code arrives verbatim
-// from source or with the markup indentation the printer bakes into a
-// re-parsed block — the property the faithfulness normalizer relies on to
-// converge (see corpus_test's canonGo). ok is false — leaving the caller on
-// the plain fmtStmts path — when the block holds no embedded value, when the
-// split fails, or when go/format rejects the substituted source.
+// fmtGoBlockCode formats independent statements while keeping the smallest
+// regions containing fixed literal lines aligned to their source. Current Code
+// supplies GoText; parser-owned source origins supply only enclosing geometry.
 func (p *printer) fmtGoBlockCode(code string, origin ...gotoken.Pos) (string, map[string]goValue, bool) {
 	parts, ok := splitGoParts(code)
 	if !ok || len(parts) == 0 {
 		return "", nil, false
 	}
+	sub := *p
+	outerPrefix := ""
+	if len(origin) > 0 {
+		outerPrefix = p.sourceIndent(origin[0])
+	}
+	sub.source = ast.NewSourceLayout(code, parts[0].Pos()).WithFieldOrigins(&ast.File{Decls: []ast.Decl{&ast.GoWithElements{Parts: parts}}})
+	sub.originIndent = &outerPrefix
+	defer func() {
+		if sub.err != nil {
+			p.err = sub.err
+		}
+	}()
 	strip := func(out []byte) (string, bool) { return extractFuncBody(string(out)) }
-	if text, values, ok, err := p.fmtSourceGoParts(parts, code, goBlockWrapperPrefix, goBlockWrapperSuffix, strip, origin...); err != nil {
+	if text, values, ok, err := sub.fmtSourceGoParts(parts, code, goBlockWrapperPrefix, goBlockWrapperSuffix, strip, origin...); err != nil {
 		p.fail("%s", err)
 		return "", nil, false
 	} else if ok {
 		return text, values, true
 	}
-	return p.fmtGoPartsText(parts, goBlockWrapperPrefix, goBlockWrapperSuffix, strip)
+	return sub.fmtGoPartsText(parts, goBlockWrapperPrefix, goBlockWrapperSuffix, strip)
 }
 
 // ifMarkup renders `{ if cond { … }[ else …] }` as a group: short → one line,
 // long → block body.
 func (p *printer) ifMarkup(i *ast.IfMarkup) pretty.Doc {
+	if p.anchoredNode(i) {
+		return p.sourceIf(i)
+	}
 	return pretty.Group(pretty.Concat(pretty.Text("{ "), p.ifChain(i), pretty.Text(" }")))
 }
 
@@ -1034,6 +1079,9 @@ func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
 }
 
 func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
+	if p.anchoredNode(f) {
+		return p.sourceFor(f)
+	}
 	return pretty.Group(pretty.Concat(
 		pretty.Text("{ for "), p.goFieldDoc(f.Clause, forField, fmtClause, f.ClausePos), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline, f.Layout), pretty.Text("} }")))
 }
@@ -1051,6 +1099,55 @@ func (p *printer) anchoredNode(n ast.Node) bool {
 		return value
 	}
 	value := false
+	var rawSegments []ast.Markup
+	raw := false
+	switch v := n.(type) {
+	case *ast.EmbeddedAttr:
+		if v.Lang != ast.EmbeddedText {
+			raw = true
+			rawSegments = v.Segments
+		}
+	case *ast.EmbeddedInterp:
+		if v.Lang != ast.EmbeddedText {
+			raw = true
+			rawSegments = v.Segments
+		}
+	case *ast.ComposedPart:
+		if v.LiteralSegments != nil && v.LiteralLang != ast.EmbeddedText {
+			raw = true
+			rawSegments = v.LiteralSegments
+		}
+	case *ast.ValueArm:
+		if v.Segments != nil && v.Lang != ast.EmbeddedText {
+			raw = true
+			rawSegments = v.Segments
+		}
+	}
+	ast.GoFields(n, func(field ast.GoField) {
+		if p.anchoredGoField(field.Src) {
+			value = true
+		}
+	})
+	for _, stage := range nodeStages(n) {
+		if p.anchoredGoField(stage.Args) {
+			value = true
+		}
+	}
+	if raw {
+		for _, segment := range rawSegments {
+			if hole, ok := segment.(*ast.Interp); ok && p.anchoredGoField(hole.Expr) {
+				value = true
+			}
+		}
+		p.anchored[n] = value
+		return value
+	}
+	switch v := n.(type) {
+	case *ast.Interp:
+		value = value || p.anchoredGoField(v.Expr)
+	case *ast.GoBlock:
+		value = value || p.anchoredGoField(v.Code)
+	}
 	if text, ok := n.(*ast.Text); ok {
 		value = strings.ContainsAny(text.Value, "\r\n")
 	}
@@ -1084,19 +1181,10 @@ func (p *printer) sourceBody(nodes []ast.Markup, layout ast.BodyLayout) pretty.D
 	return pretty.Concat(pretty.Text(layout.Leading), pretty.Indent(p.children(nodes)))
 }
 
-// bodyTrailing formats a non-emitted closing boundary without relocating the
-// fixed literal lines before it. Preserve an authored closing line break.
-func bodyTrailing(layout ast.BodyLayout) pretty.Doc {
-	if strings.ContainsAny(layout.Trailing, "\r\n") {
-		return pretty.HardLine
-	}
-	return pretty.Text(" ")
-}
-
 // cfBody formats only syntactic body edges; its interior is literal content.
 func (p *printer) cfBody(nodes []ast.Markup, multiline bool, layout ast.BodyLayout) pretty.Doc {
 	if p.anchoredBody(nodes) {
-		return pretty.Concat(p.sourceBody(nodes, layout), bodyTrailing(layout))
+		return pretty.Concat(p.sourceBody(nodes, layout), pretty.Text(layout.Trailing))
 	}
 	if len(nodes) == 0 {
 		return pretty.Text("")
@@ -1110,6 +1198,9 @@ func (p *printer) cfBody(nodes []ast.Markup, multiline bool, layout ast.BodyLayo
 
 // switchMarkup aligns case labels with the switch and formats syntactic edges.
 func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
+	if p.anchoredNode(s) {
+		return p.sourceSwitch(s)
+	}
 	head := []pretty.Doc{pretty.Text("{ switch")}
 	if s.Tag != "" {
 		head = append(head, pretty.Text(" "), p.goFieldDoc(s.Tag, switchField, fmtExpr, s.TagPos))

@@ -171,6 +171,13 @@ func zeroSpans(n ast.Node) {
 					v.Stages[i].NamePos = 0
 					v.Stages[i].ArgsPos = 0
 				}
+			case *ast.OrderedPair:
+				v.KeyPos = 0
+				v.KeyEnd = 0
+			case *ast.Comment:
+				v.Layout = ast.CommentLayout{}
+			case *ast.CommentAttr:
+				v.Layout = ast.CommentLayout{}
 			case *ast.MarkupAttr:
 				v.Layout = ast.BodyLayout{}
 			case *ast.Component:
@@ -193,6 +200,8 @@ func zeroSpans(n ast.Node) {
 					v.Stages[i].ArgsPos = 0
 				}
 			case *ast.ComposedPart:
+				v.LiteralPos = 0
+				v.LiteralEnd = 0
 				v.ExprPos = 0
 				v.CondPos = 0
 				for i := range v.Stages {
@@ -228,6 +237,9 @@ func zeroSpans(n ast.Node) {
 			case *ast.ValueSwitchCase:
 				v.ListPos = 0
 			case *ast.ValueArm:
+				v.SourceBraced = false
+				v.LiteralPos = 0
+				v.LiteralEnd = 0
 				v.ExprPos = 0
 				for i := range v.Stages {
 					v.Stages[i].NamePos = 0

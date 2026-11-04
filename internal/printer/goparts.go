@@ -39,14 +39,9 @@ type goValue struct {
 // multiline reports whether v renders across lines.
 func (v goValue) multiline() bool { return v.lit != nil || !v.isFlat }
 
-// goFieldDoc lays out a markup Go field (an attribute value, an interpolation,
-// a control-flow header). A field holding gsx values — element, fragment or
-// prefixed literals — is not Go on its own, so plain (the field's go/format
-// path) would relay it verbatim, and a verbatim multi-line field re-indents one
-// level deeper on every pass. Such a field goes through the same placeholder
-// round-trip as a {{ }} block instead: gofmt lays out the Go, and each element
-// is printed from its AST at the Go line's depth, so the layout is a function
-// of the AST alone and preserved text (a <pre> body) is never re-indented.
+// goFieldDoc formats independent Go syntax around semantic GSX operands.
+// Fixed multiline markup keeps its smallest enclosing source-aligned Go region;
+// other Go regions use the ordinary placeholder round-trip and gofmt.
 func (p *printer) goFieldDoc(src string, form goFieldForm, plain func(string) string, origin ...gotoken.Pos) pretty.Doc {
 	if text, values, ok := p.fmtGoField(src, form, origin...); ok {
 		return p.goTextDoc(text, values, false)
@@ -65,6 +60,18 @@ func (p *printer) fmtGoField(src string, form goFieldForm, origin ...gotoken.Pos
 	if !ok || len(parts) == 0 {
 		return "", nil, false
 	}
+	sub := *p
+	outerPrefix := ""
+	if len(origin) > 0 {
+		outerPrefix = p.sourceIndent(origin[0])
+	}
+	sub.source = ast.NewSourceLayout(src, parts[0].Pos()).WithFieldOrigins(&ast.File{Decls: []ast.Decl{&ast.GoWithElements{Parts: parts}}})
+	sub.originIndent = &outerPrefix
+	defer func() {
+		if sub.err != nil {
+			p.err = sub.err
+		}
+	}()
 	strip := func(out []byte) (string, bool) {
 		body, ok := extractFuncBody(string(out))
 		if !ok {
@@ -76,13 +83,13 @@ func (p *printer) fmtGoField(src string, form goFieldForm, origin ...gotoken.Pos
 		}
 		return strings.CutSuffix(body, form.close)
 	}
-	if text, values, ok, err := p.fmtSourceGoParts(parts, src, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip, origin...); err != nil {
+	if text, values, ok, err := sub.fmtSourceGoParts(parts, src, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip, origin...); err != nil {
 		p.fail("%s", err)
 		return "", nil, false
 	} else if ok {
 		return text, values, true
 	}
-	return p.fmtGoPartsText(parts, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip)
+	return sub.fmtGoPartsText(parts, goBlockWrapperPrefix+form.open, form.close+goBlockWrapperSuffix, strip)
 }
 
 // mayHoldGoValue is the cheap precheck before a split (the one codegen's

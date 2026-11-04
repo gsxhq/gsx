@@ -117,7 +117,7 @@ func (p *parser) parseValueArm(attrName string, braceOff int) (*ast.ValueArm, to
 		if rest := strings.TrimSpace(p.src[literalEnd:closeOff]); rest != "" {
 			return nil, 0, p.errorf(p.posAt(literalEnd), "unexpected %q after %s literal arm; pipe stages on a literal arm are not supported", rest, embeddedLangPrefix(lang))
 		}
-		arm := &ast.ValueArm{Segments: segments, Lang: lang, DoubleQuoted: dquoted}
+		arm := &ast.ValueArm{LiteralPos: p.posAt(literalOff), LiteralEnd: p.posAt(literalEnd), SourceBraced: true, Segments: segments, Lang: lang, DoubleQuoted: dquoted}
 		ast.SetSpan(arm, p.posAt(braceOff), p.posAt(closeOff+1))
 		return arm, p.posAt(closeOff + 1), nil
 	}
@@ -125,7 +125,7 @@ func (p *parser) parseValueArm(attrName string, braceOff int) (*ast.ValueArm, to
 	if err != nil {
 		return nil, 0, p.pipeErrorf(p.posAt(braceOff), err)
 	}
-	arm := &ast.ValueArm{Expr: seed, ExprPos: p.posAt(braceOff + 1 + lead), Stages: stages}
+	arm := &ast.ValueArm{SourceBraced: true, Expr: seed, ExprPos: p.posAt(braceOff + 1 + lead), Stages: stages}
 	ast.SetSpan(arm, p.posAt(braceOff), p.posAt(closeOff+1))
 	return arm, p.posAt(closeOff + 1), nil
 }
@@ -218,7 +218,7 @@ func (p *parser) parseValueSwitchCase(attrName string, at int) (*ast.ValueSwitch
 		if want, ok := composedLiteralLang(attrName); !ok || lang != want {
 			return nil, 0, p.errorf(p.posAt(valueAt), "%s literal arms are not valid in %s={...}; %s={...} takes %s literals", embeddedLangPrefix(lang), attrName, attrName, composedLiteralPrefix(attrName))
 		}
-		arm := &ast.ValueArm{Segments: segments, Lang: lang, DoubleQuoted: dquoted}
+		arm := &ast.ValueArm{LiteralPos: p.posAt(valueAt), LiteralEnd: p.posAt(literalEnd), Segments: segments, Lang: lang, DoubleQuoted: dquoted}
 		ast.SetSpan(arm, p.posAt(valueAt), p.posAt(literalEnd))
 		cc.Value = arm
 		ast.SetSpan(cc, start, p.posAt(literalEnd))

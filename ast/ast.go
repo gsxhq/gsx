@@ -168,9 +168,10 @@ type File struct {
 // SourceLayout retains parser-owned source geometry for formatting. Its text
 // supplies positions only; semantic nodes and GoText remain authoritative.
 type SourceLayout struct {
-	text  string
-	base  token.Pos
-	lines []int
+	text      string
+	base      token.Pos
+	lines     []int
+	fieldEnds map[token.Pos]token.Pos
 }
 
 // NewSourceLayout captures an immutable source view at its FileSet base.
@@ -204,6 +205,90 @@ func (s SourceLayout) LinePrefix(pos token.Pos) (string, bool) {
 		return "", false
 	}
 	return s.text[s.lines[index]:a], true
+}
+
+// WithFieldOrigins captures immutable semantic-field boundaries before callers
+// edit the AST. The source view still supplies layout only, never field values.
+func (s SourceLayout) WithFieldOrigins(f *File) SourceLayout {
+	s.fieldEnds = make(map[token.Pos]token.Pos)
+	record := func(pos token.Pos, value string) {
+		if pos.IsValid() {
+			s.fieldEnds[pos] = pos + token.Pos(len(value))
+		}
+	}
+	stages := func(stages []PipeStage) {
+		for _, st := range stages {
+			record(st.NamePos, st.Name)
+			if st.HasArgs {
+				record(st.ArgsPos, st.Args)
+			}
+		}
+	}
+	Inspect(f, func(n Node) bool {
+		if n == nil {
+			return false
+		}
+		GoFields(n, func(field GoField) { record(field.Pos, field.Src) })
+		switch n := n.(type) {
+		case *Component:
+			record(n.NamePos, n.Name)
+			record(n.ParamsPos, n.Params)
+			record(n.RecvPos, n.Recv)
+			record(n.TypeParamsPos, n.TypeParams)
+		case *GoBlock:
+			record(n.CodePos, n.Code)
+		case *Interp:
+			record(n.ExprPos, n.Expr)
+			stages(n.Stages)
+		case *StaticAttr:
+			record(n.Pos(), n.Name)
+			s.fieldEnds[n.End()-1-token.Pos(len(n.Raw))] = n.End() - 1
+		case *BoolAttr:
+			record(n.Pos(), n.Name)
+		case *EmbeddedInterp:
+			stages(n.Stages)
+		case *EmbeddedAttr:
+			record(n.Pos(), n.Name)
+			stages(n.Stages)
+		case *ExprAttr:
+			record(n.Pos(), n.Name)
+			stages(n.Stages)
+		case *SpreadAttr:
+			stages(n.Stages)
+		case *OrderedPair:
+			if n.KeyPos.IsValid() {
+				s.fieldEnds[n.KeyPos] = n.KeyEnd
+			}
+		case *ComposedAttr:
+			record(n.Pos(), n.Name)
+		case *OrderedAttrsAttr:
+			record(n.Pos(), n.Name)
+		case *MarkupAttr:
+			record(n.Pos(), n.Name)
+		case *ComposedPart:
+			if n.LiteralPos.IsValid() {
+				s.fieldEnds[n.LiteralPos] = n.LiteralEnd
+			}
+			stages(n.Stages)
+		case *ValueArm:
+			if n.LiteralPos.IsValid() {
+				s.fieldEnds[n.LiteralPos] = n.LiteralEnd
+			}
+			stages(n.Stages)
+		case *Element:
+			record(n.TagPos, n.Tag)
+			record(n.TypeArgsPos, n.TypeArgs)
+		}
+		return true
+	})
+	return s
+}
+
+// FieldEnd returns a parser-captured field's original end, independently of
+// its current semantic spelling.
+func (s SourceLayout) FieldEnd(pos token.Pos) (token.Pos, bool) {
+	end, ok := s.fieldEnds[pos]
+	return end, ok
 }
 
 // GoChunk is a verbatim span of Go source (imports, types, consts, vars, funcs)
@@ -245,6 +330,13 @@ func (GoText) goPartNode() {}
 // BodyLayout retains non-emitted whitespace at a GSX syntactic body's edges.
 // It is source layout metadata, not markup content.
 type BodyLayout struct {
+	Leading  string
+	Trailing string
+}
+
+// CommentLayout retains a source comment's delimiters and surrounding trivia.
+// Its semantic text remains in Comment.Text or CommentAttr.Text.
+type CommentLayout struct {
 	Leading  string
 	Trailing string
 }
@@ -381,9 +473,10 @@ func (*MarkerRegion) markupNode() {}
 type Comment struct {
 	span
 
-	Text  string
-	Block bool // true = /* */, false = //
-	Bare  bool // true = bare line-start `//` (no braces); implies Block=false
+	Text   string
+	Layout CommentLayout // original delimiters and surrounding comment trivia
+	Block  bool          // true = /* */, false = //
+	Bare   bool          // true = bare line-start `//` (no braces); implies Block=false
 }
 
 func (*Comment) markupNode() {}
@@ -751,6 +844,8 @@ type ComposedPart struct {
 	// style={…}, f`…` in class={…}. Each attribute accepts the literal whose
 	// language matches its own value context, and nothing else.
 	LiteralSegments []Markup
+	LiteralPos      token.Pos // original literal token geometry, excluding its optional guard
+	LiteralEnd      token.Pos
 	// LiteralLang is that literal's language (EmbeddedCSS for style,
 	// EmbeddedText for class); meaningful only when LiteralSegments != nil.
 	LiteralLang EmbeddedLang
@@ -792,10 +887,13 @@ func (*ComposedAttr) attrNode() {}
 // outside an arm — branching never widens what a hole may contribute.
 type ValueArm struct {
 	span
-	Expr     string
-	ExprPos  token.Pos // first char of Expr (the pipe seed) in source
-	Stages   []PipeStage
-	Embedded []GoPart // codegen-only overlay; see Interp.Embedded
+	SourceBraced bool // original arm delimiters; layout metadata only
+	LiteralPos   token.Pos
+	LiteralEnd   token.Pos
+	Expr         string
+	ExprPos      token.Pos // first char of Expr (the pipe seed) in source
+	Stages       []PipeStage
+	Embedded     []GoPart // codegen-only overlay; see Interp.Embedded
 
 	Segments []Markup
 	// Lang is the literal's language (EmbeddedCSS for style, EmbeddedText for
@@ -855,8 +953,10 @@ type ValueCF struct {
 // satisfies ast.Node and can be used as a resolved-map key.
 type OrderedPair struct {
 	span
-	Key   string
-	Value string
+	Key    string
+	KeyPos token.Pos // original key token geometry
+	KeyEnd token.Pos
+	Value  string
 	// ValuePos is the position of the first non-space byte of Value in source.
 	ValuePos token.Pos
 	Embedded []GoPart // codegen-only overlay; see Interp.Embedded
@@ -883,9 +983,10 @@ func (*OrderedAttrsAttr) attrNode() {}
 // canonical output is `/**/` — the one bare spelling with nothing in it.
 type CommentAttr struct {
 	span
-	Text     string // inner text, delimiters and wrapping braces stripped, trimmed
-	Block    bool   // true = /* */, false = //
-	Trailing bool   // true = same source line as the previous attribute/comment
+	Text     string        // inner text, delimiters and wrapping braces stripped, trimmed
+	Block    bool          // true = /* */, false = //
+	Trailing bool          // true = same source line as the previous attribute/comment
+	Layout   CommentLayout // original delimiters and surrounding comment trivia
 }
 
 func (*CommentAttr) attrNode() {}

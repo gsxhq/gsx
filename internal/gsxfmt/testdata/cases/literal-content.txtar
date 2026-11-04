@@ -26,5 +26,4 @@ component C(ok bool) { <div class="whitespace-pre-wrap"> a	b
  <?end>
 	// source comment
 	<p>last</p>
-</div>
-}
+</div> }

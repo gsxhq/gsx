@@ -106,18 +106,43 @@ func (p *printer) fmtSourceGoParts(parts []ast.GoPart, source, prefix, suffix st
 	// The first real Go token on each physical line determines which ancestors
 	// can keep the opening line in place. Comments are retained with their region.
 	first := make(map[int]int)
+	attached := map[int]int{}
+	type commentTrivia struct{ start, endLine int }
+	var pending []commentTrivia
 	var scan scanner.Scanner
-	scan.Init(file, []byte(src), nil, 0)
+	scan.Init(file, []byte(src), nil, scanner.ScanComments)
 	for {
 		pos, tok, _ := scan.Scan()
 		if tok == token.EOF {
 			break
 		}
+		off := file.Offset(pos)
+		if off < len(prefix) || off >= len(src)-len(suffix) {
+			pending = nil
+			continue
+		}
+		if tok == token.COMMENT {
+			if strings.HasPrefix(src[off:], "/*") {
+				close := strings.Index(src[off+2:], "*/")
+				if close >= 0 {
+					end := off + 2 + close + 2
+					pending = append(pending, commentTrivia{off, file.Line(file.Pos(end - 1))})
+				}
+			}
+			continue
+		}
 		if tok == token.SEMICOLON {
 			continue
 		}
-		off := file.Offset(pos)
 		line := file.Line(pos)
+		for _, comment := range pending {
+			if comment.endLine == line {
+				attached[off] = comment.start
+				break
+			}
+		}
+		pending = nil
+
 		if _, ok := first[line]; !ok {
 			first[line] = off
 		}
@@ -172,6 +197,9 @@ func (p *printer) fmtSourceGoParts(parts []ast.GoPart, source, prefix, suffix st
 		node := stack[nearest[index]]
 		r, _ := replaceableGoIsland(node)
 		r.start = file.Offset(node.Pos())
+		if leading, ok := attached[r.start]; ok {
+			r.start = leading
+		}
 		r.end = max(file.Offset(node.End()), operandEnd)
 		// AST ancestors form nested or disjoint intervals. Coalesce in one pass.
 		for len(regions) > 0 && r.start <= regions[len(regions)-1].start && r.end >= regions[len(regions)-1].end {
@@ -249,7 +277,11 @@ func (p *printer) fmtSourceGoParts(parts []ast.GoPart, source, prefix, suffix st
 		lineStart := strings.LastIndexByte(src[:r.start], '\n') + 1
 		leading := src[lineStart:r.start]
 		if lineStart <= len(prefix) && len(origin) > 0 {
-			leading = p.sourceIndent(origin[0]) + src[len(prefix):r.start]
+			sourcePrefix := p.sourceIndent(origin[0])
+			if p.originIndent != nil {
+				sourcePrefix = *p.originIndent
+			}
+			leading = sourcePrefix + src[len(prefix):r.start]
 		}
 		if strings.TrimSpace(leading) != "" {
 			leading = ""
@@ -380,15 +412,8 @@ func sourceLeading(src string) string { return src[:len(src)-len(strings.TrimLef
 
 func (p *printer) anchoredAttrOpening(e *ast.Element) bool {
 	for _, a := range e.Attrs {
-		switch v := a.(type) {
-		case *ast.ExprAttr:
-			if p.inlineGoAttr(v) {
-				return true
-			}
-		case *ast.MarkupAttr:
-			if !strings.ContainsAny(v.Layout.Leading, "\r\n") && p.anchoredBody(v.Value) {
-				return true
-			}
+		if p.anchoredNode(a) {
+			return true
 		}
 	}
 	return false
