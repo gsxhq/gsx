@@ -265,6 +265,10 @@ markup stays touching. An element may therefore exceed the width target.
 
 The formatter can arrange Go syntax, attributes and syntactic whitespace at the
 outer edges of component, control-flow, switch-case and markup-slot bodies.
+When a multiline literal fixes the placement of later lines, the surrounding
+Go region and GSX host syntax retain the source layout needed to keep the
+opening line coherent. Independent syntax continues to format. An opening
+tag's width decision measures that tag, rather than following literal prose.
 Existing CSS and JavaScript formatting contracts remain separate.
 
 ### Formatting stdin
