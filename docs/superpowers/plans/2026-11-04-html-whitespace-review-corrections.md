@@ -1,5 +1,16 @@
 # HTML Whitespace Review Corrections Implementation Plan
 
+**Follow-up review:** The initial source-column preservation approach described
+below was superseded. It was unnecessarily freezing Go syntax. The final
+implementation formats syntax normally, preserves literal HTML bytes and
+aligns generated indentation to the physical line's leading indentation.
+The user selected flush-left HTML subtrees for ordinary fixtures and examples.
+Per-file causes and corrections are recorded in the semantic, formatter and
+non-corpus audits under `docs/superpowers/reviews/2026-11-04-html-*-audit.md`.
+Final spec/quality reviews and rebuilt-CLI render probes passed. Uncached
+`make ci` passed with Go 1.27.1 (exit 0); lint and Node 24 docs build passed.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development task-by-task, with separate spec and quality reviews.
 
 **Goal:** Correct PR 274's reviewed regressions while retaining literal HTML content semantics.

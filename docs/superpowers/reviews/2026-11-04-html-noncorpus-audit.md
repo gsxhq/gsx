@@ -102,3 +102,9 @@ Review findings: source-column freezing must be removed; stale column-preservati
 - `/tmp/gsx-adversarial-probe/render3`: regenerate/render before and after actual formatting returned identical 242 bytes, preserving CRLF, Unicode, two variadic element arguments, explicit third space argument, fragment/control grouping and scalar whitespace.
 - `/tmp/gsx-adversarial-probe/mutate-final.go`: longer f-literal hole/stage names and arguments print current AST values while literal Text remains exact.
 - No repository edits or full CI run were performed by this reviewer.
+
+## Final validation
+
+Uncached `make ci` passed on Go 1.27.1 (exit 0), including both modules, vet,
+tests, formatting, example drift and type-bundle parity. `make lint` passed
+with golangci-lint 2.13.2; the VitePress build passed with Node 24.
