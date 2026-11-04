@@ -29,8 +29,7 @@ func fmtSourceWidth(t *testing.T, src string, width int) string {
 	return b.String()
 }
 
-// Literal newlines fix the markup's source placement. Preserve the smallest
-// surrounding Go region instead of inventing decorative parens around it.
+// Literal newlines remain data while the surrounding Go syntax formats.
 func TestGoExprElementKeepsSourcePlacementAtTopLevel(t *testing.T) {
 	src := "package main\n\nvar n = <div>\n<p>hi</p>\n</div>\n"
 	want := src
@@ -91,7 +90,7 @@ func TestGoExprElementKeepsSourcePlacementInFuncBody(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
-// Renaming the binding leaves all retained literal lines at their source columns.
+// Renaming the binding leaves the literal content unchanged.
 func TestGoExprElementRenameDoesNotShiftIndent(t *testing.T) {
 	src := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n_ = n\n}\n"
 	want := "package main\n\nfunc f() {\n\tn := <div>\n<p>hi</p>\n</div>\n\t_ = n\n}\n"

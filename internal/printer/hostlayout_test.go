@@ -139,3 +139,66 @@ func TestPipelineArgumentsFormatAroundMarkup(t *testing.T) {
 	want := "package p\n\ncomponent C() {\n\t{ x |> foo(1+2, Wrap(<b>\nx\n</b>)) }\n}\n"
 	checkFormat(t, src, want)
 }
+
+// Literal delimiters use original field boundaries while edited hole and
+// pipeline spellings print from the semantic AST.
+func TestLiteralCursorUsesEditedHoleAndStages(t *testing.T) {
+	src := "package p\ncomponent C(){\n{f`start\n@{value |> inner(1+2)}\nend` |> outer(3+4)}\n}\n"
+	parse := func(source string) *ast.File {
+		f, err := parser.ParseFile(token.NewFileSet(), "literal.gsx", source, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	literal := func(f *ast.File) *ast.EmbeddedInterp {
+		var found *ast.EmbeddedInterp
+		ast.Inspect(f, func(n ast.Node) bool {
+			if v, ok := n.(*ast.EmbeddedInterp); ok && v.Lang == ast.EmbeddedText {
+				found = v
+				return false
+			}
+			return true
+		})
+		if found == nil {
+			t.Fatal("missing text literal")
+		}
+		return found
+	}
+	text := func(l *ast.EmbeddedInterp) []string {
+		var values []string
+		for _, segment := range l.Segments {
+			if v, ok := segment.(*ast.Text); ok {
+				values = append(values, v.Value)
+			}
+		}
+		return values
+	}
+	f := parse(src)
+	l := literal(f)
+	wantText := text(l)
+	for _, segment := range l.Segments {
+		if hole, ok := segment.(*ast.Interp); ok {
+			hole.Expr = "longerValue"
+			hole.Stages[0].Name = "innerEdited"
+			hole.Stages[0].Args = "10+20"
+		}
+	}
+	l.Stages[0].Name = "outerEdited"
+	l.Stages[0].Args = "30+40"
+	var out strings.Builder
+	if err := Fprint(&out, f, 80, 2); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"longerValue", "innerEdited(10 + 20)", "outerEdited(30 + 40)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("edited field %q missing in %s", want, out.String())
+		}
+	}
+	if !reflect.DeepEqual(text(literal(parse(out.String()))), wantText) {
+		t.Fatal("literal Text changed")
+	}
+	if again := fmtSource(t, out.String()); again != out.String() {
+		t.Fatal("not idempotent")
+	}
+}

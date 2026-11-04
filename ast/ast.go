@@ -186,8 +186,8 @@ func (s SourceLayout) Slice(start, end token.Pos) (string, bool) {
 	return s.text[a:b], true
 }
 
-// WithFieldOrigins captures immutable semantic-field boundaries before callers
-// edit the AST. The source view still supplies layout only, never field values.
+// WithFieldOrigins captures the hole and pipeline boundaries consumed by the
+// literal cursor before callers edit the AST. It never stores field values.
 func (s SourceLayout) WithFieldOrigins(f *File) SourceLayout {
 	s.fieldEnds = make(map[token.Pos]token.Pos)
 	record := func(pos token.Pos, value string) {
@@ -204,53 +204,16 @@ func (s SourceLayout) WithFieldOrigins(f *File) SourceLayout {
 		}
 	}
 	Inspect(f, func(n Node) bool {
-		if n == nil {
-			return false
+		literal, ok := n.(*EmbeddedInterp)
+		if !ok {
+			return true
 		}
-		GoFields(n, func(field GoField) { record(field.Pos, field.Src) })
-		switch n := n.(type) {
-		case *GoBlock:
-			record(n.CodePos, n.Code)
-		case *Interp:
-			record(n.ExprPos, n.Expr)
-			stages(n.Stages)
-		case *StaticAttr:
-			record(n.Pos(), n.Name)
-			s.fieldEnds[n.End()-1-token.Pos(len(n.Raw))] = n.End() - 1
-		case *BoolAttr:
-			record(n.Pos(), n.Name)
-		case *EmbeddedInterp:
-			stages(n.Stages)
-		case *EmbeddedAttr:
-			record(n.Pos(), n.Name)
-			stages(n.Stages)
-		case *ExprAttr:
-			record(n.Pos(), n.Name)
-			stages(n.Stages)
-		case *SpreadAttr:
-			stages(n.Stages)
-		case *OrderedPair:
-			if n.KeyPos.IsValid() {
-				s.fieldEnds[n.KeyPos] = n.KeyEnd
+		stages(literal.Stages)
+		for _, segment := range literal.Segments {
+			if hole, ok := segment.(*Interp); ok {
+				record(hole.ExprPos, hole.Expr)
+				stages(hole.Stages)
 			}
-		case *ComposedAttr:
-			record(n.Pos(), n.Name)
-		case *OrderedAttrsAttr:
-			record(n.Pos(), n.Name)
-		case *MarkupAttr:
-			record(n.Pos(), n.Name)
-		case *ComposedPart:
-			if n.LiteralPos.IsValid() {
-				s.fieldEnds[n.LiteralPos] = n.LiteralEnd
-			}
-			stages(n.Stages)
-		case *ValueArm:
-			if n.LiteralPos.IsValid() {
-				s.fieldEnds[n.LiteralPos] = n.LiteralEnd
-			}
-			stages(n.Stages)
-		case *Element:
-			record(n.TagPos, n.Tag)
 		}
 		return true
 	})
@@ -817,8 +780,6 @@ type ComposedPart struct {
 	// style={…}, f`…` in class={…}. Each attribute accepts the literal whose
 	// language matches its own value context, and nothing else.
 	LiteralSegments []Markup
-	LiteralPos      token.Pos // original literal token geometry, excluding its optional guard
-	LiteralEnd      token.Pos
 	// LiteralLang is that literal's language (EmbeddedCSS for style,
 	// EmbeddedText for class); meaningful only when LiteralSegments != nil.
 	LiteralLang EmbeddedLang
@@ -860,13 +821,10 @@ func (*ComposedAttr) attrNode() {}
 // outside an arm — branching never widens what a hole may contribute.
 type ValueArm struct {
 	span
-	SourceBraced bool // original arm delimiters; layout metadata only
-	LiteralPos   token.Pos
-	LiteralEnd   token.Pos
-	Expr         string
-	ExprPos      token.Pos // first char of Expr (the pipe seed) in source
-	Stages       []PipeStage
-	Embedded     []GoPart // codegen-only overlay; see Interp.Embedded
+	Expr     string
+	ExprPos  token.Pos // first char of Expr (the pipe seed) in source
+	Stages   []PipeStage
+	Embedded []GoPart // codegen-only overlay; see Interp.Embedded
 
 	Segments []Markup
 	// Lang is the literal's language (EmbeddedCSS for style, EmbeddedText for
@@ -926,10 +884,8 @@ type ValueCF struct {
 // satisfies ast.Node and can be used as a resolved-map key.
 type OrderedPair struct {
 	span
-	Key    string
-	KeyPos token.Pos // original key token geometry
-	KeyEnd token.Pos
-	Value  string
+	Key   string
+	Value string
 	// ValuePos is the position of the first non-space byte of Value in source.
 	ValuePos token.Pos
 	Embedded []GoPart // codegen-only overlay; see Interp.Embedded

@@ -100,7 +100,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ComposedPart, 
 			if rest := strings.TrimSpace(src[literalEnd-base : partEnd]); rest != "" {
 				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after %s literal in %s={...}", rest, embeddedLangPrefix(lang), name)
 			}
-			parts = append(parts, ast.ComposedPart{LiteralPos: p.posAt(literalOff), LiteralEnd: p.posAt(literalEnd), LiteralSegments: segments, LiteralLang: lang, LiteralDoubleQuoted: dquoted, Cond: condSrc, CondPos: condPos})
+			parts = append(parts, ast.ComposedPart{LiteralSegments: segments, LiteralLang: lang, LiteralDoubleQuoted: dquoted, Cond: condSrc, CondPos: condPos})
 			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue
 		}
@@ -1126,8 +1126,6 @@ func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, err
 
 		var pr ast.OrderedPair
 		pr.Key = key
-		pr.KeyPos = p.posAt(base + keyOff)
-		pr.KeyEnd = pr.KeyPos + token.Pos(len(rawKey))
 		pr.Value = rawValue
 		pr.ValuePos = p.posAt(base + valuePosOff)
 		ast.SetSpan(&pr, p.posAt(base+valueStart), p.posAt(base+valueEnd))
