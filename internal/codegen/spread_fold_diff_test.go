@@ -295,75 +295,77 @@ func TestSpreadFoldDiffMatrix(t *testing.T) {
 
 	cases := []struct {
 		name string
-		bag  gsx.Attrs
-		body string
+		// prefix is literal content between Go declarations and the element.
+		prefix string
+		bag    gsx.Attrs
+		body   string
 	}{
-		{"E1", gsx.Attrs{
+		{"E1", "\n\t", gsx.Attrs{
 			{Key: "id", Value: "e1"}, {Key: "class", Value: "c1"},
 			{Key: "href", Value: "javascript:alert(1)"},
 		}, "e1"},
-		{"E2", gsx.ConcatAttrs(
+		{"E2", "\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "id", Value: "e2-pre"}},
 			gsx.Attrs{{Key: "id", Value: "e2-a"}, {Key: "data-mid", Value: "m"}},
 			gsx.Attrs{{Key: "data-post", Value: "p"}},
 		), "e2"},
-		{"E3true", gsx.Attrs{{Key: "class", Value: "c3"}, {Key: "href", Value: "/e3"}}, "e3"},
-		{"E3false", nil, "e3"},
-		{"E4", gsx.ConcatAttrs(
+		{"E3true", "\n\t", gsx.Attrs{{Key: "class", Value: "c3"}, {Key: "href", Value: "/e3"}}, "e3"},
+		{"E3false", "\n\t", nil, "e3"},
+		{"E4", "\n\t\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "class", Value: "a4"}, {Key: "data-k", Value: "1"}, {Key: "href", Value: "/e4-a"}},
 			gsx.Attrs{{Key: "class", Value: "b4"}, {Key: "data-k", Value: "2"}},
 		), "e4"},
-		{"E5", gsx.ConcatAttrs(
+		{"E5", "\n\t\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "data-k", Value: "a5"}, {Key: "style", Value: "color:red"}},
 			gsx.Attrs{{Key: "data-k", Value: "mid5"}},
 			gsx.Attrs{{Key: "data-k", Value: "b5"}, {Key: "style", Value: "margin:0"}},
 		), "e5"},
-		{"E6true", gsx.ConcatAttrs(
+		{"E6true", "\n\t\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "data-k", Value: "a6"}, {Key: "class", Value: "x6"}},
 			gsx.Attrs{{Key: "data-k", Value: "b6"}, {Key: "class", Value: "y6"}},
 		), "e6"},
-		{"E6false", gsx.ConcatAttrs(
+		{"E6false", "\n\t\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "data-k", Value: "a6"}, {Key: "class", Value: "x6"}},
 			nil,
 		), "e6"},
-		{"E7true", gsx.ConcatAttrs(
+		{"E7true", "\n\t\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "data-k", Value: "a7"}},
 			gsx.Attrs{{Key: "data-mid", Value: "m7"}},
 			gsx.Attrs{{Key: "data-k", Value: "b7"}},
 		), "e7"},
-		{"E7false", gsx.ConcatAttrs(
+		{"E7false", "\n\t\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "data-k", Value: "a7"}},
 			nil,
 			gsx.Attrs{{Key: "data-k", Value: "b7"}},
 		), "e7"},
-		{"E8true", gsx.ConcatAttrs(
+		{"E8true", "\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "class", Value: "base8"}},
 			gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}},
 			gsx.Attrs{{Key: "class", Value: "on8"}},
 		), "e8"},
-		{"E8false", gsx.ConcatAttrs(
+		{"E8false", "\n\t", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "class", Value: "base8"}},
 			gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}},
 			gsx.Attrs{{Key: "class", Value: "off8"}},
 		), "e8"},
-		{"E9true", gsx.ConcatAttrs(
+		{"E9true", "", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "id", Value: "e9"}, {Key: "style", Value: "color:red"}},
 			gsx.Attrs{{Key: "style", Value: "margin:0"}},
 		), "e9"},
-		{"E9false", gsx.ConcatAttrs(
+		{"E9false", "", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "id", Value: "e9"}, {Key: "style", Value: "color:red"}},
 			nil,
 		), "e9"},
-		{"E10true", gsx.ConcatAttrs(
+		{"E10true", "", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "class", Value: "base10"}},
 			gsx.Attrs{{Key: "class", Value: "on10"}},
 		), "e10"},
-		{"E10false", gsx.ConcatAttrs(
+		{"E10false", "", gsx.ConcatAttrs(
 			gsx.Attrs{{Key: "class", Value: "base10"}},
 			gsx.Attrs{{Key: "class", Value: "off10"}},
 		), "e10"},
-		{"E11true", gsx.Attrs{{Key: "class", Value: "on11"}}, "e11"},
-		{"E11false", gsx.Attrs{{Key: "class", Value: "off11"}}, "e11"},
+		{"E11true", "", gsx.Attrs{{Key: "class", Value: "on11"}}, "e11"},
+		{"E11false", "", gsx.Attrs{{Key: "class", Value: "off11"}}, "e11"},
 	}
 
 	// runSpreadFoldMatrix's harness renders all scenarios (E0 plus the
@@ -378,7 +380,7 @@ func TestSpreadFoldDiffMatrix(t *testing.T) {
 			if !ok {
 				t.Fatalf("no render captured for %s", c.name)
 			}
-			want := refTagHTML(c.bag, c.body)
+			want := c.prefix + refTagHTML(c.bag, c.body)
 			if gotHTML != want {
 				t.Fatalf("%s: shipped codegen != full-fold reference\n got=%q\nwant=%q", c.name, gotHTML, want)
 			}

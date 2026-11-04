@@ -187,11 +187,13 @@ func TestMinifyThreading_JS(t *testing.T) {
 	t.Logf("noMin:\n%s", noMin)
 	t.Logf("fullMin:\n%s", fullMin)
 
+	// Sibling separators are literal \n\t content, coalesced into the preceding
+	// string write independently of the attribute minification level.
 	// noMin: source values preserved verbatim, double intra-line spaces intact
 	// (indentation rebase only touches leading whitespace of the embedded
 	// body, not this single-line value's interior).
 	for _, want := range []string{
-		`_gsxgw.S("<div hx-vals=\"{  &#34;exclude&#34;:  &#34;SELF-1&#34;  }\"></div>")`,
+		`_gsxgw.S("<div hx-vals=\"{  &#34;exclude&#34;:  &#34;SELF-1&#34;  }\"></div>\n\t")`,
 		`_gsxgw.S("<div x-data=\"{  open:  false  }\"></div>")`,
 	} {
 		if !strings.Contains(noMin, want) {
@@ -206,7 +208,7 @@ func TestMinifyThreading_JS(t *testing.T) {
 	// whitespace but never removes it or rewrites values. x-data collapses the
 	// same way (untouched otherwise — no `(…)`/`!1` rewrite at this level).
 	for _, want := range []string{
-		`_gsxgw.S("<div hx-vals=\"{ &#34;exclude&#34;: &#34;SELF-1&#34; }\"></div>")`,
+		`_gsxgw.S("<div hx-vals=\"{ &#34;exclude&#34;: &#34;SELF-1&#34; }\"></div>\n\t")`,
 		`_gsxgw.S("<div x-data=\"{ open: false }\"></div>")`,
 	} {
 		if !strings.Contains(builtinMin, want) {
@@ -221,7 +223,7 @@ func TestMinifyThreading_JS(t *testing.T) {
 	// wrapped in `(…)` since a single-property `{ open: false }` parses raw as
 	// a labeled statement block (see cascadeJS's doc comment).
 	for _, want := range []string{
-		`_gsxgw.S("<div hx-vals=\"{&#34;exclude&#34;:&#34;SELF-1&#34;}\"></div>")`,
+		`_gsxgw.S("<div hx-vals=\"{&#34;exclude&#34;:&#34;SELF-1&#34;}\"></div>\n\t")`,
 		`_gsxgw.S("<div x-data=\"({open:!1})\"></div>")`,
 	} {
 		if !strings.Contains(fullMin, want) {
@@ -239,7 +241,7 @@ func TestMinifyThreading_JS(t *testing.T) {
 	if !strings.Contains(codeShape(t, fullMin), "_gsxgw.JSValAttr(selfID)") {
 		t.Errorf("fullMin: expected JSValAttr(selfID) call for the holey hx-vals; got:\n%s", fullMin)
 	}
-	if !strings.Contains(fullMin, `_gsxgw.S("}\"></div>")`) {
+	if !strings.Contains(fullMin, `_gsxgw.S("}\"></div>\n\t")`) {
 		t.Errorf("fullMin: expected compacted JSON suffix after the hole; got:\n%s", fullMin)
 	}
 
