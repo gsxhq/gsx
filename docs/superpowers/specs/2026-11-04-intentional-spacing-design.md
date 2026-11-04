@@ -1,5 +1,9 @@
 # Precise child spacing diagnostics
 
+**Status: Superseded.** The HTML whitespace direction replaces this proposal.
+See `2026-11-04-html-whitespace-design.md`. Do not implement the CSS magic
+comment or extend the JSX spacing lint as the solution to these findings.
+
 ## Goal
 
 Remove false positives from explicit branch separators and attached ellipses,
