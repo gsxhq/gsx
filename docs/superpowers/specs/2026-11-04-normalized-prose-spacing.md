@@ -8,7 +8,11 @@ HTML emission, implicit subtree dedenting, CSS analysis, or runtime word parsing
 
 1. Whitespace-only Text containing CR/LF is layout and disappears. Inline
    whitespace-only Text without a newline normalizes to one space.
-2. Internal ASCII whitespace in substantive Text collapses to one space.
+2. Internal inline ASCII whitespace in substantive Text collapses to one space.
+   Newline-bearing runs use the same word/punctuation boundary rule as Text
+   edges: retain a word separator, suppress a gap beside attaching punctuation
+   or an existing rendered space. Entity spelling and explicit data stay intact.
+   Splitting a text run with an interpolation must not change this rule.
 3. At a substantive Text's leading/trailing edge, an authored inline space stays
    one space. An authored newline becomes one space only when structural edge
    analysis finds a feasible prose boundary requiring separation.
@@ -26,13 +30,23 @@ classified by punctuation attachment classes (unknown dynamic content is prose
 with unknown edge character). Keep exact/static edge character where useful.
 Alternatives union outcomes. Empty/optional alternatives also expose following
 siblings in the scan direction. No Go conditions, return values, classes or CSS
-are evaluated. Existing text-level HTML vocabulary remains syntax-based; sibling
+are evaluated. Known prose elements use HTML child-rendering semantics: the existing text-level
+set plus button, label, output and transparent map expose their child text.
+Empty elements, embedded content, raw/inert content, fallback-only containers,
+value controls and unknown components remain opaque unless a separate rule
+explicitly applies. This is not a CSS display or margin inference.
+The same source classification must apply in the formatter and compiler; sibling
 elements without a substantive Text boundary never acquire a separator.
 
 A newline-bearing Text edge receives a gap if ANY feasible prose outcome needs
 it. Space, opaque, or attaching-punctuation outcomes alone never require a gap.
 Known punctuation alternatives must remain distinguishable: branches returning
 '.' and '!' both attach; merging them into unknown character is incorrect.
+
+In syntactic component/slot bodies, the parser must retain a substantive Text
+node's leading source prefix for this decision. It may continue discarding
+layout-only separators between markup nodes, as in the existing baseline;
+explicit space expressions remain the universal override.
 
 Normalization is postorder: normalize child lists, collapse own Text, retain
 raw leading/trailing newline flags for the boundary decision, then insert gaps
@@ -80,6 +94,10 @@ The feasible prose branch requires a source gap. It normalizes like
 intentional bounded static semantics, not a guarantee of global runtime
 punctuation cleanup. Likewise a mixed word/already-spaced branch may render two
 spaces, because explicit branch whitespace is data and cannot be deleted.
+Likewise, a branch choosing opening punctuation or a word followed by a source
+newline may leave a space after the opening punctuation, just as an explicit
+inline space at that outer boundary would. Unknown runtime strings are not
+inspected to reclassify their actual punctuation.
 Authors requiring branch-sensitive spacing put the explicit separator in the
 branch and keep the external boundary adjacent. No runtime HTML parser, writer
 buffering, generated loop-first-item state, or Go-value speculation is justified.
