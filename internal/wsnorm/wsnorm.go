@@ -203,8 +203,8 @@ func normalizeAttrs(attrs []ast.Attr) {
 //     (\n or \r) — cosmetic indentation; otherwise return a single inline space
 //     " " (keep=true).
 //   - Else: split into lead (leading whitespace run), core (the middle) and trail
-//     (trailing whitespace run); collapse every internal whitespace run in core to
-//     a single space. The result is core, prefixed with a space iff lead is
+//     (trailing whitespace run). Inline internal whitespace becomes one space;
+//     newline-bearing internal runs follow the shared prose attachment rule. The result is core, prefixed with a space iff lead is
 //     non-empty AND contains no newline, and suffixed with a space iff trail is
 //     non-empty AND contains no newline.
 func normalizeText(v string) (out string, keep bool) {
@@ -242,21 +242,36 @@ func normalizeText(v string) (out string, keep bool) {
 	return b.String(), true
 }
 
-// collapseInto writes core to b, collapsing every internal whitespace run to a
-// single space. core has no leading or trailing whitespace.
+// collapseInto preserves original word/entity bytes. Inline whitespace is an
+// authored separator; newline runs infer a separator from decoded edge classes.
 func collapseInto(b *strings.Builder, core string) {
-	inWS := false
-	for i := 0; i < len(core); i++ {
-		c := core[i]
-		if isWS(c) {
-			inWS = true
-			continue
+	for start := 0; start < len(core); {
+		end := start
+		for end < len(core) && !isWS(core[end]) {
+			end++
 		}
-		if inWS {
+		word := core[start:end]
+		b.WriteString(word)
+		gapEnd := end
+		for gapEnd < len(core) && isWS(core[gapEnd]) {
+			gapEnd++
+		}
+		if gapEnd == len(core) {
+			return
+		}
+		needsSpace := true
+		if containsNewline(core[end:gapEnd]) {
+			nextEnd := gapEnd
+			for nextEnd < len(core) && !isWS(core[nextEnd]) {
+				nextEnd++
+			}
+			left, right := textEdge(word, false), textEdge(core[gapEnd:nextEnd], true)
+			needsSpace = left.Kind != EdgeSpace && right.Kind != EdgeSpace && !NoSpaceBoundary(left.R, right.R)
+		}
+		if needsSpace {
 			b.WriteByte(' ')
-			inWS = false
 		}
-		b.WriteByte(c)
+		start = gapEnd
 	}
 }
 

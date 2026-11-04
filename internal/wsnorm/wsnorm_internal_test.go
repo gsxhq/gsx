@@ -39,7 +39,20 @@ func TestNormalizeText(t *testing.T) {
 		// Trailing newline edge → no space.
 		{"trail newline", "world\n", "world", true},
 		{"trail newline+indent", "world\n  ", "world", true},
-		// Internal run collapse.
+		// Internal inline runs are explicit; newline runs infer attachment.
+		{"internal percent", "42\n %", "42%", true},
+		{"internal explicit percent", "42 %", "42 %", true},
+		{"internal punctuation", "Hello\n !", "Hello!", true},
+		{"internal opening", "(\n word", "(word", true},
+		{"internal ellipsis", "word\n …", "word…", true},
+		{"internal period ellipsis", "word\n ...", "word...", true},
+		{"internal percent entity", "42\n &#37;", "42&#37;", true},
+		{"internal opening entity", "&lpar;\n word", "&lpar;word", true},
+		{"internal ellipsis entity", "word\n &hellip;", "word&hellip;", true},
+		{"internal entity gap left", "a&nbsp;\n b", "a&nbsp;b", true},
+		{"internal entity gap right", "a\n &nbsp;b", "a&nbsp;b", true},
+		{"internal Unicode gap", "a\u00a0\n b", "a\u00a0b", true},
+		{"internal explicit entity gap", "a&nbsp; b", "a&nbsp; b", true},
 		{"internal collapse", "foo   bar", "foo bar", true},
 		{"internal tabs", "foo\t\tbar", "foo bar", true},
 		{"internal newline", "foo\nbar", "foo bar", true},

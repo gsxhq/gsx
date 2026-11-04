@@ -31,6 +31,9 @@ func TestProsePrefixAfterSibling(t *testing.T) {
 				if text == nil {
 					t.Fatal("substantive text lost its source prefix")
 				}
+				if text.LeadingBreak != leadingRunBreaks(prefix) {
+					t.Fatalf("LeadingBreak = %v for prefix %q", text.LeadingBreak, prefix)
+				}
 				file := fs.File(text.Pos())
 				start, end := file.Offset(text.Pos()), file.Offset(text.End())
 				if got := src[start:end]; got != text.Value {

@@ -418,6 +418,7 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 			if !preserveWS && len(nodes) > 0 && gapStart < textStart {
 				// This gap faces real text, not an inter-tag layout separator.
 				text.Value = p.src[gapStart:textStart] + text.Value
+				text.LeadingBreak = leadingRunBreaks(text.Value)
 				ast.SetSpan(text, p.posAt(gapStart), text.End())
 			}
 			nodes = append(nodes, text)
