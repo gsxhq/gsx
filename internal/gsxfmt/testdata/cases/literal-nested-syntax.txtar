@@ -18,8 +18,7 @@ name="value"
 -- fmt.golden --
 package p
 
-component C(ok bool) {
-	<div>
+component C(ok bool) { <div>
 		<span
 			class="x"
 		> a	b

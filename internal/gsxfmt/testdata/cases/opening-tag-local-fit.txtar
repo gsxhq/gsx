@@ -1,0 +1,24 @@
+Opening syntax fits independently of adjacent unbreakable literal content.
+The 67-column opening plus 15-column tail exceeds width 80; only the tag
+participates in its fit decision. A longer opening still wraps its attributes.
+
+-- input.gsx --
+package p
+component Fits() {
+<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">123456789012345</div>
+}
+component Wraps() {
+<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">123456789012345</div>
+}
+-- fmt.golden --
+package p
+
+component Fits() {
+	<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">123456789012345</div>
+}
+
+component Wraps() {
+	<div
+		class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	>123456789012345</div>
+}

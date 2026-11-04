@@ -198,6 +198,13 @@ type GoText struct {
 
 func (GoText) goPartNode() {}
 
+// BodyLayout retains non-emitted whitespace at a GSX syntactic body's edges.
+// It is source layout metadata, not markup content.
+type BodyLayout struct {
+	Leading  string
+	Trailing string
+}
+
 // Component is a `component [recv] Name[typeParams](params) { body }` declaration.
 type Component struct {
 	span
@@ -210,6 +217,7 @@ type Component struct {
 	Params        string    // raw param-list source, e.g. "title string, featured bool"; "" if none
 	ParamsPos     token.Pos // position of the first char of Params in source (after `(` + ws); NoPos if no params
 	Body          []Markup
+	Layout        BodyLayout
 }
 
 func (*Component) declNode() {}
@@ -451,8 +459,9 @@ func (*SpreadAttr) attrNode() {}
 // MarkupAttr is name={ <markup/> } — markup passed as an attribute value.
 type MarkupAttr struct {
 	span
-	Name  string
-	Value []Markup
+	Name   string
+	Value  []Markup
+	Layout BodyLayout
 }
 
 func (*MarkupAttr) attrNode() {}
@@ -557,6 +566,8 @@ type IfMarkup struct {
 	CondPos      token.Pos // first char of Cond text in source (NoPos if unavailable)
 	CondEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
 	Then         []Markup
+	ThenLayout   BodyLayout
+	ElseLayout   BodyLayout
 	Else         []Markup
 	// ThenMultiline/ElseMultiline record that the source placed a line break
 	// immediately after the then/else body's opening `{`. The formatter preserves
@@ -577,6 +588,7 @@ type ForMarkup struct {
 	ClausePos      token.Pos // first char of Clause text in source (NoPos if unavailable)
 	ClauseEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
 	Body           []Markup
+	Layout         BodyLayout
 	// BodyMultiline records that the source placed a line break immediately after
 	// the body's opening `{`; the formatter preserves that vertical layout.
 	BodyMultiline bool
@@ -606,6 +618,7 @@ type CaseClause struct {
 	ListEmbedded []GoPart  // codegen-only overlay; see Interp.Embedded
 	Default      bool
 	Body         []Markup
+	Layout       BodyLayout
 	// BodyMultiline records that the source placed a line break immediately
 	// after the `case …:`/`default:` colon; the formatter preserves that
 	// vertical layout (keeping an inline-only body block-formatted) instead of

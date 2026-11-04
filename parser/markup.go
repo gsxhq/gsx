@@ -365,12 +365,13 @@ func (p *parser) braceKeyword() string {
 
 // parseMarkupUntilClose parses a brace-delimited markup body. Only whitespace
 // at the body's outer edges is syntax; interior text is literal content.
-func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
+func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, ast.BodyLayout, error) {
 	nodes, err := p.parseMarkupBody(what)
 	if err != nil {
-		return nil, err
+		return nil, ast.BodyLayout{}, err
 	}
-	return trimBodyEdges(nodes), nil
+	nodes, layout := trimBodyLayout(nodes)
+	return nodes, layout, nil
 }
 
 // parseMarkupBody retains all authored whitespace as text.
@@ -407,19 +408,21 @@ func (p *parser) parseMarkupBody(what string) ([]ast.Markup, error) {
 // parseControlBody parses a control-flow body: markup until the matching '}'.
 // The cursor must be just past the opening '{'. Interior whitespace is preserved
 // literally; whitespace immediately inside the braces is trimmed.
-func (p *parser) parseControlBody() ([]ast.Markup, error) {
+func (p *parser) parseControlBody() ([]ast.Markup, ast.BodyLayout, error) {
 	return p.parseMarkupUntilClose("control-flow body")
 }
 
-// trimBodyEdges strips whitespace immediately inside the control-flow body
+// trimBodyLayout retains and strips whitespace immediately inside the control-flow body
 // braces: the leading whitespace of the first node and the trailing whitespace
 // of the last node, when those nodes are Text. This mirrors how gsx trims the
 // interior of `{ expr }` and `{{ code }}`. Interior whitespace between nodes is
 // literal content. An emptied edge Text node is dropped.
-func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
+func trimBodyLayout(nodes []ast.Markup) ([]ast.Markup, ast.BodyLayout) {
+	var layout ast.BodyLayout
 	if len(nodes) > 0 {
 		if t, ok := nodes[0].(*ast.Text); ok {
 			value := strings.TrimLeft(t.Value, " \t\r\n\f")
+			layout.Leading = t.Value[:len(t.Value)-len(value)]
 			ast.SetSpan(t, t.Pos()+token.Pos(len(t.Value)-len(value)), t.End())
 			t.Value = value
 			if t.Value == "" {
@@ -430,6 +433,7 @@ func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
 	if len(nodes) > 0 {
 		if t, ok := nodes[len(nodes)-1].(*ast.Text); ok {
 			value := strings.TrimRight(t.Value, " \t\r\n\f")
+			layout.Trailing = t.Value[len(value):]
 			ast.SetSpan(t, t.Pos(), t.End()-token.Pos(len(t.Value)-len(value)))
 			t.Value = value
 			if t.Value == "" {
@@ -443,9 +447,9 @@ func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
 	// structurally equal, and AST-faithfulness comparisons (e.g. fmt idempotence)
 	// see a spurious diff.
 	if len(nodes) == 0 {
-		return nil
+		return nil, layout
 	}
-	return nodes
+	return nodes, layout
 }
 
 // parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has
@@ -466,7 +470,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 	clause := strings.TrimSpace(rawClause)
 	p.i = braceOff + 1 // past body '{'
 	bodyMultiline := newlineFollows(p.src, p.i)
-	body, err := p.parseControlBody()
+	body, layout, err := p.parseControlBody()
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +479,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected `}` to close `{ for … }`")
 	}
 	p.i++ // past outer '}'
-	n := &ast.ForMarkup{Clause: clause, ClausePos: clausePos, Body: body, BodyMultiline: bodyMultiline}
+	n := &ast.ForMarkup{Clause: clause, ClausePos: clausePos, Body: body, Layout: layout, BodyMultiline: bodyMultiline}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -516,11 +520,11 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 	cond := strings.TrimSpace(rawCond)
 	p.i = braceOff + 1 // past body '{'
 	thenMultiline := newlineFollows(p.src, p.i)
-	body, err := p.parseControlBody()
+	body, layout, err := p.parseControlBody()
 	if err != nil {
 		return nil, err
 	}
-	n := &ast.IfMarkup{Cond: cond, CondPos: condPos, Then: body, ThenMultiline: thenMultiline}
+	n := &ast.IfMarkup{Cond: cond, CondPos: condPos, Then: body, ThenLayout: layout, ThenMultiline: thenMultiline}
 	p.skipSpace()
 	if p.atWord("else") {
 		p.i += len("else")
@@ -529,11 +533,12 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 		case p.peek() == '{':
 			p.i++ // past '{'
 			n.ElseMultiline = newlineFollows(p.src, p.i)
-			elseBody, err := p.parseControlBody()
+			elseBody, elseLayout, err := p.parseControlBody()
 			if err != nil {
 				return nil, err
 			}
 			n.Else = elseBody
+			n.ElseLayout = elseLayout
 		case p.atWord("if"):
 			elseIf, err := p.parseIfTail()
 			if err != nil {
@@ -627,11 +632,12 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 	// after the colon, mirroring how IfMarkup/ForMarkup record it after their
 	// body's opening `{` (newlineFollows).
 	cc.BodyMultiline = newlineFollows(p.src, p.i)
-	body, err := p.parseCaseBody()
+	body, layout, err := p.parseCaseBody()
 	if err != nil {
 		return nil, err
 	}
 	cc.Body = body
+	cc.Layout = layout
 	ast.SetSpan(cc, startPos, p.posAt(p.i))
 	return cc, nil
 }
@@ -639,33 +645,35 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 // parseCaseBody parses the markup body of a case arm. It does NOT consume the
 // terminator: it stops (without advancing) at the next `case`/`default` keyword
 // or at the switch body's closing `}`.
-func (p *parser) parseCaseBody() ([]ast.Markup, error) {
+func (p *parser) parseCaseBody() ([]ast.Markup, ast.BodyLayout, error) {
 	var nodes []ast.Markup
 	for {
 		// Look past whitespace to detect a terminator without destroying interior
 		// whitespace: if the next token is a terminator, the skipped whitespace was
-		// the case body's trailing edge (trimmed by trimBodyEdges); otherwise
+		// the case body's trailing edge (retained by trimBodyLayout); otherwise
 		// restore so the whitespace becomes part of the following text node.
 		save := p.i
 		p.skipSpace()
 		if p.eof() {
-			return nil, p.errorf(p.pos(), "unterminated `case` body")
+			return nil, ast.BodyLayout{}, p.errorf(p.pos(), "unterminated `case` body")
 		}
 		if p.peek() == '}' || p.atWord("case") || p.atWord("default") {
-			return trimBodyEdges(nodes), nil
+			nodes, layout := trimBodyLayout(nodes)
+			layout.Trailing += p.src[save:p.i]
+			return nodes, layout, nil
 		}
 		p.i = save
 		switch {
 		case p.peek() == '<':
 			el, err := p.parseElement()
 			if err != nil {
-				return nil, err
+				return nil, ast.BodyLayout{}, err
 			}
 			nodes = append(nodes, el)
 		case p.peek() == '{':
 			bnodes, err := p.parseBraceNode()
 			if err != nil {
-				return nil, err
+				return nil, ast.BodyLayout{}, err
 			}
 			nodes = append(nodes, bnodes...)
 		case p.atBareContentComment():
@@ -999,12 +1007,12 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 		// are recognized independently of an enclosing pre/textarea element.
 		savedPreserveDepth := p.preserveDepth
 		p.preserveDepth = 0
-		nodes, err := p.parseMarkupUntilClose("markup attribute")
+		nodes, layout, err := p.parseMarkupUntilClose("markup attribute")
 		p.preserveDepth = savedPreserveDepth
 		if err != nil {
 			return nil, err
 		}
-		ma := &ast.MarkupAttr{Name: name, Value: nodes}
+		ma := &ast.MarkupAttr{Name: name, Value: nodes, Layout: layout}
 		ast.SetSpan(ma, attrStartPos, p.posAt(p.i))
 		return ma, nil
 	}

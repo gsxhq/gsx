@@ -81,7 +81,8 @@ func defaultJSLineFormatter(width, tabWidth int) rawfmt.LineFormatter {
 // printer accumulates the first I/O-independent error encountered while
 // building the document.
 type printer struct {
-	err error
+	err      error
+	anchored map[ast.Node]bool
 	// External flat formatters (via FprintWith). A nil formatter leaves the body
 	// verbatim; they cannot preserve multi-line-token interiors.
 	cssFmt rawfmt.Formatter
@@ -381,10 +382,12 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 	}
 	head = append(head, pretty.Text("("), pretty.Text(fmtParams(c.Params)), pretty.Text(") {"))
 
+	if p.anchoredBody(c.Body) {
+		return pretty.Concat(pretty.Concat(head...), p.sourceBody(c.Body, c.Layout), pretty.HardLine, pretty.Text("}"), pretty.HardLine)
+	}
 	body := pretty.Text("")
 	if len(c.Body) > 0 {
-		inner := p.children(c.Body)
-		body = pretty.Concat(pretty.Indent(pretty.Concat(pretty.HardLine, inner)))
+		body = pretty.Indent(pretty.Concat(pretty.HardLine, p.children(c.Body)))
 	}
 	return pretty.Concat(pretty.Concat(head...), body, pretty.HardLine, pretty.Text("}"), pretty.HardLine)
 }
@@ -434,7 +437,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 			pretty.Indent(pretty.Concat(attrs...)),
 			pretty.SoftLine, tail)
 	}
-	openTag := pretty.Group(openGroupBody)
+	openTag := pretty.LocalGroup(openGroupBody)
 
 	if selfClose {
 		return openTag
@@ -505,6 +508,9 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		}
 		return pretty.Text(attrInline(a))
 	case *ast.MarkupAttr:
+		if p.anchoredBody(v.Value) {
+			return pretty.Group(pretty.Concat(pretty.Text(v.Name+"={"), p.sourceBody(v.Value, v.Layout), bodyTrailing(v.Layout), pretty.Text("}")))
+		}
 		return wrapAttrValue(v.Name, pretty.Line, p.children(v.Value))
 	default:
 		return pretty.Text(attrInline(a))
@@ -964,7 +970,7 @@ func (p *printer) ifMarkup(i *ast.IfMarkup) pretty.Doc {
 }
 
 func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("if "), p.goFieldDoc(i.Cond, ifField, fmtExpr), pretty.Text(" {"), p.cfBody(i.Then, i.ThenMultiline), pretty.Text("}")}
+	parts := []pretty.Doc{pretty.Text("if "), p.goFieldDoc(i.Cond, ifField, fmtExpr), pretty.Text(" {"), p.cfBody(i.Then, i.ThenMultiline, i.ThenLayout), pretty.Text("}")}
 	if len(i.Else) == 0 {
 		return pretty.Concat(parts...)
 	}
@@ -974,17 +980,75 @@ func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
 			return pretty.Concat(parts...)
 		}
 	}
-	parts = append(parts, pretty.Text(" else {"), p.cfBody(i.Else, i.ElseMultiline), pretty.Text("}"))
+	parts = append(parts, pretty.Text(" else {"), p.cfBody(i.Else, i.ElseMultiline, i.ElseLayout), pretty.Text("}"))
 	return pretty.Concat(parts...)
 }
 
 func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
 	return pretty.Group(pretty.Concat(
-		pretty.Text("{ for "), p.goFieldDoc(f.Clause, forField, fmtClause), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline), pretty.Text("} }")))
+		pretty.Text("{ for "), p.goFieldDoc(f.Clause, forField, fmtClause), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline, f.Layout), pretty.Text("} }")))
+}
+
+// anchoredNode memoizes literal multiline content. Syntactic layout fields are
+// deliberately excluded: they describe placement, not emitted content.
+func (p *printer) anchoredNode(n ast.Node) bool {
+	if n == nil {
+		return false
+	}
+	if p.anchored == nil {
+		p.anchored = make(map[ast.Node]bool)
+	}
+	if value, ok := p.anchored[n]; ok {
+		return value
+	}
+	value := false
+	if text, ok := n.(*ast.Text); ok {
+		value = strings.ContainsAny(text.Value, "\r\n")
+	}
+	root := true
+	ast.Inspect(n, func(child ast.Node) bool {
+		if root {
+			root = false
+			return true
+		}
+		if p.anchoredNode(child) {
+			value = true
+		}
+		return false
+	})
+	p.anchored[n] = value
+	return value
+}
+
+func (p *printer) anchoredBody(nodes []ast.Markup) bool {
+	for _, n := range nodes {
+		if p.anchoredNode(n) {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceBody keeps the first node in the same authored coordinate system as
+// literal interior lines, which cannot be reindented. Closing syntax is separate.
+func (p *printer) sourceBody(nodes []ast.Markup, layout ast.BodyLayout) pretty.Doc {
+	return pretty.Concat(pretty.Text(layout.Leading), pretty.Indent(p.children(nodes)))
+}
+
+// bodyTrailing formats a non-emitted closing boundary without relocating the
+// fixed literal lines before it. Preserve an authored closing line break.
+func bodyTrailing(layout ast.BodyLayout) pretty.Doc {
+	if strings.ContainsAny(layout.Trailing, "\r\n") {
+		return pretty.HardLine
+	}
+	return pretty.Text(" ")
 }
 
 // cfBody formats only syntactic body edges; its interior is literal content.
-func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
+func (p *printer) cfBody(nodes []ast.Markup, multiline bool, layout ast.BodyLayout) pretty.Doc {
+	if p.anchoredBody(nodes) {
+		return pretty.Concat(p.sourceBody(nodes, layout), bodyTrailing(layout))
+	}
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
@@ -1009,7 +1073,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		if !c.Default {
 			label = pretty.Concat(pretty.Text("case "), p.goFieldDoc(c.List, caseField, fmtCaseList), pretty.Text(":"))
 		}
-		caseParts = append(caseParts, pretty.HardLine, pretty.Concat(label, p.caseBody(c.Body, c.BodyMultiline)))
+		caseParts = append(caseParts, pretty.Concat(pretty.HardLine, label, p.caseBody(c.Body, c.BodyMultiline, c.Layout)))
 	}
 	// Labels align with switch; caseBody owns each arm's syntactic edge.
 	return pretty.Group(pretty.Concat(
@@ -1019,7 +1083,10 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 }
 
 // caseBody formats the syntactic edge after a case label.
-func (p *printer) caseBody(nodes []ast.Markup, multiline bool) pretty.Doc {
+func (p *printer) caseBody(nodes []ast.Markup, multiline bool, layout ast.BodyLayout) pretty.Doc {
+	if p.anchoredBody(nodes) {
+		return pretty.Concat(pretty.Text(layout.Leading), pretty.Indent(p.children(nodes)))
+	}
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}

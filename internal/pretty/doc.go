@@ -21,6 +21,7 @@ const (
 	kindGroup       // flat if it fits, else broken
 	kindIfBreak     // parts[0] when broken, parts[1] when flat (Task 2)
 	kindBreakParent // forces the nearest enclosing Group to break
+	kindFitBoundary // internal boundary of a LocalGroup fit scope
 )
 
 // Doc is an opaque pretty-printing document. The zero Doc is an empty Text.
@@ -30,6 +31,7 @@ type Doc struct {
 	kind   kind
 	text   string // kindText content; kindLine flat representation
 	hard   bool   // kindLine: a hard break (always newline; forces parents)
+	local  bool   // isolate fit measurement from following documents
 	forced bool   // kindGroup: precomputed "must break" (contains a forced break)
 	parts  []Doc
 }
@@ -49,6 +51,14 @@ func Indent(d Doc) Doc { return Doc{kind: kindIndent, parts: []Doc{d}} }
 // else broken. A group containing any hard break (HardLine/BreakParent, at any
 // depth, including inside nested groups) is forced to break.
 func Group(d Doc) Doc { return Doc{kind: kindGroup, parts: []Doc{d}, forced: containsForcedBreak(d)} }
+
+// LocalGroup chooses a layout using only d's width, excluding following text.
+// Its starting column and forced breaks still participate in the decision.
+func LocalGroup(d Doc) Doc {
+	doc := Group(d)
+	doc.local = true
+	return doc
+}
 
 // Line is a break candidate that renders as a single space when flat.
 var Line = Doc{kind: kindLine, text: " "}

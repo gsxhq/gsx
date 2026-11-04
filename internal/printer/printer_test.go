@@ -395,7 +395,7 @@ func TestComposedStyleCSSLiteralPart(t *testing.T) {
 component C(color string, hidden bool) {
 	<div style={ "display:none": hidden, css` + "`" + `color:@{ color };content:"\` + "`" + `"` + "`" + ` }>x</div>
 }`
-	want := "package p\n\ncomponent C(color string, hidden bool) {\n\t<div\n\t\tstyle={ \"display:none\": hidden, css`color:@{color};content:\"\\`\"` }\n\t>x</div>\n}\n"
+	want := "package p\n\ncomponent C(color string, hidden bool) {\n\t<div style={ \"display:none\": hidden, css`color:@{color};content:\"\\`\"` }>x</div>\n}\n"
 	checkFormat(t, src, want)
 }
 

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -143,8 +144,8 @@ component X(k string) { <div>{ switch k {
 	}
 }
 
-// TestTrimBodyEdges exercises the helper directly.
-func TestTrimBodyEdges(t *testing.T) {
+// TestTrimBodyLayout exercises the helper directly.
+func TestTrimBodyLayout(t *testing.T) {
 	span := &ast.Element{Tag: "span"}
 	sig := func(nodes []ast.Markup) string {
 		var b strings.Builder
@@ -172,9 +173,10 @@ func TestTrimBodyEdges(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := sig(trimBodyEdges(c.in))
+			nodes, _ := trimBodyLayout(c.in)
+			got := sig(nodes)
 			if got != c.want {
-				t.Fatalf("trimBodyEdges = %q, want %q", got, c.want)
+				t.Fatalf("trimBodyLayout = %q, want %q", got, c.want)
 			}
 		})
 	}
@@ -234,5 +236,42 @@ func TestHTMLBodyWhitespaceAndSpans(t *testing.T) {
 				t.Fatalf("texts = %q, want %q", texts, want)
 			}
 		})
+	}
+}
+
+func TestBodyLayoutRetainsSyntacticEdges(t *testing.T) {
+	src := "package p\ncomponent C() {\n \t{ if ok {\r\n\t\t<b>x</b>\n \t} else { \f<i>y</i>\t } }\n\t{ for ok {\n\t<b>x</b>\n } }\n\t{ switch x { case 1:\n\t<b>x</b>\n \tdefault: <i>y</i>\n } }\n\t<Card slot={\n  <b>x</b>\n }/>\n }\n"
+	f := parseStringT(t, src)
+	var got []ast.BodyLayout
+	ast.Inspect(f.Decls[0], func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.Component:
+			got = append(got, n.Layout)
+		case *ast.IfMarkup:
+			got = append(got, n.ThenLayout, n.ElseLayout)
+		case *ast.ForMarkup:
+			got = append(got, n.Layout)
+		case *ast.CaseClause:
+			got = append(got, n.Layout)
+		case *ast.MarkupAttr:
+			got = append(got, n.Layout)
+		}
+		return true
+	})
+	want := []ast.BodyLayout{
+		{Leading: "\n \t", Trailing: "\n "},
+		{Leading: "\r\n\t\t", Trailing: "\n \t"},
+		{Leading: " \f", Trailing: "\t "},
+		{Leading: "\n\t", Trailing: "\n "},
+		{Leading: "\n\t", Trailing: "\n \t"},
+		{Leading: " ", Trailing: "\n "},
+		{Leading: "\n  ", Trailing: "\n "},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("layouts = %#v, want %#v", got, want)
+	}
+	clone := ast.CloneFile(f)
+	if !reflect.DeepEqual(f, clone) {
+		t.Fatal("clone changed layout metadata")
 	}
 }

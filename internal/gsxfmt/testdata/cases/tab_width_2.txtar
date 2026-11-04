@@ -5,10 +5,21 @@ Indentation is emitted as tabs for either width.
 2
 -- input.gsx --
 package ui
-component C() { <div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</div> }
+
+component C() {
+	<div>
+		<section>
+			<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</div>
+		</section>
+	</div>
+}
 -- fmt.golden --
 package ui
 
 component C() {
-	<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</div>
+	<div>
+		<section>
+			<div class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</div>
+		</section>
+	</div>
 }

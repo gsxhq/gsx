@@ -81,3 +81,18 @@ func TestFitsStopsAtLiteralNewline(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalGroupExcludesContinuation(t *testing.T) {
+	attribute := Group(Concat(Text("class="), Text(strings.Repeat("x", 95))))
+	opening := Concat(Text("<div"), Indent(Concat(Line, attribute)), SoftLine, Text(">"))
+	tail := Text(strings.Repeat("y", 15))
+	if got := Print(Concat(LocalGroup(opening), tail), 120, 2); strings.Contains(got, "\n") {
+		t.Fatalf("local opening should fit: %q", got)
+	}
+	if got := Print(Concat(Group(opening), tail), 120, 2); !strings.Contains(got, "\n") {
+		t.Fatalf("generic group must measure continuation: %q", got)
+	}
+	if got := Print(Concat(LocalGroup(opening), tail), 100, 2); !strings.Contains(got, "\n") {
+		t.Fatalf("long opening should wrap: %q", got)
+	}
+}

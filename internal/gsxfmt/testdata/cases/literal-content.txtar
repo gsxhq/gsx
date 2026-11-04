@@ -17,8 +17,7 @@ component C(ok bool) { <div class="whitespace-pre-wrap"> a	b
 -- fmt.golden --
 package p
 
-component C(ok bool) {
-	<div class="whitespace-pre-wrap"> a	b
+component C(ok bool) { <div class="whitespace-pre-wrap"> a	b
     <span> x </span><strong>y</strong>!
 	{ if ok { <b>yes</b> <i>indeed</i> } else { no } }
 	<>

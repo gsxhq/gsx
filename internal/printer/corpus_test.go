@@ -168,7 +168,10 @@ func zeroSpans(n ast.Node) {
 					v.Stages[i].NamePos = 0
 					v.Stages[i].ArgsPos = 0
 				}
+			case *ast.MarkupAttr:
+				v.Layout = ast.BodyLayout{}
 			case *ast.Component:
+				v.Layout = ast.BodyLayout{}
 				v.NamePos = 0
 				v.ParamsPos = 0
 				v.RecvPos = 0
@@ -202,15 +205,19 @@ func zeroSpans(n ast.Node) {
 			case *ast.ForMarkup:
 				v.ClausePos = 0
 				v.BodyMultiline = false
+				v.Layout = ast.BodyLayout{}
 			case *ast.IfMarkup:
 				v.CondPos = 0
 				v.ThenMultiline = false
+				v.ThenLayout = ast.BodyLayout{}
+				v.ElseLayout = ast.BodyLayout{}
 				v.ElseMultiline = false
 			case *ast.SwitchMarkup:
 				v.TagPos = 0
 			case *ast.CaseClause:
 				v.ListPos = 0
 				v.BodyMultiline = false
+				v.Layout = ast.BodyLayout{}
 			case *ast.ValueIf:
 				v.CondPos = 0
 			case *ast.ValueSwitch:

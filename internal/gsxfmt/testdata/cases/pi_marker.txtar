@@ -18,7 +18,7 @@ component Page(id string) {
 package ui
 
 component Page(id string) {
-	<div>
+<div>
 <?marker name="results">
 					<?marker name={id |> upper}>
 </div>

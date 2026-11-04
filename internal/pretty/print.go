@@ -75,9 +75,14 @@ func Print(d Doc, width, tabWidth int) string {
 			}
 		case kindGroup:
 			child := c.doc.parts[0]
+			rest := stack
+			if c.doc.local {
+				rest = nil
+				stack = append(stack, cmd{c.indent, c.mode, Doc{kind: kindFitBoundary}})
+			}
 			if c.doc.forced {
 				stack = append(stack, cmd{c.indent, modeBreak, child})
-			} else if fits(width-pos, cmd{c.indent, modeFlat, child}, stack, tabWidth) {
+			} else if fits(width-pos, cmd{c.indent, modeFlat, child}, rest, tabWidth) {
 				stack = append(stack, cmd{c.indent, modeFlat, child})
 			} else {
 				stack = append(stack, cmd{c.indent, modeBreak, child})
@@ -129,6 +134,8 @@ func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
 		c := local[len(local)-1]
 		local = local[:len(local)-1]
 		switch c.doc.kind {
+		case kindFitBoundary:
+			return true
 		case kindText:
 			text, _, newline := strings.Cut(c.doc.text, "\n")
 			remaining -= utf8.RuneCountInString(text) + (tabWidth-1)*strings.Count(text, "\t")

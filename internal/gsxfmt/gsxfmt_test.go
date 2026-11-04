@@ -102,8 +102,9 @@ func TestFormatReindentsMultilineEmbeddedAttrBody(t *testing.T) {
 // differently at 2 and at 4. Nothing pinned this before: changing tabWidth
 // broke zero tests, which measured coverage, not safety.
 func TestFormatWithTabWidthChangesLayout(t *testing.T) {
-	// Tag attributes remain width-aware while child content stays literal.
-	src := []byte("package ui\ncomponent C() { <div class=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">x</div> }\n")
+	// Three nested tabs consume 6 columns at width 2 and 12 at width 4.
+	// The 70-column opening therefore fits at 2 and wraps at 4.
+	src := []byte("package ui\ncomponent C() {\n\t<div>\n\t\t<section>\n\t\t\t<div class=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">x</div>\n\t\t</section>\n\t</div>\n}\n")
 
 	at2, err := FormatWith("x.gsx", src, FormatOptions{Width: 80, TabWidth: 2})
 	if err != nil {

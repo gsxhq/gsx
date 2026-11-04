@@ -22,7 +22,7 @@ component Row(who string) {
 package p
 
 component Row(who string) {
-	<div title={f`a @{f`b @{ who } `} c`}>
+        <div title={f`a @{f`b @{ who } `} c`}>
               {f`x @{f`y @{  who  }`} z`}
         </div>
 }

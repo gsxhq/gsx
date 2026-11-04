@@ -38,7 +38,7 @@ component C(lines []string) {
 			<b>{ lines[0] }</b>
 		} }</pre>
 	<pre>{ if len(lines) > 1 {
-			<b>a</b>
+		<b>a</b>
 mid
 <b>b</b>
 		} }</pre>

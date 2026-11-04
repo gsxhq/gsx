@@ -72,7 +72,7 @@ component SwitchArmsStayPerLine(kind string) {
 	<span>
 		{ switch kind {
 		case "warn":
-			<b>warning</b>
+				<b>warning</b>
 				<br/>
 		case "err":
 			<b>error</b>

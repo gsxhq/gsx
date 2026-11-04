@@ -21,7 +21,7 @@ var n = (
   c</span>
 )
 component C() {
-	{{
+{{
 		n := <div>x
  	y</div>
 		_ = n
