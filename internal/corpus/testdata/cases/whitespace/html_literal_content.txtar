@@ -58,12 +58,10 @@ Page()
  	second </div> fragment
  <em>text</em> <?start name="literal"> marker
  <em>text</em> <?end>
-<section></section><article></article><section> 	</section><article> 	</article>
+<section></section><article></article><section> 	</section><article></article>
 <section>
   <i>a</i> 	<b>b</b>
-</section><article>
-  <i>a</i> 	<b>b</b>
-</article><aside><i>a</i>
+</section><article><i>a</i><b>b</b></article><aside><i>a</i>
  	<b>b</b></aside><i>a</i>
  	<b>b</b><div>embedded
  	<span>x</span> tail</div>
@@ -226,11 +224,7 @@ func Page() _gsxrt.Node {
 			return _gsxgw.Err()
 		})))
 //line input.gsx:24:40
-		_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-			_gsxgw := _gsxrt.W(_gsxw)
-			_gsxgw.S(" \t")
-			return _gsxgw.Err()
-		})))
+		_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw))
 		_gsxgw.S("\n")
 //line input.gsx:25:1
 		_gsxgw.NodeResult(_gsxrenderScalar(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
@@ -245,25 +239,13 @@ func Page() _gsxrt.Node {
 //line input.gsx:27:10
 		_gsxgw.NodeResult(_gsxrenderVariadic(ctx, _gsxgw, _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-			_gsxgw.S("\n  ")
-			return _gsxgw.Err()
-		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:28:3
 			_gsxgw.S("<i>a</i>")
 			return _gsxgw.Err()
 		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
-			_gsxgw.S(" \t")
-			return _gsxgw.Err()
-		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:28:13
 			_gsxgw.S("<b>b</b>")
-			return _gsxgw.Err()
-		}), _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-			_gsxgw := _gsxrt.W(_gsxw)
-			_gsxgw.S("\n")
 			return _gsxgw.Err()
 		})))
 //line input.gsx:29:12
