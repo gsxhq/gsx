@@ -160,12 +160,12 @@ func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 		}
 		br := edges[text]
 		if br.leading {
-			if _, gap := spacing.DroppedBreakLoses(out, i, -1); gap {
+			if _, gap := spacing.NeedsProseSpace(out, i, -1); gap {
 				text.Value = " " + text.Value
 			}
 		}
 		if br.trailing {
-			if _, gap := spacing.DroppedBreakLoses(out, i, 1); gap {
+			if _, gap := spacing.NeedsProseSpace(out, i, 1); gap {
 				text.Value += " "
 			}
 		}
@@ -265,8 +265,7 @@ func collapseInto(b *strings.Builder, core string) {
 			for nextEnd < len(core) && !isWS(core[nextEnd]) {
 				nextEnd++
 			}
-			left, right := textEdge(word, false), textEdge(core[gapEnd:nextEnd], true)
-			needsSpace = left.Kind != EdgeSpace && right.Kind != EdgeSpace && !NoSpaceBoundary(left.R, right.R)
+			needsSpace = LineBreakPreservesSpace(word, core[gapEnd:nextEnd])
 		}
 		if needsSpace {
 			b.WriteByte(' ')

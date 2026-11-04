@@ -18,8 +18,8 @@ import (
 // requires the number of line breaks on spacing-bonded boundaries (text and
 // the inline content it touches, comments and Go blocks between included) to
 // stay the same: the formatter never writes such a break (gsxhq/gsx#260) and
-// never removes one the author wrote. Unlike the child-element-spacing lint,
-// this also sees a break beside a comment or Go block in the run.
+// never removes one the author wrote in a remaining bonded run. This also
+// sees breaks beside comments or Go blocks.
 func TestFmtKeepsBondedBreaks(t *testing.T) {
 	t.Parallel()
 	srcs := corpusGsxSources(t)
@@ -129,12 +129,12 @@ func lostSpaceRuns(nodes []ast.Markup) []bool {
 	var sp wsnorm.Spacing
 	in := make([]bool, len(nodes))
 	for i := range nodes {
-		if j, ok := sp.DroppedBreakLoses(nodes, i, 1); ok {
+		if j, ok := sp.NeedsProseSpace(nodes, i, 1); ok {
 			for k := i + 1; k <= j; k++ {
 				in[k] = true
 			}
 		}
-		if j, ok := sp.DroppedBreakLoses(nodes, i, -1); ok {
+		if j, ok := sp.NeedsProseSpace(nodes, i, -1); ok {
 			for k := j + 1; k <= i; k++ {
 				in[k] = true
 			}

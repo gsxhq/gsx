@@ -90,13 +90,13 @@ type Spacing struct {
 	Interp func(n *ast.Interp) Edge
 }
 
-// DroppedBreakLoses reports whether a dropped line break beside the Text
-// nodes[i] — after it when dir is 1, before it when dir is -1 — separates it
-// from inline content, returning the index of the sibling that supplies that
-// content. Siblings that render nothing (comments, Go blocks) are looked
-// through. A text edge that itself renders a space (&nbsp;), and a boundary
-// where typography never puts a space (see NoSpaceBoundary), lose nothing.
-func (s Spacing) DroppedBreakLoses(nodes []ast.Markup, i, dir int) (int, bool) {
+// NeedsProseSpace reports an unspaced substantive Text boundary that needs a
+// prose separator when authored whitespace is normalized there. It returns the
+// sibling supplying the prose edge, looking through nonrendering nodes and
+// accounting for every feasible branch. Already-spaced or attaching boundaries
+// need no inferred separator. The formatter also uses this predicate to avoid
+// introducing a separator at a joined source boundary.
+func (s Spacing) NeedsProseSpace(nodes []ast.Markup, i, dir int) (int, bool) {
 	t, ok := nodes[i].(*ast.Text)
 	if !ok || strings.TrimSpace(t.Value) == "" {
 		return -1, false
@@ -134,6 +134,15 @@ func NoSpaceBoundary(left, right rune) bool {
 	}
 	return right != 0 && (unicode.In(right, unicode.Pe, unicode.Pf, unicode.Terminal_Punctuation) ||
 		right == '%' || right == '\u066a' || right == '\u2030' || right == '\u2031' || right == '\u2026' || right == '\u2025')
+}
+
+// LineBreakPreservesSpace reports whether replacing an authored inline ASCII
+// space between two text chunks with a newline preserves normalized output.
+// Existing Unicode/entity gaps and punctuation attachment would remove an
+// inferred newline gap, so their explicit space must remain unbreakable.
+func LineBreakPreservesSpace(left, right string) bool {
+	a, b := textEdge(left, false), textEdge(right, true)
+	return a.Kind != EdgeSpace && b.Kind != EdgeSpace && !NoSpaceBoundary(a.R, b.R)
 }
 
 // scan computes the edge that nodes[from], nodes[from+dir], … present at the
