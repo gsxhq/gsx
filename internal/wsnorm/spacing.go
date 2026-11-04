@@ -10,13 +10,12 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
-// inlineTextElements are the HTML elements whose content flows inside the
-// surrounding line of text: the WHATWG "text-level semantics" elements (§4.5)
-// plus the edit elements ins and del (§4.7). Excluded from §4.5 are br and wbr,
-// which exist to break the line, and rt/rp, which only annotate inside a ruby.
-// Embedded and interactive phrasing content (img, svg, input, button, select,
-// label, …) is deliberately absent: those render as boxes whose distance from
-// the text is set by layout (margin, gap), not by a space character.
+// inlineTextElements are HTML text-level elements and the phrasing elements
+// whose ordinary child text participates in surrounding prose. Transparent
+// ins/del/map expose their child edges. Void/break elements, raw or inert
+// content, embedded media, fallback-only content and value controls are not
+// prose inferred from their source children. An empty eligible element is
+// still opaque. This classification does not inspect CSS or component output.
 var inlineTextElements = map[string]bool{
 	"a": true, "abbr": true, "b": true, "bdi": true, "bdo": true,
 	"cite": true, "code": true, "data": true, "del": true, "dfn": true,
@@ -24,6 +23,7 @@ var inlineTextElements = map[string]bool{
 	"q": true, "ruby": true, "s": true, "samp": true, "small": true,
 	"span": true, "strong": true, "sub": true, "sup": true, "time": true,
 	"u": true, "var": true,
+	"button": true, "label": true, "output": true, "map": true,
 }
 
 // EdgeKind classifies what a child renders at one of its edges.
@@ -47,20 +47,45 @@ const (
 // branch, a loop with no iterations, a switch with no matching case), so the
 // next sibling may face the boundary instead.
 type Edge struct {
-	Kind     EdgeKind
-	R        rune
-	Optional bool
+	Kind         EdgeKind
+	R            rune
+	Optional     bool
+	contentKinds contentKinds // finite possible content attachment classes
 }
 
-// Spacing decides whether a line break that normalization drops beside a
-// Text loses a space the reader expects: the boundary separates text from
-// inline content. The child-element-spacing lint reports such breaks; the
-// formatter never writes one. Both use this one rule, so formatted output
-// never raises the lint.
+type contentKinds uint8
+
+const (
+	contentOrdinary contentKinds = 1 << iota
+	contentOpening
+	contentAttaching
+)
+
+func (e Edge) contents() contentKinds {
+	if e.Kind != EdgeContent {
+		return 0
+	}
+	if e.contentKinds != 0 {
+		return e.contentKinds
+	}
+	if NoSpaceBoundary(e.R, 0) {
+		return contentOpening
+	}
+	if NoSpaceBoundary(0, e.R) {
+		return contentAttaching
+	}
+	return contentOrdinary
+}
+
+// Spacing decides whether a substantive Text boundary needs a prose separator.
+// Normalization and the formatter share this structural rule. It never inspects
+// runtime values or styles, and never inserts separators between sibling tags
+// without an authored substantive Text boundary.
 //
 // Interp classifies an interpolation that is not a plain string literal. It
 // is nil where types are unknown (the formatter): every such interpolation
-// is then taken to be inline content, which over-approximates the lint.
+// is then taken to be potential prose content, consistently during generation
+// and formatting.
 type Spacing struct {
 	Interp func(n *ast.Interp) Edge
 }
@@ -84,12 +109,14 @@ func (s Spacing) DroppedBreakLoses(nodes []ast.Markup, i, dir int) (int, bool) {
 	if f.Kind != EdgeContent {
 		return -1, false
 	}
-	left, right := own.R, f.R
-	if dir < 0 {
-		left, right = f.R, own.R
-	}
-	if NoSpaceBoundary(left, right) {
-		return -1, false
+	if dir > 0 {
+		if NoSpaceBoundary(own.R, 0) || f.contents() & ^contentAttaching == 0 {
+			return -1, false
+		}
+	} else {
+		if NoSpaceBoundary(0, own.R) || f.contents() & ^contentOpening == 0 {
+			return -1, false
+		}
 	}
 	return j, true
 }
@@ -97,14 +124,16 @@ func (s Spacing) DroppedBreakLoses(nodes []ast.Markup, i, dir int) (int, bool) {
 // NoSpaceBoundary reports whether left followed by right is a boundary where
 // running text never takes a space: after an opening bracket or initial quote
 // (Unicode Ps, Pi), or before a closing bracket, final quote or terminal
-// punctuation (Unicode Pe, Pf, Terminal_Punctuation: . , ; : ! ?). There
+// punctuation (Unicode Pe, Pf, Terminal_Punctuation: . , ; : ! ?), plus
+// percent-family suffix signs and ellipsis marks. There
 // the dropped line break is what the author meant (`</a>` then `.` on the
 // next line). An unknown character (0) never exempts.
 func NoSpaceBoundary(left, right rune) bool {
 	if left != 0 && unicode.In(left, unicode.Ps, unicode.Pi) {
 		return true
 	}
-	return right != 0 && unicode.In(right, unicode.Pe, unicode.Pf, unicode.Terminal_Punctuation)
+	return right != 0 && (unicode.In(right, unicode.Pe, unicode.Pf, unicode.Terminal_Punctuation) ||
+		right == '%' || right == '\u066a' || right == '\u2030' || right == '\u2031' || right == '\u2026' || right == '\u2025')
 }
 
 // scan computes the edge that nodes[from], nodes[from+dir], … present at the
@@ -220,19 +249,22 @@ func branches(a, b Edge) Edge {
 // combineEdges merges two edges that can each face the boundary (alternative
 // branches, or an optional block and what follows it): the result is inline
 // content when either is, since that rendering loses the space. Contents
-// with different edge characters leave the character unknown. Optional is
+// with different edge characters retain their finite attachment classes even
+// when the exact character becomes unknown. Optional is
 // left for the caller to set.
 func combineEdges(a, b Edge) Edge {
 	switch {
 	case a.Kind == EdgeContent && b.Kind == EdgeContent:
 		if a.R != b.R {
-			return Edge{Kind: EdgeContent}
+			return Edge{Kind: EdgeContent, contentKinds: a.contents() | b.contents()}
 		}
-		return Edge{Kind: EdgeContent, R: a.R}
+		return Edge{Kind: EdgeContent, R: a.R, contentKinds: a.contents() | b.contents()}
 	case a.Kind == EdgeContent:
-		return Edge{Kind: EdgeContent, R: a.R}
+		a.Optional = false
+		return a
 	case b.Kind == EdgeContent:
-		return Edge{Kind: EdgeContent, R: b.R}
+		b.Optional = false
+		return b
 	case a.Kind == EdgeOpaque || b.Kind == EdgeOpaque:
 		return Edge{Kind: EdgeOpaque}
 	case a.Kind == EdgeSpace || b.Kind == EdgeSpace:

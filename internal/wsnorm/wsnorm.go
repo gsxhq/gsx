@@ -1,8 +1,8 @@
-// Package wsnorm implements the gsx JSX-style whitespace normalization pass.
+// Package wsnorm implements the gsx normalized whitespace pass.
 //
 // Normalize is a pure, in-place AST transform: within each non-preserved children
-// list it collapses cosmetic indentation and inter-content whitespace exactly as
-// React/Babel handle JSXText, while leaving Go fragments, static attributes,
+// list it discards layout-only indentation and preserves prose word boundaries,
+// while leaving Go fragments, static attributes,
 // Doctype/HTMLComment, and the whitespace-significant elements (pre, textarea,
 // script, style) byte-for-byte unchanged.
 //
@@ -24,8 +24,8 @@ import (
 // Elements embedded directly in Go-expression position (ast.GoWithElements,
 // e.g. `var help = <a href={u}>{ label }</a>`) are reached too: each is a
 // markup subtree exactly like a component's body, just rooted at a
-// GoWithElements Part instead of a Component.Body, so it needs the same JSX
-// whitespace collapsing. Skipping it would leave an embedded element's Text
+// GoWithElements Part instead of a Component.Body, so it needs the same
+// whitespace normalization. Skipping it would leave an embedded element's Text
 // children un-normalized, which surfaces as a real fmt bug: a re-printed,
 // width-broken element's freshly-introduced cosmetic newlines never collapse
 // back out on the next parse/print pass, so fmt fails its idempotence
@@ -85,6 +85,8 @@ func IsPreserveTag(tag string) bool {
 // but the structure is still walked so that nested attributes/slots are reached.
 func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 	out := nodes[:0]
+	type breaks struct{ leading, trailing bool }
+	var edges map[*ast.Text]breaks
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Text:
@@ -92,10 +94,19 @@ func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 				out = append(out, v)
 				continue
 			}
+			lead := len(v.Value) - len(strings.TrimLeft(v.Value, " \t\r\n"))
+			trail := len(strings.TrimRight(v.Value, " \t\r\n"))
+			br := breaks{containsNewline(v.Value[:lead]), containsNewline(v.Value[trail:])}
 			norm, keep := normalizeText(v.Value)
 			if !keep {
 				// Drop the emptied text node entirely.
 				continue
+			}
+			if br.leading || br.trailing {
+				if edges == nil {
+					edges = make(map[*ast.Text]breaks)
+				}
+				edges[v] = br
 			}
 			v.Value = norm
 			// Exact text spans are not load-bearing for codegen/fmt; we keep the
@@ -136,6 +147,27 @@ func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 			// *Interp, *GoBlock, *Doctype, *HTMLComment and any other leaf:
 			// untouched.
 			out = append(out, n)
+		}
+	}
+	// Children are normalized first so every boundary observes rendered text,
+	// not the child's cosmetic indentation. Updating left to right lets an
+	// inserted gap satisfy the next text's leading boundary across comments.
+	spacing := Spacing{}
+	for i, node := range out {
+		text, ok := node.(*ast.Text)
+		if !ok {
+			continue
+		}
+		br := edges[text]
+		if br.leading {
+			if _, gap := spacing.DroppedBreakLoses(out, i, -1); gap {
+				text.Value = " " + text.Value
+			}
+		}
+		if br.trailing {
+			if _, gap := spacing.DroppedBreakLoses(out, i, 1); gap {
+				text.Value += " "
+			}
 		}
 	}
 	return out

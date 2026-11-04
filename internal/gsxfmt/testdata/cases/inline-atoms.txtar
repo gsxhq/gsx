@@ -54,8 +54,7 @@ component AuthorMultilineFallsBack() {
 		see
 		<code>
 			.gsx
-		</code>
-		file
+		</code> file
 	</p>
 }
 

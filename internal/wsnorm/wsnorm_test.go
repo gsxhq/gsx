@@ -388,3 +388,70 @@ func TestNormalizeFragmentExpressionValue(t *testing.T) {
 		t.Fatalf("text nodes = %#v, want %#v", got, wantText)
 	}
 }
+
+func TestNormalizeProseBoundaryRules(t *testing.T) {
+	cases := []struct {
+		name, body string
+		want       []string
+	}{
+		{"button prose", "<p>Click\n<button>here</button></p>", []string{"Click ", "here"}},
+		{"label prose", "<p>Click\n<label>here</label></p>", []string{"Click ", "here"}},
+		{"output prose", "<p>Read\n<output>value</output></p>", []string{"Read ", "value"}},
+		{"map prose", "<p>Read\n<map>value</map></p>", []string{"Read ", "value"}},
+		{"empty button", "<p>Click\n<button/></p>", []string{"Click"}},
+		{"opaque input", "<p>Click\n<input/></p>", []string{"Click"}},
+		{"opaque image", "<p>Click\n<img/></p>", []string{"Click"}},
+		{"opaque svg", "<p>Click\n<svg>icon</svg></p>", []string{"Click", "icon"}},
+		{"mandatory opaque after optional prose", "<p>Hello\n<>{ if ok { <b>…</b> } }<div>block</div></><i>word</i></p>", []string{"Hello", "…", "block", "word"}},
+		{"text before tag", "<p>Hello\n <b>world</b></p>", []string{"Hello ", "world"}},
+		{"sibling layout", "<p><span>A</span>\n<span>B</span></p>", []string{"A", "B"}},
+		{"percent", "<p>{value}\n %</p>", []string{"%"}},
+		{"text after tag", "<p><b>x</b>\ny</p>", []string{"x", " y"}},
+		{"ellipsis", "<p>{value}\n …</p>", []string{"…"}},
+		{"ascii ellipsis", "<p>{value}\n ...</p>", []string{"..."}},
+		{"explicit inline", "<p>{value} %</p>", []string{" %"}},
+		{"comments", "<p>Hello\n{/* comment */}\nworld</p>", []string{"Hello ", "world"}},
+		{"punctuation alternatives", "<p>Hello\n{ if ok { . } else { ! } }</p>", []string{"Hello", ".", "!"}},
+		{"opening alternatives", "<p>{ if ok { ( } else { [ } }\nworld</p>", []string{"(", "[", "world"}},
+		{"optional punctuation", "<p>Hello\n{ if ok { . } }!</p>", []string{"Hello", ".", "!"}},
+		{"branch word", "<p>Hello\n{ if ok { word } else { ! } }</p>", []string{"Hello ", "word", "!"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := parse(t, c.body)
+			wsnorm.Normalize(f)
+			if got := collectText(f); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("got %#v, want %#v", got, c.want)
+			}
+			wsnorm.Normalize(f)
+			if got := collectText(f); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("second pass %#v, want %#v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeBranchAttachmentOutcomes(t *testing.T) {
+	values := []string{".", "!", "…", "%", "word", "(", "&nbsp;"}
+	for _, a := range values {
+		for _, b := range values {
+			t.Run(a+"/"+b, func(t *testing.T) {
+				f := parse(t, "<p>Hello\n{ if ok { "+a+" } else { "+b+" } }</p>")
+				wsnorm.Normalize(f)
+				want := "Hello"
+				needs := func(v string) bool { return v != "&nbsp;" && (v == "word" || v == "(") }
+				if needs(a) || needs(b) {
+					want += " "
+				}
+				if got := collectText(f)[0]; got != want {
+					t.Fatalf("first text %q want %q", got, want)
+				}
+				once := collectText(f)
+				wsnorm.Normalize(f)
+				if twice := collectText(f); !reflect.DeepEqual(once, twice) {
+					t.Fatalf("not idempotent: %#v -> %#v", once, twice)
+				}
+			})
+		}
+	}
+}
