@@ -86,6 +86,29 @@ Write `<p>{value}%</p>` to produce `42%`. The same distinction applies to
 content; adjacency keeps it joined. An ASCII space beside a nonbreaking space
 remains an additional source separator, whether authored inline or as a newline.
 
+To keep text joined to a control-flow block, put the opening brace directly
+next to the text, with no intervening space or newline:
+
+```gsx
+<section>
+    Total{ switch n {
+        case 0:
+            <div>none</div>
+    } }
+    <b>{ n }</b>
+</section>
+```
+
+For `n = 0`, this emits
+`<section>Total<div>none</div><b>0</b></section>`. With no matching case, `n = 3`
+emits `<section>Total<b>3</b></section>`. Indentation inside the switch braces
+is syntax and adds no separator at the `Total{` boundary. The formatter keeps
+that boundary joined.
+
+Writing `Total { switch ... }` or placing a newline between `Total` and `{`
+preserves a space instead. The same adjacency rule applies to `if` and `for`
+blocks, elements and interpolations.
+
 A source separator remains even if an expression or conditional emits nothing,
 just as an inline source space does. Put an explicit separator inside a branch
 when it should appear only with that branch.
