@@ -1,7 +1,7 @@
 # Design: gsx whitespace model + `gsx fmt` foundation
 
 **Date:** 2026-06-21
-**Status:** Approved (design)
+**Status:** Approved (design). Edge rule superseded by `2026-11-04-normalized-prose-spacing.md`.
 **Module:** `github.com/gsxhq/gsx`
 **Unblocks:** a re-indenting `gsx fmt`; fixes today's verbatim-whitespace rendering.
 

@@ -264,13 +264,8 @@ breaks their children open to meet the width budget. If a line has no other
 legal break point, it stays over budget rather than exploding an inline
 element.
 
-Long prose wraps at source spaces. Inside text, a newline and an inline space
-have the same meaning, including beside punctuation or a nonbreaking space.
-Text-edge whitespace facing a sibling also retains one separator, regardless
-of whether that sibling is a component, image, block element or interpolation.
-Whitespace-only newlines between tags or expressions remain layout and disappear.
-The formatter keeps directly adjacent text and markup joined. See
-[Whitespace](./syntax/basic-syntax.md#whitespace).
+Long prose wraps between words. The formatter never adds whitespace where
+text and markup touch.
 
 `{" "}` sticks to the word before it and never starts a line.
 

@@ -1,6 +1,6 @@
-Source separators remain independent of branch output; source adjacency
-preserves punctuation attachment.
-Normalization supplies required source separators without spacing warnings.
+A newline beside a marker region, f-literal, (T, error) interpolation or
+unmatched switch renders one space regardless of what the sibling emits.
+&nbsp; is data, so the source space is added beside it.
 -- input.gsx --
 package views
 

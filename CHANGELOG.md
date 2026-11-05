@@ -6,17 +6,12 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
-- **Prose spacing is normalized automatically.** Whitespace-only newlines
-  disappear; other source whitespace collapses to one space, including text
-  edges beside components, images, interpolations and control-flow blocks.
-  Source adjacency keeps content joined. Punctuation follows the same rule:
-  `{value}%` stays joined; `{value}` followed by a prose newline and `%` retains
-  a space. Expression values, including explicit space expressions, remain data.
-  Normalization and formatting use source boundaries without inspecting tags,
-  CSS or branch output.
-  `child-element-spacing` and its editor fixes are retired; remove old lint
-  configuration entries, including entries set to `"off"`. Retaining an entry
-  is a configuration error. Preserved/raw contexts retain their existing behavior.
+- **Breaking: whitespace beside text renders one space.** A newline between
+  text and any sibling (element, component, interpolation, block) now renders
+  a space instead of joining the words, including before punctuation:
+  `{value}⏎%` renders `42 %`; write `{value}%` to join. Whitespace-only
+  newlines between tags still disappear. The `child-element-spacing` lint and
+  its editor fixes are removed; delete any `[lint]` entry for it.
 
 ## v0.4.6 — 2026-11-03
 

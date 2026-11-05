@@ -37,7 +37,7 @@ policy in `docs/guide/status.md#releases-and-versioning`.
 | Parser + AST | [x] Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | [x] done |
 | Codegen | [~] interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional, explicit JS/CSS attr literals `` js`...` `` / `` css`...` `` + URL attr classification) + pipeline `\|>` + verbatim component signatures with declared `children`/`attrs` roles + method components + named slots + attribute fallthrough + node-input promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
-| Whitespace model | [x] Compact normalized output: discard whitespace-only newlines, collapse other source whitespace, preserve authored adjacency, and honor explicit expression data. Normalization and formatter bonds use source boundaries without tag or branch-output classification; preserved/raw contexts remain verbatim. `child-element-spacing` is retired. |
+| Whitespace model | [x] HTML-style collapse (`internal/wsnorm`), except whitespace-only newline runs between non-text nodes or at body edges are dropped; powers codegen and `gsx fmt` (fill layout wraps prose at word gaps). |
 | Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | [~] diagnostics (debounced) + authored-source go-to-definition, hover, document symbols, workspace symbols + module-wide symbol graph (references/definition for every authored Go symbol) + formatting ship; completion deferred, and so is intelligence sourced FROM external/non-project packages' own files (they are not indexed), while go-to-definition from a `.gsx` cursor INTO them works. Read intelligence excludes exact paired generated `.x.go` outputs while preserving legitimate unpaired authored `.x.go`. |
@@ -1082,13 +1082,9 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
-- [ ] **Wrap authored spaces between text and markup** — `gamma <b>word</b>`
-  and a newline at that source space normalize identically, but the formatter
-  currently bonds text/markup separators and only reflows internal word gaps.
-  Allow safe reflow at these authored separators while preserving unspaced
-  adjacency, first-whitespace placement around comments, and significant list
-  edges. Extend exact render and narrow-width formatter regressions before
-  relaxing the bonds. This is layout flexibility, not a rendering defect.
+- [ ] **Wrap at spaces between text and markup** — `gamma <b>x</b>` and
+  `gamma⏎<b>x</b>` render the same, but the formatter still glues the space
+  and only wraps between words, so authored line breaks there are joined.
 
 - [x] **Nested literals in the remaining Go-expression positions** - SHIPPED
   (2026-09-29; corpus `nested-literal/`). An `f`/`js`/`css` literal or element

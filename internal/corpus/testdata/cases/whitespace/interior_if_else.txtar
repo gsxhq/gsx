@@ -1,8 +1,8 @@
 Interior whitespace inside { if } / { else } bodies must match the element-body
 baseline: the space run between two holes is normalized by wsnorm exactly as in an
 element body (single space kept; a multi-space run collapsed to one — see
-element_baseline for the gsx-vs-React note). A multiline prose boundary
-(nl) preserves its inferred word separator, same as an element body.
+element_baseline for the gsx-vs-React note). Multiline (nl) renders
+one space, same as an element body.
 -- input.gsx --
 package views
 

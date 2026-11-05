@@ -1,5 +1,6 @@
-Prose inference is shared by parsed markup and every deferred Go markup split.
-Preserve contexts outside an expression do not leak into the nested Go value.
+Markup in every Go-expression position (package var, call argument, attribute,
+{{ }} block, slot) normalizes like body markup; an enclosing pre does not
+leak into a nested Go value.
 -- input.gsx --
 package views
 

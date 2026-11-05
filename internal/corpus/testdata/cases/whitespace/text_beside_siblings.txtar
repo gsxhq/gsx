@@ -1,5 +1,6 @@
-Previously flagged prose boundaries now receive normalized separators automatically.
-Exact render output pins word separation without a spacing warning.
+A newline between text and any sibling renders one space: elements, nested
+inline markup, interpolations, comments, if/for blocks, fragments, slot
+values and Go-expression elements.
 -- input.gsx --
 package views
 

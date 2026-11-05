@@ -1,5 +1,6 @@
-Authored punctuation spacing, explicit spaces, layout boundaries and preserved contexts
-remain quiet under automatic prose normalization.
+Same-line and explicit {" "} spaces, block/component/node/void siblings and
+newlines before punctuation all follow the one-space rule; whitespace-only
+newlines between tags vanish and pre content stays verbatim.
 -- input.gsx --
 package views
 
