@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-playbundle ci-format reload-probe
+.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-playbundle ci-format reload-probe go-bump
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -68,7 +68,7 @@ reload-probe:
 # "Test performance" before adding tests that open a codegen.Module.
 # GSX_REQUIRE_GENERIC_METHODS=1 promotes the go1.27 generic-method tests from
 # skip to FAILURE, so the lane can never green-light while silently testing
-# nothing (GO_VERSION in ci.yml is 1.27.1; the same PATH-local go is expected here).
+# nothing (GO_VERSION in ci.yml; the same PATH-local go is expected here).
 ci-gomod:
 	go build ./...
 	go vet ./...
@@ -122,3 +122,19 @@ ci-playbundle:
 
 examples:
 	go run ./cmd/gsx-examples
+
+# go-bump moves every exact Go pin from GO_VERSION in ci.yml to NEW, a newer
+# patch of the same minor, and regenerates playground.typebundle (its bytes
+# depend on the toolchain). Run it with go$(NEW) on PATH:
+#   make go-bump NEW=1.27.4
+# A minor upgrade also moves typebundle's maxLanguageVersion; do that by hand.
+GO_PIN_FILES := .github/workflows/ci.yml .github/workflows/deploy-playground-server.yml \
+	playground/server/Dockerfile internal/typebundle/typebundle.go \
+	playground/playbundle/playbundle.go playground/playbundle/playbundle_test.go
+go-bump:
+	@test -n "$(NEW)" || { echo "usage: make go-bump NEW=1.27.x"; exit 2; }
+	@old=$$(sed -n "s/^  GO_VERSION: '\(.*\)'/\1/p" .github/workflows/ci.yml); \
+	case "$(NEW)" in "$${old%.*}".*) ;; *) echo "go-bump: $(NEW) is not a patch of $$old"; exit 2;; esac; \
+	test "$$(go env GOVERSION)" = "go$(NEW)" || { echo "go-bump: PATH go is $$(go env GOVERSION), want go$(NEW)"; exit 2; }; \
+	perl -pi -e "s/\Q$$old\E\b/$(NEW)/g" $(GO_PIN_FILES)
+	go generate ./playground/playbundle
