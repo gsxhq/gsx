@@ -469,9 +469,11 @@ editor show it as an error. `gen.WithLint(code, level)` overrides the file.
 
 ### `child-element-spacing` {#child-element-spacing}
 
-This rule is retired: GSX now preserves inferred prose separators during
-normalization. Remove `child-element-spacing` from `[lint]` and from
-`gen.WithLint` calls; retaining it produces an actionable configuration error.
+This rule is retired: source whitespace beside text now normalizes to one
+space. Remove `child-element-spacing` from `[lint]` and from `gen.WithLint`
+calls. Retaining it is an intentional configuration error, even when its level
+is `"off"`; the error tells you to remove the entry. The CLI exits with status
+`2` for the invalid configuration.
 The editor no longer offers fixes for spaces normalization already supplies.
 See [Whitespace](./syntax/basic-syntax.md#whitespace) for the spacing rules.
 

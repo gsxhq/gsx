@@ -131,3 +131,24 @@ Source-whitespace revision validation:
   both modules, build/vet/tests, formatting, examples and type-bundle parity.
   Log: `/tmp/gsx-source-spacing-final-ci.log`. A final comment-only test-doc
   cleanup was verified with an uncached wsnorm test run.
+
+
+## Nonblocking re-review follow-up
+
+- Corrected the stale config-guide phrase about inferred separators. It now
+  describes collapsing source whitespace beside text. Documented that retired
+  lint configuration is invalid even at `"off"` in the guide and changelog.
+  Existing config/API rejection tests passed; a rebuilt CLI probe confirmed
+  `generate` exits 2 and requests removal for the retired `"off"` entry.
+- Tracked text/markup separator wrapping as a formatter follow-up in the
+  roadmap. Current bonds preserve exact output; relaxing them must preserve
+  comment whitespace placement, adjacency and source edge spaces.
+- Independently audited fresh default branches: `vscode-gsx` at
+  `27c289968ba8ddaecbee64eddcb284053e4b941f`, `gsxhq.github.io` at
+  `820b16b977ad88ec08109f3a57758e77d22bacaf`, and `tree-sitter-gsx` at
+  `400f54906ba1442aeb4ef93a9405d74e2e42e51d`. None hard-code the retired lint
+  or its quick-fix. VS Code delegates to the language server; CodeMirror uses
+  generic compiler diagnostics/formatting and syntax-only highlighting. The
+  normal site build rebuilds WASM and syncs the guide from GSX. Grammar corpuses
+  vendor source only, without diagnostic/action goldens. No sibling edits or
+  grammar changes are required.

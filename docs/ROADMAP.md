@@ -1082,6 +1082,14 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **Wrap authored spaces between text and markup** — `gamma <b>word</b>`
+  and a newline at that source space normalize identically, but the formatter
+  currently bonds text/markup separators and only reflows internal word gaps.
+  Allow safe reflow at these authored separators while preserving unspaced
+  adjacency, first-whitespace placement around comments, and significant list
+  edges. Extend exact render and narrow-width formatter regressions before
+  relaxing the bonds. This is layout flexibility, not a rendering defect.
+
 - [x] **Nested literals in the remaining Go-expression positions** - SHIPPED
   (2026-09-29; corpus `nested-literal/`). An `f`/`js`/`css` literal or element
   literal nested inside a Go expression now lowers in every Go-expression

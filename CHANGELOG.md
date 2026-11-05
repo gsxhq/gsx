@@ -15,7 +15,8 @@ syntax or APIs; a patch bump does not. See
   Normalization and formatting use source boundaries without inspecting tags,
   CSS or branch output.
   `child-element-spacing` and its editor fixes are retired; remove old lint
-  configuration entries. Preserved/raw contexts retain their existing behavior.
+  configuration entries, including entries set to `"off"`. Retaining an entry
+  is a configuration error. Preserved/raw contexts retain their existing behavior.
 
 ## v0.4.6 — 2026-11-03
 
