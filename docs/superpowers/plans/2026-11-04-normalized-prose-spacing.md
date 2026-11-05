@@ -91,3 +91,43 @@ an element allowlist or branch-output analysis:
    tests, lint, docs build and final uncached CI, then push the existing PR.
 
 Prior validation records above cover prior revisions, not this revision.
+
+
+Source-whitespace revision validation:
+
+- Removed element/output/branch classifications and decoded-gap inference.
+  Source Text regions now normalize through transparent comments/Go blocks in
+  one linear scan, preserving the first whitespace location. Parser brace
+  padding and formatter source-edge guards use the same transparency rule.
+- Review exposed comment-split newline loss, inline/newline coalescing
+  differences, brace padding hidden behind comments, first-gap relocation,
+  and whitespace-only inline regions losing their space at narrow widths.
+  Fixed each in the source-region/edge model with direct regressions.
+- Reviewed each changed existing semantic archive: `childspacing/branches`
+  retains source spaces beside NBSP; `childspacing/quiet` preserves text-edge
+  spaces beside components, blocks, empty elements and void tags;
+  `comments/parse_snapshot` records the newly retained raw parser whitespace;
+  `nested-literal/eval_order_positions` retains five authored inline root
+  separators; `normalized_prose_internal` preserves ASCII separators beside
+  entities/Unicode and input tags; `normalized_prose_rules` preserves source
+  separators in addition to explicit expression data.
+- New `source_sibling_boundaries` pins both branch outcomes, component/image/
+  block/empty/unknown output boundaries, root/slot inline spacing and adjacency.
+  New `source_comment_runs` pins transparent source runs, outer whitespace,
+  brace padding, pure inline whitespace and comment-hidden edge spaces. Its
+  363-byte rendered output was checked against hand-expected HTML.
+- Reviewed all changed formatter archives: `explicit-prose-spaces` allows
+  ordinary internal ASCII spaces beside entity/Unicode data to wrap;
+  `spacing_bond` preserves source spacing and first-gap placement while reflowing;
+  new `source-sibling-spacing` pins adjacency and the comment-edge regressions.
+  All goldens were regenerated, never edited manually. Examples had no drift.
+- Separate contract and adversarial reviewers approved `c1cbfdae`. A rebuilt
+  CLI matched 887/905-byte hand-expected renders for both branch outcomes before
+  formatting and at widths 1, 20 and 120; second passes were idempotent. A strict
+  nine-case edge probe and 18 additional Go/fragment/comment checks passed.
+- All 1,076 parseable formatter corpus inputs passed faithfulness/idempotence.
+  Final `make lint` passed with golangci-lint 2.13.2; Node 24 docs build passed.
+- Final authoritative uncached `make ci` passed on Go 1.27.1 (exit 0), including
+  both modules, build/vet/tests, formatting, examples and type-bundle parity.
+  Log: `/tmp/gsx-source-spacing-final-ci.log`. A final comment-only test-doc
+  cleanup was verified with an uncached wsnorm test run.

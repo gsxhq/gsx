@@ -313,7 +313,7 @@ func TestStyleInterpPreserved(t *testing.T) {
 
 // TestGoWithElementsNormalized confirms an element sitting in Go-expression
 // position (e.g. `var help = <div>...</div>`, parsed as *ast.GoWithElements,
-// not *ast.Component) gets the SAME JSX whitespace collapsing as a component
+// not *ast.Component) gets the same source whitespace normalization as a component
 // body element: cosmetic block indentation is dropped, inline runs collapse
 // to a single space. Before this case existed, Normalize only walked
 // f.Decls for *ast.Component, silently skipping GoWithElements — a gap that
@@ -355,7 +355,7 @@ func TestGoWithElementsPreserveTag(t *testing.T) {
 // TestNormalizeFragmentExpressionValue confirms a fragment sitting in
 // Go-expression position (e.g. `var x = <>...</>`, parsed as a
 // *ast.Fragment Go part of a GoWithElements decl, not a Component body) gets
-// the SAME JSX whitespace collapsing as a fragment in a component body: its
+// the same source whitespace normalization as a fragment in a component body: its
 // inter-element cosmetic whitespace text nodes normalize identically either
 // way. Before the GoWithElements branch's type switch grew a *ast.Fragment
 // case, this fragment's children were never normalized at all (the branch
@@ -380,7 +380,7 @@ func TestNormalizeFragmentExpressionValue(t *testing.T) {
 	}
 	// The wrapping whitespace around <a>{ v }</a> is all-whitespace with no
 	// newline, so it collapses to a single inline space rather than being
-	// dropped outright — same rule normalizeText applies everywhere else.
+	// dropped outright — same source normalization rule applies everywhere else.
 	// (The `{ v }` interpolation itself is an *ast.Interp, not *ast.Text, so
 	// it never shows up in collectText's output.)
 	wantText := []string{" ", " "}

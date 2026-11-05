@@ -1,6 +1,7 @@
 # GSX normalized spacing: source whitespace
 
-**Status:** Source-based revision in progress following PR review.
+**Status:** Implemented. Independent contract/adversarial reviews, exact render
+probes, lint, docs build and final uncached CI passed.
 
 GSX keeps compact output without guessing typography, CSS layout, component
 output or branch outcomes. Whitespace normalization operates on authored text
