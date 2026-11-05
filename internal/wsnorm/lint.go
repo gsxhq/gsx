@@ -91,7 +91,7 @@ func Lint(f *ast.File) []Finding {
 			if !r.Renders || !layoutRun(r) {
 				return
 			}
-			finding := Finding{Edits: deleteRun(r), Migrate: oldRuleDropped(r)}
+			finding := Finding{Edits: deleteRun(r), Migrate: oldRuleDropped(r) && gapAgrees(nodes, r)}
 			finding.Pos, finding.End = runRange(r)
 			var lit ast.Markup
 			if r.Prev == "" {
@@ -137,6 +137,115 @@ func oldRuleDropped(r *Run) bool {
 		}
 	}
 	return true
+}
+
+// gapAgrees reports that the rest of the gap around r, out to the content on
+// each side, renders the same under the v0.4 rule as now, so deleting r (which
+// v0.4 dropped) restores v0.4's output for the whole gap. The gap extends past
+// whitespace-only literals and bare comments and into the facing edge of an
+// element or of every body of a block.
+func gapAgrees(nodes []ast.Markup, r *Run) bool {
+	return (r.Prev != "" || edgeAgrees(nodes, r.PrevIndex, -1)) &&
+		(r.Next != "" || edgeAgrees(nodes, r.NextIndex, 1))
+}
+
+// edgeAgrees walks nodes from i in direction dir, away from a run, up to the
+// first content, and reports that the whitespace on the way renders the same
+// under both rules. A children-list edge ends the walk.
+func edgeAgrees(nodes []ast.Markup, i, dir int) bool {
+	for i >= 0 && i < len(nodes) {
+		switch v := nodes[i].(type) {
+		case *ast.Comment:
+			if v.Bare {
+				i += dir
+				continue
+			}
+		case *ast.Interp:
+			if s, ok := literalValue(v); ok && strings.Trim(s, " \t\r\n") == "" {
+				i += dir // data under both rules; the gap goes on
+				continue
+			}
+			return true
+		case *ast.Element:
+			if IsPreserveTag(v.Tag) {
+				return true
+			}
+			return listEdgeAgrees(v.Children, dir)
+		case *ast.Fragment:
+			return listEdgeAgrees(v.Children, dir)
+		case *ast.MarkerRegion:
+			return listEdgeAgrees(v.Children, dir)
+		case *ast.IfMarkup:
+			return listEdgeAgrees(v.Then, dir) && listEdgeAgrees(v.Else, dir)
+		case *ast.ForMarkup:
+			return listEdgeAgrees(v.Body, dir)
+		case *ast.SwitchMarkup:
+			for _, c := range v.Cases {
+				if !listEdgeAgrees(c.Body, dir) {
+					return false
+				}
+			}
+			return true
+		}
+		if !isTextRegionNode(nodes[i]) {
+			return true
+		}
+		start, end := i, i+1
+		for start > 0 && isTextRegionNode(nodes[start-1]) {
+			start--
+		}
+		for end < len(nodes) && isTextRegionNode(nodes[end]) {
+			end++
+		}
+		agrees, content := regionEdgeAgrees(nodes, start, end, dir)
+		if !agrees || content {
+			return agrees
+		}
+		if dir < 0 {
+			i = start - 1
+		} else {
+			i = end
+		}
+	}
+	return true
+}
+
+func listEdgeAgrees(nodes []ast.Markup, dir int) bool {
+	if dir < 0 {
+		return edgeAgrees(nodes, len(nodes)-1, dir)
+	}
+	return edgeAgrees(nodes, 0, dir)
+}
+
+// regionEdgeAgrees compares the run at the edge of nodes[start:end] that faces
+// the walk (its trailing run when dir < 0, its leading run otherwise): v0.4
+// rendered one space per part without a line break (each part is the edge of
+// its own Text), the current rule at most one. content reports a word in the
+// region, which ends the walk.
+func regionEdgeAgrees(nodes []ast.Markup, start, end, dir int) (agrees, content bool) {
+	agrees = true
+	scanRegion(nodes, start, end, func(*ast.Text, string) { content = true }, func(r *Run) {
+		if dir < 0 && r.Next != "" || dir > 0 && r.Prev != "" {
+			return
+		}
+		old := 0
+		for _, p := range r.Parts {
+			if !strings.ContainsAny(p.Text.Value[p.Start:p.End], "\n\r") {
+				old++
+			}
+		}
+		now := 0
+		if r.Renders {
+			now = 1
+		}
+		// A run v0.4 dropped that now renders and faces a spaced literal is
+		// itself a finding whose fix deletes it, leaving v0.4's zero.
+		fixedToo := old == 0 && now == 1 && layoutRun(r) && oldRuleDropped(r) &&
+			(dir < 0 && r.Next == "" && facingLiteral(r.NextNode, true) != nil ||
+				dir > 0 && r.Prev == "" && facingLiteral(r.PrevNode, false) != nil)
+		agrees = old == now || fixedToo
+	})
+	return agrees, content
 }
 
 func runRange(r *Run) (token.Pos, token.Pos) {
@@ -200,17 +309,27 @@ func bodyEdge(body []ast.Markup, leading bool) ast.Markup {
 // space is data, so a line break beside it renders a second one.
 func spacedLiteral(n ast.Markup, leading bool) bool {
 	v, ok := n.(*ast.Interp)
-	if !ok || len(v.Stages) != 0 || v.Embedded != nil {
+	if !ok {
 		return false
 	}
-	s, err := strconv.Unquote(strings.TrimSpace(v.Expr))
-	if err != nil || s == "" {
+	s, ok := literalValue(v)
+	if !ok || s == "" {
 		return false
 	}
 	if leading {
 		return isWS(s[0])
 	}
 	return isWS(s[len(s)-1])
+}
+
+// literalValue is the value of an interpolation that is a plain Go string
+// literal.
+func literalValue(v *ast.Interp) (string, bool) {
+	if len(v.Stages) != 0 || v.Embedded != nil {
+		return "", false
+	}
+	s, err := strconv.Unquote(strings.TrimSpace(v.Expr))
+	return s, err == nil
 }
 
 // firstRune and lastRune return the rendered edge character of a source word,

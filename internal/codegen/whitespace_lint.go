@@ -23,13 +23,17 @@ func reportWhitespaceLint(byPath map[string][]wsnorm.Finding, fset *token.FileSe
 			if f.Kind == wsnorm.RedundantSpaceLiteral {
 				code = diag.CodeRedundantSpaceLiteral
 			}
+			help := f.Help()
+			if f.Migrate {
+				help += "; `gsx fix whitespace` applies this fix"
+			}
 			bag.Add(diag.Diagnostic{
 				Start:    fset.Position(f.Pos),
 				End:      fset.Position(f.End),
 				Severity: diag.Warning,
 				Code:     code,
 				Message:  f.Message(),
-				Help:     f.Help() + "; `gsx fix whitespace` applies this fix",
+				Help:     help,
 				Source:   "codegen",
 			})
 		}

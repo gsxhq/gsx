@@ -2,6 +2,7 @@ package wsfix
 
 import (
 	"go/token"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -21,7 +22,11 @@ func render(f *ast.File) string {
 		case *ast.Text:
 			b.WriteString(v.Value)
 		case *ast.Interp:
-			b.WriteString("{" + strings.TrimSpace(v.Expr) + "}")
+			if s, err := strconv.Unquote(strings.TrimSpace(v.Expr)); err == nil {
+				b.WriteString(s) // a literal is data: compare its bytes
+			} else {
+				b.WriteString("{" + strings.TrimSpace(v.Expr) + "}")
+			}
 		case *ast.Element:
 			b.WriteString("<" + v.Tag + ">")
 		}
@@ -52,6 +57,22 @@ func newRender(t *testing.T, src string) string {
 func oldRender(t *testing.T, src string) string {
 	f := parse(t, src)
 	var list func([]ast.Markup, bool) []ast.Markup
+	var attrs func([]ast.Attr)
+	attrs = func(as []ast.Attr) {
+		for _, a := range as {
+			switch v := a.(type) {
+			case *ast.MarkupAttr:
+				v.Value = list(v.Value, false)
+			case *ast.CondAttr:
+				attrs(v.Then)
+				attrs(v.Else)
+			case *ast.SwitchAttr:
+				for _, c := range v.Cases {
+					attrs(c.Body)
+				}
+			}
+		}
+	}
 	list = func(nodes []ast.Markup, preserve bool) []ast.Markup {
 		out := nodes[:0]
 		for _, n := range nodes {
@@ -64,25 +85,38 @@ func oldRender(t *testing.T, src string) string {
 				}
 			case *ast.Element:
 				v.Children = list(v.Children, preserve || wsnorm.IsPreserveTag(v.Tag))
-				for _, a := range v.Attrs {
-					if m, ok := a.(*ast.MarkupAttr); ok {
-						m.Value = list(m.Value, false)
-					}
-				}
+				attrs(v.Attrs)
 			case *ast.Fragment:
+				v.Children = list(v.Children, preserve)
+			case *ast.MarkerRegion:
 				v.Children = list(v.Children, preserve)
 			case *ast.IfMarkup:
 				v.Then, v.Else = list(v.Then, preserve), list(v.Else, preserve)
 			case *ast.ForMarkup:
 				v.Body = list(v.Body, preserve)
+			case *ast.SwitchMarkup:
+				for i := range v.Cases {
+					v.Cases[i].Body = list(v.Cases[i].Body, preserve)
+				}
 			}
 			out = append(out, n)
 		}
 		return out
 	}
 	for _, d := range f.Decls {
-		if c, ok := d.(*ast.Component); ok {
-			c.Body = list(c.Body, false)
+		switch v := d.(type) {
+		case *ast.Component:
+			v.Body = list(v.Body, false)
+		case *ast.GoWithElements:
+			for _, part := range v.Parts {
+				switch p := part.(type) {
+				case *ast.Element:
+					p.Children = list(p.Children, wsnorm.IsPreserveTag(p.Tag))
+					attrs(p.Attrs)
+				case *ast.Fragment:
+					p.Children = list(p.Children, false)
+				}
+			}
 		}
 	}
 	return render(f)
@@ -156,7 +190,11 @@ func TestFixRestoresOldRule(t *testing.T) {
 		{"spaced literal opening an if body", "\t<p>No grants\n\t{ if q != \"\" { { \" match \" }{ q } } }.</p>", 1},
 		{"spaced literal before text", "\t<p>{ n }{ \" items\" }\n\tleft</p>", 0},
 		{"eight literals", "\t<p>a" + strings.Repeat(`{ " " }`, 8) + "\nb</p>", 1},
+		{"switch case literal", "\t<p>Total:\n\t{ switch n {\n\tcase 1:\n\t\t{ \" \" }<b>one</b>\n\t} }</p>", 1},
+		{"top-level var", "\t<p/>\n}\n\nvar v = <p><b>hi</b>\n\t.</p>\n\nfunc _() {", 1},
 		// Not migration fixes: the old rule rendered these spaces too.
+		{"space before comment closes element", "\t<p><b>a {/* c */}\n</b>\n.</p>", 0},
+		{"space before bare comment", "\t<p>{ switch {\n\tcase true:\n\t\tx {/* c */}\n\t\t// bare\n\t\t{ \" \" }\n\t\ty\n\t} }</p>", 0},
 		{"line break inside text", "\t<p>download it\n\t.</p>", 0},
 		{"opener inside text", "\t<p>foo (\nbar)</p>", 0},
 		{"repeated periods", "\t<p>x\n.\n.\n.</p>", 0},
