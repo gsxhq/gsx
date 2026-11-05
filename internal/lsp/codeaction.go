@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/wsfix"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
 // handleCodeAction answers textDocument/codeAction for a .gsx document. Two
@@ -112,10 +114,54 @@ func (s *Server) handleCodeAction(f frame) error {
 			}
 		}
 	}
+	if wantsKind(p.Context.Only, quickFixKind) {
+		actions = append(actions, whitespaceFixes(uri, path, text, p.Range, s.enc)...)
+	}
 	if actions == nil {
 		actions = []CodeAction{}
 	}
 	return s.reply(f.ID, actions)
+}
+
+// whitespaceFixes offers one quick fix per punctuation-line-break or
+// redundant-space-literal finding in the current buffer that overlaps rng. The
+// findings are recomputed from the buffer itself (they are syntactic), so a
+// fix always matches the text it edits; an unparseable buffer offers none.
+func whitespaceFixes(uri, path, text string, rng Range, enc encoding) []CodeAction {
+	findings, file, err := wsfix.Findings(path, []byte(text))
+	if err != nil {
+		return nil
+	}
+	var actions []CodeAction
+	for _, f := range findings {
+		start := positionForByteOffset(text, file.Offset(f.Pos), enc)
+		end := positionForByteOffset(text, file.Offset(f.End), enc)
+		if positionLess(rng.End, start) || positionLess(end, rng.Start) {
+			continue
+		}
+		edits := make([]TextEdit, 0, len(f.Edits))
+		for _, e := range f.Edits {
+			edits = append(edits, TextEdit{
+				Range:   Range{Start: positionForByteOffset(text, file.Offset(e.Pos), enc), End: positionForByteOffset(text, file.Offset(e.End), enc)},
+				NewText: e.New,
+			})
+		}
+		title := "Join line to keep punctuation attached"
+		if f.Kind == wsnorm.RedundantSpaceLiteral {
+			title = `Join line ({ " " } supplies the space)`
+		}
+		actions = append(actions, CodeAction{
+			Title: title,
+			Kind:  quickFixKind,
+			Edit:  &WorkspaceEdit{Changes: map[string][]TextEdit{uri: edits}},
+		})
+	}
+	return actions
+}
+
+// positionLess reports whether a sorts strictly before b.
+func positionLess(a, b Position) bool {
+	return a.Line < b.Line || (a.Line == b.Line && a.Character < b.Character)
 }
 
 // missingImportsFor returns the file's unresolved qualifiers, or nil when

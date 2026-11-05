@@ -1,0 +1,46 @@
+punctuation-line-break flags a line break that renders a space before closing
+or after opening punctuation; redundant-space-literal flags { " " } beside a
+line break that already renders one. Inline spaces, layout between tags and
+preserved text are not findings.
+-- input.gsx --
+package views
+
+component Counted(n int) { <b>{ n }</b> }
+
+component Page(org string, n int) {
+	<p>
+		<Counted n={n}/>
+		: <Counted n={n}/>
+		, <Counted n={n}/>
+	</p>
+	<p>download it
+		.</p>
+	<p>(
+		{ n } groups
+		)</p>
+	<p>{ org }
+		’s Trash</p>
+	<p>to { org }.{ " " }
+		Set your password.</p>
+	<p>{ " " }
+		Hello</p>
+	<p>a . b{ " " }c</p>
+	<p><b>a</b>{ " " }
+		<b>b</b></p>
+	<pre>a
+.</pre>
+}
+-- invoke --
+Page("Acme", 3)
+-- diagnostics.golden --
+7:19: warning: line break renders a space before ':'
+8:21: warning: line break renders a space before ','
+11:16: warning: line break renders a space before '.'
+13:6: warning: line break renders a space after '('
+14:15: warning: line break renders a space before ')'
+16:12: warning: line break renders a space before '’'
+18:16: warning: line break renders a second space beside this string's space
+20:5: warning: line break renders a second space beside this string's space
+-- render.golden --
+<p><b>3</b> : <b>3</b> , <b>3</b></p><p>download it .</p><p>( 3 groups )</p><p>Acme ’s Trash</p><p>to Acme.  Set your password.</p><p>  Hello</p><p>a . b c</p><p><b>a</b> <b>b</b></p><pre>a
+.</pre>

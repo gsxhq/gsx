@@ -285,6 +285,8 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			}
 		}
 		return runFmt(os.Stdin, stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, fmtOpts, workDir)
+	case "fix":
+		return runFix(cmdArgs, stdout, stderr, workDir)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr, workDir)
 	case "lsp":
@@ -628,6 +630,7 @@ Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
 	dev [flags]           warm generate + build-then-swap server + browser reload (dev loop)
 	fmt [paths...]        format .gsx files (canonical, idempotent; -stdin-filename reads stdin)
+	fix whitespace [paths...]  fix line breaks that render a space before punctuation (run before fmt when upgrading)
 	init [dir]            scaffold a gsx + Vite starter app (--template, --module)
 	clean --cache         remove the gsx cache directory
 	info                  list the resolved pipeline filters

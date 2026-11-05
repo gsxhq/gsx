@@ -15,6 +15,7 @@ gsx [global flags] <command> [arguments]
 | Generate, build, and reload while editing | `gsx dev [dir]` |
 | Generate `.x.go` files | `gsx generate [paths...]` |
 | Format `.gsx` files | `gsx fmt [paths...]` |
+| Fix whitespace after upgrading | `gsx fix whitespace [paths...]` |
 | Inspect the resolved project setup | `gsx info` |
 | Remove the generation cache | `gsx clean --cache` |
 | Start the editor language server | `gsx lsp` |
@@ -303,6 +304,21 @@ gsx fmt -l .
 
 A failure wins over a difference, so a script can tell "run `-w`" from "this
 file is broken".
+
+## `gsx fix` {#fix}
+
+`gsx fix whitespace [-w] [-l] [-d] [paths...]` rewrites `.gsx` files in place so
+they render what v0.4 rendered where the whitespace rule changed: it joins a
+line break that now renders a space before closing or after opening
+punctuation, or beside a string such as `{ " " }` that already supplies the
+space (see the
+[`punctuation-line-break` and `redundant-space-literal`](./config.md#lint)
+lints). Output elsewhere is unchanged. `-l` lists and `-d` diffs without
+writing, and exit `1` when a file would change; add `-w` to write as well.
+
+When upgrading from v0.4, run it **before** `gsx fmt`: the formatter turns
+those line breaks into same-line spaces, which are then indistinguishable from
+intended ones.
 
 ## `gsx info` {#info}
 

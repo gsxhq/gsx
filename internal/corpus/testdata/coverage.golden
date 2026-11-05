@@ -1116,6 +1116,7 @@ whitespace/interior_for	diag gen render
 whitespace/interior_if_else	diag gen render
 whitespace/interior_switch	diag gen render
 whitespace/layout_title	diag gen render
+whitespace/lint_layout_spaces	diag render
 whitespace/normalized_prose_go_values	diag gen render
 whitespace/normalized_prose_internal	diag gen render
 whitespace/normalized_prose_root_slots	diag gen render
@@ -1145,4 +1146,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1147 cases (render: 976, error: 133, gen-pinned: 651)
+TOTAL: 1148 cases (render: 977, error: 133, gen-pinned: 651)

@@ -19,6 +19,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/tagcallable"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 )
 
 type componentTargetProvenance uint8
@@ -964,6 +965,8 @@ type parsedGSXPackage struct {
 	name    string
 	files   map[string]*gsxast.File
 	sources map[string][]byte
+	// whitespace holds each file's whitespace lint findings (parse time).
+	whitespace map[string][]wsnorm.Finding
 
 	preprocessingClaimed atomic.Bool
 }

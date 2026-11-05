@@ -210,7 +210,7 @@ var goPartSwitchFunctions = map[string]string{
 	"internal/jsmin/file.go:minifyGoParts":                     "minifies the js` literals of a GoBlock/Interp GoPart split",
 	"internal/jsx/jsx.go:resolveGoParts":                       "classifies the js` literals of a GoBlock/Interp GoPart split",
 	"internal/printer/printer.go:goExprValue":                  "builds the doc for one non-GoText GoWithElements part",
-	"internal/wsnorm/wsnorm.go:NormalizeGoParts":               "normalizes the element/fragment parts of a Go-expression split",
+	"internal/wsnorm/wsnorm.go:goParts":                        "walks the element/fragment parts of a Go-expression split (Normalize and Lint)",
 	"parser/goexpr.go:markupKind":                              "names a parsed markup for the not-a-Go-expression-value error",
 	"parser/goexpr.go:splitGoElements":                         "admits *Element/*Fragment as top-level Go-expression values, rejecting all other markup",
 	"parser/goexpr.go:SplitGoExprElements":                     "admits *Element/*Fragment as embedded Go-expression values, rejecting all other markup",
