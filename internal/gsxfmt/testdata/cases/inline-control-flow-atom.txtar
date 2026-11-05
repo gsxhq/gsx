@@ -1,0 +1,40 @@
+An if/for block in text flow follows the inline-element atom rule: written on
+one line with inline-only bodies it stays on one line under width pressure,
+and the prose around it wraps instead. An author line break after `{` keeps
+the block layout.
+
+-- input.gsx --
+package p
+component C(m M, n int) {
+	<p>
+		Your groups give you
+		{ for i, a := range m.access {
+			<span class="font-medium text-foreground">{ a.label }</span>{ " " }({ a.groups } { if a.groups == 1 { group } else { groups } })
+		} }.
+	</p>
+	<p>lorem ipsum dolor sit amet consectetur adipiscing elit sed do ({ n } { if n == 1 { group } else { groups } }) end.</p>
+	<p>Authored ({ n } { if n == 1 {
+		group
+	} else { groups } }) end.</p>
+}
+-- fmt.golden --
+package p
+
+component C(m M, n int) {
+	<p>
+		Your groups give you { for i, a := range m.access {
+			<span class="font-medium text-foreground">{ a.label }</span>{ " " }({ a.groups } { if a.groups == 1 { group } else { groups } })
+		} }.
+	</p>
+	<p>
+		lorem ipsum dolor sit amet consectetur adipiscing elit sed do
+		({ n } { if n == 1 { group } else { groups } }) end.
+	</p>
+	<p>
+		Authored ({ n } { if n == 1 {
+			group
+		} else {
+			groups
+		} }) end.
+	</p>
+}

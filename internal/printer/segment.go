@@ -284,12 +284,23 @@ func (p *printer) fillParts(nodes []ast.Markup, bonds []bool) []pretty.Doc {
 
 // inlineLeaf renders one non-Text leaf: atoms flat, everything else through
 // the normal markup path (a block element glued into a text segment keeps
-// today's group-based rendering).
+// today's group-based rendering). An if/for block in text flow follows the
+// inline-element atom rule: written on one line with inline-only bodies, it
+// stays on one line rather than breaking open under width pressure. An author
+// line break after `{` or a block-level child forces a break (BreakParent),
+// so pretty.Flat refuses those and they keep the block layout.
 func (p *printer) inlineLeaf(n ast.Markup) pretty.Doc {
-	if e, ok := n.(*ast.Element); ok {
-		if doc, ok := p.atomDoc(e); ok {
+	switch v := n.(type) {
+	case *ast.Element:
+		if doc, ok := p.atomDoc(v); ok {
 			return doc
 		}
+	case *ast.IfMarkup, *ast.ForMarkup:
+		doc := p.markup(n)
+		if flat, ok := pretty.Flat(doc); ok && !p.preserve {
+			return flat
+		}
+		return doc
 	}
 	return p.markup(n)
 }

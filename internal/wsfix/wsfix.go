@@ -30,8 +30,10 @@ const maxPasses = 8
 // Fix rewrites src until it has no migration findings (Finding.Migrate) and
 // returns the result with the number fixed. Each fix deletes a line break the
 // pre-v0.5 rule rendered as nothing, so the result renders exactly what that
-// rule rendered at those boundaries and is otherwise unchanged.
-func Fix(path string, src []byte) ([]byte, int, error) {
+// rule rendered at those boundaries and is otherwise unchanged. With every, it
+// applies every finding, including same-line spaces and line breaks inside
+// one text, which changes existing output where those spaces rendered.
+func Fix(path string, src []byte, every bool) ([]byte, int, error) {
 	fixed := 0
 	for range maxPasses {
 		all, file, err := Findings(path, src)
@@ -40,7 +42,7 @@ func Fix(path string, src []byte) ([]byte, int, error) {
 		}
 		var findings []wsnorm.Finding
 		for _, f := range all {
-			if f.Migrate {
+			if every || f.Migrate {
 				findings = append(findings, f)
 			}
 		}

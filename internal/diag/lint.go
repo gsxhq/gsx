@@ -52,7 +52,7 @@ func ParseLintLevel(s string) (LintLevel, error) {
 // configured code always names a real diagnostic.
 const (
 	CodeDuplicateAttribute    = "duplicate-attribute"
-	CodePunctuationLineBreak  = "punctuation-line-break"
+	CodePunctuationSpace      = "punctuation-space"
 	CodeRedundantSpaceLiteral = "redundant-space-literal"
 	CodeSelfReferenceLeaf     = "self-reference-leaf"
 	CodeURLAlwaysBlocked      = "url-always-blocked"
@@ -61,7 +61,7 @@ const (
 
 var lintCodes = []string{
 	CodeDuplicateAttribute,
-	CodePunctuationLineBreak,
+	CodePunctuationSpace,
 	CodeRedundantSpaceLiteral,
 	CodeSelfReferenceLeaf,
 	CodeURLAlwaysBlocked,

@@ -212,7 +212,7 @@ func TestFixRestoresOldRule(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := wrap(c.body)
-			out, n, err := Fix("c.gsx", []byte(src))
+			out, n, err := Fix("c.gsx", []byte(src), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -227,7 +227,7 @@ func TestFixRestoresOldRule(t *testing.T) {
 			if got, want := newRender(t, string(out)), oldRender(t, src); !intended[c.name] && got != want {
 				t.Fatalf("fixed source renders\n%q\nold rule rendered\n%q\nfixed:\n%s", got, want, out)
 			}
-			if again, n2, _ := Fix("c.gsx", out); n2 != 0 || string(again) != string(out) {
+			if again, n2, _ := Fix("c.gsx", out, false); n2 != 0 || string(again) != string(out) {
 				t.Fatalf("second Fix changed %d:\n%s", n2, again)
 			}
 		})
@@ -250,9 +250,9 @@ func TestFindings(t *testing.T) {
 		gots = append(gots, got{f.Kind, src[file.Offset(f.Pos):file.Offset(f.End)], f.Migrate})
 	}
 	want := []got{
-		{wsnorm.PunctuationLineBreak, "\n\t", false}, // inside one Text: lint only
+		{wsnorm.PunctuationSpace, "\n\t", false}, // inside one Text: lint only
 		{wsnorm.RedundantSpaceLiteral, `{ " " }`, true},
-		{wsnorm.PunctuationLineBreak, "\n\t", true},
+		{wsnorm.PunctuationSpace, "\n\t", true},
 	}
 	if len(gots) != len(want) {
 		t.Fatalf("findings = %+v", gots)
@@ -261,5 +261,41 @@ func TestFindings(t *testing.T) {
 		if gots[i] != want[i] {
 			t.Fatalf("finding %d = %+v, want %+v", i, gots[i], want[i])
 		}
+	}
+}
+
+// TestFixAll covers -all on the #277 follow-up repros: same-line spaces (often
+// joined by an earlier gsx fmt) before punctuation and beside spaced literals,
+// including a literal at a block edge. Default mode leaves the same-line ones.
+func TestFixAll(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+		defaultFixes   int
+	}{
+		{"space after link", "\t<p>See <a>docs</a> .</p>", "\t<p>See <a>docs</a>.</p>", 0},
+		{"space before closer after block", "\t<p>{ if ok { x } } .</p>", "\t<p>{ if ok { x } }.</p>", 0},
+		{"inside text", "\t<p>a . b</p>", "\t<p>a. b</p>", 0},
+		{"comma and parens", "\t<p>{ n } , items ( { n } )</p>", "\t<p>{ n }, items ({ n })</p>", 0},
+		{"literal at block edge", "\t<p>Done. { if ok {\n\t\t{ \" \" }More.\n\t} }</p>", "\t<p>Done.{ if ok {\n\t\t{ \" \" }More.\n\t} }</p>", 0},
+		{"literal then same-line space", "\t<p>a{ \" \" } <b>x</b></p>", "\t<p>a{ \" \" }<b>x</b></p>", 0},
+		{"same-line space and line break", "\t<p>Listed { \" \" }\n\tthen</p>", "\t<p>Listed{ \" \" }then</p>", 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := wrap(c.in)
+			out, _, err := Fix("c.gsx", []byte(src), true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(out) != wrap(c.want) {
+				t.Fatalf("Fix all:\n%s\nwant:\n%s", out, wrap(c.want))
+			}
+			if again, n, _ := Fix("c.gsx", out, true); n != 0 || string(again) != string(out) {
+				t.Fatalf("second Fix all changed %d:\n%s", n, again)
+			}
+			if _, n, _ := Fix("c.gsx", []byte(src), false); n != c.defaultFixes {
+				t.Fatalf("default Fix made %d fixes, want %d", n, c.defaultFixes)
+			}
+		})
 	}
 }

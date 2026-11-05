@@ -11,7 +11,7 @@ import (
 )
 
 // runFix implements `gsx fix <fixer> [flags] [path ...]`. The one fixer,
-// whitespace, applies the punctuation-line-break and redundant-space-literal
+// whitespace, applies the punctuation-space and redundant-space-literal
 // fixes (internal/wsfix) in place: run it before `gsx fmt` when upgrading from
 // the pre-v0.5 line-break rule, since formatting turns those line breaks into
 // same-line spaces that no longer look unintended.
@@ -25,15 +25,17 @@ import (
 // failure.
 func runFix(args []string, stdout, stderr io.Writer, workDir string) int {
 	usage := func() {
-		fmt.Fprint(stderr, `usage: gsx fix whitespace [-w] [-l] [-d] [path ...]
+		fmt.Fprint(stderr, `usage: gsx fix whitespace [-all] [-w] [-l] [-d] [path ...]
 
 Fixers:
   whitespace  join line breaks that v0.4 rendered as nothing but that now
               render a space before closing or after opening punctuation, or
               beside a string such as { " " } that already supplies one. Run
-              before gsx fmt when upgrading.
+              before gsx fmt when upgrading. -all also removes such spaces
+              written on one line (or joined by gsx fmt), changing output.
 
 Flags:
+  -all  apply every punctuation-space and redundant-space-literal fix
   -w  write files (the default); with -l or -d, also write
   -l  list files that would change; write nothing unless -w
   -d  print diffs; write nothing unless -w
@@ -57,6 +59,7 @@ Flags:
 	list := fs.Bool("l", false, "list files that would change")
 	diff := fs.Bool("d", false, "print diffs")
 	writeFlag := fs.Bool("w", false, "write files (the default; with -l or -d, also write)")
+	all := fs.Bool("all", false, "apply every finding, not only those that restore v0.4 output")
 	if err := fs.Parse(args[1:]); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -76,7 +79,7 @@ Flags:
 			failed = true
 			continue
 		}
-		out, n, err := wsfix.Fix(path, src)
+		out, n, err := wsfix.Fix(path, src, *all)
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			failed = true

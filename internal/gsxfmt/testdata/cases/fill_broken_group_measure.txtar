@@ -10,13 +10,17 @@ package p
 
 component Touching(ok bool) {
 	<p>
-		lorem ipsum dolor sit amet consectetur amet{ if ok { <b>yes, and the bold words in this block run long enough to overflow</b> } }consectetur adipiscing elit sed do eiusmod.
+		lorem ipsum dolor sit amet consectetur amet{ if ok {
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} }consectetur adipiscing elit sed do eiusmod.
 	</p>
 }
 
 component Spaced(ok bool) {
 	<p>
-		lorem ipsum dolor sit amet consectetur amet { if ok { <b>yes, and the bold words in this block run long enough to overflow</b> } } consectetur adipiscing elit sed do eiusmod.
+		lorem ipsum dolor sit amet consectetur amet { if ok {
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} } consectetur adipiscing elit sed do eiusmod.
 	</p>
 }
 

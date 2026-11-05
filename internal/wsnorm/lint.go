@@ -14,12 +14,12 @@ import (
 type FindingKind uint8
 
 const (
-	// PunctuationLineBreak: a line break renders a space before closing
-	// punctuation or after opening punctuation. Usually layout the author (or
-	// an earlier gsx fmt) never meant as a space.
-	PunctuationLineBreak FindingKind = iota + 1
+	// PunctuationSpace: whitespace renders a space before closing punctuation
+	// or after opening punctuation, whether it is a line break or a same-line
+	// space (often one an earlier gsx fmt joined onto the line).
+	PunctuationSpace FindingKind = iota + 1
 	// RedundantSpaceLiteral: a string literal with a space at its edge
-	// ({ " " }, { " and " }) beside a line break that renders another.
+	// ({ " " }, { " and " }) beside whitespace that renders another.
 	RedundantSpaceLiteral
 )
 
@@ -28,13 +28,14 @@ const (
 type Finding struct {
 	Kind     FindingKind
 	Pos, End token.Pos
-	Punct    rune // the punctuation, for PunctuationLineBreak
+	Punct    rune // the punctuation, for PunctuationSpace
 	Edits    []Edit
 	// Migrate reports that the pre-v0.5 rule rendered nothing for this run
 	// (every part was a line break at a Text edge), so Edits restore exactly
-	// the output that rule produced. `gsx fix whitespace` applies only these;
-	// the others (a line break inside one text, which always rendered a space)
-	// are still worth a look in the editor but would change existing output.
+	// the output that rule produced. `gsx fix whitespace` applies only these
+	// by default; the others (a same-line space, or a line break inside one
+	// text, both of which always rendered) change existing output and are
+	// applied by `gsx fix whitespace -all` or an editor quick fix.
 	Migrate bool
 }
 
@@ -47,17 +48,17 @@ type Edit struct {
 // Message describes the finding.
 func (f Finding) Message() string {
 	if f.Kind == RedundantSpaceLiteral {
-		return "line break renders a second space beside this string's space"
+		return "a second space renders beside this string's space"
 	}
-	return "line break renders a space " + punctSide(f.Punct) + " " + strconv.QuoteRune(f.Punct)
+	return "a space renders " + punctSide(f.Punct) + " " + strconv.QuoteRune(f.Punct)
 }
 
 // Help says how to fix it.
 func (f Finding) Help() string {
 	if f.Kind == RedundantSpaceLiteral {
-		return "join the line break: the string already supplies the space"
+		return "remove the whitespace: the string already supplies the space"
 	}
-	return "join the lines to keep the punctuation attached; write the space on the same line if it is intended"
+	return "remove the whitespace to keep the punctuation attached"
 }
 
 // closingPunct takes no space before it; openingPunct takes none after it.
@@ -78,20 +79,18 @@ func punctSide(r rune) string {
 // Normalize processes and judges each run with the same scanner, so a finding
 // is always about whitespace Normalize renders.
 //
-// Both lints concern a layout run: one that renders a space although every
-// part of it is a line break plus indentation. A part without a line break is
-// a space the author wrote on the line, which is never flagged. A layout run
-// facing { " " } is redundant-space-literal; one facing punctuation is
-// punctuation-line-break. Either way the fix deletes the run, which keeps an
-// author's { " " } and never cascades.
+// Both lints concern a run that renders a space: facing a string literal that
+// already has a space on that side it is redundant-space-literal; facing
+// closing (or after opening) punctuation it is punctuation-space. Either way
+// the fix deletes the run, which keeps an author's { " " } and never cascades.
 func Lint(f *ast.File) []Finding {
 	var out []Finding
 	w := walker{region: func(nodes []ast.Markup, start, end int) {
 		scanRegion(nodes, start, end, func(*ast.Text, string) {}, func(r *Run) {
-			if !r.Renders || !layoutRun(r) {
+			if !r.Renders {
 				return
 			}
-			finding := Finding{Edits: deleteRun(r), Migrate: oldRuleDropped(r) && gapAgrees(nodes, r)}
+			finding := Finding{Edits: deleteRun(r), Migrate: layoutRun(r) && oldRuleDropped(r) && gapAgrees(nodes, r)}
 			finding.Pos, finding.End = runRange(r)
 			var lit ast.Markup
 			if r.Prev == "" {
@@ -104,9 +103,9 @@ func Lint(f *ast.File) []Finding {
 			case lit != nil:
 				finding.Kind, finding.Pos, finding.End = RedundantSpaceLiteral, lit.Pos(), lit.End()
 			case r.Next != "" && strings.ContainsRune(closingPunct, firstRune(r.Next)):
-				finding.Kind, finding.Punct = PunctuationLineBreak, firstRune(r.Next)
+				finding.Kind, finding.Punct = PunctuationSpace, firstRune(r.Next)
 			case r.Prev != "" && strings.ContainsRune(openingPunct, lastRune(r.Prev)):
-				finding.Kind, finding.Punct = PunctuationLineBreak, lastRune(r.Prev)
+				finding.Kind, finding.Punct = PunctuationSpace, lastRune(r.Prev)
 			default:
 				return
 			}

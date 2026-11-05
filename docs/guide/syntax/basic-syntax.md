@@ -65,6 +65,8 @@ Whitespace collapses as in HTML, with one exception:
 renders `<p>Hello <em>world</em></p><span>A</span><span>B</span>`.
 
 Write content adjacent to keep it joined: `{ value }%`, `Total{ if ok { … } }`.
+Padding inside block braces is trimmed, so a conditional suffix carries its own
+space: `word{ if c { { " " }more } }`.
 A source space stays even when its neighbor renders nothing. Comments and Go
 blocks don't split a whitespace run. `pre`, `textarea`, `script` and `style`
 content is verbatim.

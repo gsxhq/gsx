@@ -42,14 +42,14 @@ the new rule both change output.
 
 - `wsnorm.scanRegion` is the single whitespace rule: `Normalize` and `Lint`
   consume its word/run events, so a finding is always whitespace that renders.
-- Both lints concern a *layout run*: it renders a space and every part of it
-  contains a line break (a same-line space anywhere in the run is authored and
-  never flagged). Facing a string literal whose value has a space on that
+- Both lints concern a run that renders a space, from a line break or a
+  same-line space (EOS: the new fmt had joined almost every old line-leading
+  punctuation mark onto its line, so a line-break-only lint found none). Facing a string literal whose value has a space on that
   side (`{ " " }`, `{ " and " }`; also as the first/last node of an
   `if`/`for`/`switch` body, branches not evaluated) it is
   `redundant-space-literal`; before
   `.,;:!?)]’”%` or after `([“‘` (entities decoded) it is
-  `punctuation-line-break` — an explicit closed set used only by the lint,
+  `punctuation-space` — an explicit closed set used only by the lint,
   never by normalization. The fix deletes the run, so an author's `{ " " }` is
   kept and fixes never cascade.
 - `Finding.Migrate`: every part is a line break at a Text edge, which v0.4
@@ -60,7 +60,10 @@ the new rule both change output.
   (v0.4 kept the inner same-line space) is left alone. `gsx fix
   whitespace` applies only Migrate findings, so it restores v0.4's output
   exactly (pinned against an in-test port of the v0.4 rule); the editor offers
-  every fix.
+  every fix; `gsx fix whitespace -all` applies every finding (same-line
+  spaces and in-text line breaks too), which changes output.
+- fmt: an `if`/`for` written on one line with inline-only bodies is an atom in
+  text flow, like an inline element (never broken open by width).
 - Findings are computed on the pristine parse (cached with it) and reported
   only for generated packages. `internal/wsfix` (parse → Lint → apply until
   none) backs `gsx fix whitespace` and the LSP quick fixes.
