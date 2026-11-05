@@ -7,10 +7,11 @@ syntax or APIs; a patch bump does not. See
 ## Unreleased
 
 - **Prose spacing is normalized automatically.** Layout-only newlines disappear,
-  word separators beside inline text survive, and punctuation including percent
-  signs and ellipses remains attached. Explicit spaces override inference.
-  Branch analysis retains all possible punctuation boundaries instead of
-  merging them into unknown text. The formatter shares these rules.
+  prose separators beside inline text survive, and source adjacency keeps
+  content joined. Punctuation, percent signs and ellipses follow the same rules:
+  `{value}%` stays joined; `{value}` followed by a prose newline and `%` retains
+  a space. Explicit spaces override inference. Structural branch analysis and
+  the formatter share these rules.
   `child-element-spacing` and its editor fixes are retired; remove old lint
   configuration entries. Preserved/raw contexts retain their existing behavior.
 

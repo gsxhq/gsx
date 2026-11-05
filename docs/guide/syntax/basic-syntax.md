@@ -54,9 +54,9 @@ GSX normalizes source whitespace to keep rendered HTML compact:
 - Preserve word separation in prose: whitespace between words collapses to one
   space. A source newline, inside text or beside text-bearing content, preserves
   one space when that boundary needs a prose separator.
-- Keep punctuation attached: inferred spaces are omitted before closing or
-  terminal punctuation, percent signs and ellipses, and after opening brackets
-  or opening quotation marks.
+- Preserve authored attachment: punctuation stays attached when the source has
+  no separator. A space or prose newline before `%`, punctuation or an ellipsis
+  remains a separator; GSX does not infer typography from the character.
 - Explicit spaces override inference. Inline spaces at text edges and in HTML
   content normalize to one space; expression values such as `{ " " }`,
   `{ "  " }` and nonbreaking spaces
@@ -73,7 +73,10 @@ GSX normalizes source whitespace to keep rendered HTML compact:
 </p>
 ```
 
-These produce `Hello <b>world</b>`, adjacent spans, and `42%` when `value` is 42.
+These produce `Hello <b>world</b>`, adjacent spans, and `42 %` when `value` is 42.
+Write `<p>{value}%</p>` to produce `42%`. The same distinction applies to
+`Hello <em>world</em>` versus `Hello<em>world</em>`: authored prose whitespace
+separates content; adjacency keeps it joined.
 This is GSX source normalization, rather than literal HTML whitespace emission.
 The formatter can reindent markup without adding that indentation to output.
 

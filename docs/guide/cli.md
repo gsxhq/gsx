@@ -265,9 +265,10 @@ legal break point, it stays over budget rather than exploding an inline
 element.
 
 Long prose wraps between words. Normalization preserves prose separators,
-removes layout-only newlines between sibling elements, and keeps punctuation
-attached. The formatter uses the same boundary rules and keeps touching content
-joined rather than introducing a separator. See
+removes layout-only newlines between sibling elements, and preserves authored
+attachment. Punctuation follows the same spacing rules as other prose. The
+formatter uses the same boundary rules and keeps touching content joined rather
+than introducing a separator. See
 [Whitespace](./syntax/basic-syntax.md#whitespace).
 
 `{" "}` sticks to the word before it and never starts a line.
