@@ -5,6 +5,7 @@ import (
 	"html"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gsxhq/gsx/ast"
@@ -102,7 +103,7 @@ func Lint(f *ast.File) []Finding {
 			switch {
 			case lit != nil:
 				finding.Kind, finding.Pos, finding.End = RedundantSpaceLiteral, lit.Pos(), lit.End()
-			case r.Next != "" && strings.ContainsRune(closingPunct, firstRune(r.Next)):
+			case closesAfter(r):
 				finding.Kind, finding.Punct = PunctuationSpace, firstRune(r.Next)
 			case r.Prev != "" && strings.ContainsRune(openingPunct, lastRune(r.Prev)):
 				finding.Kind, finding.Punct = PunctuationSpace, lastRune(r.Prev)
@@ -331,18 +332,52 @@ func literalValue(v *ast.Interp) (string, bool) {
 	return s, err == nil
 }
 
-// firstRune and lastRune return the rendered edge character of a source word,
-// decoding a character reference at that edge.
-func firstRune(word string) rune {
+// tokenStarts are closing marks that also begin a token when a letter or digit
+// follows them: `.xlsx`, `.5`, `.env`, `:root`. (An apostrophe followed by a
+// letter, as in `’s`, still attaches to what precedes it.)
+const tokenStarts = ".:"
+
+// closesAfter reports that the word after r starts with closing punctuation
+// that attaches to what precedes r. A `%` attaches to a quantity: a number,
+// or a sibling such as `{ v }`, not a word or comma (`below, %` labels a unit).
+func closesAfter(r *Run) bool {
+	if r.Next == "" {
+		return false
+	}
+	p, rest := leadingRune(r.Next)
+	if !strings.ContainsRune(closingPunct, p) {
+		return false
+	}
+	if next, _ := utf8.DecodeRuneInString(rest); strings.ContainsRune(tokenStarts, p) && (unicode.IsLetter(next) || unicode.IsDigit(next)) {
+		return false
+	}
+	if p == '%' {
+		if r.Prev != "" {
+			return unicode.IsDigit(lastRune(r.Prev))
+		}
+		return r.PrevNode != nil
+	}
+	return true
+}
+
+// leadingRune is firstRune with the rest of word after that character.
+func leadingRune(word string) (rune, string) {
 	if strings.HasPrefix(word, "&") {
 		if k := strings.IndexByte(word, ';'); k > 1 {
 			if dec := html.UnescapeString(word[:k+1]); dec != word[:k+1] {
 				r, _ := utf8.DecodeRuneInString(dec)
-				return r
+				return r, word[k+1:]
 			}
 		}
 	}
-	r, _ := utf8.DecodeRuneInString(word)
+	r, size := utf8.DecodeRuneInString(word)
+	return r, word[size:]
+}
+
+// firstRune and lastRune return the rendered edge character of a source word,
+// decoding a character reference at that edge.
+func firstRune(word string) rune {
+	r, _ := leadingRune(word)
 	return r
 }
 

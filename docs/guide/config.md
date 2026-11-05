@@ -458,7 +458,7 @@ duplicate-attribute = "off"
 | Code | Reports |
 |---|---|
 | `duplicate-attribute` | An attribute set twice on one element; the browser keeps the first. |
-| `punctuation-space` | Whitespace that renders a space before `. , ; : ! ? ) ] ’ ” %` or after `( [ “ ‘`. |
+| `punctuation-space` | Whitespace that renders a space before `. , ; : ! ? ) ] ’ ” %` or after `( [ “ ‘`. A `.` or `:` that starts a token (`.xlsx`, `.5`) and a `%` not after a number or `{ … }` are not punctuation. |
 | `redundant-space-literal` | A string with a space at its edge (`{ " " }`, `{ " and " }`) beside whitespace that renders a second space, including at the edge of an `if`/`for`/`switch` body. |
 | `self-reference-leaf` | A tag named like its enclosing component that renders as a plain element. |
 | `url-always-blocked` | A constant URL attribute value that always renders as `about:invalid#gsx`. |

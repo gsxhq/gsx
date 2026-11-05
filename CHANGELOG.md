@@ -19,7 +19,8 @@ syntax or APIs; a patch bump does not. See
 - **New lints `punctuation-space` and `redundant-space-literal`** flag a space
   rendering before closing (or after opening) punctuation, or beside a string
   that already has one (`{ " " }`), from a line break or a same-line space,
-  with editor quick fixes. `gsx fix whitespace` applies the fixes where v0.4
+  with editor quick fixes. A `.`/`:` starting a token (`.xlsx`, `.5`) and a
+  unit-label `%` (`below, %`) are not flagged. `gsx fix whitespace` applies the fixes where v0.4
   rendered no space, restoring exactly its output there; `-all` applies every
   fix.
 - **`gsx fmt` keeps a one-line `if`/`for` in text on one line**, like an inline
