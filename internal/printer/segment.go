@@ -26,11 +26,11 @@ type segment struct {
 // A boundary between nodes[i] and nodes[i+1] is GLUED (no break) iff a
 // significant space sits on it (nodes[i] is a *ast.Text whose value ends in
 // ' ', or nodes[i+1] is a *ast.Text whose value starts with ' ') or a break
-// there would raise child-element-spacing (bonds, from spacingBonds). Otherwise the
+// there would introduce a prose separator (bonds, from spacingBonds). Otherwise the
 // boundary is SAFE and starts a new segment.
 //
-// breakable is true iff the edge guard passes: the first node must not begin
-// with a significant space and the last node must not end with one (a block
+// breakable is true iff the edge guard passes: the source text edges, looking
+// through transparent nodes, must not carry significant spaces (a block
 // opener / closer would otherwise absorb that space and change the normalized
 // AST). A single edge-safe segment is breakable too — a lone block-level child
 // must be free to take its own line so the document hierarchy stays visible;
@@ -49,10 +49,30 @@ func segmentChildren(nodes []ast.Markup, bonds []bool) (segs []segment, breakabl
 	}
 	segs = append(segs, segment{nodes: nodes[start:], bonds: bonds[start:]})
 
-	if leadsWithSpace(nodes[0]) || trailsWithSpace(nodes[len(nodes)-1]) {
+	if sourceEdgeHasSpace(nodes, true) || sourceEdgeHasSpace(nodes, false) {
 		return segs, false
 	}
 	return segs, true
+}
+
+// sourceEdgeHasSpace checks the source text edge through transparent nodes.
+// An added outer newline would absorb an inline separator there, even when a
+// comment or Go statement is the first or last node in the children list.
+func sourceEdgeHasSpace(nodes []ast.Markup, leading bool) bool {
+	start, dir := 0, 1
+	if !leading {
+		start, dir = len(nodes)-1, -1
+	}
+	for i := start; i >= 0 && i < len(nodes); i += dir {
+		if wsnorm.IsSourceTransparent(nodes[i]) {
+			continue
+		}
+		if leading {
+			return leadsWithSpace(nodes[i])
+		}
+		return trailsWithSpace(nodes[i])
+	}
+	return false
 }
 
 // glued reports whether a significant space (or the {" "} idiom's left bond)
@@ -61,27 +81,19 @@ func glued(left, right ast.Markup) bool {
 	return trailsWithSpace(left) || leadsWithSpace(right) || isSpacingInterp(right)
 }
 
-// spacingBonds reports, for each boundary before nodes[i], whether it must
-// not break because it lies between text and the inline content that text
-// touches: normalization would drop the break, so no space renders there. The
-// rule is the child-element-spacing lint's own (wsnorm.Spacing), with every
-// non-literal interpolation taken as text since the formatter has no types.
-// Every boundary of that run is bonded, including those beside the comments,
-// Go blocks and optional blocks the rule looks through: the lint sees only a
-// break inside the Text, but a break anywhere in the run is dropped all the
-// same. It is computed once over the whole children list; segmentChildren
-// and fillParts both consume it. A break the author wrote there
-// (ast.LeadingBreak) is kept by fillParts.
+// spacingBonds protects authored adjacency between substantive Text and any
+// source sibling. The rule is shared with normalization and looks through only
+// comments and Go statements. Each boundary across those transparent nodes is
+// bonded so formatting cannot introduce a separator by adding a newline.
 func spacingBonds(nodes []ast.Markup) []bool {
-	var sp wsnorm.Spacing
 	bonds := make([]bool, len(nodes))
 	for i := range nodes {
-		if j, loses := sp.DroppedBreakLoses(nodes, i, 1); loses {
+		if j, loses := wsnorm.TextBoundarySibling(nodes, i, 1); loses {
 			for k := i + 1; k <= j; k++ {
 				bonds[k] = true
 			}
 		}
-		if j, loses := sp.DroppedBreakLoses(nodes, i, -1); loses {
+		if j, loses := wsnorm.TextBoundarySibling(nodes, i, -1); loses {
 			for k := j + 1; k <= i; k++ {
 				bonds[k] = true
 			}
@@ -220,9 +232,8 @@ func (p *printer) fillParts(nodes []ast.Markup, bonds []bool) []pretty.Doc {
 				// start of a line (2026-07-25 finding: the parser would then
 				// read it as a real arm label the author never wrote).
 			case i > 0 && bonds[i]:
-				// text touching inline content: a break here would raise
-				// child-element-spacing, so offer none — except the author's
-				// own, which the lint already reports on the source.
+				// A break at a touching prose boundary could introduce a
+				// separator. Do not add one while formatting.
 				if t.LeadingBreak {
 					gap(pretty.HardLine)
 				}
@@ -258,8 +269,8 @@ func (p *printer) fillParts(nodes []ast.Markup, bonds []bool) []pretty.Doc {
 			// also forces the enclosing group open via containsForcedBreak.
 			gap(pretty.HardLine)
 		case bonds[i]:
-			// text touching inline content: no break (see spacingBonds) —
-			// except the author's own, which the lint already reports.
+			// A touching prose boundary cannot acquire a formatter break.
+			// Retain an authored break already represented by the source AST.
 			if ast.LeadingBreak(n) {
 				gap(pretty.HardLine)
 			}

@@ -6,6 +6,13 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
+- **Breaking: whitespace beside text renders one space.** A newline between
+  text and any sibling (element, component, interpolation, block) now renders
+  a space instead of joining the words, including before punctuation:
+  `{value}⏎%` renders `42 %`; write `{value}%` to join. Whitespace-only
+  newlines between tags still disappear. The `child-element-spacing` lint and
+  its editor fixes are removed; delete any `[lint]` entry for it.
+
 ## v0.4.6 — 2026-11-03
 
 - **Windows language-server file URIs now resolve correctly.** Drive-letter

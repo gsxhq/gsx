@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsxhq/gsx/internal/rendergolden"
 	"github.com/gsxhq/gsx/internal/txtar"
 )
 
@@ -119,10 +120,10 @@ func TestCorpus(t *testing.T) {
 					gotHTML = r.html
 				}
 				if *update {
-					c.setGoldenSection("render.golden", []byte(gotHTML))
+					c.setGoldenSection("render.golden", rendergolden.Encode(gotHTML))
 					writeArchive(t, paths[c.name], c.archive)
 				} else {
-					diff, derr := htmlStructuralDiff(gotHTML, string(c.goldens["render.golden"]))
+					diff, derr := renderDiff(gotHTML, c.goldens["render.golden"])
 					if derr != nil {
 						t.Fatal(derr)
 					}

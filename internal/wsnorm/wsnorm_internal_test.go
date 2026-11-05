@@ -1,10 +1,13 @@
 package wsnorm
 
-import "testing"
+import (
+	"testing"
 
-// This file holds white-box tests of normalizeText, wsnorm's unexported
-// per-Text rule — the only reason this package needs an in-package (not
-// wsnorm_test) test file. Everything else lives in wsnorm_test.go as a
+	"github.com/gsxhq/gsx/ast"
+)
+
+// This file tests one-Text source regions directly, requiring an in-package
+// (not wsnorm_test) test file. Everything else lives in wsnorm_test.go as a
 // black-box test of the exported API: parser/markup.go now imports wsnorm
 // (for the shared IsPreserveTag predicate), so an in-package test file that
 // also imported parser (for its .gsx-parsing helper) would create an import
@@ -39,7 +42,20 @@ func TestNormalizeText(t *testing.T) {
 		// Trailing newline edge → no space.
 		{"trail newline", "world\n", "world", true},
 		{"trail newline+indent", "world\n  ", "world", true},
-		// Internal run collapse.
+		// Inline and newline runs preserve the same authored separator.
+		{"internal percent", "42\n %", "42 %", true},
+		{"internal explicit percent", "42 %", "42 %", true},
+		{"internal punctuation", "Hello\n !", "Hello !", true},
+		{"internal opening", "(\n word", "( word", true},
+		{"internal ellipsis", "word\n …", "word …", true},
+		{"internal period ellipsis", "word\n ...", "word ...", true},
+		{"internal percent entity", "42\n &#37;", "42 &#37;", true},
+		{"internal opening entity", "&lpar;\n word", "&lpar; word", true},
+		{"internal ellipsis entity", "word\n &hellip;", "word &hellip;", true},
+		{"internal entity gap left", "a&nbsp;\n b", "a&nbsp; b", true},
+		{"internal entity gap right", "a\n &nbsp;b", "a &nbsp;b", true},
+		{"internal Unicode gap", "a\u00a0\n b", "a\u00a0 b", true},
+		{"internal explicit entity gap", "a&nbsp; b", "a&nbsp; b", true},
 		{"internal collapse", "foo   bar", "foo bar", true},
 		{"internal tabs", "foo\t\tbar", "foo bar", true},
 		{"internal newline", "foo\nbar", "foo bar", true},
@@ -50,10 +66,8 @@ func TestNormalizeText(t *testing.T) {
 		// Content-only unchanged.
 		{"content only", "hello", "hello", true},
 		{"content with single internal space", "a b", "a b", true},
-		// Empty string: not all-whitespace by our rule? Empty has no newline and is
-		// all-whitespace vacuously; treat as the no-newline all-ws → " ".
-		// (Parser never emits empty Text; documented behavior.)
-		{"empty", "", " ", true},
+		// An empty Text contributes no source bytes and disappears.
+		{"empty", "", "", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,4 +95,10 @@ func TestNormalizeTextIdempotent(t *testing.T) {
 			t.Fatalf("normalizeText not idempotent: %q → %q → (%q, keep=%v)", in, out, out2, keep2)
 		}
 	}
+}
+
+func normalizeText(value string) (string, bool) {
+	text := &ast.Text{Value: value}
+	normalizeTextRegion([]ast.Markup{text}, false, false)
+	return text.Value, text.Value != ""
 }

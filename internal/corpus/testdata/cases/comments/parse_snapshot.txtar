@@ -33,11 +33,13 @@ File package=p
       CommentAttr block=false trailing=true text="trailing note"
       CommentAttr block=true trailing=false text="block note"
       CommentAttr block=true trailing=false text="braced note"
+    Text value="\n\t"
     Element tag=p void=false
       Comment block=true bare=false text="block"
       Text value="Visible"
       Comment block=false bare=false text="line"
       Text value="text // literal"
+    Text value="\n\t"
     Element tag=div void=false
       Text value="\n\t\t"
       Element tag=span void=false

@@ -116,10 +116,6 @@ casefold/switch_before_spread	diag gen render
 casefold/two_bags	diag gen render
 casefold/url_after_spread	diag gen render
 casefold/url_before_spread	diag gen render
-childspacing/branches	diag render
-childspacing/flagged	diag render
-childspacing/quiet	diag render
-childspacing/renderers	diag render
 class/bag_literal_part	diag gen render
 class/body_local_in_class	diag gen render
 class/body_local_pipe_class	diag gen render
@@ -1112,14 +1108,24 @@ verbatim/class_style_targets	diag gen render
 verbatim/core_positional	diag gen render
 verbatim/direct_go_signature	diag gen render
 verbatim/zero_inference_xpkg	diag gen render
+whitespace/authored_boundaries	diag render
+whitespace/dynamic_siblings	diag render
 whitespace/edges	diag gen render
 whitespace/element_baseline	diag gen render
 whitespace/interior_for	diag gen render
 whitespace/interior_if_else	diag gen render
 whitespace/interior_switch	diag gen render
 whitespace/layout_title	diag gen render
+whitespace/normalized_prose_go_values	diag gen render
+whitespace/normalized_prose_internal	diag gen render
+whitespace/normalized_prose_root_slots	diag gen render
+whitespace/normalized_prose_rules	diag gen render
 whitespace/pre_nested	diag gen render
+whitespace/source_comment_runs	diag gen render
+whitespace/source_sibling_boundaries	diag gen render
+whitespace/switch_adjacency	diag gen render
 whitespace/switch_two_arm	diag gen render
+whitespace/text_beside_siblings	diag render
 whitespace/unicode_space_text	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
@@ -1139,4 +1145,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1141 cases (render: 970, error: 133, gen-pinned: 644)
+TOTAL: 1147 cases (render: 976, error: 133, gen-pinned: 651)

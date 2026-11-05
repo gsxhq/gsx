@@ -466,7 +466,7 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 	body := pretty.Text("")
 	if len(c.Body) > 0 {
 		inner, _ := p.childrenInner(c.Body)
-		if leadsWithSpace(c.Body[0]) || trailsWithSpace(c.Body[len(c.Body)-1]) {
+		if sourceEdgeHasSpace(c.Body, true) || sourceEdgeHasSpace(c.Body, false) {
 			// edge-unsafe: keep inline so no newline absorbs the significant space
 			return pretty.Concat(pretty.Concat(head...), inner, pretty.Text("}"), pretty.HardLine)
 		}
@@ -694,13 +694,27 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		// slot open and land each sibling on its own indented line, instead of
 		// gluing onto the prior sibling and reparsing as text.
 		inner, breakable := p.childrenInner(v.Value)
+		textTail := false
+		if len(v.Value) > 0 {
+			_, textTail = v.Value[len(v.Value)-1].(*ast.Text)
+		}
 		if !breakable {
 			// Empty or edge-unsafe value: keep the canonical inline padding so a
 			// significant leading/trailing space is never absorbed by a break.
-			return pretty.Concat(pretty.Text(v.Name), pretty.Text("={ "), inner, pretty.Text(" }"))
+			close := " }"
+			if textTail {
+				close = "}"
+			}
+			return pretty.Concat(pretty.Text(v.Name), pretty.Text("={ "), inner, pretty.Text(close))
 		}
 		// Breakable: flat → `name={ value }`; broken (width overflow or a child's
 		// BreakParent) → `name={` / value indented one level / `}`.
+		if textTail {
+			// Flat closing padding would become trailing Text data. A broken
+			// closing newline is layout; edge-significant values stayed flat above.
+			return pretty.Group(pretty.Concat(pretty.Text(v.Name+"={"),
+				pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.SoftLine, pretty.Text("}")))
+		}
 		return wrapAttrValue(v.Name, pretty.Line, inner)
 	default:
 		return pretty.Text(attrInline(a))
@@ -1246,7 +1260,7 @@ func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	// trails with one, that break would absorb the space and change the
 	// normalized AST. Keep such bodies flat (single-space padded), matching the
 	// edge guard segmentChildren already enforces for element children.
-	if leadsWithSpace(nodes[0]) || trailsWithSpace(nodes[len(nodes)-1]) {
+	if sourceEdgeHasSpace(nodes, true) || sourceEdgeHasSpace(nodes, false) {
 		return pretty.Concat(pretty.Text(" "), inner, pretty.Text(" "))
 	}
 	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.Line)
@@ -1339,7 +1353,7 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 // edge space if the switch were laid out multi-line (HardLine after each arm).
 func switchHasEdgeUnsafeArm(s *ast.SwitchMarkup) bool {
 	for _, c := range s.Cases {
-		if len(c.Body) > 0 && (leadsWithSpace(c.Body[0]) || trailsWithSpace(c.Body[len(c.Body)-1])) {
+		if len(c.Body) > 0 && (sourceEdgeHasSpace(c.Body, true) || sourceEdgeHasSpace(c.Body, false)) {
 			return true
 		}
 	}
@@ -1386,7 +1400,7 @@ func (p *printer) caseBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	// brace-interior whitespace (trimBodyEdges), so it never reaches the AST and
 	// re-parsing this output yields the same body. An arm whose body genuinely
 	// leads with a significant space supplies its own and must not be doubled.
-	if !leadsWithSpace(nodes[0]) {
+	if !sourceEdgeHasSpace(nodes, true) {
 		return pretty.Concat(pretty.Text(" "), inner)
 	}
 	return inner

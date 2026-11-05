@@ -18,8 +18,8 @@ import (
 // requires the number of line breaks on spacing-bonded boundaries (text and
 // the inline content it touches, comments and Go blocks between included) to
 // stay the same: the formatter never writes such a break (gsxhq/gsx#260) and
-// never removes one the author wrote. Unlike the child-element-spacing lint,
-// this also sees a break beside a comment or Go block in the run.
+// never removes one the author wrote in a remaining bonded run. This also
+// sees breaks beside comments or Go blocks.
 func TestFmtKeepsBondedBreaks(t *testing.T) {
 	t.Parallel()
 	srcs := corpusGsxSources(t)
@@ -122,20 +122,34 @@ func bondedBreaks(src string) (int, bool) {
 	return n, true
 }
 
-// lostSpaceRuns marks each boundary (before nodes[i]) between a Text and the
-// inline content it faces, straight from wsnorm.Spacing. It is the test's own
-// oracle, kept apart from spacingBonds so a bug there cannot hide here.
+// lostSpaceRuns marks source boundaries with no normalized separator. The
+// formatter bonds additional spaced boundaries to retain whitespace placement
+// across comments, but those may flatten an authored break without changing text.
 func lostSpaceRuns(nodes []ast.Markup) []bool {
-	var sp wsnorm.Spacing
 	in := make([]bool, len(nodes))
-	for i := range nodes {
-		if j, ok := sp.DroppedBreakLoses(nodes, i, 1); ok {
-			for k := i + 1; k <= j; k++ {
-				in[k] = true
-			}
+	for i, node := range nodes {
+		text, ok := node.(*ast.Text)
+		if !ok || strings.Trim(text.Value, " ") == "" {
+			continue
 		}
-		if j, ok := sp.DroppedBreakLoses(nodes, i, -1); ok {
-			for k := j + 1; k <= i; k++ {
+		for _, dir := range []int{-1, 1} {
+			if dir < 0 && strings.HasPrefix(text.Value, " ") || dir > 0 && strings.HasSuffix(text.Value, " ") {
+				continue
+			}
+			j, ok := wsnorm.TextBoundarySibling(nodes, i, dir)
+			if !ok || wsnorm.IsSourceTransparent(nodes[j]) {
+				continue
+			}
+			if other, ok := nodes[j].(*ast.Text); ok {
+				if dir < 0 && strings.HasSuffix(other.Value, " ") || dir > 0 && strings.HasPrefix(other.Value, " ") {
+					continue
+				}
+			}
+			from, to := i, j
+			if from > to {
+				from, to = to, from
+			}
+			for k := from + 1; k <= to; k++ {
 				in[k] = true
 			}
 		}

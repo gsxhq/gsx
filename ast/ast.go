@@ -260,10 +260,10 @@ func (*Element) markupNode() {}
 type Leading struct {
 	// LeadingBreak records that the source placed a line break in the
 	// whitespace immediately before this node in its children list — for a
-	// Text, in its own leading whitespace, which normalization drops. The
+	// Text, in its own leading whitespace, which normalization may collapse. The
 	// formatter keeps such a break at an element's or interpolation's
-	// render-free boundary, and wherever text touches inline content (so a
-	// child-element-spacing warning on the source stays visible).
+	// render-free boundary, while preserving the source's text adjacency under
+	// the shared prose normalization rules.
 	LeadingBreak bool
 }
 

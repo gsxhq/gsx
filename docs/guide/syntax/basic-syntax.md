@@ -44,3 +44,27 @@ A lowercase component can wrap the HTML element with the same name. Inside `comp
 <!--@include: ./_generated/basic-syntax/020-wrapper-pattern.md-->
 
 Other lowercase tags still follow the normal declaration rule. To recurse from a lowercase component, use an ordinary Go call rather than a self-named tag.
+
+## Whitespace {#whitespace}
+
+Whitespace collapses as in HTML, with one exception:
+
+- A whitespace run containing a newline is layout and disappears when it
+  sits between two tags or expressions, or at the start or end of a body.
+- Every other whitespace run becomes one space, whatever sits next to it.
+- Expression values such as `{ " " }` are emitted as written.
+
+```gsx
+<p>Hello
+    <em>world</em>
+</p>
+<span>A</span>
+<span>B</span>
+```
+
+renders `<p>Hello <em>world</em></p><span>A</span><span>B</span>`.
+
+Write content adjacent to keep it joined: `{ value }%`, `Total{ if ok { … } }`.
+A source space stays even when its neighbor renders nothing. Comments and Go
+blocks don't split a whitespace run. `pre`, `textarea`, `script` and `style`
+content is verbatim.

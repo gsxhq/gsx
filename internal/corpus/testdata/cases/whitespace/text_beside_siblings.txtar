@@ -1,0 +1,72 @@
+A newline between text and any sibling renders one space: elements, nested
+inline markup, interpolations, comments, if/for blocks, fragments, slot
+values and Go-expression elements.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component C(name string, n int, items []string) {
+	<p id="before-a">
+		Report template:
+		<a href="/t">{ name }</a>
+		and more
+	</p>
+	<p id="trailing-space-too">
+		Hello  
+		<b>{ name }</b>
+	</p>
+	<p id="interp">
+		Count:
+		{ n }
+		items
+	</p>
+	<p id="nested-inline">
+		See
+		<span><em>this</em></span>
+	</p>
+	<p id="across-comment">
+		one
+		{/* note */}
+		two
+	</p>
+	<p id="if-branch">
+		Status
+		{ if n > 0 {
+			<strong>ok</strong>
+		} }
+	</p>
+	<p id="if-may-be-empty">
+		Following:
+		{ for i, it := range items {
+			{ if i > 0 {
+				,{ " " }
+			} }
+			{ it }
+		} }
+	</p>
+	<p id="fragment">
+		x
+		<>y</>
+	</p>
+	<Box head={ <h2>
+		Title
+		<small>{ name }</small>
+	</h2> }/>
+}
+
+component Box(head gsx.Node) {
+	<section>{ head }</section>
+}
+
+var help = (
+	<span>
+		Read the
+		<a href="/docs">docs</a>
+	</span>
+)
+-- invoke --
+C("X", 3, []string{"a", "b"})
+-- render.golden --
+<p id="before-a">Report template: <a href="/t">X</a> and more</p><p id="trailing-space-too">Hello <b>X</b></p><p id="interp">Count: 3 items</p><p id="nested-inline">See <span><em>this</em></span></p><p id="across-comment">one two</p><p id="if-branch">Status <strong>ok</strong></p><p id="if-may-be-empty">Following: a, b</p><p id="fragment">x y</p><section><h2>Title <small>X</small></h2></section>
+-- diagnostics.golden --

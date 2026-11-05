@@ -142,9 +142,9 @@ func TestFillParts(t *testing.T) {
 		// one unbreakable cluster.
 		{"wrap", `<p>alpha beta <code>x</code> gamma delta epsilon</p>`, 27,
 			"alpha\nbeta <code>x</code> gamma\ndelta epsilon"},
-		// Direct adjacency is a safe gap: over-narrow width may break after
-		// </code> before the bonded-nothing period cluster... but greedy fill
-		// keeps 1-char punctuation attached at any sane width.
+		// Direct prose adjacency is bonded: a break before punctuation would
+		// introduce a separator. This remains joined at narrow widths too.
+		{"joined percent narrow", `<p>{value}%</p>`, 1, "{ value }%"},
 		{"punct", `<p>uses <code>x</code>, and <code>y</code>.</p>`, 80,
 			"uses <code>x</code>, and <code>y</code>."},
 		// {" "} bonds left, safe gap right.

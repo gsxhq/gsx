@@ -175,8 +175,7 @@ gsx generate --json ./views
 | `1` | A source diagnostic or operational error prevented generation. |
 | `2` | The command, configuration, or a path was invalid. |
 
-Warnings, such as a `duplicate-attribute` or a dropped space
-(`child-element-spacing`), are printed but do not change the exit status.
+Warnings, such as `duplicate-attribute`, are printed but do not change the exit status.
 The `[lint]` table in `gsx.toml` can turn each lint off or make it an error;
 see [Lints](./config.md#lint).
 
@@ -265,7 +264,8 @@ breaks their children open to meet the width budget. If a line has no other
 legal break point, it stays over budget rather than exploding an inline
 element.
 
-Long prose wraps between words instead: a newline between two words collapses back to a single space, a newline where two pieces of markup touch adds nothing, but a newline against a space next to a tag would delete that space — so the formatter only ever breaks where no space can be lost.
+Long prose wraps between words. The formatter never adds whitespace where
+text and markup touch.
 
 `{" "}` sticks to the word before it and never starts a line.
 

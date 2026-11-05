@@ -364,34 +364,19 @@ func (p *parser) braceKeyword() string {
 	return ""
 }
 
-// parseMarkupUntilClose parses a markup sequence terminated by the matching
-// top-level '}', which it consumes. `what` names the enclosing construct for the
-// unterminated-EOF error (e.g. "control-flow body", "component body"). Inter-node
-// whitespace is skipped; text within nodes is preserved. The terminating '}' is
-// the first top-level '}'; a '}' inside a nested element's text or a `{…}`
-// construct is consumed by those sub-parsers, not seen here.
+// parseMarkupUntilClose captures source markup up to its matching top-level
+// '}'. Whitespace is text here, just as in element children; normalization owns
+// its meaning. Only padding immediately inside syntactic braces is trimmed.
 func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
-	return p.parseMarkupUntilCloseWS(what, false)
-}
-
-// parseMarkupUntilCloseWS is parseMarkupUntilClose with control over inter-node
-// whitespace. When preserveWS is false (markup-attribute slots) leading
-// whitespace before each node is skipped, as before. When true (control-flow
-// bodies) whitespace falls into parseTextCtx and becomes a text node for wsnorm;
-// parseControlBody then trims the brace-interior edges via trimBodyEdges.
-func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
-		if !preserveWS {
-			p.skipSpace()
-		}
 		if p.eof() {
 			return nil, p.errorf(p.pos(), "unterminated %s, expected `}`", what)
 		}
 		switch {
 		case p.peek() == '}':
 			p.i++ // consume the closing brace
-			return nodes, nil
+			return trimBodyEdges(nodes), nil
 		case p.peek() == '<':
 			leadingBreak := newlineBefore(p.src, p.i)
 			el, err := p.parseElement()
@@ -420,44 +405,59 @@ func (p *parser) parseMarkupUntilCloseWS(what string, preserveWS bool) ([]ast.Ma
 // The cursor must be just past the opening '{'. Interior whitespace is preserved
 // for wsnorm; whitespace immediately inside the braces is trimmed.
 func (p *parser) parseControlBody() ([]ast.Markup, error) {
-	nodes, err := p.parseMarkupUntilCloseWS("control-flow body", true)
-	if err != nil {
-		return nil, err
-	}
-	return trimBodyEdges(nodes), nil
+	return p.parseMarkupUntilClose("control-flow body")
 }
 
-// trimBodyEdges strips whitespace immediately inside the control-flow body
-// braces: the leading whitespace of the first node and the trailing whitespace
-// of the last node, when those nodes are Text. This mirrors how gsx trims the
-// interior of `{ expr }` and `{{ code }}`. Interior whitespace between nodes is
-// left for wsnorm's JSX rule. An emptied edge Text node is dropped.
+// trimBodyEdges strips padding immediately inside syntactic markup-body
+// braces (component, slot and control-flow), looking through transparent source
+// comments and Go blocks. Interior whitespace remains for normalization; only
+// emptied edge Text nodes disappear. This mirrors `{ expr }` and `{{ code }}`.
 func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
-	if len(nodes) > 0 {
-		if t, ok := nodes[0].(*ast.Text); ok {
-			t.Value = strings.TrimLeft(t.Value, " \t\r\n")
-			if t.Value == "" {
-				nodes = nodes[1:]
+	for _, dir := range []int{1, -1} {
+		start := 0
+		if dir < 0 {
+			start = len(nodes) - 1
+		}
+		for i := start; i >= 0 && i < len(nodes); i += dir {
+			if wsnorm.IsSourceTransparent(nodes[i]) {
+				continue
+			}
+			text, ok := nodes[i].(*ast.Text)
+			if !ok {
+				break
+			}
+			trimmed := strings.TrimLeft(text.Value, " \t\r\n")
+			if dir < 0 {
+				trimmed = strings.TrimRight(text.Value, " \t\r\n")
+			}
+			if text.Pos().IsValid() {
+				n := token.Pos(len(text.Value) - len(trimmed))
+				if dir > 0 {
+					ast.SetSpan(text, text.Pos()+n, text.End())
+				} else {
+					ast.SetSpan(text, text.Pos(), text.End()-n)
+				}
+			}
+			text.Value = trimmed
+			if dir > 0 {
+				text.LeadingBreak = false
+			}
+			if trimmed != "" {
+				break
 			}
 		}
 	}
-	if len(nodes) > 0 {
-		if t, ok := nodes[len(nodes)-1].(*ast.Text); ok {
-			t.Value = strings.TrimRight(t.Value, " \t\r\n")
-			if t.Value == "" {
-				nodes = nodes[:len(nodes)-1]
-			}
+	out := nodes[:0]
+	for _, node := range nodes {
+		if text, ok := node.(*ast.Text); ok && text.Value == "" {
+			continue
 		}
+		out = append(out, node)
 	}
-	// A body that trims down to nothing must be represented identically to a
-	// literally-empty `{}` body (nil), not a non-nil empty slice left over from
-	// reslicing — otherwise the two are only render-equivalent, not
-	// structurally equal, and AST-faithfulness comparisons (e.g. fmt idempotence)
-	// see a spurious diff.
-	if len(nodes) == 0 {
+	if len(out) == 0 {
 		return nil
 	}
-	return nodes
+	return out
 }
 
 // parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has

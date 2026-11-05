@@ -1,0 +1,72 @@
+Source text adjacency is protected beside every sibling, including components,
+void tags, blocks and expressions. Authored separators may wrap without
+inspecting the sibling's output; inter-tag indentation remains layout.
+-- input.gsx --
+package p
+component Page(value string, ok bool) {
+	<p>Hello<Link class="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">world</Link>!</p>
+	<p>Read<img src="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>more</p>
+	<section>Before<div class="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">block</div>after</section>
+	<p>Hello
+		<Link>world</Link></p>
+	<p>Read
+		<img/>
+		more</p>
+	<p>Hello
+		{ if ok { <Empty/> } }
+		world</p>
+	<p>{value}%</p>
+	<p>{value}
+		%</p>
+	<p>Hello{/* first */}
+		{/* second */}world</p>
+	<p>Hello<!-- first -->
+		<!-- second -->world</p>
+	<p>Hello {/* comment */} world</p>
+	<p>  {/* first */}  {/* second */}   </p>
+	<p><!-- first --> Hello</p>
+	<p>Hello <!-- last --></p>
+	<p><!-- first --> <!-- second --></p>
+}
+-- fmt.golden --
+package p
+
+component Page(value string, ok bool) {
+	<p>
+		Hello<Link
+			class="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+		>
+			world
+		</Link>!
+	</p>
+	<p>
+		Read<img src="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>more
+	</p>
+	<section>
+		Before<div
+			class="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+		>
+			block
+		</div>after
+	</section>
+	<p>
+		Hello <Link>world</Link>
+	</p>
+	<p>Read <img/> more</p>
+	<p>
+		Hello { if ok {
+			<Empty/>
+		} } world
+	</p>
+	<p>{ value }%</p>
+	<p>{ value } %</p>
+	<p>Hello{/* first */} {/* second */}world</p>
+	<p>
+		Hello<!-- first --> <!-- second -->world
+	</p>
+	<p>Hello {/* comment */}world</p>
+	<p> {/* first */}{/* second */}</p>
+	<p><!-- first --> Hello</p>
+	<p>Hello <!-- last --></p>
+	<p><!-- first --> <!-- second --></p>
+}

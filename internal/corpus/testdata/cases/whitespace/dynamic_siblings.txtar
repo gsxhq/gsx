@@ -1,0 +1,42 @@
+A newline beside a marker region, f-literal, (T, error) interpolation or
+unmatched switch renders one space regardless of what the sibling emits.
+&nbsp; is data, so the source space is added beside it.
+-- input.gsx --
+package views
+
+func pair(s string) (string, error) { return s, nil }
+
+component C(name string, n int) {
+	<p id="region">
+		Loading
+		<?start name="feed">
+			<b>{ name }</b>
+		<?end>
+	</p>
+	<p id="f-literal">
+		Hi
+		{f`@{name}!`}
+	</p>
+	<p id="tuple">
+		Name:
+		{ pair(name) }
+	</p>
+	<p id="switch-no-default">
+		Total
+		{ switch n {
+			case 0:
+				<div>none</div>
+		} }
+		<b>{ n }</b>
+	</p>
+	<p id="nbsp">
+		foo&nbsp;
+		<b>x</b>
+		&nbsp;bar
+	</p>
+}
+-- invoke --
+C("X", 3)
+-- diagnostics.golden --
+-- render.golden --
+<p id="region">Loading <?start name="feed"><b>X</b><?end></p><p id="f-literal">Hi X!</p><p id="tuple">Name: X</p><p id="switch-no-default">Total <b>3</b></p><p id="nbsp">foo&nbsp; <b>x</b> &nbsp;bar</p>

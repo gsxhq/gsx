@@ -29,9 +29,9 @@ func writeRelocatableModule(t *testing.T, root string) {
 	}
 }
 
-// relocatableSrc carries one child-element-spacing warning, so the test also
+// relocatableSrc carries one duplicate-attribute warning, so the test also
 // pins that a hit reports its stored warning under the hitting checkout.
-const relocatableSrc = "package v\n\ncomponent A(name string) {\n\t<p>\n\t\tHi\n\t\t<b>{name}</b>\n\t</p>\n}\n"
+const relocatableSrc = "package v\n\ncomponent A(name string) {\n\t<p>\n\t\t<b title=\"a\" title=\"b\">{name}</b>\n\t</p>\n}\n"
 
 // assertOneWarningIn fails unless res holds exactly one diagnostic: the
 // fixture's warning, positioned in v/v.gsx under root.
@@ -42,8 +42,8 @@ func assertOneWarningIn(t *testing.T, res Result, root string) {
 	}
 	d := res.Diags[0]
 	want := filepath.Join(root, "v", "v.gsx")
-	if d.Code != diag.CodeChildElementSpacing || d.Severity != diag.Warning || d.Start.Filename != want || d.End.Filename != want || d.Start.Line != 5 {
-		t.Fatalf("warning = %+v, want child-element-spacing at %s:5", d, want)
+	if d.Code != diag.CodeDuplicateAttribute || d.Severity != diag.Warning || d.Start.Filename != want || d.End.Filename != want || d.Start.Line != 5 || d.Start.Column != 16 || d.End.Line != 5 || d.End.Column != 25 {
+		t.Fatalf("warning = %+v, want duplicate-attribute at %s:5", d, want)
 	}
 }
 

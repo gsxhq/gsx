@@ -2210,8 +2210,8 @@ func TestLeadingBreakFlag(t *testing.T) {
 }
 
 // TestLeadingBreakEveryMarkupKind pins the fact on the kinds that gained it
-// for child-element-spacing (gsxhq/gsx#260): a Text records a line break in
-// its own leading whitespace (which normalization drops), and control-flow
+// for spacing bonds (gsxhq/gsx#260): a Text records a line break in
+// its own leading whitespace (which normalization may collapse), and control-flow
 // blocks and comments record one before them like elements do.
 func TestLeadingBreakEveryMarkupKind(t *testing.T) {
 	t.Parallel()

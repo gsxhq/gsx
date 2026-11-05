@@ -1,8 +1,8 @@
-// Package wsnorm implements the gsx JSX-style whitespace normalization pass.
+// Package wsnorm implements the gsx normalized whitespace pass.
 //
 // Normalize is a pure, in-place AST transform: within each non-preserved children
-// list it collapses cosmetic indentation and inter-content whitespace exactly as
-// React/Babel handle JSXText, while leaving Go fragments, static attributes,
+// list it discards layout-only indentation and preserves prose word boundaries,
+// while leaving Go fragments, static attributes,
 // Doctype/HTMLComment, and the whitespace-significant elements (pre, textarea,
 // script, style) byte-for-byte unchanged.
 //
@@ -24,8 +24,8 @@ import (
 // Elements embedded directly in Go-expression position (ast.GoWithElements,
 // e.g. `var help = <a href={u}>{ label }</a>`) are reached too: each is a
 // markup subtree exactly like a component's body, just rooted at a
-// GoWithElements Part instead of a Component.Body, so it needs the same JSX
-// whitespace collapsing. Skipping it would leave an embedded element's Text
+// GoWithElements Part instead of a Component.Body, so it needs the same
+// whitespace normalization. Skipping it would leave an embedded element's Text
 // children un-normalized, which surfaces as a real fmt bug: a re-printed,
 // width-broken element's freshly-introduced cosmetic newlines never collapse
 // back out on the next parse/print pass, so fmt fails its idempotence
@@ -84,59 +84,57 @@ func IsPreserveTag(tag string) bool {
 // (possibly shorter) slice. When preserve is true, Text nodes are kept verbatim
 // but the structure is still walked so that nested attributes/slots are reached.
 func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
-	out := nodes[:0]
 	for _, n := range nodes {
 		switch v := n.(type) {
-		case *ast.Text:
-			if preserve {
-				out = append(out, v)
-				continue
-			}
-			norm, keep := normalizeText(v.Value)
-			if !keep {
-				// Drop the emptied text node entirely.
-				continue
-			}
-			v.Value = norm
-			// Exact text spans are not load-bearing for codegen/fmt; we keep the
-			// node's original Pos/End rather than re-deriving a span for the
-			// rewritten value. (Documented choice: re-span to the original.)
-			ast.SetSpan(v, v.Pos(), v.End())
-			out = append(out, v)
 		case *ast.Element:
 			childPreserve := preserve || IsPreserveTag(v.Tag)
 			v.Children = normalizeMarkup(v.Children, childPreserve)
 			// Attribute markup slots are reached regardless of element preserve:
 			// a slot is a fresh expression-boundary context (see normalizeAttrs).
 			normalizeAttrs(v.Attrs)
-			out = append(out, v)
 		case *ast.Fragment:
 			v.Children = normalizeMarkup(v.Children, preserve)
-			out = append(out, v)
 		case *ast.MarkerRegion:
 			// Like Fragment: no wrapper tag, so no isPreserveTag override — a
 			// region's children normalize in the ambient preserve context. (Marker
 			// is void — no Children — so it needs no case here; it already falls
 			// through to default untouched, which is correct.)
 			v.Children = normalizeMarkup(v.Children, preserve)
-			out = append(out, v)
 		case *ast.IfMarkup:
 			v.Then = normalizeMarkup(v.Then, preserve)
 			v.Else = normalizeMarkup(v.Else, preserve)
-			out = append(out, v)
 		case *ast.ForMarkup:
 			v.Body = normalizeMarkup(v.Body, preserve)
-			out = append(out, v)
 		case *ast.SwitchMarkup:
 			for i := range v.Cases {
 				v.Cases[i].Body = normalizeMarkup(v.Cases[i].Body, preserve)
 			}
-			out = append(out, v)
 		default:
 			// *Interp, *GoBlock, *Doctype, *HTMLComment and any other leaf:
 			// untouched.
-			out = append(out, n)
 		}
+	}
+	if preserve {
+		return nodes
+	}
+	for start := 0; start < len(nodes); {
+		if !isTextRegionNode(nodes[start]) {
+			start++
+			continue
+		}
+		end := start + 1
+		for end < len(nodes) && isTextRegionNode(nodes[end]) {
+			end++
+		}
+		normalizeTextRegion(nodes[start:end], sourceSibling(nodes, start-1), sourceSibling(nodes, end))
+		start = end
+	}
+	out := nodes[:0]
+	for _, node := range nodes {
+		if text, ok := node.(*ast.Text); ok && text.Value == "" {
+			continue
+		}
+		out = append(out, node)
 	}
 	return out
 }
@@ -162,85 +160,65 @@ func normalizeAttrs(attrs []ast.Attr) {
 	}
 }
 
-// normalizeText applies the per-Text JSX whitespace rule to a single Text value.
-//
-// Whitespace = ASCII space, tab, '\n', '\r' (per HTML/JSX; Unicode spaces are
-// intentionally not treated as collapsible whitespace).
-//
-//   - If v is ALL whitespace: drop it (keep=false) when it contains a newline
-//     (\n or \r) — cosmetic indentation; otherwise return a single inline space
-//     " " (keep=true).
-//   - Else: split into lead (leading whitespace run), core (the middle) and trail
-//     (trailing whitespace run); collapse every internal whitespace run in core to
-//     a single space. The result is core, prefixed with a space iff lead is
-//     non-empty AND contains no newline, and suffixed with a space iff trail is
-//     non-empty AND contains no newline.
-func normalizeText(v string) (out string, keep bool) {
-	if v == "" {
-		// The parser never emits empty Text; treat empty as no-newline all-ws.
-		return " ", true
-	}
-	if isAllWhitespace(v) {
-		if containsNewline(v) {
-			return "", false
-		}
-		return " ", true
-	}
-
-	leadEnd := 0
-	for leadEnd < len(v) && isWS(v[leadEnd]) {
-		leadEnd++
-	}
-	trailStart := len(v)
-	for trailStart > leadEnd && isWS(v[trailStart-1]) {
-		trailStart--
-	}
-	lead := v[:leadEnd]
-	core := v[leadEnd:trailStart]
-	trail := v[trailStart:]
-
-	var b strings.Builder
-	if lead != "" && !containsNewline(lead) {
-		b.WriteByte(' ')
-	}
-	collapseInto(&b, core)
-	if trail != "" && !containsNewline(trail) {
-		b.WriteByte(' ')
-	}
-	return b.String(), true
-}
-
-// collapseInto writes core to b, collapsing every internal whitespace run to a
-// single space. core has no leading or trailing whitespace.
-func collapseInto(b *strings.Builder, core string) {
-	inWS := false
-	for i := 0; i < len(core); i++ {
-		c := core[i]
-		if isWS(c) {
-			inWS = true
+// normalizeTextRegion scans Text separated only by source-transparent nodes as
+// one text stream. A whitespace run belongs to its first contributing Text;
+// no substantive bytes move across comments or Go statements.
+func normalizeTextRegion(nodes []ast.Markup, before, after bool) {
+	var pending *ast.Text
+	newline, content := false, false
+	for _, node := range nodes {
+		text, ok := node.(*ast.Text)
+		if !ok {
 			continue
 		}
-		if inWS {
-			b.WriteByte(' ')
-			inWS = false
+		raw := text.Value
+		var out strings.Builder
+		for i := 0; i < len(raw); {
+			if isWS(raw[i]) {
+				if pending == nil {
+					pending = text
+				}
+				newline = newline || raw[i] == '\n' || raw[i] == '\r'
+				i++
+				continue
+			}
+			if pending != nil {
+				if !newline || content || before {
+					if pending == text {
+						out.WriteByte(' ')
+					} else {
+						pending.Value += " "
+					}
+				}
+				pending, newline = nil, false
+			}
+			start := i
+			for i < len(raw) && !isWS(raw[i]) {
+				i++
+			}
+			out.WriteString(raw[start:i])
+			content = true
 		}
-		b.WriteByte(c)
+		text.Value = out.String()
 	}
+	if pending != nil && (!newline || content && after) {
+		pending.Value += " "
+	}
+}
+
+func isTextRegionNode(node ast.Markup) bool {
+	_, text := node.(*ast.Text)
+	return text || IsSourceTransparent(node)
+}
+
+func sourceSibling(nodes []ast.Markup, i int) bool {
+	if i < 0 || i >= len(nodes) {
+		return false
+	}
+	comment, ok := nodes[i].(*ast.Comment)
+	return !ok || !comment.Bare
 }
 
 func isWS(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
-}
-
-func isAllWhitespace(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if !isWS(s[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func containsNewline(s string) bool {
-	return strings.IndexByte(s, '\n') >= 0 || strings.IndexByte(s, '\r') >= 0
 }

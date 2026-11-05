@@ -60,13 +60,13 @@ func TestNormalizeInlineSpaceKept(t *testing.T) {
 	}
 }
 
-func TestNormalizeNewlineEdgeDropped(t *testing.T) {
-	// The parser emits Text "y\n" after <b>x</b>; wsnorm drops the trailing
-	// newline edge (cosmetic indentation before the closing brace) → "y".
+func TestNormalizeRootProseBoundary(t *testing.T) {
+	// Root prose has the same inferred separator as text inside an element.
+	// The trailing newline before the component closing brace remains layout.
 	f := parse(t, "<b>x</b>\ny")
 	wsnorm.Normalize(f)
 	got := collectText(f)
-	want := []string{"x", "y"}
+	want := []string{"x", " y"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("text nodes = %#v, want %#v", got, want)
 	}
@@ -313,7 +313,7 @@ func TestStyleInterpPreserved(t *testing.T) {
 
 // TestGoWithElementsNormalized confirms an element sitting in Go-expression
 // position (e.g. `var help = <div>...</div>`, parsed as *ast.GoWithElements,
-// not *ast.Component) gets the SAME JSX whitespace collapsing as a component
+// not *ast.Component) gets the same source whitespace normalization as a component
 // body element: cosmetic block indentation is dropped, inline runs collapse
 // to a single space. Before this case existed, Normalize only walked
 // f.Decls for *ast.Component, silently skipping GoWithElements — a gap that
@@ -355,7 +355,7 @@ func TestGoWithElementsPreserveTag(t *testing.T) {
 // TestNormalizeFragmentExpressionValue confirms a fragment sitting in
 // Go-expression position (e.g. `var x = <>...</>`, parsed as a
 // *ast.Fragment Go part of a GoWithElements decl, not a Component body) gets
-// the SAME JSX whitespace collapsing as a fragment in a component body: its
+// the same source whitespace normalization as a fragment in a component body: its
 // inter-element cosmetic whitespace text nodes normalize identically either
 // way. Before the GoWithElements branch's type switch grew a *ast.Fragment
 // case, this fragment's children were never normalized at all (the branch
@@ -380,11 +380,102 @@ func TestNormalizeFragmentExpressionValue(t *testing.T) {
 	}
 	// The wrapping whitespace around <a>{ v }</a> is all-whitespace with no
 	// newline, so it collapses to a single inline space rather than being
-	// dropped outright — same rule normalizeText applies everywhere else.
+	// dropped outright — same source normalization rule applies everywhere else.
 	// (The `{ v }` interpolation itself is an *ast.Interp, not *ast.Text, so
 	// it never shows up in collectText's output.)
 	wantText := []string{" ", " "}
 	if !reflect.DeepEqual(got, wantText) {
 		t.Fatalf("text nodes = %#v, want %#v", got, wantText)
+	}
+}
+
+func TestNormalizeProseBoundaryRules(t *testing.T) {
+	cases := []struct {
+		name, body string
+		want       []string
+	}{
+		{"component prose", "<p>Hello\n<Link>world</Link></p>", []string{"Hello ", "world"}},
+		{"image between prose", "<p>Read\n<img/>\nmore</p>", []string{"Read ", " more"}},
+		{"block between prose", "<p>Read\n<div>box</div>\nmore</p>", []string{"Read ", "box", " more"}},
+		{"empty fragment", "<p>Hello\n<></>!</p>", []string{"Hello ", "!"}},
+		{"empty expression", "<p>Hello\n{\"\"}!</p>", []string{"Hello ", "!"}},
+		{"explicit expression spaces", "<p>{\"  \"}\n%</p>", []string{" %"}},
+		{"outer newlines", "<p>\n hello\n</p>", []string{"hello"}},
+		{"initial comment", "<p>{/* comment */}\nhello</p>", []string{"hello"}},
+		{"final comment", "<p>hello\n{/* comment */}</p>", []string{"hello"}},
+		{"button prose", "<p>Click\n<button>here</button></p>", []string{"Click ", "here"}},
+		{"label prose", "<p>Click\n<label>here</label></p>", []string{"Click ", "here"}},
+		{"output prose", "<p>Read\n<output>value</output></p>", []string{"Read ", "value"}},
+		{"map prose", "<p>Read\n<map>value</map></p>", []string{"Read ", "value"}},
+		{"empty button", "<p>Click\n<button/></p>", []string{"Click "}},
+		{"input sibling", "<p>Click\n<input/></p>", []string{"Click "}},
+		{"image sibling", "<p>Click\n<img/></p>", []string{"Click "}},
+		{"svg sibling", "<p>Click\n<svg>icon</svg></p>", []string{"Click ", "icon"}},
+		{"fragment sibling with branch", "<p>Hello\n<>{ if ok { <b>…</b> } }<div>block</div></><i>word</i></p>", []string{"Hello ", "…", "block", "word"}},
+		{"fragment sibling with explicit branch space", "<p>Hello\n<>{ if ok { {\" \"} } }<div>block</div></><i>word</i></p>", []string{"Hello ", "block", "word"}},
+		{"joined percent", "<p>{value}%</p>", []string{"%"}},
+		{"joined punctuation", "<p>Hello<em>world</em>!</p>", []string{"Hello", "world", "!"}},
+		{"text before tag", "<p>Hello\n <b>world</b></p>", []string{"Hello ", "world"}},
+		{"sibling layout", "<p><span>A</span>\n<span>B</span></p>", []string{"A", "B"}},
+		{"percent", "<p>{value}\n %</p>", []string{" %"}},
+		{"text after tag", "<p><b>x</b>\ny</p>", []string{"x", " y"}},
+		{"ellipsis", "<p>{value}\n …</p>", []string{" …"}},
+		{"ascii ellipsis", "<p>{value}\n ...</p>", []string{" ..."}},
+		{"entity gap internal", "<p>a&nbsp;\n b</p>", []string{"a&nbsp; b"}},
+		{"entity gap split", "<p>a&nbsp;\n{\"b\"}</p>", []string{"a&nbsp; "}},
+		{"expression gap split", "<p>{\"a\\u00a0\"}\n b</p>", []string{" b"}},
+		{"entity gap on right", "<p>{\"a\"}\n &nbsp;b</p>", []string{" &nbsp;b"}},
+		{"explicit space beside entity", "<p>a&nbsp; {\"b\"}</p>", []string{"a&nbsp; "}},
+		{"explicit inline", "<p>{value} %</p>", []string{" %"}},
+		{"comment-separated newline node", "<p>Hello{/* first */}\n{/* second */}world</p>", []string{"Hello", " ", "world"}},
+		{"comment-separated inline node", "<p>Hello{/* first */} {/* second */}world</p>", []string{"Hello", " ", "world"}},
+		{"inline run across comment", "<p>a {/* comment */} b</p>", []string{"a ", "b"}},
+		{"newline run across comment", "<p>a\n{/* comment */}\n b</p>", []string{"a ", "b"}},
+		{"multiple comment gaps", "<p>a{/* first */} \n {/* second */} b</p>", []string{"a", " ", "b"}},
+		{"comment tag layout", "<p><b>x</b>{/* first */}\n{/* second */}<i>y</i></p>", []string{"x", "y"}},
+		{"comment expression layout", "<p>{value}{/* first */}\n{/* second */}{value}</p>", nil},
+		{"outer comment indentation", "<p>\n{/* comment */} a </p>", []string{"a "}},
+		{"trailing comment newline", "<p>a {/* comment */}\n</p>", []string{"a"}},
+		{"html comment first gap", "<p>Hello<!-- first -->\n<!-- second -->world</p>", []string{"Hello", " ", "world"}},
+		{"go first gap", "<p>Hello{{ _ = value }}\nworld</p>", []string{"Hello", " world"}},
+		{"comments", "<p>Hello\n{/* comment */}\nworld</p>", []string{"Hello ", "world"}},
+		{"punctuation alternatives", "<p>Hello\n{ if ok { . } else { ! } }</p>", []string{"Hello ", ".", "!"}},
+		{"opening alternatives", "<p>{ if ok { ( } else { [ } }\nworld</p>", []string{"(", "[", " world"}},
+		{"optional punctuation", "<p>Hello\n{ if ok { . } }!</p>", []string{"Hello ", ".", "!"}},
+		{"branch word", "<p>Hello\n{ if ok { word } else { ! } }</p>", []string{"Hello ", "word", "!"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := parse(t, c.body)
+			wsnorm.Normalize(f)
+			if got := collectText(f); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("got %#v, want %#v", got, c.want)
+			}
+			wsnorm.Normalize(f)
+			if got := collectText(f); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("second pass %#v, want %#v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeBranchContentOutcomes(t *testing.T) {
+	values := []string{".", "!", "…", "%", "word", "(", "&nbsp;"}
+	for _, a := range values {
+		for _, b := range values {
+			t.Run(a+"/"+b, func(t *testing.T) {
+				f := parse(t, "<p>Hello\n{ if ok { "+a+" } else { "+b+" } }</p>")
+				wsnorm.Normalize(f)
+				want := "Hello "
+				if got := collectText(f)[0]; got != want {
+					t.Fatalf("first text %q want %q", got, want)
+				}
+				once := collectText(f)
+				wsnorm.Normalize(f)
+				if twice := collectText(f); !reflect.DeepEqual(once, twice) {
+					t.Fatalf("not idempotent: %#v -> %#v", once, twice)
+				}
+			})
+		}
 	}
 }

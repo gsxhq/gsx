@@ -20,7 +20,7 @@ func TestStoreGet(t *testing.T) {
 		Start:    token.Position{Filename: "v/a.gsx", Offset: 10, Line: 2, Column: 3},
 		End:      token.Position{Filename: "v/a.gsx", Offset: 14, Line: 3, Column: 1},
 		Severity: diag.Warning,
-		Code:     diag.CodeChildElementSpacing,
+		Code:     diag.CodeDuplicateAttribute,
 		Message:  "m",
 		Help:     "h",
 		Source:   "codegen",
