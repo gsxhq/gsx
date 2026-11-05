@@ -6,6 +6,8 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
+## v0.5.0 — 2026-11-05
+
 - **Breaking: whitespace beside text renders one space.** A newline between
   text and any sibling (element, component, interpolation, block) now renders
   a space instead of joining the words, including before punctuation:
@@ -20,13 +22,14 @@ syntax or APIs; a patch bump does not. See
   rendering before closing (or after opening) punctuation, or beside a string
   that already has one (`{ " " }`), from a line break or a same-line space,
   with editor quick fixes. A `.`/`:` starting a token (`.xlsx`, `.5`) and a
-  unit-label `%` (`below, %`) are not flagged. `gsx fix whitespace` applies the fixes where v0.4
-  rendered no space, restoring exactly its output there; `-all` applies every
-  fix.
+  unit-label `%` (`below, %`) are not flagged. `gsx fix whitespace` applies
+  the fixes where v0.4 rendered no space, restoring exactly its output there;
+  `-all` applies every fix.
 - **`gsx fmt` keeps a one-line `if`/`for` in text on one line**, like an inline
   element, instead of breaking it open when the line is too long.
 - **`gsx fmt -d` and `gsx fix whitespace -d` print real hunks** with three
   lines of context instead of replacing the whole file.
+- **Built and tested with Go 1.27.3**; `golang.org/x/tools` is v0.52.0.
 
 ## v0.4.6 — 2026-11-03
 
