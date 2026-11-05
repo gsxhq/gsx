@@ -1,0 +1,60 @@
+name: Go patch bump
+
+# Weekly: if go.dev has a newer patch of the pinned minor (GO_VERSION in
+# ci.yml), run `make go-bump` with that Go, open a PR and dispatch CI on it.
+# Minor upgrades are deliberately manual (see the go-bump Makefile target).
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Find latest patch
+        id: v
+        run: |
+          cur=$(sed -n "s/^  GO_VERSION: '\(.*\)'/\1/p" .github/workflows/ci.yml)
+          latest=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' \
+            | jq -r --arg p "go${cur%.*}." '.[] | select(.stable) | .version | select(startswith($p)) | ltrimstr("go")' \
+            | sort -V | tail -n1)
+          echo "pinned $cur, latest $latest"
+          if [ -n "$latest" ] && [ "$latest" != "$cur" ] \
+            && [ "$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -n1)" = "$latest" ]; then
+            echo "new=$latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.v.outputs.new != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.v.outputs.new }}
+          cache: false
+
+      - if: steps.v.outputs.new != ''
+        env:
+          NEW: ${{ steps.v.outputs.new }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="chore/go-$NEW"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch already exists"; exit 0
+          fi
+          make go-bump NEW="$NEW"
+          go test ./internal/typebundle ./playground/playbundle -count=1
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git commit -am "chore: bump Go to $NEW"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "chore: bump Go to $NEW" \
+            --body "Automated by \`go-bump.yml\`: \`make go-bump NEW=$NEW\` (pins + regenerated \`playground.typebundle\`). CI was dispatched on this branch."
+          gh workflow run ci.yml --ref "$branch"

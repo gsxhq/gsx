@@ -31,7 +31,7 @@ const maxLanguageVersion = "go1.27"
 // reader accepts. gcexportdata owns that payload format; accepting a bundle
 // written by a newer Go toolchain would claim compatibility this pinned reader
 // has not verified. The toolchain parity test makes upgrades explicit.
-const maxToolchainVersion = "go1.27.1"
+const maxToolchainVersion = "go1.27.3"
 
 // Target is the authoritative build context and language contract represented
 // by a bundle. ToolchainVersion describes the go command that selected and

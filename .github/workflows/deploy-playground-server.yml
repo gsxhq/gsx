@@ -13,6 +13,7 @@ on:
       - '**.md'
       - 'LICENSE'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/go-bump.yml'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
@@ -24,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.27.1'
+  GO_VERSION: '1.27.3'
   PLAYGROUND_URL: https://gsx-playground.fly.dev
 
 jobs:
