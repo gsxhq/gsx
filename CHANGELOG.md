@@ -6,12 +6,14 @@ syntax or APIs; a patch bump does not. See
 
 ## Unreleased
 
-- **Prose spacing is normalized automatically.** Layout-only newlines disappear,
-  prose separators beside inline text survive, and source adjacency keeps
-  content joined. Punctuation, percent signs and ellipses follow the same rules:
+- **Prose spacing is normalized automatically.** Whitespace-only newlines
+  disappear; other source whitespace collapses to one space, including text
+  edges beside components, images, interpolations and control-flow blocks.
+  Source adjacency keeps content joined. Punctuation follows the same rule:
   `{value}%` stays joined; `{value}` followed by a prose newline and `%` retains
-  a space. Explicit spaces override inference. Structural branch analysis and
-  the formatter share these rules.
+  a space. Expression values, including explicit space expressions, remain data.
+  Normalization and formatting use source boundaries without inspecting tags,
+  CSS or branch output.
   `child-element-spacing` and its editor fixes are retired; remove old lint
   configuration entries. Preserved/raw contexts retain their existing behavior.
 

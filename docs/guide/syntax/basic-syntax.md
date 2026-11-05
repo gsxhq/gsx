@@ -49,25 +49,25 @@ Other lowercase tags still follow the normal declaration rule. To recurse from a
 
 GSX normalizes source whitespace to keep rendered HTML compact:
 
-- Discard layout-only whitespace: newlines and indentation between sibling
-  elements do not create a separator.
-- Preserve word separation in prose: whitespace between words collapses to one
-  space. A source newline, inside text or beside text-bearing content, preserves
-  one space when that boundary needs a prose separator.
-- Preserve authored attachment: punctuation stays attached when the source has
-  no separator. A space or prose newline before `%`, punctuation or an ellipsis
-  remains a separator; GSX does not infer typography from the character.
-- Explicit spaces override inference. Inline spaces at text edges and in HTML
-  content normalize to one space; expression values such as `{ " " }`,
-  `{ "  " }` and nonbreaking spaces
-  keep their data, even next to punctuation. An existing rendered gap, including
-  a nonbreaking space, satisfies newline spacing; an extra authored inline space
-  beside it remains explicit.
+1. Whitespace-only runs containing a newline are layout and disappear. Inline
+   whitespace-only runs collapse to one space.
+2. Other ASCII whitespace runs collapse to one space. This includes newlines
+   inside text and at text edges facing a sibling. Newline indentation at the
+   outer edges of a children list disappears.
+3. Expression values are data and stay unchanged, including `{ " " }`,
+   `{ "  " }` and whitespace inside strings. Unicode spaces and character
+   references also keep their data.
 
 ```gsx
 <p>Hello
     <b>world</b>
 </p>
+<p>Hello
+    <Link>world</Link>
+</p>
+<p>Read
+    <img src="/icon.png"/>
+    more</p>
 <span>A</span>
 <span>B</span>
 <p>{value}
@@ -75,27 +75,28 @@ GSX normalizes source whitespace to keep rendered HTML compact:
 </p>
 ```
 
-These produce `Hello <b>world</b>`, adjacent spans, and `42 %` when `value` is 42.
+These preserve a separator after each `Hello`, on both sides of the image,
+produce adjacent spans, and produce `42 %` when `value` is 42. The tag or
+component beside text does not change the spacing rule. Neither do punctuation,
+CSS classes, interpolation values or conditional output.
+
 Write `<p>{value}%</p>` to produce `42%`. The same distinction applies to
-`Hello <em>world</em>` versus `Hello<em>world</em>`: authored prose whitespace
-separates content; adjacency keeps it joined.
+`Hello <em>world</em>` versus `Hello<em>world</em>`: authored whitespace separates
+content; adjacency keeps it joined. An ASCII space beside a nonbreaking space
+remains an additional source separator, whether authored inline or as a newline.
+
+A source separator remains even if an expression or conditional emits nothing,
+just as an inline source space does. Put an explicit separator inside a branch
+when it should appear only with that branch.
+
+Padding immediately inside component, slot and control-flow braces is syntax.
+Between tags or expressions, a whitespace-only newline is layout. Use
+`{ " " }` when a separator must be explicit in every context.
+
 This is GSX source normalization, rather than literal HTML whitespace emission.
 The formatter can reindent markup without adding that indentation to output.
-
-Known text-bearing HTML elements such as `a`, `b`, `em`, `span`, `strong`,
-`button`, `label` and `output` participate in prose boundaries through their
-child content. Block elements, empty elements and component tags have opaque
-output, so no separator is inferred across them. Interpolations conservatively
-count as possible text; runtime values do not change source normalization.
-
-Boundary analysis uses the authored syntax, including possible `if`/`for`/
-`switch` output. It does not evaluate Go conditions or inspect CSS classes.
-An inferred space belongs to its source text, like an inline authored space:
-if optional content renders nothing, the source space can remain. Put an
-explicit separator inside a branch when it should appear only with that branch.
-
-Between markup siblings in a syntactic component or slot body, whitespace
-remains layout. Use `{ " " }` when a separator must be explicit in every context.
+It can wrap internal text spaces, including beside punctuation, while keeping
+adjacent text and markup joined.
 
 Text inside `pre` and `textarea` subtrees, raw `script`/`style` bodies, static
 attribute values and expression data retain their existing verbatim contracts.
