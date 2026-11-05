@@ -23,6 +23,13 @@ component Page(value int) {
 -- invoke --
 Page(42)
 -- diagnostics.golden --
+4:13: warning: line break renders a space before '%'
+5:18: warning: line break renders a space before '%'
+6:16: warning: line break renders a space before '!'
+7:12: warning: line break renders a space after '('
+8:20: warning: line break renders a space after '('
+10:17: warning: line break renders a space before '.'
+12:20: warning: line break renders a space before '%'
 -- render.golden --
 <main><p>42 %</p><p>42 %</p><p>Hello !</p><p>( word</p><p>&lpar; word</p><p>word …</p><p>word ...</p><p>word &hellip;</p><p>42 &#37;</p><p>a&nbsp; b</p><p>a &nbsp;b</p><p>a  b</p><p>42 %</p><p>42
  %</p><pre>42

@@ -64,6 +64,8 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
+26:13: warning: line break renders a space before '%'
+32:19: warning: line break renders a space before '%'
 -- render.golden --
 <main><p>Hello <a>world</a></p><p>Read <img alt=""> more</p><section>Before <div>block</div> after</section><p>Hello  world</p><p>42 %</p><p>a&nbsp; b</p><p>a&nbsp; b</p><p>42   %</p><p>Hello  world</p><p>« Bonjour »</p><p>Read <svg><title>icon</title></svg> more</p><p>Hello world</p><span>A</span><span>B</span><a>root</a> text<b>A</b> <b>B</b><aside><b>A</b> <b>B</b></aside><aside><a>slot</a> text</aside><p>Hello<a>joined</a>!</p></main><main><p>Hello <a>world</a></p><p>Read <img alt=""> more</p><section>Before <div>block</div> after</section><p>Hello  world</p><p>42 %</p><p>a&nbsp; b</p><p>a&nbsp; b</p><p>42   %</p><p>Hello <b>branch</b> world</p><p>« Bonjour »</p><p>Read <svg><title>icon</title></svg> more</p><p>Hello world</p><span>A</span><span>B</span><a>root</a> text<b>A</b> <b>B</b><aside><b>A</b> <b>B</b></aside><aside><a>slot</a> text</aside><p>Hello<a>joined</a>!</p></main>
 -- generated.x.go.golden --

@@ -47,6 +47,8 @@ component Page(value int, name string, ok bool) {
 -- invoke --
 Page(42, "Ada", false)
 -- diagnostics.golden --
+19:26: warning: line break renders a space before '%'
+23:116: warning: line break renders a space before '%'
 -- render.golden --
 <main><p>Hello <b>world</b></p><span>A</span><span>B</span><p>42 %</p><p>Ada world</p><p>Hello Ada</p><p>42 %</p><p>42%</p><p>Hello<em>world</em>!</p><p>Hello <em>world</em> !</p><p>42   %</p><p>Ada …</p><p>Hello world</p><p>Hello !</p><p>Hello !</p><p>Groups:  <span>A</span> and <span>B</span></p><aside><p>Slot <b>value</b></p></aside><section>Hello <b>child</b></section><ul><li><b>A</b></li><li><b>B</b></li></ul><ul><li><b>A</b></li><li> </li><li><b>B</b></li></ul><p>Top <b>level</b></p><p>Deferred <b>value</b></p><pre>Keep
 		<b>space</b></pre></main>

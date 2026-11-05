@@ -1662,6 +1662,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter, purpose analysisPurpose
 		}
 	}
 
+	// Whitespace lints are syntactic and computed at parse time; an imported
+	// package's type-only analysis reports nothing.
+	if purpose != analysisTypeOnly {
+		reportWhitespaceLint(parsed.whitespace, fset, bag)
+	}
+
 	// Build CtrlMap: skeleton clause position + containing node per control-flow node.
 	ctrlMap := map[gsxast.Node]ctrlRef{}
 	for _, gf := range goFiles {
@@ -1840,6 +1846,9 @@ type parseCacheEntry struct {
 	hash       [sha256.Size]byte
 	classifier *attrclass.Classifier
 	file       *gsxast.File
+	// whitespace holds the whitespace lint findings of the pristine
+	// (pre-normalization) tree; their positions live in m.fset like file's.
+	whitespace []wsnorm.Finding
 }
 
 // parsedGSXFile returns a fresh, safe-to-mutate gsx AST for path. It serves a
@@ -1857,7 +1866,7 @@ type parseCacheEntry struct {
 // here would silently get back positions in the wrong FileSet on a cache hit
 // while appearing to work on a cache miss — the asymmetry this assertion
 // exists to catch immediately instead of downstream as corrupted positions.
-func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Classifier, fset *token.FileSet) (*gsxast.File, error) {
+func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Classifier, fset *token.FileSet) (*gsxast.File, []wsnorm.Finding, error) {
 	if fset != m.fset {
 		panic("codegen: parsedGSXFile called with fset != m.fset; the per-file parse cache is keyed on m.fset-relative positions and a cache hit would silently return positions in the wrong FileSet")
 	}
@@ -1866,7 +1875,7 @@ func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Cl
 	entry, ok := m.parseCache[path]
 	m.mu.Unlock()
 	if ok && entry.hash == hash && entry.classifier == classifier {
-		return gsxast.CloneFile(entry.file), nil
+		return gsxast.CloneFile(entry.file), entry.whitespace, nil
 	}
 	f, perrs := gsxparser.ParseFileWithClassifier(fset, path, src, 0, classifier)
 	if len(perrs) > 0 {
@@ -1886,15 +1895,18 @@ func (m *Module) parsedGSXFile(path string, src []byte, classifier *attrclass.Cl
 				Source:   "parser",
 			})
 		}
-		return nil, sourceDiagnosticsError{diags: diags}
+		return nil, nil, sourceDiagnosticsError{diags: diags}
 	}
+	// The whitespace lints judge authored whitespace, so they read the tree
+	// before normalization rewrites it.
+	whitespace := wsnorm.Lint(f)
 	// Normalize the pristine tree ONCE (wsnorm is idempotent and deterministic);
 	// clones inherit the normalized structure.
 	wsnorm.Normalize(f)
 	m.mu.Lock()
-	m.parseCache[path] = parseCacheEntry{hash: hash, classifier: classifier, file: f}
+	m.parseCache[path] = parseCacheEntry{hash: hash, classifier: classifier, file: f, whitespace: whitespace}
 	m.mu.Unlock()
-	return gsxast.CloneFile(f), nil
+	return gsxast.CloneFile(f), whitespace, nil
 }
 
 // parsePackageWithFset parses every .gsx in dir into the provided fset and
@@ -1933,6 +1945,7 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 	sort.Strings(orderedPaths)
 	files := map[string]*gsxast.File{}
 	sources := map[string][]byte{}
+	whitespace := map[string][]wsnorm.Finding{}
 	pkgName := ""
 	pkgPath := ""
 	classifier := m.classifierFor(dir)
@@ -1941,9 +1954,12 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 		if !ok {
 			continue
 		}
-		f, err := m.parsedGSXFile(p, src, classifier, fset)
+		f, ws, err := m.parsedGSXFile(p, src, classifier, fset)
 		if err != nil {
 			return nil, err
+		}
+		if len(ws) > 0 {
+			whitespace[p] = ws
 		}
 		if pkgName != "" && f.Package != pkgName {
 			return nil, fmt.Errorf(
@@ -1958,7 +1974,9 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedG
 			pkgPath = p
 		}
 	}
-	return newParsedGSXPackageWithSources(pkgName, files, sources), nil
+	pkg := newParsedGSXPackageWithSources(pkgName, files, sources)
+	pkg.whitespace = whitespace
+	return pkg, nil
 }
 
 // stripGsxunwrap removes all occurrences of _gsxunwrap(...) in s, replacing each

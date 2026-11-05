@@ -113,5 +113,5 @@ func TestParsedGSXFileRejectsForeignFset(t *testing.T) {
 		}
 	}()
 	foreign := token.NewFileSet()
-	_, _ = m.parsedGSXFile(filepath.Join(root, "page", "page.gsx"), []byte("package page\n"), nil, foreign)
+	_, _, _ = m.parsedGSXFile(filepath.Join(root, "page", "page.gsx"), []byte("package page\n"), nil, foreign)
 }

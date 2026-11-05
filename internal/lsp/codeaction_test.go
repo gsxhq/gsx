@@ -416,3 +416,35 @@ func TestMissingImportsReachTheLSP(t *testing.T) {
 		t.Fatal("Package.MissingImports not carried")
 	}
 }
+
+// TestCodeActionWhitespaceFixes: a whitespace finding under the cursor offers
+// its own minimal edits, recomputed from the buffer.
+func TestCodeActionWhitespaceFixes(t *testing.T) {
+	uri := "file:///tmp/c.gsx"
+	src := "package x\n\ncomponent C(org string) {\n\t<p>download it\n\t.</p>\n\t<p>to { org }.{ \" \" }\n\tSet it.</p>\n}\n"
+	at := func(line int) Range {
+		return Range{Start: Position{Line: line}, End: Position{Line: line, Character: 80}}
+	}
+
+	actions := codeActionsInRange(t, uri, src, []string{"quickfix"}, nilAnalyzer{}, at(4))
+	if len(actions) != 1 || actions[0].Title != "Join line to keep punctuation attached" {
+		t.Fatalf("punctuation actions = %+v", actions)
+	}
+	edits := actions[0].Edit.Changes[uri]
+	want := TextEdit{Range: Range{Start: Position{Line: 3, Character: 15}, End: Position{Line: 4, Character: 1}}}
+	if len(edits) != 1 || edits[0] != want {
+		t.Fatalf("edits = %+v, want %+v", edits, want)
+	}
+
+	actions = codeActionsInRange(t, uri, src, []string{"quickfix"}, nilAnalyzer{}, at(5))
+	if len(actions) != 1 || actions[0].Title != "Remove redundant space" {
+		t.Fatalf("space actions = %+v", actions)
+	}
+	if got := actions[0].Edit.Changes[uri]; len(got) != 1 || got[0].Range.Start != (Position{Line: 5, Character: 15}) {
+		t.Fatalf("space edits = %+v", got)
+	}
+
+	if got := codeActionsInRange(t, uri, src, []string{"quickfix"}, nilAnalyzer{}, at(0)); len(got) != 0 {
+		t.Fatalf("no finding on line 0, got %+v", got)
+	}
+}

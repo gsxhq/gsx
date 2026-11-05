@@ -99,6 +99,6 @@ func TestNormalizeTextIdempotent(t *testing.T) {
 
 func normalizeText(value string) (string, bool) {
 	text := &ast.Text{Value: value}
-	normalizeTextRegion([]ast.Markup{text}, false, false)
+	normalizeRegion([]ast.Markup{text}, 0, 1)
 	return text.Value, text.Value != ""
 }

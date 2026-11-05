@@ -12,6 +12,13 @@ syntax or APIs; a patch bump does not. See
   `{value}⏎%` renders `42 %`; write `{value}%` to join. Whitespace-only
   newlines between tags still disappear. The `child-element-spacing` lint and
   its editor fixes are removed; delete any `[lint]` entry for it.
+  Layouts written by earlier `gsx fmt` versions can change output: they put
+  punctuation on its own line (`⏎. `, `⏎, `) because that newline rendered
+  nothing, and a `{ " " }` beside a newline now renders two spaces. Run
+  `gsx fix whitespace` **before** `gsx fmt` to keep the old output there.
+- **New lints `punctuation-line-break` and `redundant-space-literal`** flag
+  those two patterns, with editor quick fixes; `gsx fix whitespace` applies
+  them in bulk.
 
 ## v0.4.6 — 2026-11-03
 

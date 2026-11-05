@@ -33,6 +33,8 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
+10:10: warning: line break renders a space before '%'
+22:26: warning: line break renders a space before '%'
 -- render.golden --
 <main><b>x</b> word<b>x</b> %<aside><b>x</b> word</aside><aside><b>x</b> %</aside><aside><b>x</b> %</aside>first<aside><b>x</b><i>y</i></aside></main>
 -- generated.x.go.golden --
